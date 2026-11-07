@@ -13,6 +13,7 @@ function card(id: number, column: Card["column"], extra: Partial<Card> = {}): Ca
     milestone: "",
     createdAt: "2026-11-07",
     updatedAt: "2026-11-07",
+    tasks: [],
     ...extra,
   };
 }
@@ -24,6 +25,23 @@ async function render(cards: Card[]): Promise<string> {
 }
 
 describe("Board.astro", () => {
+  it("renders steps with Done and In progress tags and the progress", async () => {
+    const html = await render([
+      card(1, "doing", {
+        tasks: [
+          { title: "Install", done: true },
+          { title: "Build", done: false },
+          { title: "Ship", done: false },
+        ],
+      }),
+    ]);
+    expect(html).toMatch(/data-status="done"[\s\S]*Install[\s\S]*tag-done">Done</);
+    expect(html).toMatch(/data-status="doing"[\s\S]*Build[\s\S]*tag-doing">In progress</);
+    expect(html).toMatch(/data-status="todo"[\s\S]*Ship/);
+    expect(html.match(/class="tag /g)).toHaveLength(2);
+    expect(html).toMatch(/class="progress"[^>]*>\s*1\/3\s*</);
+  });
+
   it("renders columns, cards, description and milestone", async () => {
     const html = await render([card(1, "doing", { description: "The core", milestone: "M1" }), card(2, "done"), card(3, "next")]);
     expect(html).toContain("<strong>1</strong> / 3 done");
@@ -41,6 +59,13 @@ describe("Board.astro", () => {
     expect(html).not.toContain("updated");
     expect(html).not.toContain('class="milestone"');
     expect(html.match(/Nothing yet/g)).toHaveLength(4);
+  });
+
+  it("renders no step list or progress for a card without steps", async () => {
+    const html = await render([card(1, "next")]);
+    expect(html).toContain('data-id="1"');
+    expect(html).not.toContain('class="steps"');
+    expect(html).not.toContain('class="progress"');
   });
 
   it("escapes card content (no HTML injection)", async () => {

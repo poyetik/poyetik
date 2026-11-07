@@ -1,6 +1,8 @@
 import { parseArgs } from "node:util";
 import {
   addCard,
+  addTask,
+  completeTask,
   BoardError,
   COLUMNS,
   editCard,
@@ -9,8 +11,14 @@ import {
   moveCard,
   parseBoard,
   parseId,
+  parseTaskNumber,
   removeCard,
+  removeTask,
+  renameTask,
+  reopenTask,
   serializeBoard,
+  withStatus,
+  findCard,
   type Board,
   type Card,
   type ColumnId,
@@ -34,10 +42,16 @@ export const HELP = `Usage: roadmap <command> [options]
   move <id> <col> [--position <n>]            Move (position within the column, 0 = top)
   edit <id> [--title <t>] [--desc <t>] [--milestone <m>]
   rm <id>                                     Remove a card
+  task add <id> <title>                       Add a step at the end
+  task done <id> [n]                          Mark step n done (default: the step in progress)
+  task undo <id> <n>                          Mark step n not done
+  task edit <id> <n> <title>                  Rename step n
+  task rm <id> <n>                            Remove step n
   validate                                    Check board.json
   help                                        Show this help
 
-Columns: ${COLUMNS.map((c) => `${c.id} (${c.title})`).join(", ")}`;
+Columns: ${COLUMNS.map((c) => `${c.id} (${c.title})`).join(", ")}
+Steps: the first step that is not done is in progress.`;
 
 /** Local date formatted as YYYY-MM-DD. */
 export function localDate(d: Date): string {
@@ -45,9 +59,90 @@ export function localDate(d: Date): string {
   return `${String(d.getFullYear())}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+const TAGS = { done: "  [Done]", doing: "  [In progress]", todo: "" } as const;
+
 function formatCard(card: Card): string {
   const milestone = card.milestone === "" ? "" : ` [${card.milestone}]`;
-  return `${formatId(card.id)}  ${card.column.padEnd(5)}  ${card.title}${milestone}`;
+  const done = card.tasks.filter((t) => t.done).length;
+  const progress = card.tasks.length === 0 ? "" : `  ${String(done)}/${String(card.tasks.length)}`;
+  return `${formatId(card.id)}  ${card.column.padEnd(5)}  ${card.title}${milestone}${progress}`;
+}
+
+function printCard(io: Io, card: Card): void {
+  io.out(formatCard(card));
+  if (card.description !== "") {
+    io.out(card.description);
+  }
+  withStatus(card.tasks).forEach((t, i) => {
+    io.out(`  ${String(i + 1)}. ${t.title}${TAGS[t.status]}`);
+  });
+}
+
+const TASK_USAGE = {
+  add: "task add <id> <title>",
+  done: "task done <id> [n]",
+  undo: "task undo <id> <n>",
+  edit: "task edit <id> <n> <title>",
+  rm: "task rm <id> <n>",
+} as const;
+
+type TaskAction = keyof typeof TASK_USAGE;
+
+function isTaskAction(value: string): value is TaskAction {
+  return Object.hasOwn(TASK_USAGE, value);
+}
+
+function runTask(args: readonly string[], io: Io): void {
+  const [action = "", ...rest] = args;
+  if (!isTaskAction(action)) {
+    throw new BoardError(
+      `unknown task action: ${action || "(none)"} (expected: ${Object.keys(TASK_USAGE).join(", ")})`,
+    );
+  }
+  const usage = new BoardError(`expected: ${TASK_USAGE[action]}`);
+  const board = load(io);
+  const today = io.today();
+  let next: Board;
+  let id: number;
+  switch (action) {
+    case "add": {
+      if (rest.length !== 2) throw usage;
+      const [idText, title] = rest as [string, string];
+      id = parseId(idText);
+      next = addTask(board, id, title, today);
+      break;
+    }
+    case "done": {
+      if (rest.length !== 1 && rest.length !== 2) throw usage;
+      const [idText, n] = rest as [string, string | undefined];
+      id = parseId(idText);
+      next = completeTask(board, id, n === undefined ? undefined : parseTaskNumber(n), today);
+      break;
+    }
+    case "undo": {
+      if (rest.length !== 2) throw usage;
+      const [idText, n] = rest as [string, string];
+      id = parseId(idText);
+      next = reopenTask(board, id, parseTaskNumber(n), today);
+      break;
+    }
+    case "edit": {
+      if (rest.length !== 3) throw usage;
+      const [idText, n, title] = rest as [string, string, string];
+      id = parseId(idText);
+      next = renameTask(board, id, parseTaskNumber(n), title, today);
+      break;
+    }
+    case "rm": {
+      if (rest.length !== 2) throw usage;
+      const [idText, n] = rest as [string, string];
+      id = parseId(idText);
+      next = removeTask(board, id, parseTaskNumber(n), today);
+      break;
+    }
+  }
+  save(io, next);
+  printCard(io, findCard(next, id));
 }
 
 function toColumn(value: string): ColumnId {
@@ -122,15 +217,8 @@ function execute(args: readonly string[], io: Io): void {
       return;
     }
     case "show": {
-      const id = parseId(onlyArg(positionals, "id"));
-      const card = load(io).cards.find((c) => c.id === id);
-      if (card === undefined) {
-        throw new BoardError(`card not found: ${formatId(id)}`);
-      }
-      io.out(formatCard(card));
-      if (card.description !== "") {
-        io.out(card.description);
-      }
+      const card = findCard(load(io), parseId(onlyArg(positionals, "id")));
+      printCard(io, card);
       io.out(`created ${card.createdAt}, updated ${card.updatedAt}`);
       return;
     }
@@ -172,6 +260,10 @@ function execute(args: readonly string[], io: Io): void {
       const id = parseId(onlyArg(positionals, "id"));
       save(io, removeCard(load(io), id));
       io.out(`removed: ${formatId(id)}`);
+      return;
+    }
+    case "task": {
+      runTask(positionals, io);
       return;
     }
     case "validate": {

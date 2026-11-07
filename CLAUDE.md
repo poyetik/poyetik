@@ -26,6 +26,7 @@ Public project kanban. The data lives in `roadmap/board.json`, versioned in git.
 - Roadmap changes are made by running the CLI (Claude runs it on the maintainer's request).
 - **Never edit `board.json` by hand**: always use `pnpm roadmap <command>` from `roadmap/` (`list`, `show`, `add`, `move`, `edit`, `rm`, `validate`). Run `pnpm roadmap help` for usage.
 - Columns: `later` (Later), `next` (Next), `doing` (In progress), `done` (Done). Milestones are written like "M1 Engine", "M2 Editor"…
+- Cards have ordered **steps** (`task add|done|undo|edit|rm`). A step is either done or not; **the first step that is not done is automatically "In progress"**. When a step is finished, run `task done <id>` to tick it, which moves "In progress" to the next step.
 - Page: `pnpm dev` (http://localhost:4321). Full check chain: `pnpm check`.
 
 ## CI

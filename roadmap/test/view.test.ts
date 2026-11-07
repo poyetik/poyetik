@@ -3,10 +3,32 @@ import type { Board, Card } from "../src/lib/board.ts";
 import { toView } from "../src/lib/view.ts";
 
 function card(id: number, column: Card["column"], updatedAt: string): Card {
-  return { id, title: `C${String(id)}`, description: "", column, milestone: "", createdAt: "2026-01-01", updatedAt };
+  return { id, title: `C${String(id)}`, description: "", column, milestone: "", createdAt: "2026-01-01", updatedAt, tasks: [] };
+}
+
+function plain(c: Card | undefined): unknown {
+  return { ...c, steps: [], doneSteps: 0 };
 }
 
 describe("toView", () => {
+  it("adds step statuses and the done count to each card", () => {
+    const tasks = [
+      { title: "A", done: true },
+      { title: "B", done: false },
+      { title: "C", done: true },
+      { title: "D", done: false },
+    ];
+    const board: Board = { version: 1, title: "P", nextId: 2, cards: [{ ...card(1, "doing", "2026-11-01"), tasks }] };
+    const view = toView(board).columns[2]?.cards[0];
+    expect(view?.steps).toEqual([
+      { title: "A", done: true, status: "done" },
+      { title: "B", done: false, status: "doing" },
+      { title: "C", done: true, status: "done" },
+      { title: "D", done: false, status: "todo" },
+    ]);
+    expect(view?.doneSteps).toBe(2);
+  });
+
   it("groups cards by column in board order", () => {
     const cards = [
       card(1, "done", "2026-11-03"),
@@ -19,10 +41,10 @@ describe("toView", () => {
     expect(toView(board)).toEqual({
       title: "P",
       columns: [
-        { id: "later", title: "Later", cards: [cards[4]] },
-        { id: "next", title: "Next", cards: [cards[1]] },
-        { id: "doing", title: "In progress", cards: [cards[3]] },
-        { id: "done", title: "Done", cards: [cards[0], cards[2]] },
+        { id: "later", title: "Later", cards: [plain(cards[4])] },
+        { id: "next", title: "Next", cards: [plain(cards[1])] },
+        { id: "doing", title: "In progress", cards: [plain(cards[3])] },
+        { id: "done", title: "Done", cards: [plain(cards[0]), plain(cards[2])] },
       ],
       total: 5,
       done: 2,

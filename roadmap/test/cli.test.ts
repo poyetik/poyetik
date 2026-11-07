@@ -65,6 +65,10 @@ describe("help", () => {
     for (const word of ["list", "show", "add", "move", "edit", "rm", "validate", "help"]) {
       expect(HELP).toContain(`  ${word}`);
     }
+    for (const action of ["add", "done", "undo", "edit", "rm"]) {
+      expect(HELP).toContain(`  task ${action} <id>`);
+    }
+    expect(HELP).toContain("Steps: the first step that is not done is in progress.");
     expect(HELP).toContain("Columns: later (Later), next (Next), doing (In progress), done (Done)");
   });
 });
@@ -75,7 +79,7 @@ describe("add", () => {
     expect(run(["add", "Engine", "--column", "doing", "--milestone", "M1", "--desc", "The core"], f.io)).toBe(0);
     expect(f.out).toEqual(["added: #1  doing  Engine [M1]"]);
     expect(boardOf(f).cards).toEqual([
-      { id: 1, title: "Engine", description: "The core", column: "doing", milestone: "M1", createdAt: DAY, updatedAt: DAY },
+      { id: 1, title: "Engine", description: "The core", column: "doing", milestone: "M1", createdAt: DAY, updatedAt: DAY, tasks: [] },
     ]);
     expect(f.file.endsWith("}\n")).toBe(true);
   });
@@ -314,5 +318,117 @@ describe("general errors", () => {
       },
     };
     expect(() => run(["add", "T"], io)).toThrow("bug");
+  });
+});
+
+describe("task", () => {
+  function withSteps(): Fake {
+    const f = seeded();
+    expect(run(["task", "add", "1", "Install"], f.io)).toBe(0);
+    expect(run(["task", "add", "#1", "Build"], f.io)).toBe(0);
+    expect(run(["task", "add", "1", "Ship"], f.io)).toBe(0);
+    f.out.length = 0;
+    f.writes = 0;
+    return f;
+  }
+
+  it("adds steps and prints the card with statuses", () => {
+    const f = seeded();
+    expect(run(["task", "add", "1", "Install"], f.io)).toBe(0);
+    expect(f.out).toEqual(["#1  doing  Engine [M1]  0/1", "The core", "  1. Install  [In progress]"]);
+    expect(boardOf(f).cards[0]?.tasks).toEqual([{ title: "Install", done: false }]);
+  });
+
+  it("completes the step in progress and moves the tag to the next one", () => {
+    const f = withSteps();
+    expect(run(["task", "done", "1"], f.io)).toBe(0);
+    expect(f.out).toEqual([
+      "#1  doing  Engine [M1]  1/3",
+      "The core",
+      "  1. Install  [Done]",
+      "  2. Build  [In progress]",
+      "  3. Ship",
+    ]);
+    expect(f.writes).toBe(1);
+  });
+
+  it("completes, reopens, renames and removes a given step", () => {
+    const f = withSteps();
+    expect(run(["task", "done", "1", "3"], f.io)).toBe(0);
+    expect(boardOf(f).cards[0]?.tasks.map((t) => t.done)).toEqual([false, false, true]);
+    expect(run(["task", "undo", "1", "3"], f.io)).toBe(0);
+    expect(boardOf(f).cards[0]?.tasks.map((t) => t.done)).toEqual([false, false, false]);
+    expect(run(["task", "edit", "1", "2", "Compile"], f.io)).toBe(0);
+    expect(run(["task", "rm", "1", "1"], f.io)).toBe(0);
+    expect(boardOf(f).cards[0]?.tasks).toEqual([
+      { title: "Compile", done: false },
+      { title: "Ship", done: false },
+    ]);
+    expect(f.out.at(-1)).toBe("  2. Ship");
+  });
+
+  it("shows steps in show and progress in list", () => {
+    const f = withSteps();
+    expect(run(["task", "done", "1"], f.io)).toBe(0);
+    f.out.length = 0;
+    expect(run(["list"], f.io)).toBe(0);
+    expect(f.out).toEqual(["#1  doing  Engine [M1]  1/3", "#2  later  Editor"]);
+    f.out.length = 0;
+    expect(run(["show", "1"], f.io)).toBe(0);
+    expect(f.out).toEqual([
+      "#1  doing  Engine [M1]  1/3",
+      "The core",
+      "  1. Install  [Done]",
+      "  2. Build  [In progress]",
+      "  3. Ship",
+      `created ${DAY}, updated ${DAY}`,
+    ]);
+  });
+
+  it.each([
+    [["task"], "unknown task action: (none) (expected: add, done, undo, edit, rm)"],
+    [["task", "close", "1"], "unknown task action: close (expected: add, done, undo, edit, rm)"],
+    [["task", "toString", "1"], "unknown task action: toString (expected: add, done, undo, edit, rm)"],
+  ])("rejects an unknown action: %j", (args, message) => {
+    const f = withSteps();
+    expect(run(args, f.io)).toBe(1);
+    expect(f.err).toEqual([`error: ${message}`]);
+    expect(f.writes).toBe(0);
+  });
+
+  it.each([
+    [["task", "add"], "task add <id> <title>"],
+    [["task", "add", "1"], "task add <id> <title>"],
+    [["task", "add", "1", "a", "b"], "task add <id> <title>"],
+    [["task", "done"], "task done <id> [n]"],
+    [["task", "done", "1", "2", "3"], "task done <id> [n]"],
+    [["task", "undo", "1"], "task undo <id> <n>"],
+    [["task", "undo", "1", "2", "3"], "task undo <id> <n>"],
+    [["task", "edit", "1", "2"], "task edit <id> <n> <title>"],
+    [["task", "edit", "1", "2", "a", "b"], "task edit <id> <n> <title>"],
+    [["task", "rm", "1"], "task rm <id> <n>"],
+    [["task", "rm", "1", "2", "3"], "task rm <id> <n>"],
+  ])("rejects wrong arguments: %j", (args, usage) => {
+    const f = withSteps();
+    expect(run(args, f.io)).toBe(1);
+    expect(f.err).toEqual([`error: expected: ${usage}`]);
+    expect(f.writes).toBe(0);
+  });
+
+  it("rejects invalid ids and step numbers", () => {
+    const f = withSteps();
+    expect(run(["task", "add", "x", "T"], f.io)).toBe(1);
+    expect(run(["task", "done", "1", "x"], f.io)).toBe(1);
+    expect(run(["task", "undo", "x", "1"], f.io)).toBe(1);
+    expect(run(["task", "edit", "1", "0", "T"], f.io)).toBe(1);
+    expect(run(["task", "rm", "1", "9"], f.io)).toBe(1);
+    expect(f.err).toEqual([
+      "error: invalid id: x",
+      "error: invalid task number: x",
+      "error: invalid id: x",
+      "error: invalid task number: 0",
+      "error: invalid task number for #1: 9 (1 to 3)",
+    ]);
+    expect(f.writes).toBe(0);
   });
 });

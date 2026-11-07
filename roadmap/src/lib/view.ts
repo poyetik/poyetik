@@ -1,9 +1,15 @@
-import { COLUMNS, type Board, type Card, type ColumnId } from "./board.ts";
+import { COLUMNS, withStatus, type Board, type Card, type ColumnId, type TaskWithStatus } from "./board.ts";
+
+export interface CardView extends Card {
+  /** Steps with their status: the first one not done is in progress. */
+  readonly steps: readonly TaskWithStatus[];
+  readonly doneSteps: number;
+}
 
 export interface ColumnView {
   readonly id: ColumnId;
   readonly title: string;
-  readonly cards: readonly Card[];
+  readonly cards: readonly CardView[];
 }
 
 export interface BoardView {
@@ -15,12 +21,16 @@ export interface BoardView {
   readonly lastUpdated: string | null;
 }
 
+function toCardView(card: Card): CardView {
+  return { ...card, steps: withStatus(card.tasks), doneSteps: card.tasks.filter((t) => t.done).length };
+}
+
 /** Prepares the display: cards grouped by column, in board order. */
 export function toView(board: Board): BoardView {
   const columns = COLUMNS.map((col) => ({
     id: col.id,
     title: col.title,
-    cards: board.cards.filter((c) => c.column === col.id),
+    cards: board.cards.filter((c) => c.column === col.id).map(toCardView),
   }));
   const dates = board.cards.map((c) => c.updatedAt).sort();
   return {
