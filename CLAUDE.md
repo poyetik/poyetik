@@ -36,7 +36,7 @@ Core promise: **the engine produces exactly the same samples, bit for bit, on ev
 
 ## Documentation
 
-- **`doc/` is local only and never versioned** (git-ignored), and no versioned file but this one refers to it: design discussions, `architecture.md` (architecture, dependency register, decisions log), `licensing.md` (licensing strategy), `interface-testing.md`, `debug-mode.md`, `integrations.md`, brainstorms. It may be missing in a fresh clone; when present, read the relevant files before any design decision. Never copy its strategy content into a versioned file.
+- **`doc/` is local only and never versioned** (git-ignored), and no versioned file but this one refers to it (other files, the `.claude/` skills included, say "the local design notes listed in `CLAUDE.md`"): design discussions, `architecture.md` (architecture, dependency register, decisions log), `licensing.md` (licensing strategy), `interface-testing.md`, `debug-mode.md`, `integrations.md`, brainstorms. It may be missing in a fresh clone; when present, read the relevant files before any design decision. Never copy its strategy content into a versioned file.
 - **No license is chosen yet**: never add a `LICENSE` file or change the `UNLICENSED` identifiers without the maintainer's explicit decision.
 - `doc/2026-11-07-initial-brainstorm.md` is the founding brainstorm. Read it before any architecture decision when it is present.
 
