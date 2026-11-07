@@ -7,7 +7,7 @@ use std::io;
 use std::path::Path;
 
 use super::{
-    Action, CARGO_TOML, CHANGELOG, COMMIT_HEADER_MAX, COVERAGE_REPORT, Cmd, Dir, PACKAGE_JSON,
+    Action, CARGO_TOML, CHANGELOG, COMMIT_HEADER_MAX, COVERAGE_REPORT, Cmd, Dir, PACKAGE_JSONS,
     PORTABILITY_TARGETS, Runner, Step, SystemRunner, UNVIABLE_REPORT, UNVIABLE_REVIEWED, USAGE,
     Version, check_steps, cli, commit_msg_gate, coverage_gate, release_gate, run_steps,
     unviable_gate,
@@ -68,7 +68,8 @@ fn passing() -> Fake {
     assert!(first.is_none() && second.is_none(), "fresh fake");
     for (path, text) in [
         (CARGO_TOML, CARGO),
-        (PACKAGE_JSON, PACKAGE),
+        (PACKAGE_JSONS[0], PACKAGE),
+        (PACKAGE_JSONS[1], PACKAGE),
         (CHANGELOG, LOG),
         ("COMMIT_EDITMSG", "feat(core): add the plan\n"),
     ] {
@@ -80,6 +81,22 @@ fn passing() -> Fake {
 
 const CARGO: &str = "[workspace]\nmembers = []\n\n[workspace.package]\nedition = \"2024\"\nversion = \"0.2.0\"\n\n[other]\nversion = \"9.9.9\"\n";
 const PACKAGE: &str = r#"{"name": "x", "version": "0.2.0"}"#;
+/// Both workspace manifests with the same content.
+fn packages(text: &str) -> Vec<(&'static str, String)> {
+    PACKAGE_JSONS
+        .iter()
+        .map(|&path| (path, text.to_owned()))
+        .collect()
+}
+
+/// The root manifest correct, the roadmap one with `text`.
+fn roadmap_package(text: &str) -> Vec<(&'static str, String)> {
+    vec![
+        (PACKAGE_JSONS[0], PACKAGE.to_owned()),
+        (PACKAGE_JSONS[1], text.to_owned()),
+    ]
+}
+
 const LOG: &str = "# Changelog\n\nIntro.\n\n## [Unreleased]\n\n### Added\n\n- x\n\n## [0.2.0] - 2026-11-07\n\n## [0.1.10] - 2026-10-01\n\n## [0.1.2] - 2026-09-30\n";
 
 fn command_lines(steps: &[Step]) -> Vec<String> {
@@ -114,7 +131,7 @@ fn lists_every_check_in_order() {
             "unviable gate",
             "Root: cargo deny --locked check",
             "release gate",
-            "Roadmap: pnpm install --frozen-lockfile",
+            "Root: pnpm install --frozen-lockfile",
             "Roadmap: pnpm run check",
         ],
         "the full check pipeline"
@@ -136,7 +153,7 @@ fn lists_every_check_in_order() {
             "Rust unviable mutants reviewed",
             "Rust supply chain",
             "Versions and changelog",
-            "Roadmap dependencies",
+            "JavaScript dependencies",
             "Roadmap checks",
         ],
         "step names"
@@ -150,7 +167,7 @@ fn resolves_directories() {
     assert_eq!(Dir::Root.under(root), Path::new("/repo"), "root");
     assert_eq!(
         Dir::Roadmap.under(root),
-        Path::new("/repo/roadmap"),
+        Path::new("/repo/apps/roadmap"),
         "roadmap"
     );
 }
@@ -208,10 +225,10 @@ fn runs_every_step_and_reports_success() {
     );
     assert_eq!(
         fake.ran.len(),
-        check_steps().len() + 3,
-        "every step ran; the unviable gate reads two files, the release gate three"
+        check_steps().len() + 4,
+        "every step ran; the unviable gate reads two files, the release gate four"
     );
-    for path in [CARGO_TOML, PACKAGE_JSON, CHANGELOG] {
+    for path in [CARGO_TOML, PACKAGE_JSONS[0], PACKAGE_JSONS[1], CHANGELOG] {
         assert!(fake.ran.contains(&format!("read {path}")), "{path} read");
     }
     assert!(
@@ -550,18 +567,22 @@ fn parses_semantic_versions() {
 #[test]
 fn accepts_a_consistent_release_setup() {
     assert_eq!(
-        release_gate(CARGO, PACKAGE, LOG),
+        release_gate(CARGO, &packages(PACKAGE), LOG),
         Ok(()),
         "current version is the latest release"
     );
     let next = CARGO.replace("0.2.0\"\n\n[other]", "0.3.0\"\n\n[other]");
     assert_eq!(
-        release_gate(&next, &PACKAGE.replace("0.2.0", "0.3.0"), LOG),
+        release_gate(&next, &packages(&PACKAGE.replace("0.2.0", "0.3.0")), LOG),
         Ok(()),
         "a newer, unreleased version"
     );
     assert_eq!(
-        release_gate(CARGO, PACKAGE, "# Changelog\n\n## [Unreleased]\n"),
+        release_gate(
+            CARGO,
+            &packages(PACKAGE),
+            "# Changelog\n\n## [Unreleased]\n"
+        ),
         Ok(()),
         "no release yet"
     );
@@ -570,21 +591,32 @@ fn accepts_a_consistent_release_setup() {
 #[test]
 fn rejects_inconsistent_versions() {
     assert_eq!(
-        release_gate(CARGO, r#"{"version": "0.3.0"}"#, LOG),
+        release_gate(CARGO, &roadmap_package(r#"{"version": "0.3.0"}"#), LOG),
         Err(format!(
-            "{PACKAGE_JSON}: version 0.3.0 differs from the workspace version 0.2.0"
+            "{}: version 0.3.0 differs from the workspace version 0.2.0",
+            PACKAGE_JSONS[1]
         )),
         "different versions"
     );
     assert_eq!(
-        release_gate(CARGO, "not json", LOG),
+        release_gate(CARGO, &roadmap_package("not json"), LOG),
         Err(format!(
-            "{PACKAGE_JSON}: version (missing) differs from the workspace version 0.2.0"
+            "{}: version (missing) differs from the workspace version 0.2.0",
+            PACKAGE_JSONS[1]
         )),
         "unreadable package"
     );
     assert_eq!(
-        release_gate("[workspace]\n", r#"{"version": 1}"#, LOG),
+        release_gate(CARGO, &packages(r#"{"version": "0.1.0"}"#), LOG),
+        Err(PACKAGE_JSONS
+            .iter()
+            .map(|path| format!("{path}: version 0.1.0 differs from the workspace version 0.2.0"))
+            .collect::<Vec<_>>()
+            .join("\n")),
+        "every manifest is checked"
+    );
+    assert_eq!(
+        release_gate("[workspace]\n", &packages(r#"{"version": 1}"#), LOG),
         Err(format!(
             "{CARGO_TOML}: [workspace.package] version must be X.Y.Z"
         )),
@@ -592,7 +624,7 @@ fn rejects_inconsistent_versions() {
     );
     let bad = CARGO.replace("0.2.0\"\n\n[other]", "0.2\"\n\n[other]");
     assert_eq!(
-        release_gate(&bad, &PACKAGE.replace("0.2.0", "0.2"), LOG),
+        release_gate(&bad, &packages(&PACKAGE.replace("0.2.0", "0.2")), LOG),
         Err(format!(
             "{CARGO_TOML}: [workspace.package] version must be X.Y.Z"
         )),
@@ -600,7 +632,7 @@ fn rejects_inconsistent_versions() {
     );
     let old = CARGO.replace("0.2.0\"\n\n[other]", "0.1.9\"\n\n[other]");
     assert_eq!(
-        release_gate(&old, &PACKAGE.replace("0.2.0", "0.1.9"), LOG),
+        release_gate(&old, &packages(&PACKAGE.replace("0.2.0", "0.1.9")), LOG),
         Err("version 0.1.9 is older than the latest release 0.2.0".to_owned()),
         "older than released"
     );
@@ -609,7 +641,11 @@ fn rejects_inconsistent_versions() {
 #[test]
 fn rejects_a_malformed_changelog() {
     assert_eq!(
-        release_gate(CARGO, PACKAGE, "Changelog\n## [0.2.0] - 2026-11-07\n"),
+        release_gate(
+            CARGO,
+            &packages(PACKAGE),
+            "Changelog\n## [0.2.0] - 2026-11-07\n"
+        ),
         Err(format!(
             "{CHANGELOG}: must start with \"# Changelog\"\n{CHANGELOG}: the first section must be \"## [Unreleased]\""
         )),
@@ -629,7 +665,7 @@ fn rejects_a_malformed_changelog() {
         assert_eq!(
             release_gate(
                 CARGO,
-                PACKAGE,
+                &packages(PACKAGE),
                 &format!("# Changelog\n## [Unreleased]\n{heading}\n")
             ),
             Err(format!("{CHANGELOG}: malformed heading \"{heading}\"")),
@@ -643,7 +679,7 @@ fn rejects_a_malformed_changelog() {
         assert_eq!(
             release_gate(
                 CARGO,
-                PACKAGE,
+                &packages(PACKAGE),
                 &format!("# Changelog\n## [Unreleased]\n{order}\n")
             ),
             Err(format!(
@@ -780,7 +816,7 @@ fn release_gate_runs_on_the_real_files() {
             .is_err_and(|e| e.starts_with("✘ Versions and changelog: ")),
         "release gate failure is named"
     );
-    for path in [CARGO_TOML, PACKAGE_JSON, CHANGELOG] {
+    for path in [CARGO_TOML, PACKAGE_JSONS[0], PACKAGE_JSONS[1], CHANGELOG] {
         let mut without = passing();
         let removed = without.files.remove(path);
         assert!(removed.is_some(), "{path} removed");

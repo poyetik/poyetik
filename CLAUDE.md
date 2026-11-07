@@ -30,12 +30,18 @@ Core promise: **the engine produces exactly the same samples, bit for bit, on ev
 
 Project rules will be added here as we go.
 
-## Roadmap (`roadmap/`)
+## Repository structure
 
-Public project kanban. The data lives in `roadmap/board.json`, versioned in git. A static Astro page with no JavaScript displays it.
+A **monorepo of separate parts** with clear contracts (details in `doc/architecture.md`, section 2):
+`spec/` (patch format), `crates/` (reusable engine core and tooling), `bindings/` (developer SDKs), `apps/` (applications), `conformance/` (reference cases), `doc/`.
+One Cargo workspace and one pnpm workspace at the root. A part only uses another through its documented public interface. Parts are built **incrementally**: empty folders only hold a short README; never specify ahead of need.
+
+## Roadmap (`apps/roadmap/`)
+
+Public project kanban. The data lives in `apps/roadmap/board.json`, versioned in git. A static Astro page with no JavaScript displays it.
 
 - Roadmap changes are made by running the CLI (Claude runs it on the maintainer's request).
-- **Never edit `board.json` by hand**: always use `pnpm roadmap <command>` from `roadmap/` (`list`, `show`, `add`, `move`, `edit`, `rm`, `validate`). Run `pnpm roadmap help` for usage.
+- **Never edit `board.json` by hand**: always use `pnpm roadmap <command>` from `apps/roadmap/` (`list`, `show`, `add`, `move`, `edit`, `rm`, `validate`). Run `pnpm roadmap help` for usage.
 - Columns: `later` (Later), `next` (Next), `doing` (In progress), `done` (Done). Milestones are written like "M1 Engine", "M2 Editor"…
 - Cards have ordered **steps** (`task add|done|undo|edit|rm`). A step is either done or not; **the first step that is not done is automatically "In progress"**. When a step is finished, run `task done <id>` to tick it, which moves "In progress" to the next step.
 - Page: `pnpm dev` (http://localhost:4321). Full check chain: `pnpm check`.
@@ -44,11 +50,11 @@ Public project kanban. The data lives in `roadmap/board.json`, versioned in git.
 
 **One command runs every check: `cargo xtask check`** (Rust formatting, lints, tests, portability builds, 100% coverage gate, mutation testing, supply chain, then the whole roadmap chain). The `.githooks/pre-push` hook and `.github/workflows/quality.yml` (every push and pull request) both run exactly this command, so a green local check means a green CI.
 
-Every new check is added to `xtask` (`check_steps`), never directly to the hook or the workflow. The hook is enabled through `core.hooksPath`, set automatically by `pnpm install` in `roadmap/`. **Never bypass the hook** (`--no-verify` is forbidden).
+Every new check is added to `xtask` (`check_steps`), never directly to the hook or the workflow. The hook is enabled through `core.hooksPath`, set automatically by `pnpm install` at the root. **Never bypass the hook** (`--no-verify` is forbidden).
 
 ## Portability
 
-**The engine core is fully portable: no platform-specific code, ever.** `engine-core` (and every crate it will be split into) is `no_std`, has no OS, clock, thread, file, network or JS access, and builds for every target. Everything platform-specific (audio I/O, files, permissions, UI hosting) belongs to the thin shells around it (`engine-wasm` + `web/`, native players, plugin wrappers, Tauri apps).
+**The engine core is fully portable: no platform-specific code, ever.** `engine-core` (and every crate it will be split into) is `no_std`, has no OS, clock, thread, file, network or JS access, and builds for every target. Everything platform-specific (audio I/O, files, permissions, UI hosting) belongs to the thin shells around it (`bindings/`, native players, plugin wrappers, Tauri apps).
 
 This is proven, not assumed: `cargo xtask check` builds the core for macOS (ARM), Linux (x86), WebAssembly and a bare-metal ARM microcontroller with no OS at all.
 
@@ -100,7 +106,7 @@ Enforced by `cargo xtask check` and the git hooks, like everything else.
 - `README.md` explains what the project is and how to run and check it; `doc/architecture.md` holds the architecture, the dependency register and the decisions log. Every architecture decision adds a line to that log.
 
 ### Versioning and changelog
-- **One version for the whole project**, following [Semantic Versioning](https://semver.org): the workspace `version` in `Cargo.toml` and `roadmap/package.json` must match (checked).
+- **One version for the whole project**, following [Semantic Versioning](https://semver.org): the workspace `version` in `Cargo.toml` and the `version` of every `package.json` must match (checked).
 - **Every notable change adds an entry under `## [Unreleased]` in `CHANGELOG.md`**, in the same commit ([Keep a Changelog](https://keepachangelog.com) sections: Added, Changed, Deprecated, Removed, Fixed, Security). The changelog format is checked: `# Changelog`, `## [Unreleased]` first, then `## [X.Y.Z] - YYYY-MM-DD` in strictly decreasing order, never newer than the project version.
 - While the version is `0.x`, a breaking change bumps the minor version; from `1.0.0` on, it bumps the major version.
 - Releasing: move the `[Unreleased]` entries under a new `## [X.Y.Z] - date` heading, set the version everywhere, commit, then tag `vX.Y.Z`.

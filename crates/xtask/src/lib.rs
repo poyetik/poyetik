@@ -38,7 +38,7 @@ pub const PORTABILITY_TARGETS: [&str; 4] = [
 pub enum Dir {
     /// The repository root.
     Root,
-    /// The `roadmap/` package.
+    /// The `apps/roadmap/` package.
     Roadmap,
 }
 
@@ -48,7 +48,7 @@ impl Dir {
     pub fn under(self, root: &Path) -> PathBuf {
         match self {
             Self::Root => root.to_path_buf(),
-            Self::Roadmap => root.join("roadmap"),
+            Self::Roadmap => root.join("apps").join("roadmap"),
         }
     }
 }
@@ -192,10 +192,10 @@ pub fn check_steps() -> Vec<Step> {
             action: Action::ReleaseGate,
         },
         run(
-            "Roadmap dependencies",
+            "JavaScript dependencies",
             "pnpm",
             &["install", "--frozen-lockfile"],
-            Dir::Roadmap,
+            Dir::Root,
         ),
         run("Roadmap checks", "pnpm", &["run", "check"], Dir::Roadmap),
     ]);
@@ -312,8 +312,8 @@ pub fn unviable_gate(report: &str, reviewed: &str) -> Result<(), String> {
 /// The project manifest holding the workspace version.
 pub const CARGO_TOML: &str = "Cargo.toml";
 
-/// The roadmap package manifest.
-pub const PACKAGE_JSON: &str = "roadmap/package.json";
+/// Every `package.json` of the pnpm workspace: all carry the project version.
+pub const PACKAGE_JSONS: [&str; 2] = ["package.json", "apps/roadmap/package.json"];
 
 /// The changelog.
 pub const CHANGELOG: &str = "CHANGELOG.md";
@@ -394,7 +394,7 @@ fn released_heading(heading: &str) -> Option<Version> {
 
 /// Checks that the project has one version everywhere and a well-formed changelog.
 ///
-/// The workspace version and the roadmap package version must be equal, valid semantic
+/// The workspace version and the version of every package manifest must be equal, valid semantic
 /// versions, and not older than the latest release in the changelog. The changelog starts with
 /// `# Changelog`, has `## [Unreleased]` first, then releases `## [X.Y.Z] - YYYY-MM-DD`
 /// in strictly decreasing order.
@@ -402,7 +402,11 @@ fn released_heading(heading: &str) -> Option<Version> {
 /// # Errors
 ///
 /// Returns a message listing every problem found.
-pub fn release_gate(cargo_toml: &str, package_json: &str, changelog: &str) -> Result<(), String> {
+pub fn release_gate(
+    cargo_toml: &str,
+    packages: &[(&str, String)],
+    changelog: &str,
+) -> Result<(), String> {
     let mut problems = Vec::new();
     let workspace = workspace_version(cargo_toml);
     let version = workspace.and_then(Version::parse);
@@ -411,19 +415,21 @@ pub fn release_gate(cargo_toml: &str, package_json: &str, changelog: &str) -> Re
             "{CARGO_TOML}: [workspace.package] version must be X.Y.Z"
         ));
     }
-    let package = serde_json::from_str::<serde_json::Value>(package_json)
-        .ok()
-        .and_then(|json| {
-            json.get("version")
-                .and_then(serde_json::Value::as_str)
-                .map(str::to_owned)
-        });
-    if package.as_deref() != workspace {
-        problems.push(format!(
-            "{PACKAGE_JSON}: version {} differs from the workspace version {}",
-            package.as_deref().unwrap_or("(missing)"),
-            workspace.unwrap_or("(missing)")
-        ));
+    for (path, manifest) in packages {
+        let package = serde_json::from_str::<serde_json::Value>(manifest)
+            .ok()
+            .and_then(|json| {
+                json.get("version")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_owned)
+            });
+        if package.as_deref() != workspace {
+            problems.push(format!(
+                "{path}: version {} differs from the workspace version {}",
+                package.as_deref().unwrap_or("(missing)"),
+                workspace.unwrap_or("(missing)")
+            ));
+        }
     }
     if changelog.lines().next() != Some("# Changelog") {
         problems.push(format!("{CHANGELOG}: must start with \"# Changelog\""));
@@ -593,10 +599,14 @@ pub fn run_steps(
                 read_file(runner, path).and_then(|report| coverage_gate(&report))
             }
             Action::ReleaseGate => read_file(runner, CARGO_TOML).and_then(|cargo| {
-                read_file(runner, PACKAGE_JSON).and_then(|package| {
-                    read_file(runner, CHANGELOG)
-                        .and_then(|changelog| release_gate(&cargo, &package, &changelog))
-                })
+                PACKAGE_JSONS
+                    .iter()
+                    .map(|&path| read_file(runner, path).map(|text| (path, text)))
+                    .collect::<Result<Vec<_>, _>>()
+                    .and_then(|packages| {
+                        read_file(runner, CHANGELOG)
+                            .and_then(|changelog| release_gate(&cargo, &packages, &changelog))
+                    })
             }),
             Action::UnviableGate => read_file(runner, UNVIABLE_REPORT).and_then(|report| {
                 read_file(runner, UNVIABLE_REVIEWED)

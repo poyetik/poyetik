@@ -11,5 +11,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `engine-core`: the box contract (`Object`, `ObjectSpec`), strong types (`SampleRate`, fixed 64-frame `Block`, `NodeId`) and the deterministic execution plan (validation, topological sort, cycle detection, allocation-free processing).
 - `xtask`: `cargo xtask check`, the single quality gate run by the pre-push hook and CI.
-- Public roadmap (`roadmap/`): kanban stored in `board.json`, driven by a CLI, rendered as a static page with collapsible steps.
+- Monorepo layout: `spec/`, `crates/`, `bindings/`, `apps/`, `conformance/`, with one Cargo workspace and one pnpm workspace at the root.
+- Public roadmap (`apps/roadmap/`): kanban stored in `board.json`, driven by a CLI, rendered as a static page with collapsible steps.
 - Project rules in `CLAUDE.md` and architecture in `doc/architecture.md`.

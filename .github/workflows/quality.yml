@@ -33,20 +33,16 @@ jobs:
         with:
           tool: cargo-llvm-cov,cargo-mutants,cargo-deny
 
-      # JavaScript: pnpm, Node and the Playwright browsers for the roadmap.
+      # JavaScript: pnpm workspace at the root, Node and the Playwright browsers.
       - uses: pnpm/action-setup@v4
-        with:
-          package_json_file: roadmap/package.json
       - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: pnpm
-          cache-dependency-path: roadmap/pnpm-lock.yaml
       - name: Install Playwright browsers
-        working-directory: roadmap
         run: |
           pnpm install --frozen-lockfile
-          pnpm exec playwright install --with-deps chromium firefox webkit
+          pnpm --dir apps/roadmap exec playwright install --with-deps chromium firefox webkit
 
       - name: Every quality check
         run: cargo xtask check
@@ -57,8 +53,8 @@ jobs:
           name: reports
           path: |
             mutants.out
-            roadmap/coverage
-            roadmap/reports
-            roadmap/playwright-report
-            roadmap/test-results
+            apps/*/coverage
+            apps/*/reports
+            apps/*/playwright-report
+            apps/*/test-results
           if-no-files-found: ignore

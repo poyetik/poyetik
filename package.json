@@ -1,0 +1,13 @@
+{
+  "name": "poyetik",
+  "private": true,
+  "version": "0.1.0",
+  "description": "poyetik monorepo root: pnpm workspace for every TypeScript package.",
+  "scripts": {
+    "prepare": "git config core.hooksPath .githooks"
+  },
+  "packageManager": "pnpm@10.18.3",
+  "engines": {
+    "node": ">=22.18"
+  }
+}

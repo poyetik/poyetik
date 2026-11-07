@@ -5,7 +5,6 @@
   "type": "module",
   "description": "poyetik roadmap kanban: data in board.json (git), CLI driven by Claude, read-only web page.",
   "scripts": {
-    "prepare": "git config core.hooksPath .githooks",
     "roadmap": "node src/cli/bin.ts",
     "dev": "astro dev",
     "build": "astro build",
@@ -33,7 +32,6 @@
     "typescript-eslint": "^8.72.1",
     "vitest": "^5.1.0"
   },
-  "packageManager": "pnpm@10.18.3",
   "engines": {
     "node": ">=22.18"
   }

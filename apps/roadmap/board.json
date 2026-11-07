@@ -29,47 +29,16 @@
           "done": false
         },
         {
-          "title": "engine-wasm + web/worklet: C ABI, AudioWorklet, same hash as native",
+          "title": "bindings/wasm (engine-wasm + AudioWorklet glue): C ABI, same hash as native",
           "done": false
         },
         {
-          "title": "web/playground: on/off button + live oscilloscope, end-to-end tests on 4 browsers",
+          "title": "apps/playground: on/off button + live oscilloscope, end-to-end tests on 4 browsers",
           "done": false
         },
         {
           "title": "xtask check wired into CI and the pre-push hook",
           "done": true
-        }
-      ]
-    },
-    {
-      "id": 2,
-      "title": "Monorepo structure: spec, crates, bindings, apps, conformance",
-      "description": "Organize the repository as separate parts with clear contracts: the patch format spec, the reusable engine core, thin developer SDKs, the applications and the conformance corpus.",
-      "column": "doing",
-      "milestone": "M1 Engine",
-      "createdAt": "2026-11-07",
-      "updatedAt": "2026-11-07",
-      "tasks": [
-        {
-          "title": "Document the parts and the monorepo layout in CLAUDE.md and README.md",
-          "done": false
-        },
-        {
-          "title": "Placeholder folders with a README each (spec, bindings, apps, conformance)",
-          "done": false
-        },
-        {
-          "title": "Move the roadmap to apps/roadmap",
-          "done": false
-        },
-        {
-          "title": "Root pnpm workspace with shared TypeScript, ESLint, Vitest and Stryker configs",
-          "done": false
-        },
-        {
-          "title": "xtask, pre-push hook and CI updated for the new layout",
-          "done": false
         }
       ]
     },
@@ -102,6 +71,37 @@
       "createdAt": "2026-11-07",
       "updatedAt": "2026-11-07",
       "tasks": []
+    },
+    {
+      "id": 2,
+      "title": "Monorepo structure: spec, crates, bindings, apps, conformance",
+      "description": "Organize the repository as separate parts with clear contracts: the patch format spec, the reusable engine core, thin developer SDKs, the applications and the conformance corpus.",
+      "column": "done",
+      "milestone": "M1 Engine",
+      "createdAt": "2026-11-07",
+      "updatedAt": "2026-11-07",
+      "tasks": [
+        {
+          "title": "Document the parts and the monorepo layout in CLAUDE.md and README.md",
+          "done": true
+        },
+        {
+          "title": "Placeholder folders with a README each (spec, bindings, apps, conformance)",
+          "done": true
+        },
+        {
+          "title": "Move the roadmap to apps/roadmap",
+          "done": true
+        },
+        {
+          "title": "Root pnpm workspace (shared configs extracted later, when a second package needs them)",
+          "done": true
+        },
+        {
+          "title": "xtask, pre-push hook and CI updated for the new layout",
+          "done": true
+        }
+      ]
     }
   ]
 }
