@@ -1,7 +1,7 @@
 {
   "version": 1,
   "title": "poyetik",
-  "nextId": 9,
+  "nextId": 10,
   "cards": [
     {
       "id": 1,
@@ -153,6 +153,37 @@
         },
         {
           "title": "Delete the local backup branch and purge the reflog before the first push",
+          "done": false
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "Native bridge: OSC, MIDI, serial and HID over a local WebSocket",
+      "description": "A small open-source native companion (apps/bridge, Rust) that gives the web app what browsers cannot do (OSC over UDP, MIDI on Safari, serial, HID), over a local WebSocket. The app stays frontend-only and works without it. Released by CI for every platform.",
+      "column": "later",
+      "milestone": "M2 Bridge",
+      "createdAt": "2026-11-07",
+      "updatedAt": "2026-11-07",
+      "tasks": [
+        {
+          "title": "Bridge: OSC, MIDI, serial and HID over a local WebSocket, with secure pairing (token and origin check)",
+          "done": false
+        },
+        {
+          "title": "Web app: detect the bridge and show which capabilities are available",
+          "done": false
+        },
+        {
+          "title": "CI build matrix and releases: binaries, checksums, provenance attestation, build-from-source instructions",
+          "done": false
+        },
+        {
+          "title": "Docs: how to run the unsigned binaries on macOS and Windows",
+          "done": false
+        },
+        {
+          "title": "Optional, later: code signing and notarization (macOS, Windows)",
           "done": false
         }
       ]
