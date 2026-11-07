@@ -1,0 +1,14 @@
+/target
+**/*.rs.bk
+.DS_Store
+node_modules/
+dist/
+coverage/
+reports/
+.astro/
+.stryker-tmp/
+test-results/
+playwright-report/
+
+# Brainstorm notes stay local (not versioned)
+doc/*brainstorm*.md

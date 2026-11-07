@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "title": "poyetik",
+  "nextId": 22,
+  "cards": [
+    {
+      "id": "R-21",
+      "title": "Oscilloscope in the web page with an on/off button",
+      "description": "",
+      "column": "doing",
+      "milestone": "",
+      "createdAt": "2026-11-07",
+      "updatedAt": "2026-11-07"
+    }
+  ]
+}

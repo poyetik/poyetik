@@ -1,0 +1,13 @@
+#!/bin/sh
+# Before every push: exactly the same checks as CI. A single failure blocks the push.
+set -eu
+
+root="$(git rev-parse --show-toplevel)"
+
+echo "▶ pre-push: full checks (types, lint, tests, coverage, mutation, build, end-to-end)"
+
+cd "$root/roadmap"
+pnpm install --frozen-lockfile --prefer-offline --silent
+pnpm check
+
+echo "✔ pre-push: all green"

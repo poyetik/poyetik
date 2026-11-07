@@ -1,0 +1,44 @@
+---
+import type { BoardView } from "../lib/view.ts";
+
+interface Props {
+  view: BoardView;
+}
+
+const { view } = Astro.props;
+---
+
+<section class="summary" aria-label="Progress">
+  <p>
+    <strong>{view.done}</strong> / {view.total} done
+    {view.lastUpdated !== null && <span class="muted"> · updated <time datetime={view.lastUpdated}>{view.lastUpdated}</time></span>}
+  </p>
+</section>
+
+<div class="board">
+  {
+    view.columns.map((column) => (
+      <section class="column" data-column={column.id} aria-labelledby={`col-${column.id}`}>
+        <h2 id={`col-${column.id}`}>
+          {column.title} <span class="count">{column.cards.length}</span>
+        </h2>
+        {column.cards.length === 0 ? (
+          <p class="empty">Nothing yet</p>
+        ) : (
+          <ul>
+            {column.cards.map((card) => (
+              <li class="card" data-id={card.id}>
+                <h3>{card.title}</h3>
+                {card.description !== "" && <p>{card.description}</p>}
+                <footer>
+                  <span class="id">{card.id}</span>
+                  {card.milestone !== "" && <span class="milestone">{card.milestone}</span>}
+                </footer>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+    ))
+  }
+</div>
