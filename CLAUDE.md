@@ -26,6 +26,7 @@ Core promise: **the engine produces exactly the same samples, bit for bit, on ev
 ## Documentation
 
 - `doc/` holds the history of design discussions and architecture decisions.
+- `doc/licensing.md` is the licensing strategy. **No license is chosen yet**: never add a `LICENSE` file or change the `UNLICENSED` identifiers without the maintainer's explicit decision.
 - `doc/2026-11-07-initial-brainstorm.md` is the founding brainstorm. Read it before any architecture decision when it is present. **Brainstorm notes stay local and are never versioned** (`doc/*brainstorm*.md` is git-ignored), so they may be missing in a fresh clone.
 
 Project rules will be added here as we go.

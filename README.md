@@ -17,7 +17,7 @@ A monorepo of separate parts (see [`doc/architecture.md`](doc/architecture.md)):
 | `bindings/` | Developer SDKs around the core (to come) |
 | `apps/` | Applications: the public roadmap today |
 | `conformance/` | Reference cases and expected hashes (to come) |
-| `doc/` | Architecture, dependency register and decisions log |
+| `doc/` | Architecture, dependency register, decisions log and licensing strategy |
 | `CLAUDE.md` | Project rules: language, proof, typing, testing, documentation, versioning |
 | `CHANGELOG.md` | Notable changes, per version |
 
@@ -34,6 +34,10 @@ cargo xtask check
 ```
 
 Runs every quality check: formatting, lints, documentation, tests, portability builds, 100% coverage, mutation testing, supply chain, versions and changelog, then the roadmap checks. The pre-push hook and CI run exactly this command.
+
+## License
+
+Not decided yet: see [`doc/licensing.md`](doc/licensing.md). The intent is source-available, with attribution required, commercial use allowed for artists and no competing product or service.
 
 ## Versioning
 

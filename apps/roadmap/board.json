@@ -1,7 +1,7 @@
 {
   "version": 1,
   "title": "poyetik",
-  "nextId": 6,
+  "nextId": 7,
   "cards": [
     {
       "id": 1,
@@ -100,6 +100,33 @@
         {
           "title": "xtask, pre-push hook and CI updated for the new layout",
           "done": true
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Choose and set up the project license",
+      "description": "Source-available, attribution required, commercial use allowed for artists, no competing product or service.",
+      "column": "next",
+      "milestone": "M0 Foundations",
+      "createdAt": "2026-11-07",
+      "updatedAt": "2026-11-07",
+      "tasks": [
+        {
+          "title": "Choose the license (FSL-1.1-ALv2 or Elastic-2.0) and have it reviewed",
+          "done": false
+        },
+        {
+          "title": "Add LICENSE and set the SPDX identifier in Cargo.toml and every package.json",
+          "done": false
+        },
+        {
+          "title": "README: artists own what they create and may use it commercially",
+          "done": false
+        },
+        {
+          "title": "Contribution policy: DCO or CLA",
+          "done": false
         }
       ]
     }
