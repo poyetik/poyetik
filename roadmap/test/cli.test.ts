@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { emptyBoard, serializeBoard, type Board } from "../src/lib/board.ts";
+import { emptyBoard, parseBoard, serializeBoard, type Board } from "../src/lib/board.ts";
 import { HELP, localDate, run, type Io } from "../src/cli/cli.ts";
 
 const DAY = "2026-11-07";
@@ -33,7 +33,7 @@ function fake(initial: string = serializeBoard(emptyBoard("Project"))): Fake {
 }
 
 function boardOf(f: Fake): Board {
-  return JSON.parse(f.file) as Board;
+  return parseBoard(JSON.parse(f.file));
 }
 
 function seeded(): Fake {
@@ -264,17 +264,22 @@ describe("validate", () => {
     expect(f.err[0]).toMatch(/^error: unreadable board\.json: .+/);
   });
 
-  it("reports a read failure that is not an Error", () => {
+  it("includes the JSON error in the message", () => {
+    const f = fake("");
+    expect(run(["validate"], f.io)).toBe(1);
+    expect(f.err).toEqual(["error: unreadable board.json: SyntaxError: Unexpected end of JSON input"]);
+  });
+
+  it("lets disk read failures propagate", () => {
     const f = fake();
     const io: Io = {
       ...f.io,
       read: () => {
-        // eslint-disable-next-line @typescript-eslint/only-throw-error -- simulating a non-Error value
-        throw "disk missing";
+        throw new Error("disk missing");
       },
     };
-    expect(run(["validate"], io)).toBe(1);
-    expect(f.err).toEqual(["error: unreadable board.json: disk missing"]);
+    expect(() => run(["validate"], io)).toThrow("disk missing");
+    expect(f.err).toEqual([]);
   });
 
   it("reports an invalid board", () => {

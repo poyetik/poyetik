@@ -122,10 +122,10 @@ function parseTask(raw: unknown, where: string): Task {
     throw new BoardError(`${where} must be an object`);
   }
   requireExactKeys(raw, TASK_KEYS, where);
-  if (typeof raw.done !== "boolean") {
+  if (typeof raw["done"] !== "boolean") {
     throw new BoardError(`${where} done must be a boolean`);
   }
-  return { title: requireText(raw.title, `${where} title`), done: raw.done };
+  return { title: requireText(raw["title"], `${where} title`), done: raw["done"] };
 }
 
 function parseTasks(raw: unknown, where: string): Task[] {
@@ -141,19 +141,19 @@ function parseCard(raw: unknown, index: number): Card {
     throw new BoardError(`${where} must be an object`);
   }
   requireExactKeys(raw, CARD_KEYS, where);
-  const id = raw.id;
+  const id = raw["id"];
   if (!isPositiveInteger(id)) {
     throw new BoardError(`${where}: invalid id`);
   }
   return {
     id,
-    title: requireText(raw.title, `${where} title`),
-    description: requireString(raw.description, `${where} description`),
-    column: requireColumn(raw.column),
-    milestone: requireString(raw.milestone, `${where} milestone`),
-    createdAt: requireDate(raw.createdAt, `${where} createdAt`),
-    updatedAt: requireDate(raw.updatedAt, `${where} updatedAt`),
-    tasks: parseTasks(raw.tasks, where),
+    title: requireText(raw["title"], `${where} title`),
+    description: requireString(raw["description"], `${where} description`),
+    column: requireColumn(raw["column"]),
+    milestone: requireString(raw["milestone"], `${where} milestone`),
+    createdAt: requireDate(raw["createdAt"], `${where} createdAt`),
+    updatedAt: requireDate(raw["updatedAt"], `${where} updatedAt`),
+    tasks: parseTasks(raw["tasks"], where),
   };
 }
 
@@ -163,14 +163,14 @@ export function parseBoard(raw: unknown): Board {
     throw new BoardError("board must be an object");
   }
   requireExactKeys(raw, BOARD_KEYS, "board");
-  if (raw.version !== 1) {
-    throw new BoardError(`unsupported version: ${String(raw.version)}`);
+  if (raw["version"] !== 1) {
+    throw new BoardError(`unsupported version: ${String(raw["version"])}`);
   }
-  const nextId = raw.nextId;
+  const nextId = raw["nextId"];
   if (!isPositiveInteger(nextId)) {
     throw new BoardError("nextId must be an integer >= 1");
   }
-  const cards = raw.cards;
+  const cards = raw["cards"];
   if (!Array.isArray(cards)) {
     throw new BoardError("cards must be an array");
   }
@@ -185,7 +185,7 @@ export function parseBoard(raw: unknown): Board {
       throw new BoardError(`${formatId(card.id)} must be lower than nextId (${String(nextId)})`);
     }
   }
-  return { version: 1, title: requireText(raw.title, "title"), nextId, cards: parsed };
+  return { version: 1, title: requireText(raw["title"], "title"), nextId, cards: parsed };
 }
 
 /** Stable serialization (fixed key order, trailing newline) for clean git diffs. */
@@ -236,9 +236,9 @@ export function addCard(board: Board, input: AddInput, today: string): { board: 
   const card: Card = {
     id: board.nextId,
     title: requireText(input.title, "title"),
-    description: requireString(input.description ?? "", "description"),
-    column: requireColumn(input.column ?? "later"),
-    milestone: requireString(input.milestone ?? "", "milestone"),
+    description: (input.description ?? "").trim(),
+    column: input.column ?? "later",
+    milestone: (input.milestone ?? "").trim(),
     createdAt: date,
     updatedAt: date,
     tasks: [],
@@ -249,10 +249,9 @@ export function addCard(board: Board, input: AddInput, today: string): { board: 
 /** Moves a card to a column, at a given position among that column's cards (end by default). */
 export function moveCard(board: Board, id: number, column: ColumnId, position: number | undefined, today: string): Board {
   const date = requireDate(today, "today's date");
-  const target = requireColumn(column);
-  const card: Card = { ...findCard(board, id), column: target, updatedAt: date };
+  const card: Card = { ...findCard(board, id), column, updatedAt: date };
   const others = board.cards.filter((c) => c.id !== id);
-  const inTarget = others.filter((c) => c.column === target);
+  const inTarget = others.filter((c) => c.column === column);
   const pos = position ?? inTarget.length;
   if (!Number.isInteger(pos) || pos < 0 || pos > inTarget.length) {
     throw new BoardError(`invalid position: ${String(pos)} (0 to ${String(inTarget.length)})`);
@@ -271,8 +270,8 @@ export function editCard(board: Board, id: number, patch: EditInput, today: stri
   const card: Card = {
     ...current,
     title: patch.title === undefined ? current.title : requireText(patch.title, "title"),
-    description: patch.description === undefined ? current.description : requireString(patch.description, "description"),
-    milestone: patch.milestone === undefined ? current.milestone : requireString(patch.milestone, "milestone"),
+    description: patch.description === undefined ? current.description : patch.description.trim(),
+    milestone: patch.milestone === undefined ? current.milestone : patch.milestone.trim(),
     updatedAt: date,
   };
   return { ...board, cards: board.cards.map((c) => (c.id === id ? card : c)) };

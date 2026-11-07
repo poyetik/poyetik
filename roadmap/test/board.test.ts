@@ -54,16 +54,18 @@ function rawCard(overrides: Record<string, unknown>): Record<string, unknown> {
 }
 
 function expectBoardError(fn: () => unknown, message: string): void {
-  let caught: unknown;
-  try {
-    fn();
-  } catch (error) {
-    caught = error;
-  }
-  expect(caught).toBeInstanceOf(BoardError);
-  expect((caught as BoardError).message).toBe(message);
-  expect((caught as BoardError).name).toBe("BoardError");
+  expect(fn).toThrow(BoardError);
+  expect(fn).toThrow(new BoardError(message));
 }
+
+describe("BoardError", () => {
+  it("is a named Error", () => {
+    const error = new BoardError("boom");
+    expect(error).toBeInstanceOf(Error);
+    expect(error.name).toBe("BoardError");
+    expect(error.message).toBe("boom");
+  });
+});
 
 describe("COLUMNS", () => {
   it("defines the four columns in display order", () => {
@@ -267,7 +269,7 @@ describe("serializeBoard", () => {
   });
 
   it("orders keys regardless of the original order", () => {
-    const shuffled = {
+    const shuffled: Board = {
       cards: [
         {
           tasks: [{ done: false, title: "S" }],
@@ -283,7 +285,7 @@ describe("serializeBoard", () => {
       nextId: 2,
       title: "Project",
       version: 1,
-    } as unknown as Board;
+    };
     expect(serializeBoard(shuffled)).toBe(serializeBoard(board([card(1, "next", { tasks: [{ title: "S", done: false }] })])));
   });
 
@@ -323,17 +325,8 @@ describe("addCard", () => {
     expect(start).toEqual(emptyBoard("P"));
   });
 
-  it("validates title, column and date", () => {
+  it("validates title and date", () => {
     expectBoardError(() => addCard(emptyBoard("P"), { title: " " }, DAY), "title must be a non-empty string");
-    expectBoardError(
-      () => addCard(emptyBoard("P"), { title: "T", description: 1 as never }, DAY),
-      "description must be a string",
-    );
-    expectBoardError(() => addCard(emptyBoard("P"), { title: "T", milestone: 1 as never }, DAY), "milestone must be a string");
-    expectBoardError(
-      () => addCard(emptyBoard("P"), { title: "T", column: "x" as never }, DAY),
-      "unknown column: x (expected: later, next, doing, done)",
-    );
     expectBoardError(() => addCard(emptyBoard("P"), { title: "T" }, "tomorrow"), "today's date must be a YYYY-MM-DD date");
   });
 });
@@ -376,12 +369,8 @@ describe("moveCard", () => {
     expectBoardError(() => moveCard(start, 3, "next", 0.5, LATER), "invalid position: 0.5 (0 to 3)");
   });
 
-  it("rejects an unknown card, an unknown column, an invalid date", () => {
+  it("rejects an unknown card and an invalid date", () => {
     expectBoardError(() => moveCard(start, 9, "done", undefined, LATER), "card not found: #9");
-    expectBoardError(
-      () => moveCard(start, 1, "x" as never, undefined, LATER),
-      "unknown column: x (expected: later, next, doing, done)",
-    );
     expectBoardError(() => moveCard(start, 1, "done", undefined, "x"), "today's date must be a YYYY-MM-DD date");
   });
 });
@@ -403,6 +392,7 @@ describe("editCard", () => {
       ...card(1, "next", { description: "d" }),
       updatedAt: LATER,
     });
+    expect(editCard(start, 1, { milestone: " M9 " }, LATER).cards[0]?.milestone).toBe("M9");
   });
 
   it("edits every field at once", () => {
@@ -419,8 +409,6 @@ describe("editCard", () => {
     expectBoardError(() => editCard(start, 1, {}, LATER), "nothing to edit");
     expectBoardError(() => editCard(start, 9, { title: "T" }, LATER), "card not found: #9");
     expectBoardError(() => editCard(start, 1, { title: " " }, LATER), "title must be a non-empty string");
-    expectBoardError(() => editCard(start, 1, { description: 1 as never }, LATER), "description must be a string");
-    expectBoardError(() => editCard(start, 1, { milestone: 1 as never }, LATER), "milestone must be a string");
     expectBoardError(() => editCard(start, 1, { title: "T" }, "x"), "today's date must be a YYYY-MM-DD date");
   });
 });

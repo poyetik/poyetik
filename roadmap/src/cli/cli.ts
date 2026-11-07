@@ -96,7 +96,7 @@ function runTask(args: readonly string[], io: Io): void {
   const [action = "", ...rest] = args;
   if (!isTaskAction(action)) {
     throw new BoardError(
-      `unknown task action: ${action || "(none)"} (expected: ${Object.keys(TASK_USAGE).join(", ")})`,
+      `unknown task action: ${action === "" ? "(none)" : action} (expected: ${Object.keys(TASK_USAGE).join(", ")})`,
     );
   }
   const usage = new BoardError(`expected: ${TASK_USAGE[action]}`);
@@ -106,36 +106,40 @@ function runTask(args: readonly string[], io: Io): void {
   let id: number;
   switch (action) {
     case "add": {
-      if (rest.length !== 2) throw usage;
-      const [idText, title] = rest as [string, string];
+      if (!isTwo(rest)) throw usage;
+      const [idText, title] = rest;
       id = parseId(idText);
       next = addTask(board, id, title, today);
       break;
     }
     case "done": {
-      if (rest.length !== 1 && rest.length !== 2) throw usage;
-      const [idText, n] = rest as [string, string | undefined];
-      id = parseId(idText);
-      next = completeTask(board, id, n === undefined ? undefined : parseTaskNumber(n), today);
+      if (isOne(rest)) {
+        id = parseId(rest[0]);
+        next = completeTask(board, id, undefined, today);
+        break;
+      }
+      if (!isTwo(rest)) throw usage;
+      id = parseId(rest[0]);
+      next = completeTask(board, id, parseTaskNumber(rest[1]), today);
       break;
     }
     case "undo": {
-      if (rest.length !== 2) throw usage;
-      const [idText, n] = rest as [string, string];
+      if (!isTwo(rest)) throw usage;
+      const [idText, n] = rest;
       id = parseId(idText);
       next = reopenTask(board, id, parseTaskNumber(n), today);
       break;
     }
     case "edit": {
-      if (rest.length !== 3) throw usage;
-      const [idText, n, title] = rest as [string, string, string];
+      if (!isThree(rest)) throw usage;
+      const [idText, n, title] = rest;
       id = parseId(idText);
       next = renameTask(board, id, parseTaskNumber(n), title, today);
       break;
     }
     case "rm": {
-      if (rest.length !== 2) throw usage;
-      const [idText, n] = rest as [string, string];
+      if (!isTwo(rest)) throw usage;
+      const [idText, n] = rest;
       id = parseId(idText);
       next = removeTask(board, id, parseTaskNumber(n), today);
       break;
@@ -162,6 +166,18 @@ function toPosition(value: string | undefined): number | undefined {
   return Number(value);
 }
 
+function isOne(args: readonly string[]): args is readonly [string] {
+  return args.length === 1;
+}
+
+function isTwo(args: readonly string[]): args is readonly [string, string] {
+  return args.length === 2;
+}
+
+function isThree(args: readonly string[]): args is readonly [string, string, string] {
+  return args.length === 3;
+}
+
 function onlyArg(positionals: readonly string[], name: string): string {
   const [value, ...rest] = positionals;
   if (value === undefined || rest.length > 0) {
@@ -171,11 +187,12 @@ function onlyArg(positionals: readonly string[], name: string): string {
 }
 
 function load(io: Io): Board {
+  const text = io.read();
   let raw: unknown;
   try {
-    raw = JSON.parse(io.read());
-  } catch (error) {
-    throw new BoardError(`unreadable board.json: ${error instanceof Error ? error.message : String(error)}`);
+    raw = JSON.parse(text);
+  } catch (error: unknown) {
+    throw new BoardError(`unreadable board.json: ${String(error)}`);
   }
   return parseBoard(raw);
 }
@@ -239,10 +256,10 @@ function execute(args: readonly string[], io: Io): void {
       return;
     }
     case "move": {
-      if (positionals.length !== 2) {
+      if (!isTwo(positionals)) {
         throw new BoardError("expected: move <id> <column>");
       }
-      const [idText, column] = positionals as [string, string];
+      const [idText, column] = positionals;
       const id = parseId(idText);
       const target = toColumn(column);
       save(io, moveCard(load(io), id, target, toPosition(values.position), io.today()));

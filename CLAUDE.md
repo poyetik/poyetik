@@ -35,6 +35,35 @@ Public project kanban. The data lives in `roadmap/board.json`, versioned in git.
 
 The `.githooks/pre-push` hook runs the same checks locally before every push. It is enabled through `core.hooksPath`, set automatically by `pnpm install`. Each new package adds its own check command to it. **Never bypass the hook** (`--no-verify` is forbidden).
 
+## Strict typing and linting policy
+
+Non-negotiable, and **enforced by tooling, not by goodwill**: CI and the pre-push hook reject any violation. No shortcut may weaken the whole.
+
+### Principle: parse at the boundaries, trust types inside
+- External data (JSON, CLI arguments, files, network, FFI) enters as `unknown` (TS) or raw bytes (Rust) and is **validated once, at the boundary**, by functions that *prove* the type (TS type guards, Rust constructors returning `Result`).
+- Internal code only accepts proven types and **never re-checks** what the type system already guarantees. Invalid states must be unrepresentable (unions of literals, newtypes, private fields with checked constructors).
+- If a value cannot be typed precisely, fix the types. Never silence the checker.
+
+### TypeScript
+- `tsconfig`: Astro `strictest` + `noPropertyAccessFromIndexSignature`, `verbatimModuleSyntax`, `isolatedModules`, `erasableSyntaxOnly`, `useUnknownInCatchVariables`.
+- ESLint: `strictTypeChecked` + `stylisticTypeChecked` with zero warnings, plus:
+  - **no type assertions** (`as T`, `<T>x`), except `as const`, and no non-null assertions (`!`);
+  - **no `any`**, explicit or implicit;
+  - **no `@ts-ignore`, `@ts-expect-error`, `@ts-nocheck`**;
+  - **no inline `eslint-disable`** comments: a rule is either respected or changed in the config, for everyone, with a reason;
+  - strict boolean conditions (no truthiness on strings, numbers or nullable values), exhaustive `switch`, explicit types on exported functions, no `enum`, `readonly` where possible, type-only imports.
+- Tests follow exactly the same rules: no casts to reach "impossible" states. If a state is impossible by type, it needs no test and no runtime check.
+
+### Rust
+- Pinned toolchain (`rust-toolchain.toml`), edition 2024, `rustfmt --check`.
+- Workspace-level lints, inherited by every crate, all as errors:
+  - `unsafe_code = "forbid"` everywhere except the minimal, audited FFI module of `engine-wasm`;
+  - `missing_docs`, `unused_results`, `unreachable_pub`, `rust_2018_idioms`;
+  - Clippy `all`, `pedantic`, `nursery` and `cargo` groups, plus selected `restriction` lints: no `unwrap`/`expect`/`panic!`/`todo!`/`unimplemented!`, no `as` numeric casts (use `From`/`TryFrom`), no indexing that can panic, no float equality, no `dbg!`/`print!` in library code, no lint suppressions (`#[allow]`) without an explicit, reviewed `reason`.
+- Determinism rules as Clippy `disallowed_methods` / `disallowed_types` (`f32::sin`, `mul_add`, `Instant::now`, `HashMap` with random state…).
+- `cargo-deny`: allowed licenses only (MIT/Apache/BSD), no known vulnerabilities, no duplicate or unexpected dependencies.
+- Coverage 100% lines and branches (`cargo-llvm-cov`), **no surviving mutant** (`cargo-mutants`), Miri on any `unsafe`.
+
 ## Testing policy
 
 Non-negotiable. A change that does not meet these rules is not done.
