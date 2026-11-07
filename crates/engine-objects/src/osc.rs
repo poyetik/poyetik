@@ -9,6 +9,10 @@ use crate::sample::to_sample;
 
 /// Sine oscillator. The phase is accumulated in `f64` and wrapped to `[0, 1)`; the
 /// sine comes from `libm`, so the output is identical on every target.
+///
+/// The increment is reduced to `[0, 1)` cycle per sample, so that one subtraction always
+/// wraps the phase, at any frequency and sample rate. Above Nyquist the output aliases
+/// (the policy there is decided with roadmap #12).
 #[derive(Debug)]
 struct Osc {
     /// Current phase, in cycles, within `[0, 1)`.
@@ -31,13 +35,22 @@ impl Object for Osc {
     }
 }
 
+impl Osc {
+    /// An oscillator at `frequency` hertz, starting at phase 0.
+    fn new(rate: SampleRate, frequency: f64) -> Self {
+        let cycles = frequency / f64::from(rate.hz());
+        Self {
+            phase: 0.0,
+            // Whole cycles per sample do not change the output: drop them.
+            increment: cycles - libm::floor(cycles),
+        }
+    }
+}
+
 /// Creates an oscillator from its frequency parameter.
 fn create(rate: SampleRate, params: &[f32]) -> Box<dyn Object> {
     let frequency = params.first().copied().map_or(440.0_f64, f64::from);
-    Box::new(Osc {
-        phase: 0.0,
-        increment: frequency / f64::from(rate.hz()),
-    })
+    Box::new(Osc::new(rate, frequency))
 }
 
 /// The `osc~` box type.
@@ -145,21 +158,56 @@ mod tests {
     }
 
     #[test]
-    fn keeps_its_phase_within_one_cycle() {
-        // A 19 kHz oscillator wraps its phase on almost every sample.
-        let mut osc = super::Osc {
-            phase: 0.0,
-            increment: 19_000.0_f64 / 48_000.0_f64,
-        };
+    fn keeps_its_phase_within_one_cycle_at_every_rate() {
+        // Every rate of the matrix, with frequencies at the limits, below, at and above
+        // Nyquist: one subtraction must always wrap the phase.
+        for rate in engine_testkit::matrix::sample_rates() {
+            let nyquist = f64::from(rate.hz()) / 2.0_f64;
+            for frequency in [
+                0.0_f64,
+                1.0_f64,
+                440.0_f64,
+                19_000.0_f64,
+                20_000.0_f64,
+                nyquist,
+                nyquist + 1.0_f64,
+            ] {
+                let mut osc = super::Osc::new(rate, frequency);
+                let mut out: [Block; 1] = [SILENCE];
+                for _ in 0_u16..200_u16 {
+                    engine_core::Object::process(&mut osc, &[], &mut out);
+                    assert!(
+                        (0.0_f64..1.0_f64).contains(&osc.phase),
+                        "phase {} at {frequency} Hz and {} Hz",
+                        osc.phase,
+                        rate.hz()
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn stays_exact_above_the_sample_rate() {
+        // 10 001 Hz at 8 kHz: 1.25 cycles per sample. Compared over 10 s with the exact
+        // phase ((f × n) mod rate) / rate, computed in integers: within one f32 step.
+        let rate = SampleRate::new(8_000).expect("valid rate");
+        let mut osc = (OSC.create)(rate, &[10_001.0]);
         let mut out: [Block; 1] = [SILENCE];
-        for _ in 0_u16..1_000_u16 {
-            engine_core::Object::process(&mut osc, &[], &mut out);
-            assert!(osc.phase >= 0.0_f64, "phase {} is not negative", osc.phase);
-            assert!(
-                osc.phase < 1.0_f64,
-                "phase {} stays below one cycle",
-                osc.phase
-            );
+        let mut n = 0_u64;
+        for _ in 0_u32..1_250_u32 {
+            osc.process(&[], &mut out);
+            for &sample in &out[0] {
+                let cycle = (10_001_u64 * n) % 8_000_u64;
+                let exact = libm::sin(
+                    TAU * f64::from(u32::try_from(cycle).expect("below the rate")) / 8_000.0_f64,
+                );
+                assert!(
+                    (f64::from(sample) - exact).abs() < 6e-8_f64,
+                    "sample {n}: {sample} instead of {exact}"
+                );
+                n += 1_u64;
+            }
         }
     }
 

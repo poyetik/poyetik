@@ -34,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `osc~` keeps its phase within one cycle at any frequency and sample rate: above the sample rate (possible from 8 kHz to 16 kHz), the phase grew without bound and the output drifted into noise within hours. Rendered samples are unchanged below the sample rate.
 - Fresh clones install the conformance oracle's dependencies: `tooling/oracle` is now a pnpm workspace member (a green local check depended on leftovers).
 - `cargo xtask check` rejects a coverage report that measured nothing (0 of 0 lines, functions or branches).
 - The conformance export directory is emptied before every export, so no WAV file from an earlier run is judged.
