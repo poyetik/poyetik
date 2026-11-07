@@ -1,7 +1,7 @@
 {
   "version": 1,
   "title": "poyetik",
-  "nextId": 13,
+  "nextId": 14,
   "cards": [
     {
       "id": 1,
@@ -276,6 +276,37 @@
       "createdAt": "2026-11-07",
       "updatedAt": "2026-11-07",
       "tasks": []
+    },
+    {
+      "id": 13,
+      "title": "Integration engine: plugin contract to import other patch formats",
+      "description": "Start the integration engine: a small, documented plugin contract (detect, import) that turns a foreign patch file into our patch format plus an import report (each source object converted, approximated or unsupported, never silently lost). Integrations are pure, treat their input as untrusted, and their output is validated by the engine's own patch reader. Every registered integration is tested automatically by a shared test kit. Depends on the patch format (#3) and on the message model (#12).",
+      "column": "later",
+      "milestone": "M3 Integrations",
+      "createdAt": "2026-11-07",
+      "updatedAt": "2026-11-07",
+      "tasks": [
+        {
+          "title": "Define the integration contract (detect, import, import report) and its versioning",
+          "done": false
+        },
+        {
+          "title": "Shared test kit: corpus, laws (never throws, valid output, deterministic, every source object reported once), fuzzing",
+          "done": false
+        },
+        {
+          "title": "Template command creating a new integration with its tests wired",
+          "done": false
+        },
+        {
+          "title": "First integration: Pure Data (.pd) for a first set of objects, compared with reference renders",
+          "done": false
+        },
+        {
+          "title": "Contributor documentation: write and submit an integration",
+          "done": false
+        }
+      ]
     }
   ]
 }
