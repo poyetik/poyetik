@@ -2,14 +2,19 @@
 
 use alloc::collections::BTreeSet;
 
-use engine_core::{BLOCK_SIZE, Block, Object, ObjectSpec, SILENCE, SampleRate};
+use engine_core::{BLOCK_SIZE, Block, Object, ObjectSpec, ParamSpec, SILENCE, SampleRate};
 use proptest::collection::vec;
 use proptest::test_runner::{Config, RngAlgorithm, TestCaseError, TestRng, TestRunner};
 
 use crate::allocations_during;
+use crate::matrix::{SPECIAL_INPUTS, sample_rates};
 
 /// Blocks rendered per run.
 const BLOCKS: usize = 8;
+
+/// Blocks rendered by the long run of each sample rate and parameter set: about one
+/// second at 48 kHz, enough to reveal state that drifts or overflows block after block.
+const LONG_RUN_BLOCKS: usize = 1024;
 
 /// Random input cases tried per law.
 const CASES: u32 = 32;
@@ -78,21 +83,23 @@ pub fn check_registry(registry: &[&ObjectSpec]) -> Result<(), String> {
 }
 
 /// Renders `blocks` blocks of a fresh instance, feeding consecutive input blocks taken
-/// from `input`. Returns the outputs and the allocations made while processing.
+/// from `input` (then silence). Returns the outputs and the allocations made while
+/// processing.
 fn render(
     spec: &ObjectSpec,
     rate: SampleRate,
     params: &[f32],
     input: &[f32],
+    blocks: usize,
 ) -> (Vec<Block>, usize) {
     let mut object: Box<dyn Object> = (spec.create)(rate, params);
-    let (blocks, _remainder) = input.as_chunks::<BLOCK_SIZE>();
-    let mut chunks = blocks.iter();
+    let (chunked, _remainder) = input.as_chunks::<BLOCK_SIZE>();
+    let mut chunks = chunked.iter();
     let mut inputs = vec![SILENCE; spec.inlets.len()];
     let mut outputs = vec![SILENCE; spec.outlets.len()];
-    let mut rendered = Vec::with_capacity(BLOCKS.saturating_mul(spec.outlets.len()));
+    let mut rendered = Vec::with_capacity(blocks.saturating_mul(spec.outlets.len()));
     let mut allocations = 0_usize;
-    for _ in 0..BLOCKS {
+    for _ in 0..blocks {
         for block in &mut inputs {
             for (sample, value) in block.iter_mut().zip(chunks.next().unwrap_or(&SILENCE)) {
                 *sample = *value;
@@ -114,52 +121,84 @@ fn bits(blocks: &[Block]) -> Vec<u32> {
         .collect()
 }
 
-/// Parameter sets every law is checked with: all minimums, all defaults, all maximums.
-fn param_sets(spec: &ObjectSpec) -> [Vec<f32>; 3] {
+/// A value of the range that differs from the default whenever the range allows it: the
+/// midpoint, or the point halfway between the default and the maximum when the default
+/// is the midpoint. So that a box hard-coding its default cannot pass.
+fn away_from_default(param: &ParamSpec) -> f32 {
+    let midpoint = param.min / 2.0 + param.max / 2.0;
+    if midpoint.to_bits() == param.default.to_bits() {
+        param.default / 2.0 + param.max / 2.0
+    } else {
+        midpoint
+    }
+}
+
+/// Parameter sets every law is checked with: all minimums, all defaults, all values away
+/// from their default, and all maximums.
+fn param_sets(spec: &ObjectSpec) -> [Vec<f32>; 4] {
     [
         spec.params.iter().map(|p| p.min).collect(),
         spec.params.iter().map(|p| p.default).collect(),
+        spec.params.iter().map(away_from_default).collect(),
         spec.params.iter().map(|p| p.max).collect(),
     ]
 }
 
-/// Checks one random input against the determinism, finite-output and no-allocation laws.
-fn check_input(spec: &ObjectSpec, rate: SampleRate, input: &[f32]) -> Result<(), String> {
-    for params in param_sets(spec) {
-        let (first, allocations) = render(spec, rate, &params, input);
-        let (second, _) = render(spec, rate, &params, input);
-        if bits(&first) != bits(&second) {
-            return Err(format!("not deterministic with parameters {params:?}"));
-        }
-        if first.iter().flatten().any(|sample| !sample.is_finite()) {
-            return Err(format!("non-finite output with parameters {params:?}"));
-        }
-        if allocations > 0 {
-            return Err(format!(
-                "allocates while processing ({allocations} allocations)"
-            ));
-        }
+/// Checks that rendered blocks are finite and that rendering did not allocate.
+fn check_finite_without_allocation(
+    rendered: &[Block],
+    allocations: usize,
+    params: &[f32],
+) -> Result<(), String> {
+    if rendered.iter().flatten().any(|sample| !sample.is_finite()) {
+        return Err(format!("non-finite output with parameters {params:?}"));
+    }
+    if allocations > 0 {
+        return Err(format!(
+            "allocates while processing ({allocations} allocations)"
+        ));
     }
     Ok(())
 }
 
-/// Checks every law on a box type, with random inputs from a fixed seed.
-///
-/// # Errors
-///
-/// Returns a description of the first broken law. Also fails when
-/// [`crate::CountingAllocator`] is not installed, since the no-allocation law could not
-/// be checked.
-pub fn check_laws(spec: &ObjectSpec) -> Result<(), String> {
-    let ((), probe) = allocations_during(|| drop(Box::new(0_u8)));
-    if probe == 0 {
-        return Err("CountingAllocator is not installed as the global allocator".to_owned());
+/// Checks one input against the determinism, finite-output and no-allocation laws.
+fn check_input(spec: &ObjectSpec, rate: SampleRate, input: &[f32]) -> Result<(), String> {
+    for params in param_sets(spec) {
+        let (first, allocations) = render(spec, rate, &params, input, BLOCKS);
+        let (second, _) = render(spec, rate, &params, input, BLOCKS);
+        if bits(&first) != bits(&second) {
+            return Err(format!("not deterministic with parameters {params:?}"));
+        }
+        check_finite_without_allocation(&first, allocations, &params)?;
     }
-    check_metadata(spec)?;
-    let rate = SampleRate::HZ_48000;
-    let length = BLOCKS
-        .saturating_mul(BLOCK_SIZE)
-        .saturating_mul(spec.inlets.len());
+    Ok(())
+}
+
+/// Checks a long run of silence-fed blocks, per parameter set: finite and allocation-free.
+fn check_long_run(spec: &ObjectSpec, rate: SampleRate) -> Result<(), String> {
+    for params in param_sets(spec) {
+        let (rendered, allocations) = render(spec, rate, &params, &[], LONG_RUN_BLOCKS);
+        check_finite_without_allocation(&rendered, allocations, &params)
+            .map_err(|problem| format!("long run: {problem}"))?;
+    }
+    Ok(())
+}
+
+/// The special inputs of the matrix, repeated to fill every inlet for every block.
+fn special_input(length: usize) -> Vec<f32> {
+    SPECIAL_INPUTS
+        .iter()
+        .copied()
+        .cycle()
+        .take(length)
+        .collect()
+}
+
+/// Checks every law at one sample rate.
+fn check_rate(spec: &ObjectSpec, rate: SampleRate, length: usize) -> Result<(), String> {
+    check_input(spec, rate, &special_input(length))
+        .map_err(|problem| format!("special inputs: {problem}"))?;
+    check_long_run(spec, rate)?;
     let config = Config {
         cases: CASES,
         ..Config::default()
@@ -171,6 +210,31 @@ pub fn check_laws(spec: &ObjectSpec) -> Result<(), String> {
             check_input(spec, rate, &input).map_err(TestCaseError::fail)
         })
         .map_err(|error| error.to_string())
+}
+
+/// Checks every law on a box type at every sample rate of the [`crate::matrix`]: special
+/// inputs, a long run, and random inputs from a fixed seed.
+///
+/// # Errors
+///
+/// Returns a description of the first broken law, prefixed by the sample rate. Also
+/// fails when
+/// [`crate::CountingAllocator`] is not installed, since the no-allocation law could not
+/// be checked.
+pub fn check_laws(spec: &ObjectSpec) -> Result<(), String> {
+    let ((), probe) = allocations_during(|| drop(Box::new(0_u8)));
+    if probe == 0 {
+        return Err("CountingAllocator is not installed as the global allocator".to_owned());
+    }
+    check_metadata(spec)?;
+    let length = BLOCKS
+        .saturating_mul(BLOCK_SIZE)
+        .saturating_mul(spec.inlets.len());
+    for rate in sample_rates() {
+        check_rate(spec, rate, length)
+            .map_err(|problem| format!("at {} Hz: {problem}", rate.hz()))?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]

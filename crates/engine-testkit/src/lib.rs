@@ -4,13 +4,16 @@
 //! [`check_registry`] checks a whole registry. Box crates call them on every registered
 //! box type, so a new box cannot escape them.
 //!
+//! Every law is checked at every sample rate of the shared [`matrix`], with the
+//! parameters at their minimum, default, midpoint and maximum.
+//!
 //! The laws:
 //! - **metadata**: names and descriptions are present, port and parameter names are
 //!   unique, parameter ranges are finite and contain their default;
 //! - **determinism**: two fresh instances fed the same inputs produce bit-identical
 //!   outputs;
-//! - **finite output**: never NaN or infinity, for inputs in `[-1, 1]` and parameters at
-//!   their minimum, default and maximum;
+//! - **finite output**: never NaN or infinity, for random inputs in `[-1, 1]`, the
+//!   special inputs of the [`matrix`] and a long run;
 //! - **no allocation** while processing (measured by [`CountingAllocator`], which the
 //!   test binary must install as its global allocator).
 
@@ -18,6 +21,7 @@ extern crate alloc;
 
 mod counting;
 mod laws;
+pub mod matrix;
 
 pub use counting::{CountingAllocator, allocations_during};
 pub use laws::{check_laws, check_metadata, check_registry};

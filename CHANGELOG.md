@@ -28,6 +28,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Public roadmap (`apps/roadmap/`): kanban stored in `board.json`, driven by a CLI, rendered as a static page with collapsible steps.
 - Project rules in `CLAUDE.md`.
 
+### Changed
+
+- The box laws (`engine-testkit`) run at every sample rate of a shared test matrix (8 kHz to 384 kHz, including 44.1 kHz), with special inputs (signed zeros, subnormals), a long run and parameters away from their default; a box that fails at any of them fails the laws. The matrix is also published as `conformance/test-matrix.json` for the TypeScript tests.
+
 ### Fixed
 
 - Fresh clones install the conformance oracle's dependencies: `tooling/oracle` is now a pnpm workspace member (a green local check depended on leftovers).

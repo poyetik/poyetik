@@ -127,17 +127,19 @@ fn catches_allocation_while_processing() {
 }
 
 #[test]
-fn tries_every_case_with_three_parameter_sets_twice() {
+fn tries_every_case_at_every_rate_with_four_parameter_sets() {
     static CREATED: AtomicU16 = AtomicU16::new(0);
     let spec = spec_with(|_, _| {
         let _: u16 = CREATED.fetch_add(1, Ordering::Relaxed);
         Box::new(Gain(1.0))
     });
     assert_eq!(check_laws(&spec), Ok(()), "a correct box");
+    // Per rate: (special inputs + 32 random cases) x 4 parameter sets x 2 runs, plus a
+    // long run per parameter set.
     assert_eq!(
-        CREATED.load(Ordering::Relaxed),
-        32 * 3 * 2,
-        "32 cases x 3 parameter sets x 2 runs"
+        usize::from(CREATED.load(Ordering::Relaxed)),
+        crate::matrix::SAMPLE_RATES.len() * ((1 + 32) * 4 * 2 + 4),
+        "every rate, case and parameter set"
     );
 }
 
@@ -210,7 +212,8 @@ fn feeds_inputs_to_every_inlet_and_reads_every_outlet() {
 }
 
 #[test]
-fn renders_at_48_khz() {
+fn checks_every_sample_rate_of_the_matrix() {
+    // NaN at every rate but 48 kHz: the laws must try the other rates.
     #[derive(Debug)]
     struct Rate(f32);
     impl Object for Rate {
@@ -223,7 +226,95 @@ fn renders_at_48_khz() {
     let spec = spec_with(|rate: SampleRate, _| {
         Box::new(Rate(if rate.hz() == 48_000 { 0.0 } else { f32::NAN }))
     });
-    assert_eq!(check_laws(&spec), Ok(()), "boxes are created at 48 kHz");
+    let error = check_laws(&spec).expect_err("other rates are checked");
+    assert!(error.starts_with("at 8000 Hz: "), "{error}");
+    for hz in crate::matrix::SAMPLE_RATES {
+        let only = spec_with(|rate: SampleRate, _| {
+            Box::new(Rate(if rate.hz() == ONLY.load(Ordering::Relaxed) {
+                f32::NAN
+            } else {
+                0.0
+            }))
+        });
+        ONLY.store(hz, Ordering::Relaxed);
+        let failure = check_laws(&only).expect_err("each rate is checked");
+        assert!(failure.starts_with(&format!("at {hz} Hz: ")), "{failure}");
+    }
+}
+
+/// The only rate at which a fixture box fails, set by the test.
+static ONLY: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+
+#[test]
+fn feeds_the_special_inputs() {
+    // NaN only on a negative zero or a subnormal input: random inputs never hit them.
+    #[derive(Debug)]
+    struct Special;
+    impl Object for Special {
+        fn process(&mut self, inputs: &[Block], outputs: &mut [Block]) {
+            let special = inputs
+                .iter()
+                .flatten()
+                .any(|v| v.is_subnormal() || v.to_bits() == (-0.0_f32).to_bits());
+            for output in outputs {
+                output.fill(if special { f32::NAN } else { 0.0 });
+            }
+        }
+    }
+    let error = check_laws(&spec_with(|_, _| Box::new(Special))).expect_err("special inputs");
+    assert!(
+        error.contains("special inputs: non-finite output"),
+        "{error}"
+    );
+}
+
+#[test]
+fn runs_long_enough_to_reveal_drift() {
+    // Breaks only after 512 blocks: the short runs never see it.
+    #[derive(Debug)]
+    struct Drifts(u32);
+    impl Object for Drifts {
+        fn process(&mut self, _inputs: &[Block], outputs: &mut [Block]) {
+            self.0 = self.0.saturating_add(1);
+            for output in outputs {
+                output.fill(if self.0 > 512 { f32::INFINITY } else { 0.0 });
+            }
+        }
+    }
+    let error = check_laws(&spec_with(|_, _| Box::new(Drifts(0)))).expect_err("long run");
+    assert!(error.contains("long run: non-finite output"), "{error}");
+}
+
+#[test]
+fn checks_parameters_away_from_their_default() {
+    // NaN only at 0.5, away from the default 0.25 and from both limits.
+    const QUARTER: ParamSpec = ParamSpec {
+        default: 0.25,
+        ..GAIN
+    };
+    let spec = ObjectSpec {
+        params: &[QUARTER],
+        create: |_, params| {
+            if params.first().copied() == Some(0.5) {
+                Box::new(Nan)
+            } else {
+                Box::new(Gain(1.0))
+            }
+        },
+        ..GOOD
+    };
+    let error = check_laws(&spec).expect_err("the midpoint is checked");
+    assert!(error.contains("with parameters [0.5]"), "{error}");
+    // With the default at the midpoint (GAIN: 0.5 in [0, 1]), 0.75 is tried instead.
+    let shifted = spec_with(|_, params| {
+        if params.first().copied() == Some(0.75) {
+            Box::new(Nan)
+        } else {
+            Box::new(Gain(1.0))
+        }
+    });
+    let failure = check_laws(&shifted).expect_err("a value away from the default");
+    assert!(failure.contains("with parameters [0.75]"), "{failure}");
 }
 
 /// Fixtures for the metadata cases.
