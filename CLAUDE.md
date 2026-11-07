@@ -157,7 +157,7 @@ Maximum testing applies to **all code, in every language**: Rust engine, patch m
 ### Every other aspect
 - **Commands and patch model**: every command is tested (success, rejection, undo/redo round trip), with property tests over random command sequences (full undo = initial state, identical serialization round trip).
 - **Format compatibility**: every version of the patch format keeps test files. Old patches always load and migrate, checked in CI.
-- **Web editor**:
+- **Web interfaces (playground, editor)**: `doc/interface-testing.md` is the required test strategy, layer by layer (scene, camera and animations, interactions, renderer, accessibility layer, components, end-to-end, visual regression, performance). It is mandatory, heavy on purpose, and applies from the first line of every interface change. In short:
   - unit and component tests;
   - end-to-end tests (Playwright) on **Chrome, Firefox and WebKit**;
   - visual regression via screenshots;
