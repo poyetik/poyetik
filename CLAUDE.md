@@ -87,6 +87,7 @@ Non-negotiable, and **enforced by tooling, not by goodwill**: CI and the pre-pus
 - Determinism rules as Clippy `disallowed_methods` / `disallowed_types` (`f32::sin`, `mul_add`, `Instant::now`, `HashMap` with random state…).
 - `cargo-deny`: allowed licenses only (MIT/Apache/BSD), no known vulnerabilities, no duplicate or unexpected dependencies.
 - Coverage 100% lines, functions and branches (`cargo-llvm-cov`; branch coverage needs a pinned nightly, `nightly-2026-11-01`, used for that measurement only), **no surviving mutant** (`cargo-mutants --cap-lints=true`, so that mutants are never skipped because of lints), Miri on any `unsafe`.
+- **Every unviable mutant (one that does not compile) must be reviewed.** Confirm that the type system or `no_std` really makes that wrong implementation impossible, and that no legitimate variant of it escapes the tests; then record it with its reason in `mutants-unviable.txt`. `cargo xtask check` fails on any unreviewed unviable mutant and on any stale entry, so the list always matches reality.
 
 ## Testing policy
 

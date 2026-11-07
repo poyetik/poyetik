@@ -6,6 +6,9 @@
 
 #![forbid(unsafe_code)]
 
+extern crate alloc;
+
+use alloc::collections::BTreeSet;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -15,6 +18,12 @@ pub const COVERAGE_TOOLCHAIN: &str = "+nightly-2026-11-01";
 
 /// Where the coverage report is written.
 pub const COVERAGE_REPORT: &str = "target/coverage.json";
+
+/// Mutants that cargo-mutants could not build, as reported by the last run.
+pub const UNVIABLE_REPORT: &str = "mutants.out/unviable.txt";
+
+/// Reviewed unviable mutants, each with the reason it is legitimately unbuildable.
+pub const UNVIABLE_REVIEWED: &str = "mutants-unviable.txt";
 
 /// Targets the engine core must build for: proof that it depends on no environment.
 pub const PORTABILITY_TARGETS: [&str; 4] = [
@@ -62,6 +71,8 @@ pub enum Action {
     Run(Cmd),
     /// Require 100% line, function and branch coverage in the report at this path.
     CoverageGate(&'static str),
+    /// Require every unviable mutant to be reviewed, and every review to be current.
+    UnviableGate,
 }
 
 /// One named check.
@@ -152,6 +163,10 @@ pub fn check_steps() -> Vec<Step> {
             &["mutants", "--workspace", "--cap-lints=true"],
             Dir::Root,
         ),
+        Step {
+            name: "Rust unviable mutants reviewed".to_owned(),
+            action: Action::UnviableGate,
+        },
         run(
             "Rust supply chain",
             "cargo",
@@ -210,6 +225,72 @@ pub fn coverage_gate(report: &str) -> Result<(), String> {
     }
 }
 
+/// Identifies a mutant independently of line and column numbers, so that unrelated
+/// edits do not invalidate a review: `crates/a/src/b.rs: replace f -> T with x`.
+fn mutant_key(line: &str) -> Option<String> {
+    let (file, rest) = line.split_once(".rs:")?;
+    let mut parts = rest.splitn(3, ':');
+    let (Some(_line), Some(_column), Some(description)) =
+        (parts.next(), parts.next(), parts.next())
+    else {
+        return None;
+    };
+    Some(format!("{file}.rs: {}", description.trim()))
+}
+
+/// Checks that the unviable mutants of the last run are exactly the reviewed ones.
+///
+/// `reviewed` holds one `<file>.rs: <mutant> -- <reason>` line per mutant; blank lines
+/// and lines starting with `#` are ignored.
+///
+/// # Errors
+///
+/// Returns a message listing unreviewed mutants, stale reviews and malformed lines.
+pub fn unviable_gate(report: &str, reviewed: &str) -> Result<(), String> {
+    let mut problems = Vec::new();
+    let mut found = BTreeSet::new();
+    for line in report.lines().filter(|l| !l.trim().is_empty()) {
+        match mutant_key(line) {
+            Some(key) => {
+                let _: bool = found.insert(key);
+            }
+            None => problems.push(format!("unrecognized mutant: {line}")),
+        }
+    }
+    let mut known = BTreeSet::new();
+    for line in reviewed
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+    {
+        match line.split_once(" -- ") {
+            // The line is trimmed, so text always follows the separator: the reason is never empty.
+            Some((key, _reason)) => {
+                let _: bool = known.insert(key.trim().to_owned());
+            }
+            None => problems.push(format!("review without a reason: {line}")),
+        }
+    }
+    problems.extend(
+        found
+            .difference(&known)
+            .map(|key| format!("not reviewed: {key}")),
+    );
+    problems.extend(
+        known
+            .difference(&found)
+            .map(|key| format!("stale review: {key}")),
+    );
+    if problems.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "unviable mutants must be reviewed in {UNVIABLE_REVIEWED}:\n{}",
+            problems.join("\n")
+        ))
+    }
+}
+
 /// Executes commands and reads files on behalf of [`run_steps`].
 pub trait Runner {
     /// Runs a command and tells whether it succeeded.
@@ -248,6 +329,13 @@ impl Runner for SystemRunner {
     }
 }
 
+/// Reads a file through `runner`, naming it when it cannot be read.
+fn read_file(runner: &mut dyn Runner, path: &str) -> Result<String, String> {
+    runner
+        .read(path)
+        .map_err(|error| format!("cannot read {path}: {error}"))
+}
+
 /// Runs `steps` in order and stops at the first failure.
 ///
 /// # Errors
@@ -269,10 +357,13 @@ pub fn run_steps(
                 Ok(false) => Err("command failed".to_owned()),
                 Err(error) => Err(format!("cannot run {}: {error}", cmd.program)),
             },
-            Action::CoverageGate(path) => runner
-                .read(path)
-                .map_err(|error| format!("cannot read {path}: {error}"))
-                .and_then(|report| coverage_gate(&report)),
+            Action::CoverageGate(path) => {
+                read_file(runner, path).and_then(|report| coverage_gate(&report))
+            }
+            Action::UnviableGate => read_file(runner, UNVIABLE_REPORT).and_then(|report| {
+                read_file(runner, UNVIABLE_REVIEWED)
+                    .and_then(|reviewed| unviable_gate(&report, &reviewed))
+            }),
         };
         outcome.map_err(|reason| format!("✘ {}: {reason}", step.name))?;
     }

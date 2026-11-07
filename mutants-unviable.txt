@@ -1,0 +1,14 @@
+# Unviable mutants: mutants that cargo-mutants generated but that do not compile.
+#
+# Each one must be reviewed: confirm that the type system (or no_std) really makes this
+# wrong implementation impossible, and that no legitimate variant of it escapes the tests.
+# Format: `<file>.rs: <mutant> -- <reason>` (line numbers are ignored).
+# `cargo xtask check` fails on any unreviewed mutant and on any stale entry.
+
+crates/engine-core/src/plan.rs: replace resolve -> Result<Resolved<'patch>, CoreError> with Ok(Default::default()) -- Resolved has no Default: it borrows the node and its spec, so no resolved node can exist without them
+crates/engine-core/src/plan.rs: replace execution_order -> Result<Vec<NodeId>, CoreError> with Ok(vec![Default::default()]) -- NodeId deliberately has no Default: there is no implicit node; the Ok(vec![]) variant is viable and caught
+crates/engine-core/src/plan.rs: replace Plan::build -> Result<Self, CoreError> with Ok(Default::default()) -- Plan deliberately has no Default: a plan only exists as the result of validating a patch
+crates/engine-core/src/plan.rs: replace Plan::execution_order -> impl Iterator<Item = NodeId>+'_ with ::std::iter::empty() -- engine-core is no_std, so std is unavailable; the equivalent core::iter::empty() would be killed by chains_boxes_and_reads_every_outlet and orders_independent_nodes_by_id, which assert the exact order
+crates/engine-core/src/plan.rs: replace Plan::execution_order -> impl Iterator<Item = NodeId>+'_ with ::std::iter::once(Default::default()) -- engine-core is no_std and NodeId has no Default; a one-element order would be killed by the exact-order assertions
+crates/xtask/src/lib.rs: replace run -> Step with Default::default() -- Step has no Default: every step has an explicit name and action
+crates/xtask/src/lib.rs: replace check_steps -> Vec<Step> with vec![Default::default()] -- Step has no Default; the vec![] variant is viable and caught by lists_every_check_in_order

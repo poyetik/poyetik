@@ -7,8 +7,9 @@ use std::io;
 use std::path::Path;
 
 use super::{
-    Action, COVERAGE_REPORT, Cmd, Dir, PORTABILITY_TARGETS, Runner, Step, SystemRunner, USAGE,
-    check_steps, cli, coverage_gate, run_steps,
+    Action, COVERAGE_REPORT, Cmd, Dir, PORTABILITY_TARGETS, Runner, Step, SystemRunner,
+    UNVIABLE_REPORT, UNVIABLE_REVIEWED, USAGE, check_steps, cli, coverage_gate, run_steps,
+    unviable_gate,
 };
 
 /// Records commands and answers with scripted results.
@@ -54,6 +55,16 @@ fn passing() -> Fake {
     let mut fake = Fake::default();
     let previous = fake.files.insert(COVERAGE_REPORT.to_owned(), full_report());
     assert!(previous.is_none(), "fresh fake");
+    let report = "crates/a/src/b.rs:3:5: replace f -> T with Default::default()\n";
+    let reviewed =
+        "crates/a/src/b.rs: replace f -> T with Default::default() -- T has no Default\n";
+    let first = fake
+        .files
+        .insert(UNVIABLE_REPORT.to_owned(), report.to_owned());
+    let second = fake
+        .files
+        .insert(UNVIABLE_REVIEWED.to_owned(), reviewed.to_owned());
+    assert!(first.is_none() && second.is_none(), "fresh fake");
     fake
 }
 
@@ -63,6 +74,7 @@ fn command_lines(steps: &[Step]) -> Vec<String> {
         .map(|step| match &step.action {
             Action::Run(cmd) => format!("{:?}: {} {}", cmd.dir, cmd.program, cmd.args.join(" ")),
             Action::CoverageGate(path) => format!("gate {path}"),
+            Action::UnviableGate => "unviable gate".to_owned(),
         })
         .collect()
 }
@@ -83,6 +95,7 @@ fn lists_every_check_in_order() {
             "Root: cargo +nightly-2026-11-01 llvm-cov --workspace --locked --branch --json --summary-only --output-path target/coverage.json",
             "gate target/coverage.json",
             "Root: cargo mutants --workspace --cap-lints=true",
+            "unviable gate",
             "Root: cargo deny --locked check",
             "Roadmap: pnpm install --frozen-lockfile",
             "Roadmap: pnpm run check",
@@ -102,6 +115,7 @@ fn lists_every_check_in_order() {
             "Rust coverage report",
             "Rust coverage: 100% lines, functions and branches",
             "Rust mutation testing",
+            "Rust unviable mutants reviewed",
             "Rust supply chain",
             "Roadmap dependencies",
             "Roadmap checks",
@@ -173,22 +187,30 @@ fn runs_every_step_and_reports_success() {
         Ok(()),
         "all green"
     );
-    assert_eq!(fake.ran.len(), check_steps().len(), "every step ran");
+    assert_eq!(
+        fake.ran.len(),
+        check_steps().len() + 1,
+        "every step ran, the gate reads two files"
+    );
+    assert!(
+        fake.ran.contains(&format!("read {UNVIABLE_REVIEWED}")),
+        "reviews read"
+    );
     assert!(
         fake.ran.contains(&format!("read {COVERAGE_REPORT}")),
         "coverage report read"
     );
     let text = String::from_utf8(out).expect("utf-8 output");
     assert!(
-        text.starts_with("▶ [1/13] Rust formatting\n"),
+        text.starts_with("▶ [1/14] Rust formatting\n"),
         "numbered progress: {text}"
     );
     assert!(
-        text.contains("▶ [13/13] Roadmap checks\n"),
+        text.contains("▶ [14/14] Roadmap checks\n"),
         "last step announced: {text}"
     );
     assert!(
-        text.ends_with("✔ all 13 checks passed\n"),
+        text.ends_with("✔ all 14 checks passed\n"),
         "summary: {text}"
     );
 }
@@ -380,4 +402,73 @@ fn system_runner_runs_commands_and_reads_files() {
         "reads below the root"
     );
     assert!(runner.read("no-such-file").is_err(), "missing file");
+}
+
+#[test]
+fn accepts_exactly_the_reviewed_unviable_mutants() {
+    let report = "crates/a/src/b.rs:3:5: replace f -> T with Default::default()\n\ncrates/a/src/c.rs:10:1: replace g -> U with x\n";
+    let reviewed = "# reviewed mutants\n\ncrates/a/src/c.rs: replace g -> U with x -- U has no x\n  crates/a/src/b.rs: replace f -> T with Default::default() -- T has no Default  \n";
+    assert_eq!(
+        unviable_gate(report, reviewed),
+        Ok(()),
+        "same set, lines ignored"
+    );
+    assert_eq!(unviable_gate("", ""), Ok(()), "nothing unviable");
+}
+
+#[test]
+fn rejects_unreviewed_stale_and_malformed_entries() {
+    let error = unviable_gate(
+        "crates/a/src/b.rs:3:5: replace f -> T with y\nnot a mutant line\ncrates/a/src/b.rs:9:9\n",
+        "crates/a/src/z.rs: replace z -> Z with w -- old\ncrates/a/src/q.rs: replace q -> Q with w --  \nno separator\n",
+    );
+    assert_eq!(
+        error,
+        Err(format!(
+            "unviable mutants must be reviewed in {UNVIABLE_REVIEWED}:\n{}",
+            [
+                "unrecognized mutant: not a mutant line",
+                "unrecognized mutant: crates/a/src/b.rs:9:9",
+                "review without a reason: crates/a/src/q.rs: replace q -> Q with w --",
+                "review without a reason: no separator",
+                "not reviewed: crates/a/src/b.rs: replace f -> T with y",
+                "stale review: crates/a/src/z.rs: replace z -> Z with w",
+            ]
+            .join("\n")
+        )),
+        "every problem is listed"
+    );
+}
+
+#[test]
+fn fails_when_unviable_files_are_missing_or_unreviewed() {
+    let mut no_report = passing();
+    let removed_report = no_report.files.remove(UNVIABLE_REPORT);
+    assert!(removed_report.is_some(), "report removed");
+    assert_eq!(
+        run_steps(&check_steps(), &mut no_report, &mut Vec::new()),
+        Err(format!(
+            "✘ Rust unviable mutants reviewed: cannot read {UNVIABLE_REPORT}: missing"
+        )),
+        "missing report"
+    );
+    let mut no_reviews = passing();
+    let removed_reviews = no_reviews.files.remove(UNVIABLE_REVIEWED);
+    assert!(removed_reviews.is_some(), "reviews removed");
+    assert_eq!(
+        run_steps(&check_steps(), &mut no_reviews, &mut Vec::new()),
+        Err(format!(
+            "✘ Rust unviable mutants reviewed: cannot read {UNVIABLE_REVIEWED}: missing"
+        )),
+        "missing reviews"
+    );
+    let mut unreviewed = passing();
+    let _previous = unreviewed
+        .files
+        .insert(UNVIABLE_REVIEWED.to_owned(), String::new());
+    assert!(
+        run_steps(&check_steps(), &mut unreviewed, &mut Vec::new())
+            .is_err_and(|e| e.contains("not reviewed: crates/a/src/b.rs")),
+        "unreviewed mutant"
+    );
 }
