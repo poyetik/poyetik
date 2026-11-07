@@ -602,3 +602,57 @@ fn sums_cables_in_source_order_whatever_the_document_order() {
         );
     }
 }
+
+#[test]
+fn accepts_patches_up_to_the_limits_only() {
+    /// The four cables joining both outlets of `from` to both inlets of `to`.
+    fn all_ports(from: u32, to: u32) -> [Connection; 4] {
+        [
+            wire(from, 0, to, 0),
+            wire(from, 0, to, 1),
+            wire(from, 1, to, 0),
+            wire(from, 1, to, 1),
+        ]
+    }
+    let adders = |count: u32| -> Vec<Node> { (0..count).map(|id| node(id, "add~")).collect() };
+    let max_nodes = u32::try_from(Patch::MAX_NODES).expect("fits u32");
+    assert_eq!(
+        Patch::new(adders(max_nodes + 1), vec![]).map(|_| ()),
+        Err(CoreError::TooManyNodes(Patch::MAX_NODES + 1)),
+        "one node too many"
+    );
+    let too_many = Patch::MAX_CONNECTIONS + 1;
+    assert_eq!(
+        Patch::new(vec![], vec![wire(1, 0, 2, 0); too_many]).map(|_| ()),
+        Err(CoreError::TooManyConnections(too_many)),
+        "one cable too many, refused before looking for repetitions"
+    );
+
+    // The largest patch: a chain of 65,535 add~ boxes joined port to port, an output
+    // fed by the last one, and one shortcut: exactly 65,536 nodes and 262,144 cables.
+    let last = max_nodes - 2;
+    let mut nodes = adders(max_nodes - 1);
+    nodes.push(node(u32::MAX, "out~"));
+    let mut cables: Vec<Connection> = (0..last).flat_map(|id| all_ports(id, id + 1)).collect();
+    cables.extend([
+        wire(last, 0, u32::MAX, 0),
+        wire(last, 0, u32::MAX, 1),
+        wire(last, 1, u32::MAX, 0),
+        wire(last, 1, u32::MAX, 1),
+    ]);
+    cables.extend(all_ports(0, 2));
+    assert_eq!(cables.len(), Patch::MAX_CONNECTIONS, "exactly the limit");
+    let patch = Patch::new(nodes, cables).expect("within the limits");
+    let mut plan = Plan::build(&patch, &REGISTRY, rate()).expect("valid plan");
+    assert_eq!(
+        plan.execution_order().count(),
+        Patch::MAX_NODES,
+        "every node"
+    );
+    assert_eq!(
+        plan.execution_order().last(),
+        Some(NodeId(u32::MAX)),
+        "the output runs last"
+    );
+    assert_eq!(plan.render(1).map(|s| s.len()), Ok(2), "renders");
+}
