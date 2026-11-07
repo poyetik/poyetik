@@ -26,7 +26,7 @@ Core promise: **the engine produces exactly the same samples, bit for bit, on ev
 
 ## Documentation
 
-- **`doc/` is local only and never versioned** (git-ignored): design discussions, `architecture.md` (architecture, dependency register, decisions log), `licensing.md` (licensing strategy), `interface-testing.md`, `debug-mode.md`, `integrations.md`, brainstorms. It may be missing in a fresh clone; when present, read the relevant files before any design decision. Never copy its strategy content into a versioned file.
+- **`doc/` is local only and never versioned** (git-ignored), and no versioned file but this one refers to it: design discussions, `architecture.md` (architecture, dependency register, decisions log), `licensing.md` (licensing strategy), `interface-testing.md`, `debug-mode.md`, `integrations.md`, brainstorms. It may be missing in a fresh clone; when present, read the relevant files before any design decision. Never copy its strategy content into a versioned file.
 - **No license is chosen yet**: never add a `LICENSE` file or change the `UNLICENSED` identifiers without the maintainer's explicit decision.
 - `doc/2026-11-07-initial-brainstorm.md` is the founding brainstorm. Read it before any architecture decision when it is present.
 
@@ -44,6 +44,7 @@ Public project kanban. The data lives in `apps/roadmap/board.json`, versioned in
 
 - Roadmap changes are made by running the CLI (Claude runs it on the maintainer's request).
 - **Never edit `board.json` by hand**: always use `pnpm roadmap <command>` from `apps/roadmap/` (`list`, `show`, `add`, `move`, `edit`, `rm`, `validate`). Run `pnpm roadmap help` for usage.
+- **The roadmap is public: never reference `doc/`** (local, unversioned notes) in a ticket title, description or step. A ticket says what is to be done, in its own words.
 - Columns: `later` (Later), `next` (Next), `doing` (In progress), `done` (Done). Milestones are written like "M1 Engine", "M2 Editor"…
 - Cards have ordered **steps** (`task add|done|undo|edit|rm`). A step is either done or not; **the first step that is not done is automatically "In progress"**. When a step is finished, run `task done <id>` to tick it, which moves "In progress" to the next step.
 - Page: `pnpm dev` (http://localhost:4321). Full check chain: `pnpm check`.
