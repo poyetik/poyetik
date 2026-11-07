@@ -4,6 +4,7 @@
 
 **Everything in this repository is written in English**: code, identifiers, comments, CLI output, UI text, tests, documentation, roadmap tickets, commit messages, PR descriptions, CI and hook output. No exceptions.
 
+
 ## Guiding principle: maximum proof
 
 We want **the maximum proof we can get**, everywhere, at all times. Every property we claim must be backed by an automated check that runs in CI and in the pre-push hook. In order of preference:
@@ -57,7 +58,7 @@ Every new check is added to `xtask` (`check_steps`), never directly to the hook 
 
 **The engine core is fully portable: no platform-specific code, ever.** `engine-core` (and every crate it will be split into) is `no_std`, has no OS, clock, thread, file, network or JS access, and builds for every target. Everything platform-specific (audio I/O, files, permissions, UI hosting) belongs to the thin shells around it (`bindings/`, native players, plugin wrappers, Tauri apps).
 
-This is proven, not assumed: `cargo xtask check` builds the core for macOS (ARM), Linux (x86), WebAssembly and a bare-metal ARM microcontroller with no OS at all.
+This is proven, not assumed: `cargo xtask check` builds the core and the boxes (`engine-objects`) for macOS (ARM), Linux (x86), WebAssembly and a bare-metal ARM microcontroller with no OS at all.
 
 ## Technologies and dependencies
 
@@ -88,7 +89,7 @@ Non-negotiable, and **enforced by tooling, not by goodwill**: CI and the pre-pus
 ### Rust
 - Pinned toolchain (`rust-toolchain.toml`), edition 2024, `rustfmt --check`.
 - Workspace-level lints, inherited by every crate, all as errors:
-  - `unsafe_code = "forbid"` everywhere except the minimal, audited FFI module of `engine-wasm`;
+  - `unsafe_code = "forbid"` everywhere except two minimal, audited modules: the FFI module of `engine-wasm`, and the counting allocator of `engine-testkit` (test-only, every call delegated unchanged to the system allocator), which proves that boxes never allocate while processing;
   - `missing_docs`, `unused_results`, `unreachable_pub`, `rust_2018_idioms`;
   - Clippy `all`, `pedantic`, `nursery` and `cargo` groups, plus selected `restriction` lints: no `unwrap`/`expect`/`panic!`/`todo!`/`unimplemented!`, no `as` numeric casts (use `From`/`TryFrom`), no indexing that can panic, no float equality, no `dbg!`/`print!` in library code, no lint suppressions (`#[allow]`) without an explicit, reviewed `reason`.
 - Determinism rules as Clippy `disallowed_methods` / `disallowed_types` (`f32::sin`, `mul_add`, `Instant::now`, `HashMap` with random state…).

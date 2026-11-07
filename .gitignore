@@ -13,3 +13,6 @@ playwright-report/
 # Brainstorm notes stay local (not versioned)
 doc/*brainstorm*.md
 /mutants.out*
+
+# Personal notes for Claude Code (see CLAUDE.local.md)
+CLAUDE.local.md
