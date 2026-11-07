@@ -27,3 +27,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Monorepo layout: `spec/`, `crates/`, `bindings/`, `apps/`, `conformance/`, with one Cargo workspace and one pnpm workspace at the root.
 - Public roadmap (`apps/roadmap/`): kanban stored in `board.json`, driven by a CLI, rendered as a static page with collapsible steps.
 - Project rules in `CLAUDE.md`.
+
+### Fixed
+
+- Fresh clones install the conformance oracle's dependencies: `tooling/oracle` is now a pnpm workspace member (a green local check depended on leftovers).
+- `cargo xtask check` rejects a coverage report that measured nothing (0 of 0 lines, functions or branches).
+- The conformance export directory is emptied before every export, so no WAV file from an earlier run is judged.
+- Mutation testing copies only versioned files (`--gitignore=true`).

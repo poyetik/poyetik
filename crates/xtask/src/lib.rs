@@ -19,6 +19,10 @@ pub const NIGHTLY_TOOLCHAIN: &str = "+nightly-2026-11-01";
 /// Where the coverage report is written.
 pub const COVERAGE_REPORT: &str = "target/coverage.json";
 
+/// Where the native engine exports the WAV file of every conformance case, emptied
+/// before each export so that no file from an earlier run is judged.
+pub const CONFORMANCE_EXPORT: &str = "target/conformance";
+
 /// Mutants that cargo-mutants could not build, as reported by the last run.
 pub const UNVIABLE_REPORT: &str = "mutants.out/unviable.txt";
 
@@ -84,6 +88,9 @@ pub enum Action {
     UnviableGate,
     /// Require one project version everywhere, consistent with a well-formed changelog.
     ReleaseGate,
+    /// Empty this directory (relative to the root), creating it if needed: what a later
+    /// step reads there is then produced by this run only.
+    FreshDir(&'static str),
 }
 
 /// One named check.
@@ -199,7 +206,12 @@ fn proof_steps() -> Vec<Step> {
         run(
             "Rust mutation testing",
             "cargo",
-            &["mutants", "--workspace", "--cap-lints=true"],
+            &[
+                "mutants",
+                "--workspace",
+                "--cap-lints=true",
+                "--gitignore=true",
+            ],
             Dir::Root,
         ),
         Step {
@@ -244,6 +256,10 @@ fn release_steps() -> Vec<Step> {
         ),
         // The independent oracle (tooling/oracle) checks these files after the JavaScript
         // dependencies are installed.
+        Step {
+            name: "Fresh conformance export directory".to_owned(),
+            action: Action::FreshDir(CONFORMANCE_EXPORT),
+        },
         run(
             "Conformance export (native WAV files)",
             "cargo",
@@ -256,7 +272,7 @@ fn release_steps() -> Vec<Step> {
                 "--",
                 "export",
                 "conformance",
-                "target/conformance",
+                CONFORMANCE_EXPORT,
             ],
             Dir::Root,
         ),
@@ -340,7 +356,9 @@ pub fn coverage_gate(report: &str) -> Result<(), String> {
     let mut missing = Vec::new();
     for kind in ["lines", "functions", "branches"] {
         let (count, covered) = total(totals, kind)?;
-        if covered != count {
+        if count == 0 {
+            missing.push(format!("{kind} not measured"));
+        } else if covered != count {
             missing.push(format!("{kind} {covered}/{count}"));
         }
     }
@@ -659,6 +677,13 @@ pub trait Runner {
     ///
     /// Returns an error when the file cannot be read.
     fn read(&mut self, path: &str) -> io::Result<String>;
+
+    /// Empties a directory below the repository root, creating it if needed.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the directory cannot be removed or created.
+    fn fresh_dir(&mut self, path: &str) -> io::Result<()>;
 }
 
 /// Runs real commands below a repository root.
@@ -679,6 +704,15 @@ impl Runner for SystemRunner {
 
     fn read(&mut self, path: &str) -> io::Result<String> {
         std::fs::read_to_string(self.root.join(path))
+    }
+
+    fn fresh_dir(&mut self, path: &str) -> io::Result<()> {
+        let dir = self.root.join(path);
+        match std::fs::remove_dir_all(&dir) {
+            Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),
+            _ => {}
+        }
+        std::fs::create_dir_all(dir)
     }
 }
 
@@ -723,6 +757,9 @@ pub fn run_steps(
                             .and_then(|changelog| release_gate(&cargo, &packages, &changelog))
                     })
             }),
+            Action::FreshDir(path) => runner
+                .fresh_dir(path)
+                .map_err(|error| format!("cannot empty {path}: {error}")),
             Action::UnviableGate => read_file(runner, UNVIABLE_REPORT).and_then(|report| {
                 read_file(runner, UNVIABLE_REVIEWED)
                     .and_then(|reviewed| unviable_gate(&report, &reviewed))

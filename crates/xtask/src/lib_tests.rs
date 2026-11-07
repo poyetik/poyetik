@@ -39,6 +39,15 @@ impl Runner for Fake {
             .cloned()
             .ok_or_else(|| io::Error::other("missing"))
     }
+
+    fn fresh_dir(&mut self, path: &str) -> io::Result<()> {
+        let line = format!("fresh {path}");
+        self.ran.push(line.clone());
+        if self.broken.as_deref() == Some(line.as_str()) {
+            return Err(io::Error::other("busy"));
+        }
+        Ok(())
+    }
 }
 
 fn report(lines: (u64, u64), functions: (u64, u64), branches: (u64, u64)) -> String {
@@ -115,6 +124,7 @@ fn command_lines(steps: &[Step]) -> Vec<String> {
             Action::CoverageGate(path) => format!("gate {path}"),
             Action::UnviableGate => "unviable gate".to_owned(),
             Action::ReleaseGate => "release gate".to_owned(),
+            Action::FreshDir(path) => format!("fresh {path}"),
         })
         .collect()
 }
@@ -135,10 +145,11 @@ fn lists_every_check_in_order() {
             "Root: cargo build --package engine-core --package engine-objects --package engine-patch --package engine-hash --locked --target thumbv7em-none-eabihf",
             "Root: cargo +nightly-2026-11-01 llvm-cov --workspace --locked --branch --json --summary-only --output-path target/coverage.json",
             "gate target/coverage.json",
-            "Root: cargo mutants --workspace --cap-lints=true",
+            "Root: cargo mutants --workspace --cap-lints=true --gitignore=true",
             "unviable gate",
             "Root: cargo +nightly-2026-11-01 miri test --package engine-wasm --locked",
             "Root: cargo run --package engine-cli --locked --quiet -- check conformance",
+            "fresh target/conformance",
             "Root: cargo run --package engine-cli --locked --quiet -- export conformance target/conformance",
             "Root: cargo deny --locked check",
             "release gate",
@@ -167,6 +178,7 @@ fn lists_every_check_in_order() {
             "Rust unviable mutants reviewed",
             "Rust FFI under Miri",
             "Conformance (native)",
+            "Fresh conformance export directory",
             "Conformance export (native WAV files)",
             "Rust supply chain",
             "Versions and changelog",
@@ -210,10 +222,22 @@ fn resolves_directories() {
 #[test]
 fn accepts_full_coverage() {
     assert_eq!(coverage_gate(&full_report()), Ok(()), "100% everywhere");
+}
+
+#[test]
+fn rejects_coverage_that_measured_nothing() {
     assert_eq!(
         coverage_gate(&report((0, 0), (0, 0), (0, 0))),
-        Ok(()),
-        "nothing to cover"
+        Err(
+            "coverage is not 100%: lines not measured, functions not measured, branches not measured"
+                .to_owned()
+        ),
+        "an empty report proves nothing"
+    );
+    assert_eq!(
+        coverage_gate(&report((10, 10), (3, 3), (0, 0))),
+        Err("coverage is not 100%: branches not measured".to_owned()),
+        "branch instrumentation missing"
     );
 }
 
@@ -285,15 +309,15 @@ fn runs_every_step_and_reports_success() {
     );
     let text = String::from_utf8(out).expect("utf-8 output");
     assert!(
-        text.starts_with("▶ [1/22] Rust formatting\n"),
+        text.starts_with("▶ [1/23] Rust formatting\n"),
         "numbered progress: {text}"
     );
     assert!(
-        text.contains("▶ [22/22] Roadmap checks\n"),
+        text.contains("▶ [23/23] Roadmap checks\n"),
         "last step announced: {text}"
     );
     assert!(
-        text.ends_with("✔ all 22 checks passed\n"),
+        text.ends_with("✔ all 23 checks passed\n"),
         "summary: {text}"
     );
 }
@@ -335,7 +359,7 @@ fn fails_on_missing_or_incomplete_coverage() {
     let mut partial = Fake::default();
     let previous = partial
         .files
-        .insert(COVERAGE_REPORT.to_owned(), report((2, 1), (1, 1), (0, 0)));
+        .insert(COVERAGE_REPORT.to_owned(), report((2, 1), (1, 1), (1, 1)));
     assert!(previous.is_none(), "fresh fake");
     assert_eq!(
         run_steps(&check_steps(), &mut partial, &mut Vec::new()),
@@ -485,6 +509,46 @@ fn system_runner_runs_commands_and_reads_files() {
         "reads below the root"
     );
     assert!(runner.read("no-such-file").is_err(), "missing file");
+}
+
+#[test]
+fn system_runner_empties_fresh_directories() {
+    let root = std::env::temp_dir().join(format!("xtask-fresh-{}", std::process::id()));
+    if let Err(error) = std::fs::remove_dir_all(&root) {
+        assert_eq!(error.kind(), io::ErrorKind::NotFound, "clean start");
+    }
+    std::fs::create_dir_all(&root).expect("temporary root");
+    let mut runner = SystemRunner { root: root.clone() };
+    assert!(runner.fresh_dir("out/wav").is_ok(), "created when missing");
+    std::fs::write(root.join("out/wav/stale.wav"), b"old").expect("stale file");
+    assert!(runner.fresh_dir("out/wav").is_ok(), "emptied when present");
+    assert_eq!(
+        std::fs::read_dir(root.join("out/wav"))
+            .expect("still a directory")
+            .count(),
+        0,
+        "the stale file is gone"
+    );
+    std::fs::write(root.join("file"), b"").expect("a plain file");
+    assert!(
+        runner.fresh_dir("file/below").is_err(),
+        "cannot create under a file"
+    );
+    std::fs::remove_dir_all(&root).expect("cleanup");
+}
+
+#[test]
+fn reports_a_directory_that_cannot_be_emptied() {
+    let mut fake = passing();
+    fake.broken = Some("fresh target/conformance".to_owned());
+    assert_eq!(
+        run_steps(&check_steps(), &mut fake, &mut Vec::new()),
+        Err(
+            "✘ Fresh conformance export directory: cannot empty target/conformance: busy"
+                .to_owned()
+        ),
+        "named and explained"
+    );
 }
 
 #[test]
