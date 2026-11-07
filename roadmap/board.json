@@ -14,26 +14,30 @@
       "tasks": [
         {
           "title": "Install the Rust toolchain",
+          "done": true
+        },
+        {
+          "title": "engine-core: Object contract, strong types, fixed block, plan build and run (no_std, forbid unsafe)",
           "done": false
         },
         {
-          "title": "engine-core: 440 Hz sine oscillator (no_std, libm, fixed block size)",
+          "title": "engine-objects + engine-testkit: osc~ (440 Hz sine) passing the generic laws",
           "done": false
         },
         {
-          "title": "engine-cli: offline WAV render + reference hash",
+          "title": "engine-hash + engine-cli: offline render, canonical hash, first conformance case sine-440",
           "done": false
         },
         {
-          "title": "engine-wasm + AudioWorklet glue (no wasm-bindgen on the audio path)",
+          "title": "engine-wasm + web/worklet: C ABI, AudioWorklet, same hash as native",
           "done": false
         },
         {
-          "title": "Web page: on/off button + live oscilloscope",
+          "title": "web/playground: on/off button + live oscilloscope, end-to-end tests on 4 browsers",
           "done": false
         },
         {
-          "title": "Tests: same hash native and WASM, end-to-end on 4 browsers, CI and pre-push hook",
+          "title": "xtask check wired into CI and the pre-push hook",
           "done": false
         }
       ]

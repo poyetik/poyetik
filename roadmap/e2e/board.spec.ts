@@ -44,3 +44,18 @@ test("stays readable in dark mode", async ({ page }) => {
   const results = await new AxeBuilder({ page }).withTags(["wcag2aa"]).analyze();
   expect(results.violations).toEqual([]);
 });
+
+test("steps are collapsed by default and expand on click", async ({ page }) => {
+  const withSteps = view.columns.flatMap((c) => c.cards).find((c) => c.steps.length > 0);
+  if (withSteps === undefined) {
+    throw new Error("board.json must contain at least one card with steps for this test");
+  }
+  await page.goto("./");
+  const card = page.locator(`[data-id="${String(withSteps.id)}"]`);
+  const steps = card.locator(".step");
+  await expect(card.locator("summary")).toContainText(`Steps ${String(withSteps.doneSteps)}/${String(withSteps.steps.length)}`);
+  await expect(steps.first()).toBeHidden();
+  await card.locator("summary").click();
+  await expect(steps).toHaveCount(withSteps.steps.length);
+  await expect(steps.first()).toBeVisible();
+});

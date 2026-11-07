@@ -32,6 +32,11 @@ const { view } = Astro.props;
                 <h3>{card.title}</h3>
                 {card.description !== "" && <p>{card.description}</p>}
                 {card.steps.length > 0 && (
+                  <details class="steps-toggle">
+                    <summary>
+                      Steps {card.doneSteps}/{card.steps.length}
+                      {card.currentStep !== null && <span class="current"> · {card.currentStep}</span>}
+                    </summary>
                   <ol class="steps" aria-label="Steps">
                     {card.steps.map((step) => (
                       <li class="step" data-status={step.status}>
@@ -41,15 +46,11 @@ const { view } = Astro.props;
                       </li>
                     ))}
                   </ol>
+                  </details>
                 )}
                 <footer>
                   <span class="id">{formatId(card.id)}</span>
                   {card.milestone !== "" && <span class="milestone">{card.milestone}</span>}
-                  {card.steps.length > 0 && (
-                    <span class="progress">
-                      {card.doneSteps}/{card.steps.length}
-                    </span>
-                  )}
                 </footer>
               </li>
             ))}

@@ -1,0 +1,37 @@
+# Determinism rules (see doc/architecture.md, section 4). Enforced on every crate.
+disallowed-methods = [
+  { path = "f32::sin", reason = "use libm: identical results on every target" },
+  { path = "f32::cos", reason = "use libm: identical results on every target" },
+  { path = "f32::tan", reason = "use libm: identical results on every target" },
+  { path = "f32::exp", reason = "use libm: identical results on every target" },
+  { path = "f32::ln", reason = "use libm: identical results on every target" },
+  { path = "f32::log2", reason = "use libm: identical results on every target" },
+  { path = "f32::log10", reason = "use libm: identical results on every target" },
+  { path = "f32::powf", reason = "use libm: identical results on every target" },
+  { path = "f32::powi", reason = "use libm: identical results on every target" },
+  { path = "f32::tanh", reason = "use libm: identical results on every target" },
+  { path = "f32::mul_add", reason = "fused multiply-add rounds differently on targets without FMA" },
+  { path = "f64::sin", reason = "use libm: identical results on every target" },
+  { path = "f64::cos", reason = "use libm: identical results on every target" },
+  { path = "f64::tan", reason = "use libm: identical results on every target" },
+  { path = "f64::exp", reason = "use libm: identical results on every target" },
+  { path = "f64::ln", reason = "use libm: identical results on every target" },
+  { path = "f64::log2", reason = "use libm: identical results on every target" },
+  { path = "f64::log10", reason = "use libm: identical results on every target" },
+  { path = "f64::powf", reason = "use libm: identical results on every target" },
+  { path = "f64::powi", reason = "use libm: identical results on every target" },
+  { path = "f64::tanh", reason = "use libm: identical results on every target" },
+  { path = "f64::mul_add", reason = "fused multiply-add rounds differently on targets without FMA" },
+  { path = "std::time::Instant::now", reason = "the engine counts time in samples" },
+  { path = "std::time::SystemTime::now", reason = "the engine counts time in samples" },
+]
+disallowed-types = [
+  { path = "std::collections::HashMap", reason = "random iteration order: use BTreeMap" },
+  { path = "std::collections::HashSet", reason = "random iteration order: use BTreeSet" },
+]
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+allow-indexing-slicing-in-tests = true
+allow-unwrap-in-tests = false
+allow-print-in-tests = false
+allow-dbg-in-tests = false

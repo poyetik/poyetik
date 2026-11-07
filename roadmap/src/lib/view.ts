@@ -4,6 +4,8 @@ export interface CardView extends Card {
   /** Steps with their status: the first one not done is in progress. */
   readonly steps: readonly TaskWithStatus[];
   readonly doneSteps: number;
+  /** Title of the step in progress, or null when every step is done or there is none. */
+  readonly currentStep: string | null;
 }
 
 export interface ColumnView {
@@ -22,7 +24,12 @@ export interface BoardView {
 }
 
 function toCardView(card: Card): CardView {
-  return { ...card, steps: withStatus(card.tasks), doneSteps: card.tasks.filter((t) => t.done).length };
+  return {
+    ...card,
+    steps: withStatus(card.tasks),
+    doneSteps: card.tasks.filter((t) => t.done).length,
+    currentStep: card.tasks.find((t) => !t.done)?.title ?? null,
+  };
 }
 
 /** Prepares the display: cards grouped by column, in board order. */

@@ -7,7 +7,7 @@ function card(id: number, column: Card["column"], updatedAt: string): Card {
 }
 
 function plain(c: Card | undefined): unknown {
-  return { ...c, steps: [], doneSteps: 0 };
+  return { ...c, steps: [], doneSteps: 0, currentStep: null };
 }
 
 describe("toView", () => {
@@ -27,6 +27,18 @@ describe("toView", () => {
       { title: "D", done: false, status: "todo" },
     ]);
     expect(view?.doneSteps).toBe(2);
+    expect(view?.currentStep).toBe("B");
+  });
+
+  it("has no current step when every step is done or there is none", () => {
+    const allDone: Board = {
+      version: 1,
+      title: "P",
+      nextId: 2,
+      cards: [{ ...card(1, "doing", "2026-11-01"), tasks: [{ title: "A", done: true }] }],
+    };
+    expect(toView(allDone).columns[2]?.cards[0]?.currentStep).toBeNull();
+    expect(toView({ ...allDone, cards: [card(1, "doing", "2026-11-01")] }).columns[2]?.cards[0]?.currentStep).toBeNull();
   });
 
   it("groups cards by column in board order", () => {

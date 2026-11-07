@@ -1,0 +1,6 @@
+# Pinned toolchain: every machine and CI build with exactly the same compiler.
+[toolchain]
+channel = "1.99.1"
+profile = "minimal"
+components = ["clippy", "rustfmt", "llvm-tools-preview"]
+targets = ["wasm32-unknown-unknown"]

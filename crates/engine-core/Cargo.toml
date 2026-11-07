@@ -1,0 +1,17 @@
+[package]
+name = "engine-core"
+description = "poyetik engine core: the box contract, strong types and the deterministic execution plan"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+readme = false
+repository = "https://example.invalid/poyetik"
+keywords = ["audio", "dsp", "patching"]
+categories = ["multimedia::audio", "no-std"]
+
+[dependencies]
+
+[lints]
+workspace = true

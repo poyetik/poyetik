@@ -25,7 +25,7 @@ async function render(cards: Card[]): Promise<string> {
 }
 
 describe("Board.astro", () => {
-  it("renders steps with Done and In progress tags and the progress", async () => {
+  it("renders steps with Done and In progress tags in a collapsed summary", async () => {
     const html = await render([
       card(1, "doing", {
         tasks: [
@@ -39,7 +39,8 @@ describe("Board.astro", () => {
     expect(html).toMatch(/data-status="doing"[\s\S]*Build[\s\S]*tag-doing">In progress</);
     expect(html).toMatch(/data-status="todo"[\s\S]*Ship/);
     expect(html.match(/class="tag /g)).toHaveLength(2);
-    expect(html).toMatch(/class="progress"[^>]*>\s*1\/3\s*</);
+    expect(html).toMatch(/<details class="steps-toggle"[^>]*>\s*<summary[^>]*>\s*Steps 1\/3[\s\S]*· Build[\s\S]*<\/summary>/);
+    expect(html).not.toMatch(/<details[^>]*\bopen\b/);
   });
 
   it("renders columns, cards, description and milestone", async () => {
@@ -65,7 +66,13 @@ describe("Board.astro", () => {
     const html = await render([card(1, "next")]);
     expect(html).toContain('data-id="1"');
     expect(html).not.toContain('class="steps"');
-    expect(html).not.toContain('class="progress"');
+    expect(html).not.toContain("<details");
+  });
+
+  it("shows no current step in the summary when every step is done", async () => {
+    const html = await render([card(1, "done", { tasks: [{ title: "Install", done: true }] })]);
+    expect(html).toMatch(/<summary[^>]*>\s*Steps 1\/1\s*<\/summary>/);
+    expect(html).not.toContain('class="current"');
   });
 
   it("escapes card content (no HTML injection)", async () => {

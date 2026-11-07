@@ -46,6 +46,13 @@ Public project kanban. The data lives in `roadmap/board.json`, versioned in git.
 
 The `.githooks/pre-push` hook runs the same checks locally before every push. It is enabled through `core.hooksPath`, set automatically by `pnpm install`. Each new package adds its own check command to it. **Never bypass the hook** (`--no-verify` is forbidden).
 
+## Technologies and dependencies
+
+- **As few as possible.** Every dependency (library or tool) is a liability: prefer the standard library, then a tool or library already used in the project, then a new one.
+- **Modern, mainstream and well maintained.** Only widely used projects with active maintenance and a healthy community. Nothing obscure, experimental or abandoned.
+- **Every dependency is justified** in the dependency register of `doc/architecture.md` (what it is for, why it is needed, why this one). Adding one means adding its entry first.
+- Versions are locked (`Cargo.lock`, `pnpm-lock.yaml`) and the toolchains are pinned.
+
 ## Strict typing and linting policy
 
 Non-negotiable, and **enforced by tooling, not by goodwill**: CI and the pre-push hook reject any violation. No shortcut may weaken the whole.
