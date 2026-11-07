@@ -68,7 +68,7 @@ If the scope plainly cannot touch an axis (for example UX for a Rust-only change
 
 ## 4. Analysis: is each finding admissible, and at what cost?
 
-A confirmed defect is not automatically worth fixing as suggested. For every CONFIRMED or PLAUSIBLE finding, launch an **analyst** subagent (all in a single message; one per finding, never batched) with the finding, its verification, the code and the review packet, and this brief:
+A confirmed defect is not automatically worth fixing as suggested. For every CONFIRMED or PLAUSIBLE finding, launch an **analyst** subagent (all in a single message) with the finding, its verification, the code and the review packet. Findings that share a cause or a fix form a cluster analyzed by one analyst, so that their links and trade-offs are seen together; unrelated findings are never batched, and every finding of a cluster still gets its own complete analysis. The brief:
 
 > Decide whether this finding is admissible, and how it should be addressed, with a thorough analysis:
 > - **Admissibility**: is it a real problem for this project, given its goals and rules (`CLAUDE.md`)? Or a matter of taste, a deliberate documented decision, or something the project explicitly accepts? Quote the rule or decision that settles it.
