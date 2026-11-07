@@ -12,6 +12,9 @@ impl SampleRate {
     /// Highest supported sample rate, in hertz.
     pub const MAX: u32 = 384_000;
 
+    /// 48 kHz, the usual rate of audio interfaces and browsers.
+    pub const HZ_48000: Self = Self(48_000);
+
     /// Creates a sample rate.
     ///
     /// # Errors
@@ -47,6 +50,16 @@ mod tests {
                 "{hz} Hz is supported"
             );
         }
+    }
+
+    #[test]
+    fn provides_48_khz() {
+        assert_eq!(SampleRate::HZ_48000.hz(), 48_000, "48 kHz");
+        assert_eq!(
+            SampleRate::new(48_000),
+            Ok(SampleRate::HZ_48000),
+            "same value"
+        );
     }
 
     #[test]

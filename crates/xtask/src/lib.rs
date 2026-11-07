@@ -135,12 +135,14 @@ pub fn check_steps() -> Vec<Step> {
     ];
     steps.extend(PORTABILITY_TARGETS.iter().map(|&target| {
         run(
-            &format!("engine-core portability ({target})"),
+            &format!("engine portability ({target})"),
             "cargo",
             &[
                 "build",
                 "--package",
                 "engine-core",
+                "--package",
+                "engine-objects",
                 "--locked",
                 "--target",
                 target,

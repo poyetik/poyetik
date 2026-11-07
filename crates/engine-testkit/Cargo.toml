@@ -1,0 +1,19 @@
+[package]
+name = "engine-testkit"
+description = "poyetik test bench: runs boxes in isolation and checks the generic laws every box must respect"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+readme = false
+repository = "https://example.invalid/poyetik"
+keywords = ["audio", "testing"]
+categories = ["development-tools::testing"]
+
+[dependencies]
+engine-core = { path = "../engine-core" }
+proptest = { version = "1", default-features = false, features = ["std"] }
+
+[lints]
+workspace = true

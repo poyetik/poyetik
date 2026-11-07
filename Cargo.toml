@@ -46,6 +46,9 @@ all = { level = "deny", priority = -1 }
 pedantic = { level = "deny", priority = -1 }
 nursery = { level = "deny", priority = -1 }
 cargo = { level = "deny", priority = -1 }
+# Conflicts with rustc's `unreachable_pub` (kept, stricter): an item shared between private
+# modules must then be `pub(crate)`/`pub(super)`, which this nursery lint rejects.
+redundant_pub_crate = "allow"
 # Selected restriction lints
 allow_attributes = "deny"                 # use #[expect(..., reason = "...")] instead of #[allow]
 allow_attributes_without_reason = "deny"

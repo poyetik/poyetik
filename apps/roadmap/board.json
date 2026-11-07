@@ -1,7 +1,7 @@
 {
   "version": 1,
   "title": "poyetik",
-  "nextId": 7,
+  "nextId": 8,
   "cards": [
     {
       "id": 1,
@@ -22,7 +22,7 @@
         },
         {
           "title": "engine-objects + engine-testkit: osc~ (440 Hz sine) passing the generic laws",
-          "done": false
+          "done": true
         },
         {
           "title": "engine-hash + engine-cli: offline render, canonical hash, first conformance case sine-440",
