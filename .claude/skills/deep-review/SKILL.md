@@ -78,24 +78,36 @@ A confirmed defect is not automatically worth fixing as suggested. For every CON
 > - **Proof**: for the recommended option, the failing test that will prove the problem and then its fix, and the checks that will show nothing else broke.
 > - **Recommendation**: apply as suggested, apply differently (say how), defer (say to which ticket or condition), or reject (say why), with a confidence level.
 
-## 5. Report
+## 5. Lessons: turn classes of defects into rules
+
+A fixed defect is gone; a rule keeps its whole class from coming back. For the confirmed findings taken together, find what they reveal about the project's methods: a gap in the testing strategy (edges never tested, a kind of input never generated, a claim never measured), a check that passes vacuously, a promise of `CLAUDE.md` that no tool enforces, a recurring kind of mistake. For each lesson, propose in this order of preference (the guiding principle of `CLAUDE.md`):
+1. **a tool** that makes the mistake impossible or detects it: a step or gate in `cargo xtask check`, a law in `engine-testkit`, a lint, a type;
+2. **a rule in `CLAUDE.md`**, worded so that it applies beyond the case that revealed it;
+3. **a check in this skill**, when only a review can see it.
+
+Each lesson names the findings that revealed it.
+
+## 6. Report
 
 Present, in this order:
 1. **Verdict**: one paragraph. Is the scope at the maximum quality bar? What blocks it?
 2. **Findings**, most severe first, each with: severity, axes, `file:line`, the failure scenario, the evidence, CONFIRMED or PLAUSIBLE, then its **analysis** (admissibility, impact, options, trade-offs, recommendation and confidence).
 3. **Coverage of the review**: for each axis, what was checked and found clean, so that every "nothing found" is explicit.
 4. **Refuted findings**, one line each with the reason.
-5. **Proposed plan**: the recommended fixes grouped into commits, each with the test that will prove it; the deferred findings with where they go; the rejected ones with why.
+5. **Lessons**: the rules, tools and review checks proposed in section 5.
+6. **Proposed plan**: the recommended fixes grouped into commits, each with the test that will prove it; the deferred findings with where they go; the rejected ones with why.
 
 Then **stop**. Nothing is applied without the maintainer's decision, finding by finding.
 
-## 6. Applying a fix: analyze again first
+## 7. Applying a fix: analyze again first
 
 Never apply a fix on the strength of the review alone. For each finding the maintainer accepts, at the moment of applying it:
 1. **Re-analyze it** against the code as it is now (other fixes may have changed it): is it still real, is the chosen option still the best, did a trade-off move? If the answer changed, stop and tell the maintainer before doing anything.
 2. Write the failing test first (`CLAUDE.md`: every fix starts with a test that reproduces the problem).
 3. Apply the fix, then run `cargo xtask check` until it is green.
 4. Commit, one logical fix per commit, the message saying which finding it closes.
+
+Accepted lessons are applied the same way: the tool or rule first, with a test showing it catches the defects that revealed it.
 
 When every accepted fix is in, propose to mark the review point with a git tag `review/<YYYY-MM-DD>`, the default start of the next review.
 

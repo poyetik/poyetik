@@ -184,7 +184,7 @@ Maximum testing applies to **all code, in every language**: Rust engine, patch m
 - **Reproducible builds**: two builds of the same commit produce identical artifacts, checked in CI.
 
 ### Deep review
-`/deep-review` (`.claude/skills/deep-review/`) runs an exhaustive multi-agent review along every quality axis (seventeen, scientific rigor and edge cases included), verifies each finding adversarially, then analyzes each one (admissibility, options, trade-offs) before anything is applied. Run it before closing a roadmap ticket and before every release. No finding is applied without the maintainer's decision and a fresh analysis at the moment of applying it.
+`/deep-review` (`.claude/skills/deep-review/`) runs an exhaustive multi-agent review along every quality axis (seventeen, scientific rigor and edge cases included), verifies each finding adversarially, then analyzes each one (admissibility, options, trade-offs) before anything is applied. Run it before closing a roadmap ticket and before every release. No finding is applied without the maintainer's decision and a fresh analysis at the moment of applying it. Every review also turns the classes of defects it reveals into lessons: preferably a tool that prevents or detects them (a gate, a law, a lint, a type), otherwise a rule in this file, worded to apply beyond the case that revealed it.
 
 ### Transparency
 Results are meant to be published for every release: coverage, mutants, per-target conformance hashes, known deviations.
