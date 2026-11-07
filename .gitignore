@@ -12,3 +12,4 @@ playwright-report/
 
 # Brainstorm notes stay local (not versioned)
 doc/*brainstorm*.md
+/mutants.out*

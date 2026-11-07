@@ -42,9 +42,15 @@ Public project kanban. The data lives in `roadmap/board.json`, versioned in git.
 
 ## CI
 
-`.github/workflows/quality.yml` runs on every push and every pull request. Each new package in the project adds its own jobs there.
+**One command runs every check: `cargo xtask check`** (Rust formatting, lints, tests, portability builds, 100% coverage gate, mutation testing, supply chain, then the whole roadmap chain). The `.githooks/pre-push` hook and `.github/workflows/quality.yml` (every push and pull request) both run exactly this command, so a green local check means a green CI.
 
-The `.githooks/pre-push` hook runs the same checks locally before every push. It is enabled through `core.hooksPath`, set automatically by `pnpm install`. Each new package adds its own check command to it. **Never bypass the hook** (`--no-verify` is forbidden).
+Every new check is added to `xtask` (`check_steps`), never directly to the hook or the workflow. The hook is enabled through `core.hooksPath`, set automatically by `pnpm install` in `roadmap/`. **Never bypass the hook** (`--no-verify` is forbidden).
+
+## Portability
+
+**The engine core is fully portable: no platform-specific code, ever.** `engine-core` (and every crate it will be split into) is `no_std`, has no OS, clock, thread, file, network or JS access, and builds for every target. Everything platform-specific (audio I/O, files, permissions, UI hosting) belongs to the thin shells around it (`engine-wasm` + `web/`, native players, plugin wrappers, Tauri apps).
+
+This is proven, not assumed: `cargo xtask check` builds the core for macOS (ARM), Linux (x86), WebAssembly and a bare-metal ARM microcontroller with no OS at all.
 
 ## Technologies and dependencies
 
@@ -80,7 +86,7 @@ Non-negotiable, and **enforced by tooling, not by goodwill**: CI and the pre-pus
   - Clippy `all`, `pedantic`, `nursery` and `cargo` groups, plus selected `restriction` lints: no `unwrap`/`expect`/`panic!`/`todo!`/`unimplemented!`, no `as` numeric casts (use `From`/`TryFrom`), no indexing that can panic, no float equality, no `dbg!`/`print!` in library code, no lint suppressions (`#[allow]`) without an explicit, reviewed `reason`.
 - Determinism rules as Clippy `disallowed_methods` / `disallowed_types` (`f32::sin`, `mul_add`, `Instant::now`, `HashMap` with random state…).
 - `cargo-deny`: allowed licenses only (MIT/Apache/BSD), no known vulnerabilities, no duplicate or unexpected dependencies.
-- Coverage 100% lines and branches (`cargo-llvm-cov`), **no surviving mutant** (`cargo-mutants`), Miri on any `unsafe`.
+- Coverage 100% lines, functions and branches (`cargo-llvm-cov`; branch coverage needs a pinned nightly, `nightly-2026-11-01`, used for that measurement only), **no surviving mutant** (`cargo-mutants --cap-lints=true`, so that mutants are never skipped because of lints), Miri on any `unsafe`.
 
 ## Testing policy
 

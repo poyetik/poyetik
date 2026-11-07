@@ -38,9 +38,10 @@ test("passes accessibility rules (axe)", async ({ page }) => {
   expect(results.violations).toEqual([]);
 });
 
-test("stays readable in dark mode", async ({ page }) => {
-  await page.emulateMedia({ colorScheme: "dark" });
+test("is dark and stays readable whatever the system theme", async ({ page }) => {
+  await page.emulateMedia({ colorScheme: "light" });
   await page.goto("./");
+  await expect(page.locator("body")).toHaveCSS("background-color", "rgb(22, 22, 21)");
   const results = await new AxeBuilder({ page }).withTags(["wcag2aa"]).analyze();
   expect(results.violations).toEqual([]);
 });

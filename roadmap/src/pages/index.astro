@@ -15,32 +15,18 @@ const view = toView(parseBoard(rawBoard));
     <title>{view.title} · Roadmap</title>
     <style is:global>
       :root {
-        color-scheme: light dark;
-        --bg: #f6f6f4;
-        --fg: #1d1d1b;
-        --muted: #5f5f5a;
-        --card: #ffffff;
-        --border: #dcdcd6;
-        --accent: #2f5bd3;
-        --done-bg: #dcefdc;
-        --done-fg: #1d5b1d;
-        --doing-bg: #dde6ff;
-        --doing-fg: #1f3f99;
+        color-scheme: dark;
+        --bg: #161615;
+        --fg: #ecece8;
+        --muted: #a3a39c;
+        --card: #22221f;
+        --border: #3a3a36;
+        --accent: #8aa8ff;
+        --done-bg: #1f3a1f;
+        --done-fg: #b5e3b5;
+        --doing-bg: #22305a;
+        --doing-fg: #c9d6ff;
         font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-      }
-      @media (prefers-color-scheme: dark) {
-        :root {
-          --bg: #161615;
-          --fg: #ecece8;
-          --muted: #a3a39c;
-          --card: #22221f;
-          --border: #3a3a36;
-          --accent: #8aa8ff;
-          --done-bg: #1f3a1f;
-          --done-fg: #b5e3b5;
-          --doing-bg: #22305a;
-          --doing-fg: #c9d6ff;
-        }
       }
       * { box-sizing: border-box; }
       body { margin: 0; background: var(--bg); color: var(--fg); }

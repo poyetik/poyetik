@@ -1,5 +1,5 @@
 # Quality: runs on every push, on every branch, and on every pull request.
-# No step is optional: a single failure blocks.
+# It runs exactly what the pre-push hook runs: `cargo xtask check`.
 name: Quality
 
 on:
@@ -14,60 +14,26 @@ concurrency:
   group: quality-${{ github.ref }}
   cancel-in-progress: true
 
-defaults:
-  run:
-    working-directory: roadmap
-
 jobs:
-  static:
-    name: Roadmap · types and lint
+  check:
+    name: cargo xtask check
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v4
-        with:
-          package_json_file: roadmap/package.json
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: roadmap/pnpm-lock.yaml
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm typecheck
-      - run: pnpm lint
-      - name: Valid board.json
-        run: pnpm roadmap validate
 
-  unit:
-    name: Roadmap · tests and 100% coverage
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v4
+      # Rust: the pinned stable toolchain comes from rust-toolchain.toml; the pinned
+      # nightly is used only to measure branch coverage.
+      - name: Install Rust toolchains
+        run: |
+          rustup show active-toolchain
+          rustup toolchain install nightly-2026-11-01 --profile minimal --component llvm-tools-preview
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
         with:
-          package_json_file: roadmap/package.json
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: roadmap/pnpm-lock.yaml
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm test
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: roadmap-coverage
-          path: roadmap/coverage
-          if-no-files-found: ignore
+          tool: cargo-llvm-cov,cargo-mutants,cargo-deny
 
-  mutation:
-    name: Roadmap · 100% mutation
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v5
+      # JavaScript: pnpm, Node and the Playwright browsers for the roadmap.
       - uses: pnpm/action-setup@v4
         with:
           package_json_file: roadmap/package.json
@@ -76,42 +42,23 @@ jobs:
           node-version: 22
           cache: pnpm
           cache-dependency-path: roadmap/pnpm-lock.yaml
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm test:mutation
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: roadmap-mutation
-          path: roadmap/reports/mutation
-          if-no-files-found: ignore
+      - name: Install Playwright browsers
+        working-directory: roadmap
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm exec playwright install --with-deps chromium firefox webkit
 
-  e2e:
-    name: Roadmap · end-to-end (${{ matrix.project }})
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        project: [chromium, firefox, webkit, mobile-webkit]
-    steps:
-      - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v4
-        with:
-          package_json_file: roadmap/package.json
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: roadmap/pnpm-lock.yaml
-      - run: pnpm install --frozen-lockfile
-      - name: Install the browser
-        run: pnpm exec playwright install --with-deps ${{ matrix.project == 'mobile-webkit' && 'webkit' || matrix.project }}
-      - run: pnpm test:e2e --project=${{ matrix.project }}
+      - name: Every quality check
+        run: cargo xtask check
+
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: roadmap-e2e-${{ matrix.project }}
+          name: reports
           path: |
+            mutants.out
+            roadmap/coverage
+            roadmap/reports
             roadmap/playwright-report
             roadmap/test-results
           if-no-files-found: ignore

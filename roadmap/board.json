@@ -18,7 +18,7 @@
         },
         {
           "title": "engine-core: Object contract, strong types, fixed block, plan build and run (no_std, forbid unsafe)",
-          "done": false
+          "done": true
         },
         {
           "title": "engine-objects + engine-testkit: osc~ (440 Hz sine) passing the generic laws",
@@ -38,7 +38,7 @@
         },
         {
           "title": "xtask check wired into CI and the pre-push hook",
-          "done": false
+          "done": true
         }
       ]
     }
