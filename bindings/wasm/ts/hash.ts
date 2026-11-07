@@ -7,14 +7,16 @@
 /** Tag opening the hashed bytes: the version of the scheme. */
 const TAG = "render-hash/1";
 
-/** Interleaves channels (all of the same length) into one array: frame after frame. */
+/** Interleaves channels (all of the same length) into one array, frame after frame, bit for bit. */
 export function interleave(channels: readonly Float32Array[]): Float32Array {
   const count = channels.length;
   const out = new Float32Array((channels[0]?.length ?? 0) * count);
+  // Copied as bit patterns, never as numbers: a number conversion may change a NaN.
+  const bits = new Uint32Array(out.buffer);
   channels.forEach((channel, index) => {
     // Samples beyond the length of the first channel fall outside `out` and are ignored.
-    channel.forEach((sample, frame) => {
-      out[frame * count + index] = sample;
+    new Uint32Array(channel.buffer, channel.byteOffset, channel.length).forEach((word, frame) => {
+      bits[frame * count + index] = word;
     });
   });
   return out;

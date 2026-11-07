@@ -48,6 +48,15 @@ describe("interleave", () => {
     expect(interleave([new Float32Array([1]), new Float32Array([2, 3])])).toStrictEqual(new Float32Array([1, 2]));
   });
 
+  test("keeps every bit, NaN payloads included", () => {
+    const signaling = new Float32Array(new Uint32Array([0x7f800001, 0xffa00000]).buffer);
+    const quiet = new Float32Array(new Uint32Array([0x7fc00001]).buffer);
+    const out = interleave([signaling.subarray(0, 1), quiet]);
+    expect(Array.from(new Uint32Array(out.buffer))).toStrictEqual([0x7f800001, 0x7fc00001]);
+    const offset = interleave([signaling.subarray(1)]);
+    expect(Array.from(new Uint32Array(offset.buffer))).toStrictEqual([0xffa00000]);
+  });
+
   test("accepts no channels", () => {
     expect(interleave([])).toStrictEqual(new Float32Array());
   });
