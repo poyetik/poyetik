@@ -1,7 +1,7 @@
 {
   "version": 1,
   "title": "poyetik",
-  "nextId": 12,
+  "nextId": 13,
   "cards": [
     {
       "id": 1,
@@ -42,6 +42,37 @@
         },
         {
           "title": "Independent conformance oracle (TypeScript): rereads the WAV of every case, recomputes the hashes and checks the expected signal, in cargo xtask check",
+          "done": true
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "title": "DSP foundations: state-of-the-art audio quality before more boxes",
+      "description": "Set the audio quality bar before writing many boxes: objective measurements, deterministic denormals, smoothed parameters with sample-accurate events, an allocation-free audio thread in the browser, and benchmarks.",
+      "column": "next",
+      "milestone": "M1 Engine",
+      "createdAt": "2026-11-07",
+      "updatedAt": "2026-11-07",
+      "tasks": [
+        {
+          "title": "Objective measurements in engine-testkit and the oracle: spectrum, THD, SNR, aliasing level, with thresholds per box",
+          "done": false
+        },
+        {
+          "title": "Deterministic strategy for denormal numbers, proven on every target",
+          "done": false
+        },
+        {
+          "title": "Typed, smoothed parameters and sample-accurate timestamped events, in the engine and the patch format",
+          "done": false
+        },
+        {
+          "title": "Allocation-free audio thread in the browser: SharedArrayBuffer ring buffer for the tap, with cross-origin isolation (COOP/COEP)",
+          "done": false
+        },
+        {
+          "title": "Benchmarks in CI: instruction counts per box with regression thresholds",
           "done": false
         }
       ]
