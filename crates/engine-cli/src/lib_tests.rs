@@ -17,7 +17,9 @@ const SINE: &str = r#"{"sample_rate":48000,"frames":100,"patch":{"format":1,
 struct Memory {
     files: BTreeMap<PathBuf, Vec<u8>>,
     read_only: bool,
+    no_dirs: bool,
     unreadable: Option<PathBuf>,
+    dirs: Vec<PathBuf>,
 }
 
 impl Memory {
@@ -58,10 +60,20 @@ impl Files for Memory {
         Ok(())
     }
 
+    fn create_dir_all(&mut self, dir: &Path) -> io::Result<()> {
+        if self.no_dirs {
+            return Err(io::Error::other("cannot create directories"));
+        }
+        self.dirs.push(dir.to_path_buf());
+        Ok(())
+    }
+
+    /// Lists in reverse name order: a real directory has no order either.
     fn list(&mut self, dir: &Path) -> io::Result<Vec<PathBuf>> {
         let entries: Vec<PathBuf> = self
             .files
             .keys()
+            .rev()
             .filter(|p| p.parent() == Some(dir))
             .cloned()
             .collect();
@@ -473,6 +485,14 @@ fn disk_reads_writes_and_lists() {
         "missing directory"
     );
     assert!(disk.read(&dir.join("missing")).is_err(), "missing file");
+    let nested = dir.join("x").join("y");
+    assert!(disk.create_dir_all(&nested).is_ok(), "create directories");
+    assert!(nested.is_dir(), "created");
+    assert!(disk.create_dir_all(&nested).is_ok(), "already there");
+    assert!(
+        disk.create_dir_all(&file.join("z")).is_err(),
+        "under a file"
+    );
     assert!(
         disk.write(&dir.join("missing").join("x"), b"").is_err(),
         "unwritable"
@@ -547,5 +567,101 @@ fn check_command_rejects_case_names_that_are_not_utf8() {
     assert!(
         error.starts_with("invalid case file name: conf/cases/bad"),
         "{error}"
+    );
+}
+
+/// Two cases, `a` and `b`, the second one an octave up.
+fn two_cases() -> Memory {
+    Memory::with(&[
+        (
+            "conf/cases/b.json",
+            &SINE.replace(
+                "{\"id\":1,\"box\":\"osc~\"}",
+                "{\"id\":1,\"box\":\"osc~\",\"params\":{\"frequency\":880}}",
+            ),
+        ),
+        ("conf/cases/a.json", SINE),
+        ("conf/cases/notes.txt", "ignored"),
+    ])
+}
+
+#[test]
+fn export_command_writes_the_wav_of_every_case_in_order() {
+    let mut memory = two_cases();
+    let (result, out) = run_with(&mut memory, &["export", "conf", "out/wav"]);
+    assert_eq!(result, Ok(()), "{out}");
+    assert_eq!(
+        memory.dirs,
+        vec![PathBuf::from("out/wav")],
+        "output directory"
+    );
+    let a = render_case(SINE).expect("valid case");
+    let b = render_case(&memory.text("conf/cases/b.json")).expect("valid case");
+    assert_ne!(a.samples, b.samples, "two different cases");
+    assert_eq!(
+        memory.files[Path::new("out/wav/a.wav")],
+        wav_bytes(&a).expect("fits"),
+        "a"
+    );
+    assert_eq!(
+        memory.files[Path::new("out/wav/b.wav")],
+        wav_bytes(&b).expect("fits"),
+        "b"
+    );
+    assert_eq!(
+        out,
+        format!(
+            "wrote    out/wav/a.wav {}\nwrote    out/wav/b.wav {}\n",
+            a.hash(),
+            b.hash()
+        ),
+        "sorted by name"
+    );
+    assert!(
+        !memory.files.contains_key(Path::new("out/wav/notes.wav")),
+        "only JSON cases"
+    );
+}
+
+#[test]
+fn export_command_reports_errors() {
+    let mut no_dirs = two_cases();
+    no_dirs.no_dirs = true;
+    assert_eq!(
+        run_with(&mut no_dirs, &["export", "conf", "out"]).0,
+        Err("cannot create out: cannot create directories".to_owned()),
+        "directory"
+    );
+    let mut read_only = two_cases();
+    read_only.read_only = true;
+    assert_eq!(
+        run_with(&mut read_only, &["export", "conf", "out"]).0,
+        Err("cannot write out/a.wav: read-only".to_owned()),
+        "write"
+    );
+    let mut invalid = Memory::with(&[("conf/cases/bad.json", "{}")]);
+    assert!(
+        run_with(&mut invalid, &["export", "conf", "out"])
+            .0
+            .is_err_and(|e| e.starts_with("bad: invalid case: ")),
+        "invalid case named"
+    );
+    let mut missing = Memory::default();
+    assert_eq!(
+        run_with(&mut missing, &["export", "conf", "out"]).0,
+        Err("cannot list conf/cases: no such directory".to_owned()),
+        "no cases"
+    );
+    let mut unreadable = two_cases();
+    unreadable.unreadable = Some(PathBuf::from("conf/cases/a.json"));
+    assert_eq!(
+        run_with(&mut unreadable, &["export", "conf", "out"]).0,
+        Err("cannot read conf/cases/a.json: permission denied".to_owned()),
+        "unreadable case"
+    );
+    assert_eq!(
+        run_with(&mut two_cases(), &["export", "conf"]).0,
+        Err(USAGE.to_owned()),
+        "missing output"
     );
 }

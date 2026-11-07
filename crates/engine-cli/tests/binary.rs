@@ -55,6 +55,29 @@ mod tests {
     }
 
     #[test]
+    fn exports_the_repository_corpus_as_wav_files() {
+        let dir = std::env::temp_dir().join(format!("engine-cli-export-{}", std::process::id()));
+        let output = Command::new(env!("CARGO_BIN_EXE_engine-cli"))
+            .args([
+                "export",
+                &conformance(),
+                &dir.join("wav").display().to_string(),
+            ])
+            .output()
+            .expect("the binary runs");
+        let wav = std::fs::read(dir.join("wav/sine-440.wav")).expect("written");
+        std::fs::remove_dir_all(&dir).expect("cleanup");
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        // 58-byte header, then 48000 frames of 2 channels of 4-byte floats.
+        assert_eq!(wav.len(), 58 + 48_000 * 2 * 4, "size");
+        assert!(wav.starts_with(b"RIFF"), "a WAV file");
+    }
+
+    #[test]
     fn prints_usage_and_fails_without_a_command() {
         let output = Command::new(env!("CARGO_BIN_EXE_engine-cli"))
             .output()

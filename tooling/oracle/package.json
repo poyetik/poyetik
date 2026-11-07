@@ -1,0 +1,28 @@
+{
+  "name": "@poyetik/oracle",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Independent conformance oracle: rereads the WAV file the native engine wrote for every case, recomputes its hash and checks the signal itself, with no code shared with the engine.",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --max-warnings 0",
+    "test": "vitest run --coverage",
+    "test:mutation": "stryker run",
+    "oracle": "node src/bin.ts ../../conformance ../../target/conformance",
+    "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm test:mutation && pnpm oracle"
+  },
+  "engines": {
+    "node": ">=22.18"
+  },
+  "devDependencies": {
+    "@poyetik/config": "workspace:*",
+    "@stryker-mutator/core": "^10.1.1",
+    "@stryker-mutator/vitest-runner": "^10.1.1",
+    "@types/node": "^26.6.6",
+    "@vitest/coverage-v8": "^5.1.0",
+    "eslint": "^10.14.0",
+    "typescript": "~6.0.3",
+    "vitest": "^5.1.0"
+  }
+}

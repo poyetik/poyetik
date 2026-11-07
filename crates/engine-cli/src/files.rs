@@ -19,6 +19,13 @@ pub trait Files {
     /// Returns an error when the file cannot be written.
     fn write(&mut self, path: &Path, bytes: &[u8]) -> io::Result<()>;
 
+    /// Creates a directory and its missing parents; does nothing if it exists.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the directory cannot be created.
+    fn create_dir_all(&mut self, dir: &Path) -> io::Result<()>;
+
     /// Lists the entries of a directory.
     ///
     /// # Errors
@@ -38,6 +45,10 @@ impl Files for Disk {
 
     fn write(&mut self, path: &Path, bytes: &[u8]) -> io::Result<()> {
         std::fs::write(path, bytes)
+    }
+
+    fn create_dir_all(&mut self, dir: &Path) -> io::Result<()> {
+        std::fs::create_dir_all(dir)
     }
 
     fn list(&mut self, dir: &Path) -> io::Result<Vec<PathBuf>> {

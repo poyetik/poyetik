@@ -10,7 +10,8 @@ use crate::{Files, prepare_case, render_case, wav_file};
 pub const USAGE: &str = "usage: engine-cli <command>
   render <case.json> [--wav <file.wav>]  render a case, print its hash, optionally write a WAV file
   check <dir>                            compare every case of <dir>/cases with <dir>/references.json
-  bless <dir>                            rewrite <dir>/references.json from the current renders";
+  bless <dir>                            rewrite <dir>/references.json from the current renders
+  export <dir> <out>                     write the WAV file of every case of <dir>/cases to <out>/<case>.wav";
 
 /// Reads a file, naming it on failure.
 fn read(files: &mut dyn Files, path: &Path) -> Result<String, String> {
@@ -24,13 +25,14 @@ fn say(out: &mut dyn Write, line: &str) -> Result<(), String> {
     writeln!(out, "{line}").map_err(|error| error.to_string())
 }
 
-/// Renders every case of `<dir>/cases`, sorted by name: `(name, hash)`.
-fn hashes(files: &mut dyn Files, dir: &Path) -> Result<BTreeMap<String, String>, String> {
+/// Reads every case of `<dir>/cases`, sorted by name: `(name, JSON text)`.
+fn cases(files: &mut dyn Files, dir: &Path) -> Result<Vec<(String, String)>, String> {
     let cases = dir.join("cases");
-    let entries = files
+    let mut entries = files
         .list(&cases)
         .map_err(|error| format!("cannot list {}: {error}", cases.display()))?;
-    let mut hashes = BTreeMap::new();
+    entries.sort();
+    let mut read_cases = Vec::new();
     for path in entries
         .iter()
         .filter(|p| p.extension().is_some_and(|e| e == "json"))
@@ -39,9 +41,18 @@ fn hashes(files: &mut dyn Files, dir: &Path) -> Result<BTreeMap<String, String>,
             .file_stem()
             .and_then(|stem| stem.to_str())
             .ok_or_else(|| format!("invalid case file name: {}", path.display()))?;
-        let rendered = render_case(&read(files, path)?).map_err(|e| format!("{name}: {e}"))?;
+        read_cases.push((name.to_owned(), read(files, path)?));
+    }
+    Ok(read_cases)
+}
+
+/// Renders every case of `<dir>/cases`, sorted by name: `(name, hash)`.
+fn hashes(files: &mut dyn Files, dir: &Path) -> Result<BTreeMap<String, String>, String> {
+    let mut hashes = BTreeMap::new();
+    for (name, json) in cases(files, dir)? {
+        let rendered = render_case(&json).map_err(|e| format!("{name}: {e}"))?;
         // Case names are file names of one directory, hence unique.
-        drop(hashes.insert(name.to_owned(), rendered.hash().to_string()));
+        drop(hashes.insert(name, rendered.hash().to_string()));
     }
     Ok(hashes)
 }
@@ -123,6 +134,33 @@ fn bless(files: &mut dyn Files, out: &mut dyn Write, dir: &Path) -> Result<(), S
     )
 }
 
+/// `export <dir> <out>`: the WAV file of every case, for tools that check renders
+/// independently of this engine.
+fn export(
+    files: &mut dyn Files,
+    out: &mut dyn Write,
+    dir: &Path,
+    target: &Path,
+) -> Result<(), String> {
+    files
+        .create_dir_all(target)
+        .map_err(|error| format!("cannot create {}: {error}", target.display()))?;
+    for (name, json) in cases(files, dir)? {
+        let prepared = prepare_case(&json).map_err(|e| format!("{name}: {e}"))?;
+        let header = *prepared.wav_header();
+        let rendered = prepared.render();
+        let path = target.join(format!("{name}.wav"));
+        files
+            .write(&path, &wav_file(&header, &rendered.samples))
+            .map_err(|error| format!("cannot write {}: {error}", path.display()))?;
+        say(
+            out,
+            &format!("wrote    {} {}", path.display(), rendered.hash()),
+        )?;
+    }
+    Ok(())
+}
+
 /// Runs the command named by `args`.
 ///
 /// # Errors
@@ -134,6 +172,9 @@ pub fn run(args: &[String], files: &mut dyn Files, out: &mut dyn Write) -> Resul
         [command, rest @ ..] if command == "render" => render(files, out, rest),
         [command, dir] if command == "check" => check(files, out, Path::new(dir)),
         [command, dir] if command == "bless" => bless(files, out, Path::new(dir)),
+        [command, dir, target] if command == "export" => {
+            export(files, out, Path::new(dir), Path::new(target))
+        }
         _ => Err(USAGE.to_owned()),
     }
 }

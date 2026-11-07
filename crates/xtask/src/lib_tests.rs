@@ -73,6 +73,7 @@ fn passing() -> Fake {
         (PACKAGE_JSONS[2], PACKAGE),
         (PACKAGE_JSONS[3], PACKAGE),
         (PACKAGE_JSONS[4], PACKAGE),
+        (PACKAGE_JSONS[5], PACKAGE),
         (CHANGELOG, LOG),
         ("COMMIT_EDITMSG", "feat(core): add the plan\n"),
     ] {
@@ -100,6 +101,7 @@ fn roadmap_package(text: &str) -> Vec<(&'static str, String)> {
         (PACKAGE_JSONS[2], PACKAGE.to_owned()),
         (PACKAGE_JSONS[3], PACKAGE.to_owned()),
         (PACKAGE_JSONS[4], PACKAGE.to_owned()),
+        (PACKAGE_JSONS[5], PACKAGE.to_owned()),
     ]
 }
 
@@ -137,9 +139,11 @@ fn lists_every_check_in_order() {
             "unviable gate",
             "Root: cargo +nightly-2026-11-01 miri test --package engine-wasm --locked",
             "Root: cargo run --package engine-cli --locked --quiet -- check conformance",
+            "Root: cargo run --package engine-cli --locked --quiet -- export conformance target/conformance",
             "Root: cargo deny --locked check",
             "release gate",
             "Root: pnpm install --frozen-lockfile",
+            "Oracle: pnpm run check",
             "EngineWasm: pnpm run check",
             "Playground: pnpm run check",
             "Roadmap: pnpm run check",
@@ -163,9 +167,11 @@ fn lists_every_check_in_order() {
             "Rust unviable mutants reviewed",
             "Rust FFI under Miri",
             "Conformance (native)",
+            "Conformance export (native WAV files)",
             "Rust supply chain",
             "Versions and changelog",
             "JavaScript dependencies",
+            "Conformance oracle (independent, TypeScript)",
             "Engine WASM checks",
             "Playground checks",
             "Roadmap checks",
@@ -193,6 +199,11 @@ fn resolves_directories() {
         Dir::Playground.under(root),
         Path::new("/repo/apps/playground"),
         "playground"
+    );
+    assert_eq!(
+        Dir::Oracle.under(root),
+        Path::new("/repo/tooling/oracle"),
+        "oracle"
     );
 }
 
@@ -249,8 +260,8 @@ fn runs_every_step_and_reports_success() {
     );
     assert_eq!(
         fake.ran.len(),
-        check_steps().len() + 7,
-        "every step ran; the unviable gate reads two files, the release gate seven"
+        check_steps().len() + 8,
+        "every step ran; the unviable gate reads two files, the release gate eight"
     );
     for path in [
         CARGO_TOML,
@@ -259,6 +270,7 @@ fn runs_every_step_and_reports_success() {
         PACKAGE_JSONS[2],
         PACKAGE_JSONS[3],
         PACKAGE_JSONS[4],
+        PACKAGE_JSONS[5],
         CHANGELOG,
     ] {
         assert!(fake.ran.contains(&format!("read {path}")), "{path} read");
@@ -273,15 +285,15 @@ fn runs_every_step_and_reports_success() {
     );
     let text = String::from_utf8(out).expect("utf-8 output");
     assert!(
-        text.starts_with("▶ [1/20] Rust formatting\n"),
+        text.starts_with("▶ [1/22] Rust formatting\n"),
         "numbered progress: {text}"
     );
     assert!(
-        text.contains("▶ [20/20] Roadmap checks\n"),
+        text.contains("▶ [22/22] Roadmap checks\n"),
         "last step announced: {text}"
     );
     assert!(
-        text.ends_with("✔ all 20 checks passed\n"),
+        text.ends_with("✔ all 22 checks passed\n"),
         "summary: {text}"
     );
 }
@@ -855,6 +867,7 @@ fn release_gate_runs_on_the_real_files() {
         PACKAGE_JSONS[2],
         PACKAGE_JSONS[3],
         PACKAGE_JSONS[4],
+        PACKAGE_JSONS[5],
         CHANGELOG,
     ] {
         let mut without = passing();

@@ -1,0 +1,10 @@
+{
+  "sine-440": {
+    "sample_rate": 48000,
+    "frames": 48000,
+    "channels": [
+      { "sine": { "frequency": 440, "amplitude": 1, "phase": 0 }, "max_error": 1e-6 },
+      { "sine": { "frequency": 440, "amplitude": 1, "phase": 0 }, "max_error": 1e-6 }
+    ]
+  }
+}

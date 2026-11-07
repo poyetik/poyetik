@@ -44,6 +44,8 @@ pub enum Dir {
     EngineWasm,
     /// The `apps/playground/` package.
     Playground,
+    /// The `tooling/oracle/` package.
+    Oracle,
 }
 
 impl Dir {
@@ -55,6 +57,7 @@ impl Dir {
             Self::Roadmap => root.join("apps").join("roadmap"),
             Self::EngineWasm => root.join("bindings").join("wasm"),
             Self::Playground => root.join("apps").join("playground"),
+            Self::Oracle => root.join("tooling").join("oracle"),
         }
     }
 }
@@ -239,6 +242,24 @@ fn release_steps() -> Vec<Step> {
             ],
             Dir::Root,
         ),
+        // The independent oracle (tooling/oracle) checks these files after the JavaScript
+        // dependencies are installed.
+        run(
+            "Conformance export (native WAV files)",
+            "cargo",
+            &[
+                "run",
+                "--package",
+                "engine-cli",
+                "--locked",
+                "--quiet",
+                "--",
+                "export",
+                "conformance",
+                "target/conformance",
+            ],
+            Dir::Root,
+        ),
         run(
             "Rust supply chain",
             "cargo",
@@ -254,6 +275,12 @@ fn release_steps() -> Vec<Step> {
             "pnpm",
             &["install", "--frozen-lockfile"],
             Dir::Root,
+        ),
+        run(
+            "Conformance oracle (independent, TypeScript)",
+            "pnpm",
+            &["run", "check"],
+            Dir::Oracle,
         ),
         run(
             "Engine WASM checks",
@@ -394,12 +421,13 @@ pub fn unviable_gate(report: &str, reviewed: &str) -> Result<(), String> {
 pub const CARGO_TOML: &str = "Cargo.toml";
 
 /// Every `package.json` of the pnpm workspace: all carry the project version.
-pub const PACKAGE_JSONS: [&str; 5] = [
+pub const PACKAGE_JSONS: [&str; 6] = [
     "package.json",
     "apps/roadmap/package.json",
     "bindings/wasm/package.json",
     "apps/playground/package.json",
     "tooling/config/package.json",
+    "tooling/oracle/package.json",
 ];
 
 /// The changelog.
