@@ -1,0 +1,27 @@
+{
+  "name": "@poyetik/config",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Shared TypeScript and ESLint configuration of every poyetik TypeScript package: the strict typing policy, in one place.",
+  "exports": {
+    "./tsconfig.base.json": "./tsconfig.base.json",
+    "./eslint": "./eslint.js"
+  },
+  "engines": {
+    "node": ">=22.18"
+  },
+  "dependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint-plugin-jsdoc": "^65.4.5",
+    "typescript-eslint": "^8.72.1"
+  },
+  "devDependencies": {
+    "eslint": "^10.14.0",
+    "typescript": "~6.0.3"
+  },
+  "peerDependencies": {
+    "eslint": "^10.14.0",
+    "typescript": "~6.0.3"
+  }
+}

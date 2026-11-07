@@ -35,7 +35,7 @@ Project rules will be added here as we go.
 ## Repository structure
 
 A **monorepo of separate parts** with clear contracts (details in `doc/architecture.md`, section 2):
-`spec/` (patch format), `crates/` (reusable engine core and tooling), `bindings/` (developer SDKs), `apps/` (applications), `conformance/` (reference cases), `doc/`.
+`spec/` (patch format), `crates/` (reusable engine core and tooling), `bindings/` (developer SDKs), `apps/` (applications), `conformance/` (reference cases), `tooling/` (shared development configuration), `doc/`.
 One Cargo workspace and one pnpm workspace at the root. A part only uses another through its documented public interface. Parts are built **incrementally**: empty folders only hold a short README; never specify ahead of need.
 
 ## Roadmap (`apps/roadmap/`)
@@ -50,7 +50,7 @@ Public project kanban. The data lives in `apps/roadmap/board.json`, versioned in
 
 ## CI
 
-**One command runs every check: `cargo xtask check`** (Rust formatting, lints, tests, portability builds, 100% coverage gate, mutation testing, Miri, conformance, supply chain, then every TypeScript package: the engine in the browser and the roadmap). The `.githooks/pre-push` hook and `.github/workflows/quality.yml` (every push and pull request) both run exactly this command, so a green local check means a green CI.
+**One command runs every check: `cargo xtask check`** (Rust formatting, lints, tests, portability builds, 100% coverage gate, mutation testing, Miri, conformance, supply chain, then every TypeScript package: the engine in the browser, the playground and the roadmap). The `.githooks/pre-push` hook and `.github/workflows/quality.yml` (every push and pull request) both run exactly this command, so a green local check means a green CI.
 
 Every new check is added to `xtask` (`check_steps`), never directly to the hook or the workflow. The hook is enabled through `core.hooksPath`, set automatically by `pnpm install` at the root. **Never bypass the hook** (`--no-verify` is forbidden).
 
@@ -77,7 +77,8 @@ Non-negotiable, and **enforced by tooling, not by goodwill**: CI and the pre-pus
 - If a value cannot be typed precisely, fix the types. Never silence the checker.
 
 ### TypeScript
-- `tsconfig`: Astro `strictest` + `noPropertyAccessFromIndexSignature`, `verbatimModuleSyntax`, `isolatedModules`, `erasableSyntaxOnly`, `useUnknownInCatchVariables`.
+- `tsconfig`: the strictest settings (`strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `noPropertyAccessFromIndexSignature`, `verbatimModuleSyntax`, `isolatedModules`, `erasableSyntaxOnly`, `useUnknownInCatchVariables`…), shared by every package through `@poyetik/config` (`tooling/config`); the roadmap extends Astro `strictest` with the same extras.
+- ESLint: one configuration for every package, `@poyetik/config/eslint`; a package only adds what its framework needs (React hooks rules).
 - ESLint: `strictTypeChecked` + `stylisticTypeChecked` with zero warnings, plus:
   - **no type assertions** (`as T`, `<T>x`), except `as const`, and no non-null assertions (`!`);
   - **no `any`**, explicit or implicit;

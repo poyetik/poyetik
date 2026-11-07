@@ -18,6 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `engine-cli`: renders conformance cases to WAV files, checks and blesses reference hashes.
 - First conformance case, `sine-440`, checked by `cargo xtask check`; `cargo xtask bless` is the only way to update reference hashes.
 - `engine-wasm` (`bindings/wasm`): the engine as a WebAssembly module with a minimal C interface, and its TypeScript glue (`AudioWorklet` processors, main-thread API, offline rendering, live capture), proven bit-identical to the native engine in Node and in Chromium, Firefox, WebKit and mobile WebKit.
+- Playground (`apps/playground`, Vite + React): a 440 Hz sine from the Rust engine with an on/off button, a live Canvas 2D oscilloscope and its measurements (frequency, peak, sample rate), tested on Chromium, Firefox, WebKit and mobile WebKit, with accessibility checks.
+- `engine-wasm`: `tap` streams the output of a node to the main thread; `capture` is built on it.
+- `@poyetik/config` (`tooling/config`): the strict TypeScript and ESLint configuration shared by every TypeScript package.
 - `xtask`: Miri runs the tests of the engine FFI; the `bindings/wasm` package checks (build, types, lint, 100% coverage, mutation testing, end-to-end tests) are part of `cargo xtask check`.
 - `xtask`: `cargo xtask check`, the single quality gate run by the pre-push hook and CI.
 - Monorepo layout: `spec/`, `crates/`, `bindings/`, `apps/`, `conformance/`, with one Cargo workspace and one pnpm workspace at the root.

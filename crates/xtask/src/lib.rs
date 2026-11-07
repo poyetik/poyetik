@@ -42,6 +42,8 @@ pub enum Dir {
     Roadmap,
     /// The `bindings/wasm/` package.
     EngineWasm,
+    /// The `apps/playground/` package.
+    Playground,
 }
 
 impl Dir {
@@ -52,6 +54,7 @@ impl Dir {
             Self::Root => root.to_path_buf(),
             Self::Roadmap => root.join("apps").join("roadmap"),
             Self::EngineWasm => root.join("bindings").join("wasm"),
+            Self::Playground => root.join("apps").join("playground"),
         }
     }
 }
@@ -218,7 +221,7 @@ fn proof_steps() -> Vec<Step> {
 }
 
 /// Conformance, supply chain, versions and the TypeScript packages (the engine in the
-/// browser, then the roadmap).
+/// browser, the playground built on it, then the roadmap).
 fn release_steps() -> Vec<Step> {
     vec![
         run(
@@ -257,6 +260,12 @@ fn release_steps() -> Vec<Step> {
             "pnpm",
             &["run", "check"],
             Dir::EngineWasm,
+        ),
+        run(
+            "Playground checks",
+            "pnpm",
+            &["run", "check"],
+            Dir::Playground,
         ),
         run("Roadmap checks", "pnpm", &["run", "check"], Dir::Roadmap),
     ]
@@ -385,10 +394,12 @@ pub fn unviable_gate(report: &str, reviewed: &str) -> Result<(), String> {
 pub const CARGO_TOML: &str = "Cargo.toml";
 
 /// Every `package.json` of the pnpm workspace: all carry the project version.
-pub const PACKAGE_JSONS: [&str; 3] = [
+pub const PACKAGE_JSONS: [&str; 5] = [
     "package.json",
     "apps/roadmap/package.json",
     "bindings/wasm/package.json",
+    "apps/playground/package.json",
+    "tooling/config/package.json",
 ];
 
 /// The changelog.

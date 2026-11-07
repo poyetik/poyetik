@@ -1,0 +1,11 @@
+{
+  "extends": "@poyetik/config/tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2024", "DOM", "DOM.Iterable"],
+    "types": ["vite/client", "node"],
+    "jsx": "react-jsx",
+    "allowJs": true
+  },
+  "include": ["**/*.ts", "**/*.tsx", "**/*.js"],
+  "exclude": ["dist", "coverage", "reports", "test-results", "playwright-report", ".stryker-tmp", "node_modules"]
+}

@@ -62,6 +62,60 @@ export function createEngineNode(context: BaseAudioContext, loaded: LoadedPatch)
   });
 }
 
+/** A running tap, posting every block of its source to the main thread. */
+export interface Tap {
+  /** Disconnects the tap and stops its processor. Calling it again does nothing. */
+  readonly stop: () => void;
+}
+
+/** Turns anything thrown into an `Error` of this realm (the worklet is another realm). */
+function toError(thrown: unknown): Error {
+  return thrown instanceof Error ? thrown : new Error(String(thrown));
+}
+
+/**
+ * Taps `source`: `onBlock` receives every block it outputs (`channels` channels, exactly
+ * as the audio thread computes them), until `stop` is called. `onError` receives a
+ * malformed block, which is then dropped.
+ */
+export function tap(
+  context: BaseAudioContext,
+  source: AudioNode,
+  channels: number,
+  onBlock: (block: Float32Array[]) => void,
+  onError: (error: Error) => void,
+): Tap {
+  const node = new AudioWorkletNode(context, TAP_PROCESSOR, {
+    numberOfInputs: 1,
+    numberOfOutputs: 0,
+    channelCount: channels,
+    channelCountMode: "explicit",
+    channelInterpretation: "discrete",
+  });
+  let stopped = false;
+  node.port.onmessage = (event: MessageEvent<unknown>) => {
+    let block: Float32Array[];
+    try {
+      block = parseTapBlock(event.data);
+    } catch (error) {
+      onError(toError(error));
+      return;
+    }
+    onBlock(block);
+  };
+  source.connect(node);
+  return {
+    stop: () => {
+      if (!stopped) {
+        stopped = true;
+        node.port.onmessage = null;
+        node.port.postMessage("stop");
+        source.disconnect(node);
+      }
+    },
+  };
+}
+
 /**
  * Captures the next `frames` frames output by `source`, `channels` channels, exactly as
  * the audio thread computes them.
@@ -74,35 +128,28 @@ export function capture(context: BaseAudioContext, source: AudioNode, channels: 
   if (frames === 0) {
     return Promise.resolve(out);
   }
-  const tap = new AudioWorkletNode(context, TAP_PROCESSOR, {
-    numberOfInputs: 1,
-    numberOfOutputs: 0,
-    channelCount: channels,
-    channelCountMode: "explicit",
-    channelInterpretation: "discrete",
-  });
   return new Promise((resolve, reject) => {
     let filled = 0;
-    tap.port.onmessage = (event: MessageEvent<unknown>) => {
-      try {
-        const block = parseTapBlock(event.data);
+    const running = tap(
+      context,
+      source,
+      channels,
+      (block) => {
         const count = Math.min(frames - filled, block[0]?.length ?? 0);
         out.forEach((channel, index) => {
           channel.set(block[index]?.subarray(0, count) ?? new Float32Array(count), filled);
         });
         filled += count;
-      } catch (error) {
-        filled = frames;
-        reject(error instanceof Error ? error : new Error(String(error)));
-      }
-      if (filled === frames) {
-        tap.port.onmessage = null;
-        tap.port.postMessage("stop");
-        source.disconnect(tap);
-        resolve(out);
-      }
-    };
-    source.connect(tap);
+        if (filled === frames) {
+          running.stop();
+          resolve(out);
+        }
+      },
+      (error) => {
+        running.stop();
+        reject(error);
+      },
+    );
   });
 }
 

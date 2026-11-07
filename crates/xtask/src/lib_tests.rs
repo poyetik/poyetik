@@ -71,6 +71,8 @@ fn passing() -> Fake {
         (PACKAGE_JSONS[0], PACKAGE),
         (PACKAGE_JSONS[1], PACKAGE),
         (PACKAGE_JSONS[2], PACKAGE),
+        (PACKAGE_JSONS[3], PACKAGE),
+        (PACKAGE_JSONS[4], PACKAGE),
         (CHANGELOG, LOG),
         ("COMMIT_EDITMSG", "feat(core): add the plan\n"),
     ] {
@@ -96,6 +98,8 @@ fn roadmap_package(text: &str) -> Vec<(&'static str, String)> {
         (PACKAGE_JSONS[0], PACKAGE.to_owned()),
         (PACKAGE_JSONS[1], text.to_owned()),
         (PACKAGE_JSONS[2], PACKAGE.to_owned()),
+        (PACKAGE_JSONS[3], PACKAGE.to_owned()),
+        (PACKAGE_JSONS[4], PACKAGE.to_owned()),
     ]
 }
 
@@ -137,6 +141,7 @@ fn lists_every_check_in_order() {
             "release gate",
             "Root: pnpm install --frozen-lockfile",
             "EngineWasm: pnpm run check",
+            "Playground: pnpm run check",
             "Roadmap: pnpm run check",
         ],
         "the full check pipeline"
@@ -162,6 +167,7 @@ fn lists_every_check_in_order() {
             "Versions and changelog",
             "JavaScript dependencies",
             "Engine WASM checks",
+            "Playground checks",
             "Roadmap checks",
         ],
         "step names"
@@ -182,6 +188,11 @@ fn resolves_directories() {
         Dir::EngineWasm.under(root),
         Path::new("/repo/bindings/wasm"),
         "engine-wasm"
+    );
+    assert_eq!(
+        Dir::Playground.under(root),
+        Path::new("/repo/apps/playground"),
+        "playground"
     );
 }
 
@@ -238,14 +249,16 @@ fn runs_every_step_and_reports_success() {
     );
     assert_eq!(
         fake.ran.len(),
-        check_steps().len() + 5,
-        "every step ran; the unviable gate reads two files, the release gate five"
+        check_steps().len() + 7,
+        "every step ran; the unviable gate reads two files, the release gate seven"
     );
     for path in [
         CARGO_TOML,
         PACKAGE_JSONS[0],
         PACKAGE_JSONS[1],
         PACKAGE_JSONS[2],
+        PACKAGE_JSONS[3],
+        PACKAGE_JSONS[4],
         CHANGELOG,
     ] {
         assert!(fake.ran.contains(&format!("read {path}")), "{path} read");
@@ -260,15 +273,15 @@ fn runs_every_step_and_reports_success() {
     );
     let text = String::from_utf8(out).expect("utf-8 output");
     assert!(
-        text.starts_with("▶ [1/19] Rust formatting\n"),
+        text.starts_with("▶ [1/20] Rust formatting\n"),
         "numbered progress: {text}"
     );
     assert!(
-        text.contains("▶ [19/19] Roadmap checks\n"),
+        text.contains("▶ [20/20] Roadmap checks\n"),
         "last step announced: {text}"
     );
     assert!(
-        text.ends_with("✔ all 19 checks passed\n"),
+        text.ends_with("✔ all 20 checks passed\n"),
         "summary: {text}"
     );
 }
@@ -840,6 +853,8 @@ fn release_gate_runs_on_the_real_files() {
         PACKAGE_JSONS[0],
         PACKAGE_JSONS[1],
         PACKAGE_JSONS[2],
+        PACKAGE_JSONS[3],
+        PACKAGE_JSONS[4],
         CHANGELOG,
     ] {
         let mut without = passing();

@@ -1,5 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
+  "//": "Strictest TypeScript settings shared by every package (see CLAUDE.md); each package adds its libraries and types.",
   "compilerOptions": {
     "target": "ES2024",
     "module": "ESNext",

@@ -1,8 +1,8 @@
 import { runInNewContext } from "node:vm";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { ModuleError } from "../ts/engine.ts";
-import { ENGINE_PROCESSOR, TAP_PROCESSOR } from "../ts/protocol.ts";
-import { addProcessors, capture, createEngineNode, loadPatch, renderOffline, type LoadedPatch } from "../ts/web.ts";
+import { ENGINE_PROCESSOR, OptionsError, TAP_PROCESSOR } from "../ts/protocol.ts";
+import { addProcessors, capture, createEngineNode, loadPatch, renderOffline, tap, type LoadedPatch } from "../ts/web.ts";
 import { SINE_PATCH, UNKNOWN_BOX, wasmBytes } from "./fixtures.ts";
 
 const RATE = 48_000;
@@ -176,6 +176,27 @@ describe("createEngineNode", () => {
       new Error("the context runs at 44100 Hz, the patch was loaded at 48000 Hz"),
     );
     expect(FakeNode.created).toHaveLength(0);
+  });
+});
+
+describe("tap", () => {
+  test("delivers every block until stopped, once", () => {
+    stubNodes();
+    const source = fakeSource();
+    const blocks: Float32Array[][] = [];
+    const errors: Error[] = [];
+    const running = tap(context(fakeContext(RATE)), node(source), 1, (block) => blocks.push(block), (error) => errors.push(error));
+    const port = FakeNode.created[0]?.port;
+    port?.deliver([new Float32Array([1])]);
+    port?.deliver("garbage");
+    port?.deliver([new Float32Array([2])]);
+    expect(blocks).toStrictEqual([[new Float32Array([1])], [new Float32Array([2])]]);
+    expect(errors).toStrictEqual([new OptionsError("tap block is not an array")]);
+    running.stop();
+    running.stop();
+    expect(port?.onmessage).toBeNull();
+    expect(port?.posted).toStrictEqual(["stop"]);
+    expect(source.log).toStrictEqual([`connect ${TAP_PROCESSOR}`, `disconnect ${TAP_PROCESSOR}`]);
   });
 });
 
