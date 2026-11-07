@@ -1,7 +1,7 @@
 {
   "version": 1,
   "title": "poyetik",
-  "nextId": 11,
+  "nextId": 12,
   "cards": [
     {
       "id": 1,
@@ -231,6 +231,16 @@
           "done": false
         }
       ]
+    },
+    {
+      "id": 11,
+      "title": "Reduce the size of the WebAssembly engine",
+      "description": "The proof of concept weighs 290 KB, largely the JSON reader (serde_json). Measure what each part costs, then shrink it (a lighter patch reader, wasm-opt, size-oriented build profile) without changing a single output sample: the conformance hashes must stay identical.",
+      "column": "later",
+      "milestone": "M1 Engine",
+      "createdAt": "2026-11-07",
+      "updatedAt": "2026-11-07",
+      "tasks": []
     }
   ]
 }
