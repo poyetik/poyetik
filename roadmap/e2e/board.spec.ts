@@ -15,7 +15,7 @@ test("shows every board.json card in its column", async ({ page }) => {
     await expect(section.getByRole("heading", { level: 2 })).toContainText(column.title);
     await expect(section.locator(".card")).toHaveCount(column.cards.length);
     for (const card of column.cards) {
-      await expect(section.locator(`[data-id="${card.id}"] h3`)).toHaveText(card.title);
+      await expect(section.locator(`[data-id="${String(card.id)}"] h3`)).toHaveText(card.title);
     }
   }
 });

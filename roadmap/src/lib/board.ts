@@ -13,7 +13,7 @@ export const COLUMNS = [
 export type ColumnId = (typeof COLUMNS)[number]["id"];
 
 export interface Card {
-  readonly id: string;
+  readonly id: number;
   readonly title: string;
   readonly description: string;
   readonly column: ColumnId;
@@ -34,12 +34,26 @@ export class BoardError extends Error {
 }
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-const ID_RE = /^R-\d+$/;
+const ID_TEXT_RE = /^#?([1-9]\d*)$/;
 const CARD_KEYS = ["id", "title", "description", "column", "milestone", "createdAt", "updatedAt"];
 const BOARD_KEYS = ["version", "title", "nextId", "cards"];
 
 export function isColumnId(value: unknown): value is ColumnId {
   return COLUMNS.some((c) => c.id === value);
+}
+
+/** Formats a card id for display: `#12`. */
+export function formatId(id: number): string {
+  return `#${String(id)}`;
+}
+
+/** Parses a card id typed by a user: `12` or `#12`. */
+export function parseId(text: string): number {
+  const match = ID_TEXT_RE.exec(text);
+  if (match === null) {
+    throw new BoardError(`invalid id: ${text}`);
+  }
+  return Number(match[1]);
 }
 
 export function emptyBoard(title: string): Board {
@@ -99,7 +113,7 @@ function parseCard(raw: unknown, index: number): Card {
   }
   requireExactKeys(raw, CARD_KEYS, where);
   const id = raw.id;
-  if (typeof id !== "string" || !ID_RE.test(id)) {
+  if (!isPositiveInteger(id)) {
     throw new BoardError(`${where}: invalid id`);
   }
   return {
@@ -131,14 +145,14 @@ export function parseBoard(raw: unknown): Board {
     throw new BoardError("cards must be an array");
   }
   const parsed = cards.map((c, i) => parseCard(c, i));
-  const seen = new Set<string>();
+  const seen = new Set<number>();
   for (const card of parsed) {
     if (seen.has(card.id)) {
-      throw new BoardError(`duplicate id: ${card.id}`);
+      throw new BoardError(`duplicate id: ${formatId(card.id)}`);
     }
     seen.add(card.id);
-    if (Number(card.id.slice(2)) >= nextId) {
-      throw new BoardError(`${card.id} must be lower than nextId (${String(nextId)})`);
+    if (card.id >= nextId) {
+      throw new BoardError(`${formatId(card.id)} must be lower than nextId (${String(nextId)})`);
     }
   }
   return { version: 1, title: requireText(raw.title, "title"), nextId, cards: parsed };
@@ -178,10 +192,10 @@ export interface EditInput {
   readonly milestone?: string | undefined;
 }
 
-function findCard(board: Board, id: string): Card {
+function findCard(board: Board, id: number): Card {
   const card = board.cards.find((c) => c.id === id);
   if (card === undefined) {
-    throw new BoardError(`card not found: ${id}`);
+    throw new BoardError(`card not found: ${formatId(id)}`);
   }
   return card;
 }
@@ -189,7 +203,7 @@ function findCard(board: Board, id: string): Card {
 export function addCard(board: Board, input: AddInput, today: string): { board: Board; card: Card } {
   const date = requireDate(today, "today's date");
   const card: Card = {
-    id: `R-${String(board.nextId)}`,
+    id: board.nextId,
     title: requireText(input.title, "title"),
     description: requireString(input.description ?? "", "description"),
     column: requireColumn(input.column ?? "later"),
@@ -201,7 +215,7 @@ export function addCard(board: Board, input: AddInput, today: string): { board: 
 }
 
 /** Moves a card to a column, at a given position among that column's cards (end by default). */
-export function moveCard(board: Board, id: string, column: ColumnId, position: number | undefined, today: string): Board {
+export function moveCard(board: Board, id: number, column: ColumnId, position: number | undefined, today: string): Board {
   const date = requireDate(today, "today's date");
   const target = requireColumn(column);
   const card: Card = { ...findCard(board, id), column: target, updatedAt: date };
@@ -216,7 +230,7 @@ export function moveCard(board: Board, id: string, column: ColumnId, position: n
   return { ...board, cards: [...others.slice(0, insertAt), card, ...others.slice(insertAt)] };
 }
 
-export function editCard(board: Board, id: string, patch: EditInput, today: string): Board {
+export function editCard(board: Board, id: number, patch: EditInput, today: string): Board {
   const date = requireDate(today, "today's date");
   const current = findCard(board, id);
   if (patch.title === undefined && patch.description === undefined && patch.milestone === undefined) {
@@ -232,7 +246,7 @@ export function editCard(board: Board, id: string, patch: EditInput, today: stri
   return { ...board, cards: board.cards.map((c) => (c.id === id ? card : c)) };
 }
 
-export function removeCard(board: Board, id: string): Board {
+export function removeCard(board: Board, id: number): Board {
   findCard(board, id);
   return { ...board, cards: board.cards.filter((c) => c.id !== id) };
 }

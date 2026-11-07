@@ -1,10 +1,10 @@
 {
   "version": 1,
   "title": "poyetik",
-  "nextId": 22,
+  "nextId": 2,
   "cards": [
     {
-      "id": "R-21",
+      "id": 1,
       "title": "Oscilloscope in the web page with an on/off button",
       "description": "",
       "column": "doing",

@@ -3,7 +3,7 @@ import type { Board, Card } from "../src/lib/board.ts";
 import { toView } from "../src/lib/view.ts";
 
 function card(id: number, column: Card["column"], updatedAt: string): Card {
-  return { id: `R-${String(id)}`, title: `C${String(id)}`, description: "", column, milestone: "", createdAt: "2026-01-01", updatedAt };
+  return { id, title: `C${String(id)}`, description: "", column, milestone: "", createdAt: "2026-01-01", updatedAt };
 }
 
 describe("toView", () => {

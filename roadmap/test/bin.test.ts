@@ -50,7 +50,7 @@ describe("bin", () => {
     writeFileSync(file, serializeBoard(emptyBoard("Project")));
     process.env.ROADMAP_FILE = file;
     const { stdout } = await runBin(["add", "Engine"]);
-    expect(stdout).toBe("added: R-1  later  Engine\n");
+    expect(stdout).toBe("added: #1  later  Engine\n");
     expect(process.exitCode).toBe(0);
     const saved = JSON.parse(readFileSync(file, "utf8")) as { cards: { createdAt: string }[] };
     expect(saved.cards[0]?.createdAt).toBe(localDate(new Date()));

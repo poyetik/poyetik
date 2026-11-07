@@ -73,9 +73,9 @@ describe("add", () => {
   it("adds a card, writes the file and confirms", () => {
     const f = fake();
     expect(run(["add", "Engine", "--column", "doing", "--milestone", "M1", "--desc", "The core"], f.io)).toBe(0);
-    expect(f.out).toEqual(["added: R-1  doing  Engine [M1]"]);
+    expect(f.out).toEqual(["added: #1  doing  Engine [M1]"]);
     expect(boardOf(f).cards).toEqual([
-      { id: "R-1", title: "Engine", description: "The core", column: "doing", milestone: "M1", createdAt: DAY, updatedAt: DAY },
+      { id: 1, title: "Engine", description: "The core", column: "doing", milestone: "M1", createdAt: DAY, updatedAt: DAY },
     ]);
     expect(f.file.endsWith("}\n")).toBe(true);
   });
@@ -83,7 +83,7 @@ describe("add", () => {
   it("defaults to later and prints no empty milestone", () => {
     const f = fake();
     expect(run(["add", "Editor"], f.io)).toBe(0);
-    expect(f.out).toEqual(["added: R-1  later  Editor"]);
+    expect(f.out).toEqual(["added: #1  later  Editor"]);
   });
 
   it("rejects zero or several titles without writing", () => {
@@ -106,10 +106,10 @@ describe("list", () => {
   it("lists all cards or those of one column", () => {
     const f = seeded();
     expect(run(["list"], f.io)).toBe(0);
-    expect(f.out).toEqual(["R-1  doing  Engine [M1]", "R-2  later  Editor"]);
+    expect(f.out).toEqual(["#1  doing  Engine [M1]", "#2  later  Editor"]);
     f.out.length = 0;
     expect(run(["list", "--column", "later"], f.io)).toBe(0);
-    expect(f.out).toEqual(["R-2  later  Editor"]);
+    expect(f.out).toEqual(["#2  later  Editor"]);
     expect(f.writes).toBe(0);
   });
 
@@ -129,41 +129,53 @@ describe("list", () => {
 describe("show", () => {
   it("shows a card with its description and dates", () => {
     const f = seeded();
-    expect(run(["show", "R-1"], f.io)).toBe(0);
-    expect(f.out).toEqual(["R-1  doing  Engine [M1]", "The core", `created ${DAY}, updated ${DAY}`]);
+    expect(run(["show", "#1"], f.io)).toBe(0);
+    expect(f.out).toEqual(["#1  doing  Engine [M1]", "The core", `created ${DAY}, updated ${DAY}`]);
   });
 
   it("prints no empty description", () => {
     const f = seeded();
-    expect(run(["show", "R-2"], f.io)).toBe(0);
-    expect(f.out).toEqual(["R-2  later  Editor", `created ${DAY}, updated ${DAY}`]);
+    expect(run(["show", "#2"], f.io)).toBe(0);
+    expect(f.out).toEqual(["#2  later  Editor", `created ${DAY}, updated ${DAY}`]);
+  });
+
+  it("rejects an invalid id", () => {
+    for (const command of ["show", "edit", "rm"]) {
+      const f = seeded();
+      expect(run([command, "abc", "--title", "x"].slice(0, command === "edit" ? 4 : 2), f.io)).toBe(1);
+      expect(f.err).toEqual(["error: invalid id: abc"]);
+      expect(f.writes).toBe(0);
+    }
+    const f = seeded();
+    expect(run(["move", "R-1", "done"], f.io)).toBe(1);
+    expect(f.err).toEqual(["error: invalid id: R-1"]);
   });
 
   it("rejects an unknown card or a missing id", () => {
     const f = seeded();
-    expect(run(["show", "R-9"], f.io)).toBe(1);
+    expect(run(["show", "#9"], f.io)).toBe(1);
     expect(run(["show"], f.io)).toBe(1);
-    expect(f.err).toEqual(["error: card not found: R-9", "error: expected exactly one argument: id"]);
+    expect(f.err).toEqual(["error: card not found: #9", "error: expected exactly one argument: id"]);
   });
 });
 
 describe("move", () => {
   it("moves a card to a position", () => {
     const f = seeded();
-    expect(run(["move", "R-2", "doing", "--position", "0"], f.io)).toBe(0);
-    expect(f.out).toEqual(["moved: R-2 → doing"]);
-    expect(boardOf(f).cards.map((c) => `${c.id}:${c.column}`)).toEqual(["R-2:doing", "R-1:doing"]);
+    expect(run(["move", "2", "doing", "--position", "0"], f.io)).toBe(0);
+    expect(f.out).toEqual(["moved: #2 → doing"]);
+    expect(boardOf(f).cards.map((c) => `${String(c.id)}:${c.column}`)).toEqual(["2:doing", "1:doing"]);
     expect(f.writes).toBe(1);
   });
 
   it("moves to the end of the column without a position", () => {
     const f = seeded();
-    expect(run(["move", "R-1", "done"], f.io)).toBe(0);
-    expect(boardOf(f).cards.map((c) => `${c.id}:${c.column}`)).toEqual(["R-2:later", "R-1:done"]);
+    expect(run(["move", "1", "done"], f.io)).toBe(0);
+    expect(boardOf(f).cards.map((c) => `${String(c.id)}:${c.column}`)).toEqual(["2:later", "1:done"]);
   });
 
   it("rejects missing or extra arguments", () => {
-    for (const args of [["move"], ["move", "R-1"], ["move", "R-1", "done", "x"]]) {
+    for (const args of [["move"], ["move", "1"], ["move", "1", "done", "x"]]) {
       const f = seeded();
       expect(run(args, f.io)).toBe(1);
       expect(f.err).toEqual(["error: expected: move <id> <column>"]);
@@ -173,19 +185,19 @@ describe("move", () => {
 
   it("rejects an unknown column", () => {
     const f = seeded();
-    expect(run(["move", "R-1", "x"], f.io)).toBe(1);
+    expect(run(["move", "1", "x"], f.io)).toBe(1);
     expect(f.err).toEqual(["error: unknown column: x (expected: later, next, doing, done)"]);
   });
 
   it.each(["-1", "1a", "a1", "", "1.5", " 1"])("rejects a non-numeric position: %j", (position) => {
     const f = seeded();
-    expect(run(["move", "R-1", "done", `--position=${position}`], f.io)).toBe(1);
+    expect(run(["move", "1", "done", `--position=${position}`], f.io)).toBe(1);
     expect(f.err).toEqual([`error: invalid position: ${position}`]);
   });
 
   it("accepts multi-digit positions, then bounds them", () => {
     const f = seeded();
-    expect(run(["move", "R-1", "done", "--position", "10"], f.io)).toBe(1);
+    expect(run(["move", "1", "done", "--position", "10"], f.io)).toBe(1);
     expect(f.err).toEqual(["error: invalid position: 10 (0 to 0)"]);
   });
 });
@@ -193,14 +205,14 @@ describe("move", () => {
 describe("edit", () => {
   it("edits the given fields", () => {
     const f = seeded();
-    expect(run(["edit", "R-2", "--title", "Web editor", "--desc", "Patching", "--milestone", "M2"], f.io)).toBe(0);
-    expect(f.out).toEqual(["edited: R-2"]);
+    expect(run(["edit", "#2", "--title", "Web editor", "--desc", "Patching", "--milestone", "M2"], f.io)).toBe(0);
+    expect(f.out).toEqual(["edited: #2"]);
     expect(boardOf(f).cards[1]).toMatchObject({ title: "Web editor", description: "Patching", milestone: "M2" });
   });
 
   it("rejects an empty edit", () => {
     const f = seeded();
-    expect(run(["edit", "R-2"], f.io)).toBe(1);
+    expect(run(["edit", "#2"], f.io)).toBe(1);
     expect(f.err).toEqual(["error: nothing to edit"]);
     expect(f.writes).toBe(0);
   });
@@ -215,15 +227,15 @@ describe("edit", () => {
 describe("rm", () => {
   it("removes a card", () => {
     const f = seeded();
-    expect(run(["rm", "R-1"], f.io)).toBe(0);
-    expect(f.out).toEqual(["removed: R-1"]);
-    expect(boardOf(f).cards.map((c) => c.id)).toEqual(["R-2"]);
+    expect(run(["rm", "1"], f.io)).toBe(0);
+    expect(f.out).toEqual(["removed: #1"]);
+    expect(boardOf(f).cards.map((c) => c.id)).toEqual([2]);
   });
 
   it("rejects an unknown card", () => {
     const f = seeded();
-    expect(run(["rm", "R-9"], f.io)).toBe(1);
-    expect(f.err).toEqual(["error: card not found: R-9"]);
+    expect(run(["rm", "9"], f.io)).toBe(1);
+    expect(f.err).toEqual(["error: card not found: #9"]);
   });
 
   it("rejects a missing id", () => {

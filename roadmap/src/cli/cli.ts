@@ -4,9 +4,11 @@ import {
   BoardError,
   COLUMNS,
   editCard,
+  formatId,
   isColumnId,
   moveCard,
   parseBoard,
+  parseId,
   removeCard,
   serializeBoard,
   type Board,
@@ -26,7 +28,7 @@ export interface Io {
 
 export const HELP = `Usage: roadmap <command> [options]
 
-  list [--column <col>]                       List cards
+  list [--column <col>]                       List cards (ids: 12 or #12)
   show <id>                                   Show a card
   add <title> [--desc <t>] [--column <col>] [--milestone <m>]
   move <id> <col> [--position <n>]            Move (position within the column, 0 = top)
@@ -45,7 +47,7 @@ export function localDate(d: Date): string {
 
 function formatCard(card: Card): string {
   const milestone = card.milestone === "" ? "" : ` [${card.milestone}]`;
-  return `${card.id}  ${card.column.padEnd(5)}  ${card.title}${milestone}`;
+  return `${formatId(card.id)}  ${card.column.padEnd(5)}  ${card.title}${milestone}`;
 }
 
 function toColumn(value: string): ColumnId {
@@ -120,10 +122,10 @@ function execute(args: readonly string[], io: Io): void {
       return;
     }
     case "show": {
-      const id = onlyArg(positionals, "id");
+      const id = parseId(onlyArg(positionals, "id"));
       const card = load(io).cards.find((c) => c.id === id);
       if (card === undefined) {
-        throw new BoardError(`card not found: ${id}`);
+        throw new BoardError(`card not found: ${formatId(id)}`);
       }
       io.out(formatCard(card));
       if (card.description !== "") {
@@ -152,23 +154,24 @@ function execute(args: readonly string[], io: Io): void {
       if (positionals.length !== 2) {
         throw new BoardError("expected: move <id> <column>");
       }
-      const [id, column] = positionals as [string, string];
+      const [idText, column] = positionals as [string, string];
+      const id = parseId(idText);
       const target = toColumn(column);
       save(io, moveCard(load(io), id, target, toPosition(values.position), io.today()));
-      io.out(`moved: ${id} → ${target}`);
+      io.out(`moved: ${formatId(id)} → ${target}`);
       return;
     }
     case "edit": {
-      const id = onlyArg(positionals, "id");
+      const id = parseId(onlyArg(positionals, "id"));
       const patch: EditInput = { title: values.title, description: values.desc, milestone: values.milestone };
       save(io, editCard(load(io), id, patch, io.today()));
-      io.out(`edited: ${id}`);
+      io.out(`edited: ${formatId(id)}`);
       return;
     }
     case "rm": {
-      const id = onlyArg(positionals, "id");
+      const id = parseId(onlyArg(positionals, "id"));
       save(io, removeCard(load(io), id));
-      io.out(`removed: ${id}`);
+      io.out(`removed: ${formatId(id)}`);
       return;
     }
     case "validate": {

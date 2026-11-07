@@ -6,7 +6,7 @@ import { toView } from "../src/lib/view.ts";
 
 function card(id: number, column: Card["column"], extra: Partial<Card> = {}): Card {
   return {
-    id: `R-${String(id)}`,
+    id,
     title: `Card ${String(id)}`,
     description: "",
     column,
@@ -31,7 +31,7 @@ describe("Board.astro", () => {
     for (const title of ["Later", "Next", "In progress", "Done"]) {
       expect(html).toContain(title);
     }
-    expect(html).toMatch(/data-id="R-1"[\s\S]*Card 1[\s\S]*The core[\s\S]*M1/);
+    expect(html).toMatch(/data-id="1"[\s\S]*Card 1[\s\S]*The core[\s\S]*#1[\s\S]*M1/);
     expect(html).toContain('data-column="later"');
     expect(html).toContain("Nothing yet");
   });

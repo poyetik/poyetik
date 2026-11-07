@@ -5,9 +5,11 @@ import {
   COLUMNS,
   editCard,
   emptyBoard,
+  formatId,
   isColumnId,
   moveCard,
   parseBoard,
+  parseId,
   removeCard,
   serializeBoard,
   type Board,
@@ -19,7 +21,7 @@ const LATER = "2026-11-08";
 
 function card(id: number, column: Card["column"], extra: Partial<Card> = {}): Card {
   return {
-    id: `R-${String(id)}`,
+    id,
     title: `Card ${String(id)}`,
     description: "",
     column,
@@ -72,6 +74,27 @@ describe("COLUMNS", () => {
       expect(isColumnId(value)).toBe(false);
     }
   });
+});
+
+describe("card ids", () => {
+  it("formats an id with a hash", () => {
+    expect(formatId(1)).toBe("#1");
+    expect(formatId(123)).toBe("#123");
+  });
+
+  it("parses an id with or without a hash", () => {
+    expect(parseId("1")).toBe(1);
+    expect(parseId("#1")).toBe(1);
+    expect(parseId("#120")).toBe(120);
+    expect(parseId("907")).toBe(907);
+  });
+
+  it.each(["", "#", "0", "#0", "01", "-1", "1a", "a1", "##1", " 1", "1 ", "R-1", "1.5"])(
+    "rejects an invalid id: %j",
+    (text) => {
+      expectBoardError(() => parseId(text), `invalid id: ${text}`);
+    },
+  );
 });
 
 describe("emptyBoard", () => {
@@ -149,12 +172,12 @@ describe("parseBoard", () => {
     );
   });
 
-  it.each(["", "R-", "r-1", "XR-1", "R-1x", "R-a", "R--1", 1, ["R-1"]])("rejects an invalid id: %j", (id) => {
+  it.each([0, -1, 1.5, "1", "#1", null, true, [1]])("rejects an invalid id: %j", (id) => {
     expectBoardError(() => parseBoard(rawCard({ id })), "card #0: invalid id");
   });
 
   it("accepts multi-digit ids", () => {
-    expect(parseBoard(raw({ nextId: 124, cards: [card(123, "next")] })).cards[0]?.id).toBe("R-123");
+    expect(parseBoard(raw({ nextId: 124, cards: [card(123, "next")] })).cards[0]?.id).toBe(123);
   });
 
   it("rejects an empty card title", () => {
@@ -195,12 +218,12 @@ describe("parseBoard", () => {
   });
 
   it("rejects duplicate ids", () => {
-    expectBoardError(() => parseBoard(raw({ nextId: 3, cards: [card(1, "next"), card(1, "done")] })), "duplicate id: R-1");
+    expectBoardError(() => parseBoard(raw({ nextId: 3, cards: [card(1, "next"), card(1, "done")] })), "duplicate id: #1");
   });
 
   it("rejects an id greater than or equal to nextId", () => {
-    expectBoardError(() => parseBoard(raw({ nextId: 2, cards: [card(2, "next")] })), "R-2 must be lower than nextId (2)");
-    expectBoardError(() => parseBoard(raw({ nextId: 2, cards: [card(5, "next")] })), "R-5 must be lower than nextId (2)");
+    expectBoardError(() => parseBoard(raw({ nextId: 2, cards: [card(2, "next")] })), "#2 must be lower than nextId (2)");
+    expectBoardError(() => parseBoard(raw({ nextId: 2, cards: [card(5, "next")] })), "#5 must be lower than nextId (2)");
   });
 });
 
@@ -213,7 +236,7 @@ describe("serializeBoard", () => {
   "nextId": 2,
   "cards": [
     {
-      "id": "R-1",
+      "id": 1,
       "title": "Card 1",
       "description": "d",
       "column": "next",
@@ -228,7 +251,7 @@ describe("serializeBoard", () => {
 
   it("orders keys regardless of the original order", () => {
     const shuffled = {
-      cards: [{ updatedAt: DAY, createdAt: DAY, milestone: "", column: "next", description: "", title: "Card 1", id: "R-1" }],
+      cards: [{ updatedAt: DAY, createdAt: DAY, milestone: "", column: "next", description: "", title: "Card 1", id: 1 }],
       nextId: 2,
       title: "Project",
       version: 1,
@@ -246,7 +269,7 @@ describe("addCard", () => {
   it("adds a card with default values", () => {
     const result = addCard(emptyBoard("P"), { title: "  Engine  " }, DAY);
     expect(result.card).toEqual({
-      id: "R-1",
+      id: 1,
       title: "Engine",
       description: "",
       column: "later",
@@ -288,49 +311,49 @@ describe("addCard", () => {
 
 describe("moveCard", () => {
   const start = board([card(1, "next"), card(2, "next"), card(3, "done"), card(4, "next")]);
-  const ids = (b: Board): string[] => b.cards.map((c) => `${c.id}:${c.column}`);
+  const ids = (b: Board): string[] => b.cards.map((c) => `${String(c.id)}:${c.column}`);
 
   it("moves to the end of the column by default and updates the date", () => {
-    const moved = moveCard(start, "R-1", "done", undefined, LATER);
-    expect(ids(moved)).toEqual(["R-2:next", "R-3:done", "R-4:next", "R-1:done"]);
+    const moved = moveCard(start, 1, "done", undefined, LATER);
+    expect(ids(moved)).toEqual(["2:next", "3:done", "4:next", "1:done"]);
     expect(moved.cards.at(-1)).toEqual({ ...card(1, "done"), updatedAt: LATER });
   });
 
   it("inserts at a given position in the column", () => {
-    expect(ids(moveCard(start, "R-3", "next", 0, LATER))).toEqual(["R-3:next", "R-1:next", "R-2:next", "R-4:next"]);
-    expect(ids(moveCard(start, "R-3", "next", 1, LATER))).toEqual(["R-1:next", "R-3:next", "R-2:next", "R-4:next"]);
-    expect(ids(moveCard(start, "R-3", "next", 2, LATER))).toEqual(["R-1:next", "R-2:next", "R-3:next", "R-4:next"]);
-    expect(ids(moveCard(start, "R-3", "next", 3, LATER))).toEqual(["R-1:next", "R-2:next", "R-4:next", "R-3:next"]);
+    expect(ids(moveCard(start, 3, "next", 0, LATER))).toEqual(["3:next", "1:next", "2:next", "4:next"]);
+    expect(ids(moveCard(start, 3, "next", 1, LATER))).toEqual(["1:next", "3:next", "2:next", "4:next"]);
+    expect(ids(moveCard(start, 3, "next", 2, LATER))).toEqual(["1:next", "2:next", "3:next", "4:next"]);
+    expect(ids(moveCard(start, 3, "next", 3, LATER))).toEqual(["1:next", "2:next", "4:next", "3:next"]);
   });
 
   it("reorders within the same column", () => {
-    expect(ids(moveCard(start, "R-4", "next", 0, LATER))).toEqual(["R-4:next", "R-1:next", "R-2:next", "R-3:done"]);
-    expect(ids(moveCard(start, "R-1", "next", 2, LATER))).toEqual(["R-2:next", "R-3:done", "R-4:next", "R-1:next"]);
+    expect(ids(moveCard(start, 4, "next", 0, LATER))).toEqual(["4:next", "1:next", "2:next", "3:done"]);
+    expect(ids(moveCard(start, 1, "next", 2, LATER))).toEqual(["2:next", "3:done", "4:next", "1:next"]);
   });
 
   it("moves into an empty column", () => {
-    expect(ids(moveCard(start, "R-2", "later", 0, LATER))).toEqual(["R-1:next", "R-3:done", "R-4:next", "R-2:later"]);
+    expect(ids(moveCard(start, 2, "later", 0, LATER))).toEqual(["1:next", "3:done", "4:next", "2:later"]);
   });
 
   it("does not mutate the original board", () => {
     const copy = structuredClone(start);
-    moveCard(start, "R-1", "done", undefined, LATER);
+    moveCard(start, 1, "done", undefined, LATER);
     expect(start).toEqual(copy);
   });
 
   it("rejects an out-of-range or non-integer position", () => {
-    expectBoardError(() => moveCard(start, "R-3", "next", 4, LATER), "invalid position: 4 (0 to 3)");
-    expectBoardError(() => moveCard(start, "R-3", "next", -1, LATER), "invalid position: -1 (0 to 3)");
-    expectBoardError(() => moveCard(start, "R-3", "next", 0.5, LATER), "invalid position: 0.5 (0 to 3)");
+    expectBoardError(() => moveCard(start, 3, "next", 4, LATER), "invalid position: 4 (0 to 3)");
+    expectBoardError(() => moveCard(start, 3, "next", -1, LATER), "invalid position: -1 (0 to 3)");
+    expectBoardError(() => moveCard(start, 3, "next", 0.5, LATER), "invalid position: 0.5 (0 to 3)");
   });
 
   it("rejects an unknown card, an unknown column, an invalid date", () => {
-    expectBoardError(() => moveCard(start, "R-9", "done", undefined, LATER), "card not found: R-9");
+    expectBoardError(() => moveCard(start, 9, "done", undefined, LATER), "card not found: #9");
     expectBoardError(
-      () => moveCard(start, "R-1", "x" as never, undefined, LATER),
+      () => moveCard(start, 1, "x" as never, undefined, LATER),
       "unknown column: x (expected: later, next, doing, done)",
     );
-    expectBoardError(() => moveCard(start, "R-1", "done", undefined, "x"), "today's date must be a YYYY-MM-DD date");
+    expectBoardError(() => moveCard(start, 1, "done", undefined, "x"), "today's date must be a YYYY-MM-DD date");
   });
 });
 
@@ -338,23 +361,23 @@ describe("editCard", () => {
   const start = board([card(1, "next", { description: "d", milestone: "M" }), card(2, "done")]);
 
   it("edits only the given fields", () => {
-    expect(editCard(start, "R-1", { title: " New " }, LATER).cards).toEqual([
+    expect(editCard(start, 1, { title: " New " }, LATER).cards).toEqual([
       { ...card(1, "next", { description: "d", milestone: "M" }), title: "New", updatedAt: LATER },
       card(2, "done"),
     ]);
-    expect(editCard(start, "R-1", { description: " e " }, LATER).cards[0]).toEqual({
+    expect(editCard(start, 1, { description: " e " }, LATER).cards[0]).toEqual({
       ...card(1, "next", { milestone: "M" }),
       description: "e",
       updatedAt: LATER,
     });
-    expect(editCard(start, "R-1", { milestone: "" }, LATER).cards[0]).toEqual({
+    expect(editCard(start, 1, { milestone: "" }, LATER).cards[0]).toEqual({
       ...card(1, "next", { description: "d" }),
       updatedAt: LATER,
     });
   });
 
   it("edits every field at once", () => {
-    expect(editCard(start, "R-2", { title: "T", description: "D", milestone: "M2" }, LATER).cards[1]).toEqual({
+    expect(editCard(start, 2, { title: "T", description: "D", milestone: "M2" }, LATER).cards[1]).toEqual({
       ...card(2, "done"),
       title: "T",
       description: "D",
@@ -364,22 +387,22 @@ describe("editCard", () => {
   });
 
   it("rejects an empty edit, an unknown card, an empty title, an invalid date", () => {
-    expectBoardError(() => editCard(start, "R-1", {}, LATER), "nothing to edit");
-    expectBoardError(() => editCard(start, "R-9", { title: "T" }, LATER), "card not found: R-9");
-    expectBoardError(() => editCard(start, "R-1", { title: " " }, LATER), "title must be a non-empty string");
-    expectBoardError(() => editCard(start, "R-1", { description: 1 as never }, LATER), "description must be a string");
-    expectBoardError(() => editCard(start, "R-1", { milestone: 1 as never }, LATER), "milestone must be a string");
-    expectBoardError(() => editCard(start, "R-1", { title: "T" }, "x"), "today's date must be a YYYY-MM-DD date");
+    expectBoardError(() => editCard(start, 1, {}, LATER), "nothing to edit");
+    expectBoardError(() => editCard(start, 9, { title: "T" }, LATER), "card not found: #9");
+    expectBoardError(() => editCard(start, 1, { title: " " }, LATER), "title must be a non-empty string");
+    expectBoardError(() => editCard(start, 1, { description: 1 as never }, LATER), "description must be a string");
+    expectBoardError(() => editCard(start, 1, { milestone: 1 as never }, LATER), "milestone must be a string");
+    expectBoardError(() => editCard(start, 1, { title: "T" }, "x"), "today's date must be a YYYY-MM-DD date");
   });
 });
 
 describe("removeCard", () => {
   it("removes the card without touching nextId", () => {
     const start = board([card(1, "next"), card(2, "done")]);
-    expect(removeCard(start, "R-1")).toEqual({ ...start, cards: [card(2, "done")] });
+    expect(removeCard(start, 1)).toEqual({ ...start, cards: [card(2, "done")] });
   });
 
   it("rejects an unknown card", () => {
-    expectBoardError(() => removeCard(board([]), "R-1"), "card not found: R-1");
+    expectBoardError(() => removeCard(board([]), 1), "card not found: #1");
   });
 });
