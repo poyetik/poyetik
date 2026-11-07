@@ -1,7 +1,7 @@
 {
   "version": 1,
   "title": "poyetik",
-  "nextId": 2,
+  "nextId": 6,
   "cards": [
     {
       "id": 1,
@@ -41,6 +41,67 @@
           "done": true
         }
       ]
+    },
+    {
+      "id": 2,
+      "title": "Monorepo structure: spec, crates, bindings, apps, conformance",
+      "description": "Organize the repository as separate parts with clear contracts: the patch format spec, the reusable engine core, thin developer SDKs, the applications and the conformance corpus.",
+      "column": "doing",
+      "milestone": "M1 Engine",
+      "createdAt": "2026-11-07",
+      "updatedAt": "2026-11-07",
+      "tasks": [
+        {
+          "title": "Document the parts and the monorepo layout in CLAUDE.md and README.md",
+          "done": false
+        },
+        {
+          "title": "Placeholder folders with a README each (spec, bindings, apps, conformance)",
+          "done": false
+        },
+        {
+          "title": "Move the roadmap to apps/roadmap",
+          "done": false
+        },
+        {
+          "title": "Root pnpm workspace with shared TypeScript, ESLint, Vitest and Stryker configs",
+          "done": false
+        },
+        {
+          "title": "xtask, pre-push hook and CI updated for the new layout",
+          "done": false
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Patch format specification",
+      "description": "Versioned JSON Schema of a patch (boxes, cables, parameters): the contract shared by the engine, the SDKs, the editor, the AI assistant and MCP. Published with its reference documentation.",
+      "column": "next",
+      "milestone": "M1 Engine",
+      "createdAt": "2026-11-07",
+      "updatedAt": "2026-11-07",
+      "tasks": []
+    },
+    {
+      "id": 4,
+      "title": "HTML documentation site",
+      "description": "One site with guides, the API reference of every part (generated from docstrings), the box reference generated from the registry metadata and the patch format reference generated from the schema.",
+      "column": "next",
+      "milestone": "M1 Engine",
+      "createdAt": "2026-11-07",
+      "updatedAt": "2026-11-07",
+      "tasks": []
+    },
+    {
+      "id": 5,
+      "title": "Developer SDKs: Rust crate, npm package, C library",
+      "description": "Thin wrappers around the engine core for developers: a Rust crate, an npm package (WASM + TypeScript types, browser and Node) and a C library with a header (usable from C/C++, Swift, Kotlin, Python, Unity, Godot). Each one passes the same conformance corpus.",
+      "column": "later",
+      "milestone": "M5 SDKs",
+      "createdAt": "2026-11-07",
+      "updatedAt": "2026-11-07",
+      "tasks": []
     }
   ]
 }

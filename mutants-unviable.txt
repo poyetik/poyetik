@@ -12,3 +12,6 @@ crates/engine-core/src/plan.rs: replace Plan::execution_order -> impl Iterator<I
 crates/engine-core/src/plan.rs: replace Plan::execution_order -> impl Iterator<Item = NodeId>+'_ with ::std::iter::once(Default::default()) -- engine-core is no_std and NodeId has no Default; a one-element order would be killed by the exact-order assertions
 crates/xtask/src/lib.rs: replace run -> Step with Default::default() -- Step has no Default: every step has an explicit name and action
 crates/xtask/src/lib.rs: replace check_steps -> Vec<Step> with vec![Default::default()] -- Step has no Default; the vec![] variant is viable and caught by lists_every_check_in_order
+crates/xtask/src/lib.rs: replace && with || in release_gate -- the && joins an `if let` chain, where || is not valid syntax; the version comparison is killed by rejects_inconsistent_versions ("older than the latest release")
+crates/xtask/src/lib.rs: replace Version::parse -> Option<Self> with Some(Default::default()) -- Version deliberately has no Default; returning an arbitrary version would be killed by parses_semantic_versions
+crates/xtask/src/lib.rs: replace released_heading -> Option<Version> with Some(Default::default()) -- Version deliberately has no Default; accepting any heading would be killed by rejects_a_malformed_changelog

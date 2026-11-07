@@ -1,0 +1,10 @@
+#!/bin/sh
+# Every commit message must follow Conventional Commits (see CLAUDE.md).
+set -eu
+
+if [ -f "$HOME/.cargo/env" ]; then
+  . "$HOME/.cargo/env"
+fi
+
+cd "$(git rev-parse --show-toplevel)"
+cargo xtask commit-msg "$1"

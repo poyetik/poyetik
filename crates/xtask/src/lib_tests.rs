@@ -7,8 +7,9 @@ use std::io;
 use std::path::Path;
 
 use super::{
-    Action, COVERAGE_REPORT, Cmd, Dir, PORTABILITY_TARGETS, Runner, Step, SystemRunner,
-    UNVIABLE_REPORT, UNVIABLE_REVIEWED, USAGE, check_steps, cli, coverage_gate, run_steps,
+    Action, CARGO_TOML, CHANGELOG, COMMIT_HEADER_MAX, COVERAGE_REPORT, Cmd, Dir, PACKAGE_JSON,
+    PORTABILITY_TARGETS, Runner, Step, SystemRunner, UNVIABLE_REPORT, UNVIABLE_REVIEWED, USAGE,
+    Version, check_steps, cli, commit_msg_gate, coverage_gate, release_gate, run_steps,
     unviable_gate,
 };
 
@@ -65,8 +66,21 @@ fn passing() -> Fake {
         .files
         .insert(UNVIABLE_REVIEWED.to_owned(), reviewed.to_owned());
     assert!(first.is_none() && second.is_none(), "fresh fake");
+    for (path, text) in [
+        (CARGO_TOML, CARGO),
+        (PACKAGE_JSON, PACKAGE),
+        (CHANGELOG, LOG),
+        ("COMMIT_EDITMSG", "feat(core): add the plan\n"),
+    ] {
+        let earlier = fake.files.insert(path.to_owned(), text.to_owned());
+        assert!(earlier.is_none(), "fresh fake");
+    }
     fake
 }
+
+const CARGO: &str = "[workspace]\nmembers = []\n\n[workspace.package]\nedition = \"2024\"\nversion = \"0.2.0\"\n\n[other]\nversion = \"9.9.9\"\n";
+const PACKAGE: &str = r#"{"name": "x", "version": "0.2.0"}"#;
+const LOG: &str = "# Changelog\n\nIntro.\n\n## [Unreleased]\n\n### Added\n\n- x\n\n## [0.2.0] - 2026-11-07\n\n## [0.1.10] - 2026-10-01\n\n## [0.1.2] - 2026-09-30\n";
 
 fn command_lines(steps: &[Step]) -> Vec<String> {
     steps
@@ -75,6 +89,7 @@ fn command_lines(steps: &[Step]) -> Vec<String> {
             Action::Run(cmd) => format!("{:?}: {} {}", cmd.dir, cmd.program, cmd.args.join(" ")),
             Action::CoverageGate(path) => format!("gate {path}"),
             Action::UnviableGate => "unviable gate".to_owned(),
+            Action::ReleaseGate => "release gate".to_owned(),
         })
         .collect()
 }
@@ -87,6 +102,7 @@ fn lists_every_check_in_order() {
         vec![
             "Root: cargo fmt --all --check",
             "Root: cargo clippy --workspace --all-targets --locked",
+            "Root: cargo doc --workspace --no-deps --document-private-items --locked",
             "Root: cargo test --workspace --locked",
             "Root: cargo build --package engine-core --locked --target aarch64-apple-darwin",
             "Root: cargo build --package engine-core --locked --target x86_64-unknown-linux-gnu",
@@ -97,6 +113,7 @@ fn lists_every_check_in_order() {
             "Root: cargo mutants --workspace --cap-lints=true",
             "unviable gate",
             "Root: cargo deny --locked check",
+            "release gate",
             "Roadmap: pnpm install --frozen-lockfile",
             "Roadmap: pnpm run check",
         ],
@@ -107,6 +124,7 @@ fn lists_every_check_in_order() {
         vec![
             "Rust formatting",
             "Rust lints",
+            "Rust documentation",
             "Rust tests",
             "engine-core portability (aarch64-apple-darwin)",
             "engine-core portability (x86_64-unknown-linux-gnu)",
@@ -117,6 +135,7 @@ fn lists_every_check_in_order() {
             "Rust mutation testing",
             "Rust unviable mutants reviewed",
             "Rust supply chain",
+            "Versions and changelog",
             "Roadmap dependencies",
             "Roadmap checks",
         ],
@@ -189,9 +208,12 @@ fn runs_every_step_and_reports_success() {
     );
     assert_eq!(
         fake.ran.len(),
-        check_steps().len() + 1,
-        "every step ran, the gate reads two files"
+        check_steps().len() + 3,
+        "every step ran; the unviable gate reads two files, the release gate three"
     );
+    for path in [CARGO_TOML, PACKAGE_JSON, CHANGELOG] {
+        assert!(fake.ran.contains(&format!("read {path}")), "{path} read");
+    }
     assert!(
         fake.ran.contains(&format!("read {UNVIABLE_REVIEWED}")),
         "reviews read"
@@ -202,15 +224,15 @@ fn runs_every_step_and_reports_success() {
     );
     let text = String::from_utf8(out).expect("utf-8 output");
     assert!(
-        text.starts_with("▶ [1/14] Rust formatting\n"),
+        text.starts_with("▶ [1/16] Rust formatting\n"),
         "numbered progress: {text}"
     );
     assert!(
-        text.contains("▶ [14/14] Roadmap checks\n"),
+        text.contains("▶ [16/16] Roadmap checks\n"),
         "last step announced: {text}"
     );
     assert!(
-        text.ends_with("✔ all 14 checks passed\n"),
+        text.ends_with("✔ all 16 checks passed\n"),
         "summary: {text}"
     );
 }
@@ -225,7 +247,7 @@ fn stops_at_the_first_failing_command() {
         Err("✘ Rust tests: command failed".to_owned()),
         "failure is named"
     );
-    assert_eq!(fake.ran.len(), 3, "nothing runs after the failure");
+    assert_eq!(fake.ran.len(), 4, "nothing runs after the failure");
 }
 
 #[test]
@@ -471,4 +493,303 @@ fn fails_when_unviable_files_are_missing_or_unreviewed() {
             .is_err_and(|e| e.contains("not reviewed: crates/a/src/b.rs")),
         "unreviewed mutant"
     );
+}
+
+#[test]
+fn parses_semantic_versions() {
+    assert_eq!(
+        Version::parse("0.1.0"),
+        Some(Version {
+            major: 0,
+            minor: 1,
+            patch: 0
+        }),
+        "basic"
+    );
+    assert_eq!(
+        Version::parse("10.20.30"),
+        Some(Version {
+            major: 10,
+            minor: 20,
+            patch: 30
+        }),
+        "multi-digit"
+    );
+    for bad in [
+        "",
+        "1",
+        "1.2",
+        "1.2.3.4",
+        "01.2.3",
+        "1.02.3",
+        "1.2.03",
+        "1.2.x",
+        "1..3",
+        "-1.2.3",
+        "1.2.3-rc.1",
+        "+1.2.3",
+    ] {
+        assert_eq!(Version::parse(bad), None, "{bad:?} is not X.Y.Z");
+    }
+    assert_eq!(
+        Version {
+            major: 1,
+            minor: 2,
+            patch: 3
+        }
+        .to_string(),
+        "1.2.3",
+        "display"
+    );
+    assert!(
+        Version::parse("0.10.0") > Version::parse("0.9.9"),
+        "numeric ordering"
+    );
+}
+
+#[test]
+fn accepts_a_consistent_release_setup() {
+    assert_eq!(
+        release_gate(CARGO, PACKAGE, LOG),
+        Ok(()),
+        "current version is the latest release"
+    );
+    let next = CARGO.replace("0.2.0\"\n\n[other]", "0.3.0\"\n\n[other]");
+    assert_eq!(
+        release_gate(&next, &PACKAGE.replace("0.2.0", "0.3.0"), LOG),
+        Ok(()),
+        "a newer, unreleased version"
+    );
+    assert_eq!(
+        release_gate(CARGO, PACKAGE, "# Changelog\n\n## [Unreleased]\n"),
+        Ok(()),
+        "no release yet"
+    );
+}
+
+#[test]
+fn rejects_inconsistent_versions() {
+    assert_eq!(
+        release_gate(CARGO, r#"{"version": "0.3.0"}"#, LOG),
+        Err(format!(
+            "{PACKAGE_JSON}: version 0.3.0 differs from the workspace version 0.2.0"
+        )),
+        "different versions"
+    );
+    assert_eq!(
+        release_gate(CARGO, "not json", LOG),
+        Err(format!(
+            "{PACKAGE_JSON}: version (missing) differs from the workspace version 0.2.0"
+        )),
+        "unreadable package"
+    );
+    assert_eq!(
+        release_gate("[workspace]\n", r#"{"version": 1}"#, LOG),
+        Err(format!(
+            "{CARGO_TOML}: [workspace.package] version must be X.Y.Z"
+        )),
+        "no workspace version, and none in the package either"
+    );
+    let bad = CARGO.replace("0.2.0\"\n\n[other]", "0.2\"\n\n[other]");
+    assert_eq!(
+        release_gate(&bad, &PACKAGE.replace("0.2.0", "0.2"), LOG),
+        Err(format!(
+            "{CARGO_TOML}: [workspace.package] version must be X.Y.Z"
+        )),
+        "not X.Y.Z"
+    );
+    let old = CARGO.replace("0.2.0\"\n\n[other]", "0.1.9\"\n\n[other]");
+    assert_eq!(
+        release_gate(&old, &PACKAGE.replace("0.2.0", "0.1.9"), LOG),
+        Err("version 0.1.9 is older than the latest release 0.2.0".to_owned()),
+        "older than released"
+    );
+}
+
+#[test]
+fn rejects_a_malformed_changelog() {
+    assert_eq!(
+        release_gate(CARGO, PACKAGE, "Changelog\n## [0.2.0] - 2026-11-07\n"),
+        Err(format!(
+            "{CHANGELOG}: must start with \"# Changelog\"\n{CHANGELOG}: the first section must be \"## [Unreleased]\""
+        )),
+        "missing title and unreleased section"
+    );
+    for heading in [
+        "## [0.2] - 2026-11-07",
+        "## 0.2.0 - 2026-11-07",
+        "## [0.2.0] 2026-11-07",
+        "## [0.2.0] - 26-11-07",
+        "## [0.2.0] - 2026-1-07",
+        "## [0.2.0] - 2026-11-7",
+        "## [0.2.0] - 2026-11-07-01",
+        "## [0.2.0] - 2026-11",
+        "## [0.2.0] - 2026-aa-07",
+    ] {
+        assert_eq!(
+            release_gate(
+                CARGO,
+                PACKAGE,
+                &format!("# Changelog\n## [Unreleased]\n{heading}\n")
+            ),
+            Err(format!("{CHANGELOG}: malformed heading \"{heading}\"")),
+            "{heading}"
+        );
+    }
+    for order in [
+        "## [0.1.0] - 2026-01-01\n## [0.2.0] - 2026-02-01",
+        "## [0.2.0] - 2026-01-01\n## [0.2.0] - 2026-02-01",
+    ] {
+        assert_eq!(
+            release_gate(
+                CARGO,
+                PACKAGE,
+                &format!("# Changelog\n## [Unreleased]\n{order}\n")
+            ),
+            Err(format!(
+                "{CHANGELOG}: releases must be in strictly decreasing order"
+            )),
+            "{order}"
+        );
+    }
+}
+
+#[test]
+fn accepts_conventional_commit_messages() {
+    for message in [
+        "feat: add the plan",
+        "fix(engine-core): keep box state across blocks\n\nBody text.\nCo-Authored-By: x",
+        "refactor(xtask)!: rename the gate",
+        "build(v2): bump the format",
+        "docs!: rewrite the readme",
+        "# comment from git\nci: run on every push\n# another comment\n",
+        "Merge branch 'main' into feature",
+        "Revert \"feat: add the plan\"",
+    ] {
+        assert_eq!(commit_msg_gate(message), Ok(()), "{message:?}");
+    }
+    let header = format!("feat: {}", "x".repeat(COMMIT_HEADER_MAX - 6));
+    assert_eq!(
+        commit_msg_gate(&header),
+        Ok(()),
+        "header of exactly the maximum length"
+    );
+    for kind in [
+        "feat", "fix", "docs", "test", "refactor", "perf", "build", "ci", "chore", "style",
+        "revert",
+    ] {
+        assert_eq!(
+            commit_msg_gate(&format!("{kind}: x")),
+            Ok(()),
+            "{kind} is allowed"
+        );
+    }
+}
+
+#[test]
+fn rejects_other_commit_messages() {
+    let expected = |reason: &str| {
+        Err(format!(
+            "invalid commit message: {reason}\nexpected: <type>(<scope>)!: <summary>, type one of feat, fix, docs, test, refactor, perf, build, ci, chore, style, revert"
+        ))
+    };
+    let long = format!("feat: {}", "x".repeat(COMMIT_HEADER_MAX - 5));
+    let cases: [(&str, String); 11] = [
+        ("", "missing \"<type>: \" prefix".to_owned()),
+        ("Add the plan", "missing \"<type>: \" prefix".to_owned()),
+        ("feature: add", "unknown type \"feature\"".to_owned()),
+        ("Feat: add", "unknown type \"Feat\"".to_owned()),
+        (
+            "feat(): add",
+            "the scope must be lowercase letters, digits or hyphens".to_owned(),
+        ),
+        (
+            "feat(Core): add",
+            "the scope must be lowercase letters, digits or hyphens".to_owned(),
+        ),
+        (
+            "feat(core: add",
+            "the scope must be lowercase letters, digits or hyphens".to_owned(),
+        ),
+        (
+            "feat:  ",
+            "the summary must be non-empty and must not end with a period".to_owned(),
+        ),
+        (
+            "feat: add the plan.",
+            "the summary must be non-empty and must not end with a period".to_owned(),
+        ),
+        (
+            long.as_str(),
+            format!("the header is longer than {COMMIT_HEADER_MAX} characters"),
+        ),
+        (
+            "feat: add\nbody right away",
+            "a blank line must separate the header from the body".to_owned(),
+        ),
+    ];
+    for (message, reason) in cases {
+        assert_eq!(commit_msg_gate(message), expected(&reason), "{message:?}");
+    }
+}
+
+#[test]
+fn cli_checks_commit_messages() {
+    let (mut out, mut err) = (Vec::new(), Vec::new());
+    let args = ["commit-msg".to_owned(), "COMMIT_EDITMSG".to_owned()];
+    assert!(
+        cli(&args, &mut passing(), &mut out, &mut err),
+        "a valid message"
+    );
+    assert!(out.is_empty() && err.is_empty(), "silent on success");
+
+    let mut bad = passing();
+    let replaced = bad
+        .files
+        .insert("COMMIT_EDITMSG".to_owned(), "wip".to_owned());
+    assert!(replaced.is_some(), "message replaced");
+    let mut bad_err = Vec::new();
+    assert!(
+        !cli(&args, &mut bad, &mut Vec::new(), &mut bad_err),
+        "an invalid message"
+    );
+    assert!(
+        String::from_utf8(bad_err).is_ok_and(|e| e.starts_with("invalid commit message: ")),
+        "explained on stderr"
+    );
+
+    let mut missing_err = Vec::new();
+    let missing = ["commit-msg".to_owned(), "nowhere".to_owned()];
+    assert!(
+        !cli(&missing, &mut passing(), &mut Vec::new(), &mut missing_err),
+        "a missing file"
+    );
+    assert_eq!(
+        missing_err, b"cannot read nowhere: missing\n",
+        "named on stderr"
+    );
+}
+
+#[test]
+fn release_gate_runs_on_the_real_files() {
+    let mut fake = passing();
+    let replaced = fake.files.insert(CHANGELOG.to_owned(), "nope".to_owned());
+    assert!(replaced.is_some(), "changelog replaced");
+    assert!(
+        run_steps(&check_steps(), &mut fake, &mut Vec::new())
+            .is_err_and(|e| e.starts_with("✘ Versions and changelog: ")),
+        "release gate failure is named"
+    );
+    for path in [CARGO_TOML, PACKAGE_JSON, CHANGELOG] {
+        let mut without = passing();
+        let removed = without.files.remove(path);
+        assert!(removed.is_some(), "{path} removed");
+        assert_eq!(
+            run_steps(&check_steps(), &mut without, &mut Vec::new()),
+            Err(format!(
+                "✘ Versions and changelog: cannot read {path}: missing"
+            )),
+            "missing {path}"
+        );
+    }
 }

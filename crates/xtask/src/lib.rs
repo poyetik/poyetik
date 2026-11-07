@@ -73,6 +73,8 @@ pub enum Action {
     CoverageGate(&'static str),
     /// Require every unviable mutant to be reviewed, and every review to be current.
     UnviableGate,
+    /// Require one project version everywhere, consistent with a well-formed changelog.
+    ReleaseGate,
 }
 
 /// One named check.
@@ -110,6 +112,18 @@ pub fn check_steps() -> Vec<Step> {
             "Rust lints",
             "cargo",
             &["clippy", "--workspace", "--all-targets", "--locked"],
+            Dir::Root,
+        ),
+        run(
+            "Rust documentation",
+            "cargo",
+            &[
+                "doc",
+                "--workspace",
+                "--no-deps",
+                "--document-private-items",
+                "--locked",
+            ],
             Dir::Root,
         ),
         run(
@@ -173,6 +187,10 @@ pub fn check_steps() -> Vec<Step> {
             &["deny", "--locked", "check"],
             Dir::Root,
         ),
+        Step {
+            name: "Versions and changelog".to_owned(),
+            action: Action::ReleaseGate,
+        },
         run(
             "Roadmap dependencies",
             "pnpm",
@@ -291,6 +309,220 @@ pub fn unviable_gate(report: &str, reviewed: &str) -> Result<(), String> {
     }
 }
 
+/// The project manifest holding the workspace version.
+pub const CARGO_TOML: &str = "Cargo.toml";
+
+/// The roadmap package manifest.
+pub const PACKAGE_JSON: &str = "roadmap/package.json";
+
+/// The changelog.
+pub const CHANGELOG: &str = "CHANGELOG.md";
+
+/// A semantic version `MAJOR.MINOR.PATCH` (no pre-release or build metadata).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Version {
+    /// Incremented for incompatible changes.
+    pub major: u64,
+    /// Incremented for compatible additions.
+    pub minor: u64,
+    /// Incremented for compatible fixes.
+    pub patch: u64,
+}
+
+impl Version {
+    /// Parses `MAJOR.MINOR.PATCH`: digits only, no leading zero, as semantic versioning requires.
+    #[must_use]
+    pub fn parse(text: &str) -> Option<Self> {
+        let number = |part: &str| {
+            let digits = !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit());
+            let leading_zero = part.len() > 1 && part.starts_with('0');
+            if digits && !leading_zero {
+                part.parse::<u64>().ok()
+            } else {
+                None
+            }
+        };
+        let mut parts = text.split('.');
+        let (Some(major), Some(minor), Some(patch), None) =
+            (parts.next(), parts.next(), parts.next(), parts.next())
+        else {
+            return None;
+        };
+        Some(Self {
+            major: number(major)?,
+            minor: number(minor)?,
+            patch: number(patch)?,
+        })
+    }
+}
+
+impl core::fmt::Display for Version {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{}.{}.{}", self.major, self.minor, self.patch)
+    }
+}
+
+/// Reads `version = "…"` in the `[workspace.package]` table of a `Cargo.toml`.
+fn workspace_version(cargo_toml: &str) -> Option<&str> {
+    cargo_toml
+        .lines()
+        .skip_while(|line| line.trim() != "[workspace.package]")
+        .skip(1)
+        .take_while(|line| !line.trim_start().starts_with('['))
+        .find_map(|line| {
+            let (key, value) = line.split_once('=')?;
+            (key.trim() == "version").then(|| value.trim().trim_matches('"'))
+        })
+}
+
+/// Parses a released changelog heading: `## [X.Y.Z] - YYYY-MM-DD`.
+fn released_heading(heading: &str) -> Option<Version> {
+    let rest = heading.strip_prefix("## [")?;
+    let (version, date) = rest.split_once("] - ")?;
+    let mut parts = date.split('-');
+    let well_formed = [4, 2, 2].iter().all(|&len| {
+        parts
+            .next()
+            .is_some_and(|p| p.len() == len && p.bytes().all(|b| b.is_ascii_digit()))
+    }) && parts.next().is_none();
+    if well_formed {
+        Version::parse(version)
+    } else {
+        None
+    }
+}
+
+/// Checks that the project has one version everywhere and a well-formed changelog.
+///
+/// The workspace version and the roadmap package version must be equal, valid semantic
+/// versions, and not older than the latest release in the changelog. The changelog starts with
+/// `# Changelog`, has `## [Unreleased]` first, then releases `## [X.Y.Z] - YYYY-MM-DD`
+/// in strictly decreasing order.
+///
+/// # Errors
+///
+/// Returns a message listing every problem found.
+pub fn release_gate(cargo_toml: &str, package_json: &str, changelog: &str) -> Result<(), String> {
+    let mut problems = Vec::new();
+    let workspace = workspace_version(cargo_toml);
+    let version = workspace.and_then(Version::parse);
+    if version.is_none() {
+        problems.push(format!(
+            "{CARGO_TOML}: [workspace.package] version must be X.Y.Z"
+        ));
+    }
+    let package = serde_json::from_str::<serde_json::Value>(package_json)
+        .ok()
+        .and_then(|json| {
+            json.get("version")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)
+        });
+    if package.as_deref() != workspace {
+        problems.push(format!(
+            "{PACKAGE_JSON}: version {} differs from the workspace version {}",
+            package.as_deref().unwrap_or("(missing)"),
+            workspace.unwrap_or("(missing)")
+        ));
+    }
+    if changelog.lines().next() != Some("# Changelog") {
+        problems.push(format!("{CHANGELOG}: must start with \"# Changelog\""));
+    }
+    let headings: Vec<&str> = changelog.lines().filter(|l| l.starts_with("## ")).collect();
+    if headings.first() != Some(&"## [Unreleased]") {
+        problems.push(format!(
+            "{CHANGELOG}: the first section must be \"## [Unreleased]\""
+        ));
+    }
+    let mut releases = Vec::new();
+    for heading in headings.iter().skip(1) {
+        match released_heading(heading) {
+            Some(release) => releases.push(release),
+            None => problems.push(format!("{CHANGELOG}: malformed heading \"{heading}\"")),
+        }
+    }
+    if releases.windows(2).any(|pair| pair.first() <= pair.get(1)) {
+        problems.push(format!(
+            "{CHANGELOG}: releases must be in strictly decreasing order"
+        ));
+    }
+    if let (Some(current), Some(latest)) = (version, releases.first())
+        && current < *latest
+    {
+        problems.push(format!(
+            "version {current} is older than the latest release {latest}"
+        ));
+    }
+    if problems.is_empty() {
+        Ok(())
+    } else {
+        Err(problems.join("\n"))
+    }
+}
+
+/// Commit types allowed by the Conventional Commits rule of the project.
+pub const COMMIT_TYPES: [&str; 11] = [
+    "feat", "fix", "docs", "test", "refactor", "perf", "build", "ci", "chore", "style", "revert",
+];
+
+/// Longest allowed commit header, in characters.
+pub const COMMIT_HEADER_MAX: usize = 72;
+
+/// Checks a commit message against Conventional Commits.
+///
+/// Expected header: `type(scope)!: summary`, scope and `!` optional, at most
+/// [`COMMIT_HEADER_MAX`] characters, no trailing period, blank line before any body.
+/// Lines starting with `#` are git comments and are ignored. Messages generated by git
+/// for merges and reverts are accepted as they are.
+///
+/// # Errors
+///
+/// Returns a message explaining the expected format.
+pub fn commit_msg_gate(message: &str) -> Result<(), String> {
+    let mut lines = message.lines().filter(|line| !line.starts_with('#'));
+    let header = lines.next().unwrap_or("");
+    if header.starts_with("Merge ") || header.starts_with("Revert \"") {
+        return Ok(());
+    }
+    let fail = |reason: &str| {
+        Err(format!(
+            "invalid commit message: {reason}\nexpected: <type>(<scope>)!: <summary>, type one of {}",
+            COMMIT_TYPES.join(", ")
+        ))
+    };
+    let Some((prefix, summary)) = header.split_once(": ") else {
+        return fail("missing \"<type>: \" prefix");
+    };
+    let prefix = prefix.strip_suffix('!').unwrap_or(prefix);
+    let (kind, scope) = match prefix.split_once('(') {
+        Some((kind, rest)) => (kind, rest.strip_suffix(')')),
+        None => (prefix, Some("x")),
+    };
+    if !COMMIT_TYPES.contains(&kind) {
+        return fail(&format!("unknown type \"{kind}\""));
+    }
+    let scope_ok = scope.is_some_and(|s| {
+        !s.is_empty()
+            && s.bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+    });
+    if !scope_ok {
+        return fail("the scope must be lowercase letters, digits or hyphens");
+    }
+    if summary.trim().is_empty() || summary.ends_with('.') {
+        return fail("the summary must be non-empty and must not end with a period");
+    }
+    if header.chars().count() > COMMIT_HEADER_MAX {
+        return fail(&format!(
+            "the header is longer than {COMMIT_HEADER_MAX} characters"
+        ));
+    }
+    if lines.next().is_some_and(|line| !line.trim().is_empty()) {
+        return fail("a blank line must separate the header from the body");
+    }
+    Ok(())
+}
+
 /// Executes commands and reads files on behalf of [`run_steps`].
 pub trait Runner {
     /// Runs a command and tells whether it succeeded.
@@ -360,6 +592,12 @@ pub fn run_steps(
             Action::CoverageGate(path) => {
                 read_file(runner, path).and_then(|report| coverage_gate(&report))
             }
+            Action::ReleaseGate => read_file(runner, CARGO_TOML).and_then(|cargo| {
+                read_file(runner, PACKAGE_JSON).and_then(|package| {
+                    read_file(runner, CHANGELOG)
+                        .and_then(|changelog| release_gate(&cargo, &package, &changelog))
+                })
+            }),
             Action::UnviableGate => read_file(runner, UNVIABLE_REPORT).and_then(|report| {
                 read_file(runner, UNVIABLE_REVIEWED)
                     .and_then(|reviewed| unviable_gate(&report, &reviewed))
@@ -371,7 +609,7 @@ pub fn run_steps(
 }
 
 /// Usage of the `xtask` command.
-pub const USAGE: &str = "usage: cargo xtask <check|help>\n  check  run every quality check, as CI and the pre-push hook do\n  help   show this help";
+pub const USAGE: &str = "usage: cargo xtask <check|commit-msg <file>|help>\n  check              run every quality check, as CI and the pre-push hook do\n  commit-msg <file>  check a commit message (used by the commit-msg hook)\n  help               show this help";
 
 /// Entry point: runs the command named by `args` and returns whether it succeeded.
 pub fn cli(
@@ -382,6 +620,9 @@ pub fn cli(
 ) -> bool {
     let result = match args {
         [command] if command == "check" => run_steps(&check_steps(), runner, out),
+        [command, path] if command == "commit-msg" => {
+            read_file(runner, path).and_then(|message| commit_msg_gate(&message))
+        }
         [command] if command == "help" => {
             writeln!(out, "{USAGE}").map_err(|error| error.to_string())
         }

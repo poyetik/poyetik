@@ -1,5 +1,6 @@
 import { COLUMNS, withStatus, type Board, type Card, type ColumnId, type TaskWithStatus } from "./board.ts";
 
+/** A card prepared for display. */
 export interface CardView extends Card {
   /** Steps with their status: the first one not done is in progress. */
   readonly steps: readonly TaskWithStatus[];
@@ -8,12 +9,14 @@ export interface CardView extends Card {
   readonly currentStep: string | null;
 }
 
+/** A column and its cards, prepared for display. */
 export interface ColumnView {
   readonly id: ColumnId;
   readonly title: string;
   readonly cards: readonly CardView[];
 }
 
+/** The whole board, prepared for display. */
 export interface BoardView {
   readonly title: string;
   readonly columns: readonly ColumnView[];

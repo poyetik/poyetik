@@ -89,6 +89,26 @@ Non-negotiable, and **enforced by tooling, not by goodwill**: CI and the pre-pus
 - Coverage 100% lines, functions and branches (`cargo-llvm-cov`; branch coverage needs a pinned nightly, `nightly-2026-11-01`, used for that measurement only), **no surviving mutant** (`cargo-mutants --cap-lints=true`, so that mutants are never skipped because of lints), Miri on any `unsafe`.
 - **Every unviable mutant (one that does not compile) must be reviewed.** Confirm that the type system or `no_std` really makes that wrong implementation impossible, and that no legitimate variant of it escapes the tests; then record it with its reason in `mutants-unviable.txt`. `cargo xtask check` fails on any unreviewed unviable mutant and on any stale entry, so the list always matches reality.
 
+## Documentation, versioning and commits
+
+Enforced by `cargo xtask check` and the git hooks, like everything else.
+
+### Documentation
+- **Every item is documented**, public or private: Rust `missing_docs` + Clippy `missing_docs_in_private_items`; TypeScript JSDoc on every exported declaration (`eslint-plugin-jsdoc`).
+- Docs explain **why and what**, not only how: purpose, invariants, units, errors (`# Errors` sections in Rust), panics (there must be none).
+- `cargo doc` runs with the rustdoc lints as errors: no broken or private links, no invalid code blocks, crate-level docs required.
+- `README.md` explains what the project is and how to run and check it; `doc/architecture.md` holds the architecture, the dependency register and the decisions log. Every architecture decision adds a line to that log.
+
+### Versioning and changelog
+- **One version for the whole project**, following [Semantic Versioning](https://semver.org): the workspace `version` in `Cargo.toml` and `roadmap/package.json` must match (checked).
+- **Every notable change adds an entry under `## [Unreleased]` in `CHANGELOG.md`**, in the same commit ([Keep a Changelog](https://keepachangelog.com) sections: Added, Changed, Deprecated, Removed, Fixed, Security). The changelog format is checked: `# Changelog`, `## [Unreleased]` first, then `## [X.Y.Z] - YYYY-MM-DD` in strictly decreasing order, never newer than the project version.
+- While the version is `0.x`, a breaking change bumps the minor version; from `1.0.0` on, it bumps the major version.
+- Releasing: move the `[Unreleased]` entries under a new `## [X.Y.Z] - date` heading, set the version everywhere, commit, then tag `vX.Y.Z`.
+
+### Commits
+- **[Conventional Commits](https://www.conventionalcommits.org)**, in English: `type(scope)!: summary`, with type one of `feat`, `fix`, `docs`, `test`, `refactor`, `perf`, `build`, `ci`, `chore`, `style`, `revert`; optional lowercase scope (`engine-core`, `xtask`, `roadmap`…); `!` for breaking changes; header of at most 72 characters, no trailing period, a blank line before the body.
+- Checked by the `.githooks/commit-msg` hook (`cargo xtask commit-msg`). One logical change per commit; never commit a red `cargo xtask check`.
+
 ## Testing policy
 
 Non-negotiable. A change that does not meet these rules is not done.

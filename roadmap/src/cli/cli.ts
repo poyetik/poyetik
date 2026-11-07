@@ -34,6 +34,7 @@ export interface Io {
   readonly today: () => string;
 }
 
+/** Help text printed by `roadmap help`. */
 export const HELP = `Usage: roadmap <command> [options]
 
   list [--column <col>]                       List cards (ids: 12 or #12)

@@ -3,6 +3,7 @@
  * Every change goes through a command that returns a new board (never mutates).
  */
 
+/** The four roadmap columns, in display order. */
 export const COLUMNS = [
   { id: "later", title: "Later" },
   { id: "next", title: "Next" },
@@ -10,6 +11,7 @@ export const COLUMNS = [
   { id: "done", title: "Done" },
 ] as const;
 
+/** Identifier of a column. */
 export type ColumnId = (typeof COLUMNS)[number]["id"];
 
 /** One step of a card. The first step that is not done is the one in progress. */
@@ -18,8 +20,10 @@ export interface Task {
   readonly done: boolean;
 }
 
+/** Display status of a step: done, in progress (the first step not done) or still to do. */
 export type TaskStatus = "done" | "doing" | "todo";
 
+/** A roadmap card (ticket) with its ordered steps. */
 export interface Card {
   readonly id: number;
   readonly title: string;
@@ -31,6 +35,7 @@ export interface Card {
   readonly tasks: readonly Task[];
 }
 
+/** The whole roadmap, as stored in `board.json`. */
 export interface Board {
   readonly version: 1;
   readonly title: string;
@@ -38,6 +43,7 @@ export interface Board {
   readonly cards: readonly Card[];
 }
 
+/** An expected, user-facing error: invalid data or an invalid command. */
 export class BoardError extends Error {
   override readonly name = "BoardError";
 }
@@ -49,6 +55,7 @@ const TASK_KEYS = ["title", "done"];
 const TASK_NUMBER_RE = /^[1-9]\d*$/;
 const BOARD_KEYS = ["version", "title", "nextId", "cards"];
 
+/** Whether a value is a known column identifier. */
 export function isColumnId(value: unknown): value is ColumnId {
   return COLUMNS.some((c) => c.id === value);
 }
@@ -67,6 +74,7 @@ export function parseId(text: string): number {
   return Number(match[1]);
 }
 
+/** Creates an empty board with the given title. */
 export function emptyBoard(title: string): Board {
   return { version: 1, title: requireText(title, "title"), nextId: 1, cards: [] };
 }
@@ -210,6 +218,7 @@ export function serializeBoard(board: Board): string {
 
 // ---------- Commands ----------
 
+/** Fields of a new card; only the title is required. */
 export interface AddInput {
   readonly title: string;
   readonly description?: string | undefined;
@@ -217,12 +226,14 @@ export interface AddInput {
   readonly milestone?: string | undefined;
 }
 
+/** Fields to change on a card; at least one must be given. */
 export interface EditInput {
   readonly title?: string | undefined;
   readonly description?: string | undefined;
   readonly milestone?: string | undefined;
 }
 
+/** Returns the card with this id, or throws a `BoardError`. */
 export function findCard(board: Board, id: number): Card {
   const card = board.cards.find((c) => c.id === id);
   if (card === undefined) {
@@ -231,6 +242,7 @@ export function findCard(board: Board, id: number): Card {
   return card;
 }
 
+/** Adds a card at the end of the board and returns the new board and card. */
 export function addCard(board: Board, input: AddInput, today: string): { board: Board; card: Card } {
   const date = requireDate(today, "today's date");
   const card: Card = {
@@ -261,6 +273,7 @@ export function moveCard(board: Board, id: number, column: ColumnId, position: n
   return { ...board, cards: [...others.slice(0, insertAt), card, ...others.slice(insertAt)] };
 }
 
+/** Changes the given fields of a card and updates its date. */
 export function editCard(board: Board, id: number, patch: EditInput, today: string): Board {
   const date = requireDate(today, "today's date");
   const current = findCard(board, id);
@@ -277,6 +290,7 @@ export function editCard(board: Board, id: number, patch: EditInput, today: stri
   return { ...board, cards: board.cards.map((c) => (c.id === id ? card : c)) };
 }
 
+/** Removes a card. Its id is never reused. */
 export function removeCard(board: Board, id: number): Board {
   findCard(board, id);
   return { ...board, cards: board.cards.filter((c) => c.id !== id) };
@@ -284,6 +298,7 @@ export function removeCard(board: Board, id: number): Board {
 
 // ---------- Tasks ----------
 
+/** A step together with its display status. */
 export interface TaskWithStatus extends Task {
   readonly status: TaskStatus;
 }
@@ -315,6 +330,7 @@ function requireTaskIndex(card: Card, n: number): number {
   return n - 1;
 }
 
+/** Adds a step at the end of a card. */
 export function addTask(board: Board, id: number, title: string, today: string): Board {
   const task: Task = { title: requireText(title, "task title"), done: false };
   return updateCard(board, id, today, (card) => ({ ...card, tasks: [...card.tasks, task] }));
@@ -331,6 +347,7 @@ export function completeTask(board: Board, id: number, n: number | undefined, to
   });
 }
 
+/** Marks step `n` (1-based) of a card as not done. */
 export function reopenTask(board: Board, id: number, n: number, today: string): Board {
   return updateCard(board, id, today, (card) => {
     const index = requireTaskIndex(card, n);
@@ -338,6 +355,7 @@ export function reopenTask(board: Board, id: number, n: number, today: string): 
   });
 }
 
+/** Renames step `n` (1-based) of a card. */
 export function renameTask(board: Board, id: number, n: number, title: string, today: string): Board {
   return updateCard(board, id, today, (card) => {
     const index = requireTaskIndex(card, n);
@@ -346,6 +364,7 @@ export function renameTask(board: Board, id: number, n: number, title: string, t
   });
 }
 
+/** Removes step `n` (1-based) of a card. */
 export function removeTask(board: Board, id: number, n: number, today: string): Board {
   return updateCard(board, id, today, (card) => {
     const index = requireTaskIndex(card, n);
