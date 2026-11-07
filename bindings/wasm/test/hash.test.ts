@@ -1,0 +1,54 @@
+import { describe, expect, test } from "vitest";
+import { interleave, renderHash } from "../ts/hash.ts";
+
+describe("renderHash", () => {
+  test("matches the reference vector of the Rust implementation", async () => {
+    // crates/engine-hash: `is_stable`.
+    expect(await renderHash(48_000, 2, new Float32Array([0, 0.5, -0.5, 1]))).toBe(
+      "9d1756287e39b44f34500c890770292a9c31c69410b00dc87b670967cfce6397",
+    );
+  });
+
+  test("hashes nothing but the header of an empty render", async () => {
+    // Independent value (Python hashlib): SHA-256 of "render-hash/1", 48000 (u32), 1 (u64)
+    // and 0 (u64), little-endian.
+    expect(await renderHash(48_000, 1, new Float32Array())).toBe("b39af19db79a2adf7bb979d48f7dc3d88915fbc9688f9fa86b9fb2a1930c66f8");
+    expect(await renderHash(48_000, 1, new Float32Array())).not.toBe(await renderHash(44_100, 1, new Float32Array()));
+    expect(await renderHash(48_000, 1, new Float32Array())).not.toBe(await renderHash(48_000, 2, new Float32Array()));
+  });
+
+  test("covers every bit of every sample, NaN payloads included", async () => {
+    const bits = new Uint32Array([0x7fc00000, 0x3f000000]);
+    const other = new Uint32Array([0x7fc00001, 0x3f000000]);
+    expect(await renderHash(48_000, 1, new Float32Array(bits.buffer))).not.toBe(await renderHash(48_000, 1, new Float32Array(other.buffer)));
+    const ulp = new Uint32Array([0x7fc00000, 0x3f000001]);
+    expect(await renderHash(48_000, 1, new Float32Array(bits.buffer))).not.toBe(await renderHash(48_000, 1, new Float32Array(ulp.buffer)));
+  });
+
+  test("reads only the samples of a view", async () => {
+    const whole = new Float32Array([9, 0, 0.5, -0.5, 1, 9]);
+    expect(await renderHash(48_000, 2, whole.subarray(1, 5))).toBe(await renderHash(48_000, 2, new Float32Array([0, 0.5, -0.5, 1])));
+  });
+
+  test("is 64 lowercase hex digits", async () => {
+    expect(await renderHash(1, 1, new Float32Array([1e-45]))).toMatch(/^[0-9a-f]{64}$/);
+  });
+});
+
+describe("interleave", () => {
+  test("puts frames one after the other", () => {
+    expect(interleave([new Float32Array([1, 2]), new Float32Array([3, 4])])).toStrictEqual(new Float32Array([1, 3, 2, 4]));
+  });
+
+  test("takes its length from the first channel, padding shorter ones with zeros", () => {
+    expect(interleave([new Float32Array([1, 2]), new Float32Array([3])])).toStrictEqual(new Float32Array([1, 3, 2, 0]));
+  });
+
+  test("ignores samples beyond the length of the first channel", () => {
+    expect(interleave([new Float32Array([1]), new Float32Array([2, 3])])).toStrictEqual(new Float32Array([1, 2]));
+  });
+
+  test("accepts no channels", () => {
+    expect(interleave([])).toStrictEqual(new Float32Array());
+  });
+});

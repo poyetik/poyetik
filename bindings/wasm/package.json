@@ -1,0 +1,34 @@
+{
+  "name": "@poyetik/engine-wasm",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "poyetik engine in the browser (AudioWorklet) and in Node: the WebAssembly module and its TypeScript glue.",
+  "scripts": {
+    "build:wasm": "cargo build --package engine-wasm --release --locked --target wasm32-unknown-unknown",
+    "build": "pnpm build:wasm && tsc -p tsconfig.build.json && tsc -p ts/worklet/tsconfig.build.json && node scripts/copy-wasm.ts",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p ts/worklet",
+    "lint": "eslint . --max-warnings 0",
+    "test": "vitest run --coverage",
+    "test:mutation": "stryker run",
+    "test:e2e": "tsc -p e2e/site/tsconfig.build.json && playwright test",
+    "check": "pnpm build && pnpm typecheck && pnpm lint && pnpm test && pnpm test:mutation && pnpm test:e2e"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.65.0",
+    "@stryker-mutator/core": "^10.1.1",
+    "@stryker-mutator/vitest-runner": "^10.1.1",
+    "@types/audioworklet": "0.0.100",
+    "@types/node": "^26.6.6",
+    "@vitest/coverage-v8": "^5.1.0",
+    "eslint": "^10.14.0",
+    "eslint-plugin-jsdoc": "^65.4.5",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.72.1",
+    "vitest": "^5.1.0"
+  },
+  "engines": {
+    "node": ">=22.18"
+  }
+}

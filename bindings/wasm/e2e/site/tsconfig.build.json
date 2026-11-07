@@ -1,0 +1,6 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": { "noEmit": false, "rootDir": ".", "outDir": "." },
+  "include": ["harness.ts"],
+  "exclude": []
+}

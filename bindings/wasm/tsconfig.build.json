@@ -1,0 +1,6 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "noEmit": false, "rootDir": "ts", "outDir": "dist", "types": [], "declaration": true },
+  "include": ["ts/**/*.ts"],
+  "exclude": ["ts/worklet"]
+}

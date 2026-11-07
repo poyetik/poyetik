@@ -1,0 +1,18 @@
+import { defineConfig, devices } from "@playwright/test";
+
+// The engine runs in all three browser engines: Chromium, Firefox, WebKit (Safari),
+// on desktop and on a phone.
+export default defineConfig({
+  testDir: "e2e",
+  forbidOnly: true,
+  retries: 0,
+  reporter: "list",
+  use: { baseURL: "http://localhost:4392/" },
+  webServer: { command: "node e2e/serve.ts", url: "http://localhost:4392/e2e/site/index.html", reuseExistingServer: false },
+  projects: [
+    { name: "chromium", use: { ...devices["Desktop Chrome"] } },
+    { name: "firefox", use: { ...devices["Desktop Firefox"] } },
+    { name: "webkit", use: { ...devices["Desktop Safari"] } },
+    { name: "mobile-webkit", use: { ...devices["iPhone 15"] } },
+  ],
+});

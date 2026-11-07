@@ -70,6 +70,7 @@ fn passing() -> Fake {
         (CARGO_TOML, CARGO),
         (PACKAGE_JSONS[0], PACKAGE),
         (PACKAGE_JSONS[1], PACKAGE),
+        (PACKAGE_JSONS[2], PACKAGE),
         (CHANGELOG, LOG),
         ("COMMIT_EDITMSG", "feat(core): add the plan\n"),
     ] {
@@ -89,11 +90,12 @@ fn packages(text: &str) -> Vec<(&'static str, String)> {
         .collect()
 }
 
-/// The root manifest correct, the roadmap one with `text`.
+/// Every manifest correct except the roadmap one, with `text`.
 fn roadmap_package(text: &str) -> Vec<(&'static str, String)> {
     vec![
         (PACKAGE_JSONS[0], PACKAGE.to_owned()),
         (PACKAGE_JSONS[1], text.to_owned()),
+        (PACKAGE_JSONS[2], PACKAGE.to_owned()),
     ]
 }
 
@@ -129,10 +131,12 @@ fn lists_every_check_in_order() {
             "gate target/coverage.json",
             "Root: cargo mutants --workspace --cap-lints=true",
             "unviable gate",
+            "Root: cargo +nightly-2026-11-01 miri test --package engine-wasm --locked",
             "Root: cargo run --package engine-cli --locked --quiet -- check conformance",
             "Root: cargo deny --locked check",
             "release gate",
             "Root: pnpm install --frozen-lockfile",
+            "EngineWasm: pnpm run check",
             "Roadmap: pnpm run check",
         ],
         "the full check pipeline"
@@ -152,10 +156,12 @@ fn lists_every_check_in_order() {
             "Rust coverage: 100% lines, functions and branches",
             "Rust mutation testing",
             "Rust unviable mutants reviewed",
+            "Rust FFI under Miri",
             "Conformance (native)",
             "Rust supply chain",
             "Versions and changelog",
             "JavaScript dependencies",
+            "Engine WASM checks",
             "Roadmap checks",
         ],
         "step names"
@@ -171,6 +177,11 @@ fn resolves_directories() {
         Dir::Roadmap.under(root),
         Path::new("/repo/apps/roadmap"),
         "roadmap"
+    );
+    assert_eq!(
+        Dir::EngineWasm.under(root),
+        Path::new("/repo/bindings/wasm"),
+        "engine-wasm"
     );
 }
 
@@ -227,10 +238,16 @@ fn runs_every_step_and_reports_success() {
     );
     assert_eq!(
         fake.ran.len(),
-        check_steps().len() + 4,
-        "every step ran; the unviable gate reads two files, the release gate four"
+        check_steps().len() + 5,
+        "every step ran; the unviable gate reads two files, the release gate five"
     );
-    for path in [CARGO_TOML, PACKAGE_JSONS[0], PACKAGE_JSONS[1], CHANGELOG] {
+    for path in [
+        CARGO_TOML,
+        PACKAGE_JSONS[0],
+        PACKAGE_JSONS[1],
+        PACKAGE_JSONS[2],
+        CHANGELOG,
+    ] {
         assert!(fake.ran.contains(&format!("read {path}")), "{path} read");
     }
     assert!(
@@ -243,15 +260,15 @@ fn runs_every_step_and_reports_success() {
     );
     let text = String::from_utf8(out).expect("utf-8 output");
     assert!(
-        text.starts_with("▶ [1/17] Rust formatting\n"),
+        text.starts_with("▶ [1/19] Rust formatting\n"),
         "numbered progress: {text}"
     );
     assert!(
-        text.contains("▶ [17/17] Roadmap checks\n"),
+        text.contains("▶ [19/19] Roadmap checks\n"),
         "last step announced: {text}"
     );
     assert!(
-        text.ends_with("✔ all 17 checks passed\n"),
+        text.ends_with("✔ all 19 checks passed\n"),
         "summary: {text}"
     );
 }
@@ -818,7 +835,13 @@ fn release_gate_runs_on_the_real_files() {
             .is_err_and(|e| e.starts_with("✘ Versions and changelog: ")),
         "release gate failure is named"
     );
-    for path in [CARGO_TOML, PACKAGE_JSONS[0], PACKAGE_JSONS[1], CHANGELOG] {
+    for path in [
+        CARGO_TOML,
+        PACKAGE_JSONS[0],
+        PACKAGE_JSONS[1],
+        PACKAGE_JSONS[2],
+        CHANGELOG,
+    ] {
         let mut without = passing();
         let removed = without.files.remove(path);
         assert!(removed.is_some(), "{path} removed");

@@ -1,0 +1,44 @@
+import { describe, expect, test } from "vitest";
+import { ENGINE_PROCESSOR, OptionsError, TAP_PROCESSOR, parseEngineOptions, parseTapBlock } from "../ts/protocol.ts";
+
+describe("parseEngineOptions", () => {
+  test("accepts the module bytes and the patch", () => {
+    const wasm = new ArrayBuffer(8);
+    const patch = new Uint8Array([1]);
+    expect(parseEngineOptions({ wasm, patch, extra: 1 })).toStrictEqual({ wasm, patch });
+  });
+
+  test.each([
+    [undefined, "not an object"],
+    [null, "not an object"],
+    [3, "not an object"],
+    [{ patch: new Uint8Array() }, "wasm is not an ArrayBuffer"],
+    [{ wasm: new Uint8Array(), patch: new Uint8Array() }, "wasm is not an ArrayBuffer"],
+    [{ wasm: new ArrayBuffer(0) }, "patch is not a Uint8Array"],
+    [{ wasm: new ArrayBuffer(0), patch: [1] }, "patch is not a Uint8Array"],
+  ])("rejects %o", (value, detail) => {
+    expect(() => parseEngineOptions(value)).toThrow(new OptionsError(detail));
+  });
+
+  test("names its errors", () => {
+    expect(new OptionsError("x")).toMatchObject({ name: "OptionsError", message: "invalid processor options: x" });
+  });
+});
+
+describe("parseTapBlock", () => {
+  test("accepts one Float32Array per channel", () => {
+    const block = [new Float32Array(2), new Float32Array(2)];
+    expect(parseTapBlock(block)).toStrictEqual(block);
+    expect(parseTapBlock([])).toStrictEqual([]);
+  });
+
+  test("rejects anything else", () => {
+    expect(() => parseTapBlock("stop")).toThrow(new OptionsError("tap block is not an array"));
+    expect(() => parseTapBlock([new Float32Array(1), [0]])).toThrow(new OptionsError("tap channel is not a Float32Array"));
+  });
+});
+
+test("names the processors: a contract with every page that loads them", () => {
+  expect(ENGINE_PROCESSOR).toBe("poyetik-engine");
+  expect(TAP_PROCESSOR).toBe("poyetik-tap");
+});

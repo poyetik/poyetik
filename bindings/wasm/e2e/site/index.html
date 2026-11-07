@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>engine-wasm test bench</title>
+    <script type="module" src="./harness.js"></script>
+  </head>
+  <body>
+    <main>
+      <h1>engine-wasm test bench</h1>
+      <p>Renders a conformance case in this browser and shows the canonical hash of the samples.</p>
+      <button id="offline" type="button" disabled>Render offline</button>
+      <button id="live" type="button" disabled>Capture live</button>
+      <button id="invalid" type="button" disabled>Load an invalid patch</button>
+      <dl>
+        <dt>Offline hash</dt>
+        <dd><output id="offline-hash"></output></dd>
+        <dt>Live hash</dt>
+        <dd><output id="live-hash"></output></dd>
+        <dt>Error</dt>
+        <dd><output id="error"></output></dd>
+      </dl>
+    </main>
+  </body>
+</html>

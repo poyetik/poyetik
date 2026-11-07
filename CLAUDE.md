@@ -50,7 +50,7 @@ Public project kanban. The data lives in `apps/roadmap/board.json`, versioned in
 
 ## CI
 
-**One command runs every check: `cargo xtask check`** (Rust formatting, lints, tests, portability builds, 100% coverage gate, mutation testing, supply chain, then the whole roadmap chain). The `.githooks/pre-push` hook and `.github/workflows/quality.yml` (every push and pull request) both run exactly this command, so a green local check means a green CI.
+**One command runs every check: `cargo xtask check`** (Rust formatting, lints, tests, portability builds, 100% coverage gate, mutation testing, Miri, conformance, supply chain, then every TypeScript package: the engine in the browser and the roadmap). The `.githooks/pre-push` hook and `.github/workflows/quality.yml` (every push and pull request) both run exactly this command, so a green local check means a green CI.
 
 Every new check is added to `xtask` (`check_steps`), never directly to the hook or the workflow. The hook is enabled through `core.hooksPath`, set automatically by `pnpm install` at the root. **Never bypass the hook** (`--no-verify` is forbidden).
 

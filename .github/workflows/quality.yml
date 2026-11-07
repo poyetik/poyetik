@@ -23,11 +23,11 @@ jobs:
       - uses: actions/checkout@v5
 
       # Rust: the pinned stable toolchain comes from rust-toolchain.toml; the pinned
-      # nightly is used only to measure branch coverage.
+      # nightly is used only to measure branch coverage and to run Miri.
       - name: Install Rust toolchains
         run: |
           rustup show active-toolchain
-          rustup toolchain install nightly-2026-11-01 --profile minimal --component llvm-tools-preview
+          rustup toolchain install nightly-2026-11-01 --profile minimal --component llvm-tools-preview,miri,rust-src
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@v2
         with:
@@ -57,4 +57,8 @@ jobs:
             apps/*/reports
             apps/*/playwright-report
             apps/*/test-results
+            bindings/*/coverage
+            bindings/*/reports
+            bindings/*/playwright-report
+            bindings/*/test-results
           if-no-files-found: ignore

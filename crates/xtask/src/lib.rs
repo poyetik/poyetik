@@ -13,8 +13,8 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// Pinned nightly toolchain, used only to measure branch coverage.
-pub const COVERAGE_TOOLCHAIN: &str = "+nightly-2026-11-01";
+/// Pinned nightly toolchain, used only to measure branch coverage and to run Miri.
+pub const NIGHTLY_TOOLCHAIN: &str = "+nightly-2026-11-01";
 
 /// Where the coverage report is written.
 pub const COVERAGE_REPORT: &str = "target/coverage.json";
@@ -40,6 +40,8 @@ pub enum Dir {
     Root,
     /// The `apps/roadmap/` package.
     Roadmap,
+    /// The `bindings/wasm/` package.
+    EngineWasm,
 }
 
 impl Dir {
@@ -49,6 +51,7 @@ impl Dir {
         match self {
             Self::Root => root.to_path_buf(),
             Self::Roadmap => root.join("apps").join("roadmap"),
+            Self::EngineWasm => root.join("bindings").join("wasm"),
         }
     }
 }
@@ -169,7 +172,7 @@ fn proof_steps() -> Vec<Step> {
             "Rust coverage report",
             "cargo",
             &[
-                COVERAGE_TOOLCHAIN,
+                NIGHTLY_TOOLCHAIN,
                 "llvm-cov",
                 "--workspace",
                 "--locked",
@@ -197,10 +200,25 @@ fn proof_steps() -> Vec<Step> {
             name: "Rust unviable mutants reviewed".to_owned(),
             action: Action::UnviableGate,
         },
+        // The only `unsafe` code of the engine: Miri checks its tests for undefined behavior.
+        run(
+            "Rust FFI under Miri",
+            "cargo",
+            &[
+                NIGHTLY_TOOLCHAIN,
+                "miri",
+                "test",
+                "--package",
+                "engine-wasm",
+                "--locked",
+            ],
+            Dir::Root,
+        ),
     ]
 }
 
-/// Conformance, supply chain, versions and the TypeScript packages.
+/// Conformance, supply chain, versions and the TypeScript packages (the engine in the
+/// browser, then the roadmap).
 fn release_steps() -> Vec<Step> {
     vec![
         run(
@@ -233,6 +251,12 @@ fn release_steps() -> Vec<Step> {
             "pnpm",
             &["install", "--frozen-lockfile"],
             Dir::Root,
+        ),
+        run(
+            "Engine WASM checks",
+            "pnpm",
+            &["run", "check"],
+            Dir::EngineWasm,
         ),
         run("Roadmap checks", "pnpm", &["run", "check"], Dir::Roadmap),
     ]
@@ -361,7 +385,11 @@ pub fn unviable_gate(report: &str, reviewed: &str) -> Result<(), String> {
 pub const CARGO_TOML: &str = "Cargo.toml";
 
 /// Every `package.json` of the pnpm workspace: all carry the project version.
-pub const PACKAGE_JSONS: [&str; 2] = ["package.json", "apps/roadmap/package.json"];
+pub const PACKAGE_JSONS: [&str; 3] = [
+    "package.json",
+    "apps/roadmap/package.json",
+    "bindings/wasm/package.json",
+];
 
 /// The changelog.
 pub const CHANGELOG: &str = "CHANGELOG.md";
