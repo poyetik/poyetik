@@ -34,7 +34,7 @@
         },
         {
           "title": "apps/playground: on/off button and live oscilloscope, end-to-end tests on 4 browsers",
-          "done": false
+          "done": true
         },
         {
           "title": "xtask check wired into CI and the pre-push hook",
