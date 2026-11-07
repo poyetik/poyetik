@@ -1,6 +1,6 @@
 # engine-wasm
 
-The engine in browsers and in Node: a WebAssembly module (Rust crate `engine-wasm`) and its TypeScript glue (package `@poyetik/engine-wasm`). Architecture: `doc/architecture.md`, sections 3 and 7.
+The engine in browsers and in Node: a WebAssembly module (Rust crate `engine-wasm`) and its TypeScript glue (package `@poyetik/engine-wasm`).
 
 | Path | What |
 |---|---|

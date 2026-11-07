@@ -8,16 +8,16 @@ The core promise: **the engine produces exactly the same samples, bit for bit, o
 
 ## Repository
 
-A monorepo of separate parts (see [`doc/architecture.md`](doc/architecture.md)):
+A monorepo of separate parts:
 
 | Path | Contents |
 |---|---|
-| `spec/` | Patch format specification (to come) |
-| `crates/` | The engine core (`engine-core`, `no_std`, no `unsafe`) and project automation (`xtask`) |
-| `bindings/` | Developer SDKs around the core (to come) |
-| `apps/` | Applications: the public roadmap today |
-| `conformance/` | Reference cases and expected hashes (to come) |
-| `doc/` | Architecture, dependency register, decisions log and licensing strategy |
+| `spec/` | Patch format specification |
+| `crates/` | The engine: `engine-core` (`no_std`, no `unsafe`), the boxes, the patch reader, the render hash, the command-line renderer, and project automation (`xtask`) |
+| `bindings/` | Developer SDKs around the core: `wasm/`, the engine in browsers and Node |
+| `apps/` | Applications: the playground and the public roadmap |
+| `conformance/` | Reference cases and expected hashes, checked on every target |
+| `tooling/` | Shared development configuration (`@poyetik/config`) |
 | `CLAUDE.md` | Project rules: language, proof, typing, testing, documentation, versioning |
 | `CHANGELOG.md` | Notable changes, per version |
 
@@ -37,7 +37,7 @@ Runs every quality check: formatting, lints, documentation, tests, portability b
 
 ## License
 
-Not decided yet: see [`doc/licensing.md`](doc/licensing.md). The intent is source-available, with attribution required, commercial use allowed for artists and no competing product or service.
+Not decided yet. The intent is source-available, with attribution required, commercial use allowed for artists and no competing product or service.
 
 ## Versioning
 

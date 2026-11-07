@@ -26,16 +26,16 @@ Core promise: **the engine produces exactly the same samples, bit for bit, on ev
 
 ## Documentation
 
-- `doc/` holds the history of design discussions and architecture decisions.
-- `doc/licensing.md` is the licensing strategy. **No license is chosen yet**: never add a `LICENSE` file or change the `UNLICENSED` identifiers without the maintainer's explicit decision.
-- `doc/2026-11-07-initial-brainstorm.md` is the founding brainstorm. Read it before any architecture decision when it is present. **Brainstorm notes stay local and are never versioned** (`doc/*brainstorm*.md` is git-ignored), so they may be missing in a fresh clone.
+- **`doc/` is local only and never versioned** (git-ignored): design discussions, `architecture.md` (architecture, dependency register, decisions log), `licensing.md` (licensing strategy), `interface-testing.md`, `debug-mode.md`, `integrations.md`, brainstorms. It may be missing in a fresh clone; when present, read the relevant files before any design decision. Never copy its strategy content into a versioned file.
+- **No license is chosen yet**: never add a `LICENSE` file or change the `UNLICENSED` identifiers without the maintainer's explicit decision.
+- `doc/2026-11-07-initial-brainstorm.md` is the founding brainstorm. Read it before any architecture decision when it is present.
 
 Project rules will be added here as we go.
 
 ## Repository structure
 
-A **monorepo of separate parts** with clear contracts (details in `doc/architecture.md`, section 2):
-`spec/` (patch format), `crates/` (reusable engine core and tooling), `bindings/` (developer SDKs), `apps/` (applications), `conformance/` (reference cases), `tooling/` (shared development configuration), `doc/`.
+A **monorepo of separate parts** with clear contracts (details in the local `doc/architecture.md`, section 2):
+`spec/` (patch format), `crates/` (reusable engine core and tooling), `bindings/` (developer SDKs), `apps/` (applications), `conformance/` (reference cases), `tooling/` (shared development configuration).
 One Cargo workspace and one pnpm workspace at the root. A part only uses another through its documented public interface. Parts are built **incrementally**: empty folders only hold a short README; never specify ahead of need.
 
 ## Roadmap (`apps/roadmap/`)
@@ -64,7 +64,7 @@ This is proven, not assumed: `cargo xtask check` builds the core and the boxes (
 
 - **As few as possible.** Every dependency (library or tool) is a liability: prefer the standard library, then a tool or library already used in the project, then a new one.
 - **Modern, mainstream and well maintained.** Only widely used projects with active maintenance and a healthy community. Nothing obscure, experimental or abandoned.
-- **Every dependency is justified** in the dependency register of `doc/architecture.md` (what it is for, why it is needed, why this one). Adding one means adding its entry first.
+- **Every dependency is justified** in the dependency register of the local `doc/architecture.md` (what it is for, why it is needed, why this one). Adding one means adding its entry first.
 - Versions are locked (`Cargo.lock`, `pnpm-lock.yaml`) and the toolchains are pinned.
 
 ## Strict typing and linting policy
@@ -106,7 +106,7 @@ Enforced by `cargo xtask check` and the git hooks, like everything else.
 - **Every item is documented**, public or private: Rust `missing_docs` + Clippy `missing_docs_in_private_items`; TypeScript JSDoc on every exported declaration (`eslint-plugin-jsdoc`).
 - Docs explain **why and what**, not only how: purpose, invariants, units, errors (`# Errors` sections in Rust), panics (there must be none).
 - `cargo doc` runs with the rustdoc lints as errors: no broken or private links, no invalid code blocks, crate-level docs required.
-- `README.md` explains what the project is and how to run and check it; `doc/architecture.md` holds the architecture, the dependency register and the decisions log. Every architecture decision adds a line to that log.
+- `README.md` and each part's `README.md` explain what it is and how to run and check it; the local `doc/architecture.md` holds the architecture, the dependency register and the decisions log. Every architecture decision adds a line to that log.
 
 ### Versioning and changelog
 - **One version for the whole project**, following [Semantic Versioning](https://semver.org): the workspace `version` in `Cargo.toml` and the `version` of every `package.json` must match (checked).
@@ -157,7 +157,7 @@ Maximum testing applies to **all code, in every language**: Rust engine, patch m
 ### Every other aspect
 - **Commands and patch model**: every command is tested (success, rejection, undo/redo round trip), with property tests over random command sequences (full undo = initial state, identical serialization round trip).
 - **Format compatibility**: every version of the patch format keeps test files. Old patches always load and migrate, checked in CI.
-- **Web interfaces (playground, editor)**: `doc/interface-testing.md` is the required test strategy, layer by layer (scene, camera and animations, interactions, renderer, accessibility layer, components, end-to-end, visual regression, performance). It is mandatory, heavy on purpose, and applies from the first line of every interface change. In short:
+- **Web interfaces (playground, editor)**: the local `doc/interface-testing.md` is the required test strategy, layer by layer (scene, camera and animations, interactions, renderer, accessibility layer, components, end-to-end, visual regression, performance). It is mandatory, heavy on purpose, and applies from the first line of every interface change. In short:
   - unit and component tests;
   - end-to-end tests (Playwright) on **Chrome, Firefox and WebKit**;
   - visual regression via screenshots;

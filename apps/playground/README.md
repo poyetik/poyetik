@@ -1,6 +1,6 @@
 # playground
 
-The Rust engine in the browser: a 440 Hz sine with an on/off button and a live oscilloscope. Vite + React; it grows into the editor (see `doc/architecture.md`, section 7).
+The Rust engine in the browser: a 440 Hz sine with an on/off button and a live oscilloscope. Vite + React; it grows into the editor.
 
 | Path | What |
 |---|---|

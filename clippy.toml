@@ -1,4 +1,4 @@
-# Determinism rules (see doc/architecture.md, section 4). Enforced on every crate.
+# Determinism rules: the same samples, bit for bit, on every target. Enforced on every crate.
 disallowed-methods = [
   { path = "f32::sin", reason = "use libm: identical results on every target" },
   { path = "f32::cos", reason = "use libm: identical results on every target" },

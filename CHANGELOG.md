@@ -25,4 +25,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `xtask`: `cargo xtask check`, the single quality gate run by the pre-push hook and CI.
 - Monorepo layout: `spec/`, `crates/`, `bindings/`, `apps/`, `conformance/`, with one Cargo workspace and one pnpm workspace at the root.
 - Public roadmap (`apps/roadmap/`): kanban stored in `board.json`, driven by a CLI, rendered as a static page with collapsible steps.
-- Project rules in `CLAUDE.md` and architecture in `doc/architecture.md`.
+- Project rules in `CLAUDE.md`.
