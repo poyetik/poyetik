@@ -1,7 +1,7 @@
 {
   "version": 1,
   "title": "poyetik",
-  "nextId": 8,
+  "nextId": 9,
   "cards": [
     {
       "id": 1,
@@ -126,6 +126,33 @@
         },
         {
           "title": "Contribution policy: DCO or CLA",
+          "done": false
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Choose the final project name",
+      "description": "The working name poyetik must be replaced before the first publication. Rename everywhere, then rewrite the git history in the same spirit so that no trace of the working name remains.",
+      "column": "later",
+      "milestone": "M0 Foundations",
+      "createdAt": "2026-11-07",
+      "updatedAt": "2026-11-07",
+      "tasks": [
+        {
+          "title": "Find a name: short, easy to say in English and French, available (domain, GitHub, crates.io, npm) and free of trademark conflicts",
+          "done": false
+        },
+        {
+          "title": "Rename everywhere: folder, crates, packages, roadmap, docs, CI",
+          "done": false
+        },
+        {
+          "title": "Rewrite the git history so that no trace of the working name remains",
+          "done": false
+        },
+        {
+          "title": "Delete the local backup branch and purge the reflog before the first push",
           "done": false
         }
       ]
