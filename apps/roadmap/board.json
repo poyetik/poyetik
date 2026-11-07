@@ -30,7 +30,7 @@
         },
         {
           "title": "bindings/wasm (engine-wasm + AudioWorklet glue): same hashes as native, proven by end-to-end tests on 4 browsers (OfflineAudioContext) and in Node",
-          "done": false
+          "done": true
         },
         {
           "title": "apps/playground: on/off button and live oscilloscope, end-to-end tests on 4 browsers",
