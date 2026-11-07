@@ -1,4 +1,4 @@
 packages:
   - "apps/*"
   - "bindings/wasm"
-  - "tooling/config"
+  - "tooling/*"
