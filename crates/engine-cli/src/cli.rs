@@ -71,7 +71,7 @@ fn render(files: &mut dyn Files, out: &mut dyn Write, args: &[String]) -> Result
     };
     let prepared = prepare_case(&read(files, Path::new(case))?)?;
     let header = *prepared.wav_header();
-    let rendered = prepared.render()?;
+    let rendered = prepared.render();
     if let Some(path) = wav {
         files
             .write(Path::new(path), &wav_file(&header, &rendered.samples))
@@ -148,7 +148,7 @@ fn export(
     for (name, json) in cases(files, dir)? {
         let prepared = prepare_case(&json).map_err(|e| format!("{name}: {e}"))?;
         let header = *prepared.wav_header();
-        let rendered = prepared.render()?;
+        let rendered = prepared.render();
         let path = target.join(format!("{name}.wav"));
         files
             .write(&path, &wav_file(&header, &rendered.samples))

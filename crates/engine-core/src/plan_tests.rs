@@ -656,3 +656,52 @@ fn accepts_patches_up_to_the_limits_only() {
     );
     assert_eq!(plan.render(1).map(|s| s.len()), Ok(2), "renders");
 }
+
+#[test]
+fn rejects_repeated_cables() {
+    assert_eq!(
+        build(
+            vec![node(1, "ramp~"), node(2, "out~")],
+            vec![wire(1, 0, 2, 0), wire(1, 0, 2, 1), wire(1, 0, 2, 0)]
+        )
+        .map(|_| ()),
+        Err(CoreError::DuplicateConnection(wire(1, 0, 2, 0))),
+        "the same cable twice"
+    );
+}
+
+#[test]
+fn renders_into_a_buffer_continuing_like_render() {
+    let patch = || {
+        build(
+            vec![
+                node(1, "ramp~"),
+                with_param(node(2, "const~"), "value", -1.0),
+                node(3, "out~"),
+            ],
+            vec![wire(1, 0, 3, 0), wire(2, 0, 3, 1)],
+        )
+        .expect("valid patch")
+    };
+    let mut whole = patch();
+    let expected = whole.render(100).expect("small render");
+    let mut parts = patch();
+    let mut first = [7.0_f32; 61];
+    parts.render_into(&mut first);
+    assert_eq!(
+        first[60], 7.0,
+        "the sample after the last whole frame is untouched"
+    );
+    let mut rest = parts.render(70).expect("small render");
+    let mut actual = first[..60].to_vec();
+    actual.append(&mut rest);
+    assert_eq!(
+        actual, expected,
+        "30 frames into a buffer, then 70 rendered"
+    );
+
+    let mut silent = build(vec![node(1, "ramp~")], vec![]).expect("valid patch");
+    let mut untouched = [7.0_f32; 4];
+    silent.render_into(&mut untouched);
+    assert_eq!(untouched, [7.0; 4], "no output: nothing written");
+}

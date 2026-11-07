@@ -510,7 +510,11 @@ fn prepares_a_case_before_rendering() {
     assert_eq!(prepared.rate(), SampleRate::HZ_48000, "rate");
     assert_eq!(prepared.channels(), 2, "channels");
     assert_eq!(prepared.sample_count(), 200, "100 frames x 2 channels");
-    assert_eq!(prepared.render(), render_case(SINE), "same render");
+    assert_eq!(
+        prepared.render(),
+        render_case(SINE).expect("valid case"),
+        "same render"
+    );
 }
 
 #[test]

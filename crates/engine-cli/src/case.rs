@@ -78,19 +78,16 @@ impl Prepared {
 
     /// Renders the case with the native engine.
     ///
-    /// # Errors
-    ///
-    /// Returns a message when the samples cannot be held in memory.
-    pub fn render(mut self) -> Result<Rendered, String> {
-        let samples = self
-            .plan
-            .render(self.frames)
-            .map_err(|error| error.to_string())?;
-        Ok(Rendered {
+    /// The samples fit a WAV file (checked by [`prepare_case`]), at most 4 GiB.
+    #[must_use]
+    pub fn render(mut self) -> Rendered {
+        let mut samples = vec![0.0_f32; self.sample_count()];
+        self.plan.render_into(&mut samples);
+        Rendered {
             rate: self.rate,
             channels: self.plan.channels(),
             samples,
-        })
+        }
     }
 }
 
@@ -127,5 +124,5 @@ pub fn prepare_case(json: &str) -> Result<Prepared, String> {
 ///
 /// Returns a message when the case, its sample rate or its patch is invalid.
 pub fn render_case(json: &str) -> Result<Rendered, String> {
-    prepare_case(json).and_then(Prepared::render)
+    prepare_case(json).map(Prepared::render)
 }

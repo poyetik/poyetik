@@ -20,7 +20,10 @@ const LONG_RUN_BLOCKS: usize = 1024;
 const CASES: u32 = 32;
 
 /// Checks that a list of names is free of empty and duplicate names.
-fn unique_names<'a>(what: &str, names: impl Iterator<Item = &'a str>) -> Result<(), String> {
+///
+/// Takes a trait object, not a generic iterator: one compiled function, so that the
+/// coverage of each line is measured over every caller together.
+fn unique_names(what: &str, names: &mut dyn Iterator<Item = &str>) -> Result<(), String> {
     let mut seen = BTreeSet::new();
     for name in names {
         if name.trim().is_empty() {
@@ -46,9 +49,9 @@ pub fn check_metadata(spec: &ObjectSpec) -> Result<(), String> {
     if spec.description.trim().is_empty() {
         return Err("missing description".to_owned());
     }
-    unique_names("inlet", spec.inlets.iter().map(|p| p.name))?;
-    unique_names("outlet", spec.outlets.iter().map(|p| p.name))?;
-    unique_names("parameter", spec.params.iter().map(|p| p.name))?;
+    unique_names("inlet", &mut spec.inlets.iter().map(|p| p.name))?;
+    unique_names("outlet", &mut spec.outlets.iter().map(|p| p.name))?;
+    unique_names("parameter", &mut spec.params.iter().map(|p| p.name))?;
     for port in spec.inlets.iter().chain(spec.outlets) {
         if port.description.trim().is_empty() {
             return Err(format!("port \"{}\" has no description", port.name));
@@ -75,7 +78,7 @@ pub fn check_metadata(spec: &ObjectSpec) -> Result<(), String> {
 ///
 /// Returns the first problem found, prefixed by the box name.
 pub fn check_registry(registry: &[&ObjectSpec]) -> Result<(), String> {
-    unique_names("box", registry.iter().map(|spec| spec.name))?;
+    unique_names("box", &mut registry.iter().map(|spec| spec.name))?;
     for spec in registry {
         check_metadata(spec).map_err(|problem| format!("{}: {problem}", spec.name))?;
     }
@@ -212,20 +215,30 @@ fn check_rate(spec: &ObjectSpec, rate: SampleRate, length: usize) -> Result<(), 
         .map_err(|error| error.to_string())
 }
 
+/// Refuses to check the laws when a probe allocation was not counted: the
+/// no-allocation law would then pass vacuously.
+///
+/// A separate function, tested directly: the unit tests always run with the counting
+/// allocator installed, so they cannot reach this refusal through [`check_laws`].
+fn require_counting(probe: usize) -> Result<(), String> {
+    if probe == 0 {
+        Err("CountingAllocator is not installed as the global allocator".to_owned())
+    } else {
+        Ok(())
+    }
+}
+
 /// Checks every law on a box type at every sample rate of the [`crate::matrix`]: special
 /// inputs, a long run, and random inputs from a fixed seed.
 ///
 /// # Errors
 ///
 /// Returns a description of the first broken law, prefixed by the sample rate. Also
-/// fails when
-/// [`crate::CountingAllocator`] is not installed, since the no-allocation law could not
-/// be checked.
+/// fails when [`crate::CountingAllocator`] is not installed, since the no-allocation law
+/// could not be checked.
 pub fn check_laws(spec: &ObjectSpec) -> Result<(), String> {
     let ((), probe) = allocations_during(|| drop(Box::new(0_u8)));
-    if probe == 0 {
-        return Err("CountingAllocator is not installed as the global allocator".to_owned());
-    }
+    require_counting(probe)?;
     check_metadata(spec)?;
     let length = BLOCKS
         .saturating_mul(BLOCK_SIZE)

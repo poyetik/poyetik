@@ -139,16 +139,17 @@ fn source_slot(
 /// O((N + E) log N)).
 ///
 /// Deterministic: among the nodes ready to run, the smallest id always runs first.
+/// Every cable joins two of `ids` (checked before by [`source_slot`]).
 fn execution_order(
     ids: &BTreeSet<NodeId>,
     connections: &[Connection],
 ) -> Result<Vec<NodeId>, CoreError> {
+    // For each node, how many of its incoming cables come from nodes not placed yet.
     let mut waiting: BTreeMap<NodeId, usize> = ids.iter().map(|&id| (id, 0)).collect();
     let mut dependents: BTreeMap<NodeId, Vec<NodeId>> = BTreeMap::new();
     for connection in connections {
-        if let Some(count) = waiting.get_mut(&connection.to) {
-            *count = count.saturating_add(1);
-        }
+        let count = waiting.entry(connection.to).or_default();
+        *count = count.saturating_add(1);
         dependents
             .entry(connection.from)
             .or_default()
@@ -167,12 +168,11 @@ fn execution_order(
             break;
         };
         order.push(id);
-        for next in dependents.get(&id).into_iter().flatten() {
-            if let Some(count) = waiting.get_mut(next) {
-                *count = count.saturating_sub(1);
-                if *count == 0 {
-                    let _: bool = ready.insert(*next);
-                }
+        for &next in dependents.get(&id).into_iter().flatten() {
+            let count = waiting.entry(next).or_default();
+            *count = count.saturating_sub(1);
+            if *count == 0 {
+                let _: bool = ready.insert(next);
             }
         }
     }
@@ -267,16 +267,14 @@ impl Plan {
     /// ([`Plan::channels`] samples per frame).
     ///
     /// Successive calls continue exactly where the previous one stopped, whatever their
-    /// lengths: rendering `a` then `b` frames gives the same samples as rendering `a + b`.
-    /// A plan without output renders nothing (and runs no box).
+    /// lengths: rendering `a` then `b` frames gives the same samples as rendering `a + b`
+    /// (also across [`Plan::render_into`]). A plan without output renders nothing (and
+    /// runs no box).
     ///
     /// # Errors
     ///
     /// Returns [`CoreError::RenderTooLong`] when the samples cannot be held in memory.
     pub fn render(&mut self, frames: usize) -> Result<Vec<f32>, CoreError> {
-        if self.channels == 0 {
-            return Ok(Vec::new());
-        }
         let length = frames
             .checked_mul(self.channels)
             .ok_or(CoreError::RenderTooLong(frames))?;
@@ -284,22 +282,34 @@ impl Plan {
         samples
             .try_reserve_exact(length)
             .map_err(|_| CoreError::RenderTooLong(frames))?;
+        samples.resize(length, 0.0);
+        self.render_into(&mut samples);
+        Ok(samples)
+    }
+
+    /// Renders the next frames offline into `out`, interleaved by channel: as many whole
+    /// frames as `out` holds ([`Plan::channels`] samples each). Samples after the last
+    /// whole frame are left untouched; a plan without output writes nothing.
+    ///
+    /// Continues exactly where the previous render stopped, like [`Plan::render`]. Does
+    /// not allocate.
+    pub fn render_into(&mut self, out: &mut [f32]) {
+        if self.channels == 0 {
+            return;
+        }
         // One frame per round: a fixed number of rounds, so it always ends.
-        for _ in 0..frames {
+        for frame in out.chunks_exact_mut(self.channels) {
             if self.used == BLOCK_SIZE {
                 let mut last = core::mem::take(&mut self.last);
                 self.process(&mut last);
                 self.last = last;
                 self.used = 0;
             }
-            samples.extend(
-                self.last
-                    .iter()
-                    .filter_map(|channel| channel.get(self.used)),
-            );
+            for (sample, channel) in frame.iter_mut().zip(&self.last) {
+                *sample = channel.get(self.used).copied().unwrap_or(0.0);
+            }
             self.used = self.used.saturating_add(1);
         }
-        Ok(samples)
     }
 
     /// Runs every box once, then writes one block per output channel into `out`.

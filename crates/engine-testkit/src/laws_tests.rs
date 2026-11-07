@@ -269,6 +269,29 @@ fn feeds_the_special_inputs() {
 }
 
 #[test]
+fn feeds_random_inputs() {
+    // NaN only on inputs strictly between 0.25 and 0.75: no special input, no silence,
+    // only the random inputs reach it.
+    #[derive(Debug)]
+    struct Middle;
+    impl Object for Middle {
+        fn process(&mut self, inputs: &[Block], outputs: &mut [Block]) {
+            let middle = inputs.iter().flatten().any(|v| *v > 0.25 && *v < 0.75);
+            for output in outputs {
+                output.fill(if middle { f32::NAN } else { 0.0 });
+            }
+        }
+    }
+    let error = check_laws(&spec_with(|_, _| Box::new(Middle))).expect_err("random inputs");
+    assert!(error.starts_with("at 8000 Hz: "), "{error}");
+    assert!(error.contains("non-finite output"), "{error}");
+    assert!(
+        !error.contains("special inputs") && !error.contains("long run"),
+        "found by the random inputs: {error}"
+    );
+}
+
+#[test]
 fn runs_long_enough_to_reveal_drift() {
     // Breaks only after 512 blocks: the short runs never see it.
     #[derive(Debug)]
@@ -485,4 +508,14 @@ fn counts_allocations_but_not_deallocations() {
     assert_eq!(freed, 0, "dealloc is not an allocation");
     let (value, none) = allocations_during(|| 6_i32 * 7_i32);
     assert_eq!((value, none), (42_i32, 0_usize), "returns the result");
+}
+
+#[test]
+fn refuses_to_check_without_counted_allocations() {
+    assert_eq!(
+        super::require_counting(0),
+        Err("CountingAllocator is not installed as the global allocator".to_owned()),
+        "no vacuous pass"
+    );
+    assert_eq!(super::require_counting(1), Ok(()), "counted");
 }
