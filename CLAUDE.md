@@ -151,7 +151,8 @@ Maximum testing applies to **all code, in every language**: Rust engine, patch m
   - the same render regardless of how blocks are split;
   - two identical renders give the same result;
   - never NaN or infinity in the output.
-- **Real-time safety**: no allocation in `process`, checked automatically (`assert_no_alloc`).
+- **Real-time safety**: no allocation in `process`, checked automatically (`assert_no_alloc`); nothing on the browser's audio thread allocates either (no per-block copies or messages).
+- **Objective DSP measurements**: every box has measured audio quality in its tests, with thresholds (spectrum, aliasing level, THD, SNR, frequency response, parameter changes without zipper noise), compared with high-precision references. State-of-the-art DSP is a requirement, not a goal.
 - **Fuzzing**: patch parsing, the command layer, then native-vs-WASM differential fuzzing.
 - **`unsafe` code**: forbidden by default. If truly required, it is isolated, checked with Miri and, for critical parts, proven with Kani.
 
@@ -170,6 +171,9 @@ Maximum testing applies to **all code, in every language**: Rust engine, patch m
 - **Security**: CSP verified, no API key ever sent to the server (checked by tests), fuzzing of everything that reads external input (patches, media, network messages, MCP).
 - **AI assistant**: an evaluation suite (requests → valid patch + expected render metrics), with a success rate tracked per model. A drop fails CI.
 - **Reproducible builds**: two builds of the same commit produce identical artifacts, checked in CI.
+
+### Deep review
+`/deep-review` (`.claude/skills/deep-review/`) runs an exhaustive multi-agent review along every quality axis, verifies each finding adversarially, then analyzes each one (admissibility, options, trade-offs) before anything is applied. Run it before closing a roadmap ticket and before every release. No finding is applied without the maintainer's decision and a fresh analysis at the moment of applying it.
 
 ### Transparency
 Results are meant to be published for every release: coverage, mutants, per-target conformance hashes, known deviations.
