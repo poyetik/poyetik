@@ -9,7 +9,7 @@ use std::path::Path;
 use super::{
     Action, CARGO_TOML, CHANGELOG, COMMIT_HEADER_MAX, COVERAGE_REPORT, Cmd, Dir, PACKAGE_JSONS,
     PORTABILITY_TARGETS, Runner, Step, SystemRunner, UNVIABLE_REPORT, UNVIABLE_REVIEWED, USAGE,
-    Version, check_steps, cli, commit_msg_gate, coverage_gate, release_gate, run_steps,
+    Version, bless_step, check_steps, cli, commit_msg_gate, coverage_gate, release_gate, run_steps,
     unviable_gate,
 };
 
@@ -121,14 +121,15 @@ fn lists_every_check_in_order() {
             "Root: cargo clippy --workspace --all-targets --locked",
             "Root: cargo doc --workspace --no-deps --document-private-items --locked",
             "Root: cargo test --workspace --locked",
-            "Root: cargo build --package engine-core --package engine-objects --locked --target aarch64-apple-darwin",
-            "Root: cargo build --package engine-core --package engine-objects --locked --target x86_64-unknown-linux-gnu",
-            "Root: cargo build --package engine-core --package engine-objects --locked --target wasm32-unknown-unknown",
-            "Root: cargo build --package engine-core --package engine-objects --locked --target thumbv7em-none-eabihf",
+            "Root: cargo build --package engine-core --package engine-objects --package engine-patch --package engine-hash --locked --target aarch64-apple-darwin",
+            "Root: cargo build --package engine-core --package engine-objects --package engine-patch --package engine-hash --locked --target x86_64-unknown-linux-gnu",
+            "Root: cargo build --package engine-core --package engine-objects --package engine-patch --package engine-hash --locked --target wasm32-unknown-unknown",
+            "Root: cargo build --package engine-core --package engine-objects --package engine-patch --package engine-hash --locked --target thumbv7em-none-eabihf",
             "Root: cargo +nightly-2026-11-01 llvm-cov --workspace --locked --branch --json --summary-only --output-path target/coverage.json",
             "gate target/coverage.json",
             "Root: cargo mutants --workspace --cap-lints=true",
             "unviable gate",
+            "Root: cargo run --package engine-cli --locked --quiet -- check conformance",
             "Root: cargo deny --locked check",
             "release gate",
             "Root: pnpm install --frozen-lockfile",
@@ -151,6 +152,7 @@ fn lists_every_check_in_order() {
             "Rust coverage: 100% lines, functions and branches",
             "Rust mutation testing",
             "Rust unviable mutants reviewed",
+            "Conformance (native)",
             "Rust supply chain",
             "Versions and changelog",
             "JavaScript dependencies",
@@ -241,15 +243,15 @@ fn runs_every_step_and_reports_success() {
     );
     let text = String::from_utf8(out).expect("utf-8 output");
     assert!(
-        text.starts_with("▶ [1/16] Rust formatting\n"),
+        text.starts_with("▶ [1/17] Rust formatting\n"),
         "numbered progress: {text}"
     );
     assert!(
-        text.contains("▶ [16/16] Roadmap checks\n"),
+        text.contains("▶ [17/17] Roadmap checks\n"),
         "last step announced: {text}"
     );
     assert!(
-        text.ends_with("✔ all 16 checks passed\n"),
+        text.ends_with("✔ all 17 checks passed\n"),
         "summary: {text}"
     );
 }
@@ -828,4 +830,31 @@ fn release_gate_runs_on_the_real_files() {
             "missing {path}"
         );
     }
+}
+
+#[test]
+fn bless_renders_and_rewrites_the_references() {
+    let step = bless_step();
+    assert_eq!(step.name, "Bless conformance references", "name");
+    assert_eq!(
+        command_lines(&[step]),
+        vec!["Root: cargo run --package engine-cli --locked --quiet -- bless conformance"],
+        "runs engine-cli bless"
+    );
+    let mut fake = passing();
+    let mut out = Vec::new();
+    assert!(
+        cli(&["bless".to_owned()], &mut fake, &mut out, &mut Vec::new()),
+        "bless succeeds"
+    );
+    assert_eq!(
+        fake.ran,
+        vec!["cargo run --package engine-cli --locked --quiet -- bless conformance"],
+        "only bless runs"
+    );
+    assert_eq!(
+        String::from_utf8(out).expect("utf-8"),
+        "▶ [1/1] Bless conformance references\n✔ all 1 checks passed\n",
+        "progress"
+    );
 }

@@ -1,5 +1,12 @@
 # conformance
 
-The **conformance corpus**: reference cases as data (patch, events, seed, duration) and their expected hashes. Every target and every SDK must reproduce these hashes exactly; `references.json` is only changed through `cargo xtask bless`.
+The **conformance corpus**: every target and every SDK must reproduce these render hashes exactly.
 
-Empty for now. The first case, `sine-440`, comes with roadmap ticket #1.
+| Path | Contents |
+|---|---|
+| `cases/*.json` | Reference cases: a patch, a sample rate and a duration in frames |
+| `references.json` | The expected render hash of every case |
+
+- `cargo run -p engine-cli -- check conformance` renders every case natively and compares the hashes; `cargo xtask check` runs it.
+- **`references.json` only changes through `cargo xtask bless`**, and the commit must explain why the hashes changed.
+- `cargo run -p engine-cli -- render conformance/cases/<case>.json --wav <file.wav>` writes a case as a WAV file to listen to.

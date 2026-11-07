@@ -4,7 +4,7 @@
 mod tests {
     use std::process::Command;
 
-    const USAGE: &[u8] = b"usage: cargo xtask <check|commit-msg <file>|help>";
+    const USAGE: &[u8] = b"usage: cargo xtask <check|bless|commit-msg <file>|help>";
 
     #[test]
     fn prints_usage_and_fails_without_a_command() {

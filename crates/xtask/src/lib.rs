@@ -98,10 +98,9 @@ fn run(name: &str, program: &'static str, args: &[&str], dir: Dir) -> Step {
     }
 }
 
-/// Every check of the repository, in the order they run.
-#[must_use]
-pub fn check_steps() -> Vec<Step> {
-    let mut steps = vec![
+/// Formatting, lints, documentation and tests.
+fn static_steps() -> Vec<Step> {
+    vec![
         run(
             "Rust formatting",
             "cargo",
@@ -132,25 +131,40 @@ pub fn check_steps() -> Vec<Step> {
             &["test", "--workspace", "--locked"],
             Dir::Root,
         ),
-    ];
-    steps.extend(PORTABILITY_TARGETS.iter().map(|&target| {
-        run(
-            &format!("engine portability ({target})"),
-            "cargo",
-            &[
-                "build",
-                "--package",
-                "engine-core",
-                "--package",
-                "engine-objects",
-                "--locked",
-                "--target",
-                target,
-            ],
-            Dir::Root,
-        )
-    }));
-    steps.extend([
+    ]
+}
+
+/// The engine crates build for every portability target.
+fn portability_steps() -> Vec<Step> {
+    PORTABILITY_TARGETS
+        .iter()
+        .map(|&target| {
+            run(
+                &format!("engine portability ({target})"),
+                "cargo",
+                &[
+                    "build",
+                    "--package",
+                    "engine-core",
+                    "--package",
+                    "engine-objects",
+                    "--package",
+                    "engine-patch",
+                    "--package",
+                    "engine-hash",
+                    "--locked",
+                    "--target",
+                    target,
+                ],
+                Dir::Root,
+            )
+        })
+        .collect()
+}
+
+/// Coverage and mutation testing, with their gates.
+fn proof_steps() -> Vec<Step> {
+    vec![
         run(
             "Rust coverage report",
             "cargo",
@@ -183,6 +197,27 @@ pub fn check_steps() -> Vec<Step> {
             name: "Rust unviable mutants reviewed".to_owned(),
             action: Action::UnviableGate,
         },
+    ]
+}
+
+/// Conformance, supply chain, versions and the TypeScript packages.
+fn release_steps() -> Vec<Step> {
+    vec![
+        run(
+            "Conformance (native)",
+            "cargo",
+            &[
+                "run",
+                "--package",
+                "engine-cli",
+                "--locked",
+                "--quiet",
+                "--",
+                "check",
+                "conformance",
+            ],
+            Dir::Root,
+        ),
         run(
             "Rust supply chain",
             "cargo",
@@ -200,8 +235,19 @@ pub fn check_steps() -> Vec<Step> {
             Dir::Root,
         ),
         run("Roadmap checks", "pnpm", &["run", "check"], Dir::Roadmap),
-    ]);
-    steps
+    ]
+}
+
+/// Every check of the repository, in the order they run.
+#[must_use]
+pub fn check_steps() -> Vec<Step> {
+    [
+        static_steps(),
+        portability_steps(),
+        proof_steps(),
+        release_steps(),
+    ]
+    .concat()
 }
 
 /// Reads one `{ count, covered }` total of an llvm-cov JSON summary.
@@ -621,7 +667,28 @@ pub fn run_steps(
 }
 
 /// Usage of the `xtask` command.
-pub const USAGE: &str = "usage: cargo xtask <check|commit-msg <file>|help>\n  check              run every quality check, as CI and the pre-push hook do\n  commit-msg <file>  check a commit message (used by the commit-msg hook)\n  help               show this help";
+pub const USAGE: &str = "usage: cargo xtask <check|bless|commit-msg <file>|help>\n  check              run every quality check, as CI and the pre-push hook do\n  bless              rewrite conformance/references.json from the current renders\n  commit-msg <file>  check a commit message (used by the commit-msg hook)\n  help               show this help";
+
+/// The only way to change the reference hashes: renders every conformance case and
+/// rewrites `conformance/references.json`. The commit must explain why they changed.
+#[must_use]
+pub fn bless_step() -> Step {
+    run(
+        "Bless conformance references",
+        "cargo",
+        &[
+            "run",
+            "--package",
+            "engine-cli",
+            "--locked",
+            "--quiet",
+            "--",
+            "bless",
+            "conformance",
+        ],
+        Dir::Root,
+    )
+}
 
 /// Entry point: runs the command named by `args` and returns whether it succeeded.
 pub fn cli(
@@ -632,6 +699,7 @@ pub fn cli(
 ) -> bool {
     let result = match args {
         [command] if command == "check" => run_steps(&check_steps(), runner, out),
+        [command] if command == "bless" => run_steps(&[bless_step()], runner, out),
         [command, path] if command == "commit-msg" => {
             read_file(runner, path).and_then(|message| commit_msg_gate(&message))
         }

@@ -1,5 +1,9 @@
 # spec
 
-The specification of the **patch format**: the versioned schema of a patch (boxes, cables, parameters). It is the contract shared by the engine, the SDKs, the editor, the AI assistant and MCP.
+The specification of the **patch format**: the contract shared by the engine, the SDKs, the editor, the AI assistant and MCP.
 
-Empty for now. Filled incrementally, starting with roadmap ticket #3 (Patch format specification).
+| Document | Contents |
+|---|---|
+| [`patch-format.md`](patch-format.md) | The patch format, version 1 (minimal: boxes, parameters, cables) |
+
+The format grows incrementally (roadmap ticket #3): only what the engine actually supports is specified.

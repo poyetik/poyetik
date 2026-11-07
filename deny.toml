@@ -3,7 +3,13 @@
 all-features = true
 
 [licenses]
-allow = ["MIT", "Apache-2.0"]
+allow = [
+  "MIT",
+  "Apache-2.0",
+  # unicode-ident (a build-time dependency of serde's derive macros): the permissive
+  # license of the Unicode data tables.
+  "Unicode-3.0",
+]
 confidence-threshold = 0.93
 private = { ignore = true }
 

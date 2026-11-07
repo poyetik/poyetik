@@ -11,8 +11,8 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::{
-    Block, Capability, Connection, CoreError, Node, NodeId, Object, ObjectSpec, Patch, SILENCE,
-    SampleRate,
+    BLOCK_SIZE, Block, Capability, Connection, CoreError, Node, NodeId, Object, ObjectSpec, Patch,
+    SILENCE, SampleRate,
 };
 
 /// One box instance in execution order, with its own input and output buffers.
@@ -255,6 +255,27 @@ impl Plan {
     /// The nodes in execution order.
     pub fn execution_order(&self) -> impl Iterator<Item = NodeId> + '_ {
         self.steps.iter().map(|step| step.node)
+    }
+
+    /// Renders `frames` frames offline and returns them interleaved by channel
+    /// ([`Plan::channels`] samples per frame).
+    ///
+    /// Processes whole blocks; the samples of the last block beyond `frames` are dropped.
+    #[must_use]
+    pub fn render(&mut self, frames: usize) -> Vec<f32> {
+        let mut samples = Vec::with_capacity(frames.saturating_mul(self.channels));
+        let mut block = vec![SILENCE; self.channels];
+        // A fixed number of blocks: the loop cannot run forever.
+        for index in 0..frames.div_ceil(BLOCK_SIZE) {
+            self.process(&mut block);
+            let take = frames
+                .saturating_sub(index.saturating_mul(BLOCK_SIZE))
+                .min(BLOCK_SIZE);
+            for frame in 0..take {
+                samples.extend(block.iter().filter_map(|channel| channel.get(frame)));
+            }
+        }
+        samples
     }
 
     /// Runs every box once, then writes one block per output channel into `out`.

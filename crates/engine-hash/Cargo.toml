@@ -1,0 +1,19 @@
+[package]
+name = "engine-hash"
+description = "Canonical hash of a rendered signal: identical bits give an identical hash on every target"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+readme = false
+repository = "https://example.invalid/poyetik"
+keywords = ["audio", "hash", "conformance"]
+categories = ["multimedia::audio", "no-std"]
+
+[dependencies]
+engine-core = { path = "../engine-core" }
+sha2 = { version = "0.11", default-features = false }
+
+[lints]
+workspace = true

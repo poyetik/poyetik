@@ -1,7 +1,7 @@
 {
   "version": 1,
   "title": "poyetik",
-  "nextId": 10,
+  "nextId": 11,
   "cards": [
     {
       "id": 1,
@@ -26,19 +26,23 @@
         },
         {
           "title": "engine-hash + engine-cli: offline render, canonical hash, first conformance case sine-440",
+          "done": true
+        },
+        {
+          "title": "bindings/wasm (engine-wasm + AudioWorklet glue): same hashes as native, proven by end-to-end tests on 4 browsers (OfflineAudioContext) and in Node",
           "done": false
         },
         {
-          "title": "bindings/wasm (engine-wasm + AudioWorklet glue): C ABI, same hash as native",
-          "done": false
-        },
-        {
-          "title": "apps/playground: on/off button + live oscilloscope, end-to-end tests on 4 browsers",
+          "title": "apps/playground: on/off button and live oscilloscope, end-to-end tests on 4 browsers",
           "done": false
         },
         {
           "title": "xtask check wired into CI and the pre-push hook",
           "done": true
+        },
+        {
+          "title": "Independent conformance oracle (TypeScript): rereads the WAV of every case, recomputes the hashes and checks the expected signal, in cargo xtask check",
+          "done": false
         }
       ]
     },
@@ -50,7 +54,20 @@
       "milestone": "M1 Engine",
       "createdAt": "2026-11-07",
       "updatedAt": "2026-11-07",
-      "tasks": []
+      "tasks": [
+        {
+          "title": "Version 1: boxes, parameters and cables (spec/patch-format.md, read by engine-patch)",
+          "done": true
+        },
+        {
+          "title": "JSON Schema of the format, published with its reference documentation",
+          "done": false
+        },
+        {
+          "title": "Box arguments (ports computed at creation, e.g. multichannel output) and the project's own box naming conventions",
+          "done": false
+        }
+      ]
     },
     {
       "id": 4,
@@ -184,6 +201,33 @@
         },
         {
           "title": "Optional, later: code signing and notarization (macOS, Windows)",
+          "done": false
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "title": "Debug mode: JavaScript API to observe and drive the engine",
+      "description": "Enabled with ?debug in the web apps: one JavaScript API for people, AI agents driving a browser and the end-to-end tests, read-only on the audio side.",
+      "column": "next",
+      "milestone": "M1 Engine",
+      "createdAt": "2026-11-07",
+      "updatedAt": "2026-11-07",
+      "tasks": [
+        {
+          "title": "First version in the playground: help, snapshot, signal, levels, pitch, renderOffline",
+          "done": false
+        },
+        {
+          "title": "Readable text in the page for every measurement, plus debug.help()",
+          "done": false
+        },
+        {
+          "title": "Used by the playground end-to-end tests on 4 browsers",
+          "done": false
+        },
+        {
+          "title": "Documented, 100% coverage and mutation testing",
           "done": false
         }
       ]

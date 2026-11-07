@@ -486,3 +486,51 @@ fn rejects_cycles() {
         "a box feeding itself"
     );
 }
+
+#[test]
+fn renders_interleaved_frames_offline() {
+    let mut plan = build(
+        vec![
+            node(1, "ramp~"),
+            with_param(node(2, "const~"), "value", -1.0),
+            node(3, "out~"),
+        ],
+        vec![wire(1, 0, 3, 0), wire(2, 0, 3, 1)],
+    )
+    .expect("valid patch");
+    let samples = plan.render(130);
+    assert_eq!(samples.len(), 260, "130 frames of 2 channels");
+    assert_eq!(
+        &samples[..6],
+        &[0.0, -1.0, 1.0, -1.0, 2.0, -1.0],
+        "interleaved left, right"
+    );
+    assert_eq!(
+        &samples[256..],
+        &[128.0, -1.0, 129.0, -1.0],
+        "continues across blocks"
+    );
+    let next = plan.render(1);
+    assert_eq!(
+        next,
+        vec![192.0, -1.0],
+        "the dropped tail of the last block is not replayed"
+    );
+}
+
+#[test]
+fn renders_nothing_for_zero_frames_or_channels() {
+    let mut plan = build(
+        vec![node(1, "ramp~"), node(2, "mono~")],
+        vec![wire(1, 0, 2, 0)],
+    )
+    .expect("valid patch");
+    assert_eq!(plan.render(0), Vec::<f32>::new(), "zero frames");
+    assert_eq!(
+        plan.render(64),
+        (0..64_u16).map(f32::from).collect::<Vec<_>>(),
+        "nothing was processed before"
+    );
+    let mut silent = build(vec![node(1, "ramp~")], vec![]).expect("valid patch");
+    assert_eq!(silent.render(100), Vec::<f32>::new(), "no output channel");
+}
