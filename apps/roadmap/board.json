@@ -56,6 +56,10 @@
       "updatedAt": "2026-11-07",
       "tasks": [
         {
+          "title": "Engine design decisions, recorded before any code that depends on them: messages, event scheduling, feedback, polyphony, multichannel, rates, parallelism, hot swap, latency, state",
+          "done": false
+        },
+        {
           "title": "Objective measurements in engine-testkit and the oracle: spectrum, THD, SNR, aliasing level, with thresholds per box",
           "done": false
         },

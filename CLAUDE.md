@@ -24,6 +24,16 @@ A finished patch can be exported natively, user interface included, to: web, mac
 
 Core promise: **the engine produces exactly the same samples, bit for bit, on every target**. A strict, public testing policy proves it.
 
+## Audio DSP: the objective
+
+**State-of-the-art audio quality, measured, on every target.** Every box sounds as good as the best professional implementations of the same process, and proves it with numbers in its tests; bit-exact determinism is never traded for it, nor the reverse.
+
+- **Quality is measured, not claimed**: every box has objective measurements with thresholds (spectrum, aliasing level, THD, SNR, frequency response, behavior under parameter changes), compared with high-precision references (double precision or arbitrary precision). Thresholds are documented per box with their justification.
+- **Known pitfalls are handled by design**: aliasing (band-limited synthesis, oversampled non-linearities), zipper noise (smoothed parameters, sample-accurate events), unstable filters under modulation (topologies such as TPT / zero-delay feedback), denormal numbers (a deterministic strategy, since WebAssembly has no hardware flush-to-zero), DC offset, numerical precision of phases and coefficients.
+- **Real time is a hard constraint**: no allocation, lock, I/O or unbounded work in `process`, nor anywhere on the browser's audio thread.
+- **Cost is measured**: benchmarks per box in CI with regression thresholds; an approximation replaces an exact function only when measurements prove it is both faster and within threshold.
+- **Engine design decisions come first**: messages, event scheduling, feedback, polyphony, multichannel, rates, parallelism, hot swap, latency and state are decided and recorded before the code that depends on them.
+
 ## Documentation
 
 - **`doc/` is local only and never versioned** (git-ignored), and no versioned file but this one refers to it: design discussions, `architecture.md` (architecture, dependency register, decisions log), `licensing.md` (licensing strategy), `interface-testing.md`, `debug-mode.md`, `integrations.md`, brainstorms. It may be missing in a fresh clone; when present, read the relevant files before any design decision. Never copy its strategy content into a versioned file.
