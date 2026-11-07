@@ -77,14 +77,20 @@ impl Prepared {
     }
 
     /// Renders the case with the native engine.
-    #[must_use]
-    pub fn render(mut self) -> Rendered {
-        let samples = self.plan.render(self.frames);
-        Rendered {
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the samples cannot be held in memory.
+    pub fn render(mut self) -> Result<Rendered, String> {
+        let samples = self
+            .plan
+            .render(self.frames)
+            .map_err(|error| error.to_string())?;
+        Ok(Rendered {
             rate: self.rate,
             channels: self.plan.channels(),
             samples,
-        }
+        })
     }
 }
 
@@ -94,14 +100,17 @@ impl Prepared {
 ///
 /// # Errors
 ///
-/// Returns a message when the case, its sample rate or its patch is invalid, or when
-/// its render would not fit a WAV file.
+/// Returns a message when the case, its sample rate or its patch is invalid, when the
+/// patch has no audio output, or when its render would not fit a WAV file.
 pub fn prepare_case(json: &str) -> Result<Prepared, String> {
     let case: Case =
         serde_json::from_str(json).map_err(|error| format!("invalid case: {error}"))?;
     let rate = SampleRate::new(case.sample_rate).map_err(|error| error.to_string())?;
     let patch = engine_patch::parse_patch(&case.patch.to_string()).map_err(|e| e.to_string())?;
     let plan = Plan::build(&patch, &REGISTRY, rate).map_err(|error| error.to_string())?;
+    if plan.channels() == 0 {
+        return Err("the patch has no audio output: nothing to render".to_owned());
+    }
     let samples = case.frames.saturating_mul(plan.channels());
     let wav_header = wav_header(rate.hz(), plan.channels(), samples)?;
     Ok(Prepared {
@@ -118,5 +127,5 @@ pub fn prepare_case(json: &str) -> Result<Prepared, String> {
 ///
 /// Returns a message when the case, its sample rate or its patch is invalid.
 pub fn render_case(json: &str) -> Result<Rendered, String> {
-    prepare_case(json).map(Prepared::render)
+    prepare_case(json).and_then(Prepared::render)
 }

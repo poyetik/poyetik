@@ -133,6 +133,10 @@ fn rejects_invalid_cases() {
             r#"{"sample_rate":48000,"frames":1,"patch":{"format":1,"nodes":[{"id":1,"box":"x~"}],"connections":[]}}"#,
             "node 1: unknown box type",
         ),
+        (
+            r#"{"sample_rate":48000,"frames":1,"patch":{"format":1,"nodes":[{"id":1,"box":"osc~"}],"connections":[]}}"#,
+            "the patch has no audio output",
+        ),
     ] {
         let error = render_case(case).expect_err("invalid case");
         assert!(error.starts_with(start), "{error}");
@@ -506,11 +510,7 @@ fn prepares_a_case_before_rendering() {
     assert_eq!(prepared.rate(), SampleRate::HZ_48000, "rate");
     assert_eq!(prepared.channels(), 2, "channels");
     assert_eq!(prepared.sample_count(), 200, "100 frames x 2 channels");
-    assert_eq!(
-        prepared.render(),
-        render_case(SINE).expect("valid case"),
-        "same render"
-    );
+    assert_eq!(prepared.render(), render_case(SINE), "same render");
 }
 
 #[test]

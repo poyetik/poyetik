@@ -43,6 +43,11 @@ pub struct Plan {
     bus: Vec<Block>,
     /// Number of engine output channels.
     channels: usize,
+    /// The last block rendered by [`Plan::render`], one per channel.
+    last: Vec<Block>,
+    /// Frames of `last` already returned by [`Plan::render`]; [`BLOCK_SIZE`] when none
+    /// is left.
+    used: usize,
 }
 
 /// A node resolved against the registry.
@@ -54,12 +59,16 @@ struct Resolved<'patch> {
     spec: &'static ObjectSpec,
     /// Its parameter values, in spec order.
     params: Vec<f32>,
+    /// First bus slot of its outlets (outlets occupy consecutive slots, nodes in id
+    /// order).
+    first_slot: usize,
 }
 
 /// Resolves a node's box type and parameter values.
 fn resolve<'patch>(
     node: &'patch Node,
     registry: &[&'static ObjectSpec],
+    first_slot: usize,
 ) -> Result<Resolved<'patch>, CoreError> {
     let spec = registry
         .iter()
@@ -91,14 +100,19 @@ fn resolve<'patch>(
         .iter()
         .map(|p| node.params.get(p.name).copied().unwrap_or(p.default))
         .collect();
-    Ok(Resolved { node, spec, params })
+    Ok(Resolved {
+        node,
+        spec,
+        params,
+        first_slot,
+    })
 }
 
-/// Checks that a connection joins existing ports.
-fn check_connection(
+/// Checks that a cable joins existing ports, and returns the bus slot it reads.
+fn source_slot(
     connection: &Connection,
     nodes: &BTreeMap<NodeId, Resolved<'_>>,
-) -> Result<(), CoreError> {
+) -> Result<usize, CoreError> {
     let from = nodes
         .get(&connection.from)
         .ok_or(CoreError::UnknownNode(connection.from))?;
@@ -117,45 +131,55 @@ fn check_connection(
             inlet: connection.inlet,
         });
     }
-    Ok(())
+    // In bounds: the outlet exists, so the slot is below the bus length.
+    Ok(from.first_slot.saturating_add(connection.outlet))
 }
 
-/// Sorts nodes so that every node runs after the nodes feeding it.
+/// Sorts nodes so that every node runs after the nodes feeding it (Kahn's algorithm,
+/// O((N + E) log N)).
 ///
 /// Deterministic: among the nodes ready to run, the smallest id always runs first.
 fn execution_order(
     ids: &BTreeSet<NodeId>,
     connections: &[Connection],
 ) -> Result<Vec<NodeId>, CoreError> {
-    let sources: BTreeMap<NodeId, Vec<NodeId>> = ids
+    let mut waiting: BTreeMap<NodeId, usize> = ids.iter().map(|&id| (id, 0)).collect();
+    let mut dependents: BTreeMap<NodeId, Vec<NodeId>> = BTreeMap::new();
+    for connection in connections {
+        if let Some(count) = waiting.get_mut(&connection.to) {
+            *count = count.saturating_add(1);
+        }
+        dependents
+            .entry(connection.from)
+            .or_default()
+            .push(connection.to);
+    }
+    let mut ready: BTreeSet<NodeId> = waiting
         .iter()
-        .map(|&id| {
-            (
-                id,
-                connections
-                    .iter()
-                    .filter(|c| c.to == id)
-                    .map(|c| c.from)
-                    .collect(),
-            )
-        })
+        .filter(|&(_, &count)| count == 0)
+        .map(|(&id, _)| id)
         .collect();
-    let mut placed = BTreeSet::new();
     let mut order = Vec::with_capacity(ids.len());
-    // At most one node is placed per round, so `ids.len()` rounds always suffice.
+    // One node is placed per round, so `ids.len()` rounds always suffice: the bound is
+    // the invariant, and it keeps a broken step from looping forever.
     for _ in 0..ids.len() {
-        let Some((&id, _)) = sources
-            .iter()
-            .find(|&(id, from)| !placed.contains(id) && from.iter().all(|f| placed.contains(f)))
-        else {
+        let Some(id) = ready.pop_first() else {
             break;
         };
-        let _: bool = placed.insert(id);
         order.push(id);
+        for next in dependents.get(&id).into_iter().flatten() {
+            if let Some(count) = waiting.get_mut(next) {
+                *count = count.saturating_sub(1);
+                if *count == 0 {
+                    let _: bool = ready.insert(*next);
+                }
+            }
+        }
     }
     if order.len() == ids.len() {
         Ok(order)
     } else {
+        let placed: BTreeSet<NodeId> = order.into_iter().collect();
         Err(CoreError::Cycle(ids.difference(&placed).copied().collect()))
     }
 }
@@ -165,69 +189,49 @@ impl Plan {
     ///
     /// # Errors
     ///
-    /// Returns a [`CoreError`] describing the first problem found: duplicate node,
-    /// unknown box type or parameter, out-of-range parameter, invalid connection or
-    /// cycle.
+    /// Returns a [`CoreError`] describing the first problem found: unknown box type or
+    /// parameter, out-of-range parameter, invalid connection or cycle.
     pub fn build(
         patch: &Patch,
         registry: &[&'static ObjectSpec],
         rate: SampleRate,
     ) -> Result<Self, CoreError> {
         let mut nodes = BTreeMap::new();
-        for node in &patch.nodes {
-            if nodes.insert(node.id, resolve(node, registry)?).is_some() {
-                return Err(CoreError::DuplicateNode(node.id));
-            }
+        let mut bus_len = 0_usize;
+        for node in patch.nodes() {
+            let resolved = resolve(node, registry, bus_len)?;
+            bus_len = bus_len.saturating_add(resolved.spec.outlets.len());
+            // Ids are unique in a `Patch`: nothing is replaced.
+            drop(nodes.insert(node.id, resolved));
         }
-        for connection in &patch.connections {
-            check_connection(connection, &nodes)?;
+        // The slots summed into each inlet, in the canonical cable order.
+        let mut sources: BTreeMap<(NodeId, usize), Vec<usize>> = BTreeMap::new();
+        let connections: Vec<Connection> = patch.connections().copied().collect();
+        for connection in &connections {
+            let slot = source_slot(connection, &nodes)?;
+            sources
+                .entry((connection.to, connection.inlet))
+                .or_default()
+                .push(slot);
         }
         let ids: BTreeSet<NodeId> = nodes.keys().copied().collect();
-        let order = execution_order(&ids, &patch.connections)?;
+        let order = execution_order(&ids, &connections)?;
 
-        // Resolved nodes in execution order.
-        let position: BTreeMap<NodeId, usize> = order.iter().copied().zip(0..).collect();
-        let mut resolved: Vec<Resolved<'_>> = nodes.into_values().collect();
-        resolved.sort_by_key(|r| position.get(&r.node.id).copied());
-
-        // Each step's outlets occupy consecutive bus slots, in execution order.
-        let first_slots: BTreeMap<NodeId, usize> = resolved
+        // Every id of the order is a resolved node: `remove` always finds it.
+        let steps: Vec<Step> = order
             .iter()
-            .scan(0_usize, |next, r| {
-                let first = *next;
-                *next = next.saturating_add(r.spec.outlets.len());
-                Some((r.node.id, first))
-            })
-            .collect();
-        let bus_len = resolved.iter().map(|r| r.spec.outlets.len()).sum();
-
-        let mut connections = patch.connections.clone();
-        connections.sort_unstable();
-        let slot_of = |c: &Connection| {
-            first_slots
-                .get(&c.from)
-                .map_or(usize::MAX, |first| first.saturating_add(c.outlet))
-        };
-        let steps: Vec<Step> = resolved
-            .iter()
+            .filter_map(|id| nodes.remove(id))
             .map(|r| {
                 let id = r.node.id;
-                let sources = (0..r.spec.inlets.len())
-                    .map(|inlet| {
-                        connections
-                            .iter()
-                            .filter(|c| c.to == id && c.inlet == inlet)
-                            .map(slot_of)
-                            .collect()
-                    })
-                    .collect();
                 Step {
                     node: id,
                     object: (r.spec.create)(rate, &r.params),
                     inputs: vec![SILENCE; r.spec.inlets.len()],
                     outputs: vec![SILENCE; r.spec.outlets.len()],
-                    sources,
-                    first_slot: first_slots.get(&id).copied().unwrap_or(bus_len),
+                    sources: (0..r.spec.inlets.len())
+                        .map(|inlet| sources.remove(&(id, inlet)).unwrap_or_default())
+                        .collect(),
+                    first_slot: r.first_slot,
                     is_output: r.spec.capabilities.contains(&Capability::AudioOutput),
                 }
             })
@@ -241,6 +245,8 @@ impl Plan {
         Ok(Self {
             steps,
             bus: vec![SILENCE; bus_len],
+            last: vec![SILENCE; channels],
+            used: BLOCK_SIZE,
             channels,
         })
     }
@@ -257,25 +263,43 @@ impl Plan {
         self.steps.iter().map(|step| step.node)
     }
 
-    /// Renders `frames` frames offline and returns them interleaved by channel
+    /// Renders the next `frames` frames offline and returns them interleaved by channel
     /// ([`Plan::channels`] samples per frame).
     ///
-    /// Processes whole blocks; the samples of the last block beyond `frames` are dropped.
-    #[must_use]
-    pub fn render(&mut self, frames: usize) -> Vec<f32> {
-        let mut samples = Vec::with_capacity(frames.saturating_mul(self.channels));
-        let mut block = vec![SILENCE; self.channels];
-        // A fixed number of blocks: the loop cannot run forever.
-        for index in 0..frames.div_ceil(BLOCK_SIZE) {
-            self.process(&mut block);
-            let take = frames
-                .saturating_sub(index.saturating_mul(BLOCK_SIZE))
-                .min(BLOCK_SIZE);
-            for frame in 0..take {
-                samples.extend(block.iter().filter_map(|channel| channel.get(frame)));
-            }
+    /// Successive calls continue exactly where the previous one stopped, whatever their
+    /// lengths: rendering `a` then `b` frames gives the same samples as rendering `a + b`.
+    /// A plan without output renders nothing (and runs no box).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CoreError::RenderTooLong`] when the samples cannot be held in memory.
+    pub fn render(&mut self, frames: usize) -> Result<Vec<f32>, CoreError> {
+        if self.channels == 0 {
+            return Ok(Vec::new());
         }
+        let length = frames
+            .checked_mul(self.channels)
+            .ok_or(CoreError::RenderTooLong(frames))?;
+        let mut samples = Vec::new();
         samples
+            .try_reserve_exact(length)
+            .map_err(|_| CoreError::RenderTooLong(frames))?;
+        // One frame per round: a fixed number of rounds, so it always ends.
+        for _ in 0..frames {
+            if self.used == BLOCK_SIZE {
+                let mut last = core::mem::take(&mut self.last);
+                self.process(&mut last);
+                self.last = last;
+                self.used = 0;
+            }
+            samples.extend(
+                self.last
+                    .iter()
+                    .filter_map(|channel| channel.get(self.used)),
+            );
+            self.used = self.used.saturating_add(1);
+        }
+        Ok(samples)
     }
 
     /// Runs every box once, then writes one block per output channel into `out`.

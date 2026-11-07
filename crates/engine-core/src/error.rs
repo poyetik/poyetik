@@ -4,7 +4,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt;
 
-use crate::NodeId;
+use crate::{Connection, NodeId, Patch, SampleRate};
 
 /// Why a sample rate, a patch or a plan was rejected.
 #[derive(Debug, Clone, PartialEq)]
@@ -13,6 +13,14 @@ pub enum CoreError {
     InvalidSampleRate(u32),
     /// Two nodes share the same id.
     DuplicateNode(NodeId),
+    /// The same cable is listed twice.
+    DuplicateConnection(Connection),
+    /// A patch has more nodes than [`Patch::MAX_NODES`].
+    TooManyNodes(usize),
+    /// A patch has more cables than [`Patch::MAX_CONNECTIONS`].
+    TooManyConnections(usize),
+    /// An offline render asks for more samples than memory can hold.
+    RenderTooLong(usize),
     /// A node uses a box type that is not in the registry.
     UnknownObject {
         /// The node.
@@ -59,20 +67,44 @@ pub enum CoreError {
 impl fmt::Display for CoreError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::InvalidSampleRate(hz) => write!(f, "invalid sample rate: {hz} Hz"),
-            Self::DuplicateNode(node) => write!(f, "duplicate node: {node}"),
+            Self::InvalidSampleRate(hz) => write!(
+                f,
+                "invalid sample rate: {hz} Hz (supported: {} to {} Hz)",
+                SampleRate::MIN,
+                SampleRate::MAX
+            ),
+            Self::DuplicateNode(node) => write!(f, "{node} is declared twice"),
+            Self::DuplicateConnection(connection) => {
+                write!(f, "the cable from {connection} is listed twice")
+            }
+            Self::TooManyNodes(count) => {
+                write!(f, "too many nodes: {count} (at most {})", Patch::MAX_NODES)
+            }
+            Self::TooManyConnections(count) => write!(
+                f,
+                "too many cables: {count} (at most {})",
+                Patch::MAX_CONNECTIONS
+            ),
+            Self::RenderTooLong(frames) => {
+                write!(f, "cannot render {frames} frames: too long for memory")
+            }
             Self::UnknownObject { node, kind } => write!(f, "{node}: unknown box type \"{kind}\""),
             Self::UnknownParam { node, name } => write!(f, "{node}: unknown parameter \"{name}\""),
             Self::ParamOutOfRange { node, name, value } => {
                 write!(f, "{node}: parameter \"{name}\" out of range: {value}")
             }
-            Self::UnknownNode(node) => write!(f, "unknown node: {node}"),
+            Self::UnknownNode(node) => {
+                write!(f, "a cable refers to {node}, which does not exist")
+            }
             Self::InvalidOutlet { node, outlet } => write!(f, "{node}: no outlet {outlet}"),
             Self::InvalidInlet { node, inlet } => write!(f, "{node}: no inlet {inlet}"),
             Self::Cycle(nodes) => {
-                write!(f, "cycle without delay involving")?;
-                for node in nodes {
-                    write!(f, " {node}")?;
+                write!(f, "cycle without delay involving ")?;
+                for (index, node) in nodes.iter().enumerate() {
+                    if index > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{node}")?;
                 }
                 Ok(())
             }
@@ -86,17 +118,42 @@ impl core::error::Error for CoreError {}
 mod tests {
     use alloc::string::{String, ToString};
     use alloc::vec;
+    use alloc::vec::Vec;
 
     use super::CoreError;
-    use crate::NodeId;
+    use crate::{Connection, NodeId};
 
     #[test]
     fn describes_every_error() {
         let cases = [
-            (CoreError::InvalidSampleRate(5), "invalid sample rate: 5 Hz"),
+            (
+                CoreError::InvalidSampleRate(5),
+                "invalid sample rate: 5 Hz (supported: 8000 to 384000 Hz)",
+            ),
             (
                 CoreError::DuplicateNode(NodeId(2)),
-                "duplicate node: node 2",
+                "node 2 is declared twice",
+            ),
+            (
+                CoreError::DuplicateConnection(Connection {
+                    from: NodeId(1),
+                    outlet: 0,
+                    to: NodeId(2),
+                    inlet: 1,
+                }),
+                "the cable from node 1 outlet 0 to node 2 inlet 1 is listed twice",
+            ),
+            (
+                CoreError::TooManyNodes(70_000),
+                "too many nodes: 70000 (at most 65536)",
+            ),
+            (
+                CoreError::TooManyConnections(300_000),
+                "too many cables: 300000 (at most 262144)",
+            ),
+            (
+                CoreError::RenderTooLong(9),
+                "cannot render 9 frames: too long for memory",
             ),
             (
                 CoreError::UnknownObject {
@@ -120,7 +177,10 @@ mod tests {
                 },
                 "node 5: parameter \"gain\" out of range: 1.5",
             ),
-            (CoreError::UnknownNode(NodeId(6)), "unknown node: node 6"),
+            (
+                CoreError::UnknownNode(NodeId(6)),
+                "a cable refers to node 6, which does not exist",
+            ),
             (
                 CoreError::InvalidOutlet {
                     node: NodeId(7),
@@ -137,12 +197,34 @@ mod tests {
             ),
             (
                 CoreError::Cycle(vec![NodeId(1), NodeId(9)]),
-                "cycle without delay involving node 1 node 9",
+                "cycle without delay involving node 1, node 9",
             ),
         ];
         for (error, message) in cases {
             assert_eq!(error.to_string(), message, "message of {error:?}");
+            assert!(!repeats_a_word(message), "{message} repeats a word");
         }
+    }
+
+    /// Whether a word appears twice in a row within a list item, ignoring numbers
+    /// between them ("node: node 2", "node 1 node 9"): such messages read badly. Items of
+    /// a comma-separated list ("node 1, node 9") may repeat their noun.
+    fn repeats_a_word(message: &str) -> bool {
+        message.split(", ").any(|item| {
+            let words: Vec<&str> = item
+                .split(|c: char| !c.is_alphanumeric())
+                .filter(|w| !w.is_empty() && !w.chars().all(|c| c.is_ascii_digit()))
+                .collect();
+            words.windows(2).any(|pair| pair[0] == pair[1])
+        })
+    }
+
+    #[test]
+    fn spots_repeated_words() {
+        assert!(repeats_a_word("duplicate node: node 2"), "colon between");
+        assert!(repeats_a_word("involving node 1 node 9"), "number between");
+        assert!(!repeats_a_word("node 1, outlet 2"), "different words");
+        assert!(!repeats_a_word("involving node 1, node 9"), "a list");
     }
 
     #[test]

@@ -173,7 +173,7 @@ fn wire(from: u32, outlet: usize, to: u32, inlet: usize) -> Connection {
 }
 
 fn build(nodes: Vec<Node>, connections: Vec<Connection>) -> Result<Plan, CoreError> {
-    Plan::build(&Patch { nodes, connections }, &REGISTRY, rate())
+    Patch::new(nodes, connections).and_then(|patch| Plan::build(&patch, &REGISTRY, rate()))
 }
 
 fn run(plan: &mut Plan, channels: usize) -> Vec<Block> {
@@ -498,7 +498,7 @@ fn renders_interleaved_frames_offline() {
         vec![wire(1, 0, 3, 0), wire(2, 0, 3, 1)],
     )
     .expect("valid patch");
-    let samples = plan.render(130);
+    let samples = plan.render(130).expect("small render");
     assert_eq!(samples.len(), 260, "130 frames of 2 channels");
     assert_eq!(
         &samples[..6],
@@ -510,11 +510,11 @@ fn renders_interleaved_frames_offline() {
         &[128.0, -1.0, 129.0, -1.0],
         "continues across blocks"
     );
-    let next = plan.render(1);
+    let next = plan.render(1).expect("small render");
     assert_eq!(
         next,
-        vec![192.0, -1.0],
-        "the dropped tail of the last block is not replayed"
+        vec![130.0, -1.0],
+        "the next render continues exactly where the previous one stopped"
     );
 }
 
@@ -525,12 +525,80 @@ fn renders_nothing_for_zero_frames_or_channels() {
         vec![wire(1, 0, 2, 0)],
     )
     .expect("valid patch");
-    assert_eq!(plan.render(0), Vec::<f32>::new(), "zero frames");
+    assert_eq!(plan.render(0), Ok(Vec::<f32>::new()), "zero frames");
     assert_eq!(
-        plan.render(64),
+        plan.render(64).expect("small render"),
         (0..64_u16).map(f32::from).collect::<Vec<_>>(),
         "nothing was processed before"
     );
     let mut silent = build(vec![node(1, "ramp~")], vec![]).expect("valid patch");
-    assert_eq!(silent.render(100), Vec::<f32>::new(), "no output channel");
+    assert_eq!(
+        silent.render(usize::MAX),
+        Ok(Vec::<f32>::new()),
+        "no output channel: nothing to render, at once"
+    );
+}
+
+#[test]
+fn refuses_renders_too_long_for_memory() {
+    let mut plan = build(
+        vec![node(1, "ramp~"), node(2, "out~")],
+        vec![wire(1, 0, 2, 0)],
+    )
+    .expect("valid patch");
+    assert_eq!(
+        plan.render(usize::MAX),
+        Err(CoreError::RenderTooLong(usize::MAX)),
+        "frames times channels overflows"
+    );
+    assert_eq!(
+        plan.render(usize::MAX / 4),
+        Err(CoreError::RenderTooLong(usize::MAX / 4)),
+        "fits the arithmetic, not the memory"
+    );
+    assert_eq!(
+        plan.render(2).expect("small render"),
+        vec![0.0, 0.0, 1.0, 0.0],
+        "nothing was rendered by the refused calls"
+    );
+}
+
+#[test]
+fn sums_cables_in_source_order_whatever_the_document_order() {
+    // Float addition is not associative: with these values, (1 + e) + e = 1 while
+    // e + (e + 1) and (e + e) + 1 give the next float above 1. The sum must follow
+    // the source ids (1, then 2, then 3) for every order of the cables.
+    let tiny = 3.0e-8_f32;
+    let nodes = || {
+        vec![
+            with_param(node(1, "const~"), "value", 1.0),
+            with_param(node(2, "const~"), "value", tiny),
+            with_param(node(3, "const~"), "value", tiny),
+            node(4, "mono~"),
+        ]
+    };
+    let in_order = (1.0_f32 + tiny) + tiny;
+    assert_ne!(
+        in_order.to_bits(),
+        ((tiny + tiny) + 1.0_f32).to_bits(),
+        "the values do reveal the order"
+    );
+    let cables = [wire(1, 0, 4, 0), wire(2, 0, 4, 0), wire(3, 0, 4, 0)];
+    for order in [
+        [0, 1, 2],
+        [0, 2, 1],
+        [1, 0, 2],
+        [1, 2, 0],
+        [2, 0, 1],
+        [2, 1, 0],
+    ] {
+        let mut plan =
+            build(nodes(), order.iter().map(|&i| cables[i]).collect()).expect("valid patch");
+        let out = run(&mut plan, 1);
+        assert_eq!(
+            out[0][0].to_bits(),
+            in_order.to_bits(),
+            "cables listed as {order:?}"
+        );
+    }
 }

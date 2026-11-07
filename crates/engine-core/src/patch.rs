@@ -1,9 +1,11 @@
 //! A patch: boxes and the cables between them, as data.
 
-use alloc::collections::BTreeMap;
+use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt;
+
+use crate::CoreError;
 
 /// Stable identifier of a node in a patch. Also breaks ties when ordering execution.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -39,11 +41,77 @@ pub struct Connection {
     pub inlet: usize,
 }
 
-/// A patch, as data. Validated when a [`crate::Plan`] is built from it.
+impl fmt::Display for Connection {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{} outlet {} to {} inlet {}",
+            self.from, self.outlet, self.to, self.inlet
+        )
+    }
+}
+
+/// A patch, as data: nodes with unique ids and cables without duplicates, within the
+/// size limits. Built only by [`Patch::new`], so these hold for every `Patch`.
+///
+/// Box types, parameters, ports and cycles are validated against a registry when a
+/// [`crate::Plan`] is built from it.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Patch {
-    /// Nodes, in any order.
-    pub nodes: Vec<Node>,
-    /// Cables, in any order.
-    pub connections: Vec<Connection>,
+    /// Nodes, by id.
+    nodes: BTreeMap<NodeId, Node>,
+    /// Cables, in their canonical order (source, outlet, destination, inlet): the order
+    /// in which the cables into an inlet are summed.
+    connections: BTreeSet<Connection>,
+}
+
+impl Patch {
+    /// Largest number of nodes a patch may have.
+    pub const MAX_NODES: usize = 65_536;
+
+    /// Largest number of cables a patch may have.
+    pub const MAX_CONNECTIONS: usize = 262_144;
+
+    /// Builds a patch from nodes and cables given in any order.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CoreError::TooManyNodes`] or [`CoreError::TooManyConnections`] beyond
+    /// the limits, [`CoreError::DuplicateNode`] when two nodes share an id, and
+    /// [`CoreError::DuplicateConnection`] when a cable is listed twice.
+    pub fn new(nodes: Vec<Node>, connections: Vec<Connection>) -> Result<Self, CoreError> {
+        if nodes.len() > Self::MAX_NODES {
+            return Err(CoreError::TooManyNodes(nodes.len()));
+        }
+        if connections.len() > Self::MAX_CONNECTIONS {
+            return Err(CoreError::TooManyConnections(connections.len()));
+        }
+        let mut by_id = BTreeMap::new();
+        for node in nodes {
+            let id = node.id;
+            if by_id.insert(id, node).is_some() {
+                return Err(CoreError::DuplicateNode(id));
+            }
+        }
+        let mut cables = BTreeSet::new();
+        for connection in connections {
+            if !cables.insert(connection) {
+                return Err(CoreError::DuplicateConnection(connection));
+            }
+        }
+        Ok(Self {
+            nodes: by_id,
+            connections: cables,
+        })
+    }
+
+    /// The nodes, by increasing id.
+    pub fn nodes(&self) -> impl Iterator<Item = &Node> {
+        self.nodes.values()
+    }
+
+    /// The cables, in their canonical order.
+    pub fn connections(&self) -> impl Iterator<Item = &Connection> {
+        self.connections.iter()
+    }
 }

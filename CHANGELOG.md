@@ -30,6 +30,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Breaking:** `Patch` is a validated type, built only by `Patch::new`: node ids are unique, cables are never repeated, and a patch holds at most 65,536 nodes and 262,144 cables. The cables into an inlet are summed in a fixed order (source id, then outlet), whatever the order of the document. The patch reader also refuses documents over 16 MiB and a parameter named twice in one node.
+- **Breaking:** `Plan::render` continues exactly where the previous call stopped (rendering `a` then `b` frames equals rendering `a + b`), and returns `CoreError::RenderTooLong` instead of failing when the samples cannot be held in memory.
+- Execution order is computed with Kahn's algorithm, in O((N + E) log N) instead of O(N²·E): a patch of 16,000 boxes is ordered in milliseconds instead of seconds. The order is unchanged.
+- Error messages name the faulty element once and say what is expected ("node 2 is declared twice", "invalid sample rate: 5 Hz (supported: 8000 to 384000 Hz)").
+- The conformance CLI refuses a case whose patch has no audio output, instead of rendering nothing.
 - The box laws (`engine-testkit`) run at every sample rate of a shared test matrix (8 kHz to 384 kHz, including 44.1 kHz), with special inputs (signed zeros, subnormals), a long run and parameters away from their default; a box that fails at any of them fails the laws. The matrix is also published as `conformance/test-matrix.json` for the TypeScript tests.
 
 ### Fixed

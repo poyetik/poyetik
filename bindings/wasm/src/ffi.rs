@@ -139,7 +139,7 @@ mod tests {
         let patch = engine_patch::parse_patch(core::str::from_utf8(sine).expect("UTF-8"))
             .expect("valid patch");
         let mut plan = Plan::build(&patch, &REGISTRY, SampleRate::HZ_48000).expect("valid plan");
-        let expected = plan.render(2 * BLOCK_SIZE);
+        let expected = plan.render(2 * BLOCK_SIZE).expect("small render");
         let mut actual = Vec::new();
         for _ in 0..2_u8 {
             let planar = block();

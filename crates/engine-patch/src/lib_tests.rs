@@ -4,10 +4,11 @@ use alloc::collections::BTreeMap;
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec;
+use alloc::vec::Vec;
 
-use engine_core::{Connection, Node, NodeId, Patch};
+use engine_core::{Connection, CoreError, Node, NodeId, Patch};
 
-use super::{FORMAT, PatchError, parse_patch};
+use super::{FORMAT, MAX_PATCH_BYTES, PatchError, parse_patch};
 
 const EXAMPLE: &str = r#"{
   "format": 1,
@@ -28,14 +29,23 @@ fn invalid(json: &str) -> String {
     }
 }
 
+fn connection(from: u32, outlet: usize, to: u32, inlet: usize) -> Connection {
+    Connection {
+        from: NodeId(from),
+        outlet,
+        to: NodeId(to),
+        inlet,
+    }
+}
+
 #[test]
 fn reads_the_specification_example() {
     let mut params = BTreeMap::new();
     let _: Option<f32> = params.insert(String::from("frequency"), 440.0);
     assert_eq!(
         parse_patch(EXAMPLE),
-        Ok(Patch {
-            nodes: vec![
+        Patch::new(
+            vec![
                 Node {
                     id: NodeId(1),
                     kind: String::from("osc~"),
@@ -47,21 +57,9 @@ fn reads_the_specification_example() {
                     params: BTreeMap::new()
                 },
             ],
-            connections: vec![
-                Connection {
-                    from: NodeId(1),
-                    outlet: 0,
-                    to: NodeId(2),
-                    inlet: 0
-                },
-                Connection {
-                    from: NodeId(1),
-                    outlet: 0,
-                    to: NodeId(2),
-                    inlet: 1
-                },
-            ],
-        }),
+            vec![connection(1, 0, 2, 0), connection(1, 0, 2, 1)],
+        )
+        .map_err(PatchError::Patch),
         "the example of spec/patch-format.md"
     );
 }
@@ -76,9 +74,75 @@ fn reads_an_empty_patch_and_the_largest_id() {
     let patch =
         parse_patch(r#"{"format":1,"nodes":[{"id":4294967295,"box":"x"}],"connections":[]}"#);
     assert_eq!(
-        patch.map(|p| p.nodes[0].id),
-        Ok(NodeId(u32::MAX)),
+        patch.map(|p| p.nodes().map(|n| n.id).collect::<Vec<_>>()),
+        Ok(vec![NodeId(u32::MAX)]),
         "u32::MAX"
+    );
+}
+
+#[test]
+fn refuses_repeated_nodes_cables_and_parameters() {
+    assert_eq!(
+        parse_patch(
+            r#"{"format":1,"nodes":[{"id":1,"box":"x"},{"id":1,"box":"y"}],"connections":[]}"#
+        ),
+        Err(PatchError::Patch(CoreError::DuplicateNode(NodeId(1)))),
+        "node"
+    );
+    assert_eq!(
+        parse_patch(
+            r#"{"format":1,"nodes":[],"connections":[{"from":[1,0],"to":[2,0]},{"from":[1,0],"to":[2,0]}]}"#
+        ),
+        Err(PatchError::Patch(CoreError::DuplicateConnection(
+            connection(1, 0, 2, 0)
+        ))),
+        "cable"
+    );
+    let reason = invalid(
+        r#"{"format":1,"nodes":[{"id":1,"box":"x","params":{"a":1,"a":2}}],"connections":[]}"#,
+    );
+    assert!(reason.contains("parameter `a` is given twice"), "{reason}");
+    let mistyped =
+        invalid(r#"{"format":1,"nodes":[{"id":1,"box":"x","params":[1]}],"connections":[]}"#);
+    assert!(
+        mistyped.contains("an object of parameter values"),
+        "{mistyped}"
+    );
+}
+
+#[test]
+fn refuses_documents_beyond_the_size_limit() {
+    let padding = |bytes: usize| {
+        let base = r#"{"format":1,"nodes":[],"connections":[]}"#;
+        format!("{base}{}", " ".repeat(bytes - base.len()))
+    };
+    assert_eq!(
+        parse_patch(&padding(MAX_PATCH_BYTES)),
+        Ok(Patch::default()),
+        "exactly at the limit"
+    );
+    assert_eq!(
+        parse_patch(&padding(MAX_PATCH_BYTES + 1)),
+        Err(PatchError::TooLarge(MAX_PATCH_BYTES + 1)),
+        "one byte more"
+    );
+}
+
+#[test]
+fn refuses_more_nodes_than_a_patch_holds() {
+    let nodes: Vec<String> = (0..=Patch::MAX_NODES)
+        .map(|id| format!(r#"{{"id":{id},"box":"x"}}"#))
+        .collect();
+    let json = format!(
+        r#"{{"format":1,"nodes":[{}],"connections":[]}}"#,
+        nodes.join(",")
+    );
+    assert_eq!(
+        parse_patch(&json),
+        Err(PatchError::Patch(CoreError::TooManyNodes(
+            Patch::MAX_NODES + 1
+        ))),
+        "one node more than the limit"
     );
 }
 
@@ -88,7 +152,7 @@ fn parses_numbers_with_correct_rounding() {
         r#"{"format":1,"nodes":[{"id":1,"box":"x","params":{"a":0.1,"b":3.4028235e38,"c":-0.0}}],"connections":[]}"#,
     )
     .expect("valid patch");
-    let params = &patch.nodes[0].params;
+    let params = &patch.nodes().next().expect("one node").params;
     assert_eq!(
         params["a"].to_bits(),
         0.1_f32.to_bits(),
@@ -176,6 +240,28 @@ fn describes_errors() {
         "unsupported patch format 2 (expected 1)",
         "version"
     );
-    let error: &dyn core::error::Error = &PatchError::UnsupportedFormat(2);
-    assert!(error.source().is_none(), "no underlying cause");
+    assert_eq!(
+        PatchError::TooLarge(20_000_000).to_string(),
+        "patch too large: 20000000 bytes (at most 16777216)",
+        "size"
+    );
+    assert_eq!(
+        PatchError::Patch(CoreError::DuplicateNode(NodeId(3))).to_string(),
+        "invalid patch: node 3 is declared twice",
+        "structure"
+    );
+    for error in [
+        PatchError::TooLarge(1),
+        PatchError::Invalid(String::new()),
+        PatchError::UnsupportedFormat(2),
+    ] {
+        let error: &dyn core::error::Error = &error;
+        assert!(error.source().is_none(), "no underlying cause");
+    }
+    let error: &dyn core::error::Error = &PatchError::Patch(CoreError::DuplicateNode(NodeId(3)));
+    assert_eq!(
+        error.source().map(ToString::to_string),
+        Some(String::from("node 3 is declared twice")),
+        "the patch error is the cause"
+    );
 }
