@@ -62,18 +62,44 @@ describe("frequency", () => {
     expect(frequency(edge, 48_000)).toBe(2400);
   });
 
+  /** 64 phases spread over a whole period, in radians: a domain claim holds at every phase, not a few. */
+  const PHASES = Array.from({ length: 64 }, (_empty, index) => (2 * Math.PI * index) / 64);
+
+  /**
+   * The lowest frequency measured at every phase, at `rate`: four rising crossings (three
+   * periods) must fit in the span of the history after its first sample, which can never
+   * be a crossing, so four periods in `count - 1` samples.
+   */
+  const floor = (rate: number): number => ((MIN_PERIODS + 1) * rate) / (Math.round(HISTORY_SECONDS * rate) - 1);
+
   test("is within 0.05 Hz everywhere in its domain, at every rate of the matrix", () => {
-    // Measured worst case 0.011 Hz: from three periods in the history to a twentieth of the
-    // rate, at four phases.
+    // The readout shows a tenth of a hertz: within 0.05 Hz, its last digit is right. The
+    // estimator itself is far more precise. Linear interpolation misplaces a zero crossing
+    // of a sine by at most sqrt(3)/108 h^3 rad (h = 2 pi f / rate, at most pi/10 at a
+    // twentieth of the rate), only the first and last crossings count, and the span is at
+    // least three periods: at most about 1.9e-3 Hz, at every rate. Measured: 1.93e-3 Hz at
+    // worst, over 45 frequencies from the floor to a twentieth of the rate, 256 phases and
+    // every rate of the matrix.
     for (const rate of SAMPLE_RATES) {
       const count = Math.round(HISTORY_SECONDS * rate);
-      const lowest = (MIN_PERIODS + 1) / HISTORY_SECONDS;
-      for (const hertz of [lowest, 100, 440, 1000, rate * MAX_FREQUENCY_RATIO * 0.99].filter((candidate) => candidate <= rate * MAX_FREQUENCY_RATIO)) {
-        for (const phase of [0, 0.7, 2, 4.5]) {
+      for (const hertz of [floor(rate) * 1.001, 100, 440, 1000, rate * MAX_FREQUENCY_RATIO * 0.99].filter((candidate) => candidate <= rate * MAX_FREQUENCY_RATIO)) {
+        for (const phase of PHASES) {
           const measured = frequency(sine(hertz, rate, count, phase), rate);
           expect(measured, `${String(hertz)} Hz at ${String(rate)} Hz, phase ${String(phase)}`).toBeDefined();
           expect(Math.abs((measured ?? 0) - hertz)).toBeLessThan(0.05);
         }
+      }
+    }
+  });
+
+  test("measures from about 47.1 Hz, the floor of the history (47.13 Hz at 8 kHz), and never at three periods per history", () => {
+    expect(SAMPLE_RATES.map((rate) => floor(rate).toFixed(2))).toContain("47.13");
+    for (const rate of SAMPLE_RATES) {
+      expect(floor(rate)).toBeGreaterThan(47.05);
+      expect(floor(rate)).toBeLessThan(47.13);
+      // Three periods per 85 ms (35.3 Hz) leave at most three crossings in the history.
+      for (const phase of PHASES) {
+        expect(frequency(sine(MIN_PERIODS / HISTORY_SECONDS, rate, Math.round(HISTORY_SECONDS * rate), phase), rate)).toBeUndefined();
       }
     }
   });

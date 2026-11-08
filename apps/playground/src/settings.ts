@@ -6,8 +6,9 @@ export const GAIN = 0.25;
 /**
  * Duration kept for the oscilloscope and the measurements, in seconds: 85 ms at every
  * sample rate. With a 10 ms window, a rising crossing to trigger on is found for every
- * period up to 75 ms (13.4 Hz and above), and the frequency is measured over at least
- * three periods from 35.3 Hz.
+ * period up to 75 ms (13.4 Hz and above). The frequency, measured over at least three
+ * periods, is shown at every phase from about 47.1 Hz (47.13 Hz at 8 kHz: four periods in
+ * the history after its first sample; tested), and never at 35.3 Hz or below.
  */
 export const HISTORY_SECONDS = 0.085;
 
