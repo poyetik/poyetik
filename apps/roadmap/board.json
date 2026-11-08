@@ -183,14 +183,14 @@
     {
       "id": 6,
       "title": "Choose and set up the project license",
-      "description": "Source-available, attribution required, commercial use allowed for artists, no competing product or service.",
+      "description": "Choose the license of the project, have it reviewed, and set it up everywhere.",
       "column": "next",
       "milestone": "M0 Foundations",
       "createdAt": "2026-11-07",
-      "updatedAt": "2026-11-07",
+      "updatedAt": "2026-11-08",
       "tasks": [
         {
-          "title": "Choose the license (FSL-1.1-ALv2 or Elastic-2.0) and have it reviewed",
+          "title": "Choose the license and have it reviewed",
           "done": false
         },
         {
@@ -198,7 +198,7 @@
           "done": false
         },
         {
-          "title": "README: artists own what they create and may use it commercially",
+          "title": "README: what users may do with what they create",
           "done": false
         },
         {
@@ -210,11 +210,11 @@
     {
       "id": 8,
       "title": "Choose the final project name",
-      "description": "The working name poyetik must be replaced before the first publication. Rename everywhere, then rewrite the git history in the same spirit so that no trace of the working name remains.",
+      "description": "The working name poyetik is replaced before the first publication, everywhere.",
       "column": "later",
       "milestone": "M0 Foundations",
       "createdAt": "2026-11-07",
-      "updatedAt": "2026-11-07",
+      "updatedAt": "2026-11-08",
       "tasks": [
         {
           "title": "Find a name: short, easy to say in English and French, available (domain, GitHub, crates.io, npm) and free of trademark conflicts",
@@ -225,11 +225,7 @@
           "done": false
         },
         {
-          "title": "Rewrite the git history so that no trace of the working name remains",
-          "done": false
-        },
-        {
-          "title": "Delete the local backup branch and purge the reflog before the first push",
+          "title": "Check that no trace of the working name remains before the first publication",
           "done": false
         }
       ]
