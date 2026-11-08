@@ -545,7 +545,7 @@ fn tool_answer(program: &str, subcommand: Option<&str>) -> String {
 }
 
 /// A workflow that pins everything, as the workflow gate requires.
-const PINNED_WORKFLOW: &str = "on:\n  push:\n  pull_request:\n  workflow_dispatch:\n\npermissions:\n  contents: read\n\njobs:\n  check:\n    runs-on: ubuntu-24.04\n    steps:\n      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n        with:\n          fetch-depth: 0\n          persist-credentials: false\n      - name: Install Rust toolchains\n        run: rustup toolchain install nightly-2026-11-01 --profile minimal\n      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39\n        with:\n          tool: cargo-llvm-cov@0.9.1,cargo-mutants@27.1.0,cargo-deny@0.20.2\n      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0\n        with:\n          node-version-file: .node-version\n      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3\n        with:\n          cache-on-failure: true\n      - name: Every quality check\n        run: cargo xtask check --full\n      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2\n        if: failure()\n        with:\n          path: |\n            mutants.out\n            target/coverage\n            bindings/wasm/dist/engine.wasm\n            apps/*/coverage\n            apps/*/reports\n            bindings/*/coverage\n            bindings/*/reports\n            tooling/*/coverage\n            tooling/*/reports\n";
+const PINNED_WORKFLOW: &str = "on:\n  push:\n  pull_request:\n  workflow_dispatch:\n\npermissions:\n  contents: read\n\nconcurrency:\n  group: ${{ (github.event_name != 'push' || contains(github.event.head_commit.message, '[ci]')) && format('quality-{0}', github.ref) || format('skipped-{0}', github.run_id) }}\n  cancel-in-progress: true\n\njobs:\n  check:\n    runs-on: ubuntu-24.04\n    steps:\n      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n        with:\n          fetch-depth: 0\n          persist-credentials: false\n      - name: Install Rust toolchains\n        run: rustup toolchain install nightly-2026-11-01 --profile minimal\n      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39\n        with:\n          tool: cargo-llvm-cov@0.9.1,cargo-mutants@27.1.0,cargo-deny@0.20.2\n      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0\n        with:\n          node-version-file: .node-version\n      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3\n        with:\n          cache-on-failure: true\n      - name: Every quality check\n        run: cargo xtask check --full\n      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2\n        if: failure()\n        with:\n          path: |\n            mutants.out\n            target/coverage\n            bindings/wasm/dist/engine.wasm\n            apps/*/coverage\n            apps/*/reports\n            bindings/*/coverage\n            bindings/*/reports\n            tooling/*/coverage\n            tooling/*/reports\n";
 
 /// A history whose two commits follow the convention, the change of behavior with its
 /// changelog entry, as `git log` writes it for the history gate.
@@ -6180,6 +6180,51 @@ fn accepts_exactly_the_conditions_decided() {
             "{variant}"
         );
     }
+}
+
+#[test]
+fn keeps_a_run_skipped_by_the_ci_condition_from_cancelling_a_check() {
+    let [_, condition] = super::WORKFLOW_CONDITIONS;
+    let group = super::workflow_concurrency()
+        .into_iter()
+        .nth(1)
+        .unwrap_or_default();
+    assert!(
+        group.contains(&format!(
+            "({}) && ",
+            condition.strip_prefix("if: ").unwrap_or_default()
+        )),
+        "the group follows the condition of the check: {group}"
+    );
+    let gate =
+        |workflow: &str| super::workflow_gate(&[super::WORKFLOW.to_owned()], workflow, "22.23.4");
+    let lacks = |line: &str| {
+        failed(format!(
+            ".github/workflows/quality.yml can change CI without a commit: \
+             .github/workflows/quality.yml lacks the concurrency `{line}`"
+        ))
+    };
+    let expected = lacks(&super::workflow_concurrency().join(" "));
+    let unconditional = PINNED_WORKFLOW.replace(&group, "  group: quality-${{ github.ref }}");
+    assert_ne!(
+        unconditional, PINNED_WORKFLOW,
+        "the fixture holds the group"
+    );
+    assert_eq!(
+        gate(&unconditional),
+        expected,
+        "a run the condition skips would join the group of the check and cancel it"
+    );
+    assert_eq!(
+        gate(&PINNED_WORKFLOW.replace("  cancel-in-progress: true\n", "")),
+        expected,
+        "a superseded check is cancelled"
+    );
+    assert_eq!(
+        gate(&PINNED_WORKFLOW.replace("\nconcurrency:\n", "\n  concurrency:\n")),
+        expected,
+        "for the whole workflow"
+    );
 }
 
 #[test]

@@ -2718,13 +2718,31 @@ pub const WORKFLOW_CONDITIONS: [&str; 2] = [
     "if: github.event_name != 'push' || contains(github.event.head_commit.message, '[ci]')",
 ];
 
+/// The exact concurrency of the workflow.
+///
+/// A newer run of the check cancels the older one of the same ref, while a run that the
+/// `[ci]` condition of [`WORKFLOW_CONDITIONS`] skips gets a group of its own, so that it
+/// never cancels a check in progress and then skips its own.
+#[must_use]
+pub fn workflow_concurrency() -> [String; 3] {
+    let [_, condition] = WORKFLOW_CONDITIONS;
+    let condition = condition.strip_prefix("if: ").unwrap_or(condition);
+    [
+        "concurrency:".to_owned(),
+        format!(
+            "  group: ${{{{ ({condition}) && format('quality-{{0}}', github.ref) || format('skipped-{{0}}', github.run_id) }}}}"
+        ),
+        "  cancel-in-progress: true".to_owned(),
+    ]
+}
+
 /// Checks that CI cannot change under the project's feet, nor pass without checking.
 ///
 /// `workflows` are the workflow files tracked by git: only [`WORKFLOW`]. In it, every line
 /// using an action pins it to a full commit hash, whatever its form (`- uses:`, a flow
 /// mapping); nothing of [`WORKFLOW_REFUSED`] appears; the only conditions are those of
-/// [`WORKFLOW_CONDITIONS`]; the triggers and the token's permissions are exactly
-/// [`WORKFLOW_TRIGGERS`] and [`WORKFLOW_PERMISSIONS`]; every nightly toolchain named is
+/// [`WORKFLOW_CONDITIONS`]; the triggers, the token's permissions and the concurrency are
+/// exactly [`WORKFLOW_TRIGGERS`], [`WORKFLOW_PERMISSIONS`] and [`workflow_concurrency`]; every nightly toolchain named is
 /// [`NIGHTLY_TOOLCHAIN`]; the checkout keeps no credential; the Cargo tools are
 /// [`PINNED_TOOLS`]; Node.js is the release in `.node-version` (at [`NODE_FLOOR`] or later);
 /// the runner is an OS release (never `-latest`); the whole history is fetched for the
@@ -2783,9 +2801,12 @@ pub fn workflow_gate(
                 .map(|word| format!("`{word}` is not the pinned nightly, {nightly}")),
         );
     }
+    let concurrency = workflow_concurrency();
+    let concurrency: Vec<&str> = concurrency.iter().map(String::as_str).collect();
     for (block, what) in [
         (&WORKFLOW_TRIGGERS[..], "triggers"),
         (&WORKFLOW_PERMISSIONS[..], "permissions"),
+        (&concurrency[..], "concurrency"),
     ] {
         if !holds_block(workflow, block) {
             problems.push(format!("{WORKFLOW} lacks the {what} `{}`", block.join(" ")));

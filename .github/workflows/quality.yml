@@ -13,8 +13,10 @@ on:
 permissions:
   contents: read
 
+# A newer run of the check cancels the older one of the same ref; a run skipped by the [ci]
+# condition below gets a group of its own, so that it never cancels a check in progress.
 concurrency:
-  group: quality-${{ github.ref }}
+  group: ${{ (github.event_name != 'push' || contains(github.event.head_commit.message, '[ci]')) && format('quality-{0}', github.ref) || format('skipped-{0}', github.run_id) }}
   cancel-in-progress: true
 
 jobs:
