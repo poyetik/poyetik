@@ -1,7 +1,7 @@
 {
   "version": 1,
   "title": "poyetik",
-  "nextId": 14,
+  "nextId": 16,
   "cards": [
     {
       "id": 1,
@@ -10,7 +10,7 @@
       "column": "doing",
       "milestone": "M1 Engine",
       "createdAt": "2026-11-07",
-      "updatedAt": "2026-11-07",
+      "updatedAt": "2026-11-08",
       "tasks": [
         {
           "title": "Install the Rust toolchain",
@@ -43,6 +43,10 @@
         {
           "title": "Independent conformance oracle (TypeScript): rereads the WAV of every case, recomputes the hashes and checks the expected signal, in cargo xtask check",
           "done": true
+        },
+        {
+          "title": "Deep review: every finding analyzed and applied, then a fresh review",
+          "done": false
         }
       ]
     },
@@ -53,30 +57,30 @@
       "column": "next",
       "milestone": "M1 Engine",
       "createdAt": "2026-11-07",
-      "updatedAt": "2026-11-07",
+      "updatedAt": "2026-11-08",
       "tasks": [
         {
-          "title": "Engine design decisions, recorded before any code that depends on them: messages, event scheduling, feedback, polyphony, multichannel, rates, parallelism, hot swap, latency, state",
+          "title": "Engine design decisions, recorded before any code that depends on them: messages, event scheduling, feedback, polyphony, multichannel, rates, parallelism, hot swap, latency, state; including the Nyquist policy of oscillators, an exact integer phase accumulator, the output stage (headroom, non-finite samples), the input domain of boxes, and building plans off the audio thread",
           "done": false
         },
         {
-          "title": "Objective measurements in engine-testkit and the oracle: spectrum, THD, SNR, aliasing level, with thresholds per box",
+          "title": "Objective measurements in engine-testkit and the oracle: spectrum, THD, SNR, aliasing level, with thresholds per box; spur and aliasing laws across the rate matrix; the banned float methods audited against the toolchain",
           "done": false
         },
         {
-          "title": "Deterministic strategy for denormal numbers, proven on every target",
+          "title": "Deterministic strategy for denormal numbers, proven on every target: a subnormal conformance case, and a native test with flush-to-zero forced on",
           "done": false
         },
         {
-          "title": "Typed, smoothed parameters and sample-accurate timestamped events, in the engine and the patch format",
+          "title": "Typed, smoothed parameters (kinds such as frequency, with a declared Nyquist policy) and sample-accurate timestamped events, in the engine and the patch format",
           "done": false
         },
         {
-          "title": "Allocation-free audio thread in the browser: SharedArrayBuffer ring buffer for the tap, with cross-origin isolation (COOP/COEP)",
+          "title": "Allocation-free audio thread in the browser, without per-frame garbage: oscilloscope through an AnalyserNode; capture and metering through a SharedArrayBuffer ring when cross-origin isolated, with a tested fallback otherwise",
           "done": false
         },
         {
-          "title": "Benchmarks in CI: instruction counts per box with regression thresholds",
+          "title": "Benchmarks in CI: instruction counts per box and for building large plans, with regression thresholds",
           "done": false
         }
       ]
@@ -121,8 +125,29 @@
       "column": "later",
       "milestone": "M5 SDKs",
       "createdAt": "2026-11-07",
-      "updatedAt": "2026-11-07",
-      "tasks": []
+      "updatedAt": "2026-11-08",
+      "tasks": [
+        {
+          "title": "A C interface with handles and no lock: several engines at once, never blocking the audio thread",
+          "done": false
+        },
+        {
+          "title": "Typed errors end to end: error codes in the C library, exported error classes in TypeScript",
+          "done": false
+        },
+        {
+          "title": "One patch loader shared by native and WebAssembly, with a differential test",
+          "done": false
+        },
+        {
+          "title": "The public API tracked by cargo public-api: no change goes unnoticed",
+          "done": false
+        },
+        {
+          "title": "Final names of the public engine API, with a glossary",
+          "done": false
+        }
+      ]
     },
     {
       "id": 2,
@@ -247,7 +272,7 @@
       "column": "next",
       "milestone": "M1 Engine",
       "createdAt": "2026-11-07",
-      "updatedAt": "2026-11-07",
+      "updatedAt": "2026-11-08",
       "tasks": [
         {
           "title": "First version in the playground: help, snapshot, signal, levels, pitch, renderOffline",
@@ -264,6 +289,18 @@
         {
           "title": "Documented, 100% coverage and mutation testing",
           "done": false
+        },
+        {
+          "title": "Pitch estimator valid across the whole audio band, replacing zero crossings",
+          "done": false
+        },
+        {
+          "title": "Levels: sample peak and true peak, in dBFS",
+          "done": false
+        },
+        {
+          "title": "Oscilloscope: window in seconds at every rate, reduced motion honoured, no allocation per frame",
+          "done": false
         }
       ]
     },
@@ -274,8 +311,29 @@
       "column": "later",
       "milestone": "M1 Engine",
       "createdAt": "2026-11-07",
-      "updatedAt": "2026-11-07",
-      "tasks": []
+      "updatedAt": "2026-11-08",
+      "tasks": [
+        {
+          "title": "Measure the size of each part of the module",
+          "done": false
+        },
+        {
+          "title": "A lighter patch reader",
+          "done": false
+        },
+        {
+          "title": "A size budget checked by cargo xtask check",
+          "done": false
+        },
+        {
+          "title": "Compile the module once and pass it to the worklet, checked on every browser",
+          "done": false
+        },
+        {
+          "title": "Size-oriented build profile and wasm-opt, once the benchmarks of #12 exist",
+          "done": false
+        }
+      ]
     },
     {
       "id": 13,
@@ -307,6 +365,26 @@
           "done": false
         }
       ]
+    },
+    {
+      "id": 14,
+      "title": "Visual regression tests for the web interfaces",
+      "description": "Screenshots of the playground, the roadmap and later the editor, compared on every browser in a pinned rendering environment, so that a visual change is always seen and approved.",
+      "column": "later",
+      "milestone": "M2 Editor",
+      "createdAt": "2026-11-08",
+      "updatedAt": "2026-11-08",
+      "tasks": []
+    },
+    {
+      "id": 15,
+      "title": "Mutation testing of Astro templates",
+      "description": "Stryker does not mutate .astro templates: find or build a mutator, so that the roadmap page templates are held to the same no-surviving-mutant rule as the rest of the code.",
+      "column": "later",
+      "milestone": "M1 Engine",
+      "createdAt": "2026-11-08",
+      "updatedAt": "2026-11-08",
+      "tasks": []
     }
   ]
 }
