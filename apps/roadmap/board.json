@@ -1,7 +1,7 @@
 {
   "version": 1,
   "title": "Poyetik",
-  "nextId": 17,
+  "nextId": 18,
   "cards": [
     {
       "id": 1,
@@ -60,7 +60,7 @@
       "updatedAt": "2026-11-08",
       "tasks": [
         {
-          "title": "Engine design decisions, recorded before any code that depends on them: messages, event scheduling, feedback, polyphony, multichannel, rates, parallelism, hot swap, latency, state; including the Nyquist policy of oscillators, an exact integer phase accumulator, the output stage (headroom, non-finite samples), the input domain of boxes, and building plans off the audio thread",
+          "title": "Engine design decisions, recorded before any code that depends on them: messages, event scheduling, feedback, polyphony, multichannel, rates, parallelism, hot swap, latency, state; including the Nyquist policy of oscillators, an exact integer phase accumulator, the output stage (headroom, non-finite samples), the input domain of boxes, and compiling, instantiating, parsing and building plans off the audio thread, or bounding and measuring what must stay there (the construction of the engine processor), hot swap included",
           "done": false
         },
         {
@@ -76,11 +76,11 @@
           "done": false
         },
         {
-          "title": "Allocation-free audio thread in the browser, without per-frame garbage: oscilloscope through an AnalyserNode; capture and metering through a SharedArrayBuffer ring when cross-origin isolated, with a tested fallback otherwise",
+          "title": "Allocation-free audio thread in the browser, without per-frame garbage: oscilloscope through an AnalyserNode; capture and metering through a SharedArrayBuffer ring when cross-origin isolated, with a tested fallback otherwise; garbage collections while rendering measured in every browser engine, not only in V8",
           "done": false
         },
         {
-          "title": "Benchmarks in CI: instruction counts per box and for building large plans, with regression thresholds",
+          "title": "Benchmarks in CI: instruction counts per box and for building large plans, with regression thresholds; the construction of the engine processor timed on the three browser engines",
           "done": false
         }
       ]
@@ -128,11 +128,11 @@
       "updatedAt": "2026-11-08",
       "tasks": [
         {
-          "title": "A C interface with handles and no lock: several engines at once, never blocking the audio thread",
+          "title": "A C interface with handles and no lock: several engines at once, never blocking the audio thread (then a WebAssembly build with threads can be allowed)",
           "done": false
         },
         {
-          "title": "Typed errors end to end: error codes in the C library, exported error classes in TypeScript",
+          "title": "Typed errors end to end: error codes in the C library, exported error classes in TypeScript, each class named by the API importable through the package name and recognized by instanceof; distinct load errors (bytes that are not UTF-8, an unsupported rate, an invalid patch, a plan that cannot be built); the cause of a failure on the audio thread kept as a field of its own",
           "done": false
         },
         {
@@ -144,7 +144,7 @@
           "done": false
         },
         {
-          "title": "Final names of the public engine API, with a glossary",
+          "title": "Final names of the public engine API, with a glossary; a Node entry point for the npm package; the Rust render hash takes a checked render, its channel count proven to match its samples",
           "done": false
         }
       ]
@@ -295,7 +295,7 @@
           "done": false
         },
         {
-          "title": "A size budget checked by cargo xtask check",
+          "title": "A size budget, and a committed digest of the module with a command to update it, both checked by cargo xtask check on every machine",
           "done": false
         },
         {
@@ -424,6 +424,16 @@
           "done": true
         }
       ]
+    },
+    {
+      "id": 17,
+      "title": "Declare the supported browsers",
+      "description": "Name the oldest version of each browser the playground, the editor and the documentation site support, and check the code against that baseline (a lint of the web APIs used, or a build target), so that an older browser always gets the explanation of what it lacks, never a TypeError. Until then, newer APIs are banned one by one by the shared lint configuration.",
+      "column": "later",
+      "milestone": "M2 Editor",
+      "createdAt": "2026-11-08",
+      "updatedAt": "2026-11-08",
+      "tasks": []
     }
   ]
 }
