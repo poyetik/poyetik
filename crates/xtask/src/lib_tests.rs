@@ -6835,3 +6835,38 @@ fn shows_untrusted_text_on_one_bounded_line() {
     );
     assert!(safe_lines(&check_err, line_max), "one bounded error line");
 }
+
+#[test]
+fn starts_commands_with_no_input_and_git_untranslated() {
+    let locale = |program: &str| {
+        super::command(program, Path::new("."))
+            .get_envs()
+            .find(|(name, _)| *name == "LC_ALL")
+            .map(|(_, value)| value.map(OsString::from))
+    };
+    assert_eq!(
+        locale("git"),
+        Some(Some(OsString::from("C"))),
+        "git's messages in English, which error_reason reads"
+    );
+    assert_eq!(locale("cargo"), None, "the other commands keep the locale");
+    let mut runner = SystemRunner {
+        root: Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."),
+    };
+    let reads = Cmd::new(
+        "sh",
+        &["-c", "if read line; then echo read; else echo none; fi"],
+        Dir::Root,
+    );
+    assert_eq!(
+        runner.capture(&reads),
+        Ok("none\n".to_owned()),
+        "a command waiting for input finds none, instead of blocking"
+    );
+    let terminal = Cmd::new("sh", &["-c", "test ! -t 0"], Dir::Root);
+    assert_eq!(
+        runner.run(&terminal),
+        Ok(()),
+        "a command run, its output on the terminal, does not read the terminal"
+    );
+}

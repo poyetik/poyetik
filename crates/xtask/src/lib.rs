@@ -15,7 +15,7 @@ use core::num::NonZeroUsize;
 use std::ffi::OsString;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 /// Pinned nightly toolchain, used only to measure branch coverage and to run Miri.
 pub const NIGHTLY_TOOLCHAIN: &str = "+nightly-2026-11-01";
@@ -3677,7 +3677,9 @@ pub const LOCAL_GIT_VARIABLES: [&str; 15] = [
 ];
 
 /// A command for `program` in `dir`, without the variables of [`LOCAL_GIT_VARIABLES`], nor
-/// `RUSTUP_TOOLCHAIN`.
+/// `RUSTUP_TOOLCHAIN`, reading no input (a command waiting for an answer fails instead of
+/// blocking the check), and for git with `LC_ALL=C` (its messages untranslated, as
+/// [`error_reason`] reads them).
 ///
 /// Rustup sets that variable for xtask itself, to the toolchain it chose for it (`cargo
 /// +beta xtask`, `RUSTUP_TOOLCHAIN=stable`): inherited, it would replace the toolchain of
@@ -3685,7 +3687,10 @@ pub const LOCAL_GIT_VARIABLES: [&str; 15] = [
 /// toolchain of the file (or of an override, which the preflight refuses).
 fn command(program: &str, dir: &Path) -> Command {
     let mut command = Command::new(program);
-    let _in_dir = command.current_dir(dir);
+    let _in_dir = command.current_dir(dir).stdin(Stdio::null());
+    if program == "git" {
+        let _untranslated = command.env("LC_ALL", "C");
+    }
     let _pinned = command.env_remove("RUSTUP_TOOLCHAIN");
     for variable in LOCAL_GIT_VARIABLES {
         let _without = command.env_remove(variable);
