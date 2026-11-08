@@ -76,7 +76,7 @@ pub fn allocations_during<R>(action: impl FnOnce() -> R) -> (R, usize) {
 #[cfg(test)]
 mod tests {
     use core::hint::black_box;
-    use core::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Barrier, BarrierWaitResult};
 
     use super::{CountingAllocator, allocations_during};
 
@@ -110,11 +110,9 @@ mod tests {
         // The other thread waits for this thread's window to open, allocates 1000 times,
         // and is joined before the window closes: a process-wide counter would count its
         // 1000 allocations here too, every time, not only when threads happen to overlap.
-        static GO: AtomicBool = AtomicBool::new(false);
+        static START: Barrier = Barrier::new(2);
         let other = std::thread::spawn(|| {
-            while !GO.load(Ordering::Acquire) {
-                std::thread::yield_now();
-            }
+            let _: BarrierWaitResult = START.wait();
             allocations_during(|| {
                 for value in 0_u16..1_000_u16 {
                     drop(black_box(Box::new(value)));
@@ -123,7 +121,7 @@ mod tests {
             .1
         });
         let (counted, here) = allocations_during(|| {
-            GO.store(true, Ordering::Release);
+            let _: BarrierWaitResult = START.wait();
             other.join().ok()
         });
         assert_eq!(counted, Some(1_000), "the other thread counts its own");
