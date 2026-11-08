@@ -1,6 +1,6 @@
 [package]
 name = "engine-alloc-counter"
-description = "poyetik test support: a global allocator counting allocations per thread, the only unsafe code of the test bench"
+description = "Poyetik test support: a global allocator counting allocations per thread, the only unsafe code of the test bench"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

@@ -1,6 +1,6 @@
 [package]
 name = "engine-wasm"
-description = "poyetik engine for WebAssembly: a minimal C interface for browsers (AudioWorklet) and Node"
+description = "Poyetik engine for WebAssembly: a minimal C interface for browsers (AudioWorklet) and Node"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

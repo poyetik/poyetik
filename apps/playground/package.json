@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "poyetik playground: a 440 Hz sine from the Rust engine, with an on/off button and a live oscilloscope. Grows into the editor.",
+  "description": "Poyetik playground: a 440 Hz sine from the Rust engine, with an on/off button and a live oscilloscope. Grows into the editor.",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

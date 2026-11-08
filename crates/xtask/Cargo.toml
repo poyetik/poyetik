@@ -1,6 +1,6 @@
 [package]
 name = "xtask"
-description = "poyetik project automation: `cargo xtask check` runs every quality check, as CI and the pre-push hook do"
+description = "Poyetik project automation: `cargo xtask check` runs every quality check, as CI and the pre-push hook do"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

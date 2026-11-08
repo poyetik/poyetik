@@ -1,6 +1,6 @@
 [package]
 name = "engine-objects"
-description = "poyetik boxes: one module per box type, plus the registry"
+description = "Poyetik boxes: one module per box type, plus the registry"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
