@@ -347,7 +347,7 @@ describe("tap", () => {
     port?.deliver("garbage");
     port?.deliver([new Float32Array([2])]);
     expect(blocks).toStrictEqual([[new Float32Array([1])], [new Float32Array([2])]]);
-    expect(errors).toStrictEqual([new MessageError("tap block is not an array")]);
+    expect(errors).toStrictEqual([new MessageError("render quantum is not an array")]);
     running.stop();
     running.stop();
     expect(port?.onmessage).toBeNull();
@@ -412,12 +412,12 @@ describe("capture", () => {
     expect(source.log).toStrictEqual([]);
   });
 
-  test("fails on a malformed block, and stops", async () => {
+  test("fails on a malformed render quantum, and stops", async () => {
     stubNodes();
     const source = fakeSource();
     const captured = capture(asContext(fakeContext(RATE)), asNode(source), 1, 4);
     FakeNode.created[0]?.port.deliver("garbage");
-    await expect(captured).rejects.toThrow(new MessageError("tap block is not an array"));
+    await expect(captured).rejects.toThrow(new MessageError("render quantum is not an array"));
     expect(FakeNode.created[0]?.port.posted).toStrictEqual(["stop"]);
     expect(source.log).toStrictEqual([`connect ${TAP_PROCESSOR}`, `disconnect ${TAP_PROCESSOR}`]);
   });
@@ -445,7 +445,7 @@ describe("captureEngine", () => {
     return Array.from({ length: count }, (_empty, index) => from + index);
   }
 
-  /** Three channels (left, right, marker) of one tap block. */
+  /** Three channels (left, right, marker) of one render quantum of a tap. */
   function block(left: readonly number[], right: readonly number[], marker: readonly number[]): Float32Array[] {
     return [new Float32Array(left), new Float32Array(right), new Float32Array(marker)];
   }

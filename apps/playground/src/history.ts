@@ -1,4 +1,4 @@
-/** The most recent samples of a signal, in a fixed-size ring: nothing allocated per block. */
+/** The most recent samples of a signal, in a fixed-size ring: nothing allocated per render quantum. */
 export class SampleHistory {
   /** The ring of samples. */
   readonly #ring: Float32Array;

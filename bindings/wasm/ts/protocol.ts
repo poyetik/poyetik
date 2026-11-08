@@ -39,7 +39,7 @@ export class OptionsError extends Error {
 }
 
 /**
- * Thrown when a message from a processor (an engine message, a tap block) does not have
+ * Thrown when a message from a processor (an engine message, a render quantum of a tap) does not have
  * the expected shape: a bug, or a message from something else on the port.
  */
 export class MessageError extends Error {
@@ -76,7 +76,7 @@ export function parseEngineOptions(value: unknown): EngineOptions {
 /** Checks a render quantum posted by the tap processor: one array per channel. */
 export function parseTapBlock(value: unknown): Float32Array[] {
   if (!Array.isArray(value)) {
-    throw new MessageError("tap block is not an array");
+    throw new MessageError("render quantum is not an array");
   }
   return value.map((channel: unknown) => {
     if (!(channel instanceof Float32Array)) {

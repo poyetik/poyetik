@@ -36,7 +36,7 @@ describe("parseTapBlock", () => {
   });
 
   test("rejects anything else", () => {
-    expect(() => parseTapBlock("stop")).toThrow(new MessageError("tap block is not an array"));
+    expect(() => parseTapBlock("stop")).toThrow(new MessageError("render quantum is not an array"));
     expect(() => parseTapBlock([new Float32Array(1), [0]])).toThrow(new MessageError("tap channel is not a Float32Array"));
   });
 });

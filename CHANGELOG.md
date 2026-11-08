@@ -52,6 +52,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- engine-wasm: a malformed render quantum from the tap processor is reported as `invalid message from the processor: render quantum is not an array` instead of `tap block is not an array`: the glossary's word for what a tap delivers.
 - The shared lint policy refuses `fetch` (bare, or through `globalThis`, `window` or `self`) outside each package's one checked helper, its file named `fetch.ts`, which refuses a response that is not 2xx and names the URL: a 404 can no longer reach a JSON parser or the WebAssembly compiler as an empty body. The playground loads the engine through its own `fetchOk`, with the same messages as before.
 - Every Vitest configuration refuses a focused test (`allowOnly: false`) locally as in CI, where Vitest refused it alone, and the shared lint policy refuses any focused or skipped test or suite, in Vitest and Playwright (`.only`, `.skip`, `.todo`, `.fixme`, `.skipIf`, `.runIf`).
 - `std::env::args`, which panics on an argument that is not Unicode, is banned by Clippy: every command-line tool reads `args_os` and refuses such an argument as a usage error.
@@ -177,7 +178,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Oracle: a case, reference or expectation file that is not UTF-8 is refused with one `error:` line naming it, as the engine's own reader refuses it; a byte that is not UTF-8 used to be replaced and the file read anyway.
-- engine-wasm: a malformed message from a processor (an engine message or a tap block) is reported as "invalid message from the processor", no longer as "invalid processor options".
+- engine-wasm: a malformed message from a processor (an engine message or a render quantum from a tap) is reported as "invalid message from the processor", no longer as "invalid processor options".
 - engine-wasm: when the engine traps in the browser, the failure reported to the main thread now includes the trap itself ("RuntimeError: unreachable", "memory access out of bounds"), the only clue a module built with `panic = "abort"` gives.
 - engine-wasm: `interleave` refuses channels of different lengths instead of padding or cutting them, and `renderHash` refuses a rate that is not a 32-bit unsigned integer (44100.5 was hashed as 44100, -1 as 4294967295), a channel count that is not a whole number, and samples that are not whole frames: a hash is a proof, never computed over something else than what was asked.
 - engine-wasm: rendering on the audio thread no longer allocates before V8 optimizes it: whole blocks are copied at once through views of the module memory made once, and no field holds a boxed number. `pnpm test:allocation` now drives the real engine processor from a fresh instance, also with V8's interpreter alone, at every host buffer size of the matrix; CLAUDE.md states what it proves and the known deviations.

@@ -348,13 +348,13 @@ describe("EnginePlayer", () => {
     expect(player.latest()?.samples).toStrictEqual(new Float32Array([2, 3, 4, 5]));
   });
 
-  test("fails, closing the context, on a malformed block from the tap", async () => {
+  test("fails, closing the context, on a malformed render quantum from the tap", async () => {
     const player = new EnginePlayer(playerOptions());
     await player.start();
     log = [];
     workletNode("poyetik-tap")?.port.deliver("garbage");
     await flush();
-    expect(player.state()).toStrictEqual({ kind: "failed", cause: "engine", detail: "MessageError: invalid message from the processor: tap block is not an array" });
+    expect(player.state()).toStrictEqual({ kind: "failed", cause: "engine", detail: "MessageError: invalid message from the processor: render quantum is not an array" });
     expect(log).toStrictEqual(["post stop", "disconnect poyetik-engine -> poyetik-tap", "close"]);
     expect(player.latest()).toBeUndefined();
   });
@@ -704,7 +704,7 @@ describe("EnginePlayer", () => {
     workletNode("poyetik-tap")?.port.deliver("garbage");
     workletNode("poyetik-engine")?.port.deliver({ type: "ready" });
     await starting;
-    expect(player.state()).toStrictEqual({ kind: "failed", cause: "engine", detail: "MessageError: invalid message from the processor: tap block is not an array" });
+    expect(player.state()).toStrictEqual({ kind: "failed", cause: "engine", detail: "MessageError: invalid message from the processor: render quantum is not an array" });
   });
 
   test("never throws nor rejects when no context can be created: fails instead", async () => {
