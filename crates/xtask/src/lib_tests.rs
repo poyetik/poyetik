@@ -145,8 +145,13 @@ impl Runner for Fake {
                 Failed::NotStarted("not found".to_owned()),
             ));
         }
-        let tool = super::TOOLS.iter().any(|(program, args, _)| {
-            *program == cmd.program && args.iter().copied().eq(cmd.args.iter().map(String::as_str))
+        let tool = super::TOOLS.iter().any(|tool| {
+            tool.program == cmd.program
+                && tool
+                    .args
+                    .iter()
+                    .copied()
+                    .eq(cmd.args.iter().map(String::as_str))
         });
         if tool {
             return Ok(tool_answer(
@@ -343,7 +348,7 @@ const READMES: [(&str, &str); 9] = [
 ];
 
 const CARGO: &str = "[workspace]\nmembers = []\n\n[workspace.package]\nedition = \"2024\"\nversion = \"0.2.0\"\n\n[other]\nversion = \"9.9.9\"\n";
-const PACKAGE: &str = r#"{"name": "x", "version": "0.2.0"}"#;
+const PACKAGE: &str = r#"{"name": "x", "version": "0.2.0", "engines": {"node": ">=22.18"}}"#;
 /// Every workspace manifest with the same content.
 fn packages(text: &str) -> Vec<(String, String)> {
     package_jsons()
@@ -1229,7 +1234,11 @@ fn accepts_a_consistent_release_setup() {
 #[test]
 fn rejects_inconsistent_versions() {
     assert_eq!(
-        release_gate(CARGO, &roadmap_package(r#"{"version": "0.3.0"}"#), LOG),
+        release_gate(
+            CARGO,
+            &roadmap_package(r#"{"version": "0.3.0", "engines": {"node": ">=22.18"}}"#),
+            LOG
+        ),
         found(
             "the versions and the changelog",
             &[format!(
@@ -1242,14 +1251,24 @@ fn rejects_inconsistent_versions() {
         release_gate(CARGO, &roadmap_package("not json"), LOG),
         found(
             "the versions and the changelog",
-            &[format!(
-                "{ROADMAP_PACKAGE}: version (missing) differs from the workspace version 0.2.0"
-            )]
+            &[
+                format!(
+                    "{ROADMAP_PACKAGE}: engines.node is (missing), the packages support Node.js \
+                     >=22.18 (NODE_FLOOR)"
+                ),
+                format!(
+                    "{ROADMAP_PACKAGE}: version (missing) differs from the workspace version 0.2.0"
+                )
+            ]
         ),
         "unreadable package"
     );
     assert_eq!(
-        release_gate(CARGO, &packages(r#"{"version": "0.1.0"}"#), LOG),
+        release_gate(
+            CARGO,
+            &packages(r#"{"version": "0.1.0", "engines": {"node": ">=22.18"}}"#),
+            LOG
+        ),
         found(
             "the versions and the changelog",
             &package_jsons()
@@ -1262,7 +1281,11 @@ fn rejects_inconsistent_versions() {
         "every manifest is checked"
     );
     assert_eq!(
-        release_gate("[workspace]\n", &packages(r#"{"version": 1}"#), LOG),
+        release_gate(
+            "[workspace]\n",
+            &packages(r#"{"version": 1, "engines": {"node": ">=22.18"}}"#),
+            LOG
+        ),
         found(
             "the versions and the changelog",
             &[format!(
@@ -1928,11 +1951,11 @@ fn checks_the_tools_and_the_platform_first() {
     let present = |node: &str| -> Vec<Result<String, CommandFailure>> {
         super::TOOLS
             .iter()
-            .map(|(program, args, _)| {
-                Ok(if *program == "node" {
+            .map(|tool| {
+                Ok(if tool.program == "node" {
                     node.to_owned()
                 } else {
-                    tool_answer(program, args.first().copied())
+                    tool_answer(tool.program, tool.args.first().copied())
                 })
             })
             .collect()
@@ -2303,7 +2326,7 @@ fn checks_a_push_then_runs_every_check() {
 fn refuses_cargo_tools_at_other_versions() {
     let answers: Vec<Result<String, CommandFailure>> = super::TOOLS
         .iter()
-        .map(|(program, args, _)| Ok(tool_answer(program, args.first().copied())))
+        .map(|tool| Ok(tool_answer(tool.program, tool.args.first().copied())))
         .collect();
     assert_eq!(
         preflight_gate("linux", &answers),
@@ -2786,4 +2809,80 @@ fn wires_every_package_into_the_checks() {
             package.dir
         );
     }
+}
+
+#[test]
+fn renders_install_hints_from_the_pins() {
+    use super::{Install, NIGHTLY_TOOLCHAIN, NODE_FLOOR, Need, PINNED_TOOLS, TOOLS};
+    for pin in PINNED_TOOLS {
+        let tool = TOOLS
+            .iter()
+            .find(|tool| tool.need == Need::Pinned(pin))
+            .expect("every pinned tool is checked");
+        assert_eq!(
+            tool.install.to_string(),
+            format!("cargo install --locked {}@{}", pin.0, pin.1),
+            "{}: installed at the version the checks need",
+            pin.0
+        );
+    }
+    let nightly = NIGHTLY_TOOLCHAIN.trim_start_matches('+');
+    for tool in TOOLS
+        .iter()
+        .filter(|tool| tool.args.contains(&NIGHTLY_TOOLCHAIN))
+    {
+        assert_eq!(tool.need, Need::Present, "any build of the pinned nightly");
+        assert!(
+            tool.install.to_string().contains(nightly),
+            "{:?}: installs the pinned nightly",
+            tool.args
+        );
+    }
+    assert_eq!(
+        Install::Nightly(&["a", "b"]).to_string(),
+        format!("rustup toolchain install {nightly} --component a --component b"),
+        "a toolchain with its components"
+    );
+    assert_eq!(
+        Install::NightlyComponents(&["a", "b"]).to_string(),
+        format!("rustup component add --toolchain {nightly} a b"),
+        "components of the toolchain"
+    );
+    assert_eq!(
+        Install::Node.to_string(),
+        format!("install Node.js {}.{} or later", NODE_FLOOR.0, NODE_FLOOR.1),
+        "Node.js from its floor"
+    );
+    assert_eq!(
+        Install::Text("install git").to_string(),
+        "install git",
+        "what to do, in words"
+    );
+}
+
+#[test]
+fn requires_every_package_to_support_the_node_floor() {
+    for engines in [
+        r#""engines": {"node": ">=22.17"}"#,
+        r#""engines": {"node": ">=22.18.1"}"#,
+        r#""engines": {}"#,
+    ] {
+        let manifest = format!(r#"{{"version": "0.2.0", {engines}}}"#);
+        assert!(
+            release_gate(CARGO, &roadmap_package(&manifest), LOG).is_err_and(|failure| failure
+                .summary
+                .contains(&format!("{ROADMAP_PACKAGE}: engines.node is "))),
+            "{engines}"
+        );
+    }
+    assert_eq!(
+        release_gate(CARGO, &roadmap_package(r#"{"version": "0.2.0"}"#), LOG),
+        found(
+            "the versions and the changelog",
+            &[format!(
+                "{ROADMAP_PACKAGE}: engines.node is (missing), the packages support Node.js >=22.18 (NODE_FLOOR)"
+            )]
+        ),
+        "no engines"
+    );
 }

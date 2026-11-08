@@ -964,49 +964,135 @@ pub const PINNED_TOOLS: [(&str, &str); 3] = [
     ("cargo-deny", "0.20.2"),
 ];
 
-/// The tools the checks run, each with the command proving it is installed and how to
-/// install it.
-pub const TOOLS: [(&str, &[&str], &str); 9] = [
-    ("git", &["--version"], "install git"),
-    (
-        "cargo",
-        &["--version"],
-        "install rustup (https://rustup.rs): the pinned toolchain installs itself",
-    ),
-    (
-        "cargo",
-        &[NIGHTLY_TOOLCHAIN, "--version"],
-        "rustup toolchain install nightly-2026-11-01 --component llvm-tools-preview --component miri --component rust-src",
-    ),
-    (
-        "cargo",
-        &[NIGHTLY_TOOLCHAIN, "miri", "--version"],
-        "rustup component add --toolchain nightly-2026-11-01 miri rust-src",
-    ),
-    (
-        "cargo",
-        &["llvm-cov", "--version"],
-        "cargo install --locked cargo-llvm-cov@0.9.1",
-    ),
-    (
-        "cargo",
-        &["mutants", "--version"],
-        "cargo install --locked cargo-mutants@27.1.0",
-    ),
-    (
-        "cargo",
-        &["deny", "--version"],
-        "cargo install --locked cargo-deny@0.20.2",
-    ),
-    ("node", &["--version"], "install Node.js 22.18 or later"),
-    (
-        "pnpm",
-        &["--version"],
-        "corepack enable (pnpm 10, as packageManager in package.json)",
-    ),
+/// Which version of a tool the checks need.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Need {
+    /// Any version: the tool only has to answer.
+    Present,
+    /// Exactly the version of this pin of [`PINNED_TOOLS`] (name, version): the second
+    /// word of its answer, as in `cargo-mutants 27.1.0`.
+    Pinned((&'static str, &'static str)),
+    /// Node.js at [`NODE_FLOOR`] or later.
+    NodeFloor,
+}
+
+/// How to install a tool, rendered from the constants it depends on so that a hint never
+/// names another version than the one the checks need.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Install {
+    /// `cargo install --locked <name>@<version>`, from a pin of [`PINNED_TOOLS`].
+    Cargo((&'static str, &'static str)),
+    /// Install the [`NIGHTLY_TOOLCHAIN`] with these components.
+    Nightly(&'static [&'static str]),
+    /// Add these components to the [`NIGHTLY_TOOLCHAIN`].
+    NightlyComponents(&'static [&'static str]),
+    /// Install Node.js at [`NODE_FLOOR`] or later.
+    Node,
+    /// What to do, in words.
+    Text(&'static str),
+}
+
+impl core::fmt::Display for Install {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let nightly = NIGHTLY_TOOLCHAIN.trim_start_matches('+');
+        match self {
+            Self::Cargo((name, version)) => write!(f, "cargo install --locked {name}@{version}"),
+            Self::Nightly(components) => {
+                write!(f, "rustup toolchain install {nightly}")?;
+                components
+                    .iter()
+                    .try_for_each(|component| write!(f, " --component {component}"))
+            }
+            Self::NightlyComponents(components) => write!(
+                f,
+                "rustup component add --toolchain {nightly} {}",
+                components.join(" ")
+            ),
+            Self::Node => write!(
+                f,
+                "install Node.js {}.{} or later",
+                NODE_FLOOR.0, NODE_FLOOR.1
+            ),
+            Self::Text(text) => f.write_str(text),
+        }
+    }
+}
+
+/// A tool the checks run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Tool {
+    /// The program.
+    pub program: &'static str,
+    /// The arguments that make it print its version, proving it is installed.
+    pub args: &'static [&'static str],
+    /// Which version the checks need.
+    pub need: Need,
+    /// How to install it.
+    pub install: Install,
+}
+
+/// The tools the checks run.
+pub const TOOLS: [Tool; 9] = [
+    Tool {
+        program: "git",
+        args: &["--version"],
+        need: Need::Present,
+        install: Install::Text("install git"),
+    },
+    Tool {
+        program: "cargo",
+        args: &["--version"],
+        need: Need::Present,
+        install: Install::Text(
+            "install rustup (https://rustup.rs): the pinned toolchain installs itself",
+        ),
+    },
+    Tool {
+        program: "cargo",
+        args: &[NIGHTLY_TOOLCHAIN, "--version"],
+        need: Need::Present,
+        install: Install::Nightly(&["llvm-tools-preview", "miri", "rust-src"]),
+    },
+    Tool {
+        program: "cargo",
+        args: &[NIGHTLY_TOOLCHAIN, "miri", "--version"],
+        need: Need::Present,
+        install: Install::NightlyComponents(&["miri", "rust-src"]),
+    },
+    Tool {
+        program: "cargo",
+        args: &["llvm-cov", "--version"],
+        need: Need::Pinned(PINNED_TOOLS[0]),
+        install: Install::Cargo(PINNED_TOOLS[0]),
+    },
+    Tool {
+        program: "cargo",
+        args: &["mutants", "--version"],
+        need: Need::Pinned(PINNED_TOOLS[1]),
+        install: Install::Cargo(PINNED_TOOLS[1]),
+    },
+    Tool {
+        program: "cargo",
+        args: &["deny", "--version"],
+        need: Need::Pinned(PINNED_TOOLS[2]),
+        install: Install::Cargo(PINNED_TOOLS[2]),
+    },
+    Tool {
+        program: "node",
+        args: &["--version"],
+        need: Need::NodeFloor,
+        install: Install::Node,
+    },
+    Tool {
+        program: "pnpm",
+        args: &["--version"],
+        need: Need::Present,
+        install: Install::Text("corepack enable (pnpm 10, as packageManager in package.json)"),
+    },
 ];
 
-/// The oldest Node.js release the packages support (their `engines`), major and minor.
+/// The oldest Node.js release the packages support, major and minor: the `engines` of
+/// every `package.json` is exactly `>=` this release (checked by [`release_gate`]).
 pub const NODE_FLOOR: (u64, u64) = (22, 18);
 
 /// Checks the platform and the tools the checks need.
@@ -1026,12 +1112,19 @@ pub fn preflight_gate(os: &str, answers: &[Result<String, CommandFailure>]) -> R
     if os == "windows" {
         problems.push("the checks run on macOS and Linux: on Windows, run them in WSL2".to_owned());
     }
-    for ((program, args, install), answer) in TOOLS.iter().zip(answers) {
-        match answer {
-            Err(failure) => problems.push(format!("{failure}; to install: {install}")),
-            Ok(version) if *program == "node" => {
+    for (tool, answer) in TOOLS.iter().zip(answers) {
+        let install = tool.install;
+        let version = match answer {
+            Err(failure) => {
+                problems.push(format!("{failure}; to install: {install}"));
+                continue;
+            }
+            Ok(version) => version.trim(),
+        };
+        match tool.need {
+            Need::Present => {}
+            Need::NodeFloor => {
                 let numbers: Vec<u64> = version
-                    .trim()
                     .trim_start_matches('v')
                     .split('.')
                     .map_while(|part| part.parse().ok())
@@ -1039,19 +1132,13 @@ pub fn preflight_gate(os: &str, answers: &[Result<String, CommandFailure>]) -> R
                 if (numbers.first().copied(), numbers.get(1).copied())
                     < (Some(NODE_FLOOR.0), Some(NODE_FLOOR.1))
                 {
-                    problems.push(format!("Node.js {} is too old: {install}", version.trim()));
+                    problems.push(format!("Node.js {version} is too old: {install}"));
                 }
             }
-            Ok(version) => {
-                let pinned = PINNED_TOOLS
-                    .iter()
-                    .find(|(name, _)| args.first().copied() == name.strip_prefix("cargo-"));
-                if let Some((name, needed)) = pinned
-                    && version.split_whitespace().nth(1) != Some(*needed)
-                {
+            Need::Pinned((name, needed)) => {
+                if version.split_whitespace().nth(1) != Some(needed) {
                     problems.push(format!(
-                        "{} is installed, the checks need {name} {needed}: {install}",
-                        version.trim()
+                        "{version} is installed, the checks need {name} {needed}: {install}"
                     ));
                 }
             }
@@ -1254,7 +1341,8 @@ fn released_heading(heading: &str) -> Option<Version> {
 /// Checks that the project has one version everywhere and a well-formed changelog.
 ///
 /// The workspace version and the version of every package manifest must be equal, valid semantic
-/// versions, and not older than the latest release in the changelog. The changelog starts with
+/// versions, and not older than the latest release in the changelog; every package manifest
+/// supports Node.js from [`NODE_FLOOR`] on (`"engines": { "node": ">=22.18" }`). The changelog starts with
 /// `# Changelog`, has `## [Unreleased]` first, then releases `## [X.Y.Z] - YYYY-MM-DD`
 /// in strictly decreasing order.
 ///
@@ -1274,14 +1362,23 @@ pub fn release_gate(
             "{CARGO_TOML}: [workspace.package] version must be X.Y.Z"
         ));
     }
+    let floor = format!(">={}.{}", NODE_FLOOR.0, NODE_FLOOR.1);
     for (path, manifest) in packages {
-        let package = serde_json::from_str::<serde_json::Value>(manifest)
-            .ok()
-            .and_then(|json| {
-                json.get("version")
-                    .and_then(serde_json::Value::as_str)
-                    .map(str::to_owned)
-            });
+        let json = serde_json::from_str::<serde_json::Value>(manifest).ok();
+        let field = |pointer: &str| {
+            json.as_ref()
+                .and_then(|value| value.pointer(pointer))
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)
+        };
+        let engine = field("/engines/node");
+        if engine.as_deref() != Some(floor.as_str()) {
+            problems.push(format!(
+                "{path}: engines.node is {}, the packages support Node.js {floor} (NODE_FLOOR)",
+                engine.as_deref().unwrap_or("(missing)")
+            ));
+        }
+        let package = field("/version");
         if package.as_deref() != workspace {
             problems.push(format!(
                 "{path}: version {} differs from the workspace version {}",
@@ -1832,10 +1929,10 @@ fn history(runner: &mut dyn Runner) -> Result<(), Failure> {
 fn preflight(runner: &mut dyn Runner) -> Result<(), Failure> {
     let answers: Vec<Result<String, CommandFailure>> = TOOLS
         .iter()
-        .map(|(program, args, _)| {
+        .map(|tool| {
             let cmd = Cmd {
-                program,
-                args: args.iter().map(|&arg| arg.to_owned()).collect(),
+                program: tool.program,
+                args: tool.args.iter().map(|&arg| arg.to_owned()).collect(),
                 dir: Dir::Root,
             };
             runner.capture(&cmd)
