@@ -7,8 +7,9 @@ import type { Signal } from "./player.ts";
 export const NONE = "—";
 
 /**
- * The frequency of the signal, to a tenth of a hertz (its accuracy, 0.05 Hz, within the
- * domain of `frequency`); "—" outside that domain.
+ * The frequency of the signal, to a tenth of a hertz: within 0.1 Hz of the truth in the
+ * domain of `frequency` (its estimate is within 0.05 Hz, and the rounding adds at most
+ * 0.05 Hz); "—" outside that domain.
  */
 export function formatFrequency(signal: Signal | undefined): string {
   const value = signal === undefined ? undefined : frequency(signal.samples, signal.rate);

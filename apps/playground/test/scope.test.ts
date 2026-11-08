@@ -102,7 +102,8 @@ describe("frequency", () => {
   const floor = (rate: number): number => ((MIN_PERIODS + 1) * rate) / (Math.round(HISTORY_SECONDS * rate) - 1);
 
   test("is within 0.05 Hz everywhere in its domain, at every rate of the matrix", () => {
-    // The readout shows a tenth of a hertz: within 0.05 Hz, its last digit is right. The
+    // The readout rounds to a tenth of a hertz: from an estimate within 0.05 Hz, it shows
+    // a value within 0.1 Hz of the truth (the rounding adds at most 0.05 Hz). The
     // estimator itself is far more precise. Linear interpolation misplaces a zero crossing
     // of a sine by at most sqrt(3)/108 h^3 rad (h = 2 pi f / rate, at most pi/10 at a
     // twentieth of the rate), only the first and last crossings count, and the span is at
