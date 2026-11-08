@@ -150,7 +150,7 @@ Maximum testing applies to **all code, in every language**: Rust engine, patch m
 
 ### Measured requirements (all code)
 - **Coverage: 100% of lines and branches** (`cargo-llvm-cov` for Rust, the equivalent tool for each other language). CI fails below that.
-- **Mutation testing: no surviving mutant** (`cargo-mutants` for Rust, Stryker for TS, the equivalent tool elsewhere). A truly equivalent mutant is listed in a dedicated file with its justification. That list is public and reviewed.
+- **Mutation testing: no surviving mutant** (`cargo-mutants` for Rust, Stryker for TS, the equivalent tool elsewhere). A truly equivalent mutant is disabled by a `// Stryker disable next-line <Mutator>: <reason>` comment and listed with its justification in `mutants-equivalent.txt`; `cargo xtask check` fails on any disable comment not listed, any stale entry, and any broader disable. That list is public and reviewed.
 - **Strict static analysis**: `clippy -D warnings`, `rustfmt --check`, TypeScript `strict` with no `any`, ESLint with zero warnings, no exceptions.
 - **Supply chain**: `cargo-deny` and npm audit (licenses, vulnerabilities, provenance), locked dependencies.
 

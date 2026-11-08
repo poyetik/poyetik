@@ -29,6 +29,10 @@ pub const UNVIABLE_REPORT: &str = "mutants.out/unviable.txt";
 /// Reviewed unviable mutants, each with the reason it is legitimately unbuildable.
 pub const UNVIABLE_REVIEWED: &str = "mutants-unviable.txt";
 
+/// Reviewed equivalent mutants of the TypeScript code: every `// Stryker disable
+/// next-line` comment, each with the reason no test can tell the mutant apart.
+pub const EQUIVALENT_REVIEWED: &str = "mutants-equivalent.txt";
+
 /// Targets the engine core must build for: proof that it depends on no environment.
 pub const PORTABILITY_TARGETS: [&str; 4] = [
     "aarch64-apple-darwin",
@@ -86,6 +90,9 @@ pub enum Action {
     CoverageGate(&'static str),
     /// Require every unviable mutant to be reviewed, and every review to be current.
     UnviableGate,
+    /// Require every disabled TypeScript mutant to be reviewed, and every review to be
+    /// current.
+    EquivalentGate,
     /// Require one project version everywhere, consistent with a well-formed changelog.
     ReleaseGate,
     /// Empty this directory (relative to the root), creating it if needed: what a later
@@ -217,6 +224,10 @@ fn proof_steps() -> Vec<Step> {
         Step {
             name: "Rust unviable mutants reviewed".to_owned(),
             action: Action::UnviableGate,
+        },
+        Step {
+            name: "TypeScript equivalent mutants reviewed".to_owned(),
+            action: Action::EquivalentGate,
         },
         // The only `unsafe` code of the engine: Miri checks its tests for undefined behavior.
         run(
@@ -430,6 +441,81 @@ pub fn unviable_gate(report: &str, reviewed: &str) -> Result<(), String> {
     } else {
         Err(format!(
             "unviable mutants must be reviewed in {UNVIABLE_REVIEWED}:\n{}",
+            problems.join("\n")
+        ))
+    }
+}
+
+/// The comment that disables one mutator on the next line, in TypeScript sources.
+const STRYKER_DISABLE: &str = "// Stryker disable next-line ";
+
+/// Checks that the mutants disabled in `sources` (path and text of each TypeScript file)
+/// are exactly the reviewed ones.
+///
+/// A disable comment must be `// Stryker disable next-line <Mutator>: <reason>`, one
+/// mutator, never `all`, with a reason; any other use of `Stryker disable` is refused.
+/// `reviewed` holds one `<file>: <Mutator> at <next line> -- <reason>` line per comment;
+/// blank lines and lines starting with `#` are ignored.
+///
+/// # Errors
+///
+/// Returns a message listing malformed comments, unreviewed and stale entries.
+pub fn equivalent_gate(sources: &[(String, String)], reviewed: &str) -> Result<(), String> {
+    let mut problems = Vec::new();
+    let mut found = BTreeSet::new();
+    for (path, text) in sources {
+        let lines: Vec<&str> = text.lines().collect();
+        for (index, line) in lines.iter().enumerate() {
+            if !line.contains("Stryker disable") {
+                continue;
+            }
+            let comment = line.trim();
+            let rule = comment
+                .strip_prefix(STRYKER_DISABLE)
+                .and_then(|rest| rest.split_once(':'))
+                .filter(|(mutator, reason)| {
+                    !mutator.contains([' ', ',']) && *mutator != "all" && !reason.trim().is_empty()
+                });
+            let next = lines.get(index.saturating_add(1)).map_or("", |l| l.trim());
+            match rule {
+                Some((mutator, _reason)) if !next.is_empty() => {
+                    let _: bool = found.insert(format!("{path}: {mutator} at {next}"));
+                }
+                _ => problems.push(format!(
+                    "{path}:{}: write `{STRYKER_DISABLE}<Mutator>: <reason>` above the line",
+                    index.saturating_add(1)
+                )),
+            }
+        }
+    }
+    let mut known = BTreeSet::new();
+    for line in reviewed
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+    {
+        match line.split_once(" -- ") {
+            Some((key, _reason)) => {
+                let _: bool = known.insert(key.trim().to_owned());
+            }
+            None => problems.push(format!("review without a reason: {line}")),
+        }
+    }
+    problems.extend(
+        found
+            .difference(&known)
+            .map(|key| format!("not reviewed: {key}")),
+    );
+    problems.extend(
+        known
+            .difference(&found)
+            .map(|key| format!("stale review: {key}")),
+    );
+    if problems.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "disabled mutants must be reviewed in {EQUIVALENT_REVIEWED}:\n{}",
             problems.join("\n")
         ))
     }
@@ -684,6 +770,13 @@ pub trait Runner {
     ///
     /// Returns an error when the directory cannot be removed or created.
     fn fresh_dir(&mut self, path: &str) -> io::Result<()>;
+
+    /// The TypeScript source files tracked by git (`.ts` and `.tsx`), relative to the root.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when git cannot list them.
+    fn typescript_files(&mut self) -> io::Result<Vec<String>>;
 }
 
 /// Runs real commands below a repository root.
@@ -713,6 +806,22 @@ impl Runner for SystemRunner {
             _ => {}
         }
         std::fs::create_dir_all(dir)
+    }
+
+    fn typescript_files(&mut self) -> io::Result<Vec<String>> {
+        Command::new("git")
+            .args(["ls-files", "--", "*.ts", "*.tsx"])
+            .current_dir(&self.root)
+            .output()
+            .and_then(|output| {
+                if output.status.success() {
+                    String::from_utf8(output.stdout)
+                        .map(|text| text.lines().map(str::to_owned).collect())
+                        .map_err(io::Error::other)
+                } else {
+                    Err(io::Error::other("git ls-files failed"))
+                }
+            })
     }
 }
 
@@ -760,6 +869,19 @@ pub fn run_steps(
             Action::FreshDir(path) => runner
                 .fresh_dir(path)
                 .map_err(|error| format!("cannot empty {path}: {error}")),
+            Action::EquivalentGate => runner
+                .typescript_files()
+                .map_err(|error| format!("cannot list the TypeScript files: {error}"))
+                .and_then(|paths| {
+                    paths
+                        .into_iter()
+                        .map(|path| read_file(runner, &path).map(|text| (path, text)))
+                        .collect::<Result<Vec<_>, _>>()
+                })
+                .and_then(|sources| {
+                    read_file(runner, EQUIVALENT_REVIEWED)
+                        .and_then(|reviewed| equivalent_gate(&sources, &reviewed))
+                }),
             Action::UnviableGate => read_file(runner, UNVIABLE_REPORT).and_then(|report| {
                 read_file(runner, UNVIABLE_REVIEWED)
                     .and_then(|reviewed| unviable_gate(&report, &reviewed))

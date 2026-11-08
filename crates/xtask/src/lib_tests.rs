@@ -7,10 +7,10 @@ use std::io;
 use std::path::Path;
 
 use super::{
-    Action, CARGO_TOML, CHANGELOG, COMMIT_HEADER_MAX, COVERAGE_REPORT, Cmd, Dir, PACKAGE_JSONS,
-    PORTABILITY_TARGETS, Runner, Step, SystemRunner, UNVIABLE_REPORT, UNVIABLE_REVIEWED, USAGE,
-    Version, bless_step, check_steps, cli, commit_msg_gate, coverage_gate, release_gate, run_steps,
-    unviable_gate,
+    Action, CARGO_TOML, CHANGELOG, COMMIT_HEADER_MAX, COVERAGE_REPORT, Cmd, Dir,
+    EQUIVALENT_REVIEWED, PACKAGE_JSONS, PORTABILITY_TARGETS, Runner, Step, SystemRunner,
+    UNVIABLE_REPORT, UNVIABLE_REVIEWED, USAGE, Version, bless_step, check_steps, cli,
+    commit_msg_gate, coverage_gate, equivalent_gate, release_gate, run_steps, unviable_gate,
 };
 
 /// Records commands and answers with scripted results.
@@ -48,6 +48,23 @@ impl Runner for Fake {
         }
         Ok(())
     }
+
+    fn typescript_files(&mut self) -> io::Result<Vec<String>> {
+        self.ran.push("list typescript".to_owned());
+        if self.broken.as_deref() == Some("list typescript") {
+            return Err(io::Error::other("no git"));
+        }
+        Ok(self
+            .files
+            .keys()
+            .filter(|path| {
+                Path::new(path)
+                    .extension()
+                    .is_some_and(|e| e == "ts" || e == "tsx")
+            })
+            .cloned()
+            .collect())
+    }
 }
 
 fn report(lines: (u64, u64), functions: (u64, u64), branches: (u64, u64)) -> String {
@@ -75,6 +92,13 @@ fn passing() -> Fake {
         .files
         .insert(UNVIABLE_REVIEWED.to_owned(), reviewed.to_owned());
     assert!(first.is_none() && second.is_none(), "fresh fake");
+    let source = "const a = 1;\n// Stryker disable next-line EqualityOperator: same result\nwhile (a < 2) {}\n";
+    let equivalent = "x/a.ts: EqualityOperator at while (a < 2) {} -- same result\n";
+    let third = fake.files.insert("x/a.ts".to_owned(), source.to_owned());
+    let fourth = fake
+        .files
+        .insert(EQUIVALENT_REVIEWED.to_owned(), equivalent.to_owned());
+    assert!(third.is_none() && fourth.is_none(), "fresh fake");
     for (path, text) in [
         (CARGO_TOML, CARGO),
         (PACKAGE_JSONS[0], PACKAGE),
@@ -123,6 +147,7 @@ fn command_lines(steps: &[Step]) -> Vec<String> {
             Action::Run(cmd) => format!("{:?}: {} {}", cmd.dir, cmd.program, cmd.args.join(" ")),
             Action::CoverageGate(path) => format!("gate {path}"),
             Action::UnviableGate => "unviable gate".to_owned(),
+            Action::EquivalentGate => "equivalent gate".to_owned(),
             Action::ReleaseGate => "release gate".to_owned(),
             Action::FreshDir(path) => format!("fresh {path}"),
         })
@@ -147,6 +172,7 @@ fn lists_every_check_in_order() {
             "gate target/coverage.json",
             "Root: cargo mutants --workspace --cap-lints=true --gitignore=true",
             "unviable gate",
+            "equivalent gate",
             "Root: cargo +nightly-2026-11-01 miri test --package engine-wasm --locked",
             "Root: cargo run --package engine-cli --locked --quiet -- check conformance",
             "fresh target/conformance",
@@ -176,6 +202,7 @@ fn lists_every_check_in_order() {
             "Rust coverage: 100% lines, functions and branches",
             "Rust mutation testing",
             "Rust unviable mutants reviewed",
+            "TypeScript equivalent mutants reviewed",
             "Rust FFI under Miri",
             "Conformance (native)",
             "Fresh conformance export directory",
@@ -284,8 +311,9 @@ fn runs_every_step_and_reports_success() {
     );
     assert_eq!(
         fake.ran.len(),
-        check_steps().len() + 8,
-        "every step ran; the unviable gate reads two files, the release gate eight"
+        check_steps().len() + 10,
+        "every step ran; the unviable gate reads two files, the equivalent gate lists the \
+         sources and reads two files, the release gate eight"
     );
     for path in [
         CARGO_TOML,
@@ -309,15 +337,15 @@ fn runs_every_step_and_reports_success() {
     );
     let text = String::from_utf8(out).expect("utf-8 output");
     assert!(
-        text.starts_with("▶ [1/23] Rust formatting\n"),
+        text.starts_with("▶ [1/24] Rust formatting\n"),
         "numbered progress: {text}"
     );
     assert!(
-        text.contains("▶ [23/23] Roadmap checks\n"),
+        text.contains("▶ [24/24] Roadmap checks\n"),
         "last step announced: {text}"
     );
     assert!(
-        text.ends_with("✔ all 23 checks passed\n"),
+        text.ends_with("✔ all 24 checks passed\n"),
         "summary: {text}"
     );
 }
@@ -638,6 +666,122 @@ fn fails_when_unviable_files_are_missing_or_unreviewed() {
             .is_err_and(|e| e.contains("not reviewed: crates/a/src/b.rs")),
         "unreviewed mutant"
     );
+}
+
+#[test]
+fn accepts_exactly_the_reviewed_equivalent_mutants() {
+    let source = |text: &str| vec![("a.ts".to_owned(), text.to_owned())];
+    let disabled =
+        "x\n  // Stryker disable next-line EqualityOperator: overwritten later\n  i < n\n";
+    assert_eq!(
+        equivalent_gate(
+            &source(disabled),
+            "# header\n\na.ts: EqualityOperator at i < n -- overwritten later\n"
+        ),
+        Ok(()),
+        "reviewed"
+    );
+    assert_eq!(
+        equivalent_gate(&source("plain"), ""),
+        Ok(()),
+        "nothing disabled"
+    );
+    let error = equivalent_gate(&source(disabled), "b.ts: X at y -- old\nno reason here\n")
+        .expect_err("unreviewed, stale and malformed");
+    assert_eq!(
+        error,
+        format!(
+            "disabled mutants must be reviewed in {EQUIVALENT_REVIEWED}:\n{}",
+            [
+                "review without a reason: no reason here",
+                "not reviewed: a.ts: EqualityOperator at i < n",
+                "stale review: b.ts: X at y",
+            ]
+            .join("\n")
+        ),
+        "every problem is listed"
+    );
+}
+
+#[test]
+fn refuses_broad_or_unexplained_disables() {
+    for (text, line) in [
+        ("// Stryker disable all\nx\n", 1_usize),
+        ("// Stryker disable next-line all: everything\nx\n", 1),
+        ("a\n// Stryker disable next-line A,B: two\nx\n", 2),
+        (
+            "// Stryker disable next-line Equality Operator: spaced\nx\n",
+            1,
+        ),
+        ("// Stryker disable next-line EqualityOperator:   \nx\n", 1),
+        ("// Stryker disable next-line EqualityOperator\nx\n", 1),
+        (
+            "// Stryker disable next-line EqualityOperator: last line",
+            1,
+        ),
+        (
+            "// Stryker disable next-line EqualityOperator: blank next\n   \n",
+            1,
+        ),
+    ] {
+        assert_eq!(
+            equivalent_gate(&[("a.ts".to_owned(), text.to_owned())], ""),
+            Err(format!(
+                "disabled mutants must be reviewed in {EQUIVALENT_REVIEWED}:\na.ts:{line}: write `// Stryker disable next-line <Mutator>: <reason>` above the line"
+            )),
+            "{text:?}"
+        );
+    }
+}
+
+#[test]
+fn fails_when_equivalent_files_cannot_be_read() {
+    let mut no_list = passing();
+    no_list.broken = Some("list typescript".to_owned());
+    assert_eq!(
+        run_steps(&check_steps(), &mut no_list, &mut Vec::new()),
+        Err(
+            "✘ TypeScript equivalent mutants reviewed: cannot list the TypeScript files: no git"
+                .to_owned()
+        ),
+        "no listing"
+    );
+    let mut no_reviews = passing();
+    let removed = no_reviews.files.remove(EQUIVALENT_REVIEWED);
+    assert!(removed.is_some(), "reviews removed");
+    assert_eq!(
+        run_steps(&check_steps(), &mut no_reviews, &mut Vec::new()),
+        Err(format!(
+            "✘ TypeScript equivalent mutants reviewed: cannot read {EQUIVALENT_REVIEWED}: missing"
+        )),
+        "missing reviews"
+    );
+}
+
+#[test]
+fn system_runner_lists_the_tracked_typescript_files() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let files = SystemRunner { root }
+        .typescript_files()
+        .expect("git lists the files");
+    assert!(
+        files.iter().any(|f| f == "bindings/wasm/ts/engine.ts"),
+        "a tracked source"
+    );
+    assert!(
+        files.iter().all(|f| Path::new(f)
+            .extension()
+            .is_some_and(|e| e == "ts" || e == "tsx")),
+        "TypeScript only"
+    );
+    let outside = std::env::temp_dir().join(format!("xtask-no-git-{}", std::process::id()));
+    std::fs::create_dir_all(&outside).expect("temporary directory");
+    let error = SystemRunner {
+        root: outside.clone(),
+    }
+    .typescript_files();
+    std::fs::remove_dir_all(&outside).expect("cleanup");
+    assert!(error.is_err(), "not a repository");
 }
 
 #[test]
@@ -991,5 +1135,19 @@ fn bless_renders_and_rewrites_the_references() {
         String::from_utf8(out).expect("utf-8"),
         "▶ [1/1] Bless conformance references\n✔ all 1 checks passed\n",
         "progress"
+    );
+}
+
+#[test]
+fn equivalent_gate_passes_on_the_repository() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let step = [Step {
+        name: "equivalent".to_owned(),
+        action: Action::EquivalentGate,
+    }];
+    assert_eq!(
+        run_steps(&step, &mut SystemRunner { root }, &mut Vec::new()),
+        Ok(()),
+        "every disabled mutant of the repository is reviewed"
     );
 }
