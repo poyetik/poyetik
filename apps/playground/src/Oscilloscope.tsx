@@ -41,6 +41,11 @@ function context2d(canvas: HTMLCanvasElement): ScopeCanvas | null {
 
 /** Properties of the oscilloscope. */
 export interface OscilloscopeProps {
+  /**
+   * Whether there is something to show: while active, a frame is drawn before every
+   * repaint; inactive, one frame is drawn (the grid and dashes) and nothing is repainted.
+   */
+  readonly active: boolean;
   /** The signal to show, read at every frame. */
   readonly signal: () => Signal | undefined;
   /** Gets the drawing context of the canvas (replaceable in tests). */
@@ -57,10 +62,28 @@ function screenDensity(): number {
 }
 
 /**
- * The oscilloscope and its measurements. The canvas is redrawn at every frame without
- * React; the measurements are React state, which only re-renders when their text changes.
+ * Draws `current` (nothing: the grid only) on `canvas` through `drawing`, with one backing
+ * pixel per device pixel for the size the canvas has now. The backing store is resized
+ * only when that changes (resizing clears the canvas); the height follows the width.
  */
-export function Oscilloscope({ signal, context = context2d, schedule = animationFrames, density = screenDensity }: OscilloscopeProps): JSX.Element {
+function paint(canvas: HTMLCanvasElement, drawing: ScopeCanvas, current: Signal | undefined, density: number): void {
+  const store = backingStore(canvas.clientWidth, density, WIDTH, HEIGHT);
+  if (canvas.width !== store.width) {
+    canvas.width = store.width;
+    canvas.height = store.height;
+  }
+  const samples = current?.samples ?? new Float32Array();
+  const window = Math.round((current?.rate ?? 0) * WINDOW_SECONDS);
+  drawScope(drawing, scopeScene(samples, window, WIDTH, HEIGHT), store);
+}
+
+/**
+ * The oscilloscope and its measurements. While active, the canvas is redrawn at every
+ * frame without React; the measurements are React state, which only re-renders when their
+ * text changes. While inactive, it is drawn once: a page with nothing playing repaints
+ * nothing (a resize then scales the last drawing until the next start).
+ */
+export function Oscilloscope({ active, signal, context = context2d, schedule = animationFrames, density = screenDensity }: OscilloscopeProps): JSX.Element {
   const [canvas, setCanvas] = useState<HTMLCanvasElement | null>(null);
   const [frequency, setFrequency] = useState(NONE);
   const [level, setLevel] = useState(NONE);
@@ -71,25 +94,21 @@ export function Oscilloscope({ signal, context = context2d, schedule = animation
       return undefined;
     }
     const drawing = context(canvas);
-    return schedule(() => {
+    const frame = (): void => {
       const current = signal();
       if (drawing !== null) {
-        // One backing pixel per device pixel, for the size the canvas has now. Resized only
-        // when that changes (resizing clears the canvas); the height follows the width.
-        const store = backingStore(canvas.clientWidth, density(), WIDTH, HEIGHT);
-        if (canvas.width !== store.width) {
-          canvas.width = store.width;
-          canvas.height = store.height;
-        }
-        const samples = current?.samples ?? new Float32Array();
-        const window = Math.round((current?.rate ?? 0) * WINDOW_SECONDS);
-        drawScope(drawing, scopeScene(samples, window, WIDTH, HEIGHT), store);
+        paint(canvas, drawing, current, density());
       }
       setFrequency(formatFrequency(current));
       setLevel(formatPeak(current));
       setRate(formatRate(current));
-    });
-  }, [canvas, signal, context, schedule, density]);
+    };
+    if (!active) {
+      frame();
+      return undefined;
+    }
+    return schedule(frame);
+  }, [active, canvas, signal, context, schedule, density]);
   return (
     <section aria-label="Oscilloscope">
       <canvas ref={setCanvas} width={WIDTH} height={HEIGHT} role="img" aria-label="Waveform of the engine output" aria-describedby={READOUT} />

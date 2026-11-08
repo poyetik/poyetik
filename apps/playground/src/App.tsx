@@ -100,7 +100,7 @@ export function App({ player }: { readonly player: Player }): JSX.Element {
           </details>
         ) : null}
       </div>
-      <Oscilloscope signal={signal} />
+      <Oscilloscope active={state.kind === "playing"} signal={signal} />
     </main>
   );
 }

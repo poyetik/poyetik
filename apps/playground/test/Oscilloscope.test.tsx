@@ -1,4 +1,5 @@
 import { act, render, screen } from "@testing-library/react";
+import type { JSX } from "react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import type { ScopeCanvas } from "../src/draw.ts";
 import type { Signal } from "../src/player.ts";
@@ -23,17 +24,21 @@ function counter(): { canvas: ScopeCanvas; clears: number[][]; points: () => num
   return { canvas, clears, points: () => lines };
 }
 
-/** A scheduler driven by the test: `tick` runs one frame. */
-function manual(): { schedule: (frame: () => void) => () => void; tick: () => void; cancelled: () => number } {
+/** A scheduler driven by the test: `tick` runs one frame; counts the schedules and cancels. */
+function manual(): { schedule: (frame: () => void) => () => void; tick: () => void; scheduled: () => number; cancelled: () => number } {
   let current: (() => void) | undefined;
+  let scheduled = 0;
   let cancelled = 0;
   return {
     schedule: (frame) => {
       current = frame;
+      scheduled += 1;
       return () => {
+        current = undefined;
         cancelled += 1;
       };
     },
+    scheduled: () => scheduled,
     tick: () => {
       act(() => {
         current?.();
@@ -55,7 +60,7 @@ afterEach(() => {
 describe("Oscilloscope", () => {
   test("shows dashes before the first frame", () => {
     const { schedule } = manual();
-    render(<Oscilloscope signal={() => SQUARE} context={() => counter().canvas} schedule={schedule} />);
+    render(<Oscilloscope active signal={() => SQUARE} context={() => counter().canvas} schedule={schedule} />);
     expect(screen.getByTestId("frequency").textContent).toBe("—");
     expect(screen.getByTestId("peak").textContent).toBe("—");
     expect(screen.getByTestId("rate").textContent).toBe("—");
@@ -67,7 +72,7 @@ describe("Oscilloscope", () => {
   test("draws the signal and shows its measurements at every frame", () => {
     const { schedule, tick } = manual();
     const drawn = counter();
-    render(<Oscilloscope signal={() => SQUARE} context={() => drawn.canvas} schedule={schedule} />);
+    render(<Oscilloscope active signal={() => SQUARE} context={() => drawn.canvas} schedule={schedule} />);
     tick();
     expect(drawn.clears).toStrictEqual([[0, 0, WIDTH, HEIGHT]]);
     // The grid (3 lines), then 10 ms at 4 kHz = 40 samples: 39 segments.
@@ -82,7 +87,7 @@ describe("Oscilloscope", () => {
   test("draws only the grid and shows dashes with no signal", () => {
     const { schedule, tick } = manual();
     const drawn = counter();
-    render(<Oscilloscope signal={() => undefined} context={() => drawn.canvas} schedule={schedule} />);
+    render(<Oscilloscope active signal={() => undefined} context={() => drawn.canvas} schedule={schedule} />);
     tick();
     expect(drawn.points()).toBe(3);
     expect(screen.getByTestId("frequency").textContent).toBe("—");
@@ -92,7 +97,7 @@ describe("Oscilloscope", () => {
   test("gives the canvas one backing pixel per device pixel", async () => {
     const { schedule, tick } = manual();
     let density = 2;
-    render(<Oscilloscope signal={() => SQUARE} context={() => counter().canvas} schedule={schedule} density={() => density} />);
+    render(<Oscilloscope active signal={() => SQUARE} context={() => counter().canvas} schedule={schedule} density={() => density} />);
     const canvas = screen.getByRole("img");
     expect(canvas).toMatchObject({ width: WIDTH, height: HEIGHT });
     tick();
@@ -116,21 +121,21 @@ describe("Oscilloscope", () => {
   test("reads the density of the screen by default", () => {
     vi.stubGlobal("devicePixelRatio", 1.5);
     const { schedule, tick } = manual();
-    render(<Oscilloscope signal={() => SQUARE} context={() => counter().canvas} schedule={schedule} />);
+    render(<Oscilloscope active signal={() => SQUARE} context={() => counter().canvas} schedule={schedule} />);
     tick();
     expect(screen.getByRole("img")).toMatchObject({ width: 1350, height: 450 });
   });
 
   test("still measures without a drawing context", () => {
     const { schedule, tick } = manual();
-    render(<Oscilloscope signal={() => SQUARE} context={() => null} schedule={schedule} />);
+    render(<Oscilloscope active signal={() => SQUARE} context={() => null} schedule={schedule} />);
     tick();
     expect(screen.getByTestId("peak").textContent).toBe("1.00");
   });
 
   test("stops its frames when unmounted", () => {
     const { schedule, cancelled } = manual();
-    const { unmount } = render(<Oscilloscope signal={() => SQUARE} context={() => null} schedule={schedule} />);
+    const { unmount } = render(<Oscilloscope active signal={() => SQUARE} context={() => null} schedule={schedule} />);
     const before = cancelled();
     unmount();
     expect(cancelled()).toBe(before + 1);
@@ -139,8 +144,39 @@ describe("Oscilloscope", () => {
   test("uses the 2D context of its canvas by default", () => {
     const getContext = vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
     const { schedule } = manual();
-    render(<Oscilloscope signal={() => SQUARE} schedule={schedule} />);
+    render(<Oscilloscope active signal={() => SQUARE} schedule={schedule} />);
     expect(getContext).toHaveBeenCalledWith("2d");
+  });
+
+  test("draws one frame and schedules none while inactive: nothing to show, nothing to repaint", () => {
+    const { schedule, scheduled } = manual();
+    const drawn = counter();
+    render(<Oscilloscope active={false} signal={() => undefined} context={() => drawn.canvas} schedule={schedule} />);
+    expect(scheduled()).toBe(0);
+    expect(drawn.clears).toStrictEqual([[0, 0, WIDTH, HEIGHT]]);
+    expect(drawn.points()).toBe(3);
+    expect(screen.getByTestId("frequency").textContent).toBe("—");
+  });
+
+  test("stops its frames when it becomes inactive, and starts them again when active", () => {
+    const { schedule, tick, scheduled, cancelled } = manual();
+    const drawn = counter();
+    let signal: Signal | undefined = SQUARE;
+    const view = (active: boolean): JSX.Element => <Oscilloscope active={active} signal={() => signal} context={() => drawn.canvas} schedule={schedule} />;
+    const { rerender } = render(view(true));
+    tick();
+    expect(screen.getByTestId("frequency").textContent).toBe("100.0 Hz");
+    signal = undefined;
+    rerender(view(false));
+    expect(cancelled()).toBe(1);
+    // The last frame, drawn at once: the dashes replace the stale measurements.
+    expect(screen.getByTestId("frequency").textContent).toBe("—");
+    expect(drawn.clears).toHaveLength(2);
+    signal = SQUARE;
+    rerender(view(true));
+    expect(scheduled()).toBe(2);
+    tick();
+    expect(screen.getByTestId("frequency").textContent).toBe("100.0 Hz");
   });
 
   test("shows about four periods of 440 Hz", () => {
@@ -186,7 +222,7 @@ describe("animationFrames", () => {
     const cancel = vi.fn();
     vi.stubGlobal("requestAnimationFrame", request);
     vi.stubGlobal("cancelAnimationFrame", cancel);
-    const { unmount } = render(<Oscilloscope signal={() => undefined} context={() => null} />);
+    const { unmount } = render(<Oscilloscope active signal={() => undefined} context={() => null} />);
     expect(request).toHaveBeenCalled();
     unmount();
     expect(cancel).toHaveBeenCalledWith(7);

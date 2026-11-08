@@ -160,6 +160,17 @@ test("says when the browser kept the audio paused after Resume, and only then", 
   expect(REFUSED).toBe("The browser kept audio paused. Try again, or check that this tab may play sound.");
 });
 
+test("repaints the oscilloscope only while playing", () => {
+  vi.useFakeTimers({ toFake: ["requestAnimationFrame", "cancelAnimationFrame"] });
+  const player = new FakePlayer();
+  render(<App player={player} />);
+  expect(vi.getTimerCount()).toBe(0);
+  player.become({ kind: "playing" });
+  expect(vi.getTimerCount()).toBe(1);
+  player.become({ kind: "suspended", refused: false });
+  expect(vi.getTimerCount()).toBe(0);
+});
+
 test("shows what the player plays", () => {
   vi.useFakeTimers({ toFake: ["requestAnimationFrame", "cancelAnimationFrame"] });
   const player = new FakePlayer();
