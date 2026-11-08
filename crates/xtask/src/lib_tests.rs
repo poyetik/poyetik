@@ -578,8 +578,37 @@ const CLEAN: super::Environment = super::Environment {
 /// A toolchain file pinning the release the fake's `rustc` answers.
 const TOOLCHAIN: &str = "# Pinned.\n[toolchain]\nchannel = \"1.99.1\"\nprofile = \"minimal\"\n";
 
+/// The condition every job of the workflow holds: a push runs it only when asked with `[ci]`.
+const CI_CONDITION: &str =
+    "if: github.event_name != 'push' || contains(github.event.head_commit.message, '[ci]')";
+
 /// A workflow that pins everything, as the workflow gate requires.
-const PINNED_WORKFLOW: &str = "on:\n  push:\n  pull_request:\n  workflow_dispatch:\n\npermissions:\n  contents: read\n\nconcurrency:\n  group: ${{ (github.event_name != 'push' || contains(github.event.head_commit.message, '[ci]')) && format('quality-{0}', github.ref) || format('skipped-{0}', github.run_id) }}\n  cancel-in-progress: true\n\njobs:\n  check:\n    runs-on: ubuntu-24.04\n    steps:\n      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n        with:\n          fetch-depth: 0\n          persist-credentials: false\n      - name: Install Rust toolchains\n        run: rustup toolchain install nightly-2026-11-01 --profile minimal\n      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39\n        with:\n          tool: cargo-llvm-cov@0.9.1,cargo-mutants@27.1.0,cargo-deny@0.20.2\n      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0\n        with:\n          node-version-file: .node-version\n      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3\n        with:\n          cache-on-failure: true\n      - name: Every quality check\n        run: cargo xtask check --full\n      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2\n        if: failure()\n        with:\n          path: |\n            mutants.out\n            target/coverage\n            bindings/wasm/dist/engine.wasm\n            apps/*/coverage\n            apps/*/reports\n            bindings/*/coverage\n            bindings/*/reports\n            tooling/*/coverage\n            tooling/*/reports\n";
+const PINNED_WORKFLOW: &str = concat!(
+    "on:\n  push:\n  pull_request:\n  workflow_dispatch:\n\npermissions:\n  contents: read\n\n",
+    "concurrency:\n  group: ${{ (github.event_name != 'push' || contains(github.event.head_commit.message, '[ci]')) && format('quality-{0}', github.ref) || format('skipped-{0}', github.run_id) }}\n  cancel-in-progress: true\n\n",
+    "jobs:\n",
+    "  check:\n",
+    "    if: github.event_name != 'push' || contains(github.event.head_commit.message, '[ci]')\n",
+    "    runs-on: ubuntu-24.04\n",
+    "    strategy:\n      fail-fast: false\n      matrix:\n",
+    "        part: [rust, coverage, mutation-0, mutation-1, mutation-2, mutation-3, mutation-4, mutation-5, mutation-6, mutation-7, miri, gates, tooling-config, tooling-oracle, bindings-wasm, apps-playground, apps-roadmap]\n",
+    "    steps:\n",
+    "      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n        with:\n          fetch-depth: 0\n          persist-credentials: false\n",
+    "      - name: Install Rust toolchains\n        run: rustup toolchain install nightly-2026-11-01 --profile minimal\n",
+    "      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39\n        with:\n          tool: cargo-llvm-cov@0.9.1,cargo-mutants@27.1.0,cargo-deny@0.20.2\n",
+    "      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0\n        with:\n          node-version-file: .node-version\n",
+    "      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3\n        with:\n          cache-on-failure: true\n",
+    "      - name: One part of the full check\n        run: cargo xtask check --full --part ${{ matrix.part }}\n",
+    "      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2\n        with:\n          name: unviable-${{ matrix.part }}\n          path: mutants.out/unviable.txt\n",
+    "      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2\n        if: failure()\n        with:\n          path: |\n            mutants.out\n            target/coverage\n            bindings/wasm/dist/engine.wasm\n            apps/*/coverage\n            apps/*/reports\n            bindings/*/coverage\n            bindings/*/reports\n            tooling/*/coverage\n            tooling/*/reports\n",
+    "  final:\n",
+    "    needs: check\n",
+    "    if: github.event_name != 'push' || contains(github.event.head_commit.message, '[ci]')\n",
+    "    runs-on: ubuntu-24.04\n",
+    "    steps:\n",
+    "      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2\n        with:\n          pattern: unviable-*\n          path: mutants.out/shards\n",
+    "      - name: The final part\n        run: cargo xtask check --full --part final\n",
+);
 
 /// A history whose two commits follow the convention, the change of behavior with its
 /// changelog entry, as `git log` writes it for the history gate.
@@ -4836,20 +4865,21 @@ fn requires_a_workflow_that_pins_everything() {
     assert_eq!(
         super::workflow_gate(&[super::WORKFLOW.to_owned()], &loose, "22"),
         failed(
-            ".github/workflows/quality.yml can change CI without a commit: 8 problems, listed above\n\
+            ".github/workflows/quality.yml can change CI without a commit: 9 problems, listed above\n\
              actions/checkout@v7 is not pinned to a full commit hash\n\
              taiki-e/install-action is not pinned to a full commit hash\n\
              actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15cz # v7.1.0 is not pinned to a full commit hash\n\
              .github/workflows/quality.yml lacks `tool: cargo-llvm-cov@0.9.1,cargo-mutants@27.1.0,cargo-deny@0.20.2`\n\
              .github/workflows/quality.yml lacks `node-version-file: .node-version`\n\
              .github/workflows/quality.yml lacks `fetch-depth: 0`\n\
-             .github/workflows/quality.yml lacks `run: cargo xtask check --full`\n\
+             .github/workflows/quality.yml lacks `run: cargo xtask check --full --part ${{ matrix.part }}`\n\
+             .github/workflows/quality.yml lacks `run: cargo xtask check --full --part final`\n\
              .node-version must pin one Node.js release, 22.18 or later (X.Y.Z): found \"22\""
         ),
         "every kind of loose pin"
     );
     let unkept = PINNED_WORKFLOW
-        .replace("runs-on: ubuntu-24.04", "runs-on: ubuntu-latest")
+        .replacen("runs-on: ubuntu-24.04", "runs-on: ubuntu-latest", 1)
         .replace("cache-on-failure: true", "cache-on-failure: false")
         .replace("            tooling/*/coverage\n", "")
         .replace("            target/coverage\n", "");
@@ -5923,15 +5953,15 @@ fn refuses_workflows_that_could_pass_without_checking() {
     );
     refused(
         &PINNED_WORKFLOW.replace(
-            "        run: cargo xtask check --full\n",
-            "        run: cargo xtask check --full\n        continue-on-error: true\n",
+            "        run: cargo xtask check --full --part final\n",
+            "        run: cargo xtask check --full --part final\n        continue-on-error: true\n",
         ),
         "`continue-on-error: true`: `continue-on-error` is not allowed",
     );
     refused(
         &PINNED_WORKFLOW.replace(
-            "      - name: Every quality check\n",
-            "      - name: Every quality check\n        if: false\n",
+            "      - name: The final part\n",
+            "      - name: The final part\n        if: false\n",
         ),
         "`if: false`: the only conditions are `if: failure()` and `if: github.event_name != \'push\' || contains(github.event.head_commit.message, \'[ci]\')`",
     );
@@ -5941,8 +5971,8 @@ fn refuses_workflows_that_could_pass_without_checking() {
     );
     refused(
         &PINNED_WORKFLOW.replace(
-            "        run: cargo xtask check --full\n",
-            "        run: cargo xtask check --full\n        env:\n          RUSTFLAGS: -Aunsafe\n",
+            "        run: cargo xtask check --full --part final\n",
+            "        run: cargo xtask check --full --part final\n        env:\n          RUSTFLAGS: -Aunsafe\n",
         ),
         "`RUSTFLAGS: -Aunsafe`: `RUSTFLAGS` is not allowed",
     );
@@ -5968,7 +5998,9 @@ fn refuses_workflows_that_could_pass_without_checking() {
     assert_eq!(
         gate(
             &only,
-            &format!("{PINNED_WORKFLOW}  other:\n    permissions:\n      contents: write\n")
+            &format!(
+                "{PINNED_WORKFLOW}  other:\n    {CI_CONDITION}\n    permissions:\n      contents: write\n"
+            )
         ),
         failed(
             ".github/workflows/quality.yml can change CI without a commit: .github/workflows/quality.yml \
@@ -6189,7 +6221,8 @@ fn fails_when_the_crates_cannot_be_listed() {
 
 #[test]
 fn refuses_a_second_place_declaring_triggers() {
-    let workflow = format!("{PINNED_WORKFLOW}  other:\n    on:\n      schedule:\n");
+    let workflow =
+        format!("{PINNED_WORKFLOW}  other:\n    {CI_CONDITION}\n    on:\n      schedule:\n");
     assert_eq!(
         super::workflow_gate(&[super::WORKFLOW.to_owned()], &workflow, "22.23.4"),
         failed(
@@ -7901,5 +7934,155 @@ fn lists_and_runs_the_parts_of_the_full_check() {
         String::from_utf8(err).expect("UTF-8"),
         "error: 1 of 4 checks failed, listed above\n",
         "every failure counted"
+    );
+}
+
+#[test]
+fn requires_the_workflow_to_run_every_part_of_the_full_check() {
+    let gate =
+        |workflow: &str| super::workflow_gate(&[super::WORKFLOW.to_owned()], workflow, "22.23.4");
+    let lacks = |line: &str| {
+        failed(format!(
+            ".github/workflows/quality.yml can change CI without a commit: \
+             .github/workflows/quality.yml lacks `{line}`"
+        ))
+    };
+    let matrix = "part: [rust, coverage, mutation-0, mutation-1, mutation-2, mutation-3, mutation-4, \
+                  mutation-5, mutation-6, mutation-7, miri, gates, tooling-config, tooling-oracle, \
+                  bindings-wasm, apps-playground, apps-roadmap]";
+    assert_eq!(
+        gate(&PINNED_WORKFLOW.replace(", mutation-7", "")),
+        lacks(matrix),
+        "a shard missing from the matrix"
+    );
+    assert_eq!(
+        gate(&PINNED_WORKFLOW.replace("apps-roadmap]", "apps-roadmap, final]")),
+        lacks(matrix),
+        "the final part, run before the shards it reads"
+    );
+    for (line, instead) in [
+        ("fail-fast: false", "fail-fast: true"),
+        (
+            "run: cargo xtask check --full --part ${{ matrix.part }}",
+            "run: cargo xtask check --full --part rust",
+        ),
+        ("name: unviable-${{ matrix.part }}", "name: unviable"),
+        (
+            "path: mutants.out/unviable.txt",
+            "path: mutants.out/caught.txt",
+        ),
+        ("needs: check", "needs: other"),
+        ("pattern: unviable-*", "pattern: unviable-mutation-0"),
+        ("path: mutants.out/shards", "path: mutants.out"),
+        (
+            "run: cargo xtask check --full --part final",
+            "run: cargo xtask check --full --part gates",
+        ),
+    ] {
+        let changed = PINNED_WORKFLOW.replace(line, instead);
+        assert_ne!(changed, PINNED_WORKFLOW, "the fixture holds {line}");
+        assert_eq!(gate(&changed), lacks(line), "{instead}");
+    }
+    assert_eq!(
+        gate(&PINNED_WORKFLOW.replace(
+            "        part: [",
+            "        exclude:\n          - part: miri\n        part: ["
+        )),
+        failed(
+            ".github/workflows/quality.yml can change CI without a commit: \
+             `exclude:`: `exclude:` is not allowed"
+        ),
+        "a part excluded from the matrix"
+    );
+    assert_eq!(
+        super::workflow_parts().get(1),
+        Some(
+            &matrix
+                .replace("                  ", "")
+                .replace(", \n", ", ")
+        ),
+        "the matrix, derived from the parts"
+    );
+}
+
+#[test]
+fn requires_the_ci_condition_on_every_job() {
+    let gate =
+        |workflow: &str| super::workflow_gate(&[super::WORKFLOW.to_owned()], workflow, "22.23.4");
+    let refused = |problem: &str| {
+        failed(format!(
+            ".github/workflows/quality.yml can change CI without a commit: {problem}"
+        ))
+    };
+    let unconditioned = PINNED_WORKFLOW.replacen(&format!("    {CI_CONDITION}\n"), "", 1);
+    assert_eq!(
+        gate(&unconditioned),
+        refused(&format!(
+            "job `check` lacks `{CI_CONDITION}`, which every job holds"
+        )),
+        "a part a push would run without being asked"
+    );
+    let last = PINNED_WORKFLOW
+        .rfind(&format!("    {CI_CONDITION}\n"))
+        .expect("the final job's condition");
+    let mut final_unconditioned = PINNED_WORKFLOW.to_owned();
+    final_unconditioned.replace_range(last..last + CI_CONDITION.len() + 5, "");
+    assert_eq!(
+        gate(&final_unconditioned),
+        refused(&format!(
+            "job `final` lacks `{CI_CONDITION}`, which every job holds"
+        )),
+        "the final job too"
+    );
+    assert_eq!(
+        gate(&PINNED_WORKFLOW.replacen(
+            &format!("    {CI_CONDITION}\n"),
+            &format!("      {CI_CONDITION}\n"),
+            1
+        )),
+        refused(&format!(
+            "job `check` lacks `{CI_CONDITION}`, which every job holds"
+        )),
+        "a condition deeper than the job's keys is not the job's"
+    );
+    assert_eq!(
+        gate(&PINNED_WORKFLOW.replace("  final:\n", "  final: # the last\n")),
+        refused("`final: # the last`: a job is written `  <name>:`"),
+        "a job header the gate does not read is refused, not skipped"
+    );
+    assert_eq!(
+        gate(&PINNED_WORKFLOW.replace("  final:\n", "  :\n")),
+        refused("`:`: a job is written `  <name>:`"),
+        "a job without a name"
+    );
+    assert_eq!(
+        gate(&unconditioned.replace("jobs:\n", &format!("jobs:\n    {CI_CONDITION}\n"))),
+        refused(&format!(
+            "job `check` lacks `{CI_CONDITION}`, which every job holds"
+        )),
+        "a condition before any job is no job's"
+    );
+    let named = |name: &str| {
+        gate(&format!(
+            "{PINNED_WORKFLOW}  {name}:\n    {CI_CONDITION}\n    runs-on: ubuntu-24.04\n"
+        ))
+    };
+    assert_eq!(
+        named("a-b_C9"),
+        Ok(()),
+        "a job named with letters, digits, - and _"
+    );
+    assert_eq!(
+        named("a.b"),
+        refused("`a.b:`: a job is written `  <name>:`"),
+        "any other character"
+    );
+    let commented = PINNED_WORKFLOW
+        .replace("  final:\n", "  # The final job.\n\n  final:\n")
+        .replace("jobs:\n", "jobs:\n # one space\n");
+    assert_eq!(
+        gate(&commented),
+        Ok(()),
+        "comments and blank lines between jobs"
     );
 }

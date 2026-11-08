@@ -3529,13 +3529,15 @@ pub fn failure_uploads() -> Vec<String> {
 /// Workflow settings that would let CI pass without checking, or expose its token.
 ///
 /// A step allowed to fail, triggers that run with write access on code from a fork,
-/// secrets, and build flags that could lift lints.
-pub const WORKFLOW_REFUSED: [&str; 5] = [
+/// secrets, build flags that could lift lints, and a matrix exclusion, which could drop a
+/// part of the full check.
+pub const WORKFLOW_REFUSED: [&str; 6] = [
     "continue-on-error",
     "pull_request_target",
     "workflow_run",
     "secrets.",
     "RUSTFLAGS",
+    "exclude:",
 ];
 
 /// The exact triggers of the workflow: every push, every pull request, and by hand.
@@ -3580,6 +3582,87 @@ pub fn workflow_concurrency() -> [String; 3] {
     ]
 }
 
+/// The lines that make the workflow run the parts of the full check ([`full_parts`]).
+///
+/// A job `check` runs every part but the final one, one per job of its matrix (all of them
+/// whatever fails, as the full check runs every step); each uploads the unviable mutants of
+/// its shard, if it ran one, as the artifact `unviable-<part>`. A job that needs it
+/// downloads them below [`SHARD_REPORTS`] and runs the final part, which reviews them
+/// together ([`shard_unviable_report`]).
+#[must_use]
+pub fn workflow_parts() -> Vec<String> {
+    let matrix: Vec<String> = full_parts()
+        .into_iter()
+        .filter(|part| *part != Part::Final)
+        .map(Part::name)
+        .collect();
+    let each = "${{ matrix.part }}";
+    vec![
+        "fail-fast: false".to_owned(),
+        format!("part: [{}]", matrix.join(", ")),
+        format!("run: cargo xtask check --full --part {each}"),
+        format!("name: {UNVIABLE_ARTIFACT}{each}"),
+        format!("path: {UNVIABLE_REPORT}"),
+        "needs: check".to_owned(),
+        format!("pattern: {UNVIABLE_ARTIFACT}*"),
+        format!("path: {SHARD_REPORTS}"),
+        format!(
+            "run: cargo xtask check --full --part {}",
+            Part::Final.name()
+        ),
+    ]
+}
+
+/// The problems of the jobs of `workflow`: every job, written `  <name>:` below `jobs:`,
+/// must hold the `[ci]` condition of [`WORKFLOW_CONDITIONS`] (at the indentation of its
+/// keys), so that a push skips them all or none; any other line at the indentation of a job
+/// is refused rather than skipped.
+fn job_problems(workflow: &str) -> Vec<String> {
+    let [_, condition] = WORKFLOW_CONDITIONS;
+    let held = format!("    {condition}");
+    let mut problems = Vec::new();
+    let mut jobs: Vec<(&str, bool)> = Vec::new();
+    let mut in_jobs = false;
+    for line in workflow.lines().map(str::trim_end) {
+        if line == "jobs:" {
+            in_jobs = true;
+            continue;
+        }
+        if !line.is_empty() && !line.starts_with(' ') {
+            in_jobs = false;
+        }
+        if !in_jobs || line.is_empty() || line.trim_start().starts_with('#') {
+            continue;
+        }
+        if line.starts_with("   ") {
+            if line == held
+                && let Some(job) = jobs.last_mut()
+            {
+                job.1 = true;
+            }
+            continue;
+        }
+        match line
+            .strip_prefix("  ")
+            .and_then(|rest| rest.strip_suffix(':'))
+            .filter(|name| {
+                !name.is_empty()
+                    && name
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+            }) {
+            Some(name) => jobs.push((name, false)),
+            None => problems.push(format!("`{}`: a job is written `  <name>:`", line.trim())),
+        }
+    }
+    problems.extend(
+        jobs.into_iter()
+            .filter(|(_, conditioned)| !conditioned)
+            .map(|(name, _)| format!("job `{name}` lacks `{condition}`, which every job holds")),
+    );
+    problems
+}
+
 /// Checks that CI cannot change under the project's feet, nor pass without checking.
 ///
 /// `workflows` are the workflow files tracked by git: only [`WORKFLOW`]. In it, every line
@@ -3590,8 +3673,10 @@ pub fn workflow_concurrency() -> [String; 3] {
 /// [`NIGHTLY_TOOLCHAIN`]; the checkout keeps no credential; the Cargo tools are
 /// [`PINNED_TOOLS`]; Node.js is the release in `.node-version` (at [`NODE_FLOOR`] or later);
 /// the runner is an OS release (never `-latest`); the whole history is fetched for the
-/// history gate; the workflow runs `cargo xtask check --full`; its Rust cache is saved even when
-/// the run fails; and a failed run uploads every [`failure_uploads`] path.
+/// history gate; the workflow runs every part of `cargo xtask check --full`, as
+/// [`workflow_parts`] says; every job holds the `[ci]` condition ([`job_problems`]); its Rust
+/// cache is saved even when the run fails; and a failed run uploads every
+/// [`failure_uploads`] path.
 ///
 /// # Errors
 ///
@@ -3677,16 +3762,17 @@ pub fn workflow_gate(
         "node-version-file: .node-version".to_owned(),
         "fetch-depth: 0".to_owned(),
         "persist-credentials: false".to_owned(),
-        "run: cargo xtask check --full".to_owned(),
         "cache-on-failure: true".to_owned(),
     ]
     .into_iter()
+    .chain(workflow_parts())
     .chain(failure_uploads())
     {
         if !workflow.lines().any(|line| line.trim() == expected) {
             problems.push(format!("{WORKFLOW} lacks `{expected}`"));
         }
     }
+    problems.extend(job_problems(workflow));
     if !node_release(node_version).is_some_and(supported) {
         problems.push(format!(
             "{NODE_VERSION_FILE} must pin one Node.js release, {}.{} or later (X.Y.Z): found {:?}",

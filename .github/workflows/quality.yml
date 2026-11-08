@@ -1,4 +1,6 @@
-# Quality: runs `cargo xtask check --full`: every check, every mutant. The pre-push hook runs
+# Quality: runs `cargo xtask check --full`: every check, every mutant, split into the parts of
+# `cargo xtask list --full --parts`, one job each, in parallel; the parts gate of xtask proves
+# that together they run every step of the full check once. The pre-push hook runs
 # `cargo xtask check`, which mutation tests only the changes; only this run proves the rest.
 # On demand, because the full check is long and commits are frequent: on a push only when the
 # last commit's message holds [ci] alone on a line (xtask refuses it anywhere else), on every
@@ -21,14 +23,21 @@ concurrency:
 
 jobs:
   check:
-    name: cargo xtask check --full
+    name: cargo xtask check --full --part ${{ matrix.part }}
     # A push runs the check only when its last commit asks for it with [ci].
     if: github.event_name != 'push' || contains(github.event.head_commit.message, '[ci]')
     # The OS release is pinned (never `-latest`); the runner image itself still receives
     # GitHub's weekly updates, which no workflow can pin.
     runs-on: ubuntu-24.04
-    # Provisional: to be set to 1.5 times the duration of the first full run.
-    timeout-minutes: 180
+    # Provisional: to be set to 1.5 times the duration of the longest part of the first run.
+    timeout-minutes: 90
+    strategy:
+      # Every part runs whatever the others find, as the full check runs every step.
+      fail-fast: false
+      matrix:
+        # The parts of `cargo xtask list --full --parts` but the final one, exactly (the
+        # workflow gate derives this line from xtask).
+        part: [rust, coverage, mutation-0, mutation-1, mutation-2, mutation-3, mutation-4, mutation-5, mutation-6, mutation-7, miri, gates, tooling-config, tooling-oracle, bindings-wasm, apps-playground, apps-roadmap]
     # Every action is pinned to a full commit (the tag it was taken from is in the comment)
     # and every tool to an exact version: a moved tag or a new release of an action or a
     # tool cannot change CI.
@@ -47,8 +56,11 @@ jobs:
         run: |
           rustup toolchain install
           rustup toolchain install nightly-2026-11-01 --profile minimal --component llvm-tools-preview,miri,rust-src
+      # One cache per part: each builds something else (its own toolchain, profile or
+      # target), so a cache shared by all would hold only what the first job to finish built.
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
+          key: ${{ matrix.part }}
           # A failed, timed-out or cancelled run still saves what it built.
           cache-on-failure: true
       - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
@@ -67,13 +79,21 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm --dir apps/roadmap exec playwright install --with-deps chromium firefox webkit
 
-      - name: Every quality check, every mutant
-        run: cargo xtask check --full
+      - name: One part of the full check
+        run: cargo xtask check --full --part ${{ matrix.part }}
+
+      # A mutation shard's unviable mutants, which the final part reviews with every other
+      # shard's (the other parts have none to upload).
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: unviable-${{ matrix.part }}
+          path: mutants.out/unviable.txt
+          if-no-files-found: ignore
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
         with:
-          name: reports
+          name: reports-${{ matrix.part }}
           path: |
             mutants.out
             target/coverage
@@ -89,3 +109,43 @@ jobs:
             tooling/*/coverage
             tooling/*/reports
           if-no-files-found: ignore
+
+  final:
+    name: cargo xtask check --full --part final
+    # Once every part has passed: what needs them all.
+    needs: check
+    if: github.event_name != 'push' || contains(github.event.head_commit.message, '[ci]')
+    runs-on: ubuntu-24.04
+    # Provisional, as above.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # The tools its preflight checks, as every part's (not the browsers, which it does not
+      # check).
+      - name: Install Rust toolchains
+        run: |
+          rustup toolchain install
+          rustup toolchain install nightly-2026-11-01 --profile minimal --component llvm-tools-preview,miri,rust-src
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          cache-on-failure: true
+      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+        with:
+          tool: cargo-llvm-cov@0.9.1,cargo-mutants@27.1.0,cargo-deny@0.20.2
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+
+      # Every shard's unviable mutants, one directory per artifact.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: unviable-*
+          path: mutants.out/shards
+
+      - name: The unviable mutants of every shard, reviewed together
+        run: cargo xtask check --full --part final
