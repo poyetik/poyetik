@@ -145,12 +145,17 @@ describe("WasmEngine", () => {
     expect(() => WasmEngine.create(bigints, SINE_PATCH, RATE)).toThrow(new ModuleError("engine_abi_version did not return a number"));
   });
 
-  test("checks the interface version before anything else", () => {
-    expect(ABI_VERSION).toBe(1);
-    const other = handMadeModule({ memory: true, functions: engineFunctions({ i32: 2 }).filter((f) => f.name !== "engine_input" || f.params > 0) });
-    expect(() => WasmEngine.create(other, SINE_PATCH, RATE)).toThrow(new ModuleError("interface version 2, expected 1"));
-    const noVersion = handMadeModule({ memory: false, functions: [] });
-    expect(() => WasmEngine.create(noVersion, SINE_PATCH, RATE)).toThrow(new ModuleError("no memory"));
+  test("checks the interface identity and version before anything else", () => {
+    expect(ABI_VERSION).toBe(0x4d34_0001);
+    // engineFunctions gives every function the same result: here, the version answered.
+    for (const [answer, shown] of [
+      [1, "0x1"],
+      [0x4d34_0002, "0x4d340002"],
+      [0x4d35_0001, "0x4d350001"],
+    ] as const) {
+      const other = handMadeModule({ memory: true, functions: engineFunctions({ i32: answer }) });
+      expect(() => WasmEngine.create(other, SINE_PATCH, RATE)).toThrow(new ModuleError(`interface ${shown}, expected 0x4d340001`));
+    }
   });
 
   test("reads results from 2^31 on as unsigned", () => {

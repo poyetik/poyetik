@@ -21,8 +21,11 @@ interface Exports {
   readonly process: Exported0;
 }
 
-/** The version of the exported interface this code drives (`ABI_VERSION` in `ffi.rs`). */
-export const ABI_VERSION = 1;
+/**
+ * The identity and version of the exported interface this code drives (`ABI_VERSION` in
+ * `ffi.rs`): "M4" in the high 16 bits, version 1 in the low 16 bits.
+ */
+export const ABI_VERSION = 0x4d34_0001;
 
 /** Thrown when the module does not have the expected interface. */
 export class ModuleError extends Error {
@@ -120,7 +123,7 @@ function readExports(exports: WebAssembly.Exports): Exports {
   }
   const version = exported0(exports, "engine_abi_version")();
   if (version !== ABI_VERSION) {
-    throw new ModuleError(`interface version ${String(version)}, expected ${String(ABI_VERSION)}`);
+    throw new ModuleError(`interface 0x${version.toString(16)}, expected 0x${ABI_VERSION.toString(16)}`);
   }
   return {
     memory,
