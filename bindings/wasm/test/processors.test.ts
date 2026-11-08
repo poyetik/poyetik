@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { WasmEngine } from "../ts/engine.ts";
 import { ENGINE_PROCESSOR, MARKER_PERIOD, SOURCE_STOPPED, TAP_PROCESSOR } from "../ts/protocol.ts";
 import { Counted, created } from "./counted.ts";
@@ -13,6 +13,11 @@ let registered: ReadonlyMap<string, ProcessorClass> = new Map();
 
 beforeAll(async () => {
   registered = await loadProcessors(RATE);
+});
+
+// Restored whether the test passed or not: a failing test must not change the rate of the next ones.
+afterEach(() => {
+  vi.stubGlobal("sampleRate", RATE);
 });
 
 /** The registered processor class of this name. */
@@ -38,7 +43,6 @@ describe("engine processor", () => {
     const other = [new Float32Array(128), new Float32Array(128)];
     WasmEngine.create(new WebAssembly.Module(wasmBytes()), SINE_PATCH, rate === 48_000 ? 44_100 : 48_000).render(other);
     expect(outputs[0]).not.toStrictEqual(other);
-    vi.stubGlobal("sampleRate", RATE);
   });
 
   test("leaves the one silent channel of a patch without output alone, without a marker", () => {
