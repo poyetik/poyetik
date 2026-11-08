@@ -73,7 +73,8 @@ pub trait Object: Send + core::fmt::Debug {
     /// Processes one block.
     ///
     /// `inputs` holds one block per inlet and `outputs` one block per outlet, in the
-    /// order declared by the box's [`ObjectSpec`]. Must not allocate, lock or block.
+    /// order declared by the box's [`ObjectSpec`]. Must not allocate or free memory, lock
+    /// or block.
     fn process(&mut self, inputs: &[Block], outputs: &mut [Block]);
 }
 

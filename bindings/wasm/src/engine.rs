@@ -45,7 +45,7 @@ impl Engine {
 
     /// Renders the next block and returns it, one block per output channel.
     ///
-    /// Does not allocate.
+    /// Does not use the heap (no allocation or release).
     pub fn process(&mut self) -> &[Block] {
         self.plan.process(&mut self.out);
         &self.out
@@ -98,17 +98,20 @@ mod tests {
     }
 
     #[test]
-    fn renders_without_allocating() {
-        let ((), probe) = engine_testkit::allocations_during(|| drop(Box::new(0_u8)));
-        assert_eq!(probe, 1, "allocations are counted");
+    fn renders_without_a_heap_operation() {
+        assert_eq!(
+            engine_testkit::heap_operations_during(|| drop(Box::new(0_u8))),
+            Ok(((), 2)),
+            "heap operations are counted: an allocation and its release"
+        );
         for rate in engine_testkit::matrix::sample_rates() {
             let mut engine = Engine::new(SINE.as_bytes(), rate.hz()).expect("valid patch");
-            let ((), allocations) = engine_testkit::allocations_during(|| {
+            let operations = engine_testkit::heap_operations_during(|| {
                 for _ in 0_u16..100_u16 {
                     let _: &[engine_core::Block] = engine.process();
                 }
             });
-            assert_eq!(allocations, 0, "100 blocks at {} Hz", rate.hz());
+            assert_eq!(operations, Ok(((), 0)), "100 blocks at {} Hz", rate.hz());
         }
     }
 

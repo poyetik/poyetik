@@ -283,7 +283,7 @@ impl Plan {
     /// A single cable, or a single output box on a channel, passes its samples bit for
     /// bit (`-0.0` and NaN payloads included); several are summed in their fixed order,
     /// starting from the first.
-    /// Does not allocate. The samples are written as the boxes computed them: never
+    /// Does not use the heap. The samples are written as the boxes computed them: never
     /// clipped to ±1, scaled or sanitized, so that every target renders the same bits. The
     /// final output stage (limiting, clipping, handling non-finite values) belongs to the
     /// host, until the engine defines its own output policy (roadmap ticket #12).

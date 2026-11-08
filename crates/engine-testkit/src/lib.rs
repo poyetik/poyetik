@@ -17,8 +17,9 @@
 //! - **finite output**: never NaN or infinity, for random inputs in `[-1, 1]`, the
 //!   special inputs of the [`matrix`] and a long run (which reveals late overflow, not
 //!   slow drift: it has no reference);
-//! - **no allocation** while processing (measured by [`CountingAllocator`], which the
-//!   test binary must install as its global allocator).
+//! - **no heap operation** while processing: no allocation, reallocation or release
+//!   (measured by [`CountingAllocator`], which the test binary must install as its
+//!   global allocator).
 
 #![forbid(unsafe_code)]
 
@@ -28,10 +29,10 @@ mod laws;
 pub mod matrix;
 pub mod runner;
 
-pub use engine_alloc_counter::{CountingAllocator, allocations_during};
+pub use engine_alloc_counter::{CountingAllocator, NotCounting, heap_operations_during};
 pub use laws::{check_laws, check_metadata, check_registry};
 
-/// The test binary of this crate counts allocations, like every box test binary must.
+/// The test binary of this crate counts heap operations, like every box test binary must.
 #[cfg(test)]
 #[global_allocator]
 static ALLOCATOR: CountingAllocator = CountingAllocator;

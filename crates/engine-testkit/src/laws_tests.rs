@@ -69,12 +69,22 @@ impl Object for Counter {
 }
 static INSTANCES: AtomicU16 = AtomicU16::new(0);
 
-/// Allocates while processing.
+/// Allocates and frees while processing.
 #[derive(Debug)]
 struct Allocating;
 impl Object for Allocating {
     fn process(&mut self, _inputs: &[Block], _outputs: &mut [Block]) {
         drop(black_box(Vec::<u8>::with_capacity(8)));
+    }
+}
+
+/// Frees memory allocated when it was created, on its first call only: it never
+/// allocates while processing.
+#[derive(Debug)]
+struct Freeing(Option<Vec<u8>>);
+impl Object for Freeing {
+    fn process(&mut self, _inputs: &[Block], _outputs: &mut [Block]) {
+        drop(black_box(self.0.take()));
     }
 }
 
@@ -120,7 +130,17 @@ fn catches_non_deterministic_output() {
 fn catches_allocation_while_processing() {
     let error = check_laws(&spec_with(|_, _| Box::new(Allocating))).expect_err("allocation");
     assert!(
-        error.contains("allocates while processing (8 allocations)"),
+        error.contains("uses the heap while processing (16 heap operations)"),
+        "{error}"
+    );
+}
+
+#[test]
+fn catches_a_release_while_processing() {
+    let spec = spec_with(|_, _| Box::new(Freeing(Some(vec![0_u8; 8]))));
+    let error = check_laws(&spec).expect_err("a release");
+    assert!(
+        error.contains("uses the heap while processing (1 heap operations)"),
         "{error}"
     );
 }
@@ -581,14 +601,4 @@ fn checks_a_registry() {
         Err("other~: missing description".to_owned()),
         "every box is checked"
     );
-}
-
-#[test]
-fn refuses_to_check_without_counted_allocations() {
-    assert_eq!(
-        super::require_counting(0),
-        Err("CountingAllocator is not installed as the global allocator".to_owned()),
-        "no vacuous pass"
-    );
-    assert_eq!(super::require_counting(1), Ok(()), "counted");
 }

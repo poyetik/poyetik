@@ -72,7 +72,7 @@ impl Renderer {
     /// frame are left untouched; a plan without output writes nothing.
     ///
     /// Continues exactly where the previous render stopped, like [`Renderer::render`].
-    /// Does not allocate. Copies one channel at a time, as many frames as both the
+    /// Does not use the heap. Copies one channel at a time, as many frames as both the
     /// current block and `out` still hold.
     pub fn render_into(&mut self, out: &mut [f32]) {
         let channels = self.channels();

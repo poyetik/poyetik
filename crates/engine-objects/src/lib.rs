@@ -23,7 +23,7 @@ pub use osc::OSC;
 /// Every box type of the engine.
 pub static REGISTRY: [&ObjectSpec; 2] = [&OSC, &DAC];
 
-/// The test binary counts allocations, so that the no-allocation law can be checked.
+/// The test binary counts heap operations, so that the no-heap law can be checked.
 #[cfg(test)]
 #[global_allocator]
 static ALLOCATOR: engine_testkit::CountingAllocator = engine_testkit::CountingAllocator;

@@ -156,19 +156,19 @@ mod tests {
     }
 
     #[test]
-    fn renders_without_allocating() {
+    fn renders_without_a_heap_operation() {
         let mut instance = loaded();
-        let ((), allocations) = engine_testkit::allocations_during(|| {
+        let operations = engine_testkit::heap_operations_during(|| {
             for _ in 0_u16..100_u16 {
                 let _: &[engine_core::Block] = instance.process();
             }
         });
-        assert_eq!(allocations, 0, "100 blocks");
+        assert_eq!(operations, Ok(((), 0)), "100 blocks");
         let mut empty = Instance::new();
-        let ((), none) = engine_testkit::allocations_during(|| {
+        let none = engine_testkit::heap_operations_during(|| {
             let _: &[engine_core::Block] = empty.process();
         });
-        assert_eq!(none, 0, "nothing loaded");
+        assert_eq!(none, Ok(((), 0)), "nothing loaded");
     }
 
     #[test]

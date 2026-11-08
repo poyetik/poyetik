@@ -2,14 +2,15 @@
 //! of fuzzing (coverage-guided fuzzing comes with roadmap #3).
 //!
 //! Whatever the bytes, `parse_patch` then `Plan::build` (with the real registry) return
-//! `Ok` or `Err`, never panic; every plan they accept renders finite samples without
-//! allocating. The documents mix arbitrary text with patches built from valid parts and
+//! `Ok` or `Err`, never panic; every plan they accept renders finite samples without a
+//! heap operation. The documents mix arbitrary text with patches built from valid parts and
 //! hostile ones: wrong types, extreme ids, ports and numbers, unknown and repeated keys,
 //! deep nesting, every box type with random parameters and cables.
 
 #![forbid(unsafe_code)]
 
-/// Counts allocations, so that rendering an accepted plan can be checked not to allocate.
+/// Counts heap operations, so that rendering an accepted plan can be checked not to use
+/// the heap.
 #[global_allocator]
 static ALLOCATOR: engine_testkit::CountingAllocator = engine_testkit::CountingAllocator;
 
@@ -19,7 +20,7 @@ mod tests {
 
     use engine_core::{Plan, Renderer, SampleRate};
     use engine_objects::REGISTRY;
-    use engine_testkit::allocations_during;
+    use engine_testkit::heap_operations_during;
     use engine_testkit::runner::runner;
     use proptest::collection::vec;
     use proptest::option::weighted;
@@ -196,9 +197,9 @@ mod tests {
         };
         let mut renderer = Renderer::new(plan);
         let mut samples = vec![0.0_f32; FRAMES.saturating_mul(renderer.channels())];
-        let ((), allocations) = allocations_during(|| renderer.render_into(&mut samples));
-        if allocations > 0 {
-            return Err(format!("{allocations} allocations rendering {text}"));
+        let ((), operations) = heap_operations_during(|| renderer.render_into(&mut samples))?;
+        if operations > 0 {
+            return Err(format!("{operations} heap operations rendering {text}"));
         }
         if samples.iter().any(|sample| !sample.is_finite()) {
             return Err(format!("non-finite samples from {text}"));

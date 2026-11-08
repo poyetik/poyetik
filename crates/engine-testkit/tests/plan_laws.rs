@@ -7,12 +7,13 @@
 //! says), bit for bit: a plan that routes, sums or hands boxes the rate wrongly fails,
 //! not only one that disagrees with itself. Renders are also checked for independence
 //! from the document order and from how the render is split (at a random point, and in
-//! host buffers of every size of the matrix), finiteness, and for not allocating from the
-//! first call on a fresh plan.
+//! host buffers of every size of the matrix), finiteness, and for making no heap
+//! operation (allocation, reallocation or release) from the first call on a fresh plan.
 
 #![forbid(unsafe_code)]
 
-/// Counts allocations, so that rendering a built plan can be checked not to allocate.
+/// Counts heap operations, so that rendering a built plan can be checked not to use the
+/// heap.
 #[global_allocator]
 static ALLOCATOR: engine_testkit::CountingAllocator = engine_testkit::CountingAllocator;
 
@@ -26,7 +27,7 @@ mod tests {
         BLOCK_SIZE, Block, Capability, Connection, CoreError, Node, NodeId, Object, ObjectSpec,
         ParamSpec, Patch, Plan, PortSpec, Renderer, SILENCE, SampleRate,
     };
-    use engine_testkit::allocations_during;
+    use engine_testkit::heap_operations_during;
     use engine_testkit::matrix::{HOST_BUFFER_SIZES, sample_rates};
     use engine_testkit::runner::runner;
     use proptest::collection::vec;
@@ -333,6 +334,37 @@ mod tests {
         samples
     }
 
+    /// Renders `frames` frames of a fresh plan at once: no heap operation from its very
+    /// first call.
+    fn first_render(plan: Plan, frames: usize) -> Result<Vec<f32>, String> {
+        let mut renderer = Renderer::new(plan);
+        let mut whole = vec![0.0_f32; frames.saturating_mul(renderer.channels())];
+        let ((), operations) = heap_operations_during(|| renderer.render_into(&mut whole))?;
+        if operations > 0 {
+            return Err(format!("{operations} heap operations in a first render"));
+        }
+        Ok(whole)
+    }
+
+    /// Processes a fresh plan block by block until `samples` interleaved samples: no
+    /// heap operation from the first block on.
+    fn first_blocks(mut plan: Plan, samples: usize) -> Result<Vec<f32>, String> {
+        let mut block = vec![SILENCE; plan.channels()];
+        let mut processed =
+            Vec::with_capacity(samples.saturating_add(BLOCK_SIZE.saturating_mul(block.len())));
+        while processed.len() < samples {
+            let ((), count) = heap_operations_during(|| plan.process(&mut block))?;
+            if count > 0 {
+                return Err(format!("{count} heap operations while processing a block"));
+            }
+            for frame in 0..BLOCK_SIZE {
+                processed.extend(block.iter().map(|channel| channel[frame]));
+            }
+        }
+        processed.truncate(samples);
+        Ok(processed)
+    }
+
     /// Every law, for one shape at one rate, rendering `frames` split at `split`.
     fn check(shape: &Shape, rate: SampleRate, frames: usize, split: usize) -> Result<(), String> {
         let (nodes, connections) = patch_parts(shape);
@@ -359,13 +391,7 @@ mod tests {
         let order: Vec<NodeId> = plan.execution_order().collect();
         let reference = reference_render(&nodes, &connections, &order, rate, frames);
 
-        // A fresh plan renders without allocating, from its very first call.
-        let mut renderer = Renderer::new(plan);
-        let mut whole = vec![0.0_f32; frames.saturating_mul(renderer.channels())];
-        let ((), allocations) = allocations_during(|| renderer.render_into(&mut whole));
-        if allocations > 0 {
-            return Err(format!("{allocations} allocations in a first render"));
-        }
+        let whole = first_render(plan, frames)?;
         if bits(&whole) != bits(&reference) {
             return Err("the plan differs from the reference renderer".to_owned());
         }
@@ -389,25 +415,11 @@ mod tests {
             }
         }
 
-        // The same patch, advanced block by block from a fresh plan: the same samples,
-        // and no allocation from the first block on.
-        let mut blocks = Plan::build(&patch, &REGISTRY, rate).map_err(|error| error.to_string())?;
-        let mut block = vec![SILENCE; blocks.channels()];
-        let mut processed = Vec::with_capacity(
-            whole
-                .len()
-                .saturating_add(BLOCK_SIZE.saturating_mul(block.len())),
-        );
-        while processed.len() < whole.len() {
-            let ((), count) = allocations_during(|| blocks.process(&mut block));
-            if count > 0 {
-                return Err(format!("{count} allocations while processing a block"));
-            }
-            for frame in 0..BLOCK_SIZE {
-                processed.extend(block.iter().map(|channel| channel[frame]));
-            }
-        }
-        processed.truncate(whole.len());
+        // The same patch, advanced block by block from a fresh plan: the same samples.
+        let processed = first_blocks(
+            Plan::build(&patch, &REGISTRY, rate).map_err(|error| error.to_string())?,
+            whole.len(),
+        )?;
         if bits(&processed) != bits(&whole) {
             return Err("processing block by block differs from rendering".to_owned());
         }
@@ -524,10 +536,73 @@ mod tests {
         assert_eq!(silent, Vec::<f32>::new(), "no output box, no channel");
     }
 
+    /// Frees memory allocated when it was created, on its first call only.
+    #[derive(Debug)]
+    struct Freeing(Option<Vec<f32>>);
+    impl Object for Freeing {
+        fn process(&mut self, _inputs: &[Block], outputs: &mut [Block]) {
+            drop(core::hint::black_box(self.0.take()));
+            for output in outputs {
+                output.fill(0.25);
+            }
+        }
+    }
+    static FREEING: ObjectSpec = ObjectSpec {
+        name: "free~",
+        description: "frees memory on its first call",
+        inlets: &[],
+        outlets: &[PORT],
+        params: &[],
+        capabilities: &[],
+        create: |_, _| Box::new(Freeing(Some(vec![0.0; 8]))),
+    };
+
     #[test]
-    fn counts_allocations() {
-        let ((), allocations) = allocations_during(|| drop(Box::new(0_u8)));
-        assert_eq!(allocations, 1, "the no-allocation law is not vacuous");
+    fn counts_heap_operations() {
+        assert_eq!(
+            heap_operations_during(|| drop(Box::new(0_u8))),
+            Ok(((), 2)),
+            "the no-heap law is not vacuous: an allocation and its release"
+        );
+    }
+
+    #[test]
+    fn refuses_a_plan_whose_box_frees_memory() {
+        // free~ into out~: the release in its first call is seen, rendered at once or
+        // processed block by block.
+        let patch = Patch::new(
+            vec![
+                Node {
+                    id: NodeId(1),
+                    kind: String::from("free~"),
+                    params: BTreeMap::new(),
+                },
+                Node {
+                    id: NodeId(2),
+                    kind: String::from("out~"),
+                    params: BTreeMap::new(),
+                },
+            ],
+            vec![Connection {
+                from: NodeId(1),
+                outlet: 0,
+                to: NodeId(2),
+                inlet: 0,
+            }],
+        )
+        .expect("valid patch");
+        let rate = SampleRate::new(48_000).expect("valid rate");
+        let plan = || Plan::build(&patch, &[&FREEING, &OUT], rate).expect("valid plan");
+        assert_eq!(
+            first_render(plan(), 100),
+            Err("1 heap operations in a first render".to_owned()),
+            "rendered at once"
+        );
+        assert_eq!(
+            first_blocks(plan(), 200),
+            Err("1 heap operations while processing a block".to_owned()),
+            "block by block"
+        );
     }
 
     #[test]

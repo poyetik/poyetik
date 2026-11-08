@@ -217,14 +217,18 @@ mod tests {
         };
         assert_eq!(bits(&actual), bits(&expected), "bit-identical");
 
-        // What the audio thread calls, block after block: no allocation.
-        let ((), allocations) = engine_testkit::allocations_during(|| {
+        // What the audio thread calls, block after block: no heap operation.
+        let operations = engine_testkit::heap_operations_during(|| {
             for _ in 0_u16..100_u16 {
                 let _: *const f32 = core::hint::black_box(engine_process());
                 let _: usize = core::hint::black_box(engine_channels());
             }
         });
-        assert_eq!(allocations, 0, "engine_process does not allocate");
+        assert_eq!(
+            operations,
+            Ok(((), 0)),
+            "engine_process does not use the heap"
+        );
 
         // `engine_load` hands its rate to the engine, at every rate of the matrix.
         for rate in engine_testkit::matrix::sample_rates() {
