@@ -150,10 +150,12 @@ describe("WasmEngine", () => {
   test("checks the interface identity and version before anything else", () => {
     expect(ABI_VERSION).toBe(0x5059_0001);
     // engineFunctions gives every function the same result: here, the version answered.
+    // Far from ours, then one step from ours in the version, and in the identity both ways.
     for (const [answer, shown] of [
       [1, "0x1"],
       [0x5059_0002, "0x50590002"],
-      [0x4d35_0001, "0x4d350001"],
+      [0x505a_0001, "0x505a0001"],
+      [0x5058_0001, "0x50580001"],
     ] as const) {
       const other = handMadeModule({ memory: true, functions: engineFunctions({ i32: answer }) });
       expect(() => WasmEngine.create(other, SINE_PATCH, RATE)).toThrow(new ModuleError(`interface ${shown}, expected 0x50590001`));
