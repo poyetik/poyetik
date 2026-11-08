@@ -15,7 +15,8 @@ function environment(index: number): { timezoneId: string; locale: string } {
   return { timezoneId: inTurn(TIME_ZONES, index), locale: inTurn(LOCALES, index) };
 }
 
-// The page is tested on all three engines: Chromium, Firefox, WebKit (Safari).
+// The page is tested on all three engines, Chromium, Firefox and Playwright's WebKit, at desktop
+// and iPhone sizes; Playwright's WebKit is not Safari (roadmap #18 and #20).
 export default defineConfig({
   testDir: "e2e",
   forbidOnly: true,

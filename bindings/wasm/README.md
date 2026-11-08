@@ -10,7 +10,7 @@ The engine in browsers: a WebAssembly module (Rust crate `engine-wasm`) and its 
 | `ts/web.ts` | Main-thread API: registering the processors, loading a patch, playing it in engine nodes, tapping and capturing what a Web Audio node outputs, rendering offline |
 | `ts/hash.ts` | The canonical render hash in TypeScript, independent of the Rust one |
 | `test/` | Unit tests (Node, with the real module): every conformance case renders with its native reference hash |
-| `e2e/` | End-to-end tests: a test bench page rendering conformance cases offline and live in Chromium, Firefox, WebKit and mobile WebKit |
+| `e2e/` | End-to-end tests: a test bench page rendering conformance cases offline and live in Chromium, Firefox and Playwright's WebKit (desktop and iPhone sizes; not Safari) |
 
 ```sh
 pnpm check   # build, types, lint, unit tests at 100% coverage, no allocation while rendering, reproducible build, end-to-end tests

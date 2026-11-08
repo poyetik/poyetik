@@ -8,7 +8,7 @@ The Rust engine in the browser: a 440 Hz sine with an on/off button and a live o
 | `src/scope.ts` | The oscilloscope as data: scene and measurements, pure functions |
 | `src/draw.ts` | Draws the scene on a Canvas 2D |
 | `src/Oscilloscope.tsx`, `src/App.tsx` | The interface |
-| `e2e/` | End-to-end tests on Chromium, Firefox, WebKit and mobile WebKit, with axe |
+| `e2e/` | End-to-end tests on Chromium, Firefox and Playwright's WebKit (desktop and iPhone sizes; not Safari), with axe |
 
 ```sh
 pnpm dev     # http://localhost:5173 (build bindings/wasm first: pnpm --dir ../../bindings/wasm build)
