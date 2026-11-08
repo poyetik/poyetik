@@ -5,8 +5,9 @@
 //! box type, so a new box cannot escape them.
 //!
 //! Every law is checked at every sample rate of the shared [`matrix`], with the
-//! parameters at their minimum, default and maximum, and at a value away from the default
-//! (see `away_from_default`).
+//! parameters at their minimum, default and maximum, at a value away from the default
+//! (see `away_from_default`), and at `-0.0` and the smallest subnormal (where the range
+//! accepts them).
 //!
 //! The laws:
 //! - **metadata**: names and descriptions are present, port and parameter names are
@@ -14,7 +15,8 @@
 //! - **determinism**: two fresh instances fed the same inputs produce bit-identical
 //!   outputs;
 //! - **finite output**: never NaN or infinity, for random inputs in `[-1, 1]`, the
-//!   special inputs of the [`matrix`] and a long run;
+//!   special inputs of the [`matrix`] and a long run (which reveals late overflow, not
+//!   slow drift: it has no reference);
 //! - **no allocation** while processing (measured by [`CountingAllocator`], which the
 //!   test binary must install as its global allocator).
 

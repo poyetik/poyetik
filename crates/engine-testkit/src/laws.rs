@@ -12,8 +12,11 @@ use crate::matrix::{SPECIAL_INPUTS, sample_rates};
 /// Blocks rendered per run.
 const BLOCKS: usize = 8;
 
-/// Blocks rendered by the long run of each sample rate and parameter set: about one
-/// second at 48 kHz, enough to reveal state that drifts or overflows block after block.
+/// Blocks rendered by the long run of each sample rate and parameter set: 65,536 frames,
+/// 1.4 s at 48 kHz and 0.17 s at 384 kHz. Enough to reveal state that overflows, becomes
+/// non-finite or allocates late; the run is compared with no reference, so slow drift
+/// is not detected here (a drift check against the exact phase is planned with roadmap
+/// #12).
 const LONG_RUN_BLOCKS: usize = 1024;
 
 /// Random input cases tried per law.
@@ -136,14 +139,33 @@ fn away_from_default(param: &ParamSpec) -> f32 {
     }
 }
 
+/// `value` when the range of `param` accepts it (bit for bit, `-0.0` included), else
+/// the default, which another set already tries.
+fn within(param: &ParamSpec, value: f32) -> f32 {
+    if param.accepts(value) {
+        value
+    } else {
+        param.default
+    }
+}
+
 /// Parameter sets every law is checked with: all minimums, all defaults, all values away
-/// from their default, and all maximums.
-fn param_sets(spec: &ObjectSpec) -> [Vec<f32>; 4] {
+/// from their default, all maximums, then the special values a patch can hold (`-0.0`
+/// and the smallest subnormal, `1e-45`) where the range accepts them.
+fn param_sets(spec: &ObjectSpec) -> [Vec<f32>; 6] {
+    let special = |value: f32| {
+        spec.params
+            .iter()
+            .map(|param| within(param, value))
+            .collect()
+    };
     [
         spec.params.iter().map(|param| param.min).collect(),
         spec.params.iter().map(|param| param.default).collect(),
         spec.params.iter().map(away_from_default).collect(),
         spec.params.iter().map(|param| param.max).collect(),
+        special(-0.0),
+        special(f32::from_bits(1)),
     ]
 }
 

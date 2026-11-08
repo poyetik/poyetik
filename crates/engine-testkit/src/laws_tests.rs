@@ -126,18 +126,87 @@ fn catches_allocation_while_processing() {
 }
 
 #[test]
-fn tries_every_case_at_every_rate_with_four_parameter_sets() {
+fn checks_parameters_at_negative_zero_and_the_smallest_subnormal() {
+    // NaN only for a parameter of -0.0, then only for a subnormal parameter: neither is
+    // a minimum, default, midpoint or maximum.
+    let negative_zero = spec_with(|_, params| {
+        if params.first().map(|value| value.to_bits()) == Some(0x8000_0000) {
+            Box::new(Nan)
+        } else {
+            Box::new(Gain(1.0))
+        }
+    });
+    let error = check_laws(&negative_zero).expect_err("-0.0 is tried");
+    assert!(error.contains("with parameters [-0.0]"), "{error}");
+    let subnormal = spec_with(|_, params| {
+        if params.first().is_some_and(|value| value.is_subnormal()) {
+            Box::new(Nan)
+        } else {
+            Box::new(Gain(1.0))
+        }
+    });
+    let failure = check_laws(&subnormal).expect_err("a subnormal is tried");
+    assert!(failure.contains("with parameters [1e-45]"), "{failure}");
+}
+
+#[test]
+fn tries_special_parameter_values_only_within_the_range() {
+    const POSITIVE: ParamSpec = ParamSpec {
+        default: 2.0,
+        min: 1.0,
+        max: 3.0,
+        ..GAIN
+    };
+    const NEGATIVE: ParamSpec = ParamSpec {
+        default: -2.0,
+        min: -3.0,
+        max: -1.0,
+        ..GAIN
+    };
+    let bits = |param: &'static ParamSpec| {
+        super::param_sets(&ObjectSpec {
+            params: core::slice::from_ref(param),
+            ..GOOD
+        })
+        .map(|set| set.iter().map(|value| value.to_bits()).collect::<Vec<_>>())
+    };
+    assert_eq!(
+        bits(&GAIN),
+        [
+            vec![0.0_f32.to_bits()],
+            vec![0.5_f32.to_bits()],
+            vec![0.75_f32.to_bits()],
+            vec![1.0_f32.to_bits()],
+            vec![0x8000_0000],
+            vec![0x0000_0001],
+        ],
+        "[0, 1]: minimum, default, away from the default, maximum, -0.0, 1e-45"
+    );
+    assert_eq!(
+        bits(&POSITIVE)[4..],
+        [vec![2.0_f32.to_bits()], vec![2.0_f32.to_bits()]],
+        "above zero: the default instead"
+    );
+    assert_eq!(
+        bits(&NEGATIVE)[4..],
+        [vec![(-2.0_f32).to_bits()], vec![(-2.0_f32).to_bits()]],
+        "below zero: the default instead"
+    );
+}
+
+#[test]
+fn tries_every_case_at_every_rate_with_six_parameter_sets() {
     static CREATED: AtomicU16 = AtomicU16::new(0);
     let spec = spec_with(|_, _| {
         let _: u16 = CREATED.fetch_add(1, Ordering::Relaxed);
         Box::new(Gain(1.0))
     });
     assert_eq!(check_laws(&spec), Ok(()), "a correct box");
-    // Per rate: (special inputs + 32 random cases) x 4 parameter sets x 2 runs, plus a
+    // Per rate: (special inputs + 32 random cases) x 6 parameter sets x 2 runs, plus a
     // long run per parameter set.
     assert_eq!(
         usize::from(CREATED.load(Ordering::Relaxed)),
-        crate::matrix::SAMPLE_RATES.len() * ((1 + 32) * 4 * 2 + 4),
+        crate::matrix::SAMPLE_RATES.len() * ((1 + 32) * 6 * 2 + 6),
         "every rate, case and parameter set"
     );
 }
@@ -296,7 +365,7 @@ fn feeds_random_inputs() {
 }
 
 #[test]
-fn runs_long_enough_to_reveal_drift() {
+fn runs_long_enough_to_reveal_late_failures() {
     // Breaks only after 512 blocks: the short runs never see it.
     #[derive(Debug)]
     struct Drifts(u32);

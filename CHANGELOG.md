@@ -47,6 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Playground: the oscilloscope repaints only while playing; stopped, suspended or failed, it is drawn once (the grid and dashes) instead of being redrawn at the display rate, forever, on a page where nothing plays.
+- The box laws (`engine-testkit`) also try every parameter at `-0.0` and at the smallest subnormal (`1e-45`), where its range accepts them; the long run is documented for what it reveals (late overflow, non-finite output, late allocation), not slow drift, which it has no reference to detect.
 - Patch format: port indices range from 0 to 65535, read as 16-bit integers. A larger index was accepted by the native reader and rejected by the WebAssembly one (whose pointers are 32 bits wide), so the same patch failed differently on each target; every target now rejects it while reading.
 - The roadmap page shows its columns in classic kanban order, Later, Next, In progress, Done, from left to right; on a phone, where the columns stack, In progress still comes first.
 - **Breaking:** the project is named Poyetik. Every package is `@poyetik/…`, and the WebAssembly module's interface identity is now "PY" (`0x5059_0001`): a module built before the rename is refused by the new JavaScript side, and the reverse.
