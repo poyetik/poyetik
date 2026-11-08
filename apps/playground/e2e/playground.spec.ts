@@ -31,7 +31,7 @@ test.afterEach(() => {
 
 test("plays the 440 Hz sine of the engine and shows it live", async ({ page }) => {
   await page.goto("./?muted");
-  await expect(page).toHaveTitle("Playground · poyetik");
+  await expect(page).toHaveTitle("Playground · Poyetik");
   await expect(page.getByRole("status")).toHaveText("Stopped");
   await expect(page.getByTestId("frequency")).toHaveText("—");
 
