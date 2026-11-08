@@ -13,9 +13,10 @@ const WAV = makeWav({ rate: 8000, channels: 1, samples: sineSamples(1, 32, 8000,
 const CHANNEL = { sine: { frequency: 1000, amplitude: 1, phase: 0 } };
 
 /** Files in memory, and what the command printed. */
-function memory(files: Record<string, string | Uint8Array>): Io & { lines: string[]; errors: string[] } {
+function memory(files: Record<string, string | Uint8Array>): Io & { lines: string[]; errors: string[]; limits: Map<string, number> } {
   const lines: string[] = [];
   const errors: string[] = [];
+  const limits = new Map<string, number>();
   const get = (path: string): string | Uint8Array => {
     const file = files[path];
     if (file === undefined) {
@@ -26,9 +27,15 @@ function memory(files: Record<string, string | Uint8Array>): Io & { lines: strin
   return {
     lines,
     errors,
-    readBytes: (path) => {
+    limits,
+    readBytes: (path, limit) => {
+      limits.set(path, limit);
       const file = get(path);
-      return typeof file === "string" ? new TextEncoder().encode(file) : file;
+      const bytes = typeof file === "string" ? new TextEncoder().encode(file) : file;
+      if (bytes.length > limit) {
+        throw new Error(`cannot read ${path}: larger than ${String(limit)} bytes`);
+      }
+      return bytes;
     },
     list: (dir) =>
       Object.keys(files)
@@ -67,12 +74,31 @@ describe("main", () => {
     expect(io.errors).toStrictEqual(["error: oracle failed: 1 problem(s)"]);
   });
 
+  test("reads each file with the limit of its kind, as engine-cli does", () => {
+    const io = memory(corpus({ tone: renderHash(parseWav(WAV)) }));
+    expect(main(["conf", "wav"], io)).toBe(0);
+    expect(io.limits).toStrictEqual(
+      new Map([
+        ["conf/cases/tone.json", 65_536],
+        ["conf/references.json", 1_048_576],
+        ["conf/expectations.json", 1_048_576],
+        ["wav/tone.wav", 2 ** 32 + 7],
+      ]),
+    );
+    const large = memory({ ...corpus({ tone: renderHash(parseWav(WAV)) }), "conf/cases/tone.json": `{"sample_rate":8000,"frames":32}${" ".repeat(65_536)}` });
+    expect(main(["conf", "wav"], large)).toBe(1);
+    expect(large.errors).toStrictEqual(["error: cannot read conf/cases/tone.json: larger than 65536 bytes"]);
+  });
+
   test("fails on unreadable or invalid inputs", () => {
-    const io = memory({ "conf/cases/tone.json": "{" });
+    const io = memory({ ...corpus({ tone: renderHash(parseWav(WAV)) }), "conf/cases/tone.json": "{" });
     expect(main(["conf", "wav"], io)).toBe(1);
-    expect(io.errors).toHaveLength(1);
-    expect(io.errors[0]).toMatch(/^error: conf\/cases\/tone\.json: SyntaxError: /);
-    expect(io.lines).toStrictEqual([]);
+    expect(io.lines).toHaveLength(1);
+    expect(io.lines[0]).toMatch(/^FAIL {5}tone: invalid conformance input: tone: not JSON \(SyntaxError: /);
+    const unreadable = memory({ ...corpus({}), "conf/references.json": "{" });
+    expect(main(["conf", "wav"], unreadable)).toBe(1);
+    expect(unreadable.errors).toHaveLength(1);
+    expect(unreadable.errors[0]).toMatch(/^error: conf\/references\.json: SyntaxError: /);
     const missing = memory({});
     expect(main(["conf", "wav"], missing)).toBe(1);
     expect(missing.errors).toStrictEqual(["error: ENOENT: conf/references.json"]);
@@ -167,13 +193,13 @@ describe("untrusted text in its output", () => {
 
 describe("readJson", () => {
   test("parses a JSON file", () => {
-    expect(readJson(memory({ "a.json": '{"x":[1]}' }), "a.json")).toStrictEqual({ x: [1] });
+    expect(readJson(memory({ "a.json": '{"x":[1]}' }), "a.json", 9)).toStrictEqual({ x: [1] });
   });
 
   test("names the file and keeps the parser's error as the cause", () => {
     let thrown: unknown;
     try {
-      readJson(memory({ "a.json": "{" }), "a.json");
+      readJson(memory({ "a.json": "{" }), "a.json", 9);
     } catch (error) {
       thrown = error;
     }
@@ -187,7 +213,7 @@ describe("readJson", () => {
     for (const bytes of [[0x7b, 0xff, 0x7d], [0x7b, 0x7d, 0xc3]]) {
       let thrown: unknown;
       try {
-        readJson(memory({ "a.json": new Uint8Array(bytes) }), "a.json");
+        readJson(memory({ "a.json": new Uint8Array(bytes) }), "a.json", 9);
       } catch (error) {
         thrown = error;
       }

@@ -226,15 +226,16 @@ fn rejects_every_case_of_the_shared_invalid_corpus() {
     let mut count = 0_u32;
     for entry in std::fs::read_dir(&dir).expect("the invalid corpus") {
         let path = entry.expect("an entry").path();
-        let case = std::fs::read_to_string(&path).expect("a case file");
-        assert!(
-            matches!(super::prepare_case(&case, PATCH), Err(CaseError::Case(_))),
-            "{} is rejected",
-            path.display()
-        );
+        // Read as the commands read it, through the size limit: the corpus holds a file
+        // above it.
+        let refused = match Disk.read(&path, super::MAX_CASE_BYTES) {
+            Err(error) => error.kind() == io::ErrorKind::FileTooLarge,
+            Ok(case) => matches!(super::prepare_case(&case, PATCH), Err(CaseError::Case(_))),
+        };
+        assert!(refused, "{} is rejected", path.display());
         count += 1;
     }
-    assert!(count >= 2, "{count} invalid cases");
+    assert!(count >= 8, "{count} invalid cases");
 }
 
 #[test]

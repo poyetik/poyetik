@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { InputError, parseCase, parseExpectations, parseReferences } from "../src/inputs.ts";
+import { InputError, MAX_RATE, MIN_RATE, parseCase, parseExpectations, parseReferences } from "../src/inputs.ts";
 
 /** A well-formed SHA-256 hash: 64 lowercase hexadecimal digits. */
 const HASH = "a".repeat(64);
@@ -7,25 +7,49 @@ const HASH = "a".repeat(64);
 const CHANNEL = { sine: { frequency: 440, amplitude: 1, phase: 0.5 } };
 
 describe("parseCase", () => {
-  test("reads the rate and the duration", () => {
-    expect(parseCase({ sample_rate: 48_000, frames: 10, patch: {} }, "c")).toStrictEqual({ rate: 48_000, frames: 10 });
-    expect(parseCase({ sample_rate: 48_000, frames: 2 ** 29 }, "c")).toStrictEqual({ rate: 48_000, frames: 2 ** 29 });
+  test("reads the rate and the duration, from the lowest supported rate to the highest", () => {
+    expect(parseCase('{"sample_rate":48000,"frames":10}', "c")).toStrictEqual({ rate: 48_000, frames: 10 });
+    expect(parseCase('{ "frames" : 536870912 , "sample_rate" : 8000 }', "c")).toStrictEqual({ rate: 8000, frames: 2 ** 29 });
+    expect(parseCase('{"sample_rate":384000,"frames":1}', "c")).toStrictEqual({ rate: 384_000, frames: 1 });
   });
 
   test.each([
-    [{ frames: 10 }, "c: sample_rate is not a finite number"],
-    [{ sample_rate: 48_000 }, "c: frames is not a finite number"],
-    [{ sample_rate: "48000", frames: 10 }, "c: sample_rate is not a finite number"],
-    [{ sample_rate: 48_000, frames: Number.POSITIVE_INFINITY }, "c: frames is not a finite number"],
-    [{ sample_rate: 48_000.5, frames: 10 }, "c: sample_rate is not a positive whole number"],
-    [{ sample_rate: 48_000, frames: 0 }, "c: frames is not a positive whole number"],
-    [{ sample_rate: 48_000, frames: -1 }, "c: frames is not a positive whole number"],
+    ['{"frames":10}', "c: sample_rate is not a finite number"],
+    ['{"sample_rate":48000}', "c: frames is not a finite number"],
+    ['{"sample_rate":"48000","frames":10}', "c: sample_rate is not a finite number"],
+    ['{"sample_rate":48000,"frames":10,"patch":{}}', "c: unknown field patch"],
+    ['{"sample_rate":48000,"frames":10,"note":"x"}', "c: unknown field note"],
+    ['{"sample_rate":48000.5,"frames":10}', "c: sample_rate is not a positive whole number"],
+    ['{"sample_rate":48000.0,"frames":10}', "c: sample_rate is not a whole number written without fraction or exponent"],
+    ['{"sample_rate":48000,"frames":100.0}', "c: frames is not a whole number written without fraction or exponent"],
+    ['{"sample_rate":48000,"frames":1e2}', "c: frames is not a whole number written without fraction or exponent"],
+    ['{"sample_rate":48000,"frames":1E2}', "c: frames is not a whole number written without fraction or exponent"],
+    ['{"sample_rate":48000,"frames":0}', "c: frames is not a positive whole number"],
+    ['{"sample_rate":48000,"frames":-1}', "c: frames is not a positive whole number"],
+    ['{"sample_rate":48000,"frames":-0}', "c: frames is not a positive whole number"],
     // The same domain as the expectations: 1 to 2^29 frames.
-    [{ sample_rate: 48_000, frames: 2 ** 29 + 1 }, "c: frames is above 536870912, the longest case with an exact reference"],
-    [null, "c: sample_rate is not a finite number"],
-    ["case", "c: sample_rate is not a finite number"],
-  ])("rejects %o", (value, detail) => {
-    expect(() => parseCase(value, "c")).toThrow(new InputError(detail));
+    ['{"sample_rate":48000,"frames":536870913}', "c: frames is above 536870912, the longest case with an exact reference"],
+    // The engine's range of rates, as engine-cli refuses the case.
+    ['{"sample_rate":7999,"frames":10}', "c: sample_rate is not a supported sample rate (8000 to 384000 Hz)"],
+    ['{"sample_rate":384001,"frames":10}', "c: sample_rate is not a supported sample rate (8000 to 384000 Hz)"],
+    ['{"sample_rate":4294967296,"frames":10}', "c: sample_rate is not a supported sample rate (8000 to 384000 Hz)"],
+    ["null", "c is not an object"],
+    ['"case"', "c is not an object"],
+    ["[48000,10]", "c is not an object"],
+    ["{", "c: not JSON (SyntaxError: Expected property name or '}' in JSON at position 1 (line 1 column 2))"],
+  ])("rejects %s", (text, detail) => {
+    expect(() => parseCase(text, "c")).toThrow(new InputError(detail));
+  });
+
+  test("refuses a deeply nested text without overflowing the stack", () => {
+    // 20 KB of nesting, within the 64 KiB of a case file: a reviver recursing through it overflows.
+    const nested = `${"[".repeat(10_000)}${"]".repeat(10_000)}`;
+    expect(() => parseCase(nested, "c")).toThrow(new InputError("c is not an object"));
+    expect(() => parseCase(`{"sample_rate":48000,"frames":${nested}}`, "c")).toThrow(new InputError("c: frames is not a finite number"));
+  });
+
+  test("states the engine's range of rates", () => {
+    expect([MIN_RATE, MAX_RATE]).toStrictEqual([8000, 384_000]);
   });
 });
 
@@ -58,6 +82,8 @@ describe("parseExpectations", () => {
 
   test.each([
     [[], "expectations.json is not an object"],
+    [{ a: null }, "expectations.json: a: channels is not a non-empty list"],
+    [{ a: { sample_rate: 8000, frames: 4, channels: [{ sine: null }] } }, "expectations.json: a: channel 0: sine.frequency is not a finite number"],
     [{ a: { sample_rate: 8000, frames: 4 } }, "expectations.json: a: channels is not a non-empty list"],
     [{ a: { sample_rate: 8000, frames: 4, channels: [] } }, "expectations.json: a: channels is not a non-empty list"],
     [{ a: { frames: 4, channels: [CHANNEL] } }, "expectations.json: a: sample_rate is not a finite number"],

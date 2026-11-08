@@ -17,9 +17,18 @@ export class InputError extends Error {
   }
 }
 
+/**
+ * Lowest sample rate the engine supports, in hertz (`engine_core::SampleRate::MIN`): a
+ * case or an expectation below it is refused, as `engine-cli` refuses the case.
+ */
+export const MIN_RATE = 8000;
+
+/** Highest sample rate the engine supports, in hertz (`engine_core::SampleRate::MAX`). */
+export const MAX_RATE = 384_000;
+
 /** What a case declares: its rate and duration. */
 export interface Case {
-  /** Sample rate, in hertz: a whole number the engine supports. */
+  /** Sample rate, in hertz: a whole number from {@link MIN_RATE} to {@link MAX_RATE}. */
   readonly rate: number;
   /** Duration of the render, in frames (samples per channel), from 1 to `MAX_FRAMES`. */
   readonly frames: number;
@@ -109,6 +118,15 @@ function frames(value: unknown, where: string): number {
   return read;
 }
 
+/** Reads a sample rate the engine supports, from {@link MIN_RATE} to {@link MAX_RATE} hertz, or rejects `where`. */
+function sampleRate(value: unknown, where: string): number {
+  const read = count(value, where);
+  if (read < MIN_RATE || read > MAX_RATE) {
+    throw new InputError(`${where} is not a supported sample rate (${String(MIN_RATE)} to ${String(MAX_RATE)} Hz)`);
+  }
+  return read;
+}
+
 /** The entries of a JSON object, or rejects `where`. */
 function entries(value: unknown, where: string): [string, unknown][] {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -117,9 +135,52 @@ function entries(value: unknown, where: string): [string, unknown][] {
   return Object.entries(value);
 }
 
-/** Reads a case file: its sample rate and duration (the same domain as the expectations). */
-export function parseCase(value: unknown, name: string): Case {
-  return { rate: count(field(value, "sample_rate"), `${name}: sample_rate`), frames: frames(field(value, "frames"), `${name}: frames`) };
+/** Rejects `where` if the JSON object `value` has a field not in `keys` (a missing one is rejected by its reader). */
+function onlyKeys(value: unknown, keys: readonly string[], where: string, why = ""): void {
+  const extra = entries(value, where).find(([key]) => !keys.includes(key));
+  if (extra !== undefined) {
+    throw new InputError(`${where}: unknown field ${extra[0]}${why}`);
+  }
+}
+
+/**
+ * A `JSON.parse` reviver that refuses any number not written as a whole number, without
+ * fraction or exponent (`100.0`, `1e2`), as the engine's reader refuses it for an integer
+ * field: it reads the text of each number (`context.source`), which the parsed value
+ * has lost.
+ */
+function wholeNumbers(name: string): (this: unknown, key: string, value: unknown, ...context: unknown[]) => unknown {
+  return (key, value, ...context) => {
+    if (typeof value === "number" && !/^-?\d+$/.test(String(field(context[0], "source")))) {
+      throw new InputError(`${name}: ${key} is not a whole number written without fraction or exponent`);
+    }
+    return value;
+  };
+}
+
+/**
+ * Reads the text of a case file, as `engine-cli` reads it: a JSON object with exactly the
+ * fields `sample_rate` (a sample rate the engine supports) and `frames` (1 to
+ * `MAX_FRAMES`), each a whole number written without fraction or exponent.
+ *
+ * The text is parsed twice. First plainly (`JSON.parse` does not recurse, however deep
+ * the text), to check the fields and their values; then, once it is known to be a flat
+ * object of two numbers, with the reviver that checks how the numbers are written: a
+ * reviver walks the value recursively, and a deeply nested text (a few kilobytes of `[`)
+ * would overflow the stack.
+ * @throws {InputError} Naming the case `name`, when the text is not such an object.
+ */
+export function parseCase(text: string, name: string): Case {
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch (error) {
+    throw new InputError(`${name}: not JSON (${String(error)})`);
+  }
+  onlyKeys(value, ["sample_rate", "frames"], name);
+  const read = { rate: sampleRate(field(value, "sample_rate"), `${name}: sample_rate`), frames: frames(field(value, "frames"), `${name}: frames`) };
+  JSON.parse(text, wholeNumbers(name));
+  return read;
 }
 
 /** Reads `references.json`: case name → hash. */
@@ -139,10 +200,7 @@ export function parseReferences(value: unknown): Map<string, string> {
  * frequency lies in [0, 4 × `rate`), the domain `sineErrorBound` is derived for.
  */
 function parseChannel(value: unknown, rate: number, where: string): ChannelExpectation {
-  const extra = entries(value, where).find(([key]) => key !== "sine");
-  if (extra !== undefined) {
-    throw new InputError(`${where}: unknown field ${extra[0]} (tolerances are derived, not declared)`);
-  }
+  onlyKeys(value, ["sine"], where, " (tolerances are derived, not declared)");
   const sine = field(value, "sine");
   const frequency = binary32(field(sine, "frequency"), `${where}: sine.frequency`);
   if (!(frequency >= 0 && frequency < 4 * rate)) {
@@ -166,7 +224,7 @@ export function parseExpectations(value: unknown): Map<string, Expectation> {
       if (!Array.isArray(channels) || channels.length === 0) {
         throw new InputError(`${where}: channels is not a non-empty list`);
       }
-      const rate = count(field(expectation, "sample_rate"), `${where}: sample_rate`);
+      const rate = sampleRate(field(expectation, "sample_rate"), `${where}: sample_rate`);
       return [
         name,
         {

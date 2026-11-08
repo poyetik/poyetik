@@ -165,6 +165,9 @@ importers:
       '@poyetik/config':
         specifier: workspace:*
         version: link:../../tooling/config
+      '@poyetik/oracle':
+        specifier: workspace:*
+        version: link:../../tooling/oracle
       '@stryker-mutator/core':
         specifier: 'catalog:'
         version: 10.1.1(@types/node@22.18.13)

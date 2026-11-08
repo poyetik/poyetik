@@ -3,6 +3,7 @@
 // reference hash, and the shared test matrix. What no file holds is built here: small
 // patches, and hand-made modules that break the engine interface in one way each.
 import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { parseCase } from "@poyetik/oracle/inputs";
 
 /**
  * The conformance corpus, found by walking up from this file: the tests also run from
@@ -58,13 +59,14 @@ function jsonNames(directory: string): string[] {
     .sort();
 }
 
-/** Every case of the corpus, sorted by name. */
+/** Every case of the corpus, sorted by name, each read as the oracle reads it. */
 export const CORPUS: readonly CorpusCase[] = jsonNames("cases/").map((name) => {
-  const json: unknown = JSON.parse(readFileSync(new URL(`cases/${name}.json`, CONFORMANCE), "utf8"));
+  // Read by the oracle's parser, which accepts and refuses the same case files as engine-cli.
+  const { rate, frames } = parseCase(readFileSync(new URL(`cases/${name}.json`, CONFORMANCE), "utf8"), name);
   return {
     name,
-    rate: Number(field(json, "sample_rate")),
-    frames: Number(field(json, "frames")),
+    rate,
+    frames,
     patch: new Uint8Array(readFileSync(new URL(`patches/${name}.json`, CONFORMANCE))),
   };
 });

@@ -1,7 +1,7 @@
 /** Entry point: `node src/bin.ts <conformance dir> <dir of exported WAV files>`, or `node src/bin.ts help`. */
 
-import { readFileSync, readdirSync } from "node:fs";
 import { guardStreams, main } from "./cli.ts";
+import { listNames, readBounded } from "./files.ts";
 
 guardStreams(process.stdout, process.stderr, () => {
   // Stream errors come after `main` has set the exit code: a 1 or a 2 already tells a
@@ -11,8 +11,8 @@ guardStreams(process.stdout, process.stderr, () => {
   }
 });
 process.exitCode = main(process.argv.slice(2), {
-  readBytes: (path) => readFileSync(path),
-  list: (dir) => readdirSync(dir),
+  readBytes: readBounded,
+  list: listNames,
   out: (line) => {
     process.stdout.write(`${line}\n`);
   },

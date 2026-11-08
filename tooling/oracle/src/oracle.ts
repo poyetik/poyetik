@@ -11,8 +11,8 @@ import { WavError, parseWav } from "./wav.ts";
 
 /** Everything the oracle reads, as found on disk. */
 export interface Corpus {
-  /** Case name → the parsed JSON of its case file. */
-  readonly cases: ReadonlyMap<string, unknown>;
+  /** Case name → the text of its case file, parsed by `parseCase` (which needs the text of its numbers). */
+  readonly cases: ReadonlyMap<string, string>;
   /** The parsed JSON of `references.json`. */
   readonly references: unknown;
   /** The parsed JSON of `expectations.json`. */
@@ -33,7 +33,7 @@ export interface Verdict {
 type Judgement = { readonly ok: string } | { readonly problems: readonly string[] };
 
 /** Judges one case whose four inputs are all present. */
-function judgeCase(name: string, raw: unknown, reference: string, expectation: Expectation, bytes: Uint8Array): Judgement {
+function judgeCase(name: string, raw: string, reference: string, expectation: Expectation, bytes: Uint8Array): Judgement {
   let wav;
   let declared;
   try {

@@ -7,10 +7,29 @@ import { judge } from "./oracle.ts";
 /** Usage of the command, printed on stdout by `oracle help`. */
 export const USAGE = "usage: oracle <conformance dir> <dir of exported WAV files>\n       oracle help";
 
+/** Largest case file, in bytes: 64 KiB, as `engine-cli` reads it (`MAX_CASE_BYTES`). */
+export const MAX_CASE_BYTES = 64 * 1024;
+
+/** Largest `references.json`, in bytes: 1 MiB, as `engine-cli` reads it (`MAX_REFERENCES_BYTES`). */
+export const MAX_REFERENCES_BYTES = 1024 * 1024;
+
+/** Largest `expectations.json`, in bytes: 1 MiB, the limit of `references.json`, which lists the same cases. */
+export const MAX_EXPECTATIONS_BYTES = 1024 * 1024;
+
+/**
+ * Largest WAV file, in bytes: what a RIFF header can declare, its 32-bit size field
+ * (2^32 − 1) plus the 8 bytes of the `RIFF` tag and that field; a larger file cannot be a
+ * valid WAV file.
+ */
+export const MAX_WAV_BYTES = 2 ** 32 + 7;
+
 /** What the command needs from the outside world. */
 export interface Io {
-  /** The bytes of the file at `path`; throws when it cannot be read (the message names it). */
-  readonly readBytes: (path: string) => Uint8Array;
+  /**
+   * The bytes of the regular file at `path`, of at most `limit` bytes, reading no more
+   * than one byte past it; throws when it cannot be read or is larger (the message names it).
+   */
+  readonly readBytes: (path: string, limit: number) => Uint8Array;
   /** The names of the entries of the directory `dir`, in any order; throws when it cannot be listed. */
   readonly list: (dir: string) => readonly string[];
   /** Prints one line on stdout: a verdict or the usage. */
@@ -30,15 +49,30 @@ function byName<T>(io: Io, dir: string, extension: string, read: (path: string) 
 }
 
 /**
- * Reads and parses the JSON file at `path`, as strict UTF-8: a byte that is not UTF-8 is
- * refused, never replaced, as the engine's own reader refuses it.
- * @throws {Error} Naming `path` when the file is not UTF-8 or not JSON, with the decoder's
- * or the parser's error as its cause.
+ * Reads the text file at `path`, of at most `limit` bytes, as strict UTF-8: a byte that is
+ * not UTF-8 is refused, never replaced, as the engine's own reader refuses it.
+ * @throws {Error} Naming `path` when the file cannot be read, is larger than `limit` or is
+ * not UTF-8, with the decoder's error as its cause.
  */
-export function readJson(io: Io, path: string): unknown {
-  const bytes = io.readBytes(path);
+function readText(io: Io, path: string, limit: number): string {
+  const bytes = io.readBytes(path, limit);
   try {
-    return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch (error) {
+    throw new Error(`${path}: ${String(error)}`, { cause: error });
+  }
+}
+
+/**
+ * Reads and parses the JSON file at `path`, of at most `limit` bytes, as strict UTF-8 (see
+ * {@link readText}).
+ * @throws {Error} Naming `path` when the file cannot be read, is larger than `limit`, or is
+ * not UTF-8 or not JSON, with the decoder's or the parser's error as its cause.
+ */
+export function readJson(io: Io, path: string, limit: number): unknown {
+  const text = readText(io, path, limit);
+  try {
+    return JSON.parse(text);
   } catch (error) {
     throw new Error(`${path}: ${String(error)}`, { cause: error });
   }
@@ -68,12 +102,11 @@ export function main(args: readonly string[], io: Io): number {
   }
   const [conformance, wavs] = args;
   try {
-    const json = (path: string): unknown => readJson(io, path);
     const verdict = judge({
-      cases: byName(io, join(conformance, "cases"), ".json", json),
-      references: json(join(conformance, "references.json")),
-      expectations: json(join(conformance, "expectations.json")),
-      wavs: byName(io, wavs, ".wav", io.readBytes),
+      cases: byName(io, join(conformance, "cases"), ".json", (path) => readText(io, path, MAX_CASE_BYTES)),
+      references: readJson(io, join(conformance, "references.json"), MAX_REFERENCES_BYTES),
+      expectations: readJson(io, join(conformance, "expectations.json"), MAX_EXPECTATIONS_BYTES),
+      wavs: byName(io, wavs, ".wav", (path) => io.readBytes(path, MAX_WAV_BYTES)),
     });
     for (const line of verdict.lines) {
       io.out(oneLine(line));

@@ -30,6 +30,7 @@
   },
   "devDependencies": {
     "@poyetik/config": "workspace:*",
+    "@poyetik/oracle": "workspace:*",
     "@playwright/test": "catalog:",
     "@stryker-mutator/core": "catalog:",
     "@stryker-mutator/vitest-runner": "catalog:",

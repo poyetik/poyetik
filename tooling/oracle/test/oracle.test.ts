@@ -18,7 +18,7 @@ const HASH = renderHash(parseWav(WAV));
 /** A corpus with one passing case, `sine`, changed by `change`. */
 function corpus(change: Partial<Corpus> = {}): Corpus {
   return {
-    cases: new Map([["sine", { sample_rate: RATE, frames: FRAMES }]]),
+    cases: new Map([["sine", JSON.stringify({ sample_rate: RATE, frames: FRAMES })]]),
     references: { sine: HASH },
     expectations: { sine: { sample_rate: RATE, frames: FRAMES, channels: [CHANNEL, CHANNEL] } },
     wavs: new Map([["sine", WAV]]),
@@ -69,7 +69,7 @@ describe("judge", () => {
   test("checks the rate, the duration and the channels against the case and the expectations", () => {
     const verdict = judge(
       corpus({
-        cases: new Map([["sine", { sample_rate: RATE * 2, frames: FRAMES + 1 }]]),
+        cases: new Map([["sine", JSON.stringify({ sample_rate: RATE * 2, frames: FRAMES + 1 })]]),
         expectations: { sine: { sample_rate: RATE + 1, frames: FRAMES - 1, channels: [CHANNEL, CHANNEL, CHANNEL] } },
       }),
     );
@@ -111,7 +111,7 @@ describe("judge", () => {
 
   test("reports what is missing for each case, sorted by name", () => {
     const verdict = judge({
-      cases: new Map([["b", {}]]),
+      cases: new Map([["b", "{}"]]),
       references: { c: HASH },
       expectations: { a: { sample_rate: RATE, frames: FRAMES, channels: [CHANNEL] } },
       wavs: new Map([["d", WAV]]),
@@ -128,15 +128,19 @@ describe("judge", () => {
   });
 
   test("reports an invalid case file or WAV file as a problem of that case", () => {
-    expect(judge(corpus({ cases: new Map([["sine", {}]]) })).lines).toStrictEqual(["FAIL     sine: invalid conformance input: sine: sample_rate is not a finite number"]);
+    expect(judge(corpus({ cases: new Map([["sine", "{}"]]) })).lines).toStrictEqual(["FAIL     sine: invalid conformance input: sine: sample_rate is not a finite number"]);
     expect(judge(corpus({ wavs: new Map([["sine", new Uint8Array(3)]]) })).lines).toStrictEqual(["FAIL     sine: invalid WAV file: not a RIFF WAVE file"]);
   });
 
   test("lets other errors through", () => {
-    const hostile = { get sample_rate(): number {
-      throw new RangeError("boom");
-    } };
-    expect(() => judge(corpus({ cases: new Map([["sine", hostile]]) }))).toThrow(new RangeError("boom"));
+    /** Bytes whose length cannot be read: an error that is neither an input nor a WAV error. */
+    class Hostile extends Uint8Array {
+      /** Throws, as a bug would. */
+      override get length(): number {
+        throw new RangeError("boom");
+      }
+    }
+    expect(() => judge(corpus({ wavs: new Map([["sine", new Hostile(WAV)]]) }))).toThrow(new RangeError("boom"));
   });
 
   test("rejects invalid references or expectations as a whole", () => {
