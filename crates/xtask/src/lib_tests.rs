@@ -1418,6 +1418,30 @@ fn accepts_only_fully_covered_typescript_packages() {
         ),
         "every kind is checked"
     );
+    assert_eq!(
+        ts_coverage_gate(
+            "p",
+            r#"{"total":{"lines":{"total":1,"covered":1},"statements":{"total":1,"covered":1},"functions":{"total":1,"covered":1},"branches":{"total":0,"covered":0}}}"#
+        ),
+        Ok(()),
+        "code without a branch, every line covered"
+    );
+    assert_eq!(
+        ts_coverage_gate(
+            "p",
+            r#"{"total":{"lines":{"total":0,"covered":0},"statements":{"total":0,"covered":0},"functions":{"total":0,"covered":0},"branches":{"total":0,"covered":0}}}"#
+        ),
+        Err("p: coverage is not 100%: lines not measured, statements not measured, functions not measured".to_owned()),
+        "a report that measured nothing"
+    );
+    assert_eq!(
+        ts_coverage_gate(
+            "p",
+            r#"{"total":{"lines":{"total":1,"covered":1},"statements":{"total":1,"covered":1},"functions":{"total":1,"covered":1}}}"#
+        ),
+        Err("p: coverage is not 100%: no branches total".to_owned()),
+        "branches absent, not zero"
+    );
     assert!(
         ts_coverage_gate("p", "nope")
             .is_err_and(|error| error.starts_with("p: invalid coverage summary: ")),

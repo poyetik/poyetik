@@ -470,8 +470,10 @@ pub fn coverage_gate(report: &str) -> Result<(), String> {
     }
 }
 
-/// Checks the coverage summary of a TypeScript package (Vitest `json-summary`): 100% of
-/// lines, statements, functions and branches, each measured.
+/// Checks the coverage summary of a TypeScript package (Vitest `json-summary`).
+///
+/// 100% of lines, statements, functions and branches. Lines, statements and functions must
+/// be measured (a report of nothing fails); branches may number zero, in code without any.
 ///
 /// # Errors
 ///
@@ -488,6 +490,9 @@ pub fn ts_coverage_gate(package: &str, summary: &str) -> Result<(), String> {
                 .and_then(serde_json::Value::as_u64)
         };
         match (field("total"), field("covered")) {
+            // Code without a branch has none to cover; lines, statements and functions
+            // must still be measured, so an empty report still fails.
+            (Some(0), _) if kind == "branches" => {}
             (Some(0), _) => missing.push(format!("{kind} not measured")),
             (Some(count), Some(covered)) if covered == count => {}
             (Some(count), Some(covered)) => missing.push(format!("{kind} {covered}/{count}")),
