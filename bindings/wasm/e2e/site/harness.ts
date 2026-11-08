@@ -75,7 +75,7 @@ on("live", async () => {
     true,
   );
   const { node, ready } = engine;
-  const captured = captureEngine(context, engine, loaded.channels, testCase.frames);
+  const captured = captureEngine(context, engine, testCase.frames);
   // Silent on the speakers: the graph runs for real, the capture reads the engine output
   // before this gain.
   const mute = new GainNode(context, { gain: 0 });

@@ -13,11 +13,18 @@ export interface EngineOptions {
   /** The patch, as UTF-8 text in the patch format. */
   readonly patch: Uint8Array;
   /**
-   * Whether to add one channel after the patch channels, 1.0 on every frame the
-   * processor renders: it shows the frame where rendering really started.
+   * Whether to add one channel after the patch channels, counting the frames the
+   * processor renders: 1, 2, 3… (after {@link MARKER_PERIOD}, 1 again). It shows the frame
+   * where rendering really started, and that no frame was lost after it.
    */
   readonly marker: boolean;
 }
+
+/**
+ * The marker channel counts frames from 1 to this, then from 1 again: 2^24, the largest
+ * count a 32-bit float holds exactly, as every count before it.
+ */
+export const MARKER_PERIOD = 2 ** 24;
 
 /** Thrown when processor options do not have the expected shape. */
 export class OptionsError extends Error {

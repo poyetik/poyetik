@@ -7,7 +7,7 @@
  */
 
 import { PatchError, WasmEngine } from "../engine.ts";
-import { ENGINE_PROCESSOR, TAP_PROCESSOR, parseEngineOptions, type EngineMessage } from "../protocol.ts";
+import { ENGINE_PROCESSOR, MARKER_PERIOD, TAP_PROCESSOR, parseEngineOptions, type EngineMessage } from "../protocol.ts";
 
 /** The outputs of a node without output: one shared, frozen, empty list. */
 const NO_OUTPUT: readonly Float32Array[] = Object.freeze([]);
@@ -40,6 +40,8 @@ class EngineProcessor extends AudioWorkletProcessor {
    * channels); `undefined` once it failed.
    */
   #running: { readonly engine: WasmEngine; readonly marker: boolean } | undefined;
+  /** Frames rendered so far, modulo {@link MARKER_PERIOD}: what the marker channel counts. */
+  #rendered = 0;
 
   /**
    * Loads the patch given in the node options (`processorOptions`, see `EngineOptions`).
@@ -66,7 +68,7 @@ class EngineProcessor extends AudioWorkletProcessor {
       const output = outputs[0] ?? NO_OUTPUT;
       this.#running.engine.render(output);
       if (this.#running.marker) {
-        output[this.#running.engine.channels]?.fill(1);
+        this.#mark(output, this.#running.engine.channels);
       }
       return true;
     } catch (error) {
@@ -74,6 +76,22 @@ class EngineProcessor extends AudioWorkletProcessor {
       this.port.postMessage(failure(error));
       return false;
     }
+  }
+
+  /**
+   * Fills the marker channel, the one after the patch channels, with the count of every
+   * frame of `output` (see `EngineOptions.marker`), when the host gave room for it: the
+   * channel after the `channels` of the patch. Small integers only: nothing is allocated.
+   */
+  #mark(output: readonly Float32Array[], channels: number): void {
+    const frames = output[0]?.length ?? 0;
+    const marker = output[channels];
+    if (marker !== undefined) {
+      for (let frame = 0; frame !== frames; frame += 1) {
+        marker[frame] = ((this.#rendered + frame) % MARKER_PERIOD) + 1;
+      }
+    }
+    this.#rendered = (this.#rendered + frames) % MARKER_PERIOD;
   }
 }
 

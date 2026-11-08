@@ -6,5 +6,5 @@
     "allowJs": true
   },
   "include": ["**/*.ts", "**/*.js"],
-  "exclude": ["ts/worklet", "dist", "coverage", "reports", "test-results", "playwright-report", ".stryker-tmp", "node_modules"]
+  "exclude": ["ts/worklet", "test/types", "dist", "coverage", "reports", "test-results", "playwright-report", ".stryker-tmp", "node_modules"]
 }

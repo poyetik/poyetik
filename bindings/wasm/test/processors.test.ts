@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, test, vi } from "vitest";
 import { WasmEngine } from "../ts/engine.ts";
-import { ENGINE_PROCESSOR, TAP_PROCESSOR } from "../ts/protocol.ts";
+import { ENGINE_PROCESSOR, MARKER_PERIOD, TAP_PROCESSOR } from "../ts/protocol.ts";
 import { engineFunctions, handMadeBytes, SAMPLE_RATES, SILENT_PATCH, SINE_PATCH, UNKNOWN_BOX, wasmBytes } from "./fixtures.ts";
 import { loadProcessors, processorClass, type ProcessorClass } from "./worklet.ts";
 
@@ -54,16 +54,43 @@ describe("engine processor", () => {
     expect(node.process([], [])).toBe(true);
   });
 
-  test("marks every frame it renders on the channel after the patch channels", () => {
+  test("counts every frame it renders on the channel after the patch channels", () => {
     const Engine = processor(ENGINE_PROCESSOR);
     const node = new Engine({ processorOptions: { wasm: wasmBytes(), patch: SINE_PATCH, marker: true } });
     const outputs = [[new Float32Array(128), new Float32Array(128), new Float32Array(128)]];
     expect(node.process([], outputs)).toBe(true);
-    expect(outputs[0]?.[2]).toStrictEqual(new Float32Array(128).fill(1));
-    expect(outputs[0]?.[0]?.some((sample) => sample !== 0)).toBe(true);
-    // Without room for the marker (a host giving fewer channels), it renders anyway.
+    const expected = [new Float32Array(256), new Float32Array(256)];
+    WasmEngine.create(new WebAssembly.Module(wasmBytes()), SINE_PATCH, RATE).render(expected);
+    expect(outputs[0]?.slice(0, 2)).toStrictEqual(expected.map((channel) => channel.subarray(0, 128)));
+    expect(outputs[0]?.[2]).toStrictEqual(Float32Array.from({ length: 128 }, (_empty, frame) => frame + 1));
+    expect(node.process([], outputs)).toBe(true);
+    expect(outputs[0]?.[2]).toStrictEqual(Float32Array.from({ length: 128 }, (_empty, frame) => frame + 129));
+    // Without room for the marker (a host giving fewer channels), it renders the same
+    // samples, and keeps counting.
     const fewer = [[new Float32Array(128), new Float32Array(128)]];
     expect(node.process([], fewer)).toBe(true);
+    const later = [new Float32Array(384), new Float32Array(384)];
+    WasmEngine.create(new WebAssembly.Module(wasmBytes()), SINE_PATCH, RATE).render(later);
+    expect(fewer[0]).toStrictEqual(later.map((channel) => channel.slice(256, 384)));
+    expect(node.process([], [])).toBe(true);
+    expect(node.process([], outputs)).toBe(true);
+    expect(outputs[0]?.[2]).toStrictEqual(Float32Array.from({ length: 128 }, (_empty, frame) => frame + 385));
+  });
+
+  test("counts from 1 again after 2^24 frames, the largest count a float holds exactly", () => {
+    const Engine = processor(ENGINE_PROCESSOR);
+    const node = new Engine({ processorOptions: { wasm: wasmBytes(), patch: SILENT_PATCH, marker: true } });
+    // A patch without output: the marker is its first channel. 4096 quanta of 4096 frames reach 2^24.
+    const outputs = [[new Float32Array(4096)]];
+    for (let quantum = 1; quantum < 4096; quantum += 1) {
+      node.process([], outputs);
+    }
+    expect(MARKER_PERIOD).toBe(2 ** 24);
+    expect(outputs[0]?.[0]?.at(-1)).toBe(2 ** 24 - 4096);
+    node.process([], [[new Float32Array(4095)]]);
+    node.process([], outputs);
+    expect(Array.from(outputs[0]?.[0]?.subarray(0, 3) ?? [])).toStrictEqual([2 ** 24, 1, 2]);
+    expect(outputs[0]?.[0]?.at(-1)).toBe(4095);
   });
 
   test("tells the main thread it is ready", () => {

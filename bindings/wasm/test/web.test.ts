@@ -2,7 +2,7 @@ import { runInNewContext } from "node:vm";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { EngineTrap, ModuleError, PatchError } from "../ts/engine.ts";
 import { ENGINE_PROCESSOR, MessageError, TAP_PROCESSOR } from "../ts/protocol.ts";
-import { addProcessors, capture, captureEngine, createEngineNode, LoadedPatch, loadPatch, START_MARGIN, renderOffline, tap } from "../ts/web.ts";
+import { addProcessors, capture, captureEngine, createEngineNode, LoadedPatch, loadPatch, MarkedEngineNode, MAX_MARKED_FRAMES, START_MARGIN, renderOffline, tap } from "../ts/web.ts";
 import { engineFunctions, handMadeBytes, SILENT_PATCH, SINE_PATCH, UNKNOWN_BOX, wasmBytes } from "./fixtures.ts";
 
 /** The sample rate of the fake audio contexts, in hertz. */
@@ -421,28 +421,85 @@ describe("capture", () => {
 });
 
 describe("captureEngine", () => {
-  test("captures the frames the engine rendered, from where its marker starts", async () => {
-    stubNodes();
-    const fake = fakeContext(RATE);
-    const patch = await loaded(2);
-    const engine = createEngineNode(asContext(fake), patch, () => undefined, true);
-    const captured = captureEngine(asContext(fake), engine, 2, 3);
-    const tapNode = FakeNode.created.at(-1);
-    expect(tapNode?.options).toMatchObject({ channelCount: 3 });
-    // Two silent frames before the processor started, then frames 1, 2, 3 marked.
-    const block = (left: number[], right: number[], marker: number[]): Float32Array[] => [new Float32Array(left), new Float32Array(right), new Float32Array(marker)];
-    tapNode?.port.deliver(block([0, 0, 1, 2, 3], [0, 0, 11, 12, 13], [0, 0, 1, 1, 1]));
-    tapNode?.port.deliver(block(Array<number>(START_MARGIN).fill(9), Array<number>(START_MARGIN).fill(9), Array<number>(START_MARGIN).fill(1)));
-    expect(await captured).toStrictEqual([new Float32Array([1, 2, 3]), new Float32Array([11, 12, 13])]);
-  });
+  /** The counts 1, 2, … `count` of a marker channel. */
+  function counts(count: number, from = 1): number[] {
+    return Array.from({ length: count }, (_empty, index) => from + index);
+  }
 
-  test("fails when the engine never starts in the captured margin", async () => {
+  /** Three channels (left, right, marker) of one tap block. */
+  function block(left: readonly number[], right: readonly number[], marker: readonly number[]): Float32Array[] {
+    return [new Float32Array(left), new Float32Array(right), new Float32Array(marker)];
+  }
+
+  /** A live capture of `frames` frames of a marked sine engine, and the tap it delivers through. */
+  async function capturing(frames: number): Promise<{ captured: Promise<Float32Array[]>; deliver: (data: unknown) => void }> {
     stubNodes();
     const fake = fakeContext(RATE);
     const engine = createEngineNode(asContext(fake), await loaded(2), () => undefined, true);
-    const captured = captureEngine(asContext(fake), engine, 2, 1);
-    FakeNode.created.at(-1)?.port.deliver([new Float32Array(START_MARGIN + 1), new Float32Array(START_MARGIN + 1)]);
+    expect(engine).toBeInstanceOf(MarkedEngineNode);
+    expect(engine.channels).toBe(2);
+    const captured = captureEngine(asContext(fake), engine, frames);
+    const tapNode = FakeNode.created.at(-1);
+    expect(tapNode?.options).toMatchObject({ channelCount: 3 });
+    return { captured, deliver: (data) => tapNode?.port.deliver(data) };
+  }
+
+  test("captures the frames the engine rendered, from where its marker starts", async () => {
+    const { captured, deliver } = await capturing(3);
+    // Two silent frames before the processor started, then frames 1, 2, 3… counted.
+    deliver(block([0, 0, 1, 2, 3], [0, 0, 11, 12, 13], [0, 0, ...counts(3)]));
+    deliver(block(Array<number>(START_MARGIN).fill(9), Array<number>(START_MARGIN).fill(9), counts(START_MARGIN, 4)));
+    expect(await captured).toStrictEqual([new Float32Array([1, 2, 3]), new Float32Array([11, 12, 13])]);
+  });
+
+  test("captures from the very first frame, when the engine and the capture start together", async () => {
+    const { captured, deliver } = await capturing(2);
+    deliver(block(counts(START_MARGIN + 2), counts(START_MARGIN + 2, 1001), counts(START_MARGIN + 2)));
+    expect(await captured).toStrictEqual([new Float32Array([1, 2]), new Float32Array([1001, 1002])]);
+  });
+
+  test("fails when the capture started after the engine, instead of returning shifted frames", async () => {
+    const { captured, deliver } = await capturing(1);
+    // The tap missed the first quantum: the marker starts at 129.
+    deliver(block(Array<number>(START_MARGIN + 1).fill(5), Array<number>(START_MARGIN + 1).fill(5), counts(START_MARGIN + 1, 129)));
+    await expect(captured).rejects.toThrow(new Error("the live capture started 128 frames after the engine"));
+  });
+
+  test.each([0.5, -1])("fails on a marker channel holding %d, which is no marker", async (value) => {
+    const { captured, deliver } = await capturing(1);
+    deliver(block(Array<number>(START_MARGIN + 1).fill(5), Array<number>(START_MARGIN + 1).fill(5), [0, value]));
+    await expect(captured).rejects.toThrow(new Error(`the live capture has no marker after the patch channels: ${String(value)} at frame 1`));
+  });
+
+  test("fails when the engine stops before the end of the capture", async () => {
+    const { captured, deliver } = await capturing(4);
+    deliver(block(Array<number>(START_MARGIN + 4).fill(5), Array<number>(START_MARGIN + 4).fill(5), [0, 1, 2, 3]));
+    await expect(captured).rejects.toThrow(new Error("the engine output of the live capture breaks at frame 3: the engine stopped"));
+  });
+
+  test("fails when the engine never starts in the captured margin", async () => {
+    const { captured, deliver } = await capturing(1);
+    deliver([new Float32Array(START_MARGIN + 1), new Float32Array(START_MARGIN + 1)]);
     await expect(captured).rejects.toThrow(new Error("the engine started too late in the live capture: not within the 16384 frames of margin"));
+  });
+
+  test.each([
+    [MAX_MARKED_FRAMES + 1, `at most ${String(MAX_MARKED_FRAMES)} frames can be rendered from the start of the engine, not ${String(MAX_MARKED_FRAMES + 1)}`],
+    [-1, "a capture needs a whole number of frames from 0, not -1"],
+    [0.5, "a capture needs a whole number of frames from 0, not 0.5"],
+  ])("refuses to capture %d frames", async (frames, message) => {
+    stubNodes();
+    const fake = fakeContext(RATE);
+    const engine = createEngineNode(asContext(fake), await loaded(2), () => undefined, true);
+    await expect(captureEngine(asContext(fake), engine, frames)).rejects.toThrow(new RangeError(message));
+    expect(FakeNode.created).toHaveLength(1);
+  });
+
+  test("captures no frame after checking the start", async () => {
+    const { captured, deliver } = await capturing(0);
+    deliver(block([0, 7], [0, 7], [0, 1]));
+    deliver(block(Array<number>(START_MARGIN).fill(5), Array<number>(START_MARGIN).fill(5), counts(START_MARGIN, 2)));
+    expect(await captured).toStrictEqual([new Float32Array(), new Float32Array()]);
   });
 });
 
@@ -450,11 +507,12 @@ describe("renderOffline", () => {
   /**
    * Stubs an offline context whose processor posts `message` once rendering starts, and
    * renders patch channels holding their frame index plus 1000 × the channel, with the
-   * marker channel (the last one) at 1 from frame `start` on, or never.
+   * marker channel (the last one) counting 1, 2, … from frame `start` on (or never), up
+   * to frame `stop` (excluded) when given, then silent.
    */
   function offline(
     message: unknown,
-    options: { readonly later?: unknown; readonly start?: number | "never" } = {},
+    options: { readonly later?: unknown; readonly start?: number | "never"; readonly stop?: number } = {},
   ): { contexts: { channels: number; frames: number; rate: number }[]; modules: (string | URL)[]; destination: object } {
     stubNodes();
     const contexts: { channels: number; frames: number; rate: number }[] = [];
@@ -498,7 +556,9 @@ describe("renderOffline", () => {
           const marker = this.#channels - 1;
           return Promise.resolve({
             getChannelData: (channel: number) =>
-              Float32Array.from({ length: frames }, (_empty, frame) => (channel === marker ? (start !== "never" && frame >= start ? 1 : 0) : frame + 1000 * channel)),
+              Float32Array.from({ length: frames }, (_empty, frame) =>
+                channel === marker ? (start !== "never" && frame >= start && frame < (options.stop ?? frames) ? frame - start + 1 : 0) : frame + 1000 * channel,
+              ),
           });
         }
       },
@@ -541,6 +601,26 @@ describe("renderOffline", () => {
   test("fails instead of returning silence when the processor cannot load the patch", async () => {
     offline({ type: "rejected", detail: new TextEncoder().encode("bad patch") });
     await expect(renderOffline(await loaded(2), 2, "processors.js")).rejects.toThrow(new Error("bad patch"));
+  });
+
+  test("fails when the engine stops before the end of the render, whatever the order of the messages", async () => {
+    // The processor failed at frame 128 of the render, but the failure was not received
+    // before the render ended: the marker shows it.
+    offline({ type: "ready" }, { start: 0, stop: 128 });
+    await expect(renderOffline(await loaded(2), 200, "processors.js")).rejects.toThrow(
+      new Error("the engine output of the offline render breaks at frame 128: the engine stopped"),
+    );
+  });
+
+  test("renders up to the frames the marker counts, and refuses more before rendering", async () => {
+    offline({ type: "ready" });
+    await expect(renderOffline(await loaded(2), MAX_MARKED_FRAMES + 1, "processors.js")).rejects.toThrow(
+      new RangeError(`at most ${String(MAX_MARKED_FRAMES)} frames can be rendered from the start of the engine, not ${String(MAX_MARKED_FRAMES + 1)}`),
+    );
+    expect(MAX_MARKED_FRAMES).toBe(2 ** 24 - START_MARGIN);
+    const { contexts } = offline({ type: "rejected", detail: new TextEncoder().encode("stop here") });
+    await expect(renderOffline(await loaded(2), MAX_MARKED_FRAMES, "processors.js")).rejects.toThrow(new Error("stop here"));
+    expect(contexts).toStrictEqual([{ channels: 3, frames: 2 ** 24, rate: RATE }]);
   });
 
   test("fails when the processor fails while rendering", async () => {

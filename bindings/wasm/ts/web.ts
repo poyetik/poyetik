@@ -7,7 +7,7 @@
  */
 
 import { ModuleError, PatchError, WasmEngine } from "./engine.ts";
-import { ENGINE_PROCESSOR, TAP_PROCESSOR, parseEngineMessage, parseTapBlock, type EngineOptions } from "./protocol.ts";
+import { ENGINE_PROCESSOR, MARKER_PERIOD, TAP_PROCESSOR, parseEngineMessage, parseTapBlock, type EngineOptions } from "./protocol.ts";
 
 /**
  * A patch checked by the engine, ready to run in engine nodes. Only {@link loadPatch}
@@ -99,15 +99,8 @@ export interface EngineNode {
   readonly ready: Promise<void>;
 }
 
-/**
- * Creates a node running `loaded`: no input, one output with one channel per patch
- * channel (one silent channel when the patch has none), plus the marker channel when
- * `marker` is set. `onFailure` receives the first
- * failure of the processor, at load or later (the node is then silent); `ready` also
- * rejects with it when it comes before the patch is loaded.
- * @throws {Error} when the context does not run at the rate the patch was checked at.
- */
-export function createEngineNode(context: BaseAudioContext, loaded: LoadedPatch, onFailure: (error: Error) => void, marker = false): EngineNode {
+/** Creates the engine node of {@link createEngineNode}, with or without the marker channel. */
+function engineNode(context: BaseAudioContext, loaded: LoadedPatch, onFailure: (error: Error) => void, marker: boolean): EngineNode {
   if (context.sampleRate !== loaded.rate) {
     throw new Error(`the context runs at ${String(context.sampleRate)} Hz, the patch was loaded at ${String(loaded.rate)} Hz`);
   }
@@ -152,6 +145,57 @@ export function createEngineNode(context: BaseAudioContext, loaded: LoadedPatch,
     fail(new Error("the engine processor failed"));
   };
   return { node, ready: ready.promise };
+}
+
+/**
+ * An engine node created with the marker channel, after its `channels` patch channels
+ * (see `EngineOptions.marker`): only `createEngineNode(…, true)` makes one, and only such
+ * a node can be captured with {@link captureEngine}.
+ */
+export class MarkedEngineNode implements EngineNode {
+  /** The node: no input, one output with the patch channels then the marker channel. */
+  readonly node: AudioWorkletNode;
+  /** Resolves when the processor has loaded the patch; rejects if it could not. */
+  readonly ready: Promise<void>;
+  /** Number of patch channels, before the marker channel. */
+  readonly #channels: number;
+
+  /**
+   * Records a marked node.
+   * @param engine The node, created with the marker channel.
+   * @param channels Its number of patch channels.
+   */
+  private constructor(engine: EngineNode, channels: number) {
+    this.node = engine.node;
+    this.ready = engine.ready;
+    this.#channels = channels;
+  }
+
+  /** Number of patch channels, before the marker channel. */
+  get channels(): number {
+    return this.#channels;
+  }
+
+  /** Creates the marked node of `createEngineNode(…, true)`. */
+  static create(context: BaseAudioContext, loaded: LoadedPatch, onFailure: (error: Error) => void): MarkedEngineNode {
+    return new MarkedEngineNode(engineNode(context, loaded, onFailure, true), loaded.channels);
+  }
+}
+
+/**
+ * Creates a node running `loaded`: no input, one output with one channel per patch
+ * channel (one silent channel when the patch has none), plus the marker channel when
+ * `marker` is set (then a {@link MarkedEngineNode}). `onFailure` receives the first
+ * failure of the processor, at load or later (the node is then silent); `ready` also
+ * rejects with it when it comes before the patch is loaded.
+ * @throws {Error} when the context does not run at the rate the patch was checked at.
+ */
+export function createEngineNode(context: BaseAudioContext, loaded: LoadedPatch, onFailure: (error: Error) => void, marker?: false): EngineNode;
+/** Creates a node running `loaded` with the marker channel: see the overload above. */
+export function createEngineNode(context: BaseAudioContext, loaded: LoadedPatch, onFailure: (error: Error) => void, marker: true): MarkedEngineNode;
+/** Creates a node running `loaded`: see the overloads above. */
+export function createEngineNode(context: BaseAudioContext, loaded: LoadedPatch, onFailure: (error: Error) => void, marker = false): EngineNode {
+  return marker ? MarkedEngineNode.create(context, loaded, onFailure) : engineNode(context, loaded, onFailure, false);
 }
 
 /** A running tap, posting every render quantum of its source to the main thread. */
@@ -224,15 +268,23 @@ export function capture(context: BaseAudioContext, source: AudioNode, channels: 
     return Promise.reject(new RangeError(`a capture needs a whole number of frames from 0, not ${String(frames)}`));
   }
   const out = Array.from({ length: channels }, () => new Float32Array(frames));
+  return fill(context, source, out, frames).then(() => out);
+}
+
+/**
+ * Fills `out` (one array per channel, at least one, all of `frames` frames) with the next
+ * frames output by `source`: see {@link capture}.
+ */
+function fill(context: BaseAudioContext, source: AudioNode, out: readonly Float32Array[], frames: number): Promise<void> {
   if (frames === 0) {
-    return Promise.resolve(out);
+    return Promise.resolve();
   }
   return new Promise((resolve, reject) => {
     let filled = 0;
     const running = tap(
       context,
       source,
-      channels,
+      out.length,
       (block) => {
         const count = Math.min(frames - filled, block[0]?.length ?? 0);
         out.forEach((channel, index) => {
@@ -241,7 +293,7 @@ export function capture(context: BaseAudioContext, source: AudioNode, channels: 
         filled += count;
         if (filled === frames) {
           running.stop();
-          resolve(out);
+          resolve();
         }
       },
       (error) => {
@@ -260,30 +312,61 @@ export function capture(context: BaseAudioContext, source: AudioNode, channels: 
 export const START_MARGIN = 16_384;
 
 /**
- * The `frames` frames of `channels` patch channels from where the engine started, found
- * by the marker channel that follows them (see `EngineOptions.marker`).
- * @throws {Error} when the engine did not start within {@link START_MARGIN}.
+ * The most frames {@link renderOffline} and {@link captureEngine} return: with the margin,
+ * the marker counts them all exactly, without starting again from 1.
  */
-function fromStart(all: readonly Float32Array[], channels: number, frames: number, where: string): Float32Array[] {
-  // The marker comes after the patch channels: its first 1.0 is the first frame rendered.
-  const marker = all.slice(channels).flatMap((channel) => Array.from(channel));
-  const start = marker.indexOf(1);
-  if (start < 0) {
+export const MAX_MARKED_FRAMES = MARKER_PERIOD - START_MARGIN;
+
+/** Rejects a number of frames the marker channel cannot count. */
+function markedFrames(frames: number): RangeError | undefined {
+  return frames > MAX_MARKED_FRAMES ? new RangeError(`at most ${String(MAX_MARKED_FRAMES)} frames can be rendered from the start of the engine, not ${String(frames)}`) : undefined;
+}
+
+/**
+ * The `frames` frames of the patch `channels` from where the engine started, found by
+ * the `marker` channel that follows them (see `EngineOptions.marker`), checked to count
+ * every frame returned: never shifted, never cut short.
+ * @throws {Error} when the engine did not start within {@link START_MARGIN}, when the
+ * capture started after the engine, when the marker breaks (the engine stopped), or when
+ * `marker` holds no marker.
+ */
+function fromStart(channels: readonly Float32Array[], marker: Float32Array, frames: number, where: string): Float32Array[] {
+  // Read in place: never copied into a JavaScript array, whatever its length.
+  const first = marker.find((value) => value !== 0);
+  if (first === undefined) {
     throw new Error(`the engine started too late in the ${where}: not within the ${String(START_MARGIN)} frames of margin`);
+  }
+  const start = marker.indexOf(first);
+  if (!Number.isInteger(first) || first < 1) {
+    throw new Error(`the ${where} has no marker after the patch channels: ${String(first)} at frame ${String(start)}`);
+  }
+  if (first !== 1) {
+    throw new Error(`the ${where} started ${String(first - 1)} frames after the engine`);
   }
   if (start > START_MARGIN) {
     throw new Error(`the engine started too late in the ${where}: at frame ${String(start)}, beyond the ${String(START_MARGIN)} frames of margin`);
   }
-  return all.slice(0, channels).map((channel) => channel.slice(start, start + frames));
+  for (let frame = 0; frame !== frames; frame += 1) {
+    if (marker[start + frame] !== frame + 1) {
+      throw new Error(`the engine output of the ${where} breaks at frame ${String(frame)}: the engine stopped`);
+    }
+  }
+  return channels.map((channel) => channel.slice(start, start + frames));
 }
 
 /**
  * Renders `frames` frames of `loaded` offline, one array per channel: exactly the first
  * frames the engine renders, wherever the browser started the processor (located by the
- * marker channel), never a silent beginning.
- * @throws {Error} when the engine processor fails, or starts too late in the render.
+ * marker channel), never a silent beginning or a silent end.
+ * @throws {RangeError} when `frames` is above {@link MAX_MARKED_FRAMES}.
+ * @throws {Error} when the engine processor fails, starts too late in the render, or
+ * stops before its end.
  */
 export async function renderOffline(loaded: LoadedPatch, frames: number, processors: string | URL): Promise<Float32Array[]> {
+  const tooMany = markedFrames(frames);
+  if (tooMany !== undefined) {
+    throw tooMany;
+  }
   const context = new OfflineAudioContext(loaded.channels + 1, frames + START_MARGIN, loaded.rate);
   await addProcessors(context, processors);
   let failure: Error | undefined;
@@ -300,16 +383,24 @@ export async function renderOffline(loaded: LoadedPatch, frames: number, process
   if (failure !== undefined) {
     throw failure;
   }
-  const all = Array.from({ length: loaded.channels + 1 }, (_empty, channel) => buffer.getChannelData(channel));
-  return fromStart(all, loaded.channels, frames, "offline render");
+  const channels = Array.from({ length: loaded.channels }, (_empty, channel) => buffer.getChannelData(channel));
+  return fromStart(channels, buffer.getChannelData(loaded.channels), frames, "offline render");
 }
 
 /**
- * Captures the first `frames` frames the engine of `engine` renders live, `channels`
- * patch channels, wherever the browser started its processor: `engine` must have been
- * created with the marker channel. Start it, as `capture`, before the context runs.
- * @throws {Error} when the engine did not start within {@link START_MARGIN} frames.
+ * Captures the first `frames` frames the engine of `engine` renders live, wherever the
+ * browser started its processor. Start it, as `capture`, before the context runs.
+ * @throws {RangeError} when `frames` is not a whole number from 0 to {@link MAX_MARKED_FRAMES}.
+ * @throws {Error} when the engine did not start within {@link START_MARGIN} frames, when
+ * the capture started after it, or when it stopped before the end of the capture.
  */
-export function captureEngine(context: BaseAudioContext, engine: EngineNode, channels: number, frames: number): Promise<Float32Array[]> {
-  return capture(context, engine.node, channels + 1, frames + START_MARGIN).then((all) => fromStart(all, channels, frames, "live capture"));
+export function captureEngine(context: BaseAudioContext, engine: MarkedEngineNode, frames: number): Promise<Float32Array[]> {
+  const tooMany = markedFrames(frames);
+  if (!Number.isInteger(frames) || frames < 0 || tooMany !== undefined) {
+    return Promise.reject(tooMany ?? new RangeError(`a capture needs a whole number of frames from 0, not ${String(frames)}`));
+  }
+  const length = frames + START_MARGIN;
+  const channels = Array.from({ length: engine.channels }, () => new Float32Array(length));
+  const marker = new Float32Array(length);
+  return fill(context, engine.node, [...channels, marker], length).then(() => fromStart(channels, marker, frames, "live capture"));
 }
