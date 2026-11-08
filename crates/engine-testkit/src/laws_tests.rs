@@ -338,6 +338,26 @@ fn checks_parameters_away_from_their_default() {
     });
     let failure = check_laws(&shifted).expect_err("a value away from the default");
     assert!(failure.contains("with parameters [0.75]"), "{failure}");
+    // A range not starting at zero: the midpoint of [-1, 1] is 0.
+    let centered = ParamSpec {
+        default: 0.5,
+        min: -1.0,
+        max: 1.0,
+        ..GAIN
+    };
+    assert_eq!(
+        super::away_from_default(&centered).to_bits(),
+        0.0_f32.to_bits(),
+        "midpoint of [-1, 1]"
+    );
+    assert_eq!(
+        super::away_from_default(&ParamSpec {
+            default: 0.0,
+            ..centered
+        }),
+        0.5,
+        "halfway from the default 0 to the maximum"
+    );
 }
 
 /// Fixtures for the metadata cases.

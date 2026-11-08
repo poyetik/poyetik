@@ -534,6 +534,26 @@ fn system_runner_empties_fresh_directories() {
         runner.fresh_dir("file/below").is_err(),
         "cannot create under a file"
     );
+    #[cfg(unix)]
+    {
+        // A directory whose contents cannot be removed, but which exists: emptying it
+        // fails, even though creating it again would succeed.
+        use std::os::unix::fs::PermissionsExt;
+        let locked = root.join("locked");
+        std::fs::create_dir_all(locked.join("inner")).expect("locked directory");
+        std::fs::write(locked.join("inner/file"), b"").expect("file inside");
+        let set = |mode: u32| {
+            std::fs::set_permissions(locked.join("inner"), std::fs::Permissions::from_mode(mode))
+                .expect("permissions");
+        };
+        set(0o555);
+        let result = runner.fresh_dir("locked/inner");
+        set(0o755);
+        assert!(
+            result.is_err(),
+            "a directory that cannot be emptied is an error"
+        );
+    }
     std::fs::remove_dir_all(&root).expect("cleanup");
 }
 
