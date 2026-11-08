@@ -4415,7 +4415,7 @@ pub fn run_steps(
 
 /// Usage of the `xtask` command, in the order of its first line.
 pub const USAGE: &str = "\
-usage: cargo xtask <check [--full]|list [--full]|mutants <target>|bless|commit-msg <file>|pre-push [commit...]|help>
+usage: cargo xtask <check [--full]|list [--full]|mutants <target>|bless|commit-msg <file>|pre-push [pair...]|help>
   check [--full]        run every quality check; mutation testing covers the changes since
                         the merge base with the upstream, origin/main or main, or with
                         --full every mutant, as CI does
@@ -4425,8 +4425,10 @@ usage: cargo xtask <check [--full]|list [--full]|mutants <target>|bless|commit-m
                         sources (their paths from the root)
   bless                 rewrite conformance/references.json from the current renders
   commit-msg <file>     check a commit message (used by the commit-msg hook)
-  pre-push [commit...]  check that the tree is clean and the pushed commits are checked
-                        out, then run `check` (used by the pre-push hook)
+  pre-push [pair...]    check that the tree is clean and the pushed commits are checked
+                        out, then run `check`, or `check --full` if a tag is pushed;
+                        each pair is a pushed commit and the remote ref it updates
+                        (used by the pre-push hook)
   help                  show this help";
 
 /// What `cargo xtask mutants` mutates, every mutant of it.
@@ -4637,8 +4639,9 @@ enum Task {
     Bless,
     /// Check the commit message in this file.
     CommitMsg(String),
-    /// Check what is pushed (these objects), then every check.
-    PrePush(Vec<String>),
+    /// Check what is pushed (each object with the remote ref it updates), then every check:
+    /// every mutant if a tag is pushed, since a release requires the full check.
+    PrePush(Vec<(String, String)>),
     /// The usage.
     Help,
 }
@@ -4670,7 +4673,20 @@ fn task(args: &[OsString]) -> Result<Task, String> {
         [command, file] if command == "commit-msg" => Ok(Task::CommitMsg(file.clone())),
         [command, target] if command == "mutants" => mutation_target(target).map(Task::Mutants),
         [command, ..] if command == "mutants" => Err("`mutants` takes one target".to_owned()),
-        [command, pushed @ ..] if command == "pre-push" => Ok(Task::PrePush(pushed.to_vec())),
+        [command, pushed @ ..] if command == "pre-push" => {
+            let (pairs, rest) = pushed.as_chunks::<2>();
+            if !rest.is_empty() {
+                return Err(
+                    "`pre-push` takes pairs of a commit and the remote ref it updates".to_owned(),
+                );
+            }
+            Ok(Task::PrePush(
+                pairs
+                    .iter()
+                    .map(|[commit, remote]| (commit.clone(), remote.clone()))
+                    .collect(),
+            ))
+        }
         [command, ..] if alone.contains(&command.as_str()) => {
             Err(format!("`{command}` takes no argument"))
         }
@@ -4731,8 +4747,14 @@ pub fn cli(
         Task::CommitMsg(path) => {
             read_file(runner, &path).and_then(|message| commit_msg_gate(&message))
         }
-        Task::PrePush(pushed) => pre_push(runner, &pushed)
-            .and_then(|()| run_steps(&check_steps(mode(false)), runner, out)),
+        Task::PrePush(pushed) => {
+            let commits: Vec<String> = pushed.iter().map(|(commit, _)| commit.clone()).collect();
+            let release = pushed
+                .iter()
+                .any(|(_, remote)| remote.starts_with("refs/tags/"));
+            pre_push(runner, &commits)
+                .and_then(|()| run_steps(&check_steps(mode(release)), runner, out))
+        }
         Task::Mutants(target) => {
             let steps = mutants_steps(&target, jobs);
             run_steps(&steps, runner, out)

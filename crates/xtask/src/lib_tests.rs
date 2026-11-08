@@ -3895,6 +3895,41 @@ fn pushes_only_what_was_checked() {
 }
 
 #[test]
+fn runs_the_full_check_before_pushing_a_tag() {
+    let head = "1111111111111111111111111111111111111111";
+    let mut tagged = passing();
+    for (command, answer) in [
+        ("git rev-parse HEAD".to_owned(), format!("{head}\n")),
+        ("git status --porcelain".to_owned(), String::new()),
+        (
+            format!("git rev-parse --verify {head}^{{commit}}"),
+            format!("{head}\n"),
+        ),
+    ] {
+        let _answer = tagged.files.insert(format!("capture {command}"), answer);
+    }
+    let release = [
+        "pre-push".to_owned(),
+        head.to_owned(),
+        "refs/heads/main".to_owned(),
+        head.to_owned(),
+        "refs/tags/v1.0.0".to_owned(),
+    ];
+    assert_eq!(
+        run_cli(&release, &mut tagged, &mut Vec::new(), &mut Vec::new()),
+        0,
+        "a release"
+    );
+    assert!(
+        tagged.ran.contains(
+            &"cargo mutants --cap-lints=true --gitignore=true --workspace --jobs 3".to_owned()
+        ) && !tagged.ran.contains(&format!("capture {}", MERGE_BASE.0)),
+        "a pushed tag runs every mutant: {:?}",
+        tagged.ran
+    );
+}
+
+#[test]
 fn checks_a_push_then_runs_every_check() {
     let head = "1111111111111111111111111111111111111111";
     let mut fake = passing();
@@ -3911,7 +3946,11 @@ fn checks_a_push_then_runs_every_check() {
     );
     assert!(peeled.is_none(), "fresh fake");
     let mut out = Vec::new();
-    let args = ["pre-push".to_owned(), head.to_owned()];
+    let args = [
+        "pre-push".to_owned(),
+        head.to_owned(),
+        "refs/heads/work".to_owned(),
+    ];
     assert_eq!(
         run_cli(&args, &mut fake, &mut out, &mut Vec::new()),
         0,
@@ -4399,6 +4438,14 @@ fn refuses_usage_errors_in_one_line() {
         (vec!["bless", "x"], "`bless` takes no argument"),
         (vec!["help", "x"], "`help` takes no argument"),
         (vec!["commit-msg"], "`commit-msg` takes one file"),
+        (
+            vec!["pre-push", "abc"],
+            "`pre-push` takes pairs of a commit and the remote ref it updates",
+        ),
+        (
+            vec!["pre-push", "abc", "refs/heads/a", "def"],
+            "`pre-push` takes pairs of a commit and the remote ref it updates",
+        ),
         (vec!["commit-msg", "a", "b"], "`commit-msg` takes one file"),
     ] {
         let args: Vec<String> = args.into_iter().map(str::to_owned).collect();

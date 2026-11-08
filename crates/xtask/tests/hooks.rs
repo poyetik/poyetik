@@ -58,8 +58,8 @@ mod tests {
         fs::create_dir_all(bin).expect("bin created");
         let script = bin.join("cargo");
         let body = format!(
-            "#!/bin/sh\nenv | grep '^GIT_' | grep -v -e '^GIT_AUTHOR' -e '^GIT_COMMITTER' -e '^GIT_CONFIG_NOSYSTEM' > '{}'\nexit 0\n",
-            record.display()
+            "#!/bin/sh\nenv | grep '^GIT_' | grep -v -e '^GIT_AUTHOR' -e '^GIT_COMMITTER' -e '^GIT_CONFIG_NOSYSTEM' > '{record}'\necho \"ARGS $*\" >> '{record}'\nexit 0\n",
+            record = record.display()
         );
         fs::write(&script, body).expect("stub written");
         fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).expect("stub executable");
@@ -127,6 +127,28 @@ mod tests {
         );
         let received = fs::read_to_string(&record).expect("the hook ran cargo");
         assert_eq!(local_variables(&received), Vec::<&str>::new(), "{received}");
+        assert!(
+            received
+                .lines()
+                .any(|line| line.starts_with("ARGS xtask pre-push ")
+                    && line.ends_with(" refs/heads/work")
+                    && line.split(' ').count() == 5),
+            "each pushed commit with the remote ref it updates: {received}"
+        );
+        git(&worktree, &["tag", "v1.0.0"], &path);
+        git(
+            &worktree,
+            &["push", "-q", remote.to_str().expect("utf-8"), "v1.0.0"],
+            &path,
+        );
+        let tagged = fs::read_to_string(&record).expect("the hook ran cargo");
+        assert!(
+            tagged
+                .lines()
+                .any(|line| line.starts_with("ARGS xtask pre-push ")
+                    && line.ends_with(" refs/tags/v1.0.0")),
+            "a pushed tag is named: {tagged}"
+        );
         fs::remove_dir_all(&root).expect("scratch removed");
     }
 

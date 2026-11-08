@@ -18,8 +18,9 @@ cd "$(git rev-parse --show-toplevel)"
 # core.bare, staging its files). The working directory alone now identifies the repository.
 unset $(git rev-parse --local-env-vars)
 # Git writes one line per pushed ref: <local ref> <local commit> <remote ref> <remote commit>.
+# Each pushed commit goes with the remote ref it updates: a tag asks for the full check.
 pushed=""
-while read -r _local_ref local_commit _remote_ref _remote_commit; do
-  pushed="$pushed $local_commit"
+while read -r _local_ref local_commit remote_ref _remote_commit; do
+  pushed="$pushed $local_commit $remote_ref"
 done
 cargo xtask pre-push $pushed
