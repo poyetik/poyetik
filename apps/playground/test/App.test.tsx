@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { App, REFUSED } from "../src/App.tsx";
-import type { Player, PlayerState, Signal } from "../src/player.ts";
+import { explain, type Player, type PlayerState, type Signal } from "../src/player.ts";
 
 /** A player whose state the test drives, recording the calls. */
 class FakePlayer implements Player {
@@ -86,7 +86,8 @@ test.each([
   [{ kind: "suspended", refused: false }, "Paused by the browser", "Resume", "false", "resume", null],
   [{ kind: "suspended", refused: true }, "Paused by the browser", "Resume", "false", "resume", REFUSED],
   [{ kind: "stopping" }, "Stopping…", "Stop", "true", undefined, null],
-  [{ kind: "failed", reason: "no device" }, "Failed", "Start", "false", "start", "no device"],
+  [{ kind: "failed", cause: "device", detail: "NotSupportedError: no device" }, "Failed", "Start", "false", "start", explain("device")],
+  [{ kind: "unsupported", lacking: "web-audio" }, "Not supported", "Start", "true", undefined, explain("web-audio")],
 ] as const)("shows %o and acts on it", (state, shown, label, disabled, call, alert) => {
   const player = new FakePlayer();
   render(<App player={player} />);
@@ -110,17 +111,34 @@ test("keeps the button focused through every transition", () => {
   }
 });
 
-test("explains a failure next to the button, and describes the button with it", () => {
+test("explains a failure next to the button, and describes the button with it; the detail only on demand", () => {
   const player = new FakePlayer();
   render(<App player={player} />);
-  player.become({ kind: "failed", reason: "Audio needs a secure page." });
+  player.become({ kind: "failed", cause: "load", detail: "Error: cannot load the engine from engine.wasm (HTTP 404)" });
   const alert = screen.getByRole("alert");
-  expect(alert.textContent).toBe("Audio needs a secure page.");
+  expect(alert.textContent).toBe(explain("load"));
   expect(alert.id).toBe("player-alert");
   expect(button().getAttribute("aria-describedby")).toBe(alert.id);
+  const details = screen.getByRole("group");
+  expect(details.tagName).toBe("DETAILS");
+  expect(details.hasAttribute("open")).toBe(false);
+  expect(details.textContent).toBe("DetailsError: cannot load the engine from engine.wasm (HTTP 404)");
+  expect(alert.textContent).not.toContain("HTTP 404");
   player.become({ kind: "starting" });
   expect(screen.queryByRole("alert")).toBeNull();
+  expect(screen.queryByRole("group")).toBeNull();
   expect(button().hasAttribute("aria-describedby")).toBe(false);
+});
+
+test("explains on load what the browser lacks, with no way to start", () => {
+  const player = new FakePlayer();
+  player.become({ kind: "unsupported", lacking: "secure-context" });
+  render(<App player={player} />);
+  expect(screen.getByRole("alert").textContent).toBe(explain("secure-context"));
+  expect(button().getAttribute("aria-disabled")).toBe("true");
+  expect(screen.queryByRole("group")).toBeNull();
+  fireEvent.click(button());
+  expect(player.calls).toStrictEqual([]);
 });
 
 test("says when the browser kept the audio paused after Resume, and only then", () => {

@@ -32,8 +32,13 @@ export type PlayerState =
   | { readonly kind: "suspended"; readonly refused: boolean }
   /** Fading out and releasing the audio device. */
   | { readonly kind: "stopping" }
-  /** Could not start, or stopped by a failure: `reason` says why. Can start again. */
-  | { readonly kind: "failed"; readonly reason: string };
+  /**
+   * Could not start, or stopped by a failure: `cause` says where (explained by
+   * {@link explain}), `detail` what exactly (the error, for those who debug). Can start again.
+   */
+  | { readonly kind: "failed"; readonly cause: Failure; readonly detail: string }
+  /** The browser lacks what the player needs (known from the start): cannot start. */
+  | { readonly kind: "unsupported"; readonly lacking: Missing };
 
 /** Something that plays sound and shows what it plays. */
 export interface Player {
@@ -61,6 +66,12 @@ export interface Player {
 /** What a browser may lack to play a patch. */
 export type Missing = "secure-context" | "web-audio" | "audio-worklet" | "webassembly";
 
+/**
+ * Where playing failed: loading the engine (network), running the engine, or the audio
+ * device (the browser's audio output).
+ */
+export type Failure = "load" | "engine" | "device";
+
 /** The parts of the browser the player needs: `globalThis` in a page. */
 export interface Environment {
   readonly isSecureContext: boolean;
@@ -86,9 +97,9 @@ export function missing(environment: Environment): Missing | undefined {
   return undefined;
 }
 
-/** Explains to the user what is missing, and what to do. */
-export function explain(lacking: Missing): string {
-  switch (lacking) {
+/** Explains to the user what is missing or what failed, and what to do next. */
+export function explain(problem: Missing | Failure): string {
+  switch (problem) {
     case "secure-context":
       return "Audio needs a secure page: open this page over HTTPS (or from localhost).";
     case "web-audio":
@@ -97,6 +108,12 @@ export function explain(lacking: Missing): string {
       return "This browser cannot run the engine in real time (no AudioWorklet). Try a recent Chrome, Firefox, Safari or Edge.";
     case "webassembly":
       return "This browser cannot run the engine (no WebAssembly). Try a recent Chrome, Firefox, Safari or Edge.";
+    case "load":
+      return "Could not load the audio engine. Check your connection, then press Start to try again.";
+    case "engine":
+      return "The audio engine stopped on an error. Press Start to try again; if it happens again, reload the page.";
+    case "device":
+      return "The browser could not play audio on this device. Check the sound output, then press Start to try again.";
   }
 }
 
@@ -114,7 +131,7 @@ export interface PlayerOptions {
   readonly fade: number;
   /** Duration kept for the oscilloscope, in seconds: as many samples as that at the context rate. */
   readonly historySeconds: number;
-  /** The browser, checked before starting. */
+  /** The browser, checked once, when the player is created. */
   readonly environment: Environment;
 }
 
@@ -221,14 +238,19 @@ export class EnginePlayer implements Player {
   readonly #listeners = new Set<() => void>();
   /** The engine module, fetched once. */
   #wasm: ArrayBuffer | undefined;
-  /** The state when no session is live: stopped or failed. */
-  #idle: PlayerState = STOPPED;
+  /** The state when no session is live: stopped, failed or unsupported. */
+  #idle: PlayerState;
   /** The live state and its session, if any: holding a session and being live are one. */
   #live: Live | undefined;
 
-  /** Sets the player up; nothing is loaded before the first start. */
+  /**
+   * Sets the player up; nothing is loaded before the first start. A browser lacking what
+   * the player needs is known at once: the player is then unsupported, for good.
+   */
   constructor(options: PlayerOptions) {
     this.#options = options;
+    const lacking = missing(options.environment);
+    this.#idle = lacking === undefined ? STOPPED : { kind: "unsupported", lacking };
   }
 
   /** The current state. */
@@ -269,10 +291,15 @@ export class EnginePlayer implements Player {
     }
   }
 
-  /** Fetches the engine module, once: a download the end of `session` cancels. */
+  /** Fetches the engine module, once: a download the end of `session` cancels. Errors name the URL. */
   async #module(session: Session): Promise<ArrayBuffer> {
     if (this.#wasm === undefined) {
-      const response = await session.until(fetch(this.#options.wasm, { signal: session.signal }));
+      const url = this.#options.wasm;
+      const response = await session.until(
+        fetch(url, { signal: session.signal }).catch((error: unknown) => {
+          throw new Error(`cannot load the engine from ${url} (${String(error)})`);
+        }),
+      );
       if (!response.ok) {
         throw new Error(`cannot load the engine from ${this.#options.wasm} (HTTP ${String(response.status)})`);
       }
@@ -287,9 +314,7 @@ export class EnginePlayer implements Player {
     if (live !== undefined) {
       return live.session.started.promise;
     }
-    const lacking = missing(this.#options.environment);
-    if (lacking !== undefined) {
-      this.#goIdle({ kind: "failed", reason: explain(lacking) });
+    if (this.#idle.kind === "unsupported") {
       return Promise.resolve();
     }
     let session;
@@ -298,7 +323,7 @@ export class EnginePlayer implements Player {
       session = new Session(this.#options.historySeconds);
     } catch (error) {
       // No context, for instance no audio device: there is no session to end.
-      this.#goIdle({ kind: "failed", reason: String(error) });
+      this.#goIdle({ kind: "failed", cause: "device", detail: String(error) });
       return Promise.resolve();
     }
     this.#goLive(STARTING, session);
@@ -312,11 +337,15 @@ export class EnginePlayer implements Player {
    */
   async #open(session: Session): Promise<void> {
     const { context, gain } = session;
+    // Where the start is: what a failure there is caused by.
+    let cause: Failure = "load";
     try {
-      const loaded = await session.until(loadPatch(await this.#module(session), this.#options.patch, context.sampleRate));
+      const wasm = await this.#module(session);
       await session.until(addProcessors(context, this.#options.worklet));
+      cause = "engine";
+      const loaded = await session.until(loadPatch(wasm, this.#options.patch, context.sampleRate));
       const engine = createEngineNode(context, loaded, (error) => {
-        void this.#fail(session, error);
+        void this.#fail(session, "engine", error);
       });
       const onBlock = (block: Float32Array[]): void => {
         const [first] = block;
@@ -326,7 +355,7 @@ export class EnginePlayer implements Player {
       };
       session.tapped(
         tap(context, engine.node, 1, onBlock, (error) => {
-          void this.#fail(session, error);
+          void this.#fail(session, "engine", error);
         }),
       );
       engine.node.connect(gain).connect(context.destination);
@@ -334,6 +363,7 @@ export class EnginePlayer implements Player {
         this.#follow(session);
       };
       await session.until(engine.ready);
+      cause = "device";
       await session.until(context.resume());
       this.#fadeIn(session);
       // A failure or a cancel may have come first: then this session is no longer live.
@@ -341,7 +371,7 @@ export class EnginePlayer implements Player {
         this.#goLive(context.state === "running" ? PLAYING : SUSPENDED, session);
       }
     } catch (error) {
-      await this.#fail(session, error);
+      await this.#fail(session, cause, error);
     } finally {
       session.started.resolve(undefined);
     }
@@ -370,9 +400,9 @@ export class EnginePlayer implements Player {
     await session.close();
   }
 
-  /** Ends `session` on a failure, unless it is no longer live. */
-  #fail(session: Session, error: unknown): Promise<void> {
-    return this.#end(session, { kind: "failed", reason: String(error) });
+  /** Ends `session` on a failure caused by `cause`, unless it is no longer live. */
+  #fail(session: Session, cause: Failure, error: unknown): Promise<void> {
+    return this.#end(session, { kind: "failed", cause, detail: String(error) });
   }
 
   /**
@@ -388,7 +418,7 @@ export class EnginePlayer implements Player {
     // A string: Safari also reports "interrupted", which the DOM types do not list.
     const state: string = session.context.state;
     if (state === "closed") {
-      void this.#fail(session, new Error("the browser closed the audio device"));
+      void this.#fail(session, "device", new Error("the browser closed the audio device"));
     } else if (state === "running") {
       if (live.state.kind === "suspended") {
         this.#goLive(PLAYING, session);
@@ -411,7 +441,7 @@ export class EnginePlayer implements Player {
       await live.session.until(live.session.context.resume());
     } catch (error) {
       // A context that cannot resume is closing or broken.
-      await this.#fail(live.session, error);
+      await this.#fail(live.session, "device", error);
       return;
     }
     this.#follow(live.session);
@@ -420,11 +450,13 @@ export class EnginePlayer implements Player {
     }
   }
 
-  /** Stops playing; cancels a start; from "failed", acknowledges it. */
+  /** Stops playing; cancels a start; from "failed", acknowledges it; unsupported stays so. */
   stop(): Promise<void> {
     const live = this.#live;
     if (live === undefined) {
-      this.#goIdle(STOPPED);
+      if (this.#idle.kind === "failed") {
+        this.#goIdle(STOPPED);
+      }
       return Promise.resolve();
     }
     if (live.state === STARTING) {
@@ -440,7 +472,7 @@ export class EnginePlayer implements Player {
     try {
       await this.#fadeOut(session);
     } catch (error) {
-      await this.#fail(session, error);
+      await this.#fail(session, "device", error);
       return;
     }
     await this.#end(session, STOPPED);

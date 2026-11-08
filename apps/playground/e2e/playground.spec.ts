@@ -1,6 +1,7 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 import { CSP } from "../csp.ts";
+import { explain } from "../src/player.ts";
 
 /** Errors of the page during the current test: uncaught errors, console errors, failed requests. */
 let errors: string[] = [];
@@ -114,10 +115,13 @@ test("explains a failure next to the button, accessibly, and can start again", a
   await page.goto("./?muted");
   await page.getByRole("button", { name: "Start" }).click();
   await expect(page.getByRole("status")).toHaveText("Failed");
-  const alert = page.getByRole("alert");
-  await expect(alert).toContainText("cannot load the engine from");
-  await expect(alert).toContainText("(HTTP 404)");
-  await expect(page.getByRole("button")).toHaveAttribute("aria-describedby", "player-alert");
+  await expect(page.getByRole("alert")).toHaveText(explain("load"));
+  await expect(page.getByRole("button", { name: "Start" })).toHaveAttribute("aria-describedby", "player-alert");
+  // The detail, for those who debug, is shown on demand and names what could not be loaded.
+  const details = page.getByRole("group");
+  await expect(details.locator("code")).toBeHidden();
+  await details.getByText("Details").click();
+  await expect(details.locator("code")).toHaveText(/^Error: cannot load the engine from \S+\.wasm \(HTTP 404\)$/);
   expect((await new AxeBuilder({ page }).analyze()).violations).toStrictEqual([]);
 
   await page.unroute("**/*.wasm");

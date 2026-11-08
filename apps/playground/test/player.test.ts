@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { SINE_440 } from "../src/patch.ts";
-import { EnginePlayer, explain, missing, type Environment, type Missing, type PlayerOptions } from "../src/player.ts";
+import { EnginePlayer, explain, missing, type Environment, type Failure, type Missing, type PlayerOptions } from "../src/player.ts";
 import { SAMPLE_RATES } from "./matrix.ts";
 
 /** The built engine module. */
@@ -228,6 +228,11 @@ class FakeContext {
   }
 }
 
+/** Whether `text` names a lack or a failure the player explains. */
+function isProblem(text: string): text is Missing | Failure {
+  return ["secure-context", "web-audio", "audio-worklet", "webassembly", "load", "engine", "device"].includes(text);
+}
+
 /** A browser with everything the player needs. */
 const CAPABLE: Environment = { isSecureContext: true, AudioContext: FakeContext, AudioWorkletNode: FakeWorkletNode, WebAssembly };
 
@@ -347,7 +352,7 @@ describe("EnginePlayer", () => {
     log = [];
     workletNode("poyetik-tap")?.port.deliver("garbage");
     await flush();
-    expect(player.state()).toStrictEqual({ kind: "failed", reason: "OptionsError: invalid processor options: tap block is not an array" });
+    expect(player.state()).toStrictEqual({ kind: "failed", cause: "engine", detail: "OptionsError: invalid processor options: tap block is not an array" });
     expect(log).toStrictEqual(["post stop", "disconnect poyetik-engine -> poyetik-tap", "close"]);
     expect(player.latest()).toBeUndefined();
   });
@@ -359,7 +364,7 @@ describe("EnginePlayer", () => {
     engine?.port.deliver({ type: "failed", message: "EngineTrap: trapped" });
     engine?.onprocessorerror?.();
     await flush();
-    expect(player.state()).toStrictEqual({ kind: "failed", reason: "Error: the engine failed: EngineTrap: trapped" });
+    expect(player.state()).toStrictEqual({ kind: "failed", cause: "engine", detail: "Error: the engine failed: EngineTrap: trapped" });
     expect(log.filter((entry) => entry === "close")).toHaveLength(1);
   });
 
@@ -368,7 +373,7 @@ describe("EnginePlayer", () => {
     engineAnswer = { type: "rejected", detail: Uint8Array.from(new TextEncoder().encode("bad patch")) };
     const player = new EnginePlayer(playerOptions());
     await player.start();
-    expect(player.state()).toStrictEqual({ kind: "failed", reason: "Error: bad patch" });
+    expect(player.state()).toStrictEqual({ kind: "failed", cause: "engine", detail: "Error: bad patch" });
     expect(log.at(-1)).toBe("close");
   });
 
@@ -487,7 +492,7 @@ describe("EnginePlayer", () => {
     const stopping = player.stop();
     workletNode("poyetik-engine")?.onprocessorerror?.();
     await stopping;
-    expect(player.state()).toStrictEqual({ kind: "failed", reason: "Error: the engine processor failed" });
+    expect(player.state()).toStrictEqual({ kind: "failed", cause: "engine", detail: "Error: the engine processor failed" });
     await player.start();
     expect(player.state()).toStrictEqual({ kind: "playing" });
     const again = player.stop();
@@ -505,7 +510,7 @@ describe("EnginePlayer", () => {
     const stopping = player.stop();
     lastContext()?.become("closed");
     await stopping;
-    expect(player.state()).toStrictEqual({ kind: "failed", reason: "Error: the browser closed the audio device" });
+    expect(player.state()).toStrictEqual({ kind: "failed", cause: "device", detail: "Error: the browser closed the audio device" });
     expect(log.filter((entry) => entry === "close")).toStrictEqual([]);
   });
 
@@ -525,7 +530,7 @@ describe("EnginePlayer", () => {
     log = [];
     context?.become("closed");
     await flush();
-    expect(player.state()).toStrictEqual({ kind: "failed", reason: "Error: the browser closed the audio device" });
+    expect(player.state()).toStrictEqual({ kind: "failed", cause: "device", detail: "Error: the browser closed the audio device" });
     expect(log).toStrictEqual(["post stop", "disconnect poyetik-engine -> poyetik-tap"]);
   });
 
@@ -658,7 +663,7 @@ describe("EnginePlayer", () => {
     stubFetch(404);
     const player = new EnginePlayer(playerOptions());
     await player.start();
-    expect(player.state()).toStrictEqual({ kind: "failed", reason: "Error: cannot load the engine from engine.wasm (HTTP 404)" });
+    expect(player.state()).toStrictEqual({ kind: "failed", cause: "load", detail: "Error: cannot load the engine from engine.wasm (HTTP 404)" });
     expect(log).toStrictEqual(["new context", "fetch engine.wasm", "close"]);
     expect(player.latest()).toBeUndefined();
     stubFetch();
@@ -677,7 +682,7 @@ describe("EnginePlayer", () => {
   test("fails when the patch is rejected", async () => {
     const player = new EnginePlayer(playerOptions(new TextEncoder().encode("{}")));
     await player.start();
-    expect(player.state().kind).toBe("failed");
+    expect(player.state()).toStrictEqual({ kind: "failed", cause: "engine", detail: "Error: invalid patch: missing field `format` at line 1 column 2" });
     expect(log.at(-1)).toBe("close");
   });
 
@@ -699,7 +704,7 @@ describe("EnginePlayer", () => {
     FakeContext.refuses.add("create");
     const player = new EnginePlayer(playerOptions());
     await player.start();
-    expect(player.state()).toStrictEqual({ kind: "failed", reason: "NotSupportedError: no device" });
+    expect(player.state()).toStrictEqual({ kind: "failed", cause: "device", detail: "NotSupportedError: no device" });
     expect(log).toStrictEqual([]);
   });
 
@@ -710,7 +715,7 @@ describe("EnginePlayer", () => {
     FakeContext.refuses.add("resume");
     log = [];
     await player.resume();
-    expect(player.state()).toStrictEqual({ kind: "failed", reason: "InvalidStateError: closing" });
+    expect(player.state()).toStrictEqual({ kind: "failed", cause: "device", detail: "InvalidStateError: closing" });
     expect(log).toStrictEqual(["post stop", "disconnect poyetik-engine -> poyetik-tap", "close"]);
   });
 
@@ -719,7 +724,7 @@ describe("EnginePlayer", () => {
     stubFetch(404);
     const player = new EnginePlayer(playerOptions());
     await player.start();
-    expect(player.state()).toStrictEqual({ kind: "failed", reason: "Error: cannot load the engine from engine.wasm (HTTP 404)" });
+    expect(player.state()).toStrictEqual({ kind: "failed", cause: "load", detail: "Error: cannot load the engine from engine.wasm (HTTP 404)" });
     stubFetch();
     await player.start();
     await stopPlaying(player);
@@ -731,15 +736,50 @@ describe("EnginePlayer", () => {
     await player.start();
     FakeContext.refuses.add("fade");
     await player.stop();
-    expect(player.state()).toStrictEqual({ kind: "failed", reason: "InvalidStateError: cannot schedule" });
+    expect(player.state()).toStrictEqual({ kind: "failed", cause: "device", detail: "InvalidStateError: cannot schedule" });
     expect(lastContext()?.state).toBe("closed");
   });
 
-  test("explains what the browser lacks instead of starting", async () => {
-    const player = new EnginePlayer(playerOptions(SINE_440, { ...CAPABLE, isSecureContext: false }));
+  test.each(["secure-context", "web-audio", "audio-worklet", "webassembly"] as const)("knows from the start that the browser lacks %s, and never starts", async (lacking) => {
+    const environments: Record<Missing, Environment> = {
+      "secure-context": { ...CAPABLE, isSecureContext: false },
+      "web-audio": { isSecureContext: true },
+      "audio-worklet": { ...CAPABLE, AudioWorkletNode: undefined },
+      webassembly: { ...CAPABLE, WebAssembly: undefined },
+    };
+    const player = new EnginePlayer(playerOptions(SINE_440, environments[lacking]));
+    const unsupported = player.state();
+    expect(unsupported).toStrictEqual({ kind: "unsupported", lacking });
     await player.start();
-    expect(player.state()).toStrictEqual({ kind: "failed", reason: explain("secure-context") });
+    await player.stop();
+    await player.resume();
+    expect(player.state()).toBe(unsupported);
     expect(FakeContext.created).toHaveLength(0);
+    expect(log).toStrictEqual([]);
+  });
+
+  test("fails on a download the network refuses, naming what it could not load", async () => {
+    vi.stubGlobal("fetch", () => Promise.reject(new TypeError("Failed to fetch")));
+    const player = new EnginePlayer(playerOptions());
+    await player.start();
+    expect(player.state()).toStrictEqual({ kind: "failed", cause: "load", detail: "Error: cannot load the engine from engine.wasm (TypeError: Failed to fetch)" });
+  });
+
+  test("fails when the processors cannot be loaded: a download", async () => {
+    vi.stubGlobal("AudioContext", class extends FakeContext {
+      /** A worklet whose module cannot be loaded. */
+      override readonly audioWorklet = { addModule: () => Promise.reject(new Error("no module")) };
+    });
+    const player = new EnginePlayer(playerOptions());
+    await player.start();
+    expect(player.state()).toMatchObject({ kind: "failed", cause: "load" });
+  });
+
+  test("fails when the audio device cannot start: the device", async () => {
+    const player = new EnginePlayer(playerOptions());
+    FakeContext.refuses.add("resume");
+    await player.start();
+    expect(player.state()).toStrictEqual({ kind: "failed", cause: "device", detail: "InvalidStateError: closing" });
   });
 });
 
@@ -860,13 +900,20 @@ describe("missing", () => {
     expect(missing(environment)).toBe(expected);
   });
 
-  test("explains each lack, differently", () => {
-    const all: Missing[] = ["secure-context", "web-audio", "audio-worklet", "webassembly"];
-    const texts = all.map(explain);
-    expect(new Set(texts).size).toBe(all.length);
-    expect(texts[0]).toContain("HTTPS");
-    expect(texts[1]).toContain("Web Audio");
-    expect(texts[2]).toContain("AudioWorklet");
-    expect(texts[3]).toContain("WebAssembly");
+  test("explains every lack and every failure, differently, with what to do", () => {
+    // A record: a new member of either union without its expected text does not compile.
+    const expected: Record<Missing | Failure, string> = {
+      "secure-context": "Audio needs a secure page: open this page over HTTPS (or from localhost).",
+      "web-audio": "This browser cannot play audio from a page (no Web Audio). Try a recent Chrome, Firefox, Safari or Edge.",
+      "audio-worklet": "This browser cannot run the engine in real time (no AudioWorklet). Try a recent Chrome, Firefox, Safari or Edge.",
+      webassembly: "This browser cannot run the engine (no WebAssembly). Try a recent Chrome, Firefox, Safari or Edge.",
+      load: "Could not load the audio engine. Check your connection, then press Start to try again.",
+      engine: "The audio engine stopped on an error. Press Start to try again; if it happens again, reload the page.",
+      device: "The browser could not play audio on this device. Check the sound output, then press Start to try again.",
+    };
+    for (const [problem, text] of Object.entries(expected)) {
+      expect(isProblem(problem) ? explain(problem) : undefined).toBe(text);
+    }
+    expect(new Set(Object.values(expected)).size).toBe(Object.keys(expected).length);
   });
 });

@@ -1,7 +1,7 @@
 /** The playground page: an on/off button and the oscilloscope. */
 
 import { useCallback, useSyncExternalStore, type JSX } from "react";
-import type { Player, PlayerState } from "./player.ts";
+import { explain, type Player, type PlayerState } from "./player.ts";
 import { Oscilloscope } from "./Oscilloscope.tsx";
 
 /** Every state, as shown in the status. */
@@ -12,6 +12,7 @@ const LABELS: Readonly<Record<PlayerState["kind"], string>> = {
   suspended: "Paused by the browser",
   stopping: "Stopping…",
   failed: "Failed",
+  unsupported: "Not supported",
 };
 
 /** What the button does in each state, and says; undefined while stopping. A start can be cancelled. */
@@ -28,6 +29,8 @@ function action(player: Player, state: PlayerState): { readonly label: string; r
       return { label: "Resume", run: () => player.resume() };
     case "stopping":
       return { label: "Stop" };
+    case "unsupported":
+      return { label: "Start" };
   }
 }
 
@@ -37,11 +40,16 @@ const ALERT = "player-alert";
 /** Shown when the browser kept the audio suspended after Resume: the click was seen, and what to try. */
 export const REFUSED = "The browser kept audio paused. Try again, or check that this tab may play sound.";
 
-/** What the page explains next to the button, or null: why the player failed, or why a resume did nothing. */
+/**
+ * What the page explains next to the button, or null: why the player cannot start or
+ * failed, and what to do; or why a resume did nothing.
+ */
 function notice(state: PlayerState): string | null {
   switch (state.kind) {
+    case "unsupported":
+      return explain(state.lacking);
     case "failed":
-      return state.reason;
+      return explain(state.cause);
     case "suspended":
       return state.refused ? REFUSED : null;
     case "stopped":
@@ -83,6 +91,13 @@ export function App({ player }: { readonly player: Player }): JSX.Element {
             {explanation}
           </p>
         )}
+        {/* What exactly failed, for those who debug: shown on demand, never announced. */}
+        {state.kind === "failed" ? (
+          <details>
+            <summary>Details</summary>
+            <code>{state.detail}</code>
+          </details>
+        ) : null}
       </div>
       <Oscilloscope signal={signal} />
     </main>
