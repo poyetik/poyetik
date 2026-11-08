@@ -1,5 +1,7 @@
 //! Conformance cases: reading and rendering them.
 
+use std::path::Path;
+
 use engine_core::{Plan, SampleRate};
 
 use crate::{HEADER_LEN, wav_header};
@@ -16,6 +18,35 @@ struct Case {
     sample_rate: u32,
     /// Duration, in frames.
     frames: usize,
+}
+
+/// Why a case cannot be rendered, and which of its two files is at fault.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CaseError {
+    /// The case file: invalid JSON or fields, an unsupported sample rate, or a duration
+    /// whose render does not fit a WAV file.
+    Case(String),
+    /// The patch file: an invalid patch, or one without audio output.
+    Patch(String),
+}
+
+impl CaseError {
+    /// The message, prefixed by the path of the file at fault.
+    #[must_use]
+    pub fn in_files(&self, case: &Path, patch: &Path) -> String {
+        match self {
+            Self::Case(message) => format!("{}: {message}", case.display()),
+            Self::Patch(message) => format!("{}: {message}", patch.display()),
+        }
+    }
+}
+
+impl core::fmt::Display for CaseError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Case(message) | Self::Patch(message) => f.write_str(message),
+        }
+    }
 }
 
 /// The result of rendering a case.
@@ -97,19 +128,25 @@ impl Prepared {
 ///
 /// # Errors
 ///
-/// Returns a message when the case, its sample rate or its patch is invalid, when the
-/// patch has no audio output, or when its render would not fit a WAV file.
-pub fn prepare_case(case: &str, patch: &str) -> Result<Prepared, String> {
-    let case: Case =
-        serde_json::from_str(case).map_err(|error| format!("invalid case: {error}"))?;
-    let rate = SampleRate::new(case.sample_rate).map_err(|error| error.to_string())?;
-    let patch = engine_patch::parse_patch(patch).map_err(|error| error.to_string())?;
-    let plan = Plan::build(&patch, &REGISTRY, rate).map_err(|error| error.to_string())?;
+/// Returns [`CaseError::Case`] when the case or its sample rate is invalid or when its
+/// render would not fit a WAV file, and [`CaseError::Patch`] when the patch is invalid
+/// or has no audio output.
+pub fn prepare_case(case: &str, patch: &str) -> Result<Prepared, CaseError> {
+    let case: Case = serde_json::from_str(case)
+        .map_err(|error| CaseError::Case(format!("invalid case: {error}")))?;
+    let rate =
+        SampleRate::new(case.sample_rate).map_err(|error| CaseError::Case(error.to_string()))?;
+    let patch =
+        engine_patch::parse_patch(patch).map_err(|error| CaseError::Patch(error.to_string()))?;
+    let plan = Plan::build(&patch, &REGISTRY, rate)
+        .map_err(|error| CaseError::Patch(error.to_string()))?;
     if plan.channels() == 0 {
-        return Err("the patch has no audio output: nothing to render".to_owned());
+        return Err(CaseError::Patch(
+            "the patch has no audio output: nothing to render".to_owned(),
+        ));
     }
     let samples = case.frames.saturating_mul(plan.channels());
-    let wav_header = wav_header(rate.hz(), plan.channels(), samples)?;
+    let wav_header = wav_header(rate.hz(), plan.channels(), samples).map_err(CaseError::Case)?;
     Ok(Prepared {
         plan,
         rate,
@@ -122,7 +159,7 @@ pub fn prepare_case(case: &str, patch: &str) -> Result<Prepared, String> {
 ///
 /// # Errors
 ///
-/// Returns the errors of [`prepare_case`]: rendering a prepared case cannot fail.
-pub fn render_case(case: &str, patch: &str) -> Result<Rendered, String> {
+/// Returns the [`CaseError`] of [`prepare_case`].
+pub fn render_case(case: &str, patch: &str) -> Result<Rendered, CaseError> {
     prepare_case(case, patch).map(Prepared::render)
 }

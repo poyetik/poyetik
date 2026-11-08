@@ -1,31 +1,48 @@
 //! The `engine-cli` commands.
 
 use alloc::collections::BTreeMap;
+use std::ffi::OsString;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use crate::{Files, prepare_case, render_case, wav_file};
+use crate::{Files, Prepared, prepare_case, wav_file};
 
-/// Usage of the `engine-cli` command.
-pub const USAGE: &str = "usage: engine-cli <command>
-  render <case.json> <patch.json> [--wav <file.wav>]  render a case, print its hash, optionally write a WAV file
-  check <dir>         compare every case of <dir>/cases (patches in <dir>/patches) with <dir>/references.json
+/// Usage of the `engine-cli` command, printed on stdout by `engine-cli help`.
+pub const USAGE: &str = "\
+usage: engine-cli <command>
+  render <case.json> <patch.json> [--wav <file.wav>]
+                      render a case, print its hash, optionally write a WAV file
+  check <dir>         compare every case of <dir>/cases (patches in <dir>/patches)
+                      with <dir>/references.json
   bless <dir>         rewrite <dir>/references.json from the current renders
-  export <dir> <out>  write the WAV file of every case of <dir>/cases to <out>/<case>.wav";
+  export <dir> <out>  write the WAV file of every case of <dir>/cases to <out>/<case>.wav
+  help                print this help";
 
 /// Why a command did not succeed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CliError {
-    /// The arguments do not form a command: shown with [`USAGE`], exit code 2.
-    Usage,
+    /// The arguments do not form a command, and why: shown as one `error:` line that
+    /// points to `engine-cli help`, exit code 2.
+    Usage(String),
     /// The command ran and failed: shown as one `error:` line, exit code 1.
     Failed(String),
+}
+
+impl CliError {
+    /// The exit code of the process for this error: 2 for a usage error, 1 for a failure.
+    #[must_use]
+    pub const fn exit_code(&self) -> u8 {
+        match self {
+            Self::Usage(_) => 2,
+            Self::Failed(_) => 1,
+        }
+    }
 }
 
 impl core::fmt::Display for CliError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Self::Usage => f.write_str(USAGE),
+            Self::Usage(reason) => write!(f, "{reason} (see: engine-cli help)"),
             Self::Failed(message) => f.write_str(message),
         }
     }
@@ -35,6 +52,27 @@ impl From<String> for CliError {
     fn from(message: String) -> Self {
         Self::Failed(message)
     }
+}
+
+/// Turns the raw command-line arguments (without the program name) into text.
+///
+/// The boundary where they are checked once. Paths that are not UTF-8 are refused, like
+/// case names; the patch format is JSON, UTF-8 too.
+///
+/// # Errors
+///
+/// Returns [`CliError::Usage`] naming the first argument that is not valid UTF-8.
+pub fn arguments(raw: Vec<OsString>) -> Result<Vec<String>, CliError> {
+    raw.into_iter()
+        .map(|argument| {
+            argument.into_string().map_err(|invalid| {
+                CliError::Usage(format!(
+                    "argument is not valid UTF-8: {}",
+                    invalid.to_string_lossy()
+                ))
+            })
+        })
+        .collect()
 }
 
 /// Writes to `W`, treating a closed reader (a broken pipe, as with `| head`) as success:
@@ -70,9 +108,29 @@ fn say(out: &mut dyn Write, line: &str) -> Result<(), String> {
     writeln!(out, "{line}").map_err(|error| error.to_string())
 }
 
-/// A case of a conformance directory: its name, the text of its case file and the text
-/// of its patch file.
-type CaseFiles = (String, String, String);
+/// A case of a conformance directory: its name, and the path and text of its case file
+/// and of its patch file.
+#[derive(Debug)]
+struct CaseFiles {
+    /// The case name: its file name without `.json`.
+    name: String,
+    /// Path of the case file.
+    case_path: PathBuf,
+    /// Text of the case file.
+    case: String,
+    /// Path of the patch file.
+    patch_path: PathBuf,
+    /// Text of the patch file.
+    patch: String,
+}
+
+impl CaseFiles {
+    /// Prepares the case, naming the file at fault on failure.
+    fn prepare(&self) -> Result<Prepared, String> {
+        prepare_case(&self.case, &self.patch)
+            .map_err(|error| error.in_files(&self.case_path, &self.patch_path))
+    }
+}
 
 /// The names of the `.json` files of `dir`, sorted, with their paths.
 fn json_files(files: &mut dyn Files, dir: &Path) -> Result<Vec<(String, PathBuf)>, String> {
@@ -118,10 +176,15 @@ fn cases(files: &mut dyn Files, dir: &Path) -> Result<Vec<CaseFiles>, String> {
         ));
     }
     let mut read_cases = Vec::new();
-    for (name, path) in names {
-        let case = read(files, &path)?;
-        let patch = read(files, &patches.join(format!("{name}.json")))?;
-        read_cases.push((name, case, patch));
+    for (name, case_path) in names {
+        let patch_path = patches.join(format!("{name}.json"));
+        read_cases.push(CaseFiles {
+            case: read(files, &case_path)?,
+            patch: read(files, &patch_path)?,
+            name,
+            case_path,
+            patch_path,
+        });
     }
     Ok(read_cases)
 }
@@ -129,10 +192,10 @@ fn cases(files: &mut dyn Files, dir: &Path) -> Result<Vec<CaseFiles>, String> {
 /// Renders every case of `<dir>/cases`, sorted by name: `(name, hash)`.
 fn hashes(files: &mut dyn Files, dir: &Path) -> Result<BTreeMap<String, String>, String> {
     let mut hashes = BTreeMap::new();
-    for (name, case, patch) in cases(files, dir)? {
-        let rendered = render_case(&case, &patch).map_err(|error| format!("{name}: {error}"))?;
+    for case in cases(files, dir)? {
+        let rendered = case.prepare()?.render();
         // Case names are file names of one directory, hence unique.
-        drop(hashes.insert(name, rendered.hash().to_string()));
+        drop(hashes.insert(case.name, rendered.hash().to_string()));
     }
     Ok(hashes)
 }
@@ -147,10 +210,18 @@ fn render(files: &mut dyn Files, out: &mut dyn Write, args: &[String]) -> Result
     let (case, patch, wav) = match args {
         [case, patch] => (case, patch, None),
         [case, patch, flag, wav] if flag == "--wav" => (case, patch, Some(wav)),
-        _ => return Err(CliError::Usage),
+        [_, _, option, ..] if option.starts_with('-') && option != "--wav" => {
+            return Err(CliError::Usage(format!("unknown option \"{option}\"")));
+        }
+        _ => {
+            return Err(CliError::Usage(
+                "render expects <case.json> <patch.json> [--wav <file.wav>]".to_owned(),
+            ));
+        }
     };
-    let case = read(files, Path::new(case))?;
-    let prepared = prepare_case(&case, &read(files, Path::new(patch))?)?;
+    let (case_path, patch_path) = (Path::new(case), Path::new(patch));
+    let prepared = prepare_case(&read(files, case_path)?, &read(files, patch_path)?)
+        .map_err(|error| error.in_files(case_path, patch_path))?;
     let header = *prepared.wav_header();
     let rendered = prepared.render();
     if let Some(path) = wav {
@@ -226,11 +297,11 @@ fn export(
     files
         .create_dir_all(target)
         .map_err(|error| format!("cannot create {}: {error}", target.display()))?;
-    for (name, case, patch) in cases(files, dir)? {
-        let prepared = prepare_case(&case, &patch).map_err(|error| format!("{name}: {error}"))?;
+    for case in cases(files, dir)? {
+        let prepared = case.prepare()?;
         let header = *prepared.wav_header();
         let rendered = prepared.render();
-        let path = target.join(format!("{name}.wav"));
+        let path = target.join(format!("{}.wav", case.name));
         files
             .write(&path, &wav_file(&header, &rendered.samples))
             .map_err(|error| format!("cannot write {}: {error}", path.display()))?;
@@ -246,18 +317,23 @@ fn export(
 ///
 /// # Errors
 ///
-/// Returns [`CliError::Usage`] for an unknown command or invalid arguments, and
-/// [`CliError::Failed`] for any failure of the command once it runs (a file that cannot
-/// be read or written, an invalid case or patch, a conformance failure, an error writing
-/// to `out`), with the message of its one `error:` line.
+/// Returns [`CliError::Usage`] for a missing or unknown command or invalid arguments,
+/// and [`CliError::Failed`] for an unreadable or invalid case, a conformance failure or
+/// an output that cannot be written.
 pub fn run(args: &[String], files: &mut dyn Files, out: &mut dyn Write) -> Result<(), CliError> {
-    match args {
-        [command, rest @ ..] if command == "render" => render(files, out, rest),
-        [command, dir] if command == "check" => Ok(check(files, out, Path::new(dir))?),
-        [command, dir] if command == "bless" => Ok(bless(files, out, Path::new(dir))?),
-        [command, dir, target] if command == "export" => {
-            Ok(export(files, out, Path::new(dir), Path::new(target))?)
-        }
-        _ => Err(CliError::Usage),
+    let Some((command, rest)) = args.split_first() else {
+        return Err(CliError::Usage("missing command".to_owned()));
+    };
+    let expects = |synopsis: &str| CliError::Usage(format!("{command} expects {synopsis}"));
+    match (command.as_str(), rest) {
+        ("render", _) => render(files, out, rest),
+        ("check", [dir]) => Ok(check(files, out, Path::new(dir))?),
+        ("bless", [dir]) => Ok(bless(files, out, Path::new(dir))?),
+        ("export", [dir, target]) => Ok(export(files, out, Path::new(dir), Path::new(target))?),
+        ("help", []) => Ok(say(out, USAGE)?),
+        ("check" | "bless", _) => Err(expects("<dir>")),
+        ("export", _) => Err(expects("<dir> <out>")),
+        ("help", _) => Err(expects("no argument")),
+        _ => Err(CliError::Usage(format!("unknown command \"{command}\""))),
     }
 }

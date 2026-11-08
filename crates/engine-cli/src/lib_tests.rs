@@ -6,7 +6,10 @@ use std::path::{Path, PathBuf};
 
 use engine_core::SampleRate;
 
-use super::{Disk, Files, HEADER_LEN, Rendered, USAGE, render_case, run, wav_bytes, wav_header};
+use super::{
+    CaseError, CliError, Disk, Files, HEADER_LEN, Rendered, USAGE, arguments, render_case, run,
+    wav_bytes, wav_header,
+};
 
 const SINE: &str = r#"{"sample_rate":48000,"frames":100}"#;
 
@@ -97,6 +100,11 @@ fn run_with(memory: &mut Memory, words: &[&str]) -> (Result<(), String>, String)
     (result, String::from_utf8(out).expect("utf-8 output"))
 }
 
+/// How a usage error reads: its reason, then where to find the usage.
+fn usage(reason: &str) -> String {
+    format!("{reason} (see: engine-cli help)")
+}
+
 fn sine_hash() -> String {
     render_case(SINE, PATCH)
         .expect("valid case")
@@ -120,39 +128,65 @@ fn renders_a_case() {
 #[test]
 fn rejects_invalid_cases() {
     let no_output = r#"{"format":1,"nodes":[{"id":1,"box":"osc~"}],"connections":[]}"#;
-    for (case, patch, start) in [
-        ("{", PATCH, "invalid case: "),
-        (r#"{"sample_rate":48000}"#, PATCH, "invalid case: "),
+    let case = |message: &str| CaseError::Case(message.to_owned());
+    let patch = |message: &str| CaseError::Patch(message.to_owned());
+    for (case_text, patch_text, expected) in [
+        (
+            "{",
+            PATCH,
+            case("invalid case: EOF while parsing an object at line 1 column 1"),
+        ),
+        (
+            r#"{"sample_rate":48000}"#,
+            PATCH,
+            case("invalid case: missing field `frames` at line 1 column 21"),
+        ),
         (
             r#"{"sample_rate":48000,"frames":1,"extra":1}"#,
             PATCH,
-            "invalid case: ",
-        ),
-        (
-            r#"{"sample_rate":48000,"frames":1,"patch":{}}"#,
-            PATCH,
-            "invalid case: ",
+            case(
+                "invalid case: unknown field `extra`, expected `sample_rate` or `frames` at line 1 column 39",
+            ),
         ),
         (
             r#"{"sample_rate":1,"frames":1}"#,
             PATCH,
-            "invalid sample rate: 1 Hz",
+            case("invalid sample rate: 1 Hz (supported: 8000 to 384000 Hz)"),
         ),
         (
             SINE,
             r#"{"format":2,"nodes":[],"connections":[]}"#,
-            "unsupported patch format 2",
+            patch("unsupported patch format 2 (expected 1)"),
         ),
         (
             SINE,
             r#"{"format":1,"nodes":[{"id":1,"box":"x~"}],"connections":[]}"#,
-            "node 1: unknown box type",
+            patch("node 1: unknown box type \"x~\""),
         ),
-        (SINE, no_output, "the patch has no audio output"),
+        (
+            SINE,
+            no_output,
+            patch("the patch has no audio output: nothing to render"),
+        ),
     ] {
-        let error = render_case(case, patch).expect_err("invalid case");
-        assert!(error.starts_with(start), "{error}");
+        assert_eq!(
+            render_case(case_text, patch_text).map(|_| ()),
+            Err(expected),
+            "{case_text} {patch_text}"
+        );
     }
+    let error = patch("p");
+    assert_eq!(error.to_string(), "p", "the message alone");
+    assert_eq!(
+        error.in_files(Path::new("c.json"), Path::new("p.json")),
+        "p.json: p",
+        "the patch file is named"
+    );
+    assert_eq!(
+        case("c").in_files(Path::new("c.json"), Path::new("p.json")),
+        "c.json: c",
+        "the case file is named"
+    );
 }
 
 #[test]
@@ -163,7 +197,9 @@ fn reads_the_patch_bytes_unchanged() {
         r#"{"id":1,"box":"osc~"}"#,
         r#"{"id":1,"box":"osc~","params":{"frequency":1,"frequency":2}}"#,
     );
-    let error = render_case(SINE, &repeated).expect_err("repeated parameter");
+    let error = render_case(SINE, &repeated)
+        .expect_err("repeated parameter")
+        .to_string();
     assert!(
         error.contains("parameter `frequency` is given twice"),
         "{error}"
@@ -290,16 +326,29 @@ fn render_command_reports_errors() {
         ("patch.json", PATCH),
         ("bad.json", "{"),
     ]);
+    let expects = usage("render expects <case.json> <patch.json> [--wav <file.wav>]");
     for (words, error) in [
-        (&["render"][..], USAGE.to_owned()),
-        (&["render", "case.json"][..], USAGE.to_owned()),
+        (&["render"][..], expects.clone()),
+        (&["render", "case.json"][..], expects.clone()),
         (
             &["render", "case.json", "patch.json", "--mp3", "x"][..],
-            USAGE.to_owned(),
+            usage("unknown option \"--mp3\""),
+        ),
+        (
+            &["render", "case.json", "patch.json", "-w"][..],
+            usage("unknown option \"-w\""),
         ),
         (
             &["render", "case.json", "patch.json", "--wav"][..],
-            USAGE.to_owned(),
+            expects.clone(),
+        ),
+        (
+            &["render", "case.json", "patch.json", "extra"][..],
+            expects.clone(),
+        ),
+        (
+            &["render", "case.json", "patch.json", "--wav", "a.wav", "b"][..],
+            expects,
         ),
         (
             &["render", "missing.json", "patch.json"][..],
@@ -312,11 +361,15 @@ fn render_command_reports_errors() {
     ] {
         assert_eq!(run_with(&mut memory, words).0, Err(error), "{words:?}");
     }
-    assert!(
-        run_with(&mut memory, &["render", "bad.json", "patch.json"])
-            .0
-            .is_err_and(|error| error.starts_with("invalid case")),
-        "invalid case"
+    assert_eq!(
+        run_with(&mut memory, &["render", "bad.json", "patch.json"]).0,
+        Err("bad.json: invalid case: EOF while parsing an object at line 1 column 1".to_owned()),
+        "the case file is named"
+    );
+    assert_eq!(
+        run_with(&mut memory, &["render", "case.json", "bad.json"]).0,
+        Err("bad.json: invalid patch: EOF while parsing an object at line 1 column 1".to_owned()),
+        "the patch file is named"
     );
     memory.read_only = true;
     assert_eq!(
@@ -413,8 +466,8 @@ fn check_command_reports_unreadable_inputs() {
     assert!(
         run_with(&mut bad_case, &["check", "conf"])
             .0
-            .is_err_and(|error| error.starts_with("bad: invalid case")),
-        "case named"
+            .is_err_and(|error| error.starts_with("conf/cases/bad.json: invalid case: ")),
+        "case file named"
     );
 }
 
@@ -458,19 +511,72 @@ fn bless_command_writes_sorted_references() {
 
 #[test]
 fn rejects_unknown_commands() {
-    for words in [
-        &[][..],
-        &["play", "x"][..],
-        &["play"][..],
-        &["check"][..],
-        &["bless", "a", "b"][..],
+    for (words, reason) in [
+        (&[][..], "missing command"),
+        (&["play", "x"][..], "unknown command \"play\""),
+        (&["play"][..], "unknown command \"play\""),
+        (&["check"][..], "check expects <dir>"),
+        (&["bless", "a", "b"][..], "bless expects <dir>"),
+        (&["export", "a"][..], "export expects <dir> <out>"),
+        (&["help", "render"][..], "help expects no argument"),
     ] {
         assert_eq!(
             run_with(&mut Memory::default(), words).0,
-            Err(USAGE.to_owned()),
+            Err(usage(reason)),
             "{words:?}"
         );
     }
+}
+
+#[test]
+fn help_prints_the_usage_on_the_output() {
+    assert_eq!(
+        run_with(&mut Memory::default(), &["help"]),
+        (Ok(()), format!("{USAGE}\n")),
+        "usage on stdout"
+    );
+    assert_eq!(
+        run(&args(&["help"]), &mut Memory::default(), &mut Broken)
+            .map_err(|error| error.to_string()),
+        Err("closed".to_owned()),
+        "a broken output is a failure"
+    );
+    for command in ["render", "check", "bless", "export", "help"] {
+        assert!(
+            USAGE
+                .lines()
+                .any(|line| line.starts_with(&format!("  {command} "))),
+            "{command} is described"
+        );
+    }
+}
+
+#[test]
+fn reads_arguments_as_utf8_text() {
+    use std::ffi::OsString;
+    assert_eq!(
+        arguments(vec![OsString::from("check"), OsString::from("dir")]),
+        Ok(args(&["check", "dir"])),
+        "text arguments"
+    );
+    assert_eq!(arguments(Vec::new()), Ok(Vec::new()), "no argument");
+}
+
+#[cfg(unix)]
+#[test]
+fn refuses_arguments_that_are_not_utf8() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+    assert_eq!(
+        arguments(vec![
+            OsString::from("render"),
+            OsString::from_vec(b"case\xff.json".to_vec()),
+        ]),
+        Err(CliError::Usage(
+            "argument is not valid UTF-8: case\u{fffd}.json".to_owned()
+        )),
+        "a usage error naming the argument"
+    );
 }
 
 /// An output that always fails.
@@ -587,7 +693,9 @@ fn refuses_a_case_too_long_for_a_wav_file_before_rendering() {
     assert_ne!(huge, SINE, "the duration was replaced");
     assert_eq!(
         super::prepare_case(&huge, PATCH).map(|prepared| prepared.sample_count()),
-        Err("too long for WAV: 8000000000 samples".to_owned()),
+        Err(CaseError::Case(
+            "too long for WAV: 8000000000 samples".to_owned()
+        )),
         "rejected while preparing"
     );
     let prepared = super::prepare_case(SINE, PATCH).expect("valid case");
@@ -719,8 +827,8 @@ fn export_command_reports_errors() {
     assert!(
         run_with(&mut invalid, &["export", "conf", "out"])
             .0
-            .is_err_and(|error| error.starts_with("bad: invalid case: ")),
-        "invalid case named"
+            .is_err_and(|error| error.starts_with("conf/cases/bad.json: invalid case: ")),
+        "invalid case file named"
     );
     let mut missing = Memory::default();
     assert_eq!(
@@ -737,7 +845,7 @@ fn export_command_reports_errors() {
     );
     assert_eq!(
         run_with(&mut two_cases(), &["export", "conf"]).0,
-        Err(USAGE.to_owned()),
+        Err(usage("export expects <dir> <out>")),
         "missing output"
     );
 }
@@ -778,19 +886,30 @@ fn pairs_every_case_with_its_patch() {
 #[test]
 fn tells_usage_errors_from_failures() {
     let mut memory = Memory::default();
+    let unknown = run(&args(&["nope"]), &mut memory, &mut Vec::new());
     assert_eq!(
-        run(&args(&["nope"]), &mut memory, &mut Vec::new()),
-        Err(super::CliError::Usage),
+        unknown,
+        Err(CliError::Usage("unknown command \"nope\"".to_owned())),
         "usage"
     );
+    let failed = run(&args(&["check", "conf"]), &mut memory, &mut Vec::new());
     assert_eq!(
-        run(&args(&["check", "conf"]), &mut memory, &mut Vec::new()),
-        Err(super::CliError::Failed(
+        failed,
+        Err(CliError::Failed(
             "cannot list conf/cases: no such directory".to_owned()
         )),
         "failure"
     );
-    assert_eq!(super::CliError::Usage.to_string(), USAGE, "usage text");
+    assert_eq!(
+        unknown.map_err(|error| (error.exit_code(), error.to_string())),
+        Err((2, usage("unknown command \"nope\""))),
+        "exit code 2, pointing to the help"
+    );
+    assert_eq!(
+        failed.map_err(|error| (error.exit_code(), error.to_string())),
+        Err((1, "cannot list conf/cases: no such directory".to_owned())),
+        "exit code 1, the message alone"
+    );
 }
 
 /// An output whose reader is gone, or that fails another way.

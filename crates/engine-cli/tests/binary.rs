@@ -84,30 +84,113 @@ mod tests {
         assert!(wav.starts_with(b"RIFF"), "a WAV file");
     }
 
-    #[test]
-    fn prints_usage_and_fails_without_a_command() {
-        let output = Command::new(env!("CARGO_BIN_EXE_engine-cli"))
+    /// Runs the binary with `args`.
+    fn engine_cli(args: &[&std::ffi::OsStr]) -> std::process::Output {
+        Command::new(env!("CARGO_BIN_EXE_engine-cli"))
+            .args(args)
             .output()
-            .expect("the binary runs");
-        assert!(!output.status.success(), "no command is an error");
-        assert!(
-            output.stderr.starts_with(b"usage: engine-cli <command>"),
-            "usage on stderr"
+            .expect("the binary runs")
+    }
+
+    /// Checks the command-line contract for an error: exit `code`, nothing on stdout, and
+    /// exactly the line `expected` on stderr.
+    fn assert_error(output: &std::process::Output, code: i32, expected: &str) {
+        assert_eq!(output.status.code(), Some(code), "exit code of {expected}");
+        assert!(output.stdout.is_empty(), "nothing on stdout for {expected}");
+        assert_eq!(
+            String::from_utf8_lossy(&output.stderr),
+            format!("{expected}\n"),
+            "one error line"
         );
     }
 
     #[test]
-    fn refuses_a_bad_command_line_with_exit_code_2() {
-        let output = Command::new(env!("CARGO_BIN_EXE_engine-cli"))
-            .args(["nope"])
-            .output()
-            .expect("the binary runs");
-        assert_eq!(output.status.code(), Some(2_i32), "usage error");
-        assert!(output.stdout.is_empty(), "nothing on stdout");
-        assert!(
-            String::from_utf8_lossy(&output.stderr).starts_with("usage: engine-cli"),
-            "the usage on stderr"
+    fn refuses_bad_command_lines_with_one_error_line_and_exit_code_2() {
+        for (args, reason) in [
+            (&[][..], "missing command"),
+            (&["chek"][..], "unknown command \"chek\""),
+            (
+                &["render", "a.json", "b.json", "--wvv", "x"][..],
+                "unknown option \"--wvv\"",
+            ),
+            (&["check"][..], "check expects <dir>"),
+            (&["check", "a", "b"][..], "check expects <dir>"),
+        ] {
+            let os_args: Vec<&std::ffi::OsStr> = args.iter().map(std::ffi::OsStr::new).collect();
+            assert_error(
+                &engine_cli(&os_args),
+                2,
+                &format!("error: {reason} (see: engine-cli help)"),
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn refuses_an_argument_that_is_not_utf8_with_exit_code_2() {
+        use std::os::unix::ffi::OsStrExt;
+        let output = engine_cli(&[
+            std::ffi::OsStr::new("render"),
+            std::ffi::OsStr::from_bytes(b"case\xff.json"),
+            std::ffi::OsStr::new("patch.json"),
+        ]);
+        assert_error(
+            &output,
+            2,
+            "error: argument is not valid UTF-8: case\u{fffd}.json (see: engine-cli help)",
         );
+    }
+
+    #[test]
+    fn prints_the_usage_on_stdout_for_help() {
+        let output = engine_cli(&[std::ffi::OsStr::new("help")]);
+        assert_eq!(output.status.code(), Some(0_i32), "success");
+        assert!(output.stderr.is_empty(), "nothing on stderr");
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            format!("{}\n", engine_cli::USAGE),
+            "the usage"
+        );
+    }
+
+    #[test]
+    fn names_the_file_at_fault_in_one_error_line_with_exit_code_1() {
+        let dir = std::env::temp_dir().join(format!("engine-cli-fault-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temporary directory");
+        let case = Path::new(&conformance()).join("cases/sine-440.json");
+        let patch = dir.join("patch.json");
+        std::fs::write(
+            &patch,
+            r#"{"format":1,"nodes":[{"id":1,"box":"foo~"}],"connections":[]}"#,
+        )
+        .expect("patch");
+        let missing = dir.join("missing.json");
+        let unknown_box = engine_cli(&[
+            std::ffi::OsStr::new("render"),
+            case.as_os_str(),
+            patch.as_os_str(),
+        ]);
+        let unreadable = engine_cli(&[
+            std::ffi::OsStr::new("render"),
+            missing.as_os_str(),
+            patch.as_os_str(),
+        ]);
+        std::fs::remove_dir_all(&dir).expect("cleanup");
+        assert_error(
+            &unknown_box,
+            1,
+            &format!(
+                "error: {}: node 1: unknown box type \"foo~\"",
+                patch.display()
+            ),
+        );
+        let stderr = String::from_utf8_lossy(&unreadable.stderr);
+        assert!(
+            stderr.starts_with(&format!("error: cannot read {}: ", missing.display())),
+            "{stderr}"
+        );
+        assert_eq!(stderr.lines().count(), 1, "one line: {stderr}");
+        assert_eq!(unreadable.status.code(), Some(1_i32), "a failure");
     }
 
     #[test]
@@ -115,11 +198,17 @@ mod tests {
         // The read end is closed before the binary writes: every write gets a broken pipe.
         let (reader, writer) = std::io::pipe().expect("a pipe");
         drop(reader);
-        let status = Command::new(env!("CARGO_BIN_EXE_engine-cli"))
+        let output = Command::new(env!("CARGO_BIN_EXE_engine-cli"))
             .args(["check", &conformance()])
             .stdout(writer)
-            .status()
+            .stderr(std::process::Stdio::piped())
+            .output()
             .expect("the binary runs");
-        assert_eq!(status.code(), Some(0_i32), "the check passed: exit code 0");
+        assert_eq!(
+            output.status.code(),
+            Some(0_i32),
+            "the check passed: exit code 0"
+        );
+        assert!(output.stderr.is_empty(), "no error line");
     }
 }
