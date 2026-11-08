@@ -29,6 +29,8 @@ The words of the project, with the name each one takes in the patch format and i
 | **conformance case** | A patch, a rate and a duration whose render hash is recorded and must be reproduced on every target | `conformance/cases/` |
 | **reference hash** | The recorded hash of a case; it changes only through `cargo xtask bless`, and the commit says why | `conformance/references.json` |
 | **oracle** | The independent checker: rereads the native renders and checks them against the mathematical definition of their signal, sharing no code with the engine | `tooling/oracle/` |
+| **measurement** | An objective level of a signal (spectrum, THD+N, THD, SNR, SFDR, aliasing level), defined in `spec/measurements.md` and computed twice, independently | `engine_testkit::measure`, the oracle's `measure.ts` |
+| **threshold** | The worst level a box or an engine component may measure, derived from first principles (its error bound per sample, then the bounds of `spec/measurements.md`), never declared | `sine_bounds` (`engine-testkit`), `sineBounds` (oracle) |
 | **test matrix** | The shared values every dimension is tested across (rates, host buffer sizes, …), never retyped | `conformance/test-matrix.json` |
 | **box laws** | The properties every registered box must respect, each box run in isolation, listed in the crate documentation of `engine-testkit` | `engine-testkit` (`check_laws`) |
 | **plan laws** | The properties every plan must respect, checked over random patches, among them that a render never depends on how it is split into host buffers; listed at the top of their test file | `crates/engine-testkit/tests/plan_laws.rs` |
