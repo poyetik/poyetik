@@ -1,5 +1,6 @@
-# Quality: runs on every push, on every branch, and on every pull request.
-# It runs exactly what the pre-push hook runs: `cargo xtask check`.
+# Quality: runs exactly what the pre-push hook runs, `cargo xtask check`.
+# On demand, because the full check is long and commits are frequent: on a push only when the
+# last commit's message contains [ci], on every pull request, and by hand (Run workflow).
 name: Quality
 
 on:
@@ -17,6 +18,8 @@ concurrency:
 jobs:
   check:
     name: cargo xtask check
+    # A push runs the check only when its last commit asks for it with [ci].
+    if: github.event_name != 'push' || contains(github.event.head_commit.message, '[ci]')
     runs-on: ubuntu-latest
     timeout-minutes: 60
     # Every action is pinned to a full commit (the tag it was taken from is in the comment)
