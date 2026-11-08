@@ -110,21 +110,97 @@ mod tests {
     /// `bound(frames)` of the exact sine.
     const REFERENCE_ERROR: f64 = 3.552_713_678_800_501e-15; // 2^-48
 
-    /// The exact sine at `frame` of an oscillator at `frequency` Hz starting at phase 0,
-    /// both rates whole: the phase is reduced in integers, `(frequency · frame) mod rate`,
-    /// so the reference never accumulates an error, whatever the frame.
-    fn exact(frequency: u64, rate: u64, frame: u64) -> f64 {
-        let cycle = frequency
-            .checked_mul(frame)
-            .and_then(|turns| turns.checked_rem(rate))
-            .expect("no overflow, a rate above zero");
-        let to_f64 = |value: u64| f64::from(u32::try_from(value).expect("below 2^32"));
-        libm::sin(TAU * to_f64(cycle) / to_f64(rate))
+    /// `value` as an `f64`, exactly: it must be below 2^53.
+    fn exact_f64(value: u128) -> f64 {
+        assert!(
+            value < 9_007_199_254_740_992_u128,
+            "{value} is not exact in f64"
+        );
+        let high = value
+            .checked_shr(32_u32)
+            .and_then(|high| u32::try_from(high).ok())
+            .expect("below 2^21");
+        let low = u32::try_from(value & 0xffff_ffff_u128).expect("32 bits");
+        f64::from(high) * 4_294_967_296.0_f64 + f64::from(low)
+    }
+
+    /// A positive binary32 value as `m · 2^p` with `m` odd: `(m, p)`.
+    fn dyadic(value: f32) -> (u128, i32) {
+        let bits = value.to_bits();
+        assert_eq!(
+            bits.checked_shr(31_u32),
+            Some(0_u32),
+            "a positive frequency"
+        );
+        let biased = bits.checked_shr(23_u32).expect("a 32-bit shift");
+        let fraction = bits & 0x007f_ffff_u32;
+        let (mantissa, exponent) = if biased == 0_u32 {
+            (fraction, -149_i32)
+        } else {
+            let unbiased = i32::try_from(biased)
+                .ok()
+                .and_then(|biased| biased.checked_sub(150_i32))
+                .expect("8 bits");
+            (fraction | 0x0080_0000_u32, unbiased)
+        };
+        assert_ne!(mantissa, 0_u32, "a value above zero");
+        let zeros = mantissa.trailing_zeros();
+        let odd = mantissa.checked_shr(zeros).expect("below 32");
+        let power = i32::try_from(zeros)
+            .ok()
+            .and_then(|zeros| exponent.checked_add(zeros))
+            .expect("a binary32 exponent");
+        (u128::from(odd), power)
+    }
+
+    /// The exact sine at `frame` of an oscillator at `frequency` Hz (any binary32 value
+    /// of the parameter's range) starting at phase 0, at `rate` Hz.
+    ///
+    /// With `frequency = m · 2^p` (`m` odd), the phase at `frame` is `m · 2^p · frame /
+    /// rate` cycles, reduced exactly in `u128`: for `p ≥ 0`, `(m · 2^p · frame) mod
+    /// rate`, over `rate`; for `p = -k < 0`, `(m · frame) mod (rate · 2^k)`, over
+    /// `rate · 2^k`; so the reference never accumulates an error, whatever the frame.
+    /// When `rate · 2^k` does not fit in `u128` (the smallest frequencies: the minimum
+    /// normal and below), `m · frame` is below 2^53, far below the modulus: nothing to
+    /// reduce. Either way the remainder is below 2^53, exact in `f64`, and the phase is
+    /// that remainder divided by `rate` (one correctly rounded division) times `2^-k`
+    /// (exact): a correctly rounded quotient below 1.
+    fn exact(frequency: f32, rate: u32, frame: u64) -> f64 {
+        if frequency.to_bits() == 0_u32 {
+            return 0.0_f64;
+        }
+        let (odd, power) = dyadic(frequency);
+        let (remainder, down) = u32::try_from(power).map_or_else(
+            |_| {
+                let down = power.unsigned_abs();
+                let turns = odd.checked_mul(u128::from(frame)).expect("m below 2^24");
+                let modulus = 1_u128
+                    .checked_shl(down)
+                    .and_then(|scale| scale.checked_mul(u128::from(rate)));
+                let reduced = modulus.map_or(Some(turns), |modulus| turns.checked_rem(modulus));
+                (reduced.expect("a modulus above zero"), down)
+            },
+            |up| {
+                let whole = odd
+                    .checked_shl(up)
+                    .and_then(|step| step.checked_mul(u128::from(frame)))
+                    .and_then(|turns| turns.checked_rem(u128::from(rate)))
+                    .expect("a frequency below 2^24 Hz, a rate above zero");
+                (whole, 0_u32)
+            },
+        );
+        // 2^-down, exactly: down is at most 149, so 2^-down is a normal f64.
+        let scale = 1_023_u64
+            .checked_sub(u64::from(down))
+            .and_then(|biased| biased.checked_shl(52_u32))
+            .map(f64::from_bits)
+            .expect("below 1023");
+        libm::sin(TAU * (exact_f64(remainder) / f64::from(rate) * scale))
     }
 
     /// Checks `samples`, rendered from frame 0 at `frequency` Hz and `rate` Hz, against
     /// [`exact`] within `bound(frames)`, leaving room for the reference's own error.
-    fn assert_exact(samples: &[f32], frequency: u64, rate: u64) {
+    fn assert_exact(samples: &[f32], frequency: f32, rate: u32) {
         let frames = u32::try_from(samples.len()).expect("a short render");
         for (frame, &sample) in (0_u64..).zip(samples) {
             let expected = exact(frequency, rate, frame);
@@ -164,7 +240,7 @@ mod tests {
     #[test]
     fn produces_a_440_hz_sine() {
         let samples = render(440.0, 40);
-        assert_exact(&samples, 440, 48_000);
+        assert_exact(&samples, 440.0, 48_000);
         assert_eq!(samples[0].to_bits(), 0.0_f32.to_bits(), "starts at phase 0");
     }
 
@@ -250,14 +326,83 @@ mod tests {
     #[test]
     fn stays_exact_above_the_sample_rate() {
         // 10 001 Hz at 8 kHz: 1.25 cycles per sample, over 10 s.
-        assert_exact(&render_at(10_001.0, 8_000, 80_000), 10_001, 8_000);
+        assert_exact(&render_at(10_001.0, 8_000, 80_000), 10_001.0, 8_000);
     }
 
     #[test]
     fn stays_exact_between_two_and_four_cycles_per_sample() {
         // 19 984 Hz at 8 kHz: 2.498 cycles per sample, the regime where the increment
         // rounds by up to 2^-52 (here 0.992 · 2^-52, among the worst), over 10 s.
-        assert_exact(&render_at(19_984.0, 8_000, 80_000), 19_984, 8_000);
+        assert_exact(&render_at(19_984.0, 8_000, 80_000), 19_984.0, 8_000);
+    }
+
+    /// 16,000.0087890625 Hz, 16,000 + 9/1024: a binary32 frequency that is not whole.
+    const FRACTIONAL: f32 = 16_384_009.0_f32 / 1_024.0_f32;
+
+    #[test]
+    fn stays_exact_at_every_rate_and_frequency() {
+        // Every rate of the matrix, crossed with the ends of the range, the smallest
+        // normal frequency, binary32 frequencies that are not whole (16,000.0087890625 Hz
+        // rounds its increment by 0.992 · 2^-52 at 8 kHz, among the worst) and the
+        // regimes of `bound`: a rate- or frequency-specific defect cannot pass.
+        for rate in engine_testkit::matrix::sample_rates() {
+            for frequency in [
+                0.0_f32,
+                f32::MIN_POSITIVE,
+                1.0,
+                440.0,
+                440.25,
+                FRACTIONAL,
+                19_984.0,
+                20_000.0,
+            ] {
+                assert_exact(
+                    &render_at(frequency, rate.hz(), 4_096),
+                    frequency,
+                    rate.hz(),
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn reduces_binary32_frequencies_exactly() {
+        // The reference itself, against values worked by hand: 440.25 Hz is 1761 · 2^-2,
+        // so at 96 kHz frame 96,000 is 440.25 whole cycles (phase 0.25, a sine of 1), and
+        // frame 1 is 1761 / 384,000 cycle.
+        assert_eq!(dyadic(440.25), (1_761_u128, -2_i32), "1761 · 2^-2");
+        assert_eq!(dyadic(20_000.0), (625_u128, 5_i32), "625 · 2^5");
+        assert_eq!(dyadic(1.0), (1_u128, 0_i32), "1");
+        assert_eq!(
+            dyadic(FRACTIONAL),
+            (16_384_009_u128, -10_i32),
+            "16,384,009 · 2^-10"
+        );
+        assert_eq!(dyadic(f32::MIN_POSITIVE), (1_u128, -126_i32), "2^-126");
+        assert_eq!(dyadic(f32::from_bits(1)), (1_u128, -149_i32), "2^-149");
+        assert_eq!(
+            exact(440.25, 96_000, 96_000).to_bits(),
+            1.0_f64.to_bits(),
+            "a quarter cycle"
+        );
+        assert_eq!(
+            exact(440.25, 96_000, 1).to_bits(),
+            libm::sin(TAU * (1_761.0 / 384_000.0)).to_bits(),
+            "one frame"
+        );
+        assert_eq!(
+            exact(20_000.0, 8_000, 3).to_bits(),
+            libm::sin(TAU * 0.5).to_bits(),
+            "7.5 cycles"
+        );
+        assert_eq!(exact(0.0, 8_000, 5).to_bits(), 0, "silence");
+        // 2^-126 Hz at 8 kHz, frame 2: 2^-125 / 8000 cycle, where rate · 2^126 does not
+        // fit in u128.
+        assert_eq!(
+            exact(f32::MIN_POSITIVE, 8_000, 2).to_bits(),
+            libm::sin(TAU * (2.0 / 8_000.0 * libm::exp2(-126.0))).to_bits(),
+            "the smallest normal frequency"
+        );
     }
 
     #[test]
