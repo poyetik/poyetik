@@ -205,5 +205,21 @@ mod tests {
             }
         });
         assert_eq!(allocations, 0, "engine_process does not allocate");
+
+        // `engine_load` hands its rate to the engine, at every rate of the matrix.
+        for rate in engine_testkit::matrix::sample_rates() {
+            write(sine);
+            assert_eq!(engine_load(rate.hz()), 1, "loaded at {} Hz", rate.hz());
+            let mut at_rate =
+                Renderer::new(Plan::build(&patch, &REGISTRY, rate).expect("valid plan"));
+            let interleaved = at_rate.render(BLOCK_SIZE).expect("small render");
+            let left: Vec<f32> = interleaved.iter().step_by(2).copied().collect();
+            assert_eq!(
+                bits(block().split_at(BLOCK_SIZE).0),
+                bits(&left),
+                "first block at {} Hz",
+                rate.hz()
+            );
+        }
     }
 }

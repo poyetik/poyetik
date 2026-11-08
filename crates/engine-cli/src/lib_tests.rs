@@ -856,7 +856,6 @@ fn refuses_files_larger_than_their_limit() {
 #[test]
 fn prepares_a_case_before_rendering() {
     let prepared = super::prepare_case(SINE, PATCH).expect("valid case");
-    assert_eq!(prepared.rate(), SampleRate::HZ_48000, "rate");
     assert_eq!(prepared.channels(), 2, "channels");
     assert_eq!(prepared.sample_count(), 200, "100 frames x 2 channels");
     assert_eq!(

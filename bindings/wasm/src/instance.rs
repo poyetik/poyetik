@@ -127,6 +127,30 @@ mod tests {
     }
 
     #[test]
+    fn loads_at_the_requested_rate() {
+        let patch = engine_patch::parse_patch(core::str::from_utf8(MONO).expect("UTF-8"))
+            .expect("valid patch");
+        for rate in engine_testkit::matrix::sample_rates() {
+            let mut instance = Instance::new();
+            instance.input(MONO.len()).copy_from_slice(MONO);
+            assert!(instance.load(rate.hz()), "{}", instance.message());
+            let expected = engine_core::Renderer::new(
+                engine_core::Plan::build(&patch, &engine_objects::REGISTRY, rate)
+                    .expect("valid plan"),
+            )
+            .render(engine_core::BLOCK_SIZE)
+            .expect("one block");
+            let left: Vec<f32> = expected.iter().step_by(2).copied().collect();
+            assert_eq!(
+                instance.process()[0].to_vec(),
+                left,
+                "the first block at {} Hz",
+                rate.hz()
+            );
+        }
+    }
+
+    #[test]
     fn renders_without_allocating() {
         let mut instance = loaded();
         let ((), allocations) = engine_testkit::allocations_during(|| {

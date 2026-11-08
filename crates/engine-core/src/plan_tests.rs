@@ -320,12 +320,29 @@ fn keeps_box_state_across_blocks() {
 
 #[test]
 fn passes_the_sample_rate_to_boxes() {
-    let mut plan = build(
-        vec![node(1, "rate~"), node(2, "mono~")],
-        vec![wire(1, 0, 2, 0)],
-    )
-    .expect("valid");
-    assert_eq!(run(&mut plan, 1), vec![block(4800.0)], "48 kHz / 10");
+    // Every rate of the shared test matrix: a plan that hands boxes a fixed rate fails at
+    // all of them but one.
+    let json: serde_json::Value =
+        serde_json::from_str(include_str!("../../../conformance/test-matrix.json"))
+            .expect("valid JSON");
+    let rates: Vec<u32> = json["sample_rates"]
+        .as_array()
+        .expect("a list of rates")
+        .iter()
+        .map(|hz| u32::try_from(hz.as_u64().expect("a whole number")).expect("a u32"))
+        .collect();
+    assert!(rates.len() >= 8, "{rates:?}");
+    for hz in rates {
+        let patch = Patch::new(
+            vec![node(1, "rate~"), node(2, "mono~")],
+            vec![wire(1, 0, 2, 0)],
+        )
+        .expect("valid patch");
+        let rate = SampleRate::new(hz).expect("a supported rate");
+        let mut plan = Plan::build(&patch, &REGISTRY, rate).expect("valid plan");
+        let tenth = f32::from(u16::try_from(hz / 10).expect("small"));
+        assert_eq!(run(&mut plan, 1), vec![block(tenth)], "{hz} Hz / 10");
+    }
 }
 
 #[test]

@@ -92,12 +92,6 @@ impl Prepared {
         &self.wav_header
     }
 
-    /// Sample rate.
-    #[must_use]
-    pub const fn rate(&self) -> SampleRate {
-        self.rate
-    }
-
     /// Number of output channels.
     #[must_use]
     pub const fn channels(&self) -> usize {

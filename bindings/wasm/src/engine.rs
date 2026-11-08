@@ -56,7 +56,7 @@ impl Engine {
 mod tests {
     use alloc::vec::Vec;
 
-    use engine_core::{BLOCK_SIZE, Plan, Renderer, SampleRate};
+    use engine_core::{BLOCK_SIZE, Plan, Renderer};
     use engine_objects::REGISTRY;
 
     use super::Engine;
@@ -66,29 +66,35 @@ mod tests {
         "connections":[{"from":[1,0],"to":[2,0]},{"from":[1,0],"to":[2,1]}]}"#;
 
     #[test]
-    fn renders_exactly_like_the_plan() {
-        let mut engine = Engine::new(SINE.as_bytes(), 48_000).expect("valid patch");
-        assert_eq!(engine.channels(), 2, "stereo");
-        let patch = engine_patch::parse_patch(SINE).expect("valid patch");
-        let mut renderer = Renderer::new(
-            Plan::build(&patch, &REGISTRY, SampleRate::HZ_48000).expect("valid plan"),
-        );
-        let blocks = 10_usize;
-        let expected = renderer.render(blocks * BLOCK_SIZE).expect("small render");
-        let mut actual = Vec::new();
-        for _ in 0..blocks {
-            let out = engine.process();
-            for frame in 0..BLOCK_SIZE {
-                actual.extend(out.iter().map(|channel| channel[frame]));
-            }
-        }
+    fn renders_exactly_like_the_plan_at_every_rate() {
         let bits = |samples: &[f32]| {
             samples
                 .iter()
                 .map(|sample| sample.to_bits())
                 .collect::<Vec<_>>()
         };
-        assert_eq!(bits(&actual), bits(&expected), "bit-identical");
+        let patch = engine_patch::parse_patch(SINE).expect("valid patch");
+        for rate in engine_testkit::matrix::sample_rates() {
+            let mut engine = Engine::new(SINE.as_bytes(), rate.hz()).expect("valid patch");
+            assert_eq!(engine.channels(), 2, "stereo");
+            let mut renderer =
+                Renderer::new(Plan::build(&patch, &REGISTRY, rate).expect("valid plan"));
+            let blocks = 10_usize;
+            let expected = renderer.render(blocks * BLOCK_SIZE).expect("small render");
+            let mut actual = Vec::new();
+            for _ in 0..blocks {
+                let out = engine.process();
+                for frame in 0..BLOCK_SIZE {
+                    actual.extend(out.iter().map(|channel| channel[frame]));
+                }
+            }
+            assert_eq!(
+                bits(&actual),
+                bits(&expected),
+                "bit-identical at {} Hz",
+                rate.hz()
+            );
+        }
     }
 
     #[test]

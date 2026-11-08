@@ -77,6 +77,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The conformance CLI refuses a case whose patch has no audio output, instead of rendering nothing.
 - The box laws (`engine-testkit`) run at every sample rate of a shared test matrix (8 kHz to 384 kHz, including 44.1 kHz), with special inputs (signed zeros, subnormals), a long run and parameters away from their default; a box that fails at any of them fails the laws. The matrix is also published as `conformance/test-matrix.json` for the TypeScript tests.
 
+### Removed
+
+- **Breaking:** `engine-cli`'s `Prepared::rate`: nothing used it, and no test could tell a wrong rate from the right one.
+
 ### Fixed
 
 - The oracle follows the stream part of the command-line contract, like the Rust tools: a broken stderr no longer changes its exit code, and a stdout error other than a closed reader is one `error: cannot write to stdout: <code>` line and exit code 1 (never hiding a usage error's 2) instead of a stack trace.
