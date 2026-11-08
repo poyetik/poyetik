@@ -3674,7 +3674,8 @@ fn job_problems(workflow: &str) -> Vec<String> {
 /// [`PINNED_TOOLS`]; Node.js is the release in `.node-version` (at [`NODE_FLOOR`] or later);
 /// the runner is an OS release (never `-latest`); the whole history is fetched for the
 /// history gate; the workflow runs every part of `cargo xtask check --full`, as
-/// [`workflow_parts`] says; every job holds the `[ci]` condition ([`job_problems`]); its Rust
+/// [`workflow_parts`] says; every job, written `  <name>:` below `jobs:`, holds the `[ci]` condition at the
+/// indentation of its keys (any other line at the indentation of a job is refused); its Rust
 /// cache is saved even when the run fails; and a failed run uploads every
 /// [`failure_uploads`] path.
 ///
