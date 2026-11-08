@@ -82,6 +82,20 @@ fn found(context: &str, problems: &[String]) -> Result<(), Failure> {
     }
 }
 
+/// The two license listings, written out: the production dependencies of what ships
+/// (the engine package, the playground and the roadmap), then everything.
+const LICENSE_LINES: [&str; 2] = [
+    "pnpm licenses list --json --prod --filter ./bindings/wasm --filter ./apps/playground --filter ./apps/roadmap",
+    "pnpm licenses list --json --recursive",
+];
+
+/// The two history listings, written out: every message, then the files touched by each
+/// commit after the changelog boundary.
+const HISTORY_LINES: [&str; 2] = [
+    "git log --format=%x1e%H%x1f%B HEAD",
+    "git log --format=%x1e%H --name-only 8182fda87a1c631295548ff52eeb4ea08335fa36..HEAD",
+];
+
 /// Records commands and answers with scripted results.
 #[derive(Debug, Default)]
 struct Fake {
@@ -312,24 +326,23 @@ fn passing() -> Fake {
         );
         assert!(summary.is_none() && mutation.is_none(), "fresh fake");
     }
-    for (cmd, licenses) in super::license_commands().iter().zip([SHIPPED, TOOLING]) {
+    for (line, licenses) in LICENSE_LINES.iter().zip([SHIPPED, TOOLING]) {
         let replaced = fake
             .files
-            .insert(format!("capture {}", cmd.line()), licenses.to_owned());
+            .insert(format!("capture {line}"), licenses.to_owned());
         assert!(replaced.is_none(), "fresh fake");
     }
     for path in UNSAFE_FILES {
         let previous_unsafe = fake.files.insert(path.to_owned(), lifting());
         assert!(previous_unsafe.is_none(), "fresh fake");
     }
-    let [messages, files] = super::history_commands(super::CHANGELOG_SINCE);
+    let [messages, files] = HISTORY_LINES;
     let logged = fake
         .files
-        .insert(format!("capture {}", messages.line()), HISTORY.to_owned());
-    let listed = fake.files.insert(
-        format!("capture {}", files.line()),
-        HISTORY_FILES.to_owned(),
-    );
+        .insert(format!("capture {messages}"), HISTORY.to_owned());
+    let listed = fake
+        .files
+        .insert(format!("capture {files}"), HISTORY_FILES.to_owned());
     assert!(logged.is_none() && listed.is_none(), "fresh fake");
     for (path, text) in [
         (super::WORKFLOW, PINNED_WORKFLOW),
@@ -2083,14 +2096,13 @@ fn allows_strict_licenses_for_what_ships_and_wider_ones_for_tooling() {
 #[test]
 fn reports_license_lists_it_cannot_get() {
     let mut fake = passing();
-    let [shipped, _] = super::license_commands();
-    let removed = fake.files.remove(&format!("capture {}", shipped.line()));
+    let removed = fake.files.remove(&format!("capture {}", LICENSE_LINES[0]));
     assert!(removed.is_some(), "report removed");
     assert_eq!(
         run_steps(&check_steps(), &mut fake, &mut Vec::new()),
         failed(format!(
             "JavaScript licenses: cannot list licenses: `{}` exited with code 1: failed",
-            shipped.line()
+            LICENSE_LINES[0]
         )),
         "named"
     );
@@ -2462,8 +2474,7 @@ fn checks_every_message_and_the_changelog_of_every_change() {
 #[test]
 fn reads_the_history_or_says_why_it_cannot() {
     let mut fake = passing();
-    let [messages, _] = super::history_commands(super::CHANGELOG_SINCE);
-    let _removed = fake.files.remove(&format!("capture {}", messages.line()));
+    let _removed = fake.files.remove(&format!("capture {}", HISTORY_LINES[0]));
     assert_eq!(
         run_steps(&check_steps(), &mut fake, &mut Vec::new()),
         failed(
@@ -3237,5 +3248,26 @@ fn reports_readme_problems_whatever_the_membership() {
         run_steps(&step(&Action::ReadmeGate), &mut fake, &mut Vec::new()),
         failed("Every part described in a README: parts not described: apps has no README.md"),
         "the README problems, not hidden by the membership one"
+    );
+}
+
+#[test]
+fn license_and_history_commands_are_exactly() {
+    assert_eq!(
+        super::license_commands().map(|cmd| cmd.line()),
+        LICENSE_LINES.map(str::to_owned),
+        "every shipped package filtered, then everything"
+    );
+    assert_eq!(
+        super::history_commands(super::CHANGELOG_SINCE).map(|cmd| cmd.line()),
+        HISTORY_LINES.map(str::to_owned),
+        "every message, then the files after the boundary"
+    );
+    assert!(
+        super::license_commands()
+            .iter()
+            .chain(&super::history_commands(super::CHANGELOG_SINCE))
+            .all(|cmd| cmd.dir == Dir::Root),
+        "run at the root"
     );
 }
