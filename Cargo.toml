@@ -50,6 +50,12 @@ cargo = { level = "deny", priority = -1 }
 # Conflicts with rustc's `unreachable_pub` (kept, stricter): an item shared between private
 # modules must then be `pub(crate)`/`pub(super)`, which this nursery lint rejects.
 redundant_pub_crate = "allow"
+# Suggests `mul_add`, which clippy.toml bans: a fused multiply-add is not available on every
+# target, and its result differs from the product then the sum, which the engine writes.
+suboptimal_flops = "allow"
+# Suggests `hypot`, `ln_1p`, `exp_m1` and the like, which clippy.toml bans: their results
+# differ between targets.
+imprecise_flops = "allow"
 # Selected restriction lints
 allow_attributes = "deny"                 # use #[expect(..., reason = "...")] instead of #[allow]
 allow_attributes_without_reason = "deny"

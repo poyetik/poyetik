@@ -132,6 +132,7 @@ dependencies = [
  "engine-core",
  "engine-objects",
  "engine-patch",
+ "libm",
  "proptest",
  "serde_json",
 ]

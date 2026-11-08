@@ -17,6 +17,7 @@ engine-hash: sha2 (normal) -- the SHA-256 of a render, without std, the same on 
 engine-objects: libm (normal) -- deterministic, portable math functions (sine), identical on every target where std's are not
 engine-patch: serde (normal) -- reads the patch format into typed values, refusing unknown fields
 engine-patch: serde_json (normal) -- parses patch documents
+engine-testkit: libm (normal) -- deterministic math functions (sine, cosine, logarithm) for the measurements, identical on every target where std's are not
 engine-testkit: proptest (normal) -- property tests of the box and plan laws, from a fixed seed
 engine-testkit: serde_json (dev) -- reads the shared test matrix, conformance/test-matrix.json
 xtask: serde_json (normal) -- reads the coverage, mutation and license reports, the Cargo metadata and the package manifests

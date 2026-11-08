@@ -1,0 +1,542 @@
+{
+  "scheme": "measurements/1",
+  "vectors": [
+    {
+      "name": "tone-between-bins",
+      "description": "A pure tone 105.34 bins from DC, between two bins, with a phase: no leakage and no scalloping, everything but the fundamental at the floor.",
+      "rate": 48000,
+      "frames": 4096,
+      "fundamental": 1234.5,
+      "tones": [
+        {
+          "frequency": 1234.5,
+          "amplitude": 0.8,
+          "phase": 0.7
+        }
+      ],
+      "expected": {
+        "fundamental": 0.8,
+        "thd_plus_n": "floor",
+        "sfdr": "floor",
+        "harmonics": {
+          "thd": "floor",
+          "aliasing": "none",
+          "snr": "floor"
+        }
+      }
+    },
+    {
+      "name": "harmonics-in-band",
+      "description": "1 kHz at full scale with its second harmonic at -60 dB and its third at -80 dB, over whole periods (so the sine fit sees no harmonic): THD = 20 log10(√(10^-6 + 10^-8)), the strongest spur the second harmonic.",
+      "rate": 48000,
+      "frames": 4800,
+      "fundamental": 1000,
+      "tones": [
+        {
+          "frequency": 1000,
+          "amplitude": 1,
+          "phase": 0
+        },
+        {
+          "frequency": 2000,
+          "amplitude": 0.001,
+          "phase": 1.1
+        },
+        {
+          "frequency": 3000,
+          "amplitude": 0.0001,
+          "phase": 2
+        }
+      ],
+      "expected": {
+        "fundamental": 1,
+        "thd_plus_n": -59.95678626217358,
+        "sfdr": 60,
+        "harmonics": {
+          "thd": -59.95678626217358,
+          "aliasing": "none",
+          "snr": "floor"
+        }
+      }
+    },
+    {
+      "name": "aliased-harmonic",
+      "description": "7 kHz at 48 kHz with its second harmonic (14 kHz) at -60 dB and its fifth (35 kHz, above Nyquist, folded to 13 kHz) at -80 dB, over whole periods: the aliasing level counts the fifth only.",
+      "rate": 48000,
+      "frames": 4800,
+      "fundamental": 7000,
+      "tones": [
+        {
+          "frequency": 7000,
+          "amplitude": 0.5,
+          "phase": 0
+        },
+        {
+          "frequency": 14000,
+          "amplitude": 0.0005,
+          "phase": 0.4
+        },
+        {
+          "frequency": 35000,
+          "amplitude": 5e-05,
+          "phase": 2.5
+        }
+      ],
+      "expected": {
+        "fundamental": 0.5,
+        "thd_plus_n": -59.95678626217358,
+        "sfdr": 60,
+        "harmonics": {
+          "thd": -59.95678626217358,
+          "aliasing": -80,
+          "snr": "floor"
+        }
+      }
+    },
+    {
+      "name": "harmonic-at-nyquist",
+      "description": "1 kHz at 8 kHz with its second harmonic at 0.05 and its fourth exactly at Nyquist, 0.01 · (-1)^n: a single basis function, of power 10^-4, so THD = 10 log10((0.05²/2 + 0.01²) / (1/2)); the harmonics above Nyquist all fold onto lower ones, DC or the fundamental, so there is no aliasing level.",
+      "rate": 8000,
+      "frames": 1000,
+      "fundamental": 1000,
+      "tones": [
+        {
+          "frequency": 1000,
+          "amplitude": 1,
+          "phase": 0
+        },
+        {
+          "frequency": 2000,
+          "amplitude": 0.05,
+          "phase": 0.3
+        },
+        {
+          "frequency": 4000,
+          "amplitude": 0.01,
+          "phase": 0
+        }
+      ],
+      "expected": {
+        "fundamental": 1,
+        "thd_plus_n": -25.686362358410125,
+        "sfdr": 26.020599913279625,
+        "harmonics": {
+          "thd": -25.686362358410125,
+          "aliasing": "none",
+          "snr": "floor"
+        }
+      }
+    },
+    {
+      "name": "harmonic-folding-onto-the-fundamental",
+      "description": "1 kHz at 8 kHz plus 0.25 at 7 kHz, which folds exactly onto 1 kHz with its phase negated: nothing tells it from the fundamental, which measures |1 + 0.25 e^(-0.5i)|.",
+      "rate": 8000,
+      "frames": 1000,
+      "fundamental": 1000,
+      "tones": [
+        {
+          "frequency": 1000,
+          "amplitude": 1,
+          "phase": 0
+        },
+        {
+          "frequency": 7000,
+          "amplitude": 0.25,
+          "phase": 0.5
+        }
+      ],
+      "expected": {
+        "fundamental": 1.225271921226136,
+        "thd_plus_n": "floor",
+        "sfdr": "floor",
+        "harmonics": {
+          "thd": "floor",
+          "aliasing": "none",
+          "snr": "floor"
+        }
+      }
+    },
+    {
+      "name": "dc-offset",
+      "description": "440 Hz at 44.1 kHz on a DC offset of 0.3: DC is fitted, so it counts in no level.",
+      "rate": 44100,
+      "frames": 2000,
+      "fundamental": 440,
+      "tones": [
+        {
+          "frequency": 440,
+          "amplitude": 0.5,
+          "phase": 1
+        },
+        {
+          "frequency": 0,
+          "amplitude": 0.3,
+          "phase": 0
+        }
+      ],
+      "expected": {
+        "fundamental": 0.5,
+        "thd_plus_n": "floor",
+        "sfdr": "floor",
+        "harmonics": {
+          "thd": "floor",
+          "aliasing": "none",
+          "snr": "floor"
+        }
+      }
+    },
+    {
+      "name": "fundamental-not-binary32",
+      "description": "1000.1 Hz, a binary64 frequency with every significant bit used, at 44.1 kHz: the phase is still reduced exactly.",
+      "rate": 44100,
+      "frames": 4096,
+      "fundamental": 1000.1,
+      "tones": [
+        {
+          "frequency": 1000.1,
+          "amplitude": 1,
+          "phase": 0.2
+        }
+      ],
+      "expected": {
+        "fundamental": 1,
+        "thd_plus_n": "floor",
+        "sfdr": "floor",
+        "harmonics": {
+          "thd": "floor",
+          "aliasing": "none",
+          "snr": "floor"
+        }
+      }
+    },
+    {
+      "name": "harmonic-near-the-fundamental",
+      "description": "16001 Hz at 48 kHz over 4096 frames (bins of 11.7 Hz): the second harmonic folds to 15998 Hz, a quarter of a bin from the fundamental, which the harmonic fit cannot tell apart; the sine fit, without harmonics, can.",
+      "rate": 48000,
+      "frames": 4096,
+      "fundamental": 16001,
+      "tones": [
+        {
+          "frequency": 16001,
+          "amplitude": 1,
+          "phase": 0
+        }
+      ],
+      "expected": {
+        "fundamental": 1,
+        "thd_plus_n": "floor",
+        "sfdr": "floor",
+        "harmonics": "Unresolvable"
+      }
+    },
+    {
+      "name": "uniform-noise",
+      "description": "997 Hz at full scale plus uniform noise of step 2^-20 (SplitMix64, seed 42): the expected SNR is 10 log10((1/2) / (2^-40 / 12)), and THD+N its negation, within the confidence interval of the specification.",
+      "rate": 48000,
+      "frames": 8192,
+      "fundamental": 997,
+      "tones": [
+        {
+          "frequency": 997,
+          "amplitude": 1,
+          "phase": 0
+        }
+      ],
+      "noise": {
+        "seed": 42,
+        "step": 9.5367431640625e-07
+      },
+      "expected": {
+        "fundamental": 1,
+        "thd_plus_n": -128.1935107694289,
+        "harmonics": {
+          "snr": 128.1935107694289
+        }
+      }
+    }
+  ],
+  "refusals": [
+    {
+      "name": "no-samples",
+      "rate": 48000,
+      "frames": 0,
+      "fundamental": 1000,
+      "tones": [],
+      "error": "NoSamples"
+    },
+    {
+      "name": "fundamental-at-dc",
+      "rate": 48000,
+      "frames": 64,
+      "fundamental": 0,
+      "tones": [
+        {
+          "frequency": 1000,
+          "amplitude": 1,
+          "phase": 0
+        }
+      ],
+      "error": "Fundamental"
+    },
+    {
+      "name": "fundamental-at-nyquist",
+      "rate": 48000,
+      "frames": 64,
+      "fundamental": 24000,
+      "tones": [
+        {
+          "frequency": 24000,
+          "amplitude": 1,
+          "phase": 0
+        }
+      ],
+      "error": "Fundamental"
+    },
+    {
+      "name": "fundamental-above-nyquist",
+      "rate": 8000,
+      "frames": 64,
+      "fundamental": 5000,
+      "tones": [
+        {
+          "frequency": 5000,
+          "amplitude": 1,
+          "phase": 0
+        }
+      ],
+      "error": "Fundamental"
+    },
+    {
+      "name": "fewer-frames-than-unknowns",
+      "rate": 48000,
+      "frames": 2,
+      "fundamental": 1000,
+      "tones": [
+        {
+          "frequency": 1000,
+          "amplitude": 1,
+          "phase": 0
+        }
+      ],
+      "error": "TooShort"
+    },
+    {
+      "name": "fundamental-too-close-to-dc",
+      "rate": 48000,
+      "frames": 1024,
+      "fundamental": 3,
+      "tones": [
+        {
+          "frequency": 3,
+          "amplitude": 1,
+          "phase": 0
+        }
+      ],
+      "error": "Unresolvable"
+    },
+    {
+      "name": "silence",
+      "rate": 48000,
+      "frames": 64,
+      "fundamental": 1000,
+      "tones": [],
+      "error": "NoFundamental"
+    }
+  ],
+  "sine_error_bounds": [
+    {
+      "description": "full scale, no accumulation",
+      "amplitude": 1,
+      "frames": 0,
+      "bound": 2.980232594040899e-08
+    },
+    {
+      "description": "full scale over 8192 frames",
+      "amplitude": 1,
+      "frames": 8192,
+      "bound": 2.981375498790327e-08
+    },
+    {
+      "description": "full scale over the longest measured signal",
+      "amplitude": 1,
+      "frames": 1048576,
+      "bound": 3.126524401967615e-08
+    },
+    {
+      "description": "full scale over the longest case (2^29 frames)",
+      "amplitude": 1,
+      "frames": 536870912,
+      "bound": 7.788163825251947e-07
+    },
+    {
+      "description": "half scale: half an ulp below 0.5",
+      "amplitude": 0.5,
+      "frames": 1000,
+      "bound": 1.4901860543904097e-08
+    },
+    {
+      "description": "a negative amplitude bounds like its magnitude",
+      "amplitude": -1,
+      "frames": 48000,
+      "bound": 2.986929301557076e-08
+    },
+    {
+      "description": "silence allows no error",
+      "amplitude": 0,
+      "frames": 1000,
+      "bound": 0.0
+    },
+    {
+      "description": "a subnormal amplitude: the rounding of subnormal samples, 2^-150, dominates",
+      "amplitude": 7.174648137343064e-43,
+      "frames": 8000,
+      "bound": 7.006492401727108e-46
+    },
+    {
+      "description": "above full scale: an ulp of 2^-23",
+      "amplitude": 1.5,
+      "frames": 0,
+      "bound": 5.960465010446114e-08
+    }
+  ],
+  "sine_bounds": [
+    {
+      "name": "full-scale-binary32",
+      "amplitude": 1,
+      "error": 2.9802322387695312e-08,
+      "sine": {
+        "conditioning": 0.0,
+        "floor": 1.4551915228366852e-11
+      },
+      "harmonic": {
+        "conditioning": 0.0,
+        "floor": 1.4551915228366852e-11
+      },
+      "enbw": 2.0043529382170475,
+      "expected": {
+        "thd_plus_n": -147.50045738714113,
+        "sfdr": 141.47041546002538,
+        "harmonics": {
+          "thd": -147.50045738714113,
+          "snr": 147.50045738714113
+        }
+      }
+    },
+    {
+      "name": "conditioned",
+      "amplitude": 1,
+      "error": 2.9802322387695312e-08,
+      "sine": {
+        "conditioning": 0.1,
+        "floor": 9.094947017729282e-13
+      },
+      "harmonic": {
+        "conditioning": 0.2,
+        "floor": 9.094947017729282e-13
+      },
+      "enbw": 2.0,
+      "expected": {
+        "thd_plus_n": -147.50443238045455,
+        "sfdr": 141.48383246717492,
+        "harmonics": {
+          "thd": -144.77441958514746,
+          "snr": 147.50443230578483
+        }
+      }
+    },
+    {
+      "name": "half-scale",
+      "amplitude": 0.5,
+      "error": 1e-06,
+      "sine": {
+        "conditioning": 0.3,
+        "floor": 0.0
+      },
+      "harmonic": {
+        "conditioning": 0.45,
+        "floor": 1e-09
+      },
+      "enbw": 2.1,
+      "expected": {
+        "thd_plus_n": -110.96906011405636,
+        "sfdr": 104.73656721007735,
+        "harmonics": {
+          "thd": -104.15393850666754,
+          "snr": 110.96036473913243
+        }
+      }
+    },
+    {
+      "name": "negative-amplitude",
+      "amplitude": -1,
+      "error": 0.001,
+      "sine": {
+        "conditioning": 0.0,
+        "floor": 0.0
+      },
+      "harmonic": {
+        "conditioning": 0.5,
+        "floor": 0.0
+      },
+      "enbw": 2.0,
+      "expected": {
+        "thd_plus_n": -56.977407646345284,
+        "sfdr": 50.95680773306567,
+        "harmonics": {
+          "thd": -49.178046499193016,
+          "snr": 56.95955900302945
+        }
+      }
+    },
+    {
+      "name": "harmonic-fit-refused",
+      "amplitude": 1,
+      "error": 2.9802322387695312e-08,
+      "sine": {
+        "conditioning": 0.0,
+        "floor": 0.0
+      },
+      "harmonic": null,
+      "enbw": 2.0,
+      "expected": {
+        "thd_plus_n": -147.50469750926788,
+        "sfdr": 141.48409759598826,
+        "harmonics": null
+      }
+    },
+    {
+      "name": "harmonic-margin-gone",
+      "amplitude": 1,
+      "error": 0.55,
+      "sine": {
+        "conditioning": 0.0,
+        "floor": 0.0
+      },
+      "harmonic": {
+        "conditioning": 0.5,
+        "floor": 0.0
+      },
+      "enbw": 2.0,
+      "expected": {
+        "thd_plus_n": 10.88335517268321,
+        "sfdr": -16.90395508596283,
+        "harmonics": null
+      }
+    },
+    {
+      "name": "no-margin",
+      "amplitude": 1,
+      "error": 0.7,
+      "sine": {
+        "conditioning": 0.1,
+        "floor": 0.0
+      },
+      "harmonic": {
+        "conditioning": 0.2,
+        "floor": 0.0
+      },
+      "enbw": 2.0,
+      "expected": null
+    }
+  ]
+}

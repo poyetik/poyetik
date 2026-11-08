@@ -2,7 +2,8 @@
 //!
 //! [`check_laws`] runs a box in isolation and checks the laws every box must respect;
 //! [`check_registry`] checks a whole registry. Box crates call them on every registered
-//! box type, so a new box cannot escape them.
+//! box type, so a new box cannot escape them. [`measure`] gives the objective measurements
+//! of a signal (`spec/measurements.md`), by which every box proves its audio quality.
 //!
 //! Every law is checked at every sample rate of the shared [`matrix`], with the
 //! parameters at their minimum, default and maximum, at a value away from the default
@@ -27,6 +28,7 @@ extern crate alloc;
 
 mod laws;
 pub mod matrix;
+pub mod measure;
 pub mod runner;
 
 pub use engine_alloc_counter::{CountingAllocator, NotCounting, heap_operations_during};
