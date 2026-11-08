@@ -12,8 +12,8 @@ use super::{
     EQUIVALENT_REVIEWED, PACKAGE_JSONS, PORTABILITY_TARGETS, Runner, Step, SystemRunner,
     TYPESCRIPT_PACKAGES, UNSAFE_FILES, UNVIABLE_REPORT, UNVIABLE_REVIEWED, USAGE, Version,
     bless_step, check_steps, cli, commit_msg_gate, coverage_gate, equivalent_gate, license_gate,
-    membership_gate, release_gate, run_steps, ts_coverage_gate, ts_mutation_gate, unsafe_gate,
-    unviable_gate,
+    membership_gate, preflight_gate, release_gate, run_steps, ts_coverage_gate, ts_mutation_gate,
+    unsafe_gate, unviable_gate,
 };
 
 /// Records commands and answers with scripted results.
@@ -63,9 +63,24 @@ impl Runner for Fake {
     }
 
     /// Answers a captured command with the file named `capture <command line>`.
+    /// The tools of the preflight answer with a version unless the test breaks them.
     fn capture(&mut self, cmd: &Cmd) -> io::Result<String> {
         let line = cmd.line();
         self.ran.push(format!("capture {line}"));
+        if self.broken.as_deref() == Some(line.as_str()) {
+            return Err(io::Error::other("not found"));
+        }
+        let tool = super::TOOLS.iter().any(|(program, args, _)| {
+            *program == cmd.program && args.iter().copied().eq(cmd.args.iter().map(String::as_str))
+        });
+        if tool {
+            return Ok(if cmd.program == "node" {
+                "v22.23.4\n"
+            } else {
+                "1.0\n"
+            }
+            .to_owned());
+        }
         self.files
             .get(&format!("capture {line}"))
             .cloned()
@@ -223,6 +238,7 @@ fn command_lines(steps: &[Step]) -> Vec<String> {
             Action::MembershipGate => "membership gate".to_owned(),
             Action::LicenseGate => "license gate".to_owned(),
             Action::UnsafeGate => "unsafe gate".to_owned(),
+            Action::Preflight => "preflight".to_owned(),
         })
         .collect()
 }
@@ -233,6 +249,7 @@ fn lists_every_check_in_order() {
     assert_eq!(
         command_lines(&steps),
         vec![
+            "preflight",
             "Root: cargo fmt --all --check",
             "Root: cargo clippy --workspace --all-targets --locked",
             "Root: cargo doc --workspace --no-deps --document-private-items --locked",
@@ -269,6 +286,7 @@ fn lists_every_check_in_order() {
     assert_eq!(
         steps.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(),
         vec![
+            "Tools and platform",
             "Rust formatting",
             "Rust lints",
             "Rust documentation",
@@ -396,12 +414,13 @@ fn runs_every_step_and_reports_success() {
     );
     assert_eq!(
         fake.ran.len(),
-        check_steps().len() + 7 + 10 + 7 + 3 + 1 + 2,
+        check_steps().len() + 7 + 10 + 7 + 3 + 1 + 2 + 8,
         "every step ran; the unviable gate reads two files, the equivalent gate lists the \
          sources and reads two files, the release gate eight, the fresh step empties seven \
          more directories, the TypeScript gate reads eight reports instead of one action, \
          the membership gate lists three times and reads the root Cargo.toml, the license gate \
-         captures two reports, the unsafe gate lists and reads two files"
+         captures two reports, the unsafe gate lists and reads two files, the preflight \
+         asks nine tools"
     );
     for path in [
         CARGO_TOML,
@@ -425,15 +444,15 @@ fn runs_every_step_and_reports_success() {
     );
     let text = String::from_utf8(out).expect("utf-8 output");
     assert!(
-        text.starts_with("▶ [1/30] Rust formatting\n"),
+        text.starts_with("▶ [1/31] Tools and platform\n"),
         "numbered progress: {text}"
     );
     assert!(
-        text.contains("▶ [29/30] Roadmap checks\n"),
+        text.contains("▶ [30/31] Roadmap checks\n"),
         "last step announced: {text}"
     );
     assert!(
-        text.ends_with("✔ all 30 checks passed\n"),
+        text.ends_with("✔ all 31 checks passed\n"),
         "summary: {text}"
     );
 }
@@ -448,7 +467,11 @@ fn stops_at_the_first_failing_command() {
         Err("✘ Rust tests: `cargo test --workspace --locked` exited with code 3".to_owned()),
         "failure is named"
     );
-    assert_eq!(fake.ran.len(), 4, "nothing runs after the failure");
+    assert_eq!(
+        fake.ran.len(),
+        9 + 4,
+        "the preflight asks nine tools; nothing runs after the failure"
+    );
 }
 
 #[test]
@@ -1630,5 +1653,99 @@ fn reports_rust_files_it_cannot_list() {
                 .to_owned()
         ),
         "named"
+    );
+}
+
+#[test]
+fn checks_the_tools_and_the_platform_first() {
+    let present = |node: &str| -> Vec<Option<String>> {
+        super::TOOLS
+            .iter()
+            .map(|(program, _, _)| {
+                Some(if *program == "node" {
+                    node.to_owned()
+                } else {
+                    "1.0".to_owned()
+                })
+            })
+            .collect()
+    };
+    assert_eq!(
+        preflight_gate("macos", &present("v22.18.0\n")),
+        Ok(()),
+        "the floor"
+    );
+    assert_eq!(
+        preflight_gate("linux", &present("v23.0.1")),
+        Ok(()),
+        "newer"
+    );
+    assert_eq!(
+        preflight_gate("linux", &present("v22.17.9")),
+        Err("Node.js v22.17.9 is too old: install Node.js 22.18 or later".to_owned()),
+        "older minor"
+    );
+    assert_eq!(
+        preflight_gate("linux", &present("v21.99.0")),
+        Err("Node.js v21.99.0 is too old: install Node.js 22.18 or later".to_owned()),
+        "older major"
+    );
+    assert!(
+        preflight_gate("linux", &present("garbage")).is_err(),
+        "unreadable version"
+    );
+    let mut missing = present("v22.18.0");
+    missing[5] = None;
+    assert_eq!(
+        preflight_gate("windows", &missing),
+        Err("the checks run on macOS and Linux: on Windows, run them in WSL2; `cargo mutants --version` is missing: cargo install --locked cargo-mutants".to_owned()),
+        "platform and missing tool"
+    );
+    assert_eq!(
+        super::NODE_FLOOR,
+        (22, 18),
+        "the engines of every package.json"
+    );
+}
+
+#[test]
+fn lists_the_checks_in_order() {
+    let mut out = Vec::new();
+    assert_eq!(
+        cli(
+            &["list".to_owned()],
+            &mut passing(),
+            &mut out,
+            &mut Vec::new()
+        ),
+        0,
+        "listed"
+    );
+    let text = String::from_utf8(out).expect("UTF-8");
+    assert!(
+        text.starts_with(" 1. Tools and platform\n 2. Rust formatting\n"),
+        "{text}"
+    );
+    assert_eq!(text.lines().count(), check_steps().len(), "every check");
+    assert_eq!(
+        cli(
+            &["list".to_owned()],
+            &mut passing(),
+            &mut Broken,
+            &mut Vec::new()
+        ),
+        1,
+        "broken stdout"
+    );
+}
+
+#[test]
+fn stops_at_a_missing_tool() {
+    let mut fake = passing();
+    fake.broken = Some("cargo mutants --version".to_owned());
+    assert_eq!(
+        run_steps(&check_steps(), &mut fake, &mut Vec::new()),
+        Err("✘ Tools and platform: `cargo mutants --version` is missing: cargo install --locked cargo-mutants".to_owned()),
+        "named, with how to install it"
     );
 }

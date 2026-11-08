@@ -23,21 +23,24 @@ A monorepo of separate parts:
 
 ## Requirements
 
-- [rustup](https://rustup.rs): the pinned toolchain (`rust-toolchain.toml`) installs itself; branch coverage also needs `nightly-2026-11-01` with `llvm-tools-preview`.
+macOS or Linux (on Windows, use WSL2). `cargo xtask check` checks every tool first and says how to install what is missing; in short:
+
+- [rustup](https://rustup.rs): the pinned toolchain (`rust-toolchain.toml`) installs itself. The checks also need `nightly-2026-11-01` with `llvm-tools-preview`, `miri` and `rust-src` (branch coverage and Miri only).
 - `cargo install --locked cargo-llvm-cov cargo-mutants cargo-deny`
-- Node.js 22 and pnpm 10, then `pnpm install` at the root and `pnpm --dir apps/roadmap exec playwright install`.
+- Node.js 22.18 or later and pnpm 10 (`corepack enable`), then `pnpm install` at the root, and `pnpm exec playwright install` in each package with end-to-end tests (`bindings/wasm`, `apps/playground`, `apps/roadmap`).
 
 ## Checking
 
 ```sh
-cargo xtask check
+cargo xtask check   # every check, in order
+cargo xtask list    # what they are
 ```
 
-Runs every quality check: formatting, lints, documentation, tests, portability builds, 100% coverage, mutation testing, supply chain, versions and changelog, then the roadmap checks. The pre-push hook and CI run exactly this command.
+The pre-push hook and CI run exactly `cargo xtask check`.
 
 ## License
 
-Not decided yet. The intent is source-available, with attribution required, commercial use allowed for artists and no competing product or service.
+Not decided yet.
 
 ## Versioning
 

@@ -146,6 +146,9 @@ pub enum Action {
     LicenseGate,
     /// Require the lint against unsafe code to be lifted only in the audited files.
     UnsafeGate,
+    /// Require every tool the checks use, at the versions they need, on a supported
+    /// platform: checked first, so that a missing tool is named before anything runs.
+    Preflight,
 }
 
 /// One named check.
@@ -172,6 +175,10 @@ fn run(name: &str, program: &'static str, args: &[&str], dir: Dir) -> Step {
 /// Formatting, lints, documentation and tests.
 fn static_steps() -> Vec<Step> {
     vec![
+        Step {
+            name: "Tools and platform".to_owned(),
+            action: Action::Preflight,
+        },
         run(
             "Rust formatting",
             "cargo",
@@ -884,6 +891,94 @@ pub fn unsafe_gate(sources: &[(String, String)]) -> Result<(), String> {
     }
 }
 
+/// The tools the checks run, each with the command proving it is installed and how to
+/// install it.
+pub const TOOLS: [(&str, &[&str], &str); 9] = [
+    ("git", &["--version"], "install git"),
+    (
+        "cargo",
+        &["--version"],
+        "install rustup (https://rustup.rs): the pinned toolchain installs itself",
+    ),
+    (
+        "cargo",
+        &[NIGHTLY_TOOLCHAIN, "--version"],
+        "rustup toolchain install nightly-2026-11-01 --component llvm-tools-preview --component miri --component rust-src",
+    ),
+    (
+        "cargo",
+        &[NIGHTLY_TOOLCHAIN, "miri", "--version"],
+        "rustup component add --toolchain nightly-2026-11-01 miri rust-src",
+    ),
+    (
+        "cargo",
+        &["llvm-cov", "--version"],
+        "cargo install --locked cargo-llvm-cov",
+    ),
+    (
+        "cargo",
+        &["mutants", "--version"],
+        "cargo install --locked cargo-mutants",
+    ),
+    (
+        "cargo",
+        &["deny", "--version"],
+        "cargo install --locked cargo-deny",
+    ),
+    ("node", &["--version"], "install Node.js 22.18 or later"),
+    (
+        "pnpm",
+        &["--version"],
+        "corepack enable (pnpm 10, as packageManager in package.json)",
+    ),
+];
+
+/// The oldest Node.js release the packages support (their `engines`), major and minor.
+pub const NODE_FLOOR: (u64, u64) = (22, 18);
+
+/// Checks the platform and the tools the checks need.
+///
+/// `answers` holds what each of [`TOOLS`] answered (its version line, or `None` when it
+/// is missing): every tool must be present, Node.js at [`NODE_FLOOR`] or later, on a
+/// platform the checks support (macOS or Linux; Windows through WSL2).
+///
+/// # Errors
+///
+/// Returns a message naming each missing tool with how to install it.
+pub fn preflight_gate(os: &str, answers: &[Option<String>]) -> Result<(), String> {
+    let mut problems = Vec::new();
+    if os == "windows" {
+        problems.push("the checks run on macOS and Linux: on Windows, run them in WSL2".to_owned());
+    }
+    for ((program, args, install), answer) in TOOLS.iter().zip(answers) {
+        match answer {
+            None => problems.push(format!(
+                "`{program} {}` is missing: {install}",
+                args.join(" ")
+            )),
+            Some(version) if *program == "node" => {
+                let numbers: Vec<u64> = version
+                    .trim()
+                    .trim_start_matches('v')
+                    .split('.')
+                    .map_while(|part| part.parse().ok())
+                    .collect();
+                if (numbers.first().copied(), numbers.get(1).copied())
+                    < (Some(NODE_FLOOR.0), Some(NODE_FLOOR.1))
+                {
+                    problems.push(format!("Node.js {} is too old: {install}", version.trim()));
+                }
+            }
+            Some(_) => {}
+        }
+    }
+    if problems.is_empty() {
+        Ok(())
+    } else {
+        Err(problems.join("; "))
+    }
+}
+
 /// The project manifest holding the workspace version.
 pub const CARGO_TOML: &str = "Cargo.toml";
 
@@ -1218,6 +1313,123 @@ fn read_file(runner: &mut dyn Runner, path: &str) -> Result<String, String> {
         .map_err(|error| format!("cannot read {path}: {error}"))
 }
 
+/// Asks every tool of [`TOOLS`] for its version, then checks them.
+fn preflight(runner: &mut dyn Runner) -> Result<(), String> {
+    let answers: Vec<Option<String>> = TOOLS
+        .iter()
+        .map(|(program, args, _)| {
+            let cmd = Cmd {
+                program,
+                args: args.iter().map(|&arg| arg.to_owned()).collect(),
+                dir: Dir::Root,
+            };
+            runner.capture(&cmd).ok()
+        })
+        .collect();
+    preflight_gate(std::env::consts::OS, &answers)
+}
+
+/// Lists the manifests tracked by git, then checks them.
+fn membership(runner: &mut dyn Runner) -> Result<(), String> {
+    let list = |source: &mut dyn Runner, pattern: &str| {
+        source
+            .tracked(&[pattern])
+            .map_err(|error| format!("cannot list the {pattern} files: {error}"))
+    };
+    list(runner, "*package.json").and_then(|packages| {
+        list(runner, "*.gitignore").and_then(|ignores| {
+            list(runner, "*Cargo.toml").and_then(|manifests| {
+                manifests
+                    .into_iter()
+                    .map(|path| read_file(runner, &path).map(|text| (path, text)))
+                    .collect::<Result<Vec<_>, _>>()
+                    .and_then(|crates| membership_gate(&packages, &crates, &ignores))
+            })
+        })
+    })
+}
+
+/// Lists the licenses of what ships and of everything, then checks them.
+fn licenses(runner: &mut dyn Runner) -> Result<(), String> {
+    let [shipped, all] = license_commands();
+    let report = |source: &mut dyn Runner, cmd: &Cmd| {
+        source
+            .capture(cmd)
+            .map_err(|error| format!("cannot list licenses: {error}"))
+    };
+    report(runner, &shipped)
+        .and_then(|shipped| report(runner, &all).and_then(|all| license_gate(&shipped, &all)))
+}
+
+/// Runs one action of a step.
+fn run_action(action: &Action, runner: &mut dyn Runner) -> Result<(), String> {
+    match action {
+        Action::Run(cmd) => match runner.run(cmd) {
+            Ok(Some(0_i32)) => Ok(()),
+            Ok(Some(code)) => Err(format!("`{}` exited with code {code}", cmd.line())),
+            Ok(None) => Err(format!("`{}` was stopped by a signal", cmd.line())),
+            Err(error) => Err(format!("cannot run {}: {error}", cmd.program)),
+        },
+        Action::CoverageGate(path) => {
+            read_file(runner, path).and_then(|report| coverage_gate(&report))
+        }
+        Action::ReleaseGate => read_file(runner, CARGO_TOML).and_then(|cargo| {
+            PACKAGE_JSONS
+                .iter()
+                .map(|&path| read_file(runner, path).map(|text| (path, text)))
+                .collect::<Result<Vec<_>, _>>()
+                .and_then(|packages| {
+                    read_file(runner, CHANGELOG)
+                        .and_then(|changelog| release_gate(&cargo, &packages, &changelog))
+                })
+        }),
+        Action::FreshDir(path) => runner
+            .fresh_dir(path)
+            .map_err(|error| format!("cannot empty {path}: {error}")),
+        Action::FreshDirs(paths) => paths.iter().try_for_each(|path| {
+            runner
+                .fresh_dir(path)
+                .map_err(|error| format!("cannot empty {path}: {error}"))
+        }),
+        Action::MembershipGate => membership(runner),
+        Action::Preflight => preflight(runner),
+        Action::UnsafeGate => runner
+            .tracked(&["*.rs"])
+            .map_err(|error| format!("cannot list the Rust files: {error}"))
+            .and_then(|paths| {
+                paths
+                    .into_iter()
+                    .map(|path| read_file(runner, &path).map(|text| (path, text)))
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .and_then(|sources| unsafe_gate(&sources)),
+        Action::LicenseGate => licenses(runner),
+        Action::TypeScriptReportsGate => TYPESCRIPT_PACKAGES.iter().try_for_each(|package| {
+            read_file(runner, &format!("{package}/coverage/coverage-summary.json"))
+                .and_then(|summary| ts_coverage_gate(package, &summary))?;
+            read_file(runner, &format!("{package}/reports/mutation/mutation.json"))
+                .and_then(|report| ts_mutation_gate(package, &report))
+        }),
+        Action::EquivalentGate => runner
+            .tracked(&["*.ts", "*.tsx"])
+            .map_err(|error| format!("cannot list the TypeScript files: {error}"))
+            .and_then(|paths| {
+                paths
+                    .into_iter()
+                    .map(|path| read_file(runner, &path).map(|text| (path, text)))
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .and_then(|sources| {
+                read_file(runner, EQUIVALENT_REVIEWED)
+                    .and_then(|reviewed| equivalent_gate(&sources, &reviewed))
+            }),
+        Action::UnviableGate => read_file(runner, UNVIABLE_REPORT).and_then(|report| {
+            read_file(runner, UNVIABLE_REVIEWED)
+                .and_then(|reviewed| unviable_gate(&report, &reviewed))
+        }),
+    }
+}
+
 /// Runs `steps` in order and stops at the first failure.
 ///
 /// # Errors
@@ -1233,104 +1445,14 @@ pub fn run_steps(
         let number = index.saturating_add(1);
         writeln!(out, "▶ [{number}/{total_steps}] {}", step.name)
             .map_err(|error| error.to_string())?;
-        let outcome = match &step.action {
-            Action::Run(cmd) => match runner.run(cmd) {
-                Ok(Some(0_i32)) => Ok(()),
-                Ok(Some(code)) => Err(format!("`{}` exited with code {code}", cmd.line())),
-                Ok(None) => Err(format!("`{}` was stopped by a signal", cmd.line())),
-                Err(error) => Err(format!("cannot run {}: {error}", cmd.program)),
-            },
-            Action::CoverageGate(path) => {
-                read_file(runner, path).and_then(|report| coverage_gate(&report))
-            }
-            Action::ReleaseGate => read_file(runner, CARGO_TOML).and_then(|cargo| {
-                PACKAGE_JSONS
-                    .iter()
-                    .map(|&path| read_file(runner, path).map(|text| (path, text)))
-                    .collect::<Result<Vec<_>, _>>()
-                    .and_then(|packages| {
-                        read_file(runner, CHANGELOG)
-                            .and_then(|changelog| release_gate(&cargo, &packages, &changelog))
-                    })
-            }),
-            Action::FreshDir(path) => runner
-                .fresh_dir(path)
-                .map_err(|error| format!("cannot empty {path}: {error}")),
-            Action::FreshDirs(paths) => paths.iter().try_for_each(|path| {
-                runner
-                    .fresh_dir(path)
-                    .map_err(|error| format!("cannot empty {path}: {error}"))
-            }),
-            Action::MembershipGate => {
-                let list = |source: &mut dyn Runner, pattern: &str| {
-                    source
-                        .tracked(&[pattern])
-                        .map_err(|error| format!("cannot list the {pattern} files: {error}"))
-                };
-                list(runner, "*package.json").and_then(|packages| {
-                    list(runner, "*.gitignore").and_then(|ignores| {
-                        list(runner, "*Cargo.toml").and_then(|manifests| {
-                            manifests
-                                .into_iter()
-                                .map(|path| read_file(runner, &path).map(|text| (path, text)))
-                                .collect::<Result<Vec<_>, _>>()
-                                .and_then(|crates| membership_gate(&packages, &crates, &ignores))
-                        })
-                    })
-                })
-            }
-            Action::UnsafeGate => runner
-                .tracked(&["*.rs"])
-                .map_err(|error| format!("cannot list the Rust files: {error}"))
-                .and_then(|paths| {
-                    paths
-                        .into_iter()
-                        .map(|path| read_file(runner, &path).map(|text| (path, text)))
-                        .collect::<Result<Vec<_>, _>>()
-                })
-                .and_then(|sources| unsafe_gate(&sources)),
-            Action::LicenseGate => {
-                let [shipped, all] = license_commands();
-                let report = |source: &mut dyn Runner, cmd: &Cmd| {
-                    source
-                        .capture(cmd)
-                        .map_err(|error| format!("cannot list licenses: {error}"))
-                };
-                report(runner, &shipped).and_then(|shipped| {
-                    report(runner, &all).and_then(|all| license_gate(&shipped, &all))
-                })
-            }
-            Action::TypeScriptReportsGate => TYPESCRIPT_PACKAGES.iter().try_for_each(|package| {
-                read_file(runner, &format!("{package}/coverage/coverage-summary.json"))
-                    .and_then(|summary| ts_coverage_gate(package, &summary))?;
-                read_file(runner, &format!("{package}/reports/mutation/mutation.json"))
-                    .and_then(|report| ts_mutation_gate(package, &report))
-            }),
-            Action::EquivalentGate => runner
-                .tracked(&["*.ts", "*.tsx"])
-                .map_err(|error| format!("cannot list the TypeScript files: {error}"))
-                .and_then(|paths| {
-                    paths
-                        .into_iter()
-                        .map(|path| read_file(runner, &path).map(|text| (path, text)))
-                        .collect::<Result<Vec<_>, _>>()
-                })
-                .and_then(|sources| {
-                    read_file(runner, EQUIVALENT_REVIEWED)
-                        .and_then(|reviewed| equivalent_gate(&sources, &reviewed))
-                }),
-            Action::UnviableGate => read_file(runner, UNVIABLE_REPORT).and_then(|report| {
-                read_file(runner, UNVIABLE_REVIEWED)
-                    .and_then(|reviewed| unviable_gate(&report, &reviewed))
-            }),
-        };
+        let outcome = run_action(&step.action, runner);
         outcome.map_err(|reason| format!("✘ {}: {reason}", step.name))?;
     }
     writeln!(out, "✔ all {total_steps} checks passed").map_err(|error| error.to_string())
 }
 
 /// Usage of the `xtask` command.
-pub const USAGE: &str = "usage: cargo xtask <check|bless|commit-msg <file>|help>\n  check              run every quality check, as CI and the pre-push hook do\n  bless              rewrite conformance/references.json from the current renders\n  commit-msg <file>  check a commit message (used by the commit-msg hook)\n  help               show this help";
+pub const USAGE: &str = "usage: cargo xtask <check|list|bless|commit-msg <file>|help>\n  check              run every quality check, as CI and the pre-push hook do\n  list               list the checks, in the order they run\n  bless              rewrite conformance/references.json from the current renders\n  commit-msg <file>  check a commit message (used by the commit-msg hook)\n  help               show this help";
 
 /// The only way to change the reference hashes: renders every conformance case and
 /// rewrites `conformance/references.json`. The commit must explain why they changed.
@@ -1370,6 +1492,13 @@ pub fn cli(
         [command] if command == "help" => {
             writeln!(out, "{USAGE}").map_err(|error| error.to_string())
         }
+        [command] if command == "list" => check_steps()
+            .iter()
+            .enumerate()
+            .try_for_each(|(index, step)| {
+                writeln!(out, "{:>2}. {}", index.saturating_add(1), step.name)
+            })
+            .map_err(|error| error.to_string()),
         _ => {
             // Nothing more can be done if stderr itself is broken: the exit code still tells.
             drop(writeln!(err, "{USAGE}"));

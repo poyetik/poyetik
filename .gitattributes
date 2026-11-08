@@ -1,0 +1,5 @@
+# Text files are stored and checked out with LF line endings on every platform: the git
+# hooks are shell scripts, and a CRLF checkout (Windows) would break them.
+* text=auto eol=lf
+*.wasm binary
+*.wav binary
