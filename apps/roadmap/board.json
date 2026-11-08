@@ -1,7 +1,7 @@
 {
   "version": 1,
   "title": "Poyetik",
-  "nextId": 19,
+  "nextId": 22,
   "cards": [
     {
       "id": 1,
@@ -493,6 +493,36 @@
           "done": false
         }
       ]
+    },
+    {
+      "id": 19,
+      "title": "Split xtask into modules",
+      "description": "The project automation is one library file of about two thousand lines, with its tests in one file as long. Split it into modules by concern (the runner, the gates, the steps, the command line), each with its own tests, without changing a step, a message or a verdict. Do it together with the next new gate, so that the reviewed lists of unviable mutants, keyed by file, move once.",
+      "column": "later",
+      "milestone": "M0 Foundations",
+      "createdAt": "2026-11-08",
+      "updatedAt": "2026-11-08",
+      "tasks": []
+    },
+    {
+      "id": 20,
+      "title": "macOS CI job: native aarch64 conformance and Safari",
+      "description": "CI runs on one x86_64 Linux runner: native conformance on aarch64 is proven only by the pre-push check of a Mac, and the browser tests run WebKitGTK, not Safari. Add a macOS job that renders the conformance corpus natively on aarch64 and in Safari and compares every hash with the committed references, once the repository is public or the first box heavy in floating point lands.",
+      "column": "later",
+      "milestone": "M1 Engine",
+      "createdAt": "2026-11-08",
+      "updatedAt": "2026-11-08",
+      "tasks": []
+    },
+    {
+      "id": 21,
+      "title": "Audit the CI workflow with zizmor",
+      "description": "The workflow gate of cargo xtask check reads the CI workflow with a strict line grammar written for this project. A dedicated workflow auditor such as zizmor would also catch the classes of mistakes the grammar does not know. Decide whether to adopt it as a pinned tool, record it in the dependency register, and run it from cargo xtask check.",
+      "column": "later",
+      "milestone": "M0 Foundations",
+      "createdAt": "2026-11-08",
+      "updatedAt": "2026-11-08",
+      "tasks": []
     }
   ]
 }
