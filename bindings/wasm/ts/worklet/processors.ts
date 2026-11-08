@@ -15,9 +15,18 @@ const NO_OUTPUT: readonly Float32Array[] = Object.freeze([]);
 /** The message telling the main thread the patch is loaded: one shared, frozen object. */
 const READY: EngineMessage = Object.freeze({ type: "ready" });
 
-/** The message describing a failure: the rejection detail of the engine, or a message. */
+/**
+ * The message describing a failure: the rejection detail of the engine, or a message.
+ * The message keeps the cause of the error, when it is an error: for an `EngineTrap`, the trap of the
+ * WebAssembly engine ("unreachable", "memory access out of bounds"), the only clue a
+ * module built with `panic = "abort"` gives. The message protocol carries one string.
+ */
 function failure(error: unknown): EngineMessage {
-  return error instanceof PatchError ? { type: "rejected", detail: error.detail } : { type: "failed", message: String(error) };
+  if (error instanceof PatchError) {
+    return { type: "rejected", detail: error.detail };
+  }
+  const cause: unknown = Reflect.get(Object(error), "cause");
+  return { type: "failed", message: cause instanceof Error ? `${String(error)} (${String(cause)})` : String(error) };
 }
 
 /**

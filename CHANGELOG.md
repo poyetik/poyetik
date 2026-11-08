@@ -120,3 +120,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - engine-wasm: a malformed message from a processor (an engine message or a tap block) is reported as "invalid message from the processor", no longer as "invalid processor options".
+- engine-wasm: when the engine traps in the browser, the failure reported to the main thread now includes the trap itself ("RuntimeError: unreachable", "memory access out of bounds"), the only clue a module built with `panic = "abort"` gives.

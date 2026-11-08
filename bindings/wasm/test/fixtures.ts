@@ -171,11 +171,18 @@ function sleb128(value: number): number[] {
   }
 }
 
+/** What a hand-made module holds: see {@link handMadeBytes}. */
+export interface HandMade {
+  readonly memory: boolean;
+  readonly imports?: boolean;
+  readonly functions: readonly HandMadeFunction[];
+}
+
 /**
- * Builds a small module by hand: optionally a memory, an imported function (which no
+ * Encodes a small module by hand: optionally a memory, an imported function (which no
  * engine module has), and `functions`, each with its own type and body.
  */
-export function handMadeModule(options: { memory: boolean; imports?: boolean; functions: readonly HandMadeFunction[] }): WebAssembly.Module {
+export function handMadeBytes(options: HandMade): Uint8Array<ArrayBuffer> {
   const types = options.functions.map((func) => [0x60, func.params, ...Array<number>(func.params).fill(0x7f), 0x01, func.body === "i64" ? 0x7e : 0x7f]);
   const bodies = options.functions.map((func) => {
     const grow = [0x41, 0x01, 0x40, 0x00, 0x1a, 0x41, 0x00, 0x43, 0x00, 0x00, 0x00, 0x3f, 0x38, 0x02, 0x00, 0x41, 0x00];
@@ -200,7 +207,12 @@ export function handMadeModule(options: { memory: boolean; imports?: boolean; fu
     ...section(0x07, [exports.length, ...exports.flat()]),
     ...section(0x0a, [bodies.length, ...bodies.flat()]),
   ];
-  return new WebAssembly.Module(new Uint8Array(bytes));
+  return new Uint8Array(bytes);
+}
+
+/** Compiles the module {@link handMadeBytes} encodes. */
+export function handMadeModule(options: HandMade): WebAssembly.Module {
+  return new WebAssembly.Module(handMadeBytes(options));
 }
 
 /** Builds a patch: one oscillator per frequency, each into its own inlet of one output. */
