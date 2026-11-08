@@ -7,8 +7,8 @@ import { MAX_FREQUENCY_RATIO } from "../src/scope.ts";
 import { LOCALES, SAMPLE_RATES, TIME_ZONES } from "../test/matrix.ts";
 
 /**
- * Makes every AudioContext of the page reachable by {@link suspendAudio}, and run at
- * `rate` when given, as on a device that imposes it.
+ * Makes every AudioContext of the page reachable by {@link suspendAudio}, counted by
+ * {@link contexts}, and run at `rate` when given, as on a device that imposes it.
  */
 async function trackAudio(page: Page, rate?: number): Promise<void> {
   await page.addInitScript(
@@ -18,11 +18,18 @@ async function trackAudio(page: Page, rate?: number): Promise<void> {
         constructor(options?: AudioContextOptions) {
           super(forced === null ? options : { ...options, sampleRate: forced });
           Reflect.set(window, "audio", this);
+          const created: unknown = Reflect.get(window, "contexts");
+          Reflect.set(window, "contexts", typeof created === "number" ? created + 1 : 1);
         }
       };
     },
     { forced: rate ?? null },
   );
+}
+
+/** How many AudioContexts the page created since it loaded; needs {@link trackAudio}. */
+async function contexts(page: Page): Promise<unknown> {
+  return page.evaluate((): unknown => Reflect.get(window, "contexts") ?? 0);
 }
 
 /** Suspends the last AudioContext of the page, as the browser does for a phone call or another tab. */
@@ -190,6 +197,69 @@ test("plays and stops from the keyboard, the button keeping a visible focus", as
   await page.keyboard.press("Space");
   await expect(page.getByRole("status")).toHaveText("Stopped");
   await expect(button).toBeFocused();
+});
+
+test("ignores the second click of a double-click: after Stop, the tone stays stopped", async ({ page }) => {
+  await trackAudio(page);
+  // What the page saw: the detail of every click, so that the double-click is proven sent.
+  await page.addInitScript(() => {
+    const details: number[] = [];
+    Reflect.set(window, "clicks", details);
+    document.addEventListener("click", (event) => details.push(event.detail), true);
+  });
+  await page.goto("./?muted");
+  const button = page.getByRole("button");
+  const status = page.getByRole("status");
+  await button.click();
+  await expect(status).toHaveText("Playing");
+  await button.click();
+  await expect(status).toHaveText("Stopped");
+  expect(await contexts(page)).toBe(1);
+  // The second click of a double-click on Stop, now that it says Start.
+  const box = await button.boundingBox();
+  await page.mouse.move((box?.x ?? 0) + (box?.width ?? 0) / 2, (box?.y ?? 0) + (box?.height ?? 0) / 2);
+  await page.mouse.down({ clickCount: 2 });
+  await page.mouse.up({ clickCount: 2 });
+  expect(await page.evaluate((): unknown => Reflect.get(window, "clicks"))).toStrictEqual([1, 1, 2]);
+  // Control: a plain click starts, with one new context. Had the double-click started
+  // the tone, this click would have cancelled it, and two contexts would have been made.
+  await button.click();
+  await expect(status).toHaveText("Playing");
+  expect(await contexts(page)).toBe(2);
+});
+
+test("ignores Enter held down: the key repeat does not cancel the start", async ({ page }) => {
+  // What the page saw: whether each Enter was a repeat, so that the repeat is proven sent.
+  await page.addInitScript(() => {
+    const repeats: boolean[] = [];
+    Reflect.set(window, "repeats", repeats);
+    document.addEventListener("keydown", (event) => repeats.push(event.repeat), true);
+  });
+  // The engine is held until released: the start stays in progress, the button says Cancel.
+  let release = (): void => undefined;
+  const loaded = new Promise<undefined>((resolve) => {
+    release = () => {
+      resolve(undefined);
+    };
+  });
+  await page.route("**/*.wasm", async (route) => {
+    await loaded;
+    await route.continue();
+  });
+  await page.goto("./?muted");
+  const button = page.getByRole("button");
+  await button.focus();
+  await page.keyboard.down("Enter");
+  await expect(button).toHaveAccessibleName("Cancel");
+  await page.keyboard.down("Enter");
+  await page.keyboard.up("Enter");
+  expect(await page.evaluate((): unknown => Reflect.get(window, "repeats"))).toStrictEqual([false, true]);
+  // Had the repeat activated Cancel, the start would be over and could never play.
+  release();
+  await expect(page.getByRole("status")).toHaveText("Playing");
+  // Control: Enter pressed again (no repeat) does activate the button.
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("status")).toHaveText("Stopped");
 });
 
 test("is accessible when the browser pauses the audio, and resumes", async ({ page }) => {

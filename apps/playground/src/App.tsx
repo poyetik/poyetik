@@ -83,8 +83,19 @@ export function App({ player }: { readonly player: Player }): JSX.Element {
           aria-disabled={run === undefined}
           aria-describedby={explanation === null ? undefined : ALERT}
           data-action={label.toLowerCase()}
-          onClick={() => {
-            void run?.();
+          onClick={(event) => {
+            // Only the first click of a series (a keyboard activation has detail 0): the
+            // second click of a double-click would undo the first, a tone starting again
+            // right after Stop, or a start cancelled at once.
+            if (event.detail <= 1) {
+              void run?.();
+            }
+          }}
+          onKeyDown={(event) => {
+            // A held Enter or Space repeats: it must not toggle the tone on and off.
+            if (event.repeat && (event.key === "Enter" || event.key === " ")) {
+              event.preventDefault();
+            }
           }}
         >
           <span>{label}</span>

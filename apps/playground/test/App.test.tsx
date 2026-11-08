@@ -95,11 +95,12 @@ test("warns before the button that it plays a continuous tone", () => {
 });
 
 /**
- * Clicks the button and returns what its handler threw: React reports it on the window,
- * where it is caught here, so that a handler calling an action that is not there fails
- * this test instead of crashing the test runner.
+ * Clicks the button, as the `detail`-th click of a series (0: a keyboard activation, 2:
+ * the second click of a double-click), and returns what its handler threw: React reports
+ * it on the window, where it is caught here, so that a handler calling an action that is
+ * not there fails this test instead of crashing the test runner.
  */
-function click(): unknown[] {
+function click(detail = 1): unknown[] {
   const thrown: unknown[] = [];
   const listener = (event: ErrorEvent): void => {
     thrown.push(event.error);
@@ -107,7 +108,7 @@ function click(): unknown[] {
   };
   window.addEventListener("error", listener);
   try {
-    fireEvent.click(button());
+    fireEvent.click(button(), { detail });
   } finally {
     window.removeEventListener("error", listener);
   }
@@ -133,8 +134,26 @@ test.each([
   expect(button().getAttribute("aria-disabled")).toBe(disabled);
   expect(button().dataset["action"]).toBe(said.toLowerCase());
   expect(screen.queryByRole("alert")?.textContent ?? null).toBe(alert);
-  expect(click()).toStrictEqual([]);
+  // The second click of a double-click does nothing: it would undo the first (a tone
+  // starting again right after Stop).
+  expect(click(2)).toStrictEqual([]);
+  expect(click(3)).toStrictEqual([]);
+  expect(player.calls).toStrictEqual([]);
+  expect(click(1)).toStrictEqual([]);
   expect(player.calls).toStrictEqual(call === undefined ? [] : [call]);
+  // A keyboard activation is a click of detail 0.
+  expect(click(0)).toStrictEqual([]);
+  expect(player.calls).toStrictEqual(call === undefined ? [] : [call, call]);
+});
+
+test("ignores Enter and Space held down: a repeated key does not activate the button again", () => {
+  render(<App player={new FakePlayer()} />);
+  // fireEvent returns false when the handler prevented the default action (the activation).
+  expect(fireEvent.keyDown(button(), { key: "Enter", repeat: true })).toBe(false);
+  expect(fireEvent.keyDown(button(), { key: " ", repeat: true })).toBe(false);
+  expect(fireEvent.keyDown(button(), { key: "Enter", repeat: false })).toBe(true);
+  expect(fireEvent.keyDown(button(), { key: " ", repeat: false })).toBe(true);
+  expect(fireEvent.keyDown(button(), { key: "a", repeat: true })).toBe(true);
 });
 
 test("keeps the button focused through every transition, into every state", () => {
