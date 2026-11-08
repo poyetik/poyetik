@@ -259,11 +259,15 @@ export class WasmEngine {
   /**
    * Wraps an instance with a patch loaded.
    * @param exports The instance, with a patch loaded.
+   * @throws {ModuleError} when its blocks have no frame: rendering would never end.
    */
   private constructor(exports: Exports) {
     this.#exports = exports;
     this.channels = exports.channels();
     this.#blockSize = exports.blockSize();
+    if (this.#blockSize === 0) {
+      throw new ModuleError("engine_block_size returned 0: a block has at least one frame");
+    }
     this.#memory = new Float32Array(exports.memory.buffer);
     this.#data = new DataView(exports.memory.buffer);
     this.#position = this.#blockSize;
@@ -272,7 +276,8 @@ export class WasmEngine {
   /**
    * Instantiates `module` and loads `patch` (UTF-8 text in the patch format) at `rate` hertz.
    * @throws {RangeError} when `rate` is not a whole number of hertz that fits 32 bits.
-   * @throws {ModuleError} when `module` is not an engine module of this version.
+   * @throws {ModuleError} when `module` is not an engine module of this version, or
+   * gives blocks of 0 frames.
    * @throws {PatchError} when the engine rejects the patch, its bytes or the rate; a patch
    * longer than the engine reads is refused before it is copied into the module, whose
    * memory never shrinks again, with the words of the engine.

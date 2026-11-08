@@ -298,6 +298,11 @@ describe("WasmEngine", () => {
     return WasmEngine.create(handMadeModule({ memory: true, functions }), SINE_PATCH, RATE);
   }
 
+  test("refuses a module whose blocks have no frame, which would render forever", () => {
+    expect(() => placing(1, 0, 4)).toThrow(new ModuleError("engine_block_size returned 0: a block has at least one frame"));
+    expect(placing(1, 1, 4).blocks).toBe(0);
+  });
+
   test("reads a block that ends at the end of the memory", () => {
     // One page: 16 384 samples; two channels of 4 frames from sample 16 376 fill its end.
     const outputs = [new Float32Array(4).fill(9), new Float32Array(4).fill(9)];
