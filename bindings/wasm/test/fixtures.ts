@@ -131,6 +131,7 @@ export const FUNCTIONS = [
   "engine_channels",
   "engine_block_size",
   "engine_process",
+  "engine_max_patch_bytes",
 ] as const;
 
 /** Encodes a WebAssembly name. */
@@ -173,15 +174,23 @@ export interface HandMadeFunction {
 /** The arity of each engine export. */
 const ARITY: Readonly<Record<string, number>> = { engine_input: 1, engine_load: 1 };
 
+/** What each engine export returns when no `body` is given: 1, except these. */
+const ANSWERS: Readonly<Record<string, number>> = {
+  engine_abi_version: 0x5059_0002,
+  // Any patch of the tests fits.
+  engine_max_patch_bytes: 0x10_00_00,
+};
+
 /**
  * The engine functions with their arity, each returning `i32` 1 (or `body`), except the
- * interface version, which gives the expected one unless `body` is given.
+ * interface version, which gives the expected one, and the largest patch, a mebibyte,
+ * unless `body` is given.
  */
 export function engineFunctions(body?: HandMadeFunction["body"]): HandMadeFunction[] {
   return FUNCTIONS.map((name) => ({
     name,
     params: ARITY[name] ?? 0,
-    body: body ?? (name === "engine_abi_version" ? { i32: 0x5059_0001 } : { i32: 1 }),
+    body: body ?? { i32: ANSWERS[name] ?? 1 },
   }));
 }
 

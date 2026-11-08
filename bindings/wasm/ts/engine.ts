@@ -20,13 +20,14 @@ interface Exports {
   readonly channels: Exported0;
   readonly blockSize: Exported0;
   readonly process: Exported0;
+  readonly maxPatchBytes: Exported0;
 }
 
 /**
  * The identity and version of the exported interface this code drives (`ABI_VERSION` in
- * `ffi.rs`): "PY" in the high 16 bits, version 1 in the low 16 bits.
+ * `ffi.rs`): "PY" in the high 16 bits, version 2 in the low 16 bits.
  */
-export const ABI_VERSION = 0x5059_0001;
+export const ABI_VERSION = 0x5059_0002;
 
 /** Thrown when the module does not have the expected interface. */
 export class ModuleError extends Error {
@@ -138,7 +139,16 @@ function readExports(exports: WebAssembly.Exports): Exports {
     channels: exported0(exports, "engine_channels"),
     blockSize: exported0(exports, "engine_block_size"),
     process: exported0(exports, "engine_process"),
+    maxPatchBytes: exported0(exports, "engine_max_patch_bytes"),
   };
+}
+
+/**
+ * Encodes `text`, which is ASCII, as the UTF-8 bytes of a {@link PatchError}: an
+ * `AudioWorklet` may have no `TextEncoder`.
+ */
+function ascii(text: string): Uint8Array {
+  return Uint8Array.from(text, (character) => character.charCodeAt(0));
 }
 
 /** Instantiates an engine module, explaining why it cannot be. */
@@ -254,7 +264,9 @@ export class WasmEngine {
    * Instantiates `module` and loads `patch` (UTF-8 text in the patch format) at `rate` hertz.
    * @throws {RangeError} when `rate` is not a whole number of hertz that fits 32 bits.
    * @throws {ModuleError} when `module` is not an engine module of this version.
-   * @throws {PatchError} when the engine rejects the patch, its bytes or the rate.
+   * @throws {PatchError} when the engine rejects the patch, its bytes or the rate; a patch
+   * longer than the engine reads is refused before it is copied into the module, whose
+   * memory never shrinks again, with the words of the engine.
    * @throws {EngineTrap} when the module traps.
    */
   static create(module: WebAssembly.Module, patch: Uint8Array, rate: number): WasmEngine {
@@ -263,6 +275,10 @@ export class WasmEngine {
     }
     const exports = readExports(instantiate(module));
     return guarded(() => {
+      const max = exports.maxPatchBytes();
+      if (patch.length > max) {
+        throw new PatchError(ascii(`patch too large: ${String(patch.length)} bytes (at most ${String(max)})`));
+      }
       // Every call may grow the memory, which detaches its previous buffer: call first,
       // then read `memory.buffer`.
       const input = exports.input(patch.length);

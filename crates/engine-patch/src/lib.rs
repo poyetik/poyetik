@@ -28,8 +28,10 @@ pub const FORMAT: u32 = 1;
 /// Largest patch document read, in bytes (16 MiB).
 ///
 /// Checked before parsing, so that an oversized document is refused without being
-/// parsed. Readers of files bound what they load to this size too (`engine-cli` reads at
-/// most one byte past it).
+/// parsed. Every reader bounds what it holds to this size too, before reading the
+/// patch whole: `engine-cli` reads at most one byte past it, and the WebAssembly engine
+/// exports it (`engine_max_patch_bytes`) for JavaScript to refuse a longer patch before
+/// copying it into the module memory.
 pub const MAX_PATCH_BYTES: usize = 16 * 1024 * 1024;
 
 /// Longest message [`safe_message`] returns, in characters after escaping: a message may

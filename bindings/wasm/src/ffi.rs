@@ -2,7 +2,9 @@
 //!
 //! Protocol, for one module instance (one engine):
 //!
-//! 1. `engine_input(len)` ([`engine_input`]) returns where to write the `len` bytes of a patch.
+//! 1. `engine_input(len)` ([`engine_input`]) returns where to write the `len` bytes of a patch;
+//!    the caller first refuses a patch longer than [`engine_max_patch_bytes`], so that the
+//!    module memory never grows for a patch the engine would refuse anyway.
 //! 2. `engine_load(rate)` ([`engine_load`]) loads it; on failure, [`engine_message_ptr`] and
 //!    [`engine_message_len`] locate a UTF-8 explanation.
 //! 3. [`engine_process`] renders the next block and returns where it is:
@@ -40,7 +42,7 @@ use crate::Instance;
 /// same name by chance is not mistaken for an engine; the version in the low 16 bits,
 /// changed whenever a function is added, removed or changes meaning, so that a caller
 /// never drives a module it does not understand.
-pub const ABI_VERSION: u32 = 0x5059_0001;
+pub const ABI_VERSION: u32 = 0x5059_0002;
 
 /// The version of this interface, [`ABI_VERSION`].
 #[unsafe(no_mangle)]
@@ -66,6 +68,15 @@ static INSTANCE: Mutex<Instance> = Mutex::new(Instance::new());
 /// A panic aborts the WebAssembly module, so the lock is never actually poisoned.
 fn instance() -> MutexGuard<'static, Instance> {
     INSTANCE.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// Largest patch the engine reads, in bytes.
+///
+/// It is [`engine_patch::MAX_PATCH_BYTES`], the limit of the patch format. The caller refuses a longer patch before calling [`engine_input`],
+/// which would grow the module memory (never given back) to hold it.
+#[unsafe(no_mangle)]
+pub const extern "C" fn engine_max_patch_bytes() -> usize {
+    engine_patch::MAX_PATCH_BYTES
 }
 
 /// Makes the input buffer `len` bytes long and returns its address, for the caller to
@@ -120,7 +131,8 @@ mod tests {
 
     use super::{
         ABI_VERSION, engine_abi_version, engine_block_size, engine_channels, engine_input,
-        engine_load, engine_message_len, engine_message_ptr, engine_process,
+        engine_load, engine_max_patch_bytes, engine_message_len, engine_message_ptr,
+        engine_process,
     };
 
     /// Writes `bytes` through the exported input buffer, as JavaScript does.
@@ -155,8 +167,13 @@ mod tests {
     fn follows_the_protocol() {
         assert_eq!(engine_abi_version(), ABI_VERSION, "version");
         assert_eq!(ABI_VERSION >> 16_u32, 0x5059_u32, "identity");
-        assert_eq!(ABI_VERSION & 0xFFFF_u32, 1_u32, "first version");
+        assert_eq!(ABI_VERSION & 0xFFFF_u32, 2_u32, "second version");
         assert_eq!(engine_block_size(), BLOCK_SIZE, "block size");
+        assert_eq!(
+            engine_max_patch_bytes(),
+            engine_patch::MAX_PATCH_BYTES,
+            "the limit of the patch reader"
+        );
 
         write(b"not a patch");
         assert_eq!(engine_load(48_000), 0, "rejected");

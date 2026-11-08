@@ -133,6 +133,45 @@ describe("WasmEngine", () => {
     expect(long).toMatch(/^box 1: unknown box type "y+…$/u);
   });
 
+  test("refuses a patch longer than the engine reads, as the engine words it", () => {
+    const exports = new WebAssembly.Instance(module, {}).exports;
+    const call = (name: string, ...args: number[]): number => {
+      const exported = exports[name];
+      return typeof exported === "function" ? Number(Reflect.apply(exported, undefined, args)) : Number.NaN;
+    };
+    // The limit of the patch format (spec/patch-format.md), as the module reports it.
+    const max = call("engine_max_patch_bytes");
+    expect(max).toBe(16 * 1024 * 1024);
+    // What the engine itself says of one byte more, read through the raw interface.
+    call("engine_input", max + 1);
+    expect(call("engine_load", RATE)).toBe(0);
+    const memory = exports["memory"];
+    const said = memory instanceof WebAssembly.Memory ? new Uint8Array(memory.buffer, call("engine_message_ptr"), call("engine_message_len")) : new Uint8Array();
+    const engineSays = new TextDecoder().decode(said);
+    expect(engineSays).toBe(`patch too large: ${String(max + 1)} bytes (at most ${String(max)})`);
+    const refusal = (patch: Uint8Array): string => {
+      try {
+        WasmEngine.create(module, patch, RATE);
+      } catch (thrown) {
+        return thrown instanceof PatchError ? new TextDecoder().decode(thrown.detail) : String(thrown);
+      }
+      return "loaded";
+    };
+    expect(refusal(new Uint8Array(max + 1))).toBe(engineSays);
+    // At the limit, the patch reaches the engine, which reads it (blank: not JSON).
+    expect(refusal(new Uint8Array(max).fill(0x20))).toMatch(/^invalid patch: EOF while parsing/u);
+  });
+
+  test("refuses a patch longer than the module reads before asking it for memory", () => {
+    // engine_input traps: calling it at all is an EngineTrap, never a PatchError.
+    const functions = engineFunctions().map((func) =>
+      func.name === "engine_input" ? { ...func, body: "trap" as const } : func.name === "engine_max_patch_bytes" ? { ...func, body: { i32: 4 } } : func,
+    );
+    const small = handMadeModule({ memory: true, functions });
+    expect(() => WasmEngine.create(small, new Uint8Array(5), RATE)).toThrow(PatchError);
+    expect(() => WasmEngine.create(small, new Uint8Array(4), RATE)).toThrow(EngineTrap);
+  });
+
   test("rejects an unsupported sample rate", () => {
     expect(() => WasmEngine.create(module, SINE_PATCH, 0)).toThrow(PatchError);
   });
@@ -160,17 +199,19 @@ describe("WasmEngine", () => {
   });
 
   test("checks the interface identity and version before anything else", () => {
-    expect(ABI_VERSION).toBe(0x5059_0001);
+    expect(ABI_VERSION).toBe(0x5059_0002);
     // engineFunctions gives every function the same result: here, the version answered.
-    // Far from ours, then one step from ours in the version, and in the identity both ways.
+    // Far from ours, then one step from ours in the version both ways, and in the identity
+    // both ways.
     for (const [answer, shown] of [
       [1, "0x1"],
-      [0x5059_0002, "0x50590002"],
-      [0x505a_0001, "0x505a0001"],
-      [0x5058_0001, "0x50580001"],
+      [0x5059_0001, "0x50590001"],
+      [0x5059_0003, "0x50590003"],
+      [0x505a_0002, "0x505a0002"],
+      [0x5058_0002, "0x50580002"],
     ] as const) {
       const other = handMadeModule({ memory: true, functions: engineFunctions({ i32: answer }) });
-      expect(() => WasmEngine.create(other, SINE_PATCH, RATE)).toThrow(new ModuleError(`interface ${shown}, expected 0x50590001`));
+      expect(() => WasmEngine.create(other, SINE_PATCH, RATE)).toThrow(new ModuleError(`interface ${shown}, expected 0x50590002`));
     }
   });
 
