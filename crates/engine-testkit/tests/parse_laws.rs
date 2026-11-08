@@ -7,6 +7,8 @@
 //! hostile ones: wrong types, extreme ids, ports and numbers, unknown and repeated keys,
 //! deep nesting, every box type with random parameters and cables.
 
+#![forbid(unsafe_code)]
+
 /// Counts allocations, so that rendering an accepted plan can be checked not to allocate.
 #[global_allocator]
 static ALLOCATOR: engine_testkit::CountingAllocator = engine_testkit::CountingAllocator;

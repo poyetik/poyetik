@@ -4091,7 +4091,7 @@ fn empties_stale_build_outputs_before_the_builds_that_write_them() {
 }
 
 #[test]
-fn runs_miri_on_every_crate_holding_unsafe_code() {
+fn runs_miri_on_every_crate_of_the_audited_files() {
     assert_eq!(
         super::unsafe_crates(),
         vec!["engine-alloc-counter", "engine-wasm"],
