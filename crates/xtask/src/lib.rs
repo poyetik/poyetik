@@ -1476,7 +1476,7 @@ pub fn stryker_config_gate(package: &str, config: &str) -> Result<(), Failure> {
 /// skipped mutant, an ignored or focused test. Built at run time, so that this file does
 /// not hold them; each with the extensions of the files where it acts.
 ///
-/// A `cfg` that a coverage build sets (`coverage`, `coverage_nightly`) is an unexpected
+/// A `cfg` that a coverage build sets (`coverage`, and the one of the nightly build) is an unexpected
 /// `cfg` in every other build, which the workspace lints refuse; so is any lifting of that
 /// lint, and any declaration of an expected `cfg` (in a manifest or a build script), are
 /// refused here.

@@ -3504,7 +3504,10 @@ fn refuses_every_form_of_a_rust_bypass() {
         ),
         (
             "Cargo.toml",
-            format!("[workspace.lints.rust.x]\n{check_cfg} = [\"cfg(coverage)\"]\n"),
+            format!(
+                "[workspace.lints.rust.x]\n{check_cfg} = [\"cfg({})\"]\n",
+                "coverage"
+            ),
             check_cfg,
         ),
     ]);

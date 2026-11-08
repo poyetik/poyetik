@@ -32,7 +32,7 @@ allow nodes in bindings/wasm/test/web.test.ts -- the fake Web Audio nodes the te
 allow node in bindings/wasm/test/types.test.ts -- an engine node created with or without the marker channel (`MarkedEngineNode`)
 allow node in bindings/wasm/test/types/ -- compiler fixtures about `MarkedEngineNode`, a Web Audio node
 allow node in crates/xtask/src/lib_tests.rs -- the tests of this gate, whose fixtures hold the refused words on purpose
-allow node in apps/playground/test/player.test.ts -- the fake Web Audio nodes the tests of the player drive
+allow node in apps/playground/test/fakes.ts -- the fake Web Audio nodes the tests of the player drive
 
 forbid object -> box in crates/engine-core/ crates/engine-objects/ crates/engine-patch/ crates/engine-testkit/ crates/engine-hash/ crates/engine-cli/ bindings/wasm/src/ spec/ conformance/ GLOSSARY.md -- GLOSSARY.md: one processing unit of a patch is a box (the `Object` trait keeps its name until roadmap #5)
 forbid objects -> boxes in crates/engine-core/ crates/engine-objects/ crates/engine-patch/ crates/engine-testkit/ crates/engine-hash/ crates/engine-cli/ bindings/wasm/src/ spec/ conformance/ GLOSSARY.md -- GLOSSARY.md: one processing unit of a patch is a box
