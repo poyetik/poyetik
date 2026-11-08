@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { ENGINE_PROCESSOR, OptionsError, TAP_PROCESSOR, parseEngineMessage, parseEngineOptions, parseTapBlock } from "../ts/protocol.ts";
+import { ENGINE_PROCESSOR, MessageError, OptionsError, TAP_PROCESSOR, parseEngineMessage, parseEngineOptions, parseTapBlock } from "../ts/protocol.ts";
 
 describe("parseEngineOptions", () => {
   test("accepts the module bytes, the patch and the marker choice", () => {
@@ -36,8 +36,8 @@ describe("parseTapBlock", () => {
   });
 
   test("rejects anything else", () => {
-    expect(() => parseTapBlock("stop")).toThrow(new OptionsError("tap block is not an array"));
-    expect(() => parseTapBlock([new Float32Array(1), [0]])).toThrow(new OptionsError("tap channel is not a Float32Array"));
+    expect(() => parseTapBlock("stop")).toThrow(new MessageError("tap block is not an array"));
+    expect(() => parseTapBlock([new Float32Array(1), [0]])).toThrow(new MessageError("tap channel is not a Float32Array"));
   });
 });
 
@@ -62,6 +62,10 @@ describe("parseEngineMessage", () => {
     [{ type: "other" }, "unknown engine message"],
     [{}, "unknown engine message"],
   ])("rejects %o", (value, detail) => {
-    expect(() => parseEngineMessage(value)).toThrow(new OptionsError(detail));
+    expect(() => parseEngineMessage(value)).toThrow(new MessageError(detail));
+  });
+
+  test("names its errors", () => {
+    expect(new MessageError("x")).toMatchObject({ name: "MessageError", message: "invalid message from the processor: x" });
   });
 });

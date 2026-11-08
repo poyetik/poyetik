@@ -31,6 +31,21 @@ export class OptionsError extends Error {
   }
 }
 
+/**
+ * Thrown when a message from a processor (an engine message, a tap block) does not have
+ * the expected shape: a bug, or a message from something else on the port.
+ */
+export class MessageError extends Error {
+  /**
+   * Describes an invalid message.
+   * @param detail What is wrong with the message.
+   */
+  constructor(detail: string) {
+    super(`invalid message from the processor: ${detail}`);
+    this.name = "MessageError";
+  }
+}
+
 /** Checks the options received by the engine processor. */
 export function parseEngineOptions(value: unknown): EngineOptions {
   if (typeof value !== "object" || value === null) {
@@ -54,11 +69,11 @@ export function parseEngineOptions(value: unknown): EngineOptions {
 /** Checks a render quantum posted by the tap processor: one array per channel. */
 export function parseTapBlock(value: unknown): Float32Array[] {
   if (!Array.isArray(value)) {
-    throw new OptionsError("tap block is not an array");
+    throw new MessageError("tap block is not an array");
   }
   return value.map((channel: unknown) => {
     if (!(channel instanceof Float32Array)) {
-      throw new OptionsError("tap channel is not a Float32Array");
+      throw new MessageError("tap channel is not a Float32Array");
     }
     return channel;
   });
@@ -76,7 +91,7 @@ export type EngineMessage =
 /** Checks a message posted by the engine processor. */
 export function parseEngineMessage(value: unknown): EngineMessage {
   if (typeof value !== "object" || value === null) {
-    throw new OptionsError("engine message is not an object");
+    throw new MessageError("engine message is not an object");
   }
   const type: unknown = Reflect.get(value, "type");
   if (type === "ready") {
@@ -85,16 +100,16 @@ export function parseEngineMessage(value: unknown): EngineMessage {
   if (type === "rejected") {
     const detail: unknown = Reflect.get(value, "detail");
     if (!(detail instanceof Uint8Array)) {
-      throw new OptionsError("rejection detail is not a Uint8Array");
+      throw new MessageError("rejection detail is not a Uint8Array");
     }
     return { type, detail };
   }
   if (type === "failed") {
     const message: unknown = Reflect.get(value, "message");
     if (typeof message !== "string") {
-      throw new OptionsError("failure message is not a string");
+      throw new MessageError("failure message is not a string");
     }
     return { type, message };
   }
-  throw new OptionsError("unknown engine message");
+  throw new MessageError("unknown engine message");
 }

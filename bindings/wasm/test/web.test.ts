@@ -1,7 +1,7 @@
 import { runInNewContext } from "node:vm";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { ModuleError, PatchError } from "../ts/engine.ts";
-import { ENGINE_PROCESSOR, OptionsError, TAP_PROCESSOR } from "../ts/protocol.ts";
+import { ENGINE_PROCESSOR, MessageError, TAP_PROCESSOR } from "../ts/protocol.ts";
 import { addProcessors, capture, captureEngine, createEngineNode, LoadedPatch, loadPatch, START_MARGIN, renderOffline, tap } from "../ts/web.ts";
 import { SILENT_PATCH, SINE_PATCH, UNKNOWN_BOX, wasmBytes } from "./fixtures.ts";
 
@@ -272,7 +272,7 @@ describe("createEngineNode", () => {
   test.each([
     [{ type: "rejected", detail: new TextEncoder().encode("bad patch") }, new Error("bad patch")],
     [{ type: "failed", message: "EngineTrap: trapped" }, new Error("the engine failed: EngineTrap: trapped")],
-    [{ type: "nonsense" }, new OptionsError("unknown engine message")],
+    [{ type: "nonsense" }, new MessageError("unknown engine message")],
   ])("reports a failure of the processor before it is ready: %o", async (message, expected) => {
     stubNodes();
     const failures: Error[] = [];
@@ -321,7 +321,7 @@ describe("tap", () => {
     port?.deliver("garbage");
     port?.deliver([new Float32Array([2])]);
     expect(blocks).toStrictEqual([[new Float32Array([1])], [new Float32Array([2])]]);
-    expect(errors).toStrictEqual([new OptionsError("tap block is not an array")]);
+    expect(errors).toStrictEqual([new MessageError("tap block is not an array")]);
     running.stop();
     running.stop();
     expect(port?.onmessage).toBeNull();
@@ -391,7 +391,7 @@ describe("capture", () => {
     const source = fakeSource();
     const captured = capture(asContext(fakeContext(RATE)), asNode(source), 1, 4);
     FakeNode.created[0]?.port.deliver("garbage");
-    await expect(captured).rejects.toThrow("invalid processor options: tap block is not an array");
+    await expect(captured).rejects.toThrow(new MessageError("tap block is not an array"));
     expect(FakeNode.created[0]?.port.posted).toStrictEqual(["stop"]);
     expect(source.log).toStrictEqual([`connect ${TAP_PROCESSOR}`, `disconnect ${TAP_PROCESSOR}`]);
   });
