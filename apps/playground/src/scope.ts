@@ -39,12 +39,29 @@ export function risingCrossings(samples: Float32Array): number[] {
   return crossings;
 }
 
-/** The frequency of a periodic signal, in hertz, from its rising zero crossings; undefined with fewer than two. */
+/** Fewest whole periods a frequency is measured over: fewer give no measurement. */
+export const MIN_PERIODS = 3;
+
+/** Highest frequency measured, as a fraction of the sample rate: above, no measurement. */
+export const MAX_FREQUENCY_RATIO = 1 / 20;
+
+/**
+ * The frequency of a periodic signal, in hertz, from its rising zero crossings (linearly
+ * interpolated). Measured only within its domain: at least {@link MIN_PERIODS} periods,
+ * and at most {@link MAX_FREQUENCY_RATIO} of the rate, where it is within 0.05 Hz of the
+ * truth for a sine at every rate of the test matrix (tested). Above that ratio the linear
+ * interpolation of the crossings is biased (1.3 Hz off at 19 kHz and 48 kHz): undefined.
+ */
 export function frequency(samples: Float32Array, rate: number): number | undefined {
   const crossings = risingCrossings(samples);
-  // Crossings strictly increase: the span is positive exactly when there are two or more.
-  const span = (crossings.at(-1) ?? 0) - (crossings[0] ?? 0);
-  return span > 0 ? ((crossings.length - 1) * rate) / span : undefined;
+  const periods = crossings.length - 1;
+  if (periods < MIN_PERIODS) {
+    return undefined;
+  }
+  // Crossings strictly increase: the span from the first to the last is positive.
+  const span = Math.max(...crossings) - Math.min(...crossings);
+  const measured = (periods * rate) / span;
+  return measured <= rate * MAX_FREQUENCY_RATIO ? measured : undefined;
 }
 
 /** The largest absolute sample value; 0 for no samples. */
@@ -55,23 +72,25 @@ export function peak(samples: Float32Array): number {
 /**
  * The scene for `samples`: `windowSamples` samples across `width` pixels, starting at a
  * rising zero crossing so that a periodic signal stands still (the latest one that leaves
- * a full window, else the most recent window).
+ * a full window, else the most recent window). The crossing falls between two samples:
+ * the trace is shifted by that fraction of a sample, so that the crossing is exactly at
+ * the left edge and the trace never jitters by up to a sample from frame to frame.
  */
 export function scopeScene(samples: Float32Array, windowSamples: number, width: number, height: number): ScopeScene {
   const middle = height / 2;
   const amplitude = middle * SCALE;
   const latestStart = samples.length - windowSamples;
-  const trigger = risingCrossings(samples)
-    .map(Math.ceil)
-    .filter((index) => index <= latestStart)
+  const crossing = risingCrossings(samples)
+    .filter((position) => Math.ceil(position) <= latestStart)
     .pop();
-  const start = trigger ?? Math.max(0, latestStart);
+  const start = crossing === undefined ? Math.max(0, latestStart) : Math.ceil(crossing);
+  const shift = crossing === undefined ? 0 : start - crossing;
   const window = samples.subarray(start, start + windowSamples);
   const step = windowSamples > 1 ? width / (windowSamples - 1) : 0;
   return {
     width,
     height,
     grid: [middle - amplitude, middle, middle + amplitude],
-    trace: Array.from(window, (sample, index) => ({ x: index * step, y: middle - sample * amplitude })),
+    trace: Array.from(window, (sample, index) => ({ x: (index + shift) * step, y: middle - sample * amplitude })),
   };
 }

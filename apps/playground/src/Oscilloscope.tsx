@@ -75,7 +75,7 @@ export function Oscilloscope({ signal, context = context2d, schedule = animation
       <dl>
         <dt>Frequency</dt>
         <dd data-testid="frequency">{frequency}</dd>
-        <dt>Peak</dt>
+        <dt>Sample peak (engine output)</dt>
         <dd data-testid="peak">{level}</dd>
         <dt>Sample rate</dt>
         <dd data-testid="rate">{rate}</dd>

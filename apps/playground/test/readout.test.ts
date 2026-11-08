@@ -1,10 +1,14 @@
 import { expect, test } from "vitest";
 import { NONE, formatFrequency, formatPeak, formatRate } from "../src/readout.ts";
 
-const square = { samples: new Float32Array([-1, 0.5, 0.5, -1, -1, 0.5, 0.5, -1, -1, 0.5]), rate: 1762 };
+/** A sine of `hertz` at 48 kHz, over 4096 samples. */
+function sine(hertz: number): { samples: Float32Array; rate: number } {
+  return { samples: Float32Array.from({ length: 4096 }, (_, index) => Math.sin(0.3 + (2 * Math.PI * hertz * index) / 48_000)), rate: 48_000 };
+}
 
-test("shows the frequency to a tenth of a hertz", () => {
-  expect(formatFrequency(square)).toBe("440.5 Hz");
+test("shows the frequency to a tenth of a hertz, within its domain only", () => {
+  expect(formatFrequency(sine(440.5))).toBe("440.5 Hz");
+  expect(formatFrequency(sine(19_000))).toBe(NONE);
   expect(formatFrequency({ samples: new Float32Array(4), rate: 48_000 })).toBe(NONE);
   expect(formatFrequency(undefined)).toBe(NONE);
 });

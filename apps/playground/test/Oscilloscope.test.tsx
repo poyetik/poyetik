@@ -43,7 +43,8 @@ function manual(): { schedule: (frame: () => void) => () => void; tick: () => vo
 }
 
 /** A 1 kHz square wave sampled at 4 kHz, one second long. */
-const SQUARE: Signal = { samples: Float32Array.from({ length: 4000 }, (_, index) => (index % 4 < 2 ? 1 : -1)), rate: 4000 };
+/** A 100 Hz square wave at 4 kHz (within the measured domain: a fortieth of the rate). */
+const SQUARE: Signal = { samples: Float32Array.from({ length: 4000 }, (_, index) => (index % 40 < 20 ? 1 : -1)), rate: 4000 };
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -70,7 +71,7 @@ describe("Oscilloscope", () => {
     expect(drawn.clears).toStrictEqual([[0, 0, WIDTH, HEIGHT]]);
     // The grid (3 lines), then 10 ms at 4 kHz = 40 samples: 39 segments.
     expect(drawn.points()).toBe(3 + 39);
-    expect(screen.getByTestId("frequency").textContent).toBe("1000.0 Hz");
+    expect(screen.getByTestId("frequency").textContent).toBe("100.0 Hz");
     expect(screen.getByTestId("peak").textContent).toBe("1.00");
     expect(screen.getByTestId("rate").textContent).toBe("4000 Hz");
     tick();

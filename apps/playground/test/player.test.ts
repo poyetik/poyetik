@@ -166,7 +166,7 @@ const CAPABLE: Environment = { isSecureContext: true, AudioContext: FakeContext,
 
 /** Options of a player. */
 function options(patch = SINE_440, environment = CAPABLE): PlayerOptions {
-  return { wasm: "engine.wasm", worklet: "processors.js", patch, gain: 0.25, fade: 0.02, history: 4, environment };
+  return { wasm: "engine.wasm", worklet: "processors.js", patch, gain: 0.25, fade: 0.02, historySeconds: 4 / 48_000, environment };
 }
 
 /** Fetch answering every request with the engine module, or with `status`. */

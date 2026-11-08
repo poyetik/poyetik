@@ -7,14 +7,14 @@ import { createRoot } from "react-dom/client";
 import { App } from "./App.tsx";
 import { SINE_440 } from "./patch.ts";
 import { EnginePlayer } from "./player.ts";
-import { FADE, GAIN, HISTORY } from "./settings.ts";
+import { FADE, GAIN, HISTORY_SECONDS } from "./settings.ts";
 
 const root = document.getElementById("root");
 if (root === null) {
   throw new Error("no #root element");
 }
 const muted = new URLSearchParams(location.search).has("muted");
-const player = new EnginePlayer({ wasm, worklet, patch: SINE_440, gain: muted ? 0 : GAIN, fade: FADE, history: HISTORY, environment: globalThis });
+const player = new EnginePlayer({ wasm, worklet, patch: SINE_440, gain: muted ? 0 : GAIN, fade: FADE, historySeconds: HISTORY_SECONDS, environment: globalThis });
 createRoot(root).render(
   <StrictMode>
     <App player={player} />

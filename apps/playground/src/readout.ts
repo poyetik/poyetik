@@ -6,7 +6,10 @@ import type { Signal } from "./player.ts";
 /** Shown when there is nothing to measure. */
 export const NONE = "—";
 
-/** The frequency of the signal, to a tenth of a hertz. */
+/**
+ * The frequency of the signal, to a tenth of a hertz (its accuracy, 0.05 Hz, within the
+ * domain of `frequency`); "—" outside that domain.
+ */
 export function formatFrequency(signal: Signal | undefined): string {
   const value = signal === undefined ? undefined : frequency(signal.samples, signal.rate);
   return value === undefined ? NONE : `${value.toFixed(1)} Hz`;

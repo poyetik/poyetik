@@ -1,5 +1,8 @@
 import { describe, expect, test } from "vitest";
-import { frequency, peak, risingCrossings, scopeScene } from "../src/scope.ts";
+import { HISTORY_SECONDS } from "../src/settings.ts";
+import { WINDOW_SECONDS } from "../src/Oscilloscope.tsx";
+import { frequency, MAX_FREQUENCY_RATIO, MIN_PERIODS, peak, risingCrossings, scopeScene } from "../src/scope.ts";
+import { SAMPLE_RATES } from "./matrix.ts";
 
 /** `count` samples of a sine at `hertz`, sampled at `rate`. */
 function sine(hertz: number, rate: number, count: number, phase = 0): Float32Array {
@@ -34,15 +37,45 @@ describe("frequency", () => {
   });
 
   test("scales with the sample rate", () => {
-    // One rising crossing every 4 samples.
-    const square = new Float32Array([-1, 1, 1, -1, -1, 1, 1, -1, -1, 1]);
-    expect(frequency(square, 400)).toBe(100);
-    expect(frequency(square, 800)).toBe(200);
+    // One rising crossing every 40 samples, four periods.
+    const square = Float32Array.from({ length: 161 }, (_, index) => (index % 40 < 20 ? -1 : 1));
+    expect(frequency(square, 4000)).toBe(100);
+    expect(frequency(square, 8000)).toBe(200);
   });
 
-  test("needs two crossings", () => {
-    expect(frequency(new Float32Array([-1, 1, 1]), 48_000)).toBeUndefined();
+  test("needs three periods", () => {
+    expect(MIN_PERIODS).toBe(3);
+    // A square of period 40 samples: three crossings are two periods, four are three.
+    const periods = (count: number): Float32Array => Float32Array.from({ length: count * 40 + 21 }, (_, index) => (index % 40 < 20 ? -1 : 1));
+    expect(frequency(periods(2), 4000)).toBeUndefined();
+    expect(frequency(periods(3), 4000)).toBe(100);
     expect(frequency(new Float32Array(16), 48_000)).toBeUndefined();
+  });
+
+  test("measures nothing above a twentieth of the rate", () => {
+    expect(MAX_FREQUENCY_RATIO).toBe(1 / 20);
+    const at = (hertz: number): number | undefined => frequency(sine(hertz, 48_000, 4096, 0.3), 48_000);
+    expect(at(2399)).toBeDefined();
+    expect(at(2401)).toBeUndefined();
+    // Exactly a twentieth (a square of period 20 samples at 48 kHz) is still measured.
+    const edge = Float32Array.from({ length: 101 }, (_, index) => (index % 20 < 10 ? -1 : 1));
+    expect(frequency(edge, 48_000)).toBe(2400);
+  });
+
+  test("is within 0.05 Hz everywhere in its domain, at every rate of the matrix", () => {
+    // Measured worst case 0.011 Hz: from three periods in the history to a twentieth of the
+    // rate, at four phases.
+    for (const rate of SAMPLE_RATES) {
+      const count = Math.round(HISTORY_SECONDS * rate);
+      const lowest = (MIN_PERIODS + 1) / HISTORY_SECONDS;
+      for (const hertz of [lowest, 100, 440, 1000, rate * MAX_FREQUENCY_RATIO * 0.99].filter((f) => f <= rate * MAX_FREQUENCY_RATIO)) {
+        for (const phase of [0, 0.7, 2, 4.5]) {
+          const measured = frequency(sine(hertz, rate, count, phase), rate);
+          expect(measured, `${String(hertz)} Hz at ${String(rate)} Hz, phase ${String(phase)}`).toBeDefined();
+          expect(Math.abs((measured ?? 0) - hertz)).toBeLessThan(0.05);
+        }
+      }
+    }
   });
 });
 
@@ -96,6 +129,38 @@ describe("scopeScene", () => {
 
   test("shows what there is when the window is longer than the samples", () => {
     expect(scopeScene(new Float32Array([0.5]), 4, 30, 2).trace).toStrictEqual([{ x: 0, y: 1 - 0.45 }]);
+  });
+
+  test("shifts the trace so that the interpolated crossing is at the left edge", () => {
+    // Crossing at 0.5: the trace starts at sample 1, half a sample to the right.
+    const scene = scopeScene(new Float32Array([-1, 1, 0.5, -0.5, -1]), 4, 30, 2);
+    expect(scene.trace.map((point) => point.x)).toStrictEqual([5, 15, 25, 35]);
+  });
+
+  test("triggers at every rate of the matrix: the trace is the sine from its crossing", () => {
+    // Every period up to 75 ms (85 ms of history, 10 ms shown) finds a crossing, and the
+    // trace, shifted by the fraction of a sample, is the sine starting at phase 0 at the
+    // left edge. The crossing comes from the line through two samples h radians apart,
+    // which misplaces the zero of a sine by up to h³/16 radians (measured over the matrix
+    // at 64 phases: at most half of the h³/8 allowed), plus the binary32 rounding of the
+    // samples (2^-24): never the whole sample of jitter of an integer trigger.
+    for (const rate of SAMPLE_RATES) {
+      const count = Math.round(HISTORY_SECONDS * rate);
+      const window = Math.round(WINDOW_SECONDS * rate);
+      const step = 900 / (window - 1);
+      for (const hertz of [13.4, 440, 5000].filter((f) => f <= rate / 4)) {
+        const h = (2 * Math.PI * hertz) / rate;
+        const bound = 135 * (h ** 3 / 8 + 2 ** -24);
+        for (const phase of [0, 1, 2.5, 4, 5.5]) {
+          const { trace } = scopeScene(sine(hertz, rate, count, phase), window, 900, 300);
+          expect(trace).toHaveLength(window);
+          for (const point of trace) {
+            const ideal = 150 - 135 * Math.sin((2 * Math.PI * hertz * (point.x / step)) / rate);
+            expect(Math.abs(point.y - ideal), `${String(hertz)} Hz at ${String(rate)} Hz, phase ${String(phase)}`).toBeLessThanOrEqual(bound);
+          }
+        }
+      }
+    }
   });
 
   test("puts a one-sample window at the left edge", () => {

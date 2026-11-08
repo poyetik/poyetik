@@ -1,7 +1,7 @@
 import { act } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { PlayerOptions } from "../src/player.ts";
-import { FADE, GAIN, HISTORY } from "../src/settings.ts";
+import { FADE, GAIN, HISTORY_SECONDS } from "../src/settings.ts";
 
 /** Options given to each player created by the entry point. */
 const created: PlayerOptions[] = [];
@@ -50,7 +50,7 @@ test("mounts the playground with an audible player", async () => {
   await main();
   expect(document.querySelector("h1")?.textContent).toBe("Playground");
   expect(created).toHaveLength(1);
-  expect(created[0]).toMatchObject({ gain: GAIN, fade: FADE, history: HISTORY, environment: globalThis });
+  expect(created[0]).toMatchObject({ gain: GAIN, fade: FADE, historySeconds: HISTORY_SECONDS, environment: globalThis });
   expect(created[0]?.wasm).toMatch(/engine\.wasm/);
   expect(created[0]?.worklet).toMatch(/processors/);
   expect(new TextDecoder().decode(created[0]?.patch)).toContain('"osc~"');

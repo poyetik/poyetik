@@ -106,8 +106,8 @@ export interface PlayerOptions {
   readonly gain: number;
   /** Duration of the fade in and out, in seconds. */
   readonly fade: number;
-  /** Number of samples kept for the oscilloscope. */
-  readonly history: number;
+  /** Duration kept for the oscilloscope, in seconds: as many samples as that at the context rate. */
+  readonly historySeconds: number;
   /** The browser, checked before starting. */
   readonly environment: Environment;
 }
@@ -123,11 +123,11 @@ class Session {
 
   /**
    * Opens a session on a new context.
-   * @param history Number of samples kept for the oscilloscope.
+   * @param historySeconds Duration kept for the oscilloscope, in seconds.
    */
-  constructor(history: number) {
+  constructor(historySeconds: number) {
     this.context = new AudioContext();
-    this.history = new SampleHistory(history);
+    this.history = new SampleHistory(Math.round(historySeconds * this.context.sampleRate));
     this.gain = new GainNode(this.context, { gain: 0 });
   }
 
@@ -243,7 +243,7 @@ export class EnginePlayer implements Player {
       return Promise.resolve();
     }
     // Created before any await, while the user gesture is still active (required by Safari).
-    const session = new Session(this.#options.history);
+    const session = new Session(this.#options.historySeconds);
     this.#goLive(STARTING, session);
     this.#starting = this.#open(session).finally(() => {
       this.#starting = undefined;
