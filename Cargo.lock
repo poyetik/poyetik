@@ -130,6 +130,8 @@ version = "0.1.0"
 dependencies = [
  "engine-alloc-counter",
  "engine-core",
+ "engine-objects",
+ "engine-patch",
  "proptest",
  "serde_json",
 ]
