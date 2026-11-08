@@ -9,9 +9,9 @@ import { defineConfig, devices } from "@playwright/test";
 export default defineConfig({
   testDir: "e2e",
   forbidOnly: true,
-  // One browser at a time: Firefox and WebKit play through the real sound card, a single
-  // resource of the machine; browsers sharing it in parallel made live captures and clicks
-  // time out at random. Serial runs are deterministic (and the whole suite takes seconds).
+  // One browser at a time: on an idle machine, macOS slows down background processes, and
+  // browsers run in parallel then timed out at random (live captures, clicks). Serial runs
+  // passed every time, idle or not, and the whole suite still takes seconds.
   workers: 1,
   retries: 0,
   reporter: "list",
