@@ -1467,8 +1467,8 @@ pub fn history_gate(messages: &str, files: &str) -> Result<(), String> {
 /// Checks that the pre-push hook validates exactly what is pushed.
 ///
 /// The working tree has nothing uncommitted (`status`, from `git status --porcelain`), and
-/// every commit pushed is `head`, the commit checked out. A deleted branch (all zeros)
-/// pushes nothing.
+/// every commit pushed (`pushed`, each object the hook received peeled to its commit) is
+/// `head`, the commit checked out. A deleted branch (all zeros) pushes nothing.
 ///
 /// # Errors
 ///
@@ -1482,7 +1482,7 @@ pub fn pre_push_gate(head: &str, status: &str, pushed: &[String]) -> Result<(), 
         ));
     }
     for commit in pushed {
-        if !commit.bytes().all(|byte| byte == b'0') && commit != head.trim() {
+        if !is_deletion(commit) && commit != head.trim() {
             problems.push(format!(
                 "pushing {commit}, but {} is checked out: check out the pushed commit, then push again",
                 head.trim()
@@ -1775,7 +1775,30 @@ fn pre_push(runner: &mut dyn Runner, pushed: &[String]) -> Result<(), String> {
     };
     let head = read(git(&["rev-parse", "HEAD"]))?;
     let status = read(git(&["status", "--porcelain"]))?;
-    pre_push_gate(&head, &status, pushed)
+    // Git gives the hook the object pushed: for an annotated tag, the tag object, which is
+    // never the commit checked out. The gate compares the commit each object names.
+    let commits = pushed
+        .iter()
+        .map(|object| {
+            if is_deletion(object) {
+                return Ok(object.clone());
+            }
+            runner
+                .capture(&git(&[
+                    "rev-parse",
+                    "--verify",
+                    &format!("{object}^{{commit}}"),
+                ]))
+                .map(|commit| commit.trim().to_owned())
+                .map_err(|failure| format!("cannot resolve the pushed {object}: {failure}"))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    pre_push_gate(&head, &status, &commits)
+}
+
+/// Whether git pushes `object` to delete a ref: the hook then receives all zeros.
+fn is_deletion(object: &str) -> bool {
+    object.bytes().all(|byte| byte == b'0')
 }
 
 /// Reads the history, then checks it.

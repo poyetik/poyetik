@@ -16,6 +16,38 @@ use super::{
     run_steps, ts_coverage_gate, ts_mutation_gate, unsafe_gate, unviable_gate,
 };
 
+/// Runs git in `dir` hermetically, and returns its stdout: no variable of an enclosing git
+/// process (a hook's `GIT_DIR` …) reaches it, nor the user's or the system's configuration,
+/// and commits get a fixed identity.
+fn hermetic_git(dir: &Path, args: &[&str]) -> String {
+    let mut command = Command::new("git");
+    let _same = command
+        .args(args)
+        .current_dir(dir)
+        .env("GIT_AUTHOR_NAME", "Test")
+        .env("GIT_AUTHOR_EMAIL", "test@example.invalid")
+        .env("GIT_COMMITTER_NAME", "Test")
+        .env("GIT_COMMITTER_EMAIL", "test@example.invalid")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null");
+    for variable in super::LOCAL_GIT_VARIABLES {
+        let _without = command.env_remove(variable);
+    }
+    let output = command.output().expect("git runs");
+    assert!(output.status.success(), "git {args:?} in {}", dir.display());
+    String::from_utf8(output.stdout).expect("UTF-8")
+}
+
+/// A fresh, empty directory for one test, below the system's temporary directory.
+fn scratch(name: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("xtask-{name}-{}", std::process::id()));
+    if let Err(error) = std::fs::remove_dir_all(&dir) {
+        assert_eq!(error.kind(), io::ErrorKind::NotFound, "clean start");
+    }
+    std::fs::create_dir_all(&dir).expect("scratch directory");
+    dir
+}
+
 /// Records commands and answers with scripted results.
 #[derive(Debug, Default)]
 struct Fake {
@@ -1098,15 +1130,8 @@ fn system_runner_lists_the_tracked_typescript_files() {
         std::fs::write(root.join(file), text).expect("source file");
     }
     std::fs::write(root.join("untracked.ts"), "u").expect("untracked file");
-    let git = |args: &[&str]| {
-        Command::new("git")
-            .args(args)
-            .current_dir(&root)
-            .output()
-            .is_ok_and(|output| output.status.success())
-    };
-    assert!(git(&["init", "--quiet"]), "git init");
-    assert!(git(&["add", "src", "d.ts"]), "git add");
+    let _init = hermetic_git(&root, &["init", "--quiet"]);
+    let _add = hermetic_git(&root, &["add", "src", "d.ts"]);
     let files = SystemRunner { root: root.clone() }.tracked(&["*.ts", "*.tsx"]);
     std::fs::remove_dir_all(&root).expect("cleanup");
     assert_eq!(
@@ -2125,6 +2150,11 @@ fn checks_a_push_then_runs_every_check() {
         .files
         .insert("capture git status --porcelain".to_owned(), String::new());
     assert!(first.is_none() && second.is_none(), "fresh fake");
+    let peeled = fake.files.insert(
+        format!("capture git rev-parse --verify {head}^{{commit}}"),
+        format!("{head}\n"),
+    );
+    assert!(peeled.is_none(), "fresh fake");
     let mut out = Vec::new();
     let args = ["pre-push".to_owned(), head.to_owned()];
     assert_eq!(
@@ -2146,7 +2176,14 @@ fn checks_a_push_then_runs_every_check() {
         "capture git status --porcelain".to_owned(),
         " M a.rs\n".to_owned(),
     );
-    assert!(third.is_none() && fourth.is_none(), "fresh fake");
+    let fifth = dirty.files.insert(
+        format!("capture git rev-parse --verify {head}^{{commit}}"),
+        format!("{head}\n"),
+    );
+    assert!(
+        third.is_none() && fourth.is_none() && fifth.is_none(),
+        "fresh fake"
+    );
     let mut err = Vec::new();
     assert_eq!(
         cli(&args, &mut dirty, &mut Vec::new(), &mut err),
@@ -2350,5 +2387,88 @@ fn explains_why_a_command_failed() {
         failure(Exit::Code(2_i32), None),
         "`x y` exited with code 2",
         "a code alone"
+    );
+}
+
+/// A fake whose work tree is clean at `head`, and where each of `objects` peels to its
+/// commit.
+fn pushing(head: &str, objects: &[(&str, &str)]) -> Fake {
+    let mut fake = passing();
+    for (command, answer) in [
+        ("git rev-parse HEAD".to_owned(), format!("{head}\n")),
+        ("git status --porcelain".to_owned(), String::new()),
+    ]
+    .into_iter()
+    .chain(objects.iter().map(|(object, commit)| {
+        (
+            format!("git rev-parse --verify {object}^{{commit}}"),
+            format!("{commit}\n"),
+        )
+    })) {
+        let fresh = fake.files.insert(format!("capture {command}"), answer);
+        assert!(fresh.is_none(), "fresh fake");
+    }
+    fake
+}
+
+#[test]
+fn compares_the_commits_pushed_not_their_tags() {
+    let head = "1111111111111111111111111111111111111111";
+    let tag = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    let other = "2222222222222222222222222222222222222222";
+    let deleted = "0000000000000000000000000000000000000000";
+    let push = |fake: &mut Fake, objects: &[&str]| {
+        let pushed: Vec<String> = objects.iter().map(|&object| object.to_owned()).collect();
+        super::pre_push(fake, &pushed)
+    };
+    let mut on_head = pushing(head, &[(tag, head)]);
+    assert_eq!(
+        push(&mut on_head, &[tag, deleted]),
+        Ok(()),
+        "an annotated tag of the commit checked out, a deleted branch"
+    );
+    assert!(
+        !on_head.ran.iter().any(|line| line.contains(deleted)),
+        "a deleted branch is not resolved"
+    );
+    assert_eq!(
+        push(&mut pushing(head, &[(tag, other)]), &[tag]),
+        Err(format!(
+            "pushing {other}, but {head} is checked out: check out the pushed commit, then push again"
+        )),
+        "a tag of another commit, named by its commit"
+    );
+    assert_eq!(
+        push(&mut pushing(head, &[]), &[tag]),
+        Err(format!(
+            "cannot resolve the pushed {tag}: `git rev-parse --verify {tag}^{{commit}}` exited with code 1: failed"
+        )),
+        "an object that is not a commit"
+    );
+}
+
+#[test]
+fn pushes_an_annotated_tag_of_the_commit_checked_out() {
+    let repo = scratch("tag");
+    let _init = hermetic_git(&repo, &["init", "--quiet"]);
+    for message in ["first", "second"] {
+        let _commit = hermetic_git(
+            &repo,
+            &["commit", "--quiet", "--allow-empty", "-m", message],
+        );
+    }
+    let _here = hermetic_git(&repo, &["tag", "-a", "here", "-m", "on HEAD"]);
+    let _before = hermetic_git(&repo, &["tag", "-a", "before", "-m", "on HEAD~1", "HEAD~1"]);
+    let object = |name: &str| hermetic_git(&repo, &["rev-parse", name]).trim().to_owned();
+    let (here, before, parent) = (object("here"), object("before"), object("HEAD~1"));
+    assert_ne!(here, object("HEAD"), "a tag object, not the commit");
+    let mut runner = SystemRunner { root: repo.clone() };
+    let on_head = super::pre_push(&mut runner, &[here]);
+    let elsewhere = super::pre_push(&mut runner, &[before]);
+    std::fs::remove_dir_all(&repo).expect("cleanup");
+    assert_eq!(on_head, Ok(()), "the tag of the commit checked out");
+    assert!(
+        elsewhere.is_err_and(|error| error.starts_with(&format!("pushing {parent}, but "))),
+        "the tag of another commit, named by the commit"
     );
 }
