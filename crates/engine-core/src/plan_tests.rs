@@ -331,7 +331,13 @@ fn passes_the_sample_rate_to_boxes() {
         .iter()
         .map(|hz| u32::try_from(hz.as_u64().expect("a whole number")).expect("a u32"))
         .collect();
-    assert!(rates.len() >= 8, "{rates:?}");
+    assert_eq!(
+        rates,
+        [
+            8_000, 11_025, 16_000, 22_050, 44_100, 48_000, 96_000, 384_000
+        ],
+        "every rate of the matrix"
+    );
     for hz in rates {
         let patch = Patch::new(
             vec![node(1, "rate~"), node(2, "mono~")],
