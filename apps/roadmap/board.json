@@ -1,7 +1,7 @@
 {
   "version": 1,
   "title": "poyetik",
-  "nextId": 16,
+  "nextId": 17,
   "cards": [
     {
       "id": 1,
@@ -379,6 +379,49 @@
         {
           "title": "Check that no trace of the working name remains before the first publication",
           "done": true
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "title": "Music notation foundations: a first engraved score in a responsive box",
+      "description": "Lay the foundations of music notation like the DSP foundations do for audio: design decisions first, then the smallest complete vertical slice, a proof of concept of the whole chain. The first case is the D Dorian scale in quarter notes on one treble-clef staff, engraved by a Rust library and shown in a fully responsive box of the web page. The library depends on no platform: layout produces a display list (positioned glyphs and lines) that is identical on every target, and thin renderers draw it. Quality is proven like the audio engine: laws, a conformance case, an independent oracle. Note events keep their symbolic information, decided with the engine design (#12).",
+      "column": "later",
+      "milestone": "M4 Notation",
+      "createdAt": "2026-11-08",
+      "updatedAt": "2026-11-08",
+      "tasks": [
+        {
+          "title": "Design decisions recorded before any code: score data model (spelled pitches, exact rational durations, voices, stable element ids; inspired by the MNX draft), layout units (integer fractions of a staff space), display list format and its canonical hash, crate layout, SMuFL font and its metadata, how the layout fits a given width, licenses of every dependency checked",
+          "done": false
+        },
+        {
+          "title": "Score model, the minimum for the first case: one staff, treble clef, 4/4, spelled pitches in quarter notes, exact rational durations, validated at the boundary",
+          "done": false
+        },
+        {
+          "title": "Layout as a pure function of the score and a width: staff, clef, time signature, note heads, stems and their direction, bar lines and final bar line, justified on one line; laws over the width matrix: deterministic, no collision, notes on the right staff positions",
+          "done": false
+        },
+        {
+          "title": "Command line and first conformance case, the D Dorian scale in quarter notes: SVG render and canonical hash of the display list, reference render reviewed by an engraver",
+          "done": false
+        },
+        {
+          "title": "WebAssembly bindings: the same display list hash as native, proven by end-to-end tests in the browsers and in Node",
+          "done": false
+        },
+        {
+          "title": "Web page: the score drawn with Canvas 2D in a fully responsive box (phone to wide screen, every pixel density, laid out again on resize, always one line), with a text description for screen readers; end-to-end and accessibility tests on Chrome, Firefox and WebKit",
+          "done": false
+        },
+        {
+          "title": "Independent oracle (TypeScript): rereads the SVG, recomputes the hash and checks the laws and the expected notes, in cargo xtask check",
+          "done": false
+        },
+        {
+          "title": "Deep review: every finding analyzed and applied, then a fresh review",
+          "done": false
         }
       ]
     }
