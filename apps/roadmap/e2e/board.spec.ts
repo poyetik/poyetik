@@ -5,6 +5,7 @@ import { parseBoard } from "../src/lib/board.ts";
 import { toView } from "../src/lib/view.ts";
 import { CSP } from "../src/lib/csp.ts";
 import { LOCALES, TIME_ZONES } from "../test/matrix.ts";
+import { channels, contrast, tabTo } from "./keyboard.ts";
 
 /** The expected display, computed from the real board.json with the same code as the page, so the tests follow the data instead of hard-coding cards. */
 const view = toView(parseBoard(JSON.parse(readFileSync(new URL("../board.json", import.meta.url), "utf8"))));
@@ -195,4 +196,40 @@ test("wraps an unbreakable word inside its card on the narrowest four-column lay
   );
   expect(overflowing).toStrictEqual([]);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+});
+
+test("measures contrast as WCAG defines it", () => {
+  expect(contrast([0, 0, 0], [255, 255, 255])).toBe(21);
+  expect(contrast([255, 255, 255], [0, 0, 0])).toBe(21);
+  expect(contrast([22, 22, 21], [22, 22, 21])).toBe(1);
+  expect(channels("rgb(138, 168, 255)")).toStrictEqual([138, 168, 255]);
+  expect(() => channels("rgba(0, 0, 0, 0.5)")).toThrow("not an opaque");
+});
+
+test("opens and closes a card's steps with the keyboard alone", async ({ page }) => {
+  await page.goto("./");
+  const summary = page.locator("details.steps-toggle > summary").first();
+  const step = summary.locator("xpath=..").locator(".step").first();
+  await tabTo(page, summary);
+  await expect(step).toBeHidden();
+  await page.keyboard.press("Enter");
+  await expect(step).toBeVisible();
+  await page.keyboard.press("Space");
+  await expect(step).toBeHidden();
+});
+
+test("draws a visible focus ring on a keyboard-focused steps toggle", async ({ page }) => {
+  await page.goto("./");
+  const summary = page.locator("details.steps-toggle > summary").first();
+  await tabTo(page, summary);
+  const ring = await summary.evaluate((element) => {
+    const style = getComputedStyle(element);
+    // The ring is drawn over its card: that is the colour it must stand out from.
+    const card = element.closest(".card") ?? document.body;
+    return { style: style.outlineStyle, width: style.outlineWidth, color: style.outlineColor, background: getComputedStyle(card).backgroundColor };
+  });
+  expect(ring.style).toBe("solid");
+  expect(Number.parseFloat(ring.width)).toBeGreaterThanOrEqual(2);
+  // WCAG 2.4.13 and 1.4.11: at least 3:1 against what surrounds it.
+  expect(contrast(channels(ring.color), channels(ring.background))).toBeGreaterThanOrEqual(3);
 });
