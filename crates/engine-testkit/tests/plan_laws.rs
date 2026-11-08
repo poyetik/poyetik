@@ -168,7 +168,7 @@ mod tests {
             .iter()
             .zip(0_u32..)
             .map(|(&(kind, value), index)| {
-                let (name, params) = match kind % 4 {
+                let (name, params) = match kind {
                     0 => ("const~", BTreeMap::from([(String::from("value"), value)])),
                     1 => ("mix~", BTreeMap::new()),
                     2 => ("out~", BTreeMap::new()),
