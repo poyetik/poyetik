@@ -1,4 +1,4 @@
-//! poyetik test bench.
+//! Poyetik test bench.
 //!
 //! [`check_laws`] runs a box in isolation and checks the laws every box must respect;
 //! [`check_registry`] checks a whole registry. Box crates call them on every registered

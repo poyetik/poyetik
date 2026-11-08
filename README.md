@@ -1,4 +1,4 @@
-# poyetik
+# Poyetik
 
 A visual audio patching environment (boxes connected by cables) running in the browser, with a Rust engine (WebAssembly on the web, native elsewhere). A finished patch exports to native apps and plugins, user interface included.
 

@@ -23,9 +23,9 @@ interface Exports {
 
 /**
  * The identity and version of the exported interface this code drives (`ABI_VERSION` in
- * `ffi.rs`): "M4" in the high 16 bits, version 1 in the low 16 bits.
+ * `ffi.rs`): "PY" in the high 16 bits, version 1 in the low 16 bits.
  */
-export const ABI_VERSION = 0x4d34_0001;
+export const ABI_VERSION = 0x5059_0001;
 
 /** Thrown when the module does not have the expected interface. */
 export class ModuleError extends Error {

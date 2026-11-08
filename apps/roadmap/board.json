@@ -208,29 +208,6 @@
       ]
     },
     {
-      "id": 8,
-      "title": "Choose the final project name",
-      "description": "The working name poyetik is replaced before the first publication, everywhere.",
-      "column": "later",
-      "milestone": "M0 Foundations",
-      "createdAt": "2026-11-07",
-      "updatedAt": "2026-11-08",
-      "tasks": [
-        {
-          "title": "Find a name: short, easy to say in English and French, available (domain, GitHub, crates.io, npm) and free of trademark conflicts",
-          "done": false
-        },
-        {
-          "title": "Rename everywhere: folder, crates, packages, roadmap, docs, CI",
-          "done": false
-        },
-        {
-          "title": "Check that no trace of the working name remains before the first publication",
-          "done": false
-        }
-      ]
-    },
-    {
       "id": 9,
       "title": "Native bridge: OSC, MIDI, serial and HID over a local WebSocket",
       "description": "A small open-source native companion (apps/bridge, Rust) that gives the web app what browsers cannot do (OSC over UDP, MIDI on Safari, serial, HID), over a local WebSocket. The app stays frontend-only and works without it. Released by CI for every platform.",
@@ -381,6 +358,29 @@
       "createdAt": "2026-11-08",
       "updatedAt": "2026-11-08",
       "tasks": []
+    },
+    {
+      "id": 8,
+      "title": "Choose the final project name",
+      "description": "The working name is replaced by Poyetik before the first publication, everywhere: code, packages, roadmap, documentation, CI and history.",
+      "column": "doing",
+      "milestone": "M0 Foundations",
+      "createdAt": "2026-11-07",
+      "updatedAt": "2026-11-08",
+      "tasks": [
+        {
+          "title": "Find a name: short, easy to say in English and French, available (domain, GitHub, crates.io, npm) and free of trademark conflicts",
+          "done": false
+        },
+        {
+          "title": "Rename everywhere: crates, packages, roadmap, docs, CI, and the history",
+          "done": true
+        },
+        {
+          "title": "Check that no trace of the working name remains before the first publication",
+          "done": false
+        }
+      ]
     }
   ]
 }

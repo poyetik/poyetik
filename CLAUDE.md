@@ -1,4 +1,4 @@
-# poyetik (working name)
+# Poyetik
 
 ## Language: English only
 

@@ -1,4 +1,4 @@
-//! Project automation for poyetik.
+//! Project automation for Poyetik.
 //!
 //! `cargo xtask check` runs every quality check of the repository, in order, and stops
 //! at the first failure. CI and the pre-push hook run exactly this command, so a green

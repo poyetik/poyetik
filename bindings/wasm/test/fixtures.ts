@@ -152,7 +152,7 @@ export function engineFunctions(body?: HandMadeFunction["body"]): HandMadeFuncti
   return FUNCTIONS.map((name) => ({
     name,
     params: ARITY[name] ?? 0,
-    body: body ?? (name === "engine_abi_version" ? { i32: 0x4d34_0001 } : { i32: 1 }),
+    body: body ?? (name === "engine_abi_version" ? { i32: 0x5059_0001 } : { i32: 1 }),
   }));
 }
 

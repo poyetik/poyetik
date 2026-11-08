@@ -1,4 +1,4 @@
-//! poyetik engine core: the contract every box implements, strong types, and the
+//! Poyetik engine core: the contract every box implements, strong types, and the
 //! deterministic execution plan.
 //!
 //! This crate contains no concrete box. It is `no_std` and forbids `unsafe`, so it

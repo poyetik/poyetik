@@ -1,4 +1,4 @@
-//! poyetik boxes.
+//! Poyetik boxes.
 //!
 //! Each box type lives in its own module and depends only on the `engine-core`
 //! contract. [`REGISTRY`] lists every box type; being in the registry is enough for a

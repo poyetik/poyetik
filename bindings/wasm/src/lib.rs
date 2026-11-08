@@ -1,4 +1,4 @@
-//! The poyetik engine compiled to WebAssembly, for browsers (in an `AudioWorklet`) and
+//! The Poyetik engine compiled to WebAssembly, for browsers (in an `AudioWorklet`) and
 //! Node.
 //!
 //! The module exports a minimal C interface ([`ffi`]) with no imports and no generated

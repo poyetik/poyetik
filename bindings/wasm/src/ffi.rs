@@ -36,11 +36,11 @@ use crate::Instance;
 
 /// Identity and version of this interface.
 ///
-/// `0x4D34` ("M4") in the high 16 bits, so that a module exporting a function of the
+/// `0x5059` ("PY") in the high 16 bits, so that a module exporting a function of the
 /// same name by chance is not mistaken for an engine; the version in the low 16 bits,
 /// changed whenever a function is added, removed or changes meaning, so that a caller
 /// never drives a module it does not understand.
-pub const ABI_VERSION: u32 = 0x4D34_0001;
+pub const ABI_VERSION: u32 = 0x5059_0001;
 
 /// The version of this interface, [`ABI_VERSION`].
 #[unsafe(no_mangle)]
@@ -144,7 +144,7 @@ mod tests {
     #[test]
     fn follows_the_protocol() {
         assert_eq!(engine_abi_version(), ABI_VERSION, "version");
-        assert_eq!(ABI_VERSION >> 16_u32, 0x4D34_u32, "identity");
+        assert_eq!(ABI_VERSION >> 16_u32, 0x5059_u32, "identity");
         assert_eq!(ABI_VERSION & 0xFFFF_u32, 1_u32, "first version");
         assert_eq!(engine_block_size(), BLOCK_SIZE, "block size");
 

@@ -18,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `cargo xtask check` reads the coverage summary and the mutation report of every TypeScript package itself (100% of lines, statements, functions and branches; no surviving or uncovered mutant), from report directories emptied at each run: lowering a package's own threshold, or a package no longer writing its reports, now fails the check.
 - `captureEngine` (engine-wasm web API): captures live the first frames the engine renders, from where its processor really started, as `renderOffline` does offline (`OFFLINE_MARGIN` is renamed `START_MARGIN`, shared by both).
 - `mutants-equivalent.txt` and a gate in `cargo xtask check`: every TypeScript mutant disabled as equivalent is listed there with its justification; a disable comment that is not listed, a stale entry, or a broader disable (a whole file, every mutator) fails the check.
-- The WebAssembly module exports `engine_abi_version`: the interface identity ("M4") and version (1), checked before anything else by the JavaScript side.
+- The WebAssembly module exports `engine_abi_version`: the interface identity ("PY") and version (1), checked before anything else by the JavaScript side.
 - No-allocation proofs beyond single boxes: the plan laws check that rendering any random built plan allocates nothing, and the WASM engine tests check `Engine::process`, `Instance::process` and `engine_process` (at every sample rate of the matrix). The CLAUDE.md claim about an `assert_no_alloc` check, which did not exist, is corrected.
 - Seven conformance cases from the test matrix: 8 kHz near and above Nyquist and above the sample rate, 44.1 kHz with a partial last block, 20 kHz at 48 kHz, 19,999 Hz at 384 kHz, and 0 Hz. The Node tests and the four browsers render the whole corpus (each at its own rate) and check it is complete; live captures cover 48 and 44.1 kHz.
 - `Plan::render_into` renders the next frames into a caller buffer, without allocating; it continues exactly like `Plan::render`.
@@ -43,6 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Breaking:** the project is named Poyetik. Every package is `@poyetik/…`, and the WebAssembly module's interface identity is now "PY" (`0x5059_0001`): a module built before the rename is refused by the new JavaScript side, and the reverse.
 - **Breaking (roadmap CLI):** the steps of a card are steps everywhere, as on the page: the command `task add|done|undo|edit|rm` is now `step add|done|undo|edit|rm`, and the messages say "step". The data file keeps its `tasks` key, unchanged byte for byte.
 - The step names of `cargo xtask check` all start with a capital letter (checked), and the engine documents that its output is never clipped or sanitized: the final output stage belongs to the host until the engine defines its own output policy.
 - Names say what they hold, in Rust and TypeScript alike: no single-letter names but `i`, `j`, `x` and `y` (Clippy `min_ident_chars`, ESLint `id-length`), and in TypeScript no declaration hiding another (`no-shadow`, even before the outer declaration); 256 names were renamed.
