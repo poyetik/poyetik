@@ -72,5 +72,7 @@ allow-print-in-tests = false
 allow-dbg-in-tests = false
 
 # Single-letter names allowed by min_ident_chars: the conventional loop and coordinate
-# names only. Everything else says what it holds (`error`, not `e`).
+# names only. Everything else says what it holds (`error`, not `e`). One exemption comes
+# from Clippy itself: the parameters of a trait implementation may keep the names the
+# trait declares (`f` in `Display::fmt`), which min_ident_chars does not flag.
 allowed-idents-below-min-chars = ["i", "j", "x", "y"]
