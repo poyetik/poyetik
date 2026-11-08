@@ -26,6 +26,7 @@ extern crate alloc;
 
 mod laws;
 pub mod matrix;
+pub mod runner;
 
 pub use engine_alloc_counter::{CountingAllocator, allocations_during};
 pub use laws::{check_laws, check_metadata, check_registry};

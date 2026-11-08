@@ -4,7 +4,7 @@ use alloc::collections::BTreeSet;
 
 use engine_core::{BLOCK_SIZE, Block, Object, ObjectSpec, ParamSpec, SILENCE, SampleRate};
 use proptest::collection::vec;
-use proptest::test_runner::{Config, RngAlgorithm, TestCaseError, TestRng, TestRunner};
+use proptest::test_runner::TestCaseError;
 
 use crate::allocations_during;
 use crate::matrix::{SPECIAL_INPUTS, sample_rates};
@@ -224,13 +224,7 @@ fn check_rate(spec: &ObjectSpec, rate: SampleRate, length: usize) -> Result<(), 
     check_input(spec, rate, &special_input(length))
         .map_err(|problem| format!("special inputs: {problem}"))?;
     check_long_run(spec, rate)?;
-    let config = Config {
-        cases: CASES,
-        ..Config::default()
-    };
-    let mut runner =
-        TestRunner::new_with_rng(config, TestRng::deterministic_rng(RngAlgorithm::ChaCha));
-    runner
+    crate::runner::runner(CASES)
         .run(&vec(-1.0_f32..=1.0_f32, length), |input| {
             check_input(spec, rate, &input).map_err(TestCaseError::fail)
         })

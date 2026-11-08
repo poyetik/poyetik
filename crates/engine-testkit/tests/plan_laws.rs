@@ -1,9 +1,13 @@
-//! Laws of execution plans, over random patches at every sample rate of the matrix.
+//! Laws of execution plans, over random patches at every sample rate of the matrix,
+//! different patches at each rate.
 //!
 //! The execution order is compared with a deliberately simple reference algorithm
-//! (quadratic, obviously correct); renders are checked for determinism, independence
-//! from the document order, independence from how the render is split, finiteness, and
-//! for not allocating once the plan is built.
+//! (quadratic, obviously correct), and every render with a deliberately simple reference
+//! renderer (the boxes run in that order, block by block, their inlets fed as the spec
+//! says), bit for bit: a plan that routes, sums or hands boxes the rate wrongly fails,
+//! not only one that disagrees with itself. Renders are also checked for independence
+//! from the document order and from how the render is split, finiteness, and for not
+//! allocating from the first call on a fresh plan.
 
 /// Counts allocations, so that rendering a built plan can be checked not to allocate.
 #[global_allocator]
@@ -16,13 +20,15 @@ mod tests {
     use alloc::collections::{BTreeMap, BTreeSet};
 
     use engine_core::{
-        Block, Capability, Connection, CoreError, Node, NodeId, Object, ObjectSpec, ParamSpec,
-        Patch, Plan, PortSpec, Renderer, SampleRate,
+        BLOCK_SIZE, Block, Capability, Connection, CoreError, Node, NodeId, Object, ObjectSpec,
+        ParamSpec, Patch, Plan, PortSpec, Renderer, SILENCE, SampleRate,
     };
     use engine_testkit::allocations_during;
     use engine_testkit::matrix::sample_rates;
+    use engine_testkit::runner::runner;
     use proptest::collection::vec;
-    use proptest::test_runner::{Config, RngAlgorithm, TestCaseError, TestRng, TestRunner};
+    use proptest::strategy::{Strategy, ValueTree};
+    use proptest::test_runner::{TestCaseError, TestRunner};
 
     const PORT: PortSpec = PortSpec {
         name: "x",
@@ -61,7 +67,7 @@ mod tests {
     struct Mix(f32);
     impl Object for Mix {
         fn process(&mut self, inputs: &[Block], outputs: &mut [Block]) {
-            let mut sum = [0.0_f32; engine_core::BLOCK_SIZE];
+            let mut sum = [0.0_f32; BLOCK_SIZE];
             for input in inputs {
                 for (total, sample) in sum.iter_mut().zip(input) {
                     *total += sample * 0.5;
@@ -102,10 +108,46 @@ mod tests {
         create: |_, _| Box::new(Out),
     };
 
-    static REGISTRY: [&ObjectSpec; 3] = [&CONST, &MIX, &OUT];
+    /// Outputs a tenth of the sample rate it was created with: a plan handing boxes a
+    /// wrong rate changes the samples.
+    #[derive(Debug)]
+    struct Rate(f32);
+    impl Object for Rate {
+        fn process(&mut self, _inputs: &[Block], outputs: &mut [Block]) {
+            for output in outputs {
+                output.fill(self.0);
+            }
+        }
+    }
+    static RATE: ObjectSpec = ObjectSpec {
+        name: "rate~",
+        description: "sample rate",
+        inlets: &[],
+        outlets: &[PORT],
+        params: &[],
+        capabilities: &[],
+        create: |rate, _| {
+            Box::new(Rate(f32::from(
+                u16::try_from(rate.hz() / 10).expect("below 655,360 Hz"),
+            )))
+        },
+    };
+
+    static REGISTRY: [&ObjectSpec; 4] = [&CONST, &MIX, &OUT, &RATE];
+
+    /// Random patches per rate.
+    const CASES: u32 = 64;
 
     /// A random patch: node kinds and values, cables as index pairs (may form cycles).
     type Shape = (Vec<(u8, f32)>, Vec<(u8, u8, u8, u8)>);
+
+    /// Random shapes: up to 11 nodes of the four kinds, up to 23 cables.
+    fn shapes() -> impl Strategy<Value = Shape> {
+        (
+            vec((0_u8..4, -1.0_f32..=1.0), 1..12),
+            vec((0_u8..12, 0_u8..2, 0_u8..12, 0_u8..2), 0..24),
+        )
+    }
 
     /// `value` modulo `count` (never zero in these tests).
     fn wrap(value: u8, count: usize) -> usize {
@@ -123,10 +165,11 @@ mod tests {
             .iter()
             .zip(0_u32..)
             .map(|(&(kind, value), index)| {
-                let (name, params) = match kind % 3 {
+                let (name, params) = match kind % 4 {
                     0 => ("const~", BTreeMap::from([(String::from("value"), value)])),
                     1 => ("mix~", BTreeMap::new()),
-                    _ => ("out~", BTreeMap::new()),
+                    2 => ("out~", BTreeMap::new()),
+                    _ => ("rate~", BTreeMap::new()),
                 };
                 Node {
                     id: NodeId(index.wrapping_mul(5).checked_rem(13).expect("13")),
@@ -136,11 +179,14 @@ mod tests {
             })
             .collect();
         let outlets = |node: &Node| match node.kind.as_str() {
-            "const~" => 1,
+            "const~" | "rate~" => 1,
             "mix~" => 2,
             _ => 0,
         };
-        let inlets = |node: &Node| if node.kind == "const~" { 0 } else { 2 };
+        let inlets = |node: &Node| match node.kind.as_str() {
+            "mix~" | "out~" => 2,
+            _ => 0,
+        };
         let connections: BTreeSet<Connection> = cables
             .iter()
             .filter_map(|&(from, outlet, to, inlet)| {
@@ -188,6 +234,102 @@ mod tests {
         samples.iter().map(|sample| sample.to_bits()).collect()
     }
 
+    /// Adds `block` to `total`, or starts `total` with it, bit for bit, when empty.
+    fn accumulate(total: &mut Option<Block>, block: &Block) {
+        match total {
+            None => *total = Some(*block),
+            Some(sum) => {
+                for (sample, value) in sum.iter_mut().zip(block) {
+                    *sample += value;
+                }
+            }
+        }
+    }
+
+    /// The reference renderer: `frames` frames of the patch at `rate`, interleaved.
+    ///
+    /// Deliberately simple and independent of the plan: the boxes run in `order`, one
+    /// block at a time; each inlet copies its first cable and adds the others, in the
+    /// canonical cable order (source, outlet), and is silent without one; each output
+    /// channel is the sum of the matching inlets of the output boxes, in execution order,
+    /// starting from the first, and silent without one; there are as many channels as
+    /// the widest output box has inlets.
+    fn reference_render(
+        nodes: &[Node],
+        connections: &[Connection],
+        order: &[NodeId],
+        rate: SampleRate,
+        frames: usize,
+    ) -> Vec<f32> {
+        let spec = |node: &Node| {
+            REGISTRY
+                .iter()
+                .copied()
+                .find(|spec| spec.name == node.kind)
+                .expect("a registered box")
+        };
+        let by_id: BTreeMap<NodeId, &Node> = nodes.iter().map(|node| (node.id, node)).collect();
+        let mut boxes: BTreeMap<NodeId, Box<dyn Object>> = BTreeMap::new();
+        for node in nodes {
+            let params: Vec<f32> = spec(node)
+                .params
+                .iter()
+                .map(|param| {
+                    node.params
+                        .get(param.name)
+                        .copied()
+                        .unwrap_or(param.default)
+                })
+                .collect();
+            drop(boxes.insert(node.id, (spec(node).create)(rate, &params)));
+        }
+        let is_output = |node: &Node| spec(node).capabilities.contains(&Capability::AudioOutput);
+        let channels = nodes
+            .iter()
+            .filter(|node| is_output(node))
+            .map(|node| spec(node).inlets.len())
+            .max()
+            .unwrap_or(0);
+        let cables: BTreeSet<Connection> = connections.iter().copied().collect();
+        let mut outputs: BTreeMap<NodeId, Vec<Block>> = BTreeMap::new();
+        let mut samples = Vec::new();
+        while samples.len() < frames.saturating_mul(channels) {
+            let mut out: Vec<Option<Block>> = vec![None; channels];
+            for id in order {
+                let node = by_id[id];
+                let inputs: Vec<Block> = (0..spec(node).inlets.len())
+                    .map(|inlet| {
+                        let mut sum: Option<Block> = None;
+                        for cable in cables
+                            .iter()
+                            .filter(|cable| cable.to == *id && cable.inlet == inlet)
+                        {
+                            let source = outputs[&cable.from][cable.outlet];
+                            accumulate(&mut sum, &source);
+                        }
+                        sum.unwrap_or(SILENCE)
+                    })
+                    .collect();
+                let mut produced = vec![SILENCE; spec(node).outlets.len()];
+                boxes
+                    .get_mut(id)
+                    .expect("created")
+                    .process(&inputs, &mut produced);
+                drop(outputs.insert(*id, produced));
+                if is_output(node) {
+                    for (channel, input) in out.iter_mut().zip(&inputs) {
+                        accumulate(channel, input);
+                    }
+                }
+            }
+            for frame in 0..BLOCK_SIZE {
+                samples.extend(out.iter().map(|channel| channel.unwrap_or(SILENCE)[frame]));
+            }
+        }
+        samples.truncate(frames.saturating_mul(channels));
+        samples
+    }
+
     /// Every law, for one shape at one rate, rendering `frames` split at `split`.
     fn check(shape: &Shape, rate: SampleRate, frames: usize, split: usize) -> Result<(), String> {
         let (nodes, connections) = patch_parts(shape);
@@ -211,15 +353,38 @@ mod tests {
                 ));
             }
         };
-        // The same plan, advanced block by block: the same samples, interleaved.
-        let mut blocks = Plan::build(&patch, &REGISTRY, rate).map_err(|error| error.to_string())?;
+        let order: Vec<NodeId> = plan.execution_order().collect();
+        let reference = reference_render(&nodes, &connections, &order, rate, frames);
+
+        // A fresh plan renders without allocating, from its very first call.
         let mut renderer = Renderer::new(plan);
-        let whole = renderer.render(frames).map_err(|error| error.to_string())?;
-        let mut processed = Vec::with_capacity(whole.len());
-        let mut block = vec![[0.0_f32; engine_core::BLOCK_SIZE]; blocks.channels()];
+        let mut whole = vec![0.0_f32; frames.saturating_mul(renderer.channels())];
+        let ((), allocations) = allocations_during(|| renderer.render_into(&mut whole));
+        if allocations > 0 {
+            return Err(format!("{allocations} allocations in a first render"));
+        }
+        if bits(&whole) != bits(&reference) {
+            return Err("the plan differs from the reference renderer".to_owned());
+        }
+        if let Some(sample) = whole.iter().find(|sample| !sample.is_finite()) {
+            return Err(format!("non-finite sample {sample}"));
+        }
+
+        // The same patch, advanced block by block from a fresh plan: the same samples,
+        // and no allocation from the first block on.
+        let mut blocks = Plan::build(&patch, &REGISTRY, rate).map_err(|error| error.to_string())?;
+        let mut block = vec![SILENCE; blocks.channels()];
+        let mut processed = Vec::with_capacity(
+            whole
+                .len()
+                .saturating_add(BLOCK_SIZE.saturating_mul(block.len())),
+        );
         while processed.len() < whole.len() {
-            blocks.process(&mut block);
-            for frame in 0..engine_core::BLOCK_SIZE {
+            let ((), count) = allocations_during(|| blocks.process(&mut block));
+            if count > 0 {
+                return Err(format!("{count} allocations while processing a block"));
+            }
+            for frame in 0..BLOCK_SIZE {
                 processed.extend(block.iter().map(|channel| channel[frame]));
             }
         }
@@ -228,7 +393,7 @@ mod tests {
             return Err("processing block by block differs from rendering".to_owned());
         }
 
-        // Same patch, document listed backwards: same samples.
+        // Same patch, document listed backwards, rendered in two parts: same samples.
         let mut reversed_nodes = nodes;
         reversed_nodes.reverse();
         let mut reversed_connections = connections;
@@ -250,43 +415,94 @@ mod tests {
                 "render split at {split_at} or document order changes the samples"
             ));
         }
-        if let Some(sample) = whole.iter().find(|sample| !sample.is_finite()) {
-            return Err(format!("non-finite sample {sample}"));
-        }
-        // A built plan renders without allocating, into a caller buffer or block by block.
-        let mut buffer = vec![0.0_f32; whole.len()];
-        let mut three = vec![[0.0_f32; engine_core::BLOCK_SIZE]; 3];
-        let ((), allocations) = allocations_during(|| {
-            renderer.render_into(&mut buffer);
-            blocks.process(&mut three);
-        });
-        if allocations > 0 {
-            return Err(format!("{allocations} allocations while rendering"));
+        Ok(())
+    }
+
+    /// Runs `law` on [`CASES`] random cases at each rate of the matrix, with one runner
+    /// whose random stream goes on from rate to rate: different patches at each rate.
+    fn at_every_rate(
+        mut law: impl FnMut(&mut TestRunner, SampleRate) -> Result<(), String>,
+    ) -> Result<(), String> {
+        let mut runner = runner(CASES);
+        for rate in sample_rates() {
+            law(&mut runner, rate).map_err(|problem| format!("at {} Hz: {problem}", rate.hz()))?;
         }
         Ok(())
     }
 
     #[test]
     fn plans_obey_their_laws_at_every_rate() {
-        for rate in sample_rates() {
-            let config = Config {
-                cases: 64,
-                ..Config::default()
-            };
-            let mut runner =
-                TestRunner::new_with_rng(config, TestRng::deterministic_rng(RngAlgorithm::ChaCha));
-            let shapes = (
-                vec((0_u8..3, -1.0_f32..=1.0), 1..12),
-                vec((0_u8..12, 0_u8..2, 0_u8..12, 0_u8..2), 0..24),
-            );
-            let result = runner.run(
-                &(shapes, 0_usize..300, 0_usize..300),
-                |(shape, frames, split)| {
-                    check(&shape, rate, frames, split).map_err(TestCaseError::fail)
-                },
-            );
-            assert!(result.is_ok(), "at {} Hz: {result:?}", rate.hz());
-        }
+        let result = at_every_rate(|runner, rate| {
+            runner
+                .run(
+                    &(shapes(), 0_usize..300, 0_usize..300),
+                    |(shape, frames, split)| {
+                        check(&shape, rate, frames, split).map_err(TestCaseError::fail)
+                    },
+                )
+                .map_err(|error| error.to_string())
+        });
+        assert_eq!(result, Ok(()), "plan laws");
+    }
+
+    #[test]
+    fn tries_different_patches_at_each_rate() {
+        let mut first_shapes = Vec::new();
+        let result = at_every_rate(|runner, _| {
+            let tree = shapes()
+                .new_tree(runner)
+                .map_err(|error| error.to_string())?;
+            first_shapes.push(tree.current());
+            Ok(())
+        });
+        assert_eq!(result, Ok(()), "every rate");
+        let distinct: BTreeSet<String> = first_shapes
+            .iter()
+            .map(|shape| format!("{shape:?}"))
+            .collect();
+        assert_eq!(distinct.len(), sample_rates().len(), "{first_shapes:?}");
+    }
+
+    #[test]
+    fn the_reference_renderer_follows_the_spec() {
+        // const~ 0.25 and const~ 0.5 into inlet 0 of out~, rate~ into its inlet 1, and
+        // nothing into a second output's inlet 0: channel 0 = 0.75, channel 1 = rate / 10.
+        let node = |id: u32, kind: &str, value: Option<f32>| Node {
+            id: NodeId(id),
+            kind: String::from(kind),
+            params: value
+                .map(|value| BTreeMap::from([(String::from("value"), value)]))
+                .unwrap_or_default(),
+        };
+        let wire = |from: u32, to: u32, inlet: usize| Connection {
+            from: NodeId(from),
+            outlet: 0,
+            to: NodeId(to),
+            inlet,
+        };
+        let nodes = [
+            node(1, "const~", Some(0.25)),
+            node(2, "const~", Some(0.5)),
+            node(3, "rate~", None),
+            node(4, "out~", None),
+            node(5, "out~", None),
+        ];
+        let rate = SampleRate::new(8_000).expect("valid rate");
+        let order = [NodeId(1), NodeId(2), NodeId(3), NodeId(4), NodeId(5)];
+        let samples = reference_render(
+            &nodes,
+            &[wire(1, 4, 0), wire(2, 4, 0), wire(3, 4, 1)],
+            &order,
+            rate,
+            70,
+        );
+        assert_eq!(
+            samples,
+            [0.75, 800.0].repeat(70),
+            "summed, routed, at the rate"
+        );
+        let silent = reference_render(&nodes[..1], &[], &order[..1], rate, 70);
+        assert_eq!(silent, Vec::<f32>::new(), "no output box, no channel");
     }
 
     #[test]
@@ -323,34 +539,31 @@ mod tests {
     #[test]
     fn random_patches_do_reach_cycles_and_valid_plans() {
         // The generator is useful only if it produces both outcomes and non-trivial
-        // graphs: count them over the same seeded cases as the laws.
-        let mut runner = TestRunner::new_with_rng(
-            Config {
-                cases: 64,
-                ..Config::default()
-            },
-            TestRng::deterministic_rng(RngAlgorithm::ChaCha),
-        );
+        // graphs with every kind of box: count them over the cases of the laws.
         let (mut cycles, mut plans, mut cables) = (0_u32, 0_u32, 0_usize);
-        let shapes = (
-            vec((0_u8..3, -1.0_f32..=1.0), 1..12),
-            vec((0_u8..12, 0_u8..2, 0_u8..12, 0_u8..2), 0..24),
-        );
-        let rate = SampleRate::HZ_48000;
-        for _ in 0_u8..64_u8 {
-            let tree = proptest::strategy::Strategy::new_tree(&shapes, &mut runner).expect("tree");
-            let shape = proptest::strategy::ValueTree::current(&tree);
-            let (nodes, connections) = patch_parts(&shape);
-            cables += connections.len();
-            let patch = Patch::new(nodes, connections).expect("valid patch");
-            match Plan::build(&patch, &REGISTRY, rate) {
-                Ok(_) => plans += 1,
-                Err(CoreError::Cycle(_)) => cycles += 1,
-                Err(other) => panic!("unexpected error {other}"),
+        let mut kinds = BTreeSet::new();
+        let result = at_every_rate(|runner, rate| {
+            for _ in 0..CASES {
+                let shape = shapes()
+                    .new_tree(runner)
+                    .map_err(|error| error.to_string())?
+                    .current();
+                let (nodes, connections) = patch_parts(&shape);
+                cables += connections.len();
+                kinds.extend(nodes.iter().map(|node| node.kind.clone()));
+                let patch = Patch::new(nodes, connections).map_err(|error| error.to_string())?;
+                match Plan::build(&patch, &REGISTRY, rate) {
+                    Ok(_) => plans += 1,
+                    Err(CoreError::Cycle(_)) => cycles += 1,
+                    Err(other) => return Err(format!("unexpected error {other}")),
+                }
             }
-        }
-        assert!(cycles >= 5, "{cycles} cycles");
-        assert!(plans >= 5, "{plans} valid plans");
-        assert!(cables >= 64 * 3, "{cables} cables in all");
+            Ok(())
+        });
+        assert_eq!(result, Ok(()), "only cycles and valid plans");
+        assert!(cycles >= 40, "{cycles} cycles");
+        assert!(plans >= 40, "{plans} valid plans");
+        assert!(cables >= 512 * 3, "{cables} cables in all");
+        assert_eq!(kinds.len(), REGISTRY.len(), "every kind of box: {kinds:?}");
     }
 }
