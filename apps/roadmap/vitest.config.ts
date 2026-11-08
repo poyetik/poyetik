@@ -11,7 +11,7 @@ export const TESTS: NonNullable<ViteUserConfig["test"]> = {
   include: ["test/**/*.test.ts"],
   coverage: {
     provider: "v8",
-    include: ["src/**/*.ts", "src/**/*.astro"],
+    include: ["src/**/*.ts", "src/**/*.astro", "e2e/contrast.ts"],
     reporter: ["text", "json-summary", "html"],
     thresholds: { lines: 100, branches: 100, functions: 100, statements: 100 },
   },

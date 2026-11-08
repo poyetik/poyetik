@@ -6,7 +6,8 @@
     "pool": "forks"
   },
   "mutate": [
-    "src/**/*.ts"
+    "src/**/*.ts",
+    "e2e/contrast.ts"
   ],
   "reporters": [
     "clear-text",

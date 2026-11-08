@@ -5,7 +5,8 @@ import { parseBoard } from "../src/lib/board.ts";
 import { toView } from "../src/lib/view.ts";
 import { CSP } from "../src/lib/csp.ts";
 import { LOCALES, TIME_ZONES } from "../test/matrix.ts";
-import { channels, contrast, tabTo } from "./keyboard.ts";
+import { channels, contrast } from "./contrast.ts";
+import { tabTo } from "./keyboard.ts";
 
 /** The expected display, computed from the real board.json with the same code as the page, so the tests follow the data instead of hard-coding cards. */
 const view = toView(parseBoard(JSON.parse(readFileSync(new URL("../board.json", import.meta.url), "utf8"))));
@@ -224,7 +225,7 @@ test("draws a visible focus ring on a keyboard-focused steps toggle", async ({ p
   await tabTo(page, summary);
   const ring = await summary.evaluate((element) => {
     const style = getComputedStyle(element);
-    // The ring is drawn over its card: that is the colour it must stand out from.
+    // The ring is drawn over its card: that is the color it must stand out from.
     const card = element.closest(".card") ?? document.body;
     return { style: style.outlineStyle, width: style.outlineWidth, color: style.outlineColor, background: getComputedStyle(card).backgroundColor };
   });
