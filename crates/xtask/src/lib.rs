@@ -8,7 +8,7 @@
 
 extern crate alloc;
 
-use alloc::collections::BTreeSet;
+use alloc::collections::{BTreeMap, BTreeSet};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -152,6 +152,11 @@ pub enum Action {
     LicenseGate,
     /// Require the lint against unsafe code to be lifted only in the audited files.
     UnsafeGate,
+    /// Require the CI workflow to pin every action, tool and runtime.
+    WorkflowGate,
+    /// Require every commit message to follow the convention, and every change of behavior
+    /// since [`CHANGELOG_SINCE`] to update the changelog.
+    HistoryGate,
     /// Require every tool the checks use, at the versions they need, on a supported
     /// platform: checked first, so that a missing tool is named before anything runs.
     Preflight,
@@ -313,8 +318,7 @@ fn proof_steps() -> Vec<Step> {
     ]
 }
 
-/// Conformance, supply chain, versions and the TypeScript packages (the engine in the
-/// browser, the playground built on it, then the roadmap).
+/// Conformance, supply chain, membership, versions, history and the CI workflow.
 fn release_steps() -> Vec<Step> {
     vec![
         run(
@@ -368,6 +372,22 @@ fn release_steps() -> Vec<Step> {
             name: "Versions and changelog".to_owned(),
             action: Action::ReleaseGate,
         },
+        Step {
+            name: "Commit messages and changelog".to_owned(),
+            action: Action::HistoryGate,
+        },
+        Step {
+            name: "CI workflow pinned".to_owned(),
+            action: Action::WorkflowGate,
+        },
+    ]
+}
+
+/// The TypeScript packages: dependencies, their audit and licenses, then each package's
+/// own checks (the shared policy, the oracle, the engine in the browser, the playground
+/// built on it, then the roadmap) and the gate on their reports.
+fn typescript_steps() -> Vec<Step> {
+    vec![
         run(
             "JavaScript dependencies",
             "pnpm",
@@ -423,6 +443,7 @@ pub fn check_steps() -> Vec<Step> {
         portability_steps(),
         proof_steps(),
         release_steps(),
+        typescript_steps(),
     ]
     .concat()
 }
@@ -906,6 +927,14 @@ pub fn unsafe_gate(sources: &[(String, String)]) -> Result<(), String> {
     }
 }
 
+/// The Cargo tools the checks run, at the exact version they need (as `cargo install`
+/// names them): the preflight refuses another version, and the CI workflow installs these.
+pub const PINNED_TOOLS: [(&str, &str); 3] = [
+    ("cargo-llvm-cov", "0.9.1"),
+    ("cargo-mutants", "27.1.0"),
+    ("cargo-deny", "0.20.2"),
+];
+
 /// The tools the checks run, each with the command proving it is installed and how to
 /// install it.
 pub const TOOLS: [(&str, &[&str], &str); 9] = [
@@ -928,17 +957,17 @@ pub const TOOLS: [(&str, &[&str], &str); 9] = [
     (
         "cargo",
         &["llvm-cov", "--version"],
-        "cargo install --locked cargo-llvm-cov",
+        "cargo install --locked cargo-llvm-cov@0.9.1",
     ),
     (
         "cargo",
         &["mutants", "--version"],
-        "cargo install --locked cargo-mutants",
+        "cargo install --locked cargo-mutants@27.1.0",
     ),
     (
         "cargo",
         &["deny", "--version"],
-        "cargo install --locked cargo-deny",
+        "cargo install --locked cargo-deny@0.20.2",
     ),
     ("node", &["--version"], "install Node.js 22.18 or later"),
     (
@@ -984,8 +1013,88 @@ pub fn preflight_gate(os: &str, answers: &[Option<String>]) -> Result<(), String
                     problems.push(format!("Node.js {} is too old: {install}", version.trim()));
                 }
             }
-            Some(_) => {}
+            Some(version) => {
+                let pinned = PINNED_TOOLS
+                    .iter()
+                    .find(|(name, _)| args.first().copied() == name.strip_prefix("cargo-"));
+                if let Some((name, needed)) = pinned
+                    && version.split_whitespace().nth(1) != Some(*needed)
+                {
+                    problems.push(format!(
+                        "{} is installed, the checks need {name} {needed}: {install}",
+                        version.trim()
+                    ));
+                }
+            }
         }
+    }
+    if problems.is_empty() {
+        Ok(())
+    } else {
+        Err(problems.join("; "))
+    }
+}
+
+/// The CI workflow.
+pub const WORKFLOW: &str = ".github/workflows/quality.yml";
+
+/// The Node.js release CI uses, pinned.
+pub const NODE_VERSION_FILE: &str = ".node-version";
+
+/// Checks that CI cannot change under the project's feet.
+///
+/// Every action of the workflow is pinned to a full commit hash, the Cargo tools to
+/// [`PINNED_TOOLS`], Node.js to the release in `.node-version` (at [`NODE_FLOOR`] or
+/// later), the whole history is fetched for the history gate, and the workflow runs
+/// `cargo xtask check`.
+///
+/// # Errors
+///
+/// Returns every unpinned action and every missing pin.
+pub fn workflow_gate(workflow: &str, node_version: &str) -> Result<(), String> {
+    let mut problems: Vec<String> = workflow
+        .lines()
+        .filter_map(|line| line.trim().trim_start_matches("- ").strip_prefix("uses: "))
+        .filter(|action| {
+            let reference = action
+                .split_once('@')
+                .map_or("", |(_, reference)| reference);
+            let commit = reference.split_whitespace().next().unwrap_or_default();
+            commit.len() != 40 || !commit.bytes().all(|byte| byte.is_ascii_hexdigit())
+        })
+        .map(|action| format!("{action} is not pinned to a full commit hash"))
+        .collect();
+    let tools = PINNED_TOOLS
+        .iter()
+        .map(|(name, version)| format!("{name}@{version}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    for expected in [
+        format!("tool: {tools}"),
+        "node-version-file: .node-version".to_owned(),
+        "fetch-depth: 0".to_owned(),
+        "run: cargo xtask check".to_owned(),
+    ] {
+        if !workflow.lines().any(|line| line.trim() == expected) {
+            problems.push(format!("{WORKFLOW} lacks `{expected}`"));
+        }
+    }
+    let numbers: Vec<u64> = node_version
+        .trim()
+        .split('.')
+        .map(|part| part.parse().unwrap_or(u64::MAX))
+        .collect();
+    let pinned_exactly = numbers.len() == 3 && numbers.iter().all(|&number| number != u64::MAX);
+    if !pinned_exactly
+        || (numbers.first().copied(), numbers.get(1).copied())
+            < (Some(NODE_FLOOR.0), Some(NODE_FLOOR.1))
+    {
+        problems.push(format!(
+            "{NODE_VERSION_FILE} must pin one Node.js release, {}.{} or later (X.Y.Z): found {:?}",
+            NODE_FLOOR.0,
+            NODE_FLOOR.1,
+            node_version.trim()
+        ));
     }
     if problems.is_empty() {
         Ok(())
@@ -1225,6 +1334,122 @@ pub fn commit_msg_gate(message: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// The commit from which every change of behavior must update `CHANGELOG.md`: the earlier
+/// history predates the rule and is not rewritten.
+pub const CHANGELOG_SINCE: &str = "9dc3d94a0235380ba931450c83dc1e7badcc68ed";
+
+/// The two history listings the history gate reads: every commit with its message, and the
+/// files each commit since [`CHANGELOG_SINCE`] touched. Records are separated by `0x1e`.
+#[must_use]
+pub fn history_commands() -> [Cmd; 2] {
+    let git = |args: &[&str]| Cmd {
+        program: "git",
+        args: args.iter().map(|&arg| arg.to_owned()).collect(),
+        dir: Dir::Root,
+    };
+    [
+        git(&["log", "--format=%x1e%H%x1f%B", "HEAD"]),
+        git(&[
+            "log",
+            "--format=%x1e%H",
+            "--name-only",
+            &format!("{CHANGELOG_SINCE}..HEAD"),
+        ]),
+    ]
+}
+
+/// Whether a commit message announces a change of behavior: a `feat`, `fix` or `perf`
+/// commit, or any breaking one (`!` or a `BREAKING CHANGE:` footer).
+#[must_use]
+pub fn changes_behavior(message: &str) -> bool {
+    let header = message.lines().next().unwrap_or_default();
+    let prefix = header.split_once(": ").map_or(header, |(prefix, _)| prefix);
+    let kind = prefix.split(['(', '!']).next().unwrap_or_default();
+    ["feat", "fix", "perf"].contains(&kind)
+        || prefix.ends_with('!')
+        || message
+            .lines()
+            .any(|line| line.starts_with("BREAKING CHANGE:"))
+}
+
+/// Checks the history of commits.
+///
+/// Every commit message follows the convention ([`commit_msg_gate`]), and every commit
+/// since [`CHANGELOG_SINCE`] that changes behavior touches `CHANGELOG.md`.
+///
+/// `messages` and `files` are the outputs of [`history_commands`].
+///
+/// # Errors
+///
+/// Returns one line per commit at fault, naming it by its short hash.
+pub fn history_gate(messages: &str, files: &str) -> Result<(), String> {
+    let short = |hash: &str| hash.chars().take(7).collect::<String>();
+    let touched: BTreeMap<&str, Vec<&str>> = files
+        .split('\u{1e}')
+        .filter_map(|record| {
+            let mut lines = record.lines();
+            lines
+                .next()
+                .filter(|hash| !hash.is_empty())
+                .map(|hash| (hash, lines.filter(|line| !line.is_empty()).collect()))
+        })
+        .collect();
+    let mut problems = Vec::new();
+    for record in messages.split('\u{1e}').filter(|record| !record.is_empty()) {
+        let (hash, message) = record.split_once('\u{1f}').unwrap_or((record, ""));
+        if let Err(error) = commit_msg_gate(message) {
+            let reason = error.lines().next().unwrap_or_default();
+            problems.push(format!("commit {}: {reason}", short(hash)));
+        }
+        let unrecorded = touched
+            .get(hash)
+            .is_some_and(|paths| !paths.contains(&CHANGELOG));
+        if unrecorded && changes_behavior(message) {
+            problems.push(format!(
+                "commit {} changes behavior but not {CHANGELOG}",
+                short(hash)
+            ));
+        }
+    }
+    if problems.is_empty() {
+        Ok(())
+    } else {
+        Err(problems.join("\n"))
+    }
+}
+
+/// Checks that the pre-push hook validates exactly what is pushed.
+///
+/// The working tree has nothing uncommitted (`status`, from `git status --porcelain`), and
+/// every commit pushed is `head`, the commit checked out. A deleted branch (all zeros)
+/// pushes nothing.
+///
+/// # Errors
+///
+/// Returns what to commit or check out first.
+pub fn pre_push_gate(head: &str, status: &str, pushed: &[String]) -> Result<(), String> {
+    let mut problems = Vec::new();
+    if !status.trim().is_empty() {
+        problems.push(format!(
+            "the working tree has changes not committed, which the check would include: {}",
+            status.lines().map(str::trim).collect::<Vec<_>>().join(", ")
+        ));
+    }
+    for commit in pushed {
+        if !commit.bytes().all(|byte| byte == b'0') && commit != head.trim() {
+            problems.push(format!(
+                "pushing {commit}, but {} is checked out: check out the pushed commit, then push again",
+                head.trim()
+            ));
+        }
+    }
+    if problems.is_empty() {
+        Ok(())
+    } else {
+        Err(problems.join("; "))
+    }
+}
+
 /// Executes commands and reads files on behalf of [`run_steps`].
 pub trait Runner {
     /// Runs a command and returns its exit code; `None` when a signal stopped it.
@@ -1330,6 +1555,33 @@ fn read_file(runner: &mut dyn Runner, path: &str) -> Result<String, String> {
     runner
         .read(path)
         .map_err(|error| format!("cannot read {path}: {error}"))
+}
+
+/// Reads the commit checked out and the state of the working tree, then checks a push.
+fn pre_push(runner: &mut dyn Runner, pushed: &[String]) -> Result<(), String> {
+    let git = |args: &[&str]| Cmd {
+        program: "git",
+        args: args.iter().map(|&arg| arg.to_owned()).collect(),
+        dir: Dir::Root,
+    };
+    let mut read = |cmd: Cmd| {
+        runner
+            .capture(&cmd)
+            .map_err(|error| format!("cannot read the work tree (`{}`): {error}", cmd.line()))
+    };
+    let head = read(git(&["rev-parse", "HEAD"]))?;
+    let status = read(git(&["status", "--porcelain"]))?;
+    pre_push_gate(&head, &status, pushed)
+}
+
+/// Reads the history, then checks it.
+fn history(runner: &mut dyn Runner) -> Result<(), String> {
+    let [messages, files] = history_commands().map(|cmd| {
+        runner
+            .capture(&cmd)
+            .map_err(|error| format!("cannot read the history (`{}`): {error}", cmd.line()))
+    });
+    history_gate(&messages?, &files?)
 }
 
 /// Asks every tool of [`TOOLS`] for its version, then checks them.
@@ -1481,6 +1733,10 @@ fn run_action(action: &Action, runner: &mut dyn Runner) -> Result<(), String> {
         }),
         Action::MembershipGate => membership(runner),
         Action::Preflight => preflight(runner),
+        Action::HistoryGate => history(runner),
+        Action::WorkflowGate => read_file(runner, WORKFLOW).and_then(|workflow| {
+            read_file(runner, NODE_VERSION_FILE).and_then(|node| workflow_gate(&workflow, &node))
+        }),
         Action::UnsafeGate => runner
             .tracked(&["*.rs"])
             .map_err(|error| format!("cannot list the Rust files: {error}"))
@@ -1540,7 +1796,7 @@ pub fn run_steps(
 }
 
 /// Usage of the `xtask` command.
-pub const USAGE: &str = "usage: cargo xtask <check|list|bless|commit-msg <file>|help>\n  check              run every quality check, as CI and the pre-push hook do\n  list               list the checks, in the order they run\n  bless              rewrite conformance/references.json from the current renders\n  commit-msg <file>  check a commit message (used by the commit-msg hook)\n  help               show this help";
+pub const USAGE: &str = "usage: cargo xtask <check|list|bless|commit-msg <file>|pre-push [commit...]|help>\n  check              run every quality check, as CI and the pre-push hook do\n  pre-push [commit...] check that the tree is clean and the pushed commits are checked out, then check\n  list               list the checks, in the order they run\n  bless              rewrite conformance/references.json from the current renders\n  commit-msg <file>  check a commit message (used by the commit-msg hook)\n  help               show this help";
 
 /// The only way to change the reference hashes: renders every conformance case and
 /// rewrites `conformance/references.json`. The commit must explain why they changed.
@@ -1576,6 +1832,9 @@ pub fn cli(
         [command] if command == "bless" => run_steps(&[bless_step()], runner, out),
         [command, path] if command == "commit-msg" => {
             read_file(runner, path).and_then(|message| commit_msg_gate(&message))
+        }
+        [command, pushed @ ..] if command == "pre-push" => {
+            pre_push(runner, pushed).and_then(|()| run_steps(&check_steps(), runner, out))
         }
         [command] if command == "help" => {
             writeln!(out, "{USAGE}").map_err(|error| error.to_string())

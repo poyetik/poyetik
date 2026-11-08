@@ -1,6 +1,7 @@
 #!/bin/sh
-# Before every push: exactly the same checks as CI (`cargo xtask check`).
-# A single failure blocks the push. Never bypass it (no --no-verify).
+# Before every push: exactly the same checks as CI (`cargo xtask check`), on exactly what is
+# pushed: xtask refuses a working tree with uncommitted changes and a pushed commit other
+# than the one checked out. A single failure blocks the push. Never bypass it (no --no-verify).
 set -eu
 
 # Git clients do not always load the shell profile: make cargo reachable.
@@ -9,4 +10,9 @@ if [ -f "$HOME/.cargo/env" ]; then
 fi
 
 cd "$(git rev-parse --show-toplevel)"
-cargo xtask check
+# Git writes one line per pushed ref: <local ref> <local commit> <remote ref> <remote commit>.
+pushed=""
+while read -r _local_ref local_commit _remote_ref _remote_commit; do
+  pushed="$pushed $local_commit"
+done
+cargo xtask pre-push $pushed

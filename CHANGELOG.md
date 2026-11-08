@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `cargo xtask check` checks the history: every commit message follows the convention, and every `feat`, `fix`, `perf` or breaking commit since the rule was introduced updates the changelog. It also requires CI to pin every action to a full commit hash, the Cargo tools to exact versions (which the preflight now requires locally too) and Node.js to `.node-version`.
+- The pre-push hook (`cargo xtask pre-push`) refuses a working tree with uncommitted changes and a pushed commit other than the one checked out, so that the check validates exactly what is pushed.
 - `GLOSSARY.md`: the words of the project, with the name each takes in the patch format and the code. READMEs for the roadmap, the oracle and the shared policy; `cargo xtask check` now requires a README in every TypeScript package, every part named in the README of its folder and every folder in the root README.
 - The shared TypeScript policy (`@poyetik/config`) is itself checked: each lint rule and strict compiler setting is proven, by a fixture that breaks it, to reject exactly what it forbids, with 100% coverage and no surviving mutant; the ESLint configuration is now TypeScript, linted by itself, and a step of `cargo xtask check`.
 - `cargo xtask check` starts by checking the platform (macOS or Linux; Windows through WSL2) and every tool it needs, Node.js 22.18 or later included, naming what is missing and how to install it; `cargo xtask list` lists the checks. `.gitattributes` keeps LF line endings everywhere (the git hooks are shell scripts), and `pnpm install` no longer fails outside a git work tree.

@@ -74,12 +74,10 @@ impl Runner for Fake {
             *program == cmd.program && args.iter().copied().eq(cmd.args.iter().map(String::as_str))
         });
         if tool {
-            return Ok(if cmd.program == "node" {
-                "v22.23.4\n"
-            } else {
-                "1.0\n"
-            }
-            .to_owned());
+            return Ok(tool_answer(
+                cmd.program,
+                cmd.args.first().map(String::as_str),
+            ));
         }
         self.files
             .get(&format!("capture {line}"))
@@ -177,6 +175,22 @@ fn passing() -> Fake {
         let previous_unsafe = fake.files.insert(path.to_owned(), lifting());
         assert!(previous_unsafe.is_none(), "fresh fake");
     }
+    let [messages, files] = super::history_commands();
+    let logged = fake
+        .files
+        .insert(format!("capture {}", messages.line()), HISTORY.to_owned());
+    let listed = fake.files.insert(
+        format!("capture {}", files.line()),
+        HISTORY_FILES.to_owned(),
+    );
+    assert!(logged.is_none() && listed.is_none(), "fresh fake");
+    for (path, text) in [
+        (super::WORKFLOW, PINNED_WORKFLOW),
+        (super::NODE_VERSION_FILE, "22.23.4\n"),
+    ] {
+        let pinned = fake.files.insert(path.to_owned(), text.to_owned());
+        assert!(pinned.is_none(), "fresh fake");
+    }
     for (path, text) in READMES {
         let readme = fake.files.insert(path.to_owned(), text.to_owned());
         assert!(readme.is_none(), "fresh fake");
@@ -202,6 +216,31 @@ fn passing() -> Fake {
     }
     fake
 }
+
+/// What an installed tool of the preflight answers: its pinned version for a pinned Cargo
+/// tool, a recent Node.js, any version for the others.
+fn tool_answer(program: &str, subcommand: Option<&str>) -> String {
+    let pinned = super::PINNED_TOOLS
+        .iter()
+        .find(|(name, _)| subcommand == name.strip_prefix("cargo-"));
+    match (program, pinned) {
+        ("node", _) => "v22.23.4\n".to_owned(),
+        (_, Some((name, version))) => format!("{name} {version}\n"),
+        _ => "1.0\n".to_owned(),
+    }
+}
+
+/// A workflow that pins everything, as the workflow gate requires.
+const PINNED_WORKFLOW: &str = "jobs:\n  check:\n    steps:\n      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n        with:\n          fetch-depth: 0\n      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39\n        with:\n          tool: cargo-llvm-cov@0.9.1,cargo-mutants@27.1.0,cargo-deny@0.20.2\n      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0\n        with:\n          node-version-file: .node-version\n      - name: Every quality check\n        run: cargo xtask check\n";
+
+/// A history whose two commits follow the convention, the change of behavior with its
+/// changelog entry, as `git log` writes it for the history gate.
+const HISTORY: &str =
+    "\u{1e}bbbbbbbbbb\u{1f}feat(core): add the plan\n\nWhy.\n\u{1e}aaaaaaaaaa\u{1f}docs: start\n";
+
+/// The files the commits of [`HISTORY`] touched.
+const HISTORY_FILES: &str =
+    "\u{1e}bbbbbbbbbb\n\nCHANGELOG.md\ncrates/a.rs\n\u{1e}aaaaaaaaaa\n\nREADME.md\n";
 
 /// The READMEs of a repository whose parts are all described: each TypeScript package has
 /// its own, each folder names its parts, the root names the folders.
@@ -257,6 +296,8 @@ fn command_lines(steps: &[Step]) -> Vec<String> {
             Action::LicenseGate => "license gate".to_owned(),
             Action::UnsafeGate => "unsafe gate".to_owned(),
             Action::Preflight => "preflight".to_owned(),
+            Action::HistoryGate => "history gate".to_owned(),
+            Action::WorkflowGate => "workflow gate".to_owned(),
         })
         .collect()
 }
@@ -289,6 +330,8 @@ fn lists_every_check_in_order() {
             "Root: cargo deny --locked check",
             "membership gate",
             "release gate",
+            "history gate",
+            "workflow gate",
             "Root: pnpm install --frozen-lockfile",
             "Root: pnpm audit",
             "license gate",
@@ -330,6 +373,8 @@ fn lists_every_check_in_order() {
             "Rust supply chain",
             "Packages and crates known to the checks",
             "Versions and changelog",
+            "Commit messages and changelog",
+            "CI workflow pinned",
             "JavaScript dependencies",
             "JavaScript vulnerabilities",
             "JavaScript licenses",
@@ -443,13 +488,13 @@ fn runs_every_step_and_reports_success() {
     );
     assert_eq!(
         fake.ran.len(),
-        check_steps().len() + 9 + 10 + 9 + 4 + 1 + 9 + 2 + 8,
+        check_steps().len() + 9 + 10 + 9 + 4 + 1 + 9 + 2 + 8 + 1 + 1,
         "every step ran; the unviable gate reads two files, the equivalent gate lists the \
          sources and reads two files, the release gate eight, the fresh step empties nine \
          more directories, the TypeScript gate reads ten reports instead of one action, \
          the membership gate lists four times and reads the root Cargo.toml and nine READMEs, the license gate \
          captures two reports, the unsafe gate lists and reads two files, the preflight \
-         asks nine tools"
+         asks nine tools, the history gate reads two listings, the workflow gate two files"
     );
     for path in [
         CARGO_TOML,
@@ -473,15 +518,15 @@ fn runs_every_step_and_reports_success() {
     );
     let text = String::from_utf8(out).expect("utf-8 output");
     assert!(
-        text.starts_with("▶ [1/32] Tools and platform\n"),
+        text.starts_with("▶ [1/34] Tools and platform\n"),
         "numbered progress: {text}"
     );
     assert!(
-        text.contains("▶ [31/32] Roadmap checks\n"),
+        text.contains("▶ [33/34] Roadmap checks\n"),
         "last step announced: {text}"
     );
     assert!(
-        text.ends_with("✔ all 32 checks passed\n"),
+        text.ends_with("✔ all 34 checks passed\n"),
         "summary: {text}"
     );
 }
@@ -1724,11 +1769,11 @@ fn checks_the_tools_and_the_platform_first() {
     let present = |node: &str| -> Vec<Option<String>> {
         super::TOOLS
             .iter()
-            .map(|(program, _, _)| {
+            .map(|(program, args, _)| {
                 Some(if *program == "node" {
                     node.to_owned()
                 } else {
-                    "1.0".to_owned()
+                    tool_answer(program, args.first().copied())
                 })
             })
             .collect()
@@ -1761,7 +1806,7 @@ fn checks_the_tools_and_the_platform_first() {
     missing[5] = None;
     assert_eq!(
         preflight_gate("windows", &missing),
-        Err("the checks run on macOS and Linux: on Windows, run them in WSL2; `cargo mutants --version` is missing: cargo install --locked cargo-mutants".to_owned()),
+        Err("the checks run on macOS and Linux: on Windows, run them in WSL2; `cargo mutants --version` is missing: cargo install --locked cargo-mutants@27.1.0".to_owned()),
         "platform and missing tool"
     );
     assert_eq!(
@@ -1808,7 +1853,7 @@ fn stops_at_a_missing_tool() {
     fake.broken = Some("cargo mutants --version".to_owned());
     assert_eq!(
         run_steps(&check_steps(), &mut fake, &mut Vec::new()),
-        Err("✘ Tools and platform: `cargo mutants --version` is missing: cargo install --locked cargo-mutants".to_owned()),
+        Err("✘ Tools and platform: `cargo mutants --version` is missing: cargo install --locked cargo-mutants@27.1.0".to_owned()),
         "named, with how to install it"
     );
 }
@@ -1870,6 +1915,250 @@ fn names_every_check_alike() {
             !step.name.ends_with('.'),
             "{} has no final period",
             step.name
+        );
+    }
+}
+
+#[test]
+fn tells_changes_of_behavior() {
+    for (message, expected) in [
+        ("feat: add", true),
+        ("fix(roadmap): repair", true),
+        ("perf(engine-core): faster", true),
+        ("docs!: drop a page", true),
+        ("refactor(roadmap)!: rename", true),
+        (
+            "refactor: rename\n\nBREAKING CHANGE: the command is renamed",
+            true,
+        ),
+        ("docs: explain", false),
+        ("test(xtask): cover", false),
+        ("build: bump", false),
+        ("chore: tidy\n\nnot a BREAKING CHANGE: inline", false),
+        ("feature: not a type", false),
+        ("", false),
+    ] {
+        assert_eq!(super::changes_behavior(message), expected, "{message:?}");
+    }
+}
+
+#[test]
+fn checks_every_message_and_the_changelog_of_every_change() {
+    assert_eq!(
+        super::history_gate(HISTORY, HISTORY_FILES),
+        Ok(()),
+        "a clean history"
+    );
+    let messages = "\u{1e}cccccccccc\u{1f}fix: repair\n\u{1e}bbbbbbbbbb\u{1f}Update stuff\n\u{1e}aaaaaaaaaa\u{1f}feat: before the rule\n";
+    let files = "\u{1e}cccccccccc\n\nsrc/a.rs\n\u{1e}bbbbbbbbbb\n\nsrc/b.rs\n";
+    assert_eq!(
+        super::history_gate(messages, files),
+        Err("commit ccccccc changes behavior but not CHANGELOG.md\n\
+             commit bbbbbbb: invalid commit message: missing \"<type>: \" prefix"
+            .to_owned()),
+        "a change without its entry, a malformed message; the commit before the rule is not held to it"
+    );
+    assert_eq!(super::history_gate("", ""), Ok(()), "no commit");
+    assert_eq!(
+        super::history_gate("\u{1e}dddddddddd", "\u{1e}dddddddddd\n"),
+        Err("commit ddddddd: invalid commit message: missing \"<type>: \" prefix".to_owned()),
+        "a record without a message"
+    );
+    assert_eq!(super::CHANGELOG_SINCE.len(), 40, "a full commit hash");
+}
+
+#[test]
+fn reads_the_history_or_says_why_it_cannot() {
+    let mut fake = passing();
+    let [messages, _] = super::history_commands();
+    let _removed = fake.files.remove(&format!("capture {}", messages.line()));
+    assert_eq!(
+        run_steps(&check_steps(), &mut fake, &mut Vec::new()),
+        Err("✘ Commit messages and changelog: cannot read the history (`git log --format=%x1e%H%x1f%B HEAD`): failed".to_owned()),
+        "a shallow clone, or no git"
+    );
+}
+
+#[test]
+fn pushes_only_what_was_checked() {
+    let head = "1111111111111111111111111111111111111111\n";
+    let pushed = |commits: &[&str]| {
+        commits
+            .iter()
+            .map(|&commit| commit.to_owned())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        super::pre_push_gate(
+            head,
+            "",
+            &pushed(&["1111111111111111111111111111111111111111"])
+        ),
+        Ok(()),
+        "the checked-out commit"
+    );
+    assert_eq!(
+        super::pre_push_gate(
+            head,
+            "",
+            &pushed(&["0000000000000000000000000000000000000000"])
+        ),
+        Ok(()),
+        "a deleted branch"
+    );
+    assert_eq!(
+        super::pre_push_gate(head, "\n", &[]),
+        Ok(()),
+        "nothing pushed, nothing changed"
+    );
+    assert_eq!(
+        super::pre_push_gate(head, " M src/a.rs\n?? notes.txt\n", &pushed(&["2222222222222222222222222222222222222222"])),
+        Err("the working tree has changes not committed, which the check would include: M src/a.rs, ?? notes.txt; \
+             pushing 2222222222222222222222222222222222222222, but 1111111111111111111111111111111111111111 \
+             is checked out: check out the pushed commit, then push again"
+            .to_owned()),
+        "a dirty tree, another commit"
+    );
+}
+
+#[test]
+fn checks_a_push_then_runs_every_check() {
+    let head = "1111111111111111111111111111111111111111";
+    let mut fake = passing();
+    let first = fake
+        .files
+        .insert("capture git rev-parse HEAD".to_owned(), format!("{head}\n"));
+    let second = fake
+        .files
+        .insert("capture git status --porcelain".to_owned(), String::new());
+    assert!(first.is_none() && second.is_none(), "fresh fake");
+    let mut out = Vec::new();
+    let args = ["pre-push".to_owned(), head.to_owned()];
+    assert_eq!(
+        cli(&args, &mut fake, &mut out, &mut Vec::new()),
+        0,
+        "clean push"
+    );
+    assert!(
+        String::from_utf8(out)
+            .expect("UTF-8")
+            .ends_with("checks passed\n"),
+        "then every check"
+    );
+    let mut dirty = passing();
+    let third = dirty
+        .files
+        .insert("capture git rev-parse HEAD".to_owned(), format!("{head}\n"));
+    let fourth = dirty.files.insert(
+        "capture git status --porcelain".to_owned(),
+        " M a.rs\n".to_owned(),
+    );
+    assert!(third.is_none() && fourth.is_none(), "fresh fake");
+    let mut err = Vec::new();
+    assert_eq!(
+        cli(&args, &mut dirty, &mut Vec::new(), &mut err),
+        1,
+        "dirty tree"
+    );
+    assert!(
+        dirty.ran.iter().all(|line| !line.contains("cargo fmt")),
+        "no check runs"
+    );
+    assert_eq!(
+        String::from_utf8(err).expect("UTF-8"),
+        "the working tree has changes not committed, which the check would include: M a.rs\n",
+        "says what to commit"
+    );
+    let mut blind = passing();
+    let mut blind_err = Vec::new();
+    assert_eq!(
+        cli(&args, &mut blind, &mut Vec::new(), &mut blind_err),
+        1,
+        "no git"
+    );
+    assert_eq!(
+        String::from_utf8(blind_err).expect("UTF-8"),
+        "cannot read the work tree (`git rev-parse HEAD`): failed\n",
+        "says what it could not read"
+    );
+}
+
+#[test]
+fn refuses_cargo_tools_at_other_versions() {
+    let answers: Vec<Option<String>> = super::TOOLS
+        .iter()
+        .map(|(program, args, _)| Some(tool_answer(program, args.first().copied())))
+        .collect();
+    assert_eq!(
+        preflight_gate("linux", &answers),
+        Ok(()),
+        "the pinned versions"
+    );
+    let mut older = answers;
+    older[5] = Some("cargo-mutants 26.0.0\n".to_owned());
+    older[6] = Some("cargo-deny".to_owned());
+    assert_eq!(
+        preflight_gate("linux", &older),
+        Err(
+            "cargo-mutants 26.0.0 is installed, the checks need cargo-mutants 27.1.0: \
+             cargo install --locked cargo-mutants@27.1.0; cargo-deny is installed, the checks \
+             need cargo-deny 0.20.2: cargo install --locked cargo-deny@0.20.2"
+                .to_owned()
+        ),
+        "another version, no version"
+    );
+}
+
+#[test]
+fn requires_a_workflow_that_pins_everything() {
+    assert_eq!(
+        super::workflow_gate(PINNED_WORKFLOW, "22.23.4\n"),
+        Ok(()),
+        "pinned"
+    );
+    let loose = PINNED_WORKFLOW
+        .replace(
+            "checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1",
+            "checkout@v7",
+        )
+        .replace(
+            "setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+            "setup-node@949feb2413d6458794dcd2491c4babbbce0c15cz",
+        )
+        .replace(
+            "taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39",
+            "taiki-e/install-action",
+        )
+        .replace("cargo-mutants@27.1.0", "cargo-mutants")
+        .replace("fetch-depth: 0", "fetch-depth: 1")
+        .replace("node-version-file: .node-version", "node-version: 22")
+        .replace("run: cargo xtask check", "run: cargo test");
+    assert_eq!(
+        super::workflow_gate(&loose, "22"),
+        Err("actions/checkout@v7 is not pinned to a full commit hash; \
+             taiki-e/install-action is not pinned to a full commit hash; \
+             actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15cz # v7.1.0 is not pinned to a full commit hash; \
+             .github/workflows/quality.yml lacks `tool: cargo-llvm-cov@0.9.1,cargo-mutants@27.1.0,cargo-deny@0.20.2`; \
+             .github/workflows/quality.yml lacks `node-version-file: .node-version`; \
+             .github/workflows/quality.yml lacks `fetch-depth: 0`; \
+             .github/workflows/quality.yml lacks `run: cargo xtask check`; \
+             .node-version must pin one Node.js release, 22.18 or later (X.Y.Z): found \"22\""
+            .to_owned()),
+        "every kind of loose pin"
+    );
+    for (node, accepted) in [
+        ("22.18.0", true),
+        ("24.1.0\n", true),
+        ("22.17.9", false),
+        ("21.99.0", false),
+        ("v22.23.4", false),
+        ("22.x.1", false),
+        ("22.23.4.1", false),
+    ] {
+        assert_eq!(
+            super::workflow_gate(PINNED_WORKFLOW, node).is_ok(),
+            accepted,
+            "{node:?}"
         );
     }
 }

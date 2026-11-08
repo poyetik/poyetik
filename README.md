@@ -27,8 +27,8 @@ A monorepo of separate parts:
 macOS or Linux (on Windows, use WSL2). `cargo xtask check` checks every tool first and says how to install what is missing; in short:
 
 - [rustup](https://rustup.rs): the pinned toolchain (`rust-toolchain.toml`) installs itself. The checks also need `nightly-2026-11-01` with `llvm-tools-preview`, `miri` and `rust-src` (branch coverage and Miri only).
-- `cargo install --locked cargo-llvm-cov cargo-mutants cargo-deny`
-- Node.js 22.18 or later and pnpm 10 (`corepack enable`), then `pnpm install` at the root, and `pnpm exec playwright install` in each package with end-to-end tests (`bindings/wasm`, `apps/playground`, `apps/roadmap`).
+- `cargo install --locked cargo-llvm-cov@0.9.1 cargo-mutants@27.1.0 cargo-deny@0.20.2` (the exact versions the checks require).
+- Node.js 22.18 or later (CI uses the release in `.node-version`) and pnpm 10 (`corepack enable`), then `pnpm install` at the root, and `pnpm exec playwright install` in each package with end-to-end tests (`bindings/wasm`, `apps/playground`, `apps/roadmap`).
 
 ## Checking
 
