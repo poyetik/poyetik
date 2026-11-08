@@ -33,6 +33,8 @@ jobs:
         with:
           # The whole history: the history gate checks every commit message.
           fetch-depth: 0
+          # No credential is kept in the repository's configuration for later steps.
+          persist-credentials: false
 
       # Rust: the pinned stable toolchain comes from rust-toolchain.toml; the pinned
       # nightly is used only to measure branch coverage and to run Miri.

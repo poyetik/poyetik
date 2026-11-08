@@ -1929,39 +1929,112 @@ pub fn failure_uploads() -> Vec<String> {
     uploads
 }
 
-/// Checks that CI cannot change under the project's feet.
+/// Workflow settings that would let CI pass without checking, or expose its token.
 ///
-/// Every action of the workflow is pinned to a full commit hash, the Cargo tools to
-/// [`PINNED_TOOLS`], Node.js to the release in `.node-version` (at [`NODE_FLOOR`] or
-/// later), the runner to an OS release (never `-latest`), the whole history is fetched for
-/// the history gate, the workflow runs `cargo xtask check`, its Rust cache is saved even
-/// when the run fails, and a failed run uploads every [`failure_uploads`] path.
+/// A step allowed to fail, triggers that run with write access on code from a fork,
+/// secrets, and build flags that could lift lints.
+pub const WORKFLOW_REFUSED: [&str; 5] = [
+    "continue-on-error",
+    "pull_request_target",
+    "workflow_run",
+    "secrets.",
+    "RUSTFLAGS",
+];
+
+/// The exact triggers of the workflow: every push, every pull request, and by hand.
+pub const WORKFLOW_TRIGGERS: [&str; 4] =
+    ["on:", "  push:", "  pull_request:", "  workflow_dispatch:"];
+
+/// The exact permissions of the workflow's token: reading the repository.
+pub const WORKFLOW_PERMISSIONS: [&str; 2] = ["permissions:", "  contents: read"];
+
+/// Whether the lines of `workflow` hold `block` as consecutive lines.
+fn holds_block(workflow: &str, block: &[&str]) -> bool {
+    let lines: Vec<&str> = workflow.lines().map(str::trim_end).collect();
+    lines.windows(block.len()).any(|window| window == block)
+}
+
+/// Checks that CI cannot change under the project's feet, nor pass without checking.
+///
+/// `workflows` are the workflow files tracked by git: only [`WORKFLOW`]. In it, every line
+/// using an action pins it to a full commit hash, whatever its form (`- uses:`, a flow
+/// mapping); nothing of [`WORKFLOW_REFUSED`] appears; the only condition is `if: failure()`
+/// (on the upload of the reports); the triggers and the token's permissions are exactly
+/// [`WORKFLOW_TRIGGERS`] and [`WORKFLOW_PERMISSIONS`]; every nightly toolchain named is
+/// [`NIGHTLY_TOOLCHAIN`]; the checkout keeps no credential; the Cargo tools are
+/// [`PINNED_TOOLS`]; Node.js is the release in `.node-version` (at [`NODE_FLOOR`] or later);
+/// the runner is an OS release (never `-latest`); the whole history is fetched for the
+/// history gate; the workflow runs `cargo xtask check`; its Rust cache is saved even when
+/// the run fails; and a failed run uploads every [`failure_uploads`] path.
 ///
 /// # Errors
 ///
-/// Returns every unpinned action and every missing pin.
-pub fn workflow_gate(workflow: &str, node_version: &str) -> Result<(), Failure> {
-    let mut problems: Vec<String> = workflow
-        .lines()
-        .filter_map(|line| line.trim().trim_start_matches("- ").strip_prefix("uses: "))
-        .filter(|action| {
+/// Returns every unpinned action, refused setting and missing pin.
+pub fn workflow_gate(
+    workflows: &[String],
+    workflow: &str,
+    node_version: &str,
+) -> Result<(), Failure> {
+    let mut problems: Vec<String> = workflows
+        .iter()
+        .filter(|path| *path != WORKFLOW)
+        .map(|path| format!("{path}: the only workflow is {WORKFLOW}, which xtask checks"))
+        .collect();
+    for line in workflow.lines().map(str::trim) {
+        if let Some((_, used)) = line.split_once("uses:") {
+            let action = used.trim().trim_end_matches(['}', ' ']);
             let reference = action
                 .split_once('@')
                 .map_or("", |(_, reference)| reference);
-            let commit = reference.split_whitespace().next().unwrap_or_default();
-            commit.len() != 40 || !commit.bytes().all(|byte| byte.is_ascii_hexdigit())
-        })
-        .map(|action| format!("{action} is not pinned to a full commit hash"))
-        .collect();
-    problems.extend(
+            let commit = reference
+                .split([' ', '}', ',', '"', '\''])
+                .next()
+                .unwrap_or_default();
+            if commit.len() != 40 || !commit.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+                problems.push(format!("{action} is not pinned to a full commit hash"));
+            }
+        }
+        problems.extend(
+            WORKFLOW_REFUSED
+                .iter()
+                .filter(|refused| line.contains(*refused))
+                .map(|refused| format!("`{line}`: `{refused}` is not allowed")),
+        );
+        if line.contains("if:") && line != "if: failure()" {
+            problems.push(format!("`{line}`: the only condition is `if: failure()`"));
+        }
+        if line.starts_with("runs-on:") && line.ends_with("-latest") {
+            problems.push(format!(
+                "`{line}` moves to a new OS release without a commit: name the release"
+            ));
+        }
+        let nightly = NIGHTLY_TOOLCHAIN.trim_start_matches('+');
+        problems.extend(
+            line.split(|character: char| character.is_whitespace() || character == ',')
+                .map(|word| word.trim_start_matches('+'))
+                .filter(|word| word.starts_with("nightly-") && *word != nightly)
+                .map(|word| format!("`{word}` is not the pinned nightly, {nightly}")),
+        );
+    }
+    for (block, what) in [
+        (&WORKFLOW_TRIGGERS[..], "triggers"),
+        (&WORKFLOW_PERMISSIONS[..], "permissions"),
+    ] {
+        if !holds_block(workflow, block) {
+            problems.push(format!("{WORKFLOW} lacks the {what} `{}`", block.join(" ")));
+        }
+    }
+    let declared = |key: &str| {
         workflow
             .lines()
-            .map(str::trim)
-            .filter(|line| line.starts_with("runs-on:") && line.ends_with("-latest"))
-            .map(|line| {
-                format!("`{line}` moves to a new OS release without a commit: name the release")
-            }),
-    );
+            .filter(|line| line.trim_start().starts_with(key))
+            .count()
+    };
+    if declared("on:") != 1 || declared("permissions:") != 1 {
+        problems.push(format!(
+            "{WORKFLOW} declares triggers and permissions once, for the whole workflow"
+        ));
+    }
     let tools = PINNED_TOOLS
         .iter()
         .map(|(name, version)| format!("{name}@{version}"))
@@ -1971,6 +2044,7 @@ pub fn workflow_gate(workflow: &str, node_version: &str) -> Result<(), Failure> 
         format!("tool: {tools}"),
         "node-version-file: .node-version".to_owned(),
         "fetch-depth: 0".to_owned(),
+        "persist-credentials: false".to_owned(),
         "run: cargo xtask check".to_owned(),
         "cache-on-failure: true".to_owned(),
     ]
@@ -2791,8 +2865,17 @@ fn run_action(
         Action::Preflight => preflight(runner),
         Action::HistoryGate => history(runner),
         Action::WorkflowGate => {
+            let workflows: Vec<String> =
+                list_tracked(runner, &["*.yml", "*.yaml"], "the YAML files")?
+                    .into_iter()
+                    .filter(|path| path.starts_with(".github/workflows/"))
+                    .collect();
             let workflow = read_file(runner, WORKFLOW)?;
-            workflow_gate(&workflow, &read_file(runner, NODE_VERSION_FILE)?)
+            workflow_gate(
+                &workflows,
+                &workflow,
+                &read_file(runner, NODE_VERSION_FILE)?,
+            )
         }
         Action::UnsafeGate => {
             let paths = list_tracked(runner, &["*.rs"], "the Rust files")?;

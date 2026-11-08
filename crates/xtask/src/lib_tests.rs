@@ -470,7 +470,7 @@ fn tool_answer(program: &str, subcommand: Option<&str>) -> String {
 }
 
 /// A workflow that pins everything, as the workflow gate requires.
-const PINNED_WORKFLOW: &str = "jobs:\n  check:\n    runs-on: ubuntu-24.04\n    steps:\n      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n        with:\n          fetch-depth: 0\n      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39\n        with:\n          tool: cargo-llvm-cov@0.9.1,cargo-mutants@27.1.0,cargo-deny@0.20.2\n      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0\n        with:\n          node-version-file: .node-version\n      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3\n        with:\n          cache-on-failure: true\n      - name: Every quality check\n        run: cargo xtask check\n      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2\n        if: failure()\n        with:\n          path: |\n            mutants.out\n            target/coverage\n            bindings/wasm/dist/engine.wasm\n            apps/*/coverage\n            apps/*/reports\n            bindings/*/coverage\n            bindings/*/reports\n            tooling/*/coverage\n            tooling/*/reports\n";
+const PINNED_WORKFLOW: &str = "on:\n  push:\n  pull_request:\n  workflow_dispatch:\n\npermissions:\n  contents: read\n\njobs:\n  check:\n    runs-on: ubuntu-24.04\n    steps:\n      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n        with:\n          fetch-depth: 0\n          persist-credentials: false\n      - name: Install Rust toolchains\n        run: rustup toolchain install nightly-2026-11-01 --profile minimal\n      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39\n        with:\n          tool: cargo-llvm-cov@0.9.1,cargo-mutants@27.1.0,cargo-deny@0.20.2\n      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0\n        with:\n          node-version-file: .node-version\n      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3\n        with:\n          cache-on-failure: true\n      - name: Every quality check\n        run: cargo xtask check\n      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2\n        if: failure()\n        with:\n          path: |\n            mutants.out\n            target/coverage\n            bindings/wasm/dist/engine.wasm\n            apps/*/coverage\n            apps/*/reports\n            bindings/*/coverage\n            bindings/*/reports\n            tooling/*/coverage\n            tooling/*/reports\n";
 
 /// A history whose two commits follow the convention, the change of behavior with its
 /// changelog entry, as `git log` writes it for the history gate.
@@ -913,7 +913,7 @@ fn runs_every_step_and_reports_success() {
         Ok(()),
         "all green"
     );
-    let (tools, commands, emptied, listed, captured) = (9, 32, 12, 8, 9);
+    let (tools, commands, emptied, listed, captured) = (9, 32, 12, 9, 9);
     let read = 12 + 2 + 2 + 4 + 2 + 1 + 7 + 10 + 10 + 8 + 2 + 5 + 11;
     assert_eq!(
         fake.ran.len(),
@@ -921,7 +921,7 @@ fn runs_every_step_and_reports_success() {
         "the preflight asks nine tools; 32 commands run (formatting, lints, documentation, \
          tests, four portability builds, twelve coverage measurements, mutants, Miri, the \
          conformance check and export, deny, the JavaScript install, audit and five package \
-         checks); twelve directories are emptied; git lists eight kinds of files; the licenses, \
+         checks); twelve directories are emptied; git lists nine kinds of files; the licenses, \
          the history and the state of the tree (before and after) are captured twice each, \
          the Cargo metadata once; and the gates read twelve coverage reports, \
          the unviable report and reviews, a TypeScript source and its reviews, the three \
@@ -2866,7 +2866,7 @@ fn refuses_cargo_tools_at_other_versions() {
 #[test]
 fn requires_a_workflow_that_pins_everything() {
     assert_eq!(
-        super::workflow_gate(PINNED_WORKFLOW, "22.23.4\n"),
+        super::workflow_gate(&[super::WORKFLOW.to_owned()], PINNED_WORKFLOW, "22.23.4\n"),
         Ok(()),
         "pinned"
     );
@@ -2888,7 +2888,7 @@ fn requires_a_workflow_that_pins_everything() {
         .replace("node-version-file: .node-version", "node-version: 22")
         .replace("run: cargo xtask check", "run: cargo test");
     assert_eq!(
-        super::workflow_gate(&loose, "22"),
+        super::workflow_gate(&[super::WORKFLOW.to_owned()], &loose, "22"),
         failed(
             ".github/workflows/quality.yml can change CI without a commit: 8 problems, listed above\n\
              actions/checkout@v7 is not pinned to a full commit hash\n\
@@ -2908,7 +2908,7 @@ fn requires_a_workflow_that_pins_everything() {
         .replace("            tooling/*/coverage\n", "")
         .replace("            target/coverage\n", "");
     assert_eq!(
-        super::workflow_gate(&unkept, "22.23.4"),
+        super::workflow_gate(&[super::WORKFLOW.to_owned()], &unkept, "22.23.4"),
         failed(
             ".github/workflows/quality.yml can change CI without a commit: 4 problems, listed above\n\
              `runs-on: ubuntu-latest` moves to a new OS release without a commit: name the release\n\
@@ -2944,7 +2944,7 @@ fn requires_a_workflow_that_pins_everything() {
         ("22.23.4.1", false),
     ] {
         assert_eq!(
-            super::workflow_gate(PINNED_WORKFLOW, node).is_ok(),
+            super::workflow_gate(&[super::WORKFLOW.to_owned()], PINNED_WORKFLOW, node).is_ok(),
             accepted,
             "{node:?}"
         );
@@ -2956,7 +2956,11 @@ fn the_real_workflow_pins_everything() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let read = |path: &str| std::fs::read_to_string(root.join(path)).expect("readable");
     assert_eq!(
-        super::workflow_gate(&read(super::WORKFLOW), &read(super::NODE_VERSION_FILE)),
+        super::workflow_gate(
+            &[super::WORKFLOW.to_owned()],
+            &read(super::WORKFLOW),
+            &read(super::NODE_VERSION_FILE)
+        ),
         Ok(()),
         "the workflow of the repository"
     );
@@ -3447,7 +3451,7 @@ fn reads_node_releases_alike_everywhere() {
             .collect();
         assert_eq!(
             preflight_gate("linux", &answers).is_ok(),
-            super::workflow_gate(PINNED_WORKFLOW, text).is_ok(),
+            super::workflow_gate(&[super::WORKFLOW.to_owned()], PINNED_WORKFLOW, text).is_ok(),
             "{text:?}: the same verdict from the preflight and the workflow gate"
         );
     }
@@ -3841,5 +3845,104 @@ fn reviews_the_real_dependencies() {
         super::dependency_gate(&metadata, &packages, &read(super::DEPENDENCIES_REVIEWED)),
         Ok(()),
         "every direct dependency of the repository"
+    );
+}
+
+#[test]
+fn refuses_workflows_that_could_pass_without_checking() {
+    let gate = |workflows: &[&str], workflow: &str| {
+        let workflows: Vec<String> = workflows.iter().map(|path| (*path).to_owned()).collect();
+        super::workflow_gate(&workflows, workflow, "22.23.4")
+    };
+    let only = [super::WORKFLOW];
+    let refused = |workflow: &str, problem: &str| {
+        assert_eq!(
+            gate(&only, workflow),
+            failed(format!(
+                ".github/workflows/quality.yml can change CI without a commit: {problem}"
+            )),
+            "{problem}"
+        );
+    };
+    refused(
+        &PINNED_WORKFLOW.replace(
+            "      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3",
+            "      -   uses: Swatinem/rust-cache@main",
+        ),
+        "Swatinem/rust-cache@main is not pinned to a full commit hash",
+    );
+    refused(
+        &PINNED_WORKFLOW.replace(
+            "      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3",
+            "      - { uses: Swatinem/rust-cache@main }",
+        ),
+        "Swatinem/rust-cache@main is not pinned to a full commit hash",
+    );
+    refused(
+        &PINNED_WORKFLOW.replace(
+            "        run: cargo xtask check\n",
+            "        run: cargo xtask check\n        continue-on-error: true\n",
+        ),
+        "`continue-on-error: true`: `continue-on-error` is not allowed",
+    );
+    refused(
+        &PINNED_WORKFLOW.replace(
+            "      - name: Every quality check\n",
+            "      - name: Every quality check\n        if: false\n",
+        ),
+        "`if: false`: the only condition is `if: failure()`",
+    );
+    refused(
+        &PINNED_WORKFLOW.replace("nightly-2026-11-01", "nightly-2020-01-01"),
+        "`nightly-2020-01-01` is not the pinned nightly, nightly-2026-11-01",
+    );
+    refused(
+        &PINNED_WORKFLOW.replace(
+            "        run: cargo xtask check\n",
+            "        run: cargo xtask check\n        env:\n          RUSTFLAGS: -Aunsafe\n",
+        ),
+        "`RUSTFLAGS: -Aunsafe`: `RUSTFLAGS` is not allowed",
+    );
+    refused(
+        &PINNED_WORKFLOW.replace("          persist-credentials: false\n", ""),
+        ".github/workflows/quality.yml lacks `persist-credentials: false`",
+    );
+    assert_eq!(
+        gate(
+            &only,
+            &PINNED_WORKFLOW
+                .replace("  pull_request:\n", "  pull_request_target:\n")
+                .replace("  contents: read", "  contents: write")
+        ),
+        failed(
+            ".github/workflows/quality.yml can change CI without a commit: 3 problems, listed above\n\
+             `pull_request_target:`: `pull_request_target` is not allowed\n\
+             .github/workflows/quality.yml lacks the triggers `on:   push:   pull_request:   workflow_dispatch:`\n\
+             .github/workflows/quality.yml lacks the permissions `permissions:   contents: read`"
+        ),
+        "a trigger running fork code with the token, a token that writes"
+    );
+    assert_eq!(
+        gate(
+            &only,
+            &format!("{PINNED_WORKFLOW}  other:\n    permissions:\n      contents: write\n")
+        ),
+        failed(
+            ".github/workflows/quality.yml can change CI without a commit: .github/workflows/quality.yml \
+             declares triggers and permissions once, for the whole workflow"
+        ),
+        "a job that widens the permissions"
+    );
+    assert_eq!(
+        gate(
+            &[super::WORKFLOW, ".github/workflows/other.yml"],
+            PINNED_WORKFLOW
+        ),
+        failed(
+            ".github/workflows/quality.yml can change CI without a commit: \
+             .github/workflows/other.yml: the only workflow is .github/workflows/quality.yml, \
+             which xtask checks"
+        ),
+        "a second workflow, which nothing checks"
     );
 }
