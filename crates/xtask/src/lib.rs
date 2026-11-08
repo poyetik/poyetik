@@ -2458,6 +2458,9 @@ pub enum Need {
     Pinned((&'static str, &'static str)),
     /// Node.js, exactly the release of [`NODE_VERSION_FILE`], which CI installs.
     NodeRelease,
+    /// The Rust compiler, exactly the release of [`RUST_TOOLCHAIN_FILE`]: the second word
+    /// of its answer, as in `rustc 1.99.1 (…)`.
+    Toolchain,
 }
 
 /// How to install a tool, rendered from the constants it depends on so that a hint never
@@ -2515,7 +2518,7 @@ pub struct Tool {
 }
 
 /// The tools the checks run.
-pub const TOOLS: [Tool; 9] = [
+pub const TOOLS: [Tool; 10] = [
     Tool {
         program: "git",
         args: &["--version"],
@@ -2572,7 +2575,33 @@ pub const TOOLS: [Tool; 9] = [
         need: Need::Present,
         install: Install::Text("corepack enable (pnpm 10, as packageManager in package.json)"),
     },
+    Tool {
+        program: "rustc",
+        args: &["--version"],
+        need: Need::Toolchain,
+        install: Install::Text(
+            "the release of rust-toolchain.toml, which rustup installs: remove what overrides it (`rustup override unset`)",
+        ),
+    },
 ];
+
+/// The file pinning the Rust toolchain, which rustup reads.
+pub const RUST_TOOLCHAIN_FILE: &str = "rust-toolchain.toml";
+
+/// The release a toolchain file pins: its line `channel = "<release>"`.
+#[must_use]
+pub fn toolchain_channel(toolchain: &str) -> Option<&str> {
+    toolchain.lines().find_map(|line| {
+        line.trim()
+            .strip_prefix("channel")?
+            .trim_start()
+            .strip_prefix('=')?
+            .trim()
+            .strip_prefix('"')?
+            .strip_suffix('"')
+            .filter(|channel| !channel.is_empty())
+    })
+}
 
 /// Reads a Node.js release as `node --version` and `.node-version` write it: `X.Y.Z`, with
 /// or without a leading `v`, nothing else (no pre-release, no partial version).
@@ -2597,18 +2626,22 @@ pub const NODE_FLOOR: (u64, u64) = (22, 18);
 /// (a missing program, a missing cargo subcommand or toolchain, a broken install). Every
 /// tool must answer, the Cargo tools at their pinned version and Node.js at exactly the
 /// release of `node_version` (the text of [`NODE_VERSION_FILE`], which CI installs: a
-/// green local check means a green CI), on a platform the checks support (macOS or Linux;
+/// green local check means a green CI), and the Rust compiler at exactly the release of
+/// `toolchain` (the text of [`RUST_TOOLCHAIN_FILE`]: an override, a `+toolchain` or
+/// `RUSTUP_TOOLCHAIN` would replace it), on a platform the checks support (macOS or Linux;
 /// Windows through WSL2).
 ///
 /// # Errors
 ///
 /// Returns one failure listing every problem found, each with how to fix it: an
 /// unsupported platform, a tool that did not answer (with its own reason), or a tool at a
-/// version the checks do not accept (Node.js included, which must be `node_version`).
+/// version the checks do not accept (Node.js included, which must be `node_version`, and
+/// the Rust compiler, which must be the channel of `toolchain`).
 pub fn preflight_gate(
     os: &str,
     answers: &[Result<String, CommandFailure>],
     node_version: &str,
+    toolchain: &str,
 ) -> Result<(), Failure> {
     let mut problems = Vec::new();
     if os == "windows" {
@@ -2634,6 +2667,18 @@ pub fn preflight_gate(
                     ));
                 }
             }
+            Need::Toolchain => match toolchain_channel(toolchain) {
+                None => problems.push(format!(
+                    "{RUST_TOOLCHAIN_FILE} must pin one release: channel = \"X.Y.Z\""
+                )),
+                Some(channel) => {
+                    if version.split_whitespace().nth(1) != Some(channel) {
+                        problems.push(format!(
+                            "{version} is installed, the checks need {channel} of {RUST_TOOLCHAIN_FILE}: {install}"
+                        ));
+                    }
+                }
+            },
             Need::Pinned((name, needed)) => {
                 if version.split_whitespace().nth(1) != Some(needed) {
                     problems.push(format!(
@@ -3458,10 +3503,17 @@ pub const LOCAL_GIT_VARIABLES: [&str; 15] = [
     "GIT_COMMON_DIR",
 ];
 
-/// A command for `program` in `dir`, without the variables of [`LOCAL_GIT_VARIABLES`].
+/// A command for `program` in `dir`, without the variables of [`LOCAL_GIT_VARIABLES`], nor
+/// `RUSTUP_TOOLCHAIN`.
+///
+/// Rustup sets that variable for xtask itself, to the toolchain it chose for it (`cargo
+/// +beta xtask`, `RUSTUP_TOOLCHAIN=stable`): inherited, it would replace the toolchain of
+/// [`RUST_TOOLCHAIN_FILE`] for every command. Without it, each command runs with the
+/// toolchain of the file (or of an override, which the preflight refuses).
 fn command(program: &str, dir: &Path) -> Command {
     let mut command = Command::new(program);
     let _in_dir = command.current_dir(dir);
+    let _pinned = command.env_remove("RUSTUP_TOOLCHAIN");
     for variable in LOCAL_GIT_VARIABLES {
         let _without = command.env_remove(variable);
     }
@@ -3595,10 +3647,12 @@ fn preflight(runner: &mut dyn Runner) -> Result<(), Failure> {
         .iter()
         .map(|tool| runner.capture(&Cmd::new(tool.program, tool.args, Dir::Root)))
         .collect();
+    let node_version = read_file(runner, NODE_VERSION_FILE)?;
     preflight_gate(
         std::env::consts::OS,
         &answers,
-        &read_file(runner, NODE_VERSION_FILE)?,
+        &node_version,
+        &read_file(runner, RUST_TOOLCHAIN_FILE)?,
     )
 }
 
@@ -4356,7 +4410,7 @@ fn rust_test_code(rel: &str) -> bool {
 pub const MUTATE_EVERYTHING_WHEN: [&str; 4] = [
     "Cargo.toml",
     "Cargo.lock",
-    "rust-toolchain.toml",
+    RUST_TOOLCHAIN_FILE,
     "crates/engine-testkit/",
 ];
 

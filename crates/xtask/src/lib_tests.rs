@@ -408,6 +408,7 @@ fn passing() -> Fake {
     for (path, text) in [
         (super::WORKFLOW, PINNED_WORKFLOW),
         (super::NODE_VERSION_FILE, "22.23.4\n"),
+        (super::RUST_TOOLCHAIN_FILE, TOOLCHAIN),
     ] {
         let pinned = fake.files.insert(path.to_owned(), text.to_owned());
         assert!(pinned.is_none(), "fresh fake");
@@ -539,10 +540,14 @@ fn tool_answer(program: &str, subcommand: Option<&str>) -> String {
         .find(|(name, _)| subcommand == name.strip_prefix("cargo-"));
     match (program, pinned) {
         ("node", _) => "v22.23.4\n".to_owned(),
+        ("rustc", _) => "rustc 1.99.1 (58cf8f9c3 2026-10-13)\n".to_owned(),
         (_, Some((name, version))) => format!("{name} {version}\n"),
         _ => "1.0\n".to_owned(),
     }
 }
+
+/// A toolchain file pinning the release the fake's `rustc` answers.
+const TOOLCHAIN: &str = "# Pinned.\n[toolchain]\nchannel = \"1.99.1\"\nprofile = \"minimal\"\n";
 
 /// A workflow that pins everything, as the workflow gate requires.
 const PINNED_WORKFLOW: &str = "on:\n  push:\n  pull_request:\n  workflow_dispatch:\n\npermissions:\n  contents: read\n\nconcurrency:\n  group: ${{ (github.event_name != 'push' || contains(github.event.head_commit.message, '[ci]')) && format('quality-{0}', github.ref) || format('skipped-{0}', github.run_id) }}\n  cancel-in-progress: true\n\njobs:\n  check:\n    runs-on: ubuntu-24.04\n    steps:\n      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n        with:\n          fetch-depth: 0\n          persist-credentials: false\n      - name: Install Rust toolchains\n        run: rustup toolchain install nightly-2026-11-01 --profile minimal\n      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39\n        with:\n          tool: cargo-llvm-cov@0.9.1,cargo-mutants@27.1.0,cargo-deny@0.20.2\n      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0\n        with:\n          node-version-file: .node-version\n      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3\n        with:\n          cache-on-failure: true\n      - name: Every quality check\n        run: cargo xtask check --full\n      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2\n        if: failure()\n        with:\n          path: |\n            mutants.out\n            target/coverage\n            bindings/wasm/dist/engine.wasm\n            apps/*/coverage\n            apps/*/reports\n            bindings/*/coverage\n            bindings/*/reports\n            tooling/*/coverage\n            tooling/*/reports\n";
@@ -1942,19 +1947,19 @@ fn runs_every_step_and_reports_success() {
         Ok(()),
         "all green"
     );
-    let (tools, commands, emptied, listed, captured, written) = (9, 49, 14, 11, 12, 1);
-    let read = 1 + 12 + 2 + 7 + 19 + 2 + 1 + 7 + 3 + 10 + 10 + 20 + 8 + 2 + 11 + 16 + 16;
+    let (tools, commands, emptied, listed, captured, written) = (10, 49, 14, 11, 12, 1);
+    let read = 2 + 12 + 2 + 7 + 19 + 2 + 1 + 7 + 3 + 10 + 10 + 20 + 8 + 2 + 11 + 16 + 16;
     assert_eq!(
         fake.ran.len(),
         tools + commands + emptied + listed + captured + written + read,
-        "the preflight asks nine tools; 49 commands run (formatting, lints, documentation, \
+        "the preflight asks ten tools; 49 commands run (formatting, lints, documentation, \
          tests, four portability builds, twelve coverage measurements each after emptying \
          the coverage build, the mutants of the changes, Miri, the \
          conformance check and export, deny, the JavaScript install, audit, and five package \
          checks each followed by its Stryker run); fourteen directories are emptied; git lists \
          eleven kinds of files; the licenses, the history and the state of the tree (before and \
          after) are captured twice each, the Cargo metadata, the merge base, the changes and the \
-         new Rust files once; the diff is written once; and the gates read .node-version for the preflight, twelve coverage reports, \
+         new Rust files once; the diff is written once; and the gates read .node-version and the toolchain file for the preflight, twelve coverage reports, \
          the unviable report and reviews, six TypeScript sources and their reviews, the eight \
          sources, the ten Cargo manifests and the register of the bypass gate, the two unsafe files, the Cargo \
          configuration, the six package manifests and the register of the dependency gate, the three \
@@ -2008,8 +2013,8 @@ fn stops_at_the_first_failing_command() {
     );
     assert_eq!(
         fake.ran.len(),
-        9 + 1 + 2 + 4,
-        "the preflight asks nine tools and reads .node-version, the tree is recorded by two \
+        10 + 2 + 2 + 4,
+        "the preflight asks ten tools and reads .node-version and the toolchain file, the tree is recorded by two \
          captures; nothing runs after the failure"
     );
 }
@@ -3857,7 +3862,7 @@ fn checks_the_tools_and_the_platform_first() {
             .collect()
     };
     assert_eq!(
-        preflight_gate("macos", &present("v22.23.4\n"), "22.23.4\n"),
+        preflight_gate("macos", &present("v22.23.4\n"), "22.23.4\n", TOOLCHAIN),
         Ok(()),
         "the release of .node-version"
     );
@@ -3869,7 +3874,7 @@ fn checks_the_tools_and_the_platform_first() {
         ("v22.23.4", "22.23"),
     ] {
         assert_eq!(
-            preflight_gate("linux", &present(node), pinned),
+            preflight_gate("linux", &present(node), pinned, TOOLCHAIN),
             found(
                 "the checks cannot run here",
                 &[format!(
@@ -3889,7 +3894,7 @@ fn checks_the_tools_and_the_platform_first() {
         },
     });
     assert_eq!(
-        preflight_gate("windows", &missing, "22.23.4"),
+        preflight_gate("windows", &missing, "22.23.4", TOOLCHAIN),
         found("the checks cannot run here", &[
             "the checks run on macOS and Linux: on Windows, run them in WSL2".to_owned(),
             "`cargo mutants --version` exited with code 101: error: no such command: `mutants`; to install: cargo install --locked cargo-mutants@27.1.0".to_owned(),
@@ -3900,6 +3905,100 @@ fn checks_the_tools_and_the_platform_first() {
         super::NODE_FLOOR,
         (22, 18),
         "the engines of every package.json"
+    );
+}
+
+#[test]
+fn requires_the_rust_release_of_the_toolchain_file() {
+    let answers = |rustc: &str| -> Vec<Result<String, CommandFailure>> {
+        super::TOOLS
+            .iter()
+            .map(|tool| {
+                Ok(if tool.program == "rustc" {
+                    rustc.to_owned()
+                } else {
+                    tool_answer(tool.program, tool.args.first().copied())
+                })
+            })
+            .collect()
+    };
+    assert_eq!(
+        preflight_gate(
+            "linux",
+            &answers("rustc 1.99.1 (58cf8f9c3 2026-10-13)\n"),
+            "22.23.4",
+            TOOLCHAIN
+        ),
+        Ok(()),
+        "the channel of rust-toolchain.toml"
+    );
+    let hint = "the release of rust-toolchain.toml, which rustup installs: \
+                remove what overrides it (`rustup override unset`)";
+    for (rustc, toolchain) in [
+        ("rustc 1.98.0 (aaaaaaaaa 2026-09-01)", TOOLCHAIN),
+        ("rustc 1.99.1-beta.2 (bbbbbbbbb 2026-10-01)", TOOLCHAIN),
+        ("rustc 1.100.0-nightly (ccccccccc 2026-11-01)", TOOLCHAIN),
+        (
+            "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
+            "[toolchain]\nchannel = \"1.99.10\"\n",
+        ),
+        ("rustc", TOOLCHAIN),
+    ] {
+        let channel = super::toolchain_channel(toolchain).unwrap_or_default();
+        assert_eq!(
+            preflight_gate("linux", &answers(rustc), "22.23.4", toolchain),
+            found(
+                "the checks cannot run here",
+                &[format!(
+                    "{rustc} is installed, the checks need {channel} of rust-toolchain.toml: {hint}"
+                )]
+            ),
+            "{rustc} against {toolchain:?}"
+        );
+    }
+    for toolchain in [
+        "[toolchain]\nprofile = \"minimal\"\n",
+        "[toolchain]\nchannel = 1.99.1\n",
+        "[toolchain]\nchannels = \"1.99.1\"\n",
+        "[toolchain]\nchannel = \"\"\n",
+    ] {
+        assert_eq!(super::toolchain_channel(toolchain), None, "{toolchain:?}");
+        assert_eq!(
+            preflight_gate(
+                "linux",
+                &answers("rustc 1.99.1 (58cf8f9c3 2026-10-13)"),
+                "22.23.4",
+                toolchain
+            ),
+            found(
+                "the checks cannot run here",
+                &["rust-toolchain.toml must pin one release: channel = \"X.Y.Z\"".to_owned()]
+            ),
+            "{toolchain:?}"
+        );
+    }
+    assert_eq!(super::toolchain_channel(TOOLCHAIN), Some("1.99.1"), "read");
+    assert_eq!(
+        super::toolchain_channel("[toolchain]\n  channel   =   \"1.99.1\"  \n"),
+        Some("1.99.1"),
+        "spaces around"
+    );
+    let real = std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join(super::RUST_TOOLCHAIN_FILE),
+    )
+    .expect("the toolchain file");
+    assert!(
+        super::toolchain_channel(&real).is_some(),
+        "the real file is read"
+    );
+    let without = super::command("rustc", Path::new("."));
+    assert!(
+        without
+            .get_envs()
+            .any(|(name, value)| name == "RUSTUP_TOOLCHAIN" && value.is_none()),
+        "no command inherits the toolchain rustup chose for xtask itself"
     );
 }
 
@@ -4295,7 +4394,7 @@ fn refuses_cargo_tools_at_other_versions() {
         .map(|tool| Ok(tool_answer(tool.program, tool.args.first().copied())))
         .collect();
     assert_eq!(
-        preflight_gate("linux", &answers, "22.23.4"),
+        preflight_gate("linux", &answers, "22.23.4", TOOLCHAIN),
         Ok(()),
         "the pinned versions"
     );
@@ -4303,7 +4402,7 @@ fn refuses_cargo_tools_at_other_versions() {
     older[5] = Ok("cargo-mutants 26.0.0\n".to_owned());
     older[6] = Ok("cargo-deny".to_owned());
     assert_eq!(
-        preflight_gate("linux", &older, "22.23.4"),
+        preflight_gate("linux", &older, "22.23.4", TOOLCHAIN),
         found("the checks cannot run here", &[
             "cargo-mutants 26.0.0 is installed, the checks need cargo-mutants 27.1.0: \
              cargo install --locked cargo-mutants@27.1.0".to_owned(),
@@ -4929,7 +5028,7 @@ fn reads_node_releases_alike_everywhere() {
             })
             .collect();
         assert_eq!(
-            preflight_gate("linux", &answers, text).is_ok(),
+            preflight_gate("linux", &answers, text, TOOLCHAIN).is_ok(),
             super::workflow_gate(&[super::WORKFLOW.to_owned()], PINNED_WORKFLOW, text).is_ok(),
             "{text:?}: the same verdict from the preflight and the workflow gate"
         );
