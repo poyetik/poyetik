@@ -1345,8 +1345,6 @@ fn accepts_conventional_commit_messages() {
         "build(v2): bump the format",
         "docs!: rewrite the readme",
         "# comment from git\nci: run on every push\n# another comment\n",
-        "Merge branch 'main' into feature",
-        "Revert \"feat: add the plan\"",
     ] {
         assert_eq!(commit_msg_gate(message), Ok(()), "{message:?}");
     }
@@ -1376,8 +1374,20 @@ fn rejects_other_commit_messages() {
         ))
     };
     let long = format!("feat: {}", "x".repeat(COMMIT_HEADER_MAX - 5));
-    let cases: [(&str, String); 11] = [
+    let cases: [(&str, String); 14] = [
         ("", "missing \"<type>: \" prefix".to_owned()),
+        (
+            "Merge whatever I want",
+            "missing \"<type>: \" prefix".to_owned(),
+        ),
+        (
+            "Merge branch 'main' into feature",
+            "missing \"<type>: \" prefix".to_owned(),
+        ),
+        (
+            "Revert \"anything goes",
+            "missing \"<type>: \" prefix".to_owned(),
+        ),
         ("Add the plan", "missing \"<type>: \" prefix".to_owned()),
         ("feature: add", "unknown type \"feature\"".to_owned()),
         ("Feat: add", "unknown type \"Feat\"".to_owned()),
@@ -2077,6 +2087,11 @@ fn checks_every_message_and_the_changelog_of_every_change() {
         "a change without its entry, a malformed message; the commit before the rule is not held to it"
     );
     assert_eq!(super::history_gate("", ""), Ok(()), "no commit");
+    assert_eq!(
+        super::history_gate("\u{1e}eeeeeeeeee\u{1f}# fix: hidden\nfix: shown\n", ""),
+        Err("commit eeeeeee: invalid commit message: unknown type \"# fix\"".to_owned()),
+        "a recorded message is read as it is: a first line starting with # is its header"
+    );
     assert_eq!(
         super::history_gate("\u{1e}dddddddddd", "\u{1e}dddddddddd\n"),
         Err("commit ddddddd: invalid commit message: missing \"<type>: \" prefix".to_owned()),
