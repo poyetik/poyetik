@@ -323,7 +323,10 @@ impl Plan {
     /// Runs every box once, then writes one block per output channel into `out`.
     ///
     /// Channels beyond `out.len()` are dropped; extra blocks in `out` receive silence.
-    /// Does not allocate.
+    /// Does not allocate. The samples are written as the boxes computed them: never
+    /// clipped to ±1, scaled or sanitized, so that every target renders the same bits. The
+    /// final output stage (limiting, clipping, handling non-finite values) belongs to the
+    /// host, until the engine defines its own output policy (roadmap ticket #12).
     pub fn process(&mut self, out: &mut [Block]) {
         out.fill(SILENCE);
         for step in &mut self.steps {

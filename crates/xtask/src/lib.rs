@@ -224,7 +224,7 @@ fn portability_steps() -> Vec<Step> {
         .iter()
         .map(|&target| {
             run(
-                &format!("engine portability ({target})"),
+                &format!("Engine portability ({target})"),
                 "cargo",
                 &[
                     "build",

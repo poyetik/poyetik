@@ -313,10 +313,10 @@ fn lists_every_check_in_order() {
             "Rust lints",
             "Rust documentation",
             "Rust tests",
-            "engine portability (aarch64-apple-darwin)",
-            "engine portability (x86_64-unknown-linux-gnu)",
-            "engine portability (wasm32-unknown-unknown)",
-            "engine portability (thumbv7em-none-eabihf)",
+            "Engine portability (aarch64-apple-darwin)",
+            "Engine portability (x86_64-unknown-linux-gnu)",
+            "Engine portability (wasm32-unknown-unknown)",
+            "Engine portability (thumbv7em-none-eabihf)",
             "Rust coverage report",
             "Rust coverage: 100% lines, functions and branches",
             "Rust mutation testing",
@@ -1831,4 +1831,21 @@ fn requires_every_part_to_be_described() {
         Err("apps has no README.md; apps has no README.md".to_owned()),
         "a folder without its README"
     );
+}
+
+#[test]
+fn names_every_check_alike() {
+    for step in check_steps() {
+        assert!(
+            step.name
+                .starts_with(|first: char| first.is_ascii_uppercase()),
+            "{} starts with a capital letter",
+            step.name
+        );
+        assert!(
+            !step.name.ends_with('.'),
+            "{} has no final period",
+            step.name
+        );
+    }
 }

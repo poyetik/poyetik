@@ -16,5 +16,7 @@ The engine in browsers and in Node: a WebAssembly module (Rust crate `engine-was
 pnpm check   # build, types, lint, unit tests at 100% coverage, mutation testing, end-to-end tests
 ```
 
+The engine output is the patch's samples, unclipped: a level above 1.0 is kept, in the render hash and in an offline render, while a browser's audio output clips it. The final output stage belongs to the host, until the engine defines its own output policy (roadmap ticket #12).
+
 The live end-to-end test runs a real `AudioContext`, muted: the engine output is captured before a zero gain.
 The test bench (`e2e/site/`) shows its results as text, for Claude in Chrome too: `node e2e/serve.ts`, then open http://localhost:4392/e2e/site/index.html.

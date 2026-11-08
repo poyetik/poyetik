@@ -41,6 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The step names of `cargo xtask check` all start with a capital letter (checked), and the engine documents that its output is never clipped or sanitized: the final output stage belongs to the host until the engine defines its own output policy.
 - Names say what they hold, in Rust and TypeScript alike: no single-letter names but `i`, `j`, `x` and `y` (Clippy `min_ident_chars`, ESLint `id-length`), and in TypeScript no declaration hiding another (`no-shadow`, even before the outer declaration); 256 names were renamed.
 - Every named TypeScript item is documented, exported or not (functions, classes and their members, types, module-level constants), as the Rust items already were: the JSDoc rule no longer checks exported declarations only.
 - The engine test bench is compiled into `dist/e2e-site/`, not next to its source behind a nested `.gitignore`; the membership gate now refuses any `.gitignore` but the root one.
