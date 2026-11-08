@@ -3271,3 +3271,50 @@ fn license_and_history_commands_are_exactly() {
         "run at the root"
     );
 }
+
+#[test]
+fn reviews_each_occurrence_of_a_mutant() {
+    let report = "crates/a/src/b.rs:10:5: replace && with || in f\ncrates/a/src/b.rs:20:9: replace && with || in f\n";
+    let once = "crates/a/src/b.rs: replace && with || in f -- a let chain\n";
+    assert_eq!(
+        unviable_gate(report, once),
+        found(
+            &format!("unviable mutants must be reviewed in {UNVIABLE_REVIEWED}"),
+            &[
+                "not reviewed: crates/a/src/b.rs: replace && with || in f (2 found, 1 reviewed)"
+                    .to_owned()
+            ]
+        ),
+        "the second occurrence is not reviewed"
+    );
+    let twice = format!("{once}crates/a/src/b.rs: replace && with || in f -- another let chain\n");
+    assert_eq!(
+        unviable_gate(report, &twice),
+        Ok(()),
+        "each occurrence reviewed"
+    );
+    let thrice = format!("{twice}{once}");
+    assert_eq!(
+        unviable_gate(report, &thrice),
+        found(
+            &format!("unviable mutants must be reviewed in {UNVIABLE_REVIEWED}"),
+            &[
+                "stale review: crates/a/src/b.rs: replace && with || in f (2 found, 3 reviewed)"
+                    .to_owned()
+            ]
+        ),
+        "a review too many"
+    );
+    let source = "// Stryker disable next-line EqualityOperator: same\nx < 1\n// Stryker disable next-line EqualityOperator: same\nx < 1\n";
+    assert_eq!(
+        equivalent_gate(
+            &[("a.ts".to_owned(), source.to_owned())],
+            "a.ts: EqualityOperator at x < 1 -- same\n"
+        ),
+        found(
+            &format!("disabled mutants must be reviewed in {EQUIVALENT_REVIEWED}"),
+            &["not reviewed: a.ts: EqualityOperator at x < 1 (2 found, 1 reviewed)".to_owned()]
+        ),
+        "the same disable twice in a file needs two reviews"
+    );
+}

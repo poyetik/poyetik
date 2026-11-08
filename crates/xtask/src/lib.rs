@@ -872,13 +872,25 @@ fn mutant_key(line: &str) -> Option<String> {
     Some(format!("{file}.rs: {}", description.trim()))
 }
 
-/// Compares what a gate `found` with the keys of a review file, adding to `problems` every
-/// line without a reason, every key found but not reviewed and every stale review.
+/// Counts each key of `keys`.
+fn count<I: IntoIterator<Item = String>>(keys: I) -> BTreeMap<String, usize> {
+    let mut counts = BTreeMap::new();
+    for key in keys {
+        let entry: &mut usize = counts.entry(key).or_default();
+        *entry = entry.saturating_add(1);
+    }
+    counts
+}
+
+/// Compares what a gate `found`, each key with how many times, with the keys of a review
+/// file, adding to `problems` every line without a reason, every key found more often than
+/// reviewed and every review that is stale.
 ///
-/// `reviewed` holds one `<key> -- <reason>` line per entry; blank lines and lines starting
-/// with `#` are ignored.
-fn compare_reviews(found: &BTreeSet<String>, reviewed: &str, problems: &mut Vec<String>) {
-    let mut known = BTreeSet::new();
+/// `reviewed` holds one `<key> -- <reason>` line per occurrence (a key found twice is
+/// reviewed twice, each with its reason); blank lines and lines starting with `#` are
+/// ignored.
+fn compare_reviews(found: &BTreeMap<String, usize>, reviewed: &str, problems: &mut Vec<String>) {
+    let mut keys = Vec::new();
     for line in reviewed
         .lines()
         .map(str::trim)
@@ -886,43 +898,50 @@ fn compare_reviews(found: &BTreeSet<String>, reviewed: &str, problems: &mut Vec<
     {
         match line.split_once(" -- ") {
             // The line is trimmed, so text always follows the separator: the reason is never empty.
-            Some((key, _reason)) => {
-                let _: bool = known.insert(key.trim().to_owned());
-            }
+            Some((key, _reason)) => keys.push(key.trim().to_owned()),
             None => problems.push(format!("review without a reason: {line}")),
         }
     }
-    problems.extend(
-        found
-            .difference(&known)
-            .map(|key| format!("not reviewed: {key}")),
-    );
-    problems.extend(
-        known
-            .difference(found)
-            .map(|key| format!("stale review: {key}")),
-    );
+    let known = count(keys);
+    let counted = |key: &str, seen: usize, listed: usize| match (seen, listed) {
+        (_, 0) | (0, _) => key.to_owned(),
+        _ => format!("{key} ({seen} found, {listed} reviewed)"),
+    };
+    for (key, &seen) in found {
+        let listed = known.get(key).copied().unwrap_or_default();
+        if seen > listed {
+            problems.push(format!("not reviewed: {}", counted(key, seen, listed)));
+        }
+    }
+    for (key, &listed) in &known {
+        let seen = found.get(key).copied().unwrap_or_default();
+        if listed > seen {
+            problems.push(format!("stale review: {}", counted(key, seen, listed)));
+        }
+    }
 }
 
 /// Checks that the unviable mutants of the last run are exactly the reviewed ones.
 ///
-/// `reviewed` holds one `<file>.rs: <mutant> -- <reason>` line per mutant; blank lines
-/// and lines starting with `#` are ignored.
+/// A mutant is known by its file and description, not its line, so that
+/// unrelated edits do not invalidate a review; two mutants with the same key (the same
+/// operator twice in one function) need two reviews. `reviewed` holds one
+/// `<file>.rs: <mutant> -- <reason>` line per mutant; blank lines and lines starting with
+/// `#` are ignored.
 ///
 /// # Errors
 ///
 /// Returns a message listing unreviewed mutants, stale reviews and malformed lines.
 pub fn unviable_gate(report: &str, reviewed: &str) -> Result<(), Failure> {
     let mut problems = Vec::new();
-    let mut found = BTreeSet::new();
+    let mut keys = Vec::new();
     for line in report.lines().filter(|line| !line.trim().is_empty()) {
         match mutant_key(line) {
-            Some(key) => {
-                let _: bool = found.insert(key);
-            }
+            Some(key) => keys.push(key),
             None => problems.push(format!("unrecognized mutant: {line}")),
         }
     }
+    let found = count(keys);
     compare_reviews(&found, reviewed, &mut problems);
     verdict(
         &format!("unviable mutants must be reviewed in {UNVIABLE_REVIEWED}"),
@@ -946,7 +965,7 @@ const STRYKER_DISABLE: &str = "// Stryker disable next-line ";
 /// Returns a message listing malformed comments, unreviewed and stale entries.
 pub fn equivalent_gate(sources: &[(String, String)], reviewed: &str) -> Result<(), Failure> {
     let mut problems = Vec::new();
-    let mut found = BTreeSet::new();
+    let mut keys = Vec::new();
     for (path, text) in sources {
         let lines: Vec<&str> = text.lines().collect();
         for (index, line) in lines.iter().enumerate() {
@@ -965,7 +984,7 @@ pub fn equivalent_gate(sources: &[(String, String)], reviewed: &str) -> Result<(
                 .map_or("", |following| following.trim());
             match rule {
                 Some((mutator, _reason)) if !next.is_empty() => {
-                    let _: bool = found.insert(format!("{path}: {mutator} at {next}"));
+                    keys.push(format!("{path}: {mutator} at {next}"));
                 }
                 _ => problems.push(format!(
                     "{path}:{}: write `{STRYKER_DISABLE}<Mutator>: <reason>` above the line",
@@ -974,7 +993,7 @@ pub fn equivalent_gate(sources: &[(String, String)], reviewed: &str) -> Result<(
             }
         }
     }
-    compare_reviews(&found, reviewed, &mut problems);
+    compare_reviews(&count(keys), reviewed, &mut problems);
     verdict(
         &format!("disabled mutants must be reviewed in {EQUIVALENT_REVIEWED}"),
         problems,
