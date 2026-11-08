@@ -4106,9 +4106,37 @@ pub fn new_file_diff(path: &str, text: &str) -> String {
     diff
 }
 
+/// Whether `rel`, a path relative to its crate, is Rust test code: under `tests/` (its
+/// fixtures included), or a unit test file beside its source (`*_tests.rs`).
+fn rust_test_code(rel: &str) -> bool {
+    rel.starts_with("tests/") || rel.ends_with("_tests.rs")
+}
+
+/// What every Rust test depends on: a change to a file of one of these names, or below the
+/// shared test crate, can let any mutant survive, so the default check then mutates
+/// everything.
+pub const MUTATE_EVERYTHING_WHEN: [&str; 4] = [
+    "Cargo.toml",
+    "Cargo.lock",
+    "rust-toolchain.toml",
+    "crates/engine-testkit/",
+];
+
+/// The paths a diff written with the `a/` and `b/` prefixes changes.
+fn changed_paths(diff: &str) -> Vec<&str> {
+    diff.lines()
+        .filter_map(|line| line.strip_prefix("diff --git a/"))
+        .filter_map(|rest| rest.split_once(" b/").map(|(_, path)| path))
+        .collect()
+}
+
 /// Runs cargo-mutants on what changed since the merge base ([`Action::RustMutantsOfChanges`]):
 /// the changes of the tracked files, committed or not, and every new Rust file git does not
 /// ignore; nothing when nothing changed.
+///
+/// A change to the test code of a crate can weaken the tests of any of its code, so every
+/// source of that crate is then added whole; a change to what every test depends on
+/// ([`MUTATE_EVERYTHING_WHEN`]) mutates the whole workspace.
 fn rust_mutants_of_changes(
     runner: &mut dyn Runner,
     out: &mut dyn Write,
@@ -4146,6 +4174,59 @@ fn rust_mutants_of_changes(
         out,
         &format!("  the changes since {base} (merge base with {against})"),
     )?;
+    let changed: Vec<String> = changed_paths(&diff)
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+    if let Some(path) = changed.iter().find(|path| {
+        let name = path
+            .rsplit_once('/')
+            .map_or(path.as_str(), |(_, name)| name);
+        MUTATE_EVERYTHING_WHEN
+            .iter()
+            .any(|shared| *shared == name || (shared.ends_with('/') && path.starts_with(shared)))
+    }) {
+        say(out, &format!("  {path} changed: every Rust mutant"))?;
+        return runner
+            .run(&mutants_command(&[
+                "--workspace",
+                "--jobs",
+                &jobs.to_string(),
+            ]))
+            .map_err(|failure| Failure::from(failure.to_string()));
+    }
+    let tested: Vec<RustCrate> = RUST_CRATES
+        .into_iter()
+        .filter(|krate| {
+            let prefix = format!("{}/", krate.dir);
+            changed
+                .iter()
+                .filter_map(|path| path.strip_prefix(&prefix))
+                .any(rust_test_code)
+        })
+        .collect();
+    if !tested.is_empty() {
+        let sources = list_tracked(runner, &["*.rs"], "the Rust files")?;
+        for krate in tested {
+            say(
+                out,
+                &format!(
+                    "  the test code of {} changed: every mutant of {}",
+                    krate.name, krate.name
+                ),
+            )?;
+            let prefix = format!("{}/", krate.dir);
+            for path in &sources {
+                if path
+                    .strip_prefix(&prefix)
+                    .is_some_and(|rel| !rust_test_code(rel))
+                {
+                    let text = read_file(runner, path)?;
+                    diff.push_str(&new_file_diff(path, &text));
+                }
+            }
+        }
+    }
     runner
         .write(CHANGES_DIFF, &diff)
         .map_err(|error| Failure::from(format!("cannot write {CHANGES_DIFF}: {error}")))?;

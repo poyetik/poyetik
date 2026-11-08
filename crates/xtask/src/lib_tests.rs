@@ -992,6 +992,117 @@ fn falls_back_to_origin_main_then_main() {
     );
 }
 
+/// The diff git writes for a change of one line of `path`.
+fn one_line_change(path: &str) -> String {
+    format!("diff --git a/{path} b/{path}\n--- a/{path}\n+++ b/{path}\n@@ -1 +1 @@\n-a\n+b\n")
+}
+
+#[test]
+fn mutates_a_whole_crate_whose_test_code_changed() {
+    for test_code in [
+        "crates/engine-core/tests/laws.rs",
+        "crates/engine-core/src/plan_tests.rs",
+    ] {
+        let mut fake = passing();
+        let _changes = fake
+            .files
+            .insert(format!("capture {}", CHANGES.0), one_line_change(test_code));
+        for (path, text) in [
+            ("crates/engine-core/src/lib.rs", "fn a() {}\n"),
+            ("crates/engine-core/src/plan_tests.rs", "fn t() {}\n"),
+            ("crates/engine-core/tests/laws.rs", "fn l() {}\n"),
+            ("crates/engine-objects/src/lib.rs", "fn o() {}\n"),
+        ] {
+            let _source = fake.files.insert(path.to_owned(), text.to_owned());
+        }
+        let mut out = Vec::new();
+        assert_eq!(
+            run_steps(&rust_mutation_of_changes(), &mut fake, &mut out),
+            Ok(()),
+            "{test_code}"
+        );
+        assert_eq!(
+            fake.files.get(CHANGES_DIFF).cloned(),
+            Some(format!(
+                "{}{}",
+                one_line_change(test_code),
+                super::new_file_diff("crates/engine-core/src/lib.rs", "fn a() {}\n")
+            )),
+            "{test_code}: every source of its crate added whole, its test code and other crates apart"
+        );
+        assert!(
+            String::from_utf8(out)
+                .expect("UTF-8")
+                .contains("  the test code of engine-core changed: every mutant of engine-core\n"),
+            "{test_code}: said"
+        );
+    }
+}
+
+#[test]
+fn mutates_everything_when_what_every_test_uses_changed() {
+    for path in [
+        "Cargo.toml",
+        "Cargo.lock",
+        "crates/engine-core/Cargo.toml",
+        "rust-toolchain.toml",
+        "crates/engine-testkit/src/lib.rs",
+    ] {
+        let mut fake = passing();
+        let _changes = fake
+            .files
+            .insert(format!("capture {}", CHANGES.0), one_line_change(path));
+        let mut out = Vec::new();
+        assert_eq!(
+            run_steps(&rust_mutation_of_changes(), &mut fake, &mut out),
+            Ok(()),
+            "{path}"
+        );
+        assert!(
+            fake.ran.contains(
+                &"cargo mutants --cap-lints=true --gitignore=true --workspace --jobs 3".to_owned()
+            ) && !fake.ran.iter().any(|line| line.starts_with("write")),
+            "{path}: every mutant of the workspace, no diff: {:?}",
+            fake.ran
+        );
+        assert!(
+            String::from_utf8(out)
+                .expect("UTF-8")
+                .contains(&format!("  {path} changed: every Rust mutant\n")),
+            "{path}: said"
+        );
+    }
+    for path in [
+        "Cargo.toml.orig",
+        "crates/engine-core/Cargo.toml.orig",
+        "crates/engine-testkits/a.rs",
+        "doc/Cargo.lock.md",
+        "doc/crates/engine-testkit/a.rs",
+    ] {
+        let mut fake = passing();
+        let _changes = fake
+            .files
+            .insert(format!("capture {}", CHANGES.0), one_line_change(path));
+        assert_eq!(
+            run_steps(&rust_mutation_of_changes(), &mut fake, &mut Vec::new()),
+            Ok(()),
+            "{path}"
+        );
+        assert!(
+            fake.ran
+                .iter()
+                .any(|line| line.ends_with("--in-diff target/xtask/changes.diff")),
+            "{path}: only the changes"
+        );
+    }
+    assert!(
+        super::RUST_CRATES
+            .iter()
+            .any(|krate| krate.name == "engine-testkit" && krate.dir == "crates/engine-testkit"),
+        "the shared test crate is where the escalation looks"
+    );
+}
+
 #[test]
 fn mutates_nothing_without_a_change() {
     let mut fake = passing();
