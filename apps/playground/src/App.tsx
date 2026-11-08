@@ -72,6 +72,7 @@ export function App({ player }: { readonly player: Player }): JSX.Element {
     <main>
       <h1>Playground</h1>
       <p>A 440 Hz sine computed by the Rust engine, compiled to WebAssembly and running in your browser.</p>
+      <p>Plays a continuous tone: lower your volume first.</p>
       <div className="controls">
         {/* aria-disabled, not disabled: the button keeps the keyboard focus during a transition. */}
         <button

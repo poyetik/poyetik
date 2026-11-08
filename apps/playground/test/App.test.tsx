@@ -79,6 +79,12 @@ test("starts stopped", () => {
   expect(screen.queryByRole("alert")).toBeNull();
 });
 
+test("warns before the button that it plays a continuous tone", () => {
+  render(<App player={new FakePlayer()} />);
+  const warning = screen.getByText("Plays a continuous tone: lower your volume first.");
+  expect(warning.compareDocumentPosition(button()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+});
+
 test.each([
   [{ kind: "stopped" }, "Stopped", "Start", "false", "start", null],
   [{ kind: "starting" }, "Starting…", "Cancel", "false", "stop", null],
