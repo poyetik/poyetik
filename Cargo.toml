@@ -14,7 +14,7 @@ libm = { version = "0.2", default-features = false }
 
 # Strict linting, inherited by every crate (`[lints] workspace = true`). See CLAUDE.md.
 [workspace.lints.rust]
-unsafe_code = "deny" # every crate except the engine-wasm FFI module also has #![forbid(unsafe_code)]
+unsafe_code = "deny" # every file also has #![forbid(unsafe_code)], except those of xtask's UNSAFE_FILES (run under Miri)
 missing_docs = "deny"
 missing_debug_implementations = "deny"
 unreachable_pub = "deny"
