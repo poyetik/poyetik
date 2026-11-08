@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { ModuleError, PatchError, WasmEngine } from "../ts/engine.ts";
 import { interleave, renderHash } from "../ts/hash.ts";
-import { FUNCTIONS, oscillators, SILENT_PATCH, SINE_FRAMES, SINE_HASH, SINE_PATCH, UNKNOWN_BOX, handMadeModule, wasmBytes } from "./fixtures.ts";
+import { CORPUS, FUNCTIONS, oscillators, PATCH_NAMES, REFERENCES, SILENT_PATCH, SINE_FRAMES, SINE_HASH, SINE_PATCH, UNKNOWN_BOX, handMadeModule, wasmBytes } from "./fixtures.ts";
 
 const module = new WebAssembly.Module(wasmBytes());
 const RATE = 48_000;
@@ -22,6 +22,23 @@ describe("WasmEngine", () => {
   test("renders sine-440 in Node bit-identical to the native engine", async () => {
     const channels = renderSine(SINE_FRAMES, 128);
     expect(await renderHash(RATE, 2, interleave(channels))).toBe(SINE_HASH);
+  });
+
+  test("knows the whole corpus: every case has its patch and its reference, and nothing else", () => {
+    const names = CORPUS.map((testCase) => testCase.name);
+    expect(names.length).toBeGreaterThan(1);
+    expect(PATCH_NAMES).toStrictEqual(names);
+    expect([...REFERENCES.keys()].sort()).toStrictEqual(names);
+  });
+
+  test.each(CORPUS.map((testCase) => [testCase.name, testCase] as const))("renders %s in Node bit-identical to the native engine", async (_, testCase) => {
+    const engine = WasmEngine.create(module, testCase.patch, testCase.rate);
+    const channels = Array.from({ length: engine.channels }, () => new Float32Array(testCase.frames));
+    for (let start = 0; start < testCase.frames; start += 128) {
+      const buffers = channels.map((channel) => channel.subarray(start, Math.min(start + 128, testCase.frames)));
+      engine.render(buffers);
+    }
+    expect(await renderHash(testCase.rate, engine.channels, interleave(channels))).toBe(REFERENCES.get(testCase.name));
   });
 
   test.each([1, 37, 64, 100, 4096])("gives the same samples whatever the buffer size (%i)", (size) => {

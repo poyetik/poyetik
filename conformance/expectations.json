@@ -1,7 +1,63 @@
 {
+  "sine-0-hz": {
+    "sample_rate": 48000,
+    "frames": 1000,
+    "channels": [
+      { "sine": { "frequency": 0, "amplitude": 1, "phase": 0 } },
+      { "sine": { "frequency": 0, "amplitude": 1, "phase": 0 } }
+    ]
+  },
+  "sine-1000-at-8k": {
+    "sample_rate": 8000,
+    "frames": 8000,
+    "channels": [
+      { "sine": { "frequency": 1000, "amplitude": 1, "phase": 0 } },
+      { "sine": { "frequency": 1000, "amplitude": 1, "phase": 0 } }
+    ]
+  },
+  "sine-10001-at-8k": {
+    "sample_rate": 8000,
+    "frames": 8000,
+    "channels": [
+      { "sine": { "frequency": 10001, "amplitude": 1, "phase": 0 } },
+      { "sine": { "frequency": 10001, "amplitude": 1, "phase": 0 } }
+    ]
+  },
+  "sine-19999-at-384k": {
+    "sample_rate": 384000,
+    "frames": 38400,
+    "channels": [
+      { "sine": { "frequency": 19999, "amplitude": 1, "phase": 0 } },
+      { "sine": { "frequency": 19999, "amplitude": 1, "phase": 0 } }
+    ]
+  },
+  "sine-20000-at-48k": {
+    "sample_rate": 48000,
+    "frames": 4801,
+    "channels": [
+      { "sine": { "frequency": 20000, "amplitude": 1, "phase": 0 } },
+      { "sine": { "frequency": 20000, "amplitude": 1, "phase": 0 } }
+    ]
+  },
+  "sine-3999-at-8k": {
+    "sample_rate": 8000,
+    "frames": 8000,
+    "channels": [
+      { "sine": { "frequency": 3999, "amplitude": 1, "phase": 0 } },
+      { "sine": { "frequency": 3999, "amplitude": 1, "phase": 0 } }
+    ]
+  },
   "sine-440": {
     "sample_rate": 48000,
     "frames": 48000,
+    "channels": [
+      { "sine": { "frequency": 440, "amplitude": 1, "phase": 0 } },
+      { "sine": { "frequency": 440, "amplitude": 1, "phase": 0 } }
+    ]
+  },
+  "sine-440-at-44k1": {
+    "sample_rate": 44100,
+    "frames": 44100,
     "channels": [
       { "sine": { "frequency": 440, "amplitude": 1, "phase": 0 } },
       { "sine": { "frequency": 440, "amplitude": 1, "phase": 0 } }

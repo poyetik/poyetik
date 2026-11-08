@@ -1,5 +1,5 @@
 // Shared test data: the built engine module and the sine-440 conformance case.
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 
 /**
  * The conformance corpus, found by walking up from this file: the tests also run from
@@ -39,6 +39,42 @@ export const SINE_FRAMES = Number(field(sineCase, "frames"));
 
 /** The native reference hash of the sine-440 case. */
 export const SINE_HASH = String(field(references, "sine-440"));
+
+/** A case of the conformance corpus, read from its files. */
+export interface CorpusCase {
+  readonly name: string;
+  readonly rate: number;
+  readonly frames: number;
+  /** The bytes of its patch file, unchanged. */
+  readonly patch: Uint8Array;
+}
+
+/** The names of the `.json` files of a corpus directory, sorted. */
+function jsonNames(directory: string): string[] {
+  return readdirSync(new URL(directory, CONFORMANCE))
+    .filter((file) => file.endsWith(".json"))
+    .map((file) => file.slice(0, -".json".length))
+    .sort();
+}
+
+/** Every case of the corpus, sorted by name. */
+export const CORPUS: readonly CorpusCase[] = jsonNames("cases/").map((name) => {
+  const json: unknown = JSON.parse(readFileSync(new URL(`cases/${name}.json`, CONFORMANCE), "utf8"));
+  return {
+    name,
+    rate: Number(field(json, "sample_rate")),
+    frames: Number(field(json, "frames")),
+    patch: new Uint8Array(readFileSync(new URL(`patches/${name}.json`, CONFORMANCE))),
+  };
+});
+
+/** The names of the patch files of the corpus, sorted. */
+export const PATCH_NAMES: readonly string[] = jsonNames("patches/");
+
+/** The native reference hashes of the corpus, by case name. */
+export const REFERENCES: ReadonlyMap<string, string> = new Map(
+  typeof references === "object" && references !== null ? Object.entries(references).map(([name, hash]) => [name, String(hash)]) : [],
+);
 
 /** A patch the engine rejects: an unknown box. */
 export const UNKNOWN_BOX = new TextEncoder().encode('{"format":1,"nodes":[{"id":1,"box":"nope~"}],"connections":[]}');

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Seven conformance cases from the test matrix: 8 kHz near and above Nyquist and above the sample rate, 44.1 kHz with a partial last block, 20 kHz at 48 kHz, 19,999 Hz at 384 kHz, and 0 Hz. The Node tests and the four browsers render the whole corpus (each at its own rate) and check it is complete; live captures cover 48 and 44.1 kHz.
 - `Plan::render_into` renders the next frames into a caller buffer, without allocating; it continues exactly like `Plan::render`.
 - `engine-core`: the box contract (`Object`, `ObjectSpec`), strong types (`SampleRate`, fixed 64-frame `Block`, `NodeId`) and the deterministic execution plan (validation, topological sort, cycle detection, allocation-free processing).
 - `engine-objects`: the first boxes, `osc~` (sine oscillator, 440 Hz by default) and `dac~` (stereo audio output), and their registry.
