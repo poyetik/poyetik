@@ -1,6 +1,6 @@
 # Patch format, version 1
 
-A patch is a UTF-8 JSON document. Version 1 is deliberately minimal: boxes, their parameters, and the cables between them. Later versions add what the engine needs, with migrations from older versions.
+A patch is a UTF-8 JSON document. Version 1 is deliberately minimal: boxes, their parameters, and the cables between them. Later versions add what the engine needs, with migrations from older versions; [`engine-design.md`](engine-design.md) records what they will hold (subpatches, message cables, buses, polyphony, box state) and why.
 
 ## Example
 
@@ -40,5 +40,5 @@ A 440 Hz sine wave on both output channels:
 - **Size limits**: a document of at most 16 MiB (16,777,216 bytes), at most 65,536 boxes and 262,144 cables. Larger patches are rejected, never truncated.
 - Box types, parameter names and ranges, and port indices are checked against the engine registry when the patch is loaded.
 - A single cable passes its samples unchanged, bit for bit. Several cables into one inlet are summed, starting from the first, in a fixed order that does not depend on the order of the document: by source box id, then source outlet index (floating-point addition is not associative, so the order is part of the result). One outlet may feed several inlets.
-- A cycle without delay is rejected.
-- **Parameter values are IEEE 754 binary32** (single precision): a number in the document is rounded to the nearest binary32 value (ties to even), identically on every target. `440.1` is played as 440.100006103515625 Hz; tools that compute what a patch sounds like use that value too.
+- A cycle without delay is rejected. Cycles through an explicit delay box are planned ([`engine-design.md`](engine-design.md), decision 3).
+- **Parameter values are IEEE 754 binary32** (single precision): a number in the document is rounded to the nearest binary32 value (ties to even), identically on every target. `440.1` is played as 440.100006103515625 Hz; tools that compute what a patch sounds like use that value too. Version 2 reads parameters as binary64 ([`engine-design.md`](engine-design.md), decision 10); version 1 documents keep their binary32 values.

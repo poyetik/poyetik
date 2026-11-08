@@ -12,7 +12,7 @@ A monorepo of separate parts:
 
 | Path | Contents |
 |---|---|
-| `spec/` | Patch format specification |
+| `spec/` | Patch format and render hash specifications, and the [engine design decisions](spec/engine-design.md) |
 | `crates/` | The engine: `engine-core` (`no_std`, no `unsafe`), the boxes, the patch reader, the render hash, the command-line renderer, and project automation (`xtask`) |
 | `bindings/` | Developer SDKs around the core: `wasm/`, the engine in browsers and Node |
 | `apps/` | Applications: the playground and the public roadmap |
