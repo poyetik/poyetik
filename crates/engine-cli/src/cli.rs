@@ -247,7 +247,9 @@ fn export(
 /// # Errors
 ///
 /// Returns [`CliError::Usage`] for an unknown command or invalid arguments, and
-/// [`CliError::Failed`] for an unreadable or invalid case or a conformance failure.
+/// [`CliError::Failed`] for any failure of the command once it runs (a file that cannot
+/// be read or written, an invalid case or patch, a conformance failure, an error writing
+/// to `out`), with the message of its one `error:` line.
 pub fn run(args: &[String], files: &mut dyn Files, out: &mut dyn Write) -> Result<(), CliError> {
     match args {
         [command, rest @ ..] if command == "render" => render(files, out, rest),

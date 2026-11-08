@@ -498,7 +498,8 @@ pub fn coverage_gate(report: &str) -> Result<(), String> {
 ///
 /// # Errors
 ///
-/// Returns a message naming the package and every kind not fully covered.
+/// Returns a message naming the package: the summary is not a valid coverage summary,
+/// or it lists every kind not fully covered.
 pub fn ts_coverage_gate(package: &str, summary: &str) -> Result<(), String> {
     let json: serde_json::Value = serde_json::from_str(summary)
         .map_err(|error| format!("{package}: invalid coverage summary: {error}"))?;
@@ -535,7 +536,8 @@ pub fn ts_coverage_gate(package: &str, summary: &str) -> Result<(), String> {
 ///
 /// # Errors
 ///
-/// Returns a message naming the package and the mutants that were not killed.
+/// Returns a message naming the package: the report is not a valid mutation report, it
+/// holds no mutant, or it lists the mutants that were not killed.
 pub fn ts_mutation_gate(package: &str, report: &str) -> Result<(), String> {
     let json: serde_json::Value = serde_json::from_str(report)
         .map_err(|error| format!("{package}: invalid mutation report: {error}"))?;
@@ -988,7 +990,8 @@ pub const NODE_FLOOR: (u64, u64) = (22, 18);
 ///
 /// # Errors
 ///
-/// Returns a message naming each missing tool with how to install it.
+/// Returns one message listing every problem found, each with how to fix it: an
+/// unsupported platform, a missing tool, or a tool at a version the checks do not accept.
 pub fn preflight_gate(os: &str, answers: &[Option<String>]) -> Result<(), String> {
     let mut problems = Vec::new();
     if os == "windows" {

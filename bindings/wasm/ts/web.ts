@@ -42,8 +42,11 @@ export class LoadedPatch {
   /**
    * Checks `patch` with the engine at `rate` hertz, on this thread: errors are thrown here
    * with the explanation of the engine, rather than in the audio thread.
+   * @throws {RangeError} when `rate` is not a whole number of hertz that fits 32 bits (an
+   * `AudioContext.sampleRate` may not be).
    * @throws {ModuleError} when `wasm` is not an engine module.
    * @throws {Error} with the explanation of the engine, when it rejects the patch.
+   * @throws {EngineTrap} when the module traps while loading the patch.
    */
   static async load(wasm: ArrayBuffer, patch: Uint8Array, rate: number): Promise<LoadedPatch> {
     const bytes = wasm.slice(0);
@@ -77,8 +80,10 @@ export async function addProcessors(context: BaseAudioContext, url: string | URL
 
 /**
  * Checks `patch` with the engine at `rate` hertz: see {@link LoadedPatch.load}.
+ * @throws {RangeError} when `rate` is not a whole number of hertz that fits 32 bits.
  * @throws {ModuleError} when `wasm` is not an engine module.
  * @throws {Error} with the explanation of the engine, when it rejects the patch.
+ * @throws {EngineTrap} when the module traps while loading the patch.
  */
 export function loadPatch(wasm: ArrayBuffer, patch: Uint8Array, rate: number): Promise<LoadedPatch> {
   return LoadedPatch.load(wasm, patch, rate);

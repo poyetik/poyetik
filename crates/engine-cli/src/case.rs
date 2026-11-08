@@ -122,7 +122,7 @@ pub fn prepare_case(case: &str, patch: &str) -> Result<Prepared, String> {
 ///
 /// # Errors
 ///
-/// Returns a message when the case, its sample rate or its patch is invalid.
+/// Returns the errors of [`prepare_case`]: rendering a prepared case cannot fail.
 pub fn render_case(case: &str, patch: &str) -> Result<Rendered, String> {
     prepare_case(case, patch).map(Prepared::render)
 }
