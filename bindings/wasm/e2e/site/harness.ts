@@ -18,8 +18,11 @@ function element<T extends HTMLElement>(id: string, type: new () => T): T {
 
 /** A conformance case: sample rate, duration and the bytes of its patch file. */
 interface Case {
+  /** Sample rate of the render, in hertz: the rate the patch is checked at and the context runs at. */
   readonly rate: number;
+  /** Duration of the render, in frames. */
   readonly frames: number;
+  /** The bytes of the patch file, unchanged. */
   readonly patch: Uint8Array;
 }
 

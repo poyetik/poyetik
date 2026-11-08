@@ -16,7 +16,9 @@ export type ColumnId = (typeof COLUMNS)[number]["id"];
 
 /** One step of a card. In a card of the `doing` column, the first step that is not done is the one in progress. */
 export interface Step {
+  /** What the step is, as shown on the card. */
   readonly title: string;
+  /** Whether the step is finished. */
   readonly done: boolean;
 }
 
@@ -25,21 +27,33 @@ export type StepStatus = "done" | "doing" | "todo";
 
 /** A roadmap card (ticket) with its ordered steps. */
 export interface Card {
+  /** Unique, never reused: given from the board's `nextId`, it stays the card's number for good. */
   readonly id: number;
+  /** Short title, never empty, trimmed. */
   readonly title: string;
+  /** Longer description; empty when there is none. */
   readonly description: string;
+  /** The column the card is in. */
   readonly column: ColumnId;
+  /** The milestone it belongs to ("M1 Engine"…); empty when there is none. */
   readonly milestone: string;
+  /** Day the card was added, `YYYY-MM-DD`, local time. */
   readonly createdAt: string;
+  /** Day the card or one of its steps last changed, `YYYY-MM-DD`, local time. */
   readonly updatedAt: string;
+  /** The steps, in order (stored under the key `tasks`). */
   readonly steps: readonly Step[];
 }
 
 /** The whole roadmap, as stored in `board.json`. */
 export interface Board {
+  /** Format version of `board.json`: only 1 exists, any other is refused. */
   readonly version: 1;
+  /** Title of the board, shown as the page heading. */
   readonly title: string;
+  /** Id of the next card added: above every id ever given, so that a removed card's id is never reused. */
   readonly nextId: number;
+  /** Every card. Within a column, this is the order the page shows them in (`move` places a card in it). */
   readonly cards: readonly Card[];
 }
 
@@ -268,16 +282,23 @@ export function serializeBoard(board: Board): string {
 
 /** Fields of a new card; only the title is required. */
 export interface AddInput {
+  /** Title of the card; refused when empty once trimmed. */
   readonly title: string;
+  /** Description; none by default. */
   readonly description?: string | undefined;
+  /** Column it starts in; `later` by default. */
   readonly column?: ColumnId | undefined;
+  /** Milestone; none by default. */
   readonly milestone?: string | undefined;
 }
 
 /** Fields to change on a card; at least one must be given. */
 export interface EditInput {
+  /** New title; refused when empty once trimmed. */
   readonly title?: string | undefined;
+  /** New description; an empty one removes it. */
   readonly description?: string | undefined;
+  /** New milestone; an empty one removes it. */
   readonly milestone?: string | undefined;
 }
 
@@ -356,6 +377,7 @@ export function removeCard(board: Board, id: number): Board {
 
 /** A step together with its display status. */
 export interface StepWithStatus extends Step {
+  /** Whether the step is done, in progress or still to do (see `StepStatus`). */
   readonly status: StepStatus;
 }
 

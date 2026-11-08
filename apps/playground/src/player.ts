@@ -12,6 +12,7 @@ import { SampleHistory } from "./history.ts";
 
 /** The latest output of the engine: samples of its first channel, and their rate. */
 export interface Signal {
+  /** The latest samples of the first channel, oldest first, as many as the history keeps. */
   readonly samples: Float32Array;
   /** Sample rate, in hertz. */
   readonly rate: number;
@@ -74,9 +75,13 @@ export type Failure = "load" | "engine" | "device";
 
 /** The parts of the browser the player needs: `globalThis` in a page. */
 export interface Environment {
+  /** Whether the page is a secure context (HTTPS or localhost), without which browsers hide `AudioWorklet`. */
   readonly isSecureContext: boolean;
+  /** The `AudioContext` constructor, missing from browsers without Web Audio. */
   readonly AudioContext?: unknown;
+  /** The `AudioWorkletNode` constructor, missing from browsers without audio worklets (or outside a secure context). */
   readonly AudioWorkletNode?: unknown;
+  /** The `WebAssembly` namespace, missing from browsers without WebAssembly (or where it is disabled). */
   readonly WebAssembly?: unknown;
 }
 
@@ -260,7 +265,9 @@ const STOPPING: PlayerState = { kind: "stopping" };
 
 /** A live state: the player holds a session, from start until the context is released. */
 interface Live {
+  /** What the player shows while this session lives: starting, playing, suspended or stopping. */
   readonly state: PlayerState;
+  /** The session the state belongs to, ended when the player leaves it. */
   readonly session: Session;
 }
 

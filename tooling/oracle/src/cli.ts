@@ -8,9 +8,13 @@ export const USAGE = "usage: oracle <conformance dir> <dir of exported WAV files
 
 /** What the command needs from the outside world. */
 export interface Io {
+  /** The bytes of the file at `path`; throws when it cannot be read (the message names it). */
   readonly readBytes: (path: string) => Uint8Array;
+  /** The names of the entries of the directory `dir`, in any order; throws when it cannot be listed. */
   readonly list: (dir: string) => readonly string[];
+  /** Prints one line on stdout: a verdict or the usage. */
   readonly out: (line: string) => void;
+  /** Prints one line on stderr: an `error:` line, the only thing the oracle writes there. */
   readonly err: (line: string) => void;
 }
 
@@ -82,6 +86,7 @@ export function main(args: readonly string[], io: Io): number {
 
 /** A stream, as far as its errors go. */
 interface Failing {
+  /** Registers `listener` for the stream's `error` events (its result is not used). */
   readonly on: (event: "error", listener: (error: Error) => void) => unknown;
 }
 

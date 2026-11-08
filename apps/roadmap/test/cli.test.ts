@@ -8,10 +8,15 @@ const DAY = "2026-11-07";
 
 /** An in-memory `Io`: the board file held as text, the lines printed on each stream, and a count of writes, to check that failed commands write nothing. */
 interface Fake {
+  /** The `Io` the CLI runs with. */
   readonly io: Io;
+  /** Every line printed on stdout, in order. */
   readonly out: string[];
+  /** Every line printed on stderr, in order. */
   readonly err: string[];
+  /** The current text of the board file: what the next read returns, what the last write left. */
   file: string;
+  /** Number of writes of the board file so far. */
   writes: number;
 }
 

@@ -64,12 +64,17 @@ const SPEC: unknown = JSON.parse(readFileSync(vectorsFile(), "utf8"));
 
 /** A known-answer vector: a render, the bytes it hashes and its hash. */
 interface Vector {
+  /** Name of the vector, shown in the test title. */
   readonly name: string;
+  /** Sample rate it was rendered at, in hertz: part of what is hashed. */
   readonly rate: number;
+  /** Number of channels: part of what is hashed. */
   readonly channels: number;
   /** The interleaved samples, as bit patterns. */
   readonly samples: Uint32Array;
+  /** The exact bytes the hash covers, as the specification gives them. */
   readonly bytes: Uint8Array<ArrayBuffer>;
+  /** The expected SHA-256 of those bytes, in lowercase hexadecimal. */
   readonly sha256: string;
 }
 

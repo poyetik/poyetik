@@ -7,7 +7,9 @@
 export interface Wav {
   /** Sample rate, in hertz. */
   readonly rate: number;
+  /** Number of channels, at least 1. */
   readonly channels: number;
+  /** Number of frames: samples per channel, as the data chunk holds them. */
   readonly frames: number;
   /** The samples as stored: little-endian 32-bit floats, channels interleaved. */
   readonly data: Uint8Array;
@@ -30,7 +32,9 @@ const IEEE_FLOAT = 3;
 
 /** The format chunk, decoded. */
 interface Format {
+  /** Number of channels, as declared. */
   readonly channels: number;
+  /** Sample rate, in hertz, as declared. */
   readonly rate: number;
 }
 

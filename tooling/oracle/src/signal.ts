@@ -6,6 +6,7 @@ import type { Wav } from "./wav.ts";
 export interface Sine {
   /** In hertz. */
   readonly frequency: number;
+  /** Peak value, in sample units (1 is full scale). */
   readonly amplitude: number;
   /** In radians, at the first sample. */
   readonly phase: number;

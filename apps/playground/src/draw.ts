@@ -10,7 +10,9 @@ export type ScopeCanvas = Pick<CanvasRenderingContext2D, "setTransform" | "clear
  * scene units per CSS pixel (so that lines keep their width on any screen).
  */
 export interface View {
+  /** Device pixels per scene unit: the canvas is drawn at the screen's resolution. */
   readonly scale: number;
+  /** Scene units per CSS pixel: one CSS pixel wide, a line keeps its width on any screen. */
   readonly pixel: number;
 }
 

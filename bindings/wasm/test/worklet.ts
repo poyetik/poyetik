@@ -24,7 +24,9 @@ class FakeProcessor {
 
 /** A registered processor, as the tests drive it. */
 export interface Processor {
+  /** The fake port, through which the tests read what the processor posted and send it messages. */
   readonly port: FakePort;
+  /** Renders one quantum, as the audio thread calls it; returns whether the processor wants to keep running. */
   process(inputs: Float32Array[][], outputs: Float32Array[][]): boolean;
 }
 

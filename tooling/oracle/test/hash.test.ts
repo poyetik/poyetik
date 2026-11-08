@@ -57,12 +57,17 @@ const SPEC: unknown = JSON.parse(readFileSync(vectorsFile(), "utf8"));
 
 /** A known-answer vector: a render as WAV data, the bytes it hashes and its hash. */
 interface Vector {
+  /** Name of the vector, shown in the test title. */
   readonly name: string;
+  /** Sample rate it was rendered at, in hertz: part of what is hashed. */
   readonly rate: number;
+  /** Number of channels: part of what is hashed. */
   readonly channels: number;
   /** The interleaved samples as stored in a WAV file: the little-endian bits of each. */
   readonly data: Uint8Array;
+  /** The exact bytes the hash covers, as the specification gives them. */
   readonly bytes: Buffer;
+  /** The expected SHA-256 of those bytes, in lowercase hexadecimal. */
   readonly sha256: string;
 }
 

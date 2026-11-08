@@ -4,6 +4,7 @@ import { COLUMNS, currentStepIndex, withStatus, type Board, type Card, type Colu
 export interface CardView extends Card {
   /** The card's steps with their status (refining `Card.steps`, since `StepWithStatus` extends `Step`): in the `doing` column, the first one not done is in progress. */
   readonly steps: readonly StepWithStatus[];
+  /** Number of steps done, out of `steps.length`. */
   readonly doneSteps: number;
   /** Title of the step in progress, or null when there is none (card not in `doing`, no step left, or no step). */
   readonly currentStep: string | null;
@@ -11,16 +12,23 @@ export interface CardView extends Card {
 
 /** A column and its cards, prepared for display. */
 export interface ColumnView {
+  /** Identifier of the column, as stored. */
   readonly id: ColumnId;
+  /** Title of the column, as shown ("In progress" for `doing`). */
   readonly title: string;
+  /** The cards of the column, in display order. */
   readonly cards: readonly CardView[];
 }
 
 /** The whole board, prepared for display. */
 export interface BoardView {
+  /** Title of the board, shown as the page heading. */
   readonly title: string;
+  /** The columns, in display order: what is in progress first. */
   readonly columns: readonly ColumnView[];
+  /** Number of cards on the board. */
   readonly total: number;
+  /** Number of cards in the `done` column. */
   readonly done: number;
   /** Date of the most recent card update, or null if the board is empty. */
   readonly lastUpdated: string | null;

@@ -40,8 +40,11 @@ export const SINE_PATCH = new Uint8Array(readFileSync(new URL("patches/sine-440.
 
 /** A case of the conformance corpus, read from its files. */
 export interface CorpusCase {
+  /** Name of the case: its file name without `.json`, shared by its patch and its reference. */
   readonly name: string;
+  /** Sample rate of the case, in hertz. */
   readonly rate: number;
+  /** Duration of the case, in frames. */
   readonly frames: number;
   /** The bytes of its patch file, unchanged. */
   readonly patch: Uint8Array;
@@ -160,6 +163,7 @@ function section(id: number, contents: number[]): number[] {
 
 /** A function of a hand-made module. */
 export interface HandMadeFunction {
+  /** Export name of the function, such as `engine_load`. */
   readonly name: string;
   /** Number of `i32` parameters. */
   readonly params: number;
@@ -213,8 +217,11 @@ function sleb128(value: number): number[] {
 
 /** What a hand-made module holds: see {@link handMadeBytes}. */
 export interface HandMade {
+  /** Whether the module exports a memory, as every engine module does. */
   readonly memory: boolean;
+  /** Whether the module imports a function, which no engine module does: it then cannot be instantiated without imports. */
   readonly imports?: boolean;
+  /** The exported functions, in order. */
   readonly functions: readonly HandMadeFunction[];
 }
 

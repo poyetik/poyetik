@@ -31,10 +31,15 @@ import {
 export interface Io {
   /** The board file, as named in messages. */
   readonly file: string;
+  /** The text of the board file; throws a `BoardError` naming it when it cannot be read. */
   readonly read: () => string;
+  /** Replaces the board file with `text`; throws a `BoardError` naming it when it cannot be written. */
   readonly write: (text: string) => void;
+  /** Prints one line on stdout: a listing, a card, a confirmation or the help. */
   readonly out: (line: string) => void;
+  /** Prints one line on stderr: an `error:` line, the only thing the CLI writes there. */
   readonly err: (line: string) => void;
+  /** Today's date, `YYYY-MM-DD`, in the local time zone: stamped on the cards a command changes. */
   readonly today: () => string;
 }
 
@@ -424,6 +429,7 @@ export function failure(error: unknown): string {
 
 /** A stream as `guardStreams` needs it: one that reports its failures as `error` events. */
 export interface ErrorSource {
+  /** Registers `listener` for the stream's `error` events (its result is not used). */
   readonly on: (event: "error", listener: (error: Error) => void) => unknown;
 }
 

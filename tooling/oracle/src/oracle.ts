@@ -23,7 +23,9 @@ export interface Corpus {
 
 /** What the oracle found: one line per case or problem, and the number of problems. */
 export interface Verdict {
+  /** What to print on stdout, in order: one line per case, then one per problem found outside the cases. */
   readonly lines: readonly string[];
+  /** Number of problems found: 0 when every case passes, the exit code then being 0. */
   readonly failures: number;
 }
 

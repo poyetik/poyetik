@@ -12,14 +12,23 @@ type Exported1 = (value: number) => number;
 
 /** The exports of the engine module. */
 interface Exports {
+  /** The module memory: every address the functions return points into it, and it may grow at any call. */
   readonly memory: WebAssembly.Memory;
+  /** `engine_input(len)`: makes the input buffer `len` bytes long and returns its address. */
   readonly input: Exported1;
+  /** `engine_load(rate)`: loads the patch in the input buffer at `rate` hertz; 1 on success, 0 on failure. */
   readonly load: Exported1;
+  /** `engine_message_ptr()`: the address of the UTF-8 explanation of the last failed load. */
   readonly messagePtr: Exported0;
+  /** `engine_message_len()`: the length in bytes of that explanation; 0 after a success. */
   readonly messageLen: Exported0;
+  /** `engine_channels()`: the number of output channels of the loaded patch. */
   readonly channels: Exported0;
+  /** `engine_block_size()`: the number of frames of every block the engine renders. */
   readonly blockSize: Exported0;
+  /** `engine_process()`: renders the next block and returns the address of its planar samples. */
   readonly process: Exported0;
+  /** `engine_max_patch_bytes()`: the longest patch the engine reads, in bytes; a longer one is refused before it is copied in. */
   readonly maxPatchBytes: Exported0;
 }
 

@@ -5,13 +5,17 @@
 
 /** A point on the canvas, in pixels. */
 export interface Point {
+  /** Horizontal position, in pixels from the left. */
   readonly x: number;
+  /** Vertical position, in pixels from the top. */
   readonly y: number;
 }
 
 /** What the oscilloscope draws. */
 export interface ScopeScene {
+  /** Width of the scene, in pixels. */
   readonly width: number;
+  /** Height of the scene, in pixels. */
   readonly height: number;
   /** Horizontal lines of the grid, in pixels from the top: the middle (zero) and ±1. */
   readonly grid: readonly number[];

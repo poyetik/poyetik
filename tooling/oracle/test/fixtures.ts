@@ -2,15 +2,23 @@
 
 /** Fields of a 32-bit float WAV file, all overridable to build invalid files. */
 export interface WavFields {
+  /** Sample rate written in the format chunk, in hertz. */
   readonly rate: number;
+  /** Number of channels written in the format chunk; the samples are split among them. */
   readonly channels: number;
   /** Interleaved samples. */
   readonly samples: readonly number[];
+  /** Format tag; 3 (IEEE float) by default. */
   readonly format?: number;
+  /** Bits per sample; 32 by default. */
   readonly bits?: number;
+  /** Bytes per frame; computed from the channels by default. */
   readonly blockAlign?: number;
+  /** Bytes per second; computed from the rate and the block size by default. */
   readonly byteRate?: number;
+  /** Frame count of the `fact` chunk; the real count by default. */
   readonly factFrames?: number;
+  /** Declared size of the format chunk; 18 by default. */
   readonly fmtSize?: number;
   /** Extra bytes after the data chunk. */
   readonly trailer?: readonly number[];

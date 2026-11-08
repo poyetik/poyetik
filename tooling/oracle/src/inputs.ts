@@ -19,7 +19,9 @@ export class InputError extends Error {
 
 /** What a case declares: its rate and duration. */
 export interface Case {
+  /** Sample rate, in hertz: a whole number the engine supports. */
   readonly rate: number;
+  /** Duration of the render, in frames (samples per channel), from 1 to `MAX_FRAMES`. */
   readonly frames: number;
 }
 
@@ -28,13 +30,17 @@ export interface Case {
  * (`sineErrorBound` in `signal.ts`), never declared.
  */
 export interface ChannelExpectation {
+  /** The sine the channel holds, from its first sample on. */
   readonly sine: Sine;
 }
 
 /** What the render of a case must be. */
 export interface Expectation {
+  /** Sample rate the render must have, in hertz: the one of its case. */
   readonly rate: number;
+  /** Duration the render must have, in frames: the one of its case. */
   readonly frames: number;
+  /** What each channel must contain, in channel order: the render has exactly as many channels. */
   readonly channels: readonly ChannelExpectation[];
 }
 
