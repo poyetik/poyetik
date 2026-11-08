@@ -33,7 +33,7 @@ export interface BoardProps {
 export interface BoardView {
   /** Title of the board, shown as the page heading. */
   readonly title: string;
-  /** The columns, in display order: what is in progress first. */
+  /** The columns, in the order of `COLUMNS` (the page's stylesheet moves In progress first on a phone). */
   readonly columns: readonly ColumnView[];
   /** Number of cards on the board. */
   readonly total: number;

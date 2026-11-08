@@ -5,7 +5,7 @@
 
 import { firstUnsafe, oneLine } from "@poyetik/config/one-line";
 
-/** The four roadmap columns, in the order of the data and the CLI; the page shows them in this order on a wide screen, and moves In progress first on a phone (see `toView` in view.ts). */
+/** The four roadmap columns, in the order of the data and the CLI; the page shows them in this order, and its stylesheet moves In progress first on a phone (see `index.astro`). */
 export const COLUMNS = [
   { id: "later", title: "Later" },
   { id: "next", title: "Next" },
