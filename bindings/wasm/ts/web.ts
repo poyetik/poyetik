@@ -393,11 +393,11 @@ function markedFrames(what: string, frames: number): RangeError | undefined {
  */
 function fromStart(channels: readonly Float32Array[], marker: Float32Array, frames: number, where: string): Float32Array[] {
   // Read in place: never copied into a JavaScript array, whatever its length.
-  const first = marker.find((value) => value !== 0);
+  const start = marker.findIndex((value) => value !== 0);
+  const first = marker[start];
   if (first === undefined) {
     throw new Error(`the engine started too late in the ${where}: not within the ${String(START_MARGIN)} frames of margin`);
   }
-  const start = marker.indexOf(first);
   if (!Number.isInteger(first) || first < 1) {
     throw new Error(`the ${where} has no marker after the patch channels: ${String(first)} at frame ${String(start)}`);
   }

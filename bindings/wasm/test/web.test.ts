@@ -587,7 +587,7 @@ describe("captureEngine", () => {
     await expect(captured).rejects.toThrow(new Error("the live capture started 128 frames after the engine"));
   });
 
-  test.each([0.5, -1])("fails on a marker channel holding %d, which is no marker", async (value) => {
+  test.each([0.5, -1, Number.NaN])("fails on a marker channel holding %d, which is no marker", async (value) => {
     const { captured, deliver } = await capturing(1);
     deliver(block(Array<number>(START_MARGIN + 1).fill(5), Array<number>(START_MARGIN + 1).fill(5), [0, value]));
     await expect(captured).rejects.toThrow(new Error(`the live capture has no marker after the patch channels: ${String(value)} at frame 1`));
