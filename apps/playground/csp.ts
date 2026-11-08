@@ -16,3 +16,18 @@ export const CSP = [
 
 /** The `<meta>` element declaring {@link CSP}, first in the `<head>` of the built page. */
 export const CSP_META = `<meta http-equiv="Content-Security-Policy" content="${CSP}" />`;
+
+/** The element of the page the policy follows: the first of its `<head>`, as the policy must come before anything it governs. */
+export const CHARSET = '<meta charset="utf-8" />';
+
+/**
+ * `page` with {@link CSP_META} right after {@link CHARSET}.
+ * @throws {Error} when the page has no such element: a page built without its policy
+ * would still work, so the build must fail instead.
+ */
+export function withPolicy(page: string): string {
+  if (!page.includes(CHARSET)) {
+    throw new Error(`no ${CHARSET} in the page: cannot declare its Content Security Policy after it`);
+  }
+  return page.replace(CHARSET, `${CHARSET}\n    ${CSP_META}`);
+}

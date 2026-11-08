@@ -1,6 +1,6 @@
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
-import { CSP_META } from "./csp.ts";
+import { withPolicy } from "./csp.ts";
 
 export default defineConfig({
   plugins: [
@@ -10,7 +10,7 @@ export default defineConfig({
     {
       name: "content-security-policy",
       apply: "build",
-      transformIndexHtml: (html: string) => html.replace(`<meta charset="utf-8" />`, `<meta charset="utf-8" />\n    ${CSP_META}`),
+      transformIndexHtml: withPolicy,
     },
   ],
   // The engine processors run in an AudioWorklet: bundled as one ES module.
