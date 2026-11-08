@@ -22,16 +22,21 @@ struct Instance {
     node: NodeId,
     /// The box instance.
     object: Box<dyn Object>,
-    /// Input scratch buffers, one per inlet, refilled before every block.
+    /// Input buffers, one per inlet: a connected inlet is rewritten before every block,
+    /// an unconnected one stays silent from the build on.
     inputs: Vec<Block>,
     /// Output buffers, one per outlet.
     outputs: Vec<Block>,
-    /// For each inlet, the bus slots summed into it, in a fixed order.
+    /// For each inlet, the bus slots summed into it, in a fixed order: the first is
+    /// copied, the others added, so that a single cable passes its samples bit for bit.
     sources: Vec<Vec<usize>>,
     /// First bus slot holding this instance's outputs.
     first_slot: usize,
     /// Whether the inputs of this instance go to the engine output.
     is_output: bool,
+    /// For an output, how many output channels the outputs before it in execution order
+    /// write: it adds to those channels and copies into the next ones.
+    covered: usize,
 }
 
 /// A validated, ready-to-run execution plan.
@@ -223,7 +228,7 @@ impl Plan {
         let order = execution_order(&ids, &connections)?;
 
         // Every id of the order is a resolved node: `remove` always finds it.
-        let instances: Vec<Instance> = order
+        let mut instances: Vec<Instance> = order
             .iter()
             .filter_map(|id| nodes.remove(id))
             .map(|resolved| {
@@ -241,15 +246,16 @@ impl Plan {
                         .spec
                         .capabilities
                         .contains(&Capability::AudioOutput),
+                    covered: 0,
                 }
             })
             .collect();
-        let channels = instances
-            .iter()
-            .filter(|instance| instance.is_output)
-            .map(|instance| instance.inputs.len())
-            .max()
-            .unwrap_or(0);
+        // The channels written by the outputs run so far: in the end, every channel.
+        let mut channels = 0_usize;
+        for instance in instances.iter_mut().filter(|instance| instance.is_output) {
+            instance.covered = channels;
+            channels = channels.max(instance.inputs.len());
+        }
         Ok(Self {
             instances,
             bus: vec![SILENCE; bus_len],
@@ -323,19 +329,30 @@ impl Plan {
     /// Runs every box once, then writes one block per output channel into `out`.
     ///
     /// Channels beyond `out.len()` are dropped; extra blocks in `out` receive silence.
+    /// A single cable, or a single output box on a channel, passes its samples bit for
+    /// bit (`-0.0` and NaN payloads included); several are summed in their fixed order,
+    /// starting from the first.
     /// Does not allocate. The samples are written as the boxes computed them: never
     /// clipped to ±1, scaled or sanitized, so that every target renders the same bits. The
     /// final output stage (limiting, clipping, handling non-finite values) belongs to the
     /// host, until the engine defines its own output policy (roadmap ticket #12).
     pub fn process(&mut self, out: &mut [Block]) {
-        out.fill(SILENCE);
+        // Every channel below `channels` is written by an output below.
+        for channel in out.iter_mut().skip(self.channels) {
+            *channel = SILENCE;
+        }
         for instance in &mut self.instances {
             for (input, slots) in instance.inputs.iter_mut().zip(&instance.sources) {
-                *input = SILENCE;
-                for &slot in slots {
-                    let source = self.bus.get(slot).unwrap_or(&SILENCE);
-                    for (sample, value) in input.iter_mut().zip(source) {
-                        *sample += value;
+                let mut sources = slots
+                    .iter()
+                    .map(|&slot| self.bus.get(slot).unwrap_or(&SILENCE));
+                // An unconnected inlet has no source: it stays silent.
+                if let Some(first) = sources.next() {
+                    *input = *first;
+                    for source in sources {
+                        for (sample, value) in input.iter_mut().zip(source) {
+                            *sample += value;
+                        }
                     }
                 }
             }
@@ -351,10 +368,17 @@ impl Plan {
                 *slot = *output;
             }
             if instance.is_output {
-                for (channel, input) in out.iter_mut().zip(&instance.inputs) {
+                let (written, fresh) = out.split_at_mut(instance.covered.min(out.len()));
+                for (channel, input) in written.iter_mut().zip(&instance.inputs) {
                     for (sample, value) in channel.iter_mut().zip(input) {
                         *sample += value;
                     }
+                }
+                for (channel, input) in fresh
+                    .iter_mut()
+                    .zip(instance.inputs.iter().skip(instance.covered))
+                {
+                    *channel = *input;
                 }
             }
         }

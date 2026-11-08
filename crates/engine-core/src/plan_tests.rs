@@ -144,7 +144,27 @@ static RATE: ObjectSpec = ObjectSpec {
     create: |rate, _| Box::new(Rate(f32::from(u16::try_from(rate.hz() / 10).unwrap_or(0)))),
 };
 
-static REGISTRY: [&ObjectSpec; 6] = [&CONST, &RAMP, &ADD, &OUT, &MONO_OUT, &RATE];
+/// Copies its inlet to its outlet, bit for bit.
+#[derive(Debug)]
+struct Pass;
+impl Object for Pass {
+    fn process(&mut self, inputs: &[Block], outputs: &mut [Block]) {
+        for (output, input) in outputs.iter_mut().zip(inputs) {
+            *output = *input;
+        }
+    }
+}
+static PASS: ObjectSpec = ObjectSpec {
+    name: "pass~",
+    description: "identity",
+    inlets: &[PORT],
+    outlets: &[PORT],
+    params: &[],
+    capabilities: &[],
+    create: |_, _| Box::new(Pass),
+};
+
+static REGISTRY: [&ObjectSpec; 7] = [&CONST, &RAMP, &ADD, &OUT, &MONO_OUT, &RATE, &PASS];
 
 fn rate() -> SampleRate {
     SampleRate::new(48_000).expect("valid sample rate")
@@ -704,4 +724,104 @@ fn renders_into_a_buffer_continuing_like_render() {
     let mut untouched = [7.0_f32; 4];
     silent.render_into(&mut untouched);
     assert_eq!(untouched, [7.0; 4], "no output: nothing written");
+}
+
+/// The bit patterns of every sample of `blocks`.
+fn block_bits(blocks: &[Block]) -> Vec<u32> {
+    blocks
+        .iter()
+        .flatten()
+        .map(|sample| sample.to_bits())
+        .collect()
+}
+
+#[test]
+fn a_single_cable_passes_its_samples_bit_for_bit() {
+    // -0.0 through one cable into a box, then through one cable to the output: unchanged.
+    // Summing onto silence would turn it into +0.0 (+0.0 + -0.0 = +0.0).
+    let chain = || {
+        build(
+            vec![
+                with_param(node(1, "const~"), "value", -0.0),
+                node(2, "pass~"),
+                node(3, "mono~"),
+            ],
+            vec![wire(1, 0, 2, 0), wire(2, 0, 3, 0)],
+        )
+        .expect("valid patch")
+    };
+    assert_eq!(
+        block_bits(&run(&mut chain(), 1)),
+        vec![0x8000_0000; BLOCK_SIZE],
+        "-0.0 at the inlet of pass~ and at the output, through process"
+    );
+    let rendered: Vec<u32> = chain()
+        .render(BLOCK_SIZE + 3)
+        .expect("small render")
+        .iter()
+        .map(|sample| sample.to_bits())
+        .collect();
+    assert_eq!(
+        rendered,
+        vec![0x8000_0000; BLOCK_SIZE + 3],
+        "and through render"
+    );
+}
+
+#[test]
+fn several_cables_are_summed_starting_from_the_first() {
+    let sum = |first: f32, second: f32| {
+        let mut plan = build(
+            vec![
+                with_param(node(1, "const~"), "value", first),
+                with_param(node(2, "const~"), "value", second),
+                node(3, "mono~"),
+            ],
+            vec![wire(1, 0, 3, 0), wire(2, 0, 3, 0)],
+        )
+        .expect("valid patch");
+        block_bits(&run(&mut plan, 1))
+    };
+    assert_eq!(
+        sum(-0.0, -0.0),
+        vec![0x8000_0000; BLOCK_SIZE],
+        "-0.0 + -0.0 = -0.0"
+    );
+    assert_eq!(sum(-0.0, 0.0), vec![0; BLOCK_SIZE], "-0.0 + +0.0 = +0.0");
+}
+
+#[test]
+fn several_output_boxes_are_summed_starting_from_the_first() {
+    // Two outputs, a mono one and a stereo one, each fed -0.0: channel 0 sums both
+    // (-0.0 + -0.0), channel 1 comes from the stereo one alone; a third slot is silent.
+    let mut plan = build(
+        vec![
+            with_param(node(1, "const~"), "value", -0.0),
+            node(2, "mono~"),
+            node(3, "out~"),
+        ],
+        vec![wire(1, 0, 2, 0), wire(1, 0, 3, 0), wire(1, 0, 3, 1)],
+    )
+    .expect("valid patch");
+    let out = run(&mut plan, 3);
+    assert_eq!(
+        block_bits(&out[..2]),
+        vec![0x8000_0000; 2 * BLOCK_SIZE],
+        "both channels keep -0.0"
+    );
+    assert_eq!(block_bits(&out[2..]), vec![0; BLOCK_SIZE], "+0.0 beyond");
+    // A stereo output fed on its second inlet only: its first channel is silence, +0.0.
+    let mut half = build(
+        vec![
+            with_param(node(1, "const~"), "value", -0.0),
+            node(2, "out~"),
+        ],
+        vec![wire(1, 0, 2, 1)],
+    )
+    .expect("valid patch");
+    assert_eq!(
+        block_bits(&run(&mut half, 2)),
+        [vec![0; BLOCK_SIZE], vec![0x8000_0000; BLOCK_SIZE]].concat(),
+        "an unconnected inlet is +0.0, a connected one is passed as is"
+    );
 }
