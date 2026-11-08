@@ -121,14 +121,17 @@ describe("frequency", () => {
     }
   });
 
-  test("measures from about 47.1 Hz, the floor of the history (47.13 Hz at 8 kHz), and never at three periods per history", () => {
+  test("measures from about 47.1 Hz, the floor of the history (47.13 Hz at 8 kHz), and never at three periods per history (35.29 Hz) or fewer", () => {
     expect(SAMPLE_RATES.map((rate) => floor(rate).toFixed(2))).toContain("47.13");
+    expect((MIN_PERIODS / HISTORY_SECONDS).toFixed(2)).toBe("35.29");
     for (const rate of SAMPLE_RATES) {
       expect(floor(rate)).toBeGreaterThan(47.05);
       expect(floor(rate)).toBeLessThan(47.13);
-      // Three periods per 85 ms (35.3 Hz) leave at most three crossings in the history.
-      for (const phase of PHASES) {
-        expect(frequency(sine(MIN_PERIODS / HISTORY_SECONDS, rate, Math.round(HISTORY_SECONDS * rate), phase), rate)).toBeUndefined();
+      // Three periods per history (35.29 Hz) or fewer leave at most three crossings in it.
+      for (const periods of [MIN_PERIODS, MIN_PERIODS * 0.99, MIN_PERIODS / 2]) {
+        for (const phase of PHASES) {
+          expect(frequency(sine(periods / HISTORY_SECONDS, rate, Math.round(HISTORY_SECONDS * rate), phase), rate)).toBeUndefined();
+        }
       }
     }
   });
