@@ -59,17 +59,45 @@ for (const name of LIVE) {
   });
 }
 
-test("runs the engine under a strict Content Security Policy, breaking none of it", async ({ page }) => {
-  const violations: string[] = [];
+/**
+ * The policy of a page running the engine, as the bench page declares it: the site only,
+ * plus compiling WebAssembly. Written here on purpose: loosening the page's policy (an
+ * `'unsafe-eval'`, a wider source) fails this test until it is changed here too.
+ */
+const POLICY = "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'";
+
+test("runs the engine offline and live under its Content Security Policy, breaking none of it, which is enforced", async ({ page }) => {
+  // Two channels: the page's own violation events, and console errors, for what a violation
+  // in the worklet scope may report only there.
+  const errors: string[] = [];
   page.on("console", (message) => {
-    if (message.text().includes("Content Security Policy")) {
-      violations.push(message.text());
+    if (message.type() === "error") {
+      errors.push(message.text());
     }
   });
+  await page.addInitScript(() => {
+    const seen: string[] = [];
+    Reflect.set(window, "violations", seen);
+    document.addEventListener("securitypolicyviolation", (event) => {
+      seen.push(`${event.violatedDirective} ${event.blockedURI}`);
+    });
+  });
   await page.goto("e2e/site/index.html?case=sine-440");
+  await expect(page.locator('meta[http-equiv="Content-Security-Policy"]')).toHaveAttribute("content", POLICY);
   await page.getByRole("button", { name: "Render offline" }).click();
   await expect(page.locator("#offline-hash")).toHaveText(reference("sine-440"));
-  expect(violations).toStrictEqual([]);
+  await page.getByRole("button", { name: "Capture live" }).click();
+  await expect(page.locator("#live-hash")).toHaveText(reference("sine-440"), { timeout: 15_000 });
+  const violations = (): Promise<unknown> => page.evaluate((): unknown => Reflect.get(window, "violations"));
+  expect(await violations()).toStrictEqual([]);
+  expect(errors).toStrictEqual([]);
+  // Control: an image from another site is blocked and reported.
+  await page.evaluate(() => {
+    const image = document.createElement("img");
+    image.src = "https://example.invalid/blocked.png";
+    document.body.append(image);
+  });
+  await expect.poll(violations).toStrictEqual(["img-src https://example.invalid/blocked.png"]);
 });
 
 test("names the file it could not fetch", async ({ page }) => {

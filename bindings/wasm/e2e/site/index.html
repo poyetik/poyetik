@@ -3,7 +3,9 @@
   <head>
     <meta charset="utf-8" />
     <!-- The policy of a page running the engine: the site only, plus compiling WebAssembly. -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; base-uri 'none'; form-action 'none'" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'" />
+    <!-- An icon of the site: without one, Firefox asks for /favicon.ico, which the policy blocks. -->
+    <link rel="icon" href="/e2e/site/favicon.svg" type="image/svg+xml" />
     <title>engine-wasm test bench</title>
     <!-- Built into dist/, never into this source folder (pnpm test:e2e builds it). -->
     <script type="module" src="/dist/e2e-site/harness.js"></script>

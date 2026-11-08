@@ -58,6 +58,7 @@ const TYPES: Readonly<Record<string, string>> = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
   ".json": "application/json",
+  ".svg": "image/svg+xml",
   ".wasm": "application/wasm",
 };
 

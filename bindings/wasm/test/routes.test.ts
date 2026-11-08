@@ -49,6 +49,7 @@ describe("contentType", () => {
     ["/a/harness.js", "text/javascript; charset=utf-8"],
     ["/a/sine.json", "application/json"],
     ["/a/engine.wasm", "application/wasm"],
+    ["/a/favicon.svg", "image/svg+xml"],
     ["/a/notes.txt", "application/octet-stream"],
     ["/a/README", "application/octet-stream"],
   ])("serves %s as %s", (file, type) => {
