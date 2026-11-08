@@ -35,6 +35,8 @@ The words of the project, with the name each one takes in the patch format and i
 | **check** | `cargo xtask check`: every quality check, mutation testing only the changes (Rust since the merge base with the upstream, TypeScript since the last local Stryker run); the pre-push hook runs it after its own refusals | `crates/xtask/` |
 | **full check** | `cargo xtask check --full`: every quality check and every mutant, as CI runs it | `crates/xtask/` |
 | **check step** | One named part of the check (formatting, a lint, a test suite, a gate), run in a fixed order; `cargo xtask list` lists them. Not a roadmap **step** | `Step` (`crates/xtask/`) |
+| **part of the full check** | One slice of the full check that one CI job runs (`cargo xtask check --full --part <part>`; `cargo xtask list --full --parts` lists them); together they run every check step once, only preparation repeated. Not a part of the repository | `Part` (`crates/xtask/`) |
+| **mutation shard** | One of the slices cargo-mutants splits the Rust mutants into (`--shard`), each run by a part of the full check of its own | `Shard` (`crates/xtask/`) |
 
 ## Roadmap
 

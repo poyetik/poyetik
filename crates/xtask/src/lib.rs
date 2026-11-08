@@ -297,6 +297,10 @@ pub struct Package {
     /// removes an output whose source is gone), relative to its directory: emptied before
     /// the checks, so that no stale output of an earlier run is used by a later step.
     pub outputs: &'static [&'static str],
+    /// What its checks need besides the JavaScript dependencies, which every package needs:
+    /// prepared again in its part of the full check ([`Part::needs`]), since its checks may
+    /// run there without the others.
+    pub needs: &'static [Setup],
 }
 
 impl Package {
@@ -321,30 +325,35 @@ pub const PACKAGES: [Package; 5] = [
         step: "Shared TypeScript policy (each rule proven to reject what it forbids)",
         shipped: false,
         outputs: &[],
+        needs: &[],
     },
     Package {
         dir: "tooling/oracle",
         step: "Conformance oracle (independent, TypeScript)",
         shipped: false,
         outputs: &[],
+        needs: &[Setup::ConformanceExport],
     },
     Package {
         dir: "bindings/wasm",
         step: "Engine WASM checks",
         shipped: true,
         outputs: &["dist"],
+        needs: &[],
     },
     Package {
         dir: "apps/playground",
         step: "Playground checks",
         shipped: true,
         outputs: &[],
+        needs: &[Setup::EngineBuild],
     },
     Package {
         dir: "apps/roadmap",
         step: "Roadmap checks",
         shipped: true,
         outputs: &[],
+        needs: &[],
     },
 ];
 
@@ -519,6 +528,12 @@ pub enum Action {
     SupplyChainGate,
     /// Require the CI workflow to pin every action, tool and runtime.
     WorkflowGate,
+    /// Require the parts of the full check to run every step of it once ([`parts_gate`]).
+    PartsGate,
+    /// Require every unviable mutant of the shards to be reviewed, and every review
+    /// current: [`Action::UnviableGate`] after a complete run, on the reports of every shard
+    /// (these paths), together.
+    ShardsUnviableGate(Vec<String>),
     /// Record the state of the working tree ([`TreeState`]), for [`Action::TreeUnchanged`].
     TreeRecorded,
     /// Require the working tree to be as [`Action::TreeRecorded`] found it: the checks
@@ -636,17 +651,34 @@ fn run(name: &str, program: &'static str, args: &[&str], dir: Dir) -> Step {
     }
 }
 
+/// The tools first, then the state of the working tree: what every part starts with.
+fn opening_steps() -> Vec<(Role, Step)> {
+    vec![
+        (
+            Role::Frame,
+            Step {
+                name: "Tools and platform".to_owned(),
+                action: Action::Preflight,
+            },
+        ),
+        (
+            Role::Frame,
+            Step {
+                name: "Working tree recorded".to_owned(),
+                action: Action::TreeRecorded,
+            },
+        ),
+    ]
+}
+
+/// Tags each of `steps` with `role`.
+fn tagged(role: Role, steps: Vec<Step>) -> Vec<(Role, Step)> {
+    steps.into_iter().map(|step| (role, step)).collect()
+}
+
 /// Formatting, lints, documentation and tests.
 fn static_steps() -> Vec<Step> {
     vec![
-        Step {
-            name: "Tools and platform".to_owned(),
-            action: Action::Preflight,
-        },
-        Step {
-            name: "Working tree recorded".to_owned(),
-            action: Action::TreeRecorded,
-        },
         run(
             "Rust formatting",
             "cargo",
@@ -753,8 +785,23 @@ pub fn changes_mutants_command(jobs: NonZeroUsize) -> Cmd {
     ])
 }
 
+/// The cargo-mutants command of [`Mode::Full`]: every mutant of the workspace in `jobs` jobs.
+///
+/// With a `shard`, only its mutants (cargo-mutants' `--shard <index>/<count>`, mutant `i` on
+/// shard `i % count`: round-robin, so that each shard takes its share of every file).
+#[must_use]
+pub fn workspace_mutants_command(jobs: NonZeroUsize, shard: Option<Shard>) -> Cmd {
+    let jobs = jobs.to_string();
+    let mut args = vec!["--workspace", "--jobs", &jobs];
+    let sharded = shard.map(|shard| format!("{}/{MUTATION_SHARDS}", shard.index()));
+    if let Some(sharded) = &sharded {
+        args.extend(["--shard", sharded, "--sharding=round-robin"]);
+    }
+    mutants_command(&args)
+}
+
 /// Rust mutation testing in `mode`, after emptying [`MUTANTS_OUT`], then its gate.
-fn rust_mutation_steps(mode: Mode) -> Vec<Step> {
+fn rust_mutation_steps(mode: Mode) -> Vec<(Role, Step)> {
     let (name, action, extent) = match mode {
         Mode::Changes { jobs } => (
             "Rust mutation testing of the changes",
@@ -763,33 +810,38 @@ fn rust_mutation_steps(mode: Mode) -> Vec<Step> {
         ),
         Mode::Full { jobs } => (
             "Rust mutation testing",
-            Action::Run(mutants_command(&[
-                "--workspace",
-                "--jobs",
-                &jobs.to_string(),
-            ])),
+            Action::Run(workspace_mutants_command(jobs, None)),
             Extent::Complete,
         ),
     };
     vec![
-        Step {
-            name: "Fresh Rust mutation report".to_owned(),
-            action: Action::FreshDirs(vec![MUTANTS_OUT.to_owned()]),
-        },
-        Step {
-            name: name.to_owned(),
-            action,
-        },
-        Step {
-            name: "Rust unviable mutants reviewed".to_owned(),
-            action: Action::UnviableGate(extent),
-        },
+        (
+            Role::EveryShard,
+            Step {
+                name: "Fresh Rust mutation report".to_owned(),
+                action: Action::FreshDirs(vec![MUTANTS_OUT.to_owned()]),
+            },
+        ),
+        (
+            Role::Sharded,
+            Step {
+                name: name.to_owned(),
+                action,
+            },
+        ),
+        (
+            Role::AcrossShards,
+            Step {
+                name: "Rust unviable mutants reviewed".to_owned(),
+                action: Action::UnviableGate(extent),
+            },
+        ),
     ]
 }
 
-/// Coverage and mutation testing in `mode`, with their gates.
-fn proof_steps(mode: Mode) -> Vec<Step> {
-    let mut steps = vec![
+/// Coverage and mutation testing in `mode`, with their gates, and Miri.
+fn proof_steps(mode: Mode) -> Vec<(Role, Step)> {
+    let mut coverage = vec![
         Step {
             name: "Fresh Rust coverage reports".to_owned(),
             action: Action::FreshDirs(vec![COVERAGE_DIR.to_owned()]),
@@ -799,7 +851,7 @@ fn proof_steps(mode: Mode) -> Vec<Step> {
             action: Action::CoverageLocality,
         },
     ];
-    steps.extend(RUST_CRATES.iter().map(|&krate| Step {
+    coverage.extend(RUST_CRATES.iter().map(|&krate| Step {
         name: format!(
             "Rust coverage of {}: 100% by its own unit tests",
             krate.name
@@ -809,7 +861,7 @@ fn proof_steps(mode: Mode) -> Vec<Step> {
             measured: Measured::Library,
         }),
     }));
-    steps.extend(
+    coverage.extend(
         RUST_CRATES
             .iter()
             .filter(|krate| krate.binary)
@@ -824,8 +876,9 @@ fn proof_steps(mode: Mode) -> Vec<Step> {
                 }),
             }),
     );
+    let mut steps = tagged(Role::Proof(Part::Coverage), coverage);
     steps.extend(rust_mutation_steps(mode));
-    steps.extend([
+    let gates = vec![
         Step {
             name: "TypeScript equivalent mutants reviewed".to_owned(),
             action: Action::EquivalentGate,
@@ -842,11 +895,15 @@ fn proof_steps(mode: Mode) -> Vec<Step> {
             name: "Cargo configuration: no build flag, a locked alias".to_owned(),
             action: Action::CargoConfigGate,
         },
+    ];
+    steps.extend(tagged(Role::Proof(Part::Gates), gates));
+    steps.push((
+        Role::Proof(Part::Miri),
         Step {
             name: "Unsafe code under Miri".to_owned(),
             action: Action::Run(miri_command()),
         },
-    ]);
+    ));
     steps
 }
 
@@ -878,25 +935,25 @@ pub fn miri_command() -> Cmd {
 
 /// Conformance, supply chain, then the consistency of the repository: membership, READMEs,
 /// versions, history and the CI workflow.
-fn consistency_steps() -> Vec<Step> {
-    vec![
-        run(
-            "Conformance (native)",
-            "cargo",
-            &[
-                "run",
-                "--package",
-                "engine-cli",
-                "--locked",
-                "--quiet",
-                "--",
-                "check",
-                "conformance",
-            ],
-            Dir::Root,
-        ),
-        // The independent oracle (tooling/oracle) checks these files after the JavaScript
-        // dependencies are installed.
+fn consistency_steps() -> Vec<(Role, Step)> {
+    let conformance = run(
+        "Conformance (native)",
+        "cargo",
+        &[
+            "run",
+            "--package",
+            "engine-cli",
+            "--locked",
+            "--quiet",
+            "--",
+            "check",
+            "conformance",
+        ],
+        Dir::Root,
+    );
+    // The independent oracle (tooling/oracle) checks these files after the JavaScript
+    // dependencies are installed.
+    let export = vec![
         Step {
             name: "Fresh conformance export directory".to_owned(),
             action: Action::FreshDirs(vec![CONFORMANCE_EXPORT.to_owned()]),
@@ -917,6 +974,8 @@ fn consistency_steps() -> Vec<Step> {
             ],
             Dir::Root,
         ),
+    ];
+    let gates = vec![
         run(
             "Rust supply chain",
             "cargo",
@@ -956,7 +1015,15 @@ fn consistency_steps() -> Vec<Step> {
             name: "CI workflow pinned".to_owned(),
             action: Action::WorkflowGate,
         },
-    ]
+        Step {
+            name: "The parts of CI run every check of the full check once".to_owned(),
+            action: Action::PartsGate,
+        },
+    ];
+    let mut steps = vec![(Role::Proof(Part::Gates), conformance)];
+    steps.extend(tagged(Role::Setup(Setup::ConformanceExport), export));
+    steps.extend(tagged(Role::Proof(Part::Gates), gates));
+    steps
 }
 
 /// The Stryker command of the package in `dir`, in `mode`.
@@ -987,42 +1054,66 @@ pub fn stryker_command(dir: &'static str, mode: Mode) -> Cmd {
 /// The TypeScript packages: dependencies, their audit and licenses, then the checks of
 /// each package of [`PACKAGES`] and its mutation testing in `mode`, in order, and the gates
 /// on their reports.
-fn typescript_steps(mode: Mode) -> Vec<Step> {
+fn typescript_steps(mode: Mode) -> Vec<(Role, Step)> {
+    let javascript = Role::Setup(Setup::JavaScript);
+    let gates = Role::Proof(Part::Gates);
     let mut steps = vec![
-        run(
-            "JavaScript dependencies",
-            "pnpm",
-            &["install", "--frozen-lockfile"],
-            Dir::Root,
+        (
+            javascript,
+            run(
+                "JavaScript dependencies",
+                "pnpm",
+                &["install", "--frozen-lockfile"],
+                Dir::Root,
+            ),
         ),
-        run("JavaScript vulnerabilities", "pnpm", &["audit"], Dir::Root),
-        Step {
-            name: "JavaScript licenses".to_owned(),
-            action: Action::LicenseGate,
-        },
-        Step {
-            name: "Stryker configurations hide no mutant".to_owned(),
-            action: Action::StrykerConfigGate,
-        },
-        Step {
-            name: "Fresh TypeScript report directories".to_owned(),
-            action: Action::FreshDirs(typescript_reports()),
-        },
-        Step {
-            name: "Fresh TypeScript build outputs".to_owned(),
-            action: Action::FreshDirs(build_outputs()),
-        },
+        (
+            gates,
+            run("JavaScript vulnerabilities", "pnpm", &["audit"], Dir::Root),
+        ),
+        (
+            gates,
+            Step {
+                name: "JavaScript licenses".to_owned(),
+                action: Action::LicenseGate,
+            },
+        ),
+        (
+            gates,
+            Step {
+                name: "Stryker configurations hide no mutant".to_owned(),
+                action: Action::StrykerConfigGate,
+            },
+        ),
+        (
+            javascript,
+            Step {
+                name: "Fresh TypeScript report directories".to_owned(),
+                action: Action::FreshDirs(typescript_reports()),
+            },
+        ),
+        (
+            javascript,
+            Step {
+                name: "Fresh TypeScript build outputs".to_owned(),
+                action: Action::FreshDirs(build_outputs()),
+            },
+        ),
         // Built before any package, so that a package using it can be checked without the
         // checks of the engine package itself (as a part of the full check does).
-        run(
-            "Engine WASM build, for the packages that use it",
-            "pnpm",
-            &["run", "build"],
-            Dir::Package(ENGINE_PACKAGE.dir),
+        (
+            Role::Setup(Setup::EngineBuild),
+            run(
+                "Engine WASM build, for the packages that use it",
+                "pnpm",
+                &["run", "build"],
+                Dir::Package(ENGINE_PACKAGE.dir),
+            ),
         ),
     ];
     for package in PACKAGES {
-        steps.push(run(
+        let mut owned = Vec::new();
+        owned.push(run(
             package.step,
             "pnpm",
             &["run", "check"],
@@ -1032,43 +1123,456 @@ fn typescript_steps(mode: Mode) -> Vec<Step> {
             Mode::Changes { .. } => "what changed since the last run",
             Mode::Full { .. } => "every mutant",
         };
-        steps.push(Step {
+        owned.push(Step {
             name: format!("Mutation testing of {} ({what})", package.dir),
             action: Action::Run(stryker_command(package.dir, mode)),
         });
-        steps.push(Step {
+        owned.push(Step {
             name: format!(
                 "TypeScript coverage and mutation reports of {}",
                 package.dir
             ),
             action: Action::TypeScriptReportsGate(package),
         });
-        steps.push(Step {
+        owned.push(Step {
             name: format!(
                 "Every TypeScript source of {} measured and mutated, or reviewed",
                 package.dir
             ),
             action: Action::TypeScriptScopeGate(package),
         });
+        steps.extend(tagged(Role::Proof(Part::Package(package)), owned));
     }
     steps
+}
+
+/// Every check of the repository in `mode`, in the order they run, each with its role
+/// in the parts of the full check.
+fn roles(mode: Mode) -> Vec<(Role, Step)> {
+    let rust = Role::Proof(Part::Rust);
+    [
+        opening_steps(),
+        tagged(rust, static_steps()),
+        tagged(rust, portability_steps()),
+        proof_steps(mode),
+        consistency_steps(),
+        typescript_steps(mode),
+        vec![(
+            Role::Frame,
+            Step {
+                name: "Working tree unchanged by the checks".to_owned(),
+                action: Action::TreeUnchanged,
+            },
+        )],
+    ]
+    .concat()
 }
 
 /// Every check of the repository in `mode`, in the order they run.
 #[must_use]
 pub fn check_steps(mode: Mode) -> Vec<Step> {
-    [
-        static_steps(),
-        portability_steps(),
-        proof_steps(mode),
-        consistency_steps(),
-        typescript_steps(mode),
-        vec![Step {
-            name: "Working tree unchanged by the checks".to_owned(),
-            action: Action::TreeUnchanged,
-        }],
-    ]
-    .concat()
+    roles(mode).into_iter().map(|(_, step)| step).collect()
+}
+
+/// How many shards the Rust mutation testing of the full check is split into in CI, each a
+/// part of its own ([`Part::Mutation`]).
+pub const MUTATION_SHARDS: usize = 8;
+
+/// One shard of the Rust mutants: cargo-mutants' `--shard <index>/<MUTATION_SHARDS>`.
+///
+/// Only [`Shard::all`] makes one, so that its index is always below [`MUTATION_SHARDS`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Shard(usize);
+
+impl Shard {
+    /// Every shard, in order.
+    pub fn all() -> impl Iterator<Item = Self> {
+        (0..MUTATION_SHARDS).map(Self)
+    }
+
+    /// Its index, from 0, as cargo-mutants counts.
+    #[must_use]
+    pub const fn index(self) -> usize {
+        self.0
+    }
+}
+
+/// What a step needs prepared before it, done again in every part that needs it: the
+/// preparation is repeated, never the proof.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Setup {
+    /// The JavaScript dependencies installed, and the TypeScript reports and build outputs
+    /// emptied.
+    JavaScript,
+    /// The engine package built ([`ENGINE_PACKAGE`]).
+    EngineBuild,
+    /// The conformance cases exported as WAV files ([`CONFORMANCE_EXPORT`]), for the oracle.
+    ConformanceExport,
+}
+
+/// A part of the full check: what one CI job runs (`cargo xtask check --full --part
+/// <name>`), in parallel with the others.
+///
+/// Together the parts run every step of the full check once ([`parts_gate`]); the
+/// preparation steps ([`Setup`]) are repeated in the parts that need them, and every part
+/// starts with the tools and the state of the working tree and ends checking it unchanged.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Part {
+    /// Formatting, lints, documentation, tests and portability builds.
+    Rust,
+    /// The Rust coverage of every crate.
+    Coverage,
+    /// One shard of the Rust mutants.
+    Mutation(Shard),
+    /// Miri on the unsafe code.
+    Miri,
+    /// Conformance, supply chain and the gates on the repository.
+    Gates,
+    /// The checks, mutation testing and gates of one TypeScript package.
+    Package(Package),
+    /// What needs every other part: the unviable mutants of every shard, reviewed and
+    /// every review current. Run last, by a job that needs every other one.
+    Final,
+}
+
+impl Part {
+    /// Its name on the command line and in the workflow's matrix: no `/`, which an artifact
+    /// name cannot hold.
+    #[must_use]
+    pub fn name(self) -> String {
+        match self {
+            Self::Rust => "rust".to_owned(),
+            Self::Coverage => "coverage".to_owned(),
+            Self::Mutation(shard) => format!("mutation-{}", shard.index()),
+            Self::Miri => "miri".to_owned(),
+            Self::Gates => "gates".to_owned(),
+            Self::Package(package) => package.dir.replace('/', "-"),
+            Self::Final => "final".to_owned(),
+        }
+    }
+
+    /// What it needs prepared.
+    #[must_use]
+    pub fn needs(self) -> Vec<Setup> {
+        match self {
+            Self::Gates => vec![Setup::JavaScript],
+            Self::Package(package) => [&[Setup::JavaScript], package.needs].concat(),
+            Self::Rust | Self::Coverage | Self::Mutation(_) | Self::Miri | Self::Final => {
+                Vec::new()
+            }
+        }
+    }
+}
+
+/// Every part of the full check, in order, [`Part::Final`] last.
+#[must_use]
+pub fn full_parts() -> Vec<Part> {
+    let mut parts = vec![Part::Rust, Part::Coverage];
+    parts.extend(Shard::all().map(Part::Mutation));
+    parts.extend([Part::Miri, Part::Gates]);
+    parts.extend(PACKAGES.map(Part::Package));
+    parts.push(Part::Final);
+    parts
+}
+
+/// Where the final part reads the unviable mutants of the shard `part` (named as by
+/// [`Part::name`]).
+///
+/// The CI job of each shard uploads its [`UNVIABLE_REPORT`] as the artifact
+/// `unviable-<part>`, which the final job downloads below [`SHARD_REPORTS`], one directory
+/// per artifact.
+#[must_use]
+pub fn shard_unviable_report(part: &str) -> String {
+    format!("{SHARD_REPORTS}/{UNVIABLE_ARTIFACT}{part}/unviable.txt")
+}
+
+/// Where the final part finds the reports of the shards, one directory per artifact.
+pub const SHARD_REPORTS: &str = "mutants.out/shards";
+
+/// The prefix of the name of the artifact of each shard's unviable mutants.
+pub const UNVIABLE_ARTIFACT: &str = "unviable-";
+
+/// Who runs a step of the full check when it is split into parts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Role {
+    /// Every part: the tools, and the working tree recorded then unchanged.
+    Frame,
+    /// Every part that needs this preparation.
+    Setup(Setup),
+    /// That part only.
+    Proof(Part),
+    /// Every shard ([`Part::Mutation`]): the mutation report emptied.
+    EveryShard,
+    /// Split among the shards: each runs its own mutants.
+    Sharded,
+    /// The final part, on what every shard found: the unviable-mutant gate.
+    AcrossShards,
+}
+
+/// The steps of `part` of the full check, in the order of the full check, with `jobs`
+/// cargo-mutants jobs.
+#[must_use]
+pub fn part_steps(part: Part, jobs: NonZeroUsize) -> Vec<Step> {
+    let needs = part.needs();
+    roles(Mode::Full { jobs })
+        .into_iter()
+        .filter_map(|(role, step)| match (role, part) {
+            (Role::Frame, _) | (Role::EveryShard, Part::Mutation(_)) => Some(step),
+            (Role::Setup(setup), _) => needs.contains(&setup).then_some(step),
+            (Role::Proof(owner), _) => (owner == part).then_some(step),
+            (Role::Sharded, Part::Mutation(shard)) => Some(Step {
+                name: format!("{} (shard {}/{MUTATION_SHARDS})", step.name, shard.index()),
+                action: Action::Run(workspace_mutants_command(jobs, Some(shard))),
+            }),
+            (Role::AcrossShards, Part::Final) => Some(Step {
+                name: format!("{} (every shard)", step.name),
+                action: Action::ShardsUnviableGate(
+                    Shard::all()
+                        .map(|shard| shard_unviable_report(&Part::Mutation(shard).name()))
+                        .collect(),
+                ),
+            }),
+            (Role::EveryShard | Role::Sharded | Role::AcrossShards, _) => None,
+        })
+        .collect()
+}
+
+/// The arguments that make a cargo-mutants command run one shard: `--shard <k>/<n>`, written
+/// as cargo-mutants reads it (no sign, no leading zero), then round-robin sharding.
+///
+/// Returns the command without them, the shard's index and the count of shards, or `None` if `cmd` holds no such
+/// arguments.
+fn unsharded(cmd: &Cmd) -> Option<(Cmd, usize, usize)> {
+    let at = cmd.args.iter().position(|arg| arg == "--shard")?;
+    let [_, value, sharding, ..] = cmd.args.get(at..)? else {
+        return None;
+    };
+    let (index, count) = value.split_once('/')?;
+    let (index, count): (usize, usize) = (index.parse().ok()?, count.parse().ok()?);
+    if *value != format!("{index}/{count}") || sharding != "--sharding=round-robin" {
+        return None;
+    }
+    let mut args = cmd.args.clone();
+    let _removed: Vec<String> = args.drain(at..at.checked_add(3)?).collect();
+    Some((
+        Cmd {
+            args,
+            ..cmd.clone()
+        },
+        index,
+        count,
+    ))
+}
+
+/// What the steps of the parts stand for in the full check ([`parts_gate`]).
+#[derive(Debug, Default)]
+struct Origins {
+    /// For each step of the full check, the parts that run it whole.
+    whole: Vec<Vec<String>>,
+    /// For each step of the full check run in shards: each shard (its index and the count of
+    /// shards), and its part.
+    shards: BTreeMap<usize, Vec<(usize, usize, String)>>,
+    /// The parts that run a shard, in order.
+    shard_parts: Vec<String>,
+    /// The reports read by each unviable-mutant gate over the shards.
+    across: Vec<Vec<String>>,
+}
+
+/// Finds what `step`, a step of `part`, stands for in `full`: its index there, recorded in
+/// `origins`, or a problem.
+fn origin(
+    full: &[Step],
+    part: &str,
+    step: &Step,
+    origins: &mut Origins,
+    problems: &mut Vec<String>,
+) -> Option<usize> {
+    if let Some(index) = full.iter().position(|whole| whole == step) {
+        origins.whole.get_mut(index)?.push(part.to_owned());
+        return Some(index);
+    }
+    if let Action::Run(cmd) = &step.action
+        && let Some((whole, shard, count)) = unsharded(cmd)
+        && let Some(index) = full.iter().position(|of| {
+            of.action == Action::Run(whole.clone())
+                && step.name == format!("{} (shard {shard}/{count})", of.name)
+        })
+    {
+        if origins.shard_parts.iter().any(|name| name == part) {
+            problems.push(format!(
+                "{part}: runs a second shard, whose report would replace the first"
+            ));
+        }
+        origins.shard_parts.push(part.to_owned());
+        origins
+            .shards
+            .entry(index)
+            .or_default()
+            .push((shard, count, part.to_owned()));
+        return Some(index);
+    }
+    if let Action::ShardsUnviableGate(reports) = &step.action
+        && let Some(index) = full.iter().position(|of| {
+            of.action == Action::UnviableGate(Extent::Complete)
+                && step.name == format!("{} (every shard)", of.name)
+        })
+    {
+        origins.across.push(reports.clone());
+        return Some(index);
+    }
+    problems.push(format!(
+        "{part}: `{}` is no step of the full check",
+        step.name
+    ));
+    None
+}
+
+/// The problems of a step of the full check run in shards: `sharded` (each shard's index,
+/// the count of shards, and its part), never whole, and every shard of the same count once.
+fn shard_problems(name: &str, whole: &[String], sharded: &[(usize, usize, String)]) -> Vec<String> {
+    let mut problems = Vec::new();
+    if !whole.is_empty() {
+        problems.push(format!(
+            "`{name}` runs both whole ({}) and in shards",
+            whole.join(", ")
+        ));
+    }
+    let counts: BTreeSet<usize> = sharded.iter().map(|(_, count, _)| *count).collect();
+    let [count] = counts.into_iter().collect::<Vec<_>>()[..] else {
+        problems.push(format!("`{name}` is split into shards of different counts"));
+        return problems;
+    };
+    for (shard, _, part) in sharded.iter().filter(|(shard, _, _)| *shard >= count) {
+        problems.push(format!(
+            "{part}: shard {shard}/{count} of `{name}` is no shard"
+        ));
+    }
+    for index in 0..count {
+        let parts: Vec<&str> = sharded
+            .iter()
+            .filter(|(shard, _, _)| *shard == index)
+            .map(|(_, _, part)| part.as_str())
+            .collect();
+        match parts.len() {
+            0 => problems.push(format!("shard {index}/{count} of `{name}` runs in no part")),
+            1 => {}
+            _ => problems.push(format!(
+                "shard {index}/{count} of `{name}` runs in {} parts: {}",
+                parts.len(),
+                parts.join(", ")
+            )),
+        }
+    }
+    problems
+}
+
+/// Checks that `parts` (each named, with its steps) run every step of `full`, the full check,
+/// once.
+///
+/// Each step of a part stands for one step of `full`, and the steps of a part keep the order
+/// of `full`. A step of a part is a step of `full`; or one shard of a cargo-mutants step of
+/// `full` (its command with `--shard <k>/<n> --sharding=round-robin` added, named after it
+/// with ` (shard <k>/<n>)`); or the unviable-mutant gate over the shards
+/// ([`Action::ShardsUnviableGate`], named after the complete [`Action::UnviableGate`] of
+/// `full` with ` (every shard)`), which stands for that gate. Every step of `full` runs in
+/// exactly one part, except: the `preparation` steps, which run in one part at least; a step
+/// run in shards, which runs whole in no part, every shard `k` from 0 to `n - 1` in exactly
+/// one part, a part running one shard at most; and the unviable-mutant gate, run over the
+/// shards in exactly one part, reading the report of every part that runs a shard
+/// ([`shard_unviable_report`]), in order. Part names are unique.
+///
+/// So no step of the full check is lost or proven twice, and no part runs a step the full
+/// check does not (cargo-mutants itself splits the mutants exactly among the shards).
+///
+/// # Errors
+///
+/// Returns every step run in no part or in several, every shard missing or repeated, every
+/// step of a part that stands for none of `full` or runs out of its order, and every
+/// repeated part name.
+pub fn parts_gate(
+    full: &[Step],
+    parts: &[(String, Vec<Step>)],
+    preparation: &[String],
+) -> Result<(), Failure> {
+    let mut problems = Vec::new();
+    let mut origins = Origins {
+        whole: vec![Vec::new(); full.len()],
+        ..Origins::default()
+    };
+    let mut names = BTreeSet::new();
+    for (part, steps) in parts {
+        if !names.insert(part) {
+            problems.push(format!("two parts are named {part}"));
+        }
+        let mut last = None;
+        for step in steps {
+            let Some(index) = origin(full, part, step, &mut origins, &mut problems) else {
+                continue;
+            };
+            if last.is_some_and(|last| last >= index) {
+                problems.push(format!(
+                    "{part}: `{}` runs out of the order of the full check",
+                    step.name
+                ));
+            }
+            last = Some(index);
+        }
+    }
+    let reports: Vec<String> = origins
+        .shard_parts
+        .iter()
+        .map(|part| shard_unviable_report(part))
+        .collect();
+    for (index, (step, whole)) in full.iter().zip(&origins.whole).enumerate() {
+        let name = &step.name;
+        if let Some(sharded) = origins.shards.get(&index) {
+            problems.extend(shard_problems(name, whole, sharded));
+            continue;
+        }
+        let across = if step.action == Action::UnviableGate(Extent::Complete) {
+            origins.across.len()
+        } else {
+            0
+        };
+        let runs = whole.len().saturating_add(across);
+        if runs == 0 {
+            problems.push(format!("`{name}` runs in no part"));
+        } else if runs > 1 && !preparation.contains(name) {
+            problems.push(format!("`{name}` runs in {runs} parts"));
+        }
+    }
+    problems.extend(
+        origins
+            .across
+            .iter()
+            .filter(|read| **read != reports)
+            .map(|read| {
+                format!(
+                    "the unviable-mutant gate over the shards reads {}, not the reports of the \
+                     shards: {}",
+                    read.join(" "),
+                    reports.join(" ")
+                )
+            }),
+    );
+    verdict(
+        "the parts of the full check do not run each of its steps once",
+        problems,
+    )
+}
+
+/// The names of the steps of the full check that more than one part may run: those that
+/// prepare ([`Setup`], and the mutation report emptied by every shard) or frame the others,
+/// never a proof.
+#[must_use]
+pub fn preparation_steps() -> Vec<String> {
+    roles(Mode::Full {
+        jobs: NonZeroUsize::MIN,
+    })
+    .into_iter()
+    .filter(|(role, _)| matches!(role, Role::Frame | Role::Setup(_) | Role::EveryShard))
+    .map(|(_, step)| step.name)
+    .collect()
 }
 
 /// What the working tree holds that is not committed (the files git reports as changed or
@@ -4914,6 +5418,36 @@ fn unviable_report(runner: &mut dyn Runner, extent: Extent) -> Result<String, Fa
     }
 }
 
+/// Reads the unviable mutants of every shard (`reports`) and checks them together, as after
+/// a complete run.
+fn shards_unviable(runner: &mut dyn Runner, reports: &[String]) -> Result<(), Failure> {
+    let mut report = String::new();
+    for path in reports {
+        report.push_str(&read_file(runner, path)?);
+        report.push('\n');
+    }
+    unviable_gate(
+        &report,
+        Extent::Complete,
+        &read_file(runner, UNVIABLE_REVIEWED)?,
+    )
+}
+
+/// Checks the parts of the full check against it ([`parts_gate`]); the number of
+/// cargo-mutants jobs changes neither.
+fn parts_of_the_full_check() -> Result<(), Failure> {
+    let jobs = NonZeroUsize::MIN;
+    let parts: Vec<(String, Vec<Step>)> = full_parts()
+        .into_iter()
+        .map(|part| (part.name(), part_steps(part, jobs)))
+        .collect();
+    parts_gate(
+        &check_steps(Mode::Full { jobs }),
+        &parts,
+        &preparation_steps(),
+    )
+}
+
 /// Runs one action of a step, saying on `out` what it found when that matters.
 fn run_action(
     action: &Action,
@@ -5015,6 +5549,8 @@ fn run_action(
             let report = unviable_report(runner, *extent)?;
             unviable_gate(&report, *extent, &read_file(runner, UNVIABLE_REVIEWED)?)
         }
+        Action::ShardsUnviableGate(reports) => shards_unviable(runner, reports),
+        Action::PartsGate => parts_of_the_full_check(),
     }
 }
 
@@ -5093,13 +5629,17 @@ pub fn run_steps_then(
 
 /// Usage of the `xtask` command, in the order of its first line.
 pub const USAGE: &str = "\
-usage: cargo xtask <check [--full]|list [--full]|mutants <target>|bless|commit-msg <file>|pre-push [pair...]|help>
+usage: cargo xtask <check [--full [--part <part>]]|list [--full [--parts]]|mutants <target>|bless|commit-msg <file>|pre-push [pair...]|help>
   check [--full]        run every quality check; mutation testing covers the changes: Rust
                         since the merge base with the upstream, origin/main or main,
                         TypeScript since the last local Stryker run; stops at the first
                         failure; with --full every mutant, as CI does, and every check
-                        runs whatever fails, then every failure is reported
-  list [--full]         list the checks of `check` (or `check --full`), in order
+                        runs whatever fails, then every failure is reported; with
+                        --full --part <part>, only that part, as one CI job runs it
+                        (the parts together run every check once; the final part
+                        reads the unviable mutants of every mutation shard)
+  list [--full]         list the checks of `check` (or `check --full`), in order; with
+                        --full --parts, the parts of `check --full`
   mutants <target>      run every mutant of one target: a crate (its name), a Rust file
                         of a crate, a TypeScript package (its directory) or one of its
                         sources (their paths from the root)
@@ -5313,6 +5853,10 @@ enum Task {
     Check(bool),
     /// The list of the checks: those of `check --full` if `true`.
     List(bool),
+    /// One part of the full check.
+    CheckPart(Part),
+    /// The list of the parts of the full check.
+    ListParts,
     /// Every mutant of one target.
     Mutants(Target),
     /// Rewrite the reference hashes.
@@ -5341,13 +5885,28 @@ fn task(args: &[OsString]) -> Result<Task, String> {
         })
         .collect::<Result<Vec<String>, String>>()?;
     let alone = ["bless", "help"];
-    let moded = ["check", "list"];
     match args.as_slice() {
         [] => Err("no command given".to_owned()),
         [command] if command == "check" => Ok(Task::Check(false)),
         [command, flag] if command == "check" && flag == "--full" => Ok(Task::Check(true)),
         [command] if command == "list" => Ok(Task::List(false)),
         [command, flag] if command == "list" && flag == "--full" => Ok(Task::List(true)),
+        [command, full, flag] if command == "list" && full == "--full" && flag == "--parts" => {
+            Ok(Task::ListParts)
+        }
+        [command, full, flag, name]
+            if command == "check" && full == "--full" && flag == "--part" =>
+        {
+            full_parts()
+                .into_iter()
+                .find(|part| part.name() == *name)
+                .map(Task::CheckPart)
+                .ok_or_else(|| {
+                    format!(
+                        "unknown part \"{name}\" (`cargo xtask list --full --parts` lists them)"
+                    )
+                })
+        }
         [command] if command == "bless" => Ok(Task::Bless),
         [command] if command == "help" => Ok(Task::Help),
         [command, file] if command == "commit-msg" => Ok(Task::CommitMsg(file.clone())),
@@ -5370,8 +5929,11 @@ fn task(args: &[OsString]) -> Result<Task, String> {
         [command, ..] if alone.contains(&command.as_str()) => {
             Err(format!("`{command}` takes no argument"))
         }
-        [command, ..] if moded.contains(&command.as_str()) => {
-            Err(format!("`{command}` takes no argument but `--full`"))
+        [command, ..] if command == "check" => {
+            Err("`check` takes no argument but `--full`, then `--part <part>`".to_owned())
+        }
+        [command, ..] if command == "list" => {
+            Err("`list` takes no argument but `--full`, then `--parts`".to_owned())
         }
         [command, ..] if command == "commit-msg" => Err("`commit-msg` takes one file".to_owned()),
         [command, ..] => Err(format!("unknown command \"{command}\"")),
@@ -5428,6 +5990,12 @@ pub fn cli(
             let mode = mode(full);
             run_steps_then(&check_steps(mode), runner, out, mode.on_failure())
         }
+        Task::CheckPart(part) => {
+            run_steps_then(&part_steps(part, jobs), runner, out, OnFailure::RunTheRest)
+        }
+        Task::ListParts => full_parts()
+            .into_iter()
+            .try_for_each(|part| say(out, &part.name())),
         Task::Bless => run_steps(&[bless_step()], runner, out),
         Task::CommitMsg(path) => {
             read_file(runner, &path).and_then(|message| commit_msg_gate(&message))

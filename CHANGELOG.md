@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `cargo xtask check --full --part <part>` runs one part of the full check, as one CI job does, and `cargo xtask list --full --parts` lists the parts: the Rust checks, the Rust coverage, eight shards of the Rust mutants (cargo-mutants' `--shard`, round-robin), Miri, the gates, each TypeScript package, and a final part that reviews the unviable mutants of every shard together, stale reviews included. A new gate proves that the parts run every step of the full check once: none missing, none twice, every shard once, the final part reading every shard's report; only preparation (the tools, the working tree recorded and checked unchanged, the dependencies installed, the engine package built, the conformance files exported) is repeated where it is needed. `cargo xtask check --full` itself still runs every step.
+
 ## [0.1.0] - 2026-11-08
 
 ### Added
