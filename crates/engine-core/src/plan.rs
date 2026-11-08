@@ -17,8 +17,8 @@ use crate::{
 
 /// One box instance in execution order, with its own input and output buffers.
 #[derive(Debug)]
-struct Step {
-    /// The node this step runs.
+struct Instance {
+    /// The node this instance runs.
     node: NodeId,
     /// The box instance.
     object: Box<dyn Object>,
@@ -28,18 +28,18 @@ struct Step {
     outputs: Vec<Block>,
     /// For each inlet, the bus slots summed into it, in a fixed order.
     sources: Vec<Vec<usize>>,
-    /// First bus slot holding this step's outputs.
+    /// First bus slot holding this instance's outputs.
     first_slot: usize,
-    /// Whether the inputs of this step go to the engine output.
+    /// Whether the inputs of this instance go to the engine output.
     is_output: bool,
 }
 
 /// A validated, ready-to-run execution plan.
 #[derive(Debug)]
 pub struct Plan {
-    /// Steps in execution order.
-    steps: Vec<Step>,
-    /// Every outlet of every step, in step order: what connections read from.
+    /// Box instances in execution order.
+    instances: Vec<Instance>,
+    /// Every outlet of every instance, in execution order: what connections read from.
     bus: Vec<Block>,
     /// Number of engine output channels.
     channels: usize,
@@ -167,7 +167,7 @@ fn execution_order(
         .collect();
     let mut order = Vec::with_capacity(ids.len());
     // One node is placed per round, so `ids.len()` rounds always suffice: the bound is
-    // the invariant, and it keeps a broken step from looping forever.
+    // the invariant, and it keeps a bug from looping forever.
     for _ in 0..ids.len() {
         let Some(id) = ready.pop_first() else {
             break;
@@ -223,12 +223,12 @@ impl Plan {
         let order = execution_order(&ids, &connections)?;
 
         // Every id of the order is a resolved node: `remove` always finds it.
-        let steps: Vec<Step> = order
+        let instances: Vec<Instance> = order
             .iter()
             .filter_map(|id| nodes.remove(id))
             .map(|resolved| {
                 let id = resolved.node.id;
-                Step {
+                Instance {
                     node: id,
                     object: (resolved.spec.create)(rate, &resolved.params),
                     inputs: vec![SILENCE; resolved.spec.inlets.len()],
@@ -244,14 +244,14 @@ impl Plan {
                 }
             })
             .collect();
-        let channels = steps
+        let channels = instances
             .iter()
-            .filter(|step| step.is_output)
-            .map(|step| step.inputs.len())
+            .filter(|instance| instance.is_output)
+            .map(|instance| instance.inputs.len())
             .max()
             .unwrap_or(0);
         Ok(Self {
-            steps,
+            instances,
             bus: vec![SILENCE; bus_len],
             last: vec![SILENCE; channels],
             used: BLOCK_SIZE,
@@ -268,7 +268,7 @@ impl Plan {
 
     /// The nodes in execution order.
     pub fn execution_order(&self) -> impl Iterator<Item = NodeId> + '_ {
-        self.steps.iter().map(|step| step.node)
+        self.instances.iter().map(|instance| instance.node)
     }
 
     /// Renders the next `frames` frames offline and returns them interleaved by channel
@@ -329,8 +329,8 @@ impl Plan {
     /// host, until the engine defines its own output policy (roadmap ticket #12).
     pub fn process(&mut self, out: &mut [Block]) {
         out.fill(SILENCE);
-        for step in &mut self.steps {
-            for (input, slots) in step.inputs.iter_mut().zip(&step.sources) {
+        for instance in &mut self.instances {
+            for (input, slots) in instance.inputs.iter_mut().zip(&instance.sources) {
                 *input = SILENCE;
                 for &slot in slots {
                     let source = self.bus.get(slot).unwrap_or(&SILENCE);
@@ -339,12 +339,19 @@ impl Plan {
                     }
                 }
             }
-            step.object.process(&step.inputs, &mut step.outputs);
-            for (slot, output) in self.bus.iter_mut().skip(step.first_slot).zip(&step.outputs) {
+            instance
+                .object
+                .process(&instance.inputs, &mut instance.outputs);
+            for (slot, output) in self
+                .bus
+                .iter_mut()
+                .skip(instance.first_slot)
+                .zip(&instance.outputs)
+            {
                 *slot = *output;
             }
-            if step.is_output {
-                for (channel, input) in out.iter_mut().zip(&step.inputs) {
+            if instance.is_output {
+                for (channel, input) in out.iter_mut().zip(&instance.inputs) {
                     for (sample, value) in channel.iter_mut().zip(input) {
                         *sample += value;
                     }

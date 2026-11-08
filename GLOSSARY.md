@@ -33,6 +33,7 @@ The words of the project, with the name each one takes in the patch format and i
 | **box laws** | The properties every registered box must respect, each box run in isolation, listed in the crate documentation of `engine-testkit` | `engine-testkit` (`check_laws`) |
 | **plan laws** | The properties every plan must respect, checked over random patches, among them that a render never depends on how it is split into host buffers; listed at the top of their test file | `crates/engine-testkit/tests/plan_laws.rs` |
 | **check** | `cargo xtask check`: every quality check, as CI runs it and the pre-push hook runs it after its own refusals | `crates/xtask/` |
+| **check step** | One named part of the check (formatting, a lint, a test suite, a gate), run in a fixed order; `cargo xtask list` lists them. Not a roadmap **step** | `Step` (`crates/xtask/`) |
 
 ## Roadmap
 
