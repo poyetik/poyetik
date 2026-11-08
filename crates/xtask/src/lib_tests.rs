@@ -8,12 +8,12 @@ use std::path::Path;
 use std::process::Command;
 
 use super::{
-    Action, BestEffort, CARGO_TOML, CHANGELOG, COMMIT_HEADER_MAX, COVERAGE_REPORT, Cmd, Dir,
-    EQUIVALENT_REVIEWED, PACKAGE_JSONS, PORTABILITY_TARGETS, Runner, Step, SystemRunner,
-    TYPESCRIPT_PACKAGES, UNSAFE_FILES, UNVIABLE_REPORT, UNVIABLE_REVIEWED, USAGE, Version,
-    bless_step, check_steps, cli, commit_msg_gate, coverage_gate, equivalent_gate, license_gate,
-    membership_gate, preflight_gate, release_gate, run_steps, ts_coverage_gate, ts_mutation_gate,
-    unsafe_gate, unviable_gate,
+    Action, BestEffort, CARGO_TOML, CHANGELOG, COMMIT_HEADER_MAX, COVERAGE_REPORT, Cmd,
+    CommandFailure, Dir, EQUIVALENT_REVIEWED, Exit, Failed, PACKAGE_JSONS, PORTABILITY_TARGETS,
+    Runner, Step, SystemRunner, TYPESCRIPT_PACKAGES, UNSAFE_FILES, UNVIABLE_REPORT,
+    UNVIABLE_REVIEWED, USAGE, Version, bless_step, check_steps, cli, commit_msg_gate,
+    coverage_gate, equivalent_gate, license_gate, membership_gate, preflight_gate, release_gate,
+    run_steps, ts_coverage_gate, ts_mutation_gate, unsafe_gate, unviable_gate,
 };
 
 /// Records commands and answers with scripted results.
@@ -27,22 +27,27 @@ struct Fake {
 }
 
 impl Runner for Fake {
-    fn run(&mut self, cmd: &Cmd) -> io::Result<Option<i32>> {
+    fn run(&mut self, cmd: &Cmd) -> Result<(), CommandFailure> {
         let line = cmd.line();
         self.ran.push(line.clone());
-        if self.broken.as_deref() == Some(line.as_str()) {
-            return Err(io::Error::other("not found"));
-        }
-        if self.killed.as_deref() == Some(line.as_str()) {
-            return Ok(None);
-        }
-        // A failing command exits with 3: a code that is neither 0 nor 1, so that the
-        // message is seen to report the real one.
-        Ok(Some(if self.fail.as_deref() == Some(line.as_str()) {
-            3_i32
+        let failed = if self.broken.as_deref() == Some(line.as_str()) {
+            Failed::NotStarted("not found".to_owned())
+        } else if self.killed.as_deref() == Some(line.as_str()) {
+            Failed::Ended {
+                exit: Exit::Signal(9_i32),
+                reason: None,
+            }
+        } else if self.fail.as_deref() == Some(line.as_str()) {
+            // A failing command exits with 3: a code that is neither 0 nor 1, so that the
+            // message is seen to report the real one.
+            Failed::Ended {
+                exit: Exit::Code(3_i32),
+                reason: None,
+            }
         } else {
-            0_i32
-        }))
+            return Ok(());
+        };
+        Err(CommandFailure { line, failed })
     }
 
     fn read(&mut self, path: &str) -> io::Result<String> {
@@ -62,13 +67,17 @@ impl Runner for Fake {
         Ok(())
     }
 
-    /// Answers a captured command with the file named `capture <command line>`.
-    /// The tools of the preflight answer with a version unless the test breaks them.
-    fn capture(&mut self, cmd: &Cmd) -> io::Result<String> {
+    /// Answers a captured command with the file named `capture <command line>`, or fails
+    /// with code 1 saying "failed". The tools of the preflight answer with a version unless
+    /// the test breaks them.
+    fn capture(&mut self, cmd: &Cmd) -> Result<String, CommandFailure> {
         let line = cmd.line();
         self.ran.push(format!("capture {line}"));
         if self.broken.as_deref() == Some(line.as_str()) {
-            return Err(io::Error::other("not found"));
+            return Err(CommandFailure::of(
+                cmd,
+                Failed::NotStarted("not found".to_owned()),
+            ));
         }
         let tool = super::TOOLS.iter().any(|(program, args, _)| {
             *program == cmd.program && args.iter().copied().eq(cmd.args.iter().map(String::as_str))
@@ -82,15 +91,29 @@ impl Runner for Fake {
         self.files
             .get(&format!("capture {line}"))
             .cloned()
-            .ok_or_else(|| io::Error::other("failed"))
+            .ok_or_else(|| {
+                CommandFailure::of(
+                    cmd,
+                    Failed::Ended {
+                        exit: Exit::Code(1_i32),
+                        reason: Some("failed".to_owned()),
+                    },
+                )
+            })
     }
 
     /// Matches the pathspecs this crate uses: `*<suffix>`.
-    fn tracked(&mut self, patterns: &[&str]) -> io::Result<Vec<String>> {
+    fn tracked(&mut self, patterns: &[&str]) -> Result<Vec<String>, CommandFailure> {
         let line = format!("list {}", patterns.join(" "));
         self.ran.push(line.clone());
         if self.broken.as_deref() == Some(line.as_str()) {
-            return Err(io::Error::other("no git"));
+            return Err(CommandFailure {
+                line: format!("git ls-files -- {}", patterns.join(" ")),
+                failed: Failed::Ended {
+                    exit: Exit::Code(128_i32),
+                    reason: Some("fatal: not a git repository".to_owned()),
+                },
+            });
         }
         Ok(self
             .files
@@ -554,7 +577,7 @@ fn reports_commands_that_cannot_start() {
     fake.broken = Some("cargo fmt --all --check".to_owned());
     assert_eq!(
         run_steps(&check_steps(), &mut fake, &mut Vec::new()),
-        Err("✘ Rust formatting: cannot run cargo: not found".to_owned()),
+        Err("✘ Rust formatting: cannot run `cargo fmt --all --check`: not found".to_owned()),
         "start failure is named"
     );
 }
@@ -672,7 +695,7 @@ fn cli_runs_check_and_reports_errors() {
     );
     assert_eq!(
         String::from_utf8(err3).expect("UTF-8"),
-        "✘ Rust supply chain: `cargo deny --locked check` was stopped by a signal\n",
+        "✘ Rust supply chain: `cargo deny --locked check` was stopped by signal 9 (SIGKILL)\n",
         "explained"
     );
 
@@ -792,27 +815,47 @@ fn system_runner_runs_commands_and_reads_files() {
         args: vec!["--version".to_owned()],
         dir: Dir::Root,
     };
-    assert_eq!(
-        runner.run(&ok).ok(),
-        Some(Some(0_i32)),
-        "a successful command"
-    );
+    assert_eq!(runner.run(&ok), Ok(()), "a successful command");
     let bad = Cmd {
         program: "cargo",
         args: vec!["no-such-command".to_owned()],
         dir: Dir::Root,
     };
     assert_eq!(
-        runner.run(&bad).ok(),
-        Some(Some(101_i32)),
-        "a failing command and its code"
+        runner.run(&bad).map_err(|failure| failure.failed),
+        Err(Failed::Ended {
+            exit: Exit::Code(101_i32),
+            reason: None
+        }),
+        "a failing command and its code, its error output left on the terminal"
     );
     let missing = Cmd {
         program: "no-such-program-xyz",
         args: vec![],
         dir: Dir::Root,
     };
-    assert!(runner.run(&missing).is_err(), "a program that cannot start");
+    assert!(
+        runner
+            .run(&missing)
+            .is_err_and(|failure| matches!(failure.failed, Failed::NotStarted(_))
+                && failure
+                    .to_string()
+                    .starts_with("cannot run `no-such-program-xyz`: ")),
+        "a program that cannot start"
+    );
+    #[cfg(unix)]
+    {
+        let killed = Cmd {
+            program: "sh",
+            args: vec!["-c".to_owned(), "kill -9 $$".to_owned()],
+            dir: Dir::Root,
+        };
+        assert_eq!(
+            runner.run(&killed).map_err(|failure| failure.to_string()),
+            Err("`sh -c kill -9 $$` was stopped by signal 9 (SIGKILL)".to_owned()),
+            "a command a signal stopped, named"
+        );
+    }
     assert!(
         runner
             .read("Cargo.toml")
@@ -1024,7 +1067,7 @@ fn fails_when_equivalent_files_cannot_be_read() {
     assert_eq!(
         run_steps(&check_steps(), &mut no_list, &mut Vec::new()),
         Err(
-            "✘ TypeScript equivalent mutants reviewed: cannot list the TypeScript files: no git"
+            "✘ TypeScript equivalent mutants reviewed: cannot list the TypeScript files: `git ls-files -- *.ts *.tsx` exited with code 128: fatal: not a git repository"
                 .to_owned()
         ),
         "no listing"
@@ -1082,7 +1125,12 @@ fn system_runner_lists_the_tracked_typescript_files() {
     }
     .tracked(&["*.ts", "*.tsx"]);
     std::fs::remove_dir_all(&outside).expect("cleanup");
-    assert!(error.is_err(), "not a repository");
+    assert!(
+        error.is_err_and(|failure| failure
+            .to_string()
+            .contains("exited with code 128: fatal: not a git repository")),
+        "not a repository, in git's words"
+    );
 }
 
 #[test]
@@ -1624,7 +1672,7 @@ fn reports_manifests_it_cannot_list() {
     assert_eq!(
         run_steps(&check_steps(), &mut broken, &mut Vec::new()),
         Err(
-            "✘ Packages and crates known to the checks: cannot list the *Cargo.toml files: no git"
+            "✘ Packages and crates known to the checks: cannot list the *Cargo.toml files: `git ls-files -- *Cargo.toml` exited with code 128: fatal: not a git repository"
                 .to_owned()
         ),
         "named"
@@ -1633,7 +1681,7 @@ fn reports_manifests_it_cannot_list() {
     unlisted.broken = Some("list *package.json".to_owned());
     assert!(
         run_steps(&check_steps(), &mut unlisted, &mut Vec::new())
-            .is_err_and(|error| error.ends_with("cannot list the *package.json files: no git")),
+            .is_err_and(|error| error.ends_with("cannot list the *package.json files: `git ls-files -- *package.json` exited with code 128: fatal: not a git repository")),
         "named"
     );
 }
@@ -1679,7 +1727,10 @@ fn reports_license_lists_it_cannot_get() {
     assert!(removed.is_some(), "report removed");
     assert_eq!(
         run_steps(&check_steps(), &mut fake, &mut Vec::new()),
-        Err("✘ JavaScript licenses: cannot list licenses: failed".to_owned()),
+        Err(format!(
+            "✘ JavaScript licenses: cannot list licenses: `{}` exited with code 1: failed",
+            shipped.line()
+        )),
         "named"
     );
 }
@@ -1705,9 +1756,45 @@ fn system_runner_captures_output_and_failures() {
         dir: Dir::Root,
     };
     assert_eq!(
-        runner.capture(&failing).map_err(|error| error.to_string()),
-        Err("`cargo no-such-command` failed".to_owned()),
-        "a failing command"
+        runner.capture(&failing).map_err(|failure| failure.to_string()),
+        Err("`cargo no-such-command` exited with code 101: error: no such command: `no-such-command`".to_owned()),
+        "a failing command, its code and its own reason"
+    );
+    let unknown = Cmd {
+        program: "git",
+        args: vec!["log".to_owned(), "deadbeefdeadbeef..HEAD".to_owned()],
+        dir: Dir::Root,
+    };
+    assert!(
+        runner.capture(&unknown).is_err_and(|failure| {
+            let text = failure.to_string();
+            text.starts_with("`git log deadbeefdeadbeef..HEAD` exited with code 128: fatal: ")
+                && text.matches("git log").count() == 1
+        }),
+        "git's own reason, the command named once"
+    );
+    let missing = Cmd {
+        program: "no-such-program-xyz",
+        args: vec![],
+        dir: Dir::Root,
+    };
+    assert!(
+        runner
+            .capture(&missing)
+            .is_err_and(|failure| matches!(failure.failed, Failed::NotStarted(_))),
+        "a program that cannot start"
+    );
+    let binary = Cmd {
+        program: "printf",
+        args: vec!["\\377".to_owned()],
+        dir: Dir::Root,
+    };
+    assert_eq!(
+        runner
+            .capture(&binary)
+            .map_err(|failure| failure.to_string()),
+        Err("`printf \\377` wrote output that is not UTF-8 text".to_owned()),
+        "output that is not text"
     );
 }
 
@@ -1757,7 +1844,7 @@ fn reports_rust_files_it_cannot_list() {
     assert_eq!(
         run_steps(&check_steps(), &mut fake, &mut Vec::new()),
         Err(
-            "✘ Unsafe code confined to the audited files: cannot list the Rust files: no git"
+            "✘ Unsafe code confined to the audited files: cannot list the Rust files: `git ls-files -- *.rs` exited with code 128: fatal: not a git repository"
                 .to_owned()
         ),
         "named"
@@ -1766,11 +1853,11 @@ fn reports_rust_files_it_cannot_list() {
 
 #[test]
 fn checks_the_tools_and_the_platform_first() {
-    let present = |node: &str| -> Vec<Option<String>> {
+    let present = |node: &str| -> Vec<Result<String, CommandFailure>> {
         super::TOOLS
             .iter()
             .map(|(program, args, _)| {
-                Some(if *program == "node" {
+                Ok(if *program == "node" {
                     node.to_owned()
                 } else {
                     tool_answer(program, args.first().copied())
@@ -1803,11 +1890,17 @@ fn checks_the_tools_and_the_platform_first() {
         "unreadable version"
     );
     let mut missing = present("v22.18.0");
-    missing[5] = None;
+    missing[5] = Err(CommandFailure {
+        line: "cargo mutants --version".to_owned(),
+        failed: Failed::Ended {
+            exit: Exit::Code(101_i32),
+            reason: Some("error: no such command: `mutants`".to_owned()),
+        },
+    });
     assert_eq!(
         preflight_gate("windows", &missing),
-        Err("the checks run on macOS and Linux: on Windows, run them in WSL2; `cargo mutants --version` is missing: cargo install --locked cargo-mutants@27.1.0".to_owned()),
-        "platform and missing tool"
+        Err("the checks run on macOS and Linux: on Windows, run them in WSL2; `cargo mutants --version` exited with code 101: error: no such command: `mutants`; to install: cargo install --locked cargo-mutants@27.1.0".to_owned()),
+        "platform, and a missing tool with its own reason and how to install it"
     );
     assert_eq!(
         super::NODE_FLOOR,
@@ -1853,7 +1946,7 @@ fn stops_at_a_missing_tool() {
     fake.broken = Some("cargo mutants --version".to_owned());
     assert_eq!(
         run_steps(&check_steps(), &mut fake, &mut Vec::new()),
-        Err("✘ Tools and platform: `cargo mutants --version` is missing: cargo install --locked cargo-mutants@27.1.0".to_owned()),
+        Err("✘ Tools and platform: cannot run `cargo mutants --version`: not found; to install: cargo install --locked cargo-mutants@27.1.0".to_owned()),
         "named, with how to install it"
     );
 }
@@ -1974,7 +2067,7 @@ fn reads_the_history_or_says_why_it_cannot() {
     let _removed = fake.files.remove(&format!("capture {}", messages.line()));
     assert_eq!(
         run_steps(&check_steps(), &mut fake, &mut Vec::new()),
-        Err("✘ Commit messages and changelog: cannot read the history (`git log --format=%x1e%H%x1f%B HEAD`): failed".to_owned()),
+        Err("✘ Commit messages and changelog: cannot read the history: `git log --format=%x1e%H%x1f%B HEAD` exited with code 1: failed".to_owned()),
         "a shallow clone, or no git"
     );
 }
@@ -2078,16 +2171,16 @@ fn checks_a_push_then_runs_every_check() {
     );
     assert_eq!(
         String::from_utf8(blind_err).expect("UTF-8"),
-        "cannot read the work tree (`git rev-parse HEAD`): failed\n",
+        "cannot read the work tree: `git rev-parse HEAD` exited with code 1: failed\n",
         "says what it could not read"
     );
 }
 
 #[test]
 fn refuses_cargo_tools_at_other_versions() {
-    let answers: Vec<Option<String>> = super::TOOLS
+    let answers: Vec<Result<String, CommandFailure>> = super::TOOLS
         .iter()
-        .map(|(program, args, _)| Some(tool_answer(program, args.first().copied())))
+        .map(|(program, args, _)| Ok(tool_answer(program, args.first().copied())))
         .collect();
     assert_eq!(
         preflight_gate("linux", &answers),
@@ -2095,8 +2188,8 @@ fn refuses_cargo_tools_at_other_versions() {
         "the pinned versions"
     );
     let mut older = answers;
-    older[5] = Some("cargo-mutants 26.0.0\n".to_owned());
-    older[6] = Some("cargo-deny".to_owned());
+    older[5] = Ok("cargo-mutants 26.0.0\n".to_owned());
+    older[6] = Ok("cargo-deny".to_owned());
     assert_eq!(
         preflight_gate("linux", &older),
         Err(
@@ -2200,5 +2293,62 @@ fn the_real_workflow_pins_everything() {
         super::workflow_gate(&read(super::WORKFLOW), &read(super::NODE_VERSION_FILE)),
         Ok(()),
         "the workflow of the repository"
+    );
+}
+
+#[test]
+fn explains_why_a_command_failed() {
+    let reason = |stderr: &str| super::error_reason(stderr.as_bytes());
+    assert_eq!(
+        reason(
+            "error: no such command: `mutants`\n\nhelp: view all installed commands with `cargo --list`\n"
+        ),
+        Some("error: no such command: `mutants`".to_owned()),
+        "cargo: the error, not the help after it"
+    );
+    assert_eq!(
+        reason(
+            "info: syncing channel updates for 'nightly-2026-11-01'\nerror: toolchain 'nightly-2026-11-01' is not installed\n"
+        ),
+        Some("error: toolchain 'nightly-2026-11-01' is not installed".to_owned()),
+        "rustup: the error, not the information before it"
+    );
+    assert_eq!(
+        reason(
+            "\n  fatal: ambiguous argument 'x..HEAD': unknown revision\nUse '--' to separate paths\n"
+        ),
+        Some("fatal: ambiguous argument 'x..HEAD': unknown revision".to_owned()),
+        "git: the fatal line, trimmed"
+    );
+    assert_eq!(
+        reason("\nsomething went wrong\nthen more\n"),
+        Some("something went wrong".to_owned()),
+        "otherwise the first line said"
+    );
+    assert_eq!(reason(" \n\n"), None, "nothing said");
+    let failure = |exit: Exit, said: Option<&str>| {
+        CommandFailure {
+            line: "x y".to_owned(),
+            failed: Failed::Ended {
+                exit,
+                reason: said.map(str::to_owned),
+            },
+        }
+        .to_string()
+    };
+    assert_eq!(
+        failure(Exit::Signal(11_i32), Some("core dumped")),
+        "`x y` was stopped by signal 11 (SIGSEGV): core dumped",
+        "a named signal and a reason"
+    );
+    assert_eq!(
+        failure(Exit::Signal(31_i32), None),
+        "`x y` was stopped by signal 31",
+        "a signal without a portable name"
+    );
+    assert_eq!(
+        failure(Exit::Code(2_i32), None),
+        "`x y` exited with code 2",
+        "a code alone"
     );
 }

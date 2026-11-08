@@ -984,26 +984,25 @@ pub const NODE_FLOOR: (u64, u64) = (22, 18);
 
 /// Checks the platform and the tools the checks need.
 ///
-/// `answers` holds what each of [`TOOLS`] answered (its version line, or `None` when it
-/// is missing): every tool must be present, Node.js at [`NODE_FLOOR`] or later, on a
-/// platform the checks support (macOS or Linux; Windows through WSL2).
+/// `answers` holds what each of [`TOOLS`] answered: its version line, or why asking failed
+/// (a missing program, a missing cargo subcommand or toolchain, a broken install). Every
+/// tool must answer, Node.js at [`NODE_FLOOR`] or later, on a platform the checks support
+/// (macOS or Linux; Windows through WSL2).
 ///
 /// # Errors
 ///
 /// Returns one message listing every problem found, each with how to fix it: an
-/// unsupported platform, a missing tool, or a tool at a version the checks do not accept.
-pub fn preflight_gate(os: &str, answers: &[Option<String>]) -> Result<(), String> {
+/// unsupported platform, a tool that did not answer (with its own reason), or a tool at a
+/// version the checks do not accept.
+pub fn preflight_gate(os: &str, answers: &[Result<String, CommandFailure>]) -> Result<(), String> {
     let mut problems = Vec::new();
     if os == "windows" {
         problems.push("the checks run on macOS and Linux: on Windows, run them in WSL2".to_owned());
     }
     for ((program, args, install), answer) in TOOLS.iter().zip(answers) {
         match answer {
-            None => problems.push(format!(
-                "`{program} {}` is missing: {install}",
-                args.join(" ")
-            )),
-            Some(version) if *program == "node" => {
+            Err(failure) => problems.push(format!("{failure}; to install: {install}")),
+            Ok(version) if *program == "node" => {
                 let numbers: Vec<u64> = version
                     .trim()
                     .trim_start_matches('v')
@@ -1016,7 +1015,7 @@ pub fn preflight_gate(os: &str, answers: &[Option<String>]) -> Result<(), String
                     problems.push(format!("Node.js {} is too old: {install}", version.trim()));
                 }
             }
-            Some(version) => {
+            Ok(version) => {
                 let pinned = PINNED_TOOLS
                     .iter()
                     .find(|(name, _)| args.first().copied() == name.strip_prefix("cargo-"));
@@ -1497,14 +1496,130 @@ pub fn pre_push_gate(head: &str, status: &str, pushed: &[String]) -> Result<(), 
     }
 }
 
+/// How a command that ran ended without success.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Exit {
+    /// It exited with this code (never 0).
+    Code(i32),
+    /// A signal stopped it: its number.
+    Signal(i32),
+}
+
+/// Why a command did not succeed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Failed {
+    /// The program could not be started (missing, not executable): the system's reason.
+    NotStarted(String),
+    /// It ran and ended unsuccessfully, with the line of its error output that says why
+    /// when that output was captured ([`error_reason`]).
+    Ended {
+        /// How it ended.
+        exit: Exit,
+        /// What it said about it.
+        reason: Option<String>,
+    },
+    /// It succeeded but wrote something other than UTF-8 text.
+    NotText,
+}
+
+/// A command that did not succeed: its line and why. Displayed as one line naming the
+/// command once, with its exit code or signal and its own reason.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommandFailure {
+    /// The command line ([`Cmd::line`]).
+    pub line: String,
+    /// Why it failed.
+    pub failed: Failed,
+}
+
+impl CommandFailure {
+    /// A failure of `cmd`.
+    #[must_use]
+    pub fn of(cmd: &Cmd, failed: Failed) -> Self {
+        Self {
+            line: cmd.line(),
+            failed,
+        }
+    }
+}
+
+/// The usual names of the signals whose numbers POSIX fixes, the same on Linux and macOS.
+const SIGNAL_NAMES: [(i32, &str); 8] = [
+    (1, "SIGHUP"),
+    (2, "SIGINT"),
+    (3, "SIGQUIT"),
+    (6, "SIGABRT"),
+    (9, "SIGKILL"),
+    (11, "SIGSEGV"),
+    (13, "SIGPIPE"),
+    (15, "SIGTERM"),
+];
+
+impl core::fmt::Display for CommandFailure {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let line = &self.line;
+        match &self.failed {
+            Failed::NotStarted(error) => write!(f, "cannot run `{line}`: {error}"),
+            Failed::NotText => write!(f, "`{line}` wrote output that is not UTF-8 text"),
+            Failed::Ended { exit, reason } => {
+                match exit {
+                    Exit::Code(code) => write!(f, "`{line}` exited with code {code}")?,
+                    Exit::Signal(signal) => {
+                        write!(f, "`{line}` was stopped by signal {signal}")?;
+                        if let Some((_, name)) =
+                            SIGNAL_NAMES.iter().find(|(number, _)| number == signal)
+                        {
+                            write!(f, " ({name})")?;
+                        }
+                    }
+                }
+                reason
+                    .as_ref()
+                    .map_or(Ok(()), |reason| write!(f, ": {reason}"))
+            }
+        }
+    }
+}
+
+/// The line of a command's error output that says why it failed.
+///
+/// The first line starting with `error` or `fatal` (cargo writes `help:` lines after its
+/// error, rustup `info:` lines before it, git `fatal:`), otherwise the first non-empty
+/// line; `None` when the command wrote nothing.
+#[must_use]
+pub fn error_reason(stderr: &[u8]) -> Option<String> {
+    let text = String::from_utf8_lossy(stderr);
+    let mut lines = text.lines().map(str::trim).filter(|line| !line.is_empty());
+    let first = lines.clone().next();
+    lines
+        .find(|line| line.starts_with("error") || line.starts_with("fatal"))
+        .or(first)
+        .map(str::to_owned)
+}
+
+/// How a process that did not succeed ended.
+fn exit_of(status: std::process::ExitStatus) -> Exit {
+    #[cfg(unix)]
+    let signal = {
+        use std::os::unix::process::ExitStatusExt as _;
+        status.signal()
+    };
+    #[cfg(not(unix))]
+    let signal = None;
+    // On Unix a process that has no exit code was stopped by a signal.
+    status
+        .code()
+        .map_or_else(|| Exit::Signal(signal.unwrap_or_default()), Exit::Code)
+}
+
 /// Executes commands and reads files on behalf of [`run_steps`].
 pub trait Runner {
-    /// Runs a command and returns its exit code; `None` when a signal stopped it.
+    /// Runs a command, its output going to the terminal.
     ///
     /// # Errors
     ///
-    /// Returns an error when the command cannot be started.
-    fn run(&mut self, cmd: &Cmd) -> io::Result<Option<i32>>;
+    /// Returns why the command could not be started or did not succeed.
+    fn run(&mut self, cmd: &Cmd) -> Result<(), CommandFailure>;
 
     /// Reads a text file below the repository root.
     ///
@@ -1525,15 +1640,16 @@ pub trait Runner {
     ///
     /// # Errors
     ///
-    /// Returns an error when git cannot list them.
-    fn tracked(&mut self, patterns: &[&str]) -> io::Result<Vec<String>>;
+    /// Returns why git could not list them.
+    fn tracked(&mut self, patterns: &[&str]) -> Result<Vec<String>, CommandFailure>;
 
     /// Runs a command and returns what it wrote on stdout.
     ///
     /// # Errors
     ///
-    /// Returns an error when the command cannot be started or does not succeed.
-    fn capture(&mut self, cmd: &Cmd) -> io::Result<String>;
+    /// Returns why the command could not be started or did not succeed, with the reason
+    /// it wrote on stderr.
+    fn capture(&mut self, cmd: &Cmd) -> Result<String, CommandFailure>;
 }
 
 /// Runs real commands below a repository root.
@@ -1577,11 +1693,22 @@ fn command(program: &str, dir: &Path) -> Command {
 }
 
 impl Runner for SystemRunner {
-    fn run(&mut self, cmd: &Cmd) -> io::Result<Option<i32>> {
-        command(cmd.program, &cmd.dir.under(&self.root))
+    fn run(&mut self, cmd: &Cmd) -> Result<(), CommandFailure> {
+        let status = command(cmd.program, &cmd.dir.under(&self.root))
             .args(&cmd.args)
             .status()
-            .map(|status| status.code())
+            .map_err(|error| CommandFailure::of(cmd, Failed::NotStarted(error.to_string())))?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(CommandFailure::of(
+                cmd,
+                Failed::Ended {
+                    exit: exit_of(status),
+                    reason: None,
+                },
+            ))
+        }
     }
 
     fn read(&mut self, path: &str) -> io::Result<String> {
@@ -1597,33 +1724,33 @@ impl Runner for SystemRunner {
         std::fs::create_dir_all(dir)
     }
 
-    fn capture(&mut self, cmd: &Cmd) -> io::Result<String> {
-        command(cmd.program, &cmd.dir.under(&self.root))
+    fn capture(&mut self, cmd: &Cmd) -> Result<String, CommandFailure> {
+        let output = command(cmd.program, &cmd.dir.under(&self.root))
             .args(&cmd.args)
             .output()
-            .and_then(|output| {
-                if output.status.success() {
-                    String::from_utf8(output.stdout).map_err(io::Error::other)
-                } else {
-                    Err(io::Error::other(format!("`{}` failed", cmd.line())))
-                }
-            })
+            .map_err(|error| CommandFailure::of(cmd, Failed::NotStarted(error.to_string())))?;
+        if output.status.success() {
+            String::from_utf8(output.stdout).map_err(|_| CommandFailure::of(cmd, Failed::NotText))
+        } else {
+            Err(CommandFailure::of(
+                cmd,
+                Failed::Ended {
+                    exit: exit_of(output.status),
+                    reason: error_reason(&output.stderr),
+                },
+            ))
+        }
     }
 
-    fn tracked(&mut self, patterns: &[&str]) -> io::Result<Vec<String>> {
-        command("git", &self.root)
-            .args(["ls-files", "--"])
-            .args(patterns)
-            .output()
-            .and_then(|output| {
-                if output.status.success() {
-                    String::from_utf8(output.stdout)
-                        .map(|text| text.lines().map(str::to_owned).collect())
-                        .map_err(io::Error::other)
-                } else {
-                    Err(io::Error::other("git ls-files failed"))
-                }
-            })
+    fn tracked(&mut self, patterns: &[&str]) -> Result<Vec<String>, CommandFailure> {
+        let mut args = vec!["ls-files", "--"];
+        args.extend(patterns);
+        self.capture(&Cmd {
+            program: "git",
+            args: args.into_iter().map(str::to_owned).collect(),
+            dir: Dir::Root,
+        })
+        .map(|text| text.lines().map(str::to_owned).collect())
     }
 }
 
@@ -1644,7 +1771,7 @@ fn pre_push(runner: &mut dyn Runner, pushed: &[String]) -> Result<(), String> {
     let mut read = |cmd: Cmd| {
         runner
             .capture(&cmd)
-            .map_err(|error| format!("cannot read the work tree (`{}`): {error}", cmd.line()))
+            .map_err(|failure| format!("cannot read the work tree: {failure}"))
     };
     let head = read(git(&["rev-parse", "HEAD"]))?;
     let status = read(git(&["status", "--porcelain"]))?;
@@ -1656,14 +1783,14 @@ fn history(runner: &mut dyn Runner) -> Result<(), String> {
     let [messages, files] = history_commands().map(|cmd| {
         runner
             .capture(&cmd)
-            .map_err(|error| format!("cannot read the history (`{}`): {error}", cmd.line()))
+            .map_err(|failure| format!("cannot read the history: {failure}"))
     });
     history_gate(&messages?, &files?)
 }
 
 /// Asks every tool of [`TOOLS`] for its version, then checks them.
 fn preflight(runner: &mut dyn Runner) -> Result<(), String> {
-    let answers: Vec<Option<String>> = TOOLS
+    let answers: Vec<Result<String, CommandFailure>> = TOOLS
         .iter()
         .map(|(program, args, _)| {
             let cmd = Cmd {
@@ -1671,7 +1798,7 @@ fn preflight(runner: &mut dyn Runner) -> Result<(), String> {
                 args: args.iter().map(|&arg| arg.to_owned()).collect(),
                 dir: Dir::Root,
             };
-            runner.capture(&cmd).ok()
+            runner.capture(&cmd)
         })
         .collect();
     preflight_gate(std::env::consts::OS, &answers)
@@ -1682,7 +1809,7 @@ fn membership(runner: &mut dyn Runner) -> Result<(), String> {
     let list = |source: &mut dyn Runner, pattern: &str| {
         source
             .tracked(&[pattern])
-            .map_err(|error| format!("cannot list the {pattern} files: {error}"))
+            .map_err(|failure| format!("cannot list the {pattern} files: {failure}"))
     };
     let read_all = |source: &mut dyn Runner, paths: Vec<String>| {
         paths
@@ -1772,7 +1899,7 @@ fn licenses(runner: &mut dyn Runner) -> Result<(), String> {
     let report = |source: &mut dyn Runner, cmd: &Cmd| {
         source
             .capture(cmd)
-            .map_err(|error| format!("cannot list licenses: {error}"))
+            .map_err(|failure| format!("cannot list licenses: {failure}"))
     };
     report(runner, &shipped)
         .and_then(|shipped| report(runner, &all).and_then(|all| license_gate(&shipped, &all)))
@@ -1781,12 +1908,7 @@ fn licenses(runner: &mut dyn Runner) -> Result<(), String> {
 /// Runs one action of a step.
 fn run_action(action: &Action, runner: &mut dyn Runner) -> Result<(), String> {
     match action {
-        Action::Run(cmd) => match runner.run(cmd) {
-            Ok(Some(0_i32)) => Ok(()),
-            Ok(Some(code)) => Err(format!("`{}` exited with code {code}", cmd.line())),
-            Ok(None) => Err(format!("`{}` was stopped by a signal", cmd.line())),
-            Err(error) => Err(format!("cannot run {}: {error}", cmd.program)),
-        },
+        Action::Run(cmd) => runner.run(cmd).map_err(|failure| failure.to_string()),
         Action::CoverageGate(path) => {
             read_file(runner, path).and_then(|report| coverage_gate(&report))
         }
@@ -1816,7 +1938,7 @@ fn run_action(action: &Action, runner: &mut dyn Runner) -> Result<(), String> {
         }),
         Action::UnsafeGate => runner
             .tracked(&["*.rs"])
-            .map_err(|error| format!("cannot list the Rust files: {error}"))
+            .map_err(|failure| format!("cannot list the Rust files: {failure}"))
             .and_then(|paths| {
                 paths
                     .into_iter()
@@ -1833,7 +1955,7 @@ fn run_action(action: &Action, runner: &mut dyn Runner) -> Result<(), String> {
         }),
         Action::EquivalentGate => runner
             .tracked(&["*.ts", "*.tsx"])
-            .map_err(|error| format!("cannot list the TypeScript files: {error}"))
+            .map_err(|failure| format!("cannot list the TypeScript files: {failure}"))
             .and_then(|paths| {
                 paths
                     .into_iter()
