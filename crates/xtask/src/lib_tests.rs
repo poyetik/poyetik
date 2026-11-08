@@ -591,7 +591,9 @@ const PINNED_WORKFLOW: &str = concat!(
     "    if: github.event_name != 'push' || contains(github.event.head_commit.message, '[ci]')\n",
     "    runs-on: ubuntu-24.04\n",
     "    strategy:\n      fail-fast: false\n      matrix:\n",
-    "        part: [rust, coverage, mutation-0, mutation-1, mutation-2, mutation-3, mutation-4, mutation-5, mutation-6, mutation-7, miri, gates, tooling-config, tooling-oracle, bindings-wasm, apps-playground, apps-roadmap]\n",
+    "        part: [rust, coverage, mutation-0, mutation-1, mutation-2, mutation-3, mutation-4, mutation-5, mutation-6, mutation-7, ",
+    "miri",
+    ", gates, tooling-config, tooling-oracle, bindings-wasm, apps-playground, apps-roadmap]\n",
     "    steps:\n",
     "      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n        with:\n          fetch-depth: 0\n          persist-credentials: false\n",
     "      - name: Install Rust toolchains\n        run: rustup toolchain install nightly-2026-11-01 --profile minimal\n",
@@ -7965,9 +7967,12 @@ fn requires_the_workflow_to_run_every_part_of_the_full_check() {
              .github/workflows/quality.yml lacks `{line}`"
         ))
     };
-    let matrix = "part: [rust, coverage, mutation-0, mutation-1, mutation-2, mutation-3, mutation-4, \
-                  mutation-5, mutation-6, mutation-7, miri, gates, tooling-config, tooling-oracle, \
-                  bindings-wasm, apps-playground, apps-roadmap]";
+    let matrix = concat!(
+        "part: [rust, coverage, mutation-0, mutation-1, mutation-2, mutation-3, mutation-4, ",
+        "mutation-5, mutation-6, mutation-7, ",
+        "miri",
+        ", gates, tooling-config, tooling-oracle, bindings-wasm, apps-playground, apps-roadmap]"
+    );
     assert_eq!(
         gate(&PINNED_WORKFLOW.replace(", mutation-7", "")),
         lacks(matrix),
@@ -8004,7 +8009,11 @@ fn requires_the_workflow_to_run_every_part_of_the_full_check() {
     assert_eq!(
         gate(&PINNED_WORKFLOW.replace(
             "        part: [",
-            "        exclude:\n          - part: miri\n        part: ["
+            concat!(
+                "        exclude:\n          - part: ",
+                "miri",
+                "\n        part: ["
+            )
         )),
         failed(
             ".github/workflows/quality.yml can change CI without a commit: \
@@ -8014,11 +8023,7 @@ fn requires_the_workflow_to_run_every_part_of_the_full_check() {
     );
     assert_eq!(
         super::workflow_parts().get(1),
-        Some(
-            &matrix
-                .replace("                  ", "")
-                .replace(", \n", ", ")
-        ),
+        Some(&matrix.to_owned()),
         "the matrix, derived from the parts"
     );
 }
