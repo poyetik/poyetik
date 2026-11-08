@@ -492,7 +492,10 @@ describe("untrusted text in errors", () => {
     expect(run(["validate"], title.io)).toBe(1);
     expect(title.err).toEqual(["error: invalid board.json: title must not hold the control or formatting character \\u{202e}"]);
     // The JSON parser quotes the text it could not read: raw bytes of the file.
-    for (const text of ["{\u001b[31m\u202e", `{"title": "${"x".repeat(100_000)}\u001b`]) {
+    for (const text of ["[1,\u001b[31m\u202e]", `\u001b${"x".repeat(100_000)}`]) {
+      expect(() => {
+        JSON.parse(text);
+      }).toThrow("\u001b");
       const syntax = fake(text);
       expect(run(["validate"], syntax.io)).toBe(1);
       expect(syntax.err[0]).toMatch(/^error: unreadable board\.json: SyntaxError: /);
