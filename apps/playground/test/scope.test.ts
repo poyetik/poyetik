@@ -4,10 +4,29 @@ import { WINDOW_SECONDS } from "../src/Oscilloscope.tsx";
 import { crossingSpan, frequency, MAX_FREQUENCY_RATIO, MIN_PERIODS, peak, risingCrossings, scopeScene } from "../src/scope.ts";
 import { SAMPLE_RATES } from "./matrix.ts";
 
-/** `count` samples of a sine at `hertz`, sampled at `rate`. */
+/**
+ * `count` samples of a sine at `hertz`, sampled at `rate`. Written into the array in a
+ * loop: the same values as `Float32Array.from` with a mapping function, several times
+ * faster, which matters to the tests that generate a whole history for every rate,
+ * frequency and phase.
+ */
 function sine(hertz: number, rate: number, count: number, phase = 0): Float32Array {
-  return Float32Array.from({ length: count }, (_empty, index) => Math.sin(phase + (2 * Math.PI * hertz * index) / rate));
+  const samples = new Float32Array(count);
+  for (let index = 0; index < count; index += 1) {
+    samples[index] = Math.sin(phase + (2 * Math.PI * hertz * index) / rate);
+  }
+  return samples;
 }
+
+/**
+ * The timeout of the tests over every rate of the matrix: a fixed amount of work (a whole
+ * history per rate, frequency and phase), which no part of what they prove lets them skip.
+ * Plain, each took from 0.2 to 0.9 s on a loaded 10-core Mac, alone or beside the
+ * package's other files; Stryker's instrumentation of the estimator multiplies that, and
+ * Vitest's default of 5 s failed Stryker's initial run on the first of them, on a loaded
+ * machine. 60 s leaves a margin of more than 60 times the slowest plain run.
+ */
+const MATRIX_TIMEOUT = 60_000;
 
 describe("risingCrossings", () => {
   test("finds upward zero crossings, interpolated", () => {
@@ -120,7 +139,7 @@ describe("frequency", () => {
         }
       }
     }
-  });
+  }, MATRIX_TIMEOUT);
 
   test("measures from about 47.1 Hz, the floor of the history (47.13 Hz at 8 kHz), and never at three periods per history (35.29 Hz) or fewer", () => {
     expect(SAMPLE_RATES.map((rate) => floor(rate).toFixed(2))).toContain("47.13");
@@ -135,7 +154,7 @@ describe("frequency", () => {
         }
       }
     }
-  });
+  }, MATRIX_TIMEOUT);
 });
 
 describe("peak", () => {
@@ -220,7 +239,7 @@ describe("scopeScene", () => {
         }
       }
     }
-  });
+  }, MATRIX_TIMEOUT);
 
   test("puts a one-sample window at the left edge", () => {
     expect(scopeScene(new Float32Array([0.5]), 1, 30, 2).trace).toStrictEqual([{ x: 0, y: 1 - 0.45 }]);

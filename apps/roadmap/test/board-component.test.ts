@@ -50,12 +50,16 @@ async function render(cards: Card[]): Promise<string> {
 }
 
 describe("violations", () => {
+  // The first audit of the file, which loads axe: a fixed amount of work, which took 0.4
+  // to 1.1 s plain on a loaded 10-core Mac, alone or beside the package's other files
+  // (Vitest's default is 5 s). 60 s leaves a margin of more than 50 times the slowest
+  // plain run.
   it("finds what axe rejects, so that an empty list proves something", async () => {
     expect(await violations('<ul><li>One</li></ul><p role="listitem" class="empty">Nothing yet</p>')).toStrictEqual([
       'aria-required-parent: <p role="listitem" class="empty">Nothing yet</p>',
     ]);
     expect(await violations("<ul><li>One</li></ul>")).toStrictEqual([]);
-  });
+  }, 60_000);
 });
 
 describe("Board.astro", () => {

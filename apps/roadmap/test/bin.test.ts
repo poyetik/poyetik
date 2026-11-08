@@ -201,6 +201,11 @@ describe("bin", () => {
     expect(process.exitCode).toBe(2);
   });
 
+  // 3000 cards added through the board code, which Stryker instruments, then a real
+  // process started: a fixed amount of work, which took 0.15 to 0.7 s plain on a loaded
+  // 10-core Mac, alone or beside the package's other files, and several times that
+  // instrumented on a loaded machine (Vitest's default is 5 s). 60 s leaves a margin of
+  // more than 80 times the slowest plain run.
   it("exits with 0 and says nothing when the real process's reader is gone", async () => {
     // A listing far larger than a pipe's buffer (64 KiB): whenever the read end closes, before or
     // after the first write, a later write meets the closed pipe, with no dependence on timing.
@@ -222,5 +227,5 @@ describe("bin", () => {
     const code = await new Promise((resolve) => child.on("close", resolve));
     expect(stderr).toBe("");
     expect(code).toBe(0);
-  });
+  }, 60_000);
 });

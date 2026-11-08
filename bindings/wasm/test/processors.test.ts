@@ -82,6 +82,11 @@ describe("engine processor", () => {
     expect(outputs[0]?.[2]).toStrictEqual(Float32Array.from({ length: 128 }, (_empty, frame) => frame + 385));
   });
 
+  // 2^24 frames through the processor, which Stryker instruments: a fixed amount of work
+  // (the period of the marker is the point), which took 0.5 to 1 s plain on a loaded
+  // 10-core Mac, alone or beside the package's other files, and several times that
+  // instrumented on a loaded machine (Vitest's default is 5 s). 60 s leaves a margin of
+  // 60 times the slowest plain run.
   test("counts from 1 again after 2^24 frames, the largest count a float holds exactly", () => {
     const Engine = processor(ENGINE_PROCESSOR);
     const node = new Engine({ processorOptions: { wasm: wasmBytes(), patch: SILENT_PATCH, marker: true } });
@@ -96,7 +101,7 @@ describe("engine processor", () => {
     node.process([], outputs);
     expect(Array.from(outputs[0]?.[0]?.subarray(0, 3) ?? [])).toStrictEqual([2 ** 24, 1, 2]);
     expect(outputs[0]?.[0]?.at(-1)).toBe(4095);
-  });
+  }, 60_000);
 
   test("creates one view per patch channel at its first quantum, a known deviation, then none", () => {
     // Recorded in CLAUDE.md: the first quantum on the audio thread creates the views of
