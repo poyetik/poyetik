@@ -867,6 +867,14 @@
         {
           "title": "engine-cli: open inputs with a bound and refuse anything but a regular file, so a FIFO cannot block a read",
           "done": false
+        },
+        {
+          "title": "engine-wasm: a capture on a context that never runs, or on a source that never produces input, still waits forever: race it against the context's state and the engine's failure",
+          "done": false
+        },
+        {
+          "title": "Playground: an end-to-end test that starts the player from an already suspended context in every browser project (today checked once by hand; Safari unchecked)",
+          "done": false
         }
       ]
     },
