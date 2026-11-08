@@ -8,7 +8,7 @@ use alloc::vec::Vec;
 
 use engine_core::{Connection, CoreError, Node, NodeId, Patch};
 
-use super::{FORMAT, MAX_PATCH_BYTES, PatchError, parse_patch};
+use super::{FORMAT, MAX_MESSAGE_CHARS, MAX_PATCH_BYTES, PatchError, parse_patch, safe_message};
 
 const EXAMPLE: &str = r#"{
   "format": 1,
@@ -350,4 +350,43 @@ fn describes_errors() {
         Some(String::from("box 3 is declared twice")),
         "the patch error is the cause"
     );
+}
+
+#[test]
+fn makes_a_message_safe_to_show() {
+    assert_eq!(
+        safe_message("box 1: unknown box type \"x~\""),
+        "box 1: unknown box type \"x~\"",
+        "plain text is unchanged, quotes included"
+    );
+    let hostile = "a\nb\rc\td\u{7f}e\u{85}f\u{202e}g\u{2066}h\u{200f}i\u{200e}i\u{61c}j\u{2028}k\u{2029}l\u{202a}m\u{2069}n\u{1b}";
+    assert_eq!(
+        safe_message(hostile),
+        "a\\u{a}b\\u{d}c\\u{9}d\\u{7f}e\\u{85}f\\u{202e}g\\u{2066}h\\u{200f}i\\u{200e}i\\u{61c}j\\u{2028}k\\u{2029}l\\u{202a}m\\u{2069}n\\u{1b}",
+        "control, bidi and line-separator characters are escaped"
+    );
+    assert_eq!(
+        safe_message("é ü 音 \u{202f}\u{206a}\u{2065}"),
+        "é ü 音 \u{202f}\u{206a}\u{2065}",
+        "other text is kept, the neighbours of the escaped ranges included"
+    );
+    assert_eq!(safe_message(""), "", "nothing to show");
+}
+
+#[test]
+fn bounds_the_length_of_a_message() {
+    let at_limit = "x".repeat(MAX_MESSAGE_CHARS);
+    assert_eq!(safe_message(&at_limit), at_limit, "exactly at the limit");
+    assert_eq!(
+        safe_message(&format!("{at_limit}y")),
+        format!("{}…", "x".repeat(MAX_MESSAGE_CHARS - 1)),
+        "one character more: cut, and marked"
+    );
+    // An escape is never cut in the middle.
+    assert_eq!(
+        safe_message(&"\n".repeat(MAX_MESSAGE_CHARS)),
+        format!("{}…", "\\u{a}".repeat((MAX_MESSAGE_CHARS - 1) / 5)),
+        "whole escapes only"
+    );
+    assert_eq!(MAX_MESSAGE_CHARS, 1_000, "the documented limit");
 }

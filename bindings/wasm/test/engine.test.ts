@@ -115,6 +115,24 @@ describe("WasmEngine", () => {
     expect(new TextDecoder().decode(detail)).toBe('box 1: unknown box type "nope~"');
   });
 
+  test("hands JavaScript an explanation on one escaped, bounded line", () => {
+    const explanation = (patch: string): string => {
+      try {
+        WasmEngine.create(module, new TextEncoder().encode(patch), RATE);
+      } catch (thrown) {
+        return thrown instanceof PatchError ? new TextDecoder().decode(thrown.detail) : String(thrown);
+      }
+      return "loaded";
+    };
+    expect(explanation(String.raw`{"format":1,"nodes":[{"id":1,"box":"x\u001b[31m\nsecond‮"}],"connections":[]}`)).toBe(
+      String.raw`box 1: unknown box type "x\u{1b}[31m\u{a}second\u{202e}"`,
+    );
+    const long = explanation(`{"format":1,"nodes":[{"id":1,"box":"${"y".repeat(5000)}"}],"connections":[]}`);
+    // 1,000 characters, each one UTF-16 unit here (ASCII and the closing "…").
+    expect(long).toHaveLength(1000);
+    expect(long).toMatch(/^box 1: unknown box type "y+…$/u);
+  });
+
   test("rejects an unsupported sample rate", () => {
     expect(() => WasmEngine.create(module, SINE_PATCH, 0)).toThrow(PatchError);
   });

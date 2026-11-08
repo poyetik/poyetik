@@ -1120,29 +1120,15 @@ fn reports_an_error_as_one_escaped_line() {
 
 #[test]
 fn bounds_the_length_of_an_error_line() {
-    let at_limit = "x".repeat(super::MAX_ERROR_CHARS);
-    assert_eq!(
-        CliError::Failed(at_limit.clone()).line(),
-        format!("error: {at_limit}"),
-        "exactly at the limit"
-    );
-    assert_eq!(
-        CliError::Failed(format!("{at_limit}y")).line(),
-        format!("error: {}…", "x".repeat(super::MAX_ERROR_CHARS - 1)),
-        "one character more: cut, and marked"
-    );
-    // An escape is never cut in the middle.
-    let escapes = "\n".repeat(super::MAX_ERROR_CHARS);
-    let line = CliError::Failed(escapes).line();
+    let line = CliError::Failed("x".repeat(engine_patch::MAX_MESSAGE_CHARS + 1)).line();
     assert_eq!(
         line,
         format!(
             "error: {}…",
-            "\\u{a}".repeat((super::MAX_ERROR_CHARS - 1) / 5)
+            "x".repeat(engine_patch::MAX_MESSAGE_CHARS - 1)
         ),
-        "whole escapes only"
+        "the message is cut, the prefix kept"
     );
-    assert_eq!(super::MAX_ERROR_CHARS, 1_000, "the documented limit");
 }
 
 /// An output whose reader is gone, or that fails another way.

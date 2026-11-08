@@ -32,6 +32,65 @@ pub const FORMAT: u32 = 1;
 /// most one byte past it).
 pub const MAX_PATCH_BYTES: usize = 16 * 1024 * 1024;
 
+/// Longest message [`safe_message`] returns, in characters after escaping: a message may
+/// quote a document of up to [`MAX_PATCH_BYTES`].
+pub const MAX_MESSAGE_CHARS: usize = 1_000;
+
+/// Whether `character` must not reach a terminal or a page as is: control characters (a
+/// newline would forge a second line, ESC starts terminal sequences), bidirectional
+/// formatting characters (they reorder what is shown) and the Unicode line and paragraph
+/// separators.
+const fn needs_escape(character: char) -> bool {
+    character.is_control()
+        || matches!(
+            character,
+            '\u{61c}'
+                | '\u{200e}'
+                | '\u{200f}'
+                | '\u{202a}'..='\u{202e}'
+                | '\u{2066}'..='\u{2069}'
+                | '\u{2028}'
+                | '\u{2029}'
+        )
+}
+
+/// `message` made safe to show, on one line and bounded.
+///
+/// Every character that could break the line or drive a terminal is escaped as `\u{..}`;
+/// past [`MAX_MESSAGE_CHARS`] characters (escapes counted whole, never split), the text
+/// is cut and marked with `…`.
+///
+/// The messages of this crate and of [`engine_core::Plan::build`] quote untrusted text
+/// from a document (box types, parameter and field names, which the JSON reader echoes
+/// too): every reader that shows them (`engine-cli`, the WebAssembly engine) passes them
+/// through this one function, whatever produced them.
+#[must_use]
+pub fn safe_message(message: &str) -> String {
+    let mut safe = String::new();
+    // Where to cut if the message is too long: after the last whole character (or
+    // escape) that leaves room for the `…`.
+    let mut cut = 0_usize;
+    let mut used = 0_usize;
+    for character in message.chars() {
+        let piece = if needs_escape(character) {
+            character.escape_unicode().to_string()
+        } else {
+            String::from(character)
+        };
+        used = used.saturating_add(piece.chars().count());
+        if used > MAX_MESSAGE_CHARS {
+            safe.truncate(cut);
+            safe.push('…');
+            return safe;
+        }
+        safe.push_str(&piece);
+        if used < MAX_MESSAGE_CHARS {
+            cut = safe.len();
+        }
+    }
+    safe
+}
+
 /// Why a patch document was rejected.
 #[derive(Debug, Clone, PartialEq)]
 pub enum PatchError {

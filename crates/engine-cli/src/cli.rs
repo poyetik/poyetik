@@ -30,59 +30,17 @@ pub enum CliError {
     Failed(String),
 }
 
-/// Longest error message printed, in characters after escaping: a message may quote a
-/// document of up to 16 MiB.
-pub const MAX_ERROR_CHARS: usize = 1_000;
-
-/// Whether `character` must not reach a terminal as is: control characters (a newline
-/// would forge a second line, ESC starts terminal sequences), bidirectional formatting
-/// characters (they reorder what is shown) and the Unicode line and paragraph separators.
-const fn needs_escape(character: char) -> bool {
-    character.is_control()
-        || matches!(
-            character,
-            '\u{61c}'
-                | '\u{200e}'
-                | '\u{200f}'
-                | '\u{202a}'..='\u{202e}'
-                | '\u{2066}'..='\u{2069}'
-                | '\u{2028}'
-                | '\u{2029}'
-        )
-}
-
 impl CliError {
     /// The error as the one line the tool prints on stderr, without its newline:
-    /// `error: ` and the message, every character that could break the line or drive the
-    /// terminal escaped as `\u{..}`, cut after [`MAX_ERROR_CHARS`] characters with `…`.
+    /// `error: ` and the message made safe by [`engine_patch::safe_message`] (every
+    /// character that could break the line or drive the terminal escaped, at most
+    /// [`engine_patch::MAX_MESSAGE_CHARS`] characters).
     ///
     /// Messages quote untrusted text (box and field names from a patch): this is the one
     /// place they are made safe, whatever produced them.
     #[must_use]
     pub fn line(&self) -> String {
-        let mut line = String::from("error: ");
-        // Where to cut if the message is too long: after the last whole character (or
-        // escape) that leaves room for the `…`.
-        let mut cut = line.len();
-        let mut used = 0_usize;
-        for character in self.to_string().chars() {
-            let piece = if needs_escape(character) {
-                character.escape_unicode().to_string()
-            } else {
-                String::from(character)
-            };
-            used = used.saturating_add(piece.chars().count());
-            if used > MAX_ERROR_CHARS {
-                line.truncate(cut);
-                line.push('…');
-                return line;
-            }
-            line.push_str(&piece);
-            if used < MAX_ERROR_CHARS {
-                cut = line.len();
-            }
-        }
-        line
+        format!("error: {}", engine_patch::safe_message(&self.to_string()))
     }
 
     /// The exit code of the process for this error: 2 for a usage error, 1 for a failure.

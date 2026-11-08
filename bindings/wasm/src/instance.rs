@@ -53,13 +53,18 @@ impl Instance {
             }
             Err(message) => {
                 self.engine = None;
-                self.message = message;
+                self.message = engine_patch::safe_message(&message);
                 false
             }
         }
     }
 
     /// Why the last load failed (UTF-8); empty after a successful load.
+    ///
+    /// One line, safe to show: the message quotes untrusted text from the patch (box
+    /// types, parameter and field names), made safe once here by
+    /// [`engine_patch::safe_message`] (control and bidirectional characters escaped, at
+    /// most [`engine_patch::MAX_MESSAGE_CHARS`] characters).
     #[must_use]
     pub fn message(&self) -> &str {
         &self.message
@@ -178,6 +183,42 @@ mod tests {
             "invalid patch: expected value at line 1 column 1",
             "explained"
         );
+    }
+
+    #[test]
+    fn explains_in_one_escaped_bounded_line() {
+        let mut instance = Instance::new();
+        let hostile = br#"{"format":1,"nodes":[{"id":1,"box":"x\u001b[31m\nsecond\u202e"}],"connections":[]}"#;
+        instance.input(hostile.len()).copy_from_slice(hostile);
+        assert!(!instance.load(48_000), "unknown box");
+        assert_eq!(
+            instance.message(),
+            "box 1: unknown box type \"x\\u{1b}[31m\\u{a}second\\u{202e}\"",
+            "a box type from the patch, escaped"
+        );
+        let field = br#"{"format":1,"nodes":[],"connections":[],"a\u001b\n":1}"#;
+        instance.input(field.len()).copy_from_slice(field);
+        assert!(!instance.load(48_000), "unknown field");
+        assert!(
+            instance
+                .message()
+                .starts_with("invalid patch: unknown field `a\\u{1b}\\u{a}`"),
+            "a field name echoed by the JSON reader, escaped: {}",
+            instance.message()
+        );
+        let long = alloc::format!(
+            r#"{{"format":1,"nodes":[{{"id":1,"box":"{}"}}],"connections":[]}}"#,
+            "y".repeat(5_000)
+        );
+        instance.input(long.len()).copy_from_slice(long.as_bytes());
+        assert!(!instance.load(48_000), "unknown box");
+        assert_eq!(
+            instance.message().chars().count(),
+            engine_patch::MAX_MESSAGE_CHARS,
+            "bounded: {}",
+            instance.message()
+        );
+        assert!(instance.message().ends_with('…'), "marked as cut");
     }
 
     #[test]
