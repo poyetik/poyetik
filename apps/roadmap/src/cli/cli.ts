@@ -215,7 +215,7 @@ function onlyArg(positionals: readonly string[], name: string): string {
   return value;
 }
 
-/** Reads and validates the board file; malformed JSON or an invalid board is a `BoardError` (exit code 1). */
+/** Reads and validates the board file; malformed JSON or an invalid board is a `BoardError` naming the file (exit code 1). */
 function load(io: Io): Board {
   const text = io.read();
   let raw: unknown;
@@ -224,7 +224,12 @@ function load(io: Io): Board {
   } catch (error: unknown) {
     throw new BoardError(`unreadable ${io.file}: ${String(error)}`);
   }
-  return parseBoard(raw);
+  try {
+    return parseBoard(raw);
+  } catch (error: unknown) {
+    // `parseBoard` throws only `BoardError`s; the file is named here, so the model stays free of any file context.
+    throw new BoardError(`invalid ${io.file}: ${failure(error)}`);
+  }
 }
 
 /** Writes the board back in its stable serialization, so each change is a minimal git diff. */
@@ -346,6 +351,18 @@ export function run(args: readonly string[], io: Io): number {
     }
     throw error;
   }
+}
+
+/**
+ * Describes why a file operation failed, for an `error:` line that already names the file:
+ * a system error by its stable code (`ENOENT`, `EACCES`, `ERR_ENCODING_INVALID_ENCODED_DATA`),
+ * since Node's sentence repeats the path and may change; anything else by its message.
+ */
+export function failure(error: unknown): string {
+  if (error instanceof Error) {
+    return "code" in error && typeof error.code === "string" ? error.code : error.message;
+  }
+  return String(error);
 }
 
 /**

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { emptyBoard, parseBoard, serializeBoard, type Board } from "../src/lib/board.ts";
-import { HELP, localDate, run, type Io, ignoreClosedReader, UsageError } from "../src/cli/cli.ts";
+import { HELP, failure, localDate, run, type Io, ignoreClosedReader, UsageError } from "../src/cli/cli.ts";
 
 /** Today's date as the fake clock gives it. */
 const DAY = "2026-11-07";
@@ -288,10 +288,10 @@ describe("validate", () => {
     expect(cli.err).toEqual([]);
   });
 
-  it("reports an invalid board", () => {
+  it("reports an invalid board, naming its file", () => {
     const cli = fake('{"version": 2}');
     expect(run(["validate"], cli.io)).toBe(1);
-    expect(cli.err).toEqual(["error: board: expected fields cards, nextId, title, version, got version"]);
+    expect(cli.err).toEqual(["error: invalid board.json: board: expected fields cards, nextId, title, version, got version"]);
   });
 });
 
@@ -489,6 +489,19 @@ describe("ignoreClosedReader", () => {
     expect(() => {
       output.emit(plain);
     }).toThrow(plain);
+  });
+});
+
+describe("failure", () => {
+  it("names a system error by its stable code, without repeating the path", () => {
+    const missing = Object.assign(new Error("ENOENT: no such file or directory, open '/x'"), { code: "ENOENT" });
+    expect(failure(missing)).toBe("ENOENT");
+  });
+
+  it("falls back to the message, then to the text of anything thrown", () => {
+    expect(failure(new Error("disk missing"))).toBe("disk missing");
+    expect(failure(Object.assign(new Error("odd"), { code: 5 }))).toBe("odd");
+    expect(failure("plain")).toBe("plain");
   });
 });
 

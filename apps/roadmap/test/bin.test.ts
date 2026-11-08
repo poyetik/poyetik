@@ -65,7 +65,7 @@ describe("bin", () => {
     writeFileSync(file, "{}");
     process.env["ROADMAP_FILE"] = file;
     const { stderr } = await runBin(["validate"]);
-    expect(stderr).toBe("error: board: expected fields cards, nextId, title, version, got \n");
+    expect(stderr).toBe(`error: invalid ${file}: board: expected fields cards, nextId, title, version, got \n`);
     expect(process.exitCode).toBe(1);
   });
 
@@ -79,7 +79,7 @@ describe("bin", () => {
     const file = join(dir, "missing.json");
     process.env["ROADMAP_FILE"] = file;
     const { stderr } = await runBin(["list"]);
-    expect(stderr).toMatch(new RegExp(`^error: cannot read ${file}: Error: ENOENT[^\n]*\n$`));
+    expect(stderr).toBe(`error: cannot read ${file}: ENOENT\n`);
     expect(process.exitCode).toBe(1);
   });
 
@@ -90,7 +90,20 @@ describe("bin", () => {
     process.env["ROADMAP_FILE"] = file;
     const { stderr } = await runBin(["add", "Engine"]);
     chmodSync(file, 0o644);
-    expect(stderr).toMatch(new RegExp(`^error: cannot write ${file}: Error: EACCES[^\n]*\n$`));
+    expect(stderr).toBe(`error: cannot write ${file}: EACCES\n`);
+    expect(process.exitCode).toBe(1);
+  });
+
+  it("refuses a board that is not valid UTF-8 instead of replacing the bytes", async () => {
+    const file = join(dir, "board.json");
+    const text = Buffer.from(serializeBoard(emptyBoard("Project")));
+    // One byte of the title replaced by 0xFF, which no UTF-8 text contains.
+    text[text.indexOf("Project")] = 0xff;
+    writeFileSync(file, text);
+    process.env["ROADMAP_FILE"] = file;
+    const { stdout, stderr } = await runBin(["validate"]);
+    expect(stdout).toBe("");
+    expect(stderr).toBe(`error: cannot read ${file}: ERR_ENCODING_INVALID_ENCODED_DATA\n`);
     expect(process.exitCode).toBe(1);
   });
 
