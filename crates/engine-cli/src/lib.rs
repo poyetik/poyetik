@@ -15,7 +15,7 @@ mod files;
 mod wav;
 
 pub use case::{CaseError, Prepared, Rendered, prepare_case, render_case};
-pub use cli::{BestEffort, CliError, USAGE, arguments, run};
+pub use cli::{BestEffort, CliError, MAX_CASE_BYTES, MAX_REFERENCES_BYTES, USAGE, arguments, run};
 pub use files::{Disk, Files};
 pub use wav::{HEADER_LEN, wav_bytes, wav_file, wav_header};
 

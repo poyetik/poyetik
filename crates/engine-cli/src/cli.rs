@@ -5,6 +5,8 @@ use std::ffi::OsString;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+use engine_patch::MAX_PATCH_BYTES;
+
 use crate::{Files, Prepared, prepare_case, wav_file};
 
 /// Usage of the `engine-cli` command, printed on stdout by `engine-cli help`.
@@ -96,10 +98,16 @@ impl<W: Write> Write for BestEffort<W> {
     }
 }
 
-/// Reads a file, naming it on failure.
-fn read(files: &mut dyn Files, path: &Path) -> Result<String, String> {
+/// Largest case file read, in bytes (64 KiB): a case holds two numbers.
+pub const MAX_CASE_BYTES: usize = 64 * 1024;
+
+/// Largest `references.json` read, in bytes (1 MiB): about 13,000 cases.
+pub const MAX_REFERENCES_BYTES: usize = 1024 * 1024;
+
+/// Reads a file of at most `limit` bytes, naming it on failure.
+fn read(files: &mut dyn Files, path: &Path, limit: usize) -> Result<String, String> {
     files
-        .read(path)
+        .read(path, limit)
         .map_err(|error| format!("cannot read {}: {error}", path.display()))
 }
 
@@ -179,8 +187,8 @@ fn cases(files: &mut dyn Files, dir: &Path) -> Result<Vec<CaseFiles>, String> {
     for (name, case_path) in names {
         let patch_path = patches.join(format!("{name}.json"));
         read_cases.push(CaseFiles {
-            case: read(files, &case_path)?,
-            patch: read(files, &patch_path)?,
+            case: read(files, &case_path, MAX_CASE_BYTES)?,
+            patch: read(files, &patch_path, MAX_PATCH_BYTES)?,
             name,
             case_path,
             patch_path,
@@ -220,8 +228,11 @@ fn render(files: &mut dyn Files, out: &mut dyn Write, args: &[String]) -> Result
         }
     };
     let (case_path, patch_path) = (Path::new(case), Path::new(patch));
-    let prepared = prepare_case(&read(files, case_path)?, &read(files, patch_path)?)
-        .map_err(|error| error.in_files(case_path, patch_path))?;
+    let prepared = prepare_case(
+        &read(files, case_path, MAX_CASE_BYTES)?,
+        &read(files, patch_path, MAX_PATCH_BYTES)?,
+    )
+    .map_err(|error| error.in_files(case_path, patch_path))?;
     let header = *prepared.wav_header();
     let rendered = prepared.render();
     if let Some(path) = wav {
@@ -240,8 +251,9 @@ fn render(files: &mut dyn Files, out: &mut dyn Write, args: &[String]) -> Result
 fn check(files: &mut dyn Files, out: &mut dyn Write, dir: &Path) -> Result<(), String> {
     let cases = cases(files, dir)?;
     let path = references_path(dir);
-    let expected: BTreeMap<String, String> = serde_json::from_str(&read(files, &path)?)
-        .map_err(|error| format!("invalid {}: {error}", path.display()))?;
+    let expected: BTreeMap<String, String> =
+        serde_json::from_str(&read(files, &path, MAX_REFERENCES_BYTES)?)
+            .map_err(|error| format!("invalid {}: {error}", path.display()))?;
     let mut failures = 0_usize;
     for case in &cases {
         let name = &case.name;

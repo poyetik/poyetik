@@ -25,8 +25,11 @@ use serde::de::{self, Deserializer, MapAccess, Visitor};
 /// The only format version this crate reads.
 pub const FORMAT: u32 = 1;
 
-/// Largest patch document read, in bytes (16 MiB): checked before parsing, so that an
-/// oversized input is refused without being read.
+/// Largest patch document read, in bytes (16 MiB).
+///
+/// Checked before parsing, so that an oversized document is refused without being
+/// parsed. Readers of files bound what they load to this size too (`engine-cli` reads at
+/// most one byte past it).
 pub const MAX_PATCH_BYTES: usize = 16 * 1024 * 1024;
 
 /// Why a patch document was rejected.

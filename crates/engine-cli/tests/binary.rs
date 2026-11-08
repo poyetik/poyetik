@@ -197,6 +197,22 @@ mod tests {
         assert_eq!(unreadable.status.code(), Some(1_i32), "a failure");
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn refuses_an_endless_case_file_instead_of_reading_it_whole() {
+        let patch = Path::new(&conformance()).join("patches/sine-440.json");
+        let output = engine_cli(&[
+            std::ffi::OsStr::new("render"),
+            std::ffi::OsStr::new("/dev/zero"),
+            patch.as_os_str(),
+        ]);
+        assert_error(
+            &output,
+            1,
+            "error: cannot read /dev/zero: larger than 65536 bytes",
+        );
+    }
+
     #[test]
     fn succeeds_when_nobody_reads_its_output() {
         // The read end is closed before the binary writes: every write gets a broken pipe.

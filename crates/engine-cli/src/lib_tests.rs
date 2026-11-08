@@ -46,7 +46,8 @@ impl Memory {
 }
 
 impl Files for Memory {
-    fn read(&mut self, path: &Path) -> io::Result<String> {
+    /// Refuses a file larger than `limit` like [`Disk`], with a message naming the limit.
+    fn read(&mut self, path: &Path, limit: usize) -> io::Result<String> {
         if self.unreadable.as_deref() == Some(path) {
             return Err(io::Error::other("permission denied"));
         }
@@ -54,6 +55,9 @@ impl Files for Memory {
             .files
             .get(path)
             .ok_or_else(|| io::Error::other("no such file"))?;
+        if bytes.len() > limit {
+            return Err(io::Error::other(format!("larger than {limit} bytes")));
+        }
         String::from_utf8(bytes.clone()).map_err(io::Error::other)
     }
 
@@ -687,13 +691,28 @@ fn disk_reads_writes_and_lists() {
     let file = dir.join("a.txt");
     let mut disk = Disk;
     assert!(disk.write(&file, b"hello").is_ok(), "write");
-    assert_eq!(disk.read(&file).ok(), Some("hello".to_owned()), "read");
+    assert_eq!(disk.read(&file, 5).ok(), Some("hello".to_owned()), "read");
+    assert_eq!(
+        disk.read(&file, 4)
+            .map_err(|error| (error.kind(), error.to_string())),
+        Err((
+            io::ErrorKind::FileTooLarge,
+            "larger than 4 bytes".to_owned()
+        )),
+        "one byte over the limit"
+    );
+    assert!(disk.write(&file, b"\xff").is_ok(), "write bytes");
+    assert_eq!(
+        disk.read(&file, 5).map_err(|error| error.kind()),
+        Err(io::ErrorKind::InvalidData),
+        "not UTF-8"
+    );
     assert_eq!(disk.list(&dir).ok(), Some(vec![file.clone()]), "list");
     assert!(
         disk.list(&dir.join("missing")).is_err(),
         "missing directory"
     );
-    assert!(disk.read(&dir.join("missing")).is_err(), "missing file");
+    assert!(disk.read(&dir.join("missing"), 5).is_err(), "missing file");
     let nested = dir.join("x").join("y");
     assert!(disk.create_dir_all(&nested).is_ok(), "create directories");
     assert!(nested.is_dir(), "created");
@@ -707,6 +726,87 @@ fn disk_reads_writes_and_lists() {
         "unwritable"
     );
     std::fs::remove_dir_all(&dir).expect("cleanup");
+}
+
+#[cfg(unix)]
+#[test]
+fn disk_reads_at_most_one_byte_past_the_limit() {
+    // An endless file: reading it whole would never end.
+    let error = Disk
+        .read(Path::new("/dev/zero"), 1_000)
+        .expect_err("too large");
+    assert_eq!(error.to_string(), "larger than 1000 bytes", "refused");
+}
+
+#[test]
+fn refuses_files_larger_than_their_limit() {
+    assert_eq!(
+        (super::MAX_CASE_BYTES, super::MAX_REFERENCES_BYTES),
+        (65_536, 1_048_576),
+        "the documented limits: 64 KiB and 1 MiB"
+    );
+    let case = format!("{SINE}{}", " ".repeat(super::MAX_CASE_BYTES - SINE.len()));
+    let patch = format!(
+        "{PATCH}{}",
+        " ".repeat(engine_patch::MAX_PATCH_BYTES - PATCH.len())
+    );
+    let hashes = format!(r#"{{"c":"{}"}}"#, sine_hash());
+    let references = format!(
+        "{hashes}{}",
+        " ".repeat(super::MAX_REFERENCES_BYTES - hashes.len())
+    );
+    let mut memory = Memory::with(&[
+        ("c.json", &case),
+        ("p.json", &patch),
+        ("conf/cases/c.json", &case),
+        ("conf/patches/c.json", &patch),
+        ("conf/references.json", &references),
+    ]);
+    assert_eq!(
+        run_with(&mut memory, &["render", "c.json", "p.json"]).0,
+        Ok(()),
+        "exactly at the limits"
+    );
+    assert_eq!(
+        run_with(&mut memory, &["check", "conf"]).0,
+        Ok(()),
+        "every file of a corpus at its limit"
+    );
+    for (file, limit) in [
+        ("c.json", super::MAX_CASE_BYTES),
+        ("p.json", engine_patch::MAX_PATCH_BYTES),
+    ] {
+        let mut over = Memory::with(&[("c.json", &case), ("p.json", &patch)]);
+        over.files
+            .get_mut(Path::new(file))
+            .expect("the file")
+            .push(b' ');
+        assert_eq!(
+            run_with(&mut over, &["render", "c.json", "p.json"]).0,
+            Err(format!("cannot read {file}: larger than {limit} bytes")),
+            "{file}: one byte over"
+        );
+    }
+    for (file, limit) in [
+        ("conf/cases/c.json", super::MAX_CASE_BYTES),
+        ("conf/patches/c.json", engine_patch::MAX_PATCH_BYTES),
+        ("conf/references.json", super::MAX_REFERENCES_BYTES),
+    ] {
+        let mut over = Memory::with(&[
+            ("conf/cases/c.json", &case),
+            ("conf/patches/c.json", &patch),
+            ("conf/references.json", &references),
+        ]);
+        over.files
+            .get_mut(Path::new(file))
+            .expect("the file")
+            .push(b' ');
+        assert_eq!(
+            run_with(&mut over, &["check", "conf"]).0,
+            Err(format!("cannot read {file}: larger than {limit} bytes")),
+            "{file}: one byte over"
+        );
+    }
 }
 
 #[test]

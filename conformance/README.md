@@ -15,3 +15,4 @@ The **conformance corpus**: every target and every SDK must reproduce these rend
 - `cargo run -p engine-cli -- render conformance/cases/<name>.json conformance/patches/<name>.json --wav <file.wav>` writes a case as a WAV file to listen to.
 - `cargo run -p engine-cli -- export conformance target/conformance` writes the WAV file of every case; the independent oracle (`tooling/oracle`) then rereads them, recomputes their hashes and checks `expectations.json`. `cargo xtask check` runs both.
 - Every case needs its patch, a reference hash and expectations, and every patch its case: the engine CLI and the oracle fail on anything missing.
+- Size limits, checked while reading (never more than one byte past them): a case file holds at most 64 KiB, a patch file 16 MiB (the limit of the patch format), `references.json` 1 MiB.
