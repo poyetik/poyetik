@@ -41,4 +41,4 @@ A 440 Hz sine wave on both output channels:
 - Box types, parameter names and ranges, and port indices are checked against the engine registry when the patch is loaded.
 - Several cables into one inlet are summed, in a fixed order that does not depend on the order of the document: by source node id, then source outlet index (floating-point addition is not associative, so the order is part of the result). One outlet may feed several inlets.
 - A cycle without delay is rejected.
-- Numbers are parsed with correct rounding, identically on every target.
+- **Parameter values are IEEE 754 binary32** (single precision): a number in the document is rounded to the nearest binary32 value (ties to even), identically on every target. `440.1` is played as 440.100006103515625 Hz; tools that compute what a patch sounds like use that value too.

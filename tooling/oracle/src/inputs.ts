@@ -94,7 +94,10 @@ function parseChannel(value: unknown, where: string): ChannelExpectation {
   const sine = field(value, "sine");
   return {
     sine: {
-      frequency: number(field(sine, "frequency"), `${where}: sine.frequency`),
+      // The frequency is the value of a box parameter, and the patch format stores
+      // parameters as binary32 (spec/patch-format.md): the engine plays the nearest
+      // binary32 value, so the ideal signal uses it too.
+      frequency: Math.fround(number(field(sine, "frequency"), `${where}: sine.frequency`)),
       amplitude: number(field(sine, "amplitude"), `${where}: sine.amplitude`),
       phase: number(field(sine, "phase"), `${where}: sine.phase`),
     },

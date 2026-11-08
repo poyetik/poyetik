@@ -42,6 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The oracle computes ideal sines at the binary32 frequency the engine plays, as the patch format now states (parameters are binary32): an expectation at 440.1 Hz no longer compares with a frequency the patch cannot express.
 - End-to-end tests run one browser at a time: in parallel, on an idle machine slowed down by the system, live captures and clicks timed out at random.
 - `interleave` (engine-wasm hash helpers) copies samples bit for bit: a signaling NaN was turned quiet on the way to the hash.
 - The determinism ban list covers every `f32`/`f64` method that is not correctly rounded (`atan2`, `exp2`, `hypot`, `cbrt`… were missing), and states the real reason for banning `mul_add`.

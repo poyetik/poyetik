@@ -69,3 +69,11 @@ describe("parseExpectations", () => {
     expect(new InputError("x")).toMatchObject({ name: "InputError", message: "invalid conformance input: x" });
   });
 });
+
+test("reads frequencies as the binary32 parameters the engine plays", () => {
+  const channel = { sine: { frequency: 440.1, amplitude: 1, phase: 0 }, max_error: 1e-6 };
+  const parsed = parseExpectations({ a: { sample_rate: 8000, frames: 4, channels: [channel] } });
+  const frequency = parsed.get("a")?.channels[0]?.sine.frequency;
+  expect(frequency).toBe(Math.fround(440.1));
+  expect(frequency).not.toBe(440.1);
+});
