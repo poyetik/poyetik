@@ -78,7 +78,7 @@ impl fmt::Display for CoreError {
                 write!(f, "the cable from {connection} is listed twice")
             }
             Self::TooManyNodes(count) => {
-                write!(f, "too many nodes: {count} (at most {})", Patch::MAX_NODES)
+                write!(f, "too many boxes: {count} (at most {})", Patch::MAX_NODES)
             }
             Self::TooManyConnections(count) => write!(
                 f,
@@ -132,7 +132,7 @@ mod tests {
             ),
             (
                 CoreError::DuplicateNode(NodeId(2)),
-                "node 2 is declared twice",
+                "box 2 is declared twice",
             ),
             (
                 CoreError::DuplicateConnection(Connection {
@@ -141,11 +141,11 @@ mod tests {
                     to: NodeId(2),
                     inlet: 1,
                 }),
-                "the cable from node 1 outlet 0 to node 2 inlet 1 is listed twice",
+                "the cable from box 1 outlet 0 to box 2 inlet 1 is listed twice",
             ),
             (
                 CoreError::TooManyNodes(70_000),
-                "too many nodes: 70000 (at most 65536)",
+                "too many boxes: 70000 (at most 65536)",
             ),
             (
                 CoreError::TooManyConnections(300_000),
@@ -160,14 +160,14 @@ mod tests {
                     node: NodeId(3),
                     kind: String::from("x~"),
                 },
-                "node 3: unknown box type \"x~\"",
+                "box 3: unknown box type \"x~\"",
             ),
             (
                 CoreError::UnknownParam {
                     node: NodeId(4),
                     name: String::from("gain"),
                 },
-                "node 4: unknown parameter \"gain\"",
+                "box 4: unknown parameter \"gain\"",
             ),
             (
                 CoreError::ParamOutOfRange {
@@ -175,29 +175,29 @@ mod tests {
                     name: String::from("gain"),
                     value: 1.5,
                 },
-                "node 5: parameter \"gain\" out of range: 1.5",
+                "box 5: parameter \"gain\" out of range: 1.5",
             ),
             (
                 CoreError::UnknownNode(NodeId(6)),
-                "a cable refers to node 6, which does not exist",
+                "a cable refers to box 6, which does not exist",
             ),
             (
                 CoreError::InvalidOutlet {
                     node: NodeId(7),
                     outlet: 3,
                 },
-                "node 7: no outlet 3",
+                "box 7: no outlet 3",
             ),
             (
                 CoreError::InvalidInlet {
                     node: NodeId(8),
                     inlet: 4,
                 },
-                "node 8: no inlet 4",
+                "box 8: no inlet 4",
             ),
             (
                 CoreError::Cycle(vec![NodeId(1), NodeId(9)]),
-                "cycle without delay involving node 1, node 9",
+                "cycle without delay involving box 1, box 9",
             ),
         ];
         for (error, message) in cases {
@@ -207,8 +207,8 @@ mod tests {
     }
 
     /// Whether a word appears twice in a row within a list item, ignoring numbers
-    /// between them ("node: node 2", "node 1 node 9"): such messages read badly. Items of
-    /// a comma-separated list ("node 1, node 9") may repeat their noun.
+    /// between them ("box: box 2", "box 1 box 9"): such messages read badly. Items of
+    /// a comma-separated list ("box 1, box 9") may repeat their noun.
     fn repeats_a_word(message: &str) -> bool {
         message.split(", ").any(|item| {
             let words: Vec<&str> = item
@@ -223,10 +223,10 @@ mod tests {
 
     #[test]
     fn spots_repeated_words() {
-        assert!(repeats_a_word("duplicate node: node 2"), "colon between");
-        assert!(repeats_a_word("involving node 1 node 9"), "number between");
-        assert!(!repeats_a_word("node 1, outlet 2"), "different words");
-        assert!(!repeats_a_word("involving node 1, node 9"), "a list");
+        assert!(repeats_a_word("duplicate box: box 2"), "colon between");
+        assert!(repeats_a_word("involving box 1 box 9"), "number between");
+        assert!(!repeats_a_word("box 1, outlet 2"), "different words");
+        assert!(!repeats_a_word("involving box 1, box 9"), "a list");
     }
 
     #[test]

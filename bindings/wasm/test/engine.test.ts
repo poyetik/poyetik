@@ -112,7 +112,7 @@ describe("WasmEngine", () => {
     const detail = error instanceof PatchError ? error.detail : new Uint8Array();
     // A copy: it does not keep the memory of the module alive.
     expect(detail.buffer.byteLength).toBe(detail.length);
-    expect(new TextDecoder().decode(detail)).toBe('node 1: unknown box type "nope~"');
+    expect(new TextDecoder().decode(detail)).toBe('box 1: unknown box type "nope~"');
   });
 
   test("rejects an unsupported sample rate", () => {

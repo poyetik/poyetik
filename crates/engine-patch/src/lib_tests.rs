@@ -333,7 +333,7 @@ fn describes_errors() {
     );
     assert_eq!(
         PatchError::Patch(CoreError::DuplicateNode(NodeId(3))).to_string(),
-        "invalid patch: node 3 is declared twice",
+        "invalid patch: box 3 is declared twice",
         "structure"
     );
     for error in [
@@ -347,7 +347,7 @@ fn describes_errors() {
     let error: &dyn core::error::Error = &PatchError::Patch(CoreError::DuplicateNode(NodeId(3)));
     assert_eq!(
         error.source().map(ToString::to_string),
-        Some(String::from("node 3 is declared twice")),
+        Some(String::from("box 3 is declared twice")),
         "the patch error is the cause"
     );
 }

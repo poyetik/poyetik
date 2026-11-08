@@ -114,7 +114,7 @@ describe("engine processor", () => {
     const [message] = node.port.posted;
     expect(message).toMatchObject({ type: "rejected" });
     const detail: unknown = typeof message === "object" && message !== null ? Reflect.get(message, "detail") : undefined;
-    expect(detail instanceof Uint8Array ? new TextDecoder().decode(detail) : detail).toBe('node 1: unknown box type "nope~"');
+    expect(detail instanceof Uint8Array ? new TextDecoder().decode(detail) : detail).toBe('box 1: unknown box type "nope~"');
   });
 
   test("reports a failure while rendering once, then stops", () => {

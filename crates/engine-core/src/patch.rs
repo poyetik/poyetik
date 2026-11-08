@@ -8,12 +8,15 @@ use core::fmt;
 use crate::CoreError;
 
 /// Stable identifier of a node in a patch. Also breaks ties when ordering execution.
+///
+/// Shown as "box N": messages use the project's word for what users place in a patch
+/// (`GLOSSARY.md`), whatever the code calls it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct NodeId(pub u32);
 
 impl fmt::Display for NodeId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "node {}", self.0)
+        write!(f, "box {}", self.0)
     }
 }
 

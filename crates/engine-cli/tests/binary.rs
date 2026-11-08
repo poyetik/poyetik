@@ -184,7 +184,7 @@ mod tests {
             &unknown_box,
             1,
             &format!(
-                "error: {}: node 1: unknown box type \"foo~\"",
+                "error: {}: box 1: unknown box type \"foo~\"",
                 patch.display()
             ),
         );

@@ -47,6 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Playground: the oscilloscope repaints only while playing; stopped, suspended or failed, it is drawn once (the grid and dashes) instead of being redrawn at the display rate, forever, on a page where nothing plays.
+- Error messages and the patch format specification say "box", the project's word, instead of "node": "box 3: unknown box type", "too many boxes", `[box id, outlet index]`. The JSON key `nodes` is unchanged.
 - **Breaking:** offline rendering moves from `Plan` to a new `Renderer`, which owns its plan: `Renderer::new(plan)`, then `render` or `render_into`. `Plan` keeps `process`, one block at a time. Mixing both on one plan used to reorder time silently (a later block returned before the rest of the current one); it no longer compiles. `render_into` copies one channel at a time, as many frames as the current block and the buffer hold, instead of testing every sample.
 - The box laws (`engine-testkit`) also try every parameter at `-0.0` and at the smallest subnormal (`1e-45`), where its range accepts them; the long run is documented for what it reveals (late overflow, non-finite output, late allocation), not slow drift, which it has no reference to detect.
 - Patch format: port indices range from 0 to 65535, read as 16-bit integers. A larger index was accepted by the native reader and rejected by the WebAssembly one (whose pointers are 32 bits wide), so the same patch failed differently on each target; every target now rejects it while reading.
@@ -71,7 +72,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Breaking:** `Patch` is a validated type, built only by `Patch::new`: node ids are unique, cables are never repeated, and a patch holds at most 65,536 nodes and 262,144 cables. The cables into an inlet are summed in a fixed order (source id, then outlet), whatever the order of the document. The patch reader also refuses documents over 16 MiB and a parameter named twice in one node.
 - **Breaking:** `Renderer::render` continues exactly where the previous call stopped (rendering `a` then `b` frames equals rendering `a + b`), and returns `CoreError::RenderTooLong` instead of failing when the samples cannot be held in memory.
 - Execution order is computed with Kahn's algorithm, in O((N + E) log N) instead of O(N²·E): a patch of 16,000 boxes is ordered in milliseconds instead of seconds. The order is unchanged.
-- Error messages name the faulty element once and say what is expected ("node 2 is declared twice", "invalid sample rate: 5 Hz (supported: 8000 to 384000 Hz)").
+- Error messages name the faulty element once and say what is expected ("box 2 is declared twice", "invalid sample rate: 5 Hz (supported: 8000 to 384000 Hz)").
 - The conformance CLI refuses a case whose patch has no audio output, instead of rendering nothing.
 - The box laws (`engine-testkit`) run at every sample rate of a shared test matrix (8 kHz to 384 kHz, including 44.1 kHz), with special inputs (signed zeros, subnormals), a long run and parameters away from their default; a box that fails at any of them fails the laws. The matrix is also published as `conformance/test-matrix.json` for the TypeScript tests.
 

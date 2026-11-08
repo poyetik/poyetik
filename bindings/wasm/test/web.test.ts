@@ -198,7 +198,7 @@ describe("loadPatch", () => {
   });
 
   test("throws the explanation of the engine", async () => {
-    await expect(loadPatch(wasmBytes(), UNKNOWN_BOX, RATE)).rejects.toThrow(new Error('node 1: unknown box type "nope~"'));
+    await expect(loadPatch(wasmBytes(), UNKNOWN_BOX, RATE)).rejects.toThrow(new Error('box 1: unknown box type "nope~"'));
     const error: unknown = await loadPatch(wasmBytes(), UNKNOWN_BOX, RATE).catch((reason: unknown) => reason);
     expect(error).toHaveProperty("cause.name", "PatchError");
   });

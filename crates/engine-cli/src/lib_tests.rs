@@ -165,7 +165,7 @@ fn rejects_invalid_cases() {
         (
             SINE,
             r#"{"format":1,"nodes":[{"id":1,"box":"x~"}],"connections":[]}"#,
-            patch("node 1: unknown box type \"x~\""),
+            patch("box 1: unknown box type \"x~\""),
         ),
         (
             SINE,
@@ -537,7 +537,7 @@ fn check_command_reports_every_case_that_fails_to_render() {
         out,
         format!(
             "FAILED   a: conf/cases/a.json: invalid case: EOF while parsing an object at line 1 column 1\n\
-             FAILED   b: conf/patches/b.json: node 1: unknown box type \"foo~\"\n\
+             FAILED   b: conf/patches/b.json: box 1: unknown box type \"foo~\"\n\
              ok       sine {}\n",
             sine_hash()
         ),
@@ -1096,8 +1096,8 @@ fn tells_usage_errors_from_failures() {
 #[test]
 fn reports_an_error_as_one_escaped_line() {
     assert_eq!(
-        CliError::Failed("p.json: node 1: unknown box type \"x~\"".to_owned()).line(),
-        "error: p.json: node 1: unknown box type \"x~\"",
+        CliError::Failed("p.json: box 1: unknown box type \"x~\"".to_owned()).line(),
+        "error: p.json: box 1: unknown box type \"x~\"",
         "plain text is unchanged, quotes included"
     );
     assert_eq!(

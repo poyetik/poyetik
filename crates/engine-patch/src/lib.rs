@@ -41,8 +41,8 @@ pub enum PatchError {
     Invalid(String),
     /// The document declares a format version this crate does not read.
     UnsupportedFormat(u32),
-    /// The document is well formed but is not a valid patch (duplicate node or cable,
-    /// too many nodes or cables).
+    /// The document is well formed but is not a valid patch (duplicate box or cable,
+    /// too many boxes or cables).
     Patch(CoreError),
 }
 
