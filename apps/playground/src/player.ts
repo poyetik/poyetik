@@ -396,6 +396,8 @@ export class EnginePlayer implements Player {
       context.onstatechange = () => {
         this.#follow(session);
       };
+      // Awaited before resuming: Chromium, Firefox and WebKit all construct the processor,
+      // and so settle `ready`, while the context is still suspended (checked in each).
       await session.until(engine.ready);
       cause = "device";
       await session.until(context.resume());
