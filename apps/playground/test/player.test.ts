@@ -1,7 +1,8 @@
+import { loadPatch } from "@poyetik/engine-wasm/web";
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { SINE_440 } from "../src/patch.ts";
-import { EnginePlayer, explain, missing, type Environment, type Failure, type Missing, type PlayerOptions } from "../src/player.ts";
+import { ENGINE_RATES, EnginePlayer, explain, missing, type Environment, type Failure, type Missing, type PlayerOptions } from "../src/player.ts";
 import { SAMPLE_RATES } from "./matrix.ts";
 
 /** The built engine module. */
@@ -149,8 +150,8 @@ class FakeContext {
   static resumesTo: AudioContextState = "running";
   /** The rate of the device: each test may pick another one. */
   static rate = 48_000;
-  /** Sample rate of the context, in hertz: the device rate when it was created. */
-  readonly sampleRate = FakeContext.rate;
+  /** Sample rate of the context, in hertz: the rate asked for, else the device rate when it was created. */
+  readonly sampleRate: number;
   /** Time of the context clock, in seconds: 1 at creation, so that the scheduled times in the log are predictable; moved only by {@link FakeContext.advance}. */
   currentTime = 1;
   /** The constant sources of the context, whose ends {@link FakeContext.advance} fires. */
@@ -169,11 +170,12 @@ class FakeContext {
     },
   };
 
-  /** Creates the context, unless the fake browser refuses to (no audio device). */
-  constructor() {
+  /** Creates the context, at the rate asked for or the device rate, unless the fake browser refuses to (no audio device). */
+  constructor(options?: { sampleRate?: number }) {
     if (FakeContext.refuses.has("create")) {
       throw new DOMException("no device", "NotSupportedError");
     }
+    this.sampleRate = options?.sampleRate ?? FakeContext.rate;
     FakeContext.created.push(this);
     log.push("new context");
   }
@@ -880,6 +882,38 @@ describe("EnginePlayer under any interleaving", () => {
 });
 
 describe("EnginePlayer at the rate of the device", () => {
+  test.each([3_000, ENGINE_RATES.min - 1, ENGINE_RATES.max + 1, 768_000])("plays a device at %i Hz, outside the engine's rates, at 48 kHz: the browser resamples", async (rate) => {
+    FakeContext.rate = rate;
+    const player = new EnginePlayer(playerOptions());
+    await player.start();
+    expect(player.state()).toStrictEqual({ kind: "playing" });
+    expect(player.latest()?.rate).toBe(48_000);
+    expect(FakeContext.created.map((context) => [context.sampleRate, context.state])).toStrictEqual([
+      [rate, "closed"],
+      [48_000, "running"],
+    ]);
+  });
+
+  test("plays at 48 kHz even when the device context cannot be closed", async () => {
+    FakeContext.rate = 768_000;
+    FakeContext.refuses.add("close");
+    const player = new EnginePlayer(playerOptions());
+    await player.start();
+    expect(player.state()).toStrictEqual({ kind: "playing" });
+    expect(player.latest()?.rate).toBe(48_000);
+  });
+
+  test("knows the rates of the engine: its limits are those of the test matrix, and the engine refuses beyond them", async () => {
+    expect([ENGINE_RATES.min, ENGINE_RATES.max]).toStrictEqual([Math.min(...SAMPLE_RATES), Math.max(...SAMPLE_RATES)]);
+    const wasm = (): ArrayBuffer => WASM.buffer.slice(WASM.byteOffset, WASM.byteOffset + WASM.byteLength);
+    for (const rate of [ENGINE_RATES.min, ENGINE_RATES.max]) {
+      expect((await loadPatch(wasm(), SINE_440, rate)).rate).toBe(rate);
+    }
+    for (const rate of [ENGINE_RATES.min - 1, ENGINE_RATES.max + 1]) {
+      await expect(loadPatch(wasm(), SINE_440, rate)).rejects.toThrow(`invalid sample rate: ${String(rate)} Hz`);
+    }
+  });
+
   test.each(SAMPLE_RATES)("plays at %i Hz, the rate of its context, never a default", async (rate) => {
     FakeContext.rate = rate;
     const player = new EnginePlayer(playerOptions());

@@ -117,6 +117,17 @@ export function explain(problem: Missing | Failure): string {
   }
 }
 
+/**
+ * The sample rates the engine accepts, in hertz (both included). Browsers run their
+ * contexts from 3 kHz to 768 kHz; outside this range the player asks for
+ * {@link FALLBACK_RATE} instead. The tests check these limits against the engine itself
+ * and the test matrix.
+ */
+export const ENGINE_RATES = { min: 8_000, max: 384_000 } as const;
+
+/** The rate asked for when the device runs outside {@link ENGINE_RATES}: the browser resamples to the device. */
+export const FALLBACK_RATE = 48_000;
+
 /** How the engine player is set up. */
 export interface PlayerOptions {
   /** URL of the engine WebAssembly module. */
@@ -144,7 +155,7 @@ class SessionEnded extends Error {}
  * nothing the player does can wait for an event a closed or frozen context never sends.
  */
 class Session {
-  /** The context of this session, created at the device rate and closed by {@link Session.close}. */
+  /** The context of this session, at the device rate when the engine accepts it, closed by {@link Session.close}. */
   readonly context: AudioContext;
   /** The latest engine output, {@link PlayerOptions.historySeconds} long in samples at the context rate. */
   readonly history: SampleHistory;
@@ -169,7 +180,15 @@ class Session {
    * @param historySeconds Duration kept for the oscilloscope, in seconds.
    */
   constructor(historySeconds: number) {
-    this.context = new AudioContext();
+    const device = new AudioContext();
+    const { sampleRate } = device;
+    if (sampleRate < ENGINE_RATES.min || sampleRate > ENGINE_RATES.max) {
+      // Never used: released at once, whether or not the browser manages to.
+      void device.close().catch(() => undefined);
+      this.context = new AudioContext({ sampleRate: FALLBACK_RATE });
+    } else {
+      this.context = device;
+    }
     this.history = new SampleHistory(Math.round(historySeconds * this.context.sampleRate));
     this.gain = new GainNode(this.context, { gain: 0 });
     const { signal } = this.#abort;
