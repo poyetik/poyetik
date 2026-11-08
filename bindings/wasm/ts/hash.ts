@@ -1,7 +1,7 @@
 /**
- * The canonical render hash (`render-hash/1`), computed in JavaScript: an implementation
- * independent of the Rust one (`crates/engine-hash`), giving the same hash for the same
- * bits.
+ * The canonical render hash (`render-hash/1`, specified in `spec/render-hash.md`),
+ * computed in JavaScript: an implementation independent of the Rust one
+ * (`crates/engine-hash`), giving the same hash for the same bits.
  */
 
 /** Tag opening the hashed bytes: the version of the scheme. */

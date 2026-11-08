@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The render hash is specified (`spec/render-hash.md`: byte layout, byte order, versioning rule, a worked example), with known-answer vectors (`spec/render-hash-vectors.json`: `-0`, a subnormal and a NaN payload among them) that the Rust, TypeScript and oracle implementations are all tested against.
 - `cargo xtask check` checks the history: every commit message follows the convention, and every `feat`, `fix`, `perf` or breaking commit since the rule was introduced updates the changelog. It also requires CI to pin every action to a full commit hash, the Cargo tools to exact versions (which the preflight now requires locally too) and Node.js to `.node-version`.
 - The pre-push hook (`cargo xtask pre-push`) refuses a working tree with uncommitted changes and a pushed commit other than the one checked out, so that the check validates exactly what is pushed.
 - `GLOSSARY.md`: the words of the project, with the name each takes in the patch format and the code. READMEs for the roadmap, the oracle and the shared policy; `cargo xtask check` now requires a README in every TypeScript package, every part named in the README of its folder and every folder in the root README.

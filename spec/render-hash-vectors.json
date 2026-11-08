@@ -1,0 +1,44 @@
+{
+  "scheme": "render-hash/1",
+  "vectors": [
+    {
+      "name": "empty",
+      "description": "No sample: the tag and the header alone (rate 48 000 Hz, 1 channel, 0 samples).",
+      "rate": 48000,
+      "channels": 1,
+      "samples": [],
+      "bytes": "72656e6465722d686173682f3180bb000001000000000000000000000000000000",
+      "sha256": "b39af19db79a2adf7bb979d48f7dc3d88915fbc9688f9fa86b9fb2a1930c66f8"
+    },
+    {
+      "name": "stereo-48000",
+      "description": "Two frames of two channels: 0, 0.5, then -0.5, 1.",
+      "rate": 48000,
+      "channels": 2,
+      "samples": [
+        "00000000",
+        "3f000000",
+        "bf000000",
+        "3f800000"
+      ],
+      "bytes": "72656e6465722d686173682f3180bb000002000000000000000400000000000000000000000000003f000000bf0000803f",
+      "sha256": "9d1756287e39b44f34500c890770292a9c31c69410b00dc87b670967cfce6397"
+    },
+    {
+      "name": "special-values",
+      "description": "Three frames of two channels at 11 025 Hz: 0 and -0, the smallest subnormal and 1, -0.5 and a quiet NaN with a payload. Each sample is hashed by its bits, never by its value.",
+      "rate": 11025,
+      "channels": 2,
+      "samples": [
+        "00000000",
+        "80000000",
+        "00000001",
+        "3f800000",
+        "bf000000",
+        "7fc00001"
+      ],
+      "bytes": "72656e6465722d686173682f31112b0000020000000000000006000000000000000000000000000080010000000000803f000000bf0100c07f",
+      "sha256": "3dab487551f6c3e1a40fa4d4823546661761b9a54dcad993aa522cf252763770"
+    }
+  ]
+}

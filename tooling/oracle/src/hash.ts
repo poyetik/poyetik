@@ -1,6 +1,7 @@
 /**
- * The canonical render hash (`render-hash/1`), computed with Node's own SHA-256 directly
- * on the bytes of the WAV data: they already are the little-endian bits of every sample.
+ * The canonical render hash (`render-hash/1`, specified in `spec/render-hash.md`),
+ * computed with Node's own SHA-256 directly on the bytes of the WAV data: they already
+ * are the little-endian bits of every sample.
  */
 
 import { createHash } from "node:crypto";

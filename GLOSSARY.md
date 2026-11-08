@@ -20,7 +20,7 @@ The words of the project, with the name each one takes in the patch format and i
 | **frame**, **sample** | A frame is one instant of every channel; a sample is one channel's value at one frame (32-bit float) | — | `f32`; planar (one buffer per channel, mono `Block`s) inside the engine and in `WasmEngine.render`; interleaved by channel in `Plan::render`, `Plan::render_into` and the render hash |
 | **sample rate** | Frames per second, 8 000 to 384 000 Hz | — | `SampleRate` |
 | **render** | The output of a patch over a duration at a sample rate, offline | — | `engine-cli`, `renderOffline` (browser) |
-| **render hash** | The SHA-256 of a render in canonical form: rate, channels and every sample's bits; equal hashes mean identical renders | — | `render_hash` (`engine-hash`), `renderHash` (`@poyetik/engine-wasm/hash`, and the oracle's own) |
+| **render hash** | The SHA-256 of a render in canonical form: rate, channels and every sample's bits; equal hashes mean identical renders (`spec/render-hash.md`) | — | `render_hash` (`engine-hash`), `renderHash` (`@poyetik/engine-wasm/hash`, and the oracle's own) |
 
 ## Proof
 

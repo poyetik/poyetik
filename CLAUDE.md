@@ -45,7 +45,7 @@ Project rules will be added here as we go.
 ## Repository structure
 
 A **monorepo of separate parts** with clear contracts (details in the local `doc/architecture.md`, section 2):
-`spec/` (patch format), `crates/` (reusable engine core and tooling), `bindings/` (developer SDKs), `apps/` (applications), `conformance/` (reference cases), `tooling/` (shared development configuration).
+`spec/` (patch format, render hash), `crates/` (reusable engine core and tooling), `bindings/` (developer SDKs), `apps/` (applications), `conformance/` (reference cases), `tooling/` (shared development configuration).
 One Cargo workspace and one pnpm workspace at the root. A part only uses another through its documented public interface. Parts are built **incrementally**: empty folders only hold a short README; never specify ahead of need.
 
 ## Roadmap (`apps/roadmap/`)

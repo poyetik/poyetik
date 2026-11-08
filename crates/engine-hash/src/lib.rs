@@ -5,9 +5,11 @@
 //! targets: native, WASM, every browser and every SDK must reproduce the reference
 //! hashes of `conformance/references.json`.
 //!
-//! Hashed bytes, all little-endian: the ASCII tag `render-hash/1`, the sample rate
-//! (`u32`), the channel count (`u64`), the sample count (`u64`), then every sample's
-//! `f32` bit pattern (`u32`), channels interleaved.
+//! The scheme is specified in `spec/render-hash.md`, with known-answer vectors in
+//! `spec/render-hash-vectors.json`. In short, the hashed bytes, all little-endian: the
+//! ASCII tag `render-hash/1`, the sample rate (`u32`), the channel count (`u64`), the
+//! sample count (frames times channels, `u64`), then every sample's `f32` bit pattern
+//! (`u32`), channels interleaved.
 
 #![no_std]
 #![forbid(unsafe_code)]
@@ -58,22 +60,77 @@ mod tests {
     extern crate alloc;
 
     use alloc::string::ToString;
+    use alloc::vec::Vec;
 
     use engine_core::SampleRate;
+    use serde_json::Value;
+    use sha2::{Digest, Sha256};
 
-    use super::render_hash;
+    use super::{TAG, render_hash};
 
     const RATE: SampleRate = SampleRate::HZ_48000;
 
+    /// The known-answer vectors of the specification, shared with the TypeScript
+    /// implementations and computed independently of all of them.
+    const VECTORS: &str = include_str!("../../../spec/render-hash-vectors.json");
+
+    /// Reads a field of a vector as an unsigned integer.
+    fn number(vector: &Value, key: &str) -> u64 {
+        vector[key].as_u64().expect("an unsigned integer")
+    }
+
+    /// Reads a field of a vector as text.
+    fn text<'json>(vector: &'json Value, key: &str) -> &'json str {
+        vector[key].as_str().expect("a string")
+    }
+
+    /// Decodes hexadecimal digits, two per byte.
+    fn hex_bytes(digits: &str) -> Vec<u8> {
+        digits
+            .as_bytes()
+            .chunks(2)
+            .map(|pair| {
+                u8::from_str_radix(core::str::from_utf8(pair).expect("ASCII"), 16)
+                    .expect("hexadecimal")
+            })
+            .collect()
+    }
+
     #[test]
-    fn is_stable() {
-        // Fixed value, cross-checked with an independent implementation (Python's
-        // hashlib over the documented bytes). If it changes, every reference hash changes.
-        assert_eq!(
-            render_hash(RATE, 2, &[0.0, 0.5, -0.5, 1.0]).to_string(),
-            "9d1756287e39b44f34500c890770292a9c31c69410b00dc87b670967cfce6397",
-            "reference value of the scheme"
-        );
+    fn reproduces_the_known_answer_vectors_of_the_specification() {
+        // If one changes, every reference hash changes: the scheme needs a new tag.
+        let json: Value = serde_json::from_str(VECTORS).expect("valid JSON");
+        assert_eq!(text(&json, "scheme").as_bytes(), TAG, "same scheme");
+        let vectors = json["vectors"].as_array().expect("a list of vectors");
+        assert!(vectors.len() >= 3, "every vector is read");
+        for vector in vectors {
+            let name = text(vector, "name");
+            let rate = SampleRate::new(u32::try_from(number(vector, "rate")).expect("u32"))
+                .expect("a valid rate");
+            let channels = usize::try_from(number(vector, "channels")).expect("usize");
+            let samples: Vec<f32> = vector["samples"]
+                .as_array()
+                .expect("a list of samples")
+                .iter()
+                .map(|bits| {
+                    f32::from_bits(
+                        u32::from_str_radix(bits.as_str().expect("a string"), 16)
+                            .expect("hexadecimal bits"),
+                    )
+                })
+                .collect();
+            let expected = text(vector, "sha256");
+            assert_eq!(
+                render_hash(rate, channels, &samples).to_string(),
+                expected,
+                "{name}"
+            );
+            assert_eq!(
+                Sha256::digest(hex_bytes(text(vector, "bytes"))).as_slice(),
+                hex_bytes(expected),
+                "{name}: the bytes of the vector give its hash"
+            );
+        }
     }
 
     #[test]
