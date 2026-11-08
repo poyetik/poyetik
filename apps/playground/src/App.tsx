@@ -31,8 +31,26 @@ function action(player: Player, state: PlayerState): { readonly label: string; r
   }
 }
 
-/** The id of the alert explaining a failure, which the button refers to. */
+/** The id of the alert explaining a failure or a refused resume, which the button refers to. */
 const ALERT = "player-alert";
+
+/** Shown when the browser kept the audio suspended after Resume: the click was seen, and what to try. */
+export const REFUSED = "The browser kept audio paused. Try again, or check that this tab may play sound.";
+
+/** What the page explains next to the button, or null: why the player failed, or why a resume did nothing. */
+function notice(state: PlayerState): string | null {
+  switch (state.kind) {
+    case "failed":
+      return state.reason;
+    case "suspended":
+      return state.refused ? REFUSED : null;
+    case "stopped":
+    case "starting":
+    case "playing":
+    case "stopping":
+      return null;
+  }
+}
 
 /** The page, driving `player`. */
 export function App({ player }: { readonly player: Player }): JSX.Element {
@@ -40,7 +58,7 @@ export function App({ player }: { readonly player: Player }): JSX.Element {
   const state = useSyncExternalStore(subscribe, () => player.state());
   const signal = useCallback(() => player.latest(), [player]);
   const { label, run } = action(player, state);
-  const failed = state.kind === "failed";
+  const explanation = notice(state);
 
   return (
     <main>
@@ -51,7 +69,7 @@ export function App({ player }: { readonly player: Player }): JSX.Element {
         <button
           type="button"
           aria-disabled={run === undefined}
-          aria-describedby={failed ? ALERT : undefined}
+          aria-describedby={explanation === null ? undefined : ALERT}
           data-action={label.toLowerCase()}
           onClick={() => {
             void run?.();
@@ -60,11 +78,11 @@ export function App({ player }: { readonly player: Player }): JSX.Element {
           {label}
         </button>
         <span role="status">{LABELS[state.kind]}</span>
-        {failed ? (
+        {explanation === null ? null : (
           <p role="alert" id={ALERT}>
-            {state.reason}
+            {explanation}
           </p>
-        ) : null}
+        )}
       </div>
       <Oscilloscope signal={signal} />
     </main>

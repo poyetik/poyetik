@@ -231,9 +231,9 @@ class FakeContext {
 /** A browser with everything the player needs. */
 const CAPABLE: Environment = { isSecureContext: true, AudioContext: FakeContext, AudioWorkletNode: FakeWorkletNode, WebAssembly };
 
-/** Options of a player. */
-function playerOptions(patch = SINE_440, environment = CAPABLE): PlayerOptions {
-  return { wasm: "engine.wasm", worklet: "processors.js", patch, gain: 0.25, fade: 0.02, historySeconds: 4 / 48_000, environment };
+/** Options of a player; `changes` replace some of them. */
+function playerOptions(patch = SINE_440, environment = CAPABLE, changes: Partial<PlayerOptions> = {}): PlayerOptions {
+  return { wasm: "engine.wasm", worklet: "processors.js", patch, gain: 0.25, fade: 0.02, historySeconds: 4 / 48_000, environment, ...changes };
 }
 
 /** The signals of the requests made, in order: a session aborts its downloads when it ends. */
@@ -308,6 +308,7 @@ describe("EnginePlayer", () => {
       "connect poyetik-engine -> gain 0",
       "connect gain 0 -> destination",
       "resume",
+      "gain cancel from 1",
       "gain set 0 at 1",
       "gain ramp to 0.25 at 1.02",
     ]);
@@ -513,10 +514,10 @@ describe("EnginePlayer", () => {
     await player.start();
     const context = lastContext();
     context?.become("suspended");
-    expect(player.state()).toStrictEqual({ kind: "suspended" });
+    expect(player.state()).toStrictEqual({ kind: "suspended", refused: false });
     expect(player.latest()).toBeUndefined();
     context?.become("suspended");
-    expect(player.state()).toStrictEqual({ kind: "suspended" });
+    expect(player.state()).toStrictEqual({ kind: "suspended", refused: false });
     await player.resume();
     expect(player.state()).toStrictEqual({ kind: "playing" });
     context?.become("running");
@@ -567,17 +568,59 @@ describe("EnginePlayer", () => {
     expect(FakeContext.created.map((context) => context.state)).toStrictEqual(["closed", "closed"]);
   });
 
-  test("stays suspended when the browser refuses to resume, and closes at once when stopped", async () => {
+  test("stays suspended when the browser refuses to resume, says so, and closes at once when stopped", async () => {
     FakeContext.resumesTo = "suspended";
     const player = new EnginePlayer(playerOptions());
     await player.start();
-    expect(player.state()).toStrictEqual({ kind: "suspended" });
+    expect(player.state()).toStrictEqual({ kind: "suspended", refused: false });
     await player.resume();
-    expect(player.state()).toStrictEqual({ kind: "suspended" });
+    expect(player.state()).toStrictEqual({ kind: "suspended", refused: true });
+    expect(player.state()).toBe(player.state());
     log = [];
     await player.stop();
     expect(log).toStrictEqual(["post stop", "disconnect poyetik-engine -> poyetik-tap", "close"]);
     expect(player.state()).toStrictEqual({ kind: "stopped" });
+  });
+
+  test("forgets a refused resume once the browser resumes", async () => {
+    FakeContext.resumesTo = "suspended";
+    const player = new EnginePlayer(playerOptions());
+    await player.start();
+    await player.resume();
+    lastContext()?.become("running");
+    expect(player.state()).toStrictEqual({ kind: "playing" });
+    lastContext()?.become("suspended");
+    expect(player.state()).toStrictEqual({ kind: "suspended", refused: false });
+  });
+
+  test.each(["user", "browser"] as const)("fades in again after a suspension, resumed by the %s", async (by) => {
+    // Neither the default gain nor the default fade: values the code cannot hard-code.
+    const player = new EnginePlayer(playerOptions(SINE_440, CAPABLE, { gain: 0.5, fade: 0.005 }));
+    await player.start();
+    const context = lastContext();
+    context?.advance(0.5);
+    log = [];
+    // The ramp waits on the frozen clock: it plays from where the sound stopped, at the resume.
+    context?.become("suspended");
+    expect(log).toStrictEqual(["gain cancel from 1.5", "gain set 0 at 1.5", "gain ramp to 0.5 at 1.505"]);
+    log = [];
+    if (by === "user") {
+      await player.resume();
+    } else {
+      context?.become("running");
+    }
+    expect(player.state()).toStrictEqual({ kind: "playing" });
+    expect(log.filter((entry) => entry.startsWith("gain"))).toStrictEqual([]);
+  });
+
+  test("schedules no fade in when suspended while stopping", async () => {
+    const player = new EnginePlayer(playerOptions());
+    await player.start();
+    const stopping = player.stop();
+    log = [];
+    lastContext()?.become("suspended");
+    await stopping;
+    expect(log.filter((entry) => entry.startsWith("gain"))).toStrictEqual([]);
   });
 
   test("resumes only when suspended", async () => {

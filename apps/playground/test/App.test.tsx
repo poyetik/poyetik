@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
-import { App } from "../src/App.tsx";
+import { App, REFUSED } from "../src/App.tsx";
 import type { Player, PlayerState, Signal } from "../src/player.ts";
 
 /** A player whose state the test drives, recording the calls. */
@@ -80,13 +80,14 @@ test("starts stopped", () => {
 });
 
 test.each([
-  [{ kind: "stopped" }, "Stopped", "Start", "false", "start"],
-  [{ kind: "starting" }, "Starting…", "Cancel", "false", "stop"],
-  [{ kind: "playing" }, "Playing", "Stop", "false", "stop"],
-  [{ kind: "suspended" }, "Paused by the browser", "Resume", "false", "resume"],
-  [{ kind: "stopping" }, "Stopping…", "Stop", "true", undefined],
-  [{ kind: "failed", reason: "no device" }, "Failed", "Start", "false", "start"],
-] as const)("shows %o and acts on it", (state, shown, label, disabled, call) => {
+  [{ kind: "stopped" }, "Stopped", "Start", "false", "start", null],
+  [{ kind: "starting" }, "Starting…", "Cancel", "false", "stop", null],
+  [{ kind: "playing" }, "Playing", "Stop", "false", "stop", null],
+  [{ kind: "suspended", refused: false }, "Paused by the browser", "Resume", "false", "resume", null],
+  [{ kind: "suspended", refused: true }, "Paused by the browser", "Resume", "false", "resume", REFUSED],
+  [{ kind: "stopping" }, "Stopping…", "Stop", "true", undefined, null],
+  [{ kind: "failed", reason: "no device" }, "Failed", "Start", "false", "start", "no device"],
+] as const)("shows %o and acts on it", (state, shown, label, disabled, call, alert) => {
   const player = new FakePlayer();
   render(<App player={player} />);
   player.become(state);
@@ -94,6 +95,7 @@ test.each([
   expect(button().textContent).toBe(label);
   expect(button().getAttribute("aria-disabled")).toBe(disabled);
   expect(button().dataset["action"]).toBe(label.toLowerCase());
+  expect(screen.queryByRole("alert")?.textContent ?? null).toBe(alert);
   fireEvent.click(button());
   expect(player.calls).toStrictEqual(call === undefined ? [] : [call]);
 });
@@ -119,6 +121,19 @@ test("explains a failure next to the button, and describes the button with it", 
   player.become({ kind: "starting" });
   expect(screen.queryByRole("alert")).toBeNull();
   expect(button().hasAttribute("aria-describedby")).toBe(false);
+});
+
+test("says when the browser kept the audio paused after Resume, and only then", () => {
+  const player = new FakePlayer();
+  render(<App player={player} />);
+  player.become({ kind: "suspended", refused: false });
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(button().hasAttribute("aria-describedby")).toBe(false);
+  player.become({ kind: "suspended", refused: true });
+  const alert = screen.getByRole("alert");
+  expect(alert.textContent).toBe(REFUSED);
+  expect(button().getAttribute("aria-describedby")).toBe(alert.id);
+  expect(REFUSED).toBe("The browser kept audio paused. Try again, or check that this tab may play sound.");
 });
 
 test("shows what the player plays", () => {

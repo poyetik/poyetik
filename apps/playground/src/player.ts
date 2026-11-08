@@ -25,8 +25,11 @@ export type PlayerState =
   | { readonly kind: "starting" }
   /** Playing. */
   | { readonly kind: "playing" }
-  /** The browser suspended the audio (another tab, a phone call, no user gesture): can resume. */
-  | { readonly kind: "suspended" }
+  /**
+   * The browser suspended the audio (another tab, a phone call, no user gesture): can
+   * resume. `refused` when the browser kept it suspended after the last resume.
+   */
+  | { readonly kind: "suspended"; readonly refused: boolean }
   /** Fading out and releasing the audio device. */
   | { readonly kind: "stopping" }
   /** Could not start, or stopped by a failure: `reason` says why. Can start again. */
@@ -198,7 +201,9 @@ const STARTING: PlayerState = { kind: "starting" };
 /** Shared state while the context runs. */
 const PLAYING: PlayerState = { kind: "playing" };
 /** Shared state while the browser keeps the context suspended. */
-const SUSPENDED: PlayerState = { kind: "suspended" };
+const SUSPENDED: PlayerState = { kind: "suspended", refused: false };
+/** Shared state while the browser keeps the context suspended, though asked to resume. */
+const SUSPENDED_REFUSED: PlayerState = { kind: "suspended", refused: true };
 /** Shared state while fading out and closing the context. */
 const STOPPING: PlayerState = { kind: "stopping" };
 
@@ -330,9 +335,7 @@ export class EnginePlayer implements Player {
       };
       await session.until(engine.ready);
       await session.until(context.resume());
-      const now = context.currentTime;
-      gain.gain.setValueAtTime(0, now);
-      gain.gain.linearRampToValueAtTime(this.#options.gain, now + this.#options.fade);
+      this.#fadeIn(session);
       // A failure or a cancel may have come first: then this session is no longer live.
       if (this.#holds(session)) {
         this.#goLive(context.state === "running" ? PLAYING : SUSPENDED, session);
@@ -342,6 +345,20 @@ export class EnginePlayer implements Player {
     } finally {
       session.started.resolve(undefined);
     }
+  }
+
+  /**
+   * Fades `session` in on the audio clock, from silence at its current time: when the
+   * context runs, at once; when it is suspended, its clock is frozen and the ramp plays
+   * as soon as it resumes, whoever resumes it. Never a step from silence to full level (a
+   * click).
+   */
+  #fadeIn(session: Session): void {
+    const { context, gain } = session;
+    const now = context.currentTime;
+    gain.gain.cancelScheduledValues(now);
+    gain.gain.setValueAtTime(0, now);
+    gain.gain.linearRampToValueAtTime(this.#options.gain, now + this.#options.fade);
   }
 
   /** Ends `session` and moves to `state`, unless the session is no longer live. */
@@ -359,9 +376,9 @@ export class EnginePlayer implements Player {
   }
 
   /**
-   * Follows the state of the context of `session`, changed by the browser. A context that
-   * stops running while fading out makes no sound: the stop ends at once. While starting,
-   * the start decides.
+   * Follows the state of the context of `session`, changed by the browser. A suspension
+   * while playing arms the fade in for the resume. A context that stops running while
+   * fading out makes no sound: the stop ends at once. While starting, the start decides.
    */
   #follow(session: Session): void {
     const live = this.#live;
@@ -373,20 +390,21 @@ export class EnginePlayer implements Player {
     if (state === "closed") {
       void this.#fail(session, new Error("the browser closed the audio device"));
     } else if (state === "running") {
-      if (live.state === SUSPENDED) {
+      if (live.state.kind === "suspended") {
         this.#goLive(PLAYING, session);
       }
     } else if (live.state === PLAYING) {
+      this.#fadeIn(session);
       this.#goLive(SUSPENDED, session);
     } else if (live.state === STOPPING) {
       void this.#end(session, STOPPED);
     }
   }
 
-  /** Resumes a suspended player. */
+  /** Resumes a suspended player; when the browser keeps it suspended, says so. */
   async resume(): Promise<void> {
     const live = this.#live;
-    if (live?.state !== SUSPENDED) {
+    if (live?.state.kind !== "suspended") {
       return;
     }
     try {
@@ -397,6 +415,9 @@ export class EnginePlayer implements Player {
       return;
     }
     this.#follow(live.session);
+    if (this.state().kind === "suspended") {
+      this.#goLive(SUSPENDED_REFUSED, live.session);
+    }
   }
 
   /** Stops playing; cancels a start; from "failed", acknowledges it. */
