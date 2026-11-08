@@ -1,6 +1,8 @@
-// How the engine module is built reproducibly: the same bytes on every machine, with no
-// path of the machine that built it inside. Pure functions, tested; the entry points
-// (build-wasm.ts, reproducible.ts) only run them.
+// How the engine module is built reproducibly: with no path of the machine that built it
+// inside, so that two clean builds give the same bytes. What is proven: two builds on one
+// machine, in two fresh target directories (pnpm test:reproducible, which prints the
+// SHA-256 of the module); across machines, only by comparing that digest by hand (a
+// committed digest is planned, roadmap #11). Pure functions, tested; cli.ts runs them.
 
 /** The cargo arguments building the engine module, its JSON messages on stdout. */
 export const CARGO_ARGS = [
@@ -24,7 +26,7 @@ export function encodedRustflags(cargoHome: string, repository: string): string 
   return ["--remap-path-prefix", `${cargoHome}=/cargo`, "--remap-path-prefix", `${repository}=/poyetik`].join("\u001f");
 }
 
-/** Thrown when the build output cannot be understood. */
+/** Thrown when the build fails, or its output cannot be understood: one line explaining why. */
 export class BuildError extends Error {
   /**
    * Describes what went wrong.
@@ -72,4 +74,41 @@ export function leakedPaths(bytes: Uint8Array, paths: readonly string[]): string
 /** Whether two builds are the same bytes. */
 export function identical(first: Uint8Array, second: Uint8Array): boolean {
   return first.length === second.length && first.every((byte, index) => byte === second[index]);
+}
+
+/** The Cargo home of a machine: `CARGO_HOME` when set, else `~/.cargo`. */
+export function cargoHomeOf(env: Readonly<Record<string, string | undefined>>, home: string): string {
+  return env["CARGO_HOME"] ?? `${home}/.cargo`;
+}
+
+/** The paths of the building machine that must never appear in the module. */
+export function privatePaths(repository: string, cargo: string, home: string): string[] {
+  return [repository, cargo, home];
+}
+
+/**
+ * What makes two builds of the module not reproducible: their bytes differ, or the first
+ * contains a path of the building machine. Empty when they are reproducible.
+ */
+export function reproducibilityProblems(first: Uint8Array, second: Uint8Array, paths: readonly string[]): string[] {
+  return [
+    ...(identical(first, second) ? [] : ["two builds of the engine module differ"]),
+    ...leakedPaths(first, paths).map((path) => `the engine module contains the path ${path}`),
+  ];
+}
+
+/**
+ * Why a command run with `execFileSync` failed, from what it threw: its exit code, the
+ * signal that stopped it, or why it could not start (such as `ENOENT`, not installed).
+ */
+export function commandFailure(command: string, thrown: unknown): string {
+  const status: unknown = Reflect.get(Object(thrown), "status");
+  const signal: unknown = Reflect.get(Object(thrown), "signal");
+  if (typeof status === "number") {
+    return `${command} failed (exit ${String(status)})`;
+  }
+  if (typeof signal === "string") {
+    return `${command} was stopped by signal ${signal}`;
+  }
+  return `${command} could not be run: ${String(thrown)}`;
 }
