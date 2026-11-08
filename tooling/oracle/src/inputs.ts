@@ -56,6 +56,22 @@ function number(value: unknown, where: string): number {
   return value;
 }
 
+/**
+ * Reads a number that is exactly a binary32 value, or rejects `where`. A frequency is the
+ * value of a box parameter, and the patch format stores parameters as binary32
+ * (spec/patch-format.md): the engine rounds the decimal text to binary32 once. Rounding
+ * here what `JSON.parse` already rounded to binary64 would round twice, and differ by an
+ * ulp from a text near a binary32 midpoint. A binary64 that is a binary32 value lies far
+ * from every midpoint, so its text, whatever its digits, rounds to it once or twice alike.
+ */
+function binary32(value: unknown, where: string): number {
+  const read = number(value, where);
+  if (Math.fround(read) !== read) {
+    throw new InputError(`${where} is not a binary32 value (parameters are binary32: give the value the engine plays)`);
+  }
+  return read;
+}
+
 /** Reads a positive whole number, or rejects `where`. */
 function count(value: unknown, where: string): number {
   const read = number(value, where);
@@ -108,10 +124,7 @@ function parseChannel(value: unknown, where: string): ChannelExpectation {
   const sine = field(value, "sine");
   return {
     sine: {
-      // The frequency is the value of a box parameter, and the patch format stores
-      // parameters as binary32 (spec/patch-format.md): the engine plays the nearest
-      // binary32 value, so the ideal signal uses it too.
-      frequency: Math.fround(number(field(sine, "frequency"), `${where}: sine.frequency`)),
+      frequency: binary32(field(sine, "frequency"), `${where}: sine.frequency`),
       amplitude: number(field(sine, "amplitude"), `${where}: sine.amplitude`),
       phase: number(field(sine, "phase"), `${where}: sine.phase`),
     },

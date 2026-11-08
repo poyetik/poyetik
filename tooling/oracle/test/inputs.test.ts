@@ -77,12 +77,23 @@ describe("parseExpectations", () => {
   });
 });
 
-test("reads frequencies as the binary32 parameters the engine plays", () => {
-  const channel = { sine: { frequency: 440.1, amplitude: 1, phase: 0 } };
+test("reads frequencies that are exact binary32 values, as the engine plays them", () => {
+  const channel = { sine: { frequency: 440.100006103515625, amplitude: 1, phase: 0 } };
   const parsed = parseExpectations({ a: { sample_rate: 8000, frames: 4, channels: [channel] } });
-  const frequency = parsed.get("a")?.channels[0]?.sine.frequency;
-  expect(frequency).toBe(Math.fround(440.1));
-  expect(frequency).not.toBe(440.1);
+  expect(parsed.get("a")?.channels[0]?.sine.frequency).toBe(Math.fround(440.1));
+});
+
+test.each([
+  // Not binary32. The engine rounds this decimal text to binary32 once, upwards; JSON.parse
+  // rounds it to binary64 first, onto a binary32 midpoint, which then rounds downwards.
+  "1.00000005960464477539062500001",
+  "440.1",
+  "0.1",
+])("rejects the frequency %s, which is not a binary32 value", (frequency) => {
+  const expectations: unknown = JSON.parse(`{"a":{"sample_rate":8000,"frames":4,"channels":[{"sine":{"frequency":${frequency},"amplitude":1,"phase":0}}]}}`);
+  expect(() => parseExpectations(expectations)).toThrow(
+    new InputError("expectations.json: a: channel 0: sine.frequency is not a binary32 value (parameters are binary32: give the value the engine plays)"),
+  );
 });
 
 test("accepts the longest case with an exact reference", () => {
