@@ -155,6 +155,8 @@ impl Coverage {
             "--summary-only",
             "--output-path",
             &report,
+            "--",
+            INCLUDE_IGNORED,
         ]);
         Cmd::new("cargo", &args, Dir::Root)
     }
@@ -591,7 +593,7 @@ fn static_steps() -> Vec<Step> {
         run(
             "Rust tests",
             "cargo",
-            &["test", "--workspace", "--locked"],
+            &["test", "--workspace", "--locked", "--", INCLUDE_IGNORED],
             Dir::Root,
         ),
     ]
@@ -625,14 +627,28 @@ fn portability_steps() -> Vec<Step> {
         .collect()
 }
 
+/// The test harness argument that runs the ignored tests too.
+///
+/// Given to every Rust test run that proves something (the tests, coverage, mutation
+/// testing): an ignored test is then inert, never a way to remove a test from a proof.
+/// Rustdoc does not compile an `ignore` doc test even so, nor run a `no_run` one: the
+/// bypass gate refuses both.
+pub const INCLUDE_IGNORED: &str = "--include-ignored";
+
 /// The arguments of every cargo-mutants run: lints are capped while building mutants
 /// (otherwise a mutant that merely leaves a variable unused fails to compile and is silently
 /// skipped instead of tested), and the ignored files are not copied.
 const MUTANTS_ARGS: [&str; 3] = ["mutants", "--cap-lints=true", "--gitignore=true"];
 
-/// A cargo-mutants command: [`MUTANTS_ARGS`], then `args`.
+/// A cargo-mutants command: [`MUTANTS_ARGS`], then `args`, then [`INCLUDE_IGNORED`] for the
+/// test harness (cargo-mutants passes what follows its `--` to `cargo test`, which passes
+/// what follows its own `--` to the tests).
 fn mutants_command(args: &[&str]) -> Cmd {
-    Cmd::new("cargo", &[&MUTANTS_ARGS[..], args].concat(), Dir::Root)
+    Cmd::new(
+        "cargo",
+        &[&MUTANTS_ARGS[..], args, &["--", "--", INCLUDE_IGNORED]].concat(),
+        Dir::Root,
+    )
 }
 
 /// The cargo-mutants command of [`Mode::Changes`]: the workspace in `jobs` jobs, filtered
@@ -1084,7 +1100,7 @@ pub fn coverage_gate(report: &str, coverage: Coverage) -> Result<(), Failure> {
                 ""
             };
             failure.details.push(format!(
-                "the lines: cargo {NIGHTLY_TOOLCHAIN} llvm-cov --manifest-path {}/Cargo.toml{lib} --branch --show-missing-lines",
+                "the lines: cargo {NIGHTLY_TOOLCHAIN} llvm-cov --manifest-path {}/Cargo.toml{lib} --branch --show-missing-lines -- {INCLUDE_IGNORED}",
                 krate.dir
             ));
         }
@@ -1306,18 +1322,23 @@ pub fn stryker_config_gate(package: &str, config: &str) -> Result<(), Failure> {
 /// What may remove code from a proof without a test failing: a coverage exclusion, a
 /// skipped mutant, an ignored or focused test. Built at run time, so that this file does
 /// not hold them; each with the extensions of the files where it acts.
+///
+/// A `cfg` that a coverage build sets (`coverage`, `coverage_nightly`) is an unexpected
+/// `cfg` in every other build, which the workspace lints refuse; so is any lifting of that
+/// lint, and any declaration of an expected `cfg` (in a manifest or a build script), are
+/// refused here.
 fn bypass_tokens() -> Vec<(String, &'static [&'static str])> {
     let rust: &[&str] = &["rs"];
-    let typescript: &[&str] = &["ts", "tsx", "mts", "astro", "js", "mjs"];
+    let rust_or_manifest: &[&str] = &["rs", "toml"];
+    let typescript: &[&str] = &BYPASS_TYPESCRIPT;
     vec![
         (format!("{}::{}", "mutants", "skip"), rust),
         (format!("#[{}", "ignore"), rust),
         (format!("{}(off)", "coverage"), rust),
         (format!("cfg({}", "coverage"), rust),
         (format!("{}_{}", "coverage", "nightly"), rust),
-        (format!("{} {}", "v8", "ignore"), typescript),
-        (format!("{} {}", "istanbul", "ignore"), typescript),
-        (format!("{} {}", "c8", "ignore"), typescript),
+        (format!("{}_{}", "unexpected", "cfgs"), rust_or_manifest),
+        (format!("{}-{}", "check", "cfg"), rust_or_manifest),
         (format!(".{}(", "only"), typescript),
         (format!(".{}(", "skip"), typescript),
         (format!(".{}(", "todo"), typescript),
@@ -1325,6 +1346,69 @@ fn bypass_tokens() -> Vec<(String, &'static [&'static str])> {
         (format!("{}If(", "skip"), typescript),
         (format!("{}If(", "run"), typescript),
     ]
+}
+
+/// The extensions of the TypeScript and JavaScript files whose bypasses [`bypass_gate`]
+/// refuses: those of [`TS_SOURCES`].
+const BYPASS_TYPESCRIPT: [&str; 9] = [
+    "ts", "tsx", "mts", "cts", "astro", "js", "jsx", "mjs", "cjs",
+];
+
+/// What makes a TypeScript coverage tool exclude code: the ignore comments of its
+/// providers, which accept any whitespace between their words and any case, and the option
+/// excluding methods by name. Built at run time, like [`bypass_tokens`]; [`bypass_gate`]
+/// seeks them in a whole file, without case or whitespace.
+fn coverage_hints() -> [String; 5] {
+    [
+        format!("{} {}", "v8", "ignore"),
+        format!("{} {}", "c8", "ignore"),
+        format!("{} {}", "istanbul", "ignore"),
+        format!("{}:{} {}", "node", "coverage", "ignore"),
+        format!("{}{}", "ignore", "ClassMethods"),
+    ]
+}
+
+/// The line (numbered from 0) of `text` where each occurrence of `hint` starts, both
+/// compared in lowercase with every whitespace removed, so that no spacing, line break or
+/// case hides it.
+fn hint_lines(text: &str, hint: &str) -> Vec<usize> {
+    let mut line = 0_usize;
+    let mut compact = Vec::new();
+    for character in text.chars() {
+        if character == '\n' {
+            line = line.saturating_add(1);
+        }
+        if !character.is_whitespace() {
+            compact.extend(character.to_lowercase().map(|lower| (lower, line)));
+        }
+    }
+    let needle: Vec<char> = hint
+        .chars()
+        .filter(|character| !character.is_whitespace())
+        .flat_map(char::to_lowercase)
+        .collect();
+    compact
+        .windows(needle.len())
+        .filter(|window| window.iter().map(|(character, _)| character).eq(&needle))
+        .filter_map(|window| window.first().map(|(_, start)| *start))
+        .collect()
+}
+
+/// The attributes of a doc test that keep it from running: rustdoc never compiles an
+/// `ignore` test, even with [`INCLUDE_IGNORED`], and compiles a `no_run` one only.
+const SILENT_DOC_TESTS: [&str; 2] = ["ignore", "no_run"];
+
+/// The attribute of [`SILENT_DOC_TESTS`] that `line`, a fence opening a code block of Rust
+/// documentation (three backquotes or tildes), carries, if any.
+fn silent_doc_test(line: &str) -> Option<&'static str> {
+    let fences = ["`".repeat(3), "~".repeat(3)];
+    let info = fences
+        .iter()
+        .find_map(|fence| line.split_once(fence.as_str()))
+        .map(|(_, info)| info)?;
+    SILENT_DOC_TESTS
+        .into_iter()
+        .find(|attribute| info.contains(attribute))
 }
 
 /// The fixtures of the shared TypeScript policy: each holds on purpose what a rule forbids,
@@ -1335,15 +1419,19 @@ pub const POLICY_FIXTURES: [&str; 2] = [
 ];
 
 /// The tracked files the bypass gate reads (git pathspecs).
-pub const BYPASS_SOURCES: [&str; 8] = [
+pub const BYPASS_SOURCES: [&str; 12] = [
     "*mutants.toml",
+    "*Cargo.toml",
     "*.rs",
     "*.ts",
     "*.tsx",
     "*.mts",
+    "*.cts",
     "*.astro",
     "*.js",
+    "*.jsx",
     "*.mjs",
+    "*.cjs",
 ];
 
 /// Reviewed bypasses of coverage or mutation testing: every occurrence of a bypass token
@@ -1379,10 +1467,26 @@ pub fn bypass_gate(sources: &[(String, String)], reviewed: &str) -> Result<(), F
             continue;
         }
         let extension = path.rsplit_once('.').map_or("", |(_, extension)| extension);
-        for line in text.lines() {
+        let lines: Vec<&str> = text.lines().collect();
+        for line in &lines {
             for (token, extensions) in &tokens {
                 if extensions.contains(&extension) && line.contains(token.as_str()) {
                     keys.push(format!("{path}: {token} at {}", line.trim()));
+                }
+            }
+            if let Some(attribute) = silent_doc_test(line).filter(|_| extension == "rs") {
+                keys.push(format!(
+                    "{path}: {}{attribute} at {}",
+                    "`".repeat(3),
+                    line.trim()
+                ));
+            }
+        }
+        if BYPASS_TYPESCRIPT.contains(&extension) {
+            for hint in coverage_hints() {
+                for at in hint_lines(text, &hint) {
+                    let line = lines.get(at).map_or("", |line| line.trim());
+                    keys.push(format!("{path}: {hint} at {line}"));
                 }
             }
         }

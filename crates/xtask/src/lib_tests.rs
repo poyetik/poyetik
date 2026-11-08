@@ -659,24 +659,24 @@ fn lists_every_check_in_order() {
             "Root: cargo fmt --all --check",
             "Root: cargo clippy --workspace --all-targets --locked",
             "Root: cargo doc --workspace --no-deps --document-private-items --locked",
-            "Root: cargo test --workspace --locked",
+            "Root: cargo test --workspace --locked -- --include-ignored",
             "Root: cargo build --package engine-core --package engine-objects --package engine-patch --package engine-hash --locked --target aarch64-apple-darwin",
             "Root: cargo build --package engine-core --package engine-objects --package engine-patch --package engine-hash --locked --target x86_64-unknown-linux-gnu",
             "Root: cargo build --package engine-core --package engine-objects --package engine-patch --package engine-hash --locked --target wasm32-unknown-unknown",
             "Root: cargo build --package engine-core --package engine-objects --package engine-patch --package engine-hash --locked --target thumbv7em-none-eabihf",
             "fresh target/coverage",
             "coverage locality",
-            "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-core/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-core.json",
-            "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-objects/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-objects.json",
-            "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-patch/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-patch.json",
-            "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-hash/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-hash.json",
-            "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-alloc-counter/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-alloc-counter.json",
-            "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-testkit/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-testkit.json",
-            "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-cli/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-cli.json",
-            "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path bindings/wasm/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-wasm.json",
-            "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/xtask/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/xtask.json",
-            "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-cli/Cargo.toml --locked --branch --json --summary-only --output-path target/coverage/engine-cli-main.json",
-            "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/xtask/Cargo.toml --locked --branch --json --summary-only --output-path target/coverage/xtask-main.json",
+            "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-core/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-core.json -- --include-ignored",
+            "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-objects/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-objects.json -- --include-ignored",
+            "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-patch/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-patch.json -- --include-ignored",
+            "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-hash/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-hash.json -- --include-ignored",
+            "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-alloc-counter/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-alloc-counter.json -- --include-ignored",
+            "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-testkit/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-testkit.json -- --include-ignored",
+            "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-cli/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-cli.json -- --include-ignored",
+            "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path bindings/wasm/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-wasm.json -- --include-ignored",
+            "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/xtask/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/xtask.json -- --include-ignored",
+            "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-cli/Cargo.toml --locked --branch --json --summary-only --output-path target/coverage/engine-cli-main.json -- --include-ignored",
+            "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/xtask/Cargo.toml --locked --branch --json --summary-only --output-path target/coverage/xtask-main.json -- --include-ignored",
             "fresh mutants.out",
             "rust mutants of the changes (3 jobs)",
             "unviable gate (Partial)",
@@ -822,7 +822,7 @@ fn the_full_check_differs_only_by_its_mutation_testing() {
     let mut expected = vec![
         (
             "rust mutants of the changes (3 jobs)".to_owned(),
-            "Root: cargo mutants --cap-lints=true --gitignore=true --workspace --jobs 3".to_owned(),
+            "Root: cargo mutants --cap-lints=true --gitignore=true --workspace --jobs 3 -- -- --include-ignored".to_owned(),
         ),
         (
             "unviable gate (Partial)".to_owned(),
@@ -908,7 +908,7 @@ fn mutates_the_changes_since_the_merge_base_with_the_upstream() {
             "capture git diff --no-color --no-ext-diff --no-renames --src-prefix=a/ --dst-prefix=b/ abc123",
             "capture git ls-files --others --exclude-standard -- *.rs",
             "write target/xtask/changes.diff",
-            "cargo mutants --cap-lints=true --gitignore=true --workspace --jobs 3 --in-diff target/xtask/changes.diff",
+            "cargo mutants --cap-lints=true --gitignore=true --workspace --jobs 3 --in-diff target/xtask/changes.diff -- -- --include-ignored",
             "read mutants.out/unviable.txt",
             "read mutants-unviable.txt",
         ],
@@ -1060,7 +1060,7 @@ fn mutates_everything_when_what_every_test_uses_changed() {
         );
         assert!(
             fake.ran.contains(
-                &"cargo mutants --cap-lints=true --gitignore=true --workspace --jobs 3".to_owned()
+                &"cargo mutants --cap-lints=true --gitignore=true --workspace --jobs 3 -- -- --include-ignored".to_owned()
             ) && !fake.ran.iter().any(|line| line.starts_with("write")),
             "{path}: every mutant of the workspace, no diff: {:?}",
             fake.ran
@@ -1089,9 +1089,8 @@ fn mutates_everything_when_what_every_test_uses_changed() {
             "{path}"
         );
         assert!(
-            fake.ran
-                .iter()
-                .any(|line| line.ends_with("--in-diff target/xtask/changes.diff")),
+            fake.ran.iter().any(|line| line
+                .ends_with("--in-diff target/xtask/changes.diff -- -- --include-ignored")),
             "{path}: only the changes"
         );
     }
@@ -1101,11 +1100,11 @@ fn mutates_everything_when_what_every_test_uses_changed() {
         one_line_change("Cargo.lock"),
     );
     broken.fail =
-        Some("cargo mutants --cap-lints=true --gitignore=true --workspace --jobs 3".to_owned());
+        Some("cargo mutants --cap-lints=true --gitignore=true --workspace --jobs 3 -- -- --include-ignored".to_owned());
     assert_eq!(
         run_steps(&rust_mutation_of_changes(), &mut broken, &mut Vec::new()),
         failed(
-            "Rust mutation testing of the changes: `cargo mutants --cap-lints=true --gitignore=true --workspace --jobs 3` exited with code 3"
+            "Rust mutation testing of the changes: `cargo mutants --cap-lints=true --gitignore=true --workspace --jobs 3 -- -- --include-ignored` exited with code 3"
         ),
         "a surviving mutant of the workspace fails"
     );
@@ -1235,8 +1234,8 @@ fn reports_why_the_changes_cannot_be_mutated() {
             "cannot write target/xtask/changes.diff: read-only".to_owned(),
         ),
         (
-            "cargo mutants --cap-lints=true --gitignore=true --workspace --jobs 3 --in-diff target/xtask/changes.diff",
-            "cannot run `cargo mutants --cap-lints=true --gitignore=true --workspace --jobs 3 --in-diff target/xtask/changes.diff`: not found".to_owned(),
+            "cargo mutants --cap-lints=true --gitignore=true --workspace --jobs 3 --in-diff target/xtask/changes.diff -- -- --include-ignored",
+            "cannot run `cargo mutants --cap-lints=true --gitignore=true --workspace --jobs 3 --in-diff target/xtask/changes.diff -- -- --include-ignored`: not found".to_owned(),
         ),
     ] {
         let mut fake = passing();
@@ -1520,7 +1519,7 @@ fn mutates_every_mutant_of_one_target() {
         lines("engine-core"),
         vec![
             "fresh mutants.out",
-            "Root: cargo mutants --cap-lints=true --gitignore=true --package engine-core --jobs 3",
+            "Root: cargo mutants --cap-lints=true --gitignore=true --package engine-core --jobs 3 -- -- --include-ignored",
             "unviable gate (Partial)",
         ],
         "a crate"
@@ -1529,7 +1528,7 @@ fn mutates_every_mutant_of_one_target() {
         lines("crates/xtask/src/lib.rs"),
         vec![
             "fresh mutants.out",
-            "Root: cargo mutants --cap-lints=true --gitignore=true --package xtask --file crates/xtask/src/lib.rs --jobs 3",
+            "Root: cargo mutants --cap-lints=true --gitignore=true --package xtask --file crates/xtask/src/lib.rs --jobs 3 -- -- --include-ignored",
             "unviable gate (Partial)",
         ],
         "a Rust file"
@@ -1606,7 +1605,7 @@ fn cli_mutates_one_target() {
         fake.ran,
         vec![
             "fresh mutants.out",
-            "cargo mutants --cap-lints=true --gitignore=true --package engine-core --jobs 3",
+            "cargo mutants --cap-lints=true --gitignore=true --package engine-core --jobs 3 -- -- --include-ignored",
             "read mutants.out/unviable.txt",
             "read mutants-unviable.txt",
         ],
@@ -1776,7 +1775,7 @@ fn names_the_files_that_are_not_fully_covered() {
              crates/a/src/b.rs: lines 9/10\n\
              crates/a/src/c.rs: functions 2/3, branches 3/4\n\
              the lines: cargo {} llvm-cov --manifest-path crates/a/Cargo.toml --lib --branch \
-             --show-missing-lines",
+             --show-missing-lines -- --include-ignored",
             super::NIGHTLY_TOOLCHAIN
         )),
         "every file and every incomplete kind, with the command showing the lines"
@@ -1789,7 +1788,7 @@ fn names_the_files_that_are_not_fully_covered() {
         failed(format!(
             "the a binary is not covered 100% by its tests: crates/a/src/main.rs: lines 4/5\n\
              the lines: cargo {} llvm-cov --manifest-path crates/a/Cargo.toml --branch \
-             --show-missing-lines",
+             --show-missing-lines -- --include-ignored",
             super::NIGHTLY_TOOLCHAIN
         )),
         "a binary, measured by every test of its crate"
@@ -1869,7 +1868,7 @@ fn measures_each_crate_by_its_own_unit_tests() {
         .map(|krate| {
             format!(
                 "cargo +nightly-2026-11-01 llvm-cov --manifest-path {}/Cargo.toml --lib --locked \
-                 --branch --json --summary-only --output-path target/coverage/{}.json",
+                 --branch --json --summary-only --output-path target/coverage/{}.json -- --include-ignored",
                 krate.dir, krate.name
             )
         })
@@ -1878,7 +1877,7 @@ fn measures_each_crate_by_its_own_unit_tests() {
         ["engine-cli", "xtask"]
             .map(|name| format!(
                 "cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/{name}/Cargo.toml \
-                 --locked --branch --json --summary-only --output-path target/coverage/{name}-main.json"
+                 --locked --branch --json --summary-only --output-path target/coverage/{name}-main.json -- --include-ignored"
             )),
     );
     assert_eq!(
@@ -1944,7 +1943,7 @@ fn runs_every_step_and_reports_success() {
         "all green"
     );
     let (tools, commands, emptied, listed, captured, written) = (9, 49, 14, 11, 12, 1);
-    let read = 1 + 12 + 2 + 7 + 9 + 2 + 1 + 7 + 3 + 10 + 10 + 20 + 8 + 2 + 5 + 16 + 11;
+    let read = 1 + 12 + 2 + 7 + 19 + 2 + 1 + 7 + 3 + 10 + 10 + 20 + 8 + 2 + 5 + 16 + 11;
     assert_eq!(
         fake.ran.len(),
         tools + commands + emptied + listed + captured + written + read,
@@ -1957,7 +1956,7 @@ fn runs_every_step_and_reports_success() {
          after) are captured twice each, the Cargo metadata, the merge base, the changes and the \
          new Rust files once; the diff is written once; and the gates read .node-version for the preflight, twelve coverage reports, \
          the unviable report and reviews, six TypeScript sources and their reviews, the eight \
-         sources and the register of the bypass gate, the two unsafe files, the Cargo \
+         sources, the ten Cargo manifests and the register of the bypass gate, the two unsafe files, the Cargo \
          configuration, the six package manifests and the register of the dependency gate, the three \
          supply-chain configurations, ten crate manifests, ten READMEs, the changelog, ten READMEs, two Rust and six TypeScript sources and the vocabulary of the vocabulary gate, eight version files, the workflow and \
          .node-version, five Stryker configurations, the six TypeScript sources and ten \
@@ -1997,11 +1996,13 @@ fn runs_every_step_and_reports_success() {
 #[test]
 fn stops_at_the_first_failing_command() {
     let mut fake = passing();
-    fake.fail = Some("cargo test --workspace --locked".to_owned());
+    fake.fail = Some("cargo test --workspace --locked -- --include-ignored".to_owned());
     let mut out = Vec::new();
     assert_eq!(
         run_steps(&check_steps(CHANGES_MODE), &mut fake, &mut out),
-        failed("Rust tests: `cargo test --workspace --locked` exited with code 3"),
+        failed(
+            "Rust tests: `cargo test --workspace --locked -- --include-ignored` exited with code 3"
+        ),
         "failure is named"
     );
     assert_eq!(
@@ -2050,7 +2051,7 @@ fn fails_on_missing_or_incomplete_coverage() {
             "Rust coverage of engine-core: 100% by its own unit tests: engine-core is not \
              covered 100% by its own unit tests: crates/engine-core/src/lib.rs: lines 1/2\n\
              the lines: cargo +nightly-2026-11-01 llvm-cov --manifest-path \
-             crates/engine-core/Cargo.toml --lib --branch --show-missing-lines"
+             crates/engine-core/Cargo.toml --lib --branch --show-missing-lines -- --include-ignored"
         ),
         "incomplete coverage"
     );
@@ -3254,6 +3255,169 @@ fn requires_every_bypass_of_a_proof_to_be_reviewed() {
     );
 }
 
+/// The words of the bypasses, built so that this file does not hold them: a doc test fence,
+/// the lint of unexpected `cfg`s, the declaration of an expected one, the comments of the
+/// TypeScript coverage tools (v8, c8, istanbul, Node.js) and their option ignoring methods.
+fn bypass_words() -> [String; 8] {
+    [
+        "`".repeat(3),
+        format!("{}_{}", "unexpected", "cfgs"),
+        format!("{}-{}", "check", "cfg"),
+        format!("{} {}", "v8", "ignore"),
+        format!("{} {}", "c8", "ignore"),
+        format!("{} {}", "istanbul", "ignore"),
+        format!("{} {}", "node:coverage", "ignore"),
+        format!("{}{}", "ignore", "ClassMethods"),
+    ]
+}
+
+/// Requires the bypass gate to refuse each of `refused` (path, text, token), reported at the
+/// line where it starts: past a first line of code or a manifest section.
+fn assert_refused(refused: Vec<(&str, String, String)>) {
+    for (path, text, token) in refused {
+        let at = text
+            .lines()
+            .find(|line| !line.starts_with("const ") && !line.starts_with('['))
+            .unwrap_or_default();
+        let sources = [(path.to_owned(), text.clone())];
+        let failure = bypass_gate_text(&sources, "");
+        assert!(
+            failure.as_ref().is_err_and(|failure| failure
+                .summary
+                .contains(&format!("not reviewed: {path}: {token} at {}", at.trim()))),
+            "{path}: {text:?} refused as {token}: {failure:?}"
+        );
+    }
+}
+
+#[test]
+fn refuses_every_form_of_a_rust_bypass() {
+    let [fence, cfgs, check_cfg, ..] = bypass_words();
+    assert_refused(vec![
+        (
+            "crates/a/src/lib.rs",
+            format!("/// {fence}{}\n", "ignore"),
+            format!("{fence}{}", "ignore"),
+        ),
+        (
+            "crates/a/src/lib.rs",
+            format!("//! {fence}rust,{}\n", "ignore"),
+            format!("{fence}{}", "ignore"),
+        ),
+        (
+            "crates/a/src/lib.rs",
+            format!("/// {}{}\n", "~".repeat(3), "no_run"),
+            format!("{fence}{}", "no_run"),
+        ),
+        (
+            "crates/a/src/lib.rs",
+            format!("#![allow({cfgs}, reason = \"x\")]\n"),
+            cfgs.clone(),
+        ),
+        (
+            "crates/a/src/lib.rs",
+            format!("#[expect({cfgs})]\n"),
+            cfgs.clone(),
+        ),
+        (
+            "crates/a/build.rs",
+            format!("println!(\"cargo::rustc-{check_cfg}=cfg(x)\");\n"),
+            check_cfg.clone(),
+        ),
+        (
+            "crates/a/Cargo.toml",
+            format!("[lints.rust]\n{cfgs} = \"allow\"\n"),
+            cfgs,
+        ),
+        (
+            "Cargo.toml",
+            format!("[workspace.lints.rust.x]\n{check_cfg} = [\"cfg(coverage)\"]\n"),
+            check_cfg,
+        ),
+    ]);
+}
+
+#[test]
+fn refuses_every_form_of_a_typescript_bypass() {
+    let [_, _, _, v8, c8, istanbul, node, methods] = bypass_words();
+    assert_refused(vec![
+        (
+            "apps/a/src/a.ts",
+            format!("/* {} next */\n", v8.replace(' ', "  ")),
+            v8.clone(),
+        ),
+        (
+            "apps/a/src/a.ts",
+            format!("/* {} start */\n", v8.replace(' ', "\t")),
+            v8.clone(),
+        ),
+        (
+            "apps/a/src/a.ts",
+            format!("/* {} next */\n", v8.to_uppercase()),
+            v8.clone(),
+        ),
+        (
+            "apps/a/src/a.ts",
+            format!("const a = 1;\n/* {}\n   next */\n", v8.replace(' ', "\n  ")),
+            v8.clone(),
+        ),
+        ("apps/a/src/a.mts", format!("/* {node} next */\n"), node),
+        (
+            "apps/a/src/a.cts",
+            format!("/* {istanbul} else */\n"),
+            istanbul,
+        ),
+        ("apps/a/src/a.cjs", format!("// {c8} next\n"), c8),
+        ("apps/a/src/a.jsx", format!("/* {v8} next */\n"), v8),
+        (
+            "apps/a/vitest.config.ts",
+            format!("coverage: {{ {methods}: [\"run\"] }},\n"),
+            methods,
+        ),
+        (
+            "apps/a/src/a.test.jsx",
+            format!("it.{}(\"x\", () => {{}});\n", "only"),
+            format!(".{}(", "only"),
+        ),
+    ]);
+}
+
+#[test]
+fn accepts_what_only_resembles_a_bypass() {
+    let [fence, cfgs, check_cfg, v8, _, _, _, methods] = bypass_words();
+    let accepted = [
+        (
+            "crates/a/src/lib.rs",
+            format!("/// {fence}text\n/// {fence}\n"),
+        ),
+        (
+            "crates/a/src/lib.rs",
+            format!(
+                "/// {fence}compile_fail,E0599\n// we {} nothing\n",
+                "ignore"
+            ),
+        ),
+        ("crates/a/src/lib.rs", format!("/* {v8} next */\n")),
+        (
+            "apps/a/src/a.ts",
+            "coverage: { provider: \"v8\" },\n".to_owned(),
+        ),
+        (
+            "apps/a/src/a.ts",
+            "const c8 = 1;\nconst nore = c8;\n".to_owned(),
+        ),
+        ("README.md", format!("/* {v8} next */ {cfgs} {check_cfg}\n")),
+        ("apps/a/a.json", format!("{{\"{methods}\": []}}\n")),
+    ];
+    for (path, text) in accepted {
+        assert_eq!(
+            bypass_gate_text(&[(path.to_owned(), text.clone())], ""),
+            Ok(()),
+            "{path}: {text:?} is no bypass"
+        );
+    }
+}
+
 /// Runs [`super::bypass_gate`].
 fn bypass_gate_text(sources: &[(String, String)], reviewed: &str) -> Result<(), Failure> {
     super::bypass_gate(sources, reviewed)
@@ -3936,7 +4100,7 @@ fn runs_the_full_check_before_pushing_a_tag() {
     );
     assert!(
         tagged.ran.contains(
-            &"cargo mutants --cap-lints=true --gitignore=true --workspace --jobs 3".to_owned()
+            &"cargo mutants --cap-lints=true --gitignore=true --workspace --jobs 3 -- -- --include-ignored".to_owned()
         ) && !tagged.ran.contains(&format!("capture {}", MERGE_BASE.0)),
         "a pushed tag runs every mutant: {:?}",
         tagged.ran
@@ -3979,7 +4143,7 @@ fn checks_a_push_then_runs_every_check() {
     assert!(
         fake.ran.contains(&format!("capture {}", MERGE_BASE.0))
             && fake.ran.contains(
-                &"cargo mutants --cap-lints=true --gitignore=true --workspace --jobs 3 --in-diff target/xtask/changes.diff"
+                &"cargo mutants --cap-lints=true --gitignore=true --workspace --jobs 3 --in-diff target/xtask/changes.diff -- -- --include-ignored"
                     .to_owned()
             ),
         "the default check: the hook mutates the changes"
@@ -4379,7 +4543,7 @@ fn prints_the_details_of_a_failure_on_stdout_and_one_line_on_stderr() {
     );
     assert!(
         fake.ran.contains(
-            &"cargo mutants --cap-lints=true --gitignore=true --workspace --jobs 3".to_owned()
+            &"cargo mutants --cap-lints=true --gitignore=true --workspace --jobs 3 -- -- --include-ignored".to_owned()
         ),
         "every mutant, in half the threads of the machine"
     );

@@ -103,6 +103,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Ignored tests can no longer leave a proof: the Rust tests, coverage and mutation testing run them too (`--include-ignored`), and the bypass gate refuses the doc tests that never run (`ignore`, `no_run` fences). A `cfg` only a coverage build sets cannot compile elsewhere, so the gate refuses lifting the lint of unexpected `cfg`s and declaring an expected one (a manifest's or a build script's `check-cfg`, `Cargo.toml` files now read). The TypeScript coverage ignore comments are found whatever their spacing, line breaks and case, `node:coverage` and the `ignoreClassMethods` option included, in every source extension (`.cts`, `.cjs`, `.jsx` too).
 - Each crate's coverage is measured from an emptied coverage build: an object left by an earlier measurement (the same crate compiled as a dependency of another) entered the report as a second copy of its code, never run, and halved its coverage.
 - The oracle follows the stream part of the command-line contract, like the Rust tools: a broken stderr no longer changes its exit code, and a stdout error other than a closed reader is one `error: cannot write to stdout: <code>` line and exit code 1 (never hiding a usage error's 2) instead of a stack trace.
 - The oracle reports a usage error as one line, `error: <reason> (see: oracle help)`, as the command-line contract requires, instead of printing its usage on stderr with no `error:` prefix and no reason; `oracle help` prints the usage on stdout.
