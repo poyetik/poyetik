@@ -1,5 +1,7 @@
-// Shared test data: the built engine module, the conformance corpus and the shared test
-// matrix, read from their files and never retyped.
+// Shared test data. What the repository holds in files is read from them, never retyped:
+// the built engine module, every case of the conformance corpus with its patch and native
+// reference hash, and the shared test matrix. What no file holds is built here: small
+// patches, and hand-made modules that break the engine interface in one way each.
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 
 /**
