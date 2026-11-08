@@ -82,8 +82,12 @@ impl Renderer {
         let mut rest = out
             .get_mut(..frames.saturating_mul(channels))
             .unwrap_or_default();
-        // Each round copies at least one frame, so it ends after at most `frames` rounds.
-        while !rest.is_empty() {
+        // Each round copies at least one frame, so `frames` rounds always suffice: the bound
+        // is the invariant, and it keeps a bug from looping forever.
+        for _ in 0..frames {
+            if rest.is_empty() {
+                break;
+            }
             if self.used == BLOCK_SIZE {
                 self.plan.process(&mut self.last);
                 self.used = 0;
