@@ -114,18 +114,21 @@ function requireString(value: unknown, field: string): string {
 
 /**
  * Whether `value` is a day of the calendar written YYYY-MM-DD: its midnight UTC must
- * write itself back as `value`, which refuses other forms ("2026-1-1"), impossible days
- * (2026-02-31, which would roll over) and months (2026-13-01, not a time at all).
+ * write itself back as exactly `value`, which refuses other forms ("2026-1-1"), truncated
+ * ones ("2026", "2026-11", which `Date.parse` accepts), impossible days (2026-02-31, which
+ * would roll over) and months (2026-13-01, not a time at all). The final comparison is
+ * strict, so it also proves that `value` is a string: anything else (`["2026-11-07"]`,
+ * whose text is a valid day) is refused.
  */
-function isCalendarDay(value: string): boolean {
+function isCalendarDay(value: unknown): value is string {
   // An impossible month is not a time at all (NaN); an impossible day rolls over.
-  const time = Date.parse(`${value}T00:00:00Z`);
-  return !Number.isNaN(time) && new Date(time).toISOString().startsWith(value);
+  const time = Date.parse(`${String(value)}T00:00:00Z`);
+  return !Number.isNaN(time) && new Date(time).toISOString().slice(0, 10) === value;
 }
 
 /** Returns `value` unchanged if it is a valid YYYY-MM-DD calendar day; throws a `BoardError` naming `field` otherwise. */
 function requireDate(value: unknown, field: string): string {
-  if (typeof value !== "string" || !isCalendarDay(value)) {
+  if (!isCalendarDay(value)) {
     throw new BoardError(`${field} must be a YYYY-MM-DD date`);
   }
   return value;

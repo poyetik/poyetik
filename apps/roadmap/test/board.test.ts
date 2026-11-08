@@ -247,7 +247,15 @@ describe("parseBoard", () => {
     "2026-11-007",
     "2026-011-07",
     "aaaa-bb-cc",
+    // Truncated or padded forms: a prefix of a valid date is not a date.
+    "2026",
+    "2026-11",
+    "2026-11-0",
+    " 2026-11-08",
+    "2026-11-08 ",
     20261107,
+    true,
+    null,
     ["2026-11-07"],
   ])("rejects an invalid date: %j", (createdAt) => {
     expectBoardError(() => parseBoard(rawCard({ createdAt })), "card #0 createdAt must be a YYYY-MM-DD date");
@@ -261,6 +269,15 @@ describe("parseBoard", () => {
     }
     expect(parseBoard(rawCard({ updatedAt: "2028-02-29" })).cards[0]?.updatedAt).toBe("2028-02-29");
   });
+
+  it.each(["0001-01-01", "2024-02-29", "2000-02-29", "2026-01-31", "2026-04-30", "2026-12-31", "9999-12-31"])(
+    "accepts the calendar day %s and writes it back unchanged",
+    (day) => {
+      const parsed = parseBoard(rawCard({ createdAt: day, updatedAt: day }));
+      expect(parsed.cards[0]).toMatchObject({ createdAt: day, updatedAt: day });
+      expect(JSON.parse(serializeBoard(parsed))).toEqual(rawCard({ createdAt: day, updatedAt: day }));
+    },
+  );
 
   it("rejects duplicate ids", () => {
     expectBoardError(() => parseBoard(raw({ nextId: 3, cards: [stored(card(1, "next")), stored(card(1, "done"))] })), "duplicate id: #1");
