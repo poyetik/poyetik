@@ -34,7 +34,7 @@ crates/engine-hash/src/lib.rs: replace render_hash -> RenderHash with Default::d
 crates/xtask/src/lib.rs: replace bless_step -> Step with Default::default() -- Step has no Default; a wrong step is killed by bless_renders_and_rewrites_the_references
 crates/xtask/src/lib.rs: replace portability_steps -> Vec<Step> with vec![Default::default()] -- Step has no Default; the vec![] variant is viable and killed by lists_every_check_in_order
 crates/xtask/src/lib.rs: replace proof_steps -> Vec<Step> with vec![Default::default()] -- Step has no Default; the vec![] variant is viable and killed by lists_every_check_in_order
-crates/xtask/src/lib.rs: replace release_steps -> Vec<Step> with vec![Default::default()] -- Step has no Default; the vec![] variant is viable and killed by lists_every_check_in_order
+crates/xtask/src/lib.rs: replace consistency_steps -> Vec<Step> with vec![Default::default()] -- Step has no Default; the vec![] variant is viable and killed by lists_every_check_in_order
 crates/xtask/src/lib.rs: replace static_steps -> Vec<Step> with vec![Default::default()] -- Step has no Default; the vec![] variant is viable and killed by lists_every_check_in_order
 bindings/wasm/src/engine.rs: replace Engine::process -> &[Block] with Vec::leak(vec![Default::default()]) -- Block is [f32; 64], and arrays only implement Default up to 32 elements; a leaked silent or empty slice is viable and caught by renders_exactly_like_the_plan
 bindings/wasm/src/instance.rs: replace Instance::process -> &[engine_core::Block] with Vec::leak(vec![Default::default()]) -- Block is [f32; 64], and arrays only implement Default up to 32 elements; a leaked silent or empty slice is viable and caught by loads_and_renders

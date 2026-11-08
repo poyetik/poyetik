@@ -192,8 +192,9 @@ pub enum Action {
     /// Require every disabled TypeScript mutant to be reviewed, and every review to be
     /// current.
     EquivalentGate,
-    /// Require one project version everywhere, consistent with a well-formed changelog.
-    ReleaseGate,
+    /// Require one project version everywhere, consistent with a well-formed changelog
+    /// (its format; the changelog entry of each change is the [`Action::HistoryGate`]'s).
+    VersionGate,
     /// Empty each of these directories (relative to the root), creating them if needed:
     /// what a later step reads there is then produced by this run only.
     FreshDirs(Vec<String>),
@@ -203,6 +204,9 @@ pub enum Action {
     /// Require the packages and crates known to xtask to be exactly those of the
     /// repository, every crate on the workspace version.
     MembershipGate,
+    /// Require every part to be described in the README of its folder, and every folder
+    /// in the root README.
+    ReadmeGate,
     /// Require every JavaScript dependency under an allowed license: the strict list for
     /// what the apps ship, the wider one for development tooling.
     LicenseGate,
@@ -402,8 +406,9 @@ fn proof_steps() -> Vec<Step> {
     ]
 }
 
-/// Conformance, supply chain, membership, versions, history and the CI workflow.
-fn release_steps() -> Vec<Step> {
+/// Conformance, supply chain, then the consistency of the repository: membership, READMEs,
+/// versions, history and the CI workflow.
+fn consistency_steps() -> Vec<Step> {
     vec![
         run(
             "Conformance (native)",
@@ -453,11 +458,15 @@ fn release_steps() -> Vec<Step> {
             action: Action::MembershipGate,
         },
         Step {
-            name: "Versions and changelog".to_owned(),
-            action: Action::ReleaseGate,
+            name: "Every part described in a README".to_owned(),
+            action: Action::ReadmeGate,
         },
         Step {
-            name: "Commit messages and changelog".to_owned(),
+            name: "One version everywhere, changelog well formed".to_owned(),
+            action: Action::VersionGate,
+        },
+        Step {
+            name: "Commit messages, and a changelog entry for each change of behavior".to_owned(),
             action: Action::HistoryGate,
         },
         Step {
@@ -509,7 +518,7 @@ pub fn check_steps() -> Vec<Step> {
         static_steps(),
         portability_steps(),
         proof_steps(),
-        release_steps(),
+        consistency_steps(),
         typescript_steps(),
     ]
     .concat()
@@ -1927,17 +1936,22 @@ fn membership(runner: &mut dyn Runner) -> Result<(), Failure> {
     let packages = list_tracked(runner, &["*package.json"], "the *package.json files")?;
     let ignores = list_tracked(runner, &["*.gitignore"], "the *.gitignore files")?;
     let manifests = list_tracked(runner, &["*Cargo.toml"], "the *Cargo.toml files")?;
+    membership_gate(&packages, &read_all(runner, manifests)?, &ignores)
+}
+
+/// Lists the parts (the packages and the crates) and the READMEs tracked by git, then checks
+/// that every part is described.
+fn readmes(runner: &mut dyn Runner) -> Result<(), Failure> {
+    let crates = list_tracked(runner, &["*Cargo.toml"], "the *Cargo.toml files")?;
     let readmes = list_tracked(runner, &["*README.md"], "the *README.md files")?;
-    let crates = read_all(runner, manifests)?;
     let readmes = read_all(runner, readmes)?;
-    membership_gate(&packages, &crates, &ignores)?;
     let parts: Vec<String> = PACKAGES
         .iter()
         .map(|package| package.dir.to_owned())
         .chain(
             crates
                 .iter()
-                .filter_map(|(path, _)| path.strip_suffix("/Cargo.toml"))
+                .filter_map(|path| path.strip_suffix("/Cargo.toml"))
                 .map(str::to_owned),
         )
         .collect();
@@ -1977,13 +1991,14 @@ pub fn readme_gate(parts: &[String], readmes: &[(String, String)]) -> Result<(),
             ));
             continue;
         };
-        let _new = folders.insert(folder);
+        let first = folders.insert(folder);
         match text(&format!("{folder}/README.md")) {
-            None => problems.push(format!("{folder} has no README.md")),
+            // Said once per folder, not once per part it holds.
+            None if first => problems.push(format!("{folder} has no README.md")),
             Some(content) if !content.contains(&format!("`{name}")) => {
                 problems.push(format!("{folder}/README.md does not name {name}"));
             }
-            Some(_) => {}
+            None | Some(_) => {}
         }
     }
     let root = text("README.md").unwrap_or_default();
@@ -2013,13 +2028,14 @@ fn run_action(action: &Action, runner: &mut dyn Runner) -> Result<(), Failure> {
             .run(cmd)
             .map_err(|failure| Failure::from(failure.to_string())),
         Action::CoverageGate => Ok(coverage_gate(&read_file(runner, COVERAGE_REPORT)?)?),
-        Action::ReleaseGate => {
+        Action::VersionGate => {
             let cargo = read_file(runner, CARGO_TOML)?;
             let packages = read_all(runner, package_jsons())?;
             release_gate(&cargo, &packages, &read_file(runner, CHANGELOG)?)
         }
         Action::FreshDirs(paths) => paths.iter().try_for_each(|path| fresh(runner, path)),
         Action::MembershipGate => membership(runner),
+        Action::ReadmeGate => readmes(runner),
         Action::Preflight => preflight(runner),
         Action::HistoryGate => history(runner),
         Action::WorkflowGate => {

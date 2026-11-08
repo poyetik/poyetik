@@ -385,7 +385,8 @@ fn command_lines(steps: &[Step]) -> Vec<String> {
             Action::CoverageGate => "coverage gate".to_owned(),
             Action::UnviableGate => "unviable gate".to_owned(),
             Action::EquivalentGate => "equivalent gate".to_owned(),
-            Action::ReleaseGate => "release gate".to_owned(),
+            Action::VersionGate => "version gate".to_owned(),
+            Action::ReadmeGate => "readme gate".to_owned(),
             Action::FreshDirs(paths) => format!("fresh {}", paths.join(" ")),
             Action::TypeScriptReportsGate => "typescript reports gate".to_owned(),
             Action::MembershipGate => "membership gate".to_owned(),
@@ -425,7 +426,8 @@ fn lists_every_check_in_order() {
             "Root: cargo run --package engine-cli --locked --quiet -- export conformance target/conformance",
             "Root: cargo deny --locked check",
             "membership gate",
-            "release gate",
+            "readme gate",
+            "version gate",
             "history gate",
             "workflow gate",
             "Root: pnpm install --frozen-lockfile",
@@ -468,8 +470,9 @@ fn lists_every_check_in_order() {
             "Conformance export (native WAV files)",
             "Rust supply chain",
             "Packages and crates known to the checks",
-            "Versions and changelog",
-            "Commit messages and changelog",
+            "Every part described in a README",
+            "One version everywhere, changelog well formed",
+            "Commit messages, and a changelog entry for each change of behavior",
             "CI workflow pinned",
             "JavaScript dependencies",
             "JavaScript vulnerabilities",
@@ -568,7 +571,8 @@ fn runs_every_step_and_reports_success() {
         "every step ran; the unviable gate reads two files, the equivalent gate lists the \
          sources and reads two files, the release gate eight, the fresh step empties nine \
          more directories, the TypeScript gate reads ten reports instead of one action, \
-         the membership gate lists four times and reads the root Cargo.toml and nine READMEs, the license gate \
+         the membership gate lists three times and reads the root Cargo.toml, the README gate \
+         lists twice and reads nine READMEs, the license gate \
          captures two reports, the unsafe gate lists and reads two files, the preflight \
          asks nine tools, the history gate reads two listings, the workflow gate two files"
     );
@@ -588,15 +592,15 @@ fn runs_every_step_and_reports_success() {
     );
     let text = String::from_utf8(out).expect("utf-8 output");
     assert!(
-        text.starts_with("▶ [1/34] Tools and platform\n"),
+        text.starts_with("▶ [1/35] Tools and platform\n"),
         "numbered progress: {text}"
     );
     assert!(
-        text.contains("▶ [33/34] Roadmap checks\n"),
+        text.contains("▶ [34/35] Roadmap checks\n"),
         "last step announced: {text}"
     );
     assert!(
-        text.ends_with("✔ all 34 checks passed\n"),
+        text.ends_with("✔ all 35 checks passed\n"),
         "summary: {text}"
     );
 }
@@ -1519,8 +1523,9 @@ fn release_gate_runs_on_the_real_files() {
     let replaced = fake.files.insert(CHANGELOG.to_owned(), "nope".to_owned());
     assert!(replaced.is_some(), "changelog replaced");
     assert!(
-        run_steps(&check_steps(), &mut fake, &mut Vec::new())
-            .is_err_and(|error| error.summary.starts_with("Versions and changelog: ")),
+        run_steps(&check_steps(), &mut fake, &mut Vec::new()).is_err_and(|error| error
+            .summary
+            .starts_with("One version everywhere, changelog well formed: ")),
         "release gate failure is named"
     );
     for path in [CARGO_TOML.to_owned(), CHANGELOG.to_owned()]
@@ -1533,12 +1538,12 @@ fn release_gate_runs_on_the_real_files() {
         // The release step alone: the membership gate before it also notices a removal.
         let release: Vec<Step> = check_steps()
             .into_iter()
-            .filter(|step| step.action == Action::ReleaseGate)
+            .filter(|step| step.action == Action::VersionGate)
             .collect();
         assert_eq!(
             run_steps(&release, &mut without, &mut Vec::new()),
             failed(format!(
-                "Versions and changelog: cannot read {path}: missing"
+                "One version everywhere, changelog well formed: cannot read {path}: missing"
             )),
             "missing {path}"
         );
@@ -2096,14 +2101,8 @@ fn requires_every_part_to_be_described() {
         .collect();
     assert_eq!(
         super::readme_gate(&PACKAGES.map(|package| package.dir.to_owned()), &unnamed),
-        found(
-            "parts not described",
-            &[
-                "apps has no README.md".to_owned(),
-                "apps has no README.md".to_owned()
-            ]
-        ),
-        "a folder without its README"
+        found("parts not described", &["apps has no README.md".to_owned()]),
+        "a folder without its README, said once for its two parts"
     );
 }
 
@@ -2193,7 +2192,7 @@ fn reads_the_history_or_says_why_it_cannot() {
     assert_eq!(
         run_steps(&check_steps(), &mut fake, &mut Vec::new()),
         failed(
-            "Commit messages and changelog: cannot read the history: `git log --format=%x1e%H%x1f%B HEAD` exited with code 1: failed"
+            "Commit messages, and a changelog entry for each change of behavior: cannot read the history: `git log --format=%x1e%H%x1f%B HEAD` exited with code 1: failed"
         ),
         "a shallow clone, or no git"
     );
@@ -2670,7 +2669,7 @@ fn prints_the_details_of_a_failure_on_stdout_and_one_line_on_stderr() {
     );
     assert!(
         String::from_utf8(out).expect("UTF-8").ends_with(
-            "▶ [13/34] Rust unviable mutants reviewed\n\
+            "▶ [13/35] Rust unviable mutants reviewed\n\
              not reviewed: crates/a/src/c.rs: replace g -> U with x\n\
              stale review: crates/a/src/b.rs: replace f -> T with Default::default()\n"
         ),
@@ -2934,4 +2933,34 @@ fn reads_node_releases_alike_everywhere() {
             "{text:?}: the same verdict from the preflight and the workflow gate"
         );
     }
+}
+
+#[test]
+fn reports_readme_problems_whatever_the_membership() {
+    let mut fake = passing();
+    let extra = fake
+        .files
+        .insert("apps/editor/package.json".to_owned(), PACKAGE.to_owned());
+    let removed = fake.files.remove("apps/README.md");
+    assert!(extra.is_none() && removed.is_some(), "both problems set");
+    let step = |action: &Action| -> Vec<Step> {
+        check_steps()
+            .into_iter()
+            .filter(|step| step.action == *action)
+            .collect()
+    };
+    assert_eq!(
+        run_steps(&step(&Action::MembershipGate), &mut fake, &mut Vec::new()),
+        failed(
+            "Packages and crates known to the checks: the manifests differ from what xtask \
+             knows: apps/editor/package.json is not a package of PACKAGES: its checks and \
+             reports would not run"
+        ),
+        "the membership problem, under its own step"
+    );
+    assert_eq!(
+        run_steps(&step(&Action::ReadmeGate), &mut fake, &mut Vec::new()),
+        failed("Every part described in a README: parts not described: apps has no README.md"),
+        "the README problems, not hidden by the membership one"
+    );
 }
