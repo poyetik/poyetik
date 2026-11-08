@@ -1,5 +1,5 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import { CSP } from "../csp.ts";
 import { BUTTON_LABELS } from "../src/App.tsx";
 import { explain } from "../src/player.ts";
@@ -32,6 +32,42 @@ async function suspendAudio(page: Page): Promise<void> {
     }
     await audio.suspend();
   });
+}
+
+/**
+ * Moves the keyboard focus to `target` from the start of the page, by pressing Tab as a
+ * keyboard user would: the target must be in the Tab order (a programmatic focus would
+ * reach any element). On WebKit, Tab skips buttons unless the user enables it, like Safari:
+ * there Option+Tab moves to every control.
+ */
+async function tabTo(page: Page, target: Locator, browserName: string): Promise<void> {
+  const key = browserName === "webkit" ? "Alt+Tab" : "Tab";
+  for (let presses = 0; presses < 5 && !(await target.evaluate((element) => element === document.activeElement)); presses += 1) {
+    await page.keyboard.press(key);
+  }
+  await expect(target).toBeFocused();
+}
+
+/** The red, green and blue channels (0 to 255) of a computed CSS color, `rgb(…)` or `rgba(…)`. */
+function channels(color: string): [number, number, number] {
+  const match = /^rgba?\((\d+), (\d+), (\d+)/.exec(color);
+  if (match === null) {
+    throw new Error(`not an rgb color: ${color}`);
+  }
+  return [Number(match[1]), Number(match[2]), Number(match[3])];
+}
+
+/** The contrast ratio of two colors, by the WCAG 2 formula (1 to 21). */
+function contrast(first: string, second: string): number {
+  const luminance = (color: string): number => {
+    const [red, green, blue] = channels(color).map((channel) => {
+      const linear = channel / 255;
+      return linear <= 0.040_45 ? linear / 12.92 : ((linear + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * (red ?? 0) + 0.7152 * (green ?? 0) + 0.0722 * (blue ?? 0);
+  };
+  const [light, dark] = [luminance(first), luminance(second)].sort((left, right) => right - left);
+  return ((light ?? 0) + 0.05) / ((dark ?? 0) + 0.05);
 }
 
 /** Errors of the page during the current test: uncaught errors, console errors, failed requests. */
@@ -127,10 +163,24 @@ test("is accessible", async ({ page }) => {
   expect((await new AxeBuilder({ page }).analyze()).violations).toStrictEqual([]);
 });
 
-test("plays and stops from the keyboard, the button keeping the focus", async ({ page }) => {
+test("measures contrast by the WCAG formula", () => {
+  expect(contrast("rgb(0, 0, 0)", "rgb(255, 255, 255)")).toBeCloseTo(21, 10);
+  expect(contrast("rgb(255, 255, 255)", "rgba(0, 0, 0, 1)")).toBeCloseTo(21, 10);
+  expect(contrast("rgb(118, 118, 118)", "rgb(255, 255, 255)")).toBeCloseTo(4.54, 2);
+});
+
+test("plays and stops from the keyboard, the button keeping a visible focus", async ({ page, browserName }) => {
   await page.goto("./?muted");
   const button = page.getByRole("button");
-  await button.focus();
+  await tabTo(page, button, browserName);
+  // The focus ring: solid, at least 2 CSS pixels, at least 3:1 against the page (WCAG 2.4.7, 1.4.11).
+  const ring = await button.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { style: style.outlineStyle, width: style.outlineWidth, color: style.outlineColor, page: getComputedStyle(document.documentElement).backgroundColor };
+  });
+  expect(ring.style).toBe("solid");
+  expect(Number.parseFloat(ring.width)).toBeGreaterThanOrEqual(2);
+  expect(contrast(ring.color, ring.page)).toBeGreaterThanOrEqual(3);
   await page.keyboard.press("Enter");
   await expect(page.getByRole("status")).toHaveText("Playing");
   await expect(button).toBeFocused();
