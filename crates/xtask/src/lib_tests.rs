@@ -9,12 +9,12 @@ use std::path::Path;
 use std::process::Command;
 
 use super::{
-    Action, BestEffort, CARGO_TOML, CHANGELOG, COMMIT_HEADER_MAX, COVERAGE_REPORT, Cmd,
-    CommandFailure, Dir, EQUIVALENT_REVIEWED, Exit, Failed, Failure, PACKAGES, PORTABILITY_TARGETS,
-    Runner, Step, SystemRunner, UNSAFE_FILES, UNVIABLE_REPORT, UNVIABLE_REVIEWED, USAGE, Version,
-    bless_step, check_steps, cli, commit_msg_gate, coverage_gate, equivalent_gate, license_gate,
-    membership_gate, package_jsons, preflight_gate, release_gate, run_steps, ts_coverage_gate,
-    ts_mutation_gate, unsafe_gate, unviable_gate,
+    Action, BestEffort, CARGO_TOML, CHANGELOG, COMMIT_HEADER_MAX, Cmd, CommandFailure, Coverage,
+    Dir, EQUIVALENT_REVIEWED, Exit, Failed, Failure, Measured, PACKAGES, PORTABILITY_TARGETS,
+    Runner, RustCrate, Step, SystemRunner, UNSAFE_FILES, UNVIABLE_REPORT, UNVIABLE_REVIEWED, USAGE,
+    Version, bless_step, check_steps, cli, commit_msg_gate, coverage_gate, equivalent_gate,
+    license_gate, membership_gate, package_jsons, preflight_gate, release_gate, run_steps,
+    ts_coverage_gate, ts_mutation_gate, unsafe_gate, unviable_gate,
 };
 
 /// Runs git in `dir` hermetically, and returns its stdout: no variable of an enclosing git
@@ -200,16 +200,53 @@ impl Runner for Fake {
     }
 }
 
-fn report(lines: (u64, u64), functions: (u64, u64), branches: (u64, u64)) -> String {
+/// One file of an llvm-cov JSON summary: its path and its (count, covered) lines,
+/// functions and branches.
+type Measure<'path> = (&'path str, (u64, u64), (u64, u64), (u64, u64));
+
+/// An llvm-cov JSON summary of these files, with their absolute paths.
+fn report(files: &[Measure<'_>]) -> String {
+    let entry = |(path, lines, functions, branches): &Measure<'_>| {
+        format!(
+            r#"{{"filename":"/repo/{path}","summary":{{"lines":{{"count":{},"covered":{}}},"functions":{{"count":{},"covered":{}}},"branches":{{"count":{},"covered":{}}}}}}}"#,
+            lines.0, lines.1, functions.0, functions.1, branches.0, branches.1
+        )
+    };
     format!(
-        r#"{{"data":[{{"totals":{{"lines":{{"count":{},"covered":{}}},"functions":{{"count":{},"covered":{}}},"branches":{{"count":{},"covered":{}}}}}}}]}}"#,
-        lines.0, lines.1, functions.0, functions.1, branches.0, branches.1
+        r#"{{"data":[{{"files":[{}]}}]}}"#,
+        files.iter().map(entry).collect::<Vec<_>>().join(",")
     )
 }
 
-fn full_report() -> String {
-    report((10, 10), (3, 3), (4, 4))
+/// A report covering the measured file of `coverage` fully.
+fn full_report(coverage: Coverage) -> String {
+    let file = match coverage.measured {
+        Measured::Library => "lib.rs",
+        Measured::Binary => "main.rs",
+    };
+    report(&[(
+        &format!("{}/src/{file}", coverage.krate.dir),
+        (10, 10),
+        (3, 3),
+        (4, 4),
+    )])
 }
+
+/// The library measurement of a crate named `name` in `crates/a`.
+const CRATE_A: Coverage = Coverage {
+    krate: RustCrate {
+        name: "a",
+        dir: "crates/a",
+        binary: true,
+    },
+    measured: Measured::Library,
+};
+
+/// The binary measurement of [`CRATE_A`].
+const CRATE_A_MAIN: Coverage = Coverage {
+    measured: Measured::Binary,
+    ..CRATE_A
+};
 
 /// An attribute lifting the lint against unsafe code, built so that this file does not
 /// contain the lint name itself (the unsafe gate reads it too).
@@ -234,7 +271,23 @@ const TS_KILLED: &str = r#"{"files":{"a.ts":{"mutants":[{"status":"Killed"},{"st
 
 fn passing() -> Fake {
     let mut fake = Fake::default();
-    let previous = fake.files.insert(COVERAGE_REPORT.to_owned(), full_report());
+    for step in check_steps() {
+        if let Action::Coverage(coverage) = step.action {
+            let previous = fake.files.insert(coverage.report(), full_report(coverage));
+            assert!(previous.is_none(), "fresh fake");
+        }
+    }
+    let locality = Coverage {
+        krate: super::COVERAGE_LOCALITY,
+        measured: Measured::Library,
+    };
+    let refused = report(&[(
+        &format!("{}/src/lib.rs", super::COVERAGE_LOCALITY.dir),
+        (10, 7),
+        (3, 2),
+        (2, 2),
+    )]);
+    let previous = fake.files.insert(locality.report(), refused);
     assert!(previous.is_none(), "fresh fake");
     let report = "crates/a/src/b.rs:3:5: replace f -> T with Default::default()\n";
     let reviewed =
@@ -301,7 +354,11 @@ fn passing() -> Fake {
     ]
     .into_iter()
     .chain(package_jsons().into_iter().map(|path| (path, PACKAGE)))
-    {
+    .chain(
+        super::RUST_CRATES
+            .iter()
+            .map(|krate| (format!("{}/Cargo.toml", krate.dir), MEMBER)),
+    ) {
         let earlier = fake.files.insert(path, text.to_owned());
         assert!(earlier.is_none(), "fresh fake");
     }
@@ -322,7 +379,7 @@ fn tool_answer(program: &str, subcommand: Option<&str>) -> String {
 }
 
 /// A workflow that pins everything, as the workflow gate requires.
-const PINNED_WORKFLOW: &str = "jobs:\n  check:\n    runs-on: ubuntu-24.04\n    steps:\n      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n        with:\n          fetch-depth: 0\n      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39\n        with:\n          tool: cargo-llvm-cov@0.9.1,cargo-mutants@27.1.0,cargo-deny@0.20.2\n      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0\n        with:\n          node-version-file: .node-version\n      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3\n        with:\n          cache-on-failure: true\n      - name: Every quality check\n        run: cargo xtask check\n      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2\n        if: failure()\n        with:\n          path: |\n            mutants.out\n            target/coverage.json\n            bindings/wasm/dist/engine.wasm\n            apps/*/coverage\n            apps/*/reports\n            bindings/*/coverage\n            bindings/*/reports\n            tooling/*/coverage\n            tooling/*/reports\n";
+const PINNED_WORKFLOW: &str = "jobs:\n  check:\n    runs-on: ubuntu-24.04\n    steps:\n      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n        with:\n          fetch-depth: 0\n      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39\n        with:\n          tool: cargo-llvm-cov@0.9.1,cargo-mutants@27.1.0,cargo-deny@0.20.2\n      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0\n        with:\n          node-version-file: .node-version\n      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3\n        with:\n          cache-on-failure: true\n      - name: Every quality check\n        run: cargo xtask check\n      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2\n        if: failure()\n        with:\n          path: |\n            mutants.out\n            target/coverage\n            bindings/wasm/dist/engine.wasm\n            apps/*/coverage\n            apps/*/reports\n            bindings/*/coverage\n            bindings/*/reports\n            tooling/*/coverage\n            tooling/*/reports\n";
 
 /// A history whose two commits follow the convention, the change of behavior with its
 /// changelog entry, as `git log` writes it for the history gate.
@@ -335,8 +392,16 @@ const HISTORY_FILES: &str =
 
 /// The READMEs of a repository whose parts are all described: each TypeScript package has
 /// its own, each folder names its parts, the root names the folders.
-const READMES: [(&str, &str); 9] = [
-    ("README.md", "| `apps/` | | `bindings/` | | `tooling/` |"),
+const READMES: [(&str, &str); 10] = [
+    (
+        "README.md",
+        "| `apps/` | | `bindings/` | | `crates/` | | `tooling/` |",
+    ),
+    (
+        "crates/README.md",
+        "`engine-core` `engine-objects` `engine-patch` `engine-hash` `engine-alloc-counter` \
+         `engine-testkit` `engine-cli` `xtask`",
+    ),
     ("apps/README.md", "| `roadmap/` | | `playground/` |"),
     ("bindings/README.md", "- [`wasm/`](wasm/)"),
     ("tooling/README.md", "| `config/` | | `oracle/` |"),
@@ -348,6 +413,8 @@ const READMES: [(&str, &str); 9] = [
 ];
 
 const CARGO: &str = "[workspace]\nmembers = []\n\n[workspace.package]\nedition = \"2024\"\nversion = \"0.2.0\"\n\n[other]\nversion = \"9.9.9\"\n";
+/// The manifest of a crate that takes the workspace version.
+const MEMBER: &str = "[package]\nversion.workspace = true\n";
 const PACKAGE: &str = r#"{"name": "x", "version": "0.2.0", "engines": {"node": ">=22.18"}}"#;
 /// Every workspace manifest with the same content.
 fn packages(text: &str) -> Vec<(String, String)> {
@@ -382,7 +449,8 @@ fn command_lines(steps: &[Step]) -> Vec<String> {
         .iter()
         .map(|step| match &step.action {
             Action::Run(cmd) => format!("{:?}: {} {}", cmd.dir, cmd.program, cmd.args.join(" ")),
-            Action::CoverageGate => "coverage gate".to_owned(),
+            Action::Coverage(coverage) => format!("coverage {}", coverage.command().line()),
+            Action::CoverageLocality => "coverage locality".to_owned(),
             Action::UnviableGate => "unviable gate".to_owned(),
             Action::EquivalentGate => "equivalent gate".to_owned(),
             Action::VersionGate => "version gate".to_owned(),
@@ -414,8 +482,19 @@ fn lists_every_check_in_order() {
             "Root: cargo build --package engine-core --package engine-objects --package engine-patch --package engine-hash --locked --target x86_64-unknown-linux-gnu",
             "Root: cargo build --package engine-core --package engine-objects --package engine-patch --package engine-hash --locked --target wasm32-unknown-unknown",
             "Root: cargo build --package engine-core --package engine-objects --package engine-patch --package engine-hash --locked --target thumbv7em-none-eabihf",
-            "Root: cargo +nightly-2026-11-01 llvm-cov --workspace --locked --branch --json --summary-only --output-path target/coverage.json",
-            "coverage gate",
+            "fresh target/coverage",
+            "coverage locality",
+            "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-core/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-core.json",
+            "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-objects/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-objects.json",
+            "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-patch/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-patch.json",
+            "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-hash/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-hash.json",
+            "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-alloc-counter/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-alloc-counter.json",
+            "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-testkit/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-testkit.json",
+            "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-cli/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-cli.json",
+            "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path bindings/wasm/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-wasm.json",
+            "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/xtask/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/xtask.json",
+            "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-cli/Cargo.toml --locked --branch --json --summary-only --output-path target/coverage/engine-cli-main.json",
+            "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/xtask/Cargo.toml --locked --branch --json --summary-only --output-path target/coverage/xtask-main.json",
             "Root: cargo mutants --workspace --cap-lints=true --gitignore=true",
             "unviable gate",
             "equivalent gate",
@@ -443,6 +522,12 @@ fn lists_every_check_in_order() {
         ],
         "the full check pipeline"
     );
+    assert_eq!(PORTABILITY_TARGETS.len(), 4, "four portability targets");
+}
+
+#[test]
+fn names_every_check_in_order() {
+    let steps = check_steps();
     assert_eq!(
         steps
             .iter()
@@ -458,8 +543,19 @@ fn lists_every_check_in_order() {
             "Engine portability (x86_64-unknown-linux-gnu)",
             "Engine portability (wasm32-unknown-unknown)",
             "Engine portability (thumbv7em-none-eabihf)",
-            "Rust coverage report",
-            "Rust coverage: 100% lines, functions and branches",
+            "Fresh Rust coverage reports",
+            "Rust coverage counts a crate's own unit tests only",
+            "Rust coverage of engine-core: 100% by its own unit tests",
+            "Rust coverage of engine-objects: 100% by its own unit tests",
+            "Rust coverage of engine-patch: 100% by its own unit tests",
+            "Rust coverage of engine-hash: 100% by its own unit tests",
+            "Rust coverage of engine-alloc-counter: 100% by its own unit tests",
+            "Rust coverage of engine-testkit: 100% by its own unit tests",
+            "Rust coverage of engine-cli: 100% by its own unit tests",
+            "Rust coverage of engine-wasm: 100% by its own unit tests",
+            "Rust coverage of xtask: 100% by its own unit tests",
+            "Rust coverage of the engine-cli binary: 100% by its tests",
+            "Rust coverage of the xtask binary: 100% by its tests",
             "Rust mutation testing",
             "Rust unviable mutants reviewed",
             "TypeScript equivalent mutants reviewed",
@@ -487,7 +583,6 @@ fn lists_every_check_in_order() {
         ],
         "step names"
     );
-    assert_eq!(PORTABILITY_TARGETS.len(), 4, "four portability targets");
 }
 
 #[test]
@@ -503,56 +598,200 @@ fn resolves_directories() {
 
 #[test]
 fn accepts_full_coverage() {
-    assert_eq!(coverage_gate(&full_report()), Ok(()), "100% everywhere");
-}
-
-#[test]
-fn rejects_coverage_that_measured_nothing() {
     assert_eq!(
-        coverage_gate(&report((0, 0), (0, 0), (0, 0))),
-        Err(
-            "coverage is not 100%: lines not measured, functions not measured, branches not measured"
-                .to_owned()
+        coverage_gate(
+            &report(&[
+                ("crates/a/src/lib.rs", (10, 10), (3, 3), (4, 4)),
+                ("crates/a/src/b.rs", (1, 1), (1, 1), (0, 0)),
+            ]),
+            CRATE_A
         ),
-        "an empty report proves nothing"
+        Ok(()),
+        "every file of the crate at 100%, a file without branches included"
     );
     assert_eq!(
-        coverage_gate(&report((10, 10), (3, 3), (0, 0))),
-        Err("coverage is not 100%: branches not measured".to_owned()),
-        "branch instrumentation missing"
+        coverage_gate(
+            &report(&[
+                ("crates/a/src/lib.rs", (10, 1), (3, 1), (4, 1)),
+                ("crates/a/src/main.rs", (5, 5), (1, 1), (0, 0)),
+            ]),
+            CRATE_A_MAIN
+        ),
+        Ok(()),
+        "a binary: only its main.rs is read"
     );
 }
 
 #[test]
-fn rejects_incomplete_coverage() {
+fn names_the_files_that_are_not_fully_covered() {
     assert_eq!(
-        coverage_gate(&report((10, 9), (3, 3), (4, 4))),
-        Err("coverage is not 100%: lines 9/10".to_owned()),
-        "a missed line"
+        coverage_gate(
+            &report(&[
+                ("crates/a/src/b.rs", (10, 9), (3, 3), (4, 4)),
+                ("crates/a/src/c.rs", (10, 10), (3, 2), (4, 3)),
+            ]),
+            CRATE_A
+        ),
+        failed(format!(
+            "a is not covered 100% by its own unit tests: 2 problems, listed above\n\
+             crates/a/src/b.rs: lines 9/10\n\
+             crates/a/src/c.rs: functions 2/3, branches 3/4\n\
+             the lines: cargo {} llvm-cov --manifest-path crates/a/Cargo.toml --lib --branch \
+             --show-missing-lines",
+            super::NIGHTLY_TOOLCHAIN
+        )),
+        "every file and every incomplete kind, with the command showing the lines"
     );
     assert_eq!(
-        coverage_gate(&report((10, 10), (3, 2), (4, 3))),
-        Err("coverage is not 100%: functions 2/3, branches 3/4".to_owned()),
-        "every incomplete kind is named"
+        coverage_gate(
+            &report(&[("crates/a/src/main.rs", (5, 4), (1, 1), (0, 0))]),
+            CRATE_A_MAIN
+        ),
+        failed(format!(
+            "the a binary is not covered 100% by its tests: crates/a/src/main.rs: lines 4/5\n\
+             the lines: cargo {} llvm-cov --manifest-path crates/a/Cargo.toml --branch \
+             --show-missing-lines",
+            super::NIGHTLY_TOOLCHAIN
+        )),
+        "a binary, measured by every test of its crate"
+    );
+}
+
+#[test]
+fn coverage_gate_refuses_files_of_another_crate() {
+    assert_eq!(
+        coverage_gate(
+            &report(&[
+                ("crates/a/src/lib.rs", (10, 10), (3, 3), (4, 4)),
+                ("crates/ab/src/lib.rs", (10, 10), (3, 3), (4, 4)),
+            ]),
+            CRATE_A
+        ),
+        failed(
+            "a is not covered 100% by its own unit tests: /repo/crates/ab/src/lib.rs is not a file of a"
+        ),
+        "the report of another crate, even a fully covered one"
+    );
+}
+
+#[test]
+fn coverage_gate_refuses_an_empty_report() {
+    assert_eq!(
+        coverage_gate(&report(&[]), CRATE_A),
+        failed("a is not covered 100% by its own unit tests: no file of a measured"),
+        "a report of nothing proves nothing"
+    );
+    assert_eq!(
+        coverage_gate(
+            &report(&[("crates/a/src/lib.rs", (10, 10), (3, 3), (4, 4))]),
+            CRATE_A_MAIN
+        ),
+        failed("the a binary is not covered 100% by its tests: no file of a measured"),
+        "a binary report without its main.rs"
     );
 }
 
 #[test]
 fn rejects_unreadable_reports() {
     assert!(
-        coverage_gate("not json")
-            .is_err_and(|error| error.starts_with("invalid coverage report: ")),
+        coverage_gate("not json", CRATE_A)
+            .is_err_and(|error| error.summary.starts_with("invalid coverage report: ")),
         "not JSON"
     );
     assert_eq!(
-        coverage_gate(r#"{"data":[{"totals":{"lines":{"count":1,"covered":1}}}]}"#),
-        Err("coverage report has no functions total".to_owned()),
-        "a missing total"
+        coverage_gate(r#"{"data":[{"totals":{}}]}"#, CRATE_A),
+        failed("coverage report has no files"),
+        "no file list"
     );
     assert_eq!(
-        coverage_gate(r#"{"data":[{"totals":{"lines":{"count":1}}}]}"#),
-        Err("coverage report has no lines total".to_owned()),
-        "a missing field"
+        coverage_gate(
+            r#"{"data":[{"files":[{"filename":"/r/crates/a/src/lib.rs","summary":{"lines":{"count":1,"covered":1}}}]}]}"#,
+            CRATE_A
+        ),
+        failed("coverage report has no functions total"),
+        "a missing total"
+    );
+}
+
+#[test]
+fn measures_each_crate_by_its_own_unit_tests() {
+    let lines: Vec<String> = check_steps()
+        .into_iter()
+        .filter_map(|step| {
+            if let Action::Coverage(coverage) = step.action {
+                Some(coverage.command().line())
+            } else {
+                None
+            }
+        })
+        .collect();
+    let mut expected: Vec<String> = super::RUST_CRATES
+        .iter()
+        .map(|krate| {
+            format!(
+                "cargo +nightly-2026-11-01 llvm-cov --manifest-path {}/Cargo.toml --lib --locked \
+                 --branch --json --summary-only --output-path target/coverage/{}.json",
+                krate.dir, krate.name
+            )
+        })
+        .collect();
+    expected.extend(
+        ["engine-cli", "xtask"]
+            .map(|name| format!(
+                "cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/{name}/Cargo.toml \
+                 --locked --branch --json --summary-only --output-path target/coverage/{name}-main.json"
+            )),
+    );
+    assert_eq!(
+        lines, expected,
+        "each library by its unit tests alone, each binary's main.rs by its crate's tests"
+    );
+}
+
+#[test]
+fn requires_the_gate_to_refuse_a_path_only_an_integration_test_reaches() {
+    let locality = Coverage {
+        krate: super::COVERAGE_LOCALITY,
+        measured: Measured::Library,
+    };
+    let step: Vec<Step> = check_steps()
+        .into_iter()
+        .filter(|step| step.action == Action::CoverageLocality)
+        .collect();
+    let mut refused = passing();
+    assert_eq!(
+        run_steps(&step, &mut refused, &mut Vec::new()),
+        Ok(()),
+        "the gate refuses the fixture"
+    );
+    assert!(
+        refused.ran.contains(&locality.command().line()),
+        "the fixture is measured"
+    );
+    let mut accepted = passing();
+    let _full = accepted
+        .files
+        .insert(locality.report(), full_report(locality));
+    assert_eq!(
+        run_steps(&step, &mut accepted, &mut Vec::new()),
+        failed(format!(
+            "Rust coverage counts a crate's own unit tests only: the coverage gate accepted {}: \
+             a path reached only by an integration test counts as covered",
+            super::COVERAGE_LOCALITY.dir
+        )),
+        "a gate that counts integration tests"
+    );
+    let mut elsewhere = passing();
+    let _empty = elsewhere.files.insert(locality.report(), report(&[]));
+    assert_eq!(
+        run_steps(&step, &mut elsewhere, &mut Vec::new()),
+        failed(format!(
+            "Rust coverage counts a crate's own unit tests only: the coverage gate refused {} \
+             for another reason: coverage-locality is not covered 100% by its own unit tests: \
+             no file of coverage-locality measured",
+            super::COVERAGE_LOCALITY.dir
+        )),
+        "a refusal that proves nothing"
     );
 }
 
@@ -565,16 +804,19 @@ fn runs_every_step_and_reports_success() {
         Ok(()),
         "all green"
     );
+    let (tools, commands, emptied, listed, captured) = (9, 32, 12, 6, 4);
+    let read = 12 + 2 + 2 + 2 + 10 + 10 + 8 + 2 + 10;
     assert_eq!(
         fake.ran.len(),
-        check_steps().len() + 9 + 10 + 9 + 4 + 1 + 9 + 2 + 8 + 1 + 1,
-        "every step ran; the unviable gate reads two files, the equivalent gate lists the \
-         sources and reads two files, the release gate eight, the fresh step empties nine \
-         more directories, the TypeScript gate reads ten reports instead of one action, \
-         the membership gate lists three times and reads the root Cargo.toml, the README gate \
-         lists twice and reads nine READMEs, the license gate \
-         captures two reports, the unsafe gate lists and reads two files, the preflight \
-         asks nine tools, the history gate reads two listings, the workflow gate two files"
+        tools + commands + emptied + listed + captured + read,
+        "the preflight asks nine tools; 32 commands run (formatting, lints, documentation, \
+         tests, four portability builds, twelve coverage measurements, mutants, Miri, the \
+         conformance check and export, deny, the JavaScript install, audit and five package \
+         checks); twelve directories are emptied; git lists six kinds of files; the licenses \
+         and the history are captured twice each; and the gates read twelve coverage reports, \
+         the unviable report and reviews, a TypeScript source and its reviews, the two unsafe \
+         files, ten crate manifests, ten READMEs, eight version files, the workflow and \
+         .node-version, and ten TypeScript reports"
     );
     for path in [CARGO_TOML.to_owned(), CHANGELOG.to_owned()]
         .into_iter()
@@ -587,20 +829,21 @@ fn runs_every_step_and_reports_success() {
         "reviews read"
     );
     assert!(
-        fake.ran.contains(&format!("read {COVERAGE_REPORT}")),
-        "coverage report read"
+        fake.ran
+            .contains(&"read target/coverage/xtask-main.json".to_owned()),
+        "coverage reports read"
     );
     let text = String::from_utf8(out).expect("utf-8 output");
     assert!(
-        text.starts_with("▶ [1/35] Tools and platform\n"),
+        text.starts_with("▶ [1/46] Tools and platform\n"),
         "numbered progress: {text}"
     );
     assert!(
-        text.contains("▶ [34/35] Roadmap checks\n"),
+        text.contains("▶ [45/46] Roadmap checks\n"),
         "last step announced: {text}"
     );
     assert!(
-        text.ends_with("✔ all 35 checks passed\n"),
+        text.ends_with("✔ all 46 checks passed\n"),
         "summary: {text}"
     );
 }
@@ -635,25 +878,41 @@ fn reports_commands_that_cannot_start() {
 
 #[test]
 fn fails_on_missing_or_incomplete_coverage() {
-    let mut missing = Fake::default();
+    let core = Coverage {
+        krate: super::RUST_CRATES[0],
+        measured: Measured::Library,
+    };
+    let mut missing = passing();
+    let _removed = missing.files.remove(&core.report());
     assert_eq!(
         run_steps(&check_steps(), &mut missing, &mut Vec::new()),
-        failed(format!(
-            "Rust coverage: 100% lines, functions and branches: cannot read {COVERAGE_REPORT}: missing"
-        )),
+        failed(
+            "Rust coverage of engine-core: 100% by its own unit tests: cannot read \
+             target/coverage/engine-core.json: missing"
+        ),
         "missing report"
     );
-    let mut partial = Fake::default();
-    let previous = partial
-        .files
-        .insert(COVERAGE_REPORT.to_owned(), report((2, 1), (1, 1), (1, 1)));
-    assert!(previous.is_none(), "fresh fake");
+    let mut partial = passing();
+    let _replaced = partial.files.insert(
+        core.report(),
+        report(&[("crates/engine-core/src/lib.rs", (2, 1), (1, 1), (1, 1))]),
+    );
     assert_eq!(
         run_steps(&check_steps(), &mut partial, &mut Vec::new()),
         failed(
-            "Rust coverage: 100% lines, functions and branches: coverage is not 100%: lines 1/2"
+            "Rust coverage of engine-core: 100% by its own unit tests: engine-core is not \
+             covered 100% by its own unit tests: crates/engine-core/src/lib.rs: lines 1/2\n\
+             the lines: cargo +nightly-2026-11-01 llvm-cov --manifest-path \
+             crates/engine-core/Cargo.toml --lib --branch --show-missing-lines"
         ),
         "incomplete coverage"
+    );
+    let mut broken = passing();
+    broken.fail = Some(core.command().line());
+    assert!(
+        run_steps(&check_steps(), &mut broken, &mut Vec::new())
+            .is_err_and(|failure| failure.summary.ends_with("` exited with code 3")),
+        "a measurement that fails"
     );
 }
 
@@ -1703,17 +1962,20 @@ fn fails_on_a_missing_or_failing_typescript_report() {
 #[test]
 fn knows_exactly_the_packages_and_crates_of_the_repository() {
     let packages = package_jsons();
-    let crates = vec![
-        ("Cargo.toml".to_owned(), "[workspace]".to_owned()),
-        (
-            "crates/a/Cargo.toml".to_owned(),
-            "[package]\nversion.workspace = true\n".to_owned(),
-        ),
-    ];
+    let members: Vec<(String, String)> = super::RUST_CRATES
+        .iter()
+        .map(|krate| (format!("{}/Cargo.toml", krate.dir), MEMBER.to_owned()))
+        .collect();
+    let mut crates = members.clone();
+    crates.push(("Cargo.toml".to_owned(), "[workspace]".to_owned()));
+    crates.push((
+        format!("{}x/Cargo.toml", super::FIXTURES),
+        "[package]\nversion = \"0.0.0\"\n".to_owned(),
+    ));
     assert_eq!(
         membership_gate(&packages, &crates, &[".gitignore".to_owned()]),
         Ok(()),
-        "known"
+        "known, a fixture of xtask apart"
     );
     assert_eq!(
         membership_gate(&packages, &crates, &[".gitignore".to_owned(), "bindings/wasm/.gitignore".to_owned()]),
@@ -1723,15 +1985,9 @@ fn knows_exactly_the_packages_and_crates_of_the_repository() {
 
     let mut more = packages.clone();
     more.push("apps/editor/package.json".to_owned());
-    let fewer: Vec<String> = packages
-        .iter()
-        .filter(|package| *package != "apps/roadmap/package.json")
-        .cloned()
-        .collect();
-    let own = vec![(
-        "crates/b/Cargo.toml".to_owned(),
-        "[package]\nversion = \"9.0.0\"\n".to_owned(),
-    )];
+    let mut own = members.clone();
+    own[0].1 = "[package]\nversion = \"9.0.0\"\n".to_owned();
+    own.push(("crates/b/Cargo.toml".to_owned(), MEMBER.to_owned()));
     assert_eq!(
         membership_gate(&more, &own, &[]),
         found(
@@ -1739,18 +1995,29 @@ fn knows_exactly_the_packages_and_crates_of_the_repository() {
             &[
                 "apps/editor/package.json is not a package of PACKAGES: its checks and reports would not run"
                     .to_owned(),
-                "crates/b/Cargo.toml does not take the workspace version".to_owned(),
+                "crates/b/Cargo.toml is not a crate of RUST_CRATES: its coverage would not be measured"
+                    .to_owned(),
+                "crates/engine-core/Cargo.toml does not take the workspace version".to_owned(),
             ]
         ),
-        "unknown package and crate with its own version"
+        "an unknown package and crate, a crate with its own version"
     );
+    let fewer: Vec<String> = packages
+        .iter()
+        .filter(|package| *package != "apps/roadmap/package.json")
+        .cloned()
+        .collect();
     assert_eq!(
-        membership_gate(&fewer, &[], &[]),
+        membership_gate(&fewer, &members[1..], &[]),
         found(
             "the manifests differ from what xtask knows",
-            &["apps/roadmap/package.json belongs to PACKAGES but is not tracked".to_owned(),]
+            &[
+                "apps/roadmap/package.json belongs to PACKAGES but is not tracked".to_owned(),
+                "crates/engine-core/Cargo.toml belongs to RUST_CRATES but is not tracked"
+                    .to_owned(),
+            ]
         ),
-        "a package that is gone"
+        "a package and a crate that are gone"
     );
 }
 
@@ -2076,12 +2343,20 @@ fn requires_every_part_to_be_described() {
     parts.push("lonely".to_owned());
     let without: Vec<(String, String)> = readmes
         .iter()
-        .filter(|(path, _)| path != "tooling/oracle/README.md")
+        .filter(|(path, _)| {
+            !["tooling/oracle/README.md", "crates/README.md", "README.md"].contains(&path.as_str())
+        })
         .cloned()
-        .chain([(
-            "crates/README.md".to_owned(),
-            "| `engine-hash` |".to_owned(),
-        )])
+        .chain([
+            (
+                "crates/README.md".to_owned(),
+                "| `engine-hash` |".to_owned(),
+            ),
+            (
+                "README.md".to_owned(),
+                "| `apps/` | | `bindings/` | | `tooling/` |".to_owned(),
+            ),
+        ])
         .collect();
     assert_eq!(
         super::readme_gate(&parts, &without),
@@ -2388,14 +2663,14 @@ fn requires_a_workflow_that_pins_everything() {
         .replace("runs-on: ubuntu-24.04", "runs-on: ubuntu-latest")
         .replace("cache-on-failure: true", "cache-on-failure: false")
         .replace("            tooling/*/coverage\n", "")
-        .replace("            target/coverage.json\n", "");
+        .replace("            target/coverage\n", "");
     assert_eq!(
         super::workflow_gate(&unkept, "22.23.4"),
         failed(
             ".github/workflows/quality.yml can change CI without a commit: 4 problems, listed above\n\
              `runs-on: ubuntu-latest` moves to a new OS release without a commit: name the release\n\
              .github/workflows/quality.yml lacks `cache-on-failure: true`\n\
-             .github/workflows/quality.yml lacks `target/coverage.json`\n\
+             .github/workflows/quality.yml lacks `target/coverage`\n\
              .github/workflows/quality.yml lacks `tooling/*/coverage`"
         ),
         "a moving runner, a cache lost on failure, reports not uploaded"
@@ -2404,7 +2679,7 @@ fn requires_a_workflow_that_pins_everything() {
         super::failure_uploads(),
         vec![
             "mutants.out",
-            "target/coverage.json",
+            "target/coverage",
             "bindings/wasm/dist/engine.wasm",
             "tooling/*/coverage",
             "tooling/*/reports",
@@ -2669,7 +2944,7 @@ fn prints_the_details_of_a_failure_on_stdout_and_one_line_on_stderr() {
     );
     assert!(
         String::from_utf8(out).expect("UTF-8").ends_with(
-            "▶ [13/35] Rust unviable mutants reviewed\n\
+            "▶ [24/46] Rust unviable mutants reviewed\n\
              not reviewed: crates/a/src/c.rs: replace g -> U with x\n\
              stale review: crates/a/src/b.rs: replace f -> T with Default::default()\n"
         ),

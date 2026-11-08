@@ -69,7 +69,7 @@ jobs:
           name: reports
           path: |
             mutants.out
-            target/coverage.json
+            target/coverage
             bindings/wasm/dist/engine.wasm
             apps/*/coverage
             apps/*/reports

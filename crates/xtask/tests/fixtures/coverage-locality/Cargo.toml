@@ -1,0 +1,10 @@
+# A workspace of its own, outside the project's: `cargo xtask check` measures it as it
+# measures each crate, and requires the coverage gate to refuse it, proving that a path
+# exercised only by an integration test does not count as covered.
+[workspace]
+
+[package]
+name = "coverage-locality"
+version = "0.0.0"
+edition = "2024"
+publish = false

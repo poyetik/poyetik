@@ -17,8 +17,132 @@ use std::process::Command;
 /// Pinned nightly toolchain, used only to measure branch coverage and to run Miri.
 pub const NIGHTLY_TOOLCHAIN: &str = "+nightly-2026-11-01";
 
-/// Where the coverage report is written.
-pub const COVERAGE_REPORT: &str = "target/coverage.json";
+/// Where the coverage reports of the crates are written, one per measurement.
+pub const COVERAGE_DIR: &str = "target/coverage";
+
+/// Where the fixtures of xtask's own checks live: workspaces of their own, which are not
+/// parts of the project.
+pub const FIXTURES: &str = "crates/xtask/tests/fixtures/";
+
+/// A crate of the Cargo workspace.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RustCrate {
+    /// Its package name.
+    pub name: &'static str,
+    /// Its directory, relative to the root: `<folder of parts>/<name>`.
+    pub dir: &'static str,
+    /// Whether it has a binary, `src/main.rs`, which its unit tests cannot reach.
+    pub binary: bool,
+}
+
+/// The crates of the Cargo workspace (checked by [`membership_gate`]): each is measured by
+/// its own unit tests, and each binary by the crate's tests.
+pub const RUST_CRATES: [RustCrate; 9] = [
+    RustCrate {
+        name: "engine-core",
+        dir: "crates/engine-core",
+        binary: false,
+    },
+    RustCrate {
+        name: "engine-objects",
+        dir: "crates/engine-objects",
+        binary: false,
+    },
+    RustCrate {
+        name: "engine-patch",
+        dir: "crates/engine-patch",
+        binary: false,
+    },
+    RustCrate {
+        name: "engine-hash",
+        dir: "crates/engine-hash",
+        binary: false,
+    },
+    RustCrate {
+        name: "engine-alloc-counter",
+        dir: "crates/engine-alloc-counter",
+        binary: false,
+    },
+    RustCrate {
+        name: "engine-testkit",
+        dir: "crates/engine-testkit",
+        binary: false,
+    },
+    RustCrate {
+        name: "engine-cli",
+        dir: "crates/engine-cli",
+        binary: true,
+    },
+    RustCrate {
+        name: "engine-wasm",
+        dir: "bindings/wasm",
+        binary: false,
+    },
+    RustCrate {
+        name: "xtask",
+        dir: "crates/xtask",
+        binary: true,
+    },
+];
+
+/// A crate whose unit tests reach one function and whose integration test reaches both:
+/// the coverage gate must refuse it, proving that only a crate's own unit tests count.
+pub const COVERAGE_LOCALITY: RustCrate = RustCrate {
+    name: "coverage-locality",
+    dir: "crates/xtask/tests/fixtures/coverage-locality",
+    binary: false,
+};
+
+/// What a coverage measurement covers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Measured {
+    /// The library, by its own unit tests only (`--lib`): a path reached only from another
+    /// crate or an integration test is not covered.
+    Library,
+    /// The binary's `src/main.rs`, by every test of the crate: unit tests cannot reach it.
+    Binary,
+}
+
+/// One coverage measurement: a crate, and what of it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Coverage {
+    /// The crate measured.
+    pub krate: RustCrate,
+    /// What of it.
+    pub measured: Measured,
+}
+
+impl Coverage {
+    /// Where its report is written.
+    #[must_use]
+    pub fn report(self) -> String {
+        let suffix = match self.measured {
+            Measured::Library => "",
+            Measured::Binary => "-main",
+        };
+        format!("{COVERAGE_DIR}/{}{suffix}.json", self.krate.name)
+    }
+
+    /// The command measuring it, with branch coverage (which needs the pinned nightly).
+    #[must_use]
+    pub fn command(self) -> Cmd {
+        let manifest = format!("{}/Cargo.toml", self.krate.dir);
+        let report = self.report();
+        let mut args = vec![NIGHTLY_TOOLCHAIN, "llvm-cov", "--manifest-path", &manifest];
+        if self.measured == Measured::Library {
+            args.push("--lib");
+        }
+        args.extend([
+            "--locked",
+            "--branch",
+            "--json",
+            "--summary-only",
+            "--output-path",
+            &report,
+        ]);
+        Cmd::new("cargo", &args, Dir::Root)
+    }
+}
 
 /// Where the native engine exports the WAV file of every conformance case, emptied
 /// before each export so that no file from an earlier run is judged.
@@ -185,8 +309,10 @@ impl Cmd {
 pub enum Action {
     /// Run an external command; the step fails if it exits with an error.
     Run(Cmd),
-    /// Require 100% line, function and branch coverage in the report at [`COVERAGE_REPORT`].
-    CoverageGate,
+    /// Measure a crate and require 100% line, function and branch coverage of it.
+    Coverage(Coverage),
+    /// Measure [`COVERAGE_LOCALITY`] and require the coverage gate to refuse it.
+    CoverageLocality,
     /// Require every unviable mutant to be reviewed, and every review to be current.
     UnviableGate,
     /// Require every disabled TypeScript mutant to be reviewed, and every review to be
@@ -341,27 +467,42 @@ fn portability_steps() -> Vec<Step> {
 
 /// Coverage and mutation testing, with their gates.
 fn proof_steps() -> Vec<Step> {
-    vec![
-        run(
-            "Rust coverage report",
-            "cargo",
-            &[
-                NIGHTLY_TOOLCHAIN,
-                "llvm-cov",
-                "--workspace",
-                "--locked",
-                "--branch",
-                "--json",
-                "--summary-only",
-                "--output-path",
-                COVERAGE_REPORT,
-            ],
-            Dir::Root,
-        ),
+    let mut steps = vec![
         Step {
-            name: "Rust coverage: 100% lines, functions and branches".to_owned(),
-            action: Action::CoverageGate,
+            name: "Fresh Rust coverage reports".to_owned(),
+            action: Action::FreshDirs(vec![COVERAGE_DIR.to_owned()]),
         },
+        Step {
+            name: "Rust coverage counts a crate's own unit tests only".to_owned(),
+            action: Action::CoverageLocality,
+        },
+    ];
+    steps.extend(RUST_CRATES.iter().map(|&krate| Step {
+        name: format!(
+            "Rust coverage of {}: 100% by its own unit tests",
+            krate.name
+        ),
+        action: Action::Coverage(Coverage {
+            krate,
+            measured: Measured::Library,
+        }),
+    }));
+    steps.extend(
+        RUST_CRATES
+            .iter()
+            .filter(|krate| krate.binary)
+            .map(|&krate| Step {
+                name: format!(
+                    "Rust coverage of the {} binary: 100% by its tests",
+                    krate.name
+                ),
+                action: Action::Coverage(Coverage {
+                    krate,
+                    measured: Measured::Binary,
+                }),
+            }),
+    );
+    steps.extend([
         // Lints are capped while building mutants: otherwise a mutant that merely leaves a
         // variable unused fails to compile and is silently skipped instead of tested.
         run(
@@ -403,7 +544,8 @@ fn proof_steps() -> Vec<Step> {
             ],
             Dir::Root,
         ),
-    ]
+    ]);
+    steps
 }
 
 /// Conformance, supply chain, then the consistency of the repository: membership, READMEs,
@@ -538,33 +680,110 @@ fn total(totals: Option<&serde_json::Value>, kind: &str) -> Result<(u64, u64), S
     }
 }
 
-/// Checks that an llvm-cov JSON summary reports 100% line, function and branch coverage.
+/// Checks that an llvm-cov JSON summary of `coverage` reports 100% line, function and
+/// branch coverage of every file it measures.
+///
+/// For a library, every file of the report belongs to the crate (`<dir>/src/`) and at least
+/// one is measured; for a binary, only its `src/main.rs` is read, and it must be there.
 ///
 /// # Errors
 ///
-/// Returns a message naming every kind that is not fully covered, or why the report
-/// cannot be read.
-pub fn coverage_gate(report: &str) -> Result<(), String> {
+/// Returns every file not fully covered with its counts and the command showing the lines,
+/// every file of another crate, or why the report cannot be read.
+pub fn coverage_gate(report: &str, coverage: Coverage) -> Result<(), Failure> {
+    let krate = coverage.krate;
     let json: serde_json::Value = serde_json::from_str(report)
-        .map_err(|error| format!("invalid coverage report: {error}"))?;
-    let totals = json
-        .get("data")
-        .and_then(|data| data.get(0))
-        .and_then(|run| run.get("totals"));
-    let mut missing = Vec::new();
-    for kind in ["lines", "functions", "branches"] {
-        let (count, covered) = total(totals, kind)?;
-        if count == 0 {
-            missing.push(format!("{kind} not measured"));
-        } else if covered != count {
-            missing.push(format!("{kind} {covered}/{count}"));
+        .map_err(|error| Failure::from(format!("invalid coverage report: {error}")))?;
+    let files = json
+        .pointer("/data/0/files")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| Failure::from("coverage report has no files".to_owned()))?;
+    let own = format!("/{}/src/", krate.dir);
+    let mut problems = Vec::new();
+    let mut measured = 0_usize;
+    let mut incomplete = false;
+    for file in files {
+        let name = file
+            .get("filename")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default();
+        let inside = match (name.split_once(&own), coverage.measured) {
+            (Some((_, inside)), Measured::Library) => inside,
+            (Some((_, "main.rs")), Measured::Binary) => "main.rs",
+            (None, Measured::Library) => {
+                problems.push(format!("{name} is not a file of {}", krate.name));
+                continue;
+            }
+            (_, Measured::Binary) => continue,
+        };
+        measured = measured.saturating_add(1);
+        let mut missing = Vec::new();
+        for kind in ["lines", "functions", "branches"] {
+            let (count, covered) = total(file.get("summary"), kind)?;
+            if covered != count {
+                missing.push(format!("{kind} {covered}/{count}"));
+            }
+        }
+        if !missing.is_empty() {
+            incomplete = true;
+            problems.push(format!(
+                "{}/src/{inside}: {}",
+                krate.dir,
+                missing.join(", ")
+            ));
         }
     }
-    if missing.is_empty() {
-        Ok(())
-    } else {
-        Err(format!("coverage is not 100%: {}", missing.join(", ")))
+    if measured == 0 {
+        problems.push(format!("no file of {} measured", krate.name));
     }
+    let context = match coverage.measured {
+        Measured::Library => format!("{} is not covered 100% by its own unit tests", krate.name),
+        Measured::Binary => format!("the {} binary is not covered 100% by its tests", krate.name),
+    };
+    verdict(&context, problems).map_err(|mut failure| {
+        if incomplete {
+            let lib = if coverage.measured == Measured::Library {
+                " --lib"
+            } else {
+                ""
+            };
+            failure.details.push(format!(
+                "the lines: cargo {NIGHTLY_TOOLCHAIN} llvm-cov --manifest-path {}/Cargo.toml{lib} --branch --show-missing-lines",
+                krate.dir
+            ));
+        }
+        failure
+    })
+}
+
+/// Measures [`COVERAGE_LOCALITY`], whose integration test reaches a function its unit tests
+/// do not, and requires the coverage gate to refuse its `src/lib.rs`.
+fn coverage_locality(runner: &mut dyn Runner) -> Result<(), Failure> {
+    let coverage = Coverage {
+        krate: COVERAGE_LOCALITY,
+        measured: Measured::Library,
+    };
+    let report = measure(runner, coverage)?;
+    let refused = format!("{}/src/lib.rs: ", COVERAGE_LOCALITY.dir);
+    match coverage_gate(&report, coverage) {
+        Err(failure) if failure.summary.contains(&refused) => Ok(()),
+        Err(failure) => Err(Failure::from(format!(
+            "the coverage gate refused {} for another reason: {}",
+            COVERAGE_LOCALITY.dir, failure.summary
+        ))),
+        Ok(()) => Err(Failure::from(format!(
+            "the coverage gate accepted {}: a path reached only by an integration test counts as covered",
+            COVERAGE_LOCALITY.dir
+        ))),
+    }
+}
+
+/// Runs a coverage measurement and reads its report.
+fn measure(runner: &mut dyn Runner, coverage: Coverage) -> Result<String, Failure> {
+    runner
+        .run(&coverage.command())
+        .map_err(|failure| Failure::from(failure.to_string()))?;
+    read_file(runner, &coverage.report())
 }
 
 /// Checks the coverage summary of a TypeScript package (Vitest `json-summary`).
@@ -792,10 +1011,28 @@ pub fn membership_gate(
                 .map(|path| format!("{path} belongs to PACKAGES but is not tracked")),
         )
         .collect();
+    let manifests: BTreeSet<&str> = crates
+        .iter()
+        .map(|(path, _)| path.as_str())
+        .filter(|path| *path != CARGO_TOML && !path.starts_with(FIXTURES))
+        .collect();
+    let members: Vec<String> = RUST_CRATES
+        .iter()
+        .map(|krate| format!("{}/Cargo.toml", krate.dir))
+        .collect();
+    let members: BTreeSet<&str> = members.iter().map(String::as_str).collect();
+    problems.extend(manifests.difference(&members).map(|path| {
+        format!("{path} is not a crate of RUST_CRATES: its coverage would not be measured")
+    }));
+    problems.extend(
+        members
+            .difference(&manifests)
+            .map(|path| format!("{path} belongs to RUST_CRATES but is not tracked")),
+    );
     problems.extend(
         crates
             .iter()
-            .filter(|(path, _)| path != CARGO_TOML)
+            .filter(|(path, _)| path != CARGO_TOML && !path.starts_with(FIXTURES))
             .filter(|(_, text)| {
                 !text
                     .lines()
@@ -1164,7 +1401,7 @@ pub const WASM_MODULE: &str = "bindings/wasm/dist/engine.wasm";
 pub fn failure_uploads() -> Vec<String> {
     let mut uploads: Vec<String> = [
         UNVIABLE_REPORT.split('/').next().unwrap_or(UNVIABLE_REPORT),
-        COVERAGE_REPORT,
+        COVERAGE_DIR,
         WASM_MODULE,
     ]
     .map(str::to_owned)
@@ -1942,18 +2179,12 @@ fn membership(runner: &mut dyn Runner) -> Result<(), Failure> {
 /// Lists the parts (the packages and the crates) and the READMEs tracked by git, then checks
 /// that every part is described.
 fn readmes(runner: &mut dyn Runner) -> Result<(), Failure> {
-    let crates = list_tracked(runner, &["*Cargo.toml"], "the *Cargo.toml files")?;
     let readmes = list_tracked(runner, &["*README.md"], "the *README.md files")?;
     let readmes = read_all(runner, readmes)?;
     let parts: Vec<String> = PACKAGES
         .iter()
         .map(|package| package.dir.to_owned())
-        .chain(
-            crates
-                .iter()
-                .filter_map(|path| path.strip_suffix("/Cargo.toml"))
-                .map(str::to_owned),
-        )
+        .chain(RUST_CRATES.iter().map(|krate| krate.dir.to_owned()))
         .collect();
     readme_gate(&parts, &readmes)
 }
@@ -2027,7 +2258,8 @@ fn run_action(action: &Action, runner: &mut dyn Runner) -> Result<(), Failure> {
         Action::Run(cmd) => runner
             .run(cmd)
             .map_err(|failure| Failure::from(failure.to_string())),
-        Action::CoverageGate => Ok(coverage_gate(&read_file(runner, COVERAGE_REPORT)?)?),
+        Action::Coverage(coverage) => coverage_gate(&measure(runner, *coverage)?, *coverage),
+        Action::CoverageLocality => coverage_locality(runner),
         Action::VersionGate => {
             let cargo = read_file(runner, CARGO_TOML)?;
             let packages = read_all(runner, package_jsons())?;
