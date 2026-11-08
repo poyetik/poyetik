@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { ABI_VERSION, EngineTrap, ModuleError, PatchError, WasmEngine } from "../ts/engine.ts";
 import { interleave, renderHash } from "../ts/hash.ts";
 import { CORPUS, engineFunctions, HOST_BUFFER_SIZES, FUNCTIONS, oscillators, PATCH_NAMES, REFERENCES, SILENT_PATCH, SINE_PATCH, UNKNOWN_BOX, handMadeModule, wasmBytes } from "./fixtures.ts";
@@ -228,13 +228,119 @@ describe("WasmEngine", () => {
     expect(outputs[0]?.[0]).toBe(0.5);
   });
 
-  test("outputs silence for a block placed outside the memory", () => {
-    // A module pointing its block past the end of its one page of memory.
-    const functions = engineFunctions().map((func) => (func.name === "engine_process" ? { ...func, body: { i32: 70_000 } } : func));
+  /** An engine of `channels` channels of `blockSize`-frame blocks, whose `engine_process` gives `pointer`. */
+  function placing(channels: number, blockSize: number, pointer: number): WasmEngine {
+    const answers: Readonly<Record<string, number>> = { engine_channels: channels, engine_block_size: blockSize, engine_process: pointer };
+    const functions = engineFunctions().map((func) => {
+      const answer = answers[func.name];
+      return answer === undefined ? func : { ...func, body: { i32: answer } };
+    });
+    return WasmEngine.create(handMadeModule({ memory: true, functions }), SINE_PATCH, RATE);
+  }
+
+  test("reads a block that ends at the end of the memory", () => {
+    // One page: 16 384 samples; two channels of 4 frames from sample 16 376 fill its end.
+    const outputs = [new Float32Array(4).fill(9), new Float32Array(4).fill(9)];
+    placing(2, 4, 65_536 - 32).render(outputs);
+    expect(outputs).toStrictEqual([new Float32Array(4), new Float32Array(4)]);
+  });
+
+  test("reads a first block at the first sample index 1", () => {
+    // The module copies the patch from address 1: its bytes 3 to 6 are the sample at address 4.
+    const outputs = [new Float32Array(1)];
+    placing(1, 1, 4).render(outputs);
+    expect(outputs[0]).toStrictEqual(new Float32Array([new DataView(SINE_PATCH.buffer, SINE_PATCH.byteOffset).getFloat32(3, true)]));
+    expect(outputs[0]?.[0]).not.toBe(0);
+  });
+
+  test.each([
+    [65_536 - 28, "outside the memory by one sample"],
+    [70_000, "outside the memory"],
+    [65_536 - 34, "unaligned"],
+  ])("refuses a block at the address %i (%s), then never calls the module again", (pointer) => {
+    const engine = placing(2, 4, pointer);
+    const outputs = [new Float32Array(4).fill(9), new Float32Array(4).fill(9)];
+    expect(() => {
+      engine.render(outputs);
+    }).toThrow(new ModuleError(`engine_process returned the block address ${String(pointer)}, unaligned or outside the memory`));
+    expect(() => {
+      engine.render(outputs);
+    }).toThrow(new EngineTrap());
+    expect(engine.blocks).toBe(0);
+  });
+
+  test("follows a block that moves without the memory growing", () => {
+    // One channel of one-frame blocks, at address 4096 (silent), then 2048 (0.25), and so on.
+    const functions = engineFunctions().map((func) => (func.name === "engine_process" ? { ...func, body: "alternate" as const } : func));
     const engine = WasmEngine.create(handMadeModule({ memory: true, functions }), SINE_PATCH, RATE);
-    const outputs = [new Float32Array(1).fill(9)];
+    const outputs = [new Float32Array(3)];
     engine.render(outputs);
-    expect(outputs[0]?.[0]).toBe(0);
+    expect(outputs[0]).toStrictEqual(new Float32Array([0, 0.25, 0]));
+  });
+
+  /** A `Float32Array` that counts how many are created, views included. */
+  class Counted extends Float32Array {
+    /** Arrays created since the last reset. */
+    static created = 0;
+
+    /** Creates the array, and counts it. */
+    constructor(...args: ConstructorParameters<typeof Float32Array>) {
+      super(...args);
+      Counted.created += 1;
+    }
+  }
+
+  /** Arrays created by `action`, with `Counted` standing in for `Float32Array`. */
+  function created(action: () => void): number {
+    Counted.created = 0;
+    action();
+    return Counted.created;
+  }
+
+  test("creates its views of the memory once, not at every block", () => {
+    vi.stubGlobal("Float32Array", Counted);
+    try {
+      const engine = WasmEngine.create(module, SINE_PATCH, RATE);
+      const outputs = [new Float32Array(64), new Float32Array(64)];
+      // The first block: one view of each channel; then none, block after block.
+      expect(created(() => { engine.render(outputs); })).toBe(2);
+      expect(created(() => { for (let block = 0; block < 100; block += 1) engine.render(outputs); })).toBe(0);
+
+      const one = [new Float32Array(1)];
+      // A block that moves: new views of the same memory.
+      const moving = engineFunctions().map((func) => (func.name === "engine_process" ? { ...func, body: "alternate" as const } : func));
+      const alternating = WasmEngine.create(handMadeModule({ memory: true, functions: moving }), SINE_PATCH, RATE);
+      expect(created(() => { alternating.render(one); })).toBe(1);
+      expect(created(() => { alternating.render(one); })).toBe(1);
+
+      // A memory that grows: a new view of it, and of the block.
+      const growing = engineFunctions().map((func) => (func.name === "engine_process" ? { ...func, body: "grow" as const } : func));
+      const grown = WasmEngine.create(handMadeModule({ memory: true, functions: growing }), SINE_PATCH, RATE);
+      expect(created(() => { grown.render(one); })).toBe(2);
+      expect(created(() => { grown.render(one); })).toBe(2);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  test("copies a whole block at once, and a partial one sample by sample", () => {
+    /** An output that counts the copies made into it with `set`. */
+    class Recorded extends Float32Array {
+      /** Calls of `set`. */
+      copies = 0;
+
+      /** Copies `array` into this one from `offset`, and counts the copy. */
+      override set(array: ArrayLike<number>, offset?: number): void {
+        this.copies += 1;
+        super.set(array, offset);
+      }
+    }
+    const engine = WasmEngine.create(module, SINE_PATCH, RATE);
+    // 160 frames: two whole blocks, then half of one.
+    const outputs = [new Recorded(160), new Recorded(160)];
+    engine.render(outputs);
+    expect(outputs.map((output) => output.copies)).toStrictEqual([2, 2]);
+    expect(Array.from(outputs[0] ?? [])).toStrictEqual(Array.from(renderSine(160, 160)[0] ?? []));
   });
 
   test.each([48_000.5, -1, 2 ** 32 + 48_000, Number.NaN, Number.POSITIVE_INFINITY])("refuses the sample rate %d", (rate) => {

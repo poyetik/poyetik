@@ -9,5 +9,3 @@
 # `cargo xtask check` fails on any disable comment not listed, and on any stale entry.
 
 bindings/wasm/ts/engine.ts: ArrayDeclaration at const NO_ARGUMENTS: readonly number[] = Object.freeze([]); -- only passed to exports that take no argument, and WebAssembly ignores extra arguments: any content gives the same calls
-bindings/wasm/ts/engine.ts: EqualityOperator at for (let frame = 0; frame < count; frame += 1) { -- copying one frame more writes a sample that the next pass overwrites, or past the end of the output, where typed arrays ignore writes: the outputs are identical
-bindings/wasm/ts/engine.ts: ConditionalExpression at if (this.#memory.buffer !== this.#exports.memory.buffer) { -- renewing the memory view at every block gives the same samples but allocates once per block; the mutant is killed by test:allocation (500 000 renders, zero collections), which must run without instrumentation and so outside Stryker

@@ -164,7 +164,10 @@ function guarded<T>(action: () => T): T {
  *
  * The engine renders fixed blocks; {@link WasmEngine.render} fills buffers of any length
  * from them, so the result never depends on how the host splits time. Rendering does
- * not allocate: it can run on an audio thread without causing garbage collection.
+ * not allocate when the buffers are whole blocks (the 128-frame quanta of Web Audio
+ * included): it can run on an audio thread without causing garbage collection, before
+ * and after the JavaScript engine optimizes it. Buffers of other lengths are copied
+ * sample by sample, which may allocate until the code is optimized.
  */
 export class WasmEngine {
   /** Number of output channels of the patch. */
@@ -175,14 +178,64 @@ export class WasmEngine {
   readonly #blockSize: number;
   /** A view of the module memory, renewed when the memory grows. */
   #memory: Float32Array;
-  /** Index in {@link WasmEngine.#memory} of the current block, planar. */
-  #base = 0;
+  /** The module memory read sample by sample (little-endian, as WebAssembly), renewed with {@link WasmEngine.#memory}. */
+  #data: DataView;
+  /**
+   * Index in {@link WasmEngine.#memory} of the current block, planar; -1 before the first,
+   * so that it builds the views. Always a small integer: a field once holding a fraction
+   * (`NaN`) stores numbers boxed, and reading it allocates until the code is optimized.
+   */
+  #base = -1;
+  /**
+   * One view per patch channel over the current block, renewed only when the block moves
+   * or the memory grows: copying a whole block through them allocates nothing.
+   */
+  readonly #views: Float32Array[] = [];
   /** Next frame of the current block to output; `#blockSize` when it is used up. */
   #position: number;
   /** Number of blocks rendered so far. */
   #blocks = 0;
-  /** Whether the module trapped: it is never called again. */
+  /** Whether the module failed (a trap, a wrong result): it is never called again. */
   #dead = false;
+  /** Length of every output of the current render, in frames. */
+  #frames = 0;
+  /** Frames of the current render already written. */
+  #written = 0;
+  /** Frames of the current chunk: copied from the current block, from {@link WasmEngine.#position}. */
+  #count = 0;
+
+  /**
+   * Checks the length of one output of the current render. A method made once, for
+   * `forEach`: an indexed loop would read the outputs as possibly missing, and an
+   * iterator allocates until the code is optimized.
+   * @throws {RangeError} when it differs from the length of the first output.
+   */
+  readonly #checkLength = (output: Float32Array): void => {
+    if (output.length !== this.#frames) {
+      throw new RangeError(`every output must have the same length: ${String(output.length)} instead of ${String(this.#frames)}`);
+    }
+  };
+
+  /**
+   * Copies the current chunk into one output (see {@link WasmEngine.#checkLength} for
+   * why it is made once): silence beyond the patch channels; a whole block in one copy,
+   * which reads no sample as a number and so allocates nothing; a part of a block sample
+   * by sample.
+   */
+  readonly #copyChunk = (output: Float32Array, channel: number): void => {
+    const view = this.#views[channel];
+    if (view === undefined) {
+      output.fill(0, this.#written, this.#written + this.#count);
+    } else if (this.#count === this.#blockSize) {
+      output.set(view, this.#written);
+    } else {
+      const offset = view.byteOffset + this.#position * Float32Array.BYTES_PER_ELEMENT;
+      for (let frame = 0; frame !== this.#count; frame += 1) {
+        const at = this.#written + frame;
+        output.fill(this.#data.getFloat32(offset + frame * Float32Array.BYTES_PER_ELEMENT, true), at, at + 1);
+      }
+    }
+  };
 
   /**
    * Wraps an instance with a patch loaded.
@@ -193,6 +246,7 @@ export class WasmEngine {
     this.channels = exports.channels();
     this.#blockSize = exports.blockSize();
     this.#memory = new Float32Array(exports.memory.buffer);
+    this.#data = new DataView(exports.memory.buffer);
     this.#position = this.#blockSize;
   }
 
@@ -234,45 +288,35 @@ export class WasmEngine {
   /**
    * Renders the next frames into `outputs`, one array per channel, all of the same
    * length. Arrays beyond the patch channels receive silence; patch channels beyond
-   * the arrays are dropped. Does not allocate.
+   * the arrays are dropped. Allocates nothing when every chunk is a whole block (see
+   * {@link WasmEngine}).
    * @throws {RangeError} when the arrays differ in length (nothing is rendered).
-   * @throws {EngineTrap} when the module traps, or trapped before.
+   * @throws {ModuleError} when the module places a block outside its memory; the engine
+   * is then dead.
+   * @throws {EngineTrap} when the module traps, or failed before.
    */
   render(outputs: readonly Float32Array[]): void {
     if (this.#dead) {
       throw new EngineTrap();
     }
-    const frames = outputs[0]?.length ?? 0;
-    for (const output of outputs) {
-      if (output.length !== frames) {
-        throw new RangeError(`every output must have the same length: ${String(output.length)} instead of ${String(frames)}`);
-      }
-    }
-    let written = 0;
-    while (written < frames) {
+    this.#frames = outputs[0]?.length ?? 0;
+    outputs.forEach(this.#checkLength);
+    this.#written = 0;
+    while (this.#written !== this.#frames) {
       if (this.#position === this.#blockSize) {
         this.#next();
       }
-      const count = Math.min(frames - written, this.#blockSize - this.#position);
-      let channel = 0;
-      for (const output of outputs) {
-        if (channel >= this.channels) {
-          output.fill(0, written, written + count);
-        } else {
-          const start = this.#base + channel * this.#blockSize + this.#position;
-          // Stryker disable next-line EqualityOperator: one frame more is overwritten by the next pass, or past the end of the output, where writes are ignored
-          for (let frame = 0; frame < count; frame += 1) {
-            output[written + frame] = this.#memory[start + frame] ?? 0;
-          }
-        }
-        channel += 1;
-      }
-      written += count;
-      this.#position += count;
+      this.#count = Math.min(this.#frames - this.#written, this.#blockSize - this.#position);
+      outputs.forEach(this.#copyChunk);
+      this.#written += this.#count;
+      this.#position += this.#count;
     }
   }
 
-  /** Renders the next block, in the module memory. */
+  /**
+   * Renders the next block, in the module memory, and checks where the module put it: a
+   * block the views cannot cover entirely is a module error, never read as silence.
+   */
   #next(): void {
     let pointer: number;
     try {
@@ -281,11 +325,23 @@ export class WasmEngine {
       this.#dead = true;
       throw error instanceof WebAssembly.RuntimeError ? new EngineTrap({ cause: error }) : error;
     }
-    // Stryker disable next-line ConditionalExpression: renewing the view at every block gives the same samples but allocates, which test:allocation (run without instrumentation, so outside Stryker) rejects
-    if (this.#memory.buffer !== this.#exports.memory.buffer) {
-      this.#memory = new Float32Array(this.#exports.memory.buffer);
+    const buffer = this.#exports.memory.buffer;
+    const base = pointer / Float32Array.BYTES_PER_ELEMENT;
+    if (!Number.isInteger(base) || base + this.channels * this.#blockSize > buffer.byteLength / Float32Array.BYTES_PER_ELEMENT) {
+      this.#dead = true;
+      throw new ModuleError(`engine_process returned the block address ${String(pointer)}, unaligned or outside the memory`);
     }
-    this.#base = pointer / Float32Array.BYTES_PER_ELEMENT;
+    if (this.#memory.buffer !== buffer || base !== this.#base) {
+      if (this.#memory.buffer !== buffer) {
+        this.#memory = new Float32Array(buffer);
+        this.#data = new DataView(buffer);
+      }
+      for (let channel = 0; channel !== this.channels; channel += 1) {
+        const start = base + channel * this.#blockSize;
+        this.#views[channel] = this.#memory.subarray(start, start + this.#blockSize);
+      }
+      this.#base = base;
+    }
     this.#position = 0;
     this.#blocks += 1;
   }

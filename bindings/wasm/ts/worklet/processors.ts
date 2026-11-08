@@ -35,10 +35,11 @@ function failure(error: unknown): EngineMessage {
  * outputs silence and stops.
  */
 class EngineProcessor extends AudioWorkletProcessor {
-  /** The engine; `undefined` once it failed. */
-  #engine: WasmEngine | undefined;
-  /** The index of the marker channel, after the patch channels; none (infinite) without one. */
-  readonly #marker: number = Number.POSITIVE_INFINITY;
+  /**
+   * The engine, and whether to fill the marker channel (the one after the patch
+   * channels); `undefined` once it failed.
+   */
+  #running: { readonly engine: WasmEngine; readonly marker: boolean } | undefined;
 
   /**
    * Loads the patch given in the node options (`processorOptions`, see `EngineOptions`).
@@ -49,10 +50,7 @@ class EngineProcessor extends AudioWorkletProcessor {
     super();
     try {
       const { wasm, patch, marker } = parseEngineOptions(options.processorOptions);
-      this.#engine = WasmEngine.create(new WebAssembly.Module(wasm), patch, sampleRate);
-      if (marker) {
-        this.#marker = this.#engine.channels;
-      }
+      this.#running = { engine: WasmEngine.create(new WebAssembly.Module(wasm), patch, sampleRate), marker };
       this.port.postMessage(READY);
     } catch (error) {
       this.port.postMessage(failure(error));
@@ -61,17 +59,18 @@ class EngineProcessor extends AudioWorkletProcessor {
 
   /** Renders the next render quantum. Does not allocate, except to report a failure once. */
   process(_inputs: Float32Array[][], outputs: Float32Array[][]): boolean {
-    if (this.#engine === undefined) {
+    if (this.#running === undefined) {
       return false;
     }
     try {
       const output = outputs[0] ?? NO_OUTPUT;
-      this.#engine.render(output);
-      // Without a marker the index is infinite: there is no such channel to fill.
-      output[this.#marker]?.fill(1);
+      this.#running.engine.render(output);
+      if (this.#running.marker) {
+        output[this.#running.engine.channels]?.fill(1);
+      }
       return true;
     } catch (error) {
-      this.#engine = undefined;
+      this.#running = undefined;
       this.port.postMessage(failure(error));
       return false;
     }

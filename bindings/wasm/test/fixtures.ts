@@ -143,9 +143,12 @@ export interface HandMadeFunction {
   readonly params: number;
   /**
    * An `i32` result (a JavaScript number), an `i64` one (a BigInt), a trap (typed `i32`),
-   * or `grow`: grows the memory by one page, writes 0.5 (f32) at address 0, returns 0.
+   * `grow`: grows the memory by one page, writes 0.5 (f32) at address 0, returns 0; or
+   * `alternate`: writes 0.25 (f32) at address 2048, then returns 4096 and 2048 in turn
+   * (which one is kept at address 1024, away from the patch copied from address 1): a
+   * block that moves without the memory growing.
    */
-  readonly body: { readonly i32: number } | "i64" | "trap" | "grow";
+  readonly body: { readonly i32: number } | "i64" | "trap" | "grow" | "alternate";
 }
 
 /** The arity of each engine export. */
@@ -193,7 +196,21 @@ export function handMadeBytes(options: HandMade): Uint8Array<ArrayBuffer> {
   const types = options.functions.map((func) => [0x60, func.params, ...Array<number>(func.params).fill(0x7f), 0x01, func.body === "i64" ? 0x7e : 0x7f]);
   const bodies = options.functions.map((func) => {
     const grow = [0x41, 0x01, 0x40, 0x00, 0x1a, 0x41, 0x00, 0x43, 0x00, 0x00, 0x00, 0x3f, 0x38, 0x02, 0x00, 0x41, 0x00];
-    const code = func.body === "trap" ? [0x00] : func.body === "i64" ? [0x42, 0x00] : func.body === "grow" ? grow : [0x41, ...sleb128(func.body.i32)];
+    const alternate = [
+      ...[0x41, 0x80, 0x10, 0x43, 0x00, 0x00, 0x80, 0x3e, 0x38, 0x02, 0x00],
+      ...[0x41, 0x80, 0x08, 0x41, 0x80, 0x10, 0x41, 0x80, 0x08, 0x28, 0x02, 0x00, 0x6b, 0x36, 0x02, 0x00],
+      ...[0x41, 0x80, 0x08, 0x28, 0x02, 0x00, 0x41, 0x80, 0x10, 0x6a],
+    ];
+    const code =
+      func.body === "trap"
+        ? [0x00]
+        : func.body === "i64"
+          ? [0x42, 0x00]
+          : func.body === "grow"
+            ? grow
+            : func.body === "alternate"
+              ? alternate
+              : [0x41, ...sleb128(func.body.i32)];
     return [code.length + 2, 0x00, ...code, 0x0b];
   });
   const imported = options.imports === true ? 1 : 0;
