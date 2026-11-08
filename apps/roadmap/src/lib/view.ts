@@ -1,11 +1,11 @@
-import { COLUMNS, withStatus, type Board, type Card, type ColumnId, type TaskWithStatus } from "./board.ts";
+import { COLUMNS, currentTaskIndex, withStatus, type Board, type Card, type ColumnId, type TaskWithStatus } from "./board.ts";
 
 /** A card prepared for display. */
 export interface CardView extends Card {
-  /** Steps with their status: the first one not done is in progress. */
+  /** Steps with their status: in the `doing` column, the first one not done is in progress. */
   readonly steps: readonly TaskWithStatus[];
   readonly doneSteps: number;
-  /** Title of the step in progress, or null when every step is done or there is none. */
+  /** Title of the step in progress, or null when there is none (card not in `doing`, no step left, or no step). */
   readonly currentStep: string | null;
 }
 
@@ -29,9 +29,10 @@ export interface BoardView {
 function toCardView(card: Card): CardView {
   return {
     ...card,
-    steps: withStatus(card.tasks),
+    steps: withStatus(card),
     doneSteps: card.tasks.filter((t) => t.done).length,
-    currentStep: card.tasks.find((t) => !t.done)?.title ?? null,
+    // Index -1 (nothing in progress) reads `undefined`, hence null.
+    currentStep: card.tasks[currentTaskIndex(card)]?.title ?? null,
   };
 }
 

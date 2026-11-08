@@ -41,6 +41,18 @@ describe("toView", () => {
     expect(toView({ ...allDone, cards: [card(1, "doing", "2026-11-01")] }).columns[2]?.cards[0]?.currentStep).toBeNull();
   });
 
+  it("has no current step outside the In progress column", () => {
+    const tasks = [
+      { title: "A", done: true },
+      { title: "B", done: false },
+    ];
+    const waiting: Board = { version: 1, title: "P", nextId: 2, cards: [{ ...card(1, "next", "2026-11-01"), tasks }] };
+    const view = toView(waiting).columns[1]?.cards[0];
+    expect(view?.currentStep).toBeNull();
+    expect(view?.steps.map((t) => t.status)).toEqual(["done", "todo"]);
+    expect(view?.doneSteps).toBe(1);
+  });
+
   it("groups cards by column in board order", () => {
     const cards = [
       card(1, "done", "2026-11-03"),

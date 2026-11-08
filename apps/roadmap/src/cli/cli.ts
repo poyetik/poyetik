@@ -52,7 +52,7 @@ export const HELP = `Usage: roadmap <command> [options]
   help                                        Show this help
 
 Columns: ${COLUMNS.map((c) => `${c.id} (${c.title})`).join(", ")}
-Steps: the first step that is not done is in progress.`;
+Steps: in a card of the doing column, the first step that is not done is in progress.`;
 
 /** Local date formatted as YYYY-MM-DD. */
 export function localDate(d: Date): string {
@@ -74,7 +74,7 @@ function printCard(io: Io, card: Card): void {
   if (card.description !== "") {
     io.out(card.description);
   }
-  withStatus(card.tasks).forEach((t, i) => {
+  withStatus(card).forEach((t, i) => {
     io.out(`  ${String(i + 1)}. ${t.title}${TAGS[t.status]}`);
   });
 }

@@ -43,6 +43,13 @@ describe("Board.astro", () => {
     expect(html).not.toMatch(/<details[^>]*\bopen\b/);
   });
 
+  it("renders no In progress tag for a card outside the In progress column", async () => {
+    const html = await render([card(1, "next", { tasks: [{ title: "Install", done: false }] })]);
+    expect(html).toMatch(/data-status="todo"[\s\S]*Install/);
+    expect(html).not.toContain("tag-doing");
+    expect(html).not.toContain('class="current"');
+  });
+
   it("renders columns, cards, description and milestone", async () => {
     const html = await render([card(1, "doing", { description: "The core", milestone: "M1" }), card(2, "done"), card(3, "next")]);
     expect(html).toContain("<strong>1</strong> / 3 done");

@@ -459,17 +459,25 @@ describe("tasks in parseBoard", () => {
 });
 
 describe("withStatus", () => {
-  it("marks done tasks, the first unfinished task in progress, the rest to do", () => {
-    const statuses = (done: boolean[]): string[] => withStatus(done.map((d, i) => ({ title: String(i), done: d }))).map((t) => t.status);
-    expect(statuses([])).toEqual([]);
-    expect(statuses([false, false, false])).toEqual(["doing", "todo", "todo"]);
-    expect(statuses([true, false, false])).toEqual(["done", "doing", "todo"]);
-    expect(statuses([true, false, true, false])).toEqual(["done", "doing", "done", "todo"]);
-    expect(statuses([true, true])).toEqual(["done", "done"]);
+  const statuses = (column: Card["column"], done: boolean[]): string[] =>
+    withStatus(card(1, column, { tasks: done.map((d, i) => ({ title: String(i), done: d })) })).map((t) => t.status);
+
+  it("marks done tasks, the first unfinished task in progress, the rest to do, in the In progress column", () => {
+    expect(statuses("doing", [])).toEqual([]);
+    expect(statuses("doing", [false, false, false])).toEqual(["doing", "todo", "todo"]);
+    expect(statuses("doing", [true, false, false])).toEqual(["done", "doing", "todo"]);
+    expect(statuses("doing", [true, false, true, false])).toEqual(["done", "doing", "done", "todo"]);
+    expect(statuses("doing", [true, true])).toEqual(["done", "done"]);
+  });
+
+  it.each(["later", "next", "done"] as const)("has no task in progress in the %s column", (column) => {
+    expect(statuses(column, [false, false])).toEqual(["todo", "todo"]);
+    expect(statuses(column, [true, false, true, false])).toEqual(["done", "todo", "done", "todo"]);
+    expect(statuses(column, [true, true])).toEqual(["done", "done"]);
   });
 
   it("keeps the title and done flag", () => {
-    expect(withStatus([{ title: "A", done: false }])).toEqual([{ title: "A", done: false, status: "doing" }]);
+    expect(withStatus(card(1, "doing", { tasks: [{ title: "A", done: false }] }))).toEqual([{ title: "A", done: false, status: "doing" }]);
   });
 });
 
@@ -518,6 +526,12 @@ describe("task commands", () => {
     expectBoardError(() => completeTask(board([card(1, "next")]), 1, undefined, LATER), "#1 has no task in progress");
     const allDone = completeTask(completeTask(completeTask(start, 1, 1, LATER), 1, 2, LATER), 1, 3, LATER);
     expectBoardError(() => completeTask(allDone, 1, undefined, LATER), "#1 has no task in progress");
+  });
+
+  it.each(["later", "next", "done"] as const)("has no default task outside the In progress column (%s)", (column) => {
+    const waiting = board([{ ...card(1, column), tasks: [{ title: "A", done: false }] }]);
+    expectBoardError(() => completeTask(waiting, 1, undefined, LATER), "#1 has no task in progress");
+    expect(completeTask(waiting, 1, 1, LATER).cards[0]?.tasks).toEqual([{ title: "A", done: true }]);
   });
 
   it("reopens a task", () => {

@@ -68,7 +68,7 @@ describe("help", () => {
     for (const action of ["add", "done", "undo", "edit", "rm"]) {
       expect(HELP).toContain(`  task ${action} <id>`);
     }
-    expect(HELP).toContain("Steps: the first step that is not done is in progress.");
+    expect(HELP).toContain("Steps: in a card of the doing column, the first step that is not done is in progress.");
     expect(HELP).toContain("Columns: later (Later), next (Next), doing (In progress), done (Done)");
   });
 });
@@ -342,6 +342,14 @@ describe("task", () => {
     expect(run(["task", "add", "1", "Install"], f.io)).toBe(0);
     expect(f.out).toEqual(["#1  doing  Engine [M1]  0/1", "The core", "  1. Install  [In progress]"]);
     expect(boardOf(f).cards[0]?.tasks).toEqual([{ title: "Install", done: false }]);
+  });
+
+  it("shows no step in progress for a card outside the doing column", () => {
+    const f = seeded();
+    expect(run(["task", "add", "2", "Sketch"], f.io)).toBe(0);
+    expect(f.out).toEqual(["#2  later  Editor  0/1", "  1. Sketch"]);
+    expect(run(["task", "done", "2"], f.io)).toBe(1);
+    expect(f.err).toEqual(["error: #2 has no task in progress"]);
   });
 
   it("completes the step in progress and moves the tag to the next one", () => {

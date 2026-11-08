@@ -14,13 +14,13 @@ export const COLUMNS = [
 /** Identifier of a column. */
 export type ColumnId = (typeof COLUMNS)[number]["id"];
 
-/** One step of a card. The first step that is not done is the one in progress. */
+/** One step of a card. In a card of the `doing` column, the first step that is not done is the one in progress. */
 export interface Task {
   readonly title: string;
   readonly done: boolean;
 }
 
-/** Display status of a step: done, in progress (the first step not done) or still to do. */
+/** Display status of a step: done, in progress (the first step not done, only in the `doing` column) or still to do. */
 export type TaskStatus = "done" | "doing" | "todo";
 
 /** A roadmap card (ticket) with its ordered steps. */
@@ -303,10 +303,18 @@ export interface TaskWithStatus extends Task {
   readonly status: TaskStatus;
 }
 
-/** Status of each task: done, the first unfinished one in progress, the rest to do. */
-export function withStatus(tasks: readonly Task[]): TaskWithStatus[] {
-  const current = tasks.findIndex((t) => !t.done);
-  return tasks.map((t, i) => ({ ...t, status: t.done ? "done" : i === current ? "doing" : "todo" }));
+/**
+ * Index of the step in progress: the first step not done, and only for a card in the `doing` column.
+ * A card waiting in another column has nothing in progress. Returns -1 when there is none.
+ */
+export function currentTaskIndex(card: Pick<Card, "column" | "tasks">): number {
+  return card.column === "doing" ? card.tasks.findIndex((t) => !t.done) : -1;
+}
+
+/** Status of each task: done, the one in progress (see {@link currentTaskIndex}), the rest to do. */
+export function withStatus(card: Pick<Card, "column" | "tasks">): TaskWithStatus[] {
+  const current = currentTaskIndex(card);
+  return card.tasks.map((t, i) => ({ ...t, status: t.done ? "done" : i === current ? "doing" : "todo" }));
 }
 
 /** Parses a 1-based task number typed by a user. */
@@ -339,7 +347,7 @@ export function addTask(board: Board, id: number, title: string, today: string):
 /** Marks a task done, or the task in progress when no number is given. */
 export function completeTask(board: Board, id: number, n: number | undefined, today: string): Board {
   return updateCard(board, id, today, (card) => {
-    const index = n === undefined ? card.tasks.findIndex((t) => !t.done) : requireTaskIndex(card, n);
+    const index = n === undefined ? currentTaskIndex(card) : requireTaskIndex(card, n);
     if (index === -1) {
       throw new BoardError(`${formatId(card.id)} has no task in progress`);
     }
