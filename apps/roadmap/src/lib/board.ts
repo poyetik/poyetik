@@ -80,13 +80,13 @@ export function formatId(id: number): string {
   return `#${String(id)}`;
 }
 
-/** Parses a card id typed by a user: `12` or `#12`. */
+/** Parses a card id typed by a user: `12` or `#12`, at most `Number.MAX_SAFE_INTEGER` (a larger one would read back as another number). */
 export function parseId(text: string): number {
-  const match = ID_TEXT_RE.exec(text);
-  if (match === null) {
+  const id = Number(ID_TEXT_RE.exec(text)?.[1]);
+  if (!isPositiveInteger(id)) {
     throw new ArgumentError(`invalid id: ${text}`);
   }
-  return Number(match[1]);
+  return id;
 }
 
 /** Creates an empty board with the given title. */
@@ -151,9 +151,12 @@ function requireExactKeys(value: object, keys: readonly string[], what: string):
   }
 }
 
-/** Whether `value` is an integer of at least 1, the valid range of card ids and of `nextId`. */
+/**
+ * Whether `value` is a safe integer of at least 1, the valid range of card ids and of `nextId`:
+ * from 2^53 on, `n + 1 === n`, so a larger id could not be told apart from its neighbour.
+ */
 function isPositiveInteger(value: unknown): value is number {
-  return Number.isInteger(value) && Number(value) >= 1;
+  return Number.isSafeInteger(value) && Number(value) >= 1;
 }
 
 /** Whether `value` is a plain object (not null, not an array), so that its fields can be read. */
@@ -215,7 +218,7 @@ export function parseBoard(raw: unknown): Board {
   }
   const nextId = raw["nextId"];
   if (!isPositiveInteger(nextId)) {
-    throw new BoardError("nextId must be an integer >= 1");
+    throw new BoardError("nextId must be a safe integer >= 1");
   }
   const cards = raw["cards"];
   if (!Array.isArray(cards)) {
@@ -281,9 +284,12 @@ export function findCard(board: Board, id: number): Card {
   return card;
 }
 
-/** Adds a card at the end of the board and returns the new board and card. */
+/** Adds a card at the end of the board and returns the new board and card; throws a `BoardError` when no safe id is left for the next card. */
 export function addCard(board: Board, input: AddInput, today: string): { board: Board; card: Card } {
   const date = requireDate(today, "today's date");
+  if (board.nextId === Number.MAX_SAFE_INTEGER) {
+    throw new BoardError("no card id left");
+  }
   const card: Card = {
     id: board.nextId,
     title: requireText(input.title, "title"),

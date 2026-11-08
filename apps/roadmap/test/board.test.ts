@@ -129,6 +129,13 @@ describe("card ids", () => {
     expect(parseId("907")).toBe(907);
   });
 
+  it("parses the largest safe integer, and nothing beyond it", () => {
+    expect(parseId(String(Number.MAX_SAFE_INTEGER))).toBe(Number.MAX_SAFE_INTEGER);
+    // 2^53 and above read back as another number: two typed ids could name the same card.
+    expectArgumentError(() => parseId("9007199254740992"), "invalid id: 9007199254740992");
+    expectArgumentError(() => parseId("#99999999999999999999"), "invalid id: #99999999999999999999");
+  });
+
   it.each(["", "#", "0", "#0", "01", "-1", "1a", "a1", "##1", " 1", "1 ", "R-1", "1.5"])(
     "rejects an invalid id: %j",
     (text) => {
@@ -185,8 +192,12 @@ describe("parseBoard", () => {
     expectBoardError(() => parseBoard(raw({ version: 2 })), "unsupported version: 2");
   });
 
-  it.each([0, -1, 1.5, "2", null, true, [2]])("rejects an invalid nextId: %j", (nextId) => {
-    expectBoardError(() => parseBoard(raw({ nextId, cards: [] })), "nextId must be an integer >= 1");
+  it.each([0, -1, 1.5, "2", null, true, [2], 2 ** 53, Number.MAX_VALUE, Infinity])("rejects an invalid nextId: %j", (nextId) => {
+    expectBoardError(() => parseBoard(raw({ nextId, cards: [] })), "nextId must be a safe integer >= 1");
+  });
+
+  it("accepts the largest safe nextId", () => {
+    expect(parseBoard(raw({ nextId: Number.MAX_SAFE_INTEGER, cards: [] })).nextId).toBe(Number.MAX_SAFE_INTEGER);
   });
 
   it("rejects cards that is not an array", () => {
@@ -212,7 +223,7 @@ describe("parseBoard", () => {
     );
   });
 
-  it.each([0, -1, 1.5, "1", "#1", null, true, [1]])("rejects an invalid id: %j", (id) => {
+  it.each([0, -1, 1.5, "1", "#1", null, true, [1], 2 ** 53])("rejects an invalid id: %j", (id) => {
     expectBoardError(() => parseBoard(rawCard({ id })), "card #0: invalid id");
   });
 
@@ -385,6 +396,15 @@ describe("addCard", () => {
     const start = emptyBoard("P");
     addCard(start, { title: "T" }, DAY);
     expect(start).toEqual(emptyBoard("P"));
+  });
+
+  it("takes the last safe id, then refuses to add a card whose id could not be told apart", () => {
+    const last = { ...emptyBoard("P"), nextId: Number.MAX_SAFE_INTEGER - 1 };
+    const result = addCard(last, { title: "T" }, DAY);
+    expect(result.card.id).toBe(Number.MAX_SAFE_INTEGER - 1);
+    expect(result.board.nextId).toBe(Number.MAX_SAFE_INTEGER);
+    expect(parseBoard(JSON.parse(serializeBoard(result.board)))).toEqual(result.board);
+    expectBoardError(() => addCard(result.board, { title: "U" }, DAY), "no card id left");
   });
 
   it("validates title and date", () => {
@@ -642,5 +662,51 @@ describe("step commands", () => {
     expectBoardError(() => addStep(start, 1, "  ", LATER), "step title must be a non-empty string");
     expectBoardError(() => addStep(start, 9, "D", LATER), "card not found: #9");
     expectBoardError(() => addStep(start, 1, "D", "x"), "today's date must be a YYYY-MM-DD date");
+  });
+});
+
+describe("closure law", () => {
+  /** Boards at the edges of the domain: empty, the last safe id, every column, steps all done and none done. */
+  const edges: Board[] = [
+    emptyBoard("P"),
+    { ...emptyBoard("P"), nextId: Number.MAX_SAFE_INTEGER - 1 },
+    {
+      version: 1,
+      title: "P",
+      nextId: Number.MAX_SAFE_INTEGER - 1,
+      cards: [
+        card(1, "later", { steps: [{ title: "A", done: false }] }),
+        card(Number.MAX_SAFE_INTEGER - 2, "doing", { steps: [{ title: "A", done: true }, { title: "B", done: true }] }),
+        card(3, "next", { description: "d", milestone: "M" }),
+        card(4, "done", { steps: [{ title: "A", done: true }] }),
+      ],
+    },
+  ];
+
+  /** Every command applied to `start` in every way that succeeds on it. */
+  function results(start: Board): Board[] {
+    const all: Board[] = [addCard(start, { title: "New", column: "doing" }, LATER).board];
+    for (const existing of start.cards) {
+      for (const column of COLUMNS) {
+        all.push(moveCard(start, existing.id, column.id, 0, LATER));
+      }
+      all.push(editCard(start, existing.id, { title: "T", description: "", milestone: "" }, LATER));
+      all.push(removeCard(start, existing.id));
+      all.push(addStep(start, existing.id, "S", LATER));
+      existing.steps.forEach((_step, i) => {
+        all.push(completeStep(start, existing.id, i + 1, LATER));
+        all.push(reopenStep(start, existing.id, i + 1, LATER));
+        all.push(renameStep(start, existing.id, i + 1, "R", LATER));
+        all.push(removeStep(start, existing.id, i + 1, LATER));
+      });
+    }
+    return all;
+  }
+
+  it.each(edges.map((start, i) => [i, start] as const))("keeps edge board %i valid through every command", (_i, start) => {
+    expect(parseBoard(JSON.parse(serializeBoard(start)))).toEqual(start);
+    for (const result of results(start)) {
+      expect(parseBoard(JSON.parse(serializeBoard(result)))).toEqual(result);
+    }
   });
 });
