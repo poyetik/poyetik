@@ -685,9 +685,10 @@ fn portability_steps() -> Vec<Step> {
 /// The test harness argument that runs the ignored tests too.
 ///
 /// Given to every Rust test run that proves something (the tests, coverage, mutation
-/// testing): an ignored test is then inert, never a way to remove a test from a proof.
-/// Rustdoc does not compile an `ignore` doc test even so, nor run a `no_run` one: the
-/// bypass gate refuses both.
+/// testing, Miri): an ignored test is then inert, never a way to remove a test from a proof.
+/// Rustdoc does not compile an `ignore` doc test even so, nor run a `no_run` one, and a
+/// conditional attribute or a `cfg` naming Miri can still remove a test from one of these
+/// runs: the bypass gate refuses all of them.
 pub const INCLUDE_IGNORED: &str = "--include-ignored";
 
 /// The arguments of every cargo-mutants run: lints are capped while building mutants
@@ -837,15 +838,15 @@ pub fn unsafe_crates() -> Vec<&'static str> {
         .collect()
 }
 
-/// Miri runs the tests of every crate holding unsafe code ([`unsafe_crates`]), checking
-/// them for undefined behavior.
+/// Miri runs the tests of every crate holding unsafe code ([`unsafe_crates`]), the ignored
+/// ones included ([`INCLUDE_IGNORED`]), checking them for undefined behavior.
 #[must_use]
 pub fn miri_command() -> Cmd {
     let mut args = vec![NIGHTLY_TOOLCHAIN, "miri", "test"];
     for krate in unsafe_crates() {
         args.extend(["--package", krate]);
     }
-    args.push("--locked");
+    args.extend(["--locked", "--", INCLUDE_IGNORED]);
     Cmd::new("cargo", &args, Dir::Root)
 }
 
@@ -1462,7 +1463,6 @@ fn bypass_tokens() -> Vec<(String, &'static [&'static str])> {
     let typescript: &[&str] = &BYPASS_TYPESCRIPT;
     vec![
         (format!("{}::{}", "mutants", "skip"), rust),
-        (format!("#[{}", "ignore"), rust),
         (format!("{}(off)", "coverage"), rust),
         (format!("cfg({}", "coverage"), rust),
         (format!("{}_{}", "coverage", "nightly"), rust),
@@ -1475,6 +1475,38 @@ fn bypass_tokens() -> Vec<(String, &'static [&'static str])> {
         (format!("{}If(", "skip"), typescript),
         (format!("{}If(", "run"), typescript),
     ]
+}
+
+/// What ignores a Rust test or makes an attribute conditional, as rustc accepts it: an
+/// `ignore` attribute, written with any whitespace or as a raw identifier, and any
+/// conditional attribute (its condition may name the coverage build or Miri, where the
+/// ignored tests run, and it may ignore a test there). Built at run time, like
+/// [`bypass_tokens`]; [`bypass_gate`] seeks them in a whole file, without case or whitespace.
+fn rust_hints() -> Vec<String> {
+    vec![
+        format!("#[{}", "ignore"),
+        format!("r#{}", "ignore"),
+        format!("{}_{}", "cfg", "attr"),
+    ]
+}
+
+/// The `cfg` Miri sets: a test that names it can leave the Miri run ([`miri_command`]), so
+/// [`bypass_gate`] refuses it as a word anywhere in Rust code (a raw identifier included),
+/// except in the exact string literal that names the tool.
+const MIRI: &str = "miri";
+
+/// Whether `line`, Rust code, holds the word [`MIRI`] outside the string literal of
+/// exactly that word: neither preceded nor followed by a letter, digit or underscore.
+fn names_miri(line: &str) -> bool {
+    let code = line.replace(&format!("{MIRI:?}"), "");
+    let word = |character: char| character.is_alphanumeric() || character == '_';
+    code.match_indices(MIRI).any(|(at, _)| {
+        let before = code.get(..at).and_then(|text| text.chars().next_back());
+        let after = code
+            .get(at.saturating_add(MIRI.len())..)
+            .and_then(|text| text.chars().next());
+        !before.into_iter().chain(after).any(word)
+    })
 }
 
 /// The extensions of the TypeScript and JavaScript files whose bypasses [`bypass_gate`]
@@ -1603,6 +1635,9 @@ pub fn bypass_gate(sources: &[(String, String)], reviewed: &str) -> Result<(), F
                     keys.push(format!("{path}: {token} at {}", line.trim()));
                 }
             }
+            if extension == "rs" && names_miri(line) {
+                keys.push(format!("{path}: {MIRI} at {}", line.trim()));
+            }
             if let Some(attribute) = silent_doc_test(line).filter(|_| extension == "rs") {
                 keys.push(format!(
                     "{path}: {}{attribute} at {}",
@@ -1611,12 +1646,17 @@ pub fn bypass_gate(sources: &[(String, String)], reviewed: &str) -> Result<(), F
                 ));
             }
         }
-        if BYPASS_TYPESCRIPT.contains(&extension) {
-            for hint in coverage_hints() {
-                for at in hint_lines(text, &hint) {
-                    let line = lines.get(at).map_or("", |line| line.trim());
-                    keys.push(format!("{path}: {hint} at {line}"));
-                }
+        let hints = if BYPASS_TYPESCRIPT.contains(&extension) {
+            coverage_hints().to_vec()
+        } else if extension == "rs" {
+            rust_hints()
+        } else {
+            Vec::new()
+        };
+        for hint in hints {
+            for at in hint_lines(text, &hint) {
+                let line = lines.get(at).map_or("", |line| line.trim());
+                keys.push(format!("{path}: {hint} at {line}"));
             }
         }
     }

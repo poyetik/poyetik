@@ -718,7 +718,10 @@ fn lists_every_check_in_order() {
             "bypass gate",
             "unsafe gate",
             "cargo config gate",
-            "Root: cargo +nightly-2026-11-01 miri test --package engine-alloc-counter --package engine-wasm --locked",
+            &format!(
+                "Root: cargo +nightly-2026-11-01 {} test --package engine-alloc-counter --package engine-wasm --locked -- --include-ignored",
+                "miri"
+            ),
             "Root: cargo run --package engine-cli --locked --quiet -- check conformance",
             "fresh target/conformance",
             "Root: cargo run --package engine-cli --locked --quiet -- export conformance target/conformance",
@@ -3327,6 +3330,7 @@ fn assert_refused(refused: Vec<(&str, String, String)>) {
 #[test]
 fn refuses_every_form_of_a_rust_bypass() {
     let [fence, cfgs, check_cfg, ..] = bypass_words();
+    let attr = format!("{}_{}", "cfg", "attr");
     assert_refused(vec![
         (
             "crates/a/src/lib.rs",
@@ -3342,6 +3346,51 @@ fn refuses_every_form_of_a_rust_bypass() {
             "crates/a/src/lib.rs",
             format!("/// {}{}\n", "~".repeat(3), "no_run"),
             format!("{fence}{}", "no_run"),
+        ),
+        (
+            "crates/a/src/lib.rs",
+            format!("#[{}(any(), {})]\n", attr, "ignore"),
+            attr.clone(),
+        ),
+        (
+            "crates/a/src/lib.rs",
+            format!("#[{} (all(), {})]\n", attr, "ignore"),
+            attr,
+        ),
+        (
+            "crates/a/src/lib.rs",
+            format!("#[cfg(all(test, not({})))]\n", "miri"),
+            "miri".to_owned(),
+        ),
+        (
+            "crates/a/src/lib.rs",
+            format!("#[cfg(not({}))]\n", "miri"),
+            "miri".to_owned(),
+        ),
+        (
+            "crates/a/src/lib.rs",
+            format!("#[cfg(not( r#{} ))]\n", "miri"),
+            "miri".to_owned(),
+        ),
+        (
+            "crates/a/src/lib.rs",
+            format!("if cfg!({}) {{\n", "miri"),
+            "miri".to_owned(),
+        ),
+        (
+            "crates/a/src/lib.rs",
+            format!("# [ {} ]\n", "ignore"),
+            format!("#[{}", "ignore"),
+        ),
+        (
+            "crates/a/src/lib.rs",
+            format!("#[{} = \"slow\"]\n", "ignore"),
+            format!("#[{}", "ignore"),
+        ),
+        (
+            "crates/a/src/lib.rs",
+            format!("#[r#{}]\n", "ignore"),
+            format!("r#{}", "ignore"),
         ),
         (
             "crates/a/src/lib.rs",
@@ -3419,6 +3468,7 @@ fn refuses_every_form_of_a_typescript_bypass() {
 #[test]
 fn accepts_what_only_resembles_a_bypass() {
     let [fence, cfgs, check_cfg, v8, _, _, _, methods] = bypass_words();
+    let attr = format!("{}_{}", "cfg", "attr");
     let accepted = [
         (
             "crates/a/src/lib.rs",
@@ -3432,6 +3482,17 @@ fn accepts_what_only_resembles_a_bypass() {
             ),
         ),
         ("crates/a/src/lib.rs", format!("/* {v8} next */\n")),
+        (
+            "crates/a/src/lib.rs",
+            format!(
+                "let tool = {:?};\n// Miri checks it\nlet {}n = x_{};\nlet v = vec![{}];\n",
+                "miri", "miri", "miri", "ignore"
+            ),
+        ),
+        (
+            "README.md",
+            format!("#[{}(not({}), {})]\n", attr, "miri", "ignore"),
+        ),
         (
             "apps/a/src/a.ts",
             "coverage: { provider: \"v8\" },\n".to_owned(),
@@ -5896,9 +5957,12 @@ fn runs_miri_on_every_crate_of_the_audited_files() {
     );
     assert_eq!(
         super::miri_command().line(),
-        "cargo +nightly-2026-11-01 miri test --package engine-alloc-counter --package \
-         engine-wasm --locked",
-        "Miri on each of them"
+        format!(
+            "cargo +nightly-2026-11-01 {} test --package engine-alloc-counter --package \
+             engine-wasm --locked -- --include-ignored",
+            "miri"
+        ),
+        "Miri on each of them, ignored tests included"
     );
     assert!(
         check_steps(CHANGES_MODE)
