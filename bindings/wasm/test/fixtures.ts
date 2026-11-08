@@ -68,6 +68,16 @@ export const CORPUS: readonly CorpusCase[] = jsonNames("cases/").map((name) => {
   };
 });
 
+/** Every sample rate of the shared test matrix (conformance/test-matrix.json), in hertz. */
+export const SAMPLE_RATES: readonly number[] = ((): number[] => {
+  const matrix: unknown = JSON.parse(readFileSync(new URL("test-matrix.json", CONFORMANCE), "utf8"));
+  const rates = field(matrix, "sample_rates");
+  if (!Array.isArray(rates) || !rates.every((rate) => typeof rate === "number")) {
+    throw new Error("invalid test matrix");
+  }
+  return rates.map(Number);
+})();
+
 /** The names of the patch files of the corpus, sorted. */
 export const PATCH_NAMES: readonly string[] = jsonNames("patches/");
 

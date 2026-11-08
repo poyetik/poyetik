@@ -191,3 +191,21 @@ test("keeps the oscilloscope colors in forced colors (high contrast)", async ({ 
   await page.emulateMedia({ forcedColors: "active", colorScheme: "light" });
   expect(await background()).toBe(normal);
 });
+
+for (const rate of [44_100, 96_000]) {
+  test(`plays the 440 Hz sine on a device at ${String(rate)} Hz`, async ({ page }) => {
+    // Every AudioContext of the page runs at this rate, as on a device that imposes it.
+    await page.addInitScript((forced) => {
+      const Native = window.AudioContext;
+      window.AudioContext = class extends Native {
+        constructor(options?: AudioContextOptions) {
+          super({ ...options, sampleRate: forced });
+        }
+      };
+    }, rate);
+    await page.goto("./?muted");
+    await page.getByRole("button", { name: "Start" }).click();
+    await expect(page.getByTestId("rate")).toHaveText(`${String(rate)} Hz`);
+    await expect(page.getByTestId("frequency")).toHaveText("440.0 Hz");
+  });
+}

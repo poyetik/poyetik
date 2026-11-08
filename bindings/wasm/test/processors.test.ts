@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, test, vi } from "vitest";
 import { WasmEngine } from "../ts/engine.ts";
 import { ENGINE_PROCESSOR, TAP_PROCESSOR } from "../ts/protocol.ts";
-import { SILENT_PATCH, SINE_PATCH, UNKNOWN_BOX, wasmBytes } from "./fixtures.ts";
+import { SAMPLE_RATES, SILENT_PATCH, SINE_PATCH, UNKNOWN_BOX, wasmBytes } from "./fixtures.ts";
 
 const RATE = 48_000;
 
@@ -51,14 +51,20 @@ describe("engine processor", () => {
     expect([...registered.keys()]).toStrictEqual([ENGINE_PROCESSOR, TAP_PROCESSOR]);
   });
 
-  test("renders the patch at the rate of the worklet", () => {
+  test.each(SAMPLE_RATES)("renders the patch at the rate of the worklet: %i Hz", (rate) => {
+    // The worklet's global sampleRate, never a default: each rate gives other samples.
+    vi.stubGlobal("sampleRate", rate);
     const Engine = processor(ENGINE_PROCESSOR);
     const node = new Engine({ processorOptions: { wasm: wasmBytes(), patch: SINE_PATCH, marker: false } });
     const outputs = [[new Float32Array(128), new Float32Array(128)]];
     expect(node.process([], outputs)).toBe(true);
     const expected = [new Float32Array(128), new Float32Array(128)];
-    WasmEngine.create(new WebAssembly.Module(wasmBytes()), SINE_PATCH, RATE).render(expected);
+    WasmEngine.create(new WebAssembly.Module(wasmBytes()), SINE_PATCH, rate).render(expected);
     expect(outputs[0]).toStrictEqual(expected);
+    const other = [new Float32Array(128), new Float32Array(128)];
+    WasmEngine.create(new WebAssembly.Module(wasmBytes()), SINE_PATCH, rate === 48_000 ? 44_100 : 48_000).render(other);
+    expect(outputs[0]).not.toStrictEqual(other);
+    vi.stubGlobal("sampleRate", RATE);
   });
 
   test("leaves the one silent channel of a patch without output alone, without a marker", () => {

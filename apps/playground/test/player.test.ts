@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { SINE_440 } from "../src/patch.ts";
 import { EnginePlayer, explain, missing, type Environment, type Missing, type PlayerOptions } from "../src/player.ts";
+import { SAMPLE_RATES } from "./matrix.ts";
 
 /** The built engine module. */
 const WASM = readFileSync(new URL(import.meta.resolve("@poyetik/engine-wasm/engine.wasm")));
@@ -121,7 +122,9 @@ class FakeContext {
   static readonly created: FakeContext[] = [];
   /** The state `resume` leads to: a browser may keep a context suspended. */
   static resumesTo: AudioContextState = "running";
-  readonly sampleRate = 48_000;
+  /** The rate of the device: each test may pick another one. */
+  static rate = 48_000;
+  readonly sampleRate = FakeContext.rate;
   readonly currentTime = 1;
   readonly destination = {};
   state: AudioContextState = "suspended";
@@ -197,6 +200,7 @@ beforeEach(() => {
   engineAnswer = { type: "ready" };
   FakeContext.created.length = 0;
   FakeContext.resumesTo = "running";
+  FakeContext.rate = 48_000;
   FakeWorkletNode.created.length = 0;
   vi.stubGlobal("AudioContext", FakeContext);
   vi.stubGlobal("AudioWorkletNode", FakeWorkletNode);
@@ -491,6 +495,16 @@ describe("EnginePlayer", () => {
     await player.start();
     expect(player.state()).toStrictEqual({ kind: "failed", reason: explain("secure-context") });
     expect(FakeContext.created).toHaveLength(0);
+  });
+});
+
+describe("EnginePlayer at the rate of the device", () => {
+  test.each(SAMPLE_RATES)("plays at %i Hz, the rate of its context, never a default", async (rate) => {
+    FakeContext.rate = rate;
+    const player = new EnginePlayer(options());
+    await player.start();
+    expect(player.state()).toStrictEqual({ kind: "playing" });
+    expect(player.latest()?.rate).toBe(rate);
   });
 });
 
