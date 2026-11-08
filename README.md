@@ -28,7 +28,7 @@ macOS or Linux (on Windows, use WSL2). `cargo xtask check` checks every tool fir
 
 - [rustup](https://rustup.rs): the pinned toolchain (`rust-toolchain.toml`) installs itself. The checks also need `nightly-2026-11-01` with `llvm-tools-preview`, `miri` and `rust-src` (branch coverage and Miri only).
 - `cargo install --locked cargo-llvm-cov@0.9.1 cargo-mutants@27.1.0 cargo-deny@0.20.2` (the exact versions the checks require).
-- Node.js 22.18 or later (CI uses the release in `.node-version`) and pnpm 10 (`corepack enable`), then `pnpm install` at the root, and `pnpm exec playwright install` in each package with end-to-end tests (`bindings/wasm`, `apps/playground`, `apps/roadmap`).
+- Node.js, exactly the release in `.node-version` (the one CI installs; the preflight refuses any other, though the packages' `engines` accept 22.18 or later) and pnpm 10 (`corepack enable`), then `pnpm install` at the root, and `pnpm exec playwright install` in each package with end-to-end tests (`bindings/wasm`, `apps/playground`, `apps/roadmap`).
 
 ## Checking
 
@@ -39,7 +39,7 @@ cargo xtask list           # what they are (`list --full`: those of `check --ful
 cargo xtask mutants <target>  # every mutant of a crate, a Rust file, a TypeScript package or one of its sources
 ```
 
-The pre-push hook runs `cargo xtask check` (`--full` when a tag is pushed), CI runs `cargo xtask check --full`. The default check mutation tests only what changed: Rust since the merge base with the branch's upstream (else `origin/main`, else `main`), TypeScript since the last local Stryker run (its incremental file), so a green default check does not prove a green full check; `CLAUDE.md` (CI) says what each proves and when the full check is required.
+The pre-push hook runs `cargo xtask pre-push`, which refuses uncommitted changes and a pushed commit other than the one checked out, then runs `cargo xtask check` (`--full` when a tag is pushed); CI runs `cargo xtask check --full`. The default check mutation tests only what changed: Rust since the merge base with the branch's upstream (else `origin/main`, else `main`), TypeScript since the last local Stryker run (its incremental file), so a green default check does not prove a green full check; `CLAUDE.md` (CI) says what each proves and when the full check is required.
 
 ## License
 
