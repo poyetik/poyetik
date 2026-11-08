@@ -121,6 +121,20 @@ describe("Board.astro", () => {
     expect(html).not.toContain('class="current"');
   });
 
+  it("names each column heading with its count and unit, the unit for screen readers only", async () => {
+    const html = await render([card(1, "doing"), card(2, "doing"), card(3, "next")]);
+    const headings = [...html.matchAll(/<h2[^>]*>([\s\S]*?)<\/h2>/g)].map(([, inner = ""]) =>
+      inner.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim(),
+    );
+    expect(headings).toStrictEqual(["Later 0 cards", "Next 1 card", "In progress 2 cards", "Done 0 cards"]);
+    expect(html).toMatch(/<span class="count"[^>]*>2<span class="visually-hidden"[^>]*> cards<\/span><\/span>/);
+  });
+
+  it("keeps list semantics on every column's card list, whatever its style", async () => {
+    const html = await render([card(1, "doing"), card(2, "next"), card(3, "later"), card(4, "done")]);
+    expect(html.match(/<ul\b[^>]*>/g)).toStrictEqual(Array.from({ length: 4 }, () => '<ul role="list">'));
+  });
+
   it("escapes card content (no HTML injection)", async () => {
     const html = await render([card(1, "next", { title: "<script>alert(1)</script>", description: "<img src=x onerror=1>" })]);
     expect(html).not.toContain("<script>alert(1)</script>");

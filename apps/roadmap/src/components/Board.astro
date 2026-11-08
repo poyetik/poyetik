@@ -21,12 +21,12 @@ const { view } = Astro.props;
     view.columns.map((column) => (
       <section class="column" data-column={column.id} aria-labelledby={`col-${column.id}`}>
         <h2 id={`col-${column.id}`}>
-          {column.title} <span class="count">{column.cards.length}</span>
+          {column.title} <span class="count">{column.cards.length}<span class="visually-hidden"> {column.cards.length === 1 ? "card" : "cards"}</span></span>
         </h2>
         {column.cards.length === 0 ? (
           <p class="empty">Nothing yet</p>
         ) : (
-          <ul>
+          <ul role="list">
             {column.cards.map((card) => (
               <li class="card" data-id={card.id}>
                 <h3>{card.title}</h3>

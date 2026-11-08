@@ -154,3 +154,45 @@ test("runs in a time zone and a locale of the test matrix, not the machine's", a
   const expected = maximal(locale ?? "");
   expect([maximal(language), maximal(formatting)]).toStrictEqual([expected, expected]);
 });
+
+test("names each column region by its heading, count and unit", async ({ page }) => {
+  await page.goto("./");
+  for (const column of view.columns) {
+    const count = column.cards.length;
+    await expect(page.locator(`[data-column="${column.id}"]`)).toHaveAccessibleName(
+      `${column.title} ${String(count)} ${count === 1 ? "card" : "cards"}`,
+    );
+  }
+  // The unit is for screen readers only: it takes no room on screen.
+  const unit = page.locator(".count .visually-hidden").first();
+  expect(await unit.evaluate((element) => [element.getBoundingClientRect().width, element.getBoundingClientRect().height])).toStrictEqual([1, 1]);
+});
+
+test("wraps an unbreakable word inside its card on the narrowest four-column layout", async ({ page }) => {
+  await page.setViewportSize({ width: 901, height: 800 });
+  await page.goto("./");
+  // A token longer than any card is wide, in a title, a description and a step.
+  const word = "x".repeat(80);
+  await page.evaluate((text) => {
+    for (const details of document.querySelectorAll<HTMLDetailsElement>("details.steps-toggle")) {
+      details.open = true;
+    }
+    for (const selector of [".card h3", ".card p", ".card .step-title"]) {
+      const element = document.querySelector(selector);
+      if (element !== null) {
+        element.textContent = text;
+      }
+    }
+  }, word);
+  // Neither inside a card nor out of its column: a long word could otherwise widen the card's list.
+  const overflowing = await page.locator(".card").evaluateAll((cards) =>
+    cards
+      .filter((card) => {
+        const column = card.closest(".column")?.getBoundingClientRect().right ?? 0;
+        return card.scrollWidth > card.clientWidth || card.getBoundingClientRect().right > column;
+      })
+      .map((card) => card.getAttribute("data-id")),
+  );
+  expect(overflowing).toStrictEqual([]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+});
