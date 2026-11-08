@@ -6897,3 +6897,18 @@ fn reads_the_changes_as_they_are() {
         "neither an external diff nor a text conversion: {diff}"
     );
 }
+
+#[test]
+fn knows_a_deletion_by_its_all_zero_object_name() {
+    for (object, deletion) in [
+        ("0".repeat(40), true),
+        ("0".repeat(64), true),
+        (String::new(), false),
+        ("0".repeat(39), false),
+        ("0".repeat(41), false),
+        ("0".repeat(63), false),
+        (format!("{}1", "0".repeat(39)), false),
+    ] {
+        assert_eq!(super::is_deletion(&object), deletion, "{object:?}");
+    }
+}

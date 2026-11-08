@@ -3847,9 +3847,10 @@ fn pre_push(runner: &mut dyn Runner, pushed: &[String]) -> Result<(), Failure> {
     pre_push_gate(&head, &status, &commits)
 }
 
-/// Whether git pushes `object` to delete a ref: the hook then receives all zeros.
+/// Whether git pushes `object` to delete a ref: the hook then receives an object name of
+/// all zeros, 40 of them (SHA-1) or 64 (SHA-256).
 fn is_deletion(object: &str) -> bool {
-    object.bytes().all(|byte| byte == b'0')
+    [40, 64].contains(&object.len()) && object.bytes().all(|byte| byte == b'0')
 }
 
 /// Reads the history, then checks it.
