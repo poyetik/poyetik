@@ -36,8 +36,9 @@ impl CliError {
     /// character that could break the line or drive the terminal escaped, at most
     /// [`engine_patch::MAX_MESSAGE_CHARS`] characters).
     ///
-    /// Messages quote untrusted text (box and field names from a patch): this is the one
-    /// place they are made safe, whatever produced them.
+    /// Messages quote untrusted text (box and field names from a patch): this is where
+    /// the error line is made safe, whatever produced it; every line on stdout is made
+    /// safe the same way, as a `OneLine`.
     #[must_use]
     pub fn line(&self) -> String {
         format!("error: {}", engine_patch::safe_message(&self.to_string()))
@@ -123,9 +124,45 @@ fn read(files: &mut dyn Files, path: &Path, limit: usize) -> Result<String, Stri
         .map_err(|error| format!("cannot read {}: {error}", path.display()))
 }
 
-/// Writes a line of output, which is stdout, naming it on failure.
-fn say(out: &mut dyn Write, line: &str) -> Result<(), String> {
-    writeln!(out, "{line}").map_err(|error| format!("cannot write to stdout: {error}"))
+/// One line of stdout, made safe: its only constructor passes the whole text through
+/// [`engine_patch::safe_message`], so that untrusted parts (case names from file names,
+/// box types and field names quoted by an error, the keys and values of
+/// `references.json`, paths) can neither drive the terminal nor forge a second line, and
+/// the line holds at most [`engine_patch::MAX_MESSAGE_CHARS`] characters.
+mod one_line {
+    /// A line of text with no character that could break it or drive a terminal.
+    #[derive(Debug)]
+    pub(super) struct OneLine(String);
+
+    impl OneLine {
+        /// `text` made safe to print as one line.
+        pub(super) fn new(text: &str) -> Self {
+            Self(engine_patch::safe_message(text))
+        }
+
+        /// The safe text.
+        pub(super) fn as_str(&self) -> &str {
+            &self.0
+        }
+    }
+}
+
+use one_line::OneLine;
+
+/// Writes `line` to `out`, which is stdout: every line but the usage goes through here.
+fn say(out: &mut dyn Write, line: &OneLine) -> Result<(), String> {
+    writeln!(out, "{}", line.as_str()).map_err(|error| stdout_error(&error))
+}
+
+/// Writes the usage to `out`, which is stdout: the one output of several lines, and it
+/// holds no untrusted text.
+fn say_usage(out: &mut dyn Write) -> Result<(), String> {
+    writeln!(out, "{USAGE}").map_err(|error| stdout_error(&error))
+}
+
+/// A failed write to stdout, naming it.
+fn stdout_error(error: &std::io::Error) -> String {
+    format!("cannot write to stdout: {error}")
 }
 
 /// A case of a conformance directory: its name, and the path and text of its case file
@@ -252,7 +289,7 @@ fn render(files: &mut dyn Files, out: &mut dyn Write, args: &[String]) -> Result
             .write(Path::new(path), &wav_file(&header, &rendered.samples))
             .map_err(|error| format!("cannot write {path}: {error}"))?;
     }
-    Ok(say(out, &rendered.hash().to_string())?)
+    Ok(say(out, &OneLine::new(&rendered.hash().to_string()))?)
 }
 
 /// `check <dir>`: renders every case and reports each one on `out`, a case that fails
@@ -289,14 +326,17 @@ fn check(files: &mut dyn Files, out: &mut dyn Write, dir: &Path) -> Result<(), S
         if !passed {
             failures = failures.saturating_add(1);
         }
-        say(out, &line)?;
+        say(out, &OneLine::new(&line))?;
     }
     for name in expected
         .keys()
         .filter(|name| !cases.iter().any(|case| case.name == **name))
     {
         failures = failures.saturating_add(1);
-        say(out, &format!("STALE    {name}: reference without a case"))?;
+        say(
+            out,
+            &OneLine::new(&format!("STALE    {name}: reference without a case")),
+        )?;
     }
     if failures == 0 {
         Ok(())
@@ -321,7 +361,11 @@ fn bless(files: &mut dyn Files, out: &mut dyn Write, dir: &Path) -> Result<(), S
         .map_err(|error| format!("cannot write {}: {error}", path.display()))?;
     say(
         out,
-        &format!("blessed {} case(s) in {}", actual.len(), path.display()),
+        &OneLine::new(&format!(
+            "blessed {} case(s) in {}",
+            actual.len(),
+            path.display()
+        )),
     )
 }
 
@@ -346,7 +390,7 @@ fn export(
             .map_err(|error| format!("cannot write {}: {error}", path.display()))?;
         say(
             out,
-            &format!("wrote    {} {}", path.display(), rendered.hash()),
+            &OneLine::new(&format!("wrote    {} {}", path.display(), rendered.hash())),
         )?;
     }
     Ok(())
@@ -369,7 +413,7 @@ pub fn run(args: &[String], files: &mut dyn Files, out: &mut dyn Write) -> Resul
         ("check", [dir]) => Ok(check(files, out, Path::new(dir))?),
         ("bless", [dir]) => Ok(bless(files, out, Path::new(dir))?),
         ("export", [dir, target]) => Ok(export(files, out, Path::new(dir), Path::new(target))?),
-        ("help", []) => Ok(say(out, USAGE)?),
+        ("help", []) => Ok(say_usage(out)?),
         ("check" | "bless", _) => Err(expects("<dir>")),
         ("export", _) => Err(expects("<dir> <out>")),
         ("help", _) => Err(expects("no argument")),

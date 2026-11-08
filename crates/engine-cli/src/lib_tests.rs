@@ -1197,3 +1197,115 @@ fn fails_on_an_empty_corpus() {
         "export"
     );
 }
+
+/// Whether `character` could break a line or drive a terminal: a control, bidirectional
+/// formatting or line-separator character (written independently of `engine-patch`).
+fn unsafe_character(character: char) -> bool {
+    character.is_control()
+        || matches!(
+            character,
+            '\u{61c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}'
+                | '\u{2028}' | '\u{2029}'
+        )
+}
+
+/// Checks that `out` is `lines` safe lines: each ends with the only line feed, holds no
+/// other unsafe character and at most `MAX_MESSAGE_CHARS` characters.
+fn assert_safe_lines(out: &str, lines: usize) {
+    assert!(out.ends_with('\n'), "every line ends: {out:?}");
+    let split: Vec<&str> = out.trim_end_matches('\n').split('\n').collect();
+    assert_eq!(split.len(), lines, "one line per report: {out:?}");
+    for line in split {
+        assert!(
+            !line.chars().any(unsafe_character),
+            "no control or bidirectional character: {line:?}"
+        );
+        assert!(
+            line.chars().count() <= engine_patch::MAX_MESSAGE_CHARS,
+            "bounded: {} characters",
+            line.chars().count()
+        );
+    }
+}
+
+/// Box type of a patch, crafted to forge a verdict line and drive the terminal.
+const FORGED_BOX: &str = "y\\nok       sine-440 0\\u001b[2K\\u202e";
+
+/// A conformance directory whose untrusted text attacks the output: case names (file
+/// names), a box type quoted by an error, a 2 MB box type, and the keys and values of
+/// `references.json`. Six problems: two failed renders, a mismatch, a missing
+/// reference and two stale ones.
+fn hostile_corpus() -> Memory {
+    let huge_box = format!(
+        r#"{{"format":1,"nodes":[{{"id":1,"box":"{}"}}],"connections":[]}}"#,
+        "x".repeat(2_000_000)
+    );
+    let forged_box =
+        format!(r#"{{"format":1,"nodes":[{{"id":1,"box":"{FORGED_BOX}"}}],"connections":[]}}"#);
+    let references = "{\"b\\u001b[2J\\nok       b\":\"0\",\
+         \"b\\u001b[2J\":\"0\\nok       forged\\u001b[31m\\u202e\",\
+         \"gone\\nok       gone\\u0007\":\"0\"}";
+    Memory::with(&[
+        ("conf/cases/a\nok       a 0.json", SINE),
+        ("conf/patches/a\nok       a 0.json", &forged_box),
+        ("conf/cases/b\u{1b}[2J.json", SINE),
+        ("conf/patches/b\u{1b}[2J.json", PATCH),
+        ("conf/cases/c\u{202e}.json", SINE),
+        ("conf/patches/c\u{202e}.json", &huge_box),
+        ("conf/cases/d\u{1b}]0;title\u{7}.json", SINE),
+        ("conf/patches/d\u{1b}]0;title\u{7}.json", PATCH),
+        ("conf/references.json", references),
+    ])
+}
+
+#[test]
+fn check_command_prints_one_safe_line_per_problem() {
+    let mut memory = hostile_corpus();
+    let (result, out) = run_with(&mut memory, &["check", "conf"]);
+    assert_eq!(
+        result,
+        Err("conformance failed in conf: 6 problem(s)".to_owned()),
+        "every problem counted"
+    );
+    assert_safe_lines(&out, 6);
+    assert!(
+        out.contains("FAILED   a\\u{a}ok       a 0: "),
+        "the case name is escaped: {out}"
+    );
+    assert!(
+        out.contains("unknown box type \"y\\u{a}ok       sine-440 0\\u{1b}[2K\\u{202e}\""),
+        "the box type is escaped: {out}"
+    );
+    assert!(
+        out.contains(&format!(
+            "MISMATCH b\\u{{1b}}[2J: expected 0\\u{{a}}ok       forged\\u{{1b}}[31m\\u{{202e}}, got {}",
+            sine_hash()
+        )),
+        "the reference is escaped: {out}"
+    );
+    assert!(
+        out.contains("STALE    gone\\u{a}ok       gone\\u{7}: reference without a case"),
+        "the reference key is escaped: {out}"
+    );
+}
+
+#[test]
+fn bless_and_export_print_safe_lines() {
+    let mut memory = Memory::with(&[
+        ("conf\u{1b}[2J/cases/a\n\u{202e}.json", SINE),
+        ("conf\u{1b}[2J/patches/a\n\u{202e}.json", PATCH),
+    ]);
+    let (blessed, bless_out) = run_with(&mut memory, &["bless", "conf\u{1b}[2J"]);
+    assert_eq!(blessed, Ok(()), "blessed");
+    assert_eq!(
+        bless_out, "blessed 1 case(s) in conf\\u{1b}[2J/references.json\n",
+        "the directory is escaped"
+    );
+    let (exported, export_out) = run_with(&mut memory, &["export", "conf\u{1b}[2J", "out"]);
+    assert_eq!(exported, Ok(()), "exported");
+    assert_eq!(
+        export_out,
+        format!("wrote    out/a\\u{{a}}\\u{{202e}}.wav {}\n", sine_hash()),
+        "the path is escaped"
+    );
+}

@@ -64,8 +64,10 @@ const fn needs_escape(character: char) -> bool {
 ///
 /// The messages of this crate and of [`engine_core::Plan::build`] quote untrusted text
 /// from a document (box types, parameter and field names, which the JSON reader echoes
-/// too): every reader that shows them (`engine-cli`, the WebAssembly engine) passes them
-/// through this one function, whatever produced them.
+/// too), and `references.json` and file names hold untrusted text as well: what shows
+/// them passes it through this one function, whatever produced it: the error line of
+/// `engine-cli` and each line it writes on stdout (its usage apart, which quotes
+/// nothing), and the explanation of a rejected patch in the WebAssembly engine.
 #[must_use]
 pub fn safe_message(message: &str) -> String {
     let mut safe = String::new();

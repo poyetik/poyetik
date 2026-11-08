@@ -239,6 +239,83 @@ mod tests {
         }
     }
 
+    /// Whether `character` could break a line or drive a terminal: a control,
+    /// bidirectional formatting or line-separator character.
+    fn unsafe_character(character: char) -> bool {
+        character.is_control()
+            || matches!(
+                character,
+                '\u{61c}'
+                    | '\u{200e}'
+                    | '\u{200f}'
+                    | '\u{202a}'..='\u{202e}'
+                    | '\u{2066}'..='\u{2069}'
+                    | '\u{2028}'
+                    | '\u{2029}'
+            )
+    }
+
+    #[test]
+    fn checks_a_hostile_corpus_with_one_safe_line_per_problem() {
+        let dir = std::env::temp_dir().join(format!("engine-cli-hostile-{}", std::process::id()));
+        for kind in ["cases", "patches"] {
+            std::fs::create_dir_all(dir.join(kind)).expect("temporary directory");
+        }
+        let case = std::fs::read_to_string(Path::new(&conformance()).join("cases/sine-440.json"))
+            .expect("case");
+        let patch =
+            std::fs::read_to_string(Path::new(&conformance()).join("patches/sine-440.json"))
+                .expect("patch");
+        let huge_box = format!(
+            r#"{{"format":1,"nodes":[{{"id":1,"box":"{}"}}],"connections":[]}}"#,
+            "x".repeat(2_000_000)
+        );
+        let forged_box = r#"{"format":1,"nodes":[{"id":1,"box":"y\nok       sine-440 0\u001b[2K\u202e"}],"connections":[]}"#;
+        for (name, text) in [
+            ("a\nok       a 0", forged_box),
+            ("b\u{1b}[2J", patch.as_str()),
+            ("c\u{202e}", huge_box.as_str()),
+        ] {
+            std::fs::write(dir.join("cases").join(format!("{name}.json")), &case).expect("case");
+            std::fs::write(dir.join("patches").join(format!("{name}.json")), text).expect("patch");
+        }
+        std::fs::write(
+            dir.join("references.json"),
+            "{\"b\\u001b[2J\":\"0\\nok       forged\\u001b[31m\\u202e\",\
+             \"gone\\nok       gone\\u0007\":\"0\"}",
+        )
+        .expect("references");
+        let output = engine_cli(&[std::ffi::OsStr::new("check"), dir.as_os_str()]);
+        std::fs::remove_dir_all(&dir).expect("cleanup");
+        assert_eq!(output.status.code(), Some(1_i32), "a failure");
+        assert_eq!(
+            String::from_utf8_lossy(&output.stderr),
+            format!(
+                "error: conformance failed in {}: 4 problem(s)\n",
+                dir.display()
+            ),
+            "four problems: two failed renders, a mismatch, a stale reference"
+        );
+        let stdout = String::from_utf8(output.stdout).expect("UTF-8 output");
+        let lines: Vec<&str> = stdout
+            .strip_suffix('\n')
+            .expect("the last line ends")
+            .split('\n')
+            .collect();
+        assert_eq!(lines.len(), 4, "one line per problem: {stdout:?}");
+        for line in lines {
+            assert!(
+                !line.chars().any(unsafe_character),
+                "no control or bidirectional character: {line:?}"
+            );
+            assert!(
+                line.chars().count() <= engine_patch::MAX_MESSAGE_CHARS,
+                "bounded: {} characters",
+                line.chars().count()
+            );
+        }
+    }
+
     #[cfg(unix)]
     #[test]
     fn refuses_an_endless_case_file_instead_of_reading_it_whole() {
