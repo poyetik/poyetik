@@ -1,7 +1,7 @@
 {
   "version": 1,
   "title": "Poyetik",
-  "nextId": 25,
+  "nextId": 28,
   "cards": [
     {
       "id": 1,
@@ -61,7 +61,7 @@
       "tasks": [
         {
           "title": "Engine design decisions, recorded before any code that depends on them: messages, event scheduling, feedback, polyphony, multichannel, rates, parallelism, hot swap, latency, state; including the Nyquist policy of oscillators, an exact integer phase accumulator, the output stage (headroom, non-finite samples), the input domain of boxes, and compiling, instantiating, parsing and building plans off the audio thread, or bounding and measuring what must stay there (the construction of the engine processor), hot swap included",
-          "done": false
+          "done": true
         },
         {
           "title": "Objective measurements in engine-testkit and the oracle: spectrum, THD, SNR, aliasing level, with thresholds per box; spur and aliasing laws across the rate matrix; the banned float methods audited against the toolchain",
@@ -88,15 +88,75 @@
           "done": false
         },
         {
-          "title": "Patches without audio output: decide whether time advances with zero channels, and make the native renderer and the WebAssembly engine agree (one runs no box, the other runs them all)",
+          "title": "Patches without audio output: time advances and every box runs with zero channels, in the native renderer as in the WebAssembly engine (today one runs no box, the other runs them all)",
           "done": false
         },
         {
-          "title": "Subnormal parameters: flush or reject, decided with the denormal strategy (flush on the f64 side before rounding, parameters treated as zero below the smallest normal), with a 1e-40 Hz oscillator case",
+          "title": "Subnormal parameters treated as zero (flushed on the f64 side before rounding, below the smallest normal), with the denormal strategy, and a 1e-40 Hz oscillator case",
           "done": false
         },
         {
           "title": "Long-run drift check of oscillators against the exact phase, skipping ahead in state to cover hours of signal",
+          "done": false
+        },
+        {
+          "title": "Engine precision: 64-bit processing by default and 32-bit as a setting, the engine generic over its sample type; a render hash version that records the precision; every reference re-blessed for both precisions (a migration step), checked native and WebAssembly",
+          "done": false
+        },
+        {
+          "title": "Output stage: raw and protected (safety limiter) modes; non-finite samples always replaced and reported; the playground protected by default",
+          "done": false
+        },
+        {
+          "title": "Host settings: sample rate, host buffer, engine block and channel counts chosen by the host, renders independent of the engine block, settings a host cannot honor reported",
+          "done": false
+        },
+        {
+          "title": "Messages and rates: every parameter driven by messages or by an audio-rate signal; a total order of messages within a frame; MIDI input as timestamped events (MIDI 2.0 packets, MPE)",
+          "done": false
+        },
+        {
+          "title": "Oscillators: an exact 64-bit integer phase accumulator; band-limited by default, with a raw variant per box",
+          "done": false
+        },
+        {
+          "title": "Multichannel cables with automatic expansion; buses (sends, groups) summed in a fixed order",
+          "done": false
+        },
+        {
+          "title": "Subpatches with their own block size, resampling and overlap, a block of 1 frame included; feedback cycles through an explicit delay, single-sample feedback included",
+          "done": false
+        },
+        {
+          "title": "Latency declared by boxes and compensated automatically, events aligned with the compensated audio",
+          "done": false
+        },
+        {
+          "title": "Serializable box state (presets, project save): a render saved and restored continues with the same bits",
+          "done": false
+        },
+        {
+          "title": "Hot swap: patch edits while playing without a dropout, state transferred by box identity, optional crossfade; plans built off the audio thread, in the browser in bounded slices",
+          "done": false
+        },
+        {
+          "title": "Polyphony: voices per subpatch with allocation and stealing policies, MPE; polyphony through multichannel cables",
+          "done": false
+        },
+        {
+          "title": "Parallel graph scheduling natively, with renders identical whatever the thread count",
+          "done": false
+        },
+        {
+          "title": "Musical time hook: per-sample transport position, tempo and time signature for boxes, tempo changes sample-accurate",
+          "done": false
+        },
+        {
+          "title": "Audio input boxes, fed by the host",
+          "done": false
+        },
+        {
+          "title": "External processor boxes for third-party plugins: declared latency, imposed block size, opaque state, marked non-deterministic and excluded from hash guarantees",
           "done": false
         }
       ]
@@ -795,8 +855,50 @@
         {
           "title": "Conformance spec: a spec/ page for the formats of the conformance files (cases, expectations, references), which the four readers then follow",
           "done": false
+        },
+        {
+          "title": "Oracle: refuse duplicate keys in case files, as engine-cli does",
+          "done": false
+        },
+        {
+          "title": "Browser test harness: accept only the engine's sample rate range in case files",
+          "done": false
+        },
+        {
+          "title": "engine-cli: open inputs with a bound and refuse anything but a regular file, so a FIFO cannot block a read",
+          "done": false
         }
       ]
+    },
+    {
+      "id": 25,
+      "title": "Transport and timeline",
+      "description": "The transport (play, stop, locate, loop, tempo and time signature maps), the timeline and the arrangement of tracks, driving the engine's musical time through sample-accurate events.",
+      "column": "later",
+      "milestone": "",
+      "createdAt": "2026-11-08",
+      "updatedAt": "2026-11-08",
+      "tasks": []
+    },
+    {
+      "id": 26,
+      "title": "Audio and MIDI devices",
+      "description": "Choosing and opening audio and MIDI devices in each native host and in the browser: device lists, sample rate and buffer size, channel selection, hot plugging and permissions, with the settings a device cannot honor reported.",
+      "column": "later",
+      "milestone": "",
+      "createdAt": "2026-11-08",
+      "updatedAt": "2026-11-08",
+      "tasks": []
+    },
+    {
+      "id": 27,
+      "title": "Native plugin hosting (VST3, CLAP, AU)",
+      "description": "Load third-party VST3, CLAP and AU plugins into the engine's external processor boxes, natively only: scanning, sandboxing, their editors, latency and state, and the mark that excludes their output from hash guarantees.",
+      "column": "later",
+      "milestone": "",
+      "createdAt": "2026-11-08",
+      "updatedAt": "2026-11-08",
+      "tasks": []
     }
   ]
 }
