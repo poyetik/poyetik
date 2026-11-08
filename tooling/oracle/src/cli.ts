@@ -1,6 +1,7 @@
 /** The `oracle` command, with its file access injected. */
 
 import { join } from "node:path";
+import { oneLine } from "@poyetik/config/one-line";
 import { judge } from "./oracle.ts";
 
 /** Usage of the command, printed on stdout by `oracle help`. */
@@ -52,7 +53,9 @@ function isPair(args: readonly string[]): args is readonly [string, string] {
  * Runs the oracle; returns the exit code: 0 when every case passes (or for `help`), 1
  * when a case fails or an input cannot be read, 2 for a usage error. Every error is one
  * `error:` line, naming the file, or for a usage error the reason and where to read the
- * usage.
+ * usage. Every verdict and error line is made safe by `oneLine`: what it quotes from the
+ * corpus (a case name, a JSON key, a chunk id, the JSON parser's excerpt of a file) can
+ * neither drive the terminal nor forge a line, and is bounded.
  */
 export function main(args: readonly string[], io: Io): number {
   if (args.length === 1 && args[0] === "help") {
@@ -72,14 +75,16 @@ export function main(args: readonly string[], io: Io): number {
       expectations: json(join(conformance, "expectations.json")),
       wavs: byName(io, wavs, ".wav", io.readBytes),
     });
-    verdict.lines.forEach(io.out);
+    for (const line of verdict.lines) {
+      io.out(oneLine(line));
+    }
     if (verdict.failures > 0) {
       io.err(`error: oracle failed: ${String(verdict.failures)} problem(s)`);
       return 1;
     }
     return 0;
   } catch (error) {
-    io.err(`error: ${error instanceof Error ? error.message : String(error)}`);
+    io.err(`error: ${oneLine(error instanceof Error ? error.message : String(error))}`);
     return 1;
   }
 }

@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
 import { runInNewContext } from "node:vm";
+import { firstUnsafe } from "@poyetik/config/one-line";
 import { describe, expect, test } from "vitest";
 import { USAGE, guardStreams, main, readJson, type Io } from "../src/cli.ts";
 import { renderHash } from "../src/hash.ts";
@@ -112,6 +113,55 @@ describe("main", () => {
     expect(main(args, io)).toBe(2);
     expect(io.errors).toStrictEqual([`error: expected <conformance dir> <dir of exported WAV files>, got ${String(count)} argument(s) (see: oracle help)`]);
     expect(io.lines).toStrictEqual([]);
+  });
+});
+
+describe("untrusted text in its output", () => {
+  /** Asserts that every line `io` printed holds no character that could drive a terminal or break the line, and is bounded. */
+  function expectSafeLines(io: { lines: string[]; errors: string[] }): void {
+    for (const line of [...io.lines, ...io.errors]) {
+      expect(firstUnsafe(line)).toBeUndefined();
+      expect(Array.from(line).length).toBeLessThanOrEqual("error: ".length + 1000);
+    }
+  }
+
+  test("escapes a references key holding a terminal sequence or a line break, one line per problem", () => {
+    const io = memory(corpus({ tone: renderHash(parseWav(WAV)), "\u001b[2J\nFAIL     forged": renderHash(parseWav(WAV)) }));
+    expect(main(["conf", "wav"], io)).toBe(1);
+    expect(io.lines).toStrictEqual([
+      "FAIL     \\u{1b}[2J\\u{a}FAIL     forged: missing case file, expectations, WAV file",
+      expect.stringMatching(/^ok {7}tone /),
+    ]);
+    expect(io.errors).toStrictEqual(["error: oracle failed: 1 problem(s)"]);
+  });
+
+  test("escapes and bounds an invalid references key of a million characters", () => {
+    const key = `${"k".repeat(1_000_000)}\u202e`;
+    const io = memory(corpus({ tone: renderHash(parseWav(WAV)), [key]: "x" }));
+    expect(main(["conf", "wav"], io)).toBe(1);
+    expect(io.lines).toStrictEqual([]);
+    // "invalid conformance input: references.json: " and the key, cut at 1,000 characters.
+    expect(io.errors).toStrictEqual([`error: invalid conformance input: references.json: ${"k".repeat(955)}…`]);
+  });
+
+  test("escapes the excerpt of a file the JSON parser quotes", () => {
+    const io = memory({ ...corpus({}), "conf/references.json": "[1,\u001b[31m\u202e]" });
+    // V8 quotes the text it could not read: raw bytes of the file.
+    expect(() => {
+      JSON.parse("[1,\u001b[31m\u202e]");
+    }).toThrow("\u001b[31m\u202e");
+    expect(main(["conf", "wav"], io)).toBe(1);
+    expect(io.errors).toHaveLength(1);
+    expect(io.errors[0]).toMatch(/^error: conf\/references\.json: SyntaxError: /);
+    expectSafeLines(io);
+  });
+
+  test("escapes a chunk id read from a WAV file", () => {
+    // A last chunk whose id is ESC [ 2 J and whose size runs past the end of the file.
+    const wav = makeWav({ rate: 8000, channels: 1, samples: sineSamples(1, 32, 8000, 1000), trailer: [0x1b, 0x5b, 0x32, 0x4a, 0xff, 0xff, 0, 0] });
+    const io = memory({ ...corpus({ tone: renderHash(parseWav(WAV)) }), "wav/tone.wav": wav });
+    expect(main(["conf", "wav"], io)).toBe(1);
+    expect(io.lines).toStrictEqual(['FAIL     tone: invalid WAV file: chunk "\\u{1b}[2J" extends past the end of the file']);
   });
 });
 
