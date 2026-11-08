@@ -1,4 +1,5 @@
-//! Errors raised while validating a patch or building a plan.
+//! Errors raised while validating a sample rate or a patch, building a plan, or
+//! rendering offline.
 
 use alloc::string::String;
 use alloc::vec::Vec;

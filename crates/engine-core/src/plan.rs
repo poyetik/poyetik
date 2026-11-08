@@ -1,9 +1,11 @@
 //! Building and running the execution plan.
 //!
-//! A plan is built from a [`Patch`] outside the audio thread: the patch is validated,
-//! its boxes are sorted in a deterministic execution order and every box instance is
-//! created (all memory is reserved here). Running the plan then only reads and writes
-//! buffers that already exist.
+//! A plan is built from a [`Patch`] outside the audio thread, with one known deviation:
+//! in the browser, the engine processor builds its plan on the audio thread, once, before
+//! it renders (roadmap #12). The patch is validated, its boxes are sorted in a
+//! deterministic execution order and every box instance is created (all memory is
+//! reserved here). Running the plan then only reads and writes buffers that already
+//! exist.
 
 use alloc::boxed::Box;
 use alloc::collections::{BTreeMap, BTreeSet};
@@ -49,7 +51,7 @@ struct Instance {
 pub struct Plan {
     /// Box instances in execution order.
     instances: Vec<Instance>,
-    /// Every outlet of every instance, in execution order: what connections read from.
+    /// Every outlet of every box, boxes in id order: what connections read from.
     bus: Vec<Block>,
     /// Number of engine output channels.
     channels: usize,
