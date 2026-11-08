@@ -24,7 +24,7 @@ function card(id: number, column: Card["column"], extra: Partial<Card> = {}): Ca
 /**
  * The accessibility violations axe finds in `html`, placed as the page places it (in `main`, under the
  * `h1`), each as `rule: offending markup`. The test file runs in Node, where the Astro container renders;
- * a jsdom document is installed only for the audit. jsdom has no layout, so colour contrast is left to
+ * a jsdom document is installed only for the audit. jsdom has no layout, so color contrast is left to
  * the end-to-end audits of the real page.
  */
 async function violations(html: string): Promise<string[]> {

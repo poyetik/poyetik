@@ -179,7 +179,7 @@ fn refuses_more_nodes_than_a_patch_holds() {
         Err(PatchError::Patch(CoreError::TooManyNodes(
             Patch::MAX_NODES + 1
         ))),
-        "one node more than the limit"
+        "one box more than the limit"
     );
 }
 
@@ -213,7 +213,7 @@ fn parses_numbers_with_correct_rounding() {
             r#"{{"format":1,"nodes":[{{"id":1,"box":"x","params":{{"a":{text}}}}}],"connections":[]}}"#
         ))
         .expect("valid patch");
-        let params = &patch.nodes().next().expect("one node").params;
+        let params = &patch.nodes().next().expect("one box").params;
         assert_eq!(params["a"].to_bits(), bits, "{text} rounds to {bits:#010x}");
     }
 }

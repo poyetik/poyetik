@@ -11,56 +11,56 @@ use crate::{Connection, NodeId, Patch, SampleRate};
 pub enum CoreError {
     /// The sample rate is outside the supported range.
     InvalidSampleRate(u32),
-    /// Two nodes share the same id.
+    /// Two boxes share the same id.
     DuplicateNode(NodeId),
     /// The same cable is listed twice.
     DuplicateConnection(Connection),
-    /// A patch has more nodes than [`Patch::MAX_NODES`].
+    /// A patch has more boxes than [`Patch::MAX_NODES`].
     TooManyNodes(usize),
     /// A patch has more cables than [`Patch::MAX_CONNECTIONS`].
     TooManyConnections(usize),
     /// An offline render asks for more samples than memory can hold.
     RenderTooLong(usize),
-    /// A node uses a box type that is not in the registry.
+    /// A box uses a box type that is not in the registry.
     UnknownObject {
-        /// The node.
+        /// The box.
         node: NodeId,
         /// The unknown box type.
         kind: String,
     },
-    /// A node sets a parameter its box type does not have.
+    /// A box sets a parameter its box type does not have.
     UnknownParam {
-        /// The node.
+        /// The box.
         node: NodeId,
         /// The unknown parameter.
         name: String,
     },
     /// A parameter value is outside its range (or not a number).
     ParamOutOfRange {
-        /// The node.
+        /// The box.
         node: NodeId,
         /// The parameter.
         name: String,
         /// The rejected value.
         value: f32,
     },
-    /// A connection refers to a node that does not exist.
+    /// A connection refers to a box that does not exist.
     UnknownNode(NodeId),
-    /// A connection starts from an outlet the node does not have.
+    /// A connection starts from an outlet the box does not have.
     InvalidOutlet {
-        /// The node.
+        /// The box.
         node: NodeId,
         /// The outlet index.
         outlet: usize,
     },
-    /// A connection ends on an inlet the node does not have.
+    /// A connection ends on an inlet the box does not have.
     InvalidInlet {
-        /// The node.
+        /// The box.
         node: NodeId,
         /// The inlet index.
         inlet: usize,
     },
-    /// The patch contains a cycle without delay; these nodes are part of it or depend on it.
+    /// The patch contains a cycle without delay; these boxes are part of it or depend on it.
     Cycle(Vec<NodeId>),
 }
 

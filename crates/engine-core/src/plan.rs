@@ -1,7 +1,7 @@
 //! Building and running the execution plan.
 //!
 //! A plan is built from a [`Patch`] outside the audio thread: the patch is validated,
-//! its nodes are sorted in a deterministic execution order and every box instance is
+//! its boxes are sorted in a deterministic execution order and every box instance is
 //! created (all memory is reserved here). Running the plan then only reads and writes
 //! buffers that already exist.
 
@@ -18,7 +18,7 @@ use crate::{
 /// One box instance in execution order, with its own input and output buffers.
 #[derive(Debug)]
 struct Instance {
-    /// The node this instance runs.
+    /// The box this instance runs.
     node: NodeId,
     /// The box instance.
     object: Box<dyn Object>,
@@ -55,21 +55,21 @@ pub struct Plan {
     channels: usize,
 }
 
-/// A node resolved against the registry.
+/// A box resolved against the registry.
 #[derive(Debug)]
 struct Resolved<'patch> {
-    /// The node from the patch.
+    /// The box from the patch.
     node: &'patch Node,
     /// Its box type.
     spec: &'static ObjectSpec,
     /// Its parameter values, in spec order.
     params: Vec<f32>,
-    /// First bus slot of its outlets (outlets occupy consecutive slots, nodes in id
+    /// First bus slot of its outlets (outlets occupy consecutive slots, boxes in id
     /// order).
     first_slot: usize,
 }
 
-/// Resolves a node's box type and parameter values.
+/// Resolves the box type and parameter values of a box.
 fn resolve<'patch>(
     node: &'patch Node,
     registry: &[&'static ObjectSpec],
@@ -145,16 +145,16 @@ fn source_slot(
     Ok(from.first_slot.saturating_add(connection.outlet))
 }
 
-/// Sorts nodes so that every node runs after the nodes feeding it (Kahn's algorithm,
+/// Sorts boxes so that every box runs after the boxes feeding it (Kahn's algorithm,
 /// O((N + E) log N)).
 ///
-/// Deterministic: among the nodes ready to run, the smallest id always runs first.
+/// Deterministic: among the boxes ready to run, the smallest id always runs first.
 /// Every cable joins two of `ids` (checked before by [`source_slot`]).
 fn execution_order(
     ids: &BTreeSet<NodeId>,
     connections: &[Connection],
 ) -> Result<Vec<NodeId>, CoreError> {
-    // For each node, how many of its incoming cables come from nodes not placed yet.
+    // For each box, how many of its incoming cables come from boxes not placed yet.
     let mut waiting: BTreeMap<NodeId, usize> = ids.iter().map(|&id| (id, 0)).collect();
     let mut dependents: BTreeMap<NodeId, Vec<NodeId>> = BTreeMap::new();
     for connection in connections {
@@ -171,7 +171,7 @@ fn execution_order(
         .map(|(&id, _)| id)
         .collect();
     let mut order = Vec::with_capacity(ids.len());
-    // One node is placed per round, so `ids.len()` rounds always suffice: the bound is
+    // One box is placed per round, so `ids.len()` rounds always suffice: the bound is
     // the invariant, and it keeps a bug from looping forever.
     for _ in 0..ids.len() {
         let Some(id) = ready.pop_first() else {
@@ -227,7 +227,7 @@ impl Plan {
         let ids: BTreeSet<NodeId> = nodes.keys().copied().collect();
         let order = execution_order(&ids, &connections)?;
 
-        // Every id of the order is a resolved node: `remove` always finds it.
+        // Every id of the order is a resolved box: `remove` always finds it.
         let mut instances: Vec<Instance> = order
             .iter()
             .filter_map(|id| nodes.remove(id))
@@ -270,7 +270,7 @@ impl Plan {
         self.channels
     }
 
-    /// The nodes in execution order.
+    /// The boxes in execution order.
     pub fn execution_order(&self) -> impl Iterator<Item = NodeId> + '_ {
         self.instances.iter().map(|instance| instance.node)
     }

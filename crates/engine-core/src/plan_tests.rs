@@ -276,7 +276,7 @@ fn chains_boxes_and_reads_every_outlet() {
     assert_eq!(
         plan.execution_order().collect::<Vec<_>>(),
         vec![NodeId(4), NodeId(5), NodeId(3), NodeId(2), NodeId(1)],
-        "dependencies first, smallest id first among ready nodes"
+        "dependencies first, smallest id first among ready boxes"
     );
     assert_eq!(
         run(&mut plan, 2),
@@ -662,7 +662,7 @@ fn accepts_patches_up_to_the_limits_only() {
     assert_eq!(
         Patch::new(adders(max_nodes + 1), vec![]).map(|_| ()),
         Err(CoreError::TooManyNodes(Patch::MAX_NODES + 1)),
-        "one node too many"
+        "one box too many"
     );
     let too_many = Patch::MAX_CONNECTIONS + 1;
     assert_eq!(
@@ -672,7 +672,7 @@ fn accepts_patches_up_to_the_limits_only() {
     );
 
     // The largest patch: a chain of 65,535 add~ boxes joined port to port, an output
-    // fed by the last one, and one shortcut: exactly 65,536 nodes and 262,144 cables.
+    // fed by the last one, and one shortcut: exactly 65,536 boxes and 262,144 cables.
     let last = max_nodes - 2;
     let mut nodes = adders(max_nodes - 1);
     nodes.push(node(u32::MAX, "out~"));
@@ -690,7 +690,7 @@ fn accepts_patches_up_to_the_limits_only() {
     assert_eq!(
         plan.execution_order().count(),
         Patch::MAX_NODES,
-        "every node"
+        "every box"
     );
     assert_eq!(
         plan.execution_order().last(),

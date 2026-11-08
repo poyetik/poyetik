@@ -1,7 +1,7 @@
 //! Reads patches in the JSON patch format (see `spec/patch-format.md`).
 //!
 //! This is the boundary where untrusted text becomes a typed [`Patch`]: the structure
-//! is validated here (size, format version, field names and types, unique nodes, cables
+//! is validated here (size, format version, field names and types, unique boxes, cables
 //! and parameter names); box types, parameters
 //! and ports are then validated against the registry by [`engine_core::Plan::build`].
 //!
@@ -201,9 +201,9 @@ struct NodeDocument {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ConnectionDocument {
-    /// Source node and outlet.
+    /// Source box and outlet.
     from: (u32, u16),
-    /// Destination node and inlet.
+    /// Destination box and inlet.
     to: (u32, u16),
 }
 
@@ -214,7 +214,7 @@ struct ConnectionDocument {
 /// Returns [`PatchError::TooLarge`] beyond [`MAX_PATCH_BYTES`], [`PatchError::Invalid`]
 /// when the text is not JSON or has unknown, missing, mistyped or repeated fields,
 /// [`PatchError::UnsupportedFormat`] for another format version, and
-/// [`PatchError::Patch`] for a duplicate node or cable or too many of them.
+/// [`PatchError::Patch`] for a duplicate box or cable or too many of them.
 pub fn parse_patch(json: &str) -> Result<Patch, PatchError> {
     if json.len() > MAX_PATCH_BYTES {
         return Err(PatchError::TooLarge(json.len()));

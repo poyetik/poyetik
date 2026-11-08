@@ -141,10 +141,10 @@ mod tests {
     /// Random patches per rate.
     const CASES: u32 = 64;
 
-    /// A random patch: node kinds and values, cables as index pairs (may form cycles).
+    /// A random patch: box kinds and values, cables as index pairs (may form cycles).
     type Shape = (Vec<(u8, f32)>, Vec<(u8, u8, u8, u8)>);
 
-    /// Random shapes: up to 11 nodes of the four kinds, up to 23 cables.
+    /// Random shapes: up to 11 boxes of the four kinds, up to 23 cables.
     fn shapes() -> impl Strategy<Value = Shape> {
         (
             vec((0_u8..4, -1.0_f32..=1.0), 1..12),
@@ -159,8 +159,8 @@ mod tests {
             .expect("count is not zero")
     }
 
-    /// The patch for a shape. Node ids are a permutation of the positions (×5 modulo
-    /// 13, at most 12 nodes), so that id order differs from document order; cables are
+    /// The patch for a shape. Box ids are a permutation of the positions (×5 modulo
+    /// 13, at most 12 boxes), so that id order differs from document order; cables are
     /// deduplicated and only join existing ports.
     fn patch_parts(shape: &Shape) -> (Vec<Node>, Vec<Connection>) {
         let (kinds, cables) = shape;
@@ -207,7 +207,7 @@ mod tests {
         (nodes, connections.into_iter().collect())
     }
 
-    /// The reference execution order: repeatedly place the smallest-id node whose
+    /// The reference execution order: repeatedly place the smallest-id box whose
     /// sources are all placed. Quadratic and obviously right.
     fn reference_order(
         nodes: &[Node],
