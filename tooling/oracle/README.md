@@ -13,6 +13,6 @@ The independent conformance oracle. For every case of `conformance/`, it rereads
 
 ```sh
 pnpm oracle   # judge the corpus exported to ../../target/conformance
-pnpm check    # types, lint, unit tests at 100% coverage, mutation testing, then the oracle itself
+pnpm check    # types, lint, unit tests at 100% coverage, then the oracle itself
 node src/bin.ts help   # the usage
 ```

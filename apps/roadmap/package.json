@@ -12,9 +12,8 @@
     "typecheck": "astro check && tsc --noEmit",
     "lint": "eslint . --max-warnings 0",
     "test": "vitest run --coverage",
-    "test:mutation": "stryker run",
     "test:e2e": "playwright test",
-    "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm test:mutation && pnpm build && pnpm test:e2e"
+    "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm test:e2e"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.12",

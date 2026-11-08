@@ -14,7 +14,7 @@ The public roadmap of the project: a kanban board whose data lives in `board.jso
 ```sh
 pnpm roadmap help   # every command: list, show, add, move, edit, rm, title, step …, validate
 pnpm dev            # http://localhost:4321
-pnpm check          # types, lint, unit tests at 100% coverage, mutation testing, build, end-to-end tests
+pnpm check          # types, lint, unit tests at 100% coverage, build, end-to-end tests
 ```
 
 In a card of the `doing` column, the first step not done is shown "In progress"; elsewhere no step is.

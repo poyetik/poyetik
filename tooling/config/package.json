@@ -8,8 +8,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --max-warnings 0",
     "test": "vitest run --coverage",
-    "test:mutation": "stryker run",
-    "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm test:mutation"
+    "check": "pnpm typecheck && pnpm lint && pnpm test"
   },
   "exports": {
     "./tsconfig.base.json": "./tsconfig.base.json",

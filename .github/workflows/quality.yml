@@ -1,4 +1,5 @@
-# Quality: runs `cargo xtask check`, the check the pre-push hook runs once its own refusals pass.
+# Quality: runs `cargo xtask check --full`: every check, every mutant. The pre-push hook runs
+# `cargo xtask check`, which mutation tests only the changes; only this run proves the rest.
 # On demand, because the full check is long and commits are frequent: on a push only when the
 # last commit's message holds [ci] alone on a line (xtask refuses it anywhere else), on every
 # pull request, and by hand (Run workflow).
@@ -18,7 +19,7 @@ concurrency:
 
 jobs:
   check:
-    name: cargo xtask check
+    name: cargo xtask check --full
     # A push runs the check only when its last commit asks for it with [ci].
     if: github.event_name != 'push' || contains(github.event.head_commit.message, '[ci]')
     # The OS release is pinned (never `-latest`); the runner image itself still receives
@@ -63,8 +64,8 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm --dir apps/roadmap exec playwright install --with-deps chromium firefox webkit
 
-      - name: Every quality check
-        run: cargo xtask check
+      - name: Every quality check, every mutant
+        run: cargo xtask check --full
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()

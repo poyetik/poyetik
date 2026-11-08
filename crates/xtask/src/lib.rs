@@ -1,14 +1,17 @@
 //! Project automation for Poyetik.
 //!
 //! `cargo xtask check` runs every quality check of the repository, in order, and stops
-//! at the first failure. CI and the pre-push hook run exactly this command, so a green
-//! local check means a green CI.
+//! at the first failure, mutation testing only the changes ([`Mode::Changes`]); the
+//! pre-push hook runs it. `cargo xtask check --full` runs every mutant ([`Mode::Full`]);
+//! CI runs it. A green default check proves less than a green full check: see
+//! [`Mode`].
 
 #![forbid(unsafe_code)]
 
 extern crate alloc;
 
 use alloc::collections::{BTreeMap, BTreeSet};
+use core::num::NonZeroUsize;
 use std::ffi::OsString;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -161,8 +164,84 @@ impl Coverage {
 /// before each export so that no file from an earlier run is judged.
 pub const CONFORMANCE_EXPORT: &str = "target/conformance";
 
-/// Mutants that cargo-mutants could not build, as reported by the last run.
+/// Where cargo-mutants writes the report of its run, emptied before each run so that the
+/// gates read only what this run found.
+pub const MUTANTS_OUT: &str = "mutants.out";
+
+/// Mutants that cargo-mutants could not build, as reported by the last run (in
+/// [`MUTANTS_OUT`]).
 pub const UNVIABLE_REPORT: &str = "mutants.out/unviable.txt";
+
+/// Where the default check writes the changes whose Rust mutants it tests (`git diff`
+/// against the base of [`MUTATION_BASES`], new Rust files included), for
+/// `cargo mutants --in-diff`.
+pub const CHANGES_DIFF: &str = "target/xtask/changes.diff";
+
+/// What the changes of the default check are measured against, in order.
+///
+/// The merge base of `HEAD` with the first of these that git resolves: the branch's
+/// upstream first, so that
+/// before a push the changes are what the push adds; then `origin/main`, then `main`, for a
+/// branch without an upstream. With none of them, the check fails and says to run
+/// `--full`.
+pub const MUTATION_BASES: [&str; 3] = ["@{upstream}", "origin/main", "main"];
+
+/// Stryker's incremental file, relative to its package.
+///
+/// Kept between runs (in the package's ignored `reports/`, outside the report directories
+/// emptied before each run) so that the default check reuses the results of the mutants
+/// nothing changed.
+pub const STRYKER_INCREMENTAL: &str = "reports/stryker-incremental.json";
+
+/// How much mutation testing `cargo xtask check` does; every other check is the same in
+/// both modes.
+///
+/// [`Mode::Changes`] proves that every mutant of the changed code is killed, by the tests
+/// as they are now. It does not prove what only [`Mode::Full`] sees: a Rust mutant outside
+/// the changed lines that a change elsewhere (in the tests, in a callee) lets survive, and
+/// a TypeScript result Stryker reuses although something it does not track changed (a test
+/// helper, a fixture, a dependency, the WebAssembly module). So a green default check does
+/// not imply a green full check.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mode {
+    /// Rust: the mutants of the lines changed since the merge base ([`MUTATION_BASES`]),
+    /// uncommitted changes and new Rust files included. TypeScript: Stryker's incremental
+    /// mode ([`STRYKER_INCREMENTAL`]), which reruns the mutants whose code or covering
+    /// tests changed and reuses the earlier results of the others; its report holds every
+    /// mutant of the package.
+    Changes,
+    /// Every mutant: Rust in `jobs` parallel jobs ([`mutation_jobs`]), every TypeScript
+    /// mutant run again (Stryker's `--force`), which also rewrites the incremental file.
+    Full {
+        /// The number of cargo-mutants jobs.
+        jobs: NonZeroUsize,
+    },
+}
+
+/// The number of parallel cargo-mutants jobs on a machine of `parallelism` threads: half of
+/// them, at least one.
+///
+/// Each job builds and tests its own copy of the tree; cargo-mutants shares the processors
+/// among the builds and tests of every job (its jobserver), so more jobs than processors
+/// gain nothing, while each job adds a copy of the build on disk and its test threads.
+/// Half lets the serial parts of one job (linking, starting the tests) overlap the work of
+/// another without doubling the load.
+#[must_use]
+pub fn mutation_jobs(parallelism: NonZeroUsize) -> NonZeroUsize {
+    NonZeroUsize::new(parallelism.get() / 2).unwrap_or(NonZeroUsize::MIN)
+}
+
+/// Whether a mutation run tested every mutant there is, so that a gate on its report may
+/// require what only a complete run shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Extent {
+    /// Every mutant of what it covers: a review of a mutant it did not find is stale, and a
+    /// report without any mutant is suspect.
+    Complete,
+    /// The mutants of a part only (the changes, one target): a review of a mutant it did
+    /// not generate may be current elsewhere, and finding no mutant is possible.
+    Partial,
+}
 
 /// Reviewed unviable mutants, each with the reason it is legitimately unbuildable.
 pub const UNVIABLE_REVIEWED: &str = "mutants-unviable.txt";
@@ -350,8 +429,12 @@ pub enum Action {
     Coverage(Coverage),
     /// Measure [`COVERAGE_LOCALITY`] and require the coverage gate to refuse it.
     CoverageLocality,
-    /// Require every unviable mutant to be reviewed, and every review to be current.
-    UnviableGate,
+    /// Run cargo-mutants on the changes of [`Mode::Changes`]: the diff since the merge base
+    /// of [`MUTATION_BASES`], written to [`CHANGES_DIFF`]; nothing when there is no change.
+    RustMutantsOfChanges,
+    /// Require every unviable mutant of the last run to be reviewed; after a
+    /// [`Extent::Complete`] run, also every review to be current.
+    UnviableGate(Extent),
     /// Require every disabled TypeScript mutant to be reviewed, and every review to be
     /// current.
     EquivalentGate,
@@ -528,8 +611,59 @@ fn portability_steps() -> Vec<Step> {
         .collect()
 }
 
-/// Coverage and mutation testing, with their gates.
-fn proof_steps() -> Vec<Step> {
+/// The arguments of every cargo-mutants run: lints are capped while building mutants
+/// (otherwise a mutant that merely leaves a variable unused fails to compile and is silently
+/// skipped instead of tested), and the ignored files are not copied.
+const MUTANTS_ARGS: [&str; 3] = ["mutants", "--cap-lints=true", "--gitignore=true"];
+
+/// A cargo-mutants command: [`MUTANTS_ARGS`], then `args`.
+fn mutants_command(args: &[&str]) -> Cmd {
+    Cmd::new("cargo", &[&MUTANTS_ARGS[..], args].concat(), Dir::Root)
+}
+
+/// The cargo-mutants command of [`Mode::Changes`]: the workspace, filtered by
+/// [`CHANGES_DIFF`].
+#[must_use]
+pub fn changes_mutants_command() -> Cmd {
+    mutants_command(&["--workspace", "--in-diff", CHANGES_DIFF])
+}
+
+/// Rust mutation testing in `mode`, after emptying [`MUTANTS_OUT`], then its gate.
+fn rust_mutation_steps(mode: Mode) -> Vec<Step> {
+    let (name, action, extent) = match mode {
+        Mode::Changes => (
+            "Rust mutation testing of the changes",
+            Action::RustMutantsOfChanges,
+            Extent::Partial,
+        ),
+        Mode::Full { jobs } => (
+            "Rust mutation testing",
+            Action::Run(mutants_command(&[
+                "--workspace",
+                "--jobs",
+                &jobs.to_string(),
+            ])),
+            Extent::Complete,
+        ),
+    };
+    vec![
+        Step {
+            name: "Fresh Rust mutation report".to_owned(),
+            action: Action::FreshDirs(vec![MUTANTS_OUT.to_owned()]),
+        },
+        Step {
+            name: name.to_owned(),
+            action,
+        },
+        Step {
+            name: "Rust unviable mutants reviewed".to_owned(),
+            action: Action::UnviableGate(extent),
+        },
+    ]
+}
+
+/// Coverage and mutation testing in `mode`, with their gates.
+fn proof_steps(mode: Mode) -> Vec<Step> {
     let mut steps = vec![
         Step {
             name: "Fresh Rust coverage reports".to_owned(),
@@ -565,24 +699,8 @@ fn proof_steps() -> Vec<Step> {
                 }),
             }),
     );
+    steps.extend(rust_mutation_steps(mode));
     steps.extend([
-        // Lints are capped while building mutants: otherwise a mutant that merely leaves a
-        // variable unused fails to compile and is silently skipped instead of tested.
-        run(
-            "Rust mutation testing",
-            "cargo",
-            &[
-                "mutants",
-                "--workspace",
-                "--cap-lints=true",
-                "--gitignore=true",
-            ],
-            Dir::Root,
-        ),
-        Step {
-            name: "Rust unviable mutants reviewed".to_owned(),
-            action: Action::UnviableGate,
-        },
         Step {
             name: "TypeScript equivalent mutants reviewed".to_owned(),
             action: Action::EquivalentGate,
@@ -716,9 +834,31 @@ fn consistency_steps() -> Vec<Step> {
     ]
 }
 
+/// The Stryker command of the package in `dir`, in `mode`.
+///
+/// Always incremental, so that the default check reuses what the last run found;
+/// [`Mode::Full`] adds `--force`, which runs every mutant again and rewrites the incremental
+/// file from that complete run.
+#[must_use]
+pub fn stryker_command(dir: &'static str, mode: Mode) -> Cmd {
+    let mut args = vec![
+        "exec",
+        "stryker",
+        "run",
+        "--incremental",
+        "--incrementalFile",
+        STRYKER_INCREMENTAL,
+    ];
+    if matches!(mode, Mode::Full { .. }) {
+        args.push("--force");
+    }
+    Cmd::new("pnpm", &args, Dir::Package(dir))
+}
+
 /// The TypeScript packages: dependencies, their audit and licenses, then the checks of
-/// each package of [`PACKAGES`], in order, and the gate on their reports.
-fn typescript_steps() -> Vec<Step> {
+/// each package of [`PACKAGES`] and its mutation testing in `mode`, in order, and the gates
+/// on their reports.
+fn typescript_steps(mode: Mode) -> Vec<Step> {
     let mut steps = vec![
         run(
             "JavaScript dependencies",
@@ -744,14 +884,22 @@ fn typescript_steps() -> Vec<Step> {
             action: Action::FreshDirs(build_outputs()),
         },
     ];
-    steps.extend(PACKAGES.iter().map(|package| {
-        run(
+    for package in PACKAGES {
+        steps.push(run(
             package.step,
             "pnpm",
             &["run", "check"],
             Dir::Package(package.dir),
-        )
-    }));
+        ));
+        let what = match mode {
+            Mode::Changes => "what changed since the last run",
+            Mode::Full { .. } => "every mutant",
+        };
+        steps.push(Step {
+            name: format!("Mutation testing of {} ({what})", package.dir),
+            action: Action::Run(stryker_command(package.dir, mode)),
+        });
+    }
     steps.push(Step {
         name: "TypeScript coverage and mutation reports".to_owned(),
         action: Action::TypeScriptReportsGate,
@@ -763,15 +911,15 @@ fn typescript_steps() -> Vec<Step> {
     steps
 }
 
-/// Every check of the repository, in the order they run.
+/// Every check of the repository in `mode`, in the order they run.
 #[must_use]
-pub fn check_steps() -> Vec<Step> {
+pub fn check_steps(mode: Mode) -> Vec<Step> {
     [
         static_steps(),
         portability_steps(),
-        proof_steps(),
+        proof_steps(mode),
         consistency_steps(),
-        typescript_steps(),
+        typescript_steps(mode),
         vec![Step {
             name: "Working tree unchanged by the checks".to_owned(),
             action: Action::TreeUnchanged,
@@ -1214,7 +1362,12 @@ pub fn bypass_gate(sources: &[(String, String)], reviewed: &str) -> Result<(), F
         }
     }
     let mut problems = Vec::new();
-    compare_reviews(&count(keys), &reviews_of(reviewed, false), &mut problems);
+    compare_reviews(
+        &count(keys),
+        Extent::Complete,
+        &reviews_of(reviewed, false),
+        &mut problems,
+    );
     verdict(
         &format!(
             "bypasses of coverage or mutation testing must be reviewed in {BYPASSES_REVIEWED}"
@@ -1420,7 +1573,12 @@ pub fn scope_gate(tracked: &[String], scopes: &[Scope], reviewed: &str) -> Resul
                 }),
         );
     }
-    compare_reviews(&count(keys), &reviews_of(reviewed, true), &mut problems);
+    compare_reviews(
+        &count(keys),
+        Extent::Complete,
+        &reviews_of(reviewed, true),
+        &mut problems,
+    );
     verdict(
         &format!(
             "TypeScript sources outside coverage or mutation testing must be reviewed in {BYPASSES_REVIEWED}"
@@ -1498,12 +1656,18 @@ fn count<I: IntoIterator<Item = String>>(keys: I) -> BTreeMap<String, usize> {
 
 /// Compares what a gate `found`, each key with how many times, with the keys of a review
 /// file, adding to `problems` every line without a reason, every key found more often than
-/// reviewed and every review that is stale.
+/// reviewed and, when `found` is [`Extent::Complete`], every review that is stale (after a
+/// partial run, a key reviewed more often than found may be found elsewhere).
 ///
 /// `reviewed` holds one `<key> -- <reason>` line per occurrence (a key found twice is
 /// reviewed twice, each with its reason); blank lines and lines starting with `#` are
 /// ignored.
-fn compare_reviews(found: &BTreeMap<String, usize>, reviewed: &str, problems: &mut Vec<String>) {
+fn compare_reviews(
+    found: &BTreeMap<String, usize>,
+    extent: Extent,
+    reviewed: &str,
+    problems: &mut Vec<String>,
+) {
     let mut keys = Vec::new();
     for line in reviewed
         .lines()
@@ -1527,6 +1691,9 @@ fn compare_reviews(found: &BTreeMap<String, usize>, reviewed: &str, problems: &m
             problems.push(format!("not reviewed: {}", counted(key, seen, listed)));
         }
     }
+    if extent == Extent::Partial {
+        return;
+    }
     for (key, &listed) in &known {
         let seen = found.get(key).copied().unwrap_or_default();
         if listed > seen {
@@ -1535,7 +1702,8 @@ fn compare_reviews(found: &BTreeMap<String, usize>, reviewed: &str, problems: &m
     }
 }
 
-/// Checks that the unviable mutants of the last run are exactly the reviewed ones.
+/// Checks that the unviable mutants of the last run are reviewed and, after a
+/// [`Extent::Complete`] run, exactly the reviewed ones.
 ///
 /// A mutant is known by its file and description, not its line, so that
 /// unrelated edits do not invalidate a review; two mutants with the same key (the same
@@ -1545,8 +1713,9 @@ fn compare_reviews(found: &BTreeMap<String, usize>, reviewed: &str, problems: &m
 ///
 /// # Errors
 ///
-/// Returns a message listing unreviewed mutants, stale reviews and malformed lines.
-pub fn unviable_gate(report: &str, reviewed: &str) -> Result<(), Failure> {
+/// Returns a message listing unreviewed mutants, stale reviews (after a complete run) and
+/// malformed lines.
+pub fn unviable_gate(report: &str, extent: Extent, reviewed: &str) -> Result<(), Failure> {
     let mut problems = Vec::new();
     let mut keys = Vec::new();
     for line in report.lines().filter(|line| !line.trim().is_empty()) {
@@ -1556,7 +1725,7 @@ pub fn unviable_gate(report: &str, reviewed: &str) -> Result<(), Failure> {
         }
     }
     let found = count(keys);
-    compare_reviews(&found, reviewed, &mut problems);
+    compare_reviews(&found, extent, reviewed, &mut problems);
     verdict(
         &format!("unviable mutants must be reviewed in {UNVIABLE_REVIEWED}"),
         problems,
@@ -1582,7 +1751,7 @@ pub fn equivalent_gate(sources: &[(String, String)], reviewed: &str) -> Result<(
     let keys = found
         .into_iter()
         .map(|(disable, next)| format!("{}: {} at {next}", disable.path, disable.mutator));
-    compare_reviews(&count(keys), reviewed, &mut problems);
+    compare_reviews(&count(keys), Extent::Complete, reviewed, &mut problems);
     verdict(
         &format!("disabled mutants must be reviewed in {EQUIVALENT_REVIEWED}"),
         problems,
@@ -1977,7 +2146,7 @@ pub fn dependency_gate(
         }
     }
     let mut problems = Vec::new();
-    compare_reviews(&count(keys), reviewed, &mut problems);
+    compare_reviews(&count(keys), Extent::Complete, reviewed, &mut problems);
     verdict(
         &format!("direct dependencies must be reviewed in {DEPENDENCIES_REVIEWED}"),
         problems,
@@ -2356,7 +2525,7 @@ pub const WORKFLOW_CONDITIONS: [&str; 2] = [
 /// [`NIGHTLY_TOOLCHAIN`]; the checkout keeps no credential; the Cargo tools are
 /// [`PINNED_TOOLS`]; Node.js is the release in `.node-version` (at [`NODE_FLOOR`] or later);
 /// the runner is an OS release (never `-latest`); the whole history is fetched for the
-/// history gate; the workflow runs `cargo xtask check`; its Rust cache is saved even when
+/// history gate; the workflow runs `cargo xtask check --full`; its Rust cache is saved even when
 /// the run fails; and a failed run uploads every [`failure_uploads`] path.
 ///
 /// # Errors
@@ -2440,7 +2609,7 @@ pub fn workflow_gate(
         "node-version-file: .node-version".to_owned(),
         "fetch-depth: 0".to_owned(),
         "persist-credentials: false".to_owned(),
-        "run: cargo xtask check".to_owned(),
+        "run: cargo xtask check --full".to_owned(),
         "cache-on-failure: true".to_owned(),
     ]
     .into_iter()
@@ -2996,6 +3165,16 @@ pub trait Runner {
     /// Returns why the command could not be started or did not succeed, with the reason
     /// it wrote on stderr.
     fn capture(&mut self, cmd: &Cmd) -> Result<String, CommandFailure>;
+
+    /// Writes `text` to a file below the repository root, creating its directory if needed.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the directory or the file cannot be written.
+    fn write(&mut self, path: &str, text: &str) -> io::Result<()>;
+
+    /// How many threads the machine can run at once (at least one).
+    fn parallelism(&mut self) -> NonZeroUsize;
 }
 
 /// Runs real commands below a repository root.
@@ -3093,6 +3272,16 @@ impl Runner for SystemRunner {
         args.extend(patterns);
         self.capture(&Cmd::new("git", &args, Dir::Root))
             .map(|text| text.lines().map(str::to_owned).collect())
+    }
+
+    fn write(&mut self, path: &str, text: &str) -> io::Result<()> {
+        let file = self.root.join(path);
+        file.parent().map_or(Ok(()), std::fs::create_dir_all)?;
+        std::fs::write(file, text)
+    }
+
+    fn parallelism(&mut self) -> NonZeroUsize {
+        std::thread::available_parallelism().unwrap_or(NonZeroUsize::MIN)
     }
 }
 
@@ -3841,10 +4030,125 @@ fn licenses(runner: &mut dyn Runner) -> Result<(), Failure> {
     license_gate(&shipped?, &all?)
 }
 
-/// Runs one action of a step.
+/// The merge base of `HEAD` with the first of [`MUTATION_BASES`] git resolves, and that
+/// base's name.
+///
+/// # Errors
+///
+/// Returns that none could be resolved, with why each could not.
+fn mutation_base(runner: &mut dyn Runner) -> Result<(String, &'static str), Failure> {
+    let mut tried = Vec::new();
+    for against in MUTATION_BASES {
+        match runner.capture(&Cmd::new(
+            "git",
+            &["merge-base", "HEAD", against],
+            Dir::Root,
+        )) {
+            Ok(base) => return Ok((base.trim().to_owned(), against)),
+            Err(failure) => tried.push(failure.to_string()),
+        }
+    }
+    Err(Failure {
+        summary: format!(
+            "no base to measure the changes against: HEAD shares no history with any of {} \
+             (run `cargo xtask check --full`)",
+            MUTATION_BASES.join(", ")
+        ),
+        details: tried,
+    })
+}
+
+/// The diff git would show for `path`, a new file holding `text`, added whole; nothing for
+/// an empty file, which holds no mutant.
+#[must_use]
+pub fn new_file_diff(path: &str, text: &str) -> String {
+    if text.is_empty() {
+        return String::new();
+    }
+    let mut diff = format!(
+        "diff --git a/{path} b/{path}\nnew file mode 100644\n--- /dev/null\n+++ b/{path}\n@@ -0,0 +1,{} @@\n",
+        text.lines().count()
+    );
+    for line in text.lines() {
+        diff.push('+');
+        diff.push_str(line);
+        diff.push('\n');
+    }
+    if !text.ends_with('\n') {
+        diff.push_str("\\ No newline at end of file\n");
+    }
+    diff
+}
+
+/// Runs cargo-mutants on what changed since the merge base ([`Action::RustMutantsOfChanges`]):
+/// the changes of the tracked files, committed or not, and every new Rust file git does not
+/// ignore; nothing when nothing changed.
+fn rust_mutants_of_changes(runner: &mut dyn Runner, out: &mut dyn Write) -> Result<(), Failure> {
+    let (base, against) = mutation_base(runner)?;
+    let mut diff = git_output(
+        runner,
+        &[
+            "diff",
+            "--no-color",
+            "--no-ext-diff",
+            "--no-renames",
+            "--src-prefix=a/",
+            "--dst-prefix=b/",
+            &base,
+        ],
+        "read the changes",
+    )?;
+    let new = git_output(
+        runner,
+        &["ls-files", "--others", "--exclude-standard", "--", "*.rs"],
+        "list the new Rust files",
+    )?;
+    for path in new.lines() {
+        diff.push_str(&new_file_diff(path, &read_file(runner, path)?));
+    }
+    if diff.is_empty() {
+        return say(
+            out,
+            &format!("  no change since {base} (merge base with {against}): no mutant to test"),
+        );
+    }
+    say(
+        out,
+        &format!("  the changes since {base} (merge base with {against})"),
+    )?;
+    runner
+        .write(CHANGES_DIFF, &diff)
+        .map_err(|error| Failure::from(format!("cannot write {CHANGES_DIFF}: {error}")))?;
+    runner
+        .run(&changes_mutants_command())
+        .map_err(|failure| Failure::from(failure.to_string()))
+}
+
+/// The unviable mutants cargo-mutants reported ([`UNVIABLE_REPORT`]) in a run of `extent`.
+///
+/// cargo-mutants writes no report when the changes hold no mutant, and its report directory
+/// was emptied just before it ran: after a partial run, a missing report means none found.
+/// A complete run always writes it.
+///
+/// # Errors
+///
+/// Returns why the report cannot be read.
+fn unviable_report(runner: &mut dyn Runner, extent: Extent) -> Result<String, Failure> {
+    match (runner.read(UNVIABLE_REPORT), extent) {
+        (Err(error), Extent::Partial) if error.kind() == io::ErrorKind::NotFound => {
+            Ok(String::new())
+        }
+        (read, _) => {
+            read.map_err(|error| Failure::from(format!("cannot read {UNVIABLE_REPORT}: {error}")))
+        }
+    }
+}
+
+/// Runs one action of a step, saying on `out` what it found when that matters.
 fn run_action(
     action: &Action,
     runner: &mut dyn Runner,
+    out: &mut dyn Write,
     tree: &mut Option<TreeState>,
 ) -> Result<(), Failure> {
     match action {
@@ -3937,9 +4241,10 @@ fn run_action(
             let sources = read_all(runner, paths)?;
             equivalent_gate(&sources, &read_file(runner, EQUIVALENT_REVIEWED)?)
         }
-        Action::UnviableGate => {
-            let report = read_file(runner, UNVIABLE_REPORT)?;
-            unviable_gate(&report, &read_file(runner, UNVIABLE_REVIEWED)?)
+        Action::RustMutantsOfChanges => rust_mutants_of_changes(runner, out),
+        Action::UnviableGate(extent) => {
+            let report = unviable_report(runner, *extent)?;
+            unviable_gate(&report, *extent, &read_file(runner, UNVIABLE_REVIEWED)?)
         }
     }
 }
@@ -3973,7 +4278,7 @@ pub fn run_steps(
     for (index, step) in steps.iter().enumerate() {
         let number = index.saturating_add(1);
         say(out, &format!("▶ [{number}/{total_steps}] {}", step.name))?;
-        run_action(&step.action, runner, &mut tree).map_err(|failure| Failure {
+        run_action(&step.action, runner, out, &mut tree).map_err(|failure| Failure {
             summary: format!("{}: {}", step.name, failure.summary),
             details: failure.details,
         })?;
@@ -3983,13 +4288,15 @@ pub fn run_steps(
 
 /// Usage of the `xtask` command, in the order of its first line.
 pub const USAGE: &str = "\
-usage: cargo xtask <check|list|bless|commit-msg <file>|pre-push [commit...]|help>
-  check                 run every quality check, as CI and the pre-push hook do
-  list                  list the checks, in the order they run
+usage: cargo xtask <check [--full]|list [--full]|bless|commit-msg <file>|pre-push [commit...]|help>
+  check [--full]        run every quality check; mutation testing covers the changes since
+                        the merge base with the upstream, origin/main or main, or with
+                        --full every mutant, as CI does
+  list [--full]         list the checks of `check` (or `check --full`), in order
   bless                 rewrite conformance/references.json from the current renders
   commit-msg <file>     check a commit message (used by the commit-msg hook)
   pre-push [commit...]  check that the tree is clean and the pushed commits are checked
-                        out, then run every check (used by the pre-push hook)
+                        out, then run `check` (used by the pre-push hook)
   help                  show this help";
 
 /// The only way to change the reference hashes: renders every conformance case and
@@ -4016,10 +4323,10 @@ pub fn bless_step() -> Step {
 /// A command of `cargo xtask`, read from its arguments.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Task {
-    /// Every check.
-    Check,
-    /// The list of the checks.
-    List,
+    /// Every check: every mutant if `true` ([`Mode::Full`]), else the changes.
+    Check(bool),
+    /// The list of the checks: those of `check --full` if `true`.
+    List(bool),
     /// Rewrite the reference hashes.
     Bless,
     /// Check the commit message in this file.
@@ -4044,17 +4351,23 @@ fn task(args: &[OsString]) -> Result<Task, String> {
                 .ok_or_else(|| format!("argument is not valid UTF-8: {}", arg.to_string_lossy()))
         })
         .collect::<Result<Vec<String>, String>>()?;
-    let alone = ["check", "list", "bless", "help"];
+    let alone = ["bless", "help"];
+    let moded = ["check", "list"];
     match args.as_slice() {
         [] => Err("no command given".to_owned()),
-        [command] if command == "check" => Ok(Task::Check),
-        [command] if command == "list" => Ok(Task::List),
+        [command] if command == "check" => Ok(Task::Check(false)),
+        [command, flag] if command == "check" && flag == "--full" => Ok(Task::Check(true)),
+        [command] if command == "list" => Ok(Task::List(false)),
+        [command, flag] if command == "list" && flag == "--full" => Ok(Task::List(true)),
         [command] if command == "bless" => Ok(Task::Bless),
         [command] if command == "help" => Ok(Task::Help),
         [command, file] if command == "commit-msg" => Ok(Task::CommitMsg(file.clone())),
         [command, pushed @ ..] if command == "pre-push" => Ok(Task::PrePush(pushed.to_vec())),
         [command, ..] if alone.contains(&command.as_str()) => {
             Err(format!("`{command}` takes no argument"))
+        }
+        [command, ..] if moded.contains(&command.as_str()) => {
+            Err(format!("`{command}` takes no argument but `--full`"))
         }
         [command, ..] if command == "commit-msg" => Err("`commit-msg` takes one file".to_owned()),
         [command, ..] => Err(format!("unknown command \"{command}\"")),
@@ -4081,25 +4394,38 @@ pub fn cli(
             return 2;
         }
     };
+    let mut mode = |full: bool| {
+        if full {
+            Mode::Full {
+                jobs: mutation_jobs(runner.parallelism()),
+            }
+        } else {
+            Mode::Changes
+        }
+    };
     let result = match task {
-        Task::Check => run_steps(&check_steps(), runner, out),
+        Task::Check(full) => {
+            let steps = check_steps(mode(full));
+            run_steps(&steps, runner, out)
+        }
         Task::Bless => run_steps(&[bless_step()], runner, out),
         Task::CommitMsg(path) => {
             read_file(runner, &path).and_then(|message| commit_msg_gate(&message))
         }
-        Task::PrePush(pushed) => {
-            pre_push(runner, &pushed).and_then(|()| run_steps(&check_steps(), runner, out))
-        }
+        Task::PrePush(pushed) => pre_push(runner, &pushed)
+            .and_then(|()| run_steps(&check_steps(Mode::Changes), runner, out)),
         Task::Help => say(out, USAGE),
-        Task::List => check_steps()
-            .iter()
-            .enumerate()
-            .try_for_each(|(index, step)| {
-                say(
-                    out,
-                    &format!("{:>2}. {}", index.saturating_add(1), step.name),
-                )
-            }),
+        Task::List(full) => {
+            check_steps(mode(full))
+                .iter()
+                .enumerate()
+                .try_for_each(|(index, step)| {
+                    say(
+                        out,
+                        &format!("{:>2}. {}", index.saturating_add(1), step.name),
+                    )
+                })
+        }
     };
     match result {
         Ok(()) => 0,

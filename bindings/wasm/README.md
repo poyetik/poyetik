@@ -13,7 +13,7 @@ The engine in browsers: a WebAssembly module (Rust crate `engine-wasm`) and its 
 | `e2e/` | End-to-end tests: a test bench page rendering conformance cases offline and live in Chromium, Firefox, WebKit and mobile WebKit |
 
 ```sh
-pnpm check   # build, types, lint, unit tests at 100% coverage, no allocation while rendering, reproducible build, mutation testing, end-to-end tests
+pnpm check   # build, types, lint, unit tests at 100% coverage, no allocation while rendering, reproducible build, end-to-end tests
 ```
 
 The engine output is the patch's samples, unclipped: a level above 1.0 is kept, in the render hash and in an offline render, while a browser's audio output clips it. The final output stage belongs to the host, until the engine defines its own output policy (roadmap ticket #12).

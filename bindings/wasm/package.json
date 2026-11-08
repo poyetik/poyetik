@@ -24,10 +24,9 @@
     "test": "vitest run --coverage",
     "test:reproducible": "node scripts/reproducible.ts",
     "test:allocation": "vitest run --config vitest.allocation.config.ts",
-    "test:mutation": "stryker run",
     "bench": "tsc -p e2e/site/tsconfig.build.json && node e2e/serve.ts",
     "test:e2e": "playwright test",
-    "check": "pnpm build && pnpm typecheck && pnpm lint && pnpm test && pnpm test:allocation && pnpm test:reproducible && pnpm test:mutation && pnpm test:e2e"
+    "check": "pnpm build && pnpm typecheck && pnpm lint && pnpm test && pnpm test:allocation && pnpm test:reproducible && pnpm test:e2e"
   },
   "devDependencies": {
     "@poyetik/config": "workspace:*",

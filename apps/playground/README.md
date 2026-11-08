@@ -12,7 +12,7 @@ The Rust engine in the browser: a 440 Hz sine with an on/off button and a live o
 
 ```sh
 pnpm dev     # http://localhost:5173 (build bindings/wasm first: pnpm --dir ../../bindings/wasm build)
-pnpm check   # types, lint, unit tests at 100% coverage, mutation testing, build, end-to-end tests
+pnpm check   # types, lint, unit tests at 100% coverage, build, end-to-end tests
 ```
 
 `?muted` silences the speakers; the oscilloscope still shows the engine output.

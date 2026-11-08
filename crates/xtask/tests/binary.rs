@@ -9,8 +9,7 @@ mod tests {
     use std::process::{Command, Output, Stdio};
 
     /// The first line of the usage.
-    const USAGE: &str =
-        "usage: cargo xtask <check|list|bless|commit-msg <file>|pre-push [commit...]|help>\n";
+    const USAGE: &str = "usage: cargo xtask <check [--full]|list [--full]|bless|commit-msg <file>|pre-push [commit...]|help>\n";
 
     /// Runs the binary with `args`, its stdout and stderr captured.
     fn xtask(args: &[&str]) -> Output {

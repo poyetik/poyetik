@@ -33,11 +33,12 @@ macOS or Linux (on Windows, use WSL2). `cargo xtask check` checks every tool fir
 ## Checking
 
 ```sh
-cargo xtask check   # every check, in order
-cargo xtask list    # what they are
+cargo xtask check          # every check, in order; mutation testing of the changes only
+cargo xtask check --full   # every check and every mutant
+cargo xtask list           # what they are (`list --full`: those of `check --full`)
 ```
 
-The pre-push hook and CI run exactly `cargo xtask check`.
+The pre-push hook runs `cargo xtask check`, CI runs `cargo xtask check --full`. The default check mutation tests only what changed since the merge base with the branch's upstream (else `origin/main`, else `main`), so a green default check does not prove a green full check; `CLAUDE.md` (CI) says what each proves and when the full check is required.
 
 ## License
 

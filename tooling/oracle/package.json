@@ -8,9 +8,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --max-warnings 0",
     "test": "vitest run --coverage",
-    "test:mutation": "stryker run",
     "oracle": "node src/bin.ts ../../conformance ../../target/conformance",
-    "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm test:mutation && pnpm oracle"
+    "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm oracle"
   },
   "engines": {
     "node": ">=22.18"
