@@ -40,11 +40,12 @@ jobs:
           # No credential is kept in the repository's configuration for later steps.
           persist-credentials: false
 
-      # Rust: the pinned stable toolchain comes from rust-toolchain.toml; the pinned
-      # nightly is used only to measure branch coverage and to run Miri.
+      # Rust: the pinned stable toolchain is installed from rust-toolchain.toml (rustup
+      # 1.28 or later, given no name); the pinned nightly is used only to measure branch
+      # coverage and to run Miri.
       - name: Install Rust toolchains
         run: |
-          rustup show active-toolchain
+          rustup toolchain install
           rustup toolchain install nightly-2026-11-01 --profile minimal --component llvm-tools-preview,miri,rust-src
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:

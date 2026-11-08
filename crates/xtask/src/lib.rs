@@ -692,8 +692,15 @@ pub const INCLUDE_IGNORED: &str = "--include-ignored";
 
 /// The arguments of every cargo-mutants run: lints are capped while building mutants
 /// (otherwise a mutant that merely leaves a variable unused fails to compile and is silently
-/// skipped instead of tested), and the ignored files are not copied.
-const MUTANTS_ARGS: [&str; 3] = ["mutants", "--cap-lints=true", "--gitignore=true"];
+/// skipped instead of tested), the ignored files are not copied, and every cargo command
+/// it runs keeps `Cargo.lock` as it is (`--locked`, as every other cargo command of the
+/// checks).
+const MUTANTS_ARGS: [&str; 4] = [
+    "mutants",
+    "--cap-lints=true",
+    "--gitignore=true",
+    "--cargo-arg=--locked",
+];
 
 /// A cargo-mutants command: [`MUTANTS_ARGS`], then `args`, then [`INCLUDE_IGNORED`] for the
 /// test harness (cargo-mutants passes what follows its `--` to `cargo test`, which passes
