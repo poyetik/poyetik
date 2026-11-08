@@ -410,7 +410,7 @@ fn check_command_reports_every_problem() {
     let (result, out) = run_with(&mut memory, &["check", "conf"]);
     assert_eq!(
         result,
-        Err("conformance failed: 2 problem(s)".to_owned()),
+        Err("conformance failed in conf: 2 problem(s)".to_owned()),
         "two problems"
     );
     assert_eq!(
@@ -425,7 +425,7 @@ fn check_command_reports_every_problem() {
     let (missing_result, missing_out) = run_with(&mut missing, &["check", "conf"]);
     assert_eq!(
         missing_result,
-        Err("conformance failed: 1 problem(s)".to_owned()),
+        Err("conformance failed in conf: 1 problem(s)".to_owned()),
         "missing reference"
     );
     assert_eq!(
@@ -458,16 +458,52 @@ fn check_command_reports_unreadable_inputs() {
         Err("cannot list conf/cases: no such directory".to_owned()),
         "no cases"
     );
-    let mut bad_case = Memory::with(&[
-        ("conf/cases/bad.json", "{"),
-        ("conf/patches/bad.json", PATCH),
+}
+
+#[test]
+fn check_command_reports_every_case_that_fails_to_render() {
+    // Two broken cases, one in its case file, one in its patch, between valid ones: both
+    // are reported, and the valid cases are still checked.
+    let mut memory = Memory::with(&[
+        ("conf/cases/a.json", "{"),
+        ("conf/patches/a.json", PATCH),
+        ("conf/cases/b.json", SINE),
+        (
+            "conf/patches/b.json",
+            r#"{"format":1,"nodes":[{"id":1,"box":"foo~"}],"connections":[]}"#,
+        ),
+        ("conf/cases/sine.json", SINE),
+        ("conf/patches/sine.json", PATCH),
+        (
+            "conf/references.json",
+            &format!(r#"{{"a":"0","b":"0","sine":"{}"}}"#, sine_hash()),
+        ),
+    ]);
+    let (result, out) = run_with(&mut memory, &["check", "conf"]);
+    assert_eq!(
+        result,
+        Err("conformance failed in conf: 2 problem(s)".to_owned()),
+        "both failures counted, once each"
+    );
+    assert_eq!(
+        out,
+        format!(
+            "FAILED   a: conf/cases/a.json: invalid case: EOF while parsing an object at line 1 column 1\n\
+             FAILED   b: conf/patches/b.json: node 1: unknown box type \"foo~\"\n\
+             ok       sine {}\n",
+            sine_hash()
+        ),
+        "every case reported, in order"
+    );
+    let mut broken = Memory::with(&[
+        ("conf/cases/a.json", "{"),
+        ("conf/patches/a.json", PATCH),
         ("conf/references.json", "{}"),
     ]);
-    assert!(
-        run_with(&mut bad_case, &["check", "conf"])
-            .0
-            .is_err_and(|error| error.starts_with("conf/cases/bad.json: invalid case: ")),
-        "case file named"
+    assert_eq!(
+        run(&args(&["check", "conf"]), &mut broken, &mut Broken).map_err(|error| error.to_string()),
+        Err("closed".to_owned()),
+        "a broken output is a failure"
     );
 }
 

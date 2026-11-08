@@ -232,40 +232,55 @@ fn render(files: &mut dyn Files, out: &mut dyn Write, args: &[String]) -> Result
     Ok(say(out, &rendered.hash().to_string())?)
 }
 
-/// `check <dir>`.
+/// `check <dir>`: renders every case and reports each one on `out`, a case that fails
+/// to render included, so that one run lists every problem.
+///
+/// `bless` and `export`, by contrast, stop at the first failing case: a partial set of
+/// references or renders would be wrong.
 fn check(files: &mut dyn Files, out: &mut dyn Write, dir: &Path) -> Result<(), String> {
-    let actual = hashes(files, dir)?;
+    let cases = cases(files, dir)?;
     let path = references_path(dir);
     let expected: BTreeMap<String, String> = serde_json::from_str(&read(files, &path)?)
         .map_err(|error| format!("invalid {}: {error}", path.display()))?;
     let mut failures = 0_usize;
-    for (name, hash) in &actual {
-        match expected.get(name) {
-            Some(reference) if reference == hash => say(out, &format!("ok       {name} {hash}"))?,
-            Some(reference) => {
-                failures = failures.saturating_add(1);
-                say(
-                    out,
-                    &format!("MISMATCH {name}: expected {reference}, got {hash}"),
-                )?;
-            }
-            None => {
-                failures = failures.saturating_add(1);
-                say(
-                    out,
-                    &format!("MISSING  {name}: no reference hash (run bless)"),
-                )?;
-            }
+    for case in &cases {
+        let name = &case.name;
+        let (passed, line) = match case
+            .prepare()
+            .map(|prepared| prepared.render().hash().to_string())
+        {
+            Ok(hash) => match expected.get(name) {
+                Some(reference) if *reference == hash => (true, format!("ok       {name} {hash}")),
+                Some(reference) => (
+                    false,
+                    format!("MISMATCH {name}: expected {reference}, got {hash}"),
+                ),
+                None => (
+                    false,
+                    format!("MISSING  {name}: no reference hash (run bless)"),
+                ),
+            },
+            Err(reason) => (false, format!("FAILED   {name}: {reason}")),
+        };
+        if !passed {
+            failures = failures.saturating_add(1);
         }
+        say(out, &line)?;
     }
-    for name in expected.keys().filter(|name| !actual.contains_key(*name)) {
+    for name in expected
+        .keys()
+        .filter(|name| !cases.iter().any(|case| case.name == **name))
+    {
         failures = failures.saturating_add(1);
         say(out, &format!("STALE    {name}: reference without a case"))?;
     }
     if failures == 0 {
         Ok(())
     } else {
-        Err(format!("conformance failed: {failures} problem(s)"))
+        Err(format!(
+            "conformance failed in {}: {failures} problem(s)",
+            dir.display()
+        ))
     }
 }
 

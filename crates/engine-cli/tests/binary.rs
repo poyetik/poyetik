@@ -56,8 +56,12 @@ mod tests {
             "explained"
         );
         assert_eq!(
-            output.stderr, b"error: conformance failed: 1 problem(s)\n",
-            "summary on stderr"
+            String::from_utf8_lossy(&output.stderr),
+            format!(
+                "error: conformance failed in {}: 1 problem(s)\n",
+                dir.display()
+            ),
+            "summary on stderr, naming the directory"
         );
     }
 
