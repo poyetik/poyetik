@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `GLOSSARY.md`: the words of the project, with the name each takes in the patch format and the code. READMEs for the roadmap, the oracle and the shared policy; `cargo xtask check` now requires a README in every TypeScript package, every part named in the README of its folder and every folder in the root README.
 - The shared TypeScript policy (`@poyetik/config`) is itself checked: each lint rule and strict compiler setting is proven, by a fixture that breaks it, to reject exactly what it forbids, with 100% coverage and no surviving mutant; the ESLint configuration is now TypeScript, linted by itself, and a step of `cargo xtask check`.
 - `cargo xtask check` starts by checking the platform (macOS or Linux; Windows through WSL2) and every tool it needs, Node.js 22.18 or later included, naming what is missing and how to install it; `cargo xtask list` lists the checks. `.gitattributes` keeps LF line endings everywhere (the git hooks are shell scripts), and `pnpm install` no longer fails outside a git work tree.
 - A membership gate in `cargo xtask check`: the `package.json` files tracked by git must be exactly those the version check reads, every TypeScript package must have its checks and reports run, and every crate must take the workspace version. A package added without being wired into the checks now fails it.

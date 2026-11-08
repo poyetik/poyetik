@@ -1350,17 +1350,86 @@ fn membership(runner: &mut dyn Runner) -> Result<(), String> {
             .tracked(&[pattern])
             .map_err(|error| format!("cannot list the {pattern} files: {error}"))
     };
-    list(runner, "*package.json").and_then(|packages| {
-        list(runner, "*.gitignore").and_then(|ignores| {
-            list(runner, "*Cargo.toml").and_then(|manifests| {
-                manifests
-                    .into_iter()
-                    .map(|path| read_file(runner, &path).map(|text| (path, text)))
-                    .collect::<Result<Vec<_>, _>>()
-                    .and_then(|crates| membership_gate(&packages, &crates, &ignores))
-            })
-        })
-    })
+    let read_all = |source: &mut dyn Runner, paths: Vec<String>| {
+        paths
+            .into_iter()
+            .map(|path| read_file(source, &path).map(|text| (path, text)))
+            .collect::<Result<Vec<_>, _>>()
+    };
+    let packages = list(runner, "*package.json")?;
+    let ignores = list(runner, "*.gitignore")?;
+    let manifests = list(runner, "*Cargo.toml")?;
+    let readmes = list(runner, "*README.md")?;
+    let crates = read_all(runner, manifests)?;
+    let readmes = read_all(runner, readmes)?;
+    membership_gate(&packages, &crates, &ignores)?;
+    let parts: Vec<String> = TYPESCRIPT_PACKAGES
+        .iter()
+        .map(|&dir| dir.to_owned())
+        .chain(
+            crates
+                .iter()
+                .filter_map(|(path, _)| path.strip_suffix("/Cargo.toml"))
+                .map(str::to_owned),
+        )
+        .collect();
+    readme_gate(&parts, &readmes)
+}
+
+/// Checks that every part is described where a reader looks for it.
+///
+/// `parts` are the directories of the TypeScript packages and of the crates (`apps/roadmap`,
+/// `crates/engine-core`); `readmes` the tracked `README.md` files with their text. Each
+/// TypeScript package has its own README; each part is named, in backquotes, in the README
+/// of the folder that holds it (the parts table of `crates/README.md`, `apps/README.md` …),
+/// and each such folder is named in the root README. Crates are described by their crate
+/// documentation, which rustdoc requires.
+///
+/// # Errors
+///
+/// Returns every missing README and every part a README does not name.
+pub fn readme_gate(parts: &[String], readmes: &[(String, String)]) -> Result<(), String> {
+    let text = |path: &str| {
+        readmes
+            .iter()
+            .find(|(readme, _)| readme == path)
+            .map(|(_, content)| content.as_str())
+    };
+    let mut problems = Vec::new();
+    for package in TYPESCRIPT_PACKAGES {
+        if text(&format!("{package}/README.md")).is_none() {
+            problems.push(format!("{package} has no README.md"));
+        }
+    }
+    let mut folders = BTreeSet::new();
+    for part in parts {
+        let Some((folder, name)) = part.rsplit_once('/') else {
+            problems.push(format!(
+                "{part} is not inside a folder of parts (apps/, crates/ …)"
+            ));
+            continue;
+        };
+        let _new = folders.insert(folder);
+        match text(&format!("{folder}/README.md")) {
+            None => problems.push(format!("{folder} has no README.md")),
+            Some(content) if !content.contains(&format!("`{name}")) => {
+                problems.push(format!("{folder}/README.md does not name {name}"));
+            }
+            Some(_) => {}
+        }
+    }
+    let root = text("README.md").unwrap_or_default();
+    problems.extend(
+        folders
+            .into_iter()
+            .filter(|folder| !root.contains(&format!("`{folder}/`")))
+            .map(|folder| format!("README.md does not name {folder}/")),
+    );
+    if problems.is_empty() {
+        Ok(())
+    } else {
+        Err(problems.join("; "))
+    }
 }
 
 /// Lists the licenses of what ships and of everything, then checks them.

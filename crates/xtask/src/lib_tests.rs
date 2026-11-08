@@ -177,6 +177,10 @@ fn passing() -> Fake {
         let previous_unsafe = fake.files.insert(path.to_owned(), lifting());
         assert!(previous_unsafe.is_none(), "fresh fake");
     }
+    for (path, text) in READMES {
+        let readme = fake.files.insert(path.to_owned(), text.to_owned());
+        assert!(readme.is_none(), "fresh fake");
+    }
     let third = fake.files.insert("x/a.ts".to_owned(), source.to_owned());
     let fourth = fake
         .files
@@ -198,6 +202,20 @@ fn passing() -> Fake {
     }
     fake
 }
+
+/// The READMEs of a repository whose parts are all described: each TypeScript package has
+/// its own, each folder names its parts, the root names the folders.
+const READMES: [(&str, &str); 9] = [
+    ("README.md", "| `apps/` | | `bindings/` | | `tooling/` |"),
+    ("apps/README.md", "| `roadmap/` | | `playground/` |"),
+    ("bindings/README.md", "- [`wasm/`](wasm/)"),
+    ("tooling/README.md", "| `config/` | | `oracle/` |"),
+    ("apps/roadmap/README.md", "# roadmap"),
+    ("apps/playground/README.md", "# playground"),
+    ("bindings/wasm/README.md", "# wasm"),
+    ("tooling/config/README.md", "# config"),
+    ("tooling/oracle/README.md", "# oracle"),
+];
 
 const CARGO: &str = "[workspace]\nmembers = []\n\n[workspace.package]\nedition = \"2024\"\nversion = \"0.2.0\"\n\n[other]\nversion = \"9.9.9\"\n";
 const PACKAGE: &str = r#"{"name": "x", "version": "0.2.0"}"#;
@@ -425,11 +443,11 @@ fn runs_every_step_and_reports_success() {
     );
     assert_eq!(
         fake.ran.len(),
-        check_steps().len() + 9 + 10 + 9 + 3 + 1 + 2 + 8,
+        check_steps().len() + 9 + 10 + 9 + 4 + 1 + 9 + 2 + 8,
         "every step ran; the unviable gate reads two files, the equivalent gate lists the \
          sources and reads two files, the release gate eight, the fresh step empties nine \
          more directories, the TypeScript gate reads ten reports instead of one action, \
-         the membership gate lists three times and reads the root Cargo.toml, the license gate \
+         the membership gate lists four times and reads the root Cargo.toml and nine READMEs, the license gate \
          captures two reports, the unsafe gate lists and reads two files, the preflight \
          asks nine tools"
     );
@@ -1768,5 +1786,49 @@ fn stops_at_a_missing_tool() {
         run_steps(&check_steps(), &mut fake, &mut Vec::new()),
         Err("✘ Tools and platform: `cargo mutants --version` is missing: cargo install --locked cargo-mutants".to_owned()),
         "named, with how to install it"
+    );
+}
+
+#[test]
+fn requires_every_part_to_be_described() {
+    let readmes: Vec<(String, String)> = READMES
+        .iter()
+        .map(|&(path, text)| (path.to_owned(), text.to_owned()))
+        .collect();
+    let mut parts: Vec<String> = TYPESCRIPT_PACKAGES
+        .iter()
+        .map(|&dir| dir.to_owned())
+        .collect();
+    assert_eq!(super::readme_gate(&parts, &readmes), Ok(()), "described");
+    parts.push("crates/engine-core".to_owned());
+    parts.push("lonely".to_owned());
+    let without: Vec<(String, String)> = readmes
+        .iter()
+        .filter(|(path, _)| path != "tooling/oracle/README.md")
+        .cloned()
+        .chain([(
+            "crates/README.md".to_owned(),
+            "| `engine-hash` |".to_owned(),
+        )])
+        .collect();
+    assert_eq!(
+        super::readme_gate(&parts, &without),
+        Err(
+            "tooling/oracle has no README.md; crates/README.md does not name engine-core; \
+             lonely is not inside a folder of parts (apps/, crates/ …); \
+             README.md does not name crates/"
+                .to_owned()
+        ),
+        "a package without a README, a crate the table forgets, a part outside any folder"
+    );
+    let unnamed: Vec<(String, String)> = readmes
+        .iter()
+        .filter(|(path, _)| path != "apps/README.md")
+        .cloned()
+        .collect();
+    assert_eq!(
+        super::readme_gate(&TYPESCRIPT_PACKAGES.map(str::to_owned), &unnamed),
+        Err("apps has no README.md; apps has no README.md".to_owned()),
+        "a folder without its README"
     );
 }

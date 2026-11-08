@@ -17,7 +17,8 @@ A monorepo of separate parts:
 | `bindings/` | Developer SDKs around the core: `wasm/`, the engine in browsers and Node |
 | `apps/` | Applications: the playground and the public roadmap |
 | `conformance/` | Reference cases and expected hashes, checked on every target |
-| `tooling/` | Shared development configuration (`@poyetik/config`) |
+| `tooling/` | Shared development tooling: the strict TypeScript policy (`@poyetik/config`) and the independent conformance oracle |
+| `GLOSSARY.md` | The words of the project, and the name each takes in the patch format and the code |
 | `CLAUDE.md` | Project rules: language, proof, typing, testing, documentation, versioning |
 | `CHANGELOG.md` | Notable changes, per version |
 
