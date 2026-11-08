@@ -110,41 +110,43 @@ function engineNode(context: BaseAudioContext, loaded: LoadedPatch, onFailure: (
     outputChannelCount: [marker ? loaded.channels + 1 : Math.max(1, loaded.channels)],
     processorOptions: loaded.options(marker),
   });
-  const ready = Promise.withResolvers<undefined>();
+  // The handlers are installed by the executor, which runs at once: they settle `ready`.
+  const ready = new Promise<undefined>((resolve, reject) => {
+    let failed = false;
+    const fail = (error: Error): void => {
+      if (!failed) {
+        failed = true;
+        reject(error);
+        onFailure(error);
+      }
+    };
+    node.port.onmessage = (event: MessageEvent<unknown>) => {
+      let message;
+      try {
+        message = parseEngineMessage(event.data);
+      } catch (error) {
+        fail(toError(error));
+        return;
+      }
+      switch (message.type) {
+        case "ready":
+          resolve(undefined);
+          break;
+        case "rejected":
+          fail(new Error(new TextDecoder().decode(message.detail), { cause: new PatchError(message.detail) }));
+          break;
+        case "failed":
+          fail(new Error(`the engine failed: ${message.message}`));
+          break;
+      }
+    };
+    node.onprocessorerror = () => {
+      fail(new Error("the engine processor failed"));
+    };
+  });
   // Rejections also reach onFailure: `ready` is only awaited by those who need it.
-  ready.promise.catch(() => undefined);
-  let failed = false;
-  const fail = (error: Error): void => {
-    if (!failed) {
-      failed = true;
-      ready.reject(error);
-      onFailure(error);
-    }
-  };
-  node.port.onmessage = (event: MessageEvent<unknown>) => {
-    let message;
-    try {
-      message = parseEngineMessage(event.data);
-    } catch (error) {
-      fail(toError(error));
-      return;
-    }
-    switch (message.type) {
-      case "ready":
-        ready.resolve(undefined);
-        break;
-      case "rejected":
-        fail(new Error(new TextDecoder().decode(message.detail), { cause: new PatchError(message.detail) }));
-        break;
-      case "failed":
-        fail(new Error(`the engine failed: ${message.message}`));
-        break;
-    }
-  };
-  node.onprocessorerror = () => {
-    fail(new Error("the engine processor failed"));
-  };
-  return { node, ready: ready.promise };
+  ready.catch(() => undefined);
+  return { node, ready };
 }
 
 /**

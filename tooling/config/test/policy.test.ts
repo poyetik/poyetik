@@ -65,12 +65,16 @@ test("each rule of the policy rejects what it forbids, and only that", async () 
     "short-name": ["id-length"],
     shadow: ["@typescript-eslint/no-shadow"],
     var: ["no-var"],
+    "with-resolvers": ["no-restricted-properties"],
   });
   const severities = results.flatMap((result) => result.messages.filter((message) => message.ruleId !== null).map((message) => message.severity));
   expect(new Set(severities)).toStrictEqual(new Set([ERROR]));
   const messages = results.flatMap((result) => result.messages.map((message) => message.message));
   expect(messages).toContain("Use a union of string literals or an `as const` object.");
   expect(messages).toContain("No global augmentation.");
+  expect(messages).toContain(
+    "'Promise.withResolvers' is restricted from being used. It is missing from browsers the friendly checks still explain (Safari before 17.4, Firefox before 121): use `new Promise`.",
+  );
   // The package's own ignores, then the outputs every package ignores.
   for (const ignored of ["ignored.ts", "coverage/x.ts", "reports/x.ts", ".stryker-tmp/x.ts", "playwright-report/x.ts", "test-results/x.ts"]) {
     expect(await eslint.isPathIgnored(path.join(POLICY, ignored)), ignored).toBe(true);

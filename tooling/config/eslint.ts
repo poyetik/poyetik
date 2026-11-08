@@ -85,6 +85,17 @@ export function strict(directory: string, ignores: readonly string[], ...extra: 
         // Parameters are never reassigned nor mutated, except the mutable-by-design objects
         // received to be drawn on or written into: canvas contexts and DOM elements.
         "no-param-reassign": ["error", { props: true, ignorePropertyModificationsFor: ["canvas", "element"] }],
+        // Code that runs in browsers stays within what the friendly capability checks
+        // explain (the playground names a missing AudioWorklet, not a TypeError): APIs newer
+        // than that baseline are banned here, one by one, until a baseline is declared.
+        "no-restricted-properties": [
+          "error",
+          {
+            object: "Promise",
+            property: "withResolvers",
+            message: "It is missing from browsers the friendly checks still explain (Safari before 17.4, Firefox before 121): use `new Promise`.",
+          },
+        ],
         "prefer-const": "error",
         "no-var": "error",
       },
