@@ -82,6 +82,16 @@ fn found(context: &str, problems: &[String]) -> Result<(), Failure> {
     }
 }
 
+/// How the fake reads the state of its working tree, and what it answers: one untracked
+/// file.
+const TREE_STATUS: (&str, &str) = (
+    "git status --porcelain --untracked-files=all",
+    "?? notes.txt\n",
+);
+
+/// The changes of the tracked files of the fake: none.
+const TREE_DIFF: (&str, &str) = ("git diff HEAD", "");
+
 /// The two license listings, written out: the production dependencies of what ships
 /// (the engine package, the playground and the roadmap), then everything.
 const LICENSE_LINES: [&str; 2] = [
@@ -103,6 +113,8 @@ struct Fake {
     fail: Option<String>,
     broken: Option<String>,
     killed: Option<String>,
+    /// A command that, when it runs, rewrites a file: (command, file, new text).
+    rewrite: Option<(String, String, String)>,
     files: BTreeMap<String, String>,
 }
 
@@ -110,6 +122,11 @@ impl Runner for Fake {
     fn run(&mut self, cmd: &Cmd) -> Result<(), CommandFailure> {
         let line = cmd.line();
         self.ran.push(line.clone());
+        if let Some((command, file, text)) = &self.rewrite
+            && *command == line
+        {
+            let _previous = self.files.insert(file.clone(), text.clone());
+        }
         let failed = if self.broken.as_deref() == Some(line.as_str()) {
             Failed::NotStarted("not found".to_owned())
         } else if self.killed.as_deref() == Some(line.as_str()) {
@@ -328,6 +345,12 @@ fn passing() -> Fake {
     assert!(first.is_none() && second.is_none(), "fresh fake");
     let equivalent = "tooling/config/x.ts: EqualityOperator at while (a < 2) {} -- same result\n";
     typescript_reports(&mut fake);
+    for (command, answer) in [TREE_STATUS, TREE_DIFF] {
+        let recorded = fake
+            .files
+            .insert(format!("capture {command}"), answer.to_owned());
+        assert!(recorded.is_none(), "fresh fake");
+    }
     for (line, licenses) in LICENSE_LINES.iter().zip([SHIPPED, TOOLING]) {
         let replaced = fake
             .files
@@ -514,6 +537,8 @@ fn command_lines(steps: &[Step]) -> Vec<String> {
             Action::Preflight => "preflight".to_owned(),
             Action::HistoryGate => "history gate".to_owned(),
             Action::WorkflowGate => "workflow gate".to_owned(),
+            Action::TreeRecorded => "tree recorded".to_owned(),
+            Action::TreeUnchanged => "tree unchanged".to_owned(),
         })
         .collect()
 }
@@ -525,6 +550,7 @@ fn lists_every_check_in_order() {
         command_lines(&steps),
         vec![
             "preflight",
+            "tree recorded",
             "Root: cargo fmt --all --check",
             "Root: cargo clippy --workspace --all-targets --locked",
             "Root: cargo doc --workspace --no-deps --document-private-items --locked",
@@ -572,6 +598,7 @@ fn lists_every_check_in_order() {
             "Package(\"apps/playground\"): pnpm run check",
             "Package(\"apps/roadmap\"): pnpm run check",
             "typescript reports gate",
+            "tree unchanged",
         ],
         "the full check pipeline"
     );
@@ -588,6 +615,7 @@ fn names_every_check_in_order() {
             .collect::<Vec<_>>(),
         vec![
             "Tools and platform",
+            "Working tree recorded",
             "Rust formatting",
             "Rust lints",
             "Rust documentation",
@@ -635,6 +663,7 @@ fn names_every_check_in_order() {
             "Playground checks",
             "Roadmap checks",
             "TypeScript coverage and mutation reports",
+            "Working tree unchanged by the checks",
         ],
         "step names"
     );
@@ -859,7 +888,7 @@ fn runs_every_step_and_reports_success() {
         Ok(()),
         "all green"
     );
-    let (tools, commands, emptied, listed, captured) = (9, 32, 12, 8, 4);
+    let (tools, commands, emptied, listed, captured) = (9, 32, 12, 8, 8);
     let read = 12 + 2 + 2 + 4 + 2 + 10 + 10 + 8 + 2 + 5 + 11;
     assert_eq!(
         fake.ran.len(),
@@ -867,8 +896,8 @@ fn runs_every_step_and_reports_success() {
         "the preflight asks nine tools; 32 commands run (formatting, lints, documentation, \
          tests, four portability builds, twelve coverage measurements, mutants, Miri, the \
          conformance check and export, deny, the JavaScript install, audit and five package \
-         checks); twelve directories are emptied; git lists eight kinds of files; the licenses \
-         and the history are captured twice each; and the gates read twelve coverage reports, \
+         checks); twelve directories are emptied; git lists eight kinds of files; the licenses, \
+         the history and the state of the tree (before and after) are captured twice each; and the gates read twelve coverage reports, \
          the unviable report and reviews, a TypeScript source and its reviews, the three \
          sources and the register of the bypass gate, the two unsafe files, ten crate manifests, ten READMEs, eight version files, the workflow and \
          .node-version, five Stryker configurations, and the TypeScript source and ten \
@@ -891,15 +920,15 @@ fn runs_every_step_and_reports_success() {
     );
     let text = String::from_utf8(out).expect("utf-8 output");
     assert!(
-        text.starts_with("▶ [1/48] Tools and platform\n"),
+        text.starts_with("▶ [1/50] Tools and platform\n"),
         "numbered progress: {text}"
     );
     assert!(
-        text.contains("▶ [47/48] Roadmap checks\n"),
+        text.contains("▶ [48/50] Roadmap checks\n"),
         "last step announced: {text}"
     );
     assert!(
-        text.ends_with("✔ all 48 checks passed\n"),
+        text.ends_with("✔ all 50 checks passed\n"),
         "summary: {text}"
     );
 }
@@ -916,8 +945,9 @@ fn stops_at_the_first_failing_command() {
     );
     assert_eq!(
         fake.ran.len(),
-        9 + 4,
-        "the preflight asks nine tools; nothing runs after the failure"
+        9 + 2 + 4,
+        "the preflight asks nine tools, the tree is recorded by two captures; nothing runs \
+         after the failure"
     );
 }
 
@@ -2484,7 +2514,9 @@ fn lists_the_checks_in_order() {
     );
     let text = String::from_utf8(out).expect("UTF-8");
     assert!(
-        text.starts_with(" 1. Tools and platform\n 2. Rust formatting\n"),
+        text.starts_with(
+            " 1. Tools and platform\n 2. Working tree recorded\n 3. Rust formatting\n"
+        ),
         "{text}"
     );
     assert_eq!(text.lines().count(), check_steps().len(), "every check");
@@ -3128,7 +3160,7 @@ fn prints_the_details_of_a_failure_on_stdout_and_one_line_on_stderr() {
     );
     assert!(
         String::from_utf8(out).expect("UTF-8").ends_with(
-            "▶ [24/48] Rust unviable mutants reviewed\n\
+            "▶ [25/50] Rust unviable mutants reviewed\n\
              not reviewed: crates/a/src/c.rs: replace g -> U with x\n\
              stale review: crates/a/src/b.rs: replace f -> T with Default::default()\n"
         ),
@@ -3489,5 +3521,71 @@ fn reviews_each_occurrence_of_a_mutant() {
             &["not reviewed: a.ts: EqualityOperator at x < 1 (2 found, 1 reviewed)".to_owned()]
         ),
         "the same disable twice in a file needs two reviews"
+    );
+}
+
+#[test]
+fn refuses_checks_that_change_the_working_tree() {
+    let tree = |status: &str, diff: &str| super::TreeState {
+        status: status.to_owned(),
+        diff: diff.to_owned(),
+    };
+    let dirty = tree(" M a.rs\n?? notes.txt\n", "diff a.rs\n");
+    assert_eq!(
+        super::tree_gate(Some(&dirty), &dirty.clone()),
+        Ok(()),
+        "a dirty tree the checks left alone"
+    );
+    assert_eq!(
+        super::tree_gate(
+            Some(&dirty),
+            &tree(" M a.rs\n M Cargo.lock\n", "diff a.rs\n")
+        ),
+        found(
+            "the checks changed the working tree",
+            &[
+                "` M Cargo.lock` appeared".to_owned(),
+                "`?? notes.txt` went away".to_owned()
+            ]
+        ),
+        "a rewritten lock file, a file removed"
+    );
+    assert_eq!(
+        super::tree_gate(
+            Some(&dirty),
+            &tree(" M a.rs\n?? notes.txt\n", "other diff\n")
+        ),
+        failed(
+            "the checks changed the working tree: the uncommitted changes of a tracked file changed"
+        ),
+        "a dirty file changed again"
+    );
+    assert_eq!(
+        super::tree_gate(None, &dirty),
+        failed("the working tree was not recorded before the checks"),
+        "nothing to compare with"
+    );
+    let mut rewritten = passing();
+    rewritten.rewrite = Some((
+        "cargo deny --locked check".to_owned(),
+        format!("capture {}", TREE_STATUS.0),
+        "?? notes.txt\n M Cargo.lock\n".to_owned(),
+    ));
+    assert_eq!(
+        run_steps(&check_steps(), &mut rewritten, &mut Vec::new()),
+        failed(
+            "Working tree unchanged by the checks: the checks changed the working tree: \
+             ` M Cargo.lock` appeared"
+        ),
+        "a command that rewrites a tracked file fails the whole check, at its end"
+    );
+    let last = check_steps().split_off(check_steps().len() - 1);
+    assert_eq!(
+        run_steps(&last, &mut passing(), &mut Vec::new()),
+        failed(
+            "Working tree unchanged by the checks: the working tree was not recorded before \
+             the checks"
+        ),
+        "the comparison alone"
     );
 }

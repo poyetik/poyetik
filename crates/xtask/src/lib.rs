@@ -344,6 +344,11 @@ pub enum Action {
     UnsafeGate,
     /// Require the CI workflow to pin every action, tool and runtime.
     WorkflowGate,
+    /// Record the state of the working tree ([`TreeState`]), for [`Action::TreeUnchanged`].
+    TreeRecorded,
+    /// Require the working tree to be as [`Action::TreeRecorded`] found it: the checks
+    /// change no tracked file and leave no new untracked one.
+    TreeUnchanged,
     /// Require every commit message to follow the convention, and every change of behavior
     /// since [`CHANGELOG_SINCE`] to update the changelog.
     HistoryGate,
@@ -407,6 +412,10 @@ fn static_steps() -> Vec<Step> {
         Step {
             name: "Tools and platform".to_owned(),
             action: Action::Preflight,
+        },
+        Step {
+            name: "Working tree recorded".to_owned(),
+            action: Action::TreeRecorded,
         },
         run(
             "Rust formatting",
@@ -674,8 +683,66 @@ pub fn check_steps() -> Vec<Step> {
         proof_steps(),
         consistency_steps(),
         typescript_steps(),
+        vec![Step {
+            name: "Working tree unchanged by the checks".to_owned(),
+            action: Action::TreeUnchanged,
+        }],
     ]
     .concat()
+}
+
+/// What the working tree holds that is not committed: the files git reports as changed or
+/// untracked (ignored files apart), and the changes of the tracked ones.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TreeState {
+    /// `git status --porcelain --untracked-files=all`.
+    pub status: String,
+    /// `git diff HEAD`: the content of the changes.
+    pub diff: String,
+}
+
+/// Checks that the checks left the working tree as they found it.
+///
+/// A tree may be dirty (a local check of uncommitted work), but the checks must not change
+/// it: a command that rewrites a tracked file (a stale `Cargo.lock` an unlocked `cargo`
+/// would update, a generated file) or leaves a file git does not ignore makes CI differ from
+/// what was checked.
+///
+/// # Errors
+///
+/// Returns every file whose state changed, or that the tree was not recorded.
+pub fn tree_gate(before: Option<&TreeState>, after: &TreeState) -> Result<(), Failure> {
+    let Some(before) = before else {
+        return Err(Failure::from(
+            "the working tree was not recorded before the checks".to_owned(),
+        ));
+    };
+    let lines = |status: &str| -> BTreeSet<String> { status.lines().map(str::to_owned).collect() };
+    let (old, new) = (lines(&before.status), lines(&after.status));
+    let mut problems: Vec<String> = new
+        .difference(&old)
+        .map(|line| format!("`{line}` appeared"))
+        .chain(
+            old.difference(&new)
+                .map(|line| format!("`{line}` went away")),
+        )
+        .collect();
+    if problems.is_empty() && before.diff != after.diff {
+        problems.push("the uncommitted changes of a tracked file changed".to_owned());
+    }
+    verdict("the checks changed the working tree", problems)
+}
+
+/// Reads the state of the working tree.
+fn tree_state(runner: &mut dyn Runner) -> Result<TreeState, Failure> {
+    Ok(TreeState {
+        status: git_output(
+            runner,
+            &["status", "--porcelain", "--untracked-files=all"],
+            "read the work tree",
+        )?,
+        diff: git_output(runner, &["diff", "HEAD"], "read the work tree")?,
+    })
 }
 
 /// Reads one `{ count, covered }` total of an llvm-cov JSON summary.
@@ -2496,8 +2563,17 @@ fn licenses(runner: &mut dyn Runner) -> Result<(), Failure> {
 }
 
 /// Runs one action of a step.
-fn run_action(action: &Action, runner: &mut dyn Runner) -> Result<(), Failure> {
+fn run_action(
+    action: &Action,
+    runner: &mut dyn Runner,
+    tree: &mut Option<TreeState>,
+) -> Result<(), Failure> {
     match action {
+        Action::TreeRecorded => {
+            *tree = Some(tree_state(runner)?);
+            Ok(())
+        }
+        Action::TreeUnchanged => tree_gate(tree.as_ref(), &tree_state(runner)?),
         Action::Run(cmd) => runner
             .run(cmd)
             .map_err(|failure| Failure::from(failure.to_string())),
@@ -2580,10 +2656,11 @@ pub fn run_steps(
     out: &mut dyn Write,
 ) -> Result<(), Failure> {
     let total_steps = steps.len();
+    let mut tree = None;
     for (index, step) in steps.iter().enumerate() {
         let number = index.saturating_add(1);
         say(out, &format!("▶ [{number}/{total_steps}] {}", step.name))?;
-        run_action(&step.action, runner).map_err(|failure| Failure {
+        run_action(&step.action, runner, &mut tree).map_err(|failure| Failure {
             summary: format!("{}: {}", step.name, failure.summary),
             details: failure.details,
         })?;
