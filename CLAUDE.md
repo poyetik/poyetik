@@ -65,7 +65,7 @@ Public project kanban. The data lives in `apps/roadmap/board.json`, versioned in
 
 Working while the check runs: when it is useful and harms nothing, development may continue in a separate git worktree (`git worktree add`, its own branch) while `cargo xtask check` validates a finished commit in the main one, since the full check (mutation testing above all) takes a long time. It is an option, not a habit: skip it when the next work depends on the result, or when the extra load would disturb the check (load-sensitive browser tests). The validated commit is not done, and the work built on it is not pushed, until that check is green; a failure is fixed by a new commit, validated again.
 
-Every new check is added to `xtask` (`check_steps`), never directly to the hook or the workflow. The hook is enabled through `core.hooksPath`, set automatically by `pnpm install` at the root. **Never bypass the hook** (`--no-verify` is forbidden).
+Every new check is added to `xtask` (`check_steps`), never directly to the hook or the workflow. The hook is enabled through `core.hooksPath`, set automatically by `pnpm install` at the root. **The hooks are never bypassed by default.** One exception, decided by the maintainer: when the maintainer explicitly asks for it for a given push, Claude may skip the pre-push check (`git push --no-verify`) and says so; the commits pushed that way are not validated until a later `cargo xtask check`, local or in CI, is green. The commit-msg hook is never bypassed (`git commit --no-verify` stays forbidden). To skip CI for a push, the last commit's message contains `[skip ci]` (GitHub's own rule), also only on the maintainer's request.
 
 ## Command-line tools
 

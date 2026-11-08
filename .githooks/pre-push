@@ -1,7 +1,8 @@
 #!/bin/sh
 # Before every push: exactly the same checks as CI (`cargo xtask check`), on exactly what is
 # pushed: xtask refuses a working tree with uncommitted changes and a pushed commit other
-# than the one checked out. A single failure blocks the push. Never bypass it (no --no-verify).
+# than the one checked out. A single failure blocks the push. Skipped (--no-verify) only on
+# the maintainer's explicit request (CLAUDE.md, CI).
 set -eu
 
 # Git clients do not always load the shell profile: make cargo reachable.
