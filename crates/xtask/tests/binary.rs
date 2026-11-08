@@ -11,7 +11,11 @@ mod tests {
         let output = Command::new(env!("CARGO_BIN_EXE_xtask"))
             .output()
             .expect("the binary runs");
-        assert!(!output.status.success(), "no command is an error");
+        assert_eq!(
+            output.status.code(),
+            Some(2_i32),
+            "no command is a usage error"
+        );
         assert!(output.stderr.starts_with(USAGE), "usage on stderr");
         assert!(output.stdout.is_empty(), "nothing on stdout");
     }

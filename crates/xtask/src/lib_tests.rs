@@ -8,7 +8,7 @@ use std::path::Path;
 use std::process::Command;
 
 use super::{
-    Action, CARGO_TOML, CHANGELOG, COMMIT_HEADER_MAX, COVERAGE_REPORT, Cmd, Dir,
+    Action, BestEffort, CARGO_TOML, CHANGELOG, COMMIT_HEADER_MAX, COVERAGE_REPORT, Cmd, Dir,
     EQUIVALENT_REVIEWED, PACKAGE_JSONS, PORTABILITY_TARGETS, Runner, Step, SystemRunner,
     UNVIABLE_REPORT, UNVIABLE_REVIEWED, USAGE, Version, bless_step, check_steps, cli,
     commit_msg_gate, coverage_gate, equivalent_gate, release_gate, run_steps, unviable_gate,
@@ -20,17 +20,27 @@ struct Fake {
     ran: Vec<String>,
     fail: Option<String>,
     broken: Option<String>,
+    killed: Option<String>,
     files: BTreeMap<String, String>,
 }
 
 impl Runner for Fake {
-    fn run(&mut self, cmd: &Cmd) -> io::Result<bool> {
-        let line = format!("{} {}", cmd.program, cmd.args.join(" "));
+    fn run(&mut self, cmd: &Cmd) -> io::Result<Option<i32>> {
+        let line = cmd.line();
         self.ran.push(line.clone());
         if self.broken.as_deref() == Some(line.as_str()) {
             return Err(io::Error::other("not found"));
         }
-        Ok(self.fail.as_deref() != Some(line.as_str()))
+        if self.killed.as_deref() == Some(line.as_str()) {
+            return Ok(None);
+        }
+        // A failing command exits with 3: a code that is neither 0 nor 1, so that the
+        // message is seen to report the real one.
+        Ok(Some(if self.fail.as_deref() == Some(line.as_str()) {
+            3_i32
+        } else {
+            0_i32
+        }))
     }
 
     fn read(&mut self, path: &str) -> io::Result<String> {
@@ -358,7 +368,7 @@ fn stops_at_the_first_failing_command() {
     let mut out = Vec::new();
     assert_eq!(
         run_steps(&check_steps(), &mut fake, &mut out),
-        Err("✘ Rust tests: command failed".to_owned()),
+        Err("✘ Rust tests: `cargo test --workspace --locked` exited with code 3".to_owned()),
         "failure is named"
     );
     assert_eq!(fake.ran.len(), 4, "nothing runs after the failure");
@@ -447,8 +457,9 @@ impl io::Write for Limited {
 #[test]
 fn cli_runs_check_and_reports_errors() {
     let (mut out, mut err) = (Vec::new(), Vec::new());
-    assert!(
+    assert_eq!(
         cli(&["check".to_owned()], &mut passing(), &mut out, &mut err),
+        0,
         "check passes"
     );
     assert!(err.is_empty(), "no error output");
@@ -456,38 +467,61 @@ fn cli_runs_check_and_reports_errors() {
     let mut failing = passing();
     failing.fail = Some("cargo deny --locked check".to_owned());
     let mut err2 = Vec::new();
-    assert!(
-        !cli(
+    assert_eq!(
+        cli(
             &["check".to_owned()],
             &mut failing,
             &mut Vec::new(),
             &mut err2
         ),
+        1,
         "check fails"
     );
     assert_eq!(
-        err2, b"\xE2\x9C\x98 Rust supply chain: command failed\n",
-        "failure on stderr"
+        String::from_utf8(err2).expect("UTF-8"),
+        "✘ Rust supply chain: `cargo deny --locked check` exited with code 3\n",
+        "the command and its exit code on stderr"
+    );
+
+    let mut killed = passing();
+    killed.killed = Some("cargo deny --locked check".to_owned());
+    let mut err3 = Vec::new();
+    assert_eq!(
+        cli(
+            &["check".to_owned()],
+            &mut killed,
+            &mut Vec::new(),
+            &mut err3
+        ),
+        1,
+        "a stopped command fails the check"
+    );
+    assert_eq!(
+        String::from_utf8(err3).expect("UTF-8"),
+        "✘ Rust supply chain: `cargo deny --locked check` was stopped by a signal\n",
+        "explained"
     );
 
     let mut help = Vec::new();
-    assert!(
+    assert_eq!(
         cli(
             &["help".to_owned()],
             &mut passing(),
             &mut help,
             &mut Vec::new()
         ),
+        0,
         "help succeeds"
     );
     assert_eq!(help, format!("{USAGE}\n").into_bytes(), "help on stdout");
-    assert!(
-        !cli(
+    assert_eq!(
+        cli(
             &["help".to_owned()],
             &mut passing(),
             &mut Broken,
             &mut Vec::new()
         ),
+        1,
         "broken stdout"
     );
 
@@ -497,16 +531,74 @@ fn cli_runs_check_and_reports_errors() {
         vec!["check".to_owned(), "x".to_owned()],
     ] {
         let mut usage = Vec::new();
-        assert!(
-            !cli(&args, &mut passing(), &mut Vec::new(), &mut usage),
-            "{args:?} is rejected"
+        assert_eq!(
+            cli(&args, &mut passing(), &mut Vec::new(), &mut usage),
+            2,
+            "{args:?} is a usage error"
         );
         assert_eq!(usage, format!("{USAGE}\n").into_bytes(), "usage on stderr");
     }
-    assert!(
-        !cli(&[], &mut passing(), &mut Vec::new(), &mut Broken),
+    assert_eq!(
+        cli(&[], &mut passing(), &mut Vec::new(), &mut Broken),
+        2,
+        "broken stderr still tells"
+    );
+    assert_eq!(
+        cli(
+            &["commit-msg".to_owned(), "missing".to_owned()],
+            &mut passing(),
+            &mut Vec::new(),
+            &mut Broken
+        ),
+        1,
         "broken stderr still fails"
     );
+}
+
+/// An output whose reader is gone, or that fails another way.
+struct Pipe(io::ErrorKind);
+impl io::Write for Pipe {
+    fn write(&mut self, _buf: &[u8]) -> io::Result<usize> {
+        Err(io::Error::from(self.0))
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        Err(io::Error::from(self.0))
+    }
+}
+
+#[test]
+fn ignores_a_closed_reader_but_not_other_output_errors() {
+    use io::Write as _;
+    let mut closed = BestEffort(Pipe(io::ErrorKind::BrokenPipe));
+    assert_eq!(closed.write(b"abc").map_err(|e| e.kind()), Ok(3), "write");
+    assert_eq!(closed.flush().map_err(|e| e.kind()), Ok(()), "flush");
+    let mut full = BestEffort(Pipe(io::ErrorKind::StorageFull));
+    assert_eq!(
+        full.write(b"abc").map_err(|e| e.kind()),
+        Err(io::ErrorKind::StorageFull),
+        "write"
+    );
+    assert_eq!(
+        full.flush().map_err(|e| e.kind()),
+        Err(io::ErrorKind::StorageFull),
+        "flush"
+    );
+}
+
+#[test]
+fn shows_command_lines() {
+    let cmd = Cmd {
+        program: "cargo",
+        args: vec!["fmt".to_owned(), "--check".to_owned()],
+        dir: Dir::Root,
+    };
+    assert_eq!(cmd.line(), "cargo fmt --check", "program and arguments");
+    let bare = Cmd {
+        program: "pnpm",
+        args: vec![],
+        dir: Dir::Root,
+    };
+    assert_eq!(bare.line(), "pnpm", "no trailing space");
 }
 
 #[test]
@@ -518,13 +610,21 @@ fn system_runner_runs_commands_and_reads_files() {
         args: vec!["--version".to_owned()],
         dir: Dir::Root,
     };
-    assert_eq!(runner.run(&ok).ok(), Some(true), "a successful command");
+    assert_eq!(
+        runner.run(&ok).ok(),
+        Some(Some(0_i32)),
+        "a successful command"
+    );
     let bad = Cmd {
         program: "cargo",
         args: vec!["no-such-command".to_owned()],
         dir: Dir::Root,
     };
-    assert_eq!(runner.run(&bad).ok(), Some(false), "a failing command");
+    assert_eq!(
+        runner.run(&bad).ok(),
+        Some(Some(101_i32)),
+        "a failing command and its code"
+    );
     let missing = Cmd {
         program: "no-such-program-xyz",
         args: vec![],
@@ -1064,8 +1164,9 @@ fn rejects_other_commit_messages() {
 fn cli_checks_commit_messages() {
     let (mut out, mut err) = (Vec::new(), Vec::new());
     let args = ["commit-msg".to_owned(), "COMMIT_EDITMSG".to_owned()];
-    assert!(
+    assert_eq!(
         cli(&args, &mut passing(), &mut out, &mut err),
+        0,
         "a valid message"
     );
     assert!(out.is_empty() && err.is_empty(), "silent on success");
@@ -1076,8 +1177,9 @@ fn cli_checks_commit_messages() {
         .insert("COMMIT_EDITMSG".to_owned(), "wip".to_owned());
     assert!(replaced.is_some(), "message replaced");
     let mut bad_err = Vec::new();
-    assert!(
-        !cli(&args, &mut bad, &mut Vec::new(), &mut bad_err),
+    assert_eq!(
+        cli(&args, &mut bad, &mut Vec::new(), &mut bad_err),
+        1,
         "an invalid message"
     );
     assert!(
@@ -1087,8 +1189,9 @@ fn cli_checks_commit_messages() {
 
     let mut missing_err = Vec::new();
     let missing = ["commit-msg".to_owned(), "nowhere".to_owned()];
-    assert!(
-        !cli(&missing, &mut passing(), &mut Vec::new(), &mut missing_err),
+    assert_eq!(
+        cli(&missing, &mut passing(), &mut Vec::new(), &mut missing_err),
+        1,
         "a missing file"
     );
     assert_eq!(
@@ -1141,8 +1244,9 @@ fn bless_renders_and_rewrites_the_references() {
     );
     let mut fake = passing();
     let mut out = Vec::new();
-    assert!(
+    assert_eq!(
         cli(&["bless".to_owned()], &mut fake, &mut out, &mut Vec::new()),
+        0,
         "bless succeeds"
     );
     assert_eq!(

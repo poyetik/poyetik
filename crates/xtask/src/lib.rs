@@ -81,6 +81,19 @@ pub struct Cmd {
     pub dir: Dir,
 }
 
+impl Cmd {
+    /// The command line, as a shell would show it (in its directory).
+    #[must_use]
+    pub fn line(&self) -> String {
+        let mut line = String::from(self.program);
+        for arg in &self.args {
+            line.push(' ');
+            line.push_str(arg);
+        }
+        line
+    }
+}
+
 /// What a step does.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action {
@@ -750,12 +763,12 @@ pub fn commit_msg_gate(message: &str) -> Result<(), String> {
 
 /// Executes commands and reads files on behalf of [`run_steps`].
 pub trait Runner {
-    /// Runs a command and tells whether it succeeded.
+    /// Runs a command and returns its exit code; `None` when a signal stopped it.
     ///
     /// # Errors
     ///
     /// Returns an error when the command cannot be started.
-    fn run(&mut self, cmd: &Cmd) -> io::Result<bool>;
+    fn run(&mut self, cmd: &Cmd) -> io::Result<Option<i32>>;
 
     /// Reads a text file below the repository root.
     ///
@@ -787,12 +800,12 @@ pub struct SystemRunner {
 }
 
 impl Runner for SystemRunner {
-    fn run(&mut self, cmd: &Cmd) -> io::Result<bool> {
+    fn run(&mut self, cmd: &Cmd) -> io::Result<Option<i32>> {
         Command::new(cmd.program)
             .args(&cmd.args)
             .current_dir(cmd.dir.under(&self.root))
             .status()
-            .map(|status| status.success())
+            .map(|status| status.code())
     }
 
     fn read(&mut self, path: &str) -> io::Result<String> {
@@ -849,8 +862,9 @@ pub fn run_steps(
             .map_err(|error| error.to_string())?;
         let outcome = match &step.action {
             Action::Run(cmd) => match runner.run(cmd) {
-                Ok(true) => Ok(()),
-                Ok(false) => Err("command failed".to_owned()),
+                Ok(Some(0_i32)) => Ok(()),
+                Ok(Some(code)) => Err(format!("`{}` exited with code {code}", cmd.line())),
+                Ok(None) => Err(format!("`{}` was stopped by a signal", cmd.line())),
                 Err(error) => Err(format!("cannot run {}: {error}", cmd.program)),
             },
             Action::CoverageGate(path) => {
@@ -916,13 +930,14 @@ pub fn bless_step() -> Step {
     )
 }
 
-/// Entry point: runs the command named by `args` and returns whether it succeeded.
+/// Entry point: runs the command named by `args` and returns the exit code: 0 on success,
+/// 1 when a check or a command failed (the reason on `err`), 2 for a usage error.
 pub fn cli(
     args: &[String],
     runner: &mut dyn Runner,
     out: &mut dyn Write,
     err: &mut dyn Write,
-) -> bool {
+) -> u8 {
     let result = match args {
         [command] if command == "check" => run_steps(&check_steps(), runner, out),
         [command] if command == "bless" => run_steps(&[bless_step()], runner, out),
@@ -932,14 +947,39 @@ pub fn cli(
         [command] if command == "help" => {
             writeln!(out, "{USAGE}").map_err(|error| error.to_string())
         }
-        _ => Err(USAGE.to_owned()),
+        _ => {
+            // Nothing more can be done if stderr itself is broken: the exit code still tells.
+            drop(writeln!(err, "{USAGE}"));
+            return 2;
+        }
     };
     match result {
-        Ok(()) => true,
+        Ok(()) => 0,
         Err(message) => {
             // Nothing more can be done if stderr itself is broken: the exit code still fails.
             drop(writeln!(err, "{message}"));
-            false
+            1
+        }
+    }
+}
+
+/// Writes to `W`, treating a closed reader (a broken pipe, as with `| head`) as success:
+/// what nobody reads is not an error, and the exit code stays the outcome of the checks.
+#[derive(Debug)]
+pub struct BestEffort<W>(pub W);
+
+impl<W: Write> Write for BestEffort<W> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        match self.0.write(buf) {
+            Err(error) if error.kind() == io::ErrorKind::BrokenPipe => Ok(buf.len()),
+            other => other,
+        }
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        match self.0.flush() {
+            Err(error) if error.kind() == io::ErrorKind::BrokenPipe => Ok(()),
+            other => other,
         }
     }
 }
