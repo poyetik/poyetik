@@ -4140,3 +4140,61 @@ fn empties_the_coverage_build_before_every_measurement() {
         );
     }
 }
+
+#[test]
+fn stops_when_the_coverage_build_cannot_be_emptied() {
+    let mut fake = passing();
+    fake.broken = Some(Coverage::clean_command().line());
+    let failure = run_steps(&check_steps(), &mut fake, &mut Vec::new()).expect_err("stops");
+    assert!(
+        failure.summary.contains("not found"),
+        "the reason the clean failed: {}",
+        failure.summary
+    );
+    assert!(
+        fake.ran
+            .iter()
+            .all(|line| !line.contains("llvm-cov --manifest-path")),
+        "nothing is measured on a build that could not be emptied"
+    );
+}
+
+#[test]
+fn fails_when_a_supply_chain_setting_cannot_be_read() {
+    let mut fake = passing();
+    let (path, _) = super::SUPPLY_CHAIN_SETTINGS[1];
+    let _removed = fake.files.remove(path);
+    let failure = run_steps(&check_steps(), &mut fake, &mut Vec::new()).expect_err("stops");
+    assert!(
+        failure.summary.contains(path),
+        "names the file: {}",
+        failure.summary
+    );
+}
+
+#[test]
+fn fails_when_the_crates_cannot_be_listed() {
+    let mut fake = passing();
+    let _removed = fake
+        .files
+        .remove(&format!("capture {}", super::metadata_command().line()));
+    let failure = run_steps(&check_steps(), &mut fake, &mut Vec::new()).expect_err("stops");
+    assert!(
+        failure.summary.contains("cannot list the crates"),
+        "says what it could not do: {}",
+        failure.summary
+    );
+}
+
+#[test]
+fn refuses_a_second_place_declaring_triggers() {
+    let workflow = format!("{PINNED_WORKFLOW}  other:\n    on:\n      schedule:\n");
+    assert_eq!(
+        super::workflow_gate(&[super::WORKFLOW.to_owned()], &workflow, "22.23.4"),
+        failed(
+            ".github/workflows/quality.yml can change CI without a commit: .github/workflows/quality.yml \
+             declares triggers and permissions once, for the whole workflow"
+        ),
+        "triggers declared twice"
+    );
+}
