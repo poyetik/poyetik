@@ -55,9 +55,17 @@ export function sineError(samples: readonly number[], rate: number, sine: Sine):
  * - output rounding to binary32: half an ulp of the largest value, 2^(⌈log2 a⌉ − 25)
  *   for an amplitude a (2^-25 at full scale), and never below 2^-150: under 2^-125 the
  *   samples are subnormal, spaced 2^-149 however small a is;
- * - phase accumulation in binary64: each of the `frames` additions of a phase below one
- *   cycle rounds by at most 2^-53 cycle, and the increment itself by 2^-53 of its value
- *   (below one cycle): 2^-52 cycle per sample, so 2π · frames · 2^-52 radians, times a;
+ * - phase accumulation in binary64, at c = frequency / rate cycles per sample: the
+ *   increment is c rounded, less its whole cycles (an exact subtraction), and the phase
+ *   below one cycle adds it once per sample. By regime of c:
+ *   - below 1: c rounds by at most 2^-54 (half an ulp below 1), and each addition, of a
+ *     sum below 2, by at most 2^-53;
+ *   - from 1 to 4: c rounds by at most half its ulp, 2^-52 from 2 on, but the increment
+ *     and every phase are then multiples of that ulp, which sums below 2 hold exactly:
+ *     the additions are exact;
+ *   so at most 2^-52 cycle per sample, 2π · frames · 2^-52 radians, times a. From 4
+ *   cycles on, c rounds by up to 2^-51 and this term no longer holds: `parseExpectations`
+ *   requires a frequency in [0, 4 × rate);
  * - evaluation of the sine and of this reference (the 2π products and `Math.sin`, a few
  *   ulps of values below 4π: a reduced phase plus a start phase in [0, 2π), which
  *   `parseExpectations` requires): bounded by a · 2^-48.

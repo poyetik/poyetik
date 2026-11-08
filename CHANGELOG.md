@@ -71,6 +71,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The oracle's error bound is derived regime by regime of cycles per sample (below 1, and from 1 to 4, where the phase additions are exact), and an expectation's frequency must lie in [0, 4 × sample rate), the domain where the bound holds; the previous derivation was wrong from one cycle per sample on, and the 2 to 4 cycles regime (19,984 Hz at 8 kHz) is now tested.
 - The oracle's error bound no longer fails a correct render of a very quiet sine (amplitude below 2^-125, whose samples are subnormal), and an expectation's start phase must lie in [0, 2π), the range the bound is derived for.
 - The oracle reads the duration of a case file in the same domain as its expectations, 1 to 2^29 frames: a longer case, whose reference would not be exact, is rejected instead of being judged.
 - The oracle rejects an expected frequency that is not exactly a binary32 value. It rounded the number `JSON.parse` had already rounded to binary64, a double rounding one ulp away from the engine's correct rounding for a text near a binary32 midpoint, and its bound would then have failed a correct render.

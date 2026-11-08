@@ -128,16 +128,23 @@ export function parseReferences(value: unknown): Map<string, string> {
   );
 }
 
-/** Reads one channel expectation: an object with a `sine` and nothing else. */
-function parseChannel(value: unknown, where: string): ChannelExpectation {
+/**
+ * Reads one channel expectation: an object with a `sine` and nothing else, whose
+ * frequency lies in [0, 4 × `rate`), the domain `sineErrorBound` is derived for.
+ */
+function parseChannel(value: unknown, rate: number, where: string): ChannelExpectation {
   const extra = entries(value, where).find(([key]) => key !== "sine");
   if (extra !== undefined) {
     throw new InputError(`${where}: unknown field ${extra[0]} (tolerances are derived, not declared)`);
   }
   const sine = field(value, "sine");
+  const frequency = binary32(field(sine, "frequency"), `${where}: sine.frequency`);
+  if (!(frequency >= 0 && frequency < 4 * rate)) {
+    throw new InputError(`${where}: sine.frequency is not in [0, 4 × sample_rate)`);
+  }
   return {
     sine: {
-      frequency: binary32(field(sine, "frequency"), `${where}: sine.frequency`),
+      frequency,
       amplitude: number(field(sine, "amplitude"), `${where}: sine.amplitude`),
       phase: phase(field(sine, "phase"), `${where}: sine.phase`),
     },
@@ -153,12 +160,13 @@ export function parseExpectations(value: unknown): Map<string, Expectation> {
       if (!Array.isArray(channels) || channels.length === 0) {
         throw new InputError(`${where}: channels is not a non-empty list`);
       }
+      const rate = count(field(expectation, "sample_rate"), `${where}: sample_rate`);
       return [
         name,
         {
-          rate: count(field(expectation, "sample_rate"), `${where}: sample_rate`),
+          rate,
           frames: frames(field(expectation, "frames"), `${where}: frames`),
-          channels: channels.map((channel: unknown, index) => parseChannel(channel, `${where}: channel ${String(index)}`)),
+          channels: channels.map((channel: unknown, index) => parseChannel(channel, rate, `${where}: channel ${String(index)}`)),
         },
       ];
     }),

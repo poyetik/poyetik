@@ -98,17 +98,18 @@ const double = (phase: number, increment: number): number => {
   return next >= 1 ? next - 1 : next;
 };
 
-test("accepts a correct oscillator at the edges of the rate matrix", () => {
+test.each([
   // Measured worst cases: near Nyquist at 8 kHz over 1 s, and 19 999 Hz at 384 kHz over 10 s.
-  for (const [rate, frequency, frames] of [
-    [8000, 3999, 8000],
-    [384_000, 19_999, 3_840_000],
-    [44_100, 440.1, 44_100],
-  ] as const) {
-    const samples = oscillator(frames, rate, frequency, double);
-    const sine = { frequency: Math.fround(frequency), amplitude: 1, phase: 0 };
-    expect(sineError(samples, rate, sine)).toBeLessThanOrEqual(sineErrorBound(1, frames));
-  }
+  [8000, 3999, 8000],
+  [384_000, 19_999, 3_840_000],
+  [44_100, 440.1, 44_100],
+  // 2.498 cycles per sample, the regime from 2 to 4 cycles where the increment rounds by
+  // up to 2^-52: the worst measured rounding (0.992 × 2^-52), over 10 s.
+  [8000, 19_984, 80_000],
+] as const)("accepts a correct oscillator at %d Hz, %d Hz, over %d frames", (rate, frequency, frames) => {
+  const samples = oscillator(frames, rate, frequency, double);
+  const sine = { frequency: Math.fround(frequency), amplitude: 1, phase: 0 };
+  expect(sineError(samples, rate, sine)).toBeLessThanOrEqual(sineErrorBound(1, frames));
 });
 
 test("rejects oscillators measurably worse than the engine's", () => {
