@@ -122,6 +122,12 @@ const HISTORY_LINES: [&str; 2] = [
 /// from it.
 const FAKE_PARALLELISM: NonZeroUsize = NonZeroUsize::new(6).expect("six is not zero");
 
+/// The jobs of the fake's checks: half of [`FAKE_PARALLELISM`].
+const FAKE_JOBS: NonZeroUsize = NonZeroUsize::new(3).expect("three is not zero");
+
+/// The default check on the fake's machine.
+const CHANGES_MODE: Mode = Mode::Changes { jobs: FAKE_JOBS };
+
 /// How the fake finds the base of the changes, and what it answers: the upstream resolves.
 const MERGE_BASE: (&str, &str) = ("git merge-base HEAD @{upstream}", "abc123\n");
 
@@ -459,7 +465,7 @@ fn passing() -> Fake {
 /// Gives every coverage measurement of `fake` a full report, and the locality fixture the
 /// report the gate must refuse.
 fn coverage_reports(fake: &mut Fake) {
-    for step in check_steps(Mode::Changes) {
+    for step in check_steps(CHANGES_MODE) {
         if let Action::Coverage(coverage) = step.action {
             let previous = fake.files.insert(coverage.report(), full_report(coverage));
             assert!(previous.is_none(), "fresh fake");
@@ -611,7 +617,9 @@ fn command_lines(steps: &[Step]) -> Vec<String> {
             Action::Run(cmd) => format!("{:?}: {} {}", cmd.dir, cmd.program, cmd.args.join(" ")),
             Action::Coverage(coverage) => format!("coverage {}", coverage.command().line()),
             Action::CoverageLocality => "coverage locality".to_owned(),
-            Action::RustMutantsOfChanges => "rust mutants of the changes".to_owned(),
+            Action::RustMutantsOfChanges { jobs } => {
+                format!("rust mutants of the changes ({jobs} jobs)")
+            }
             Action::UnviableGate(extent) => format!("unviable gate ({extent:?})"),
             Action::EquivalentGate => "equivalent gate".to_owned(),
             Action::VersionGate => "version gate".to_owned(),
@@ -642,7 +650,7 @@ fn command_lines(steps: &[Step]) -> Vec<String> {
 
 #[test]
 fn lists_every_check_in_order() {
-    let steps = check_steps(Mode::Changes);
+    let steps = check_steps(CHANGES_MODE);
     assert_eq!(
         command_lines(&steps),
         vec![
@@ -670,7 +678,7 @@ fn lists_every_check_in_order() {
             "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-cli/Cargo.toml --locked --branch --json --summary-only --output-path target/coverage/engine-cli-main.json",
             "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/xtask/Cargo.toml --locked --branch --json --summary-only --output-path target/coverage/xtask-main.json",
             "fresh mutants.out",
-            "rust mutants of the changes",
+            "rust mutants of the changes (3 jobs)",
             "unviable gate (Partial)",
             "equivalent gate",
             "bypass gate",
@@ -716,7 +724,7 @@ fn lists_every_check_in_order() {
 
 #[test]
 fn names_every_check_in_order() {
-    let steps = check_steps(Mode::Changes);
+    let steps = check_steps(CHANGES_MODE);
     assert_eq!(
         steps
             .iter()
@@ -793,7 +801,7 @@ fn names_every_check_in_order() {
 #[test]
 fn the_full_check_differs_only_by_its_mutation_testing() {
     let jobs = NonZeroUsize::new(3).expect("three is not zero");
-    let changes = check_steps(Mode::Changes);
+    let changes = check_steps(CHANGES_MODE);
     let full = check_steps(Mode::Full { jobs });
     assert_eq!(changes.len(), full.len(), "the same number of steps");
     let differences: Vec<(String, String)> = command_lines(&changes)
@@ -813,7 +821,7 @@ fn the_full_check_differs_only_by_its_mutation_testing() {
     };
     let mut expected = vec![
         (
-            "rust mutants of the changes".to_owned(),
+            "rust mutants of the changes (3 jobs)".to_owned(),
             "Root: cargo mutants --cap-lints=true --gitignore=true --workspace --jobs 3".to_owned(),
         ),
         (
@@ -876,10 +884,10 @@ fn the_full_check_differs_only_by_its_mutation_testing() {
 /// The steps of the default check from the Rust mutation testing of the changes to its
 /// unviable gate.
 fn rust_mutation_of_changes() -> Vec<Step> {
-    let steps = check_steps(Mode::Changes);
+    let steps = check_steps(CHANGES_MODE);
     let start = steps
         .iter()
-        .position(|step| step.action == Action::RustMutantsOfChanges)
+        .position(|step| matches!(step.action, Action::RustMutantsOfChanges { .. }))
         .expect("the default check mutates the changes");
     steps.into_iter().skip(start).take(2).collect()
 }
@@ -900,7 +908,7 @@ fn mutates_the_changes_since_the_merge_base_with_the_upstream() {
             "capture git diff --no-color --no-ext-diff --no-renames --src-prefix=a/ --dst-prefix=b/ abc123",
             "capture git ls-files --others --exclude-standard -- *.rs",
             "write target/xtask/changes.diff",
-            "cargo mutants --cap-lints=true --gitignore=true --workspace --in-diff target/xtask/changes.diff",
+            "cargo mutants --cap-lints=true --gitignore=true --workspace --jobs 3 --in-diff target/xtask/changes.diff",
             "read mutants.out/unviable.txt",
             "read mutants-unviable.txt",
         ],
@@ -1102,8 +1110,8 @@ fn reports_why_the_changes_cannot_be_mutated() {
             "cannot write target/xtask/changes.diff: read-only".to_owned(),
         ),
         (
-            "cargo mutants --cap-lints=true --gitignore=true --workspace --in-diff target/xtask/changes.diff",
-            "cannot run `cargo mutants --cap-lints=true --gitignore=true --workspace --in-diff target/xtask/changes.diff`: not found".to_owned(),
+            "cargo mutants --cap-lints=true --gitignore=true --workspace --jobs 3 --in-diff target/xtask/changes.diff",
+            "cannot run `cargo mutants --cap-lints=true --gitignore=true --workspace --jobs 3 --in-diff target/xtask/changes.diff`: not found".to_owned(),
         ),
     ] {
         let mut fake = passing();
@@ -1709,7 +1717,7 @@ fn rejects_unreadable_reports() {
 
 #[test]
 fn measures_each_crate_by_its_own_unit_tests() {
-    let lines: Vec<String> = check_steps(Mode::Changes)
+    let lines: Vec<String> = check_steps(CHANGES_MODE)
         .into_iter()
         .filter_map(|step| {
             if let Action::Coverage(coverage) = step.action {
@@ -1748,7 +1756,7 @@ fn requires_the_gate_to_refuse_a_path_only_an_integration_test_reaches() {
         krate: super::COVERAGE_LOCALITY,
         measured: Measured::Library,
     };
-    let step: Vec<Step> = check_steps(Mode::Changes)
+    let step: Vec<Step> = check_steps(CHANGES_MODE)
         .into_iter()
         .filter(|step| step.action == Action::CoverageLocality)
         .collect();
@@ -1794,7 +1802,7 @@ fn runs_every_step_and_reports_success() {
     let mut fake = passing();
     let mut out = Vec::new();
     assert_eq!(
-        run_steps(&check_steps(Mode::Changes), &mut fake, &mut out),
+        run_steps(&check_steps(CHANGES_MODE), &mut fake, &mut out),
         Ok(()),
         "all green"
     );
@@ -1855,7 +1863,7 @@ fn stops_at_the_first_failing_command() {
     fake.fail = Some("cargo test --workspace --locked".to_owned());
     let mut out = Vec::new();
     assert_eq!(
-        run_steps(&check_steps(Mode::Changes), &mut fake, &mut out),
+        run_steps(&check_steps(CHANGES_MODE), &mut fake, &mut out),
         failed("Rust tests: `cargo test --workspace --locked` exited with code 3"),
         "failure is named"
     );
@@ -1872,7 +1880,7 @@ fn reports_commands_that_cannot_start() {
     let mut fake = passing();
     fake.broken = Some("cargo fmt --all --check".to_owned());
     assert_eq!(
-        run_steps(&check_steps(Mode::Changes), &mut fake, &mut Vec::new()),
+        run_steps(&check_steps(CHANGES_MODE), &mut fake, &mut Vec::new()),
         failed("Rust formatting: cannot run `cargo fmt --all --check`: not found"),
         "start failure is named"
     );
@@ -1887,7 +1895,7 @@ fn fails_on_missing_or_incomplete_coverage() {
     let mut missing = passing();
     let _removed = missing.files.remove(&core.report());
     assert_eq!(
-        run_steps(&check_steps(Mode::Changes), &mut missing, &mut Vec::new()),
+        run_steps(&check_steps(CHANGES_MODE), &mut missing, &mut Vec::new()),
         failed(
             "Rust coverage of engine-core: 100% by its own unit tests: cannot read \
              target/coverage/engine-core.json: missing"
@@ -1900,7 +1908,7 @@ fn fails_on_missing_or_incomplete_coverage() {
         report(&[("crates/engine-core/src/lib.rs", (2, 1), (1, 1), (1, 1))]),
     );
     assert_eq!(
-        run_steps(&check_steps(Mode::Changes), &mut partial, &mut Vec::new()),
+        run_steps(&check_steps(CHANGES_MODE), &mut partial, &mut Vec::new()),
         failed(
             "Rust coverage of engine-core: 100% by its own unit tests: engine-core is not \
              covered 100% by its own unit tests: crates/engine-core/src/lib.rs: lines 1/2\n\
@@ -1912,7 +1920,7 @@ fn fails_on_missing_or_incomplete_coverage() {
     let mut broken = passing();
     broken.fail = Some(core.command().line());
     assert!(
-        run_steps(&check_steps(Mode::Changes), &mut broken, &mut Vec::new())
+        run_steps(&check_steps(CHANGES_MODE), &mut broken, &mut Vec::new())
             .is_err_and(|failure| failure.summary.ends_with("` exited with code 3")),
         "a measurement that fails"
     );
@@ -1932,11 +1940,11 @@ impl io::Write for Broken {
 #[test]
 fn reports_a_broken_output() {
     assert_eq!(
-        run_steps(&check_steps(Mode::Changes), &mut passing(), &mut Broken),
+        run_steps(&check_steps(CHANGES_MODE), &mut passing(), &mut Broken),
         failed("cannot write to stdout: closed"),
         "cannot even announce a step"
     );
-    let one = vec![check_steps(Mode::Changes).remove(0)];
+    let one = vec![check_steps(CHANGES_MODE).remove(0)];
     let mut limited = Limited(1);
     assert_eq!(
         run_steps(&one, &mut passing(), &mut limited),
@@ -2243,7 +2251,7 @@ fn reports_a_directory_that_cannot_be_emptied() {
     let mut fake = passing();
     fake.broken = Some("fresh target/conformance".to_owned());
     assert_eq!(
-        run_steps(&check_steps(Mode::Changes), &mut fake, &mut Vec::new()),
+        run_steps(&check_steps(CHANGES_MODE), &mut fake, &mut Vec::new()),
         failed("Fresh conformance export directory: cannot empty target/conformance: busy"),
         "named and explained"
     );
@@ -2309,11 +2317,7 @@ fn fails_when_unviable_files_are_missing_or_unreviewed() {
     let removed_reviews = no_reviews.files.remove(UNVIABLE_REVIEWED);
     assert!(removed_reviews.is_some(), "reviews removed");
     assert_eq!(
-        run_steps(
-            &check_steps(Mode::Changes),
-            &mut no_reviews,
-            &mut Vec::new()
-        ),
+        run_steps(&check_steps(CHANGES_MODE), &mut no_reviews, &mut Vec::new()),
         failed(format!(
             "Rust unviable mutants reviewed: cannot read {UNVIABLE_REVIEWED}: missing"
         )),
@@ -2324,12 +2328,8 @@ fn fails_when_unviable_files_are_missing_or_unreviewed() {
         .files
         .insert(UNVIABLE_REVIEWED.to_owned(), String::new());
     assert!(
-        run_steps(
-            &check_steps(Mode::Changes),
-            &mut unreviewed,
-            &mut Vec::new()
-        )
-        .is_err_and(|error| error.summary.contains("not reviewed: crates/a/src/b.rs")),
+        run_steps(&check_steps(CHANGES_MODE), &mut unreviewed, &mut Vec::new())
+            .is_err_and(|error| error.summary.contains("not reviewed: crates/a/src/b.rs")),
         "unreviewed mutant"
     );
 }
@@ -2404,7 +2404,7 @@ fn fails_when_equivalent_files_cannot_be_read() {
     let mut no_list = passing();
     no_list.broken = Some("list *.ts *.tsx".to_owned());
     assert_eq!(
-        run_steps(&check_steps(Mode::Changes), &mut no_list, &mut Vec::new()),
+        run_steps(&check_steps(CHANGES_MODE), &mut no_list, &mut Vec::new()),
         failed(
             "TypeScript equivalent mutants reviewed: cannot list the TypeScript files: `git ls-files -- *.ts *.tsx` exited with code 128: fatal: not a git repository"
         ),
@@ -2414,11 +2414,7 @@ fn fails_when_equivalent_files_cannot_be_read() {
     let removed = no_reviews.files.remove(EQUIVALENT_REVIEWED);
     assert!(removed.is_some(), "reviews removed");
     assert_eq!(
-        run_steps(
-            &check_steps(Mode::Changes),
-            &mut no_reviews,
-            &mut Vec::new()
-        ),
+        run_steps(&check_steps(CHANGES_MODE), &mut no_reviews, &mut Vec::new()),
         failed(format!(
             "TypeScript equivalent mutants reviewed: cannot read {EQUIVALENT_REVIEWED}: missing"
         )),
@@ -2833,7 +2829,7 @@ fn release_gate_runs_on_the_real_files() {
     let replaced = fake.files.insert(CHANGELOG.to_owned(), "nope".to_owned());
     assert!(replaced.is_some(), "changelog replaced");
     assert!(
-        run_steps(&check_steps(Mode::Changes), &mut fake, &mut Vec::new()).is_err_and(|error| {
+        run_steps(&check_steps(CHANGES_MODE), &mut fake, &mut Vec::new()).is_err_and(|error| {
             error
                 .summary
                 .starts_with("One version everywhere, changelog well formed: ")
@@ -2848,7 +2844,7 @@ fn release_gate_runs_on_the_real_files() {
         let removed = without.files.remove(&path);
         assert!(removed.is_some(), "{path} removed");
         // The release step alone: the membership gate before it also notices a removal.
-        let release: Vec<Step> = check_steps(Mode::Changes)
+        let release: Vec<Step> = check_steps(CHANGES_MODE)
             .into_iter()
             .filter(|step| step.action == Action::VersionGate)
             .collect();
@@ -3134,11 +3130,7 @@ fn fails_on_a_missing_or_failing_typescript_report() {
         .remove("apps/playground/coverage/coverage-summary.json");
     assert!(removed.is_some(), "summary removed");
     assert_eq!(
-        run_steps(
-            &check_steps(Mode::Changes),
-            &mut no_summary,
-            &mut Vec::new()
-        ),
+        run_steps(&check_steps(CHANGES_MODE), &mut no_summary, &mut Vec::new()),
         failed(
             "TypeScript coverage and mutation reports: cannot read apps/playground/coverage/coverage-summary.json: missing"
         ),
@@ -3151,7 +3143,7 @@ fn fails_on_a_missing_or_failing_typescript_report() {
     );
     assert!(replaced.is_some(), "report replaced");
     assert_eq!(
-        run_steps(&check_steps(Mode::Changes), &mut survivor, &mut Vec::new()),
+        run_steps(&check_steps(CHANGES_MODE), &mut survivor, &mut Vec::new()),
         failed(
             "TypeScript coverage and mutation reports: apps/roadmap: mutants not killed: \
              apps/roadmap/x.ts:4 M Survived"
@@ -3161,7 +3153,7 @@ fn fails_on_a_missing_or_failing_typescript_report() {
     let mut busy = passing();
     busy.broken = Some("fresh apps/playground/coverage".to_owned());
     assert_eq!(
-        run_steps(&check_steps(Mode::Changes), &mut busy, &mut Vec::new()),
+        run_steps(&check_steps(CHANGES_MODE), &mut busy, &mut Vec::new()),
         failed("Fresh TypeScript report directories: cannot empty apps/playground/coverage: busy"),
         "a report directory that cannot be emptied"
     );
@@ -3236,7 +3228,7 @@ fn reports_manifests_it_cannot_list() {
     let mut broken = passing();
     broken.broken = Some("list *Cargo.toml".to_owned());
     assert_eq!(
-        run_steps(&check_steps(Mode::Changes), &mut broken, &mut Vec::new()),
+        run_steps(&check_steps(CHANGES_MODE), &mut broken, &mut Vec::new()),
         failed(
             "Packages and crates known to the checks: cannot list the *Cargo.toml files: `git ls-files -- *Cargo.toml` exited with code 128: fatal: not a git repository"
         ),
@@ -3245,7 +3237,7 @@ fn reports_manifests_it_cannot_list() {
     let mut unlisted = passing();
     unlisted.broken = Some("list *package.json".to_owned());
     assert!(
-        run_steps(&check_steps(Mode::Changes), &mut unlisted, &mut Vec::new())
+        run_steps(&check_steps(CHANGES_MODE), &mut unlisted, &mut Vec::new())
             .is_err_and(|error| error.summary.ends_with("cannot list the *package.json files: `git ls-files -- *package.json` exited with code 128: fatal: not a git repository")),
         "named"
     );
@@ -3324,7 +3316,7 @@ fn reports_license_lists_it_cannot_get() {
     let removed = fake.files.remove(&format!("capture {}", LICENSE_LINES[0]));
     assert!(removed.is_some(), "report removed");
     assert_eq!(
-        run_steps(&check_steps(Mode::Changes), &mut fake, &mut Vec::new()),
+        run_steps(&check_steps(CHANGES_MODE), &mut fake, &mut Vec::new()),
         failed(format!(
             "JavaScript licenses: cannot list licenses: `{}` exited with code 1: failed",
             LICENSE_LINES[0]
@@ -3446,7 +3438,7 @@ fn reports_rust_files_it_cannot_list() {
     let mut fake = passing();
     fake.broken = Some("list *.rs".to_owned());
     assert_eq!(
-        run_steps(&check_steps(Mode::Changes), &mut fake, &mut Vec::new()),
+        run_steps(&check_steps(CHANGES_MODE), &mut fake, &mut Vec::new()),
         failed(
             "Unsafe code confined to the audited files: cannot list the Rust files: `git ls-files -- *.rs` exited with code 128: fatal: not a git repository"
         ),
@@ -3537,7 +3529,7 @@ fn lists_the_checks_in_order() {
     );
     assert_eq!(
         text.lines().count(),
-        check_steps(Mode::Changes).len(),
+        check_steps(CHANGES_MODE).len(),
         "every check"
     );
     assert!(
@@ -3579,7 +3571,7 @@ fn stops_at_a_missing_tool() {
     let mut fake = passing();
     fake.broken = Some("cargo mutants --version".to_owned());
     assert_eq!(
-        run_steps(&check_steps(Mode::Changes), &mut fake, &mut Vec::new()),
+        run_steps(&check_steps(CHANGES_MODE), &mut fake, &mut Vec::new()),
         failed(
             "Tools and platform: the checks cannot run here: cannot run `cargo mutants --version`: not found; to install: cargo install --locked cargo-mutants@27.1.0"
         ),
@@ -3642,7 +3634,7 @@ fn requires_every_part_to_be_described() {
 
 #[test]
 fn names_every_check_alike() {
-    for step in check_steps(Mode::Changes) {
+    for step in check_steps(CHANGES_MODE) {
         assert!(
             step.name
                 .starts_with(|first: char| first.is_ascii_uppercase()),
@@ -3723,7 +3715,7 @@ fn reads_the_history_or_says_why_it_cannot() {
     let mut fake = passing();
     let _removed = fake.files.remove(&format!("capture {}", HISTORY_LINES[0]));
     assert_eq!(
-        run_steps(&check_steps(Mode::Changes), &mut fake, &mut Vec::new()),
+        run_steps(&check_steps(CHANGES_MODE), &mut fake, &mut Vec::new()),
         failed(
             "Commit messages, and a changelog entry for each change of behavior: cannot read the history: `git log --format=%x1e%H%x1f%B HEAD` exited with code 1: failed"
         ),
@@ -3810,7 +3802,10 @@ fn checks_a_push_then_runs_every_check() {
     );
     assert!(
         fake.ran.contains(&format!("capture {}", MERGE_BASE.0))
-            && !fake.ran.iter().any(|line| line.contains("--jobs")),
+            && fake.ran.contains(
+                &"cargo mutants --cap-lints=true --gitignore=true --workspace --jobs 3 --in-diff target/xtask/changes.diff"
+                    .to_owned()
+            ),
         "the default check: the hook mutates the changes"
     );
     let mut dirty = passing();
@@ -4323,7 +4318,7 @@ fn refuses_usage_errors_in_one_line() {
 
 #[test]
 fn wires_every_package_into_the_checks() {
-    let steps = check_steps(Mode::Changes);
+    let steps = check_steps(CHANGES_MODE);
     let fresh: Vec<String> = steps
         .iter()
         .filter_map(|step| {
@@ -4507,7 +4502,7 @@ fn reports_readme_problems_whatever_the_membership() {
     let removed = fake.files.remove("apps/README.md");
     assert!(extra.is_none() && removed.is_some(), "both problems set");
     let step = |action: &Action| -> Vec<Step> {
-        check_steps(Mode::Changes)
+        check_steps(CHANGES_MODE)
             .into_iter()
             .filter(|step| step.action == *action)
             .collect()
@@ -4644,14 +4639,14 @@ fn refuses_checks_that_change_the_working_tree() {
         "?? notes.txt\n M Cargo.lock\n".to_owned(),
     ));
     assert_eq!(
-        run_steps(&check_steps(Mode::Changes), &mut rewritten, &mut Vec::new()),
+        run_steps(&check_steps(CHANGES_MODE), &mut rewritten, &mut Vec::new()),
         failed(
             "Working tree unchanged by the checks: the checks changed the working tree: \
              ` M Cargo.lock` appeared"
         ),
         "a command that rewrites a tracked file fails the whole check, at its end"
     );
-    let last = check_steps(Mode::Changes).split_off(check_steps(Mode::Changes).len() - 1);
+    let last = check_steps(CHANGES_MODE).split_off(check_steps(CHANGES_MODE).len() - 1);
     assert_eq!(
         run_steps(&last, &mut passing(), &mut Vec::new()),
         failed(
@@ -5064,7 +5059,7 @@ fn requires_every_crate_to_take_the_workspace_repository() {
 
 #[test]
 fn empties_stale_build_outputs_before_the_builds_that_write_them() {
-    let steps = check_steps(Mode::Changes);
+    let steps = check_steps(CHANGES_MODE);
     assert_eq!(
         super::build_outputs(),
         vec!["bindings/wasm/dist".to_owned()],
@@ -5100,7 +5095,7 @@ fn runs_miri_on_every_crate_of_the_audited_files() {
         "Miri on each of them"
     );
     assert!(
-        check_steps(Mode::Changes)
+        check_steps(CHANGES_MODE)
             .iter()
             .any(|step| step.action == Action::Run(super::miri_command())),
         "a step of the check"
@@ -5111,7 +5106,7 @@ fn runs_miri_on_every_crate_of_the_audited_files() {
 fn empties_the_coverage_build_before_every_measurement() {
     let mut fake = passing();
     assert_eq!(
-        run_steps(&check_steps(Mode::Changes), &mut fake, &mut Vec::new()),
+        run_steps(&check_steps(CHANGES_MODE), &mut fake, &mut Vec::new()),
         Ok(()),
         "all green"
     );
@@ -5142,7 +5137,7 @@ fn stops_when_the_coverage_build_cannot_be_emptied() {
     let mut fake = passing();
     fake.broken = Some(Coverage::clean_command().line());
     let failure =
-        run_steps(&check_steps(Mode::Changes), &mut fake, &mut Vec::new()).expect_err("stops");
+        run_steps(&check_steps(CHANGES_MODE), &mut fake, &mut Vec::new()).expect_err("stops");
     assert!(
         failure.summary.contains("not found"),
         "the reason the clean failed: {}",
@@ -5162,7 +5157,7 @@ fn fails_when_a_supply_chain_setting_cannot_be_read() {
     let (path, _) = super::SUPPLY_CHAIN_SETTINGS[1];
     let _removed = fake.files.remove(path);
     let failure =
-        run_steps(&check_steps(Mode::Changes), &mut fake, &mut Vec::new()).expect_err("stops");
+        run_steps(&check_steps(CHANGES_MODE), &mut fake, &mut Vec::new()).expect_err("stops");
     assert!(
         failure.summary.contains(path),
         "names the file: {}",
@@ -5177,7 +5172,7 @@ fn fails_when_the_crates_cannot_be_listed() {
         .files
         .remove(&format!("capture {}", super::metadata_command().line()));
     let failure =
-        run_steps(&check_steps(Mode::Changes), &mut fake, &mut Vec::new()).expect_err("stops");
+        run_steps(&check_steps(CHANGES_MODE), &mut fake, &mut Vec::new()).expect_err("stops");
     assert!(
         failure.summary.contains("cannot list the crates"),
         "says what it could not do: {}",

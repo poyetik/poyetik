@@ -208,8 +208,11 @@ pub enum Mode {
     /// uncommitted changes and new Rust files included. TypeScript: Stryker's incremental
     /// mode ([`STRYKER_INCREMENTAL`]), which reruns the mutants whose code or covering
     /// tests changed and reuses the earlier results of the others; its report holds every
-    /// mutant of the package.
-    Changes,
+    /// mutant of the package. Rust in `jobs` parallel jobs, as [`Mode::Full`].
+    Changes {
+        /// The number of cargo-mutants jobs.
+        jobs: NonZeroUsize,
+    },
     /// Every mutant: Rust in `jobs` parallel jobs ([`mutation_jobs`]), every TypeScript
     /// mutant run again (Stryker's `--force`), which also rewrites the incremental file.
     Full {
@@ -431,7 +434,10 @@ pub enum Action {
     CoverageLocality,
     /// Run cargo-mutants on the changes of [`Mode::Changes`]: the diff since the merge base
     /// of [`MUTATION_BASES`], written to [`CHANGES_DIFF`]; nothing when there is no change.
-    RustMutantsOfChanges,
+    RustMutantsOfChanges {
+        /// The number of cargo-mutants jobs.
+        jobs: NonZeroUsize,
+    },
     /// Require every unviable mutant of the last run to be reviewed; after a
     /// [`Extent::Complete`] run, also every review to be current.
     UnviableGate(Extent),
@@ -629,19 +635,25 @@ fn mutants_command(args: &[&str]) -> Cmd {
     Cmd::new("cargo", &[&MUTANTS_ARGS[..], args].concat(), Dir::Root)
 }
 
-/// The cargo-mutants command of [`Mode::Changes`]: the workspace, filtered by
-/// [`CHANGES_DIFF`].
+/// The cargo-mutants command of [`Mode::Changes`]: the workspace in `jobs` jobs, filtered
+/// by [`CHANGES_DIFF`].
 #[must_use]
-pub fn changes_mutants_command() -> Cmd {
-    mutants_command(&["--workspace", "--in-diff", CHANGES_DIFF])
+pub fn changes_mutants_command(jobs: NonZeroUsize) -> Cmd {
+    mutants_command(&[
+        "--workspace",
+        "--jobs",
+        &jobs.to_string(),
+        "--in-diff",
+        CHANGES_DIFF,
+    ])
 }
 
 /// Rust mutation testing in `mode`, after emptying [`MUTANTS_OUT`], then its gate.
 fn rust_mutation_steps(mode: Mode) -> Vec<Step> {
     let (name, action, extent) = match mode {
-        Mode::Changes => (
+        Mode::Changes { jobs } => (
             "Rust mutation testing of the changes",
-            Action::RustMutantsOfChanges,
+            Action::RustMutantsOfChanges { jobs },
             Extent::Partial,
         ),
         Mode::Full { jobs } => (
@@ -900,7 +912,7 @@ fn typescript_steps(mode: Mode) -> Vec<Step> {
             Dir::Package(package.dir),
         ));
         let what = match mode {
-            Mode::Changes => "what changed since the last run",
+            Mode::Changes { .. } => "what changed since the last run",
             Mode::Full { .. } => "every mutant",
         };
         steps.push(Step {
@@ -4097,7 +4109,11 @@ pub fn new_file_diff(path: &str, text: &str) -> String {
 /// Runs cargo-mutants on what changed since the merge base ([`Action::RustMutantsOfChanges`]):
 /// the changes of the tracked files, committed or not, and every new Rust file git does not
 /// ignore; nothing when nothing changed.
-fn rust_mutants_of_changes(runner: &mut dyn Runner, out: &mut dyn Write) -> Result<(), Failure> {
+fn rust_mutants_of_changes(
+    runner: &mut dyn Runner,
+    out: &mut dyn Write,
+    jobs: NonZeroUsize,
+) -> Result<(), Failure> {
     let (base, against) = mutation_base(runner)?;
     let mut diff = git_output(
         runner,
@@ -4134,7 +4150,7 @@ fn rust_mutants_of_changes(runner: &mut dyn Runner, out: &mut dyn Write) -> Resu
         .write(CHANGES_DIFF, &diff)
         .map_err(|error| Failure::from(format!("cannot write {CHANGES_DIFF}: {error}")))?;
     runner
-        .run(&changes_mutants_command())
+        .run(&changes_mutants_command(jobs))
         .map_err(|failure| Failure::from(failure.to_string()))
 }
 
@@ -4271,7 +4287,7 @@ fn run_action(
             let sources = read_all(runner, paths)?;
             equivalent_gate(&sources, &read_file(runner, EQUIVALENT_REVIEWED)?)
         }
-        Action::RustMutantsOfChanges => rust_mutants_of_changes(runner, out),
+        Action::RustMutantsOfChanges { jobs } => rust_mutants_of_changes(runner, out, *jobs),
         Action::UnviableGate(extent) => {
             let report = unviable_report(runner, *extent)?;
             unviable_gate(&report, *extent, &read_file(runner, UNVIABLE_REVIEWED)?)
@@ -4612,13 +4628,12 @@ pub fn cli(
             return 2;
         }
     };
-    let mut mode = |full: bool| {
+    let jobs = mutation_jobs(runner.parallelism());
+    let mode = |full: bool| {
         if full {
-            Mode::Full {
-                jobs: mutation_jobs(runner.parallelism()),
-            }
+            Mode::Full { jobs }
         } else {
-            Mode::Changes
+            Mode::Changes { jobs }
         }
     };
     let result = match task {
@@ -4631,9 +4646,9 @@ pub fn cli(
             read_file(runner, &path).and_then(|message| commit_msg_gate(&message))
         }
         Task::PrePush(pushed) => pre_push(runner, &pushed)
-            .and_then(|()| run_steps(&check_steps(Mode::Changes), runner, out)),
+            .and_then(|()| run_steps(&check_steps(mode(false)), runner, out)),
         Task::Mutants(target) => {
-            let steps = mutants_steps(&target, mutation_jobs(runner.parallelism()));
+            let steps = mutants_steps(&target, jobs);
             run_steps(&steps, runner, out)
         }
         Task::Help => say(out, USAGE),
