@@ -1,7 +1,7 @@
 {
   "version": 1,
   "title": "Poyetik",
-  "nextId": 18,
+  "nextId": 19,
   "cards": [
     {
       "id": 1,
@@ -272,7 +272,7 @@
           "done": false
         },
         {
-          "title": "Oscilloscope: window in seconds at every rate, reduced motion honoured, no allocation per frame",
+          "title": "Oscilloscope: window in seconds at every rate, reduced motion honoured, no allocation per frame by construction (caller-owned buffers: no copy of the history per frame, one zero-crossing pass instead of two, no point object per sample, no spread when drawing, min/max decimation above one sample per device pixel; drawScope given the same buffers on consecutive frames, tested; an ESLint rule banning allocation in frame functions), redrawn when resized while stopped, and an accessible hint of what to do while nothing plays",
           "done": false
         }
       ]
@@ -434,6 +434,37 @@
       "createdAt": "2026-11-08",
       "updatedAt": "2026-11-08",
       "tasks": []
+    },
+    {
+      "id": 18,
+      "title": "Mobile browsers: live playground checks on iOS Safari and Android Chrome",
+      "description": "Check on real phones what desktop engines and emulators cannot show: interruptions, the silent switch, resuming and fades, with a written protocol and automated checks where a device can be driven.",
+      "column": "later",
+      "milestone": "M1 Engine",
+      "createdAt": "2026-11-08",
+      "updatedAt": "2026-11-08",
+      "tasks": [
+        {
+          "title": "A written protocol for checks on real devices (models, OS and browser versions, what to listen for), and a record of each run",
+          "done": false
+        },
+        {
+          "title": "Interruptions on iOS and Android: a phone call, a voice assistant, another app playing, Safari's \"interrupted\" state; the page shows the truth and resuming fades in without a click",
+          "done": false
+        },
+        {
+          "title": "The iPhone silent switch: sound is heard, or the page says why; navigator.audioSession set to playback where supported, feature-detected and tested",
+          "done": false
+        },
+        {
+          "title": "A Resume the browser refuses, and its message, seen on a device",
+          "done": false
+        },
+        {
+          "title": "Automated where a device can be driven (simulators or a device farm); otherwise listed as reviewed in the published known deviations",
+          "done": false
+        }
+      ]
     }
   ]
 }
