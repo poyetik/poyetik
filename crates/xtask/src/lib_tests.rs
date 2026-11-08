@@ -2399,26 +2399,20 @@ fn system_runner_empties_fresh_directories() {
         runner.fresh_dir("file/below").is_err(),
         "cannot create under a file"
     );
-    #[cfg(unix)]
-    {
-        // A directory whose contents cannot be removed, but which exists: emptying it
-        // fails, even though creating it again would succeed.
-        use std::os::unix::fs::PermissionsExt;
-        let locked = root.join("locked");
-        std::fs::create_dir_all(locked.join("inner")).expect("locked directory");
-        std::fs::write(locked.join("inner/file"), b"").expect("file inside");
-        let set = |mode: u32| {
-            std::fs::set_permissions(locked.join("inner"), std::fs::Permissions::from_mode(mode))
-                .expect("permissions");
-        };
-        set(0o555);
-        let result = runner.fresh_dir("locked/inner");
-        set(0o755);
-        assert!(
-            result.is_err(),
-            "a directory that cannot be emptied is an error"
-        );
-    }
+    // A path that exists but cannot be emptied as a directory (a file): emptying it fails
+    // with the reason of the removal, not of the creation that would follow (the file is
+    // already there), and with no permission bit involved, so that it fails for root too.
+    std::fs::write(root.join("plain"), b"kept").expect("a plain file");
+    assert_eq!(
+        runner.fresh_dir("plain").map_err(|error| error.kind()),
+        Err(io::ErrorKind::NotADirectory),
+        "a path that cannot be emptied is an error, said by its removal"
+    );
+    assert_eq!(
+        std::fs::read(root.join("plain")).expect("still there"),
+        b"kept",
+        "and is left as it was"
+    );
     std::fs::remove_dir_all(&root).expect("cleanup");
 }
 
