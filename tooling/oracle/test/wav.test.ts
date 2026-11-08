@@ -39,6 +39,8 @@ describe("parseWav", () => {
     ["wrong RIFF size", makeWav({ ...VALID, riffSize: 1 }), "RIFF size does not match the file size"],
     ["truncated chunk header", makeWav({ ...VALID, trailer: [0x4c, 0x49, 0x53, 0x54] }), "truncated chunk header"],
     ["chunk past the end", makeWav({ ...VALID, trailer: [0x4c, 0x49, 0x53, 0x54, 9, 0, 0, 0] }), 'chunk "LIST" extends past the end of the file'],
+    // The 3-byte "LIST" chunk above, without the pad byte that aligns the next chunk.
+    ["last chunk unpadded", makeWav({ ...VALID, fmtSize: 16, trailer: [0x4c, 0x49, 0x53, 0x54, 3, 0, 0, 0, 1, 2, 3] }), 'chunk "LIST" lacks its pad byte'],
     ["duplicate chunk", makeWav({ ...VALID, trailer: [0x64, 0x61, 0x74, 0x61, 0, 0, 0, 0] }), 'duplicate chunk "data"'],
     ["short fmt chunk", makeWav({ ...VALID, fmtSize: 14 }), "fmt chunk too short"],
     ["integer samples", makeWav({ ...VALID, format: 1 }), "not 32-bit float samples (format 1, 32 bits)"],

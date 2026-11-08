@@ -87,8 +87,12 @@ function readChunks(view: DataView, start: number, chunks: Map<string, DataView>
       throw new WavError(`duplicate chunk "${id}"`);
     }
     chunks.set(id, new DataView(view.buffer, view.byteOffset + offset + 8, size));
-    // Chunks are aligned on even offsets.
+    // Chunks are aligned on even offsets: an odd-sized chunk is followed by a pad byte,
+    // the last one too.
     offset += 8 + size + (size % 2);
+    if (offset > view.byteLength) {
+      throw new WavError(`chunk "${id}" lacks its pad byte`);
+    }
   }
 }
 
