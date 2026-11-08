@@ -324,15 +324,34 @@ test("gives the oscilloscope one backing pixel per device pixel", async ({ page 
   await expect(canvas).toHaveAttribute("aria-describedby", "scope-readout");
 });
 
-test("keeps the oscilloscope colors in forced colors (high contrast)", async ({ page }) => {
+/**
+ * The engines that apply forced colors when Playwright emulates them. WebKit matches the
+ * media query but forces no color (it has no forced colors mode): there the test proves
+ * nothing about the canvas, a known limit it states rather than passing silently.
+ */
+const FORCED_COLORS: Readonly<Record<string, boolean>> = { chromium: true, firefox: true, webkit: false };
+
+test("keeps the oscilloscope colors in forced colors (high contrast)", async ({ page, browserName }) => {
   // The page text follows the system colors there; the canvas keeps its own background,
   // against which its trace was designed (forced-color-adjust: none).
   await page.goto("./?muted");
   const canvas = page.getByRole("img", { name: "Waveform of the engine output" });
-  const background = (): Promise<string> => canvas.evaluate((element) => getComputedStyle(element).backgroundColor);
-  const normal = await background();
+  /** The background of the canvas, and the color of the page text: the control, which forced colors change. */
+  const colors = (): Promise<{ canvas: string; text: string; forced: boolean }> =>
+    canvas.evaluate((element) => ({
+      canvas: getComputedStyle(element).backgroundColor,
+      text: getComputedStyle(document.body).color,
+      forced: matchMedia("(forced-colors: active)").matches,
+    }));
+  const normal = await colors();
+  expect(normal.forced).toBe(false);
   await page.emulateMedia({ forcedColors: "active", colorScheme: "light" });
-  expect(await background()).toBe(normal);
+  const forced = await colors();
+  expect(forced.forced).toBe(true);
+  // Control: the page text changed, so forced colors were applied (except where the engine
+  // has no such mode), and the canvas kept its colors.
+  expect(forced.text !== normal.text).toBe(FORCED_COLORS[browserName]);
+  expect(forced.canvas).toBe(normal.canvas);
 });
 
 for (const rate of SAMPLE_RATES) {
