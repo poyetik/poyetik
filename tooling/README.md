@@ -4,5 +4,7 @@ Shared development tooling of the monorepo.
 
 | Package | Contents |
 |---|---|
-| `config/` (`@poyetik/config`) | The strict TypeScript settings (`tsconfig.base.json`) and ESLint configuration (`eslint`) every TypeScript package uses |
+| `config/` (`@poyetik/config`) | The strict TypeScript settings (`tsconfig.base.json`) and ESLint configuration (`eslint.ts`) every TypeScript package uses. Its tests prove the policy: each fixture in `test/policy/` breaks one lint rule and `test/compiler/` one compiler setting, and each must be rejected by exactly that rule (`pnpm check`: typecheck, lint, 100% coverage, no surviving mutant) |
 | `oracle/` (`@poyetik/oracle`) | The independent conformance oracle: rereads the WAV file the native engine wrote for every case, recomputes its hash and checks the signal against its mathematical definition, with no code shared with the engine |
+
+Each package is checked with `pnpm check` in its folder; `cargo xtask check` runs them all.

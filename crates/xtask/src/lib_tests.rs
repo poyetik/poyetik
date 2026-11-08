@@ -274,7 +274,8 @@ fn lists_every_check_in_order() {
             "Root: pnpm install --frozen-lockfile",
             "Root: pnpm audit",
             "license gate",
-            "fresh tooling/oracle/coverage tooling/oracle/reports/mutation bindings/wasm/coverage bindings/wasm/reports/mutation apps/playground/coverage apps/playground/reports/mutation apps/roadmap/coverage apps/roadmap/reports/mutation",
+            "fresh tooling/config/coverage tooling/config/reports/mutation tooling/oracle/coverage tooling/oracle/reports/mutation bindings/wasm/coverage bindings/wasm/reports/mutation apps/playground/coverage apps/playground/reports/mutation apps/roadmap/coverage apps/roadmap/reports/mutation",
+            "Config: pnpm run check",
             "Oracle: pnpm run check",
             "EngineWasm: pnpm run check",
             "Playground: pnpm run check",
@@ -312,6 +313,7 @@ fn lists_every_check_in_order() {
             "JavaScript vulnerabilities",
             "JavaScript licenses",
             "Fresh TypeScript report directories",
+            "Shared TypeScript policy (each rule proven to reject what it forbids)",
             "Conformance oracle (independent, TypeScript)",
             "Engine WASM checks",
             "Playground checks",
@@ -346,6 +348,11 @@ fn resolves_directories() {
         Dir::Oracle.under(root),
         Path::new("/repo/tooling/oracle"),
         "oracle"
+    );
+    assert_eq!(
+        Dir::Config.under(root),
+        Path::new("/repo/tooling/config"),
+        "config"
     );
 }
 
@@ -414,10 +421,10 @@ fn runs_every_step_and_reports_success() {
     );
     assert_eq!(
         fake.ran.len(),
-        check_steps().len() + 7 + 10 + 7 + 3 + 1 + 2 + 8,
+        check_steps().len() + 9 + 10 + 9 + 3 + 1 + 2 + 8,
         "every step ran; the unviable gate reads two files, the equivalent gate lists the \
-         sources and reads two files, the release gate eight, the fresh step empties seven \
-         more directories, the TypeScript gate reads eight reports instead of one action, \
+         sources and reads two files, the release gate eight, the fresh step empties nine \
+         more directories, the TypeScript gate reads ten reports instead of one action, \
          the membership gate lists three times and reads the root Cargo.toml, the license gate \
          captures two reports, the unsafe gate lists and reads two files, the preflight \
          asks nine tools"
@@ -444,15 +451,15 @@ fn runs_every_step_and_reports_success() {
     );
     let text = String::from_utf8(out).expect("utf-8 output");
     assert!(
-        text.starts_with("▶ [1/31] Tools and platform\n"),
+        text.starts_with("▶ [1/32] Tools and platform\n"),
         "numbered progress: {text}"
     );
     assert!(
-        text.contains("▶ [30/31] Roadmap checks\n"),
+        text.contains("▶ [31/32] Roadmap checks\n"),
         "last step announced: {text}"
     );
     assert!(
-        text.ends_with("✔ all 31 checks passed\n"),
+        text.ends_with("✔ all 32 checks passed\n"),
         "summary: {text}"
     );
 }

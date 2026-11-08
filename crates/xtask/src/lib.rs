@@ -35,7 +35,8 @@ pub const EQUIVALENT_REVIEWED: &str = "mutants-equivalent.txt";
 
 /// The TypeScript packages, by directory: each writes its coverage summary and its
 /// mutation report, both checked by xtask rather than trusted to their own thresholds.
-pub const TYPESCRIPT_PACKAGES: [&str; 4] = [
+pub const TYPESCRIPT_PACKAGES: [&str; 5] = [
+    "tooling/config",
     "tooling/oracle",
     "bindings/wasm",
     "apps/playground",
@@ -44,7 +45,9 @@ pub const TYPESCRIPT_PACKAGES: [&str; 4] = [
 
 /// The report directories of the TypeScript packages, emptied before they run so that
 /// every report read by the gate comes from this run.
-pub const TYPESCRIPT_REPORTS: [&str; 8] = [
+pub const TYPESCRIPT_REPORTS: [&str; 10] = [
+    "tooling/config/coverage",
+    "tooling/config/reports/mutation",
     "tooling/oracle/coverage",
     "tooling/oracle/reports/mutation",
     "bindings/wasm/coverage",
@@ -76,6 +79,8 @@ pub enum Dir {
     Playground,
     /// The `tooling/oracle/` package.
     Oracle,
+    /// The `tooling/config/` package: the shared TypeScript policy.
+    Config,
 }
 
 impl Dir {
@@ -88,6 +93,7 @@ impl Dir {
             Self::EngineWasm => root.join("bindings").join("wasm"),
             Self::Playground => root.join("apps").join("playground"),
             Self::Oracle => root.join("tooling").join("oracle"),
+            Self::Config => root.join("tooling").join("config"),
         }
     }
 }
@@ -378,6 +384,12 @@ fn release_steps() -> Vec<Step> {
             action: Action::FreshDirs(&TYPESCRIPT_REPORTS),
         },
         run(
+            "Shared TypeScript policy (each rule proven to reject what it forbids)",
+            "pnpm",
+            &["run", "check"],
+            Dir::Config,
+        ),
+        run(
             "Conformance oracle (independent, TypeScript)",
             "pnpm",
             &["run", "check"],
@@ -665,14 +677,10 @@ pub fn equivalent_gate(sources: &[(String, String)], reviewed: &str) -> Result<(
     }
 }
 
-/// The package that holds shared configuration only: a workspace member without checks or
-/// reports of its own.
-pub const CONFIGURATION_PACKAGE: &str = "tooling/config/package.json";
-
 /// Checks that the manifests tracked by git are exactly those xtask knows.
 ///
 /// Every `package.json` is in [`PACKAGE_JSONS`], every TypeScript package but the root
-/// and the configuration one is in [`TYPESCRIPT_PACKAGES`], and every crate manifest
+/// one is in [`TYPESCRIPT_PACKAGES`], and every crate manifest
 /// (`Cargo.toml` below the root) takes the workspace version. The only `.gitignore` is the
 /// root one: build outputs go to `dist/` or `target/`, never hidden inside a source folder.
 ///
@@ -698,7 +706,7 @@ pub fn membership_gate(
         .collect();
     let checked: BTreeSet<String> = tracked
         .iter()
-        .filter(|path| **path != "package.json" && **path != CONFIGURATION_PACKAGE)
+        .filter(|path| **path != "package.json")
         .filter_map(|path| path.strip_suffix("/package.json"))
         .map(str::to_owned)
         .collect();

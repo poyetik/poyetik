@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The shared TypeScript policy (`@poyetik/config`) is itself checked: each lint rule and strict compiler setting is proven, by a fixture that breaks it, to reject exactly what it forbids, with 100% coverage and no surviving mutant; the ESLint configuration is now TypeScript, linted by itself, and a step of `cargo xtask check`.
 - `cargo xtask check` starts by checking the platform (macOS or Linux; Windows through WSL2) and every tool it needs, Node.js 22.18 or later included, naming what is missing and how to install it; `cargo xtask list` lists the checks. `.gitattributes` keeps LF line endings everywhere (the git hooks are shell scripts), and `pnpm install` no longer fails outside a git work tree.
 - A membership gate in `cargo xtask check`: the `package.json` files tracked by git must be exactly those the version check reads, every TypeScript package must have its checks and reports run, and every crate must take the workspace version. A package added without being wired into the checks now fails it.
 - `cargo xtask check` reads the coverage summary and the mutation report of every TypeScript package itself (100% of lines, statements, functions and branches; no surviving or uncovered mutant), from report directories emptied at each run: lowering a package's own threshold, or a package no longer writing its reports, now fails the check.

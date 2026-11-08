@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2024"],
+    "types": ["node"],
+    "allowJs": true,
+    "checkJs": true
+  },
+  "include": ["**/*.ts", "**/*.js"],
+  "exclude": ["coverage", "reports", ".stryker-tmp", "node_modules", "test/policy", "test/compiler"]
+}

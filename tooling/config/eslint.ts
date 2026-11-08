@@ -1,19 +1,16 @@
 // The strict linting policy shared by every TypeScript package (see CLAUDE.md): no escape
 // hatch can weaken the type system. Each package's eslint.config.js calls `strict`.
 import js from "@eslint/js";
-import { defineConfig } from "eslint/config";
+import { defineConfig, type Config } from "eslint/config";
 import jsdoc from "eslint-plugin-jsdoc";
 import tseslint from "typescript-eslint";
 
 /**
- * The shared configuration, for the package in `directory`, ignoring `ignores` (build
- * outputs and reports), with `extra` configuration objects appended.
- *
- * @param {string} directory The package directory (`import.meta.dirname`).
- * @param {string[]} ignores Paths the package does not lint.
- * @param {...object} extra Package-specific configuration, appended last.
+ * The shared configuration, for the package in `directory` (its `import.meta.dirname`),
+ * ignoring `ignores` (build outputs and reports, relative to it), with the package's
+ * `extra` configuration objects appended last.
  */
-export function strict(directory, ignores, ...extra) {
+export function strict(directory: string, ignores: readonly string[], ...extra: readonly Config[]): Config[] {
   return defineConfig(
     { ignores: [...ignores, "coverage", "reports", ".stryker-tmp", "playwright-report", "test-results"] },
     // No inline `eslint-disable` comments: a rule is either respected or changed here, for everyone.
@@ -31,10 +28,11 @@ export function strict(directory, ignores, ...extra) {
         "@typescript-eslint/consistent-type-assertions": ["error", { assertionStyle: "never" }],
         "@typescript-eslint/no-unsafe-type-assertion": "error",
         "@typescript-eslint/no-non-null-assertion": "error",
-        "@typescript-eslint/no-explicit-any": ["error", { fixToUnknown: false, ignoreRestArgs: false }],
+        // Rest arguments included (`...args: any[]`), and never fixed silently to `unknown`: the defaults.
+        "@typescript-eslint/no-explicit-any": "error",
         "@typescript-eslint/ban-ts-comment": [
           "error",
-          { "ts-expect-error": true, "ts-ignore": true, "ts-nocheck": true, "ts-check": false },
+          { "ts-expect-error": true, "ts-ignore": true, "ts-nocheck": true },
         ],
         // Conditions must be real booleans: no truthiness on strings, numbers or nullable values.
         "@typescript-eslint/strict-boolean-expressions": [

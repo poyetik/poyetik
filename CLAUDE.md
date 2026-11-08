@@ -61,7 +61,7 @@ Public project kanban. The data lives in `apps/roadmap/board.json`, versioned in
 
 ## CI
 
-**One command runs every check: `cargo xtask check`** (Rust formatting, lints, tests, portability builds, 100% coverage gate, mutation testing, Miri, conformance, supply chain, then every TypeScript package: the engine in the browser, the playground and the roadmap). The `.githooks/pre-push` hook and `.github/workflows/quality.yml` (every push and pull request) both run exactly this command, so a green local check means a green CI.
+**One command runs every check: `cargo xtask check`** (Rust formatting, lints, tests, portability builds, 100% coverage gate, mutation testing, Miri, conformance, supply chain, then every TypeScript package: the shared policy itself, each rule proven to reject what it forbids, the oracle, the engine in the browser, the playground and the roadmap). The `.githooks/pre-push` hook and `.github/workflows/quality.yml` (every push and pull request) both run exactly this command, so a green local check means a green CI.
 
 Working while the check runs: when it is useful and harms nothing, development may continue in a separate git worktree (`git worktree add`, its own branch) while `cargo xtask check` validates a finished commit in the main one, since the full check (mutation testing above all) takes a long time. It is an option, not a habit: skip it when the next work depends on the result, or when the extra load would disturb the check (load-sensitive browser tests). The validated commit is not done, and the work built on it is not pushed, until that check is green; a failure is fixed by a new commit, validated again.
 
