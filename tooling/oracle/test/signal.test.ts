@@ -52,6 +52,21 @@ test("reduces the phase exactly, however far into the case", () => {
   expect(ideal({ frequency: 1000, amplitude: 2, phase: 1 }, 8000, 2)).toBe(2 * Math.sin((2 * Math.PI * 2000) / 8000 + 1));
 });
 
+test("reduces the phase exactly up to the longest case, not beyond", () => {
+  // A frequency with all 24 significant bits of a binary32 value: f = m × 2^-15.
+  const frequency = Math.fround(440.1);
+  const significand = BigInt(frequency * 2 ** 15);
+  const rate = 44_100;
+  const exact = (index: number): number => Number((significand * BigInt(index)) % (BigInt(rate) << 15n)) / 2 ** 15;
+  const last = MAX_FRAMES - 1;
+  expect((frequency * last) % rate).toBe(exact(last));
+  expect(ideal({ frequency, amplitude: 1, phase: 0 }, rate, last)).toBe(Math.sin((2 * Math.PI * exact(last)) / rate));
+  // With one more bit of index the product needs 54 bits and rounds, although it is
+  // about 2^39, far below 2^53: the width of the significands is the limit, not the size.
+  const beyond = 2 ** 30 + 1;
+  expect((frequency * beyond) % rate).not.toBe(exact(beyond));
+});
+
 test("derives the error bound term by term", () => {
   expect(sineErrorBound(1, 0)).toBe(2 ** -25 + 2 ** -48);
   expect(sineErrorBound(-1, 0)).toBe(sineErrorBound(1, 0));
@@ -105,6 +120,13 @@ test("rejects oscillators measurably worse than the engine's", () => {
   const bound = sineErrorBound(1, 48_000);
   expect(sineError(oscillator(48_000, 48_000, 440, single), 48_000, sine)).toBeGreaterThan(bound);
   expect(sineError(oscillator(48_000, 48_000, 440, double, 0.9999995), 48_000, sine)).toBeGreaterThan(bound);
+});
+
+test("tells a gain error of 5e-7 from a correct box up to about 3e8 frames, not beyond", () => {
+  // The gain error shows at the peaks, less the output rounding of those samples (2^-25).
+  expect(sineErrorBound(1, 300_000_000) + 2 ** -25).toBeLessThan(5e-7);
+  expect(sineErrorBound(1, 337_100_000)).toBeGreaterThan(5e-7);
+  expect(sineErrorBound(1, MAX_FRAMES)).toBeCloseTo(7.79e-7, 9);
 });
 
 test("accepts a correct oscillator of a subnormal amplitude", () => {
