@@ -65,7 +65,7 @@ export const CORPUS: readonly CorpusCase[] = jsonNames("cases/").map((name) => {
 });
 
 /** The keys of the shared test matrix, each read once below: a key added to the file fails here until it is read. */
-const MATRIX_KEYS = ["host_buffer_sizes", "sample_rates"] as const;
+const MATRIX_KEYS = ["host_buffer_sizes", "locales", "sample_rates", "time_zones"] as const;
 
 /** The shared test matrix (conformance/test-matrix.json), parsed JSON. */
 const matrix: unknown = JSON.parse(readFileSync(new URL("test-matrix.json", CONFORMANCE), "utf8"));
@@ -74,7 +74,7 @@ if (typeof matrix !== "object" || matrix === null || Object.keys(matrix).sort().
 }
 
 /** One key of the shared test matrix: a list of positive whole numbers. */
-function matrixValues(key: (typeof MATRIX_KEYS)[number]): readonly number[] {
+function matrixValues(key: "host_buffer_sizes" | "sample_rates"): readonly number[] {
   const values = field(matrix, key);
   if (!Array.isArray(values) || !values.every((value): value is number => Number.isSafeInteger(value) && Number(value) > 0)) {
     throw new Error(`invalid test matrix: ${key} is not a list of positive whole numbers`);
@@ -87,6 +87,25 @@ export const SAMPLE_RATES: readonly number[] = matrixValues("sample_rates");
 
 /** Every host buffer size of the shared test matrix, in frames: how hosts split time. */
 export const HOST_BUFFER_SIZES: readonly number[] = matrixValues("host_buffer_sizes");
+
+/** One key of the shared test matrix: a non-empty list of strings. */
+function matrixStrings(key: "locales" | "time_zones"): readonly [string, ...string[]] {
+  const values = field(matrix, key);
+  if (!Array.isArray(values) || !values.every((value): value is string => typeof value === "string")) {
+    throw new Error(`invalid test matrix: ${key} is not a list of strings`);
+  }
+  const [first, ...rest] = values;
+  if (first === undefined) {
+    throw new Error(`invalid test matrix: ${key} is empty`);
+  }
+  return [first, ...rest];
+}
+
+/** Every IANA time zone of the shared test matrix: the browsers of the end-to-end tests run in them. */
+export const TIME_ZONES = matrixStrings("time_zones");
+
+/** Every locale of the shared test matrix (BCP 47 tags): the browsers of the end-to-end tests run in them. */
+export const LOCALES = matrixStrings("locales");
 
 /** The names of the patch files of the corpus, sorted. */
 export const PATCH_NAMES: readonly string[] = jsonNames("patches/");

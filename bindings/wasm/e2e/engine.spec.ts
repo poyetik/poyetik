@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { readdirSync, readFileSync } from "node:fs";
+import { LOCALES, TIME_ZONES } from "../test/fixtures.ts";
 
 /** The conformance corpus at the repository root, shared with the native engine tests. */
 const CONFORMANCE = new URL("../../../conformance/", import.meta.url);
@@ -111,4 +112,18 @@ test("explains why a patch is rejected", async ({ page }) => {
   await page.goto("e2e/site/index.html?case=sine-440");
   await page.getByRole("button", { name: "Load an invalid patch" }).click();
   await expect(page.locator("#error")).toContainText("nope~");
+});
+
+test("runs in a time zone and a locale of the test matrix, not the machine's", async ({ page }, testInfo) => {
+  const { timezoneId, locale } = testInfo.project.use;
+  expect(TIME_ZONES).toContain(timezoneId);
+  expect(LOCALES).toContain(locale);
+  await page.goto("e2e/site/index.html?case=sine-440");
+  // The emulation took effect in the page itself.
+  expect(await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone)).toBe(timezoneId);
+  // Compared in their maximal form: WebKit drops a region its language implies ("ja-JP" reads "ja").
+  const maximal = (tag: string): string => new Intl.Locale(tag).maximize().toString();
+  const [language, formatting] = await page.evaluate(() => [navigator.language, Intl.DateTimeFormat().resolvedOptions().locale]);
+  const expected = maximal(locale ?? "");
+  expect([maximal(language), maximal(formatting)]).toStrictEqual([expected, expected]);
 });

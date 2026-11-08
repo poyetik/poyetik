@@ -4,7 +4,7 @@ import { CSP } from "../csp.ts";
 import { BUTTON_LABELS } from "../src/App.tsx";
 import { explain } from "../src/player.ts";
 import { MAX_FREQUENCY_RATIO } from "../src/scope.ts";
-import { SAMPLE_RATES } from "../test/matrix.ts";
+import { LOCALES, SAMPLE_RATES, TIME_ZONES } from "../test/matrix.ts";
 
 /**
  * Makes every AudioContext of the page reachable by {@link suspendAudio}, and run at
@@ -370,3 +370,17 @@ for (const rate of SAMPLE_RATES) {
     await expect(page.getByTestId("frequency")).toHaveText(440 <= rate * MAX_FREQUENCY_RATIO ? "440.0 Hz" : "—");
   });
 }
+
+test("runs in a time zone and a locale of the test matrix, not the machine's", async ({ page }, testInfo) => {
+  const { timezoneId, locale } = testInfo.project.use;
+  expect(TIME_ZONES).toContain(timezoneId);
+  expect(LOCALES).toContain(locale);
+  await page.goto("./?muted");
+  // The emulation took effect in the page itself.
+  expect(await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone)).toBe(timezoneId);
+  // Compared in their maximal form: WebKit drops a region its language implies ("ja-JP" reads "ja").
+  const maximal = (tag: string): string => new Intl.Locale(tag).maximize().toString();
+  const [language, formatting] = await page.evaluate(() => [navigator.language, Intl.DateTimeFormat().resolvedOptions().locale]);
+  const wanted = maximal(locale ?? "");
+  expect([maximal(language), maximal(formatting)]).toStrictEqual([wanted, wanted]);
+});
