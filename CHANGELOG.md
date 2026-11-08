@@ -53,6 +53,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `renderOffline` returns exactly the first frames the engine renders, wherever the browser started its processor: under load, WebKit started it at frame 128 and the render began with silence (a wrong hash). The processor marks every frame it renders on an extra channel; the render has a margin of 16,384 frames and fails, with an explanation, if the processor starts beyond it.
 - End-to-end tests serve on a free port chosen at each run instead of fixed ports (4392, 4393): two runs (two worktrees, or two packages) never share a server.
 - `capture` refuses a channel count below 1 or not whole, and a frame count below 0 or not whole (a fractional count never resolved); `addProcessors` and `loadPatch` name the URL or the module they could not load.
 - `WasmEngine.render` no longer allocates: 500,000 renders cause no garbage collection (the previous version caused 100), checked by `test:allocation`, run without instrumentation.

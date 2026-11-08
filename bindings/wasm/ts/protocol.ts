@@ -12,6 +12,11 @@ export interface EngineOptions {
   readonly wasm: ArrayBuffer;
   /** The patch, as UTF-8 text in the patch format. */
   readonly patch: Uint8Array;
+  /**
+   * Whether to add one channel after the patch channels, 1.0 on every frame the
+   * processor renders: it shows the frame where rendering really started.
+   */
+  readonly marker: boolean;
 }
 
 /** Thrown when processor options do not have the expected shape. */
@@ -39,7 +44,11 @@ export function parseEngineOptions(value: unknown): EngineOptions {
   if (!(patch instanceof Uint8Array)) {
     throw new OptionsError("patch is not a Uint8Array");
   }
-  return { wasm, patch };
+  const marker: unknown = Reflect.get(value, "marker");
+  if (typeof marker !== "boolean") {
+    throw new OptionsError("marker is not a boolean");
+  }
+  return { wasm, patch, marker };
 }
 
 /** Checks a block posted by the tap processor: one array per channel. */

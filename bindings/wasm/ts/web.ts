@@ -59,9 +59,12 @@ export class LoadedPatch {
     }
   }
 
-  /** The options of an engine node running this patch, with fresh copies of the bytes. */
-  options(): EngineOptions {
-    return { wasm: this.#wasm.slice(0), patch: this.#patch.slice() };
+  /**
+   * The options of an engine node running this patch, with fresh copies of the bytes.
+   * @param marker Whether the node adds a marker channel (see `EngineOptions`).
+   */
+  options(marker: boolean): EngineOptions {
+    return { wasm: this.#wasm.slice(0), patch: this.#patch.slice(), marker };
   }
 }
 
@@ -91,20 +94,21 @@ export interface EngineNode {
 
 /**
  * Creates a node running `loaded`: no input, one output with one channel per patch
- * channel (one silent channel when the patch has none). `onFailure` receives the first
+ * channel (one silent channel when the patch has none), plus the marker channel when
+ * `marker` is set. `onFailure` receives the first
  * failure of the processor, at load or later (the node is then silent); `ready` also
  * rejects with it when it comes before the patch is loaded.
  * @throws {Error} when the context does not run at the rate the patch was checked at.
  */
-export function createEngineNode(context: BaseAudioContext, loaded: LoadedPatch, onFailure: (error: Error) => void): EngineNode {
+export function createEngineNode(context: BaseAudioContext, loaded: LoadedPatch, onFailure: (error: Error) => void, marker = false): EngineNode {
   if (context.sampleRate !== loaded.rate) {
     throw new Error(`the context runs at ${String(context.sampleRate)} Hz, the patch was loaded at ${String(loaded.rate)} Hz`);
   }
   const node = new AudioWorkletNode(context, ENGINE_PROCESSOR, {
     numberOfInputs: 0,
     numberOfOutputs: 1,
-    outputChannelCount: [Math.max(1, loaded.channels)],
-    processorOptions: loaded.options(),
+    outputChannelCount: [marker ? loaded.channels + 1 : Math.max(1, loaded.channels)],
+    processorOptions: loaded.options(marker),
   });
   const ready = Promise.withResolvers<undefined>();
   // Rejections also reach onFailure: `ready` is only awaited by those who need it.
@@ -241,20 +245,41 @@ export function capture(context: BaseAudioContext, source: AudioNode, channels: 
 }
 
 /**
- * Renders `frames` frames of `loaded` offline, one array per channel.
- * @throws {Error} when the engine processor fails, instead of returning silence.
+ * Frames rendered offline beyond those asked for, in which the engine processor may start:
+ * a browser may render the first quanta before the processor exists (seen in WebKit
+ * under load, starting at frame 128). 16 384 frames: 128 render quanta.
+ */
+export const OFFLINE_MARGIN = 16_384;
+
+/**
+ * Renders `frames` frames of `loaded` offline, one array per channel: exactly the first
+ * frames the engine renders, wherever the browser started the processor (located by the
+ * marker channel), never a silent beginning.
+ * @throws {Error} when the engine processor fails, or starts too late in the render.
  */
 export async function renderOffline(loaded: LoadedPatch, frames: number, processors: string | URL): Promise<Float32Array[]> {
-  const context = new OfflineAudioContext(Math.max(1, loaded.channels), Math.max(1, frames), loaded.rate);
+  const context = new OfflineAudioContext(loaded.channels + 1, frames + OFFLINE_MARGIN, loaded.rate);
   await addProcessors(context, processors);
   let failure: Error | undefined;
-  const engine = createEngineNode(context, loaded, (error) => {
-    failure = error;
-  });
+  const engine = createEngineNode(
+    context,
+    loaded,
+    (error) => {
+      failure = error;
+    },
+    true,
+  );
   engine.node.connect(context.destination);
   const [buffer] = await Promise.all([context.startRendering(), engine.ready]);
   if (failure !== undefined) {
     throw failure;
   }
-  return Array.from({ length: loaded.channels }, (_, channel) => buffer.getChannelData(channel).slice(0, frames));
+  const start = buffer.getChannelData(loaded.channels).indexOf(1);
+  if (start < 0) {
+    throw new Error(`the engine started too late in the offline render: not within the ${String(OFFLINE_MARGIN)} frames of margin`);
+  }
+  if (start > OFFLINE_MARGIN) {
+    throw new Error(`the engine started too late in the offline render: at frame ${String(start)}, beyond the ${String(OFFLINE_MARGIN)} frames of margin`);
+  }
+  return Array.from({ length: loaded.channels }, (_, channel) => buffer.getChannelData(channel).slice(start, start + frames));
 }

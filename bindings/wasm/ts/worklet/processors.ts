@@ -28,6 +28,8 @@ function failure(error: unknown): EngineMessage {
 class EngineProcessor extends AudioWorkletProcessor {
   /** The engine; `undefined` once it failed. */
   #engine: WasmEngine | undefined;
+  /** The index of the marker channel, after the patch channels; none (infinite) without one. */
+  readonly #marker: number = Number.POSITIVE_INFINITY;
 
   /**
    * Loads the patch given in the node options (`processorOptions`, see `EngineOptions`).
@@ -37,8 +39,11 @@ class EngineProcessor extends AudioWorkletProcessor {
   constructor(options: { readonly processorOptions?: unknown }) {
     super();
     try {
-      const { wasm, patch } = parseEngineOptions(options.processorOptions);
+      const { wasm, patch, marker } = parseEngineOptions(options.processorOptions);
       this.#engine = WasmEngine.create(new WebAssembly.Module(wasm), patch, sampleRate);
+      if (marker) {
+        this.#marker = this.#engine.channels;
+      }
       this.port.postMessage(READY);
     } catch (error) {
       this.port.postMessage(failure(error));
@@ -51,7 +56,10 @@ class EngineProcessor extends AudioWorkletProcessor {
       return false;
     }
     try {
-      this.#engine.render(outputs[0] ?? NO_OUTPUT);
+      const output = outputs[0] ?? NO_OUTPUT;
+      this.#engine.render(output);
+      // Without a marker the index is infinite: there is no such channel to fill.
+      output[this.#marker]?.fill(1);
       return true;
     } catch (error) {
       this.#engine = undefined;

@@ -2,7 +2,7 @@ import { runInNewContext } from "node:vm";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { ModuleError, PatchError } from "../ts/engine.ts";
 import { ENGINE_PROCESSOR, OptionsError, TAP_PROCESSOR } from "../ts/protocol.ts";
-import { addProcessors, capture, createEngineNode, LoadedPatch, loadPatch, renderOffline, tap } from "../ts/web.ts";
+import { addProcessors, capture, createEngineNode, LoadedPatch, loadPatch, OFFLINE_MARGIN, renderOffline, tap } from "../ts/web.ts";
 import { SILENT_PATCH, SINE_PATCH, UNKNOWN_BOX, wasmBytes } from "./fixtures.ts";
 
 const RATE = 48_000;
@@ -169,14 +169,15 @@ describe("loadPatch", () => {
     const checked = await loadPatch(wasm, patch, RATE);
     new Uint8Array(wasm).fill(0);
     patch.fill(0);
-    const options = checked.options();
+    const options = checked.options(false);
     expect(new Uint8Array(options.wasm)).toStrictEqual(new Uint8Array(wasmBytes()));
     expect(options.patch).toStrictEqual(SINE_PATCH);
     // Every call gives fresh copies: changing one changes nothing for the next node.
     options.patch.fill(0);
     new Uint8Array(options.wasm).fill(0);
-    expect(checked.options().patch).toStrictEqual(SINE_PATCH);
-    expect(new Uint8Array(checked.options().wasm)).toStrictEqual(new Uint8Array(wasmBytes()));
+    expect(checked.options(false).patch).toStrictEqual(SINE_PATCH);
+    expect(new Uint8Array(checked.options(true).wasm)).toStrictEqual(new Uint8Array(wasmBytes()));
+    expect(checked.options(true).marker).toBe(true);
   });
 
   test("throws the explanation of the engine", async () => {
@@ -212,9 +213,18 @@ describe("createEngineNode", () => {
         numberOfInputs: 0,
         numberOfOutputs: 1,
         outputChannelCount: [2],
-        processorOptions: patch.options(),
+        processorOptions: patch.options(false),
       },
     });
+  });
+
+  test("adds a marker channel after the patch channels when asked", async () => {
+    stubNodes();
+    const patch = await loaded(2);
+    createEngineNode(context(fakeContext(RATE)), patch, () => undefined, true);
+    expect(FakeNode.created[0]?.options).toMatchObject({ outputChannelCount: [3], processorOptions: patch.options(true) });
+    createEngineNode(context(fakeContext(RATE)), await loaded(0), () => undefined, true);
+    expect(FakeNode.created[1]?.options).toHaveProperty("outputChannelCount", [1]);
   });
 
   test("gives a patch without output one silent channel", async () => {
@@ -387,17 +397,27 @@ describe("capture", () => {
 });
 
 describe("renderOffline", () => {
-  /** Stubs an offline context whose processor posts `message` once rendering starts. */
-  function offline(message: unknown, later?: unknown): { contexts: { channels: number; frames: number; rate: number }[]; modules: (string | URL)[]; destination: object } {
+  /**
+   * Stubs an offline context whose processor posts `message` once rendering starts, and
+   * renders patch channels holding their frame index plus 1000 × the channel, with the
+   * marker channel (the last one) at 1 from frame `start` on, or never.
+   */
+  function offline(
+    message: unknown,
+    options: { readonly later?: unknown; readonly start?: number | "never" } = {},
+  ): { contexts: { channels: number; frames: number; rate: number }[]; modules: (string | URL)[]; destination: object } {
     stubNodes();
     const contexts: { channels: number; frames: number; rate: number }[] = [];
     const modules: (string | URL)[] = [];
     const destination = { name: "destination" };
+    const start = options.start ?? 0;
     vi.stubGlobal(
       "OfflineAudioContext",
       class {
         readonly sampleRate: number;
         readonly destination = destination;
+        readonly #channels: number;
+        readonly #frames: number;
         readonly audioWorklet = {
           addModule: (url: string | URL) => {
             modules.push(url);
@@ -407,31 +427,59 @@ describe("renderOffline", () => {
 
         constructor(channels: number, frames: number, rate: number) {
           this.sampleRate = rate;
+          this.#channels = channels;
+          this.#frames = frames;
           contexts.push({ channels, frames, rate });
         }
 
         startRendering(): Promise<unknown> {
           const port = FakeNode.created.at(-1)?.port;
           port?.deliver(message);
-          if (later !== undefined) {
-            port?.deliver(later);
+          if (options.later !== undefined) {
+            port?.deliver(options.later);
           }
-          return Promise.resolve({ getChannelData: (channel: number) => new Float32Array([channel, channel + 0.5, 9]) });
+          const frames = this.#frames;
+          const marker = this.#channels - 1;
+          return Promise.resolve({
+            getChannelData: (channel: number) =>
+              Float32Array.from({ length: frames }, (_, frame) => (channel === marker ? (start !== "never" && frame >= start ? 1 : 0) : frame + 1000 * channel)),
+          });
         }
       },
     );
     return { contexts, modules, destination };
   }
 
-  test("renders in an offline context at the rate of the patch", async () => {
+  test("renders in an offline context at the rate of the patch, with a marker and a margin", async () => {
     const { contexts, modules, destination } = offline({ type: "ready" });
-    expect(await renderOffline(await loaded(2), 2, "processors.js")).toStrictEqual([new Float32Array([0, 0.5]), new Float32Array([1, 1.5])]);
-    expect(contexts).toStrictEqual([{ channels: 2, frames: 2, rate: RATE }]);
+    expect(OFFLINE_MARGIN).toBe(16_384);
+    expect(await renderOffline(await loaded(2), 2, "processors.js")).toStrictEqual([new Float32Array([0, 1]), new Float32Array([1000, 1001])]);
+    expect(contexts).toStrictEqual([{ channels: 3, frames: 2 + OFFLINE_MARGIN, rate: RATE }]);
     expect(modules).toStrictEqual(["processors.js"]);
     expect(FakeNode.created[0]?.connected).toStrictEqual([destination]);
+    expect(FakeNode.created[0]?.options).toHaveProperty("processorOptions.marker", true);
 
     expect(await renderOffline(await loaded(0), 0, "processors.js")).toStrictEqual([]);
-    expect(contexts[1]).toStrictEqual({ channels: 1, frames: 1, rate: RATE });
+    expect(contexts[1]).toStrictEqual({ channels: 1, frames: OFFLINE_MARGIN, rate: RATE });
+  });
+
+  test("returns the frames the engine rendered, wherever the processor started", async () => {
+    offline({ type: "ready" }, { start: 128 });
+    expect(await renderOffline(await loaded(2), 3, "processors.js")).toStrictEqual([new Float32Array([128, 129, 130]), new Float32Array([1128, 1129, 1130])]);
+    offline({ type: "ready" }, { start: OFFLINE_MARGIN });
+    expect((await renderOffline(await loaded(2), 1, "processors.js"))[0]).toStrictEqual(new Float32Array([OFFLINE_MARGIN]));
+  });
+
+  test("fails when the processor starts too late, or not at all", async () => {
+    // Two frames asked: the render holds frame 16 385, where the marker starts, one too late.
+    offline({ type: "ready" }, { start: OFFLINE_MARGIN + 1 });
+    await expect(renderOffline(await loaded(2), 2, "processors.js")).rejects.toThrow(
+      new Error("the engine started too late in the offline render: at frame 16385, beyond the 16384 frames of margin"),
+    );
+    offline({ type: "ready" }, { start: "never" });
+    await expect(renderOffline(await loaded(2), 1, "processors.js")).rejects.toThrow(
+      new Error("the engine started too late in the offline render: not within the 16384 frames of margin"),
+    );
   });
 
   test("fails instead of returning silence when the processor cannot load the patch", async () => {
@@ -440,7 +488,7 @@ describe("renderOffline", () => {
   });
 
   test("fails when the processor fails while rendering", async () => {
-    offline({ type: "ready" }, { type: "failed", message: "trap" });
+    offline({ type: "ready" }, { later: { type: "failed", message: "trap" } });
     await expect(renderOffline(await loaded(2), 2, "processors.js")).rejects.toThrow(new Error("the engine failed: trap"));
   });
 });

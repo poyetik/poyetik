@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, test, vi } from "vitest";
 import { WasmEngine } from "../ts/engine.ts";
 import { ENGINE_PROCESSOR, TAP_PROCESSOR } from "../ts/protocol.ts";
-import { SINE_PATCH, UNKNOWN_BOX, wasmBytes } from "./fixtures.ts";
+import { SILENT_PATCH, SINE_PATCH, UNKNOWN_BOX, wasmBytes } from "./fixtures.ts";
 
 const RATE = 48_000;
 
@@ -53,7 +53,7 @@ describe("engine processor", () => {
 
   test("renders the patch at the rate of the worklet", () => {
     const Engine = processor(ENGINE_PROCESSOR);
-    const node = new Engine({ processorOptions: { wasm: wasmBytes(), patch: SINE_PATCH } });
+    const node = new Engine({ processorOptions: { wasm: wasmBytes(), patch: SINE_PATCH, marker: false } });
     const outputs = [[new Float32Array(128), new Float32Array(128)]];
     expect(node.process([], outputs)).toBe(true);
     const expected = [new Float32Array(128), new Float32Array(128)];
@@ -61,15 +61,35 @@ describe("engine processor", () => {
     expect(outputs[0]).toStrictEqual(expected);
   });
 
+  test("leaves the one silent channel of a patch without output alone, without a marker", () => {
+    const Engine = processor(ENGINE_PROCESSOR);
+    const node = new Engine({ processorOptions: { wasm: wasmBytes(), patch: SILENT_PATCH, marker: false } });
+    const outputs = [[new Float32Array(128)]];
+    expect(node.process([], outputs)).toBe(true);
+    expect(outputs[0]?.[0]).toStrictEqual(new Float32Array(128));
+  });
+
   test("keeps running with no output", () => {
     const Engine = processor(ENGINE_PROCESSOR);
-    const node = new Engine({ processorOptions: { wasm: wasmBytes(), patch: SINE_PATCH } });
+    const node = new Engine({ processorOptions: { wasm: wasmBytes(), patch: SINE_PATCH, marker: false } });
     expect(node.process([], [])).toBe(true);
+  });
+
+  test("marks every frame it renders on the channel after the patch channels", () => {
+    const Engine = processor(ENGINE_PROCESSOR);
+    const node = new Engine({ processorOptions: { wasm: wasmBytes(), patch: SINE_PATCH, marker: true } });
+    const outputs = [[new Float32Array(128), new Float32Array(128), new Float32Array(128)]];
+    expect(node.process([], outputs)).toBe(true);
+    expect(outputs[0]?.[2]).toStrictEqual(new Float32Array(128).fill(1));
+    expect(outputs[0]?.[0]?.some((sample) => sample !== 0)).toBe(true);
+    // Without room for the marker (a host giving fewer channels), it renders anyway.
+    const fewer = [[new Float32Array(128), new Float32Array(128)]];
+    expect(node.process([], fewer)).toBe(true);
   });
 
   test("tells the main thread it is ready", () => {
     const Engine = processor(ENGINE_PROCESSOR);
-    const node = new Engine({ processorOptions: { wasm: wasmBytes(), patch: SINE_PATCH } });
+    const node = new Engine({ processorOptions: { wasm: wasmBytes(), patch: SINE_PATCH, marker: false } });
     expect(node.port.posted).toStrictEqual([{ type: "ready" }]);
   });
 
@@ -84,7 +104,7 @@ describe("engine processor", () => {
 
   test("reports the explanation of a rejected patch, as bytes", () => {
     const Engine = processor(ENGINE_PROCESSOR);
-    const node = new Engine({ processorOptions: { wasm: wasmBytes(), patch: UNKNOWN_BOX } });
+    const node = new Engine({ processorOptions: { wasm: wasmBytes(), patch: UNKNOWN_BOX, marker: false } });
     const [message] = node.port.posted;
     expect(message).toMatchObject({ type: "rejected" });
     const detail: unknown = typeof message === "object" && message !== null ? Reflect.get(message, "detail") : undefined;
@@ -93,7 +113,7 @@ describe("engine processor", () => {
 
   test("reports a failure while rendering once, then stops", () => {
     const Engine = processor(ENGINE_PROCESSOR);
-    const node = new Engine({ processorOptions: { wasm: wasmBytes(), patch: SINE_PATCH } });
+    const node = new Engine({ processorOptions: { wasm: wasmBytes(), patch: SINE_PATCH, marker: false } });
     // Outputs of different lengths make the engine refuse to render.
     expect(node.process([], [[new Float32Array(2), new Float32Array(3)]])).toBe(false);
     expect(node.port.posted).toStrictEqual([

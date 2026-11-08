@@ -2,10 +2,11 @@ import { describe, expect, test } from "vitest";
 import { ENGINE_PROCESSOR, OptionsError, TAP_PROCESSOR, parseEngineMessage, parseEngineOptions, parseTapBlock } from "../ts/protocol.ts";
 
 describe("parseEngineOptions", () => {
-  test("accepts the module bytes and the patch", () => {
+  test("accepts the module bytes, the patch and the marker choice", () => {
     const wasm = new ArrayBuffer(8);
     const patch = new Uint8Array([1]);
-    expect(parseEngineOptions({ wasm, patch, extra: 1 })).toStrictEqual({ wasm, patch });
+    expect(parseEngineOptions({ wasm, patch, marker: true, extra: 1 })).toStrictEqual({ wasm, patch, marker: true });
+    expect(parseEngineOptions({ wasm, patch, marker: false })).toStrictEqual({ wasm, patch, marker: false });
   });
 
   test.each([
@@ -16,6 +17,8 @@ describe("parseEngineOptions", () => {
     [{ wasm: new Uint8Array(), patch: new Uint8Array() }, "wasm is not an ArrayBuffer"],
     [{ wasm: new ArrayBuffer(0) }, "patch is not a Uint8Array"],
     [{ wasm: new ArrayBuffer(0), patch: [1] }, "patch is not a Uint8Array"],
+    [{ wasm: new ArrayBuffer(0), patch: new Uint8Array() }, "marker is not a boolean"],
+    [{ wasm: new ArrayBuffer(0), patch: new Uint8Array(), marker: 1 }, "marker is not a boolean"],
   ])("rejects %o", (value, detail) => {
     expect(() => parseEngineOptions(value)).toThrow(new OptionsError(detail));
   });
