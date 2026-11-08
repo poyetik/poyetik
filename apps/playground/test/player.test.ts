@@ -699,7 +699,7 @@ describe("EnginePlayer", () => {
     workletNode("poyetik-tap")?.port.deliver("garbage");
     workletNode("poyetik-engine")?.port.deliver({ type: "ready" });
     await starting;
-    expect(player.state().kind).toBe("failed");
+    expect(player.state()).toStrictEqual({ kind: "failed", cause: "engine", detail: "OptionsError: invalid processor options: tap block is not an array" });
   });
 
   test("never throws nor rejects when no context can be created: fails instead", async () => {
@@ -774,7 +774,7 @@ describe("EnginePlayer", () => {
     });
     const player = new EnginePlayer(playerOptions());
     await player.start();
-    expect(player.state()).toMatchObject({ kind: "failed", cause: "load" });
+    expect(player.state()).toStrictEqual({ kind: "failed", cause: "load", detail: "Error: cannot load the processors from processors.js: Error: no module" });
   });
 
   test("fails when the audio device cannot start: the device", async () => {

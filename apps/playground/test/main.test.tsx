@@ -1,5 +1,6 @@
 import { act } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { SINE_440 } from "../src/patch.ts";
 import type { PlayerOptions } from "../src/player.ts";
 import { FADE, GAIN, HISTORY_SECONDS } from "../src/settings.ts";
 
@@ -57,7 +58,7 @@ test("mounts the playground with an audible player", async () => {
   expect(created[0]).toMatchObject({ gain: GAIN, fade: FADE, historySeconds: HISTORY_SECONDS, environment: globalThis });
   expect(created[0]?.wasm).toMatch(/engine\.wasm/);
   expect(created[0]?.worklet).toMatch(/processors/);
-  expect(new TextDecoder().decode(created[0]?.patch)).toContain('"osc~"');
+  expect(created[0]?.patch).toStrictEqual(SINE_440);
 });
 
 test("mutes the speakers with ?muted", async () => {
