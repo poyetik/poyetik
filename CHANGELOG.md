@@ -41,6 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Breaking (roadmap CLI):** the steps of a card are steps everywhere, as on the page: the command `task add|done|undo|edit|rm` is now `step add|done|undo|edit|rm`, and the messages say "step". The data file keeps its `tasks` key, unchanged byte for byte.
 - The step names of `cargo xtask check` all start with a capital letter (checked), and the engine documents that its output is never clipped or sanitized: the final output stage belongs to the host until the engine defines its own output policy.
 - Names say what they hold, in Rust and TypeScript alike: no single-letter names but `i`, `j`, `x` and `y` (Clippy `min_ident_chars`, ESLint `id-length`), and in TypeScript no declaration hiding another (`no-shadow`, even before the outer declaration); 256 names were renamed.
 - Every named TypeScript item is documented, exported or not (functions, classes and their members, types, module-level constants), as the Rust items already were: the JSDoc rule no longer checks exported declarations only.

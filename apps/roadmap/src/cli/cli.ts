@@ -2,8 +2,8 @@ import { parseArgs } from "node:util";
 import {
   ArgumentError,
   addCard,
-  addTask,
-  completeTask,
+  addStep,
+  completeStep,
   BoardError,
   COLUMNS,
   editCard,
@@ -12,11 +12,11 @@ import {
   moveCard,
   parseBoard,
   parseId,
-  parseTaskNumber,
+  parseStepNumber,
   removeCard,
-  removeTask,
-  renameTask,
-  reopenTask,
+  removeStep,
+  renameStep,
+  reopenStep,
   serializeBoard,
   withStatus,
   findCard,
@@ -58,11 +58,11 @@ export const HELP = `Usage: roadmap <command> [options]
   move <id> <col> [--position <n>]            Move (position within the column, 0 = top)
   edit <id> [--title <t>] [--desc <t>] [--milestone <m>]
   rm <id>                                     Remove a card
-  task add <id> <title>                       Add a step at the end
-  task done <id> [n]                          Mark step n done (default: the step in progress)
-  task undo <id> <n>                          Mark step n not done
-  task edit <id> <n> <title>                  Rename step n
-  task rm <id> <n>                            Remove step n
+  step add <id> <title>                       Add a step at the end
+  step done <id> [n]                          Mark step n done (default: the step in progress)
+  step undo <id> <n>                          Mark step n not done
+  step edit <id> <n> <title>                  Rename step n
+  step rm <id> <n>                            Remove step n
   validate                                    Check board.json
   help                                        Show this help
 
@@ -81,48 +81,48 @@ const TAGS = { done: "  [Done]", doing: "  [In progress]", todo: "" } as const;
 /** One-line summary of a card: id, column, title, milestone in brackets when set, and `done/total` steps when it has any. */
 function formatCard(card: Card): string {
   const milestone = card.milestone === "" ? "" : ` [${card.milestone}]`;
-  const done = card.tasks.filter((task) => task.done).length;
-  const progress = card.tasks.length === 0 ? "" : `  ${String(done)}/${String(card.tasks.length)}`;
+  const done = card.steps.filter((step) => step.done).length;
+  const progress = card.steps.length === 0 ? "" : `  ${String(done)}/${String(card.steps.length)}`;
   return `${formatId(card.id)}  ${card.column.padEnd(5)}  ${card.title}${milestone}${progress}`;
 }
 
-/** Prints a card in full: its summary line, its description when not empty, then its numbered steps (1-based, as the `task` commands expect) with their status tag. */
+/** Prints a card in full: its summary line, its description when not empty, then its numbered steps (1-based, as the `step` commands expect) with their status tag. */
 function printCard(io: Io, card: Card): void {
   io.out(formatCard(card));
   if (card.description !== "") {
     io.out(card.description);
   }
-  withStatus(card).forEach((task, i) => {
-    io.out(`  ${String(i + 1)}. ${task.title}${TAGS[task.status]}`);
+  withStatus(card).forEach((step, i) => {
+    io.out(`  ${String(i + 1)}. ${step.title}${TAGS[step.status]}`);
   });
 }
 
-/** Usage line of each `task` action; its keys are also the list of valid actions. */
-const TASK_USAGE = {
-  add: "task add <id> <title>",
-  done: "task done <id> [n]",
-  undo: "task undo <id> <n>",
-  edit: "task edit <id> <n> <title>",
-  rm: "task rm <id> <n>",
+/** Usage line of each `step` action; its keys are also the list of valid actions. */
+const STEP_USAGE = {
+  add: "step add <id> <title>",
+  done: "step done <id> [n]",
+  undo: "step undo <id> <n>",
+  edit: "step edit <id> <n> <title>",
+  rm: "step rm <id> <n>",
 } as const;
 
-/** A valid `task` action name. */
-type TaskAction = keyof typeof TASK_USAGE;
+/** A valid `step` action name. */
+type StepAction = keyof typeof STEP_USAGE;
 
-/** Whether `value` names a `task` action; `Object.hasOwn` so that inherited names like `toString` are refused. */
-function isTaskAction(value: string): value is TaskAction {
-  return Object.hasOwn(TASK_USAGE, value);
+/** Whether `value` names a `step` action; `Object.hasOwn` so that inherited names like `toString` are refused. */
+function isStepAction(value: string): value is StepAction {
+  return Object.hasOwn(STEP_USAGE, value);
 }
 
-/** Runs `roadmap task <action> ...`: checks the action and its argument count (a `UsageError` otherwise), applies the change, saves the board and prints the changed card. */
-function runTask(args: readonly string[], io: Io): void {
+/** Runs `roadmap step <action> ...`: checks the action and its argument count (a `UsageError` otherwise), applies the change, saves the board and prints the changed card. */
+function runStep(args: readonly string[], io: Io): void {
   const [action = "", ...rest] = args;
-  if (!isTaskAction(action)) {
+  if (!isStepAction(action)) {
     throw new UsageError(
-      `unknown task action: ${action === "" ? "(none)" : action} (expected: ${Object.keys(TASK_USAGE).join(", ")})`,
+      `unknown step action: ${action === "" ? "(none)" : action} (expected: ${Object.keys(STEP_USAGE).join(", ")})`,
     );
   }
-  const usage = new UsageError(`expected: ${TASK_USAGE[action]}`);
+  const usage = new UsageError(`expected: ${STEP_USAGE[action]}`);
   const board = load(io);
   const today = io.today();
   let next: Board;
@@ -132,39 +132,39 @@ function runTask(args: readonly string[], io: Io): void {
       if (!isTwo(rest)) throw usage;
       const [idText, title] = rest;
       id = parseId(idText);
-      next = addTask(board, id, title, today);
+      next = addStep(board, id, title, today);
       break;
     }
     case "done": {
       if (isOne(rest)) {
         id = parseId(rest[0]);
-        next = completeTask(board, id, undefined, today);
+        next = completeStep(board, id, undefined, today);
         break;
       }
       if (!isTwo(rest)) throw usage;
       id = parseId(rest[0]);
-      next = completeTask(board, id, parseTaskNumber(rest[1]), today);
+      next = completeStep(board, id, parseStepNumber(rest[1]), today);
       break;
     }
     case "undo": {
       if (!isTwo(rest)) throw usage;
-      const [idText, taskNumber] = rest;
+      const [idText, stepNumber] = rest;
       id = parseId(idText);
-      next = reopenTask(board, id, parseTaskNumber(taskNumber), today);
+      next = reopenStep(board, id, parseStepNumber(stepNumber), today);
       break;
     }
     case "edit": {
       if (!isThree(rest)) throw usage;
-      const [idText, taskNumber, title] = rest;
+      const [idText, stepNumber, title] = rest;
       id = parseId(idText);
-      next = renameTask(board, id, parseTaskNumber(taskNumber), title, today);
+      next = renameStep(board, id, parseStepNumber(stepNumber), title, today);
       break;
     }
     case "rm": {
       if (!isTwo(rest)) throw usage;
-      const [idText, taskNumber] = rest;
+      const [idText, stepNumber] = rest;
       id = parseId(idText);
-      next = removeTask(board, id, parseTaskNumber(taskNumber), today);
+      next = removeStep(board, id, parseStepNumber(stepNumber), today);
       break;
     }
   }
@@ -311,8 +311,8 @@ function execute(args: readonly string[], io: Io): void {
       io.out(`removed: ${formatId(id)}`);
       return;
     }
-    case "task": {
-      runTask(positionals, io);
+    case "step": {
+      runStep(positionals, io);
       return;
     }
     case "validate": {

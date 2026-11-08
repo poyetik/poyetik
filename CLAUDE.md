@@ -56,7 +56,7 @@ Public project kanban. The data lives in `apps/roadmap/board.json`, versioned in
 - **Never edit `board.json` by hand**: always use `pnpm roadmap <command>` from `apps/roadmap/` (`list`, `show`, `add`, `move`, `edit`, `rm`, `validate`). Run `pnpm roadmap help` for usage.
 - **The roadmap is public: never reference `doc/`** (local, unversioned notes) in a ticket title, description or step. A ticket says what is to be done, in its own words.
 - Columns: `later` (Later), `next` (Next), `doing` (In progress), `done` (Done). Milestones are written like "M1 Engine", "M2 Editor"…
-- Cards have ordered **steps** (`task add|done|undo|edit|rm`). A step is either done or not; **in a card of the `doing` column, the first step that is not done is automatically "In progress"**. A card in any other column has no step in progress, so nothing shows as in progress until the card is moved to `doing`. When a step is finished, run `task done <id>` to tick it, which moves "In progress" to the next step (outside `doing`, give the step number: `task done <id> <n>`).
+- Cards have ordered **steps** (`step add|done|undo|edit|rm`). A step is either done or not; **in a card of the `doing` column, the first step that is not done is automatically "In progress"**. A card in any other column has no step in progress, so nothing shows as in progress until the card is moved to `doing`. When a step is finished, run `step done <id>` to tick it, which moves "In progress" to the next step (outside `doing`, give the step number: `step done <id> <n>`).
 - Page: `pnpm dev` (http://localhost:4321). Full check chain: `pnpm check`.
 
 ## CI

@@ -14,7 +14,7 @@ function card(id: number, column: Card["column"], extra: Partial<Card> = {}): Ca
     milestone: "",
     createdAt: "2026-11-07",
     updatedAt: "2026-11-07",
-    tasks: [],
+    steps: [],
     ...extra,
   };
 }
@@ -30,7 +30,7 @@ describe("Board.astro", () => {
   it("renders steps with Done and In progress tags in a collapsed summary", async () => {
     const html = await render([
       card(1, "doing", {
-        tasks: [
+        steps: [
           { title: "Install", done: true },
           { title: "Build", done: false },
           { title: "Ship", done: false },
@@ -46,7 +46,7 @@ describe("Board.astro", () => {
   });
 
   it("renders no In progress tag for a card outside the In progress column", async () => {
-    const html = await render([card(1, "next", { tasks: [{ title: "Install", done: false }] })]);
+    const html = await render([card(1, "next", { steps: [{ title: "Install", done: false }] })]);
     expect(html).toMatch(/data-status="todo"[\s\S]*Install/);
     expect(html).not.toContain("tag-doing");
     expect(html).not.toContain('class="current"');
@@ -84,7 +84,7 @@ describe("Board.astro", () => {
   });
 
   it("shows no current step in the summary when every step is done", async () => {
-    const html = await render([card(1, "done", { tasks: [{ title: "Install", done: true }] })]);
+    const html = await render([card(1, "done", { steps: [{ title: "Install", done: true }] })]);
     expect(html).toMatch(/<summary[^>]*>\s*Steps 1\/1\s*<\/summary>/);
     expect(html).not.toContain('class="current"');
   });

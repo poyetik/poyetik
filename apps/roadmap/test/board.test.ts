@@ -1,8 +1,9 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   addCard,
-  addTask,
-  completeTask,
+  addStep,
+  completeStep,
   findCard,
   ArgumentError,
   BoardError,
@@ -15,10 +16,10 @@ import {
   parseBoard,
   parseId,
   removeCard,
-  removeTask,
-  renameTask,
-  reopenTask,
-  parseTaskNumber,
+  removeStep,
+  renameStep,
+  reopenStep,
+  parseStepNumber,
   withStatus,
   serializeBoard,
   type Board,
@@ -40,7 +41,7 @@ function card(id: number, column: Card["column"], extra: Partial<Card> = {}): Ca
     milestone: "",
     createdAt: DAY,
     updatedAt: DAY,
-    tasks: [],
+    steps: [],
     ...extra,
   };
 }
@@ -50,14 +51,20 @@ function board(cards: Card[]): Board {
   return { version: 1, title: "Project", nextId: cards.length + 1, cards };
 }
 
+/** A card as written in board.json: its steps under the file's key `tasks` (see GLOSSARY.md). */
+function stored(source: Card): Record<string, unknown> {
+  const { steps, ...rest } = source;
+  return { ...rest, tasks: steps };
+}
+
 /** Builds a valid untyped board, as read from JSON, with one card; `overrides` replaces top-level fields to make it invalid in one precise way. */
 function raw(overrides: Record<string, unknown> = {}): Record<string, unknown> {
-  return { version: 1, title: "Project", nextId: 2, cards: [{ ...card(1, "next") }], ...overrides };
+  return { version: 1, title: "Project", nextId: 2, cards: [stored(card(1, "next"))], ...overrides };
 }
 
 /** Builds an untyped board whose only card has the fields `overrides` replaced, to make that card invalid in one precise way. */
 function rawCard(overrides: Record<string, unknown>): Record<string, unknown> {
-  return raw({ cards: [{ ...card(1, "next"), ...overrides }] });
+  return raw({ cards: [{ ...stored(card(1, "next")), ...overrides }] });
 }
 
 /** Asserts that `fn` throws a `BoardError` with exactly `message`. */
@@ -192,13 +199,13 @@ describe("parseBoard", () => {
   });
 
   it("rejects a card that is not an object", () => {
-    expectBoardError(() => parseBoard(raw({ cards: [card(1, "next"), "x"], nextId: 3 })), "card #1 must be an object");
+    expectBoardError(() => parseBoard(raw({ cards: [stored(card(1, "next")), "x"], nextId: 3 })), "card #1 must be an object");
     expectBoardError(() => parseBoard(raw({ cards: [null] })), "card #0 must be an object");
     expectBoardError(() => parseBoard(raw({ cards: [[]] })), "card #0 must be an object");
   });
 
   it("rejects a card with missing or extra fields", () => {
-    const withoutMilestone = Object.fromEntries(Object.entries(card(1, "next")).filter(([key]) => key !== "milestone"));
+    const withoutMilestone = Object.fromEntries(Object.entries(stored(card(1, "next"))).filter(([key]) => key !== "milestone"));
     expectBoardError(
       () => parseBoard(raw({ cards: [withoutMilestone] })),
       "card #0: expected fields column, createdAt, description, id, milestone, tasks, title, updatedAt, got column, createdAt, description, id, tasks, title, updatedAt",
@@ -210,7 +217,7 @@ describe("parseBoard", () => {
   });
 
   it("accepts multi-digit ids", () => {
-    expect(parseBoard(raw({ nextId: 124, cards: [card(123, "next")] })).cards[0]?.id).toBe(123);
+    expect(parseBoard(raw({ nextId: 124, cards: [stored(card(123, "next"))] })).cards[0]?.id).toBe(123);
   });
 
   it("rejects an empty card title", () => {
@@ -256,19 +263,19 @@ describe("parseBoard", () => {
   });
 
   it("rejects duplicate ids", () => {
-    expectBoardError(() => parseBoard(raw({ nextId: 3, cards: [card(1, "next"), card(1, "done")] })), "duplicate id: #1");
+    expectBoardError(() => parseBoard(raw({ nextId: 3, cards: [stored(card(1, "next")), stored(card(1, "done"))] })), "duplicate id: #1");
   });
 
   it("rejects an id greater than or equal to nextId", () => {
-    expectBoardError(() => parseBoard(raw({ nextId: 2, cards: [card(2, "next")] })), "#2 must be lower than nextId (2)");
-    expectBoardError(() => parseBoard(raw({ nextId: 2, cards: [card(5, "next")] })), "#5 must be lower than nextId (2)");
+    expectBoardError(() => parseBoard(raw({ nextId: 2, cards: [stored(card(2, "next"))] })), "#2 must be lower than nextId (2)");
+    expectBoardError(() => parseBoard(raw({ nextId: 2, cards: [stored(card(5, "next"))] })), "#5 must be lower than nextId (2)");
   });
 });
 
 describe("serializeBoard", () => {
   it("produces stable, indented JSON with a trailing newline", () => {
     const sample = board([
-      card(1, "next", { description: "d", milestone: "M1", tasks: [{ title: "Step", done: true }] }),
+      card(1, "next", { description: "d", milestone: "M1", steps: [{ title: "Step", done: true }] }),
     ]);
     expect(serializeBoard(sample)).toBe(`{
   "version": 1,
@@ -299,7 +306,7 @@ describe("serializeBoard", () => {
     const shuffled: Board = {
       cards: [
         {
-          tasks: [{ done: false, title: "S" }],
+          steps: [{ done: false, title: "S" }],
           updatedAt: DAY,
           createdAt: DAY,
           milestone: "",
@@ -313,7 +320,18 @@ describe("serializeBoard", () => {
       title: "Project",
       version: 1,
     };
-    expect(serializeBoard(shuffled)).toBe(serializeBoard(board([card(1, "next", { tasks: [{ title: "S", done: false }] })])));
+    expect(serializeBoard(shuffled)).toBe(serializeBoard(board([card(1, "next", { steps: [{ title: "S", done: false }] })])));
+  });
+
+  it("writes the real board.json back byte for byte", () => {
+    const text = readFileSync(new URL("../board.json", import.meta.url), "utf8");
+    expect(serializeBoard(parseBoard(JSON.parse(text)))).toBe(text);
+  });
+
+  it("writes a card's steps under the file's key tasks, never steps", () => {
+    const written: unknown = JSON.parse(serializeBoard(board([card(1, "next", { steps: [{ title: "S", done: false }] })])));
+    expect(written).toEqual(raw({ cards: [stored(card(1, "next", { steps: [{ title: "S", done: false }] }))] }));
+    expect(serializeBoard(board([card(1, "next")]))).not.toContain('"steps"');
   });
 
   it("round-trips through parseBoard", () => {
@@ -333,7 +351,7 @@ describe("addCard", () => {
       milestone: "",
       createdAt: DAY,
       updatedAt: DAY,
-      tasks: [],
+      steps: [],
     });
     expect(result.board).toEqual({ version: 1, title: "P", nextId: 2, cards: [result.card] });
   });
@@ -451,45 +469,53 @@ describe("removeCard", () => {
   });
 });
 
-describe("tasks in parseBoard", () => {
-  it("accepts tasks and trims their titles", () => {
-    expect(parseBoard(rawCard({ tasks: [{ title: " A ", done: true }, { title: "B", done: false }] })).cards[0]?.tasks).toEqual([
+describe("steps in parseBoard", () => {
+  it("accepts steps and trims their titles", () => {
+    expect(parseBoard(rawCard({ tasks: [{ title: " A ", done: true }, { title: "B", done: false }] })).cards[0]?.steps).toEqual([
       { title: "A", done: true },
       { title: "B", done: false },
     ]);
   });
 
-  it("rejects tasks that are not an array", () => {
-    expectBoardError(() => parseBoard(rawCard({ tasks: {} })), "card #0 tasks must be an array");
-  });
-
-  it("rejects a task that is not an object", () => {
-    expectBoardError(() => parseBoard(rawCard({ tasks: ["x"] })), "card #0 task 1 must be an object");
-    expectBoardError(() => parseBoard(rawCard({ tasks: [{ title: "A", done: true }, null] })), "card #0 task 2 must be an object");
-    expectBoardError(() => parseBoard(rawCard({ tasks: [[]] })), "card #0 task 1 must be an object");
-  });
-
-  it("rejects a task with missing or extra fields", () => {
+  it("reads steps only from the file's key tasks, and refuses a steps key", () => {
+    const { tasks, ...rest } = stored(card(1, "next"));
     expectBoardError(
-      () => parseBoard(rawCard({ tasks: [{ title: "A" }] })),
-      "card #0 task 1: expected fields done, title, got title",
+      () => parseBoard(raw({ cards: [{ ...rest, steps: tasks }] })),
+      "card #0: expected fields column, createdAt, description, id, milestone, tasks, title, updatedAt, got column, createdAt, description, id, milestone, steps, title, updatedAt",
     );
   });
 
-  it("rejects a task whose done flag is not a boolean", () => {
-    expectBoardError(() => parseBoard(rawCard({ tasks: [{ title: "A", done: "yes" }] })), "card #0 task 1 done must be a boolean");
+  it("rejects steps that are not an array", () => {
+    expectBoardError(() => parseBoard(rawCard({ tasks: {} })), "card #0 tasks must be an array");
   });
 
-  it("rejects a task with an empty title", () => {
-    expectBoardError(() => parseBoard(rawCard({ tasks: [{ title: " ", done: false }] })), "card #0 task 1 title must be a non-empty string");
+  it("rejects a step that is not an object", () => {
+    expectBoardError(() => parseBoard(rawCard({ tasks: ["x"] })), "card #0 step 1 must be an object");
+    expectBoardError(() => parseBoard(rawCard({ tasks: [{ title: "A", done: true }, null] })), "card #0 step 2 must be an object");
+    expectBoardError(() => parseBoard(rawCard({ tasks: [[]] })), "card #0 step 1 must be an object");
+  });
+
+  it("rejects a step with missing or extra fields", () => {
+    expectBoardError(
+      () => parseBoard(rawCard({ tasks: [{ title: "A" }] })),
+      "card #0 step 1: expected fields done, title, got title",
+    );
+  });
+
+  it("rejects a step whose done flag is not a boolean", () => {
+    expectBoardError(() => parseBoard(rawCard({ tasks: [{ title: "A", done: "yes" }] })), "card #0 step 1 done must be a boolean");
+  });
+
+  it("rejects a step with an empty title", () => {
+    expectBoardError(() => parseBoard(rawCard({ tasks: [{ title: " ", done: false }] })), "card #0 step 1 title must be a non-empty string");
   });
 });
 
 describe("withStatus", () => {
   const statuses = (column: Card["column"], done: boolean[]): string[] =>
-    withStatus(card(1, column, { tasks: done.map((isDone, i) => ({ title: String(i), done: isDone })) })).map((step) => step.status);
+    withStatus(card(1, column, { steps: done.map((isDone, i) => ({ title: String(i), done: isDone })) })).map((step) => step.status);
 
-  it("marks done tasks, the first unfinished task in progress, the rest to do, in the In progress column", () => {
+  it("marks done steps, the first unfinished step in progress, the rest to do, in the In progress column", () => {
     expect(statuses("doing", [])).toEqual([]);
     expect(statuses("doing", [false, false, false])).toEqual(["doing", "todo", "todo"]);
     expect(statuses("doing", [true, false, false])).toEqual(["done", "doing", "todo"]);
@@ -497,25 +523,25 @@ describe("withStatus", () => {
     expect(statuses("doing", [true, true])).toEqual(["done", "done"]);
   });
 
-  it.each(["later", "next", "done"] as const)("has no task in progress in the %s column", (column) => {
+  it.each(["later", "next", "done"] as const)("has no step in progress in the %s column", (column) => {
     expect(statuses(column, [false, false])).toEqual(["todo", "todo"]);
     expect(statuses(column, [true, false, true, false])).toEqual(["done", "todo", "done", "todo"]);
     expect(statuses(column, [true, true])).toEqual(["done", "done"]);
   });
 
   it("keeps the title and done flag", () => {
-    expect(withStatus(card(1, "doing", { tasks: [{ title: "A", done: false }] }))).toEqual([{ title: "A", done: false, status: "doing" }]);
+    expect(withStatus(card(1, "doing", { steps: [{ title: "A", done: false }] }))).toEqual([{ title: "A", done: false, status: "doing" }]);
   });
 });
 
-describe("parseTaskNumber", () => {
+describe("parseStepNumber", () => {
   it("parses positive integers", () => {
-    expect(parseTaskNumber("1")).toBe(1);
-    expect(parseTaskNumber("12")).toBe(12);
+    expect(parseStepNumber("1")).toBe(1);
+    expect(parseStepNumber("12")).toBe(12);
   });
 
-  it.each(["", "0", "01", "-1", "1a", "a1", "#1", " 1", "1.5"])("rejects an invalid task number: %j", (text) => {
-    expectArgumentError(() => parseTaskNumber(text), `invalid task number: ${text}`);
+  it.each(["", "0", "01", "-1", "1a", "a1", "#1", " 1", "1.5"])("rejects an invalid step number: %j", (text) => {
+    expectArgumentError(() => parseStepNumber(text), `invalid step number: ${text}`);
   });
 });
 
@@ -527,77 +553,77 @@ describe("findCard", () => {
   });
 });
 
-describe("task commands", () => {
-  const steps = (current: Board): string[] => (current.cards[0]?.tasks ?? []).map((task) => `${task.title}:${String(task.done)}`);
-  const start = board([card(1, "doing", { tasks: [{ title: "A", done: false }, { title: "B", done: false }, { title: "C", done: false }] }), card(2, "next")]);
+describe("step commands", () => {
+  const steps = (current: Board): string[] => (current.cards[0]?.steps ?? []).map((step) => `${step.title}:${String(step.done)}`);
+  const start = board([card(1, "doing", { steps: [{ title: "A", done: false }, { title: "B", done: false }, { title: "C", done: false }] }), card(2, "next")]);
 
-  it("adds a task at the end, trimmed, and updates the date", () => {
-    const next = addTask(start, 1, " D ", LATER);
+  it("adds a step at the end, trimmed, and updates the date", () => {
+    const next = addStep(start, 1, " D ", LATER);
     expect(steps(next)).toEqual(["A:false", "B:false", "C:false", "D:false"]);
     expect(next.cards[0]?.updatedAt).toBe(LATER);
     expect(next.cards[1]).toEqual(card(2, "next"));
   });
 
-  it("completes the task in progress by default", () => {
-    const once = completeTask(start, 1, undefined, LATER);
+  it("completes the step in progress by default", () => {
+    const once = completeStep(start, 1, undefined, LATER);
     expect(steps(once)).toEqual(["A:true", "B:false", "C:false"]);
-    expect(steps(completeTask(once, 1, undefined, LATER))).toEqual(["A:true", "B:true", "C:false"]);
+    expect(steps(completeStep(once, 1, undefined, LATER))).toEqual(["A:true", "B:true", "C:false"]);
     expect(once.cards[0]?.updatedAt).toBe(LATER);
   });
 
-  it("completes a given task", () => {
-    expect(steps(completeTask(start, 1, 3, LATER))).toEqual(["A:false", "B:false", "C:true"]);
+  it("completes a given step", () => {
+    expect(steps(completeStep(start, 1, 3, LATER))).toEqual(["A:false", "B:false", "C:true"]);
   });
 
-  it("fails when there is no task in progress", () => {
-    expectBoardError(() => completeTask(board([card(1, "next")]), 1, undefined, LATER), "#1 has no task in progress");
-    const allDone = completeTask(completeTask(completeTask(start, 1, 1, LATER), 1, 2, LATER), 1, 3, LATER);
-    expectBoardError(() => completeTask(allDone, 1, undefined, LATER), "#1 has no task in progress");
+  it("fails when there is no step in progress", () => {
+    expectBoardError(() => completeStep(board([card(1, "next")]), 1, undefined, LATER), "#1 has no step in progress");
+    const allDone = completeStep(completeStep(completeStep(start, 1, 1, LATER), 1, 2, LATER), 1, 3, LATER);
+    expectBoardError(() => completeStep(allDone, 1, undefined, LATER), "#1 has no step in progress");
   });
 
-  it.each(["later", "next", "done"] as const)("has no default task outside the In progress column (%s)", (column) => {
-    const waiting = board([{ ...card(1, column), tasks: [{ title: "A", done: false }] }]);
-    expectBoardError(() => completeTask(waiting, 1, undefined, LATER), "#1 has no task in progress");
-    expect(completeTask(waiting, 1, 1, LATER).cards[0]?.tasks).toEqual([{ title: "A", done: true }]);
+  it.each(["later", "next", "done"] as const)("has no default step outside the In progress column (%s)", (column) => {
+    const waiting = board([{ ...card(1, column), steps: [{ title: "A", done: false }] }]);
+    expectBoardError(() => completeStep(waiting, 1, undefined, LATER), "#1 has no step in progress");
+    expect(completeStep(waiting, 1, 1, LATER).cards[0]?.steps).toEqual([{ title: "A", done: true }]);
   });
 
-  it("reopens a task", () => {
-    const allDone = completeTask(completeTask(start, 1, 1, LATER), 1, 2, LATER);
-    expect(steps(reopenTask(allDone, 1, 1, LATER))).toEqual(["A:false", "B:true", "C:false"]);
+  it("reopens a step", () => {
+    const allDone = completeStep(completeStep(start, 1, 1, LATER), 1, 2, LATER);
+    expect(steps(reopenStep(allDone, 1, 1, LATER))).toEqual(["A:false", "B:true", "C:false"]);
   });
 
-  it("renames a task", () => {
-    expect(steps(renameTask(start, 1, 2, " B2 ", LATER))).toEqual(["A:false", "B2:false", "C:false"]);
-    expectBoardError(() => renameTask(start, 1, 2, " ", LATER), "task title must be a non-empty string");
+  it("renames a step", () => {
+    expect(steps(renameStep(start, 1, 2, " B2 ", LATER))).toEqual(["A:false", "B2:false", "C:false"]);
+    expectBoardError(() => renameStep(start, 1, 2, " ", LATER), "step title must be a non-empty string");
   });
 
-  it("removes a task", () => {
-    expect(steps(removeTask(start, 1, 2, LATER))).toEqual(["A:false", "C:false"]);
-    expect(steps(removeTask(start, 1, 1, LATER))).toEqual(["B:false", "C:false"]);
-    expect(steps(removeTask(start, 1, 3, LATER))).toEqual(["A:false", "B:false"]);
+  it("removes a step", () => {
+    expect(steps(removeStep(start, 1, 2, LATER))).toEqual(["A:false", "C:false"]);
+    expect(steps(removeStep(start, 1, 1, LATER))).toEqual(["B:false", "C:false"]);
+    expect(steps(removeStep(start, 1, 3, LATER))).toEqual(["A:false", "B:false"]);
   });
 
   it("does not mutate the original board", () => {
     const copy = structuredClone(start);
-    addTask(start, 1, "D", LATER);
-    completeTask(start, 1, undefined, LATER);
-    removeTask(start, 1, 1, LATER);
+    addStep(start, 1, "D", LATER);
+    completeStep(start, 1, undefined, LATER);
+    removeStep(start, 1, 1, LATER);
     expect(start).toEqual(copy);
   });
 
-  it("rejects out-of-range or non-integer task numbers", () => {
-    for (const taskNumber of [0, 4, -1, 1.5]) {
-      expectBoardError(() => reopenTask(start, 1, taskNumber, LATER), `invalid task number for #1: ${String(taskNumber)} (1 to 3)`);
-      expectBoardError(() => completeTask(start, 1, taskNumber, LATER), `invalid task number for #1: ${String(taskNumber)} (1 to 3)`);
-      expectBoardError(() => renameTask(start, 1, taskNumber, "X", LATER), `invalid task number for #1: ${String(taskNumber)} (1 to 3)`);
-      expectBoardError(() => removeTask(start, 1, taskNumber, LATER), `invalid task number for #1: ${String(taskNumber)} (1 to 3)`);
+  it("rejects out-of-range or non-integer step numbers", () => {
+    for (const stepNumber of [0, 4, -1, 1.5]) {
+      expectBoardError(() => reopenStep(start, 1, stepNumber, LATER), `invalid step number for #1: ${String(stepNumber)} (1 to 3)`);
+      expectBoardError(() => completeStep(start, 1, stepNumber, LATER), `invalid step number for #1: ${String(stepNumber)} (1 to 3)`);
+      expectBoardError(() => renameStep(start, 1, stepNumber, "X", LATER), `invalid step number for #1: ${String(stepNumber)} (1 to 3)`);
+      expectBoardError(() => removeStep(start, 1, stepNumber, LATER), `invalid step number for #1: ${String(stepNumber)} (1 to 3)`);
     }
-    expectBoardError(() => reopenTask(board([card(1, "next")]), 1, 1, LATER), "invalid task number for #1: 1 (1 to 0)");
+    expectBoardError(() => reopenStep(board([card(1, "next")]), 1, 1, LATER), "invalid step number for #1: 1 (1 to 0)");
   });
 
   it("rejects an empty title, an unknown card and an invalid date", () => {
-    expectBoardError(() => addTask(start, 1, "  ", LATER), "task title must be a non-empty string");
-    expectBoardError(() => addTask(start, 9, "D", LATER), "card not found: #9");
-    expectBoardError(() => addTask(start, 1, "D", "x"), "today's date must be a YYYY-MM-DD date");
+    expectBoardError(() => addStep(start, 1, "  ", LATER), "step title must be a non-empty string");
+    expectBoardError(() => addStep(start, 9, "D", LATER), "card not found: #9");
+    expectBoardError(() => addStep(start, 1, "D", "x"), "today's date must be a YYYY-MM-DD date");
   });
 });

@@ -72,7 +72,7 @@ describe("help", () => {
       expect(HELP).toContain(`  ${word}`);
     }
     for (const action of ["add", "done", "undo", "edit", "rm"]) {
-      expect(HELP).toContain(`  task ${action} <id>`);
+      expect(HELP).toContain(`  step ${action} <id>`);
     }
     expect(HELP).toContain("Steps: in a card of the doing column, the first step that is not done is in progress.");
     expect(HELP).toContain("Columns: later (Later), next (Next), doing (In progress), done (Done)");
@@ -85,7 +85,7 @@ describe("add", () => {
     expect(run(["add", "Engine", "--column", "doing", "--milestone", "M1", "--desc", "The core"], cli.io)).toBe(0);
     expect(cli.out).toEqual(["added: #1  doing  Engine [M1]"]);
     expect(boardOf(cli).cards).toEqual([
-      { id: 1, title: "Engine", description: "The core", column: "doing", milestone: "M1", createdAt: DAY, updatedAt: DAY, tasks: [] },
+      { id: 1, title: "Engine", description: "The core", column: "doing", milestone: "M1", createdAt: DAY, updatedAt: DAY, steps: [] },
     ]);
     expect(cli.file.endsWith("}\n")).toBe(true);
   });
@@ -302,6 +302,14 @@ describe("general errors", () => {
     expect(cli.err).toEqual(["error: unknown command: frobnicate (see: roadmap help)"]);
   });
 
+  it("has no task command: steps are managed with step", () => {
+    const cli = seeded();
+    expect(run(["task", "add", "1", "Install"], cli.io)).toBe(2);
+    expect(cli.err).toEqual(["error: unknown command: task (see: roadmap help)"]);
+    expect(cli.writes).toBe(0);
+    expect(HELP).not.toMatch(/\btask\b/);
+  });
+
   it("rejects an unknown option", () => {
     const cli = fake();
     expect(run(["list", "--nope"], cli.io)).toBe(2);
@@ -332,13 +340,13 @@ describe("general errors", () => {
   });
 });
 
-describe("task", () => {
+describe("step", () => {
   /** Builds the seeded fake with three steps on card #1 (Install, Build, Ship), output and write count reset. */
   function withSteps(): Fake {
     const cli = seeded();
-    expect(run(["task", "add", "1", "Install"], cli.io)).toBe(0);
-    expect(run(["task", "add", "#1", "Build"], cli.io)).toBe(0);
-    expect(run(["task", "add", "1", "Ship"], cli.io)).toBe(0);
+    expect(run(["step", "add", "1", "Install"], cli.io)).toBe(0);
+    expect(run(["step", "add", "#1", "Build"], cli.io)).toBe(0);
+    expect(run(["step", "add", "1", "Ship"], cli.io)).toBe(0);
     cli.out.length = 0;
     cli.writes = 0;
     return cli;
@@ -346,22 +354,22 @@ describe("task", () => {
 
   it("adds steps and prints the card with statuses", () => {
     const cli = seeded();
-    expect(run(["task", "add", "1", "Install"], cli.io)).toBe(0);
+    expect(run(["step", "add", "1", "Install"], cli.io)).toBe(0);
     expect(cli.out).toEqual(["#1  doing  Engine [M1]  0/1", "The core", "  1. Install  [In progress]"]);
-    expect(boardOf(cli).cards[0]?.tasks).toEqual([{ title: "Install", done: false }]);
+    expect(boardOf(cli).cards[0]?.steps).toEqual([{ title: "Install", done: false }]);
   });
 
   it("shows no step in progress for a card outside the doing column", () => {
     const cli = seeded();
-    expect(run(["task", "add", "2", "Sketch"], cli.io)).toBe(0);
+    expect(run(["step", "add", "2", "Sketch"], cli.io)).toBe(0);
     expect(cli.out).toEqual(["#2  later  Editor  0/1", "  1. Sketch"]);
-    expect(run(["task", "done", "2"], cli.io)).toBe(1);
-    expect(cli.err).toEqual(["error: #2 has no task in progress"]);
+    expect(run(["step", "done", "2"], cli.io)).toBe(1);
+    expect(cli.err).toEqual(["error: #2 has no step in progress"]);
   });
 
   it("completes the step in progress and moves the tag to the next one", () => {
     const cli = withSteps();
-    expect(run(["task", "done", "1"], cli.io)).toBe(0);
+    expect(run(["step", "done", "1"], cli.io)).toBe(0);
     expect(cli.out).toEqual([
       "#1  doing  Engine [M1]  1/3",
       "The core",
@@ -374,13 +382,13 @@ describe("task", () => {
 
   it("completes, reopens, renames and removes a given step", () => {
     const cli = withSteps();
-    expect(run(["task", "done", "1", "3"], cli.io)).toBe(0);
-    expect(boardOf(cli).cards[0]?.tasks.map((task) => task.done)).toEqual([false, false, true]);
-    expect(run(["task", "undo", "1", "3"], cli.io)).toBe(0);
-    expect(boardOf(cli).cards[0]?.tasks.map((task) => task.done)).toEqual([false, false, false]);
-    expect(run(["task", "edit", "1", "2", "Compile"], cli.io)).toBe(0);
-    expect(run(["task", "rm", "1", "1"], cli.io)).toBe(0);
-    expect(boardOf(cli).cards[0]?.tasks).toEqual([
+    expect(run(["step", "done", "1", "3"], cli.io)).toBe(0);
+    expect(boardOf(cli).cards[0]?.steps.map((step) => step.done)).toEqual([false, false, true]);
+    expect(run(["step", "undo", "1", "3"], cli.io)).toBe(0);
+    expect(boardOf(cli).cards[0]?.steps.map((step) => step.done)).toEqual([false, false, false]);
+    expect(run(["step", "edit", "1", "2", "Compile"], cli.io)).toBe(0);
+    expect(run(["step", "rm", "1", "1"], cli.io)).toBe(0);
+    expect(boardOf(cli).cards[0]?.steps).toEqual([
       { title: "Compile", done: false },
       { title: "Ship", done: false },
     ]);
@@ -389,7 +397,7 @@ describe("task", () => {
 
   it("shows steps in show and progress in list", () => {
     const cli = withSteps();
-    expect(run(["task", "done", "1"], cli.io)).toBe(0);
+    expect(run(["step", "done", "1"], cli.io)).toBe(0);
     cli.out.length = 0;
     expect(run(["list"], cli.io)).toBe(0);
     expect(cli.out).toEqual(["#1  doing  Engine [M1]  1/3", "#2  later  Editor"]);
@@ -406,9 +414,9 @@ describe("task", () => {
   });
 
   it.each([
-    [["task"], "unknown task action: (none) (expected: add, done, undo, edit, rm)"],
-    [["task", "close", "1"], "unknown task action: close (expected: add, done, undo, edit, rm)"],
-    [["task", "toString", "1"], "unknown task action: toString (expected: add, done, undo, edit, rm)"],
+    [["step"], "unknown step action: (none) (expected: add, done, undo, edit, rm)"],
+    [["step", "close", "1"], "unknown step action: close (expected: add, done, undo, edit, rm)"],
+    [["step", "toString", "1"], "unknown step action: toString (expected: add, done, undo, edit, rm)"],
   ])("rejects an unknown action: %j", (args, message) => {
     const cli = withSteps();
     expect(run(args, cli.io)).toBe(2);
@@ -417,17 +425,17 @@ describe("task", () => {
   });
 
   it.each([
-    [["task", "add"], "task add <id> <title>"],
-    [["task", "add", "1"], "task add <id> <title>"],
-    [["task", "add", "1", "a", "b"], "task add <id> <title>"],
-    [["task", "done"], "task done <id> [n]"],
-    [["task", "done", "1", "2", "3"], "task done <id> [n]"],
-    [["task", "undo", "1"], "task undo <id> <n>"],
-    [["task", "undo", "1", "2", "3"], "task undo <id> <n>"],
-    [["task", "edit", "1", "2"], "task edit <id> <n> <title>"],
-    [["task", "edit", "1", "2", "a", "b"], "task edit <id> <n> <title>"],
-    [["task", "rm", "1"], "task rm <id> <n>"],
-    [["task", "rm", "1", "2", "3"], "task rm <id> <n>"],
+    [["step", "add"], "step add <id> <title>"],
+    [["step", "add", "1"], "step add <id> <title>"],
+    [["step", "add", "1", "a", "b"], "step add <id> <title>"],
+    [["step", "done"], "step done <id> [n]"],
+    [["step", "done", "1", "2", "3"], "step done <id> [n]"],
+    [["step", "undo", "1"], "step undo <id> <n>"],
+    [["step", "undo", "1", "2", "3"], "step undo <id> <n>"],
+    [["step", "edit", "1", "2"], "step edit <id> <n> <title>"],
+    [["step", "edit", "1", "2", "a", "b"], "step edit <id> <n> <title>"],
+    [["step", "rm", "1"], "step rm <id> <n>"],
+    [["step", "rm", "1", "2", "3"], "step rm <id> <n>"],
   ])("rejects wrong arguments: %j", (args, usage) => {
     const cli = withSteps();
     expect(run(args, cli.io)).toBe(2);
@@ -437,17 +445,17 @@ describe("task", () => {
 
   it("rejects invalid ids and step numbers", () => {
     const cli = withSteps();
-    expect(run(["task", "add", "x", "T"], cli.io)).toBe(2);
-    expect(run(["task", "done", "1", "x"], cli.io)).toBe(2);
-    expect(run(["task", "undo", "x", "1"], cli.io)).toBe(2);
-    expect(run(["task", "edit", "1", "0", "T"], cli.io)).toBe(2);
-    expect(run(["task", "rm", "1", "9"], cli.io)).toBe(1);
+    expect(run(["step", "add", "x", "T"], cli.io)).toBe(2);
+    expect(run(["step", "done", "1", "x"], cli.io)).toBe(2);
+    expect(run(["step", "undo", "x", "1"], cli.io)).toBe(2);
+    expect(run(["step", "edit", "1", "0", "T"], cli.io)).toBe(2);
+    expect(run(["step", "rm", "1", "9"], cli.io)).toBe(1);
     expect(cli.err).toEqual([
       "error: invalid id: x (see: roadmap help)",
-      "error: invalid task number: x (see: roadmap help)",
+      "error: invalid step number: x (see: roadmap help)",
       "error: invalid id: x (see: roadmap help)",
-      "error: invalid task number: 0 (see: roadmap help)",
-      "error: invalid task number for #1: 9 (1 to 3)",
+      "error: invalid step number: 0 (see: roadmap help)",
+      "error: invalid step number for #1: 9 (1 to 3)",
     ]);
     expect(cli.writes).toBe(0);
   });

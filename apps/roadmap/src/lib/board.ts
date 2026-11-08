@@ -15,13 +15,13 @@ export const COLUMNS = [
 export type ColumnId = (typeof COLUMNS)[number]["id"];
 
 /** One step of a card. In a card of the `doing` column, the first step that is not done is the one in progress. */
-export interface Task {
+export interface Step {
   readonly title: string;
   readonly done: boolean;
 }
 
 /** Display status of a step: done, in progress (the first step not done, only in the `doing` column) or still to do. */
-export type TaskStatus = "done" | "doing" | "todo";
+export type StepStatus = "done" | "doing" | "todo";
 
 /** A roadmap card (ticket) with its ordered steps. */
 export interface Card {
@@ -32,7 +32,7 @@ export interface Card {
   readonly milestone: string;
   readonly createdAt: string;
   readonly updatedAt: string;
-  readonly tasks: readonly Task[];
+  readonly steps: readonly Step[];
 }
 
 /** The whole roadmap, as stored in `board.json`. */
@@ -57,12 +57,16 @@ export class ArgumentError extends BoardError {
 
 /** A card id as typed by a user: a positive integer without leading zero, with an optional `#`. */
 const ID_TEXT_RE = /^#?([1-9]\d*)$/;
-/** The exact fields of a stored card: an unknown or missing field is an error, so typos in board.json never pass silently. */
+/**
+ * The exact fields of a stored card: an unknown or missing field is an error, so typos in board.json never pass silently.
+ * The file keeps the key `tasks` for a card's steps (see GLOSSARY.md): `parseCard` reads it into `Card.steps`, and
+ * `serializeBoard` writes `Card.steps` back under it, so the file format is unchanged.
+ */
 const CARD_KEYS = ["id", "title", "description", "column", "milestone", "createdAt", "updatedAt", "tasks"];
 /** The exact fields of a stored step. */
-const TASK_KEYS = ["title", "done"];
+const STEP_KEYS = ["title", "done"];
 /** A 1-based step number as typed by a user: a positive integer without leading zero. */
-const TASK_NUMBER_RE = /^[1-9]\d*$/;
+const STEP_NUMBER_RE = /^[1-9]\d*$/;
 /** The exact top-level fields of board.json. */
 const BOARD_KEYS = ["version", "title", "nextId", "cards"];
 
@@ -155,23 +159,23 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /** Validates one stored step; `where` locates it in error messages. */
-function parseTask(raw: unknown, where: string): Task {
+function parseStep(raw: unknown, where: string): Step {
   if (!isRecord(raw)) {
     throw new BoardError(`${where} must be an object`);
   }
-  requireExactKeys(raw, TASK_KEYS, where);
+  requireExactKeys(raw, STEP_KEYS, where);
   if (typeof raw["done"] !== "boolean") {
     throw new BoardError(`${where} done must be a boolean`);
   }
   return { title: requireText(raw["title"], `${where} title`), done: raw["done"] };
 }
 
-/** Validates the step list of a card; `where` names the card in error messages, and each step is located by its 1-based number. */
-function parseTasks(raw: unknown, where: string): Task[] {
+/** Validates the step list of a card (the `tasks` field of the file); `where` names the card in error messages, and each step is located by its 1-based number. */
+function parseSteps(raw: unknown, where: string): Step[] {
   if (!Array.isArray(raw)) {
     throw new BoardError(`${where} tasks must be an array`);
   }
-  return raw.map((rawTask, i) => parseTask(rawTask, `${where} task ${String(i + 1)}`));
+  return raw.map((rawStep, i) => parseStep(rawStep, `${where} step ${String(i + 1)}`));
 }
 
 /** Validates one stored card; `index` is its 0-based position in `cards`, used only to locate errors (the id itself may be what is invalid). */
@@ -193,7 +197,7 @@ function parseCard(raw: unknown, index: number): Card {
     milestone: requireString(raw["milestone"], `${where} milestone`),
     createdAt: requireDate(raw["createdAt"], `${where} createdAt`),
     updatedAt: requireDate(raw["updatedAt"], `${where} updatedAt`),
-    tasks: parseTasks(raw["tasks"], where),
+    steps: parseSteps(raw["tasks"], where),
   };
 }
 
@@ -228,7 +232,7 @@ export function parseBoard(raw: unknown): Board {
   return { version: 1, title: requireText(raw["title"], "title"), nextId, cards: parsed };
 }
 
-/** Stable serialization (fixed key order, trailing newline) for clean git diffs. */
+/** Stable serialization (fixed key order, trailing newline) for clean git diffs; a card's steps are written under the file's key `tasks`. */
 export function serializeBoard(board: Board): string {
   const ordered = {
     version: board.version,
@@ -242,7 +246,7 @@ export function serializeBoard(board: Board): string {
       milestone: card.milestone,
       createdAt: card.createdAt,
       updatedAt: card.updatedAt,
-      tasks: card.tasks.map((task) => ({ title: task.title, done: task.done })),
+      tasks: card.steps.map((step) => ({ title: step.title, done: step.done })),
     })),
   };
   return `${JSON.stringify(ordered, null, 2)}\n`;
@@ -285,7 +289,7 @@ export function addCard(board: Board, input: AddInput, today: string): { board: 
     milestone: (input.milestone ?? "").trim(),
     createdAt: date,
     updatedAt: date,
-    tasks: [],
+    steps: [],
   };
   return { board: { ...board, nextId: board.nextId + 1, cards: [...board.cards, card] }, card };
 }
@@ -328,31 +332,31 @@ export function removeCard(board: Board, id: number): Board {
   return { ...board, cards: board.cards.filter((card) => card.id !== id) };
 }
 
-// ---------- Tasks ----------
+// ---------- Steps ----------
 
 /** A step together with its display status. */
-export interface TaskWithStatus extends Task {
-  readonly status: TaskStatus;
+export interface StepWithStatus extends Step {
+  readonly status: StepStatus;
 }
 
 /**
  * Index of the step in progress: the first step not done, and only for a card in the `doing` column.
  * A card waiting in another column has nothing in progress. Returns -1 when there is none.
  */
-export function currentTaskIndex(card: Pick<Card, "column" | "tasks">): number {
-  return card.column === "doing" ? card.tasks.findIndex((task) => !task.done) : -1;
+export function currentStepIndex(card: Pick<Card, "column" | "steps">): number {
+  return card.column === "doing" ? card.steps.findIndex((step) => !step.done) : -1;
 }
 
-/** Status of each task: done, the one in progress (see {@link currentTaskIndex}), the rest to do. */
-export function withStatus(card: Pick<Card, "column" | "tasks">): TaskWithStatus[] {
-  const current = currentTaskIndex(card);
-  return card.tasks.map((task, i) => ({ ...task, status: task.done ? "done" : i === current ? "doing" : "todo" }));
+/** Status of each step: done, the one in progress (see {@link currentStepIndex}), the rest to do. */
+export function withStatus(card: Pick<Card, "column" | "steps">): StepWithStatus[] {
+  const current = currentStepIndex(card);
+  return card.steps.map((step, i) => ({ ...step, status: step.done ? "done" : i === current ? "doing" : "todo" }));
 }
 
-/** Parses a 1-based task number typed by a user. */
-export function parseTaskNumber(text: string): number {
-  if (!TASK_NUMBER_RE.test(text)) {
-    throw new ArgumentError(`invalid task number: ${text}`);
+/** Parses a 1-based step number typed by a user. */
+export function parseStepNumber(text: string): number {
+  if (!STEP_NUMBER_RE.test(text)) {
+    throw new ArgumentError(`invalid step number: ${text}`);
   }
   return Number(text);
 }
@@ -364,52 +368,52 @@ function updateCard(board: Board, id: number, today: string, change: (card: Card
   return { ...board, cards: board.cards.map((existing) => (existing.id === id ? card : existing)) };
 }
 
-/** Converts a 1-based step number into an index of `card.tasks`; throws a `BoardError` giving the valid range otherwise. */
-function requireTaskIndex(card: Card, taskNumber: number): number {
-  if (!Number.isInteger(taskNumber) || taskNumber < 1 || taskNumber > card.tasks.length) {
-    throw new BoardError(`invalid task number for ${formatId(card.id)}: ${String(taskNumber)} (1 to ${String(card.tasks.length)})`);
+/** Converts a 1-based step number into an index of `card.steps`; throws a `BoardError` giving the valid range otherwise. */
+function requireStepIndex(card: Card, stepNumber: number): number {
+  if (!Number.isInteger(stepNumber) || stepNumber < 1 || stepNumber > card.steps.length) {
+    throw new BoardError(`invalid step number for ${formatId(card.id)}: ${String(stepNumber)} (1 to ${String(card.steps.length)})`);
   }
-  return taskNumber - 1;
+  return stepNumber - 1;
 }
 
 /** Adds a step at the end of a card. */
-export function addTask(board: Board, id: number, title: string, today: string): Board {
-  const task: Task = { title: requireText(title, "task title"), done: false };
-  return updateCard(board, id, today, (card) => ({ ...card, tasks: [...card.tasks, task] }));
+export function addStep(board: Board, id: number, title: string, today: string): Board {
+  const step: Step = { title: requireText(title, "step title"), done: false };
+  return updateCard(board, id, today, (card) => ({ ...card, steps: [...card.steps, step] }));
 }
 
-/** Marks a task done, or the task in progress when no number is given. */
-export function completeTask(board: Board, id: number, taskNumber: number | undefined, today: string): Board {
+/** Marks a step done, or the step in progress when no number is given. */
+export function completeStep(board: Board, id: number, stepNumber: number | undefined, today: string): Board {
   return updateCard(board, id, today, (card) => {
-    const index = taskNumber === undefined ? currentTaskIndex(card) : requireTaskIndex(card, taskNumber);
+    const index = stepNumber === undefined ? currentStepIndex(card) : requireStepIndex(card, stepNumber);
     if (index === -1) {
-      throw new BoardError(`${formatId(card.id)} has no task in progress`);
+      throw new BoardError(`${formatId(card.id)} has no step in progress`);
     }
-    return { ...card, tasks: card.tasks.map((task, i) => (i === index ? { ...task, done: true } : task)) };
+    return { ...card, steps: card.steps.map((step, i) => (i === index ? { ...step, done: true } : step)) };
   });
 }
 
-/** Marks step `taskNumber` (1-based) of a card as not done. */
-export function reopenTask(board: Board, id: number, taskNumber: number, today: string): Board {
+/** Marks step `stepNumber` (1-based) of a card as not done. */
+export function reopenStep(board: Board, id: number, stepNumber: number, today: string): Board {
   return updateCard(board, id, today, (card) => {
-    const index = requireTaskIndex(card, taskNumber);
-    return { ...card, tasks: card.tasks.map((task, i) => (i === index ? { ...task, done: false } : task)) };
+    const index = requireStepIndex(card, stepNumber);
+    return { ...card, steps: card.steps.map((step, i) => (i === index ? { ...step, done: false } : step)) };
   });
 }
 
-/** Renames step `taskNumber` (1-based) of a card. */
-export function renameTask(board: Board, id: number, taskNumber: number, title: string, today: string): Board {
+/** Renames step `stepNumber` (1-based) of a card. */
+export function renameStep(board: Board, id: number, stepNumber: number, title: string, today: string): Board {
   return updateCard(board, id, today, (card) => {
-    const index = requireTaskIndex(card, taskNumber);
-    const text = requireText(title, "task title");
-    return { ...card, tasks: card.tasks.map((task, i) => (i === index ? { ...task, title: text } : task)) };
+    const index = requireStepIndex(card, stepNumber);
+    const text = requireText(title, "step title");
+    return { ...card, steps: card.steps.map((step, i) => (i === index ? { ...step, title: text } : step)) };
   });
 }
 
-/** Removes step `taskNumber` (1-based) of a card. */
-export function removeTask(board: Board, id: number, taskNumber: number, today: string): Board {
+/** Removes step `stepNumber` (1-based) of a card. */
+export function removeStep(board: Board, id: number, stepNumber: number, today: string): Board {
   return updateCard(board, id, today, (card) => {
-    const index = requireTaskIndex(card, taskNumber);
-    return { ...card, tasks: card.tasks.filter((_task, i) => i !== index) };
+    const index = requireStepIndex(card, stepNumber);
+    return { ...card, steps: card.steps.filter((_step, i) => i !== index) };
   });
 }
