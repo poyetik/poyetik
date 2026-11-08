@@ -390,6 +390,7 @@ fn passing() -> Fake {
         (CHANGELOG.to_owned(), LOG),
         ("COMMIT_EDITMSG".to_owned(), "feat(core): add the plan\n"),
         (super::CARGO_CONFIG_FILE.to_owned(), super::CARGO_CONFIG),
+        (super::VOCABULARY.to_owned(), FAKE_WORDS),
         (super::DEPENDABOT.to_owned(), DEPENDABOT),
         (
             super::PNPM_WORKSPACE.to_owned(),
@@ -577,6 +578,7 @@ fn command_lines(steps: &[Step]) -> Vec<String> {
             Action::EquivalentGate => "equivalent gate".to_owned(),
             Action::VersionGate => "version gate".to_owned(),
             Action::ReadmeGate => "readme gate".to_owned(),
+            Action::VocabularyGate => "vocabulary gate".to_owned(),
             Action::FreshDirs(paths) => format!("fresh {}", paths.join(" ")),
             Action::TypeScriptReportsGate => "typescript reports gate".to_owned(),
             Action::StrykerConfigGate => "stryker config gate".to_owned(),
@@ -641,6 +643,7 @@ fn lists_every_check_in_order() {
             "supply chain gate",
             "membership gate",
             "readme gate",
+            "vocabulary gate",
             "version gate",
             "history gate",
             "workflow gate",
@@ -711,6 +714,7 @@ fn names_every_check_in_order() {
             "Supply-chain settings: a week before a release, libm without features",
             "Packages and crates known to the checks",
             "Every part described in a README",
+            "The words of the glossary, not their synonyms",
             "One version everywhere, changelog well formed",
             "Commit messages, and a changelog entry for each change of behavior",
             "CI workflow pinned",
@@ -952,8 +956,8 @@ fn runs_every_step_and_reports_success() {
         Ok(()),
         "all green"
     );
-    let (tools, commands, emptied, listed, captured) = (9, 44, 13, 10, 9);
-    let read = 1 + 12 + 2 + 7 + 9 + 2 + 1 + 7 + 3 + 10 + 10 + 8 + 2 + 5 + 16 + 11;
+    let (tools, commands, emptied, listed, captured) = (9, 44, 13, 11, 9);
+    let read = 1 + 12 + 2 + 7 + 9 + 2 + 1 + 7 + 3 + 10 + 10 + 20 + 8 + 2 + 5 + 16 + 11;
     assert_eq!(
         fake.ran.len(),
         tools + commands + emptied + listed + captured + read,
@@ -961,13 +965,13 @@ fn runs_every_step_and_reports_success() {
          tests, four portability builds, twelve coverage measurements each after emptying \
          the coverage build, mutants, Miri, the \
          conformance check and export, deny, the JavaScript install, audit and five package \
-         checks); thirteen directories are emptied; git lists ten kinds of files; the licenses, \
+         checks); thirteen directories are emptied; git lists eleven kinds of files; the licenses, \
          the history and the state of the tree (before and after) are captured twice each, \
          the Cargo metadata once; and the gates read .node-version for the preflight, twelve coverage reports, \
          the unviable report and reviews, six TypeScript sources and their reviews, the eight \
          sources and the register of the bypass gate, the two unsafe files, the Cargo \
          configuration, the six package manifests and the register of the dependency gate, the three \
-         supply-chain configurations, ten crate manifests, ten READMEs, eight version files, the workflow and \
+         supply-chain configurations, ten crate manifests, ten READMEs, the changelog, ten READMEs, two Rust and six TypeScript sources and the vocabulary of the vocabulary gate, eight version files, the workflow and \
          .node-version, five Stryker configurations, the six TypeScript sources and ten \
          reports of the reports gate, and the five Stryker configurations, five coverage \
          summaries and the register of the scope gate"
@@ -989,15 +993,15 @@ fn runs_every_step_and_reports_success() {
     );
     let text = String::from_utf8(out).expect("utf-8 output");
     assert!(
-        text.starts_with("▶ [1/55] Tools and platform\n"),
+        text.starts_with("▶ [1/56] Tools and platform\n"),
         "numbered progress: {text}"
     );
     assert!(
-        text.contains("▶ [52/55] Roadmap checks\n"),
+        text.contains("▶ [53/56] Roadmap checks\n"),
         "last step announced: {text}"
     );
     assert!(
-        text.ends_with("✔ all 55 checks passed\n"),
+        text.ends_with("✔ all 56 checks passed\n"),
         "summary: {text}"
     );
 }
@@ -3257,7 +3261,7 @@ fn prints_the_details_of_a_failure_on_stdout_and_one_line_on_stderr() {
     );
     assert!(
         String::from_utf8(out).expect("UTF-8").ends_with(
-            "▶ [25/55] Rust unviable mutants reviewed\n\
+            "▶ [25/56] Rust unviable mutants reviewed\n\
              not reviewed: crates/a/src/c.rs: replace g -> U with x\n\
              stale review: crates/a/src/b.rs: replace f -> T with Default::default()\n"
         ),
@@ -4397,4 +4401,271 @@ fn fails_when_the_scope_gate_cannot_read_its_inputs() {
             "{missing} cannot be read"
         );
     }
+}
+
+#[test]
+fn reads_the_prose_of_each_language() {
+    let rust = "/// A doc.\nlet a = \"text {name} here\"; // trailing\nlet b = 'x'; let c = '\\''; fn f<'a>() {}\n/* block\n   two */ let d = r#\"raw \"quoted\" text\"#;\nlet e = \"word\"; let f = r\"plain raw\"; let g = br\"two bytes\";\nlet h = \"a\\\nb\";\n";
+    assert_eq!(
+        super::code_prose(rust, super::Language::Rust),
+        [
+            (1, "/// A doc."),
+            (2, "text  here"),
+            (2, "// trailing"),
+            (4, " block"),
+            (5, "   two "),
+            (5, "raw \"quoted\" text"),
+            (6, "plain raw"),
+            (6, "two bytes"),
+            (7, "a"),
+            (8, "b"),
+        ]
+        .map(|(line, text)| (line, text.to_owned()))
+        .to_vec(),
+        "comments and literals, placeholders, single words, characters and lifetimes apart"
+    );
+    let script = "const a = 'single \\'quoted\\''; // note\nconst b = `tem ${node.x} plate ${{ a: 1 }.a}`;\nconst c = `two\n${\n0} lines`;\nconst d = \"it's\"; /* unclosed";
+    assert_eq!(
+        super::code_prose(script, super::Language::Script),
+        [
+            (1, "single 'quoted'"),
+            (1, "// note"),
+            (2, "tem   plate  "),
+            (3, "two"),
+            (5, " lines"),
+            (6, "it's"),
+            (6, " unclosed"),
+        ]
+        .map(|(line, text)| (line, text.to_owned()))
+        .to_vec(),
+        "every quote, substitutions apart, line numbers kept"
+    );
+    assert_eq!(
+        super::markdown_prose("# Title\n\n```sh\nnode x\n```\ntext\n"),
+        [(1, "# Title"), (2, ""), (6, "text")]
+            .map(|(line, text)| (line, text.to_owned()))
+            .to_vec(),
+        "fenced code apart"
+    );
+    assert_eq!(
+        super::without_code("a `node` [link](node.md) (node) b"),
+        "a        [link]          (node) b",
+        "code spans and link targets apart"
+    );
+    assert_eq!(super::language("a/b.tsx"), Some(super::Language::Script));
+    assert_eq!(super::language("a/b.txt"), None);
+    assert_eq!(super::language("Makefile"), None);
+}
+
+#[test]
+fn finds_only_words_of_prose() {
+    for (text, expected) in [
+        ("the node runs", vec![4]),
+        ("node.", vec![0]),
+        ("a node's id", vec![2]),
+        ("nodes", vec![]),
+        ("anode", vec![]),
+        ("node_id", vec![]),
+        ("engine-node", vec![]),
+        (".node-version", vec![]),
+        ("/engines/node", vec![]),
+        ("Node.js node:fs", vec![]),
+        ("\"node\" 'node'", vec![]),
+        ("\"node", vec![1]),
+        ("node: a box", vec![0]),
+        ("@node #node $node ~node \\node", vec![]),
+    ] {
+        let term = if text.starts_with("Node") {
+            "Node"
+        } else {
+            "node"
+        };
+        assert_eq!(super::occurrences(text, term), expected, "{text}");
+    }
+}
+
+/// The vocabulary of the fake repository, whose prose it all accepts.
+const FAKE_WORDS: &str = "forbid node -> box -- the glossary\n";
+
+/// The vocabulary of the gate's tests.
+const WORDS: &str = "# words\n\n\
+    forbid node -> box -- the glossary\n\
+    forbid object -> box in crates/ -- the glossary\n\
+    forbid tap block -> render quantum -- the glossary\n\
+    allow node as \"engine node\" -- Web Audio\n\
+    allow node in web/ -- Web Audio\n\
+    allow object as \"JSON object\" -- JSON\n";
+
+#[test]
+fn refuses_the_synonyms_the_glossary_replaces() {
+    let sources: Vec<(String, String)> = [
+        (
+            "README.md",
+            "A node, an engine node.\n\n```\nnode\n```\nA `node`, a tap block.\nAn engine node, a node.\n",
+        ),
+        (
+            "crates/a/src/lib.rs",
+            "/// An object, a JSON object.\nfn f() { let node = \"the node\"; }\n",
+        ),
+        (
+            "apps/a/b.ts",
+            "// an object here is fine\nconst node = 'node';\n",
+        ),
+        ("web/c.ts", "/** A node. */\n"),
+        ("notes.txt", "node\n"),
+    ]
+    .map(|(path, text)| (path.to_owned(), text.to_owned()))
+    .to_vec();
+    let context = "words the glossary replaces (reviewed in vocabulary.txt)";
+    assert_eq!(
+        super::vocabulary_gate(&sources, WORDS),
+        failed(format!(
+            "{context}: 5 problems, listed above\n\
+             README.md:1: \"node\": say \"box\" (the glossary)\n\
+             README.md:6: \"tap block\": say \"render quantum\" (the glossary)\n\
+             README.md:7: \"node\": say \"box\" (the glossary)\n\
+             crates/a/src/lib.rs:1: \"object\": say \"box\" (the glossary)\n\
+             crates/a/src/lib.rs:2: \"node\": say \"box\" (the glossary)"
+        )),
+        "prose only, each rule where it applies, allowed contexts apart"
+    );
+    let clean: Vec<(String, String)> = [(
+        "web/c.ts",
+        "/** A node: an engine node, a JSON object. */\n",
+    )]
+    .map(|(path, text)| (path.to_owned(), text.to_owned()))
+    .to_vec();
+    assert_eq!(
+        super::vocabulary_gate(
+            &clean,
+            &format!("{WORDS}allow box in x/ -- r\nallow node in other/ -- r\nforbid broken\n")
+        ),
+        failed(format!(
+            "{context}: 4 problems, listed above\n\
+             vocabulary.txt:11: write `forbid <term> -> <instead>[ in <path>…] -- <reason>`, `allow <term> in <path> -- <reason>` or `allow <term> as \"<phrase>\" -- <reason>`\n\
+             stale: allow object as \"JSON object\": it allows nothing\n\
+             allow box in x/: no rule refuses \"box\"\n\
+             stale: allow node in other/: it allows nothing"
+        )),
+        "a malformed line, an allowance of nothing refused, allowances that allow nothing"
+    );
+    for malformed in [
+        "forbid a -- r",
+        "allow a -- r",
+        "allow a as b -- r",
+        "allow a as \"b -- r",
+        "permit a in b -- r",
+        "forbid a -> b",
+    ] {
+        assert!(
+            super::vocabulary_gate(&[], malformed)
+                .is_err_and(|failure| failure.summary.contains("vocabulary.txt:1: write")),
+            "{malformed}"
+        );
+    }
+    assert!(super::within("web/c.ts", "web/"), "a directory");
+    assert!(super::within("web", "web"), "a file");
+    assert!(
+        !super::within("web/c.ts", "web"),
+        "a file is not a directory"
+    );
+}
+
+#[test]
+fn reads_the_prose_files_and_the_vocabulary() {
+    let step = [Step {
+        name: "Words".to_owned(),
+        action: Action::VocabularyGate,
+    }];
+    let mut fake = passing();
+    let replaced = fake
+        .files
+        .insert("README.md".to_owned(), "A node.\n".to_owned());
+    assert!(replaced.is_some(), "README replaced");
+    assert_eq!(
+        run_steps(&step, &mut fake, &mut Vec::new()),
+        failed(
+            "Words: words the glossary replaces (reviewed in vocabulary.txt): README.md:1: \
+             \"node\": say \"box\" (the glossary)"
+        ),
+        "the tracked prose against the vocabulary"
+    );
+    let mut lacking = passing();
+    let removed = lacking.files.remove(super::VOCABULARY);
+    assert!(removed.is_some(), "vocabulary removed");
+    assert_eq!(
+        run_steps(&step, &mut lacking, &mut Vec::new()),
+        failed("Words: cannot read vocabulary.txt: missing"),
+        "no vocabulary"
+    );
+    let mut unlisted = passing();
+    unlisted.broken = Some("list *.md *.rs *.ts *.tsx *.mts *.js *.mjs".to_owned());
+    assert!(
+        run_steps(&step, &mut unlisted, &mut Vec::new()).is_err_and(|failure| failure
+            .summary
+            .starts_with("Words: cannot list the prose files")),
+        "the files cannot be listed"
+    );
+}
+
+#[test]
+fn reads_odd_sources_without_losing_prose() {
+    let lines = |text: &str, language| -> Vec<String> {
+        super::code_prose(text, language)
+            .into_iter()
+            .map(|(line, prose)| format!("{line}:{prose}"))
+            .collect()
+    };
+    let rust = "let a = \"\"; let r#type = ar\"one two\"; x ` y\nlet b = \"{a b} } c\";";
+    assert_eq!(
+        lines(rust, super::Language::Rust),
+        ["1:one two", "2:  } c"],
+        "an empty literal, a raw identifier, an `r` ending a name, a backquote; in a Rust \
+         literal, what braces hold is a placeholder or code (JSON), never prose"
+    );
+    let script = "const a = r\"one two\"; const b = 'a {b} c'; const c = `cost $5 and '$x'`; const d = 'tab\\there';";
+    assert_eq!(
+        lines(script, super::Language::Script),
+        ["1:one two", "1:a {b} c", "1:cost $5 and '$x'", "1:tab here"],
+        "no raw strings, braces kept, a dollar sign that starts no substitution, an escape"
+    );
+    let quotes = "let q = '\\\"'; // one\nlet d = '\"'; // two\n'\\x41'\"'tail word\"\n_r\"a\\tb c\" ar\"d\\te f\" br\"g\\th i\"";
+    assert_eq!(
+        lines(quotes, super::Language::Rust),
+        [
+            "1:// one",
+            "2:// two",
+            "3:'tail word",
+            "4:a b c",
+            "4:d e f",
+            "4:g\\th i"
+        ],
+        "character literals holding a quote, an escape of several characters, an `r` ending \
+         a name (after `_` or a letter), a raw byte string"
+    );
+    for (text, language, expected) in [
+        (
+            "r\"open to the end",
+            super::Language::Rust,
+            "1:open to the end",
+        ),
+        (
+            "\"open to the end",
+            super::Language::Rust,
+            "1:open to the end",
+        ),
+        ("`open ${to the end", super::Language::Script, "1:open  "),
+        ("'\\", super::Language::Rust, ""),
+    ] {
+        assert_eq!(
+            lines(text, language).join("|"),
+            expected,
+            "an unterminated literal: {text}"
+        );
+    }
+    assert_eq!(
+        super::without_code("[a](x`y) `a](b` c"),
+        format!("[a]{}c", " ".repeat(13)),
+        "a backquote in a link target, a bracket in a code span"
+    );
 }

@@ -1,0 +1,49 @@
+# The words GLOSSARY.md replaces: one concept, one word. `cargo xtask check` refuses each
+# term below in the prose of the repository (Markdown outside code blocks; the comments and
+# string literals of Rust and TypeScript), case-sensitively, as a whole word, never inside a
+# name or a code span; a literal of one word alone (a key, a program name) is a name too.
+#
+#   forbid <term> -> <instead>[ in <path>…] -- <reason>   refused (in those files or directories only)
+#   allow <term> in <path> -- <reason>                    allowed in a file or directory (ending with /)
+#   allow <term> as "<phrase>" -- <reason>                allowed inside this phrase
+#
+# Every allowance must still allow something. The gate cannot tell the sense of a word:
+# "block" is the engine's word, so only its uses that can only mean a render quantum are
+# refused (in the playground, which never sees an engine block, and "tap block").
+
+forbid behaviour -> behavior -- the project's spelling is American (GLOSSARY.md, CLAUDE.md)
+forbid behaviours -> behaviors -- the project's spelling is American
+forbid behavioural -> behavioral -- the project's spelling is American
+forbid colour -> color -- the project's spelling is American
+forbid colours -> colors -- the project's spelling is American
+
+forbid node -> box -- GLOSSARY.md: one processing unit of a patch is a box (the code's `Node` keeps its name until roadmap #5)
+forbid nodes -> boxes -- GLOSSARY.md: one processing unit of a patch is a box
+forbid Nodes -> Boxes -- GLOSSARY.md: one processing unit of a patch is a box
+allow node as "engine node" -- a Web Audio node (`AudioWorkletNode`) running the engine: a node of the browser's audio graph, not a box
+allow nodes as "engine nodes" -- Web Audio nodes running the engine
+allow node as "worklet node" -- a Web Audio `AudioWorkletNode`
+allow nodes as "worklet nodes" -- Web Audio `AudioWorkletNode`s
+allow node as "Web Audio node" -- the browser's audio graph, not a patch
+allow node in bindings/wasm/ts/web.ts -- the main-thread API of Web Audio: every node there is an `AudioNode`, never a box
+allow node in bindings/wasm/ts/worklet/processors.ts -- the processors of Web Audio nodes: the node options are `AudioWorkletNode` options
+allow node in bindings/wasm/test/web.test.ts -- the fake Web Audio nodes the tests of web.ts drive
+allow nodes in bindings/wasm/test/web.test.ts -- the fake Web Audio nodes the tests of web.ts drive
+allow node in bindings/wasm/test/types.test.ts -- an engine node created with or without the marker channel (`MarkedEngineNode`)
+allow node in bindings/wasm/test/types/ -- compiler fixtures about `MarkedEngineNode`, a Web Audio node
+allow node in crates/xtask/src/lib_tests.rs -- the tests of this gate, whose fixtures hold the refused words on purpose
+allow node in apps/playground/test/player.test.ts -- the fake Web Audio nodes the tests of the player drive
+
+forbid object -> box in crates/engine-core/ crates/engine-objects/ crates/engine-patch/ crates/engine-testkit/ crates/engine-hash/ crates/engine-cli/ bindings/wasm/src/ spec/ conformance/ GLOSSARY.md -- GLOSSARY.md: one processing unit of a patch is a box (the `Object` trait keeps its name until roadmap #5)
+forbid objects -> boxes in crates/engine-core/ crates/engine-objects/ crates/engine-patch/ crates/engine-testkit/ crates/engine-hash/ crates/engine-cli/ bindings/wasm/src/ spec/ conformance/ GLOSSARY.md -- GLOSSARY.md: one processing unit of a patch is a box
+allow object as "JSON object" -- the JSON value, as the patch format names it
+allow object as "trait object" -- Rust's `dyn Trait` value
+allow object as "while parsing an object" -- serde_json's own message about a JSON object, quoted by the tests
+allow object as "an object of parameter values" -- the JSON object a patch gives its parameters in, as serde_json is told to expect it
+allow object as "object, optional" -- the JSON type of `nodes[].params` in the patch format
+
+forbid tap block -> render quantum -- GLOSSARY.md: a tap delivers render quanta; a block is the engine's
+forbid tap blocks -> render quanta -- GLOSSARY.md: a tap delivers render quanta; a block is the engine's
+allow tap block in crates/xtask/src/lib_tests.rs -- the tests of this gate, whose fixtures hold the refused words on purpose
+forbid block -> render quantum in apps/playground/ -- GLOSSARY.md: the playground only receives render quanta from the tap; a block is the engine's
+forbid blocks -> render quanta in apps/playground/ -- GLOSSARY.md: the playground only receives render quanta from the tap
