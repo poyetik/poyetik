@@ -40,6 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- End-to-end tests run one browser at a time: browsers sharing the sound card in parallel made live captures time out at random.
 - `interleave` (engine-wasm hash helpers) copies samples bit for bit: a signaling NaN was turned quiet on the way to the hash.
 - The determinism ban list covers every `f32`/`f64` method that is not correctly rounded (`atan2`, `exp2`, `hypot`, `cbrt`… were missing), and states the real reason for banning `mul_add`.
 - `osc~` keeps its phase within one cycle at any frequency and sample rate: above the sample rate (possible from 8 kHz to 16 kHz), the phase grew without bound and the output drifted into noise within hours. Rendered samples are unchanged below the sample rate.

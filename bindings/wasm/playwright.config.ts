@@ -8,6 +8,10 @@ import { defineConfig, devices } from "@playwright/test";
 export default defineConfig({
   testDir: "e2e",
   forbidOnly: true,
+  // One browser at a time: Firefox and WebKit play through the real sound card, a single
+  // resource of the machine; browsers sharing it in parallel made live captures and clicks
+  // time out at random. Serial runs are deterministic (and the whole suite takes seconds).
+  workers: 1,
   retries: 0,
   reporter: "list",
   use: { baseURL: "http://localhost:4392/" },
