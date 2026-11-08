@@ -7,7 +7,7 @@
  */
 
 import { PatchError, WasmEngine } from "../engine.ts";
-import { ENGINE_PROCESSOR, MARKER_PERIOD, TAP_PROCESSOR, parseEngineOptions, type EngineMessage } from "../protocol.ts";
+import { ENGINE_PROCESSOR, MARKER_PERIOD, SOURCE_STOPPED, TAP_PROCESSOR, parseEngineOptions, type EngineMessage } from "../protocol.ts";
 
 /** The outputs of a node without output: one shared, frozen, empty list. */
 const NO_OUTPUT: readonly Float32Array[] = Object.freeze([]);
@@ -104,6 +104,8 @@ class EngineProcessor extends AudioWorkletProcessor {
 class TapProcessor extends AudioWorkletProcessor {
   /** Whether to keep posting. */
   #running = true;
+  /** Whether the last render quantum had input: its source was running. */
+  #fed = false;
 
   /** Stops at the first message received. */
   constructor() {
@@ -113,11 +115,21 @@ class TapProcessor extends AudioWorkletProcessor {
     };
   }
 
-  /** Posts the input render quantum, if any. */
+  /**
+   * Posts the input render quantum, if any; when the input goes from present to empty
+   * (its source stopped), posts {@link SOURCE_STOPPED} once, so that a capture fails
+   * instead of waiting for quanta that never come.
+   */
   process(inputs: Float32Array[][]): boolean {
     const input = inputs[0] ?? [];
-    if (this.#running && input.length > 0) {
-      this.port.postMessage(input.map((channel) => channel.slice()));
+    if (this.#running) {
+      if (input.length > 0) {
+        this.#fed = true;
+        this.port.postMessage(input.map((channel) => channel.slice()));
+      } else if (this.#fed) {
+        this.#fed = false;
+        this.port.postMessage(SOURCE_STOPPED);
+      }
     }
     return this.#running;
   }

@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, test, vi } from "vitest";
 import { WasmEngine } from "../ts/engine.ts";
-import { ENGINE_PROCESSOR, MARKER_PERIOD, TAP_PROCESSOR } from "../ts/protocol.ts";
+import { ENGINE_PROCESSOR, MARKER_PERIOD, SOURCE_STOPPED, TAP_PROCESSOR } from "../ts/protocol.ts";
 import { Counted, created } from "./counted.ts";
 import { engineFunctions, handMadeBytes, SAMPLE_RATES, SILENT_PATCH, SINE_PATCH, UNKNOWN_BOX, wasmBytes } from "./fixtures.ts";
 import { loadProcessors, processorClass, type ProcessorClass } from "./worklet.ts";
@@ -189,6 +189,25 @@ describe("tap processor", () => {
     tap.port.onmessage?.();
     expect(tap.process([[left]], [])).toBe(false);
     expect(tap.port.posted).toHaveLength(1);
+  });
+
+  test("posts once that its source stopped, when its input goes from present to empty", () => {
+    const tap = new (processor(TAP_PROCESSOR))();
+    const quantum = [new Float32Array([1])];
+    expect(tap.process([quantum], [])).toBe(true);
+    expect(tap.process([[]], [])).toBe(true);
+    expect(tap.process([[]], [])).toBe(true);
+    expect(tap.process([], [])).toBe(true);
+    expect(tap.port.posted).toStrictEqual([quantum, SOURCE_STOPPED]);
+    // A source that starts again, then stops again: told again.
+    expect(tap.process([quantum], [])).toBe(true);
+    expect(tap.process([], [])).toBe(true);
+    expect(tap.port.posted).toStrictEqual([quantum, SOURCE_STOPPED, quantum, SOURCE_STOPPED]);
+    // Once told to stop, nothing.
+    expect(tap.process([quantum], [])).toBe(true);
+    tap.port.onmessage?.();
+    expect(tap.process([], [])).toBe(false);
+    expect(tap.port.posted).toHaveLength(5);
   });
 
   test("posts nothing without input", () => {

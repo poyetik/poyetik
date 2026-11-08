@@ -1,7 +1,7 @@
 import { runInNewContext } from "node:vm";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { EngineTrap, ModuleError, PatchError } from "../ts/engine.ts";
-import { ENGINE_PROCESSOR, MessageError, TAP_PROCESSOR } from "../ts/protocol.ts";
+import { ENGINE_PROCESSOR, MessageError, SOURCE_STOPPED, TAP_PROCESSOR } from "../ts/protocol.ts";
 import { addProcessors, capture, captureEngine, createEngineNode, LoadedPatch, loadPatch, MarkedEngineNode, MAX_MARKED_FRAMES, START_MARGIN, renderOffline, tap } from "../ts/web.ts";
 import { engineFunctions, handMadeBytes, SILENT_PATCH, SINE_PATCH, UNKNOWN_BOX, wasmBytes } from "./fixtures.ts";
 
@@ -72,19 +72,57 @@ function fakeSource(): { connect: (node: unknown) => void; disconnect: (node: un
   };
 }
 
-/** A fake context, with a fake worklet recording the modules added. */
-function fakeContext(sampleRate: number): { sampleRate: number; audioWorklet: { addModule: (url: string | URL) => Promise<void> }; modules: (string | URL)[] } {
+/** A fake context: a fake worklet recording the modules added, and a state the tests change. */
+interface FakeContext {
+  /** The rate the context runs at, in hertz. */
+  readonly sampleRate: number;
+  /** Its worklet, recording the modules added. */
+  readonly audioWorklet: { addModule: (url: string | URL) => Promise<void> };
+  /** Every module added, in order. */
+  readonly modules: (string | URL)[];
+  /** Its state, as `close` changes it. */
+  state: AudioContextState;
+  /** The `statechange` listeners installed and not removed yet. */
+  readonly listeners: Set<() => void>;
+  /** Installs a `statechange` listener. */
+  addEventListener: (type: string, listener: () => void) => void;
+  /** Removes a `statechange` listener. */
+  removeEventListener: (type: string, listener: () => void) => void;
+  /** Closes the context, telling its `statechange` listeners, as a real one does. */
+  close: () => void;
+}
+
+/** A fake context running at `sampleRate` hertz, suspended as a new one is. */
+function fakeContext(sampleRate: number): FakeContext {
   const modules: (string | URL)[] = [];
-  return {
+  const listeners = new Set<() => void>();
+  const fake: FakeContext = {
     sampleRate,
     modules,
+    state: "suspended",
+    listeners,
     audioWorklet: {
       addModule: (url) => {
         modules.push(url);
         return Promise.resolve();
       },
     },
+    addEventListener: (type, listener) => {
+      expect(type).toBe("statechange");
+      listeners.add(listener);
+    },
+    removeEventListener: (type, listener) => {
+      expect(type).toBe("statechange");
+      listeners.delete(listener);
+    },
+    close: () => {
+      fake.state = "closed";
+      listeners.forEach((listener) => {
+        listener();
+      });
+    },
   };
+  return fake;
 }
 
 /** A patch loaded by the engine: the sine (2 channels) or a patch without output. */
@@ -131,7 +169,7 @@ function hasMembers(value: unknown, members: readonly string[]): value is object
  * real contexts in 4 browsers.
  */
 function isContext(value: unknown): value is BaseAudioContext {
-  return hasMembers(value, ["sampleRate", "audioWorklet"]);
+  return hasMembers(value, ["sampleRate", "audioWorklet", "state", "addEventListener", "removeEventListener"]);
 }
 
 /** Lets a fake node stand in for a real one: see {@link isContext}. */
@@ -354,6 +392,19 @@ describe("tap", () => {
     expect(port?.posted).toStrictEqual(["stop"]);
     expect(source.log).toStrictEqual([`connect ${TAP_PROCESSOR}`, `disconnect ${TAP_PROCESSOR}`]);
   });
+
+  test("ignores its source stopping: the source may start again", () => {
+    stubNodes();
+    const blocks: Float32Array[][] = [];
+    const errors: Error[] = [];
+    tap(asContext(fakeContext(RATE)), asNode(fakeSource()), 1, (block) => blocks.push(block), (error) => errors.push(error));
+    const port = FakeNode.created[0]?.port;
+    port?.deliver(SOURCE_STOPPED);
+    port?.deliver([new Float32Array([1])]);
+    expect(blocks).toStrictEqual([[new Float32Array([1])]]);
+    expect(errors).toStrictEqual([]);
+    expect(port?.posted).toStrictEqual([]);
+  });
 });
 
 describe("capture", () => {
@@ -374,6 +425,58 @@ describe("capture", () => {
     expect(tapNode?.port.posted).toStrictEqual(["stop"]);
     expect(tapNode?.port.onmessage).toBeNull();
     expect(source.log).toStrictEqual([`connect ${TAP_PROCESSOR}`, `disconnect ${TAP_PROCESSOR}`]);
+  });
+
+  test("fails when its source stops before the end, and stops the tap", async () => {
+    stubNodes();
+    const source = fakeSource();
+    const context = fakeContext(RATE);
+    const captured = capture(asContext(context), asNode(source), 1, 4);
+    const tapNode = FakeNode.created[0];
+    tapNode?.port.deliver([new Float32Array([1, 2])]);
+    tapNode?.port.deliver(SOURCE_STOPPED);
+    await expect(captured).rejects.toThrow(new Error("the source stopped before the end of the capture"));
+    expect(tapNode?.port.posted).toStrictEqual(["stop"]);
+    expect(source.log).toStrictEqual([`connect ${TAP_PROCESSOR}`, `disconnect ${TAP_PROCESSOR}`]);
+    expect(context.listeners.size).toBe(0);
+  });
+
+  test("fails when the context closes before the end, but not while it is suspended", async () => {
+    stubNodes();
+    const source = fakeSource();
+    const context = fakeContext(RATE);
+    const captured = capture(asContext(context), asNode(source), 1, 4);
+    expect(context.listeners.size).toBe(1);
+    // A capture starts before its context runs: a suspended context is no failure.
+    context.listeners.forEach((listener) => {
+      listener();
+    });
+    expect(await settled(captured)).toBe("pending");
+    context.close();
+    await expect(captured).rejects.toThrow(new Error("the context closed before the end of the capture"));
+    expect(FakeNode.created[0]?.port.posted).toStrictEqual(["stop"]);
+    expect(source.log).toStrictEqual([`connect ${TAP_PROCESSOR}`, `disconnect ${TAP_PROCESSOR}`]);
+    expect(context.listeners.size).toBe(0);
+  });
+
+  test("fails at once in a closed context, without a tap", async () => {
+    stubNodes();
+    const source = fakeSource();
+    const context = fakeContext(RATE);
+    context.close();
+    await expect(capture(asContext(context), asNode(source), 1, 4)).rejects.toThrow(new Error("the context closed before the end of the capture"));
+    expect(FakeNode.created).toHaveLength(0);
+    expect(source.log).toStrictEqual([]);
+    expect(context.listeners.size).toBe(0);
+  });
+
+  test("stops following the context once complete", async () => {
+    stubNodes();
+    const context = fakeContext(RATE);
+    const captured = capture(asContext(context), asNode(fakeSource()), 1, 1);
+    FakeNode.created[0]?.port.deliver([new Float32Array([1])]);
+    expect(await captured).toStrictEqual([new Float32Array([1])]);
+    expect(context.listeners.size).toBe(0);
   });
 
   test("fills channels missing from a block with silence", async () => {
@@ -496,6 +599,13 @@ describe("captureEngine", () => {
     await expect(captured).rejects.toThrow(new Error("the engine output of the live capture breaks at frame 3: the engine stopped"));
   });
 
+  test("fails when the engine stops before the end of the capture, and its tap tells it", async () => {
+    const { captured, deliver } = await capturing(4);
+    deliver(block([0, 1], [0, 1], [0, 1]));
+    deliver(SOURCE_STOPPED);
+    await expect(captured).rejects.toThrow(new Error("the source stopped before the end of the capture"));
+  });
+
   test("fails when the engine never starts in the captured margin", async () => {
     const { captured, deliver } = await capturing(1);
     deliver([new Float32Array(START_MARGIN + 1), new Float32Array(START_MARGIN + 1)]);
@@ -564,10 +674,12 @@ describe("renderOffline", () => {
           contexts.push({ channels, frames, rate });
         }
 
-        /** Delivers `message` (then `later`, when given) to the last node created, as its processor would during rendering, then resolves with a fake buffer: channel `c` holds `frame + 1000 * c`, and the marker channel holds 1 from frame `start` on (never, with `"never"`). */
+        /** Delivers `message` (none when `undefined`: a processor that never answers; then `later`, when given) to the last node created, as its processor would during rendering, then resolves with a fake buffer: channel `c` holds `frame + 1000 * c`, and the marker channel holds 1 from frame `start` on (never, with `"never"`). */
         startRendering(): Promise<unknown> {
           const port = FakeNode.created.at(-1)?.port;
-          port?.deliver(message);
+          if (message !== undefined) {
+            port?.deliver(message);
+          }
           if (options.later !== undefined) {
             port?.deliver(options.later);
           }
@@ -612,6 +724,11 @@ describe("renderOffline", () => {
       new Error("the engine started too late in the offline render: at frame 16385, beyond the 16384 frames of margin"),
     );
     offline({ type: "ready" }, { start: "never" });
+    await expect(renderOffline(await loaded(2), 1, "processors.js")).rejects.toThrow(
+      new Error("the engine started too late in the offline render: not within the 16384 frames of margin"),
+    );
+    // A processor never constructed during the render: it never answers.
+    offline(undefined, { start: "never" });
     await expect(renderOffline(await loaded(2), 1, "processors.js")).rejects.toThrow(
       new Error("the engine started too late in the offline render: not within the 16384 frames of margin"),
     );

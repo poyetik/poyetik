@@ -7,7 +7,7 @@
  */
 
 import { ModuleError, PatchError, WasmEngine } from "./engine.ts";
-import { ENGINE_PROCESSOR, MARKER_PERIOD, TAP_PROCESSOR, parseEngineMessage, parseTapBlock, type EngineOptions } from "./protocol.ts";
+import { ENGINE_PROCESSOR, MARKER_PERIOD, TAP_PROCESSOR, parseEngineMessage, parseTapMessage, type EngineOptions, type TapMessage } from "./protocol.ts";
 
 /**
  * A patch checked by the engine, ready to run in engine nodes. Only {@link loadPatch}
@@ -206,6 +206,11 @@ export interface Tap {
   readonly stop: () => void;
 }
 
+/** The failure of a capture whose context closed before its end. */
+function closed(): Error {
+  return new Error("the context closed before the end of the capture");
+}
+
 /** Turns anything thrown into an `Error` of this realm (the worklet is another realm). */
 function toError(thrown: unknown): Error {
   return thrown instanceof Error ? thrown : new Error(String(thrown));
@@ -214,8 +219,9 @@ function toError(thrown: unknown): Error {
 /**
  * Taps `source`: `onBlock` receives every render quantum it outputs (`channels`
  * channels, exactly as the audio thread computes them), until `stop` is called. `onError`
- * receives a malformed one, which is then dropped. (`onBlock` keeps its name until the
- * public API takes its final names: a render quantum is not an engine block.)
+ * receives a malformed one, which is then dropped. The source stopping is not reported:
+ * it may start again. (`onBlock` keeps its name until the public API takes its final
+ * names: a render quantum is not an engine block.)
  */
 export function tap(
   context: BaseAudioContext,
@@ -224,6 +230,24 @@ export function tap(
   onBlock: (block: Float32Array[]) => void,
   onError: (error: Error) => void,
 ): Tap {
+  return listen(
+    context,
+    source,
+    channels,
+    (message) => {
+      if (message.type === "quantum") {
+        onBlock(message.channels);
+      }
+    },
+    onError,
+  );
+}
+
+/**
+ * Taps `source` as {@link tap} does, giving every message of the tap processor to
+ * `onMessage`: the render quanta, and its source stopping.
+ */
+function listen(context: BaseAudioContext, source: AudioNode, channels: number, onMessage: (message: TapMessage) => void, onError: (error: Error) => void): Tap {
   const node = new AudioWorkletNode(context, TAP_PROCESSOR, {
     numberOfInputs: 1,
     numberOfOutputs: 0,
@@ -233,14 +257,14 @@ export function tap(
   });
   let stopped = false;
   node.port.onmessage = (event: MessageEvent<unknown>) => {
-    let block: Float32Array[];
+    let message: TapMessage;
     try {
-      block = parseTapBlock(event.data);
+      message = parseTapMessage(event.data);
     } catch (error) {
       onError(toError(error));
       return;
     }
-    onBlock(block);
+    onMessage(message);
   };
   source.connect(node);
   return {
@@ -261,6 +285,8 @@ export function tap(
  *
  * Connect `source` and start capturing before the context starts running to capture from
  * its very first frame.
+ * @throws {Error} when the source stops, or the context closes, before the end of the
+ * capture.
  */
 export function capture(context: BaseAudioContext, source: AudioNode, channels: number, frames: number): Promise<Float32Array[]> {
   if (!Number.isInteger(channels) || channels < 1) {
@@ -281,28 +307,49 @@ function fill(context: BaseAudioContext, source: AudioNode, out: readonly Float3
   if (frames === 0) {
     return Promise.resolve();
   }
+  if (context.state === "closed") {
+    return Promise.reject(closed());
+  }
   return new Promise((resolve, reject) => {
     let filled = 0;
-    const running = tap(
+    // A capture starts before its context runs: only a closed context ends it.
+    const follow = (): void => {
+      if (context.state === "closed") {
+        end(closed());
+      }
+    };
+    /** Stops the tap and the following of the context, then settles: failed with `error`, if given. */
+    const end = (error?: Error): void => {
+      running.stop();
+      context.removeEventListener("statechange", follow);
+      if (error === undefined) {
+        resolve();
+      } else {
+        reject(error);
+      }
+    };
+    const running = listen(
       context,
       source,
       out.length,
-      (block) => {
+      (message) => {
+        if (message.type === "stopped") {
+          end(new Error("the source stopped before the end of the capture"));
+          return;
+        }
+        const block = message.channels;
         const count = Math.min(frames - filled, block[0]?.length ?? 0);
         out.forEach((channel, index) => {
           channel.set(block[index]?.subarray(0, count) ?? new Float32Array(count), filled);
         });
         filled += count;
         if (filled === frames) {
-          running.stop();
-          resolve();
+          end();
         }
       },
-      (error) => {
-        running.stop();
-        reject(error);
-      },
+      end,
     );
+    context.addEventListener("statechange", follow);
   });
 }
 
@@ -381,7 +428,9 @@ export async function renderOffline(loaded: LoadedPatch, frames: number, process
     true,
   );
   engine.node.connect(context.destination);
-  const [buffer] = await Promise.all([context.startRendering(), engine.ready]);
+  // Not `engine.ready`: a processor the browser never constructs during the render never
+  // answers; the marker channel then shows that the engine started too late.
+  const buffer = await context.startRendering();
   if (failure !== undefined) {
     throw failure;
   }

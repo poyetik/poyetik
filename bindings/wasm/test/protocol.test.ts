@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { ENGINE_PROCESSOR, MessageError, OptionsError, TAP_PROCESSOR, parseEngineMessage, parseEngineOptions, parseTapBlock } from "../ts/protocol.ts";
+import { ENGINE_PROCESSOR, MessageError, OptionsError, TAP_PROCESSOR, parseEngineMessage, parseEngineOptions, parseTapMessage, SOURCE_STOPPED } from "../ts/protocol.ts";
 
 describe("parseEngineOptions", () => {
   test("accepts the module bytes, the patch and the marker choice", () => {
@@ -28,16 +28,21 @@ describe("parseEngineOptions", () => {
   });
 });
 
-describe("parseTapBlock", () => {
+describe("parseTapMessage", () => {
   test("accepts one Float32Array per channel", () => {
     const block = [new Float32Array(2), new Float32Array(2)];
-    expect(parseTapBlock(block)).toStrictEqual(block);
-    expect(parseTapBlock([])).toStrictEqual([]);
+    expect(parseTapMessage(block)).toStrictEqual({ type: "quantum", channels: block });
+    expect(parseTapMessage([])).toStrictEqual({ type: "quantum", channels: [] });
+  });
+
+  test("accepts the source stopping", () => {
+    expect(SOURCE_STOPPED).toBe("source stopped");
+    expect(parseTapMessage("source stopped")).toStrictEqual({ type: "stopped" });
   });
 
   test("rejects anything else", () => {
-    expect(() => parseTapBlock("stop")).toThrow(new MessageError("render quantum is not an array"));
-    expect(() => parseTapBlock([new Float32Array(1), [0]])).toThrow(new MessageError("tap channel is not a Float32Array"));
+    expect(() => parseTapMessage("stop")).toThrow(new MessageError("render quantum is not an array"));
+    expect(() => parseTapMessage([new Float32Array(1), [0]])).toThrow(new MessageError("tap channel is not a Float32Array"));
   });
 });
 

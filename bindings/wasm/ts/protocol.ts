@@ -73,17 +73,36 @@ export function parseEngineOptions(value: unknown): EngineOptions {
   return { wasm, patch, marker };
 }
 
-/** Checks a render quantum posted by the tap processor: one array per channel. */
-export function parseTapBlock(value: unknown): Float32Array[] {
+/**
+ * What the tap processor posts, once, when its input goes from present to empty: its
+ * source stopped (an engine that failed, a source that ended or was disconnected).
+ */
+export const SOURCE_STOPPED = "source stopped";
+
+/** What the tap processor tells the main thread. */
+export type TapMessage =
+  /** A render quantum of its input: one array per channel. */
+  | { readonly type: "quantum"; readonly channels: Float32Array[] }
+  /** Its source stopped: no render quantum comes any more until it starts again. */
+  | { readonly type: "stopped" };
+
+/** Checks a message posted by the tap processor: a render quantum, or {@link SOURCE_STOPPED}. */
+export function parseTapMessage(value: unknown): TapMessage {
+  if (value === SOURCE_STOPPED) {
+    return { type: "stopped" };
+  }
   if (!Array.isArray(value)) {
     throw new MessageError("render quantum is not an array");
   }
-  return value.map((channel: unknown) => {
-    if (!(channel instanceof Float32Array)) {
-      throw new MessageError("tap channel is not a Float32Array");
-    }
-    return channel;
-  });
+  return {
+    type: "quantum",
+    channels: value.map((channel: unknown) => {
+      if (!(channel instanceof Float32Array)) {
+        throw new MessageError("tap channel is not a Float32Array");
+      }
+      return channel;
+    }),
+  };
 }
 
 /** What the engine processor tells the main thread, once. */
