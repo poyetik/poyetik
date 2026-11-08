@@ -17,12 +17,12 @@
   },
   "devDependencies": {
     "@poyetik/config": "workspace:*",
-    "@stryker-mutator/core": "^10.1.1",
-    "@stryker-mutator/vitest-runner": "^10.1.1",
-    "@types/node": "^26.6.6",
-    "@vitest/coverage-v8": "^5.1.0",
-    "eslint": "^10.14.0",
-    "typescript": "~6.0.3",
-    "vitest": "^5.1.0"
+    "@stryker-mutator/core": "catalog:",
+    "@stryker-mutator/vitest-runner": "catalog:",
+    "@types/node": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
+    "eslint": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   }
 }

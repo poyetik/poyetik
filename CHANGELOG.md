@@ -38,6 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The tools shared by several TypeScript packages (TypeScript, Vitest, Playwright, Stryker, ESLint, axe, Node types) have one version each, in the pnpm catalog of the workspace; the Node type definitions follow the Node version the packages require (22.18), not Node 26, and the roadmap no longer allows a newer TypeScript than the others.
 - The counting allocator of the tests is its own crate, `engine-alloc-counter`, checked by Miri; `engine-testkit` and the engine and instance modules of `engine-wasm` forbid unsafe code, and `cargo xtask check` fails when any file but the two audited ones lifts the lint against unsafe code.
 - Roadmap: only a card in the In progress (`doing`) column has a step in progress; a card waiting in another column shows nothing in progress, and `task done <id>` without a step number fails for it.
 - **Breaking:** the oracle and the roadmap CLI follow the same command-line contract as `engine-cli` and `cargo xtask`: exit code 2 for a usage error (the roadmap used 1), one `error:` line naming the file (the oracle's JSON errors did not, the roadmap printed stack traces for unreadable files), and a closed stdout ignored instead of crashing. The contract is written in CLAUDE.md.
