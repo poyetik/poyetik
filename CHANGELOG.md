@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-08
+
 ### Added
 
 - The engine design decisions are recorded (`spec/engine-design.md`, roadmap #12 step 1): host-chosen settings with three levels of block size (renders independent of the engine block), feedback through an explicit delay, sample-accurate events and message ordering, parameters driven by messages or signals, multichannel cables and buses, polyphony, the Nyquist policy, an integer phase accumulator, 64-bit processing by default with a 32-bit setting, deterministic denormals, raw and protected output modes, parallel scheduling, latency compensation, hot swap, serializable box state and hooks for musical time, inputs and external processors, each with its reasons, consequences and implementation order. `patch-format.md` links the planned changes.
