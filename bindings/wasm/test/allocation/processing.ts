@@ -1,8 +1,8 @@
-// Drives the real audio-thread entry point, `EngineProcessor.process`, through the fake
-// worklet scope: from the first quantum of a fresh processor on, as a browser drives it,
-// every quantum counted.
+// Drives the real audio-thread entry points, `EngineProcessor.process` and
+// `TapProcessor.process`, through the fake worklet scope: from the first quantum of a fresh
+// processor on, as a browser drives it, every quantum counted.
 import { expect } from "vitest";
-import { ENGINE_PROCESSOR } from "../../ts/protocol.ts";
+import { ENGINE_PROCESSOR, TAP_PROCESSOR } from "../../ts/protocol.ts";
 import { SINE_PATCH, wasmBytes } from "../fixtures.ts";
 import { loadProcessors, processorClass } from "../worklet.ts";
 import { collections, repeat } from "./collections.ts";
@@ -32,5 +32,19 @@ export async function processing(size: number, frames: number, alongside: () => 
     });
   });
   expect(node.port.posted).toStrictEqual([{ type: "ready" }]);
+  return count;
+}
+
+/** Collections caused by tapping `quanta` quanta of two channels of 128 frames, from a fresh tap processor. */
+export async function tapping(quanta: number): Promise<number> {
+  const TapProcessor = processorClass(await loadProcessors(RATE), TAP_PROCESSOR);
+  const node = new TapProcessor();
+  const inputs = [[new Float32Array(128), new Float32Array(128)]];
+  const count = await collections(() => {
+    repeat(quanta, () => {
+      node.process(inputs, []);
+    });
+  });
+  expect(node.port.posted).toHaveLength(quanta);
   return count;
 }

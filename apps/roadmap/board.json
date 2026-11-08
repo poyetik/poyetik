@@ -76,7 +76,7 @@
           "done": false
         },
         {
-          "title": "Allocation-free audio thread in the browser, without per-frame garbage: oscilloscope through an AnalyserNode; capture and metering through a SharedArrayBuffer ring when cross-origin isolated, with a tested fallback otherwise; garbage collections while rendering measured in every browser engine, not only in V8",
+          "title": "Allocation-free audio thread in the browser, without per-frame garbage: oscilloscope through an AnalyserNode; capture and metering through a SharedArrayBuffer ring when cross-origin isolated, with a tested fallback otherwise; garbage collections while rendering measured in every browser engine, not only in V8. Until then, the tap processor behind capture and the playground oscilloscope copies every render quantum on the audio thread (a known deviation, pinned by an allocation test)",
           "done": false
         },
         {
