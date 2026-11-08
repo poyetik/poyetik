@@ -1,6 +1,7 @@
 import { describe, expect, test, vi } from "vitest";
 import { ABI_VERSION, EngineTrap, ModuleError, PatchError, WasmEngine } from "../ts/engine.ts";
 import { interleave, renderHash } from "../ts/hash.ts";
+import { Counted, created } from "./counted.ts";
 import { CORPUS, engineFunctions, HOST_BUFFER_SIZES, FUNCTIONS, oscillators, PATCH_NAMES, REFERENCES, SILENT_PATCH, SINE_PATCH, UNKNOWN_BOX, handMadeModule, wasmBytes } from "./fixtures.ts";
 
 /** The built engine module, compiled once and instantiated afresh by every test. */
@@ -336,25 +337,6 @@ describe("WasmEngine", () => {
     engine.render(outputs);
     expect(outputs[0]).toStrictEqual(new Float32Array([0, 0.25, 0]));
   });
-
-  /** A `Float32Array` that counts how many are created, views included. */
-  class Counted extends Float32Array {
-    /** Arrays created since the last reset. */
-    static created = 0;
-
-    /** Creates the array, and counts it. */
-    constructor(...args: ConstructorParameters<typeof Float32Array>) {
-      super(...args);
-      Counted.created += 1;
-    }
-  }
-
-  /** Arrays created by `action`, with `Counted` standing in for `Float32Array`. */
-  function created(action: () => void): number {
-    Counted.created = 0;
-    action();
-    return Counted.created;
-  }
 
   test("creates its views of the memory once, not at every block", () => {
     vi.stubGlobal("Float32Array", Counted);

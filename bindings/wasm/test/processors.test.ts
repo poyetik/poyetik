@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, test, vi } from "vitest";
 import { WasmEngine } from "../ts/engine.ts";
 import { ENGINE_PROCESSOR, MARKER_PERIOD, TAP_PROCESSOR } from "../ts/protocol.ts";
+import { Counted, created } from "./counted.ts";
 import { engineFunctions, handMadeBytes, SAMPLE_RATES, SILENT_PATCH, SINE_PATCH, UNKNOWN_BOX, wasmBytes } from "./fixtures.ts";
 import { loadProcessors, processorClass, type ProcessorClass } from "./worklet.ts";
 
@@ -91,6 +92,32 @@ describe("engine processor", () => {
     node.process([], outputs);
     expect(Array.from(outputs[0]?.[0]?.subarray(0, 3) ?? [])).toStrictEqual([2 ** 24, 1, 2]);
     expect(outputs[0]?.[0]?.at(-1)).toBe(4095);
+  });
+
+  test("creates one view per patch channel at its first quantum, a known deviation, then none", () => {
+    // Recorded in CLAUDE.md: the first quantum on the audio thread creates the views of
+    // the first block, which a garbage collection count cannot see (they are kept).
+    const Engine = processor(ENGINE_PROCESSOR);
+    const original = Float32Array;
+    vi.stubGlobal("Float32Array", Counted);
+    try {
+      const node = new Engine({ processorOptions: { wasm: wasmBytes(), patch: SINE_PATCH, marker: true } });
+      const outputs = [[new Float32Array(128), new Float32Array(128), new Float32Array(128)]];
+      expect(
+        created(() => {
+          node.process([], outputs);
+        }),
+      ).toBe(2);
+      expect(
+        created(() => {
+          for (let quantum = 0; quantum < 100; quantum += 1) {
+            node.process([], outputs);
+          }
+        }),
+      ).toBe(0);
+    } finally {
+      vi.stubGlobal("Float32Array", original);
+    }
   });
 
   test("tells the main thread it is ready", () => {
