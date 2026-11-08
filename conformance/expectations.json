@@ -7,6 +7,14 @@
       { "sine": { "frequency": 0, "amplitude": 1, "phase": 0 } }
     ]
   },
+  "sine-1000-at-11k025": {
+    "sample_rate": 11025,
+    "frames": 11025,
+    "channels": [
+      { "sine": { "frequency": 1000, "amplitude": 1, "phase": 0 } },
+      { "sine": { "frequency": 1000, "amplitude": 1, "phase": 0 } }
+    ]
+  },
   "sine-1000-at-8k": {
     "sample_rate": 8000,
     "frames": 8000,
@@ -69,6 +77,14 @@
     "channels": [
       { "sine": { "frequency": 440, "amplitude": 1, "phase": 0 } },
       { "sine": { "frequency": 440, "amplitude": 1, "phase": 0 } }
+    ]
+  },
+  "sine-440.25-at-96k": {
+    "sample_rate": 96000,
+    "frames": 96000,
+    "channels": [
+      { "sine": { "frequency": 440.25, "amplitude": 1, "phase": 0 } },
+      { "sine": { "frequency": 440.25, "amplitude": 1, "phase": 0 } }
     ]
   }
 }
