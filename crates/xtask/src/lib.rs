@@ -1496,11 +1496,43 @@ pub struct SystemRunner {
     pub root: PathBuf,
 }
 
+/// The variables git sets for a hook that name one repository.
+///
+/// They are listed by `git rev-parse --local-env-vars`. A command inheriting them acts on
+/// that repository whatever its working directory, so every command xtask runs is started
+/// without them: its working directory alone says which repository it works on.
+pub const LOCAL_GIT_VARIABLES: [&str; 15] = [
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_CONFIG",
+    "GIT_CONFIG_PARAMETERS",
+    "GIT_CONFIG_COUNT",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_IMPLICIT_WORK_TREE",
+    "GIT_GRAFT_FILE",
+    "GIT_INDEX_FILE",
+    "GIT_NO_REPLACE_OBJECTS",
+    "GIT_REPLACE_REF_BASE",
+    "GIT_PREFIX",
+    "GIT_SHALLOW_FILE",
+    "GIT_COMMON_DIR",
+];
+
+/// A command for `program` in `dir`, without the variables of [`LOCAL_GIT_VARIABLES`].
+fn command(program: &str, dir: &Path) -> Command {
+    let mut command = Command::new(program);
+    let _in_dir = command.current_dir(dir);
+    for variable in LOCAL_GIT_VARIABLES {
+        let _without = command.env_remove(variable);
+    }
+    command
+}
+
 impl Runner for SystemRunner {
     fn run(&mut self, cmd: &Cmd) -> io::Result<Option<i32>> {
-        Command::new(cmd.program)
+        command(cmd.program, &cmd.dir.under(&self.root))
             .args(&cmd.args)
-            .current_dir(cmd.dir.under(&self.root))
             .status()
             .map(|status| status.code())
     }
@@ -1519,9 +1551,8 @@ impl Runner for SystemRunner {
     }
 
     fn capture(&mut self, cmd: &Cmd) -> io::Result<String> {
-        Command::new(cmd.program)
+        command(cmd.program, &cmd.dir.under(&self.root))
             .args(&cmd.args)
-            .current_dir(cmd.dir.under(&self.root))
             .output()
             .and_then(|output| {
                 if output.status.success() {
@@ -1533,10 +1564,9 @@ impl Runner for SystemRunner {
     }
 
     fn tracked(&mut self, patterns: &[&str]) -> io::Result<Vec<String>> {
-        Command::new("git")
+        command("git", &self.root)
             .args(["ls-files", "--"])
             .args(patterns)
-            .current_dir(&self.root)
             .output()
             .and_then(|output| {
                 if output.status.success() {

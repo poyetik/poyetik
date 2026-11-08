@@ -70,6 +70,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Pushing or committing from a linked git worktree no longer corrupts the main repository: git hands the hooks variables naming the repository (`GIT_DIR`, `GIT_INDEX_FILE` …), which reached the tests run by the check, and a test running git in a temporary directory then set `core.bare` and staged files in the real repository. The hooks unset them, and every command `cargo xtask` runs is started without them; tests push and commit from a real linked worktree.
 - The roadmap dev server (`pnpm dev`) shows the page styled again: the strict Content Security Policy blocked the styles the dev server injects inline. The page now declares no policy in development mode only; the build and the tests keep the strict one.
 - The TypeScript coverage gate refused a package whose code has no branch (0 of 0): branches may now number zero, while lines, statements and functions must still be measured.
 - An empty conformance corpus fails `engine-cli check`, `bless` and `export`, and the oracle, instead of passing; the roadmap refuses dates that are well formed but not days of the calendar (2026-02-31, 2026-13-01).
