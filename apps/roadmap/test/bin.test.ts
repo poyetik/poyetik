@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import type * as Fs from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -128,12 +129,24 @@ describe("bin", () => {
   it("names the board file it cannot write", async () => {
     const file = join(dir, "board.json");
     writeFileSync(file, serializeBoard(emptyBoard("Project")));
-    chmodSync(file, 0o444);
     process.env["ROADMAP_FILE"] = file;
+    // A write the system refuses, whatever the user: a file's permissions do not stop root,
+    // so the failure is the system's own error for a path through a file (ENOTDIR), given
+    // by the real writeFileSync, for the write of the board only.
+    vi.doMock("node:fs", async (original) => {
+      const fs = await original<typeof Fs>();
+      return {
+        ...fs,
+        writeFileSync: (_path: string, text: string): void => {
+          fs.writeFileSync(join(file, "x"), text);
+        },
+      };
+    });
     const { stderr } = await runBin(["add", "Engine"]);
-    chmodSync(file, 0o644);
-    expect(stderr).toBe(`error: cannot write ${file}: EACCES\n`);
+    vi.doUnmock("node:fs");
+    expect(stderr).toBe(`error: cannot write ${file}: ENOTDIR\n`);
     expect(process.exitCode).toBe(1);
+    expect(parseBoard(JSON.parse(readFileSync(file, "utf8"))).cards).toEqual([]);
   });
 
   it("refuses a board that is not valid UTF-8 instead of replacing the bytes", async () => {
