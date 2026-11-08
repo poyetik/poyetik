@@ -7,7 +7,8 @@ use engine_hash::{RenderHash, render_hash};
 use engine_objects::REGISTRY;
 use serde::Deserialize;
 
-/// A conformance case, as written.
+/// A conformance case, as written: how to render its patch, which is a separate file
+/// read as is, so that every runner gives the engine exactly the same bytes.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Case {
@@ -15,8 +16,6 @@ struct Case {
     sample_rate: u32,
     /// Duration, in frames.
     frames: usize,
-    /// The patch, in the patch format.
-    patch: serde_json::Value,
 }
 
 /// The result of rendering a case.
@@ -91,7 +90,8 @@ impl Prepared {
     }
 }
 
-/// Reads a conformance case and builds its plan, without rendering it yet.
+/// Reads a conformance case and its patch (the text of the patch file, unchanged) and
+/// builds its plan, without rendering it yet.
 ///
 /// Also checks, before any rendering, that the render fits a WAV file.
 ///
@@ -99,11 +99,11 @@ impl Prepared {
 ///
 /// Returns a message when the case, its sample rate or its patch is invalid, when the
 /// patch has no audio output, or when its render would not fit a WAV file.
-pub fn prepare_case(json: &str) -> Result<Prepared, String> {
+pub fn prepare_case(case: &str, patch: &str) -> Result<Prepared, String> {
     let case: Case =
-        serde_json::from_str(json).map_err(|error| format!("invalid case: {error}"))?;
+        serde_json::from_str(case).map_err(|error| format!("invalid case: {error}"))?;
     let rate = SampleRate::new(case.sample_rate).map_err(|error| error.to_string())?;
-    let patch = engine_patch::parse_patch(&case.patch.to_string()).map_err(|e| e.to_string())?;
+    let patch = engine_patch::parse_patch(patch).map_err(|e| e.to_string())?;
     let plan = Plan::build(&patch, &REGISTRY, rate).map_err(|error| error.to_string())?;
     if plan.channels() == 0 {
         return Err("the patch has no audio output: nothing to render".to_owned());
@@ -118,11 +118,11 @@ pub fn prepare_case(json: &str) -> Result<Prepared, String> {
     })
 }
 
-/// Reads a conformance case and renders it with the native engine.
+/// Reads a conformance case and its patch and renders it with the native engine.
 ///
 /// # Errors
 ///
 /// Returns a message when the case, its sample rate or its patch is invalid.
-pub fn render_case(json: &str) -> Result<Rendered, String> {
-    prepare_case(json).map(Prepared::render)
+pub fn render_case(case: &str, patch: &str) -> Result<Rendered, String> {
+    prepare_case(case, patch).map(Prepared::render)
 }

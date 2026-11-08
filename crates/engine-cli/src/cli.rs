@@ -8,10 +8,10 @@ use crate::{Files, prepare_case, render_case, wav_file};
 
 /// Usage of the `engine-cli` command.
 pub const USAGE: &str = "usage: engine-cli <command>
-  render <case.json> [--wav <file.wav>]  render a case, print its hash, optionally write a WAV file
-  check <dir>                            compare every case of <dir>/cases with <dir>/references.json
-  bless <dir>                            rewrite <dir>/references.json from the current renders
-  export <dir> <out>                     write the WAV file of every case of <dir>/cases to <out>/<case>.wav";
+  render <case.json> <patch.json> [--wav <file.wav>]  render a case, print its hash, optionally write a WAV file
+  check <dir>         compare every case of <dir>/cases (patches in <dir>/patches) with <dir>/references.json
+  bless <dir>         rewrite <dir>/references.json from the current renders
+  export <dir> <out>  write the WAV file of every case of <dir>/cases to <out>/<case>.wav";
 
 /// Reads a file, naming it on failure.
 fn read(files: &mut dyn Files, path: &Path) -> Result<String, String> {
@@ -25,23 +25,49 @@ fn say(out: &mut dyn Write, line: &str) -> Result<(), String> {
     writeln!(out, "{line}").map_err(|error| error.to_string())
 }
 
-/// Reads every case of `<dir>/cases`, sorted by name: `(name, JSON text)`.
-fn cases(files: &mut dyn Files, dir: &Path) -> Result<Vec<(String, String)>, String> {
-    let cases = dir.join("cases");
+/// A case of a conformance directory: its name, the text of its case file and the text
+/// of its patch file.
+type CaseFiles = (String, String, String);
+
+/// The names of the `.json` files of `dir`, sorted, with their paths.
+fn json_files(files: &mut dyn Files, dir: &Path) -> Result<Vec<(String, PathBuf)>, String> {
     let mut entries = files
-        .list(&cases)
-        .map_err(|error| format!("cannot list {}: {error}", cases.display()))?;
+        .list(dir)
+        .map_err(|error| format!("cannot list {}: {error}", dir.display()))?;
     entries.sort();
-    let mut read_cases = Vec::new();
-    for path in entries
-        .iter()
+    entries
+        .into_iter()
         .filter(|p| p.extension().is_some_and(|e| e == "json"))
+        .map(|path| {
+            path.file_stem()
+                .and_then(|stem| stem.to_str())
+                .map(str::to_owned)
+                .map(|name| (name, path.clone()))
+                .ok_or_else(|| format!("invalid case file name: {}", path.display()))
+        })
+        .collect()
+}
+
+/// Reads every case of `<dir>/cases` with its patch `<dir>/patches/<name>.json`, sorted
+/// by name. Every case needs its patch, and every patch its case.
+fn cases(files: &mut dyn Files, dir: &Path) -> Result<Vec<CaseFiles>, String> {
+    let patches = dir.join("patches");
+    let names = json_files(files, &dir.join("cases"))?;
+    let patch_names = json_files(files, &patches)?;
+    if let Some((orphan, path)) = patch_names
+        .iter()
+        .find(|(patch, _)| !names.iter().any(|(name, _)| name == patch))
     {
-        let name = path
-            .file_stem()
-            .and_then(|stem| stem.to_str())
-            .ok_or_else(|| format!("invalid case file name: {}", path.display()))?;
-        read_cases.push((name.to_owned(), read(files, path)?));
+        return Err(format!(
+            "{orphan}: patch without a case: {}",
+            path.display()
+        ));
+    }
+    let mut read_cases = Vec::new();
+    for (name, path) in names {
+        let case = read(files, &path)?;
+        let patch = read(files, &patches.join(format!("{name}.json")))?;
+        read_cases.push((name, case, patch));
     }
     Ok(read_cases)
 }
@@ -49,8 +75,8 @@ fn cases(files: &mut dyn Files, dir: &Path) -> Result<Vec<(String, String)>, Str
 /// Renders every case of `<dir>/cases`, sorted by name: `(name, hash)`.
 fn hashes(files: &mut dyn Files, dir: &Path) -> Result<BTreeMap<String, String>, String> {
     let mut hashes = BTreeMap::new();
-    for (name, json) in cases(files, dir)? {
-        let rendered = render_case(&json).map_err(|e| format!("{name}: {e}"))?;
+    for (name, case, patch) in cases(files, dir)? {
+        let rendered = render_case(&case, &patch).map_err(|e| format!("{name}: {e}"))?;
         // Case names are file names of one directory, hence unique.
         drop(hashes.insert(name, rendered.hash().to_string()));
     }
@@ -62,14 +88,15 @@ fn references_path(dir: &Path) -> PathBuf {
     dir.join("references.json")
 }
 
-/// `render <case> [--wav <file>]`.
+/// `render <case> <patch> [--wav <file>]`.
 fn render(files: &mut dyn Files, out: &mut dyn Write, args: &[String]) -> Result<(), String> {
-    let (case, wav) = match args {
-        [case] => (case, None),
-        [case, flag, wav] if flag == "--wav" => (case, Some(wav)),
+    let (case, patch, wav) = match args {
+        [case, patch] => (case, patch, None),
+        [case, patch, flag, wav] if flag == "--wav" => (case, patch, Some(wav)),
         _ => return Err(USAGE.to_owned()),
     };
-    let prepared = prepare_case(&read(files, Path::new(case))?)?;
+    let case = read(files, Path::new(case))?;
+    let prepared = prepare_case(&case, &read(files, Path::new(patch))?)?;
     let header = *prepared.wav_header();
     let rendered = prepared.render();
     if let Some(path) = wav {
@@ -145,8 +172,8 @@ fn export(
     files
         .create_dir_all(target)
         .map_err(|error| format!("cannot create {}: {error}", target.display()))?;
-    for (name, json) in cases(files, dir)? {
-        let prepared = prepare_case(&json).map_err(|e| format!("{name}: {e}"))?;
+    for (name, case, patch) in cases(files, dir)? {
+        let prepared = prepare_case(&case, &patch).map_err(|e| format!("{name}: {e}"))?;
         let header = *prepared.wav_header();
         let rendered = prepared.render();
         let path = target.join(format!("{name}.wav"));

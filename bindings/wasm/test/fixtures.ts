@@ -31,8 +31,8 @@ function field(json: unknown, name: string): unknown {
 const sineCase: unknown = JSON.parse(readFileSync(new URL("cases/sine-440.json", CONFORMANCE), "utf8"));
 const references: unknown = JSON.parse(readFileSync(new URL("references.json", CONFORMANCE), "utf8"));
 
-/** The patch of the sine-440 case, as UTF-8 bytes. */
-export const SINE_PATCH = new TextEncoder().encode(JSON.stringify(field(sineCase, "patch")));
+/** The patch file of the sine-440 case, byte for byte: never parsed and written again. */
+export const SINE_PATCH = new Uint8Array(readFileSync(new URL("patches/sine-440.json", CONFORMANCE)));
 
 /** Duration of the sine-440 case, in frames. */
 export const SINE_FRAMES = Number(field(sineCase, "frames"));

@@ -31,6 +31,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Breaking:** the patch of each conformance case is its own file, `conformance/patches/<name>.json`, and every runner (native CLI, Node tests, browser bench) passes its bytes to the engine unchanged. The runners used to rewrite the patch from a parsed copy, which could hide differences (a repeated parameter was silently merged; JavaScript writes `-0` as `0`). `engine-cli render` takes the case and the patch files. A case without its patch, or a patch without its case, is an error.
+- The playground plays exactly the sine-440 patch of the conformance corpus (checked by a test), whose render has a reference hash.
 - **Breaking:** `Patch` is a validated type, built only by `Patch::new`: node ids are unique, cables are never repeated, and a patch holds at most 65,536 nodes and 262,144 cables. The cables into an inlet are summed in a fixed order (source id, then outlet), whatever the order of the document. The patch reader also refuses documents over 16 MiB and a parameter named twice in one node.
 - **Breaking:** `Plan::render` continues exactly where the previous call stopped (rendering `a` then `b` frames equals rendering `a + b`), and returns `CoreError::RenderTooLong` instead of failing when the samples cannot be held in memory.
 - Execution order is computed with Kahn's algorithm, in O((N + E) log N) instead of O(N²·E): a patch of 16,000 boxes is ordered in milliseconds instead of seconds. The order is unchanged.

@@ -32,10 +32,13 @@ mod tests {
     #[test]
     fn fails_on_a_wrong_reference_hash() {
         let dir = std::env::temp_dir().join(format!("engine-cli-wrong-{}", std::process::id()));
-        std::fs::create_dir_all(dir.join("cases")).expect("temporary directory");
-        let case = Path::new(&conformance()).join("cases/sine-440.json");
-        let copied = std::fs::copy(case, dir.join("cases/sine-440.json")).expect("copy the case");
-        assert!(copied > 0, "the case is copied");
+        for kind in ["cases", "patches"] {
+            std::fs::create_dir_all(dir.join(kind)).expect("temporary directory");
+            let file = Path::new(&conformance()).join(kind).join("sine-440.json");
+            let copied =
+                std::fs::copy(file, dir.join(kind).join("sine-440.json")).expect("copy the file");
+            assert!(copied > 0, "the {kind} file is copied");
+        }
         std::fs::write(dir.join("references.json"), r#"{"sine-440":"0"}"#).expect("references");
         let output = Command::new(env!("CARGO_BIN_EXE_engine-cli"))
             .args(["check", &dir.display().to_string()])

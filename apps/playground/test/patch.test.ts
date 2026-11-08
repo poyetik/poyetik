@@ -1,20 +1,26 @@
 import { loadPatch } from "@poyetik/engine-wasm/web";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
 import { expect, test } from "vitest";
 import { SINE_440 } from "../src/patch.ts";
 
-test("is a 440 Hz sine on both channels", () => {
-  expect(JSON.parse(new TextDecoder().decode(SINE_440))).toStrictEqual({
-    format: 1,
-    nodes: [
-      { id: 1, box: "osc~", params: { frequency: 440 } },
-      { id: 2, box: "dac~" },
-    ],
-    connections: [
-      { from: [1, 0], to: [2, 0] },
-      { from: [1, 0], to: [2, 1] },
-    ],
-  });
+/**
+ * The conformance patch file of sine-440, found by walking up from the package directory
+ * (under jsdom, module URLs are not file URLs): the tests also run from a copy of the
+ * package (mutation testing sandbox), deeper in the repository.
+ */
+function conformancePatch(): unknown {
+  for (let directory = pathToFileURL(`${process.cwd()}/`); directory.pathname !== "/"; directory = new URL("../", directory)) {
+    const file = new URL("conformance/patches/sine-440.json", directory);
+    if (existsSync(file)) {
+      return JSON.parse(readFileSync(file, "utf8"));
+    }
+  }
+  throw new Error("conformance corpus not found");
+}
+
+test("is the sine-440 patch of the conformance corpus, whose render has a reference hash", () => {
+  expect(JSON.parse(new TextDecoder().decode(SINE_440))).toStrictEqual(conformancePatch());
 });
 
 test("is accepted by the engine, with two channels", async () => {

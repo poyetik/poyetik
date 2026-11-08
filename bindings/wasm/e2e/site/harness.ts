@@ -14,16 +14,17 @@ function element<T extends HTMLElement>(id: string, type: new () => T): T {
   return found;
 }
 
-/** A conformance case: sample rate, duration and patch. */
+/** A conformance case: sample rate, duration and the bytes of its patch file. */
 interface Case {
   readonly rate: number;
   readonly frames: number;
   readonly patch: Uint8Array;
 }
 
-/** Fetches a conformance case. */
+/** Fetches a conformance case and its patch file, kept byte for byte. */
 async function fetchCase(name: string): Promise<Case> {
   const json: unknown = await (await fetch(`/conformance/cases/${name}.json`)).json();
+  const patch = new Uint8Array(await (await fetch(`/conformance/patches/${name}.json`)).arrayBuffer());
   if (typeof json !== "object" || json === null) {
     throw new Error("invalid case");
   }
@@ -32,7 +33,7 @@ async function fetchCase(name: string): Promise<Case> {
   if (typeof rate !== "number" || typeof frames !== "number") {
     throw new Error("invalid case");
   }
-  return { rate, frames, patch: new TextEncoder().encode(JSON.stringify(Reflect.get(json, "patch"))) };
+  return { rate, frames, patch };
 }
 
 const wasm = await (await fetch(new URL("../../dist/engine.wasm", import.meta.url))).arrayBuffer();

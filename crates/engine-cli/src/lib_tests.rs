@@ -8,9 +8,11 @@ use engine_core::SampleRate;
 
 use super::{Disk, Files, HEADER_LEN, Rendered, USAGE, render_case, run, wav_bytes, wav_header};
 
-const SINE: &str = r#"{"sample_rate":48000,"frames":100,"patch":{"format":1,
+const SINE: &str = r#"{"sample_rate":48000,"frames":100}"#;
+
+const PATCH: &str = r#"{"format":1,
   "nodes":[{"id":1,"box":"osc~"},{"id":2,"box":"dac~"}],
-  "connections":[{"from":[1,0],"to":[2,0]},{"from":[1,0],"to":[2,1]}]}}"#;
+  "connections":[{"from":[1,0],"to":[2,0]},{"from":[1,0],"to":[2,1]}]}"#;
 
 /// Files kept in memory.
 #[derive(Debug, Default)]
@@ -96,12 +98,15 @@ fn run_with(memory: &mut Memory, words: &[&str]) -> (Result<(), String>, String)
 }
 
 fn sine_hash() -> String {
-    render_case(SINE).expect("valid case").hash().to_string()
+    render_case(SINE, PATCH)
+        .expect("valid case")
+        .hash()
+        .to_string()
 }
 
 #[test]
 fn renders_a_case() {
-    let rendered = render_case(SINE).expect("valid case");
+    let rendered = render_case(SINE, PATCH).expect("valid case");
     assert_eq!(rendered.rate, SampleRate::HZ_48000, "rate");
     assert_eq!(rendered.channels, 2, "dac~ is stereo");
     assert_eq!(rendered.samples.len(), 200, "100 frames x 2 channels");
@@ -114,33 +119,55 @@ fn renders_a_case() {
 
 #[test]
 fn rejects_invalid_cases() {
-    for (case, start) in [
-        ("{", "invalid case: "),
-        (r#"{"sample_rate":48000,"frames":1}"#, "invalid case: "),
+    let no_output = r#"{"format":1,"nodes":[{"id":1,"box":"osc~"}],"connections":[]}"#;
+    for (case, patch, start) in [
+        ("{", PATCH, "invalid case: "),
+        (r#"{"sample_rate":48000}"#, PATCH, "invalid case: "),
         (
-            r#"{"sample_rate":48000,"frames":1,"patch":{},"extra":1}"#,
+            r#"{"sample_rate":48000,"frames":1,"extra":1}"#,
+            PATCH,
             "invalid case: ",
         ),
         (
-            r#"{"sample_rate":1,"frames":1,"patch":{}}"#,
+            r#"{"sample_rate":48000,"frames":1,"patch":{}}"#,
+            PATCH,
+            "invalid case: ",
+        ),
+        (
+            r#"{"sample_rate":1,"frames":1}"#,
+            PATCH,
             "invalid sample rate: 1 Hz",
         ),
         (
-            r#"{"sample_rate":48000,"frames":1,"patch":{"format":2,"nodes":[],"connections":[]}}"#,
+            SINE,
+            r#"{"format":2,"nodes":[],"connections":[]}"#,
             "unsupported patch format 2",
         ),
         (
-            r#"{"sample_rate":48000,"frames":1,"patch":{"format":1,"nodes":[{"id":1,"box":"x~"}],"connections":[]}}"#,
+            SINE,
+            r#"{"format":1,"nodes":[{"id":1,"box":"x~"}],"connections":[]}"#,
             "node 1: unknown box type",
         ),
-        (
-            r#"{"sample_rate":48000,"frames":1,"patch":{"format":1,"nodes":[{"id":1,"box":"osc~"}],"connections":[]}}"#,
-            "the patch has no audio output",
-        ),
+        (SINE, no_output, "the patch has no audio output"),
     ] {
-        let error = render_case(case).expect_err("invalid case");
+        let error = render_case(case, patch).expect_err("invalid case");
         assert!(error.starts_with(start), "{error}");
     }
+}
+
+#[test]
+fn reads_the_patch_bytes_unchanged() {
+    // The same parameter written twice is refused by the patch reader; a reader that
+    // went through a JSON value first would silently keep the last one.
+    let repeated = PATCH.replace(
+        r#"{"id":1,"box":"osc~"}"#,
+        r#"{"id":1,"box":"osc~","params":{"frequency":1,"frequency":2}}"#,
+    );
+    let error = render_case(SINE, &repeated).expect_err("repeated parameter");
+    assert!(
+        error.contains("parameter `frequency` is given twice"),
+        "{error}"
+    );
 }
 
 #[test]
@@ -237,14 +264,17 @@ fn encodes_samples_after_the_header() {
 
 #[test]
 fn render_command_prints_the_hash_and_writes_wav() {
-    let mut memory = Memory::with(&[("case.json", SINE)]);
-    let (result, out) = run_with(&mut memory, &["render", "case.json"]);
+    let mut memory = Memory::with(&[("case.json", SINE), ("patch.json", PATCH)]);
+    let (result, out) = run_with(&mut memory, &["render", "case.json", "patch.json"]);
     assert_eq!(
         (result, out),
         (Ok(()), format!("{}\n", sine_hash())),
         "hash only"
     );
-    let (with_wav, _) = run_with(&mut memory, &["render", "case.json", "--wav", "out.wav"]);
+    let (with_wav, _) = run_with(
+        &mut memory,
+        &["render", "case.json", "patch.json", "--wav", "out.wav"],
+    );
     assert_eq!(with_wav, Ok(()), "with a WAV file");
     assert_eq!(
         memory.files[Path::new("out.wav")].len(),
@@ -255,27 +285,46 @@ fn render_command_prints_the_hash_and_writes_wav() {
 
 #[test]
 fn render_command_reports_errors() {
-    let mut memory = Memory::with(&[("case.json", SINE), ("bad.json", "{")]);
+    let mut memory = Memory::with(&[
+        ("case.json", SINE),
+        ("patch.json", PATCH),
+        ("bad.json", "{"),
+    ]);
     for (words, error) in [
         (&["render"][..], USAGE.to_owned()),
-        (&["render", "case.json", "--mp3", "x"][..], USAGE.to_owned()),
-        (&["render", "case.json", "--wav"][..], USAGE.to_owned()),
+        (&["render", "case.json"][..], USAGE.to_owned()),
         (
-            &["render", "missing.json"][..],
+            &["render", "case.json", "patch.json", "--mp3", "x"][..],
+            USAGE.to_owned(),
+        ),
+        (
+            &["render", "case.json", "patch.json", "--wav"][..],
+            USAGE.to_owned(),
+        ),
+        (
+            &["render", "missing.json", "patch.json"][..],
+            "cannot read missing.json: no such file".to_owned(),
+        ),
+        (
+            &["render", "case.json", "missing.json"][..],
             "cannot read missing.json: no such file".to_owned(),
         ),
     ] {
         assert_eq!(run_with(&mut memory, words).0, Err(error), "{words:?}");
     }
     assert!(
-        run_with(&mut memory, &["render", "bad.json"])
+        run_with(&mut memory, &["render", "bad.json", "patch.json"])
             .0
             .is_err_and(|e| e.starts_with("invalid case")),
         "invalid case"
     );
     memory.read_only = true;
     assert_eq!(
-        run_with(&mut memory, &["render", "case.json", "--wav", "out.wav"]).0,
+        run_with(
+            &mut memory,
+            &["render", "case.json", "patch.json", "--wav", "out.wav"]
+        )
+        .0,
         Err("cannot write out.wav: read-only".to_owned()),
         "unwritable WAV"
     );
@@ -284,6 +333,7 @@ fn render_command_reports_errors() {
 fn conformance(references: &str) -> Memory {
     Memory::with(&[
         ("conf/cases/sine.json", SINE),
+        ("conf/patches/sine.json", PATCH),
         ("conf/cases/notes.txt", "ignored"),
         ("conf/references.json", references),
     ])
@@ -340,7 +390,10 @@ fn check_command_reports_unreadable_inputs() {
             .is_err_and(|e| e.starts_with("invalid conf/references.json: ")),
         "invalid references"
     );
-    let mut no_refs = Memory::with(&[("conf/cases/sine.json", SINE)]);
+    let mut no_refs = Memory::with(&[
+        ("conf/cases/sine.json", SINE),
+        ("conf/patches/sine.json", PATCH),
+    ]);
     assert_eq!(
         run_with(&mut no_refs, &["check", "conf"]).0,
         Err("cannot read conf/references.json: no such file".to_owned()),
@@ -352,8 +405,11 @@ fn check_command_reports_unreadable_inputs() {
         Err("cannot list conf/cases: no such directory".to_owned()),
         "no cases"
     );
-    let mut bad_case =
-        Memory::with(&[("conf/cases/bad.json", "{"), ("conf/references.json", "{}")]);
+    let mut bad_case = Memory::with(&[
+        ("conf/cases/bad.json", "{"),
+        ("conf/patches/bad.json", PATCH),
+        ("conf/references.json", "{}"),
+    ]);
     assert!(
         run_with(&mut bad_case, &["check", "conf"])
             .0
@@ -364,7 +420,12 @@ fn check_command_reports_unreadable_inputs() {
 
 #[test]
 fn bless_command_writes_sorted_references() {
-    let mut memory = Memory::with(&[("conf/cases/sine.json", SINE), ("conf/cases/a.json", SINE)]);
+    let mut memory = Memory::with(&[
+        ("conf/cases/sine.json", SINE),
+        ("conf/patches/sine.json", PATCH),
+        ("conf/cases/a.json", SINE),
+        ("conf/patches/a.json", PATCH),
+    ]);
     let (result, out) = run_with(&mut memory, &["bless", "conf"]);
     assert_eq!(result, Ok(()), "blessed");
     assert_eq!(
@@ -445,6 +506,7 @@ fn reports_a_broken_output() {
     );
     let mut stale = Memory::with(&[
         ("conf/cases/sine.json", SINE),
+        ("conf/patches/sine.json", PATCH),
         (
             "conf/references.json",
             &format!(r#"{{"sine":"{}","z":"0"}}"#, sine_hash()),
@@ -506,13 +568,13 @@ fn disk_reads_writes_and_lists() {
 
 #[test]
 fn prepares_a_case_before_rendering() {
-    let prepared = super::prepare_case(SINE).expect("valid case");
+    let prepared = super::prepare_case(SINE, PATCH).expect("valid case");
     assert_eq!(prepared.rate(), SampleRate::HZ_48000, "rate");
     assert_eq!(prepared.channels(), 2, "channels");
     assert_eq!(prepared.sample_count(), 200, "100 frames x 2 channels");
     assert_eq!(
         prepared.render(),
-        render_case(SINE).expect("valid case"),
+        render_case(SINE, PATCH).expect("valid case"),
         "same render"
     );
 }
@@ -521,12 +583,13 @@ fn prepares_a_case_before_rendering() {
 fn refuses_a_case_too_long_for_a_wav_file_before_rendering() {
     // Only prepares the case: a broken size check fails at once instead of rendering.
     let huge = SINE.replace(r#""frames":100"#, r#""frames":4000000000"#);
+    assert_ne!(huge, SINE, "the duration was replaced");
     assert_eq!(
-        super::prepare_case(&huge).map(|p| p.sample_count()),
+        super::prepare_case(&huge, PATCH).map(|p| p.sample_count()),
         Err("too long for WAV: 8000000000 samples".to_owned()),
         "rejected while preparing"
     );
-    let prepared = super::prepare_case(SINE).expect("valid case");
+    let prepared = super::prepare_case(SINE, PATCH).expect("valid case");
     assert_eq!(
         prepared.wav_header(),
         &wav_header(48_000, 2, 200).expect("valid sizes"),
@@ -577,14 +640,16 @@ fn check_command_rejects_case_names_that_are_not_utf8() {
 /// Two cases, `a` and `b`, the second one an octave up.
 fn two_cases() -> Memory {
     Memory::with(&[
+        ("conf/cases/b.json", SINE),
         (
-            "conf/cases/b.json",
-            &SINE.replace(
+            "conf/patches/b.json",
+            &PATCH.replace(
                 "{\"id\":1,\"box\":\"osc~\"}",
                 "{\"id\":1,\"box\":\"osc~\",\"params\":{\"frequency\":880}}",
             ),
         ),
         ("conf/cases/a.json", SINE),
+        ("conf/patches/a.json", PATCH),
         ("conf/cases/notes.txt", "ignored"),
     ])
 }
@@ -599,8 +664,8 @@ fn export_command_writes_the_wav_of_every_case_in_order() {
         vec![PathBuf::from("out/wav")],
         "output directory"
     );
-    let a = render_case(SINE).expect("valid case");
-    let b = render_case(&memory.text("conf/cases/b.json")).expect("valid case");
+    let a = render_case(SINE, PATCH).expect("valid case");
+    let b = render_case(SINE, &memory.text("conf/patches/b.json")).expect("valid case");
     assert_ne!(a.samples, b.samples, "two different cases");
     assert_eq!(
         memory.files[Path::new("out/wav/a.wav")],
@@ -643,7 +708,10 @@ fn export_command_reports_errors() {
         Err("cannot write out/a.wav: read-only".to_owned()),
         "write"
     );
-    let mut invalid = Memory::with(&[("conf/cases/bad.json", "{}")]);
+    let mut invalid = Memory::with(&[
+        ("conf/cases/bad.json", "{}"),
+        ("conf/patches/bad.json", PATCH),
+    ]);
     assert!(
         run_with(&mut invalid, &["export", "conf", "out"])
             .0
@@ -667,5 +735,38 @@ fn export_command_reports_errors() {
         run_with(&mut two_cases(), &["export", "conf"]).0,
         Err(USAGE.to_owned()),
         "missing output"
+    );
+}
+
+#[test]
+fn pairs_every_case_with_its_patch() {
+    let mut no_patch = Memory::with(&[
+        ("conf/cases/sine.json", SINE),
+        ("conf/cases/lonely.json", SINE),
+        ("conf/patches/sine.json", PATCH),
+        ("conf/references.json", "{}"),
+    ]);
+    assert_eq!(
+        run_with(&mut no_patch, &["check", "conf"]).0,
+        Err("cannot read conf/patches/lonely.json: no such file".to_owned()),
+        "a case without its patch"
+    );
+    let mut orphan = Memory::with(&[
+        ("conf/cases/sine.json", SINE),
+        ("conf/patches/sine.json", PATCH),
+        ("conf/patches/zombie.json", PATCH),
+        ("conf/patches/notes.txt", "ignored"),
+        ("conf/references.json", "{}"),
+    ]);
+    assert_eq!(
+        run_with(&mut orphan, &["check", "conf"]).0,
+        Err("zombie: patch without a case: conf/patches/zombie.json".to_owned()),
+        "a patch without its case"
+    );
+    let mut no_patches = Memory::with(&[("conf/cases/sine.json", SINE)]);
+    assert_eq!(
+        run_with(&mut no_patches, &["check", "conf"]).0,
+        Err("cannot list conf/patches: no such directory".to_owned()),
+        "no patch directory"
     );
 }
