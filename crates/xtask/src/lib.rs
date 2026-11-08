@@ -2786,8 +2786,8 @@ pub const NODE_FLOOR: (u64, u64) = (22, 18);
 /// `answers` holds what each of [`TOOLS`] answered: its version line, or why asking failed
 /// (a missing program, a missing cargo subcommand or toolchain, a broken install). Every
 /// tool must answer, the Cargo tools at their pinned version and Node.js at exactly the
-/// release of `node_version` (the text of [`NODE_VERSION_FILE`], which CI installs: a
-/// green local check means a green CI), and the Rust compiler at exactly the release of
+/// release of `node_version` (the text of [`NODE_VERSION_FILE`], which CI installs, so that a
+/// local check differs from CI only by platform), and the Rust compiler at exactly the release of
 /// `toolchain` (the text of [`RUST_TOOLCHAIN_FILE`]: an override, a `+toolchain` or
 /// `RUSTUP_TOOLCHAIN` would replace it), on a platform the checks support (macOS or Linux;
 /// Windows through WSL2), in an `environment` that sets none of the variables of
