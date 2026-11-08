@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Board, Card } from "../src/lib/board.ts";
-import { toView } from "../src/lib/view.ts";
+import { toView, DISPLAY_RANK } from "../src/lib/view.ts";
 
 function card(id: number, column: Card["column"], updatedAt: string): Card {
   return { id, title: `C${String(id)}`, description: "", column, milestone: "", createdAt: "2026-01-01", updatedAt, tasks: [] };
@@ -19,7 +19,7 @@ describe("toView", () => {
       { title: "D", done: false },
     ];
     const board: Board = { version: 1, title: "P", nextId: 2, cards: [{ ...card(1, "doing", "2026-11-01"), tasks }] };
-    const view = toView(board).columns[2]?.cards[0];
+    const view = toView(board).columns[0]?.cards[0];
     expect(view?.steps).toEqual([
       { title: "A", done: true, status: "done" },
       { title: "B", done: false, status: "doing" },
@@ -37,8 +37,8 @@ describe("toView", () => {
       nextId: 2,
       cards: [{ ...card(1, "doing", "2026-11-01"), tasks: [{ title: "A", done: true }] }],
     };
-    expect(toView(allDone).columns[2]?.cards[0]?.currentStep).toBeNull();
-    expect(toView({ ...allDone, cards: [card(1, "doing", "2026-11-01")] }).columns[2]?.cards[0]?.currentStep).toBeNull();
+    expect(toView(allDone).columns[0]?.cards[0]?.currentStep).toBeNull();
+    expect(toView({ ...allDone, cards: [card(1, "doing", "2026-11-01")] }).columns[0]?.cards[0]?.currentStep).toBeNull();
   });
 
   it("has no current step outside the In progress column", () => {
@@ -53,7 +53,7 @@ describe("toView", () => {
     expect(view?.doneSteps).toBe(1);
   });
 
-  it("groups cards by column in board order", () => {
+  it("groups cards by column, in progress first, then in board order", () => {
     const cards = [
       card(1, "done", "2026-11-03"),
       card(2, "next", "2026-11-09"),
@@ -65,9 +65,9 @@ describe("toView", () => {
     expect(toView(board)).toEqual({
       title: "P",
       columns: [
-        { id: "later", title: "Later", cards: [plain(cards[4])] },
-        { id: "next", title: "Next", cards: [plain(cards[1])] },
         { id: "doing", title: "In progress", cards: [plain(cards[3])] },
+        { id: "next", title: "Next", cards: [plain(cards[1])] },
+        { id: "later", title: "Later", cards: [plain(cards[4])] },
         { id: "done", title: "Done", cards: [plain(cards[0]), plain(cards[2])] },
       ],
       total: 5,
@@ -88,5 +88,11 @@ describe("toView", () => {
 
   it("handles an empty board", () => {
     expect(toView({ version: 1, title: "P", nextId: 1, cards: [] })).toMatchObject({ total: 0, done: 0, lastUpdated: null });
+  });
+});
+
+describe("DISPLAY_RANK", () => {
+  it("shows the work in progress first and what is done last", () => {
+    expect(DISPLAY_RANK).toStrictEqual({ doing: 0, next: 1, later: 2, done: 3 });
   });
 });

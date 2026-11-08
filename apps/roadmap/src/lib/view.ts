@@ -36,13 +36,22 @@ function toCardView(card: Card): CardView {
   };
 }
 
-/** Prepares the display: cards grouped by column, in board order. */
+/**
+ * The rank of each column on the page: what is in progress first, then what comes next,
+ * later, and what is done. On a narrow screen the columns stack, and the work under way
+ * must not come after the backlog.
+ */
+export const DISPLAY_RANK: Readonly<Record<ColumnId, number>> = { doing: 0, next: 1, later: 2, done: 3 };
+
+/** Prepares the display: cards grouped by column, in display order, then in board order. */
 export function toView(board: Board): BoardView {
-  const columns = COLUMNS.map((col) => ({
-    id: col.id,
-    title: col.title,
-    cards: board.cards.filter((c) => c.column === col.id).map(toCardView),
-  }));
+  const columns = [...COLUMNS]
+    .sort((a, b) => DISPLAY_RANK[a.id] - DISPLAY_RANK[b.id])
+    .map((col) => ({
+      id: col.id,
+      title: col.title,
+      cards: board.cards.filter((c) => c.column === col.id).map(toCardView),
+    }));
   const dates = board.cards.map((c) => c.updatedAt).sort();
   return {
     title: board.title,

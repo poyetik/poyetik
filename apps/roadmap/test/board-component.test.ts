@@ -54,7 +54,7 @@ describe("Board.astro", () => {
     const html = await render([card(1, "doing", { description: "The core", milestone: "M1" }), card(2, "done"), card(3, "next")]);
     expect(html).toContain("<strong>1</strong> / 3 done");
     expect(html).toContain('datetime="2026-11-07"');
-    for (const title of ["Later", "Next", "In progress", "Done"]) {
+    for (const title of ["In progress", "Next", "Later", "Done"]) {
       expect(html).toContain(title);
     }
     expect(html).toMatch(/data-id="1"[\s\S]*Card 1[\s\S]*The core[\s\S]*#1[\s\S]*M1/);
