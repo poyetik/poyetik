@@ -1,7 +1,7 @@
 {
   "version": 1,
   "title": "Poyetik",
-  "nextId": 22,
+  "nextId": 24,
   "cards": [
     {
       "id": 1,
@@ -496,6 +496,10 @@
         {
           "title": "Automated where a device can be driven (simulators or a device farm); otherwise listed as reviewed in the published known deviations",
           "done": false
+        },
+        {
+          "title": "Start the playground while an interruption is already active (during a phone call): the page says why there is no sound, and starts once the call ends",
+          "done": false
         }
       ]
     },
@@ -528,6 +532,60 @@
       "createdAt": "2026-11-08",
       "updatedAt": "2026-11-08",
       "tasks": []
+    },
+    {
+      "id": 22,
+      "title": "First CI run follow-up",
+      "description": "The CI workflow has not completed a run yet, so what it proves, how long it takes and how it behaves on GitHub are still assumptions. Run it once, measure it, and check on GitHub the behaviors that only GitHub can show.",
+      "column": "later",
+      "milestone": "M0 Foundations",
+      "createdAt": "2026-11-08",
+      "updatedAt": "2026-11-08",
+      "tasks": [
+        {
+          "title": "Run the full workflow once and record its duration, the number of mutants tested and whether the caches were reused",
+          "done": false
+        },
+        {
+          "title": "Set the job's timeout-minutes to 1.5 times the measured duration",
+          "done": false
+        },
+        {
+          "title": "Check live audio in Firefox and WebKitGTK on a runner without a sound card",
+          "done": false
+        },
+        {
+          "title": "Open a no-op pull request and check that the history gate passes on GitHub's merge ref",
+          "done": false
+        },
+        {
+          "title": "Check that the concurrency group of a skipped run does not cancel a requested run in progress",
+          "done": false
+        }
+      ]
+    },
+    {
+      "id": 23,
+      "title": "Host the playground and the roadmap",
+      "description": "The playground and the roadmap page are built and tested locally but served nowhere. Choose where they are hosted, and keep the HTTP security headers in versioned configuration, tested against what the host really serves.",
+      "column": "later",
+      "milestone": "M1 Engine",
+      "createdAt": "2026-11-08",
+      "updatedAt": "2026-11-08",
+      "tasks": [
+        {
+          "title": "Choose the host",
+          "done": false
+        },
+        {
+          "title": "Set frame-ancestors and the other security headers (Content-Security-Policy, Referrer-Policy, X-Content-Type-Options, Permissions-Policy) in versioned configuration",
+          "done": false
+        },
+        {
+          "title": "Test the headers the host really serves, in a check that fails when one is missing or different",
+          "done": false
+        }
+      ]
     }
   ]
 }
