@@ -164,15 +164,15 @@ Maximum testing applies to **all code, in every language**: Rust engine, patch m
 - **Supply chain**: `cargo-deny` and npm audit (licenses, vulnerabilities, provenance), locked dependencies.
 
 ### Behavior tests
-- **Reference renders**: every object has test patches rendered offline (patch + events + seed → samples + hash).
+- **Reference renders**: every box has test patches rendered offline (patch + events + seed → samples + hash).
 - **Cross-target conformance**: the same corpus produces **the same hashes natively and in WASM**, in CI.
 - **A reference hash only changes through a dedicated command**, and the commit explains why. Never silently.
 - **Property tests** (`proptest`), at minimum:
-  - the same render regardless of how blocks are split;
+  - the same render however it is split into host buffers;
   - two identical renders give the same result;
   - never NaN or infinity in the output.
-- **Real-time safety**: no allocation in `process`, checked automatically by the counting allocator of `engine-testkit`, installed in the tests of every crate that processes audio: each box (box laws), every plan (plan laws over random patches), the WASM engine and its C interface; nothing on the browser's audio thread allocates either (no per-block copies or messages).
-- **Never test only at the default**: every dimension of the environment the code receives is tested across its domain, never at a single value: sample rate (8 kHz to 384 kHz, including 44.1 kHz), how the host splits time (buffer sizes, block-partial lengths, random splits), duration, channel count (including 0 and 1), parameter values crossed with rates, special values (0, -0, subnormal, NaN, infinities, Nyquist), patch sizes, browsers and platforms, screen sizes and densities, locale and time zone. Test values deliberately differ from defaults, so that a hard-coded default cannot pass. The shared values come from one test matrix, never retyped.
+- **Real-time safety**: no allocation in `process`, checked automatically by the counting allocator of `engine-testkit`, installed in the tests of every crate that processes audio: each box (box laws), every plan (plan laws over random patches), the WASM engine and its C interface; nothing on the browser's audio thread allocates either (no copies or messages per render quantum).
+- **Never test only at the default**: every dimension of the environment the code receives is tested across its domain, never at a single value: sample rate (8 kHz to 384 kHz, including 44.1 kHz), how the host splits time (host buffer sizes, including sizes that are not a multiple of the block, random splits), duration, channel count (including 0 and 1), parameter values crossed with rates, special values (0, -0, subnormal, NaN, infinities, Nyquist), patch sizes, browsers and platforms, screen sizes and densities, locale and time zone. Test values deliberately differ from defaults, so that a hard-coded default cannot pass. The shared values come from one test matrix, never retyped.
 - **Invariants are tested at the edges of their domain**: every documented invariant and numeric claim is checked at the extremes of every parameter and sample rate and their combinations (zero, negative, Nyquist and above, subnormal, largest accepted sizes), and over long runs (drift, overflow). Every tolerance has a derivation or a measured distribution, written next to it; never a guess.
 - **Objective DSP measurements**: every box has measured audio quality in its tests, with thresholds (spectrum, aliasing level, THD, SNR, frequency response, parameter changes without zipper noise), compared with high-precision references. State-of-the-art DSP is a requirement, not a goal.
 - **Fuzzing**: patch parsing, the command layer, then native-vs-WASM differential fuzzing.
@@ -187,7 +187,7 @@ Maximum testing applies to **all code, in every language**: Rust engine, patch m
   - visual regression via screenshots;
   - accessibility (axe);
   - the sound produced in the browser is captured (`OfflineAudioContext`) and compared to the native hash.
-- **Performance**: engine and editor benchmarks (CPU per object, latency, load time, memory) tracked in CI. A regression beyond the set threshold fails CI.
+- **Performance**: engine and editor benchmarks (CPU per box, latency, load time, memory) tracked in CI. A regression beyond the set threshold fails CI.
 - **Exported artifacts**: each target runs in test mode, its render is compared to the reference hash, and plugins pass the official validators (`pluginval`, `clap-validator`, `auval`, the VST3 validator).
 - **Native shells**: Swift/Kotlin unit tests, plus lifecycle tests (interruptions, background, device changes, denied permissions) on simulators and reference devices.
 - **Security**: CSP verified, no API key ever sent to the server (checked by tests), fuzzing of everything that reads external input (patches, media, network messages, MCP).

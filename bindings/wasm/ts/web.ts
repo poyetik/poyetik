@@ -147,7 +147,7 @@ export function createEngineNode(context: BaseAudioContext, loaded: LoadedPatch,
   return { node, ready: ready.promise };
 }
 
-/** A running tap, posting every block of its source to the main thread. */
+/** A running tap, posting every render quantum of its source to the main thread. */
 export interface Tap {
   /** Disconnects the tap and stops its processor. Calling it again does nothing. */
   readonly stop: () => void;
@@ -159,9 +159,10 @@ function toError(thrown: unknown): Error {
 }
 
 /**
- * Taps `source`: `onBlock` receives every block it outputs (`channels` channels, exactly
- * as the audio thread computes them), until `stop` is called. `onError` receives a
- * malformed block, which is then dropped.
+ * Taps `source`: `onBlock` receives every render quantum it outputs (`channels`
+ * channels, exactly as the audio thread computes them), until `stop` is called. `onError`
+ * receives a malformed one, which is then dropped. (`onBlock` keeps its name until the
+ * public API takes its final names: a render quantum is not an engine block.)
  */
 export function tap(
   context: BaseAudioContext,

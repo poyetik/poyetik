@@ -70,9 +70,9 @@ class EngineProcessor extends AudioWorkletProcessor {
 }
 
 /**
- * Posts a copy of every block of its input to the main thread, until told to stop. Test
- * and measurement only: it allocates a copy per block (roadmap #12 replaces it with a
- * shared ring buffer).
+ * Posts a copy of every render quantum of its input to the main thread, until told to
+ * stop. Test and measurement only: it allocates a copy per render quantum (roadmap #12
+ * replaces it with a shared ring buffer).
  */
 class TapProcessor extends AudioWorkletProcessor {
   /** Whether to keep posting. */
@@ -86,7 +86,7 @@ class TapProcessor extends AudioWorkletProcessor {
     };
   }
 
-  /** Posts the input block, if any. */
+  /** Posts the input render quantum, if any. */
   process(inputs: Float32Array[][]): boolean {
     const input = inputs[0] ?? [];
     if (this.#running && input.length > 0) {

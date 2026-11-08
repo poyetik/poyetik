@@ -3,7 +3,7 @@
 /** Name of the processor running the engine. */
 export const ENGINE_PROCESSOR = "poyetik-engine";
 
-/** Name of the processor posting its input to the main thread, one block at a time. */
+/** Name of the processor posting its input to the main thread, one render quantum at a time. */
 export const TAP_PROCESSOR = "poyetik-tap";
 
 /** Options of the engine processor (`processorOptions`). */
@@ -51,7 +51,7 @@ export function parseEngineOptions(value: unknown): EngineOptions {
   return { wasm, patch, marker };
 }
 
-/** Checks a block posted by the tap processor: one array per channel. */
+/** Checks a render quantum posted by the tap processor: one array per channel. */
 export function parseTapBlock(value: unknown): Float32Array[] {
   if (!Array.isArray(value)) {
     throw new OptionsError("tap block is not an array");
