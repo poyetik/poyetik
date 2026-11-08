@@ -40,7 +40,7 @@ export interface Player {
    * a failure is a state.
    */
   start(): Promise<void>;
-  /** Stops playing; during a start, waits for it, then stops. From "failed", acknowledges it. */
+  /** Stops playing, fading out; during a start, cancels it. From "failed", acknowledges it. */
   stop(): Promise<void>;
   /** Resumes a suspended player. Call it from a user gesture. */
   resume(): Promise<void>;
@@ -112,7 +112,14 @@ export interface PlayerOptions {
   readonly environment: Environment;
 }
 
-/** One audio context, from start to close. */
+/** Why a wait of a session stops: the session ended first, so nobody needs its result. */
+class SessionEnded extends Error {}
+
+/**
+ * One audio context, from start to close. The session owns its lifetime: every wait on
+ * the browser (a download, the engine, the audio clock) ends with the session, so that
+ * nothing the player does can wait for an event a closed or frozen context never sends.
+ */
 class Session {
   /** The context of this session, created at the device rate and closed by {@link Session.close}. */
   readonly context: AudioContext;
@@ -120,6 +127,17 @@ class Session {
   readonly history: SampleHistory;
   /** The output stage, silent until the fade in: fades and gain, before the speakers. */
   readonly gain: GainNode;
+  /** The start of the session: settles once it plays, fails or ends. */
+  readonly started: PromiseWithResolvers<undefined> = Promise.withResolvers();
+  /** The stop of the session, once asked: settles once the session ended. */
+  stopping: Promise<void> | undefined;
+  /** Cancels the downloads and the waits of the session when it ends. */
+  readonly #abort = new AbortController();
+  /**
+   * Rejects once the session ends: every wait of the session races it. Never an unhandled
+   * rejection: the start races it as soon as the session exists, and a race keeps its handler.
+   */
+  readonly #ended: Promise<never>;
   /** The tap feeding the history, once connected. */
   #tap: Tap | undefined;
 
@@ -131,6 +149,25 @@ class Session {
     this.context = new AudioContext();
     this.history = new SampleHistory(Math.round(historySeconds * this.context.sampleRate));
     this.gain = new GainNode(this.context, { gain: 0 });
+    const { signal } = this.#abort;
+    this.#ended = new Promise((_resolve, reject) => {
+      signal.addEventListener("abort", () => {
+        reject(new SessionEnded());
+      });
+    });
+  }
+
+  /** Aborted when the session ends: given to the downloads of the session. */
+  get signal(): AbortSignal {
+    return this.#abort.signal;
+  }
+
+  /**
+   * Waits for `event`, unless the session ends first.
+   * @throws {SessionEnded} when the session ends before `event` settles.
+   */
+  until<T>(event: Promise<T>): Promise<T> {
+    return Promise.race([event, this.#ended]);
   }
 
   /** Records the tap, once connected. */
@@ -139,18 +176,19 @@ class Session {
   }
 
   /**
-   * Stops the tap and releases the context. Called once per session: only by whoever
-   * detaches it from the player first (a stop or a failure). A context the browser
-   * already closed is not closed again (browsers reject that).
+   * Ends the session: its waits stop, its downloads are cancelled, the tap stops and the
+   * context is released. Called once per session: only by whoever detaches it from the
+   * player first (a stop, a cancel or a failure). A context the browser already closed is
+   * not closed again (browsers reject that).
    */
   async close(): Promise<void> {
+    this.#abort.abort();
     this.#tap?.stop();
     if (this.context.state !== "closed") {
       await this.context.close();
     }
   }
 }
-
 /** The states, as shared objects: `state()` returns the same object until a change. */
 const STOPPED: PlayerState = { kind: "stopped" };
 /** Shared state while the engine and the patch load. */
@@ -180,10 +218,6 @@ export class EnginePlayer implements Player {
   #idle: PlayerState = STOPPED;
   /** The live state and its session, if any: holding a session and being live are one. */
   #live: Live | undefined;
-  /** The start in progress, if any. */
-  #starting: Promise<void> | undefined;
-  /** The stop in progress, if any. */
-  #stopping: Promise<void> | undefined;
 
   /** Sets the player up; nothing is loaded before the first start. */
   constructor(options: PlayerOptions) {
@@ -216,6 +250,11 @@ export class EnginePlayer implements Player {
     this.#notify();
   }
 
+  /** Whether `session` is the live one: a session the player released is over for good. */
+  #holds(session: Session): boolean {
+    return this.#live?.session === session;
+  }
+
   /** Tells the listeners the state changed. */
   #notify(): void {
     for (const listener of [...this.#listeners]) {
@@ -223,25 +262,23 @@ export class EnginePlayer implements Player {
     }
   }
 
-  /** Fetches the engine module, once. */
-  async #module(): Promise<ArrayBuffer> {
+  /** Fetches the engine module, once: a download the end of `session` cancels. */
+  async #module(session: Session): Promise<ArrayBuffer> {
     if (this.#wasm === undefined) {
-      const response = await fetch(this.#options.wasm);
+      const response = await session.until(fetch(this.#options.wasm, { signal: session.signal }));
       if (!response.ok) {
         throw new Error(`cannot load the engine from ${this.#options.wasm} (HTTP ${String(response.status)})`);
       }
-      this.#wasm = await response.arrayBuffer();
+      this.#wasm = await session.until(response.arrayBuffer());
     }
     return this.#wasm;
   }
 
   /** Starts playing. */
   start(): Promise<void> {
-    if (this.#starting !== undefined) {
-      return this.#starting;
-    }
-    if (this.#live !== undefined) {
-      return Promise.resolve();
+    const live = this.#live;
+    if (live !== undefined) {
+      return live.session.started.promise;
     }
     const lacking = missing(this.#options.environment);
     if (lacking !== undefined) {
@@ -251,18 +288,19 @@ export class EnginePlayer implements Player {
     // Created before any await, while the user gesture is still active (required by Safari).
     const session = new Session(this.#options.historySeconds);
     this.#goLive(STARTING, session);
-    this.#starting = this.#open(session).finally(() => {
-      this.#starting = undefined;
-    });
-    return this.#starting;
+    void this.#open(session);
+    return session.started.promise;
   }
 
-  /** Loads the engine and the patch into `session`, then plays, fading in. */
+  /**
+   * Loads the engine and the patch into `session`, then plays, fading in; settles the
+   * start of `session` in every case.
+   */
   async #open(session: Session): Promise<void> {
     const { context, gain } = session;
     try {
-      const loaded = await loadPatch(await this.#module(), this.#options.patch, context.sampleRate);
-      await addProcessors(context, this.#options.worklet);
+      const loaded = await session.until(loadPatch(await this.#module(session), this.#options.patch, context.sampleRate));
+      await session.until(addProcessors(context, this.#options.worklet));
       const engine = createEngineNode(context, loaded, (error) => {
         void this.#fail(session, error);
       });
@@ -281,43 +319,58 @@ export class EnginePlayer implements Player {
       context.onstatechange = () => {
         this.#follow(session);
       };
-      await engine.ready;
-      await context.resume();
+      await session.until(engine.ready);
+      await session.until(context.resume());
       const now = context.currentTime;
       gain.gain.setValueAtTime(0, now);
       gain.gain.linearRampToValueAtTime(this.#options.gain, now + this.#options.fade);
+      // A failure or a cancel may have come first: then this session is no longer live.
+      if (this.#holds(session)) {
+        this.#goLive(context.state === "running" ? PLAYING : SUSPENDED, session);
+      }
     } catch (error) {
       await this.#fail(session, error);
-      return;
-    }
-    // A failure may have come first: then this session is no longer live.
-    if (this.#live?.session === session) {
-      this.#goLive(context.state === "running" ? PLAYING : SUSPENDED, session);
+    } finally {
+      session.started.resolve(undefined);
     }
   }
 
-  /** Ends `session` on a failure, unless it is no longer live. */
-  async #fail(session: Session, error: unknown): Promise<void> {
-    if (this.#live?.session !== session) {
+  /** Ends `session` and moves to `state`, unless the session is no longer live. */
+  async #end(session: Session, state: PlayerState): Promise<void> {
+    if (!this.#holds(session)) {
       return;
     }
-    this.#goIdle({ kind: "failed", reason: String(error) });
+    this.#goIdle(state);
     await session.close();
   }
 
-  /** Follows the state of the context of `session`, changed by the browser. */
+  /** Ends `session` on a failure, unless it is no longer live. */
+  #fail(session: Session, error: unknown): Promise<void> {
+    return this.#end(session, { kind: "failed", reason: String(error) });
+  }
+
+  /**
+   * Follows the state of the context of `session`, changed by the browser. A context that
+   * stops running while fading out makes no sound: the stop ends at once. While starting,
+   * the start decides.
+   */
   #follow(session: Session): void {
     const live = this.#live;
     if (live?.session !== session) {
       return;
     }
+    // A string: Safari also reports "interrupted", which the DOM types do not list.
     const state: string = session.context.state;
     if (state === "closed") {
       void this.#fail(session, new Error("the browser closed the audio device"));
-    } else if (live.state === PLAYING && state !== "running") {
+    } else if (state === "running") {
+      if (live.state === SUSPENDED) {
+        this.#goLive(PLAYING, session);
+      }
+    } else if (live.state === PLAYING) {
       this.#goLive(SUSPENDED, session);
-    } else if (live.state === SUSPENDED && state === "running") {
-      this.#goLive(PLAYING, session);
+    } else if (live.state === STOPPING) {
+      void this.#end(session, STOPPED);
     }
   }
 
@@ -331,39 +384,32 @@ export class EnginePlayer implements Player {
     this.#follow(live.session);
   }
 
-  /** Stops playing. */
+  /** Stops playing; cancels a start; from "failed", acknowledges it. */
   stop(): Promise<void> {
-    this.#stopping ??= this.#stop().finally(() => {
-      this.#stopping = undefined;
-    });
-    return this.#stopping;
-  }
-
-  /** Waits for a start in progress, then fades out and closes; from "failed", acknowledges it. */
-  async #stop(): Promise<void> {
-    // Without a start in progress, nothing is awaited before the state is "stopping".
-    if (this.#starting !== undefined) {
-      await this.#starting;
-    }
     const live = this.#live;
     if (live === undefined) {
       this.#goIdle(STOPPED);
-      return;
+      return Promise.resolve();
     }
-    const { session } = live;
+    if (live.state === STARTING) {
+      return this.#end(live.session, STOPPED);
+    }
+    live.session.stopping ??= this.#stop(live.session);
+    return live.session.stopping;
+  }
+
+  /** Fades `session` out, then ends it. */
+  async #stop(session: Session): Promise<void> {
     this.#goLive(STOPPING, session);
     await this.#fadeOut(session);
-    // The browser may have closed the context during the fade: it then failed instead.
-    if (this.#live?.session === session) {
-      this.#goIdle(STOPPED);
-      await session.close();
-    }
+    await this.#end(session, STOPPED);
   }
 
   /**
    * Fades `session` out on the audio clock: the context closes only once the ramp has
    * reached silence, so that stopping never cuts a wave mid-cycle (a click). A suspended
-   * context makes no sound and its clock does not run: it closes at once.
+   * context makes no sound and its clock does not run: it closes at once. The wait ends
+   * with the session, if the browser or a failure ends it first.
    */
   async #fadeOut(session: Session): Promise<void> {
     const { context, gain } = session;
@@ -385,7 +431,7 @@ export class EnginePlayer implements Player {
     clock.connect(context.destination);
     clock.start();
     clock.stop(end);
-    await ended;
+    await session.until(ended).catch(() => undefined);
   }
 
   /** What was played most recently, or undefined when not playing. */

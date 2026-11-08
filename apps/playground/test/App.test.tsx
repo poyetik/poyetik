@@ -81,7 +81,7 @@ test("starts stopped", () => {
 
 test.each([
   [{ kind: "stopped" }, "Stopped", "Start", "false", "start"],
-  [{ kind: "starting" }, "Starting…", "Start", "true", undefined],
+  [{ kind: "starting" }, "Starting…", "Cancel", "false", "stop"],
   [{ kind: "playing" }, "Playing", "Stop", "false", "stop"],
   [{ kind: "suspended" }, "Paused by the browser", "Resume", "false", "resume"],
   [{ kind: "stopping" }, "Stopping…", "Stop", "true", undefined],

@@ -14,14 +14,14 @@ const LABELS: Readonly<Record<PlayerState["kind"], string>> = {
   failed: "Failed",
 };
 
-/** What the button does in each state, and says; undefined while a transition runs. */
+/** What the button does in each state, and says; undefined while stopping. A start can be cancelled. */
 function action(player: Player, state: PlayerState): { readonly label: string; readonly run?: () => Promise<void> } {
   switch (state.kind) {
     case "stopped":
     case "failed":
       return { label: "Start", run: () => player.start() };
     case "starting":
-      return { label: "Start" };
+      return { label: "Cancel", run: () => player.stop() };
     case "playing":
       return { label: "Stop", run: () => player.stop() };
     case "suspended":

@@ -114,13 +114,16 @@ class FakeGainNode extends FakeNode {
   }
 }
 
-/** Fake `ConstantSourceNode`: ends as soon as it is stopped, as if its time had come. */
+/** Fake `ConstantSourceNode`: ends when the clock of its context reaches its stop time, as in browsers. */
 class FakeConstantSource extends FakeNode {
-  /** The handler the player sets for the end of the source, called right after `stop`. */
+  /** The handler the player sets for the end of the source, called by {@link FakeContext.advance}. */
   onended: (() => void) | null = null;
+  /** When the source ends, in seconds of the context clock; undefined until stopped. */
+  end: number | undefined;
 
-  constructor(_context: unknown, options: { offset?: number }) {
+  constructor(context: FakeContext, options: { offset?: number }) {
     super(`clock offset ${String(options.offset)}`);
+    context.sources.push(this);
   }
 
   /** Logs the start of the source. */
@@ -128,10 +131,10 @@ class FakeConstantSource extends FakeNode {
     log.push("clock start");
   }
 
-  /** Logs the stop at `time`, in seconds, then ends the source at once instead of waiting for that time. */
+  /** Logs and records the stop at `time`, in seconds: the source ends once the clock reaches it. */
   stop(time: number): void {
     log.push(`clock stop at ${String(time)}`);
-    queueMicrotask(() => this.onended?.());
+    this.end = time;
   }
 }
 
@@ -145,12 +148,14 @@ class FakeContext {
   static rate = 48_000;
   /** Sample rate of the context, in hertz: the device rate when it was created. */
   readonly sampleRate = FakeContext.rate;
-  /** Time of the context clock, in seconds: fixed, so that the scheduled times in the log are predictable. */
-  readonly currentTime = 1;
+  /** Time of the context clock, in seconds: 1 at creation, so that the scheduled times in the log are predictable; moved only by {@link FakeContext.advance}. */
+  currentTime = 1;
+  /** The constant sources of the context, whose ends {@link FakeContext.advance} fires. */
+  readonly sources: FakeConstantSource[] = [];
   /** The speakers, as an opaque target of connections. */
   readonly destination = {};
   /** State of the context: suspended until `resume`, as browsers create them outside a user gesture. */
-  state: AudioContextState = "suspended";
+  state: AudioContextState | "interrupted" = "suspended";
   /** The handler the player sets for state changes, called by {@link FakeContext.become}. */
   onstatechange: (() => void) | null = null;
   /** The worklet of the context: logs the modules added, and always loads them. */
@@ -166,11 +171,14 @@ class FakeContext {
     log.push("new context");
   }
 
-  /** Logs the resume and moves to {@link FakeContext.resumesTo}. */
+  /** When set, `resume` answers only once the test resolves it. */
+  static resuming: PromiseWithResolvers<undefined> | undefined;
+
+  /** Logs the resume and moves to {@link FakeContext.resumesTo}; answers at once, or when {@link FakeContext.resuming} is resolved. */
   resume(): Promise<void> {
     log.push("resume");
     this.state = FakeContext.resumesTo;
-    return Promise.resolve();
+    return FakeContext.resuming?.promise ?? Promise.resolve();
   }
 
   /** Rejects on a closed context, like browsers. */
@@ -183,8 +191,26 @@ class FakeContext {
     return Promise.resolve();
   }
 
-  /** The browser changes the state. */
-  become(state: AudioContextState): void {
+  /**
+   * Lets `seconds` of audio time pass, as the audio thread would: only while the context
+   * runs (a suspended or closed context has a frozen clock). Sources whose stop time is
+   * reached end, asynchronously as browser events do.
+   */
+  advance(seconds: number): void {
+    if (this.state !== "running") {
+      return;
+    }
+    this.currentTime += seconds;
+    for (const source of this.sources) {
+      if (source.end !== undefined && source.end <= this.currentTime) {
+        source.end = undefined;
+        queueMicrotask(() => source.onended?.());
+      }
+    }
+  }
+
+  /** The browser changes the state; Safari also has "interrupted", which the DOM types do not list. */
+  become(state: AudioContextState | "interrupted"): void {
     this.state = state;
     this.onstatechange?.();
   }
@@ -198,10 +224,17 @@ function playerOptions(patch = SINE_440, environment = CAPABLE): PlayerOptions {
   return { wasm: "engine.wasm", worklet: "processors.js", patch, gain: 0.25, fade: 0.02, historySeconds: 4 / 48_000, environment };
 }
 
-/** Fetch answering every request with the engine module, or with `status`. */
-function stubFetch(status = 200): void {
-  vi.stubGlobal("fetch", (url: string) => {
+/** The signals of the requests made, in order: a session aborts its downloads when it ends. */
+let signals: AbortSignal[] = [];
+
+/** Fetch answering every request with the engine module, or with `status`, or never (`"never"`). */
+function stubFetch(status: number | "never" = 200): void {
+  vi.stubGlobal("fetch", (url: string, init: { signal: AbortSignal }) => {
     log.push(`fetch ${url}`);
+    signals.push(init.signal);
+    if (status === "never") {
+      return new Promise(() => undefined);
+    }
     return Promise.resolve({ ok: status === 200, status, arrayBuffer: () => Promise.resolve(WASM.buffer.slice(WASM.byteOffset, WASM.byteOffset + WASM.byteLength)) });
   });
 }
@@ -216,6 +249,13 @@ function lastContext(): FakeContext | undefined {
   return FakeContext.created.at(-1);
 }
 
+/** Stops `player` while it plays, letting the audio clock of its context run through the fade out. */
+async function stopPlaying(player: EnginePlayer): Promise<void> {
+  const stopping = player.stop();
+  lastContext()?.advance(1);
+  await stopping;
+}
+
 /** Lets every pending callback run. */
 function flush(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve));
@@ -223,9 +263,11 @@ function flush(): Promise<void> {
 
 beforeEach(() => {
   log = [];
+  signals = [];
   engineAnswer = { type: "ready" };
   FakeContext.created.length = 0;
   FakeContext.resumesTo = "running";
+  FakeContext.resuming = undefined;
   FakeContext.rate = 48_000;
   FakeWorkletNode.created.length = 0;
   vi.stubGlobal("AudioContext", FakeContext);
@@ -267,7 +309,7 @@ describe("EnginePlayer", () => {
     const seen: string[] = [];
     const unsubscribe = player.subscribe(() => seen.push(player.state().kind));
     await player.start();
-    await player.stop();
+    await stopPlaying(player);
     unsubscribe();
     await player.start();
     expect(seen).toStrictEqual(["starting", "playing", "stopping", "stopped"]);
@@ -326,11 +368,60 @@ describe("EnginePlayer", () => {
     expect(FakeContext.created).toHaveLength(1);
   });
 
-  test("stops during a start: waits for it, then stops", async () => {
+  test("cancels a start at once: closes its context, and settles the start", async () => {
     const player = new EnginePlayer(playerOptions());
     const starting = player.start();
     const stopping = player.stop();
+    expect(player.state()).toStrictEqual({ kind: "stopped" });
     await Promise.all([starting, stopping]);
+    expect(player.state()).toStrictEqual({ kind: "stopped" });
+    expect(lastContext()?.state).toBe("closed");
+    expect(signals.map((signal) => signal.aborted)).toStrictEqual([true]);
+  });
+
+  test("cancels a download that never answers, then downloads anew and plays", async () => {
+    stubFetch("never");
+    const player = new EnginePlayer(playerOptions());
+    const starting = player.start();
+    await flush();
+    expect(player.state()).toStrictEqual({ kind: "starting" });
+    await player.stop();
+    await starting;
+    expect(player.state()).toStrictEqual({ kind: "stopped" });
+    expect(signals.map((signal) => signal.aborted)).toStrictEqual([true]);
+    stubFetch();
+    await player.start();
+    expect(player.state()).toStrictEqual({ kind: "playing" });
+    expect(log.filter((entry) => entry.startsWith("fetch"))).toStrictEqual(["fetch engine.wasm", "fetch engine.wasm"]);
+    expect(FakeContext.created.map((context) => context.state)).toStrictEqual(["closed", "running"]);
+  });
+
+  test("cancels a start whose engine never answers", async () => {
+    engineAnswer = undefined;
+    const player = new EnginePlayer(playerOptions());
+    const starting = player.start();
+    await vi.waitFor(() => {
+      expect(workletNode("poyetik-engine")).toBeDefined();
+    });
+    await player.stop();
+    await starting;
+    expect(player.state()).toStrictEqual({ kind: "stopped" });
+    expect(log.slice(-3)).toStrictEqual(["post stop", "disconnect poyetik-engine -> poyetik-tap", "close"]);
+  });
+
+  test("cancelled right after its last wait, never plays", async () => {
+    FakeContext.resuming = Promise.withResolvers();
+    const player = new EnginePlayer(playerOptions());
+    const starting = player.start();
+    await vi.waitFor(() => {
+      expect(log).toContain("resume");
+    });
+    // The resume answers, and a cancel comes before the start sees the answer.
+    FakeContext.resuming.resolve(undefined);
+    queueMicrotask(() => {
+      void player.stop();
+    });
+    await starting;
     expect(player.state()).toStrictEqual({ kind: "stopped" });
     expect(lastContext()?.state).toBe("closed");
   });
@@ -342,6 +433,11 @@ describe("EnginePlayer", () => {
     const first = player.stop();
     expect(player.stop()).toBe(first);
     expect(player.state()).toStrictEqual({ kind: "stopping" });
+    // The context closes only once its clock reaches the end of the ramp.
+    lastContext()?.advance(0.01);
+    await flush();
+    expect(player.state()).toStrictEqual({ kind: "stopping" });
+    lastContext()?.advance(0.01);
     await first;
     expect(log).toStrictEqual([
       "gain cancel from 1",
@@ -359,6 +455,33 @@ describe("EnginePlayer", () => {
     log = [];
     await player.stop();
     expect(log).toStrictEqual([]);
+  });
+
+  test.each(["suspended", "interrupted"] as const)("stops at once when the browser makes the context %s during the fade out", async (state) => {
+    const player = new EnginePlayer(playerOptions());
+    await player.start();
+    const stopping = player.stop();
+    lastContext()?.become(state);
+    await stopping;
+    expect(player.state()).toStrictEqual({ kind: "stopped" });
+    expect(lastContext()?.state).toBe("closed");
+  });
+
+  test("fails during the fade out, settles the stop, then starts and stops a new session", async () => {
+    const player = new EnginePlayer(playerOptions());
+    await player.start();
+    const stopping = player.stop();
+    workletNode("poyetik-engine")?.onprocessorerror?.();
+    await stopping;
+    expect(player.state()).toStrictEqual({ kind: "failed", reason: "Error: the engine processor failed" });
+    await player.start();
+    expect(player.state()).toStrictEqual({ kind: "playing" });
+    const again = player.stop();
+    expect(again).not.toBe(stopping);
+    lastContext()?.advance(1);
+    await again;
+    expect(player.state()).toStrictEqual({ kind: "stopped" });
+    expect(FakeContext.created.map((context) => context.state)).toStrictEqual(["closed", "closed"]);
   });
 
   test("fails, without closing twice, when the browser closes the context during the fade out", async () => {
@@ -411,7 +534,7 @@ describe("EnginePlayer", () => {
     const player = new EnginePlayer(playerOptions());
     await player.start();
     const old = lastContext();
-    await player.stop();
+    await stopPlaying(player);
     await player.start();
     const seen: string[] = [];
     player.subscribe(() => seen.push(player.state().kind));
@@ -424,9 +547,9 @@ describe("EnginePlayer", () => {
   test("stops again after starting again", async () => {
     const player = new EnginePlayer(playerOptions());
     await player.start();
-    await player.stop();
+    await stopPlaying(player);
     await player.start();
-    await player.stop();
+    await stopPlaying(player);
     expect(player.state()).toStrictEqual({ kind: "stopped" });
     expect(FakeContext.created.map((context) => context.state)).toStrictEqual(["closed", "closed"]);
   });
@@ -458,7 +581,7 @@ describe("EnginePlayer", () => {
     await player.start();
     const context = lastContext();
     const engine = workletNode("poyetik-engine");
-    await player.stop();
+    await stopPlaying(player);
     context?.become("closed");
     engine?.port.deliver({ type: "failed", message: "late" });
     await flush();
@@ -468,7 +591,7 @@ describe("EnginePlayer", () => {
   test("fetches the engine once, and starts again in a new context", async () => {
     const player = new EnginePlayer(playerOptions());
     await player.start();
-    await player.stop();
+    await stopPlaying(player);
     log = [];
     await player.start();
     expect(log.filter((entry) => entry.startsWith("fetch"))).toStrictEqual([]);
@@ -521,6 +644,102 @@ describe("EnginePlayer", () => {
     await player.start();
     expect(player.state()).toStrictEqual({ kind: "failed", reason: explain("secure-context") });
     expect(FakeContext.created).toHaveLength(0);
+  });
+});
+
+/** A seeded pseudo-random generator (mulberry32): the same sequence for the same seed, on every run. */
+function random(seed: number): () => number {
+  let state = seed;
+  return () => {
+    state = (state + 0x6d2b79f5) | 0;
+    let mixed = Math.imul(state ^ (state >>> 15), 1 | state);
+    mixed = (mixed + Math.imul(mixed ^ (mixed >>> 7), 61 | mixed)) ^ mixed;
+    return ((mixed ^ (mixed >>> 14)) >>> 0) / 4_294_967_296;
+  };
+}
+
+/** What the user, the browser and the audio thread may do, in any order. */
+const EVENTS = ["start", "stop", "resume", "suspend", "interrupt", "browser resume", "fail", "advance", "flush", "loaded"] as const;
+
+/** Every kind of state the player may be in. */
+const KINDS: readonly string[] = ["stopped", "starting", "playing", "suspended", "stopping", "failed"];
+
+describe("EnginePlayer under any interleaving", () => {
+  test.each(Array.from({ length: 100 }, (_unused, seed) => seed))("keeps its promises with seed %i", async (seed) => {
+    const next = random(seed);
+    const player = new EnginePlayer(playerOptions());
+    const promises: { settled: boolean }[] = [];
+    /** Records a public promise of the player, to check that it settles. */
+    const watch = (promise: Promise<void>): void => {
+      const watched = { settled: false };
+      promises.push(watched);
+      void promise.then(() => {
+        watched.settled = true;
+      });
+    };
+    /** The browser changes the state of the current context, unless it is closed. */
+    const become = (state: AudioContextState | "interrupted"): void => {
+      const context = lastContext();
+      if (context !== undefined && context.state !== "closed") {
+        context.become(state);
+      }
+    };
+    /** A context is open exactly while its session is live: only the last one, and only while the player is not idle. */
+    const check = (): void => {
+      const { kind } = player.state();
+      expect(KINDS).toContain(kind);
+      const states = FakeContext.created.map((context) => context.state);
+      expect(states.slice(0, -1).every((state) => state === "closed")).toBe(true);
+      expect(states.length === 0 || states.at(-1) === "closed").toBe(kind === "stopped" || kind === "failed");
+    };
+    for (let step = 0; step < 20; step += 1) {
+      const event = EVENTS[Math.floor(next() * EVENTS.length)];
+      switch (event) {
+        case "start":
+          watch(player.start());
+          break;
+        case "stop":
+          watch(player.stop());
+          break;
+        case "resume":
+          watch(player.resume());
+          break;
+        case "suspend":
+          become("suspended");
+          break;
+        case "interrupt":
+          become("interrupted");
+          break;
+        case "browser resume":
+          become("running");
+          break;
+        case "fail":
+          workletNode("poyetik-engine")?.onprocessorerror?.();
+          break;
+        case "advance":
+          lastContext()?.advance(0.01);
+          break;
+        case "loaded":
+          // The engine compiles in real time: waits until a start in progress has ended.
+          await vi.waitFor(() => {
+            expect(player.state().kind).not.toBe("starting");
+          });
+          break;
+        case "flush":
+        case undefined:
+          await flush();
+          break;
+      }
+      check();
+    }
+    // The world drains: the clock runs and every pending event is delivered (the engine
+    // compiles in real time, hence the retries), until every promise has settled.
+    await vi.waitFor(async () => {
+      lastContext()?.advance(1);
+      await flush();
+      check();
+      expect(promises.filter((promise) => !promise.settled)).toStrictEqual([]);
+    });
   });
 });
 
