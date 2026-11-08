@@ -48,6 +48,16 @@ pub const extern "C" fn engine_abi_version() -> u32 {
     ABI_VERSION
 }
 
+// The lock below never waits: without WebAssembly threads (no `atomics` target feature),
+// std's `Mutex` cannot block. Built with them, it would become a real lock taken by
+// `engine_process` on the audio thread: such a build is refused until the instance is
+// reached without a lock (lock-free handles, roadmap #5). Threads need a nightly toolchain
+// (a std rebuilt with atomics), which is also the only one exposing this `cfg`.
+#[cfg(all(target_arch = "wasm32", target_feature = "atomics"))]
+compile_error!(
+    "engine-wasm with WebAssembly atomics: the instance lock could block the audio thread; reach the instance without a lock first (roadmap #5)"
+);
+
 /// The state of this module instance.
 static INSTANCE: Mutex<Instance> = Mutex::new(Instance::new());
 
