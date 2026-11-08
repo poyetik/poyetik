@@ -57,7 +57,7 @@ export class UsageError extends Error {
 }
 
 /** Help text printed by `roadmap help`. */
-export const HELP = `Usage: roadmap <command> [options]
+export const HELP = `usage: roadmap <command> [options]
 
   list [--column <col>]                       List cards (ids: 12 or #12)
   show <id>                                   Show a card
@@ -303,7 +303,10 @@ function save(io: Io, board: Board): void {
  * accept, like an argument given to a command that takes none, is a `UsageError`.
  */
 function execute(args: readonly string[], io: Io): void {
-  const [name = "help", ...rest] = args;
+  const [name, ...rest] = args;
+  if (name === undefined) {
+    throw new UsageError("expected a command");
+  }
   const { values, positionals } = parseArgs({ args: rest, allowPositionals: true, strict: true, options: OPTIONS });
   if (!isCommand(name)) {
     throw new UsageError(`unknown command: ${name}`);

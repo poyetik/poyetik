@@ -82,12 +82,22 @@ describe("localDate", () => {
 });
 
 describe("help", () => {
-  it("prints help with no command or with help", () => {
-    for (const args of [[], ["help"]]) {
-      const cli = fake();
-      expect(run(args, cli.io)).toBe(0);
-      expect(cli.out).toEqual([HELP]);
-    }
+  it("prints help when asked", () => {
+    const cli = fake();
+    expect(run(["help"], cli.io)).toBe(0);
+    expect(cli.out).toEqual([HELP]);
+    expect(cli.err).toEqual([]);
+  });
+
+  it("refuses an empty command line as a usage error, printing no help", () => {
+    const cli = fake();
+    expect(run([], cli.io)).toBe(2);
+    expect(cli.out).toEqual([]);
+    expect(cli.err).toEqual(["error: expected a command (see: roadmap help)"]);
+  });
+
+  it("starts with its usage line, worded as every tool of the repository words it", () => {
+    expect(HELP.split("\n")[0]).toBe("usage: roadmap <command> [options]");
   });
 
   it("lists every command and column", () => {
