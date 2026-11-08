@@ -11,7 +11,6 @@ guardStreams(process.stdout, process.stderr, () => {
   }
 });
 process.exitCode = main(process.argv.slice(2), {
-  readText: (path) => new TextDecoder().decode(readFileSync(path)),
   readBytes: (path) => readFileSync(path),
   list: (dir) => readdirSync(dir),
   out: (line) => {

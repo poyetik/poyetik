@@ -69,6 +69,19 @@ test("fails with its message on stderr", async () => {
   expect(process.exitCode).toBe(1);
 });
 
+test("refuses a case file that is not UTF-8, with one error line naming it", async () => {
+  mkdirSync(join(dir, "conf", "cases"), { recursive: true });
+  mkdirSync(join(dir, "wav"));
+  const file = join(dir, "conf", "cases", "tone.json");
+  const text = new TextEncoder().encode(JSON.stringify({ sample_rate: 8000, frames: 32 }));
+  text[1] = 0xff;
+  writeFileSync(file, text);
+  const { stdout, stderr } = await runBin([join(dir, "conf"), join(dir, "wav")]);
+  expect(stdout).toBe("");
+  expect(stderr).toBe(`error: ${file}: TypeError: The encoded data was not valid for encoding utf-8\n`);
+  expect(process.exitCode).toBe(1);
+});
+
 test("rejects a usage error with one error line and exit code 2", async () => {
   const { stdout, stderr } = await runBin(["conf"]);
   expect(stdout).toBe("");

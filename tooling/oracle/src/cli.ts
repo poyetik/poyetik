@@ -8,7 +8,6 @@ export const USAGE = "usage: oracle <conformance dir> <dir of exported WAV files
 
 /** What the command needs from the outside world. */
 export interface Io {
-  readonly readText: (path: string) => string;
   readonly readBytes: (path: string) => Uint8Array;
   readonly list: (dir: string) => readonly string[];
   readonly out: (line: string) => void;
@@ -26,13 +25,15 @@ function byName<T>(io: Io, dir: string, extension: string, read: (path: string) 
 }
 
 /**
- * Reads and parses the JSON file at `path`.
- * @throws {Error} Naming `path` when the file is not JSON, with the parser's error as its cause.
+ * Reads and parses the JSON file at `path`, as strict UTF-8: a byte that is not UTF-8 is
+ * refused, never replaced, as the engine's own reader refuses it.
+ * @throws {Error} Naming `path` when the file is not UTF-8 or not JSON, with the decoder's
+ * or the parser's error as its cause.
  */
 export function readJson(io: Io, path: string): unknown {
-  const text = io.readText(path);
+  const bytes = io.readBytes(path);
   try {
-    return JSON.parse(text);
+    return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
   } catch (error) {
     throw new Error(`${path}: ${String(error)}`, { cause: error });
   }

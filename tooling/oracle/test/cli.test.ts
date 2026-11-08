@@ -25,10 +25,6 @@ function memory(files: Record<string, string | Uint8Array>): Io & { lines: strin
   return {
     lines,
     errors,
-    readText: (path) => {
-      const file = get(path);
-      return typeof file === "string" ? file : new TextDecoder().decode(file);
-    },
     readBytes: (path) => {
       const file = get(path);
       return typeof file === "string" ? new TextEncoder().encode(file) : file;
@@ -134,6 +130,21 @@ describe("readJson", () => {
     const failure = thrown instanceof Error ? thrown : undefined;
     expect(failure?.message).toMatch(/^a\.json: SyntaxError: /);
     expect(failure?.cause).toBeInstanceOf(SyntaxError);
+  });
+
+  test("refuses bytes that are not UTF-8, naming the file, instead of replacing them", () => {
+    // "{}" with an invalid byte inside: a lenient decoder reads it as "{\uFFFD}".
+    for (const bytes of [[0x7b, 0xff, 0x7d], [0x7b, 0x7d, 0xc3]]) {
+      let thrown: unknown;
+      try {
+        readJson(memory({ "a.json": new Uint8Array(bytes) }), "a.json");
+      } catch (error) {
+        thrown = error;
+      }
+      const failure = thrown instanceof Error ? thrown : undefined;
+      expect(failure?.message).toBe("a.json: TypeError: The encoded data was not valid for encoding utf-8");
+      expect(failure?.cause).toBeInstanceOf(TypeError);
+    }
   });
 });
 
