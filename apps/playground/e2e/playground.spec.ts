@@ -3,6 +3,8 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { CSP } from "../csp.ts";
 import { BUTTON_LABELS } from "../src/App.tsx";
 import { explain } from "../src/player.ts";
+import { MAX_FREQUENCY_RATIO } from "../src/scope.ts";
+import { SAMPLE_RATES } from "../test/matrix.ts";
 
 /**
  * Makes every AudioContext of the page reachable by {@link suspendAudio}, and run at
@@ -333,12 +335,14 @@ test("keeps the oscilloscope colors in forced colors (high contrast)", async ({ 
   expect(await background()).toBe(normal);
 });
 
-for (const rate of [44_100, 96_000]) {
+for (const rate of SAMPLE_RATES) {
   test(`plays the 440 Hz sine on a device at ${String(rate)} Hz`, async ({ page }) => {
     await trackAudio(page, rate);
     await page.goto("./?muted");
     await page.getByRole("button", { name: "Start" }).click();
     await expect(page.getByTestId("rate")).toHaveText(`${String(rate)} Hz`);
-    await expect(page.getByTestId("frequency")).toHaveText("440.0 Hz");
+    await expect(page.getByTestId("peak")).toHaveText("1.00");
+    // Measured only up to a twentieth of the rate: not at 8 kHz, where 440 Hz is above 400 Hz.
+    await expect(page.getByTestId("frequency")).toHaveText(440 <= rate * MAX_FREQUENCY_RATIO ? "440.0 Hz" : "—");
   });
 }
