@@ -26,6 +26,9 @@ export const JSDOC_CONTEXTS: readonly string[] = [
   "ExportNamedDeclaration[declaration.type='VariableDeclaration']",
 ];
 
+/** Why `fetch` is refused outside {@link FETCH_HELPERS}. */
+const FETCH_MESSAGE = "Fetch through the package's checked helper (its fetch.ts), which refuses a response that is not 2xx and names the URL.";
+
 /**
  * The rules the policy sets itself, on top of the recommended and strict configurations
  * it starts from. Every rule set here, unless it is turned off, is proven by a policy
@@ -90,15 +93,28 @@ export const RULES: Linter.RulesRecord = {
   // than that baseline are banned here, one by one, until a baseline is declared.
   "no-restricted-properties": [
     "error",
+    // The global `fetch` reached through its object, for the reason given at `no-restricted-globals`.
+    ...["globalThis", "window", "self"].map((object) => ({ object, property: "fetch", message: FETCH_MESSAGE })),
     {
       object: "Promise",
       property: "withResolvers",
       message: "It is missing from browsers the friendly checks still explain (Safari before 17.4, Firefox before 121): use `new Promise`.",
     },
   ],
+  // A response is read only once its status is checked: `fetch` resolves on a 404 too,
+  // whose empty body would then be parsed as JSON or compiled as WebAssembly, an error
+  // naming neither the URL nor the status. Each package fetches through one checked helper,
+  // in its file named `fetch.ts` (FETCH_HELPERS), tested to throw on a status that is not 2xx.
+  "no-restricted-globals": ["error", { name: "fetch", message: FETCH_MESSAGE }],
   "prefer-const": "error",
   "no-var": "error",
 };
+
+/**
+ * The files allowed to call `fetch`: each package's one helper, which checks the status
+ * of every response before returning it (and is tested to). Nowhere else.
+ */
+export const FETCH_HELPERS: readonly string[] = ["**/fetch.ts"];
 
 /**
  * The shared configuration, for the package in `directory` (its `import.meta.dirname`),
@@ -120,6 +136,8 @@ export function strict(directory: string, ignores: readonly string[], ...extra: 
       },
       rules: RULES,
     },
+    // The checked helper itself calls `fetch`: the only rule of `no-restricted-globals` is that one.
+    { files: [...FETCH_HELPERS], rules: { "no-restricted-globals": "off" } },
     ...extra,
   );
 }

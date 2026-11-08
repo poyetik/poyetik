@@ -8,6 +8,7 @@
  */
 
 import { addProcessors, createEngineNode, loadPatch, tap, type Tap } from "@poyetik/engine-wasm/web";
+import { fetchOk } from "./fetch.ts";
 import { SampleHistory } from "./history.ts";
 
 /** The latest output of the engine: samples of its first channel, and their rate. */
@@ -335,15 +336,7 @@ export class EnginePlayer implements Player {
   /** Fetches the engine module, once: a download the end of `session` cancels. Errors name the URL. */
   async #module(session: Session): Promise<ArrayBuffer> {
     if (this.#wasm === undefined) {
-      const url = this.#options.wasm;
-      const response = await session.until(
-        fetch(url, { signal: session.signal }).catch((error: unknown) => {
-          throw new Error(`cannot load the engine from ${url} (${String(error)})`);
-        }),
-      );
-      if (!response.ok) {
-        throw new Error(`cannot load the engine from ${this.#options.wasm} (HTTP ${String(response.status)})`);
-      }
+      const response = await session.until(fetchOk("the engine", this.#options.wasm, { signal: session.signal }));
       this.#wasm = await session.until(response.arrayBuffer());
     }
     return this.#wasm;

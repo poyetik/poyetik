@@ -86,6 +86,9 @@ test("each rule of the policy rejects what it forbids, and only that", async () 
     shadow: ["@typescript-eslint/no-shadow"],
     var: ["no-var"],
     "with-resolvers": ["no-restricted-properties"],
+    // The global, then through globalThis, window and self; the checked helper (fetch.ts) may call it.
+    "bare-fetch": ["no-restricted-globals", ...Array<string>(3).fill("no-restricted-properties")],
+    fetch: [],
     // Vitest and Playwright: every focus or skip, at every level.
     "focused-test": ["no-restricted-syntax", "no-restricted-syntax"],
     "skipped-test": Array<string>(5).fill("no-restricted-syntax"),
@@ -100,6 +103,9 @@ test("each rule of the policy rejects what it forbids, and only that", async () 
   expect(messages).toContain(
     "'Promise.withResolvers' is restricted from being used. It is missing from browsers the friendly checks still explain (Safari before 17.4, Firefox before 121): use `new Promise`.",
   );
+  const fetchMessage = "Fetch through the package's checked helper (its fetch.ts), which refuses a response that is not 2xx and names the URL.";
+  expect(messages).toContain(`Unexpected use of 'fetch'. ${fetchMessage}`);
+  expect(messages).toContain(`'globalThis.fetch' is restricted from being used. ${fetchMessage}`);
   // The package's own ignores, then the outputs every package ignores.
   for (const ignored of ["ignored.ts", "coverage/x.ts", "reports/x.ts", ".stryker-tmp/x.ts", "playwright-report/x.ts", "test-results/x.ts"]) {
     expect(await eslint.isPathIgnored(path.join(POLICY, ignored)), ignored).toBe(true);

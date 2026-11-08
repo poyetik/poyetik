@@ -51,6 +51,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The shared lint policy refuses `fetch` (bare, or through `globalThis`, `window` or `self`) outside each package's one checked helper, its file named `fetch.ts`, which refuses a response that is not 2xx and names the URL: a 404 can no longer reach a JSON parser or the WebAssembly compiler as an empty body. The playground loads the engine through its own `fetchOk`, with the same messages as before.
 - Every Vitest configuration refuses a focused test (`allowOnly: false`) locally as in CI, where Vitest refused it alone, and the shared lint policy refuses any focused or skipped test or suite, in Vitest and Playwright (`.only`, `.skip`, `.todo`, `.fixme`, `.skipIf`, `.runIf`).
 - `std::env::args`, which panics on an argument that is not Unicode, is banned by Clippy: every command-line tool reads `args_os` and refuses such an argument as a usage error.
 - Playground: the oscilloscope repaints only while playing; stopped, suspended or failed, it is drawn once (the grid and dashes) instead of being redrawn at the display rate, forever, on a page where nothing plays.
