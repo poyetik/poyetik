@@ -323,10 +323,10 @@ describe("validate", () => {
 });
 
 describe("general errors", () => {
-  it("rejects an unknown command", () => {
+  it.each(["frobnicate", "toString", "constructor"])("rejects an unknown command: %s", (command) => {
     const cli = fake();
-    expect(run(["frobnicate"], cli.io)).toBe(2);
-    expect(cli.err).toEqual(["error: unknown command: frobnicate (see: roadmap help)"]);
+    expect(run([command], cli.io)).toBe(2);
+    expect(cli.err).toEqual([`error: unknown command: ${command} (see: roadmap help)`]);
   });
 
   it("has no task command: steps are managed with step", () => {
@@ -342,6 +342,60 @@ describe("general errors", () => {
     expect(run(["list", "--nope"], cli.io)).toBe(2);
     expect(cli.err).toHaveLength(1);
     expect(cli.err[0]).toMatch(/^error: .*--nope/);
+  });
+
+  it("rejects an option given without its value", () => {
+    const cli = seeded();
+    expect(run(["add", "T", "--desc"], cli.io)).toBe(2);
+    expect(cli.err).toHaveLength(1);
+    expect(cli.err[0]).toMatch(/^error: .*--desc.* \(see: roadmap help\)$/);
+    expect(cli.writes).toBe(0);
+  });
+
+  it.each([
+    [["help", "list"], "help"],
+    [["list", "doing"], "list"],
+    [["validate", "x"], "validate"],
+  ])("rejects an argument to a command that takes none: %j", (args, command) => {
+    const cli = seeded();
+    expect(run(args, cli.io)).toBe(2);
+    expect(cli.err).toEqual([`error: ${command} takes no argument, got: ${String(args[1])} (see: roadmap help)`]);
+    expect(cli.out).toEqual([]);
+  });
+
+  it.each([
+    [["help", "--column", "x"], "--column", "help"],
+    [["list", "--title", "x"], "--title", "list"],
+    [["show", "1", "--desc", "x"], "--desc", "show"],
+    [["add", "T", "--position", "0"], "--position", "add"],
+    [["move", "1", "done", "--column", "next"], "--column", "move"],
+    [["edit", "1", "--column", "done"], "--column", "edit"],
+    [["rm", "1", "--title", "x"], "--title", "rm"],
+    [["title", "T", "--milestone", "x"], "--milestone", "title"],
+    [["step", "add", "1", "S", "--title", "x"], "--title", "step"],
+    [["validate", "--column", "done"], "--column", "validate"],
+  ])("rejects an option that does not apply, without writing: %j", (args, option, command) => {
+    const cli = seeded();
+    expect(run(args, cli.io)).toBe(2);
+    expect(cli.err).toEqual([`error: option ${option} does not apply to ${command} (see: roadmap help)`]);
+    expect(cli.out).toEqual([]);
+    expect(cli.writes).toBe(0);
+  });
+
+  it("accepts every option of each command", () => {
+    const cli = seeded();
+    expect(run(["list", "--column", "doing"], cli.io)).toBe(0);
+    expect(run(["add", "T", "--desc", "d", "--column", "next", "--milestone", "M"], cli.io)).toBe(0);
+    expect(run(["move", "3", "done", "--position", "0"], cli.io)).toBe(0);
+    expect(run(["edit", "3", "--title", "U", "--desc", "e", "--milestone", "N"], cli.io)).toBe(0);
+    expect(cli.err).toEqual([]);
+  });
+
+  it("takes a value starting with a dash after --, as the help says", () => {
+    const cli = seeded();
+    expect(run(["step", "add", "1", "--", "-leading"], cli.io)).toBe(0);
+    expect(boardOf(cli).cards[0]?.steps).toEqual([{ title: "-leading", done: false }]);
+    expect(HELP).toContain("roadmap step add 3 -- -title");
   });
 
   it("rethrows unexpected errors", () => {

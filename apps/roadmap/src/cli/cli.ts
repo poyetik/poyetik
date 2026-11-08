@@ -68,8 +68,60 @@ export const HELP = `Usage: roadmap <command> [options]
   validate                                    Check board.json
   help                                        Show this help
 
+A value starting with "-" goes after --: roadmap step add 3 -- -title
 Columns: ${COLUMNS.map((column) => `${column.id} (${column.title})`).join(", ")}
 Steps: in a card of the doing column, the first step that is not done is in progress.`;
+
+/** The options `parseArgs` reads; each command accepts only some of them (see `COMMAND_OPTIONS`). */
+const OPTIONS = {
+  column: { type: "string" },
+  desc: { type: "string" },
+  milestone: { type: "string" },
+  position: { type: "string" },
+  title: { type: "string" },
+} as const;
+
+/** The name of an option, without its `--`. */
+type OptionName = keyof typeof OPTIONS;
+
+/** The options each command accepts; its keys are also the list of commands. Any other option is a usage error, never silently ignored. */
+const COMMAND_OPTIONS = {
+  help: [],
+  list: ["column"],
+  show: [],
+  add: ["desc", "column", "milestone"],
+  move: ["position"],
+  edit: ["title", "desc", "milestone"],
+  rm: [],
+  title: [],
+  step: [],
+  validate: [],
+} as const satisfies Record<string, readonly OptionName[]>;
+
+/** A command name. */
+type Command = keyof typeof COMMAND_OPTIONS;
+
+/** Whether `value` names a command; `Object.hasOwn` so that inherited names like `toString` are refused. */
+function isCommand(value: string): value is Command {
+  return Object.hasOwn(COMMAND_OPTIONS, value);
+}
+
+/** Throws a `UsageError` for the first option given that `command` does not accept. */
+function requireOptions(command: Command, given: readonly string[]): void {
+  const accepted: readonly OptionName[] = COMMAND_OPTIONS[command];
+  const foreign = given.find((option) => !accepted.some((name) => name === option));
+  if (foreign !== undefined) {
+    throw new UsageError(`option --${foreign} does not apply to ${command}`);
+  }
+}
+
+/** Throws a `UsageError` if `command`, which takes no argument, was given one. */
+function requireNoArgument(command: Command, positionals: readonly string[]): void {
+  const [first] = positionals;
+  if (first !== undefined) {
+    throw new UsageError(`${command} takes no argument, got: ${first}`);
+  }
+}
 
 /** Local date formatted as YYYY-MM-DD. */
 export function localDate(date: Date): string {
@@ -239,29 +291,27 @@ function save(io: Io, board: Board): void {
   io.write(serializeBoard(board));
 }
 
-/** Parses the options and dispatches one command; errors are thrown and turned into an exit code by `run`. Options are strict: an unknown one throws a `TypeError` from `parseArgs`. */
+/**
+ * Parses the options and dispatches one command; errors are thrown and turned into an exit code by `run`.
+ * Options are strict: an unknown one throws a `TypeError` from `parseArgs`, and one the command does not
+ * accept, like an argument given to a command that takes none, is a `UsageError`.
+ */
 function execute(args: readonly string[], io: Io): void {
-  const [command, ...rest] = args;
-  const { values, positionals } = parseArgs({
-    args: rest,
-    allowPositionals: true,
-    strict: true,
-    options: {
-      column: { type: "string" },
-      desc: { type: "string" },
-      milestone: { type: "string" },
-      position: { type: "string" },
-      title: { type: "string" },
-    },
-  });
+  const [name = "help", ...rest] = args;
+  const { values, positionals } = parseArgs({ args: rest, allowPositionals: true, strict: true, options: OPTIONS });
+  if (!isCommand(name)) {
+    throw new UsageError(`unknown command: ${name}`);
+  }
+  requireOptions(name, Object.keys(values));
 
-  switch (command) {
-    case undefined:
+  switch (name) {
     case "help": {
+      requireNoArgument(name, positionals);
       io.out(HELP);
       return;
     }
     case "list": {
+      requireNoArgument(name, positionals);
       const column = values.column === undefined ? undefined : toColumn(values.column);
       const cards = load(io).cards.filter((card) => column === undefined || card.column === column);
       if (cards.length === 0) {
@@ -330,12 +380,10 @@ function execute(args: readonly string[], io: Io): void {
       return;
     }
     case "validate": {
+      requireNoArgument(name, positionals);
       const board = load(io);
       io.out(`valid board: ${String(board.cards.length)} card(s)`);
       return;
-    }
-    default: {
-      throw new UsageError(`unknown command: ${command}`);
     }
   }
 }
