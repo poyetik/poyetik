@@ -33,13 +33,13 @@ macOS or Linux (on Windows, use WSL2). `cargo xtask check` checks every tool fir
 ## Checking
 
 ```sh
-cargo xtask check          # every check, in order; mutation testing of the changes only
+cargo xtask check          # every check, in order; mutation testing of the changes only (see below)
 cargo xtask check --full   # every check and every mutant
 cargo xtask list           # what they are (`list --full`: those of `check --full`)
 cargo xtask mutants <target>  # every mutant of a crate, a Rust file, a TypeScript package or one of its sources
 ```
 
-The pre-push hook runs `cargo xtask check`, CI runs `cargo xtask check --full`. The default check mutation tests only what changed since the merge base with the branch's upstream (else `origin/main`, else `main`), so a green default check does not prove a green full check; `CLAUDE.md` (CI) says what each proves and when the full check is required.
+The pre-push hook runs `cargo xtask check` (`--full` when a tag is pushed), CI runs `cargo xtask check --full`. The default check mutation tests only what changed: Rust since the merge base with the branch's upstream (else `origin/main`, else `main`), TypeScript since the last local Stryker run (its incremental file), so a green default check does not prove a green full check; `CLAUDE.md` (CI) says what each proves and when the full check is required.
 
 ## License
 

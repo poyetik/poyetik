@@ -4416,9 +4416,10 @@ pub fn run_steps(
 /// Usage of the `xtask` command, in the order of its first line.
 pub const USAGE: &str = "\
 usage: cargo xtask <check [--full]|list [--full]|mutants <target>|bless|commit-msg <file>|pre-push [pair...]|help>
-  check [--full]        run every quality check; mutation testing covers the changes since
-                        the merge base with the upstream, origin/main or main, or with
-                        --full every mutant, as CI does
+  check [--full]        run every quality check; mutation testing covers the changes: Rust
+                        since the merge base with the upstream, origin/main or main,
+                        TypeScript since the last local Stryker run; with --full every
+                        mutant, as CI does
   list [--full]         list the checks of `check` (or `check --full`), in order
   mutants <target>      run every mutant of one target: a crate (its name), a Rust file
                         of a crate, a TypeScript package (its directory) or one of its

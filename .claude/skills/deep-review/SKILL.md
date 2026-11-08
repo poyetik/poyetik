@@ -27,7 +27,7 @@ Build the **review packet** once, and give it to every reviewer:
 - the list of files in scope, and the diff when the scope is a change;
 - `CLAUDE.md` (the rules every finding is judged against);
 - the local design notes listed in `CLAUDE.md` (section "Documentation"), when present, that are relevant to the scope; they are unversioned: never quote their strategy content in a versioned file;
-- the result of the last `cargo xtask check` if available (do not rerun it just for the review).
+- the result of the last `cargo xtask check --full` or green CI run if available (do not rerun it just for the review; a default `cargo xtask check` proves only the mutants of its changes).
 
 ## 2. Reviewers: one agent per axis, all in parallel
 
@@ -53,7 +53,7 @@ Axis briefs:
 14. **Public API and developer experience.** Exported interfaces of the crates and packages (engine, bindings, future SDKs): naming, stability, misuse resistance (impossible states unrepresentable), semantic versioning impact of the change, documentation of every public item.
 15. **Audio DSP quality.** Judged against the state of the art, with numbers whenever possible: aliasing (band-limited oscillators, oversampled non-linearities), parameter changes (smoothing, no zipper noise, sample-accurate events), filter topologies stable under modulation (TPT / zero-delay feedback), numerical stability and precision (phase accumulators, coefficient computation, `f32` versus `f64`, catastrophic cancellation), denormal numbers (a deterministic strategy: no hardware flush-to-zero in WebAssembly), DC offset, gain staging and headroom, latency, interpolation and resampling quality, cost per sample (approximations measured against references). Does every box have objective measurements (spectrum, THD, SNR, aliasing level, frequency response) in its tests, and are they good enough?
 16. **Scientific rigor and edge cases.** Every claim treated as a theorem to prove or refute. Every documented invariant (phase within one cycle, no NaN, bounded output, error below a tolerance) checked at the extremes of its domain and their combinations: the minimum and maximum of every parameter crossed with the minimum and maximum sample rate, zero, negative values, Nyquist and above, subnormal numbers, the largest sizes accepted (frames, boxes, cables, channels), empty inputs. Long runs: drift and precision loss after hours of rendering, accumulator and counter overflow. Numerical method: precision of `f32` versus `f64`, double rounding, catastrophic cancellation, error accumulation, and whether every tolerance and threshold has a derivation (an error bound worked out, or a measured distribution) rather than a guess. Validity of every measurement method (frequency estimation, spectra, error metrics): its own bias and failure modes. Worst-case cost: pathological inputs that make an algorithm quadratic or unbounded. Derive bounds on paper, then confirm them with experiments; report numbers.
-17. **Dependencies, build and CI.** Every new dependency justified in the dependency register (in the local design notes listed in `CLAUDE.md`), minimal and mainstream; versions pinned; toolchains pinned; the check run identically by the pre-push hook and CI; reproducibility of builds; anything in `cargo xtask check` that could pass while something is broken (a step that cannot fail, a gate reading the wrong file).
+17. **Dependencies, build and CI.** Every new dependency justified in the dependency register (in the local design notes listed in `CLAUDE.md`), minimal and mainstream; versions pinned; toolchains pinned; the full check (`cargo xtask check --full`) run by CI, and what the pre-push hook's default check leaves to it (mutants outside the changes, TypeScript results Stryker reuses); reproducibility of builds; anything in `cargo xtask check` that could pass while something is broken (a step that cannot fail, a gate reading the wrong file).
 
 If the scope plainly cannot touch an axis (for example UX for a Rust-only change), still run it with the instruction to confirm that nothing in scope reaches it: coherence across parts is exactly what single-axis thinking misses.
 
@@ -123,7 +123,7 @@ Then **stop**. Nothing is applied without the maintainer's decision, finding by 
 Never apply a fix on the strength of the review alone. For each finding the maintainer accepts, at the moment of applying it:
 1. **Re-analyze it** against the code as it is now (other fixes may have changed it): is it still real, is the chosen option still the best, did a trade-off move? If the answer changed, stop and tell the maintainer before doing anything.
 2. Write the failing test first (`CLAUDE.md`: every fix starts with a test that reproduces the problem).
-3. Apply the fix, then run `cargo xtask check` until it is green.
+3. Apply the fix, then run `cargo xtask check --full` (or get a green CI run) until it is green.
 4. Commit, one logical fix per commit, the message saying which finding it closes.
 
 Accepted lessons are applied the same way: the tool or rule first, with a test showing it catches the defects that revealed it.

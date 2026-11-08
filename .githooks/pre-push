@@ -1,6 +1,7 @@
 #!/bin/sh
 # Before every push: the default check (`cargo xtask check`: every check of CI, mutation
-# testing only the changes the push adds; CI runs every mutant, `--full`), on exactly what is
+# testing only the changes, Rust since the merge base with the upstream, TypeScript since the
+# last local Stryker run; `--full`, every mutant, when a tag is pushed, and in CI), on exactly what is
 # pushed: xtask refuses a working tree with uncommitted changes and a pushed commit other
 # than the one checked out. A single failure blocks the push. Skipped (--no-verify) only on
 # the maintainer's explicit request (CLAUDE.md, CI).
