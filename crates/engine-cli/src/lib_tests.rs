@@ -1093,6 +1093,59 @@ fn tells_usage_errors_from_failures() {
     );
 }
 
+#[test]
+fn reports_an_error_as_one_escaped_line() {
+    assert_eq!(
+        CliError::Failed("p.json: node 1: unknown box type \"x~\"".to_owned()).line(),
+        "error: p.json: node 1: unknown box type \"x~\"",
+        "plain text is unchanged, quotes included"
+    );
+    assert_eq!(
+        CliError::Usage("unknown command \"\u{1b}[2J\"".to_owned()).line(),
+        "error: unknown command \"\\u{1b}[2J\" (see: engine-cli help)",
+        "a usage error, escaped too"
+    );
+    let hostile =
+        "a\nb\rc\td\u{7f}e\u{85}f\u{202e}g\u{2066}h\u{200f}i\u{200e}i\u{61c}j\u{2028}k\u{2029}l";
+    assert_eq!(
+        CliError::Failed(hostile.to_owned()).line(),
+        "error: a\\u{a}b\\u{d}c\\u{9}d\\u{7f}e\\u{85}f\\u{202e}g\\u{2066}h\\u{200f}i\\u{200e}i\\u{61c}j\\u{2028}k\\u{2029}l",
+        "control, bidi and line-separator characters are escaped"
+    );
+    assert_eq!(
+        CliError::Failed("é ü 音".to_owned()).line(),
+        "error: é ü 音",
+        "other text is kept"
+    );
+}
+
+#[test]
+fn bounds_the_length_of_an_error_line() {
+    let at_limit = "x".repeat(super::MAX_ERROR_CHARS);
+    assert_eq!(
+        CliError::Failed(at_limit.clone()).line(),
+        format!("error: {at_limit}"),
+        "exactly at the limit"
+    );
+    assert_eq!(
+        CliError::Failed(format!("{at_limit}y")).line(),
+        format!("error: {}…", "x".repeat(super::MAX_ERROR_CHARS - 1)),
+        "one character more: cut, and marked"
+    );
+    // An escape is never cut in the middle.
+    let escapes = "\n".repeat(super::MAX_ERROR_CHARS);
+    let line = CliError::Failed(escapes).line();
+    assert_eq!(
+        line,
+        format!(
+            "error: {}…",
+            "\\u{a}".repeat((super::MAX_ERROR_CHARS - 1) / 5)
+        ),
+        "whole escapes only"
+    );
+    assert_eq!(super::MAX_ERROR_CHARS, 1_000, "the documented limit");
+}
+
 /// An output whose reader is gone, or that fails another way.
 struct Pipe(io::ErrorKind);
 impl io::Write for Pipe {

@@ -197,6 +197,46 @@ mod tests {
         assert_eq!(unreadable.status.code(), Some(1_i32), "a failure");
     }
 
+    #[test]
+    fn escapes_untrusted_text_into_one_error_line() {
+        let dir = std::env::temp_dir().join(format!("engine-cli-escape-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temporary directory");
+        let case = Path::new(&conformance()).join("cases/sine-440.json");
+        let (hostile_box, hostile_field) = (dir.join("box.json"), dir.join("field.json"));
+        std::fs::write(
+            &hostile_box,
+            r#"{"format":1,"nodes":[{"id":1,"box":"x\u001b[31m\nsecond"}],"connections":[]}"#,
+        )
+        .expect("patch");
+        std::fs::write(
+            &hostile_field,
+            r#"{"format":1,"nodes":[],"connections":[],"a\u001b\n":1}"#,
+        )
+        .expect("patch");
+        let outputs: Vec<std::process::Output> = [&hostile_box, &hostile_field]
+            .iter()
+            .map(|patch| {
+                engine_cli(&[
+                    std::ffi::OsStr::new("render"),
+                    case.as_os_str(),
+                    patch.as_os_str(),
+                ])
+            })
+            .collect();
+        std::fs::remove_dir_all(&dir).expect("cleanup");
+        for output in outputs {
+            let stderr = &output.stderr;
+            assert_eq!(output.status.code(), Some(1_i32), "a failure");
+            assert!(stderr.starts_with(b"error: "), "an error line");
+            assert_eq!(
+                stderr.iter().position(|&byte| byte < 0x20 || byte == 0x7f),
+                Some(stderr.len() - 1),
+                "no control byte but the final newline: {}",
+                String::from_utf8_lossy(stderr)
+            );
+        }
+    }
+
     #[cfg(unix)]
     #[test]
     fn refuses_an_endless_case_file_instead_of_reading_it_whole() {

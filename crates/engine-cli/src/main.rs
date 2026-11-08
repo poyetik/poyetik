@@ -24,7 +24,7 @@ fn main() -> ExitCode {
     // Nothing more can be done if stderr itself is broken: the exit code still tells.
     drop(std::io::Write::write_all(
         &mut std::io::stderr(),
-        format!("error: {error}\n").as_bytes(),
+        format!("{}\n", error.line()).as_bytes(),
     ));
     ExitCode::from(error.exit_code())
 }
