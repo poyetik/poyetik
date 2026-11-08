@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- A membership gate in `cargo xtask check`: the `package.json` files tracked by git must be exactly those the version check reads, every TypeScript package must have its checks and reports run, and every crate must take the workspace version. A package added without being wired into the checks now fails it.
 - `cargo xtask check` reads the coverage summary and the mutation report of every TypeScript package itself (100% of lines, statements, functions and branches; no surviving or uncovered mutant), from report directories emptied at each run: lowering a package's own threshold, or a package no longer writing its reports, now fails the check.
 - `captureEngine` (engine-wasm web API): captures live the first frames the engine renders, from where its processor really started, as `renderOffline` does offline (`OFFLINE_MARGIN` is renamed `START_MARGIN`, shared by both).
 - `mutants-equivalent.txt` and a gate in `cargo xtask check`: every TypeScript mutant disabled as equivalent is listed there with its justification; a disable comment that is not listed, a stale entry, or a broader disable (a whole file, every mutator) fails the check.

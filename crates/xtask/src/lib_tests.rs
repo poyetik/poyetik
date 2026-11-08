@@ -11,8 +11,8 @@ use super::{
     Action, BestEffort, CARGO_TOML, CHANGELOG, COMMIT_HEADER_MAX, COVERAGE_REPORT, Cmd, Dir,
     EQUIVALENT_REVIEWED, PACKAGE_JSONS, PORTABILITY_TARGETS, Runner, Step, SystemRunner,
     TYPESCRIPT_PACKAGES, UNVIABLE_REPORT, UNVIABLE_REVIEWED, USAGE, Version, bless_step,
-    check_steps, cli, commit_msg_gate, coverage_gate, equivalent_gate, release_gate, run_steps,
-    ts_coverage_gate, ts_mutation_gate, unviable_gate,
+    check_steps, cli, commit_msg_gate, coverage_gate, equivalent_gate, membership_gate,
+    release_gate, run_steps, ts_coverage_gate, ts_mutation_gate, unviable_gate,
 };
 
 /// Records commands and answers with scripted results.
@@ -61,18 +61,21 @@ impl Runner for Fake {
         Ok(())
     }
 
-    fn typescript_files(&mut self) -> io::Result<Vec<String>> {
-        self.ran.push("list typescript".to_owned());
-        if self.broken.as_deref() == Some("list typescript") {
+    /// Matches the pathspecs this crate uses: `*<suffix>`.
+    fn tracked(&mut self, patterns: &[&str]) -> io::Result<Vec<String>> {
+        let line = format!("list {}", patterns.join(" "));
+        self.ran.push(line.clone());
+        if self.broken.as_deref() == Some(line.as_str()) {
             return Err(io::Error::other("no git"));
         }
         Ok(self
             .files
             .keys()
             .filter(|path| {
-                Path::new(path)
-                    .extension()
-                    .is_some_and(|e| e == "ts" || e == "tsx")
+                patterns
+                    .iter()
+                    .filter_map(|pattern| pattern.strip_prefix('*'))
+                    .any(|suffix| path.ends_with(suffix))
             })
             .cloned()
             .collect())
@@ -181,6 +184,7 @@ fn command_lines(steps: &[Step]) -> Vec<String> {
             Action::FreshDir(path) => format!("fresh {path}"),
             Action::FreshDirs(paths) => format!("fresh {}", paths.join(" ")),
             Action::TypeScriptReportsGate => "typescript reports gate".to_owned(),
+            Action::MembershipGate => "membership gate".to_owned(),
         })
         .collect()
 }
@@ -209,6 +213,7 @@ fn lists_every_check_in_order() {
             "fresh target/conformance",
             "Root: cargo run --package engine-cli --locked --quiet -- export conformance target/conformance",
             "Root: cargo deny --locked check",
+            "membership gate",
             "release gate",
             "Root: pnpm install --frozen-lockfile",
             "fresh tooling/oracle/coverage tooling/oracle/reports/mutation bindings/wasm/coverage bindings/wasm/reports/mutation apps/playground/coverage apps/playground/reports/mutation apps/roadmap/coverage apps/roadmap/reports/mutation",
@@ -241,6 +246,7 @@ fn lists_every_check_in_order() {
             "Fresh conformance export directory",
             "Conformance export (native WAV files)",
             "Rust supply chain",
+            "Packages and crates known to the checks",
             "Versions and changelog",
             "JavaScript dependencies",
             "Fresh TypeScript report directories",
@@ -346,10 +352,11 @@ fn runs_every_step_and_reports_success() {
     );
     assert_eq!(
         fake.ran.len(),
-        check_steps().len() + 7 + 10 + 7,
+        check_steps().len() + 7 + 10 + 7 + 2,
         "every step ran; the unviable gate reads two files, the equivalent gate lists the \
          sources and reads two files, the release gate eight, the fresh step empties seven \
-         more directories, the TypeScript gate reads eight reports instead of one action"
+         more directories, the TypeScript gate reads eight reports instead of one action, \
+         the membership gate lists twice and reads the root Cargo.toml"
     );
     for path in [
         CARGO_TOML,
@@ -373,15 +380,15 @@ fn runs_every_step_and_reports_success() {
     );
     let text = String::from_utf8(out).expect("utf-8 output");
     assert!(
-        text.starts_with("▶ [1/26] Rust formatting\n"),
+        text.starts_with("▶ [1/27] Rust formatting\n"),
         "numbered progress: {text}"
     );
     assert!(
-        text.contains("▶ [25/26] Roadmap checks\n"),
+        text.contains("▶ [26/27] Roadmap checks\n"),
         "last step announced: {text}"
     );
     assert!(
-        text.ends_with("✔ all 26 checks passed\n"),
+        text.ends_with("✔ all 27 checks passed\n"),
         "summary: {text}"
     );
 }
@@ -863,7 +870,7 @@ fn refuses_broad_or_unexplained_disables() {
 #[test]
 fn fails_when_equivalent_files_cannot_be_read() {
     let mut no_list = passing();
-    no_list.broken = Some("list typescript".to_owned());
+    no_list.broken = Some("list *.ts *.tsx".to_owned());
     assert_eq!(
         run_steps(&check_steps(), &mut no_list, &mut Vec::new()),
         Err(
@@ -907,7 +914,7 @@ fn system_runner_lists_the_tracked_typescript_files() {
     };
     assert!(git(&["init", "--quiet"]), "git init");
     assert!(git(&["add", "src", "d.ts"]), "git add");
-    let files = SystemRunner { root: root.clone() }.typescript_files();
+    let files = SystemRunner { root: root.clone() }.tracked(&["*.ts", "*.tsx"]);
     std::fs::remove_dir_all(&root).expect("cleanup");
     assert_eq!(
         files.expect("git lists the files"),
@@ -923,7 +930,7 @@ fn system_runner_lists_the_tracked_typescript_files() {
     let error = SystemRunner {
         root: outside.clone(),
     }
-    .typescript_files();
+    .tracked(&["*.ts", "*.tsx"]);
     std::fs::remove_dir_all(&outside).expect("cleanup");
     assert!(error.is_err(), "not a repository");
 }
@@ -1248,8 +1255,13 @@ fn release_gate_runs_on_the_real_files() {
         let mut without = passing();
         let removed = without.files.remove(path);
         assert!(removed.is_some(), "{path} removed");
+        // The release step alone: the membership gate before it also notices a removal.
+        let release: Vec<Step> = check_steps()
+            .into_iter()
+            .filter(|step| step.action == Action::ReleaseGate)
+            .collect();
         assert_eq!(
-            run_steps(&check_steps(), &mut without, &mut Vec::new()),
+            run_steps(&release, &mut without, &mut Vec::new()),
             Err(format!(
                 "✘ Versions and changelog: cannot read {path}: missing"
             )),
@@ -1379,5 +1391,64 @@ fn fails_on_a_missing_or_failing_typescript_report() {
                 .to_owned()
         ),
         "a report directory that cannot be emptied"
+    );
+}
+
+#[test]
+fn knows_exactly_the_packages_and_crates_of_the_repository() {
+    let packages: Vec<String> = PACKAGE_JSONS
+        .iter()
+        .map(|path| (*path).to_owned())
+        .collect();
+    let crates = vec![
+        ("Cargo.toml".to_owned(), "[workspace]".to_owned()),
+        (
+            "crates/a/Cargo.toml".to_owned(),
+            "[package]\nversion.workspace = true\n".to_owned(),
+        ),
+    ];
+    assert_eq!(membership_gate(&packages, &crates), Ok(()), "known");
+
+    let mut more = packages.clone();
+    more.push("apps/editor/package.json".to_owned());
+    let fewer: Vec<String> = packages
+        .iter()
+        .filter(|p| *p != "apps/roadmap/package.json")
+        .cloned()
+        .collect();
+    let own = vec![(
+        "crates/b/Cargo.toml".to_owned(),
+        "[package]\nversion = \"9.0.0\"\n".to_owned(),
+    )];
+    assert_eq!(
+        membership_gate(&more, &own),
+        Err("apps/editor/package.json is not in PACKAGE_JSONS; apps/editor is not in TYPESCRIPT_PACKAGES: its checks and reports are not run; crates/b/Cargo.toml does not take the workspace version".to_owned()),
+        "unknown package and crate with its own version"
+    );
+    assert_eq!(
+        membership_gate(&fewer, &[]),
+        Err("apps/roadmap/package.json is in PACKAGE_JSONS but not tracked; apps/roadmap is in TYPESCRIPT_PACKAGES but has no tracked package.json".to_owned()),
+        "a package that is gone"
+    );
+}
+
+#[test]
+fn reports_manifests_it_cannot_list() {
+    let mut broken = passing();
+    broken.broken = Some("list *Cargo.toml".to_owned());
+    assert_eq!(
+        run_steps(&check_steps(), &mut broken, &mut Vec::new()),
+        Err(
+            "✘ Packages and crates known to the checks: cannot list the *Cargo.toml files: no git"
+                .to_owned()
+        ),
+        "named"
+    );
+    let mut unlisted = passing();
+    unlisted.broken = Some("list *package.json".to_owned());
+    assert!(
+        run_steps(&check_steps(), &mut unlisted, &mut Vec::new())
+            .is_err_and(|e| e.ends_with("cannot list the *package.json files: no git")),
+        "named"
     );
 }

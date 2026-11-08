@@ -138,6 +138,9 @@ pub enum Action {
     /// Require 100% coverage and no surviving mutant in the reports of every TypeScript
     /// package.
     TypeScriptReportsGate,
+    /// Require the packages and crates known to xtask to be exactly those of the
+    /// repository, every crate on the workspace version.
+    MembershipGate,
 }
 
 /// One named check.
@@ -333,6 +336,10 @@ fn release_steps() -> Vec<Step> {
             &["deny", "--locked", "check"],
             Dir::Root,
         ),
+        Step {
+            name: "Packages and crates known to the checks".to_owned(),
+            action: Action::MembershipGate,
+        },
         Step {
             name: "Versions and changelog".to_owned(),
             action: Action::ReleaseGate,
@@ -635,6 +642,65 @@ pub fn equivalent_gate(sources: &[(String, String)], reviewed: &str) -> Result<(
     }
 }
 
+/// The package that holds shared configuration only: a workspace member without checks or
+/// reports of its own.
+pub const CONFIGURATION_PACKAGE: &str = "tooling/config/package.json";
+
+/// Checks that the manifests tracked by git are exactly those xtask knows.
+///
+/// Every `package.json` is in [`PACKAGE_JSONS`], every TypeScript package but the root
+/// and the configuration one is in [`TYPESCRIPT_PACKAGES`], and every crate manifest
+/// (`Cargo.toml` below the root) takes the workspace version.
+///
+/// # Errors
+///
+/// Returns a message listing every manifest unknown to xtask or missing from the
+/// repository, and every crate with a version of its own.
+pub fn membership_gate(packages: &[String], crates: &[(String, String)]) -> Result<(), String> {
+    let tracked: BTreeSet<&str> = packages.iter().map(String::as_str).collect();
+    let known: BTreeSet<&str> = PACKAGE_JSONS.into_iter().collect();
+    let mut problems: Vec<String> = tracked
+        .difference(&known)
+        .map(|path| format!("{path} is not in PACKAGE_JSONS"))
+        .chain(
+            known
+                .difference(&tracked)
+                .map(|path| format!("{path} is in PACKAGE_JSONS but not tracked")),
+        )
+        .collect();
+    let checked: BTreeSet<String> = tracked
+        .iter()
+        .filter(|path| **path != "package.json" && **path != CONFIGURATION_PACKAGE)
+        .filter_map(|path| path.strip_suffix("/package.json"))
+        .map(str::to_owned)
+        .collect();
+    let gated: BTreeSet<String> = TYPESCRIPT_PACKAGES.into_iter().map(str::to_owned).collect();
+    problems.extend(checked.difference(&gated).map(|dir| {
+        format!("{dir} is not in TYPESCRIPT_PACKAGES: its checks and reports are not run")
+    }));
+    problems.extend(
+        gated
+            .difference(&checked)
+            .map(|dir| format!("{dir} is in TYPESCRIPT_PACKAGES but has no tracked package.json")),
+    );
+    problems.extend(
+        crates
+            .iter()
+            .filter(|(path, _)| path != CARGO_TOML)
+            .filter(|(_, text)| {
+                !text
+                    .lines()
+                    .any(|line| line.trim() == "version.workspace = true")
+            })
+            .map(|(path, _)| format!("{path} does not take the workspace version")),
+    );
+    if problems.is_empty() {
+        Ok(())
+    } else {
+        Err(problems.join("; "))
+    }
+}
+
 /// The project manifest holding the workspace version.
 pub const CARGO_TOML: &str = "Cargo.toml";
 
@@ -885,12 +951,13 @@ pub trait Runner {
     /// Returns an error when the directory cannot be removed or created.
     fn fresh_dir(&mut self, path: &str) -> io::Result<()>;
 
-    /// The TypeScript source files tracked by git (`.ts` and `.tsx`), relative to the root.
+    /// The files tracked by git matching any of `patterns` (git pathspecs such as
+    /// `*.ts`), relative to the root.
     ///
     /// # Errors
     ///
     /// Returns an error when git cannot list them.
-    fn typescript_files(&mut self) -> io::Result<Vec<String>>;
+    fn tracked(&mut self, patterns: &[&str]) -> io::Result<Vec<String>>;
 }
 
 /// Runs real commands below a repository root.
@@ -922,9 +989,10 @@ impl Runner for SystemRunner {
         std::fs::create_dir_all(dir)
     }
 
-    fn typescript_files(&mut self) -> io::Result<Vec<String>> {
+    fn tracked(&mut self, patterns: &[&str]) -> io::Result<Vec<String>> {
         Command::new("git")
-            .args(["ls-files", "--", "*.ts", "*.tsx"])
+            .args(["ls-files", "--"])
+            .args(patterns)
             .current_dir(&self.root)
             .output()
             .and_then(|output| {
@@ -989,6 +1057,22 @@ pub fn run_steps(
                     .fresh_dir(path)
                     .map_err(|error| format!("cannot empty {path}: {error}"))
             }),
+            Action::MembershipGate => {
+                let list = |source: &mut dyn Runner, pattern: &str| {
+                    source
+                        .tracked(&[pattern])
+                        .map_err(|error| format!("cannot list the {pattern} files: {error}"))
+                };
+                list(runner, "*package.json").and_then(|packages| {
+                    list(runner, "*Cargo.toml").and_then(|manifests| {
+                        manifests
+                            .into_iter()
+                            .map(|path| read_file(runner, &path).map(|text| (path, text)))
+                            .collect::<Result<Vec<_>, _>>()
+                            .and_then(|crates| membership_gate(&packages, &crates))
+                    })
+                })
+            }
             Action::TypeScriptReportsGate => TYPESCRIPT_PACKAGES.iter().try_for_each(|package| {
                 read_file(runner, &format!("{package}/coverage/coverage-summary.json"))
                     .and_then(|summary| ts_coverage_gate(package, &summary))?;
@@ -996,7 +1080,7 @@ pub fn run_steps(
                     .and_then(|report| ts_mutation_gate(package, &report))
             }),
             Action::EquivalentGate => runner
-                .typescript_files()
+                .tracked(&["*.ts", "*.tsx"])
                 .map_err(|error| format!("cannot list the TypeScript files: {error}"))
                 .and_then(|paths| {
                     paths
