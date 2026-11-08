@@ -30,8 +30,8 @@ A 440 Hz sine wave on both output channels:
 | `nodes[].box` | string | Box type, as named in the engine registry. |
 | `nodes[].params` | object, optional | Parameter values (numbers) by name, each name at most once. Unset parameters use their default. |
 | `connections` | array | Cables, in any order, each at most once. |
-| `connections[].from` | `[node id, outlet index]` | Source outlet (indices start at 0). |
-| `connections[].to` | `[node id, inlet index]` | Destination inlet (indices start at 0). |
+| `connections[].from` | `[node id, outlet index]`, index 0 to 65535 | Source outlet (indices start at 0). |
+| `connections[].to` | `[node id, inlet index]`, index 0 to 65535 | Destination inlet (indices start at 0). |
 
 ## Rules
 

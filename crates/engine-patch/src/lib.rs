@@ -133,13 +133,17 @@ struct NodeDocument {
 }
 
 /// A cable, as written: `[node id, port index]` at each end.
+///
+/// Port indices are `u16` (0 to 65535, as the format states), not `usize`: a pointer-wide
+/// type would accept on a 64-bit target what a 32-bit one (WebAssembly) refuses, so the
+/// same document would fail differently on each.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ConnectionDocument {
     /// Source node and outlet.
-    from: (u32, usize),
+    from: (u32, u16),
     /// Destination node and inlet.
-    to: (u32, usize),
+    to: (u32, u16),
 }
 
 /// Reads a patch document.
@@ -173,9 +177,9 @@ pub fn parse_patch(json: &str) -> Result<Patch, PatchError> {
         .into_iter()
         .map(|connection| Connection {
             from: NodeId(connection.from.0),
-            outlet: connection.from.1,
+            outlet: usize::from(connection.from.1),
             to: NodeId(connection.to.0),
-            inlet: connection.to.1,
+            inlet: usize::from(connection.to.1),
         })
         .collect();
     Patch::new(nodes, connections).map_err(PatchError::Patch)

@@ -81,6 +81,43 @@ fn reads_an_empty_patch_and_the_largest_id() {
 }
 
 #[test]
+fn reads_port_indices_from_0_to_65535_only() {
+    let with_ports = |outlet: &str, inlet: &str| {
+        format!(
+            r#"{{"format":1,"nodes":[],"connections":[{{"from":[1,{outlet}],"to":[2,{inlet}]}}]}}"#
+        )
+    };
+    assert_eq!(
+        parse_patch(&with_ports("65535", "0"))
+            .map(|patch| patch.connections().copied().collect::<Vec<_>>()),
+        Ok(vec![connection(1, 65_535, 2, 0)]),
+        "the largest outlet"
+    );
+    assert_eq!(
+        parse_patch(&with_ports("0", "65535"))
+            .map(|patch| patch.connections().copied().collect::<Vec<_>>()),
+        Ok(vec![connection(1, 0, 2, 65_535)]),
+        "the largest inlet"
+    );
+    // The same refusal on every target, whatever the width of its pointers.
+    assert_eq!(
+        invalid(&with_ports("65536", "0")),
+        "invalid value: integer `65536`, expected u16 at line 1 column 54",
+        "outlet 65536"
+    );
+    assert_eq!(
+        invalid(&with_ports("0", "65536")),
+        "invalid value: integer `65536`, expected u16 at line 1 column 65",
+        "inlet 65536"
+    );
+    assert_eq!(
+        invalid(&with_ports("4294967296", "0")),
+        "invalid value: integer `4294967296`, expected u16 at line 1 column 59",
+        "beyond 32 bits"
+    );
+}
+
+#[test]
 fn refuses_repeated_nodes_cables_and_parameters() {
     assert_eq!(
         parse_patch(
