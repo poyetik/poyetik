@@ -84,6 +84,7 @@ export const SILENT_PATCH = new TextEncoder().encode('{"format":1,"nodes":[{"id"
 
 /** The names of every function the engine module exports. */
 export const FUNCTIONS = [
+  "engine_abi_version",
   "engine_input",
   "engine_load",
   "engine_message_ptr",
@@ -115,25 +116,69 @@ function section(id: number, contents: number[]): number[] {
   return [id, ...leb128(contents.length), ...contents];
 }
 
+/** A function of a hand-made module. */
+export interface HandMadeFunction {
+  readonly name: string;
+  /** Number of `i32` parameters. */
+  readonly params: number;
+  /**
+   * An `i32` result (a JavaScript number), an `i64` one (a BigInt), a trap (typed `i32`),
+   * or `grow`: grows the memory by one page, writes 0.5 (f32) at address 0, returns 0.
+   */
+  readonly body: { readonly i32: number } | "i64" | "trap" | "grow";
+}
+
+/** The arity of each engine export. */
+const ARITY: Readonly<Record<string, number>> = { engine_input: 1, engine_load: 1 };
+
+/** The engine functions with their arity, each returning `i32` 1 (or `body`). */
+export function engineFunctions(body: HandMadeFunction["body"] = { i32: 1 }): HandMadeFunction[] {
+  return FUNCTIONS.map((name) => ({ name, params: ARITY[name] ?? 0, body }));
+}
+
+/** Encodes a signed integer in LEB128. */
+function sleb128(value: number): number[] {
+  const bytes: number[] = [];
+  let rest = value;
+  for (;;) {
+    const low = rest & 0x7f;
+    rest >>= 7;
+    const done = (rest === 0 && (low & 0x40) === 0) || (rest === -1 && (low & 0x40) !== 0);
+    bytes.push(done ? low : low | 0x80);
+    if (done) {
+      return bytes;
+    }
+  }
+}
+
 /**
- * Builds a small module by hand: optionally a memory, and optionally one function
- * returning an i64 (a BigInt in JavaScript), exported under each of `functions`.
+ * Builds a small module by hand: optionally a memory, an imported function (which no
+ * engine module has), and `functions`, each with its own type and body.
  */
-export function handMadeModule(options: { memory: boolean; functions: readonly string[] }): WebAssembly.Module {
+export function handMadeModule(options: { memory: boolean; imports?: boolean; functions: readonly HandMadeFunction[] }): WebAssembly.Module {
+  const types = options.functions.map((f) => [0x60, f.params, ...Array<number>(f.params).fill(0x7f), 0x01, f.body === "i64" ? 0x7e : 0x7f]);
+  const bodies = options.functions.map((f) => {
+    const grow = [0x41, 0x01, 0x40, 0x00, 0x1a, 0x41, 0x00, 0x43, 0x00, 0x00, 0x00, 0x3f, 0x38, 0x02, 0x00, 0x41, 0x00];
+    const code = f.body === "trap" ? [0x00] : f.body === "i64" ? [0x42, 0x00] : f.body === "grow" ? grow : [0x41, ...sleb128(f.body.i32)];
+    return [code.length + 2, 0x00, ...code, 0x0b];
+  });
+  const imported = options.imports === true ? 1 : 0;
   const exports: number[][] = [];
   if (options.memory) {
     exports.push([...name("memory"), 0x02, 0x00]);
   }
-  for (const exported of options.functions) {
-    exports.push([...name(exported), 0x00, 0x00]);
-  }
+  options.functions.forEach((f, index) => {
+    exports.push([...name(f.name), 0x00, index + imported]);
+  });
+  const typeSection = options.imports === true ? [...types, [0x60, 0x00, 0x00]] : types;
   const bytes = [
     ...[0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00],
-    ...(options.functions.length > 0 ? section(0x01, [0x01, 0x60, 0x00, 0x01, 0x7e]) : []),
-    ...(options.functions.length > 0 ? section(0x03, [0x01, 0x00]) : []),
+    ...section(0x01, [typeSection.length, ...typeSection.flat()]),
+    ...(options.imports === true ? section(0x02, [0x01, ...name("env"), ...name("f"), 0x00, types.length]) : []),
+    ...section(0x03, [options.functions.length, ...options.functions.map((_, index) => index)]),
     ...(options.memory ? section(0x05, [0x01, 0x00, 0x01]) : []),
     ...section(0x07, [exports.length, ...exports.flat()]),
-    ...(options.functions.length > 0 ? section(0x0a, [0x01, 0x04, 0x00, 0x42, 0x00, 0x0b]) : []),
+    ...section(0x0a, [bodies.length, ...bodies.flat()]),
   ];
   return new WebAssembly.Module(new Uint8Array(bytes));
 }

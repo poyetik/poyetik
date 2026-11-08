@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The WebAssembly module exports `engine_abi_version`, checked before anything else by the JavaScript side.
 - No-allocation proofs beyond single boxes: the plan laws check that rendering any random built plan allocates nothing, and the WASM engine tests check `Engine::process`, `Instance::process` and `engine_process` (at every sample rate of the matrix). The CLAUDE.md claim about an `assert_no_alloc` check, which did not exist, is corrected.
 - Seven conformance cases from the test matrix: 8 kHz near and above Nyquist and above the sample rate, 44.1 kHz with a partial last block, 20 kHz at 48 kHz, 19,999 Hz at 384 kHz, and 0 Hz. The Node tests and the four browsers render the whole corpus (each at its own rate) and check it is complete; live captures cover 48 and 44.1 kHz.
 - `Plan::render_into` renders the next frames into a caller buffer, without allocating; it continues exactly like `Plan::render`.
@@ -45,6 +46,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `WasmEngine.render` no longer allocates: 500,000 renders cause no garbage collection (the previous version caused 100), checked by `test:allocation`, run without instrumentation.
+- `WasmEngine` reads every export as unsigned (addresses from 2 GiB on came back negative), checks the number of arguments of each export, explains a module that cannot be instantiated, turns a trap into an `EngineTrap` and never calls a trapped module again, refuses a sample rate that is not a whole number of hertz (48000.5 was silently truncated) and outputs of different lengths (before rendering anything).
 - The oracle computes ideal sines at the binary32 frequency the engine plays, as the patch format now states (parameters are binary32): an expectation at 440.1 Hz no longer compares with a frequency the patch cannot express.
 - End-to-end tests run one browser at a time: in parallel, on an idle machine slowed down by the system, live captures and clicks timed out at random.
 - `interleave` (engine-wasm hash helpers) copies samples bit for bit: a signaling NaN was turned quiet on the way to the hash.

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
-import { ModuleError, PatchError, WasmEngine } from "../ts/engine.ts";
+import { ABI_VERSION, EngineTrap, ModuleError, PatchError, WasmEngine } from "../ts/engine.ts";
 import { interleave, renderHash } from "../ts/hash.ts";
-import { CORPUS, FUNCTIONS, oscillators, PATCH_NAMES, REFERENCES, SILENT_PATCH, SINE_FRAMES, SINE_HASH, SINE_PATCH, UNKNOWN_BOX, handMadeModule, wasmBytes } from "./fixtures.ts";
+import { CORPUS, engineFunctions, FUNCTIONS, oscillators, PATCH_NAMES, REFERENCES, SILENT_PATCH, SINE_FRAMES, SINE_HASH, SINE_PATCH, UNKNOWN_BOX, handMadeModule, wasmBytes } from "./fixtures.ts";
 
 const module = new WebAssembly.Module(wasmBytes());
 const RATE = 48_000;
@@ -124,18 +124,130 @@ describe("WasmEngine", () => {
   });
 
   test("rejects a module without memory", () => {
-    const empty = handMadeModule({ memory: false, functions: FUNCTIONS });
+    const empty = handMadeModule({ memory: false, functions: engineFunctions() });
     expect(() => WasmEngine.create(empty, SINE_PATCH, RATE)).toThrow(new ModuleError("no memory"));
   });
 
   test.each(FUNCTIONS)("rejects a module without %s", (missing) => {
-    const partial = handMadeModule({ memory: true, functions: FUNCTIONS.filter((name) => name !== missing) });
+    const partial = handMadeModule({ memory: true, functions: engineFunctions().filter((f) => f.name !== missing) });
     expect(() => WasmEngine.create(partial, SINE_PATCH, RATE)).toThrow(new ModuleError(`no function ${missing}`));
   });
 
+  test("rejects a function with the wrong number of arguments", () => {
+    const functions = engineFunctions().map((f) => (f.name === "engine_load" ? { ...f, params: 0 } : f));
+    expect(() => WasmEngine.create(handMadeModule({ memory: true, functions }), SINE_PATCH, RATE)).toThrow(
+      new ModuleError("engine_load takes 0 argument(s), expected 1"),
+    );
+  });
+
   test("rejects a module whose functions do not return numbers", () => {
-    const bigints = handMadeModule({ memory: true, functions: FUNCTIONS });
-    expect(() => WasmEngine.create(bigints, SINE_PATCH, RATE)).toThrow(new ModuleError("engine_input did not return a number"));
+    const bigints = handMadeModule({ memory: true, functions: engineFunctions("i64") });
+    expect(() => WasmEngine.create(bigints, SINE_PATCH, RATE)).toThrow(new ModuleError("engine_abi_version did not return a number"));
+  });
+
+  test("checks the interface version before anything else", () => {
+    expect(ABI_VERSION).toBe(1);
+    const other = handMadeModule({ memory: true, functions: engineFunctions({ i32: 2 }).filter((f) => f.name !== "engine_input" || f.params > 0) });
+    expect(() => WasmEngine.create(other, SINE_PATCH, RATE)).toThrow(new ModuleError("interface version 2, expected 1"));
+    const noVersion = handMadeModule({ memory: false, functions: [] });
+    expect(() => WasmEngine.create(noVersion, SINE_PATCH, RATE)).toThrow(new ModuleError("no memory"));
+  });
+
+  test("reads results from 2^31 on as unsigned", () => {
+    // A module reporting 2^31 channels (i32 -2^31), with every other call returning 1.
+    const functions = engineFunctions().map((f) => (f.name === "engine_channels" ? { ...f, body: { i32: -(2 ** 31) } } : f));
+    expect(WasmEngine.create(handMadeModule({ memory: true, functions }), SINE_PATCH, RATE).channels).toBe(2 ** 31);
+  });
+
+  test("explains a module that cannot be instantiated", () => {
+    const importing = handMadeModule({ memory: true, imports: true, functions: engineFunctions() });
+    const error = (() => {
+      try {
+        WasmEngine.create(importing, SINE_PATCH, RATE);
+      } catch (thrown) {
+        return thrown;
+      }
+      return undefined;
+    })();
+    expect(error).toBeInstanceOf(ModuleError);
+    expect(error instanceof Error ? error.message : "").toMatch(/^not an engine module: cannot be instantiated: TypeError: \S/);
+    // Instantiated without imports: the WebAssembly engine refuses the missing import.
+    expect(error instanceof Error ? error.cause : undefined).toBeInstanceOf(TypeError);
+  });
+
+  test("turns a trap into an EngineTrap, and never calls a trapped module again", () => {
+    const loadTraps = engineFunctions().map((f) => (f.name === "engine_load" ? { ...f, body: "trap" as const } : f));
+    const loadError = (() => {
+      try {
+        WasmEngine.create(handMadeModule({ memory: true, functions: loadTraps }), SINE_PATCH, RATE);
+      } catch (thrown) {
+        return thrown;
+      }
+      return undefined;
+    })();
+    expect(loadError).toBeInstanceOf(EngineTrap);
+    expect(loadError instanceof Error ? loadError.cause : undefined).toBeInstanceOf(WebAssembly.RuntimeError);
+    const processTraps = engineFunctions().map((f) => (f.name === "engine_process" ? { ...f, body: "trap" as const } : f));
+    const engine = WasmEngine.create(handMadeModule({ memory: true, functions: processTraps }), SINE_PATCH, RATE);
+    const error = (() => {
+      try {
+        engine.render([new Float32Array(1)]);
+      } catch (thrown) {
+        return thrown;
+      }
+      return undefined;
+    })();
+    expect(error).toBeInstanceOf(EngineTrap);
+    expect(error instanceof Error ? error.cause : undefined).toBeInstanceOf(WebAssembly.RuntimeError);
+    expect(() => {
+      engine.render([new Float32Array(1)]);
+    }).toThrow(new EngineTrap());
+    expect(new EngineTrap()).toMatchObject({ name: "EngineTrap", message: "the engine module trapped and cannot be used again" });
+  });
+
+  test("lets other errors of the module through, and stops calling it", () => {
+    const functions = engineFunctions().map((f) => (f.name === "engine_process" ? { ...f, body: "i64" as const } : f));
+    const engine = WasmEngine.create(handMadeModule({ memory: true, functions }), SINE_PATCH, RATE);
+    expect(() => {
+      engine.render([new Float32Array(1)]);
+    }).toThrow(new ModuleError("engine_process did not return a number"));
+    expect(() => {
+      engine.render([new Float32Array(1)]);
+    }).toThrow(EngineTrap);
+  });
+
+  test("reads the block from the memory as it is after it grew", () => {
+    // One channel of one-frame blocks; engine_process grows the memory, then writes 0.5.
+    const functions = engineFunctions().map((f) => (f.name === "engine_process" ? { ...f, body: "grow" as const } : f));
+    const engine = WasmEngine.create(handMadeModule({ memory: true, functions }), SINE_PATCH, RATE);
+    const outputs = [new Float32Array(1)];
+    engine.render(outputs);
+    expect(outputs[0]?.[0]).toBe(0.5);
+  });
+
+  test("outputs silence for a block placed outside the memory", () => {
+    // A module pointing its block past the end of its one page of memory.
+    const functions = engineFunctions().map((f) => (f.name === "engine_process" ? { ...f, body: { i32: 70_000 } } : f));
+    const engine = WasmEngine.create(handMadeModule({ memory: true, functions }), SINE_PATCH, RATE);
+    const outputs = [new Float32Array(1).fill(9)];
+    engine.render(outputs);
+    expect(outputs[0]?.[0]).toBe(0);
+  });
+
+  test.each([48_000.5, -1, 2 ** 32 + 48_000, Number.NaN, Number.POSITIVE_INFINITY])("refuses the sample rate %d", (rate) => {
+    expect(() => WasmEngine.create(module, SINE_PATCH, rate)).toThrow(new RangeError(`the sample rate must be a whole number of hertz, not ${String(rate)}`));
+  });
+
+  test("accepts the largest 32-bit sample rate, rejected by the engine", () => {
+    expect(() => WasmEngine.create(module, SINE_PATCH, 0xff_ff_ff_ff)).toThrow(PatchError);
+  });
+
+  test("refuses outputs of different lengths, without rendering", () => {
+    const engine = WasmEngine.create(module, SINE_PATCH, RATE);
+    expect(() => {
+      engine.render([new Float32Array(10), new Float32Array(9)]);
+    }).toThrow(new RangeError("every output must have the same length: 9 instead of 10"));
+    expect(engine.blocks).toBe(0);
   });
 
   test("names its errors", () => {

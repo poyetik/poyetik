@@ -22,9 +22,10 @@
     "typecheck": "tsc --noEmit && tsc --noEmit -p ts/worklet",
     "lint": "eslint . --max-warnings 0",
     "test": "vitest run --coverage",
+    "test:allocation": "vitest run --config vitest.allocation.config.ts",
     "test:mutation": "stryker run",
     "test:e2e": "tsc -p e2e/site/tsconfig.build.json && playwright test",
-    "check": "pnpm build && pnpm typecheck && pnpm lint && pnpm test && pnpm test:mutation && pnpm test:e2e"
+    "check": "pnpm build && pnpm typecheck && pnpm lint && pnpm test && pnpm test:allocation && pnpm test:mutation && pnpm test:e2e"
   },
   "devDependencies": {
     "@poyetik/config": "workspace:*",

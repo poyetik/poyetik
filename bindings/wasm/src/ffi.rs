@@ -11,6 +11,15 @@
 //! Every pointer is valid only until the next call: the caller copies what it needs
 //! and never keeps a view of the memory across calls, which may grow it.
 //!
+//! Before anything else, the caller checks [`engine_abi_version`]: a module with another
+//! version is a different interface. Every function returns an unsigned 32-bit value
+//! (addresses and lengths included), which JavaScript receives as a signed `i32`: values
+//! from 2^31 on must be read back as unsigned.
+//!
+//! A trap (a bug, or memory exhausted) aborts the call in progress and leaves this
+//! instance in an unknown state: the caller must not use it again, and loads the patch
+//! into a new instance instead.
+//!
 //! The only `unsafe` here is `#[unsafe(no_mangle)]`, which gives each function a fixed
 //! export name, and the tests that use the pointers exactly as JavaScript does.
 
@@ -24,6 +33,16 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 use engine_core::BLOCK_SIZE;
 
 use crate::Instance;
+
+/// Version of this interface: changed whenever a function is added, removed or changes
+/// meaning, so that a caller never drives a module it does not understand.
+pub const ABI_VERSION: u32 = 1;
+
+/// The version of this interface, [`ABI_VERSION`].
+#[unsafe(no_mangle)]
+pub const extern "C" fn engine_abi_version() -> u32 {
+    ABI_VERSION
+}
 
 /// The state of this module instance.
 static INSTANCE: Mutex<Instance> = Mutex::new(Instance::new());
@@ -86,8 +105,8 @@ mod tests {
     use engine_objects::REGISTRY;
 
     use super::{
-        engine_block_size, engine_channels, engine_input, engine_load, engine_message_len,
-        engine_message_ptr, engine_process,
+        ABI_VERSION, engine_abi_version, engine_block_size, engine_channels, engine_input,
+        engine_load, engine_message_len, engine_message_ptr, engine_process,
     };
 
     /// Writes `bytes` through the exported input buffer, as JavaScript does.
@@ -120,6 +139,8 @@ mod tests {
     /// The whole protocol, in one test: the state is global to the module.
     #[test]
     fn follows_the_protocol() {
+        assert_eq!(engine_abi_version(), ABI_VERSION, "version");
+        assert_eq!(ABI_VERSION, 1, "first version");
         assert_eq!(engine_block_size(), BLOCK_SIZE, "block size");
 
         write(b"not a patch");
