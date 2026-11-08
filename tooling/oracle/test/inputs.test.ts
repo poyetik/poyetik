@@ -9,6 +9,7 @@ const CHANNEL = { sine: { frequency: 440, amplitude: 1, phase: 0.5 } };
 describe("parseCase", () => {
   test("reads the rate and the duration", () => {
     expect(parseCase({ sample_rate: 48_000, frames: 10, patch: {} }, "c")).toStrictEqual({ rate: 48_000, frames: 10 });
+    expect(parseCase({ sample_rate: 48_000, frames: 2 ** 29 }, "c")).toStrictEqual({ rate: 48_000, frames: 2 ** 29 });
   });
 
   test.each([
@@ -19,6 +20,8 @@ describe("parseCase", () => {
     [{ sample_rate: 48_000.5, frames: 10 }, "c: sample_rate is not a positive whole number"],
     [{ sample_rate: 48_000, frames: 0 }, "c: frames is not a positive whole number"],
     [{ sample_rate: 48_000, frames: -1 }, "c: frames is not a positive whole number"],
+    // The same domain as the expectations: 1 to 2^29 frames.
+    [{ sample_rate: 48_000, frames: 2 ** 29 + 1 }, "c: frames is above 536870912, the longest case with an exact reference"],
     [null, "c: sample_rate is not a finite number"],
     ["case", "c: sample_rate is not a finite number"],
   ])("rejects %o", (value, detail) => {

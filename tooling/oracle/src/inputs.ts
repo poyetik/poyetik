@@ -98,9 +98,9 @@ function entries(value: unknown, where: string): [string, unknown][] {
   return Object.entries(value);
 }
 
-/** Reads a case file: its sample rate and duration. */
+/** Reads a case file: its sample rate and duration (the same domain as the expectations). */
 export function parseCase(value: unknown, name: string): Case {
-  return { rate: count(field(value, "sample_rate"), `${name}: sample_rate`), frames: count(field(value, "frames"), `${name}: frames`) };
+  return { rate: count(field(value, "sample_rate"), `${name}: sample_rate`), frames: frames(field(value, "frames"), `${name}: frames`) };
 }
 
 /** Reads `references.json`: case name → hash. */
