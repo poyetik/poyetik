@@ -1,5 +1,7 @@
 //! Runs the real `engine-cli` binary on the repository's conformance corpus.
 
+#![forbid(unsafe_code)]
+
 #[cfg(test)]
 mod tests {
     use std::path::Path;

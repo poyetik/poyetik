@@ -1,6 +1,8 @@
 //! Runs the real `xtask` binary: the command-line contract of every tool of the repository
 //! (exit codes 0, 1 and 2; one `error:` line on stderr; a closed stdout is not an error).
 
+#![forbid(unsafe_code)]
+
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;

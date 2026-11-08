@@ -340,8 +340,11 @@ pub enum Action {
     /// Require every JavaScript dependency under an allowed license: the strict list for
     /// what the apps ship, the wider one for development tooling.
     LicenseGate,
-    /// Require the lint against unsafe code to be lifted only in the audited files.
+    /// Require the lint against unsafe code to be lifted only in the audited files, and
+    /// forbidden in every crate root.
     UnsafeGate,
+    /// Require the Cargo configuration to be exactly [`CARGO_CONFIG`].
+    CargoConfigGate,
     /// Require the CI workflow to pin every action, tool and runtime.
     WorkflowGate,
     /// Record the state of the working tree ([`TreeState`]), for [`Action::TreeUnchanged`].
@@ -544,6 +547,10 @@ fn proof_steps() -> Vec<Step> {
         Step {
             name: "Unsafe code confined to the audited files".to_owned(),
             action: Action::UnsafeGate,
+        },
+        Step {
+            name: "Cargo configuration: no build flag, a locked alias".to_owned(),
+            action: Action::CargoConfigGate,
         },
         // The only `unsafe` code of the engine: Miri checks its tests for undefined behavior.
         run(
@@ -1350,6 +1357,22 @@ pub fn membership_gate(
             })
             .map(|(path, _)| format!("{path} does not take the workspace version")),
     );
+    // Cargo refuses any `[lints.*]` table next to `workspace = true`: this pins the whole
+    // policy, which a crate without it would silently lose.
+    problems.extend(
+        crates
+            .iter()
+            .filter(|(path, _)| path != CARGO_TOML && !path.starts_with(FIXTURES))
+            .filter(|(_, text)| {
+                let lines: Vec<&str> = text.lines().map(str::trim).collect();
+                !lines
+                    .windows(2)
+                    .any(|pair| pair == ["[lints]", "workspace = true"])
+            })
+            .map(|(path, _)| {
+                format!("{path} does not inherit the workspace lints (`[lints]` then `workspace = true`)")
+            }),
+    );
     problems.extend(
         ignores
             .iter()
@@ -1462,29 +1485,54 @@ pub const UNSAFE_FILES: [&str; 2] = [
     "crates/engine-alloc-counter/src/lib.rs",
 ];
 
-/// Checks that only [`UNSAFE_FILES`] lift the lint against unsafe code (an `allow` or
-/// `expect` of it), and that each of them still does. The lint name is built at run time,
-/// so that this file does not name it.
+/// Whether `relative` (the path of a Rust file inside a crate's directory) is the root of a
+/// crate target: the library, a binary, a test, a benchmark, an example or a build script.
+fn crate_root(relative: &str) -> bool {
+    let single = |folder: &str| {
+        relative
+            .strip_prefix(folder)
+            .is_some_and(|file| !file.contains('/'))
+    };
+    ["src/lib.rs", "src/main.rs", "build.rs"].contains(&relative)
+        || ["tests/", "benches/", "examples/", "src/bin/"]
+            .into_iter()
+            .any(single)
+}
+
+/// Checks that unsafe code is impossible outside [`UNSAFE_FILES`], by the compiler.
+///
+/// Only those files lift the lint against unsafe code (an `allow` or `expect` of it), and
+/// each still does; a line naming the lint is exempt only if it is exactly the attribute
+/// forbidding or denying it. Every crate root of [`RUST_CRATES`] (library, binary, test,
+/// benchmark, example, build script) holds the exact inner attribute forbidding the lint, so
+/// that the compiler refuses any later lifting (E0453); in a crate holding an unsafe file,
+/// whose library root cannot forbid it, every other module and every root outside `src/`
+/// does. The lint name is built at run time, so that this file does not name it.
 ///
 /// # Errors
 ///
-/// Returns a message naming every other file that lifts it, and every allowed file that
-/// no longer does.
+/// Returns every other file that lifts the lint, every listed file that no longer does,
+/// and every file that should forbid it and does not.
 pub fn unsafe_gate(sources: &[(String, String)]) -> Result<(), Failure> {
     let lint = format!("{}_{}", "unsafe", "code");
+    let forbid = format!("#![forbid({lint})]");
+    let exempt = [
+        forbid.clone(),
+        format!("#![deny({lint})]"),
+        format!("#[forbid({lint})]"),
+        format!("#[deny({lint})]"),
+    ];
     let lifting: BTreeSet<&str> = sources
         .iter()
         .filter(|(_, text)| {
             text.lines().any(|line| {
-                line.contains(&lint)
-                    && !line.contains(&format!("forbid({lint})"))
-                    && !line.contains(&format!("deny({lint})"))
+                line.contains(&lint) && !exempt.iter().any(|attribute| line.trim() == attribute)
             })
         })
         .map(|(path, _)| path.as_str())
         .collect();
     let allowed: BTreeSet<&str> = UNSAFE_FILES.into_iter().collect();
-    let problems: Vec<String> =
+    let mut problems: Vec<String> =
         lifting
             .difference(&allowed)
             .map(|path| format!("{path} lifts the lint against unsafe code"))
@@ -1492,7 +1540,60 @@ pub fn unsafe_gate(sources: &[(String, String)]) -> Result<(), Failure> {
                 format!("{path} is listed in UNSAFE_FILES but no longer lifts the lint")
             }))
             .collect();
+    for (path, text) in sources {
+        let Some((krate, relative)) = RUST_CRATES.iter().find_map(|krate| {
+            path.strip_prefix(&format!("{}/", krate.dir))
+                .map(|relative| (krate, relative))
+        }) else {
+            continue;
+        };
+        let holds_unsafe = UNSAFE_FILES
+            .iter()
+            .any(|file| file.starts_with(&format!("{}/", krate.dir)));
+        let required = if holds_unsafe {
+            !UNSAFE_FILES.contains(&path.as_str())
+                && relative != "src/lib.rs"
+                && (relative.starts_with("src/") || crate_root(relative))
+        } else {
+            crate_root(relative)
+        };
+        if required && !text.lines().any(|line| line.trim() == forbid) {
+            problems.push(format!("{path} does not hold `{forbid}`"));
+        }
+    }
     verdict("the lint against unsafe code", problems)
+}
+
+/// The exact Cargo configuration of the repository: an alias, nothing else.
+///
+/// Build flags (`rustflags`) could lift any lint of the workspace in every crate, and an
+/// unlocked alias would rewrite a stale `Cargo.lock` before the checks.
+pub const CARGO_CONFIG: &str = "[alias]
+# The single entry point for project automation: `cargo xtask check` runs every check.
+xtask = \"run --package xtask --locked --quiet --\"
+";
+
+/// The Cargo configuration file.
+pub const CARGO_CONFIG_FILE: &str = ".cargo/config.toml";
+
+/// Checks that the Cargo configuration is exactly [`CARGO_CONFIG`].
+///
+/// # Errors
+///
+/// Returns that it differs, with both texts in the details.
+pub fn cargo_config_gate(config: &str) -> Result<(), Failure> {
+    if config == CARGO_CONFIG {
+        Ok(())
+    } else {
+        Err(Failure {
+            summary: format!(
+                "{CARGO_CONFIG_FILE} differs from the configuration xtask expects (no build flag, a locked alias)"
+            ),
+            details: ["expected:", CARGO_CONFIG, "found:", config]
+                .map(str::to_owned)
+                .to_vec(),
+        })
+    }
 }
 
 /// The Cargo tools the checks run, at the exact version they need (as `cargo install`
@@ -2598,6 +2699,7 @@ fn run_action(
             unsafe_gate(&read_all(runner, paths)?)
         }
         Action::LicenseGate => licenses(runner),
+        Action::CargoConfigGate => cargo_config_gate(&read_file(runner, CARGO_CONFIG_FILE)?),
         Action::TypeScriptReportsGate => {
             let paths = list_tracked(runner, &["*.ts", "*.tsx"], "the TypeScript files")?;
             let (found, _) = disables(&read_all(runner, paths)?);

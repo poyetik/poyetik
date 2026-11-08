@@ -1,6 +1,7 @@
 //! The git hooks, run by real git: what reaches `cargo xtask` when a push or a commit
 //! starts from a linked worktree, as the CI section of `CLAUDE.md` recommends.
 
+#![forbid(unsafe_code)]
 #![cfg(unix)]
 
 #[cfg(test)]

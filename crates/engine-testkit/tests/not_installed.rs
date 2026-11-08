@@ -1,6 +1,8 @@
 //! Without the counting allocator, the no-allocation law cannot be checked: `check_laws`
 //! must refuse instead of passing vacuously.
 
+#![forbid(unsafe_code)]
+
 #[cfg(test)]
 mod tests {
     use engine_core::{Block, Object, ObjectSpec};

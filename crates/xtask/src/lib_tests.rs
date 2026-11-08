@@ -395,6 +395,7 @@ fn passing() -> Fake {
         (CARGO_TOML.to_owned(), CARGO),
         (CHANGELOG.to_owned(), LOG),
         ("COMMIT_EDITMSG".to_owned(), "feat(core): add the plan\n"),
+        (super::CARGO_CONFIG_FILE.to_owned(), super::CARGO_CONFIG),
     ]
     .into_iter()
     .chain(package_jsons().into_iter().map(|path| (path, PACKAGE)))
@@ -486,7 +487,7 @@ const READMES: [(&str, &str); 10] = [
 
 const CARGO: &str = "[workspace]\nmembers = []\n\n[workspace.package]\nedition = \"2024\"\nversion = \"0.2.0\"\n\n[other]\nversion = \"9.9.9\"\n";
 /// The manifest of a crate that takes the workspace version.
-const MEMBER: &str = "[package]\nversion.workspace = true\n";
+const MEMBER: &str = "[package]\nversion.workspace = true\n\n[lints]\nworkspace = true\n";
 const PACKAGE: &str = r#"{"name": "x", "version": "0.2.0", "engines": {"node": ">=22.18"}}"#;
 /// Every workspace manifest with the same content.
 fn packages(text: &str) -> Vec<(String, String)> {
@@ -534,6 +535,7 @@ fn command_lines(steps: &[Step]) -> Vec<String> {
             Action::MembershipGate => "membership gate".to_owned(),
             Action::LicenseGate => "license gate".to_owned(),
             Action::UnsafeGate => "unsafe gate".to_owned(),
+            Action::CargoConfigGate => "cargo config gate".to_owned(),
             Action::Preflight => "preflight".to_owned(),
             Action::HistoryGate => "history gate".to_owned(),
             Action::WorkflowGate => "workflow gate".to_owned(),
@@ -577,6 +579,7 @@ fn lists_every_check_in_order() {
             "equivalent gate",
             "bypass gate",
             "unsafe gate",
+            "cargo config gate",
             "Root: cargo +nightly-2026-11-01 miri test --package engine-wasm --package engine-alloc-counter --locked",
             "Root: cargo run --package engine-cli --locked --quiet -- check conformance",
             "fresh target/conformance",
@@ -642,6 +645,7 @@ fn names_every_check_in_order() {
             "TypeScript equivalent mutants reviewed",
             "Every bypass of coverage or mutation testing reviewed",
             "Unsafe code confined to the audited files",
+            "Cargo configuration: no build flag, a locked alias",
             "Rust FFI under Miri",
             "Conformance (native)",
             "Fresh conformance export directory",
@@ -889,7 +893,7 @@ fn runs_every_step_and_reports_success() {
         "all green"
     );
     let (tools, commands, emptied, listed, captured) = (9, 32, 12, 8, 8);
-    let read = 12 + 2 + 2 + 4 + 2 + 10 + 10 + 8 + 2 + 5 + 11;
+    let read = 12 + 2 + 2 + 4 + 2 + 1 + 10 + 10 + 8 + 2 + 5 + 11;
     assert_eq!(
         fake.ran.len(),
         tools + commands + emptied + listed + captured + read,
@@ -899,7 +903,8 @@ fn runs_every_step_and_reports_success() {
          checks); twelve directories are emptied; git lists eight kinds of files; the licenses, \
          the history and the state of the tree (before and after) are captured twice each; and the gates read twelve coverage reports, \
          the unviable report and reviews, a TypeScript source and its reviews, the three \
-         sources and the register of the bypass gate, the two unsafe files, ten crate manifests, ten READMEs, eight version files, the workflow and \
+         sources and the register of the bypass gate, the two unsafe files, the Cargo \
+         configuration, ten crate manifests, ten READMEs, eight version files, the workflow and \
          .node-version, five Stryker configurations, and the TypeScript source and ten \
          reports of the reports gate"
     );
@@ -920,15 +925,15 @@ fn runs_every_step_and_reports_success() {
     );
     let text = String::from_utf8(out).expect("utf-8 output");
     assert!(
-        text.starts_with("▶ [1/50] Tools and platform\n"),
+        text.starts_with("▶ [1/51] Tools and platform\n"),
         "numbered progress: {text}"
     );
     assert!(
-        text.contains("▶ [48/50] Roadmap checks\n"),
+        text.contains("▶ [49/51] Roadmap checks\n"),
         "last step announced: {text}"
     );
     assert!(
-        text.ends_with("✔ all 50 checks passed\n"),
+        text.ends_with("✔ all 51 checks passed\n"),
         "summary: {text}"
     );
 }
@@ -2202,7 +2207,7 @@ fn knows_exactly_the_packages_and_crates_of_the_repository() {
     let mut more = packages.clone();
     more.push("apps/editor/package.json".to_owned());
     let mut own = members.clone();
-    own[0].1 = "[package]\nversion = \"9.0.0\"\n".to_owned();
+    own[0].1 = "[package]\nversion = \"9.0.0\"\n\n[lints]\nworkspace = true\n".to_owned();
     own.push(("crates/b/Cargo.toml".to_owned(), MEMBER.to_owned()));
     assert_eq!(
         membership_gate(&more, &own, &[]),
@@ -3160,7 +3165,7 @@ fn prints_the_details_of_a_failure_on_stdout_and_one_line_on_stderr() {
     );
     assert!(
         String::from_utf8(out).expect("UTF-8").ends_with(
-            "▶ [25/50] Rust unviable mutants reviewed\n\
+            "▶ [25/51] Rust unviable mutants reviewed\n\
              not reviewed: crates/a/src/c.rs: replace g -> U with x\n\
              stale review: crates/a/src/b.rs: replace f -> T with Default::default()\n"
         ),
@@ -3587,5 +3592,158 @@ fn refuses_checks_that_change_the_working_tree() {
              the checks"
         ),
         "the comparison alone"
+    );
+}
+
+#[test]
+fn makes_the_compiler_refuse_unsafe_outside_the_audited_files() {
+    let lint = format!("{}_{}", "unsafe", "code");
+    let forbid = format!("#![forbid({lint})]\n");
+    let mut sources: Vec<(String, String)> = UNSAFE_FILES
+        .iter()
+        .map(|path| ((*path).to_owned(), lifting()))
+        .collect();
+    for path in [
+        "crates/engine-core/src/lib.rs",
+        "crates/engine-cli/src/main.rs",
+        "crates/engine-cli/tests/binary.rs",
+        "crates/engine-cli/build.rs",
+        "crates/engine-cli/src/bin/other.rs",
+        "bindings/wasm/src/engine.rs",
+        "bindings/wasm/tests/web.rs",
+    ] {
+        sources.push((path.to_owned(), forbid.clone()));
+    }
+    for path in [
+        "crates/engine-core/src/plan.rs",
+        "crates/engine-cli/tests/data/fixture.rs",
+        "bindings/wasm/src/lib.rs",
+        "README.rs",
+    ] {
+        sources.push((path.to_owned(), "fn plain() {}\n".to_owned()));
+    }
+    assert_eq!(
+        unsafe_gate(&sources),
+        Ok(()),
+        "every root forbids, modules inherit, the unsafe crate's root and files apart"
+    );
+    let mut missing = sources.clone();
+    for (path, _) in [
+        ("crates/engine-core/src/lib.rs", ""),
+        ("crates/engine-cli/tests/binary.rs", ""),
+        ("bindings/wasm/src/engine.rs", ""),
+    ] {
+        missing.retain(|(source, _)| source != path);
+        missing.push((path.to_owned(), "fn plain() {}\n".to_owned()));
+    }
+    assert_eq!(
+        unsafe_gate(&missing),
+        found(
+            "the lint against unsafe code",
+            &[
+                format!(
+                    "crates/engine-core/src/lib.rs does not hold `{}`",
+                    forbid.trim()
+                ),
+                format!(
+                    "crates/engine-cli/tests/binary.rs does not hold `{}`",
+                    forbid.trim()
+                ),
+                format!(
+                    "bindings/wasm/src/engine.rs does not hold `{}`",
+                    forbid.trim()
+                ),
+            ]
+        ),
+        "a library root, a test root, a module of the unsafe crate"
+    );
+    for text in [
+        format!("#[deny({lint})] #[expect({lint}, reason = \"r\")] mod m;\n"),
+        format!("#[expect({lint}, reason = \"r\")] // deny({lint})\n"),
+    ] {
+        let mut probe = sources.clone();
+        probe.push(("crates/engine-core/src/m.rs".to_owned(), text.clone()));
+        assert_eq!(
+            unsafe_gate(&probe),
+            found(
+                "the lint against unsafe code",
+                &["crates/engine-core/src/m.rs lifts the lint against unsafe code".to_owned()]
+            ),
+            "only the exact attribute is exempt: {text}"
+        );
+    }
+}
+
+#[test]
+fn requires_every_crate_to_inherit_the_workspace_lints() {
+    let packages = package_jsons();
+    let crates: Vec<(String, String)> = super::RUST_CRATES
+        .iter()
+        .map(|krate| {
+            let text = if krate.name == "engine-core" {
+                format!(
+                    "[package]\nversion.workspace = true\n\n[lints.rust]\n{}_{} = \"allow\"\n",
+                    "unsafe", "code"
+                )
+            } else if krate.name == "engine-hash" {
+                "[package]\nversion.workspace = true\n\n[lints]\n\nworkspace = true\n".to_owned()
+            } else {
+                MEMBER.to_owned()
+            };
+            (format!("{}/Cargo.toml", krate.dir), text)
+        })
+        .collect();
+    assert_eq!(
+        membership_gate(&packages, &crates, &[]),
+        found(
+            "the manifests differ from what xtask knows",
+            &[
+                "crates/engine-core/Cargo.toml does not inherit the workspace lints (`[lints]` then `workspace = true`)".to_owned(),
+                "crates/engine-hash/Cargo.toml does not inherit the workspace lints (`[lints]` then `workspace = true`)".to_owned(),
+            ]
+        ),
+        "lints of its own, or the inheritance away from its table"
+    );
+}
+
+#[test]
+fn requires_the_exact_cargo_configuration() {
+    assert_eq!(
+        super::cargo_config_gate(super::CARGO_CONFIG),
+        Ok(()),
+        "the alias"
+    );
+    for config in [
+        super::CARGO_CONFIG.replace(" --locked", ""),
+        format!(
+            "{}[build]\nrustflags = [\"-A{}_{}\"]\n",
+            super::CARGO_CONFIG,
+            "unsafe",
+            "code"
+        ),
+    ] {
+        assert_eq!(
+            super::cargo_config_gate(&config),
+            Err(Failure {
+                summary: ".cargo/config.toml differs from the configuration xtask expects (no \
+                          build flag, a locked alias)"
+                    .to_owned(),
+                details: vec![
+                    "expected:".to_owned(),
+                    super::CARGO_CONFIG.to_owned(),
+                    "found:".to_owned(),
+                    config.clone(),
+                ],
+            }),
+            "{config}"
+        );
+    }
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    assert_eq!(
+        super::cargo_config_gate(
+            &std::fs::read_to_string(root.join(super::CARGO_CONFIG_FILE)).expect("readable")
+        ),
+        Ok(()),
+        "the configuration of the repository"
     );
 }

@@ -10,6 +10,8 @@
 //! host buffers of every size of the matrix), finiteness, and for not allocating from the
 //! first call on a fresh plan.
 
+#![forbid(unsafe_code)]
+
 /// Counts allocations, so that rendering a built plan can be checked not to allocate.
 #[global_allocator]
 static ALLOCATOR: engine_testkit::CountingAllocator = engine_testkit::CountingAllocator;
