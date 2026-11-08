@@ -4,6 +4,8 @@ import { defineConfig } from "vitest/config";
 // per run: the policy test lints every fixture in one run, and may take a few seconds.
 export default defineConfig({
   test: {
+    // Refuse `.only` locally too: Vitest allows it unless `CI` is set (see test/runner.test.ts).
+    allowOnly: false,
     include: ["test/**/*.test.ts"],
     testTimeout: 60_000,
     coverage: {

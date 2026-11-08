@@ -51,6 +51,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Every Vitest configuration refuses a focused test (`allowOnly: false`) locally as in CI, where Vitest refused it alone, and the shared lint policy refuses any focused or skipped test or suite, in Vitest and Playwright (`.only`, `.skip`, `.todo`, `.fixme`, `.skipIf`, `.runIf`).
 - `std::env::args`, which panics on an argument that is not Unicode, is banned by Clippy: every command-line tool reads `args_os` and refuses such an argument as a usage error.
 - Playground: the oscilloscope repaints only while playing; stopped, suspended or failed, it is drawn once (the grid and dashes) instead of being redrawn at the display rate, forever, on a page where nothing plays.
 - The plan laws (`engine-testkit`) compare every render with a simple reference renderer, bit for bit, so that a plan routing, summing or handing boxes the sample rate wrongly fails them (a test box outputs its rate); they try different patches at each rate, check that processing block by block gives the same samples as rendering, and measure allocations from the first call on a fresh plan. Property tests run with `engine_testkit::runner`, whose configuration no `PROPTEST_*` environment variable can change.

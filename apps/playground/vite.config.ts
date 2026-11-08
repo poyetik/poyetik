@@ -16,6 +16,8 @@ export default defineConfig({
   // The engine processors run in an AudioWorklet: bundled as one ES module.
   worker: { format: "es" },
   test: {
+    // Refuse `.only` locally too: Vitest allows it unless `CI` is set (see test/runner.test.ts).
+    allowOnly: false,
     environment: "jsdom",
     include: ["test/**/*.test.{ts,tsx}"],
     setupFiles: ["test/setup.ts"],

@@ -8,6 +8,8 @@ export default defineConfig({
   // type-checked in the test project.
   resolve: { alias: { "#worklet/processors": fileURLToPath(new URL("ts/worklet/processors.ts", import.meta.url)) } },
   test: {
+    // Refuse `.only` locally too: Vitest allows it unless `CI` is set (see test/runner.test.ts).
+    allowOnly: false,
     include: ["test/**/*.test.ts"],
     coverage: {
       provider: "v8",

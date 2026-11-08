@@ -44,6 +44,13 @@ export const RULES: Linter.RulesRecord = {
     "error",
     { selector: "TSEnumDeclaration", message: "Use a union of string literals or an `as const` object." },
     { selector: "TSNamespaceExportDeclaration, TSModuleDeclaration[global=true]", message: "No global augmentation." },
+    // A focused or skipped test drops the others or itself silently (Vitest and
+    // Playwright: `test.only`, `describe.skip`, `test.describe.fixme`, `it.todo`…).
+    {
+      selector:
+        "MemberExpression[property.name=/^(only|skip|todo|fixme|skipIf|runIf)$/]:matches([object.name=/^(describe|it|test|suite)$/], [object.object.name=/^(describe|it|test|suite)$/])",
+      message: "Never focus or skip a test: run it, fix it, or discuss it (CLAUDE.md, testing policy).",
+    },
   ],
   // Every named item is documented, exported or not, as in Rust (missing_docs and
   // missing_docs_in_private_items): functions, classes and their members, types, and

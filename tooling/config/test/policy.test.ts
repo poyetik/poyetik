@@ -81,12 +81,17 @@ test("each rule of the policy rejects what it forbids, and only that", async () 
     shadow: ["@typescript-eslint/no-shadow"],
     var: ["no-var"],
     "with-resolvers": ["no-restricted-properties"],
+    // Vitest and Playwright: every focus or skip, at every level.
+    "focused-test": ["no-restricted-syntax", "no-restricted-syntax"],
+    "skipped-test": Array<string>(5).fill("no-restricted-syntax"),
+    "skipped-browser-test": ["no-restricted-syntax", "no-restricted-syntax"],
   });
   const severities = results.flatMap((result) => result.messages.filter((message) => message.ruleId !== null).map((message) => message.severity));
   expect(new Set(severities)).toStrictEqual(new Set([ERROR]));
   const messages = results.flatMap((result) => result.messages.map((message) => message.message));
   expect(messages).toContain("Use a union of string literals or an `as const` object.");
   expect(messages).toContain("No global augmentation.");
+  expect(messages).toContain("Never focus or skip a test: run it, fix it, or discuss it (CLAUDE.md, testing policy).");
   expect(messages).toContain(
     "'Promise.withResolvers' is restricted from being used. It is missing from browsers the friendly checks still explain (Safari before 17.4, Firefox before 121): use `new Promise`.",
   );
