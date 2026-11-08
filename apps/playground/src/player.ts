@@ -161,8 +161,18 @@ class Session {
   readonly history: SampleHistory;
   /** The output stage, silent until the fade in: fades and gain, before the speakers. */
   readonly gain: GainNode;
-  /** The start of the session: settles once it plays, fails or ends. */
-  readonly started: PromiseWithResolvers<undefined> = Promise.withResolvers();
+  /**
+   * Where {@link Session.settleStart} announces the end of the start, to the executor of
+   * {@link Session.started}: `Promise.withResolvers`, which would hand the resolver over,
+   * is missing from browsers the friendly checks still explain.
+   */
+  readonly #start = new EventTarget();
+  /** The start of the session: settles once it plays, fails or ends ({@link Session.settleStart}). */
+  readonly started = new Promise<undefined>((resolve) => {
+    this.#start.addEventListener("settled", () => {
+      resolve(undefined);
+    });
+  });
   /** The stop of the session, once asked: settles once the session ended. */
   stopping: Promise<void> | undefined;
   /** Cancels the downloads and the waits of the session when it ends. */
@@ -210,6 +220,11 @@ class Session {
    */
   until<T>(event: Promise<T>): Promise<T> {
     return Promise.race([event, this.#ended]);
+  }
+
+  /** Settles {@link Session.started}: the session plays, failed or ended. */
+  settleStart(): void {
+    this.#start.dispatchEvent(new Event("settled"));
   }
 
   /** Records the tap, once connected. */
@@ -331,7 +346,7 @@ export class EnginePlayer implements Player {
   start(): Promise<void> {
     const live = this.#live;
     if (live !== undefined) {
-      return live.session.started.promise;
+      return live.session.started;
     }
     if (this.#idle.kind === "unsupported") {
       return Promise.resolve();
@@ -347,7 +362,7 @@ export class EnginePlayer implements Player {
     }
     this.#goLive(STARTING, session);
     void this.#open(session);
-    return session.started.promise;
+    return session.started;
   }
 
   /**
@@ -392,7 +407,7 @@ export class EnginePlayer implements Player {
     } catch (error) {
       await this.#fail(session, cause, error);
     } finally {
-      session.started.resolve(undefined);
+      session.settleStart();
     }
   }
 

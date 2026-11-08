@@ -183,7 +183,7 @@ class FakeContext {
   /** What the fake browser refuses, to check that the player never rejects nor throws. */
   static readonly refuses = new Set<"create" | "resume" | "close" | "fade">();
   /** When set, `resume` answers only once the test resolves it. */
-  static resuming: PromiseWithResolvers<undefined> | undefined;
+  static resuming: Promise<undefined> | undefined;
 
   /** Logs the resume and moves to {@link FakeContext.resumesTo}; answers at once, or when {@link FakeContext.resuming} is resolved. */
   resume(): Promise<void> {
@@ -192,7 +192,7 @@ class FakeContext {
     }
     log.push("resume");
     this.state = FakeContext.resumesTo;
-    return FakeContext.resuming?.promise ?? Promise.resolve();
+    return FakeContext.resuming ?? Promise.resolve();
   }
 
   /** Rejects on a closed context, like browsers, or when the fake browser refuses. */
@@ -431,14 +431,19 @@ describe("EnginePlayer", () => {
   });
 
   test("cancelled right after its last wait, never plays", async () => {
-    FakeContext.resuming = Promise.withResolvers();
+    let answer = (): void => undefined;
+    FakeContext.resuming = new Promise((resolve) => {
+      answer = () => {
+        resolve(undefined);
+      };
+    });
     const player = new EnginePlayer(playerOptions());
     const starting = player.start();
     await vi.waitFor(() => {
       expect(log).toContain("resume");
     });
     // The resume answers, and a cancel comes before the start sees the answer.
-    FakeContext.resuming.resolve(undefined);
+    answer();
     queueMicrotask(() => {
       void player.stop();
     });

@@ -213,9 +213,14 @@ for (const width of [320, undefined]) {
     }
     await trackAudio(page);
     // The engine is held until released: the start stays in progress (the button cancels it).
-    const loaded = Promise.withResolvers<undefined>();
+    let release = (): void => undefined;
+    const loaded = new Promise<undefined>((resolve) => {
+      release = () => {
+        resolve(undefined);
+      };
+    });
     await page.route("**/*.wasm", async (route) => {
-      await loaded.promise;
+      await loaded;
       await route.continue();
     });
     await page.goto("./?muted");
@@ -232,7 +237,7 @@ for (const width of [320, undefined]) {
     await button.click();
     await expect(button).toHaveAccessibleName("Cancel");
     seen.set("Cancel", await geometry());
-    loaded.resolve(undefined);
+    release();
     await expect(status).toHaveText("Playing");
     seen.set("Stop", await geometry());
     await suspendAudio(page);
