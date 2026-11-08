@@ -299,9 +299,20 @@ describe("createEngineNode", () => {
   test("keeps the rejection of the engine as the cause", async () => {
     stubNodes();
     const failures: Error[] = [];
-    createEngineNode(asContext(fakeContext(RATE)), await loaded(2), (error) => failures.push(error));
+    const { ready } = createEngineNode(asContext(fakeContext(RATE)), await loaded(2), (error) => failures.push(error));
     FakeNode.created[0]?.port.deliver({ type: "rejected", detail: new TextEncoder().encode("bad") });
     expect(failures[0]?.cause).toBeInstanceOf(PatchError);
+    expect(await settled(ready)).toBe(failures[0]);
+  });
+
+  test("handles the rejection of ready itself, for those who never await it", async () => {
+    stubNodes();
+    // Observed without rejecting: an unhandled rejection would crash the test runner
+    // instead of failing this test.
+    const handled = vi.spyOn(Promise.prototype, "catch");
+    const { ready } = createEngineNode(asContext(fakeContext(RATE)), await loaded(2), () => undefined);
+    expect(handled.mock.contexts).toContain(ready);
+    handled.mockRestore();
   });
 
   test("reports a later failure once, and a processor error", async () => {
@@ -317,9 +328,10 @@ describe("createEngineNode", () => {
     expect(failures).toStrictEqual([new Error("the engine failed: trap")]);
 
     const errors: Error[] = [];
-    createEngineNode(asContext(fakeContext(RATE)), await loaded(2), (error) => errors.push(error));
+    const second = createEngineNode(asContext(fakeContext(RATE)), await loaded(2), (error) => errors.push(error));
     FakeNode.created[1]?.onprocessorerror?.();
     expect(errors).toStrictEqual([new Error("the engine processor failed")]);
+    expect(await settled(second.ready)).toBe(errors[0]);
   });
 });
 
