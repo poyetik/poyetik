@@ -517,7 +517,7 @@ const READMES: [(&str, &str); 10] = [
 
 const CARGO: &str = "[workspace]\nmembers = []\n\n[workspace.package]\nedition = \"2024\"\nversion = \"0.2.0\"\n\n[other]\nversion = \"9.9.9\"\n";
 /// The manifest of a crate that takes the workspace version.
-const MEMBER: &str = "[package]\nversion.workspace = true\n\n[lints]\nworkspace = true\n";
+const MEMBER: &str = "[package]\nversion.workspace = true\nrepository.workspace = true\n\n[lints]\nworkspace = true\n";
 const PACKAGE: &str = r#"{"name": "x", "version": "0.2.0", "engines": {"node": ">=22.18"}}"#;
 /// Every workspace manifest with the same content.
 fn packages(text: &str) -> Vec<(String, String)> {
@@ -2245,7 +2245,9 @@ fn knows_exactly_the_packages_and_crates_of_the_repository() {
     let mut more = packages.clone();
     more.push("apps/editor/package.json".to_owned());
     let mut own = members.clone();
-    own[0].1 = "[package]\nversion = \"9.0.0\"\n\n[lints]\nworkspace = true\n".to_owned();
+    own[0].1 =
+        "[package]\nversion = \"9.0.0\"\nrepository.workspace = true\n\n[lints]\nworkspace = true\n"
+            .to_owned();
     own.push(("crates/b/Cargo.toml".to_owned(), MEMBER.to_owned()));
     assert_eq!(
         membership_gate(&more, &own, &[]),
@@ -3754,11 +3756,14 @@ fn requires_every_crate_to_inherit_the_workspace_lints() {
         .map(|krate| {
             let text = if krate.name == "engine-core" {
                 format!(
-                    "[package]\nversion.workspace = true\n\n[lints.rust]\n{}_{} = \"allow\"\n",
+                    "[package]\nversion.workspace = true\nrepository.workspace = true\n\n\
+                     [lints.rust]\n{}_{} = \"allow\"\n",
                     "unsafe", "code"
                 )
             } else if krate.name == "engine-hash" {
-                "[package]\nversion.workspace = true\n\n[lints]\n\nworkspace = true\n".to_owned()
+                "[package]\nversion.workspace = true\nrepository.workspace = true\n\n[lints]\n\n\
+                 workspace = true\n"
+                    .to_owned()
             } else {
                 MEMBER.to_owned()
             };
@@ -4034,5 +4039,32 @@ fn requires_a_week_before_a_release_and_libm_without_features() {
         super::supply_chain_gate(&real),
         Ok(()),
         "the repository's settings"
+    );
+}
+
+#[test]
+fn requires_every_crate_to_take_the_workspace_repository() {
+    let packages = package_jsons();
+    let crates: Vec<(String, String)> = super::RUST_CRATES
+        .iter()
+        .map(|krate| {
+            let text = if krate.name == "engine-core" {
+                MEMBER.replace(
+                    "repository.workspace = true",
+                    "repository = \"https://example.invalid/poyetik\"",
+                )
+            } else {
+                MEMBER.to_owned()
+            };
+            (format!("{}/Cargo.toml", krate.dir), text)
+        })
+        .collect();
+    assert_eq!(
+        membership_gate(&packages, &crates, &[]),
+        found(
+            "the manifests differ from what xtask knows",
+            &["crates/engine-core/Cargo.toml does not take the workspace repository".to_owned()]
+        ),
+        "a repository of its own"
     );
 }

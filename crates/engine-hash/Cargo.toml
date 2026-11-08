@@ -7,7 +7,7 @@ rust-version.workspace = true
 publish.workspace = true
 license.workspace = true
 readme = false
-repository = "https://example.invalid/poyetik"
+repository.workspace = true
 keywords = ["audio", "hash", "conformance"]
 categories = ["multimedia::audio", "no-std"]
 

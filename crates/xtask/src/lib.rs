@@ -1315,7 +1315,8 @@ pub fn equivalent_gate(sources: &[(String, String)], reviewed: &str) -> Result<(
 ///
 /// The tracked `package.json` files are exactly [`package_jsons`]: the root one and one per
 /// package of [`PACKAGES`], whose checks and reports therefore run. Every crate manifest
-/// (`Cargo.toml` below the root) takes the workspace version. The only `.gitignore` is the
+/// (`Cargo.toml` below the root) takes the workspace version and repository, and inherits
+/// the workspace lints. The only `.gitignore` is the
 /// root one: build outputs go to `dist/` or `target/`, never hidden inside a source folder.
 ///
 /// # Errors
@@ -1359,17 +1360,16 @@ pub fn membership_gate(
             .difference(&manifests)
             .map(|path| format!("{path} belongs to RUST_CRATES but is not tracked")),
     );
-    problems.extend(
-        crates
-            .iter()
-            .filter(|(path, _)| path != CARGO_TOML && !path.starts_with(FIXTURES))
-            .filter(|(_, text)| {
-                !text
-                    .lines()
-                    .any(|line| line.trim() == "version.workspace = true")
-            })
-            .map(|(path, _)| format!("{path} does not take the workspace version")),
-    );
+    for (key, what) in [("version", "version"), ("repository", "repository")] {
+        let inherited = format!("{key}.workspace = true");
+        problems.extend(
+            crates
+                .iter()
+                .filter(|(path, _)| path != CARGO_TOML && !path.starts_with(FIXTURES))
+                .filter(|(_, text)| !text.lines().any(|line| line.trim() == inherited))
+                .map(|(path, _)| format!("{path} does not take the workspace {what}")),
+        );
+    }
     // Cargo refuses any `[lints.*]` table next to `workspace = true`: this pins the whole
     // policy, which a crate without it would silently lose.
     problems.extend(
