@@ -929,7 +929,7 @@ fn runs_every_step_and_reports_success() {
         "all green"
     );
     let (tools, commands, emptied, listed, captured) = (9, 32, 12, 9, 9);
-    let read = 12 + 2 + 2 + 4 + 2 + 1 + 7 + 3 + 10 + 10 + 8 + 2 + 5 + 11;
+    let read = 1 + 12 + 2 + 2 + 4 + 2 + 1 + 7 + 3 + 10 + 10 + 8 + 2 + 5 + 11;
     assert_eq!(
         fake.ran.len(),
         tools + commands + emptied + listed + captured + read,
@@ -938,7 +938,7 @@ fn runs_every_step_and_reports_success() {
          conformance check and export, deny, the JavaScript install, audit and five package \
          checks); twelve directories are emptied; git lists nine kinds of files; the licenses, \
          the history and the state of the tree (before and after) are captured twice each, \
-         the Cargo metadata once; and the gates read twelve coverage reports, \
+         the Cargo metadata once; and the gates read .node-version for the preflight, twelve coverage reports, \
          the unviable report and reviews, a TypeScript source and its reviews, the three \
          sources and the register of the bypass gate, the two unsafe files, the Cargo \
          configuration, the six package manifests and the register of the dependency gate, the three \
@@ -988,9 +988,9 @@ fn stops_at_the_first_failing_command() {
     );
     assert_eq!(
         fake.ran.len(),
-        9 + 2 + 4,
-        "the preflight asks nine tools, the tree is recorded by two captures; nothing runs \
-         after the failure"
+        9 + 1 + 2 + 4,
+        "the preflight asks nine tools and reads .node-version, the tree is recorded by two \
+         captures; nothing runs after the failure"
     );
 }
 
@@ -2520,36 +2520,30 @@ fn checks_the_tools_and_the_platform_first() {
             .collect()
     };
     assert_eq!(
-        preflight_gate("macos", &present("v22.18.0\n")),
+        preflight_gate("macos", &present("v22.23.4\n"), "22.23.4\n"),
         Ok(()),
-        "the floor"
+        "the release of .node-version"
     );
-    assert_eq!(
-        preflight_gate("linux", &present("v23.0.1")),
-        Ok(()),
-        "newer"
-    );
-    assert_eq!(
-        preflight_gate("linux", &present("v22.17.9")),
-        found(
-            "the checks cannot run here",
-            &["Node.js v22.17.9 is not supported: install Node.js 22.18 or later".to_owned()]
-        ),
-        "older minor"
-    );
-    assert_eq!(
-        preflight_gate("linux", &present("v21.99.0")),
-        found(
-            "the checks cannot run here",
-            &["Node.js v21.99.0 is not supported: install Node.js 22.18 or later".to_owned()]
-        ),
-        "older major"
-    );
-    assert!(
-        preflight_gate("linux", &present("garbage")).is_err(),
-        "unreadable version"
-    );
-    let mut missing = present("v22.18.0");
+    for (node, pinned) in [
+        ("v22.24.0", "22.23.4"),
+        ("v22.23.3", "22.23.4"),
+        ("v24.1.0", "22.23.4"),
+        ("garbage", "22.23.4"),
+        ("v22.23.4", "22.23"),
+    ] {
+        assert_eq!(
+            preflight_gate("linux", &present(node), pinned),
+            found(
+                "the checks cannot run here",
+                &[format!(
+                    "Node.js {node} is installed, the checks need {pinned}: install the Node.js \
+                     release of .node-version (fnm, nvm and volta read it)"
+                )]
+            ),
+            "{node} against {pinned}"
+        );
+    }
+    let mut missing = present("v22.23.4");
     missing[5] = Err(CommandFailure {
         line: "cargo mutants --version".to_owned(),
         failed: Failed::Ended {
@@ -2558,7 +2552,7 @@ fn checks_the_tools_and_the_platform_first() {
         },
     });
     assert_eq!(
-        preflight_gate("windows", &missing),
+        preflight_gate("windows", &missing, "22.23.4"),
         found("the checks cannot run here", &[
             "the checks run on macOS and Linux: on Windows, run them in WSL2".to_owned(),
             "`cargo mutants --version` exited with code 101: error: no such command: `mutants`; to install: cargo install --locked cargo-mutants@27.1.0".to_owned(),
@@ -2891,7 +2885,7 @@ fn refuses_cargo_tools_at_other_versions() {
         .map(|tool| Ok(tool_answer(tool.program, tool.args.first().copied())))
         .collect();
     assert_eq!(
-        preflight_gate("linux", &answers),
+        preflight_gate("linux", &answers, "22.23.4"),
         Ok(()),
         "the pinned versions"
     );
@@ -2899,7 +2893,7 @@ fn refuses_cargo_tools_at_other_versions() {
     older[5] = Ok("cargo-mutants 26.0.0\n".to_owned());
     older[6] = Ok("cargo-deny".to_owned());
     assert_eq!(
-        preflight_gate("linux", &older),
+        preflight_gate("linux", &older, "22.23.4"),
         found("the checks cannot run here", &[
             "cargo-mutants 26.0.0 is installed, the checks need cargo-mutants 27.1.0: \
              cargo install --locked cargo-mutants@27.1.0".to_owned(),
@@ -3380,7 +3374,7 @@ fn wires_every_package_into_the_checks() {
 
 #[test]
 fn renders_install_hints_from_the_pins() {
-    use super::{Install, NIGHTLY_TOOLCHAIN, NODE_FLOOR, Need, PINNED_TOOLS, TOOLS};
+    use super::{Install, NIGHTLY_TOOLCHAIN, Need, PINNED_TOOLS, TOOLS};
     for pin in PINNED_TOOLS {
         let tool = TOOLS
             .iter()
@@ -3417,8 +3411,8 @@ fn renders_install_hints_from_the_pins() {
     );
     assert_eq!(
         Install::Node.to_string(),
-        format!("install Node.js {}.{} or later", NODE_FLOOR.0, NODE_FLOOR.1),
-        "Node.js from its floor"
+        "install the Node.js release of .node-version (fnm, nvm and volta read it)",
+        "Node.js from its pin"
     );
     assert_eq!(
         Install::Text("install git").to_string(),
@@ -3498,7 +3492,7 @@ fn reads_node_releases_alike_everywhere() {
             })
             .collect();
         assert_eq!(
-            preflight_gate("linux", &answers).is_ok(),
+            preflight_gate("linux", &answers, text).is_ok(),
             super::workflow_gate(&[super::WORKFLOW.to_owned()], PINNED_WORKFLOW, text).is_ok(),
             "{text:?}: the same verdict from the preflight and the workflow gate"
         );

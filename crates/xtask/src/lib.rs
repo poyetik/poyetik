@@ -1806,8 +1806,8 @@ pub enum Need {
     /// Exactly the version of this pin of [`PINNED_TOOLS`] (name, version): the second
     /// word of its answer, as in `cargo-mutants 27.1.0`.
     Pinned((&'static str, &'static str)),
-    /// Node.js at [`NODE_FLOOR`] or later.
-    NodeFloor,
+    /// Node.js, exactly the release of [`NODE_VERSION_FILE`], which CI installs.
+    NodeRelease,
 }
 
 /// How to install a tool, rendered from the constants it depends on so that a hint never
@@ -1820,7 +1820,7 @@ pub enum Install {
     Nightly(&'static [&'static str]),
     /// Add these components to the [`NIGHTLY_TOOLCHAIN`].
     NightlyComponents(&'static [&'static str]),
-    /// Install Node.js at [`NODE_FLOOR`] or later.
+    /// Install the Node.js release of [`NODE_VERSION_FILE`].
     Node,
     /// What to do, in words.
     Text(&'static str),
@@ -1844,8 +1844,7 @@ impl core::fmt::Display for Install {
             ),
             Self::Node => write!(
                 f,
-                "install Node.js {}.{} or later",
-                NODE_FLOOR.0, NODE_FLOOR.1
+                "install the Node.js release of {NODE_VERSION_FILE} (fnm, nvm and volta read it)"
             ),
             Self::Text(text) => f.write_str(text),
         }
@@ -1914,7 +1913,7 @@ pub const TOOLS: [Tool; 9] = [
     Tool {
         program: "node",
         args: &["--version"],
-        need: Need::NodeFloor,
+        need: Need::NodeRelease,
         install: Install::Node,
     },
     Tool {
@@ -1946,15 +1945,21 @@ pub const NODE_FLOOR: (u64, u64) = (22, 18);
 ///
 /// `answers` holds what each of [`TOOLS`] answered: its version line, or why asking failed
 /// (a missing program, a missing cargo subcommand or toolchain, a broken install). Every
-/// tool must answer, Node.js at [`NODE_FLOOR`] or later, on a platform the checks support
-/// (macOS or Linux; Windows through WSL2).
+/// tool must answer, the Cargo tools at their pinned version and Node.js at exactly the
+/// release of `node_version` (the text of [`NODE_VERSION_FILE`], which CI installs: a
+/// green local check means a green CI), on a platform the checks support (macOS or Linux;
+/// Windows through WSL2).
 ///
 /// # Errors
 ///
 /// Returns one failure listing every problem found, each with how to fix it: an
 /// unsupported platform, a tool that did not answer (with its own reason), or a tool at a
-/// version the checks do not accept.
-pub fn preflight_gate(os: &str, answers: &[Result<String, CommandFailure>]) -> Result<(), Failure> {
+/// version the checks do not accept (Node.js included, which must be `node_version`).
+pub fn preflight_gate(
+    os: &str,
+    answers: &[Result<String, CommandFailure>],
+    node_version: &str,
+) -> Result<(), Failure> {
     let mut problems = Vec::new();
     if os == "windows" {
         problems.push("the checks run on macOS and Linux: on Windows, run them in WSL2".to_owned());
@@ -1970,9 +1975,13 @@ pub fn preflight_gate(os: &str, answers: &[Result<String, CommandFailure>]) -> R
         };
         match tool.need {
             Need::Present => {}
-            Need::NodeFloor => {
-                if !node_release(version).is_some_and(supported) {
-                    problems.push(format!("Node.js {version} is not supported: {install}"));
+            Need::NodeRelease => {
+                let expected = node_release(node_version);
+                if expected.is_none() || node_release(version) != expected {
+                    problems.push(format!(
+                        "Node.js {version} is installed, the checks need {}: {install}",
+                        node_version.trim()
+                    ));
                 }
             }
             Need::Pinned((name, needed)) => {
@@ -2824,7 +2833,11 @@ fn preflight(runner: &mut dyn Runner) -> Result<(), Failure> {
         .iter()
         .map(|tool| runner.capture(&Cmd::new(tool.program, tool.args, Dir::Root)))
         .collect();
-    preflight_gate(std::env::consts::OS, &answers)
+    preflight_gate(
+        std::env::consts::OS,
+        &answers,
+        &read_file(runner, NODE_VERSION_FILE)?,
+    )
 }
 
 /// The files tracked by git matching `patterns`, described as `what` if they cannot be
