@@ -171,6 +171,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `cargo xtask check` rejects a coverage report that measured nothing (0 of 0 lines, functions or branches).
 - The conformance export directory is emptied before every export, so no WAV file from an earlier run is judged.
 - Mutation testing copies only versioned files (`--gitignore=true`).
+- `engine-cli` names stdout when it cannot write there (`error: cannot write to stdout: <reason>`), like the oracle, instead of printing the bare reason.
 
 ### Security
 

@@ -550,7 +550,7 @@ fn check_command_reports_every_case_that_fails_to_render() {
     ]);
     assert_eq!(
         run(&args(&["check", "conf"]), &mut broken, &mut Broken).map_err(|error| error.to_string()),
-        Err("closed".to_owned()),
+        Err("cannot write to stdout: closed".to_owned()),
         "a broken output is a failure"
     );
 }
@@ -622,7 +622,7 @@ fn help_prints_the_usage_on_the_output() {
     assert_eq!(
         run(&args(&["help"]), &mut Memory::default(), &mut Broken)
             .map_err(|error| error.to_string()),
-        Err("closed".to_owned()),
+        Err("cannot write to stdout: closed".to_owned()),
         "a broken output is a failure"
     );
     for command in ["render", "check", "bless", "export", "help"] {
@@ -679,20 +679,20 @@ fn reports_a_broken_output() {
     let mut memory = conformance(&format!(r#"{{"sine":"{}"}}"#, sine_hash()));
     assert_eq!(
         run(&args(&["check", "conf"]), &mut memory, &mut Broken).map_err(|error| error.to_string()),
-        Err("closed".to_owned()),
+        Err("cannot write to stdout: closed".to_owned()),
         "check"
     );
     let mut bad = conformance(r#"{"sine":"0"}"#);
     assert_eq!(
         run(&args(&["check", "conf"]), &mut bad, &mut Broken).map_err(|error| error.to_string()),
-        Err("closed".to_owned()),
+        Err("cannot write to stdout: closed".to_owned()),
         "mismatch line"
     );
     let mut missing = conformance("{}");
     assert_eq!(
         run(&args(&["check", "conf"]), &mut missing, &mut Broken)
             .map_err(|error| error.to_string()),
-        Err("closed".to_owned()),
+        Err("cannot write to stdout: closed".to_owned()),
         "missing line"
     );
     let mut stale = Memory::with(&[
@@ -706,7 +706,7 @@ fn reports_a_broken_output() {
     let mut once = Limited(1);
     assert_eq!(
         run(&args(&["check", "conf"]), &mut stale, &mut once).map_err(|error| error.to_string()),
-        Err("closed".to_owned()),
+        Err("cannot write to stdout: closed".to_owned()),
         "stale line"
     );
 }

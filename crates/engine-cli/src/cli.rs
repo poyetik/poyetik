@@ -123,9 +123,9 @@ fn read(files: &mut dyn Files, path: &Path, limit: usize) -> Result<String, Stri
         .map_err(|error| format!("cannot read {}: {error}", path.display()))
 }
 
-/// Writes a line of output.
+/// Writes a line of output, which is stdout, naming it on failure.
 fn say(out: &mut dyn Write, line: &str) -> Result<(), String> {
-    writeln!(out, "{line}").map_err(|error| error.to_string())
+    writeln!(out, "{line}").map_err(|error| format!("cannot write to stdout: {error}"))
 }
 
 /// A case of a conformance directory: its name, and the path and text of its case file
