@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { HISTORY_SECONDS } from "../src/settings.ts";
 import { WINDOW_SECONDS } from "../src/Oscilloscope.tsx";
-import { frequency, MAX_FREQUENCY_RATIO, MIN_PERIODS, peak, risingCrossings, scopeScene } from "../src/scope.ts";
+import { crossingSpan, frequency, MAX_FREQUENCY_RATIO, MIN_PERIODS, peak, risingCrossings, scopeScene } from "../src/scope.ts";
 import { SAMPLE_RATES } from "./matrix.ts";
 
 /** `count` samples of a sine at `hertz`, sampled at `rate`. */
@@ -29,7 +29,36 @@ describe("risingCrossings", () => {
   });
 });
 
+describe("crossingSpan", () => {
+  test.each([
+    [[-1, 1, 2, -2, -1, 3], 1, 3.75],
+    [[0, 1, 0, -1, 0], 0, 0],
+    [[1, -1, 1], 0, 0],
+    [[-1, 1, -1, 1, -1, 1], 2, 4],
+    [[], -1, 0],
+  ])("counts the periods between the first and last rising crossings of %o, and their span", (samples, periods, span) => {
+    expect(crossingSpan(new Float32Array(samples))).toStrictEqual({ periods, span });
+  });
+
+  test("agrees with the rising crossings, at every rate of the matrix", () => {
+    for (const rate of SAMPLE_RATES) {
+      const crossings = risingCrossings(sine(440, rate, Math.round(HISTORY_SECONDS * rate), 0.3));
+      expect(crossingSpan(sine(440, rate, Math.round(HISTORY_SECONDS * rate), 0.3))).toStrictEqual({
+        periods: crossings.length - 1,
+        span: (crossings.at(-1) ?? Number.NaN) - (crossings[0] ?? Number.NaN),
+      });
+    }
+  });
+});
+
 describe("frequency", () => {
+  test("measures a history of any length without throwing: 300,000 samples crossing every other one", () => {
+    // Far above a twentieth of the rate: no measurement, but no RangeError from spreading
+    // 150,000 crossings into the arguments of a call either.
+    const alternating = Float32Array.from({ length: 300_000 }, (_empty, index) => (index % 2 === 0 ? -1 : 1));
+    expect(frequency(alternating, 384_000)).toBeUndefined();
+  });
+
   test.each([440, 1000, 55.5])("measures a %f Hz sine to a hundredth of a hertz", (hertz) => {
     const measured = frequency(sine(hertz, 48_000, 4096, 0.3), 48_000);
     expect(measured).toBeDefined();

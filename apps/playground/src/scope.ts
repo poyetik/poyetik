@@ -23,20 +23,47 @@ export interface ScopeScene {
 const SCALE = 0.9;
 
 /**
- * Positions where the signal crosses zero going up, in fractional samples: between
- * `index - 1` (negative or zero) and `index` (positive), linearly interpolated.
+ * Calls `visit` with each position where the signal crosses zero going up, in order, in
+ * fractional samples: between `index - 1` (negative or zero) and `index` (positive),
+ * linearly interpolated.
  */
-export function risingCrossings(samples: Float32Array): number[] {
-  const crossings: number[] = [];
+function eachRisingCrossing(samples: Float32Array, visit: (position: number) => void): void {
   // No sample before the first one: +Infinity is never "negative or zero".
   let before = Number.POSITIVE_INFINITY;
   samples.forEach((after, index) => {
     if (before <= 0 && after > 0) {
-      crossings.push(index - 1 + -before / (after - before));
+      visit(index - 1 + -before / (after - before));
     }
     before = after;
   });
+}
+
+/** Positions where the signal crosses zero going up, in fractional samples, in increasing order. */
+export function risingCrossings(samples: Float32Array): number[] {
+  const crossings: number[] = [];
+  eachRisingCrossing(samples, (position) => {
+    crossings.push(position);
+  });
   return crossings;
+}
+
+/**
+ * The whole periods between the first and the last rising crossings (-1 when there is
+ * none), and the distance between those crossings, in samples (0 for fewer than two). In
+ * one pass, with nothing kept but three numbers: any length of signal is measured.
+ */
+export function crossingSpan(samples: Float32Array): { readonly periods: number; readonly span: number } {
+  let count = 0;
+  let first = 0;
+  let last = 0;
+  eachRisingCrossing(samples, (position) => {
+    if (count === 0) {
+      first = position;
+    }
+    last = position;
+    count += 1;
+  });
+  return { periods: count - 1, span: last - first };
 }
 
 /** Fewest whole periods a frequency is measured over: fewer give no measurement. */
@@ -53,13 +80,11 @@ export const MAX_FREQUENCY_RATIO = 1 / 20;
  * interpolation of the crossings is biased (1.3 Hz off at 19 kHz and 48 kHz): undefined.
  */
 export function frequency(samples: Float32Array, rate: number): number | undefined {
-  const crossings = risingCrossings(samples);
-  const periods = crossings.length - 1;
+  const { periods, span } = crossingSpan(samples);
   if (periods < MIN_PERIODS) {
     return undefined;
   }
-  // Crossings strictly increase: the span from the first to the last is positive.
-  const span = Math.max(...crossings) - Math.min(...crossings);
+  // Crossings strictly increase: with two or more, the span is positive.
   const measured = (periods * rate) / span;
   return measured <= rate * MAX_FREQUENCY_RATIO ? measured : undefined;
 }
