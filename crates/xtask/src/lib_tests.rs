@@ -660,9 +660,13 @@ fn command_lines(steps: &[Step]) -> Vec<String> {
             Action::ReadmeGate => "readme gate".to_owned(),
             Action::VocabularyGate => "vocabulary gate".to_owned(),
             Action::FreshDirs(paths) => format!("fresh {}", paths.join(" ")),
-            Action::TypeScriptReportsGate => "typescript reports gate".to_owned(),
+            Action::TypeScriptReportsGate(package) => {
+                format!("typescript reports gate of {}", package.dir)
+            }
             Action::StrykerConfigGate => "stryker config gate".to_owned(),
-            Action::TypeScriptScopeGate => "typescript scope gate".to_owned(),
+            Action::TypeScriptScopeGate(package) => {
+                format!("typescript scope gate of {}", package.dir)
+            }
             Action::TypeScriptMutationGate { package, extent } => {
                 format!("typescript mutation gate of {} ({extent:?})", package.dir)
             }
@@ -742,16 +746,24 @@ fn lists_every_check_in_order() {
             "fresh bindings/wasm/dist",
             "Package(\"tooling/config\"): pnpm run check",
             "Package(\"tooling/config\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json",
+            "typescript reports gate of tooling/config",
+            "typescript scope gate of tooling/config",
             "Package(\"tooling/oracle\"): pnpm run check",
             "Package(\"tooling/oracle\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json",
+            "typescript reports gate of tooling/oracle",
+            "typescript scope gate of tooling/oracle",
             "Package(\"bindings/wasm\"): pnpm run check",
             "Package(\"bindings/wasm\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json",
+            "typescript reports gate of bindings/wasm",
+            "typescript scope gate of bindings/wasm",
             "Package(\"apps/playground\"): pnpm run check",
             "Package(\"apps/playground\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json",
+            "typescript reports gate of apps/playground",
+            "typescript scope gate of apps/playground",
             "Package(\"apps/roadmap\"): pnpm run check",
             "Package(\"apps/roadmap\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json",
-            "typescript reports gate",
-            "typescript scope gate",
+            "typescript reports gate of apps/roadmap",
+            "typescript scope gate of apps/roadmap",
             "tree unchanged",
         ],
         "the default check pipeline"
@@ -819,16 +831,24 @@ fn names_every_check_in_order() {
             "Fresh TypeScript build outputs",
             "Shared TypeScript policy (each rule proven to reject what it forbids)",
             "Mutation testing of tooling/config (what changed since the last run)",
+            "TypeScript coverage and mutation reports of tooling/config",
+            "Every TypeScript source of tooling/config measured and mutated, or reviewed",
             "Conformance oracle (independent, TypeScript)",
             "Mutation testing of tooling/oracle (what changed since the last run)",
+            "TypeScript coverage and mutation reports of tooling/oracle",
+            "Every TypeScript source of tooling/oracle measured and mutated, or reviewed",
             "Engine WASM checks",
             "Mutation testing of bindings/wasm (what changed since the last run)",
+            "TypeScript coverage and mutation reports of bindings/wasm",
+            "Every TypeScript source of bindings/wasm measured and mutated, or reviewed",
             "Playground checks",
             "Mutation testing of apps/playground (what changed since the last run)",
+            "TypeScript coverage and mutation reports of apps/playground",
+            "Every TypeScript source of apps/playground measured and mutated, or reviewed",
             "Roadmap checks",
             "Mutation testing of apps/roadmap (what changed since the last run)",
-            "TypeScript coverage and mutation reports",
-            "Every TypeScript source measured and mutated, or reviewed",
+            "TypeScript coverage and mutation reports of apps/roadmap",
+            "Every TypeScript source of apps/roadmap measured and mutated, or reviewed",
             "Working tree unchanged by the checks",
         ],
         "step names"
@@ -1982,8 +2002,8 @@ fn runs_every_step_and_reports_success() {
         Ok(()),
         "all green"
     );
-    let (tools, commands, emptied, listed, captured, written) = (10, 49, 14, 11, 14, 1);
-    let read = 2 + 12 + 2 + 7 + 19 + 2 + 1 + 7 + 3 + 10 + 10 + 20 + 8 + 2 + 11 + 16 + 16;
+    let (tools, commands, emptied, listed, captured, written) = (10, 49, 14, 19, 14, 1);
+    let read = 2 + 12 + 2 + 7 + 19 + 2 + 1 + 7 + 3 + 10 + 10 + 20 + 8 + 2 + 11 + 40 + 20;
     assert_eq!(
         fake.ran.len(),
         tools + commands + emptied + listed + captured + written + read,
@@ -1992,17 +2012,18 @@ fn runs_every_step_and_reports_success() {
          the coverage build, the mutants of the changes, Miri, the \
          conformance check and export, deny, the JavaScript install, audit, and five package \
          checks each followed by its Stryker run); fourteen directories are emptied; git lists \
-         eleven kinds of files; the licenses and the history are captured twice each, the state \
+         eleven kinds of files, the TypeScript ones again for the reports and scope gates of \
+         each package after the first; the licenses and the history are captured twice each, the state \
          of the tree (before and after) four times, the Cargo metadata, the merge base, the changes and the \
          new Rust files once; the diff is written once; and the gates read .node-version and the toolchain file for the preflight, twelve coverage reports, \
          the unviable report and reviews, six TypeScript sources and their reviews, the eight \
          sources, the ten Cargo manifests and the register of the bypass gate, the two unsafe files, the Cargo \
          configuration, the six package manifests and the register of the dependency gate, the three \
          supply-chain configurations, ten crate manifests, ten READMEs, the changelog, ten READMEs, two Rust and six TypeScript sources and the vocabulary of the vocabulary gate, eight version files, the workflow and \
-         .node-version, five Stryker configurations and the six package manifests, the six \
-         TypeScript sources and ten reports of the reports gate, and the five Stryker \
-         configurations, five coverage summaries, five mutation reports and the register of \
-         the scope gate"
+         .node-version, five Stryker configurations and the six package manifests, and for each of the five \
+         packages, the six TypeScript sources and two reports of its reports gate, then its \
+         Stryker configuration, coverage summary, mutation report and the register of its \
+         scope gate"
     );
     for path in [CARGO_TOML.to_owned(), CHANGELOG.to_owned()]
         .into_iter()
@@ -2021,15 +2042,15 @@ fn runs_every_step_and_reports_success() {
     );
     let text = String::from_utf8(out).expect("utf-8 output");
     assert!(
-        text.starts_with("▶ [1/62] Tools and platform\n"),
+        text.starts_with("▶ [1/70] Tools and platform\n"),
         "numbered progress: {text}"
     );
     assert!(
-        text.contains("▶ [58/62] Roadmap checks\n"),
+        text.contains("▶ [66/70] Roadmap checks\n"),
         "last step announced: {text}"
     );
     assert!(
-        text.ends_with("✔ all 62 checks passed\n"),
+        text.ends_with("✔ all 70 checks passed\n"),
         "summary: {text}"
     );
 }
@@ -3715,7 +3736,7 @@ fn fails_on_a_missing_or_failing_typescript_report() {
     assert_eq!(
         run_steps(&check_steps(CHANGES_MODE), &mut no_summary, &mut Vec::new()),
         failed(
-            "TypeScript coverage and mutation reports: cannot read apps/playground/coverage/coverage-summary.json: missing"
+            "TypeScript coverage and mutation reports of apps/playground: cannot read apps/playground/coverage/coverage-summary.json: missing"
         ),
         "missing summary"
     );
@@ -3728,7 +3749,7 @@ fn fails_on_a_missing_or_failing_typescript_report() {
     assert_eq!(
         run_steps(&check_steps(CHANGES_MODE), &mut survivor, &mut Vec::new()),
         failed(
-            "TypeScript coverage and mutation reports: apps/roadmap: mutants not killed: \
+            "TypeScript coverage and mutation reports of apps/roadmap: apps/roadmap: mutants not killed: \
              apps/roadmap/x.ts:4 M Survived"
         ),
         "survivor"
@@ -4699,7 +4720,7 @@ fn checks_a_push_then_runs_every_check() {
     assert!(
         String::from_utf8(out)
             .expect("UTF-8")
-            .ends_with("✔ all 62 checks passed\n"),
+            .ends_with("✔ all 70 checks passed\n"),
         "then every check"
     );
     assert!(
@@ -5126,12 +5147,12 @@ fn prints_the_details_of_a_failure_on_stdout_and_one_line_on_stderr() {
     );
     assert_eq!(
         String::from_utf8(err).expect("UTF-8"),
-        "error: 1 of 62 checks failed, listed above\n",
+        "error: 1 of 70 checks failed, listed above\n",
         "one line on stderr, counting the failed steps"
     );
     assert!(
         String::from_utf8(out).expect("UTF-8").ends_with(&format!(
-            "▶ [62/62] Working tree unchanged by the checks\n\
+            "▶ [70/70] Working tree unchanged by the checks\n\
              not reviewed: crates/a/src/c.rs: replace g -> U with x\n\
              stale review: crates/a/src/b.rs: replace f -> T with Default::default()\n\
              Rust unviable mutants reviewed: unviable mutants must be reviewed in \
@@ -5267,7 +5288,7 @@ fn wires_every_package_into_the_checks() {
         });
         let gated = steps
             .iter()
-            .position(|step| step.action == Action::TypeScriptReportsGate);
+            .position(|step| step.action == Action::TypeScriptReportsGate(package));
         assert!(
             checked.is_some() && checked < gated,
             "{}: its checks run, before the reports gate",
@@ -6253,8 +6274,31 @@ fn requires_every_source_mutated_in_the_mutation_report() {
     );
     assert_eq!(
         super::bypass_gate(&[], reviewed),
+        failed(
+            "bypasses of coverage or mutation testing must be reviewed in proof-bypasses.txt: \
+             2 problems, listed above\n\
+             stale review: p/src/b.ts: mutated, no mutant reported (a file of no package)\n\
+             stale review: p/src/c.ts: mutated, no mutant reported (a file of no package)"
+        ),
+        "a scope review of a file in no package of the checks: no scope gate reads it"
+    );
+    let packaged = "apps/roadmap/src/b.ts: mutated, no mutant reported -- constants only\n\
+                    # p/src/b.ts: mutated, no mutant reported\n";
+    assert_eq!(
+        super::bypass_gate(&[], packaged),
         Ok(()),
-        "a scope review, left to the scope gate"
+        "a scope review of a package's file is left to its scope gate; a comment is no review"
+    );
+    let lookalike = "apps/roadmapx/src/b.ts: not measured -- r\napps/roadmap: not measured -- r\n";
+    assert_eq!(
+        super::bypass_gate(&[], lookalike),
+        failed(
+            "bypasses of coverage or mutation testing must be reviewed in proof-bypasses.txt: \
+             2 problems, listed above\n\
+             stale review: apps/roadmapx/src/b.ts: not measured (a file of no package)\n\
+             stale review: apps/roadmap: not measured (a file of no package)"
+        ),
+        "below a package's directory, not beside it nor the directory itself"
     );
     for (mutation, problem) in [
         ("{", "invalid mutation report: "),
@@ -6332,13 +6376,38 @@ fn requires_every_typescript_source_measured_and_mutated_or_reviewed() {
         "reviewed occurrences pass, a review of nothing is stale, the other reviews are the \
          bypass gate's"
     );
+    let other_package = format!("{reviewed}q/src/gone.ts: not measured -- q's review\n");
+    let complete_alone = scope(
+        "p",
+        &["src/**/*.ts"],
+        &["/r/p/src/a.ts", "/r/p/src/b.astro", "/r/p/src/c.ts"],
+    );
     assert_eq!(
-        super::bypass_gate(&[], reviewed),
+        super::scope_gate(
+            &tracked,
+            core::slice::from_ref(&complete_alone),
+            &other_package
+        ),
+        failed(format!("{context}: stale review: p/gone.ts: not measured")),
+        "a package checked alone leaves the reviews of another package to its own gate"
+    );
+    assert_eq!(
+        super::scope_gate(&tracked, &[complete_alone, other.clone()], &other_package),
+        failed(format!(
+            "{context}: 2 problems, listed above\n\
+             stale review: p/gone.ts: not measured\n\
+             stale review: q/src/gone.ts: not measured"
+        )),
+        "each package checks the reviews of its own files"
+    );
+    let rust_only = "crates/a/src/lib.rs: a token at a line -- the bypass gate's\n";
+    assert_eq!(
+        super::bypass_gate(&[], rust_only),
         failed(
             "bypasses of coverage or mutation testing must be reviewed in proof-bypasses.txt: \
              stale review: crates/a/src/lib.rs: a token at a line"
         ),
-        "the bypass gate leaves the scope reviews to the scope gate"
+        "the bypass gate's own reviews"
     );
     let unreadable = super::Scope {
         dir: "q",
@@ -6367,7 +6436,7 @@ fn requires_every_typescript_source_measured_and_mutated_or_reviewed() {
 fn fails_when_the_scope_gate_cannot_read_its_inputs() {
     let step = [Step {
         name: "Scope".to_owned(),
-        action: Action::TypeScriptScopeGate,
+        action: Action::TypeScriptScopeGate(PACKAGES[4]),
     }];
     assert_eq!(
         run_steps(&step, &mut passing(), &mut Vec::new()),

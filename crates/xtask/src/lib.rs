@@ -483,14 +483,13 @@ pub enum Action {
     /// Empty each of these directories (relative to the root), creating them if needed:
     /// what a later step reads there is then produced by this run only.
     FreshDirs(Vec<String>),
-    /// Require 100% coverage and every mutant killed in the reports of every TypeScript
-    /// package.
-    TypeScriptReportsGate,
+    /// Require 100% coverage and every mutant killed in the reports of a TypeScript package.
+    TypeScriptReportsGate(Package),
     /// Require every Stryker configuration to hide no mutant.
     StrykerConfigGate,
-    /// Require every TypeScript source of every package to be measured by its coverage and
+    /// Require every TypeScript source of a package to be measured by its coverage and
     /// mutated by Stryker, or reviewed as an exception.
-    TypeScriptScopeGate,
+    TypeScriptScopeGate(Package),
     /// Require every bypass of coverage or mutation testing to be reviewed.
     BypassGate,
     /// Require the packages and crates known to xtask to be exactly those of the
@@ -1025,15 +1024,21 @@ fn typescript_steps(mode: Mode) -> Vec<Step> {
             name: format!("Mutation testing of {} ({what})", package.dir),
             action: Action::Run(stryker_command(package.dir, mode)),
         });
+        steps.push(Step {
+            name: format!(
+                "TypeScript coverage and mutation reports of {}",
+                package.dir
+            ),
+            action: Action::TypeScriptReportsGate(package),
+        });
+        steps.push(Step {
+            name: format!(
+                "Every TypeScript source of {} measured and mutated, or reviewed",
+                package.dir
+            ),
+            action: Action::TypeScriptScopeGate(package),
+        });
     }
-    steps.push(Step {
-        name: "TypeScript coverage and mutation reports".to_owned(),
-        action: Action::TypeScriptReportsGate,
-    });
-    steps.push(Step {
-        name: "Every TypeScript source measured and mutated, or reviewed".to_owned(),
-        action: Action::TypeScriptScopeGate,
-    });
     steps
 }
 
@@ -1631,7 +1636,9 @@ pub const BYPASSES_REVIEWED: &str = "proof-bypasses.txt";
 /// `mutants.toml` (a cargo-mutants configuration can exclude code); every occurrence must
 /// be reviewed in `reviewed` ([`BYPASSES_REVIEWED`]: one `<file>: <token> at <line> --
 /// <reason>` line per
-/// occurrence), and every review must be current.
+/// occurrence), and every review must be current. The reviews of [`scope_gate`] are its
+/// own, but one of a file in no package of [`PACKAGES`] is stale here, since no scope gate
+/// reads it.
 ///
 /// # Errors
 ///
@@ -1690,6 +1697,14 @@ pub fn bypass_gate(sources: &[(String, String)], reviewed: &str) -> Result<(), F
         &reviews_of(reviewed, false),
         &mut problems,
     );
+    let dirs = PACKAGES.map(|package| package.dir);
+    problems.extend(
+        reviews_of(reviewed, true)
+            .lines()
+            .map(review_key)
+            .filter(|key| !key.starts_with('#') && !reviews_below(key, &dirs))
+            .map(|key| format!("stale review: {key} (a file of no package)")),
+    );
     verdict(
         &format!(
             "bypasses of coverage or mutation testing must be reviewed in {BYPASSES_REVIEWED}"
@@ -1710,16 +1725,40 @@ pub const SCOPE_REVIEWS: [&str; 3] = [
     ": mutated, no mutant reported",
 ];
 
+/// The key of a review line: what precedes its reason.
+fn review_key(line: &str) -> &str {
+    line.split_once(" -- ").map_or(line, |(key, _)| key).trim()
+}
+
 /// The lines of `reviewed` that are reviews of [`scope_gate`] (`scope`), or the others.
 fn reviews_of(reviewed: &str, scope: bool) -> String {
     reviewed
         .lines()
         .filter(|line| {
-            let key = line.split_once(" -- ").map_or(*line, |(key, _)| key).trim();
-            SCOPE_REVIEWS.iter().any(|suffix| key.ends_with(suffix)) == scope
+            SCOPE_REVIEWS
+                .iter()
+                .any(|suffix| review_key(line).ends_with(suffix))
+                == scope
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// The reviews of [`scope_gate`] in `reviewed` that name a file below one of `dirs`.
+fn scope_reviews_below(reviewed: &str, dirs: &[&str]) -> String {
+    reviews_of(reviewed, true)
+        .lines()
+        .filter(|line| reviews_below(review_key(line), dirs))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Whether the review key `key` names a file below one of `dirs`.
+fn reviews_below(key: &str, dirs: &[&str]) -> bool {
+    dirs.iter().any(|dir| {
+        key.strip_prefix(dir)
+            .is_some_and(|rest| rest.starts_with('/'))
+    })
 }
 
 /// The tracked files the scope gate reads (git pathspecs): every language a package's
@@ -1814,10 +1853,11 @@ fn parse_scope(scope: &Scope) -> Result<[serde_json::Value; 3], String> {
     ])
 }
 
-/// Checks that every TypeScript source is both measured and mutated, or reviewed.
+/// Checks that every TypeScript source of the packages of `scopes` is both measured and
+/// mutated, or reviewed.
 ///
 /// `tracked` are the files tracked with an extension of [`TS_SOURCES`]; `scopes` what each
-/// package of [`PACKAGES`] measures (its coverage summary) and mutates (the `mutate` globs of
+/// package checked (one, or several, of [`PACKAGES`]) measures (its coverage summary) and mutates (the `mutate` globs of
 /// its Stryker configuration, of which only `*` and `**` are understood). The sources of a
 /// package are its tracked files but its tests (`test/`, `*.test.ts`, `*.spec.ts`). Each
 /// source must be measured and mutated; one measured but not mutated is a
@@ -1827,8 +1867,9 @@ fn parse_scope(scope: &Scope) -> Result<[serde_json::Value; 3], String> {
 /// complete, the incremental runs included) a `<source>: mutated, no mutant reported`
 /// occurrence: Stryker found no mutant in it, or ran with another configuration than
 /// [`STRYKER_CONFIG`]. Each is to be reviewed in `reviewed`
-/// ([`BYPASSES_REVIEWED`], whose other reviews are [`bypass_gate`]'s), every review
-/// current. So the coverage `include` and the Stryker `mutate` of a package select the same
+/// ([`BYPASSES_REVIEWED`], whose other reviews are [`bypass_gate`]'s), every review of a
+/// file of these packages current (a review of a file in no package is the bypass gate's
+/// to refuse, so that each package can be checked alone). So the coverage `include` and the Stryker `mutate` of a package select the same
 /// sources, but for reviewed differences, and no source escapes both unseen.
 ///
 /// # Errors
@@ -1926,10 +1967,11 @@ pub fn scope_gate(tracked: &[String], scopes: &[Scope], reviewed: &str) -> Resul
                 }),
         );
     }
+    let dirs: Vec<&str> = scopes.iter().map(|scope| scope.dir).collect();
     compare_reviews(
         &count(keys),
         Extent::Complete,
-        &reviews_of(reviewed, true),
+        &scope_reviews_below(reviewed, &dirs),
         &mut problems,
     );
     verdict(
@@ -4058,21 +4100,18 @@ fn stryker_configs(runner: &mut dyn Runner) -> Result<(), Failure> {
         .try_for_each(|path| stryker_scripts_gate(path, &read_file(runner, path)?))
 }
 
-/// Reads what each TypeScript package measures and mutates, then checks that every source
-/// is in both, or reviewed.
-fn scope(runner: &mut dyn Runner) -> Result<(), Failure> {
+/// Reads what `package` measures and mutates, then checks that every source of it is in
+/// both, or reviewed.
+fn scope(runner: &mut dyn Runner, package: Package) -> Result<(), Failure> {
     let tracked = list_tracked(runner, &TS_SOURCES, "the TypeScript sources")?;
-    let mut scopes = Vec::new();
-    for package in PACKAGES {
-        let [coverage, mutation] = package.reports();
-        scopes.push(Scope {
-            dir: package.dir,
-            stryker: read_file(runner, &format!("{}/{STRYKER_CONFIG}", package.dir))?,
-            summary: read_file(runner, &format!("{coverage}/coverage-summary.json"))?,
-            mutation: read_file(runner, &format!("{mutation}/mutation.json"))?,
-        });
-    }
-    scope_gate(&tracked, &scopes, &read_file(runner, BYPASSES_REVIEWED)?)
+    let [coverage, mutation] = package.reports();
+    let scope = Scope {
+        dir: package.dir,
+        stryker: read_file(runner, &format!("{}/{STRYKER_CONFIG}", package.dir))?,
+        summary: read_file(runner, &format!("{coverage}/coverage-summary.json"))?,
+        mutation: read_file(runner, &format!("{mutation}/mutation.json"))?,
+    };
+    scope_gate(&tracked, &[scope], &read_file(runner, BYPASSES_REVIEWED)?)
 }
 
 /// The reviewed vocabulary: the synonyms `GLOSSARY.md` replaces, each with the word to use
@@ -4933,15 +4972,13 @@ fn run_action(
                 &read_file(runner, DEPENDENCIES_REVIEWED)?,
             )
         }
-        Action::TypeScriptReportsGate => {
+        Action::TypeScriptReportsGate(package) => {
             let disabled = disabled_mutants(runner)?;
-            PACKAGES.iter().try_for_each(|package| {
-                let [coverage, mutation] = package.reports();
-                let summary = read_file(runner, &format!("{coverage}/coverage-summary.json"))?;
-                ts_coverage_gate(package.dir, &summary)?;
-                let report = read_file(runner, &format!("{mutation}/mutation.json"))?;
-                ts_mutation_gate(package.dir, &report, &disabled, Extent::Complete)
-            })
+            let [coverage, mutation] = package.reports();
+            let summary = read_file(runner, &format!("{coverage}/coverage-summary.json"))?;
+            ts_coverage_gate(package.dir, &summary)?;
+            let report = read_file(runner, &format!("{mutation}/mutation.json"))?;
+            ts_mutation_gate(package.dir, &report, &disabled, Extent::Complete)
         }
         Action::TypeScriptMutationGate { package, extent } => {
             let disabled = disabled_mutants(runner)?;
@@ -4949,7 +4986,7 @@ fn run_action(
             let report = read_file(runner, &format!("{mutation}/mutation.json"))?;
             ts_mutation_gate(package.dir, &report, &disabled, *extent)
         }
-        Action::TypeScriptScopeGate => scope(runner),
+        Action::TypeScriptScopeGate(package) => scope(runner, *package),
         Action::StrykerConfigGate => stryker_configs(runner),
         Action::BypassGate => {
             let paths = list_tracked(runner, &BYPASS_SOURCES, "the source files")?;
