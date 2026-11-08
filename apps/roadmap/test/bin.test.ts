@@ -1,8 +1,13 @@
+import { spawn } from "node:child_process";
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { emptyBoard, parseBoard, serializeBoard } from "../src/lib/board.ts";
+import { addCard, emptyBoard, parseBoard, serializeBoard } from "../src/lib/board.ts";
+
+/** The output streams the entry point guards, which have no `error` listener outside it. */
+const STREAMS = [process.stdout, process.stderr];
 
 // Tests the real entry point (disk, clock, process) in a temporary directory.
 describe("bin", () => {
@@ -11,6 +16,9 @@ describe("bin", () => {
   const env = process.env["ROADMAP_FILE"];
 
   beforeEach(() => {
+    for (const stream of STREAMS) {
+      expect(stream.listenerCount("error")).toBe(0);
+    }
     dir = mkdtempSync(join(tmpdir(), "roadmap-"));
     vi.resetModules();
     process.exitCode = undefined;
@@ -26,9 +34,13 @@ describe("bin", () => {
     }
     process.exitCode = undefined;
     vi.restoreAllMocks();
+    // Each import of the entry point guards the real streams again: drop its listeners.
+    for (const stream of STREAMS) {
+      stream.removeAllListeners("error");
+    }
   });
 
-  /** Imports the real entry point afresh with `args` as the command line and returns what it wrote to stdout and stderr, captured instead of printed. */
+  /** Imports the real entry point afresh with `args` as the command line and returns what it writes to stdout and stderr, captured instead of printed, then and afterwards. */
   async function runBin(args: string[]): Promise<{ stdout: string; stderr: string }> {
     let stdout = "";
     let stderr = "";
@@ -42,7 +54,15 @@ describe("bin", () => {
     });
     process.argv = ["node", "bin.ts", ...args];
     await import("../src/cli/bin.ts");
-    return { stdout, stderr };
+    // Getters: the streams can still be written to after the import (stream failures come later).
+    return {
+      get stdout() {
+        return stdout;
+      },
+      get stderr() {
+        return stderr;
+      },
+    };
   }
 
   it("reads and writes the ROADMAP_FILE file with today's date", async () => {
@@ -112,8 +132,60 @@ describe("bin", () => {
     expect(stderr).toBe("error: unknown command: frobnicate (see: roadmap help)\n");
     expect(process.exitCode).toBe(2);
   });
-  it("ignores a closed stdout", async () => {
+  /** A stream error as Node reports it, with its system code. */
+  function streamError(code: string): Error {
+    return Object.assign(new Error(`write ${code}`), { code });
+  }
+
+  it("guards both output streams once per run", async () => {
     await runBin(["help"]);
-    expect(() => process.stdout.emit("error", Object.assign(new Error("write EPIPE"), { code: "EPIPE" }))).not.toThrow();
+    expect(process.stdout.listenerCount("error")).toBe(1);
+    expect(process.stderr.listenerCount("error")).toBe(1);
+  });
+
+  it("ignores a closed stdout: the exit code stays the command's", async () => {
+    const { stderr } = await runBin(["help"]);
+    expect(() => process.stdout.emit("error", streamError("EPIPE"))).not.toThrow();
+    expect(process.exitCode).toBe(0);
+    expect(stderr).toBe("");
+  });
+
+  it("reports another stdout failure as one error line, exit code 1", async () => {
+    const output = await runBin(["help"]);
+    expect(output.stderr).toBe("");
+    expect(() => process.stdout.emit("error", streamError("EIO"))).not.toThrow();
+    expect(process.exitCode).toBe(1);
+    expect(output.stderr).toBe("error: cannot write to stdout: EIO\n");
+  });
+
+  it("never hides a usage error behind a stream failure", async () => {
+    await runBin(["frobnicate"]);
+    expect(() => process.stderr.emit("error", streamError("EPIPE"))).not.toThrow();
+    expect(() => process.stderr.emit("error", streamError("EIO"))).not.toThrow();
+    expect(() => process.stdout.emit("error", streamError("EIO"))).not.toThrow();
+    expect(process.exitCode).toBe(2);
+  });
+
+  it("exits with 0 and says nothing when the real process's reader is gone", async () => {
+    // A listing far larger than a pipe's buffer (64 KiB): whenever the read end closes, before or
+    // after the first write, a later write meets the closed pipe, with no dependence on timing.
+    let board = emptyBoard("Project");
+    for (let i = 0; i < 3000; i += 1) {
+      board = addCard(board, { title: `A card title long enough to fill the pipe quickly ${String(i)}` }, "2026-11-07").board;
+    }
+    const file = join(dir, "board.json");
+    writeFileSync(file, serializeBoard(board));
+    const child = spawn(process.execPath, [fileURLToPath(new URL("../src/cli/bin.ts", import.meta.url)), "list"], {
+      env: { ...process.env, ROADMAP_FILE: file },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    child.stdout.destroy();
+    let stderr = "";
+    child.stderr.on("data", (chunk) => {
+      stderr += String(chunk);
+    });
+    const code = await new Promise((resolve) => child.on("close", resolve));
+    expect(stderr).toBe("");
+    expect(code).toBe(0);
   });
 });

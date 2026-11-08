@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { BoardError } from "../lib/board.ts";
-import { failure, ignoreClosedReader, localDate, run } from "./cli.ts";
+import { exitAfterStreamFailure, failure, guardStreams, localDate, run } from "./cli.ts";
 
 /** Path of the board file: `ROADMAP_FILE` when set (tests, other boards), otherwise the package's own board.json. */
 const file = process.env["ROADMAP_FILE"] ?? fileURLToPath(new URL("../../board.json", import.meta.url));
@@ -15,7 +15,9 @@ function onFile<T>(what: string, action: () => T): T {
   }
 }
 
-ignoreClosedReader(process.stdout);
+guardStreams(process.stdout, process.stderr, () => {
+  process.exitCode = exitAfterStreamFailure(process.exitCode);
+});
 process.exitCode = run(process.argv.slice(2), {
   file,
   // Fatal decoding: a byte that is not UTF-8 is an error, never silently replaced by U+FFFD

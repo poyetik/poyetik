@@ -365,15 +365,33 @@ export function failure(error: unknown): string {
   return String(error);
 }
 
+/** A stream as `guardStreams` needs it: one that reports its failures as `error` events. */
+export interface ErrorSource {
+  readonly on: (event: "error", listener: (error: Error) => void) => unknown;
+}
+
 /**
- * Makes a closed `stream` (a reader gone, as with `| head`) harmless: what nobody reads
- * is dropped, and the exit code stays the outcome of the command. Any other stream error
- * is thrown, as it would be without this.
+ * Applies the command-line contract to the output streams, which fail after `run` returned:
+ * - a closed stdout (a reader gone, as with `| head`) is not an error: what nobody reads is
+ *   dropped, and the exit code stays the outcome of the command;
+ * - any other stdout failure is one `error:` line on stderr, then `failed` is called, which sets
+ *   the exit code (see `exitAfterStreamFailure`);
+ * - a stderr failure is ignored, since there is nowhere left to report it: the exit code still tells.
+ *
+ * Never a stack trace: without a listener, Node would throw the stream error.
  */
-export function ignoreClosedReader(stream: { on: (event: "error", listener: (error: Error) => void) => unknown }): void {
-  stream.on("error", (error) => {
-    if (!("code" in error) || error.code !== "EPIPE") {
-      throw error;
+export function guardStreams(stdout: ErrorSource, stderr: ErrorSource & { readonly write: (text: string) => unknown }, failed: () => void): void {
+  stderr.on("error", () => undefined);
+  stdout.on("error", (error) => {
+    if ("code" in error && error.code === "EPIPE") {
+      return;
     }
+    stderr.write(`error: cannot write to stdout: ${failure(error)}\n`);
+    failed();
   });
+}
+
+/** The exit code once stdout failed: 1 after a success, unchanged after a failure (a usage error keeps its 2). */
+export function exitAfterStreamFailure(code: number | string | null | undefined): number | string | null | undefined {
+  return code === 0 ? 1 : code;
 }
