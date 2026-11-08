@@ -818,6 +818,7 @@ fn accepts_every_float_method_banned_or_reviewed() {
             &[
                 ("abs", true, "Exact."),
                 ("gamma", false, "Unspecified precision"),
+                ("log2", true, "Unspecified precision"),
             ],
         ),
     )
@@ -835,6 +836,12 @@ fn accepts_every_float_method_banned_or_reviewed() {
                 float: "f64".to_owned(),
                 name: "gamma".to_owned(),
                 stable: false,
+                documented_varying: true
+            },
+            super::FloatMethod {
+                float: "f64".to_owned(),
+                name: "log2".to_owned(),
+                stable: true,
                 documented_varying: true
             },
         ],
