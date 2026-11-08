@@ -94,6 +94,12 @@ const TREE_STATUS: (&str, &str) = (
 /// The changes of the tracked files of the fake: none.
 const TREE_DIFF: (&str, &str) = ("git diff HEAD", "");
 
+/// How the fake reads what is checked out, and what it answers: a commit on a branch.
+const TREE_HEAD: (&str, &str) = (
+    "git rev-parse HEAD --symbolic-full-name HEAD",
+    "abc123\nrefs/heads/main\n",
+);
+
 /// A Dependabot configuration whose two ecosystems wait a week.
 const DEPENDABOT: &str = "version: 2\nupdates:\n  - package-ecosystem: cargo\n    cooldown:\n      default-days: 7\n  - package-ecosystem: npm\n    cooldown:\n      default-days: 7\n";
 
@@ -127,6 +133,16 @@ const FAKE_JOBS: NonZeroUsize = NonZeroUsize::new(3).expect("three is not zero")
 
 /// The default check on the fake's machine.
 const CHANGES_MODE: Mode = Mode::Changes { jobs: FAKE_JOBS };
+
+/// What the fake's git answers about its tree and its changes.
+const GIT_ANSWERS: [(&str, &str); 6] = [
+    TREE_STATUS,
+    TREE_DIFF,
+    TREE_HEAD,
+    MERGE_BASE,
+    CHANGES,
+    NEW_RUST_FILES,
+];
 
 /// How the fake finds the base of the changes, and what it answers: the upstream resolves.
 const MERGE_BASE: (&str, &str) = ("git merge-base HEAD @{upstream}", "abc123\n");
@@ -387,7 +403,7 @@ fn passing() -> Fake {
     assert!(first.is_none() && second.is_none(), "fresh fake");
     let equivalent = "tooling/config/x.ts: EqualityOperator at while (a < 2) {} -- same result\n";
     typescript_reports(&mut fake);
-    for (command, answer) in [TREE_STATUS, TREE_DIFF, MERGE_BASE, CHANGES, NEW_RUST_FILES] {
+    for (command, answer) in GIT_ANSWERS {
         let recorded = fake
             .files
             .insert(format!("capture {command}"), answer.to_owned());
@@ -1963,7 +1979,7 @@ fn runs_every_step_and_reports_success() {
         Ok(()),
         "all green"
     );
-    let (tools, commands, emptied, listed, captured, written) = (10, 49, 14, 11, 12, 1);
+    let (tools, commands, emptied, listed, captured, written) = (10, 49, 14, 11, 14, 1);
     let read = 2 + 12 + 2 + 7 + 19 + 2 + 1 + 7 + 3 + 10 + 10 + 20 + 8 + 2 + 11 + 16 + 16;
     assert_eq!(
         fake.ran.len(),
@@ -1973,8 +1989,8 @@ fn runs_every_step_and_reports_success() {
          the coverage build, the mutants of the changes, Miri, the \
          conformance check and export, deny, the JavaScript install, audit, and five package \
          checks each followed by its Stryker run); fourteen directories are emptied; git lists \
-         eleven kinds of files; the licenses, the history and the state of the tree (before and \
-         after) are captured twice each, the Cargo metadata, the merge base, the changes and the \
+         eleven kinds of files; the licenses and the history are captured twice each, the state \
+         of the tree (before and after) four times, the Cargo metadata, the merge base, the changes and the \
          new Rust files once; the diff is written once; and the gates read .node-version and the toolchain file for the preflight, twelve coverage reports, \
          the unviable report and reviews, six TypeScript sources and their reviews, the eight \
          sources, the ten Cargo manifests and the register of the bypass gate, the two unsafe files, the Cargo \
@@ -2029,8 +2045,8 @@ fn stops_at_the_first_failing_command() {
     );
     assert_eq!(
         fake.ran.len(),
-        10 + 2 + 2 + 4,
-        "the preflight asks ten tools and reads .node-version and the toolchain file, the tree is recorded by two \
+        10 + 2 + 3 + 4,
+        "the preflight asks ten tools and reads .node-version and the toolchain file, the tree is recorded by three \
          captures; nothing runs after the failure"
     );
 }
@@ -5336,6 +5352,7 @@ fn refuses_checks_that_change_the_working_tree() {
     let tree = |status: &str, diff: &str| super::TreeState {
         status: status.to_owned(),
         diff: diff.to_owned(),
+        head: TREE_HEAD.1.to_owned(),
     };
     let dirty = tree(" M a.rs\n?? notes.txt\n", "diff a.rs\n");
     assert_eq!(
@@ -5367,10 +5384,44 @@ fn refuses_checks_that_change_the_working_tree() {
         ),
         "a dirty file changed again"
     );
+    for head in [
+        "def456\nrefs/heads/main\n",
+        "abc123\nrefs/heads/other\n",
+        "abc123\nHEAD\n",
+    ] {
+        let moved = super::TreeState {
+            head: head.to_owned(),
+            ..dirty.clone()
+        };
+        assert_eq!(
+            super::tree_gate(Some(&dirty), &moved),
+            failed(format!(
+                "the checks changed the working tree: what is checked out changed, from \
+                 `abc123 refs/heads/main` to `{}`: the checks read another commit than the one \
+                 recorded",
+                head.split_whitespace().collect::<Vec<_>>().join(" ")
+            )),
+            "a commit made, a branch checked out or HEAD detached during the checks: {head:?}"
+        );
+    }
     assert_eq!(
         super::tree_gate(None, &dirty),
         failed("the working tree was not recorded before the checks"),
         "nothing to compare with"
+    );
+    let mut committed = passing();
+    committed.rewrite = Some((
+        "cargo deny --locked check".to_owned(),
+        format!("capture {}", TREE_HEAD.0),
+        "def456\nrefs/heads/main\n".to_owned(),
+    ));
+    assert!(
+        run_steps(&check_steps(CHANGES_MODE), &mut committed, &mut Vec::new()).is_err_and(
+            |failure| failure
+                .summary
+                .contains("what is checked out changed, from `abc123 refs/heads/main` to `def456 refs/heads/main`")
+        ),
+        "a commit made in the same checkout while the check runs fails it"
     );
     let mut rewritten = passing();
     rewritten.rewrite = Some((

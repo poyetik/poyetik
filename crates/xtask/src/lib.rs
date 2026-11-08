@@ -968,14 +968,18 @@ pub fn check_steps(mode: Mode) -> Vec<Step> {
     .concat()
 }
 
-/// What the working tree holds that is not committed: the files git reports as changed or
-/// untracked (ignored files apart), and the changes of the tracked ones.
+/// What the working tree holds that is not committed (the files git reports as changed or
+/// untracked, ignored files apart, and the changes of the tracked ones), and what is
+/// checked out.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TreeState {
     /// `git status --porcelain --untracked-files=all`.
     pub status: String,
     /// `git diff HEAD`: the content of the changes.
     pub diff: String,
+    /// `git rev-parse HEAD --symbolic-full-name HEAD`: the commit checked out, then its
+    /// branch (`HEAD` when detached).
+    pub head: String,
 }
 
 /// Checks that the checks left the working tree as they found it.
@@ -983,11 +987,14 @@ pub struct TreeState {
 /// A tree may be dirty (a local check of uncommitted work), but the checks must not change
 /// it: a command that rewrites a tracked file (a stale `Cargo.lock` an unlocked `cargo`
 /// would update, a generated file) or leaves a file git does not ignore makes CI differ from
-/// what was checked.
+/// what was checked. Nor may what is checked out change (a commit made or a branch checked
+/// out in the same checkout while the checks run): the steps after it would read another
+/// commit than the one recorded, which a push would then send as checked.
 ///
 /// # Errors
 ///
-/// Returns every file whose state changed, or that the tree was not recorded.
+/// Returns every file whose state changed, a change of what is checked out, or that the
+/// tree was not recorded.
 pub fn tree_gate(before: Option<&TreeState>, after: &TreeState) -> Result<(), Failure> {
     let Some(before) = before else {
         return Err(Failure::from(
@@ -1007,6 +1014,14 @@ pub fn tree_gate(before: Option<&TreeState>, after: &TreeState) -> Result<(), Fa
     if problems.is_empty() && before.diff != after.diff {
         problems.push("the uncommitted changes of a tracked file changed".to_owned());
     }
+    if before.head != after.head {
+        let words = |head: &str| head.split_whitespace().collect::<Vec<_>>().join(" ");
+        problems.push(format!(
+            "what is checked out changed, from `{}` to `{}`: the checks read another commit than the one recorded",
+            words(&before.head),
+            words(&after.head)
+        ));
+    }
     verdict("the checks changed the working tree", problems)
 }
 
@@ -1019,6 +1034,11 @@ fn tree_state(runner: &mut dyn Runner) -> Result<TreeState, Failure> {
             "read the work tree",
         )?,
         diff: git_output(runner, &["diff", "HEAD"], "read the work tree")?,
+        head: git_output(
+            runner,
+            &["rev-parse", "HEAD", "--symbolic-full-name", "HEAD"],
+            "read the work tree",
+        )?,
     })
 }
 
