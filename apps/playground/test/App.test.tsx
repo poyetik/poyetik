@@ -107,12 +107,22 @@ test.each([
   expect(player.calls).toStrictEqual(call === undefined ? [] : [call]);
 });
 
-test("keeps the button focused through every transition", () => {
+test("keeps the button focused through every transition, into every state", () => {
+  // A record: a new kind of state left out of this test does not compile.
+  const every: Readonly<Record<PlayerState["kind"], PlayerState>> = {
+    starting: { kind: "starting" },
+    playing: { kind: "playing" },
+    suspended: { kind: "suspended", refused: false },
+    stopping: { kind: "stopping" },
+    stopped: { kind: "stopped" },
+    failed: { kind: "failed", cause: "engine", detail: "Error: trapped" },
+    unsupported: { kind: "unsupported", lacking: "webassembly" },
+  };
   const player = new FakePlayer();
   render(<App player={player} />);
   button().focus();
-  for (const kind of ["starting", "playing", "stopping", "stopped"] as const) {
-    player.become({ kind });
+  for (const state of Object.values(every)) {
+    player.become(state);
     expect(document.activeElement).toBe(button());
   }
 });
