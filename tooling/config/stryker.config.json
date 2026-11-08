@@ -6,6 +6,7 @@
   },
   "mutate": [
     "eslint.ts",
+    "one-line.ts",
     "playwright.ts"
   ],
   "reporters": [

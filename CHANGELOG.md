@@ -173,6 +173,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Mutation testing copies only versioned files (`--gitignore=true`).
 - The counting allocator counts every heap operation, a release included (`dealloc` counted nothing): a box or plan that frees memory while processing, which the system allocator may do under a lock, now breaks the box laws and the plan laws, as an allocation does, and a fixture box that frees memory on its first call proves both refuse it. `allocations_during` becomes `heap_operations_during`, which refuses to report a count (`NotCounting`) when the counting allocator is not installed, instead of a vacuous zero.
 - `engine-cli` names stdout when it cannot write there (`error: cannot write to stdout: <reason>`), like the oracle, instead of printing the bare reason.
+- `@poyetik/config/one-line`: `oneLine(text)`, the TypeScript twin of `engine_patch::safe_message` (the same escaped characters, the same `\u{..}` form, the same 1,000-character bound), for the TypeScript command-line tools; both are tested on the shared vectors of `spec/safe-message-vectors.json`.
 
 ### Security
 

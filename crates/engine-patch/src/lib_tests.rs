@@ -390,3 +390,41 @@ fn bounds_the_length_of_a_message() {
     );
     assert_eq!(MAX_MESSAGE_CHARS, 1_000, "the documented limit");
 }
+
+/// The text a list of `[text, times]` pieces of the shared vector file stands for.
+fn pieces(value: &serde_json::Value) -> String {
+    value
+        .as_array()
+        .expect("a list of pieces")
+        .iter()
+        .map(|piece| {
+            let text = piece[0].as_str().expect("the text of a piece");
+            let times = piece[1].as_u64().expect("the count of a piece");
+            text.repeat(usize::try_from(times).expect("a count"))
+        })
+        .collect()
+}
+
+#[test]
+fn reproduces_the_shared_vectors_of_the_typescript_implementation() {
+    // The same file is read by the tests of `oneLine` (`@poyetik/config`), which every
+    // TypeScript command-line tool prints its untrusted text through.
+    let json: serde_json::Value =
+        serde_json::from_str(include_str!("../../../spec/safe-message-vectors.json"))
+            .expect("valid JSON");
+    assert_eq!(
+        json["max_chars"].as_u64(),
+        u64::try_from(MAX_MESSAGE_CHARS).ok(),
+        "the same limit"
+    );
+    let vectors = json["vectors"].as_array().expect("a list of vectors");
+    assert_eq!(vectors.len(), 9, "every vector is read");
+    for vector in vectors {
+        assert_eq!(
+            safe_message(&pieces(&vector["input"])),
+            pieces(&vector["output"]),
+            "{}",
+            vector["name"]
+        );
+    }
+}

@@ -13,6 +13,7 @@
   "exports": {
     "./tsconfig.base.json": "./tsconfig.base.json",
     "./eslint": "./eslint.ts",
+    "./one-line": "./one-line.ts",
     "./playwright": "./playwright.ts"
   },
   "engines": {
