@@ -1,7 +1,7 @@
 {
   "version": 1,
   "title": "Poyetik",
-  "nextId": 24,
+  "nextId": 25,
   "cards": [
     {
       "id": 1,
@@ -389,6 +389,10 @@
         {
           "title": "Lint the TypeScript of .astro files with the shared policy (eslint-plugin-astro, once typed linting of their frontmatter is verified), then remove them from the reviewed unlinted list of @poyetik/config's test/linted.test.ts",
           "done": false
+        },
+        {
+          "title": "Find or build a mutator for .astro templates, run it from the check, and hold the roadmap templates to no surviving mutant",
+          "done": false
         }
       ]
     },
@@ -583,6 +587,213 @@
         },
         {
           "title": "Test the headers the host really serves, in a check that fails when one is missing or different",
+          "done": false
+        }
+      ]
+    },
+    {
+      "id": 24,
+      "title": "Hardening from the third review",
+      "description": "The third review found small defects across the engine, the bindings, the tools, the tests, the pages and the documentation that no current card covers. Each step names a defect and its fix; take them by area, next to related work when a card already touches the same files.",
+      "column": "later",
+      "milestone": "M0 Foundations",
+      "createdAt": "2026-11-08",
+      "updatedAt": "2026-11-08",
+      "tasks": [
+        {
+          "title": "Patch reading: the format version is checked after the whole document parses, so a version-2 patch is reported as an unknown field; read format first. engine-cli and the oracle skip non-.json entries of cases/ and patches/ silently; refuse them",
+          "done": false
+        },
+        {
+          "title": "Non-finite samples: cable and output sums keep NaN bits that depend on the target; canonicalize NaN or refuse non-finite output, with a NaN-emitting test box, and reword the render-hash and patch-format specs to match",
+          "done": false
+        },
+        {
+          "title": "Patch format spec: say how output boxes form the channels and in which order several are summed onto one channel, and that parameter ranges apply to the binary32 value; add a case with three output boxes and two range tests",
+          "done": false
+        },
+        {
+          "title": "Render hash: the three implementations accept different domains (rates, half frames) and Rendered has public fields; align the domains, add invalid vectors, make the fields private",
+          "done": false
+        },
+        {
+          "title": "Public types before the SDKs: port indices and case frames are pointer-wide (use u16 and u32), REGISTRY's type holds the box count (use a slice), wav_file pairs a header with any samples, and test-only items are pub (make them pub(crate))",
+          "done": false
+        },
+        {
+          "title": "osc~: the 440 Hz default is retyped as a fallback instead of derived from its parameter table; the phase wrap is never tested at an increment just below 1 or at whole cycles per sample; keep one render helper and one crossing counter; compute the 750 blocks of the comment, drop the redundant test, assert the zero-output call",
+          "done": false
+        },
+        {
+          "title": "osc~ wording: \"identical on every target\" lacks the flush-to-zero caveat, \"at any frequency\" should be \"at any accepted frequency\", and the derivations misstate the subnormal threshold, the rounding sequence and 0.999; reword the oracle and the box alike",
+          "done": false
+        },
+        {
+          "title": "Frame limits: the 2^29-frame domain does not hold end to end (the WAV header refuses stereo above 536,870,905 frames, even without --wav; the oracle cannot read 2 GiB files); state and enforce a frames times channels limit with boundary cases; render --wav and export also hold the samples twice, up to 8 GiB: stream the WAV, or document the peak",
+          "done": false
+        },
+        {
+          "title": "references.json: a duplicate key is accepted (the last wins) and hash shapes are not validated; refuse both. Reference hashes change \"only through cargo xtask bless\" is prose: require a reason in commits that touch the file, and drop \"only\"",
+          "done": false
+        },
+        {
+          "title": "engine_input trusts its caller for the patch size, so memory grows to any length; return null above the patch-size limit",
+          "done": false
+        },
+        {
+          "title": "safe_message escapes neither the backslash nor invisible format characters, and allocates a String per character; escape them and write in place",
+          "done": false
+        },
+        {
+          "title": "Wasm block copies: whole blocks are copied in host byte order and partial ones little-endian through a JS number, which canonicalizes NaN; assert little-endian at create and copy bits through a Uint32Array",
+          "done": false
+        },
+        {
+          "title": "Browser capture: the live subset is a hard-coded list and browser audio threads may flush subnormals; derive the subset from a case field, run the subnormal case live, and state that graph mixing may turn -0 into +0 at the capture point (or capture at the processor output)",
+          "done": false
+        },
+        {
+          "title": "Building the wasm views once at construction instead of on every block (an interface version bump), done with DSP foundations step 1; bless the two aliased 8 kHz sine cases at the same time, since the Nyquist policy moves them",
+          "done": false
+        },
+        {
+          "title": "Wasm errors: out of memory blames the module, a stack-overflow RangeError passes as a rate error, onprocessorerror drops the ErrorEvent detail, the worklet prints the cause twice, and #next repeats guarded's trap conversion; map each error precisely and reuse guarded",
+          "done": false
+        },
+        {
+          "title": "Tap messages: missing or short tap channels are filled with silence and tap does not validate its channel count; refuse them as malformed with capture's check. The public MarkedEngineNode.create contradicts its doc: make the doc true or the method private",
+          "done": false
+        },
+        {
+          "title": "Wasm scripts: they print stack traces and throw inside an error listener; wrap errors in BuildError and reuse guardStreams. The test server's decisions sit in an entry point no test runs, read errors become a silent 404, EADDRINUSE crashes with a stack, it listens on localhost while the README says 127.0.0.1, and HOME=/ breaks the path-leak scan; move it into a tested serveMain and fix each",
+          "done": false
+        },
+        {
+          "title": "Allocation tests: the garbage-collection count has no calibrated positive control and fewer quanta run at large sizes; use equal quanta, a small semi-space and a control that allocates one object per quantum",
+          "done": false
+        },
+        {
+          "title": "Oracle sine budget: the a times 2^-48 evaluation budget has no derivation and is 93% used, and no test starts at a non-zero phase; write the budget and its preconditions, and test a phase near 2 pi",
+          "done": false
+        },
+        {
+          "title": "Roadmap board file: it is written in place (write a temporary file, then rename); parseBoard trims texts so validate passes a board the next command rewrites (refuse untrimmed text, compare with the serialization); keys are compared joined (compare as sets); step numbers and positions are unbounded and 007 is accepted; year 0000 and createdAt after updatedAt pass; the page imports board.json through the JSON plugin (parse it with JSON.parse)",
+          "done": false
+        },
+        {
+          "title": "Roadmap CLI: positions count from 0 and steps from 1 (make both 1-based); HELP is typed apart from its tables and the move usage omits --position (build it from the tables); editCard re-implements updateCard; emptyBoard is a test-only export",
+          "done": false
+        },
+        {
+          "title": "Test ports: freePort accepts any value of its variable and its tests depend on the host network; accept only an integer in 1-65535 and inject the listener",
+          "done": false
+        },
+        {
+          "title": "Skipped tests: the focus/skip selector misses deep chains, it[\"skip\"], the {skip: true} option, .fails and test.fail; widen it with fixtures, and read the Vitest and Playwright reports against an allowlist of statuses so a skipped or expected-failure test fails the check",
+          "done": false
+        },
+        {
+          "title": "Test rules without a tool: ban vi.waitFor in unit tests, and add a lint rule that refuses an action button whose onClick does not ignore the repeated clicks of a double-click, each with a fixture",
+          "done": false
+        },
+        {
+          "title": "Commit messages: the commit-msg hook validates a different text from the one git records (the -v scissors, # lines with -m, trailing whitespace), [skip ci] and its variants are not refused, and the BREAKING-CHANGE footer is ignored; apply git's cleanup first and handle each",
+          "done": false
+        },
+        {
+          "title": "Pre-push: run the check in a detached worktree of the pushed commit instead of the working tree, and test an annotated release tag pushed through the real hook",
+          "done": false
+        },
+        {
+          "title": "Check runner: a closed stdout (piped to head) changes the exit code, waits on children have no bound and no progress output, and the tree gate does not name the file whose changes changed; route stdout, print the elapsed time, list each file",
+          "done": false
+        },
+        {
+          "title": "Workflow gate: raw lines are tested against a deny-list, so quoted keys, \"if :\", a misplaced if: failure(), shell: and defaults:, toolchain or flag variables in env, secrets[...] and job-level permissions all pass; compare the whole file with a generated text or a strict grammar, one fixture per probe",
+          "done": false
+        },
+        {
+          "title": "Supply chain: the gate trims indentation and ignores exclusions (release-age and cooldown excludes, the Dependabot split, .npmrc, deny.toml ignores); the dependency gate exempts any path dependency and ignores [patch] and npm: overrides; the legacy extensionless .cargo/config is not refused; refuse each",
+          "done": false
+        },
+        {
+          "title": "Pinned versions: pnpm is not checked against packageManager, @types/node is not tied to the Node floor, the target list is typed twice, and the README retypes the pinned tool versions; tie each to its source with a test. Decide and record the remaining hardening options (build-script bans, strict dependency builds, trust policy, repository rules, Dependabot for the pins)",
+          "done": false
+        },
+        {
+          "title": "Setup: the hooks are silently not installed with ignore-scripts (drop \"|| true\", add a preflight item for core.hooksPath), and the preflight refuses only Windows (allow macOS and Linux); mention the Linux system dependencies of the browsers (--with-deps)",
+          "done": false
+        },
+        {
+          "title": "Check speed, measured first: a clean before each of the 12 coverage measurements rebuilds the workspace 12 times (one target directory per crate), cargo mutants runs with --jobs 1 (measure 2 and 3), engine.wasm ships a 35.8 KB name section (strip it), and the hash is updated once per sample (chunk it)",
+          "done": false
+        },
+        {
+          "title": "Gate parsers: compare_reviews splits at the first \" -- \", mutant_key does not parse line and column, an empty Stryker mutator name is accepted, changelog dates are checked for shape only, the README gate matches a prefix, crate_root misses tests/<dir>/main.rs, benches, examples and src/bin, and coverage_locality matches a summary wording; fix each with a test",
+          "done": false
+        },
+        {
+          "title": "Hermetic tests: the hooks test has a hard-coded PATH and no GIT_CONFIG_GLOBAL, the list of local git variables misses one of git rev-parse --local-env-vars, and tests use predictable shared temporary paths with no cleanup on failure; one hermetic helper asserted against git's list, and CARGO_TARGET_TMPDIR with a drop guard",
+          "done": false
+        },
+        {
+          "title": "Vocabulary gate: it skips .json, .astro, .txt and .toml, where British spellings and the old word for boxes have slipped in; \"connection\" is used for \"cable\"; digits are grouped three ways; nothing enforces the bans on other software names and the old project name; extend the gate and fix the occurrences",
+          "done": false
+        },
+        {
+          "title": "GLOSSARY gate: resolve every backticked Type::member name in GLOSSARY.md against the code, so a removed method fails the check",
+          "done": false
+        },
+        {
+          "title": "TypeScript @throws: the rule that @throws names the errors has no tool and many parsers have no tag; enable jsdoc/require-throws with a fixture. \"Each lint rule is proven\" covers only the policy's own rules: narrow the claim or snapshot the resolved configuration",
+          "done": false
+        },
+        {
+          "title": "Test assertions: error assertions are weak where the exact message is known, some tests take expected values from the module under test, the generator-check thresholds are retyped (512) with another strategy than the laws', the plan test boxes are copied and drifting, the scope has two constants for one interpolation error, and a spy on Promise.prototype.catch tests the implementation; assert exact literals, compute, share",
+          "done": false
+        },
+        {
+          "title": "Shared browser test helpers: the CSP probe is written three times, the contrast and Tab helpers twice (disagreeing on WebKit Tab, and one reads a translucent color as opaque), and three matrix readers drift; move them to @poyetik/config with a findUp, and add one axe helper that also fails on incomplete results, used by the roadmap and wasm suites",
+          "done": false
+        },
+        {
+          "title": "Playwright projects: the WebKit and mobile WebKit projects use default time zone and locale, so their emulation cannot be seen to work; give each a non-default value. The roadmap config does not set workers like the others, and fixed preview ports remain; share the settings",
+          "done": false
+        },
+        {
+          "title": "Playground failure paths: a failure while playing cuts the sound with no fade; the fade-out starts from a stale gain value read on the main thread; a second refused Resume re-renders nothing; Details shows String(error) without the cause; a failed body download does not name the URL; fix each with a test",
+          "done": false
+        },
+        {
+          "title": "Playground in a real browser: the mute query sets the gain to 0 and the fake AudioParam jumps to its target, so cancel, unsupported, refused resume, failures, stopping and the fades are never observed; mute after the gain stage, make the fake ramp, add the e2e tests, and assert the text and computed styles of the sizer and the disabled button",
+          "done": false
+        },
+        {
+          "title": "Playground styles: the unsupported button shows a wait cursor and a hover accent (use not-allowed, no hover on aria-disabled), hover sticks on touch screens (@media (hover: hover)), the Details summary keeps the default focus ring and its keyboard path is untested, the peak has no unit (dBFS) and the frequency dash is unexplained",
+          "done": false
+        },
+        {
+          "title": "Playground single sources: 440 Hz and the theme colors are typed twice, the played patch is a retyped copy of a corpus file compared after parsing (import its bytes), states are compared by identity and by kind, a local window shadows the global, a history of size 0 gives NaN indices, and a throwing scope frame stops silently with no error boundary",
+          "done": false
+        },
+        {
+          "title": "Scope frequency: frequency() is off by up to 0.124 Hz on short inputs inside its domain, and its derivation is wrong; add a derived minimum span (about 4 ms), fix the comment, test the worst case",
+          "done": false
+        },
+        {
+          "title": "Roadmap page order: between 561 and 900 px In progress sits below the backlog, on a phone Later comes before Next, and order: -1 makes the visual order differ from the reading and focus order; one narrow-screen rule keeping the DOM order, e2e at 390 and 700 px comparing visual and Tab order; the aria-labels Progress and Steps are untested, and \"Steps 1/3\" may be read as a fraction or a date: assert the names and say \"1 of 3\"",
+          "done": false
+        },
+        {
+          "title": "Documentation claims: numbers retyped in comments and specs with no test (name or compute them), the bypass register \"holds only\" entries but holds a test helper, README commands no check runs (a smoke run or a narrower rule), the README spec row omits the render hash, the crates README undersells engine-testkit, and the GLOSSARY rows of render hash and conformance case are incomplete",
+          "done": false
+        },
+        {
+          "title": "Consistent naming: case names (sine-<hz>-at-<rate> through bless), keys of one concept across formats (with the patch format card), EngineTrap without the Error suffix and name set two ways (with the SDK card), the project name's capitalization, the quoting of names in messages, module header comments, and the two checkers' verdict words with a missing-reference hint naming cargo xtask bless",
+          "done": false
+        },
+        {
+          "title": "Conformance spec: a spec/ page for the formats of the conformance files (cases, expectations, references), which the four readers then follow",
           "done": false
         }
       ]
