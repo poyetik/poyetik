@@ -22,7 +22,7 @@ export default defineConfig({
   retries: 0,
   reporter: "list",
   use: { baseURL: URL },
-  webServer: { command: `pnpm build && astro preview --port ${String(PORT)} --ignore-lock`, url: URL, reuseExistingServer: false },
+  webServer: { command: `pnpm build && ASTRO_TELEMETRY_DISABLED=1 astro preview --port ${String(PORT)} --ignore-lock`, url: URL, reuseExistingServer: false },
   projects: [
     { name: "chromium", use: { ...devices["Desktop Chrome"], ...environment(0) } },
     { name: "firefox", use: { ...devices["Desktop Firefox"], ...environment(1) } },
