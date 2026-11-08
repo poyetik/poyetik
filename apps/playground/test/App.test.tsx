@@ -94,6 +94,26 @@ test("warns before the button that it plays a continuous tone", () => {
   expect(warning.compareDocumentPosition(button()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 });
 
+/**
+ * Clicks the button and returns what its handler threw: React reports it on the window,
+ * where it is caught here, so that a handler calling an action that is not there fails
+ * this test instead of crashing the test runner.
+ */
+function click(): unknown[] {
+  const thrown: unknown[] = [];
+  const listener = (event: ErrorEvent): void => {
+    thrown.push(event.error);
+    event.preventDefault();
+  };
+  window.addEventListener("error", listener);
+  try {
+    fireEvent.click(button());
+  } finally {
+    window.removeEventListener("error", listener);
+  }
+  return thrown;
+}
+
 test.each([
   [{ kind: "stopped" }, "Stopped", "Start", "false", "start", null],
   [{ kind: "starting" }, "Starting…", "Cancel", "false", "stop", null],
@@ -113,7 +133,7 @@ test.each([
   expect(button().getAttribute("aria-disabled")).toBe(disabled);
   expect(button().dataset["action"]).toBe(said.toLowerCase());
   expect(screen.queryByRole("alert")?.textContent ?? null).toBe(alert);
-  fireEvent.click(button());
+  expect(click()).toStrictEqual([]);
   expect(player.calls).toStrictEqual(call === undefined ? [] : [call]);
 });
 
@@ -163,7 +183,7 @@ test("explains on load what the browser lacks, with no way to start", () => {
   expect(screen.getByRole("alert").textContent).toBe(explain("secure-context"));
   expect(button().getAttribute("aria-disabled")).toBe("true");
   expect(screen.queryByRole("group")).toBeNull();
-  fireEvent.click(button());
+  expect(click()).toStrictEqual([]);
   expect(player.calls).toStrictEqual([]);
 });
 
