@@ -360,29 +360,6 @@
       "tasks": []
     },
     {
-      "id": 8,
-      "title": "Choose the final project name",
-      "description": "The working name is replaced by Poyetik before the first publication, everywhere: code, packages, roadmap, documentation, CI and history.",
-      "column": "doing",
-      "milestone": "M0 Foundations",
-      "createdAt": "2026-11-07",
-      "updatedAt": "2026-11-08",
-      "tasks": [
-        {
-          "title": "Find a name: short, easy to say in English and French, available (domain, GitHub, crates.io, npm) and free of trademark conflicts",
-          "done": false
-        },
-        {
-          "title": "Rename everywhere: crates, packages, roadmap, docs, CI, and the history",
-          "done": true
-        },
-        {
-          "title": "Check that no trace of the working name remains before the first publication",
-          "done": true
-        }
-      ]
-    },
-    {
       "id": 16,
       "title": "Music notation foundations: a first engraved score in a responsive box",
       "description": "Lay the foundations of music notation like the DSP foundations do for audio: design decisions first, then the smallest complete vertical slice, a proof of concept of the whole chain. The first case is the D Dorian scale in quarter notes on one treble-clef staff, engraved by a Rust library and shown in a fully responsive box of the web page. The library depends on no platform: layout produces a display list (positioned glyphs and lines) that is identical on every target, and thin renderers draw it. Quality is proven like the audio engine: laws, a conformance case, an independent oracle. Note events keep their symbolic information, decided with the engine design (#12).",
@@ -422,6 +399,29 @@
         {
           "title": "Deep review: every finding analyzed and applied, then a fresh review",
           "done": false
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Choose the final project name",
+      "description": "The working name is replaced by Poyetik before the first publication, everywhere: code, packages, roadmap, documentation, CI and history.",
+      "column": "done",
+      "milestone": "M0 Foundations",
+      "createdAt": "2026-11-07",
+      "updatedAt": "2026-11-08",
+      "tasks": [
+        {
+          "title": "Choose the name: Poyetik (domain, GitHub, crates.io and npm available; a preliminary trademark search found no conflicting mark)",
+          "done": true
+        },
+        {
+          "title": "Rename everywhere: crates, packages, roadmap, docs, CI, and the history",
+          "done": true
+        },
+        {
+          "title": "Check that no trace of the working name remains before the first publication",
+          "done": true
         }
       ]
     }
