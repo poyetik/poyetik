@@ -2886,3 +2886,17 @@ fn requires_every_package_to_support_the_node_floor() {
         "no engines"
     );
 }
+
+#[test]
+fn allows_tooling_every_license_allowed_for_what_ships() {
+    for license in super::SHIPPED_LICENSES {
+        assert_eq!(
+            license_gate(
+                &format!(r#"{{"{license}":[{{"name":"react"}}]}}"#),
+                &format!(r#"{{"{license}":[{{"name":"react"}}]}}"#)
+            ),
+            Ok(()),
+            "{license}: a shipped package is in the full report too"
+        );
+    }
+}

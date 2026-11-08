@@ -827,15 +827,10 @@ pub const SHIPPED_LICENSES: [&str; 6] = [
     "0BSD",
 ];
 
-/// Licenses allowed for development tooling only (never shipped): the shipped ones, plus
-/// those of data and tools used at build and test time.
-pub const TOOLING_LICENSES: [&str; 11] = [
-    "MIT",
-    "Apache-2.0",
-    "BSD-2-Clause",
-    "BSD-3-Clause",
-    "ISC",
-    "0BSD",
+/// Licenses allowed for development tooling only (never shipped), besides the
+/// [`SHIPPED_LICENSES`], which tooling may always use: those of data and tools used at build
+/// and test time.
+pub const TOOLING_EXTRA_LICENSES: [&str; 5] = [
     "BlueOak-1.0.0",
     "MPL-2.0",
     "CC-BY-3.0",
@@ -891,7 +886,7 @@ fn licensed(report: &str, what: &str) -> Result<Vec<(String, String)>, String> {
 }
 
 /// Checks the license reports: every shipped package under [`SHIPPED_LICENSES`], every
-/// other one under [`TOOLING_LICENSES`] or a [`TOOLING_EXCEPTIONS`] entry.
+/// other one under those or [`TOOLING_EXTRA_LICENSES`], or a [`TOOLING_EXCEPTIONS`] entry.
 ///
 /// # Errors
 ///
@@ -906,7 +901,8 @@ pub fn license_gate(shipped: &str, all: &str) -> Result<(), Failure> {
         licensed(all, "tooling")?
             .into_iter()
             .filter(|(name, license)| {
-                !TOOLING_LICENSES.contains(&license.as_str())
+                !SHIPPED_LICENSES.contains(&license.as_str())
+                    && !TOOLING_EXTRA_LICENSES.contains(&license.as_str())
                     && !TOOLING_EXCEPTIONS
                         .iter()
                         .any(|(prefix, allowed, _)| name.starts_with(prefix) && license == allowed)
