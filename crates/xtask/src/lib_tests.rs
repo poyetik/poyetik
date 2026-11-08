@@ -151,6 +151,8 @@ struct Fake {
     /// A command that, when it runs, rewrites a file: (command, file, new text).
     rewrite: Option<(String, String, String)>,
     files: BTreeMap<String, String>,
+    /// What [`Runner::environment`] answers.
+    environment: super::Environment,
 }
 
 impl Runner for Fake {
@@ -204,6 +206,10 @@ impl Runner for Fake {
     /// A machine of [`FAKE_PARALLELISM`] threads.
     fn parallelism(&mut self) -> NonZeroUsize {
         FAKE_PARALLELISM
+    }
+
+    fn environment(&mut self) -> super::Environment {
+        self.environment.clone()
     }
 
     fn fresh_dir(&mut self, path: &str) -> io::Result<()> {
@@ -545,6 +551,13 @@ fn tool_answer(program: &str, subcommand: Option<&str>) -> String {
         _ => "1.0\n".to_owned(),
     }
 }
+
+/// An environment that lets the checks run: no build variable, no Cargo configuration from
+/// outside the repository.
+const CLEAN: super::Environment = super::Environment {
+    variables: Vec::new(),
+    cargo_configs: Vec::new(),
+};
 
 /// A toolchain file pinning the release the fake's `rustc` answers.
 const TOOLCHAIN: &str = "# Pinned.\n[toolchain]\nchannel = \"1.99.1\"\nprofile = \"minimal\"\n";
@@ -1353,6 +1366,9 @@ impl Runner for Unreadable {
     }
     fn parallelism(&mut self) -> NonZeroUsize {
         self.0.parallelism()
+    }
+    fn environment(&mut self) -> super::Environment {
+        self.0.environment()
     }
 }
 
@@ -3862,7 +3878,13 @@ fn checks_the_tools_and_the_platform_first() {
             .collect()
     };
     assert_eq!(
-        preflight_gate("macos", &present("v22.23.4\n"), "22.23.4\n", TOOLCHAIN),
+        preflight_gate(
+            "macos",
+            &present("v22.23.4\n"),
+            "22.23.4\n",
+            TOOLCHAIN,
+            &CLEAN
+        ),
         Ok(()),
         "the release of .node-version"
     );
@@ -3874,7 +3896,7 @@ fn checks_the_tools_and_the_platform_first() {
         ("v22.23.4", "22.23"),
     ] {
         assert_eq!(
-            preflight_gate("linux", &present(node), pinned, TOOLCHAIN),
+            preflight_gate("linux", &present(node), pinned, TOOLCHAIN, &CLEAN),
             found(
                 "the checks cannot run here",
                 &[format!(
@@ -3894,7 +3916,7 @@ fn checks_the_tools_and_the_platform_first() {
         },
     });
     assert_eq!(
-        preflight_gate("windows", &missing, "22.23.4", TOOLCHAIN),
+        preflight_gate("windows", &missing, "22.23.4", TOOLCHAIN, &CLEAN),
         found("the checks cannot run here", &[
             "the checks run on macOS and Linux: on Windows, run them in WSL2".to_owned(),
             "`cargo mutants --version` exited with code 101: error: no such command: `mutants`; to install: cargo install --locked cargo-mutants@27.1.0".to_owned(),
@@ -3927,7 +3949,8 @@ fn requires_the_rust_release_of_the_toolchain_file() {
             "linux",
             &answers("rustc 1.99.1 (58cf8f9c3 2026-10-13)\n"),
             "22.23.4",
-            TOOLCHAIN
+            TOOLCHAIN,
+            &CLEAN
         ),
         Ok(()),
         "the channel of rust-toolchain.toml"
@@ -3946,7 +3969,7 @@ fn requires_the_rust_release_of_the_toolchain_file() {
     ] {
         let channel = super::toolchain_channel(toolchain).unwrap_or_default();
         assert_eq!(
-            preflight_gate("linux", &answers(rustc), "22.23.4", toolchain),
+            preflight_gate("linux", &answers(rustc), "22.23.4", toolchain, &CLEAN),
             found(
                 "the checks cannot run here",
                 &[format!(
@@ -3968,7 +3991,8 @@ fn requires_the_rust_release_of_the_toolchain_file() {
                 "linux",
                 &answers("rustc 1.99.1 (58cf8f9c3 2026-10-13)"),
                 "22.23.4",
-                toolchain
+                toolchain,
+                &CLEAN
             ),
             found(
                 "the checks cannot run here",
@@ -3999,6 +4023,180 @@ fn requires_the_rust_release_of_the_toolchain_file() {
             .get_envs()
             .any(|(name, value)| name == "RUSTUP_TOOLCHAIN" && value.is_none()),
         "no command inherits the toolchain rustup chose for xtask itself"
+    );
+}
+
+#[test]
+fn refuses_what_changes_cargo_from_outside_the_repository() {
+    let answers: Vec<Result<String, CommandFailure>> = super::TOOLS
+        .iter()
+        .map(|tool| Ok(tool_answer(tool.program, tool.args.first().copied())))
+        .collect();
+    let refused = [
+        "RUSTFLAGS",
+        "RUSTDOCFLAGS",
+        "CARGO_ENCODED_RUSTFLAGS",
+        "CARGO_ENCODED_RUSTDOCFLAGS",
+        "CARGO_BUILD_TARGET",
+        "CARGO_BUILD_RUSTFLAGS",
+        "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS",
+        "CARGO_PROFILE_RELEASE_OPT_LEVEL",
+        "CARGO_UNSTABLE_BUILD_STD",
+        "RUSTC",
+        "RUSTC_WRAPPER",
+        "RUSTC_WORKSPACE_WRAPPER",
+        "RUSTDOC",
+        "CLIPPY_CONF_DIR",
+    ];
+    let accepted = [
+        "CARGO_TARGET_DIR",
+        "CARGO_HOME",
+        "CARGO_MANIFEST_DIR",
+        "RUSTUP_TOOLCHAIN",
+        "RUSTUP_HOME",
+        "RUSTC_BOOTSTRAP_X",
+        "XRUSTFLAGS",
+        "rustflags",
+        "CARGO_TARGET",
+        "PATH",
+    ];
+    for name in refused {
+        assert!(super::refused_variable(name), "{name}");
+    }
+    for name in accepted {
+        assert!(!super::refused_variable(name), "{name}");
+    }
+    let hostile = super::Environment {
+        variables: refused
+            .iter()
+            .chain(&accepted)
+            .map(|name| (*name).to_owned())
+            .collect(),
+        cargo_configs: vec!["/home/x/.cargo/config.toml".to_owned()],
+    };
+    let mut problems: Vec<String> = refused
+        .iter()
+        .map(|name| {
+            format!("{name} is set, which changes what cargo builds or how it lints: unset it")
+        })
+        .collect();
+    problems.push(
+        "/home/x/.cargo/config.toml configures every cargo command here: move it away (the \
+         configuration of the repository is .cargo/config.toml)"
+            .to_owned(),
+    );
+    assert_eq!(
+        preflight_gate("linux", &answers, "22.23.4", TOOLCHAIN, &hostile),
+        found("the checks cannot run here", &problems),
+        "each by name"
+    );
+    let mut fake = passing();
+    fake.environment.variables = vec!["RUSTFLAGS".to_owned()];
+    assert_eq!(
+        run_steps(&check_steps(CHANGES_MODE), &mut fake, &mut Vec::new()),
+        failed(
+            "Tools and platform: the checks cannot run here: RUSTFLAGS is set, which changes \
+             what cargo builds or how it lints: unset it"
+        ),
+        "the check reads the environment of its runner"
+    );
+}
+
+#[test]
+fn lists_the_cargo_configurations_outside_the_repository() {
+    let root = Path::new("/a/b/repo");
+    let configs = |cargo_home: Option<&str>, home: Option<&str>| -> Vec<String> {
+        super::cargo_config_candidates(
+            root,
+            cargo_home.map(OsString::from),
+            home.map(OsString::from),
+        )
+        .iter()
+        .map(|path| path.display().to_string())
+        .collect()
+    };
+    let ancestors = [
+        "/.cargo/config",
+        "/.cargo/config.toml",
+        "/a/.cargo/config",
+        "/a/.cargo/config.toml",
+        "/a/b/.cargo/config",
+        "/a/b/.cargo/config.toml",
+        "/a/b/repo/.cargo/config",
+    ];
+    let with = |home: &[&str]| -> Vec<String> {
+        let mut all: Vec<String> = home
+            .iter()
+            .chain(&ancestors)
+            .map(|path| (*path).to_owned())
+            .collect();
+        all.sort();
+        all
+    };
+    assert_eq!(
+        configs(Some("/c"), Some("/h")),
+        with(&["/c/config", "/c/config.toml"]),
+        "CARGO_HOME, and every directory from the root up, the repository's own file apart"
+    );
+    assert_eq!(
+        configs(None, Some("/h")),
+        with(&["/h/.cargo/config", "/h/.cargo/config.toml"]),
+        "else the .cargo of the home directory"
+    );
+    assert_eq!(configs(None, None), with(&[]), "no home at all");
+    assert_eq!(
+        configs(Some("/a/.cargo"), None),
+        with(&[]),
+        "each file once"
+    );
+
+    let dir = scratch("cargo-configs");
+    let repo = dir.join("repo");
+    std::fs::create_dir_all(repo.join(".cargo")).expect("repository");
+    std::fs::create_dir_all(dir.join(".cargo")).expect("above");
+    for path in [
+        dir.join(".cargo/config.toml"),
+        repo.join(".cargo/config"),
+        repo.join(".cargo/config.toml"),
+    ] {
+        std::fs::write(path, "").expect("configuration");
+    }
+    std::fs::create_dir_all(repo.join("x")).expect("a folder to walk out of");
+    let environment = SystemRunner {
+        root: repo.join("x/.."),
+    }
+    .environment();
+    let missing = SystemRunner {
+        root: dir.join("missing"),
+    }
+    .environment();
+    let canonical = std::fs::canonicalize(&dir).expect("canonical");
+    std::fs::remove_dir_all(&dir).expect("cleanup");
+    let listed = |path: &str| {
+        environment
+            .cargo_configs
+            .contains(&canonical.join(path).display().to_string())
+    };
+    assert!(listed(".cargo/config.toml"), "above: {environment:?}");
+    assert!(
+        listed("repo/.cargo/config"),
+        "the other name: {environment:?}"
+    );
+    assert!(
+        !listed("repo/.cargo/config.toml"),
+        "its own: {environment:?}"
+    );
+    assert!(
+        environment
+            .variables
+            .contains(&"CARGO_MANIFEST_DIR".to_owned()),
+        "the names of the variables: {environment:?}"
+    );
+    assert!(
+        missing
+            .cargo_configs
+            .contains(&dir.join(".cargo/config.toml").display().to_string()),
+        "a root that cannot be resolved is walked up as it is: {missing:?}"
     );
 }
 
@@ -4394,7 +4592,7 @@ fn refuses_cargo_tools_at_other_versions() {
         .map(|tool| Ok(tool_answer(tool.program, tool.args.first().copied())))
         .collect();
     assert_eq!(
-        preflight_gate("linux", &answers, "22.23.4", TOOLCHAIN),
+        preflight_gate("linux", &answers, "22.23.4", TOOLCHAIN, &CLEAN),
         Ok(()),
         "the pinned versions"
     );
@@ -4402,7 +4600,7 @@ fn refuses_cargo_tools_at_other_versions() {
     older[5] = Ok("cargo-mutants 26.0.0\n".to_owned());
     older[6] = Ok("cargo-deny".to_owned());
     assert_eq!(
-        preflight_gate("linux", &older, "22.23.4", TOOLCHAIN),
+        preflight_gate("linux", &older, "22.23.4", TOOLCHAIN, &CLEAN),
         found("the checks cannot run here", &[
             "cargo-mutants 26.0.0 is installed, the checks need cargo-mutants 27.1.0: \
              cargo install --locked cargo-mutants@27.1.0".to_owned(),
@@ -5028,7 +5226,7 @@ fn reads_node_releases_alike_everywhere() {
             })
             .collect();
         assert_eq!(
-            preflight_gate("linux", &answers, text, TOOLCHAIN).is_ok(),
+            preflight_gate("linux", &answers, text, TOOLCHAIN, &CLEAN).is_ok(),
             super::workflow_gate(&[super::WORKFLOW.to_owned()], PINNED_WORKFLOW, text).is_ok(),
             "{text:?}: the same verdict from the preflight and the workflow gate"
         );

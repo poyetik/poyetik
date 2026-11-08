@@ -2588,6 +2588,80 @@ pub const TOOLS: [Tool; 10] = [
 /// The file pinning the Rust toolchain, which rustup reads.
 pub const RUST_TOOLCHAIN_FILE: &str = "rust-toolchain.toml";
 
+/// The variables that change what cargo builds or how it lints, refused by the preflight.
+///
+/// Set outside the repository, they would make a local check differ from CI (lints lifted,
+/// another target, profile or compiler wrapper, another `clippy.toml`).
+pub const REFUSED_VARIABLES: [&str; 9] = [
+    "RUSTFLAGS",
+    "RUSTDOCFLAGS",
+    "CARGO_ENCODED_RUSTFLAGS",
+    "CARGO_ENCODED_RUSTDOCFLAGS",
+    "RUSTC",
+    "RUSTC_WRAPPER",
+    "RUSTC_WORKSPACE_WRAPPER",
+    "RUSTDOC",
+    "CLIPPY_CONF_DIR",
+];
+
+/// The prefixes of the variables that set Cargo's `build`, `target`, `profile` and
+/// `unstable` configuration, which the preflight refuses (`CARGO_TARGET_DIR` apart, which
+/// only moves the build).
+pub const REFUSED_VARIABLE_PREFIXES: [&str; 4] = [
+    "CARGO_BUILD_",
+    "CARGO_TARGET_",
+    "CARGO_PROFILE_",
+    "CARGO_UNSTABLE_",
+];
+
+/// Whether the variable `name` is one the preflight refuses: one of [`REFUSED_VARIABLES`],
+/// or a name starting with one of [`REFUSED_VARIABLE_PREFIXES`] other than
+/// `CARGO_TARGET_DIR`.
+#[must_use]
+pub fn refused_variable(name: &str) -> bool {
+    REFUSED_VARIABLES.contains(&name)
+        || (name != "CARGO_TARGET_DIR"
+            && REFUSED_VARIABLE_PREFIXES
+                .iter()
+                .any(|prefix| name.starts_with(prefix)))
+}
+
+/// What the environment of the checks holds that could change cargo from outside the
+/// repository.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Environment {
+    /// The names of the environment variables.
+    pub variables: Vec<String>,
+    /// The Cargo configuration files that exist outside the repository's own
+    /// [`CARGO_CONFIG_FILE`] (see [`cargo_config_candidates`]).
+    pub cargo_configs: Vec<String>,
+}
+
+/// Every Cargo configuration file that cargo would read for a command run at `root`, other
+/// than the repository's own [`CARGO_CONFIG_FILE`], sorted.
+///
+/// `config` and `config.toml` in the Cargo home (`cargo_home`, else `.cargo` in `home`),
+/// and in the `.cargo` folder of `root` and of every directory above it.
+#[must_use]
+pub fn cargo_config_candidates(
+    root: &Path,
+    cargo_home: Option<OsString>,
+    home: Option<OsString>,
+) -> Vec<PathBuf> {
+    let cargo_home = cargo_home
+        .map(PathBuf::from)
+        .or_else(|| home.map(|home| PathBuf::from(home).join(".cargo")));
+    let own = root.join(CARGO_CONFIG_FILE);
+    cargo_home
+        .into_iter()
+        .chain(root.ancestors().map(|dir| dir.join(".cargo")))
+        .flat_map(|dir| [dir.join("config"), dir.join("config.toml")])
+        .filter(|path| *path != own)
+        .collect::<BTreeSet<PathBuf>>()
+        .into_iter()
+        .collect()
+}
+
 /// The release a toolchain file pins: its line `channel = "<release>"`.
 #[must_use]
 pub fn toolchain_channel(toolchain: &str) -> Option<&str> {
@@ -2629,19 +2703,22 @@ pub const NODE_FLOOR: (u64, u64) = (22, 18);
 /// green local check means a green CI), and the Rust compiler at exactly the release of
 /// `toolchain` (the text of [`RUST_TOOLCHAIN_FILE`]: an override, a `+toolchain` or
 /// `RUSTUP_TOOLCHAIN` would replace it), on a platform the checks support (macOS or Linux;
-/// Windows through WSL2).
+/// Windows through WSL2), in an `environment` that sets none of the variables of
+/// [`refused_variable`] and has no Cargo configuration outside the repository's own.
 ///
 /// # Errors
 ///
 /// Returns one failure listing every problem found, each with how to fix it: an
 /// unsupported platform, a tool that did not answer (with its own reason), or a tool at a
 /// version the checks do not accept (Node.js included, which must be `node_version`, and
-/// the Rust compiler, which must be the channel of `toolchain`).
+/// the Rust compiler, which must be the channel of `toolchain`), a refused variable, or a
+/// Cargo configuration file outside the repository.
 pub fn preflight_gate(
     os: &str,
     answers: &[Result<String, CommandFailure>],
     node_version: &str,
     toolchain: &str,
+    environment: &Environment,
 ) -> Result<(), Failure> {
     let mut problems = Vec::new();
     if os == "windows" {
@@ -2688,6 +2765,20 @@ pub fn preflight_gate(
             }
         }
     }
+    problems.extend(
+        environment
+            .variables
+            .iter()
+            .filter(|name| refused_variable(name))
+            .map(|name| {
+                format!("{name} is set, which changes what cargo builds or how it lints: unset it")
+            }),
+    );
+    problems.extend(environment.cargo_configs.iter().map(|path| {
+        format!(
+            "{path} configures every cargo command here: move it away (the configuration of the repository is {CARGO_CONFIG_FILE})"
+        )
+    }));
     verdict("the checks cannot run here", problems)
 }
 
@@ -3471,6 +3562,9 @@ pub trait Runner {
 
     /// How many threads the machine can run at once (at least one).
     fn parallelism(&mut self) -> NonZeroUsize;
+
+    /// What the environment holds that could change cargo from outside the repository.
+    fn environment(&mut self) -> Environment;
 }
 
 /// Runs real commands below a repository root.
@@ -3586,6 +3680,27 @@ impl Runner for SystemRunner {
     fn parallelism(&mut self) -> NonZeroUsize {
         std::thread::available_parallelism().unwrap_or(NonZeroUsize::MIN)
     }
+
+    /// The names of xtask's own variables, which every command inherits, and the Cargo
+    /// configuration files that exist above the root, resolved (a root that cannot be
+    /// resolved is walked up as it is).
+    fn environment(&mut self) -> Environment {
+        let root = std::fs::canonicalize(&self.root).unwrap_or_else(|_| self.root.clone());
+        Environment {
+            variables: std::env::vars_os()
+                .map(|(name, _)| name.to_string_lossy().into_owned())
+                .collect(),
+            cargo_configs: cargo_config_candidates(
+                &root,
+                std::env::var_os("CARGO_HOME"),
+                std::env::var_os("HOME"),
+            )
+            .into_iter()
+            .filter(|path| path.is_file())
+            .map(|path| path.display().to_string())
+            .collect(),
+        }
+    }
 }
 
 /// Reads a file through `runner`, naming it when it cannot be read.
@@ -3648,11 +3763,13 @@ fn preflight(runner: &mut dyn Runner) -> Result<(), Failure> {
         .map(|tool| runner.capture(&Cmd::new(tool.program, tool.args, Dir::Root)))
         .collect();
     let node_version = read_file(runner, NODE_VERSION_FILE)?;
+    let toolchain = read_file(runner, RUST_TOOLCHAIN_FILE)?;
     preflight_gate(
         std::env::consts::OS,
         &answers,
         &node_version,
-        &read_file(runner, RUST_TOOLCHAIN_FILE)?,
+        &toolchain,
+        &runner.environment(),
     )
 }
 
