@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { addCard, emptyBoard, parseBoard, serializeBoard } from "../src/lib/board.ts";
+import { TIME_ZONES, offsetOf } from "./matrix.ts";
 
 /** The output streams the entry point guards, which have no `error` listener outside it. */
 const STREAMS = [process.stdout, process.stderr];
@@ -14,6 +15,7 @@ describe("bin", () => {
   let dir: string;
   const argv = process.argv;
   const env = process.env["ROADMAP_FILE"];
+  const zone = process.env.TZ;
 
   beforeEach(() => {
     for (const stream of STREAMS) {
@@ -31,6 +33,11 @@ describe("bin", () => {
       delete process.env["ROADMAP_FILE"];
     } else {
       process.env["ROADMAP_FILE"] = env;
+    }
+    if (zone === undefined) {
+      delete process.env.TZ;
+    } else {
+      process.env.TZ = zone;
     }
     process.exitCode = undefined;
     vi.restoreAllMocks();
@@ -65,20 +72,25 @@ describe("bin", () => {
     };
   }
 
-  it("reads and writes the ROADMAP_FILE file with today's date", async () => {
-    const file = join(dir, "board.json");
-    writeFileSync(file, serializeBoard(emptyBoard("Project")));
-    process.env["ROADMAP_FILE"] = file;
-    // A fixed clock, a date unlike any default: the test cannot depend on the day it runs.
-    vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(new Date(2031, 6, 9, 12));
-    const { stdout } = await runBin(["add", "Engine"]);
-    vi.useRealTimers();
-    expect(stdout).toBe("added: #1  later  Engine\n");
-    expect(process.exitCode).toBe(0);
-    const saved = parseBoard(JSON.parse(readFileSync(file, "utf8")));
-    expect(saved.cards[0]?.createdAt).toBe("2031-07-09");
-  });
+  it.each(TIME_ZONES.flatMap((timeZone) => [[timeZone, 0, 30], [timeZone, 23, 30]] as const))(
+    "reads and writes the ROADMAP_FILE file with today's local date in %s at %i:%i",
+    async (timeZone, hours, minutes) => {
+      const file = join(dir, "board.json");
+      writeFileSync(file, serializeBoard(emptyBoard("Project")));
+      process.env["ROADMAP_FILE"] = file;
+      process.env.TZ = timeZone;
+      // A fixed clock, a date unlike any default, near midnight where a UTC date would be another day.
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(new Date(2031, 6, 9, hours, minutes));
+      const { stdout } = await runBin(["add", "Engine"]);
+      vi.useRealTimers();
+      expect(new Date(2031, 6, 9).getTimezoneOffset()).toBe(offsetOf(timeZone, Date.UTC(2031, 6, 9)));
+      expect(stdout).toBe("added: #1  later  Engine\n");
+      expect(process.exitCode).toBe(0);
+      const saved = parseBoard(JSON.parse(readFileSync(file, "utf8")));
+      expect(saved.cards[0]?.createdAt).toBe("2031-07-09");
+    },
+  );
 
   it("writes errors to stderr with exit code 1", async () => {
     const file = join(dir, "board.json");

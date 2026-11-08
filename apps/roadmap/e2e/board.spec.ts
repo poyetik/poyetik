@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { parseBoard } from "../src/lib/board.ts";
 import { toView } from "../src/lib/view.ts";
 import { CSP } from "../src/lib/csp.ts";
+import { LOCALES, TIME_ZONES } from "../test/matrix.ts";
 
 /** The expected display, computed from the real board.json with the same code as the page, so the tests follow the data instead of hard-coding cards. */
 const view = toView(parseBoard(JSON.parse(readFileSync(new URL("../board.json", import.meta.url), "utf8"))));
@@ -138,4 +139,18 @@ test("shows In progress first on a phone, where the columns stack", async ({ pag
   }
   expect(tops).toStrictEqual([...tops].sort((top, bottom) => top - bottom));
   expect(new Set(tops).size).toBe(4);
+});
+
+test("runs in a time zone and a locale of the test matrix, not the machine's", async ({ page }, testInfo) => {
+  const { timezoneId, locale } = testInfo.project.use;
+  expect(TIME_ZONES).toContain(timezoneId);
+  expect(LOCALES).toContain(locale);
+  await page.goto("./");
+  // The emulation took effect in the page itself.
+  expect(await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone)).toBe(timezoneId);
+  // Compared in their maximal form: WebKit drops a region its language implies ("ja-JP" reads "ja").
+  const maximal = (tag: string): string => new Intl.Locale(tag).maximize().toString();
+  const [language, formatting] = await page.evaluate(() => [navigator.language, Intl.DateTimeFormat().resolvedOptions().locale]);
+  const expected = maximal(locale ?? "");
+  expect([maximal(language), maximal(formatting)]).toStrictEqual([expected, expected]);
 });

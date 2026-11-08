@@ -6,7 +6,7 @@ The **conformance corpus**: every target and every SDK must reproduce these rend
 |---|---|
 | `cases/<name>.json` | Reference cases: a sample rate and a duration in frames |
 | `patches/<name>.json` | The patch of each case, in the patch format. Every runner (native, Node, browsers) gives the engine the bytes of this file unchanged, never a parsed and rewritten copy |
-| `test-matrix.json` | The shared test matrix (sample rates, host buffer sizes), read by the Rust and TypeScript tests |
+| `test-matrix.json` | The shared test matrix: the values each dimension of the environment is tested across, read by the Rust and TypeScript tests |
 | `references.json` | The expected render hash of every case |
 | `expectations.json` | What every case must sound like, independently of any hash: for each channel, the ideal signal. The largest allowed distance from it is derived by the oracle (output rounding, phase accumulation, evaluation), never declared |
 

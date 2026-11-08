@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { emptyBoard, parseBoard, serializeBoard, type Board } from "../src/lib/board.ts";
+import { TIME_ZONES, offsetOf } from "./matrix.ts";
 import { HELP, exitAfterStreamFailure, failure, guardStreams, localDate, run, type ErrorSource, type Io, UsageError } from "../src/cli/cli.ts";
 
 /** Today's date as the fake clock gives it. */
@@ -52,9 +53,23 @@ function seeded(): Fake {
 }
 
 describe("localDate", () => {
-  it("formats the local date with zero padding", () => {
-    expect(localDate(new Date(2026, 0, 5, 23, 59))).toBe("2026-01-05");
-    expect(localDate(new Date(2026, 10, 17))).toBe("2026-11-17");
+  const zone = process.env.TZ;
+
+  afterEach(() => {
+    if (zone === undefined) {
+      delete process.env.TZ;
+    } else {
+      process.env.TZ = zone;
+    }
+  });
+
+  // Node reads TZ again when it is assigned: each case runs in its own zone, whatever the machine's.
+  it.each(TIME_ZONES)("formats the local day with zero padding in %s, early and late in the day", (timeZone) => {
+    process.env.TZ = timeZone;
+    expect(new Date(2026, 0, 5, 0, 30).getTimezoneOffset()).toBe(offsetOf(timeZone));
+    expect(localDate(new Date(2026, 0, 5, 0, 30))).toBe("2026-01-05");
+    expect(localDate(new Date(2026, 0, 5, 23, 30))).toBe("2026-01-05");
+    expect(localDate(new Date(2026, 10, 17, 23, 59))).toBe("2026-11-17");
   });
 });
 

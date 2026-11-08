@@ -1,5 +1,6 @@
 import { defineConfig, devices } from "@playwright/test";
 import { createServer } from "node:net";
+import { LOCALES, TIME_ZONES } from "./test/matrix.ts";
 
 /**
  * A free local port for this run, so that two runs (two worktrees, two packages) never
@@ -32,6 +33,14 @@ const PORT = await freePort("ROADMAP_E2E_PORT");
 const URL = `http://localhost:${String(PORT)}/`;
 
 
+/**
+ * The time zone and locale of the `index`-th project, taken in turn from the shared test matrix, so that
+ * the projects spread over its values instead of running at the machine's (see `e2e/board.spec.ts`).
+ */
+function environment(index: number): { timezoneId: string; locale: string } {
+  return { timezoneId: TIME_ZONES[index % TIME_ZONES.length] ?? TIME_ZONES[0], locale: LOCALES[index % LOCALES.length] ?? LOCALES[0] };
+}
+
 // The page is tested on all three engines: Chromium, Firefox, WebKit (Safari).
 export default defineConfig({
   testDir: "e2e",
@@ -41,9 +50,9 @@ export default defineConfig({
   use: { baseURL: URL },
   webServer: { command: `pnpm build && astro preview --port ${String(PORT)} --ignore-lock`, url: URL, reuseExistingServer: false },
   projects: [
-    { name: "chromium", use: { ...devices["Desktop Chrome"] } },
-    { name: "firefox", use: { ...devices["Desktop Firefox"] } },
-    { name: "webkit", use: { ...devices["Desktop Safari"] } },
-    { name: "mobile-webkit", use: { ...devices["iPhone 15"] } },
+    { name: "chromium", use: { ...devices["Desktop Chrome"], ...environment(0) } },
+    { name: "firefox", use: { ...devices["Desktop Firefox"], ...environment(1) } },
+    { name: "webkit", use: { ...devices["Desktop Safari"], ...environment(2) } },
+    { name: "mobile-webkit", use: { ...devices["iPhone 15"], ...environment(3) } },
   ],
 });
