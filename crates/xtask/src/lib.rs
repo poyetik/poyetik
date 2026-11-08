@@ -3553,6 +3553,41 @@ fn holds_block(workflow: &str, block: &[&str]) -> bool {
     lines.windows(block.len()).any(|window| window == block)
 }
 
+/// The commands that give every job of the check an audio output, in this order.
+///
+/// The runner has no sound card, and Firefox plays live only through an audio server
+/// (Chromium runs with its audio output disabled, and Playwright's `WebKit` on Linux plays
+/// without one): without it, every live test of the engine package and of the playground
+/// fails in Firefox alone. The `pulseaudio` server, which the runner's image does not
+/// hold, is installed from the OS release at an exact version without its recommended
+/// packages (a new Ubuntu update of it fails this step until the version is changed here,
+/// rather than changing CI without a commit), started for the whole job with a null sink
+/// as the default output, and the last line fails the step, with one line naming the
+/// cause, unless that sink is the default.
+pub const AUDIO_SINK: [&str; 6] = [
+    "sudo apt-get update",
+    "sudo apt-get install --yes --no-install-recommends pulseaudio=1:16.1+dfsg1-2ubuntu10.1",
+    "pulseaudio --start --exit-idle-time=-1",
+    "pactl load-module module-null-sink sink_name=null",
+    "pactl set-default-sink null",
+    "pactl get-default-sink | grep --quiet --line-regexp null || { echo \"::error::no audio sink: Firefox cannot play live (the runner has no sound card)\"; exit 1; }",
+];
+
+/// The problem of `workflow` if its lines, trimmed, do not hold [`AUDIO_SINK`] as
+/// consecutive lines.
+fn audio_sink_problem(workflow: &str) -> Option<String> {
+    let lines: Vec<&str> = workflow.lines().map(str::trim).collect();
+    let held = lines
+        .windows(AUDIO_SINK.len())
+        .any(|window| window == AUDIO_SINK);
+    (!held).then(|| {
+        format!(
+            "{WORKFLOW} lacks the audio sink, these lines in this order: `{}`",
+            AUDIO_SINK.join("` `")
+        )
+    })
+}
+
 /// The only conditions the workflow may hold, exactly.
 ///
 /// The upload of the reports after a failure, and the maintainer's decision that a push runs
@@ -3673,8 +3708,8 @@ fn job_problems(workflow: &str) -> Vec<String> {
 /// [`NIGHTLY_TOOLCHAIN`]; the checkout keeps no credential; the Cargo tools are
 /// [`PINNED_TOOLS`]; Node.js is the release in `.node-version` (at [`NODE_FLOOR`] or later);
 /// the runner is an OS release (never `-latest`); the whole history is fetched for the
-/// history gate; the workflow runs every part of `cargo xtask check --full`, as
-/// [`workflow_parts`] says; every job, written `  <name>:` below `jobs:`, holds the `[ci]` condition at the
+/// history gate; the jobs get an audio output, as [`AUDIO_SINK`] says; the workflow runs
+/// every part of `cargo xtask check --full`, as [`workflow_parts`] says; every job, written `  <name>:` below `jobs:`, holds the `[ci]` condition at the
 /// indentation of its keys (any other line at the indentation of a job is refused); its Rust
 /// cache is saved even when the run fails; and a failed run uploads every
 /// [`failure_uploads`] path.
@@ -3773,6 +3808,7 @@ pub fn workflow_gate(
             problems.push(format!("{WORKFLOW} lacks `{expected}`"));
         }
     }
+    problems.extend(audio_sink_problem(workflow));
     problems.extend(job_problems(workflow));
     if !node_release(node_version).is_some_and(supported) {
         problems.push(format!(

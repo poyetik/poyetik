@@ -600,6 +600,13 @@ const PINNED_WORKFLOW: &str = concat!(
     "      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39\n        with:\n          tool: cargo-llvm-cov@0.9.1,cargo-mutants@27.1.0,cargo-deny@0.20.2\n",
     "      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0\n        with:\n          node-version-file: .node-version\n",
     "      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3\n        with:\n          cache-on-failure: true\n",
+    "      - name: Start an audio server with a null sink\n        run: |\n",
+    "          sudo apt-get update\n",
+    "          sudo apt-get install --yes --no-install-recommends pulseaudio=1:16.1+dfsg1-2ubuntu10.1\n",
+    "          pulseaudio --start --exit-idle-time=-1\n",
+    "          pactl load-module module-null-sink sink_name=null\n",
+    "          pactl set-default-sink null\n",
+    "          pactl get-default-sink | grep --quiet --line-regexp null || { echo \"::error::no audio sink: Firefox cannot play live (the runner has no sound card)\"; exit 1; }\n",
     "      - name: One part of the full check\n        run: cargo xtask check --full --part ${{ matrix.part }}\n",
     "      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2\n        with:\n          name: unviable-${{ matrix.part }}\n          path: mutants.out/unviable.txt\n",
     "      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2\n        if: failure()\n        with:\n          path: |\n            mutants.out\n            target/coverage\n            bindings/wasm/dist/engine.wasm\n            apps/*/coverage\n            apps/*/reports\n            bindings/*/coverage\n            bindings/*/reports\n            tooling/*/coverage\n            tooling/*/reports\n",
@@ -4927,6 +4934,53 @@ fn requires_a_workflow_that_pins_everything() {
             "{node:?}"
         );
     }
+}
+
+#[test]
+fn requires_an_audio_sink_for_firefox() {
+    let gate =
+        |workflow: &str| super::workflow_gate(&[super::WORKFLOW.to_owned()], workflow, "22.23.4");
+    let lacks = failed(
+        ".github/workflows/quality.yml can change CI without a commit: \
+         .github/workflows/quality.yml lacks the audio sink, these lines in this order: \
+         `sudo apt-get update` `sudo apt-get install --yes --no-install-recommends \
+         pulseaudio=1:16.1+dfsg1-2ubuntu10.1` `pulseaudio --start --exit-idle-time=-1` \
+         `pactl load-module module-null-sink sink_name=null` `pactl set-default-sink null` \
+         `pactl get-default-sink | grep --quiet --line-regexp null || { echo \"::error::no audio \
+         sink: Firefox cannot play live (the runner has no sound card)\"; exit 1; }`",
+    );
+    let guard = "          pactl get-default-sink | grep --quiet --line-regexp null || { echo \"::error::no audio sink: Firefox cannot play live (the runner has no sound card)\"; exit 1; }\n";
+    for (case, workflow) in [
+        (
+            "no audio server",
+            PINNED_WORKFLOW.replace("          pulseaudio --start --exit-idle-time=-1\n", ""),
+        ),
+        (
+            "a package at whatever version the archive holds",
+            PINNED_WORKFLOW.replace("pulseaudio=1:16.1+dfsg1-2ubuntu10.1", "pulseaudio"),
+        ),
+        (
+            "with its recommends",
+            PINNED_WORKFLOW.replace(" --no-install-recommends", ""),
+        ),
+        ("no guard", PINNED_WORKFLOW.replace(guard, "")),
+        (
+            "the sink chosen after the guard",
+            PINNED_WORKFLOW
+                .replace("          pactl set-default-sink null\n", "")
+                .replace(
+                    guard,
+                    &format!("{guard}          pactl set-default-sink null\n"),
+                ),
+        ),
+    ] {
+        assert_eq!(gate(&workflow), lacks, "{case}");
+    }
+    assert_eq!(
+        gate(&PINNED_WORKFLOW.replace("          sudo", "      sudo")),
+        Ok(()),
+        "lines read trimmed, as the other required lines"
+    );
 }
 
 #[test]

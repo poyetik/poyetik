@@ -79,6 +79,21 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm --dir apps/roadmap exec playwright install --with-deps chromium firefox webkit
 
+      # The runner has no sound card: Firefox plays live only through an audio server
+      # (Chromium runs with its audio output disabled, WebKitGTK plays without one).
+      # PulseAudio, which the image does not hold, at an exact version of the OS release:
+      # an Ubuntu update of it fails here until the version is changed in xtask's
+      # AUDIO_SINK, which the workflow gate requires exactly. The last line names the
+      # cause if the job is left without a default sink.
+      - name: Start an audio server with a null sink
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends pulseaudio=1:16.1+dfsg1-2ubuntu10.1
+          pulseaudio --start --exit-idle-time=-1
+          pactl load-module module-null-sink sink_name=null
+          pactl set-default-sink null
+          pactl get-default-sink | grep --quiet --line-regexp null || { echo "::error::no audio sink: Firefox cannot play live (the runner has no sound card)"; exit 1; }
+
       - name: One part of the full check
         run: cargo xtask check --full --part ${{ matrix.part }}
 
