@@ -17,6 +17,7 @@ libm = { workspace = true }
 
 [dev-dependencies]
 engine-testkit = { path = "../engine-testkit" }
+serde_json = "1"
 
 [lints]
 workspace = true

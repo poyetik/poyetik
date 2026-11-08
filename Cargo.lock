@@ -113,6 +113,7 @@ dependencies = [
  "engine-core",
  "engine-testkit",
  "libm",
+ "serde_json",
 ]
 
 [[package]]
