@@ -48,17 +48,23 @@ export function sineError(samples: readonly number[], rate: number, sine: Sine):
  * double precision, output in binary32). Derived, term by term:
  *
  * - output rounding to binary32: half an ulp of the largest value, 2^(⌈log2 a⌉ − 25)
- *   for an amplitude a (2^-25 at full scale);
+ *   for an amplitude a (2^-25 at full scale), and never below 2^-150: under 2^-125 the
+ *   samples are subnormal, spaced 2^-149 however small a is;
  * - phase accumulation in binary64: each of the `frames` additions of a phase below one
  *   cycle rounds by at most 2^-53 cycle, and the increment itself by 2^-53 of its value
  *   (below one cycle): 2^-52 cycle per sample, so 2π · frames · 2^-52 radians, times a;
  * - evaluation of the sine and of this reference (the 2π products and `Math.sin`, a few
- *   ulps of values below 2π): bounded by a · 2^-48.
+ *   ulps of values below 4π: a reduced phase plus a start phase in [0, 2π), which
+ *   `parseExpectations` requires): bounded by a · 2^-48.
  *
  * A box computing its phase in binary32, or with a gain error of 5e-7, exceeds it.
  */
 export function sineErrorBound(amplitude: number, frames: number): number {
   const magnitude = Math.abs(amplitude);
-  // At a zero magnitude, log2 is -Infinity and every term is 0: silence allows no error.
-  return 2 ** (Math.ceil(Math.log2(magnitude)) - 25) + magnitude * (2 * Math.PI * frames * 2 ** -52 + 2 ** -48);
+  if (magnitude === 0) {
+    // Silence is exact: it allows no error.
+    return 0;
+  }
+  const exponent = Math.max(Math.ceil(Math.log2(magnitude)), -125);
+  return 2 ** (exponent - 25) + magnitude * (2 * Math.PI * frames * 2 ** -52 + 2 ** -48);
 }

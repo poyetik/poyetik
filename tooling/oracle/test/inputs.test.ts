@@ -67,6 +67,10 @@ describe("parseExpectations", () => {
     [{ a: { sample_rate: 8000, frames: 2 ** 29 + 1, channels: [CHANNEL] } }, "expectations.json: a: frames is above 536870912, the longest case with an exact reference"],
     [{ a: { sample_rate: 8000, frames: 4, channels: [CHANNEL, { ...CHANNEL, sine: { frequency: 1, phase: 0 } }] } }, "expectations.json: a: channel 1: sine.amplitude is not a finite number"],
     [{ a: { sample_rate: 8000, frames: 4, channels: [{ ...CHANNEL, sine: { frequency: 1, amplitude: 1 } }] } }, "expectations.json: a: channel 0: sine.phase is not a finite number"],
+    // The bound covers a start phase in [0, 2π) only: a larger one cannot be reduced exactly.
+    [{ a: { sample_rate: 8000, frames: 4, channels: [{ sine: { ...CHANNEL.sine, phase: 1e6 } }] } }, "expectations.json: a: channel 0: sine.phase is not in [0, 2π)"],
+    [{ a: { sample_rate: 8000, frames: 4, channels: [{ sine: { ...CHANNEL.sine, phase: 2 * Math.PI } }] } }, "expectations.json: a: channel 0: sine.phase is not in [0, 2π)"],
+    [{ a: { sample_rate: 8000, frames: 4, channels: [{ sine: { ...CHANNEL.sine, phase: -Number.MIN_VALUE } }] } }, "expectations.json: a: channel 0: sine.phase is not in [0, 2π)"],
     [
       { a: { sample_rate: 8000, frames: 4, channels: [{ sine: CHANNEL.sine, max_error: 1e-6 }] } },
       "expectations.json: a: channel 0: unknown field max_error (tolerances are derived, not declared)",
@@ -102,4 +106,11 @@ test.each([
 test("accepts the longest case with an exact reference", () => {
   const parsed = parseExpectations({ a: { sample_rate: 8000, frames: 2 ** 29, channels: [CHANNEL] } });
   expect(parsed.get("a")?.frames).toBe(2 ** 29);
+});
+
+test("accepts a start phase from 0 to just below 2π", () => {
+  for (const phase of [0, -0, 2 * Math.PI - 2 ** -50]) {
+    const parsed = parseExpectations({ a: { sample_rate: 8000, frames: 4, channels: [{ sine: { ...CHANNEL.sine, phase } }] } });
+    expect(parsed.get("a")?.channels[0]?.sine.phase).toBe(phase);
+  }
 });

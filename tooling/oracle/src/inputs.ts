@@ -72,6 +72,19 @@ function binary32(value: unknown, where: string): number {
   return read;
 }
 
+/**
+ * Reads a start phase in [0, 2π), or rejects `where`. `sineErrorBound` allows a few ulps
+ * of a sine argument below 4π (a reduced phase plus this one); a larger phase cannot be
+ * reduced by 2π exactly, and its own rounding would exceed the bound (about 6e-12 at 1e6).
+ */
+function phase(value: unknown, where: string): number {
+  const read = number(value, where);
+  if (!(read >= 0 && read < 2 * Math.PI)) {
+    throw new InputError(`${where} is not in [0, 2π)`);
+  }
+  return read;
+}
+
 /** Reads a positive whole number, or rejects `where`. */
 function count(value: unknown, where: string): number {
   const read = number(value, where);
@@ -126,7 +139,7 @@ function parseChannel(value: unknown, where: string): ChannelExpectation {
     sine: {
       frequency: binary32(field(sine, "frequency"), `${where}: sine.frequency`),
       amplitude: number(field(sine, "amplitude"), `${where}: sine.amplitude`),
-      phase: number(field(sine, "phase"), `${where}: sine.phase`),
+      phase: phase(field(sine, "phase"), `${where}: sine.phase`),
     },
   };
 }

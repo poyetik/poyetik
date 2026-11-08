@@ -58,6 +58,11 @@ test("derives the error bound term by term", () => {
   expect(sineErrorBound(0.75, 0)).toBe(2 ** -25 + 0.75 * 2 ** -48);
   expect(sineErrorBound(1.5, 0)).toBe(2 ** -24 + 1.5 * 2 ** -48);
   expect(sineErrorBound(0, 1000)).toBe(0);
+  // Below 2^-125, binary32 samples are subnormal: their spacing stays 2^-149, so the
+  // output rounding stays 2^-150 however small the amplitude.
+  expect(sineErrorBound(2 ** -125, 0)).toBe(2 ** -150 + 2 ** -125 * 2 ** -48);
+  expect(sineErrorBound(2 ** -140, 0)).toBe(2 ** -150 + 2 ** -140 * 2 ** -48);
+  expect(sineErrorBound(2 ** -124, 0)).toBe(2 ** -149 + 2 ** -124 * 2 ** -48);
   expect(sineErrorBound(1, 2 ** 29) - sineErrorBound(1, 0)).toBeCloseTo(2 * Math.PI * 2 ** -23, 20);
 });
 
@@ -100,4 +105,14 @@ test("rejects oscillators measurably worse than the engine's", () => {
   const bound = sineErrorBound(1, 48_000);
   expect(sineError(oscillator(48_000, 48_000, 440, single), 48_000, sine)).toBeGreaterThan(bound);
   expect(sineError(oscillator(48_000, 48_000, 440, double, 0.9999995), 48_000, sine)).toBeGreaterThan(bound);
+});
+
+test("accepts a correct oscillator of a subnormal amplitude", () => {
+  // Every sample is subnormal: rounding it to binary32 errs by up to 2^-150, far above
+  // the 2^-165 a bound scaled by the amplitude alone would allow.
+  const amplitude = 2 ** -140;
+  const samples = oscillator(8000, 8000, 1000.5, double, amplitude);
+  const sine = { frequency: 1000.5, amplitude, phase: 0 };
+  expect(sineError(samples, 8000, sine)).toBeGreaterThan(2 ** -165);
+  expect(sineError(samples, 8000, sine)).toBeLessThanOrEqual(sineErrorBound(amplitude, 8000));
 });
