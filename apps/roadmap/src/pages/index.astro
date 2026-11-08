@@ -3,16 +3,18 @@ import rawBoard from "../../board.json";
 import Board from "../components/Board.astro";
 import { parseBoard } from "../lib/board.ts";
 import { toView } from "../lib/view.ts";
-import { CSP } from "../lib/csp.ts";
+import { pagePolicy } from "../lib/csp.ts";
 
 // Validated at build time: an invalid board.json fails the build.
 const view = toView(parseBoard(rawBoard));
+// No policy on the dev server only, which injects inline styles and scripts (see pagePolicy).
+const policy = pagePolicy(import.meta.env.MODE);
 ---
 
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta http-equiv="Content-Security-Policy" content={CSP} />
+    {policy !== undefined && <meta http-equiv="Content-Security-Policy" content={policy} />}
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{view.title} · Roadmap</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
