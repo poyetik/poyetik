@@ -246,6 +246,25 @@ describe("parseBoard", () => {
     expectBoardError(() => parseBoard(rawCard({ milestone: null })), "card #1 (entry 1) milestone must be a string");
   });
 
+  it("rejects a control, bidirectional or line separator character in every text field", () => {
+    // Checked before trimming: a trailing newline is refused, not silently dropped.
+    expectBoardError(() => parseBoard(raw({ title: "Project\u001b[2J" })), "title must not hold the control or formatting character \\u{1b}");
+    expectBoardError(() => parseBoard(raw({ title: "Project\n" })), "title must not hold the control or formatting character \\u{a}");
+    expectBoardError(() => parseBoard(rawCard({ title: "a\u202eb" })), "card #1 (entry 1) title must not hold the control or formatting character \\u{202e}");
+    expectBoardError(() => parseBoard(rawCard({ description: "line\u2028line" })), "card #1 (entry 1) description must not hold the control or formatting character \\u{2028}");
+    expectBoardError(() => parseBoard(rawCard({ milestone: "M1\u0085" })), "card #1 (entry 1) milestone must not hold the control or formatting character \\u{85}");
+    expectBoardError(
+      () => parseBoard(rawCard({ tasks: [{ title: "\u2066step", done: false }] })),
+      "card #1 (entry 1) step 1 title must not hold the control or formatting character \\u{2066}",
+    );
+  });
+
+  it("keeps other text, the neighbors of the refused ranges included", () => {
+    const text = "Engine é 音 \u00a0\u202f\u206a";
+    const parsed = parseBoard(rawCard({ title: text, description: text, milestone: text, tasks: [{ title: text, done: false }] }));
+    expect(parsed.cards[0]).toMatchObject({ title: text, description: text, milestone: text, steps: [{ title: text, done: false }] });
+  });
+
   it("rejects an unknown column", () => {
     expectBoardError(
       () => parseBoard(rawCard({ column: "todo" })),

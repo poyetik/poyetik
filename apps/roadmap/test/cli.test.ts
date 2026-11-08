@@ -1,3 +1,4 @@
+import { firstUnsafe } from "@poyetik/config/one-line";
 import { afterEach, describe, expect, it } from "vitest";
 import { emptyBoard, parseBoard, serializeBoard, type Board } from "../src/lib/board.ts";
 import { TIME_ZONES, offsetOf } from "./matrix.ts";
@@ -440,6 +441,72 @@ describe("general errors", () => {
       },
     };
     expect(() => run(["add", "T"], io)).toThrow("bug");
+  });
+});
+
+describe("untrusted text in errors", () => {
+  /** Asserts that `cli` printed one error line, with no character that could drive a terminal or break the line, and at most `error: ` and 1,000 characters. */
+  function expectOneSafeLine(cli: Fake): void {
+    expect(cli.err).toHaveLength(1);
+    const [line = ""] = cli.err;
+    expect(firstUnsafe(line)).toBeUndefined();
+    expect(Array.from(line).length).toBeLessThanOrEqual("error: ".length + 1_000);
+  }
+
+  it("escapes a forged line in an argument", () => {
+    const cli = seeded();
+    expect(run(["show", "1\nerror: forged"], cli.io)).toBe(2);
+    expect(cli.err).toEqual(["error: invalid id: 1\\u{a}error: forged (see: roadmap help)"]);
+    expect(cli.out).toEqual([]);
+  });
+
+  it("escapes a terminal sequence in a command name", () => {
+    const cli = fake();
+    expect(run(["\u001b[2Jx"], cli.io)).toBe(2);
+    expect(cli.err).toEqual(["error: unknown command: \\u{1b}[2Jx (see: roadmap help)"]);
+  });
+
+  it("bounds a huge argument, and still says where the usage is", () => {
+    const cli = seeded();
+    expect(run(["show", "9".repeat(100_000)], cli.io)).toBe(2);
+    // The reason, "invalid id: " and the digits, is cut at 1,000 characters, the last one `…`.
+    expect(cli.err).toEqual([`error: invalid id: ${"9".repeat(987)}… (see: roadmap help)`]);
+  });
+
+  it("escapes what a board file holds, field or JSON excerpt, in one line", () => {
+    const board: unknown = JSON.parse(serializeBoard(emptyBoard("Project")));
+    const column = fake(JSON.stringify({ ...Object(board), cards: [{ id: 1, title: "T", description: "", column: "\u001b[2J", milestone: "", createdAt: DAY, updatedAt: DAY, tasks: [] }], nextId: 2 }));
+    expect(run(["list"], column.io)).toBe(1);
+    expect(column.err).toEqual(["error: invalid board.json: unknown column: \\u{1b}[2J (expected: later, next, doing, done)"]);
+    const title = fake(JSON.stringify({ ...Object(board), title: "a\u202eb" }));
+    expect(run(["validate"], title.io)).toBe(1);
+    expect(title.err).toEqual(["error: invalid board.json: title must not hold the control or formatting character \\u{202e}"]);
+    // The JSON parser quotes the text it could not read: raw bytes of the file.
+    for (const text of ["{\u001b[31m\u202e", `{"title": "${"x".repeat(100_000)}\u001b`]) {
+      const syntax = fake(text);
+      expect(run(["validate"], syntax.io)).toBe(1);
+      expect(syntax.err[0]).toMatch(/^error: unreadable board\.json: SyntaxError: /);
+      expectOneSafeLine(syntax);
+    }
+  });
+
+  it.each([
+    [["add", "T\u001b"], "title", "\\u{1b}"],
+    [["add", "T", "--desc", "d\n"], "description", "\\u{a}"],
+    [["add", "T", "--milestone", "M\u2069"], "milestone", "\\u{2069}"],
+    [["edit", "1", "--title", "\u200fT"], "title", "\\u{200f}"],
+    [["edit", "1", "--desc", "\u2029"], "description", "\\u{2029}"],
+    [["edit", "1", "--milestone", "\u061c"], "milestone", "\\u{61c}"],
+    [["title", "P\r"], "title", "\\u{d}"],
+    [["step", "add", "1", "S\u007f"], "step title", "\\u{7f}"],
+    [["step", "edit", "1", "1", "S\u009b"], "step title", "\\u{9b}"],
+  ])("refuses a control or formatting character typed in a text, writing nothing: %j", (args, field, escaped) => {
+    const cli = seeded();
+    expect(run(["step", "add", "1", "S"], cli.io)).toBe(0);
+    cli.writes = 0;
+    expect(run(args, cli.io)).toBe(1);
+    expect(cli.err).toEqual([`error: ${field} must not hold the control or formatting character ${escaped}`]);
+    expect(cli.writes).toBe(0);
   });
 });
 

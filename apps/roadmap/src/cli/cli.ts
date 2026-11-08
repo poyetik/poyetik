@@ -1,4 +1,5 @@
 import { parseArgs } from "node:util";
+import { oneLine } from "@poyetik/config/one-line";
 import {
   ArgumentError,
   addCard,
@@ -395,7 +396,9 @@ function execute(args: readonly string[], io: Io): void {
 
 /**
  * Testable entry point: returns the exit code: 0 on success, 1 when the command failed,
- * 2 for a usage error. Every error is one `error:` line, never a stack trace.
+ * 2 for a usage error. Every error is one `error:` line, never a stack trace, made safe by
+ * `oneLine`: what it quotes (an argument, a field of the board file, the JSON parser's
+ * excerpt of it) can neither drive the terminal nor forge a second line, and is bounded.
  */
 export function run(args: readonly string[], io: Io): number {
   try {
@@ -404,11 +407,12 @@ export function run(args: readonly string[], io: Io): number {
   } catch (error) {
     // parseArgs reports unknown or malformed options as TypeErrors with a code.
     if (error instanceof UsageError || error instanceof ArgumentError || (error instanceof TypeError && "code" in error)) {
-      io.err(`error: ${error.message} (see: roadmap help)`);
+      // The reason alone is bounded, so that where to read the usage is always said.
+      io.err(`error: ${oneLine(error.message)} (see: roadmap help)`);
       return 2;
     }
     if (error instanceof BoardError) {
-      io.err(`error: ${error.message}`);
+      io.err(`error: ${oneLine(error.message)}`);
       return 1;
     }
     throw error;

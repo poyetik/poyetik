@@ -3,6 +3,8 @@
  * Every change goes through a command that returns a new board (never mutates).
  */
 
+import { firstUnsafe, oneLine } from "@poyetik/config/one-line";
+
 /** The four roadmap columns, in the order of the data and the CLI; the page shows them in this order on a wide screen, and moves In progress first on a phone (see `toView` in view.ts). */
 export const COLUMNS = [
   { id: "later", title: "Later" },
@@ -110,20 +112,34 @@ export function emptyBoard(title: string): Board {
 
 // ---------- Validation ----------
 
-/** Returns `value` trimmed; throws a `BoardError` naming `field` unless it is a string with at least one non-blank character. */
-function requireText(value: unknown, field: string): string {
-  if (typeof value !== "string" || value.trim() === "") {
-    throw new BoardError(`${field} must be a non-empty string`);
+/**
+ * Returns `value` trimmed; throws a `BoardError` naming `field` if it holds a control,
+ * bidirectional formatting or line separator character (see `oneLine`): a text of the board
+ * is printed by the CLI and shown on the page as it is, so it can neither drive a terminal,
+ * forge a line nor reorder what is shown.
+ */
+function requireSafe(value: string, field: string): string {
+  const unsafe = firstUnsafe(value);
+  if (unsafe !== undefined) {
+    throw new BoardError(`${field} must not hold the control or formatting character ${oneLine(unsafe)}`);
   }
   return value.trim();
 }
 
-/** Returns `value` trimmed, possibly empty (optional texts such as a description); throws a `BoardError` naming `field` if it is not a string. */
+/** Returns `value` trimmed; throws a `BoardError` naming `field` unless it is a string with at least one non-blank character, and no unsafe one (see `requireSafe`). */
+function requireText(value: unknown, field: string): string {
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new BoardError(`${field} must be a non-empty string`);
+  }
+  return requireSafe(value, field);
+}
+
+/** Returns `value` trimmed, possibly empty (optional texts such as a description); throws a `BoardError` naming `field` if it is not a string or holds an unsafe character (see `requireSafe`). */
 function requireString(value: unknown, field: string): string {
   if (typeof value !== "string") {
     throw new BoardError(`${field} must be a string`);
   }
-  return value.trim();
+  return requireSafe(value, field);
 }
 
 /**
@@ -320,9 +336,9 @@ export function addCard(board: Board, input: AddInput, today: string): { board: 
   const card: Card = {
     id: board.nextId,
     title: requireText(input.title, "title"),
-    description: (input.description ?? "").trim(),
+    description: requireString(input.description ?? "", "description"),
     column: input.column ?? "later",
-    milestone: (input.milestone ?? "").trim(),
+    milestone: requireString(input.milestone ?? "", "milestone"),
     createdAt: date,
     updatedAt: date,
     steps: [],
@@ -355,8 +371,8 @@ export function editCard(board: Board, id: number, patch: EditInput, today: stri
   const card: Card = {
     ...current,
     title: patch.title === undefined ? current.title : requireText(patch.title, "title"),
-    description: patch.description === undefined ? current.description : patch.description.trim(),
-    milestone: patch.milestone === undefined ? current.milestone : patch.milestone.trim(),
+    description: patch.description === undefined ? current.description : requireString(patch.description, "description"),
+    milestone: patch.milestone === undefined ? current.milestone : requireString(patch.milestone, "milestone"),
     updatedAt: date,
   };
   return { ...board, cards: board.cards.map((existing) => (existing.id === id ? card : existing)) };
