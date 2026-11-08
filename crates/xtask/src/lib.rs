@@ -3251,11 +3251,13 @@ pub const COMMIT_HEADER_MAX: usize = 72;
 /// `message` is the file git hands the commit-msg hook: its lines starting with `#` are
 /// git's comments, removed before the commit is recorded, and are ignored. Every message
 /// follows the convention, those git writes for merges and reverts included (`Merge …`,
-/// `Revert "…"`): write `revert: …`.
+/// `Revert "…"`): write `revert: …`. The marker [`CI_MARKER`] may only stand alone on a
+/// line ([`ci_marker`]).
 ///
 /// # Errors
 ///
-/// Returns a message explaining the expected format.
+/// Returns a message explaining the expected format, or that the message names
+/// [`CI_MARKER`] other than alone on a line.
 pub fn commit_msg_gate(message: &str) -> Result<(), Failure> {
     let text: Vec<&str> = message
         .lines()
