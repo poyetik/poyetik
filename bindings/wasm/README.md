@@ -19,4 +19,10 @@ pnpm check   # build, types, lint, unit tests at 100% coverage, no allocation wh
 The engine output is the patch's samples, unclipped: a level above 1.0 is kept, in the render hash and in an offline render, while a browser's audio output clips it. The final output stage belongs to the host, until the engine defines its own output policy (roadmap ticket #12).
 
 The live end-to-end test runs a real `AudioContext`, muted: the engine output is captured before a zero gain.
-The test bench (`e2e/site/`) shows its results as text, for Claude in Chrome too: `node e2e/serve.ts`, then open http://localhost:4392/e2e/site/index.html.
+The test bench (`e2e/site/`) shows its results as text, for Claude in Chrome too. The end-to-end tests start it with `pnpm bench` on a free port; to open it yourself, choose a port:
+
+```sh
+pnpm build && ENGINE_WASM_E2E_PORT=4392 pnpm bench
+```
+
+then open http://localhost:4392/e2e/site/index.html (the server answers only to `localhost` and `127.0.0.1` on that port).

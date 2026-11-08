@@ -46,7 +46,8 @@ export default defineConfig({
   retries: 0,
   reporter: "list",
   use: { baseURL: URL },
-  webServer: { command: "node e2e/serve.ts", url: `${URL}e2e/site/index.html`, reuseExistingServer: false },
+  // The test bench, started exactly as the README tells a person to start it.
+  webServer: { command: "pnpm -s bench", url: `${URL}e2e/site/index.html`, reuseExistingServer: false },
   projects: [
     { name: "chromium", use: { ...devices["Desktop Chrome"], launchOptions: { args: ["--disable-audio-output"] } } },
     { name: "firefox", use: { ...devices["Desktop Firefox"] } },
