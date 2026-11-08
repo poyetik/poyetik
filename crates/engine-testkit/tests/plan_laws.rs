@@ -6,8 +6,9 @@
 //! renderer (the boxes run in that order, block by block, their inlets fed as the spec
 //! says), bit for bit: a plan that routes, sums or hands boxes the rate wrongly fails,
 //! not only one that disagrees with itself. Renders are also checked for independence
-//! from the document order and from how the render is split, finiteness, and for not
-//! allocating from the first call on a fresh plan.
+//! from the document order and from how the render is split (at a random point, and in
+//! host buffers of every size of the matrix), finiteness, and for not allocating from the
+//! first call on a fresh plan.
 
 /// Counts allocations, so that rendering a built plan can be checked not to allocate.
 #[global_allocator]
@@ -24,7 +25,7 @@ mod tests {
         ParamSpec, Patch, Plan, PortSpec, Renderer, SILENCE, SampleRate,
     };
     use engine_testkit::allocations_during;
-    use engine_testkit::matrix::sample_rates;
+    use engine_testkit::matrix::{HOST_BUFFER_SIZES, sample_rates};
     use engine_testkit::runner::runner;
     use proptest::collection::vec;
     use proptest::strategy::{Strategy, ValueTree};
@@ -368,6 +369,22 @@ mod tests {
         }
         if let Some(sample) = whole.iter().find(|sample| !sample.is_finite()) {
             return Err(format!("non-finite sample {sample}"));
+        }
+
+        // Rendered in host buffers of every size of the matrix: the same samples.
+        for size in HOST_BUFFER_SIZES {
+            let mut chunked = Renderer::new(
+                Plan::build(&patch, &REGISTRY, rate).map_err(|error| error.to_string())?,
+            );
+            let mut parts = vec![0.0_f32; whole.len()];
+            for buffer in parts.chunks_mut(size.saturating_mul(chunked.channels()).max(1)) {
+                chunked.render_into(buffer);
+            }
+            if bits(&parts) != bits(&whole) {
+                return Err(format!(
+                    "rendering in buffers of {size} frames changes the samples"
+                ));
+            }
         }
 
         // The same patch, advanced block by block from a fresh plan: the same samples,
