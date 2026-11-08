@@ -6613,9 +6613,24 @@ fn confines_the_ci_marker_to_a_line_of_its_own() {
             .to_owned(),
     );
     for message in [
+        "docs: x\n\n[CI]\n",
+        "docs: x\n\n [Ci] \n",
+        "docs: x\n\n[cı]\n",
+    ] {
+        assert_eq!(
+            super::ci_marker(message),
+            None,
+            "GitHub reads the marker in any case: {message:?}"
+        );
+    }
+    for message in [
         "docs: x\n\nA push runs CI when it says [ci] in its message.\n",
         "docs: run [ci] now\n",
         "docs: x\n\n[ci] please\n",
+        "docs: x\n\nA push runs CI when it says [CI] in its message.\n",
+        "docs: run [Ci] now\n",
+        "docs: x\n\n[cI] please\n",
+        "docs: x\n\nsee [cı] here\n",
     ] {
         assert_eq!(super::ci_marker(message), expected, "{message:?}");
         assert!(commit_msg_gate(message).is_err(), "{message:?}");

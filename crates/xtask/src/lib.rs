@@ -3273,12 +3273,15 @@ pub const CI_MARKER_EXEMPT: [&str; 1] = ["baa21644eeb1ec9354743fe07ef69f21a173f6
 ///
 /// GitHub only offers `contains` to read a commit message, so the marker in a sentence
 /// (a commit describing the rule, say) would start CI unasked: it is refused anywhere but
-/// on a line of its own, the one way to ask for CI.
+/// on a line of its own, the one way to ask for CI. GitHub's `contains` ignores case
+/// (`[CI]` starts CI too), so the marker is read in any case, both sides uppercased.
 #[must_use]
 pub fn ci_marker(message: &str) -> Option<String> {
+    let marker = CI_MARKER.to_uppercase();
     message
         .lines()
-        .any(|line| line.contains(CI_MARKER) && line.trim() != CI_MARKER)
+        .map(str::to_uppercase)
+        .any(|line| line.contains(&marker) && line.trim() != marker)
         .then(|| {
             format!(
                 "invalid commit message: {CI_MARKER} asks CI to run; write it alone on a line, or not at all"
