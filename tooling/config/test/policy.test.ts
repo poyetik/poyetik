@@ -1,9 +1,11 @@
 import { readdirSync } from "node:fs";
 import path from "node:path";
-import { ESLint } from "eslint";
+import { ESLint, type Linter } from "eslint";
+import jsdoc from "eslint-plugin-jsdoc";
 import ts from "typescript";
+import tseslint from "typescript-eslint";
 import { expect, test } from "vitest";
-import { strict } from "../eslint.ts";
+import { JSDOC_CONTEXTS, RULES, strict } from "../eslint.ts";
 
 /** The fixtures of the linting policy: each file but `clean.ts` breaks one rule. */
 const POLICY = path.join(import.meta.dirname, "policy");
@@ -13,6 +15,12 @@ const COMPILER = path.join(import.meta.dirname, "compiler");
 
 /** Errors, not warnings: a warning would let the check pass. */
 const ERROR = 2;
+
+/** Whether a rule entry of the policy turns its rule off. */
+function isOff(entry: Linter.RuleEntry | undefined): boolean {
+  const severity = Array.isArray(entry) ? entry[0] : entry;
+  return severity === "off" || severity === 0;
+}
 
 test("each rule of the policy rejects what it forbids, and only that", async () => {
   const eslint = new ESLint({ cwd: POLICY, overrideConfigFile: true, overrideConfig: strict(POLICY, ["ignored.ts"]) });
@@ -29,6 +37,10 @@ test("each rule of the policy rejects what it forbids, and only that", async () 
   const tsComment = "@typescript-eslint/ban-ts-comment";
   const boundary = "@typescript-eslint/explicit-module-boundary-types";
   const documented = "jsdoc/require-jsdoc";
+  // Every rule the policy sets, unless it turns it off, is broken by some fixture: a rule
+  // added without one, or removed from the policy, fails here or below.
+  const broken = new Set(Object.values(reported).flat());
+  expect(Object.keys(RULES).filter((rule) => !isOff(RULES[rule]) && !broken.has(rule))).toStrictEqual([]);
   expect(reported).toStrictEqual({
     clean: [],
     types: [],
@@ -48,6 +60,9 @@ test("each rule of the policy rejects what it forbids, and only that", async () 
     enum: ["no-restricted-syntax"],
     global: ["no-restricted-syntax"],
     "type-import": ["@typescript-eslint/consistent-type-imports"],
+    // Only inline type specifiers: the import itself stays, as a side effect.
+    "inline-type-import": ["@typescript-eslint/no-import-type-side-effects"],
+    "mutable-field": ["@typescript-eslint/prefer-readonly"],
     "undocumented-function": [documented],
     "undocumented-exported-const": [documented],
     "undocumented-module-const": [documented],
@@ -80,6 +95,35 @@ test("each rule of the policy rejects what it forbids, and only that", async () 
     expect(await eslint.isPathIgnored(path.join(POLICY, ignored)), ignored).toBe(true);
   }
   expect(await eslint.isPathIgnored(path.join(POLICY, "clean.ts"))).toBe(false);
+});
+
+test("each JSDoc context of the policy is triggered by a fixture", async () => {
+  expect(JSDOC_CONTEXTS.length).toBeGreaterThan(0);
+  for (const context of JSDOC_CONTEXTS) {
+    // That context alone, without the functions, classes and methods required besides.
+    const alone: Linter.Config = {
+      files: ["**/*.ts"],
+      languageOptions: { parser: tseslint.parser },
+      plugins: { jsdoc },
+      rules: {
+        "jsdoc/require-jsdoc": [
+          "error",
+          {
+            publicOnly: false,
+            require: { FunctionDeclaration: false, ClassDeclaration: false, MethodDefinition: false },
+            checkConstructors: false,
+            checkGetters: false,
+            checkSetters: false,
+            contexts: [context],
+          },
+        ],
+      },
+    };
+    const eslint = new ESLint({ cwd: POLICY, overrideConfigFile: true, overrideConfig: alone });
+    const results = await eslint.lintFiles(["*.ts"]);
+    const triggered = results.flatMap((result) => result.messages.filter((message) => message.ruleId === "jsdoc/require-jsdoc"));
+    expect(triggered.length, context).toBeGreaterThan(0);
+  }
 });
 
 test("extra configuration comes last and applies", async () => {
