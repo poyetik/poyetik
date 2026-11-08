@@ -1030,7 +1030,8 @@ pub fn check_steps(mode: Mode) -> Vec<Step> {
 pub struct TreeState {
     /// `git status --porcelain --untracked-files=all`.
     pub status: String,
-    /// `git diff HEAD`: the content of the changes.
+    /// `git diff --no-ext-diff --no-textconv HEAD`: the content of the changes, as they
+    /// are (no external diff or text conversion of the user's).
     pub diff: String,
     /// `git rev-parse HEAD --symbolic-full-name HEAD`: the commit checked out, then its
     /// branch (`HEAD` when detached).
@@ -1088,7 +1089,11 @@ fn tree_state(runner: &mut dyn Runner) -> Result<TreeState, Failure> {
             &["status", "--porcelain", "--untracked-files=all"],
             "read the work tree",
         )?,
-        diff: git_output(runner, &["diff", "HEAD"], "read the work tree")?,
+        diff: git_output(
+            runner,
+            &["diff", "--no-ext-diff", "--no-textconv", "HEAD"],
+            "read the work tree",
+        )?,
         head: git_output(
             runner,
             &["rev-parse", "HEAD", "--symbolic-full-name", "HEAD"],
@@ -3749,10 +3754,16 @@ impl Runner for SystemRunner {
     }
 
     fn tracked(&mut self, patterns: &[&str]) -> Result<Vec<String>, CommandFailure> {
-        let mut args = vec!["ls-files", "--"];
+        // Separated by NUL, every name as it is: git quotes a name out of ASCII otherwise.
+        let mut args = vec!["ls-files", "-z", "--"];
         args.extend(patterns);
         self.capture(&Cmd::new("git", &args, Dir::Root))
-            .map(|text| text.lines().map(str::to_owned).collect())
+            .map(|text| {
+                text.split('\0')
+                    .filter(|path| !path.is_empty())
+                    .map(str::to_owned)
+                    .collect()
+            })
     }
 
     fn write(&mut self, path: &str, text: &str) -> io::Result<()> {
@@ -4653,6 +4664,7 @@ fn rust_mutants_of_changes(
             "diff",
             "--no-color",
             "--no-ext-diff",
+            "--no-textconv",
             "--no-renames",
             "--src-prefix=a/",
             "--dst-prefix=b/",
@@ -4662,10 +4674,17 @@ fn rust_mutants_of_changes(
     )?;
     let new = git_output(
         runner,
-        &["ls-files", "--others", "--exclude-standard", "--", "*.rs"],
+        &[
+            "ls-files",
+            "-z",
+            "--others",
+            "--exclude-standard",
+            "--",
+            "*.rs",
+        ],
         "list the new Rust files",
     )?;
-    for path in new.lines() {
+    for path in new.split('\0').filter(|path| !path.is_empty()) {
         diff.push_str(&new_file_diff(path, &read_file(runner, path)?));
     }
     if diff.is_empty() {

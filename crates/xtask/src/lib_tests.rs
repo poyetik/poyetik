@@ -92,7 +92,7 @@ const TREE_STATUS: (&str, &str) = (
 );
 
 /// The changes of the tracked files of the fake: none.
-const TREE_DIFF: (&str, &str) = ("git diff HEAD", "");
+const TREE_DIFF: (&str, &str) = ("git diff --no-ext-diff --no-textconv HEAD", "");
 
 /// How the fake reads what is checked out, and what it answers: a commit on a branch.
 const TREE_HEAD: (&str, &str) = (
@@ -150,12 +150,12 @@ const MERGE_BASE: (&str, &str) = ("git merge-base HEAD @{upstream}", "abc123\n")
 /// How the fake reads the changes since [`MERGE_BASE`], and what it answers: one changed
 /// line of a Rust file.
 const CHANGES: (&str, &str) = (
-    "git diff --no-color --no-ext-diff --no-renames --src-prefix=a/ --dst-prefix=b/ abc123",
+    "git diff --no-color --no-ext-diff --no-textconv --no-renames --src-prefix=a/ --dst-prefix=b/ abc123",
     "diff --git a/crates/a/src/b.rs b/crates/a/src/b.rs\n--- a/crates/a/src/b.rs\n+++ b/crates/a/src/b.rs\n@@ -1 +1 @@\n-fn f() {}\n+fn f() -> u8 { 1 }\n",
 );
 
 /// How the fake lists the new Rust files, and what it answers: none.
-const NEW_RUST_FILES: (&str, &str) = ("git ls-files --others --exclude-standard -- *.rs", "");
+const NEW_RUST_FILES: (&str, &str) = ("git ls-files -z --others --exclude-standard -- *.rs", "");
 
 /// Records commands and answers with scripted results.
 #[derive(Debug, Default)]
@@ -939,8 +939,8 @@ fn mutates_the_changes_since_the_merge_base_with_the_upstream() {
         fake.ran,
         vec![
             "capture git merge-base HEAD @{upstream}",
-            "capture git diff --no-color --no-ext-diff --no-renames --src-prefix=a/ --dst-prefix=b/ abc123",
-            "capture git ls-files --others --exclude-standard -- *.rs",
+            "capture git diff --no-color --no-ext-diff --no-textconv --no-renames --src-prefix=a/ --dst-prefix=b/ abc123",
+            "capture git ls-files -z --others --exclude-standard -- *.rs",
             "write target/xtask/changes.diff",
             "cargo mutants --cap-lints=true --gitignore=true --workspace --jobs 3 --in-diff target/xtask/changes.diff -- -- --include-ignored",
             "read mutants.out/unviable.txt",
@@ -1191,7 +1191,7 @@ fn mutates_new_rust_files_whole() {
     }
     let _listed = fake.files.insert(
         format!("capture {}", NEW_RUST_FILES.0),
-        "crates/a/src/new.rs\ncrates/a/src/open.rs\ncrates/a/src/empty.rs\n".to_owned(),
+        "crates/a/src/new.rs\0crates/a/src/open.rs\0crates/a/src/empty.rs\0".to_owned(),
     );
     assert_eq!(
         run_steps(&rust_mutation_of_changes(), &mut fake, &mut Vec::new()),
@@ -1219,7 +1219,7 @@ fn mutates_new_rust_files_whole() {
         .insert("crates/a/src/new.rs".to_owned(), "fn g() {}\n".to_owned());
     let _only = only_new.files.insert(
         format!("capture {}", NEW_RUST_FILES.0),
-        "crates/a/src/new.rs\n".to_owned(),
+        "crates/a/src/new.rs\0".to_owned(),
     );
     assert_eq!(
         run_steps(&rust_mutation_of_changes(), &mut only_new, &mut Vec::new()),
@@ -1236,7 +1236,7 @@ fn mutates_new_rust_files_whole() {
     let mut unreadable = passing();
     let _gone = unreadable.files.insert(
         format!("capture {}", NEW_RUST_FILES.0),
-        "crates/a/src/gone.rs\n".to_owned(),
+        "crates/a/src/gone.rs\0".to_owned(),
     );
     assert_eq!(
         run_steps(
@@ -2608,6 +2608,7 @@ fn system_runner_lists_the_tracked_typescript_files() {
         ("src/b.tsx", "b"),
         ("src/c.js", "c"),
         ("d.ts", "d"),
+        ("src/naïve.ts", "n"),
     ] {
         std::fs::write(root.join(file), text).expect("source file");
     }
@@ -2621,9 +2622,10 @@ fn system_runner_lists_the_tracked_typescript_files() {
         vec![
             "d.ts".to_owned(),
             "src/a.ts".to_owned(),
-            "src/b.tsx".to_owned()
+            "src/b.tsx".to_owned(),
+            "src/naïve.ts".to_owned()
         ],
-        "tracked TypeScript only"
+        "tracked TypeScript only, a name out of ASCII as it is (git quotes it by default)"
     );
     let outside = std::env::temp_dir().join(format!("xtask-no-git-{}", std::process::id()));
     std::fs::create_dir_all(&outside).expect("temporary directory");
@@ -6868,5 +6870,30 @@ fn starts_commands_with_no_input_and_git_untranslated() {
         runner.run(&terminal),
         Ok(()),
         "a command run, its output on the terminal, does not read the terminal"
+    );
+}
+
+#[test]
+fn reads_the_changes_as_they_are() {
+    let repo = scratch("textconv");
+    let _init = hermetic_git(&repo, &["init", "--quiet"]);
+    std::fs::write(repo.join("a.rs"), "fn f() {}\n").expect("source");
+    let _add = hermetic_git(&repo, &["add", "a.rs"]);
+    let _commit = hermetic_git(&repo, &["commit", "--quiet", "-m", "x"]);
+    std::fs::write(repo.join("a.rs"), "fn g() {}\n").expect("changed");
+    std::fs::write(repo.join(".gitattributes"), "*.rs diff=upper\n").expect("attributes");
+    for (key, value) in [
+        ("diff.upper.textconv", "tr a-z A-Z <"),
+        ("diff.external", "false"),
+    ] {
+        let _set = hermetic_git(&repo, &["config", key, value]);
+    }
+    let mut runner = SystemRunner { root: repo.clone() };
+    let state = super::tree_state(&mut runner);
+    std::fs::remove_dir_all(&repo).expect("cleanup");
+    let diff = state.expect("read").diff;
+    assert!(
+        diff.contains("-fn f() {}\n+fn g() {}\n"),
+        "neither an external diff nor a text conversion: {diff}"
     );
 }
