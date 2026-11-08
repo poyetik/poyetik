@@ -14,10 +14,10 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       // Everything but the wiring shells, which only connect covered code to the real
-      // process, files, network or browser: scripts/build-wasm.ts, scripts/reproducible.ts,
-      // scripts/io.ts, e2e/serve.ts and e2e/site/harness.ts (run by pnpm build,
-      // test:reproducible and test:e2e).
-      include: ["ts/**/*.ts", "e2e/routes.ts", "e2e/site/fetch.ts", "scripts/wasm.ts", "scripts/cli.ts"],
+      // process or browser: the entry points scripts/build-wasm.ts and scripts/reproducible.ts,
+      // the bench server e2e/serve.ts and the bench page e2e/site/harness.ts (run by pnpm
+      // build, test:reproducible and test:e2e), each reviewed in proof-bypasses.txt.
+      include: ["ts/**/*.ts", "e2e/routes.ts", "e2e/site/fetch.ts", "scripts/wasm.ts", "scripts/cli.ts", "scripts/io.ts"],
       reporter: ["text", "json-summary", "html"],
       thresholds: { lines: 100, branches: 100, functions: 100, statements: 100 },
     },

@@ -9,7 +9,8 @@
     "e2e/routes.ts",
     "e2e/site/fetch.ts",
     "scripts/wasm.ts",
-    "scripts/cli.ts"
+    "scripts/cli.ts",
+    "scripts/io.ts"
   ],
   "ignorePatterns": [
     "!dist/engine.wasm"

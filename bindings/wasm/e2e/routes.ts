@@ -78,3 +78,28 @@ export function parsePort(value: string): number | undefined {
   const port = Number(value);
   return port <= MAX_PORT ? port : undefined;
 }
+
+/** What the server sends back: a status, its headers and a body, empty for a refusal. */
+export interface Answer {
+  /** The HTTP status: 200, or the refusal of {@link route}, or 404 for a file that cannot be read. */
+  readonly status: 200 | 403 | 404;
+  /** The headers: the `content-type` of a served file, none for a refusal. */
+  readonly headers: Readonly<Record<string, string>>;
+  /** The bytes of the file, empty for a refusal. */
+  readonly body: Uint8Array;
+}
+
+/**
+ * The answer to a request routed to `target`: the file, read with `read`, with its
+ * content type; an empty 404 when it cannot be read; the refusal of {@link route} as is,
+ * reading nothing.
+ */
+export async function answer(target: Route, read: (file: string) => Promise<Uint8Array>): Promise<Answer> {
+  if ("status" in target) {
+    return { status: target.status, headers: {}, body: new Uint8Array() };
+  }
+  return read(target.file).then(
+    (body): Answer => ({ status: 200, headers: { "content-type": contentType(target.file) }, body }),
+    (): Answer => ({ status: 404, headers: {}, body: new Uint8Array() }),
+  );
+}

@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import { describe, expect, test } from "vitest";
-import { contentType, parsePort, route } from "../e2e/routes.ts";
+import { answer, contentType, parsePort, route } from "../e2e/routes.ts";
 
 /** Fake directories served: no file is read, `route` only resolves paths. */
 const ROOTS = { package: "/repo/bindings/wasm", conformance: "/repo/conformance" };
@@ -68,5 +68,35 @@ describe("parsePort", () => {
 
   test.each(["", "0", "-1", "1.5", "65536", "080", " 80", "80 ", "1e3", "0x50", "port"])("refuses %o", (value) => {
     expect(parsePort(value)).toBeUndefined();
+  });
+});
+
+describe("answer", () => {
+  /** Reads `file` from a fake disk holding only `/r/dist/engine.wasm`, recording what was read. */
+  function disk(read: string[]): (file: string) => Promise<Uint8Array> {
+    return (file) => {
+      read.push(file);
+      return file === "/r/dist/engine.wasm" ? Promise.resolve(Uint8Array.of(0, 97, 115, 109)) : Promise.reject(new Error("ENOENT"));
+    };
+  }
+
+  test("serves a file with its content type", async () => {
+    const read: string[] = [];
+    expect(await answer({ file: "/r/dist/engine.wasm" }, disk(read))).toStrictEqual({
+      status: 200,
+      headers: { "content-type": "application/wasm" },
+      body: Uint8Array.of(0, 97, 115, 109),
+    });
+    expect(read).toStrictEqual(["/r/dist/engine.wasm"]);
+  });
+
+  test("answers a file it cannot read with an empty 404", async () => {
+    expect(await answer({ file: "/r/dist/missing.json" }, disk([]))).toStrictEqual({ status: 404, headers: {}, body: new Uint8Array() });
+  });
+
+  test.each([403, 404] as const)("answers a refusal (%i) with an empty body, reading nothing", async (status) => {
+    const read: string[] = [];
+    expect(await answer({ status }, disk(read))).toStrictEqual({ status, headers: {}, body: new Uint8Array() });
+    expect(read).toStrictEqual([]);
   });
 });

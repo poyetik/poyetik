@@ -1,5 +1,5 @@
 // The real outside world of the build commands (see cli.ts): this process, its files and
-// cargo. Wiring only, shared by the two entry points.
+// cargo. Shared by the two entry points; tested on real files and a real child process.
 import { execFileSync } from "node:child_process";
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
