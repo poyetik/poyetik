@@ -12,11 +12,11 @@ use std::process::Command;
 use super::{
     Action, BestEffort, CARGO_TOML, CHANGELOG, CHANGES_DIFF, COMMIT_HEADER_MAX, Cmd,
     CommandFailure, Coverage, Dir, EQUIVALENT_REVIEWED, Exit, Extent, Failed, Failure, MUTANTS_OUT,
-    Measured, Mode, PACKAGES, PORTABILITY_TARGETS, Runner, RustCrate, Step, SystemRunner,
-    UNSAFE_FILES, UNVIABLE_REPORT, UNVIABLE_REVIEWED, USAGE, Version, bless_step, check_steps, cli,
-    commit_msg_gate, coverage_gate, equivalent_gate, license_gate, membership_gate, package_jsons,
-    preflight_gate, release_gate, run_steps, ts_coverage_gate, ts_mutation_gate, unsafe_gate,
-    unviable_gate,
+    Measured, Mode, OnFailure, PACKAGES, PORTABILITY_TARGETS, Runner, RustCrate, Step,
+    SystemRunner, UNSAFE_FILES, UNVIABLE_REPORT, UNVIABLE_REVIEWED, USAGE, Version, bless_step,
+    check_steps, cli, commit_msg_gate, coverage_gate, equivalent_gate, license_gate,
+    membership_gate, package_jsons, preflight_gate, release_gate, run_steps, run_steps_then,
+    ts_coverage_gate, ts_mutation_gate, unsafe_gate, unviable_gate,
 };
 
 /// Runs git in `dir` hermetically, and returns its stdout: no variable of an enclosing git
@@ -2051,6 +2051,96 @@ fn stops_at_the_first_failing_command() {
         10 + 2 + 3 + 4,
         "the preflight asks ten tools and reads .node-version and the toolchain file, the tree is recorded by three \
          captures; nothing runs after the failure"
+    );
+}
+
+/// Five command steps, `One` to `Five`, each running `x <its number>`.
+fn five_steps() -> Vec<Step> {
+    ["one", "two", "three", "four", "five"]
+        .into_iter()
+        .map(|number| Step {
+            name: number.to_uppercase(),
+            action: Action::Run(Cmd::new("x", &[number], Dir::Root)),
+        })
+        .collect()
+}
+
+/// A fake where the second of [`five_steps`] fails and the fourth cannot start.
+fn failing_twice() -> Fake {
+    Fake {
+        fail: Some("x two".to_owned()),
+        broken: Some("x four".to_owned()),
+        ..Fake::default()
+    }
+}
+
+#[test]
+fn runs_every_step_then_reports_every_failure_when_asked() {
+    let mut fake = failing_twice();
+    let mut out = Vec::new();
+    assert_eq!(
+        run_steps_then(&five_steps(), &mut fake, &mut out, OnFailure::RunTheRest),
+        failed(
+            "2 of 5 checks failed, listed above\n\
+             TWO: `x two` exited with code 3\n\
+             FOUR: cannot run `x four`: not found"
+        ),
+        "both failures, each with its step and its own error"
+    );
+    assert_eq!(
+        fake.ran,
+        ["x one", "x two", "x three", "x four", "x five"],
+        "every step ran"
+    );
+    assert_eq!(
+        String::from_utf8(out).expect("UTF-8"),
+        "▶ [1/5] ONE\n▶ [2/5] TWO\n▶ [3/5] THREE\n▶ [4/5] FOUR\n▶ [5/5] FIVE\n",
+        "no claim that the checks passed"
+    );
+    let mut passing = Fake::default();
+    let mut progress = Vec::new();
+    assert_eq!(
+        run_steps_then(
+            &five_steps(),
+            &mut passing,
+            &mut progress,
+            OnFailure::RunTheRest
+        ),
+        Ok(()),
+        "no failure"
+    );
+    assert!(
+        String::from_utf8(progress)
+            .expect("UTF-8")
+            .ends_with("▶ [5/5] FIVE\n✔ all 5 checks passed\n"),
+        "passed"
+    );
+}
+
+#[test]
+fn stops_at_the_first_failure_unless_asked_to_run_the_rest() {
+    let mut fake = failing_twice();
+    assert_eq!(
+        run_steps_then(&five_steps(), &mut fake, &mut Vec::new(), OnFailure::Stop),
+        failed("TWO: `x two` exited with code 3"),
+        "the first failure alone"
+    );
+    assert_eq!(fake.ran, ["x one", "x two"], "nothing after it");
+    let mut stopped = failing_twice();
+    assert_eq!(
+        run_steps(&five_steps(), &mut stopped, &mut Vec::new()),
+        failed("TWO: `x two` exited with code 3"),
+        "run_steps stops"
+    );
+    assert_eq!(
+        CHANGES_MODE.on_failure(),
+        OnFailure::Stop,
+        "the default check stops, for fast feedback"
+    );
+    assert_eq!(
+        Mode::Full { jobs: FAKE_JOBS }.on_failure(),
+        OnFailure::RunTheRest,
+        "the full check runs every step"
     );
 }
 
@@ -5033,19 +5123,18 @@ fn prints_the_details_of_a_failure_on_stdout_and_one_line_on_stderr() {
     );
     assert_eq!(
         String::from_utf8(err).expect("UTF-8"),
-        format!(
-            "error: Rust unviable mutants reviewed: unviable mutants must be reviewed in \
-             {UNVIABLE_REVIEWED}: 2 problems, listed above\n"
-        ),
-        "one line on stderr, naming the step and the file"
+        "error: 1 of 62 checks failed, listed above\n",
+        "one line on stderr, counting the failed steps"
     );
     assert!(
-        String::from_utf8(out).expect("UTF-8").ends_with(
-            "▶ [26/62] Rust unviable mutants reviewed\n\
+        String::from_utf8(out).expect("UTF-8").ends_with(&format!(
+            "▶ [62/62] Working tree unchanged by the checks\n\
              not reviewed: crates/a/src/c.rs: replace g -> U with x\n\
-             stale review: crates/a/src/b.rs: replace f -> T with Default::default()\n"
-        ),
-        "the problems on stdout, after the progress"
+             stale review: crates/a/src/b.rs: replace f -> T with Default::default()\n\
+             Rust unviable mutants reviewed: unviable mutants must be reviewed in \
+             {UNVIABLE_REVIEWED}: 2 problems, listed above\n"
+        )),
+        "every step run, then the problems and the failed step on stdout"
     );
 }
 

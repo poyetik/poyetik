@@ -195,8 +195,8 @@ pub const MUTATION_BASES: [&str; 3] = ["@{upstream}", "origin/main", "main"];
 /// nothing changed.
 pub const STRYKER_INCREMENTAL: &str = "reports/stryker-incremental.json";
 
-/// How much mutation testing `cargo xtask check` does; every other check is the same in
-/// both modes.
+/// How much mutation testing `cargo xtask check` does, and whether a failure stops it
+/// ([`Mode::on_failure`]); every other check is the same in both modes.
 ///
 /// [`Mode::Changes`] proves that every mutant of the changed code is killed, by the tests
 /// as they are now. It does not prove what only [`Mode::Full`] sees: a Rust mutant outside
@@ -221,6 +221,29 @@ pub enum Mode {
         /// The number of cargo-mutants jobs.
         jobs: NonZeroUsize,
     },
+}
+
+impl Mode {
+    /// What a check in this mode does when a step fails: [`Mode::Changes`], for
+    /// development, stops there (fast feedback); [`Mode::Full`], hours long, runs every
+    /// other step too, so that one failure never hides the state of the steps after it.
+    #[must_use]
+    pub const fn on_failure(self) -> OnFailure {
+        match self {
+            Self::Changes { .. } => OnFailure::Stop,
+            Self::Full { .. } => OnFailure::RunTheRest,
+        }
+    }
+}
+
+/// What [`run_steps_then`] does when a step fails.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OnFailure {
+    /// Stop there, and return that failure.
+    Stop,
+    /// Run every following step, each whatever the earlier ones did (a step that needs what
+    /// a failed one builds fails in its own words), then return every failure at once.
+    RunTheRest,
 }
 
 /// The number of parallel cargo-mutants jobs on a machine of `parallelism` threads: half of
@@ -4959,28 +4982,64 @@ fn say(out: &mut dyn Write, line: &str) -> Result<(), Failure> {
         .map_err(|error| Failure::from(format!("cannot write to stdout: {error}")))
 }
 
-/// Runs `steps` in order and stops at the first failure.
+/// Runs `steps` in order and stops at the first failure: [`run_steps_then`] with
+/// [`OnFailure::Stop`].
 ///
 /// # Errors
 ///
-/// Returns the failure of the first step that failed, its summary naming the step, or why
-/// the progress could not be written.
+/// As [`run_steps_then`].
 pub fn run_steps(
     steps: &[Step],
     runner: &mut dyn Runner,
     out: &mut dyn Write,
 ) -> Result<(), Failure> {
+    run_steps_then(steps, runner, out, OnFailure::Stop)
+}
+
+/// Runs `steps` in order; at a failure, does what `on_failure` says.
+///
+/// # Errors
+///
+/// With [`OnFailure::Stop`], the failure of the first step that failed, its summary naming
+/// the step. With [`OnFailure::RunTheRest`], once every step has run, a summary counting
+/// the failed steps, and in the details, for each failed step in order, its own details
+/// then its summary naming the step. In both modes, why the progress could not be written.
+pub fn run_steps_then(
+    steps: &[Step],
+    runner: &mut dyn Runner,
+    out: &mut dyn Write,
+    on_failure: OnFailure,
+) -> Result<(), Failure> {
     let total_steps = steps.len();
     let mut tree = None;
+    let mut failures = Vec::new();
     for (index, step) in steps.iter().enumerate() {
         let number = index.saturating_add(1);
         say(out, &format!("▶ [{number}/{total_steps}] {}", step.name))?;
-        run_action(&step.action, runner, out, &mut tree).map_err(|failure| Failure {
-            summary: format!("{}: {}", step.name, failure.summary),
-            details: failure.details,
-        })?;
+        if let Err(failure) = run_action(&step.action, runner, out, &mut tree) {
+            let failure = Failure {
+                summary: format!("{}: {}", step.name, failure.summary),
+                details: failure.details,
+            };
+            if on_failure == OnFailure::Stop {
+                return Err(failure);
+            }
+            failures.push(failure);
+        }
     }
-    say(out, &format!("✔ all {total_steps} checks passed"))
+    if failures.is_empty() {
+        return say(out, &format!("✔ all {total_steps} checks passed"));
+    }
+    Err(Failure {
+        summary: format!(
+            "{} of {total_steps} checks failed, listed above",
+            failures.len()
+        ),
+        details: failures
+            .into_iter()
+            .flat_map(|failure| failure.details.into_iter().chain([failure.summary]))
+            .collect(),
+    })
 }
 
 /// Usage of the `xtask` command, in the order of its first line.
@@ -4988,8 +5047,9 @@ pub const USAGE: &str = "\
 usage: cargo xtask <check [--full]|list [--full]|mutants <target>|bless|commit-msg <file>|pre-push [pair...]|help>
   check [--full]        run every quality check; mutation testing covers the changes: Rust
                         since the merge base with the upstream, origin/main or main,
-                        TypeScript since the last local Stryker run; with --full every
-                        mutant, as CI does
+                        TypeScript since the last local Stryker run; stops at the first
+                        failure; with --full every mutant, as CI does, and every check
+                        runs whatever fails, then every failure is reported
   list [--full]         list the checks of `check` (or `check --full`), in order
   mutants <target>      run every mutant of one target: a crate (its name), a Rust file
                         of a crate, a TypeScript package (its directory) or one of its
@@ -5316,8 +5376,8 @@ pub fn cli(
     };
     let result = match task {
         Task::Check(full) => {
-            let steps = check_steps(mode(full));
-            run_steps(&steps, runner, out)
+            let mode = mode(full);
+            run_steps_then(&check_steps(mode), runner, out, mode.on_failure())
         }
         Task::Bless => run_steps(&[bless_step()], runner, out),
         Task::CommitMsg(path) => {
@@ -5328,8 +5388,9 @@ pub fn cli(
             let release = pushed
                 .iter()
                 .any(|(_, remote)| remote.starts_with("refs/tags/"));
+            let mode = mode(release);
             pre_push(runner, &commits)
-                .and_then(|()| run_steps(&check_steps(mode(release)), runner, out))
+                .and_then(|()| run_steps_then(&check_steps(mode), runner, out, mode.on_failure()))
         }
         Task::Mutants(target) => {
             let steps = mutants_steps(&target, jobs);
