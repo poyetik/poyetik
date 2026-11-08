@@ -378,7 +378,7 @@
         },
         {
           "title": "Check that no trace of the working name remains before the first publication",
-          "done": false
+          "done": true
         }
       ]
     }

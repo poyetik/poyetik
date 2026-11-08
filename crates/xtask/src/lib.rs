@@ -1336,7 +1336,7 @@ pub fn commit_msg_gate(message: &str) -> Result<(), String> {
 
 /// The commit from which every change of behavior must update `CHANGELOG.md`: the earlier
 /// history predates the rule and is not rewritten.
-pub const CHANGELOG_SINCE: &str = "9dc3d94a0235380ba931450c83dc1e7badcc68ed";
+pub const CHANGELOG_SINCE: &str = "8182fda87a1c631295548ff52eeb4ea08335fa36";
 
 /// The two history listings the history gate reads: every commit with its message, and the
 /// files each commit since [`CHANGELOG_SINCE`] touched. Records are separated by `0x1e`.
