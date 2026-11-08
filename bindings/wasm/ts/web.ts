@@ -41,12 +41,16 @@ export class LoadedPatch {
 
   /**
    * Checks `patch` with the engine at `rate` hertz, on this thread: errors are thrown here
-   * with the explanation of the engine, rather than in the audio thread.
-   * @throws {RangeError} when `rate` is not a whole number of hertz that fits 32 bits (an
-   * `AudioContext.sampleRate` may not be).
-   * @throws {ModuleError} when `wasm` is not an engine module.
-   * @throws {Error} with the explanation of the engine, when it rejects the patch.
-   * @throws {EngineTrap} when the module traps while loading the patch.
+   * with the explanation of the engine, rather than in the audio thread. What it rejects
+   * with, told apart by `name` (the error classes are not exported yet, roadmap #5):
+   * @throws {RangeError} when `rate` is not a whole number of hertz that fits 32 bits.
+   * @throws {Error} named `ModuleError` ("not an engine module: …") when `wasm` is not an
+   * engine module of this version.
+   * @throws {Error} with the explanation of the engine as message, and a `PatchError` as
+   * `cause`, when it rejects the patch or the rate (an unsupported rate, a patch that is
+   * not UTF-8, invalid or that cannot be planned).
+   * @throws {Error} named `EngineTrap`, with the WebAssembly `RuntimeError` as `cause`, when
+   * the module traps while checking the patch.
    */
   static async load(wasm: ArrayBuffer, patch: Uint8Array, rate: number): Promise<LoadedPatch> {
     const bytes = wasm.slice(0);
@@ -79,11 +83,9 @@ export async function addProcessors(context: BaseAudioContext, url: string | URL
 }
 
 /**
- * Checks `patch` with the engine at `rate` hertz: see {@link LoadedPatch.load}.
- * @throws {RangeError} when `rate` is not a whole number of hertz that fits 32 bits.
- * @throws {ModuleError} when `wasm` is not an engine module.
- * @throws {Error} with the explanation of the engine, when it rejects the patch.
- * @throws {EngineTrap} when the module traps while loading the patch.
+ * Checks `patch` with the engine at `rate` hertz: see {@link LoadedPatch.load}, which
+ * lists what it rejects with.
+ * @throws {Error} as {@link LoadedPatch.load}.
  */
 export function loadPatch(wasm: ArrayBuffer, patch: Uint8Array, rate: number): Promise<LoadedPatch> {
   return LoadedPatch.load(wasm, patch, rate);

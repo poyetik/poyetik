@@ -1,6 +1,7 @@
 /**
  * The engine WebAssembly module, driven from JavaScript: in an `AudioWorklet`, on the
- * main thread or in Node. See `bindings/wasm/src/ffi.rs` for the exported interface.
+ * main thread or in Node (the package exports no Node entry point yet: it comes with the
+ * SDK, roadmap #5; the tests import this module directly). See `bindings/wasm/src/ffi.rs` for the exported interface.
  */
 
 /** A function exported by the module, without arguments. */
@@ -41,8 +42,11 @@ export class ModuleError extends Error {
 }
 
 /**
- * Thrown when the engine rejects a patch. `detail` is the UTF-8 explanation: decode it
- * where a `TextDecoder` is available (an `AudioWorklet` may not have one).
+ * Thrown when the engine refuses to load a patch: the patch is invalid or cannot be
+ * planned, but also when it is not UTF-8 or when the engine does not support the sample
+ * rate (separate errors are planned with the public API, roadmap #5). `detail` is the
+ * UTF-8 explanation: decode it where a `TextDecoder` is available (an `AudioWorklet` may
+ * not have one).
  */
 export class PatchError extends Error {
   /** The UTF-8 explanation given by the engine. */
@@ -196,7 +200,7 @@ export class WasmEngine {
    * Instantiates `module` and loads `patch` (UTF-8 text in the patch format) at `rate` hertz.
    * @throws {RangeError} when `rate` is not a whole number of hertz that fits 32 bits.
    * @throws {ModuleError} when `module` is not an engine module of this version.
-   * @throws {PatchError} when the engine rejects the patch.
+   * @throws {PatchError} when the engine rejects the patch, its bytes or the rate.
    * @throws {EngineTrap} when the module traps.
    */
   static create(module: WebAssembly.Module, patch: Uint8Array, rate: number): WasmEngine {

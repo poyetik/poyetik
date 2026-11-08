@@ -1,9 +1,9 @@
 import { runInNewContext } from "node:vm";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { ModuleError, PatchError } from "../ts/engine.ts";
+import { EngineTrap, ModuleError, PatchError } from "../ts/engine.ts";
 import { ENGINE_PROCESSOR, MessageError, TAP_PROCESSOR } from "../ts/protocol.ts";
 import { addProcessors, capture, captureEngine, createEngineNode, LoadedPatch, loadPatch, START_MARGIN, renderOffline, tap } from "../ts/web.ts";
-import { SILENT_PATCH, SINE_PATCH, UNKNOWN_BOX, wasmBytes } from "./fixtures.ts";
+import { engineFunctions, handMadeBytes, SILENT_PATCH, SINE_PATCH, UNKNOWN_BOX, wasmBytes } from "./fixtures.ts";
 
 /** The sample rate of the fake audio contexts, in hertz. */
 const RATE = 48_000;
@@ -206,6 +206,13 @@ describe("loadPatch", () => {
   test("lets other errors through", async () => {
     const empty = new Uint8Array([0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]);
     await expect(loadPatch(empty.buffer, SINE_PATCH, RATE)).rejects.toThrow(new ModuleError("no memory"));
+  });
+
+  test("lets a trap of the module while checking the patch through, with the trap as cause", async () => {
+    const functions = engineFunctions().map((func) => (func.name === "engine_load" ? { ...func, body: "trap" as const } : func));
+    const error: unknown = await loadPatch(handMadeBytes({ memory: true, functions }).buffer, SINE_PATCH, RATE).catch((reason: unknown) => reason);
+    expect(error).toStrictEqual(new EngineTrap());
+    expect(error).toHaveProperty("cause.name", "RuntimeError");
   });
 
   test("explains bytes that are not a module", async () => {
