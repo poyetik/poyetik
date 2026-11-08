@@ -2,8 +2,9 @@
 
 /// Rounds an `f64` to the nearest `f32` sample.
 ///
-/// This IEEE 754 conversion (round to nearest, ties to even) is exact and identical on
-/// every target. The standard library offers no `From` for it, hence the cast.
+/// This IEEE 754 conversion is correctly rounded (round to nearest, ties to even), so it
+/// is identical on every target that keeps subnormals (flush-to-zero hosts are handled
+/// with roadmap #12). The standard library offers no `From` for it, hence the cast.
 #[expect(
     clippy::as_conversions,
     clippy::cast_possible_truncation,

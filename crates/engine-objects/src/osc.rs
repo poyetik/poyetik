@@ -85,11 +85,67 @@ mod tests {
 
     /// The largest distance a correct oscillator has from the exact sine after `frames`
     /// samples, derived term by term (the oracle uses the same bound, `sineErrorBound`):
-    /// half an f32 ulp below 1 for the output rounding (2^-25), 2^-52 cycle per sample
-    /// for the f64 phase accumulation and the rounding of the increment, and 2^-48 for
-    /// evaluating the sine.
+    ///
+    /// - output rounding: half an f32 ulp below 1, 2^-25;
+    /// - phase accumulation: at most 2^-52 cycle per sample, hence 2π · 2^-52 radians,
+    ///   in each regime of `cycles = frequency / rate`:
+    ///   - below 1 cycle per sample, the increment is `cycles` rounded once (at most
+    ///     2^-54, half an ulp below 1) and each addition to a phase below 2 rounds by at
+    ///     most 2^-53; the wrap (`- 1.0`) is exact;
+    ///   - from 1 to 4 cycles per sample, `cycles` is rounded once (at most 2^-52, half an
+    ///     ulp below 4) and removing its whole cycles is exact, so the increment is a
+    ///     multiple of 2^-52 below 1, and so is the phase: every addition is exact;
+    ///   - from 4 cycles on, rounding `cycles` costs up to 2^-51: the bound would no
+    ///     longer hold. The parameter range keeps `cycles` below 4 at every supported
+    ///     rate, checked by `stays_below_four_cycles_per_sample`;
+    /// - evaluating the sine: 2^-48.
     fn bound(frames: u32) -> f64 {
         libm::exp2(-25.0) + TAU * f64::from(frames) * libm::exp2(-52.0) + libm::exp2(-48.0)
+    }
+
+    /// The largest error of [`exact`] itself: its argument, 2π times a correctly rounded
+    /// quotient below 1, is off by at most 3 · 2^-53 · 2π < 2^-48.4, and `libm::sin` adds
+    /// less than an ulp, 2^-53. Comparisons leave room for it inside the bound: a sample
+    /// within `bound(frames) - REFERENCE_ERROR` of the reference is within
+    /// `bound(frames)` of the exact sine.
+    const REFERENCE_ERROR: f64 = 3.552_713_678_800_501e-15; // 2^-48
+
+    /// The exact sine at `frame` of an oscillator at `frequency` Hz starting at phase 0,
+    /// both rates whole: the phase is reduced in integers, `(frequency · frame) mod rate`,
+    /// so the reference never accumulates an error, whatever the frame.
+    fn exact(frequency: u64, rate: u64, frame: u64) -> f64 {
+        let cycle = frequency
+            .checked_mul(frame)
+            .and_then(|turns| turns.checked_rem(rate))
+            .expect("no overflow, a rate above zero");
+        let to_f64 = |value: u64| f64::from(u32::try_from(value).expect("below 2^32"));
+        libm::sin(TAU * to_f64(cycle) / to_f64(rate))
+    }
+
+    /// Checks `samples`, rendered from frame 0 at `frequency` Hz and `rate` Hz, against
+    /// [`exact`] within `bound(frames)`, leaving room for the reference's own error.
+    fn assert_exact(samples: &[f32], frequency: u64, rate: u64) {
+        let frames = u32::try_from(samples.len()).expect("a short render");
+        for (frame, &sample) in (0_u64..).zip(samples) {
+            let expected = exact(frequency, rate, frame);
+            assert!(
+                (f64::from(sample) - expected).abs() + REFERENCE_ERROR <= bound(frames),
+                "{frequency} Hz at {rate} Hz, sample {frame}: {sample} instead of {expected}"
+            );
+        }
+    }
+
+    /// Renders `frames` frames of `osc~` at `frequency` Hz and `rate` Hz.
+    fn render_at(frequency: f32, rate: u32, frames: usize) -> Vec<f32> {
+        let mut osc = (OSC.create)(SampleRate::new(rate).expect("valid rate"), &[frequency]);
+        let mut samples = Vec::new();
+        while samples.len() < frames {
+            let mut out: [Block; 1] = [SILENCE];
+            osc.process(&[], &mut out);
+            samples.extend_from_slice(&out[0]);
+        }
+        samples.truncate(frames);
+        samples
     }
 
     /// Renders `blocks` blocks of `osc~` at 48 kHz.
@@ -108,14 +164,7 @@ mod tests {
     #[test]
     fn produces_a_440_hz_sine() {
         let samples = render(440.0, 40);
-        for (frame, &sample) in samples.iter().enumerate() {
-            let index = f64::from(u32::try_from(frame).expect("small index"));
-            let expected = libm::sin(TAU * 440.0_f64 * index / 48_000.0_f64);
-            assert!(
-                (f64::from(sample) - expected).abs() <= bound(2_560),
-                "sample {frame}: {sample} instead of {expected}"
-            );
-        }
+        assert_exact(&samples, 440, 48_000);
         assert_eq!(samples[0].to_bits(), 0.0_f32.to_bits(), "starts at phase 0");
     }
 
@@ -200,26 +249,23 @@ mod tests {
 
     #[test]
     fn stays_exact_above_the_sample_rate() {
-        // 10 001 Hz at 8 kHz: 1.25 cycles per sample. Compared over 10 s with the exact
-        // phase ((f × n) mod rate) / rate, computed in integers: within the derived bound.
-        let rate = SampleRate::new(8_000).expect("valid rate");
-        let mut osc = (OSC.create)(rate, &[10_001.0]);
-        let mut out: [Block; 1] = [SILENCE];
-        let mut frame = 0_u64;
-        for _ in 0_u32..1_250_u32 {
-            osc.process(&[], &mut out);
-            for &sample in &out[0] {
-                let cycle = (10_001_u64 * frame) % 8_000_u64;
-                let exact = libm::sin(
-                    TAU * f64::from(u32::try_from(cycle).expect("below the rate")) / 8_000.0_f64,
-                );
-                assert!(
-                    (f64::from(sample) - exact).abs() <= bound(80_000),
-                    "sample {frame}: {sample} instead of {exact}"
-                );
-                frame += 1_u64;
-            }
-        }
+        // 10 001 Hz at 8 kHz: 1.25 cycles per sample, over 10 s.
+        assert_exact(&render_at(10_001.0, 8_000, 80_000), 10_001, 8_000);
+    }
+
+    #[test]
+    fn stays_exact_between_two_and_four_cycles_per_sample() {
+        // 19 984 Hz at 8 kHz: 2.498 cycles per sample, the regime where the increment
+        // rounds by up to 2^-52 (here 0.992 · 2^-52, among the worst), over 10 s.
+        assert_exact(&render_at(19_984.0, 8_000, 80_000), 19_984, 8_000);
+    }
+
+    #[test]
+    fn stays_below_four_cycles_per_sample() {
+        // The precondition of `bound`: from 4 cycles per sample on, the increment rounds
+        // by up to 2^-51 and the bound no longer holds.
+        let highest = f64::from(OSC.params[0].max) / f64::from(SampleRate::MIN);
+        assert!(highest < 4.0_f64, "{highest} cycles per sample");
     }
 
     #[test]
