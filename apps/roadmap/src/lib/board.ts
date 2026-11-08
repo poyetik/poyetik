@@ -184,17 +184,23 @@ function parseSteps(raw: unknown, where: string): Step[] {
   return raw.map((rawStep, i) => parseStep(rawStep, `${where} step ${String(i + 1)}`));
 }
 
-/** Validates one stored card; `index` is its 0-based position in `cards`, used only to locate errors (the id itself may be what is invalid). */
+/**
+ * Validates one stored card; `index` is its 0-based position in `cards`. Errors locate the card
+ * by its 1-based entry in the file until its id is proven, then by both (`card #4 (entry 3)`):
+ * ids are not in file order, so the entry alone would point at the wrong ticket, and the id
+ * alone may be what is invalid.
+ */
 function parseCard(raw: unknown, index: number): Card {
-  const where = `card #${String(index)}`;
+  const entry = `entry ${String(index + 1)}`;
   if (!isRecord(raw)) {
-    throw new BoardError(`${where} must be an object`);
+    throw new BoardError(`card ${entry} must be an object`);
   }
-  requireExactKeys(raw, CARD_KEYS, where);
+  requireExactKeys(raw, CARD_KEYS, `card ${entry}`);
   const id = raw["id"];
   if (!isPositiveInteger(id)) {
-    throw new BoardError(`${where}: invalid id`);
+    throw new BoardError(`card ${entry}: invalid id`);
   }
+  const where = `card ${formatId(id)} (${entry})`;
   return {
     id,
     title: requireText(raw["title"], `${where} title`),

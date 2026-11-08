@@ -209,22 +209,27 @@ describe("parseBoard", () => {
     expectBoardError(() => parseBoard(raw({ title: 3 })), "title must be a non-empty string");
   });
 
+  it("locates an invalid card by its id and its 1-based entry, since ids are not in file order", () => {
+    const cards = [stored(card(2, "next")), { ...stored(card(1, "next")), title: " " }];
+    expectBoardError(() => parseBoard(raw({ nextId: 3, cards })), "card #1 (entry 2) title must be a non-empty string");
+  });
+
   it("rejects a card that is not an object", () => {
-    expectBoardError(() => parseBoard(raw({ cards: [stored(card(1, "next")), "x"], nextId: 3 })), "card #1 must be an object");
-    expectBoardError(() => parseBoard(raw({ cards: [null] })), "card #0 must be an object");
-    expectBoardError(() => parseBoard(raw({ cards: [[]] })), "card #0 must be an object");
+    expectBoardError(() => parseBoard(raw({ cards: [stored(card(1, "next")), "x"], nextId: 3 })), "card entry 2 must be an object");
+    expectBoardError(() => parseBoard(raw({ cards: [null] })), "card entry 1 must be an object");
+    expectBoardError(() => parseBoard(raw({ cards: [[]] })), "card entry 1 must be an object");
   });
 
   it("rejects a card with missing or extra fields", () => {
     const withoutMilestone = Object.fromEntries(Object.entries(stored(card(1, "next"))).filter(([key]) => key !== "milestone"));
     expectBoardError(
       () => parseBoard(raw({ cards: [withoutMilestone] })),
-      "card #0: expected fields column, createdAt, description, id, milestone, tasks, title, updatedAt, got column, createdAt, description, id, tasks, title, updatedAt",
+      "card entry 1: expected fields column, createdAt, description, id, milestone, tasks, title, updatedAt, got column, createdAt, description, id, tasks, title, updatedAt",
     );
   });
 
   it.each([0, -1, 1.5, "1", "#1", null, true, [1], 2 ** 53])("rejects an invalid id: %j", (id) => {
-    expectBoardError(() => parseBoard(rawCard({ id })), "card #0: invalid id");
+    expectBoardError(() => parseBoard(rawCard({ id })), "card entry 1: invalid id");
   });
 
   it("accepts multi-digit ids", () => {
@@ -232,12 +237,12 @@ describe("parseBoard", () => {
   });
 
   it("rejects an empty card title", () => {
-    expectBoardError(() => parseBoard(rawCard({ title: "  " })), "card #0 title must be a non-empty string");
+    expectBoardError(() => parseBoard(rawCard({ title: "  " })), "card #1 (entry 1) title must be a non-empty string");
   });
 
   it("rejects a non-string description or milestone", () => {
-    expectBoardError(() => parseBoard(rawCard({ description: 1 })), "card #0 description must be a string");
-    expectBoardError(() => parseBoard(rawCard({ milestone: null })), "card #0 milestone must be a string");
+    expectBoardError(() => parseBoard(rawCard({ description: 1 })), "card #1 (entry 1) description must be a string");
+    expectBoardError(() => parseBoard(rawCard({ milestone: null })), "card #1 (entry 1) milestone must be a string");
   });
 
   it("rejects an unknown column", () => {
@@ -269,14 +274,14 @@ describe("parseBoard", () => {
     null,
     ["2026-11-07"],
   ])("rejects an invalid date: %j", (createdAt) => {
-    expectBoardError(() => parseBoard(rawCard({ createdAt })), "card #0 createdAt must be a YYYY-MM-DD date");
+    expectBoardError(() => parseBoard(rawCard({ createdAt })), "card #1 (entry 1) createdAt must be a YYYY-MM-DD date");
   });
 
   it("rejects an invalid update date", () => {
-    expectBoardError(() => parseBoard(rawCard({ updatedAt: "yesterday" })), "card #0 updatedAt must be a YYYY-MM-DD date");
+    expectBoardError(() => parseBoard(rawCard({ updatedAt: "yesterday" })), "card #1 (entry 1) updatedAt must be a YYYY-MM-DD date");
     // Well formed, but not a day of the calendar.
     for (const impossible of ["2026-02-31", "2026-02-29", "2026-13-01", "2026-00-10", "2026-04-31", "2026-06-00", "2026-1-1", "x2026-01-01", "2026-01-01x", "+002026-01-01", ""]) {
-      expectBoardError(() => parseBoard(rawCard({ updatedAt: impossible })), "card #0 updatedAt must be a YYYY-MM-DD date");
+      expectBoardError(() => parseBoard(rawCard({ updatedAt: impossible })), "card #1 (entry 1) updatedAt must be a YYYY-MM-DD date");
     }
     expect(parseBoard(rawCard({ updatedAt: "2028-02-29" })).cards[0]?.updatedAt).toBe("2028-02-29");
   });
@@ -518,33 +523,33 @@ describe("steps in parseBoard", () => {
     const { tasks, ...rest } = stored(card(1, "next"));
     expectBoardError(
       () => parseBoard(raw({ cards: [{ ...rest, steps: tasks }] })),
-      "card #0: expected fields column, createdAt, description, id, milestone, tasks, title, updatedAt, got column, createdAt, description, id, milestone, steps, title, updatedAt",
+      "card entry 1: expected fields column, createdAt, description, id, milestone, tasks, title, updatedAt, got column, createdAt, description, id, milestone, steps, title, updatedAt",
     );
   });
 
   it("rejects steps that are not an array", () => {
-    expectBoardError(() => parseBoard(rawCard({ tasks: {} })), "card #0 tasks must be an array");
+    expectBoardError(() => parseBoard(rawCard({ tasks: {} })), "card #1 (entry 1) tasks must be an array");
   });
 
   it("rejects a step that is not an object", () => {
-    expectBoardError(() => parseBoard(rawCard({ tasks: ["x"] })), "card #0 step 1 must be an object");
-    expectBoardError(() => parseBoard(rawCard({ tasks: [{ title: "A", done: true }, null] })), "card #0 step 2 must be an object");
-    expectBoardError(() => parseBoard(rawCard({ tasks: [[]] })), "card #0 step 1 must be an object");
+    expectBoardError(() => parseBoard(rawCard({ tasks: ["x"] })), "card #1 (entry 1) step 1 must be an object");
+    expectBoardError(() => parseBoard(rawCard({ tasks: [{ title: "A", done: true }, null] })), "card #1 (entry 1) step 2 must be an object");
+    expectBoardError(() => parseBoard(rawCard({ tasks: [[]] })), "card #1 (entry 1) step 1 must be an object");
   });
 
   it("rejects a step with missing or extra fields", () => {
     expectBoardError(
       () => parseBoard(rawCard({ tasks: [{ title: "A" }] })),
-      "card #0 step 1: expected fields done, title, got title",
+      "card #1 (entry 1) step 1: expected fields done, title, got title",
     );
   });
 
   it("rejects a step whose done flag is not a boolean", () => {
-    expectBoardError(() => parseBoard(rawCard({ tasks: [{ title: "A", done: "yes" }] })), "card #0 step 1 done must be a boolean");
+    expectBoardError(() => parseBoard(rawCard({ tasks: [{ title: "A", done: "yes" }] })), "card #1 (entry 1) step 1 done must be a boolean");
   });
 
   it("rejects a step with an empty title", () => {
-    expectBoardError(() => parseBoard(rawCard({ tasks: [{ title: " ", done: false }] })), "card #0 step 1 title must be a non-empty string");
+    expectBoardError(() => parseBoard(rawCard({ tasks: [{ title: " ", done: false }] })), "card #1 (entry 1) step 1 title must be a non-empty string");
   });
 });
 
