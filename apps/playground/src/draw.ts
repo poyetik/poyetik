@@ -3,15 +3,40 @@
 import type { ScopeScene } from "./scope.ts";
 
 /** What drawing needs of a 2D canvas context. */
-export type ScopeCanvas = Pick<CanvasRenderingContext2D, "clearRect" | "beginPath" | "moveTo" | "lineTo" | "stroke" | "strokeStyle" | "lineWidth">;
+export type ScopeCanvas = Pick<CanvasRenderingContext2D, "setTransform" | "clearRect" | "beginPath" | "moveTo" | "lineTo" | "stroke" | "strokeStyle" | "lineWidth">;
+
+/**
+ * How the scene maps onto the canvas: `scale` device pixels per scene unit, and `pixel`
+ * scene units per CSS pixel (so that lines keep their width on any screen).
+ */
+export interface View {
+  readonly scale: number;
+  readonly pixel: number;
+}
+
+/** The view of a scene drawn at its natural size, on a screen of one device pixel per CSS pixel. */
+export const NATURAL: View = { scale: 1, pixel: 1 };
+
+/**
+ * The backing store of a canvas shown `cssWidth` CSS pixels wide at `density` device
+ * pixels per CSS pixel, for a scene `sceneWidth` × `sceneHeight`: one backing pixel per
+ * device pixel, so that the trace is sharp on every screen. A canvas not laid out yet
+ * (width 0) is taken at the scene size.
+ */
+export function backingStore(cssWidth: number, density: number, sceneWidth: number, sceneHeight: number): View & { readonly width: number; readonly height: number } {
+  const css = cssWidth > 0 ? cssWidth : sceneWidth;
+  const width = Math.max(1, Math.round(css * density));
+  return { width, height: Math.max(1, Math.round((width * sceneHeight) / sceneWidth)), scale: width / sceneWidth, pixel: sceneWidth / css };
+}
 
 /** Colors of the drawing, matching the page theme. */
 export const COLORS = { grid: "#2a2f3a", trace: "#4fd1a5" } as const;
 
-/** Clears the canvas, then draws the grid and the trace of `scene`. */
-export function drawScope(canvas: ScopeCanvas, scene: ScopeScene): void {
+/** Clears the canvas, then draws the grid and the trace of `scene`, through `view`. */
+export function drawScope(canvas: ScopeCanvas, scene: ScopeScene, view: View = NATURAL): void {
+  canvas.setTransform(view.scale, 0, 0, view.scale, 0, 0);
   canvas.clearRect(0, 0, scene.width, scene.height);
-  canvas.lineWidth = 1;
+  canvas.lineWidth = view.pixel;
   canvas.strokeStyle = COLORS.grid;
   canvas.beginPath();
   for (const y of scene.grid) {
@@ -23,7 +48,7 @@ export function drawScope(canvas: ScopeCanvas, scene: ScopeScene): void {
   if (first === undefined) {
     return;
   }
-  canvas.lineWidth = 2;
+  canvas.lineWidth = 2 * view.pixel;
   canvas.strokeStyle = COLORS.trace;
   canvas.beginPath();
   canvas.moveTo(first.x, first.y);

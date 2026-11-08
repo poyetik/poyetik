@@ -74,6 +74,8 @@ button:focus-visible {
 }
 
 canvas {
+  /* High-contrast modes keep the canvas colors: its background and trace are one design. */
+  forced-color-adjust: none;
   display: block;
   width: 100%;
   aspect-ratio: 3 / 1;

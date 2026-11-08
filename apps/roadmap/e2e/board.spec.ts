@@ -83,3 +83,21 @@ test("declares its Content Security Policy, breaks none of it, and enforces it",
   });
   await expect.poll(violations).toStrictEqual(["img-src https://example.invalid/blocked.png"]);
 });
+
+test("loads without a failed request or a console error (its favicon included)", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") {
+      errors.push(message.text());
+    }
+  });
+  page.on("response", (response) => {
+    if (response.status() >= 400) {
+      errors.push(`HTTP ${String(response.status())}: ${response.url()}`);
+    }
+  });
+  await page.goto("./");
+  await expect(page.locator('link[rel="icon"]')).toHaveAttribute("href", "/favicon.svg");
+  expect((await page.request.get("/favicon.svg")).status()).toBe(200);
+  expect(errors).toStrictEqual([]);
+});

@@ -4,7 +4,7 @@
  */
 
 import { useEffect, useState, type JSX } from "react";
-import { drawScope, type ScopeCanvas } from "./draw.ts";
+import { backingStore, drawScope, type ScopeCanvas } from "./draw.ts";
 import type { Signal } from "./player.ts";
 import { NONE, formatFrequency, formatPeak, formatRate } from "./readout.ts";
 import { scopeScene } from "./scope.ts";
@@ -17,6 +17,9 @@ export const HEIGHT = 300;
 
 /** Duration shown across the canvas, in seconds: about four periods of 440 Hz. */
 export const WINDOW_SECONDS = 0.01;
+
+/** The id of the measurements, which describe the canvas to assistive technologies. */
+const READOUT = "scope-readout";
 
 /** Calls `frame` before every repaint until the returned function is called. */
 export function animationFrames(frame: () => void): () => void {
@@ -44,35 +47,53 @@ export interface OscilloscopeProps {
   readonly context?: (canvas: HTMLCanvasElement) => ScopeCanvas | null;
   /** Schedules the frames (replaceable in tests). */
   readonly schedule?: (frame: () => void) => () => void;
+  /** Device pixels per CSS pixel, read at every frame (replaceable in tests). */
+  readonly density?: () => number;
+}
+
+/** Device pixels per CSS pixel of this screen. */
+function screenDensity(): number {
+  return window.devicePixelRatio;
 }
 
 /**
  * The oscilloscope and its measurements. The canvas is redrawn at every frame without
  * React; the measurements are React state, which only re-renders when their text changes.
  */
-export function Oscilloscope({ signal, context = context2d, schedule = animationFrames }: OscilloscopeProps): JSX.Element {
+export function Oscilloscope({ signal, context = context2d, schedule = animationFrames, density = screenDensity }: OscilloscopeProps): JSX.Element {
   const [canvas, setCanvas] = useState<HTMLCanvasElement | null>(null);
   const [frequency, setFrequency] = useState(NONE);
   const [level, setLevel] = useState(NONE);
   const [rate, setRate] = useState(NONE);
   useEffect(() => {
-    const drawing = canvas === null ? null : context(canvas);
+    // Frames start once the canvas exists (right after the first render).
+    if (canvas === null) {
+      return undefined;
+    }
+    const drawing = context(canvas);
     return schedule(() => {
       const current = signal();
       if (drawing !== null) {
+        // One backing pixel per device pixel, for the size the canvas has now. Resized only
+        // when that changes (resizing clears the canvas); the height follows the width.
+        const store = backingStore(canvas.clientWidth, density(), WIDTH, HEIGHT);
+        if (canvas.width !== store.width) {
+          canvas.width = store.width;
+          canvas.height = store.height;
+        }
         const samples = current?.samples ?? new Float32Array();
         const window = Math.round((current?.rate ?? 0) * WINDOW_SECONDS);
-        drawScope(drawing, scopeScene(samples, window, WIDTH, HEIGHT));
+        drawScope(drawing, scopeScene(samples, window, WIDTH, HEIGHT), store);
       }
       setFrequency(formatFrequency(current));
       setLevel(formatPeak(current));
       setRate(formatRate(current));
     });
-  }, [canvas, signal, context, schedule]);
+  }, [canvas, signal, context, schedule, density]);
   return (
     <section aria-label="Oscilloscope">
-      <canvas ref={setCanvas} width={WIDTH} height={HEIGHT} role="img" aria-label="Waveform of the engine output" />
-      <dl>
+      <canvas ref={setCanvas} width={WIDTH} height={HEIGHT} role="img" aria-label="Waveform of the engine output" aria-describedby={READOUT} />
+      <dl id={READOUT}>
         <dt>Frequency</dt>
         <dd data-testid="frequency">{frequency}</dd>
         <dt>Sample peak (engine output)</dt>

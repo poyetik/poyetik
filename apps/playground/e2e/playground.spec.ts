@@ -2,17 +2,30 @@ import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 import { CSP } from "../csp.ts";
 
-/** Errors of the page during the current test. */
-let errors: Error[] = [];
+/** Errors of the page during the current test: uncaught errors, console errors, failed requests. */
+let errors: string[] = [];
 
-// Every page error fails the test: nothing may go wrong silently, in the page or the worklet.
+// Every error fails the test: nothing may go wrong silently, in the page, the worklet or
+// the network (a missing favicon included). A test expecting a failure says which.
+let expected: RegExp | undefined;
 test.beforeEach(({ page }) => {
   errors = [];
-  page.on("pageerror", (error) => errors.push(error));
+  expected = undefined;
+  page.on("pageerror", (error) => errors.push(`page error: ${error.message}`));
+  page.on("console", (message) => {
+    if (message.type() === "error") {
+      errors.push(`console error: ${message.text()}`);
+    }
+  });
+  page.on("response", (response) => {
+    if (response.status() >= 400) {
+      errors.push(`HTTP ${String(response.status())}: ${response.url()}`);
+    }
+  });
 });
 
 test.afterEach(() => {
-  expect(errors).toStrictEqual([]);
+  expect(errors.filter((error) => !(expected?.test(error) ?? false))).toStrictEqual([]);
 });
 
 test("plays the 440 Hz sine of the engine and shows it live", async ({ page }) => {
@@ -81,6 +94,7 @@ test("plays and stops from the keyboard, the button keeping the focus", async ({
 });
 
 test("explains a failure next to the button, accessibly, and can start again", async ({ page }) => {
+  expected = /\.wasm|status of 404/;
   await page.route("**/*.wasm", (route) => route.fulfill({ status: 404, body: "" }));
   await page.goto("./?muted");
   await page.getByRole("button", { name: "Start" }).click();
@@ -107,6 +121,8 @@ test("is accessible once stopped again", async ({ page }) => {
 });
 
 test("declares its Content Security Policy and breaks none of it while playing", async ({ page }) => {
+  // The control below makes the browser report a blocked image (and a request refused).
+  expected = /blocked\.png/;
   await page.addInitScript(() => {
     const violations: string[] = [];
     Reflect.set(window, "violations", violations);
@@ -130,4 +146,34 @@ test("declares its Content Security Policy and breaks none of it while playing",
     document.body.append(image);
   });
   await expect.poll(violations).toStrictEqual(["img-src https://example.invalid/blocked.png"]);
+});
+
+test("gives the oscilloscope one backing pixel per device pixel", async ({ page }) => {
+  await page.goto("./?muted");
+  await page.getByRole("button", { name: "Start" }).click();
+  await expect(page.getByTestId("frequency")).toHaveText("440.0 Hz");
+  const canvas = page.getByRole("img", { name: "Waveform of the engine output" });
+  const size = (): Promise<{ width: number; expected: number }> =>
+    canvas.evaluate((element) => {
+      if (!(element instanceof HTMLCanvasElement)) {
+        throw new Error("not a canvas");
+      }
+      return { width: element.width, expected: Math.round(element.clientWidth * window.devicePixelRatio) };
+    });
+  await expect.poll(async () => {
+    const { width, expected: wanted } = await size();
+    return width === wanted;
+  }).toBe(true);
+  await expect(canvas).toHaveAttribute("aria-describedby", "scope-readout");
+});
+
+test("keeps the oscilloscope colors in forced colors (high contrast)", async ({ page }) => {
+  // The page text follows the system colors there; the canvas keeps its own background,
+  // against which its trace was designed (forced-color-adjust: none).
+  await page.goto("./?muted");
+  const canvas = page.getByRole("img", { name: "Waveform of the engine output" });
+  const background = (): Promise<string> => canvas.evaluate((element) => getComputedStyle(element).backgroundColor);
+  const normal = await background();
+  await page.emulateMedia({ forcedColors: "active", colorScheme: "light" });
+  expect(await background()).toBe(normal);
 });

@@ -11,6 +11,7 @@ function counter(): { canvas: ScopeCanvas; clears: number[][]; points: () => num
   const canvas: ScopeCanvas = {
     strokeStyle: "",
     lineWidth: 0,
+    setTransform: () => undefined,
     clearRect: (...args) => clears.push(args),
     beginPath: () => undefined,
     moveTo: () => undefined,
@@ -86,6 +87,38 @@ describe("Oscilloscope", () => {
     expect(drawn.points()).toBe(3);
     expect(screen.getByTestId("frequency").textContent).toBe("—");
     expect(screen.getByTestId("rate").textContent).toBe("—");
+  });
+
+  test("gives the canvas one backing pixel per device pixel", async () => {
+    const { schedule, tick } = manual();
+    let density = 2;
+    render(<Oscilloscope signal={() => SQUARE} context={() => counter().canvas} schedule={schedule} density={() => density} />);
+    const canvas = screen.getByRole("img");
+    expect(canvas).toMatchObject({ width: WIDTH, height: HEIGHT });
+    tick();
+    // Not laid out in this test (width 0): taken at the scene size, at density 2.
+    expect(canvas).toMatchObject({ width: 2 * WIDTH, height: 2 * HEIGHT });
+    density = 3;
+    tick();
+    expect(canvas).toMatchObject({ width: 3 * WIDTH, height: 3 * HEIGHT });
+    // At the same density, the canvas is left alone (resizing would clear it).
+    const resized: string[] = [];
+    new MutationObserver((records) => {
+      records.forEach((record) => resized.push(String(record.attributeName)));
+    }).observe(canvas, { attributes: true });
+    tick();
+    await Promise.resolve();
+    expect(resized).toStrictEqual([]);
+    expect(canvas.getAttribute("aria-describedby")).toBe("scope-readout");
+    expect(document.getElementById("scope-readout")?.tagName).toBe("DL");
+  });
+
+  test("reads the density of the screen by default", () => {
+    vi.stubGlobal("devicePixelRatio", 1.5);
+    const { schedule, tick } = manual();
+    render(<Oscilloscope signal={() => SQUARE} context={() => counter().canvas} schedule={schedule} />);
+    tick();
+    expect(screen.getByRole("img")).toMatchObject({ width: 1350, height: 450 });
   });
 
   test("still measures without a drawing context", () => {
