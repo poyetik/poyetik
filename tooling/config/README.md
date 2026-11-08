@@ -6,6 +6,7 @@
 |---|---|
 | `tsconfig.base.json` | The strictest compiler settings, extended by every package |
 | `eslint.ts` | `strict(directory, ignores, ...extra)`: the shared ESLint configuration (no casts, no `any`, no inline disabling, strict booleans, exhaustive switches, every item documented …) |
+| `playwright.ts` | `freePort(variable, host)` and `inTurn(values, index)`: what the Playwright configurations of the packages compute (a free port per run, the test matrix spread over the browser projects), measured and mutated here |
 | `test/policy/` | One fixture per lint rule, each breaking it, plus `clean.ts` that nothing rejects |
 | `test/compiler/` | One fixture per strict compiler setting, each breaking it |
 | `test/linted.test.ts` | Every tracked TypeScript or JavaScript file of the repository is linted by its package's configuration, but for a reviewed list, each with what proves it instead |

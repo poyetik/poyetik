@@ -5,7 +5,8 @@
     "configFile": "vitest.config.ts"
   },
   "mutate": [
-    "eslint.ts"
+    "eslint.ts",
+    "playwright.ts"
   ],
   "reporters": [
     "clear-text",

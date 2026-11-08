@@ -13,7 +13,8 @@
   },
   "exports": {
     "./tsconfig.base.json": "./tsconfig.base.json",
-    "./eslint": "./eslint.ts"
+    "./eslint": "./eslint.ts",
+    "./playwright": "./playwright.ts"
   },
   "engines": {
     "node": ">=22.18"
