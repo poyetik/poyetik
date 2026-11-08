@@ -324,9 +324,13 @@ pub enum Action {
     /// Empty each of these directories (relative to the root), creating them if needed:
     /// what a later step reads there is then produced by this run only.
     FreshDirs(Vec<String>),
-    /// Require 100% coverage and no surviving mutant in the reports of every TypeScript
+    /// Require 100% coverage and every mutant killed in the reports of every TypeScript
     /// package.
     TypeScriptReportsGate,
+    /// Require every Stryker configuration to hide no mutant.
+    StrykerConfigGate,
+    /// Require every bypass of coverage or mutation testing to be reviewed.
+    BypassGate,
     /// Require the packages and crates known to xtask to be exactly those of the
     /// repository, every crate on the workspace version.
     MembershipGate,
@@ -525,6 +529,10 @@ fn proof_steps() -> Vec<Step> {
             action: Action::EquivalentGate,
         },
         Step {
+            name: "Every bypass of coverage or mutation testing reviewed".to_owned(),
+            action: Action::BypassGate,
+        },
+        Step {
             name: "Unsafe code confined to the audited files".to_owned(),
             action: Action::UnsafeGate,
         },
@@ -632,6 +640,10 @@ fn typescript_steps() -> Vec<Step> {
         Step {
             name: "JavaScript licenses".to_owned(),
             action: Action::LicenseGate,
+        },
+        Step {
+            name: "Stryker configurations hide no mutant".to_owned(),
+            action: Action::StrykerConfigGate,
         },
         Step {
             name: "Fresh TypeScript report directories".to_owned(),
@@ -826,37 +838,274 @@ pub fn ts_coverage_gate(package: &str, summary: &str) -> Result<(), String> {
     }
 }
 
-/// Checks the mutation report of a TypeScript package (Stryker `json`): at least one
-/// mutant, none survived or left without coverage.
+/// A mutant disabled in a TypeScript source by a well-formed, reviewed comment.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Disable {
+    /// The source, relative to the root.
+    pub path: String,
+    /// The line the comment disables, numbered from 1.
+    pub line: usize,
+    /// The mutator it disables.
+    pub mutator: String,
+}
+
+/// Checks the mutation report of a TypeScript package (Stryker `json`).
+///
+/// At least one mutant; every mutant `Killed`, or `Timeout` (a mutant that makes a test
+/// hang is detected, as Stryker counts it), or `Ignored` exactly where a disable comment
+/// of `disabled` says so (same file, line and mutator; [`equivalent_gate`] requires every
+/// such comment to be reviewed). Any other status (`Survived`, `NoCoverage`,
+/// `RuntimeError`, `CompileError`, one a future Stryker adds) fails.
 ///
 /// # Errors
 ///
-/// Returns a message naming the package: the report is not a valid mutation report, it
-/// holds no mutant, or it lists the mutants that were not killed.
-pub fn ts_mutation_gate(package: &str, report: &str) -> Result<(), String> {
+/// Returns every mutant that was not killed, named `file:line Mutator status`, or why the
+/// report cannot be read.
+pub fn ts_mutation_gate(package: &str, report: &str, disabled: &[Disable]) -> Result<(), Failure> {
     let json: serde_json::Value = serde_json::from_str(report)
-        .map_err(|error| format!("{package}: invalid mutation report: {error}"))?;
-    let statuses: Vec<&str> = json
+        .map_err(|error| Failure::from(format!("{package}: invalid mutation report: {error}")))?;
+    let mut mutants = 0_usize;
+    let mut problems = Vec::new();
+    let files = json
         .get("files")
         .and_then(serde_json::Value::as_object)
         .into_iter()
-        .flat_map(|files| files.values())
-        .filter_map(|file| file.get("mutants").and_then(serde_json::Value::as_array))
-        .flatten()
-        .filter_map(|mutant| mutant.get("status").and_then(serde_json::Value::as_str))
-        .collect();
-    if statuses.is_empty() {
-        return Err(format!("{package}: no mutant in the mutation report"));
+        .flatten();
+    for (file, entry) in files {
+        let path = format!("{package}/{file}");
+        let listed = entry
+            .get("mutants")
+            .and_then(serde_json::Value::as_array)
+            .into_iter()
+            .flatten();
+        for mutant in listed {
+            mutants = mutants.saturating_add(1);
+            let text = |key: &str| {
+                mutant
+                    .get(key)
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or_default()
+            };
+            let line = mutant
+                .pointer("/location/start/line")
+                .and_then(serde_json::Value::as_u64)
+                .and_then(|line| usize::try_from(line).ok())
+                .unwrap_or_default();
+            let (mutator, status) = (text("mutatorName"), text("status"));
+            let reviewed = disabled.iter().any(|disable| {
+                disable.path == path && disable.line == line && disable.mutator == mutator
+            });
+            let detected = matches!(status, "Killed" | "Timeout");
+            let accepted = detected || (status == "Ignored" && reviewed);
+            if !accepted {
+                problems.push(format!("{path}:{line} {mutator} {status}"));
+            }
+        }
     }
-    let left = |status: &str| statuses.iter().filter(|entry| **entry == status).count();
-    let (survived, uncovered) = (left("Survived"), left("NoCoverage"));
-    if survived == 0 && uncovered == 0 {
-        Ok(())
-    } else {
-        Err(format!(
-            "{package}: {survived} mutant(s) survived, {uncovered} without coverage"
+    if mutants == 0 {
+        problems.push("no mutant in the mutation report".to_owned());
+    }
+    verdict(&format!("{package}: mutants not killed"), problems)
+}
+
+/// The keys a Stryker configuration may use: none of them hides a mutant. Any other key
+/// (`ignoreStatic`, `mutator.excludedMutations`, `ignorers` …) could, and is refused.
+pub const STRYKER_KEYS: [&str; 11] = [
+    "$schema",
+    "coverageAnalysis",
+    "disableTypeChecks",
+    "ignorePatterns",
+    "mutate",
+    "plugins",
+    "reporters",
+    "tempDirName",
+    "testRunner",
+    "thresholds",
+    "vitest",
+];
+
+/// Checks the Stryker configuration of a TypeScript package.
+///
+/// Only [`STRYKER_KEYS`], no negated (`!`) glob in `mutate`, which would exclude files from
+/// mutation, and the `json` reporter, whose report [`ts_mutation_gate`] reads.
+///
+/// # Errors
+///
+/// Returns every key, glob or missing reporter at fault, or why the file cannot be read.
+pub fn stryker_config_gate(package: &str, config: &str) -> Result<(), Failure> {
+    let json: serde_json::Value = serde_json::from_str(config).map_err(|error| {
+        Failure::from(format!("{package}: invalid Stryker configuration: {error}"))
+    })?;
+    let keys = json.as_object().ok_or_else(|| {
+        Failure::from(format!(
+            "{package}: the Stryker configuration is not an object"
         ))
+    })?;
+    let strings = |key: &str| -> Vec<&str> {
+        keys.get(key)
+            .and_then(serde_json::Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(serde_json::Value::as_str)
+            .collect()
+    };
+    let mut problems: Vec<String> = keys
+        .keys()
+        .filter(|key| !STRYKER_KEYS.contains(&key.as_str()))
+        .map(|key| format!("`{key}` is not allowed: it could hide mutants"))
+        .collect();
+    problems.extend(
+        strings("mutate")
+            .into_iter()
+            .filter(|glob| glob.starts_with('!'))
+            .map(|glob| format!("`{glob}` in mutate excludes files from mutation")),
+    );
+    if !strings("reporters").contains(&"json") {
+        problems
+            .push("the `json` reporter is missing: the mutation report is not written".to_owned());
     }
+    verdict(
+        &format!("{package}/stryker.config.json hides mutants"),
+        problems,
+    )
+}
+
+/// What may remove code from a proof without a test failing: a coverage exclusion, a
+/// skipped mutant, an ignored or focused test. Built at run time, so that this file does
+/// not hold them; each with the extensions of the files where it acts.
+fn bypass_tokens() -> Vec<(String, &'static [&'static str])> {
+    let rust: &[&str] = &["rs"];
+    let typescript: &[&str] = &["ts", "tsx", "mts", "astro", "js", "mjs"];
+    vec![
+        (format!("{}::{}", "mutants", "skip"), rust),
+        (format!("#[{}", "ignore"), rust),
+        (format!("{}(off)", "coverage"), rust),
+        (format!("cfg({}", "coverage"), rust),
+        (format!("{}_{}", "coverage", "nightly"), rust),
+        (format!("{} {}", "v8", "ignore"), typescript),
+        (format!("{} {}", "istanbul", "ignore"), typescript),
+        (format!("{} {}", "c8", "ignore"), typescript),
+        (format!(".{}(", "only"), typescript),
+        (format!(".{}(", "skip"), typescript),
+        (format!(".{}(", "todo"), typescript),
+        (format!(".{}(", "fixme"), typescript),
+        (format!("{}If(", "skip"), typescript),
+        (format!("{}If(", "run"), typescript),
+    ]
+}
+
+/// The fixtures of the shared TypeScript policy: each holds on purpose what a rule forbids,
+/// to prove the rule rejects it, and is never run as a test.
+pub const POLICY_FIXTURES: [&str; 2] = [
+    "tooling/config/test/policy/",
+    "tooling/config/test/compiler/",
+];
+
+/// The tracked files the bypass gate reads (git pathspecs).
+pub const BYPASS_SOURCES: [&str; 8] = [
+    "*mutants.toml",
+    "*.rs",
+    "*.ts",
+    "*.tsx",
+    "*.mts",
+    "*.astro",
+    "*.js",
+    "*.mjs",
+];
+
+/// Reviewed bypasses of coverage or mutation testing: every occurrence of a bypass token
+/// ([`bypass_gate`]), each with the reason it is legitimate. Empty while there is none.
+pub const BYPASSES_REVIEWED: &str = "proof-bypasses.txt";
+
+/// Checks that nothing removes code from coverage or mutation testing unseen.
+///
+/// `sources` are the tracked source files (path and text): every line holding a bypass
+/// token (a skipped mutant, an ignored test, a coverage exclusion, an
+/// ignore comment of a coverage tool, a focused or skipped test, each in the languages
+/// where it acts) outside the [`POLICY_FIXTURES`] is an occurrence, and so is any tracked
+/// `mutants.toml` (a cargo-mutants configuration can exclude code); every occurrence must
+/// be reviewed in `reviewed` ([`BYPASSES_REVIEWED`]: one `<file>: <token> at <line> --
+/// <reason>` line per
+/// occurrence), and every review must be current.
+///
+/// # Errors
+///
+/// Returns every unreviewed occurrence, stale review and review without a reason.
+pub fn bypass_gate(sources: &[(String, String)], reviewed: &str) -> Result<(), Failure> {
+    let tokens = bypass_tokens();
+    let mut keys = Vec::new();
+    for (path, text) in sources {
+        if POLICY_FIXTURES
+            .iter()
+            .any(|fixtures| path.starts_with(fixtures))
+        {
+            continue;
+        }
+        if path.rsplit('/').next() == Some("mutants.toml") {
+            keys.push(format!("{path}: a cargo-mutants configuration"));
+            continue;
+        }
+        let extension = path.rsplit_once('.').map_or("", |(_, extension)| extension);
+        for line in text.lines() {
+            for (token, extensions) in &tokens {
+                if extensions.contains(&extension) && line.contains(token.as_str()) {
+                    keys.push(format!("{path}: {token} at {}", line.trim()));
+                }
+            }
+        }
+    }
+    let mut problems = Vec::new();
+    compare_reviews(&count(keys), reviewed, &mut problems);
+    verdict(
+        &format!(
+            "bypasses of coverage or mutation testing must be reviewed in {BYPASSES_REVIEWED}"
+        ),
+        problems,
+    )
+}
+
+/// The disable comments of `sources` (path and text of each TypeScript file), and a problem
+/// for every malformed one.
+///
+/// A disable comment must be `// Stryker disable next-line <Mutator>: <reason>`, one
+/// mutator, never `all`, with a reason, above a line that is not empty; any other use of
+/// `Stryker disable` is refused.
+fn disables(sources: &[(String, String)]) -> (Vec<(Disable, String)>, Vec<String>) {
+    let mut found = Vec::new();
+    let mut problems = Vec::new();
+    for (path, text) in sources {
+        let lines: Vec<&str> = text.lines().collect();
+        for (index, line) in lines.iter().enumerate() {
+            if !line.contains("Stryker disable") {
+                continue;
+            }
+            let comment = line.trim();
+            let rule = comment
+                .strip_prefix(STRYKER_DISABLE)
+                .and_then(|rest| rest.split_once(':'))
+                .filter(|(mutator, reason)| {
+                    !mutator.contains([' ', ',']) && *mutator != "all" && !reason.trim().is_empty()
+                });
+            let next = lines
+                .get(index.saturating_add(1))
+                .map_or("", |following| following.trim());
+            match rule {
+                Some((mutator, _reason)) if !next.is_empty() => found.push((
+                    Disable {
+                        path: path.clone(),
+                        line: index.saturating_add(2),
+                        mutator: mutator.to_owned(),
+                    },
+                    next.to_owned(),
+                )),
+                _ => problems.push(format!(
+                    "{path}:{}: write `{STRYKER_DISABLE}<Mutator>: <reason>` above the line",
+                    index.saturating_add(1)
+                )),
+            }
+        }
+    }
+    (found, problems)
 }
 
 /// Identifies a mutant independently of line and column numbers, so that unrelated
@@ -964,35 +1213,10 @@ const STRYKER_DISABLE: &str = "// Stryker disable next-line ";
 ///
 /// Returns a message listing malformed comments, unreviewed and stale entries.
 pub fn equivalent_gate(sources: &[(String, String)], reviewed: &str) -> Result<(), Failure> {
-    let mut problems = Vec::new();
-    let mut keys = Vec::new();
-    for (path, text) in sources {
-        let lines: Vec<&str> = text.lines().collect();
-        for (index, line) in lines.iter().enumerate() {
-            if !line.contains("Stryker disable") {
-                continue;
-            }
-            let comment = line.trim();
-            let rule = comment
-                .strip_prefix(STRYKER_DISABLE)
-                .and_then(|rest| rest.split_once(':'))
-                .filter(|(mutator, reason)| {
-                    !mutator.contains([' ', ',']) && *mutator != "all" && !reason.trim().is_empty()
-                });
-            let next = lines
-                .get(index.saturating_add(1))
-                .map_or("", |following| following.trim());
-            match rule {
-                Some((mutator, _reason)) if !next.is_empty() => {
-                    keys.push(format!("{path}: {mutator} at {next}"));
-                }
-                _ => problems.push(format!(
-                    "{path}:{}: write `{STRYKER_DISABLE}<Mutator>: <reason>` above the line",
-                    index.saturating_add(1)
-                )),
-            }
-        }
-    }
+    let (found, mut problems) = disables(sources);
+    let keys = found
+        .into_iter()
+        .map(|(disable, next)| format!("{}: {} at {next}", disable.path, disable.mutator));
     compare_reviews(&count(keys), reviewed, &mut problems);
     verdict(
         &format!("disabled mutants must be reviewed in {EQUIVALENT_REVIEWED}"),
@@ -2298,13 +2522,27 @@ fn run_action(action: &Action, runner: &mut dyn Runner) -> Result<(), Failure> {
             unsafe_gate(&read_all(runner, paths)?)
         }
         Action::LicenseGate => licenses(runner),
-        Action::TypeScriptReportsGate => PACKAGES.iter().try_for_each(|package| {
-            let [coverage, mutation] = package.reports();
-            let summary = read_file(runner, &format!("{coverage}/coverage-summary.json"))?;
-            ts_coverage_gate(package.dir, &summary)?;
-            let report = read_file(runner, &format!("{mutation}/mutation.json"))?;
-            Ok(ts_mutation_gate(package.dir, &report)?)
+        Action::TypeScriptReportsGate => {
+            let paths = list_tracked(runner, &["*.ts", "*.tsx"], "the TypeScript files")?;
+            let (found, _) = disables(&read_all(runner, paths)?);
+            let disabled: Vec<Disable> = found.into_iter().map(|(disable, _)| disable).collect();
+            PACKAGES.iter().try_for_each(|package| {
+                let [coverage, mutation] = package.reports();
+                let summary = read_file(runner, &format!("{coverage}/coverage-summary.json"))?;
+                ts_coverage_gate(package.dir, &summary)?;
+                let report = read_file(runner, &format!("{mutation}/mutation.json"))?;
+                ts_mutation_gate(package.dir, &report, &disabled)
+            })
+        }
+        Action::StrykerConfigGate => PACKAGES.iter().try_for_each(|package| {
+            let path = format!("{}/stryker.config.json", package.dir);
+            stryker_config_gate(package.dir, &read_file(runner, &path)?)
         }),
+        Action::BypassGate => {
+            let paths = list_tracked(runner, &BYPASS_SOURCES, "the source files")?;
+            let sources = read_all(runner, paths)?;
+            bypass_gate(&sources, &read_file(runner, BYPASSES_REVIEWED)?)
+        }
         Action::EquivalentGate => {
             let paths = list_tracked(runner, &["*.ts", "*.tsx"], "the TypeScript files")?;
             let sources = read_all(runner, paths)?;

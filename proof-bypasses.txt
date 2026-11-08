@@ -1,0 +1,8 @@
+# Reviewed bypasses of coverage or mutation testing: every place where code is removed from
+# a proof without a test failing (a skipped mutant, a coverage exclusion, an ignored or
+# focused test, a cargo-mutants configuration).
+#
+# There should be none. Before adding one, confirm that no test, restructuring or stronger
+# tool can prove the code instead, and say why here.
+# Format: `<file>: <token> at <the line, trimmed> -- <reason>` (one line per occurrence).
+# `cargo xtask check` fails on any occurrence not listed, and on any stale entry.

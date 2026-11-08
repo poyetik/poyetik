@@ -281,7 +281,20 @@ const TOOLING: &str = r#"{"MPL-2.0":[{"name":"axe-core"}],"LGPL-3.0-or-later":[{
 const TS_COVERED: &str = r#"{"total":{"lines":{"total":4,"covered":4},"statements":{"total":5,"covered":5},"functions":{"total":2,"covered":2},"branches":{"total":3,"covered":3}}}"#;
 
 /// A Stryker report where every mutant was killed (or timed out, or was disabled).
-const TS_KILLED: &str = r#"{"files":{"a.ts":{"mutants":[{"status":"Killed"},{"status":"Timeout"}]},"b.ts":{"mutants":[{"status":"Ignored"}]}}}"#;
+const TS_KILLED: &str = r#"{"files":{"a.ts":{"mutants":[{"status":"Killed","mutatorName":"A","location":{"start":{"line":1}}},{"status":"Timeout","mutatorName":"B","location":{"start":{"line":2}}}]}}}"#;
+
+/// A Stryker report of the shared policy: killed mutants, and one ignored where the
+/// reviewed disable comment of [`DISABLED_SOURCE`] says so.
+const TS_KILLED_OR_DISABLED: &str = r#"{"files":{"a.ts":{"mutants":[{"status":"Killed","mutatorName":"A","location":{"start":{"line":1}}}]},"x.ts":{"mutants":[{"status":"Ignored","mutatorName":"EqualityOperator","location":{"start":{"line":3}}}]}}}"#;
+
+/// A TypeScript source of the shared policy whose third line disables one mutator.
+const DISABLED_SOURCE: (&str, &str) = (
+    "tooling/config/x.ts",
+    "const a = 1;\n// Stryker disable next-line EqualityOperator: same result\nwhile (a < 2) {}\n",
+);
+
+/// A Stryker configuration that hides nothing.
+const STRYKER_CONFIG: &str = r#"{"$schema":"s","testRunner":"vitest","mutate":["src/**/*.ts"],"reporters":["json"],"thresholds":{"break":100}}"#;
 
 fn passing() -> Fake {
     let mut fake = Fake::default();
@@ -313,19 +326,8 @@ fn passing() -> Fake {
         .files
         .insert(UNVIABLE_REVIEWED.to_owned(), reviewed.to_owned());
     assert!(first.is_none() && second.is_none(), "fresh fake");
-    let source = "const a = 1;\n// Stryker disable next-line EqualityOperator: same result\nwhile (a < 2) {}\n";
-    let equivalent = "x/a.ts: EqualityOperator at while (a < 2) {} -- same result\n";
-    for package in PACKAGES {
-        let summary = fake.files.insert(
-            format!("{}/coverage/coverage-summary.json", package.dir),
-            TS_COVERED.to_owned(),
-        );
-        let mutation = fake.files.insert(
-            format!("{}/reports/mutation/mutation.json", package.dir),
-            TS_KILLED.to_owned(),
-        );
-        assert!(summary.is_none() && mutation.is_none(), "fresh fake");
-    }
+    let equivalent = "tooling/config/x.ts: EqualityOperator at while (a < 2) {} -- same result\n";
+    typescript_reports(&mut fake);
     for (line, licenses) in LICENSE_LINES.iter().zip([SHIPPED, TOOLING]) {
         let replaced = fake
             .files
@@ -355,7 +357,13 @@ fn passing() -> Fake {
         let readme = fake.files.insert(path.to_owned(), text.to_owned());
         assert!(readme.is_none(), "fresh fake");
     }
-    let third = fake.files.insert("x/a.ts".to_owned(), source.to_owned());
+    let third = fake
+        .files
+        .insert(DISABLED_SOURCE.0.to_owned(), DISABLED_SOURCE.1.to_owned());
+    let bypasses = fake
+        .files
+        .insert(super::BYPASSES_REVIEWED.to_owned(), "# none\n".to_owned());
+    assert!(bypasses.is_none(), "fresh fake");
     let fourth = fake
         .files
         .insert(EQUIVALENT_REVIEWED.to_owned(), equivalent.to_owned());
@@ -376,6 +384,34 @@ fn passing() -> Fake {
         assert!(earlier.is_none(), "fresh fake");
     }
     fake
+}
+
+/// Gives every package of `fake` a fully covered, fully killed report and a Stryker
+/// configuration that hides nothing.
+fn typescript_reports(fake: &mut Fake) {
+    for package in PACKAGES {
+        let summary = fake.files.insert(
+            format!("{}/coverage/coverage-summary.json", package.dir),
+            TS_COVERED.to_owned(),
+        );
+        let mutations = if package.dir == "tooling/config" {
+            TS_KILLED_OR_DISABLED
+        } else {
+            TS_KILLED
+        };
+        let mutation = fake.files.insert(
+            format!("{}/reports/mutation/mutation.json", package.dir),
+            mutations.to_owned(),
+        );
+        let config = fake.files.insert(
+            format!("{}/stryker.config.json", package.dir),
+            STRYKER_CONFIG.to_owned(),
+        );
+        assert!(
+            summary.is_none() && mutation.is_none() && config.is_none(),
+            "fresh fake"
+        );
+    }
 }
 
 /// What an installed tool of the preflight answers: its pinned version for a pinned Cargo
@@ -470,6 +506,8 @@ fn command_lines(steps: &[Step]) -> Vec<String> {
             Action::ReadmeGate => "readme gate".to_owned(),
             Action::FreshDirs(paths) => format!("fresh {}", paths.join(" ")),
             Action::TypeScriptReportsGate => "typescript reports gate".to_owned(),
+            Action::StrykerConfigGate => "stryker config gate".to_owned(),
+            Action::BypassGate => "bypass gate".to_owned(),
             Action::MembershipGate => "membership gate".to_owned(),
             Action::LicenseGate => "license gate".to_owned(),
             Action::UnsafeGate => "unsafe gate".to_owned(),
@@ -511,6 +549,7 @@ fn lists_every_check_in_order() {
             "Root: cargo mutants --workspace --cap-lints=true --gitignore=true",
             "unviable gate",
             "equivalent gate",
+            "bypass gate",
             "unsafe gate",
             "Root: cargo +nightly-2026-11-01 miri test --package engine-wasm --package engine-alloc-counter --locked",
             "Root: cargo run --package engine-cli --locked --quiet -- check conformance",
@@ -525,6 +564,7 @@ fn lists_every_check_in_order() {
             "Root: pnpm install --frozen-lockfile",
             "Root: pnpm audit",
             "license gate",
+            "stryker config gate",
             "fresh tooling/config/coverage tooling/config/reports/mutation tooling/oracle/coverage tooling/oracle/reports/mutation bindings/wasm/coverage bindings/wasm/reports/mutation apps/playground/coverage apps/playground/reports/mutation apps/roadmap/coverage apps/roadmap/reports/mutation",
             "Package(\"tooling/config\"): pnpm run check",
             "Package(\"tooling/oracle\"): pnpm run check",
@@ -572,6 +612,7 @@ fn names_every_check_in_order() {
             "Rust mutation testing",
             "Rust unviable mutants reviewed",
             "TypeScript equivalent mutants reviewed",
+            "Every bypass of coverage or mutation testing reviewed",
             "Unsafe code confined to the audited files",
             "Rust FFI under Miri",
             "Conformance (native)",
@@ -586,6 +627,7 @@ fn names_every_check_in_order() {
             "JavaScript dependencies",
             "JavaScript vulnerabilities",
             "JavaScript licenses",
+            "Stryker configurations hide no mutant",
             "Fresh TypeScript report directories",
             "Shared TypeScript policy (each rule proven to reject what it forbids)",
             "Conformance oracle (independent, TypeScript)",
@@ -817,19 +859,20 @@ fn runs_every_step_and_reports_success() {
         Ok(()),
         "all green"
     );
-    let (tools, commands, emptied, listed, captured) = (9, 32, 12, 6, 4);
-    let read = 12 + 2 + 2 + 2 + 10 + 10 + 8 + 2 + 10;
+    let (tools, commands, emptied, listed, captured) = (9, 32, 12, 8, 4);
+    let read = 12 + 2 + 2 + 4 + 2 + 10 + 10 + 8 + 2 + 5 + 11;
     assert_eq!(
         fake.ran.len(),
         tools + commands + emptied + listed + captured + read,
         "the preflight asks nine tools; 32 commands run (formatting, lints, documentation, \
          tests, four portability builds, twelve coverage measurements, mutants, Miri, the \
          conformance check and export, deny, the JavaScript install, audit and five package \
-         checks); twelve directories are emptied; git lists six kinds of files; the licenses \
+         checks); twelve directories are emptied; git lists eight kinds of files; the licenses \
          and the history are captured twice each; and the gates read twelve coverage reports, \
-         the unviable report and reviews, a TypeScript source and its reviews, the two unsafe \
-         files, ten crate manifests, ten READMEs, eight version files, the workflow and \
-         .node-version, and ten TypeScript reports"
+         the unviable report and reviews, a TypeScript source and its reviews, the three \
+         sources and the register of the bypass gate, the two unsafe files, ten crate manifests, ten READMEs, eight version files, the workflow and \
+         .node-version, five Stryker configurations, and the TypeScript source and ten \
+         reports of the reports gate"
     );
     for path in [CARGO_TOML.to_owned(), CHANGELOG.to_owned()]
         .into_iter()
@@ -848,15 +891,15 @@ fn runs_every_step_and_reports_success() {
     );
     let text = String::from_utf8(out).expect("utf-8 output");
     assert!(
-        text.starts_with("▶ [1/46] Tools and platform\n"),
+        text.starts_with("▶ [1/48] Tools and platform\n"),
         "numbered progress: {text}"
     );
     assert!(
-        text.contains("▶ [45/46] Roadmap checks\n"),
+        text.contains("▶ [47/48] Roadmap checks\n"),
         "last step announced: {text}"
     );
     assert!(
-        text.ends_with("✔ all 46 checks passed\n"),
+        text.ends_with("✔ all 48 checks passed\n"),
         "summary: {text}"
     );
 }
@@ -1895,45 +1938,174 @@ fn accepts_only_fully_covered_typescript_packages() {
     );
 }
 
+/// The disable comment of [`DISABLED_SOURCE`].
+fn disabled() -> Vec<super::Disable> {
+    vec![super::Disable {
+        path: DISABLED_SOURCE.0.to_owned(),
+        line: 3,
+        mutator: "EqualityOperator".to_owned(),
+    }]
+}
+
+/// A Stryker report of `a.ts` holding one mutant.
+fn one_mutant(status: &str, mutator: &str, line: u64) -> String {
+    format!(
+        r#"{{"files":{{"x.ts":{{"mutants":[{{"status":"{status}","mutatorName":"{mutator}","location":{{"start":{{"line":{line}}}}}}}]}}}}}}"#
+    )
+}
+
 #[test]
-fn accepts_only_typescript_packages_without_surviving_mutants() {
-    assert_eq!(ts_mutation_gate("p", TS_KILLED), Ok(()), "all killed");
+fn accepts_only_typescript_packages_whose_mutants_are_all_killed() {
     assert_eq!(
-        ts_mutation_gate(
-            "p",
-            r#"{"files":{"a.ts":{"mutants":[{"status":"Survived"},{"status":"NoCoverage"},{"status":"NoCoverage"},{"status":"Killed"}]}}}"#
-        ),
-        Err("p: 1 mutant(s) survived, 2 without coverage".to_owned()),
-        "survivors counted"
+        ts_mutation_gate("tooling/config", TS_KILLED_OR_DISABLED, &disabled()),
+        Ok(()),
+        "killed, timed out, or ignored where a reviewed comment says so"
     );
+    for status in [
+        "Survived",
+        "NoCoverage",
+        "RuntimeError",
+        "CompileError",
+        "Pending",
+        "Whatever",
+    ] {
+        assert_eq!(
+            ts_mutation_gate("tooling/config", &one_mutant(status, "M", 7), &disabled()),
+            failed(format!(
+                "tooling/config: mutants not killed: tooling/config/x.ts:7 M {status}"
+            )),
+            "{status} is not killed"
+        );
+    }
+    for (mutator, line, package) in [
+        ("EqualityOperator", 4, "tooling/config"),
+        ("BooleanLiteral", 3, "tooling/config"),
+        ("EqualityOperator", 3, "tooling/oracle"),
+    ] {
+        assert_eq!(
+            ts_mutation_gate(package, &one_mutant("Ignored", mutator, line), &disabled()),
+            failed(format!(
+                "{package}: mutants not killed: {package}/x.ts:{line} {mutator} Ignored"
+            )),
+            "ignored where no reviewed comment says so: {mutator} at {package}/x.ts:{line}"
+        );
+    }
     assert_eq!(
         ts_mutation_gate(
             "p",
-            r#"{"files":{"a.ts":{"mutants":[{"status":"Survived"}]}}}"#
+            r#"{"files":{"a.ts":{"mutants":[{"status":"Survived","mutatorName":"A","location":{"start":{"line":1}}},{"status":"NoCoverage","mutatorName":"B","location":{"start":{"line":2}}},{"status":"Killed"}]}}}"#,
+            &[]
         ),
-        Err("p: 1 mutant(s) survived, 0 without coverage".to_owned()),
-        "a survivor alone"
-    );
-    assert_eq!(
-        ts_mutation_gate(
-            "p",
-            r#"{"files":{"a.ts":{"mutants":[{"status":"NoCoverage"}]}}}"#
+        failed(
+            "p: mutants not killed: 2 problems, listed above\np/a.ts:1 A Survived\np/a.ts:2 B NoCoverage"
         ),
-        Err("p: 0 mutant(s) survived, 1 without coverage".to_owned()),
-        "an uncovered mutant alone"
+        "every mutant named"
     );
     for empty in [r#"{"files":{}}"#, r#"{"files":{"a.ts":{}}}"#, "{}"] {
         assert_eq!(
-            ts_mutation_gate("p", empty),
-            Err("p: no mutant in the mutation report".to_owned()),
+            ts_mutation_gate("p", empty, &[]),
+            failed("p: mutants not killed: no mutant in the mutation report"),
             "{empty}"
         );
     }
     assert!(
-        ts_mutation_gate("p", "[")
-            .is_err_and(|error| error.starts_with("p: invalid mutation report: ")),
+        ts_mutation_gate("p", "[", &[])
+            .is_err_and(|error| error.summary.starts_with("p: invalid mutation report: ")),
         "unreadable"
     );
+}
+
+#[test]
+fn refuses_stryker_configurations_that_hide_mutants() {
+    assert_eq!(
+        super::stryker_config_gate("p", STRYKER_CONFIG),
+        Ok(()),
+        "nothing hidden"
+    );
+    let hiding = r#"{"ignoreStatic":true,"mutator":{"excludedMutations":["StringLiteral"]},"mutate":["src/**/*.ts","!src/x.ts"],"reporters":["html"]}"#;
+    assert_eq!(
+        super::stryker_config_gate("p", hiding),
+        failed(
+            "p/stryker.config.json hides mutants: 4 problems, listed above\n\
+             `ignoreStatic` is not allowed: it could hide mutants\n\
+             `mutator` is not allowed: it could hide mutants\n\
+             `!src/x.ts` in mutate excludes files from mutation\n\
+             the `json` reporter is missing: the mutation report is not written"
+        ),
+        "a key, a negated glob and no report"
+    );
+    assert!(
+        super::stryker_config_gate("p", "{").is_err_and(|failure| failure
+            .summary
+            .starts_with("p: invalid Stryker configuration: ")),
+        "unreadable"
+    );
+    assert_eq!(
+        super::stryker_config_gate("p", "[]"),
+        failed("p: the Stryker configuration is not an object"),
+        "not an object"
+    );
+}
+
+#[test]
+fn requires_every_bypass_of_a_proof_to_be_reviewed() {
+    let rust = format!(
+        "#[test]\n#[{}]\nfn a() {{}}\n#[{}::{}]\nfn b() {{}}\nlet c = d.iter().{}(1);\n",
+        "ignore", "mutants", "skip", "skip"
+    );
+    let typescript = format!(
+        "it.{}(\"x\", () => {{}});\n/* {} {} next */\n",
+        "only", "v8", "ignore"
+    );
+    let sources = vec![
+        ("crates/a/src/lib.rs".to_owned(), rust),
+        ("apps/a/src/a.test.ts".to_owned(), typescript.clone()),
+        (
+            "tooling/config/test/policy/focused.ts".to_owned(),
+            typescript,
+        ),
+        ("crates/a/mutants.toml".to_owned(), String::new()),
+        ("README.md".to_owned(), format!("it.{}(", "only")),
+    ];
+    let ignore = format!("#[{}]", "ignore");
+    let skip = format!("#[{}::{}]", "mutants", "skip");
+    let v8 = format!("{} {}", "v8", "ignore");
+    let mutants_skip = format!("{}::{}", "mutants", "skip");
+    assert_eq!(
+        bypass_gate_text(&sources, ""),
+        failed(format!(
+            "bypasses of coverage or mutation testing must be reviewed in proof-bypasses.txt: \
+             5 problems, listed above\n\
+             not reviewed: apps/a/src/a.test.ts: .{only}( at it.{only}(\"x\", () => {{}});\n\
+             not reviewed: apps/a/src/a.test.ts: {v8} at /* {v8} next */\n\
+             not reviewed: crates/a/mutants.toml: a cargo-mutants configuration\n\
+             not reviewed: crates/a/src/lib.rs: #[{ignore_word} at {ignore}\n\
+             not reviewed: crates/a/src/lib.rs: {mutants_skip} at {skip}",
+            only = "only",
+            ignore_word = "ignore",
+        )),
+        "every token in the language where it acts, a policy fixture and prose apart, an \
+         iterator's skip apart"
+    );
+    let reviewed = format!(
+        "crates/a/mutants.toml: a cargo-mutants configuration -- reason\n\
+         crates/a/src/lib.rs: #[{} at {ignore} -- reason\n",
+        "ignore"
+    );
+    assert_eq!(
+        bypass_gate_text(&sources[2..4], &reviewed),
+        failed(format!(
+            "bypasses of coverage or mutation testing must be reviewed in proof-bypasses.txt: \
+             stale review: crates/a/src/lib.rs: #[{} at {ignore}",
+            "ignore"
+        )),
+        "a reviewed occurrence passes, a review of nothing is stale"
+    );
+}
+
+/// Runs [`super::bypass_gate`].
+fn bypass_gate_text(sources: &[(String, String)], reviewed: &str) -> Result<(), Failure> {
+    super::bypass_gate(sources, reviewed)
 }
 
 #[test]
@@ -1953,13 +2125,14 @@ fn fails_on_a_missing_or_failing_typescript_report() {
     let mut survivor = passing();
     let replaced = survivor.files.insert(
         "apps/roadmap/reports/mutation/mutation.json".to_owned(),
-        r#"{"files":{"a.ts":{"mutants":[{"status":"Survived"}]}}}"#.to_owned(),
+        one_mutant("Survived", "M", 4),
     );
     assert!(replaced.is_some(), "report replaced");
     assert_eq!(
         run_steps(&check_steps(), &mut survivor, &mut Vec::new()),
         failed(
-            "TypeScript coverage and mutation reports: apps/roadmap: 1 mutant(s) survived, 0 without coverage"
+            "TypeScript coverage and mutation reports: apps/roadmap: mutants not killed: \
+             apps/roadmap/x.ts:4 M Survived"
         ),
         "survivor"
     );
@@ -2955,7 +3128,7 @@ fn prints_the_details_of_a_failure_on_stdout_and_one_line_on_stderr() {
     );
     assert!(
         String::from_utf8(out).expect("UTF-8").ends_with(
-            "▶ [24/46] Rust unviable mutants reviewed\n\
+            "▶ [24/48] Rust unviable mutants reviewed\n\
              not reviewed: crates/a/src/c.rs: replace g -> U with x\n\
              stale review: crates/a/src/b.rs: replace f -> T with Default::default()\n"
         ),
