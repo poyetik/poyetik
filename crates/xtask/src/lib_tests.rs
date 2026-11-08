@@ -3965,7 +3965,7 @@ fn refuses_workflows_that_could_pass_without_checking() {
             "      - name: Every quality check\n",
             "      - name: Every quality check\n        if: false\n",
         ),
-        "`if: false`: the only condition is `if: failure()`",
+        "`if: false`: the only conditions are `if: failure()` and `if: github.event_name != \'push\' || contains(github.event.head_commit.message, \'[ci]\')`",
     );
     refused(
         &PINNED_WORKFLOW.replace("nightly-2026-11-01", "nightly-2020-01-01"),
@@ -4668,4 +4668,37 @@ fn reads_odd_sources_without_losing_prose() {
         format!("[a]{}c", " ".repeat(13)),
         "a backquote in a link target, a bracket in a code span"
     );
+}
+
+#[test]
+fn accepts_exactly_the_conditions_decided() {
+    for condition in super::WORKFLOW_CONDITIONS {
+        let workflow = PINNED_WORKFLOW.replace(
+            "    runs-on: ubuntu-24.04\n",
+            &format!("    {condition}\n    runs-on: ubuntu-24.04\n"),
+        );
+        assert!(
+            workflow.contains(condition),
+            "the fixture holds the condition"
+        );
+        assert_eq!(
+            super::workflow_gate(&[super::WORKFLOW.to_owned()], &workflow, "22.23.4"),
+            Ok(()),
+            "{condition}"
+        );
+    }
+    for variant in [
+        "if: github.event_name != 'push' || contains(github.event.head_commit.message, 'ci')",
+        "if: false",
+        "if: github.event_name == 'pull_request'",
+    ] {
+        let workflow = PINNED_WORKFLOW.replace(
+            "    runs-on: ubuntu-24.04\n",
+            &format!("    {variant}\n    runs-on: ubuntu-24.04\n"),
+        );
+        assert!(
+            super::workflow_gate(&[super::WORKFLOW.to_owned()], &workflow, "22.23.4").is_err(),
+            "{variant}"
+        );
+    }
 }

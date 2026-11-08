@@ -2335,12 +2335,23 @@ fn holds_block(workflow: &str, block: &[&str]) -> bool {
     lines.windows(block.len()).any(|window| window == block)
 }
 
+/// The only conditions the workflow may hold, exactly.
+///
+/// The upload of the reports after a failure, and the maintainer's decision that a push runs
+/// the check only when its last commit asks for it with `[ci]` (pull requests and manual
+/// runs always run it). Any other condition, or a variant of these, could skip the check
+/// without anyone deciding it.
+pub const WORKFLOW_CONDITIONS: [&str; 2] = [
+    "if: failure()",
+    "if: github.event_name != 'push' || contains(github.event.head_commit.message, '[ci]')",
+];
+
 /// Checks that CI cannot change under the project's feet, nor pass without checking.
 ///
 /// `workflows` are the workflow files tracked by git: only [`WORKFLOW`]. In it, every line
 /// using an action pins it to a full commit hash, whatever its form (`- uses:`, a flow
-/// mapping); nothing of [`WORKFLOW_REFUSED`] appears; the only condition is `if: failure()`
-/// (on the upload of the reports); the triggers and the token's permissions are exactly
+/// mapping); nothing of [`WORKFLOW_REFUSED`] appears; the only conditions are those of
+/// [`WORKFLOW_CONDITIONS`]; the triggers and the token's permissions are exactly
 /// [`WORKFLOW_TRIGGERS`] and [`WORKFLOW_PERMISSIONS`]; every nightly toolchain named is
 /// [`NIGHTLY_TOOLCHAIN`]; the checkout keeps no credential; the Cargo tools are
 /// [`PINNED_TOOLS`]; Node.js is the release in `.node-version` (at [`NODE_FLOOR`] or later);
@@ -2381,8 +2392,11 @@ pub fn workflow_gate(
                 .filter(|refused| line.contains(*refused))
                 .map(|refused| format!("`{line}`: `{refused}` is not allowed")),
         );
-        if line.contains("if:") && line != "if: failure()" {
-            problems.push(format!("`{line}`: the only condition is `if: failure()`"));
+        if line.contains("if:") && !WORKFLOW_CONDITIONS.contains(&line) {
+            problems.push(format!(
+                "`{line}`: the only conditions are `{}`",
+                WORKFLOW_CONDITIONS.join("` and `")
+            ));
         }
         if line.starts_with("runs-on:") && line.ends_with("-latest") {
             problems.push(format!(
