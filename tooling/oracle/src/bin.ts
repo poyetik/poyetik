@@ -1,8 +1,9 @@
 /** Entry point: `node src/bin.ts <conformance dir> <dir of exported WAV files>`. */
 
 import { readFileSync, readdirSync } from "node:fs";
-import { main } from "./cli.ts";
+import { ignoreClosedReader, main } from "./cli.ts";
 
+ignoreClosedReader(process.stdout);
 process.exitCode = main(process.argv.slice(2), {
   readText: (path) => new TextDecoder().decode(readFileSync(path)),
   readBytes: (path) => readFileSync(path),

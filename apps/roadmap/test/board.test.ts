@@ -4,6 +4,7 @@ import {
   addTask,
   completeTask,
   findCard,
+  ArgumentError,
   BoardError,
   COLUMNS,
   editCard,
@@ -58,6 +59,20 @@ function expectBoardError(fn: () => unknown, message: string): void {
   expect(fn).toThrow(new BoardError(message));
 }
 
+/** Asserts that `fn` refuses a value typed by a user, with `message`. */
+function expectArgumentError(fn: () => unknown, message: string): void {
+  expect(fn).toThrow(ArgumentError);
+  expect(fn).toThrow(new ArgumentError(message));
+}
+
+describe("ArgumentError", () => {
+  it("is a named BoardError: a usage error of the command line", () => {
+    const error = new ArgumentError("bad");
+    expect(error).toBeInstanceOf(BoardError);
+    expect(error.name).toBe("ArgumentError");
+  });
+});
+
 describe("BoardError", () => {
   it("is a named Error", () => {
     const error = new BoardError("boom");
@@ -103,7 +118,7 @@ describe("card ids", () => {
   it.each(["", "#", "0", "#0", "01", "-1", "1a", "a1", "##1", " 1", "1 ", "R-1", "1.5"])(
     "rejects an invalid id: %j",
     (text) => {
-      expectBoardError(() => parseId(text), `invalid id: ${text}`);
+      expectArgumentError(() => parseId(text), `invalid id: ${text}`);
     },
   );
 });
@@ -488,7 +503,7 @@ describe("parseTaskNumber", () => {
   });
 
   it.each(["", "0", "01", "-1", "1a", "a1", "#1", " 1", "1.5"])("rejects an invalid task number: %j", (text) => {
-    expectBoardError(() => parseTaskNumber(text), `invalid task number: ${text}`);
+    expectArgumentError(() => parseTaskNumber(text), `invalid task number: ${text}`);
   });
 });
 

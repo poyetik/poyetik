@@ -30,7 +30,11 @@ function isPair(args: readonly string[]): args is readonly [string, string] {
   return args.length === 2;
 }
 
-/** Runs the oracle; returns the exit code: 0 when every case passes. */
+/**
+ * Runs the oracle; returns the exit code: 0 when every case passes, 1 when a case fails
+ * or an input cannot be read, 2 for a usage error. Every error is one `error:` line,
+ * naming the file.
+ */
 export function main(args: readonly string[], io: Io): number {
   if (!isPair(args)) {
     io.err(USAGE);
@@ -38,7 +42,14 @@ export function main(args: readonly string[], io: Io): number {
   }
   const [conformance, wavs] = args;
   try {
-    const json = (path: string): unknown => JSON.parse(io.readText(path));
+    const json = (path: string): unknown => {
+      const text = io.readText(path);
+      try {
+        return JSON.parse(text);
+      } catch (error) {
+        throw new Error(`${path}: ${String(error)}`, { cause: error });
+      }
+    };
     const verdict = judge({
       cases: byName(io, join(conformance, "cases"), ".json", json),
       references: json(join(conformance, "references.json")),
@@ -47,12 +58,25 @@ export function main(args: readonly string[], io: Io): number {
     });
     verdict.lines.forEach(io.out);
     if (verdict.failures > 0) {
-      io.err(`oracle failed: ${String(verdict.failures)} problem(s)`);
+      io.err(`error: oracle failed: ${String(verdict.failures)} problem(s)`);
       return 1;
     }
     return 0;
   } catch (error) {
-    io.err(error instanceof Error ? error.message : String(error));
+    io.err(`error: ${error instanceof Error ? error.message : String(error)}`);
     return 1;
   }
+}
+
+/**
+ * Makes a closed `stream` (a reader gone, as with `| head`) harmless: what nobody reads
+ * is dropped, and the exit code stays the outcome of the judgement. Any other stream
+ * error is thrown, as it would be without this.
+ */
+export function ignoreClosedReader(stream: { on: (event: "error", listener: (error: Error) => void) => unknown }): void {
+  stream.on("error", (error) => {
+    if (!("code" in error) || error.code !== "EPIPE") {
+      throw error;
+    }
+  });
 }

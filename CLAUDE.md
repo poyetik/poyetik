@@ -67,6 +67,13 @@ Working while the check runs: when it is useful and harms nothing, development m
 
 Every new check is added to `xtask` (`check_steps`), never directly to the hook or the workflow. The hook is enabled through `core.hooksPath`, set automatically by `pnpm install` at the root. **Never bypass the hook** (`--no-verify` is forbidden).
 
+## Command-line tools
+
+Every command-line tool of the repository (`engine-cli`, `cargo xtask`, the oracle, the roadmap CLI, and every one to come) follows one contract, tested on the real entry point:
+- exit code 0 on success, 1 when the work failed, 2 for a usage error;
+- every error is one line on stderr, `error: ...`, naming the file or the command involved; never a stack trace;
+- a closed stdout (`| head`) is never an error and never changes the exit code.
+
 ## Portability
 
 **The engine core is fully portable: no platform-specific code, ever.** `engine-core` (and every crate it will be split into) is `no_std`, has no OS, clock, thread, file, network or JS access, and builds for every target. Everything platform-specific (audio I/O, files, permissions, UI hosting) belongs to the thin shells around it (`bindings/`, native players, plugin wrappers, Tauri apps).

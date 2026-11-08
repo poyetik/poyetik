@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -70,5 +70,29 @@ describe("bin", () => {
     const { stdout } = await runBin(["validate"]);
     expect(stdout).toMatch(/^valid board: \d+ card\(s\)\n$/);
     expect(process.exitCode).toBe(0);
+  });
+  it("names the board file it cannot read, without a stack trace", async () => {
+    const file = join(dir, "missing.json");
+    process.env["ROADMAP_FILE"] = file;
+    const { stderr } = await runBin(["list"]);
+    expect(stderr).toMatch(new RegExp(`^error: cannot read ${file}: Error: ENOENT[^\n]*\n$`));
+    expect(process.exitCode).toBe(1);
+  });
+
+  it("names the board file it cannot write", async () => {
+    const file = join(dir, "board.json");
+    writeFileSync(file, serializeBoard(emptyBoard("Project")));
+    chmodSync(file, 0o444);
+    process.env["ROADMAP_FILE"] = file;
+    const { stderr } = await runBin(["add", "Engine"]);
+    chmodSync(file, 0o644);
+    expect(stderr).toMatch(new RegExp(`^error: cannot write ${file}: Error: EACCES[^\n]*\n$`));
+    expect(process.exitCode).toBe(1);
+  });
+
+  it("exits with 2 on a usage error", async () => {
+    const { stderr } = await runBin(["frobnicate"]);
+    expect(stderr).toBe("error: unknown command: frobnicate (see: roadmap help)\n");
+    expect(process.exitCode).toBe(2);
   });
 });

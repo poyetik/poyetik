@@ -45,7 +45,12 @@ export interface Board {
 
 /** An expected, user-facing error: invalid data or an invalid command. */
 export class BoardError extends Error {
-  override readonly name = "BoardError";
+  override readonly name: string = "BoardError";
+}
+
+/** Thrown when a value typed by a user (an id, a step number) is not valid: a usage error. */
+export class ArgumentError extends BoardError {
+  override readonly name = "ArgumentError";
 }
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -69,7 +74,7 @@ export function formatId(id: number): string {
 export function parseId(text: string): number {
   const match = ID_TEXT_RE.exec(text);
   if (match === null) {
-    throw new BoardError(`invalid id: ${text}`);
+    throw new ArgumentError(`invalid id: ${text}`);
   }
   return Number(match[1]);
 }
@@ -320,7 +325,7 @@ export function withStatus(card: Pick<Card, "column" | "tasks">): TaskWithStatus
 /** Parses a 1-based task number typed by a user. */
 export function parseTaskNumber(text: string): number {
   if (!TASK_NUMBER_RE.test(text)) {
-    throw new BoardError(`invalid task number: ${text}`);
+    throw new ArgumentError(`invalid task number: ${text}`);
   }
   return Number(text);
 }

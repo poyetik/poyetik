@@ -1,6 +1,6 @@
 import { runInNewContext } from "node:vm";
 import { describe, expect, test } from "vitest";
-import { USAGE, main, type Io } from "../src/cli.ts";
+import { USAGE, ignoreClosedReader, main, type Io } from "../src/cli.ts";
 import { renderHash } from "../src/hash.ts";
 import { parseWav } from "../src/wav.ts";
 import { makeWav, sineSamples } from "./fixtures.ts";
@@ -64,17 +64,18 @@ describe("main", () => {
     const io = memory(corpus({ tone: "0".repeat(64) }));
     expect(main(["conf", "wav"], io)).toBe(1);
     expect(io.lines[0]).toMatch(/^FAIL {5}tone: hash: /);
-    expect(io.errors).toStrictEqual(["oracle failed: 1 problem(s)"]);
+    expect(io.errors).toStrictEqual(["error: oracle failed: 1 problem(s)"]);
   });
 
   test("fails on unreadable or invalid inputs", () => {
     const io = memory({ "conf/cases/tone.json": "{" });
     expect(main(["conf", "wav"], io)).toBe(1);
     expect(io.errors).toHaveLength(1);
+    expect(io.errors[0]).toMatch(/^error: conf\/cases\/tone\.json: SyntaxError: /);
     expect(io.lines).toStrictEqual([]);
     const missing = memory({});
     expect(main(["conf", "wav"], missing)).toBe(1);
-    expect(missing.errors).toStrictEqual(["ENOENT: conf/references.json"]);
+    expect(missing.errors).toStrictEqual(["error: ENOENT: conf/references.json"]);
   });
 
   test("reports what is thrown even when it is not an Error of this realm", () => {
@@ -85,7 +86,7 @@ describe("main", () => {
     } };
     const errors: string[] = [];
     expect(main(["conf", "wav"], { ...io, err: (line) => errors.push(line) })).toBe(1);
-    expect(errors).toStrictEqual(["Error: no listing"]);
+    expect(errors).toStrictEqual(["error: Error: no listing"]);
   });
 
   test("explains its arguments", () => {
@@ -96,5 +97,28 @@ describe("main", () => {
     const io = memory({});
     expect(main(args, io)).toBe(2);
     expect(io.errors).toStrictEqual([USAGE]);
+  });
+});
+
+describe("ignoreClosedReader", () => {
+  test("drops a closed reader and lets any other stream error through", () => {
+    const listeners: ((error: Error) => void)[] = [];
+    ignoreClosedReader({ on: (_event, listener) => listeners.push(listener) });
+    const emit = (error: Error): void => {
+      listeners.forEach((listener) => {
+        listener(error);
+      });
+    };
+    expect(() => {
+      emit(Object.assign(new Error("write EPIPE"), { code: "EPIPE" }));
+    }).not.toThrow();
+    const full = Object.assign(new Error("no space"), { code: "ENOSPC" });
+    expect(() => {
+      emit(full);
+    }).toThrow(full);
+    const plain = new Error("broken");
+    expect(() => {
+      emit(plain);
+    }).toThrow(plain);
   });
 });

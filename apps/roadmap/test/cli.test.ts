@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { emptyBoard, parseBoard, serializeBoard, type Board } from "../src/lib/board.ts";
-import { HELP, localDate, run, type Io } from "../src/cli/cli.ts";
+import { HELP, localDate, run, type Io, ignoreClosedReader } from "../src/cli/cli.ts";
 
 const DAY = "2026-11-07";
 
@@ -19,6 +19,7 @@ function fake(initial: string = serializeBoard(emptyBoard("Project"))): Fake {
     file: initial,
     writes: 0,
     io: {
+      file: "board.json",
       read: () => state.file,
       write: (text) => {
         state.file = text;
@@ -93,16 +94,16 @@ describe("add", () => {
   it("rejects zero or several titles without writing", () => {
     for (const args of [["add"], ["add", "a", "b"]]) {
       const f = fake();
-      expect(run(args, f.io)).toBe(1);
-      expect(f.err).toEqual(["error: expected exactly one argument: title"]);
+      expect(run(args, f.io)).toBe(2);
+      expect(f.err).toEqual(["error: expected exactly one argument: title (see: roadmap help)"]);
       expect(f.writes).toBe(0);
     }
   });
 
   it("rejects an unknown column", () => {
     const f = fake();
-    expect(run(["add", "T", "--column", "todo"], f.io)).toBe(1);
-    expect(f.err).toEqual(["error: unknown column: todo (expected: later, next, doing, done)"]);
+    expect(run(["add", "T", "--column", "todo"], f.io)).toBe(2);
+    expect(f.err).toEqual(["error: unknown column: todo (expected: later, next, doing, done) (see: roadmap help)"]);
   });
 });
 
@@ -125,8 +126,8 @@ describe("list", () => {
 
   it("rejects an unknown column", () => {
     const f = seeded();
-    expect(run(["list", "--column", "x"], f.io)).toBe(1);
-    expect(f.err).toEqual(["error: unknown column: x (expected: later, next, doing, done)"]);
+    expect(run(["list", "--column", "x"], f.io)).toBe(2);
+    expect(f.err).toEqual(["error: unknown column: x (expected: later, next, doing, done) (see: roadmap help)"]);
   });
 });
 
@@ -146,20 +147,20 @@ describe("show", () => {
   it("rejects an invalid id", () => {
     for (const command of ["show", "edit", "rm"]) {
       const f = seeded();
-      expect(run([command, "abc", "--title", "x"].slice(0, command === "edit" ? 4 : 2), f.io)).toBe(1);
-      expect(f.err).toEqual(["error: invalid id: abc"]);
+      expect(run([command, "abc", "--title", "x"].slice(0, command === "edit" ? 4 : 2), f.io)).toBe(2);
+      expect(f.err).toEqual(["error: invalid id: abc (see: roadmap help)"]);
       expect(f.writes).toBe(0);
     }
     const f = seeded();
-    expect(run(["move", "R-1", "done"], f.io)).toBe(1);
-    expect(f.err).toEqual(["error: invalid id: R-1"]);
+    expect(run(["move", "R-1", "done"], f.io)).toBe(2);
+    expect(f.err).toEqual(["error: invalid id: R-1 (see: roadmap help)"]);
   });
 
   it("rejects an unknown card or a missing id", () => {
     const f = seeded();
     expect(run(["show", "#9"], f.io)).toBe(1);
-    expect(run(["show"], f.io)).toBe(1);
-    expect(f.err).toEqual(["error: card not found: #9", "error: expected exactly one argument: id"]);
+    expect(run(["show"], f.io)).toBe(2);
+    expect(f.err).toEqual(["error: card not found: #9", "error: expected exactly one argument: id (see: roadmap help)"]);
   });
 });
 
@@ -181,22 +182,22 @@ describe("move", () => {
   it("rejects missing or extra arguments", () => {
     for (const args of [["move"], ["move", "1"], ["move", "1", "done", "x"]]) {
       const f = seeded();
-      expect(run(args, f.io)).toBe(1);
-      expect(f.err).toEqual(["error: expected: move <id> <column>"]);
+      expect(run(args, f.io)).toBe(2);
+      expect(f.err).toEqual(["error: expected: move <id> <column> (see: roadmap help)"]);
       expect(f.writes).toBe(0);
     }
   });
 
   it("rejects an unknown column", () => {
     const f = seeded();
-    expect(run(["move", "1", "x"], f.io)).toBe(1);
-    expect(f.err).toEqual(["error: unknown column: x (expected: later, next, doing, done)"]);
+    expect(run(["move", "1", "x"], f.io)).toBe(2);
+    expect(f.err).toEqual(["error: unknown column: x (expected: later, next, doing, done) (see: roadmap help)"]);
   });
 
   it.each(["-1", "1a", "a1", "", "1.5", " 1"])("rejects a non-numeric position: %j", (position) => {
     const f = seeded();
-    expect(run(["move", "1", "done", `--position=${position}`], f.io)).toBe(1);
-    expect(f.err).toEqual([`error: invalid position: ${position}`]);
+    expect(run(["move", "1", "done", `--position=${position}`], f.io)).toBe(2);
+    expect(f.err).toEqual([`error: invalid position: ${position} (see: roadmap help)`]);
   });
 
   it("accepts multi-digit positions, then bounds them", () => {
@@ -223,8 +224,8 @@ describe("edit", () => {
 
   it("rejects a missing id", () => {
     const f = seeded();
-    expect(run(["edit", "--title", "x"], f.io)).toBe(1);
-    expect(f.err).toEqual(["error: expected exactly one argument: id"]);
+    expect(run(["edit", "--title", "x"], f.io)).toBe(2);
+    expect(f.err).toEqual(["error: expected exactly one argument: id (see: roadmap help)"]);
   });
 });
 
@@ -244,8 +245,8 @@ describe("rm", () => {
 
   it("rejects a missing id", () => {
     const f = seeded();
-    expect(run(["rm"], f.io)).toBe(1);
-    expect(f.err).toEqual(["error: expected exactly one argument: id"]);
+    expect(run(["rm"], f.io)).toBe(2);
+    expect(f.err).toEqual(["error: expected exactly one argument: id (see: roadmap help)"]);
   });
 });
 
@@ -292,13 +293,13 @@ describe("validate", () => {
 describe("general errors", () => {
   it("rejects an unknown command", () => {
     const f = fake();
-    expect(run(["frobnicate"], f.io)).toBe(1);
-    expect(f.err).toEqual(["error: unknown command: frobnicate"]);
+    expect(run(["frobnicate"], f.io)).toBe(2);
+    expect(f.err).toEqual(["error: unknown command: frobnicate (see: roadmap help)"]);
   });
 
   it("rejects an unknown option", () => {
     const f = fake();
-    expect(run(["list", "--nope"], f.io)).toBe(1);
+    expect(run(["list", "--nope"], f.io)).toBe(2);
     expect(f.err).toHaveLength(1);
     expect(f.err[0]).toMatch(/^error: .*--nope/);
   });
@@ -404,8 +405,8 @@ describe("task", () => {
     [["task", "toString", "1"], "unknown task action: toString (expected: add, done, undo, edit, rm)"],
   ])("rejects an unknown action: %j", (args, message) => {
     const f = withSteps();
-    expect(run(args, f.io)).toBe(1);
-    expect(f.err).toEqual([`error: ${message}`]);
+    expect(run(args, f.io)).toBe(2);
+    expect(f.err).toEqual([`error: ${message} (see: roadmap help)`]);
     expect(f.writes).toBe(0);
   });
 
@@ -423,25 +424,56 @@ describe("task", () => {
     [["task", "rm", "1", "2", "3"], "task rm <id> <n>"],
   ])("rejects wrong arguments: %j", (args, usage) => {
     const f = withSteps();
-    expect(run(args, f.io)).toBe(1);
-    expect(f.err).toEqual([`error: expected: ${usage}`]);
+    expect(run(args, f.io)).toBe(2);
+    expect(f.err).toEqual([`error: expected: ${usage} (see: roadmap help)`]);
     expect(f.writes).toBe(0);
   });
 
   it("rejects invalid ids and step numbers", () => {
     const f = withSteps();
-    expect(run(["task", "add", "x", "T"], f.io)).toBe(1);
-    expect(run(["task", "done", "1", "x"], f.io)).toBe(1);
-    expect(run(["task", "undo", "x", "1"], f.io)).toBe(1);
-    expect(run(["task", "edit", "1", "0", "T"], f.io)).toBe(1);
+    expect(run(["task", "add", "x", "T"], f.io)).toBe(2);
+    expect(run(["task", "done", "1", "x"], f.io)).toBe(2);
+    expect(run(["task", "undo", "x", "1"], f.io)).toBe(2);
+    expect(run(["task", "edit", "1", "0", "T"], f.io)).toBe(2);
     expect(run(["task", "rm", "1", "9"], f.io)).toBe(1);
     expect(f.err).toEqual([
-      "error: invalid id: x",
-      "error: invalid task number: x",
-      "error: invalid id: x",
-      "error: invalid task number: 0",
+      "error: invalid id: x (see: roadmap help)",
+      "error: invalid task number: x (see: roadmap help)",
+      "error: invalid id: x (see: roadmap help)",
+      "error: invalid task number: 0 (see: roadmap help)",
       "error: invalid task number for #1: 9 (1 to 3)",
     ]);
     expect(f.writes).toBe(0);
+  });
+});
+
+describe("ignoreClosedReader", () => {
+  /** A stream that records its error listener. */
+  function stream(): { on: (event: "error", listener: (error: Error) => void) => unknown; emit: (error: Error) => void } {
+    const listeners: ((error: Error) => void)[] = [];
+    return {
+      on: (_event, listener) => listeners.push(listener),
+      emit: (error) => {
+        listeners.forEach((listener) => {
+          listener(error);
+        });
+      },
+    };
+  }
+
+  it("drops a closed reader and lets any other stream error through", () => {
+    const output = stream();
+    ignoreClosedReader(output);
+    expect(() => {
+      output.emit(Object.assign(new Error("write EPIPE"), { code: "EPIPE" }));
+    }).not.toThrow();
+    const full = Object.assign(new Error("no space"), { code: "ENOSPC" });
+    expect(() => {
+      output.emit(full);
+    }).toThrow(full);
+    const plain = new Error("broken");
+    expect(() => {
+      output.emit(plain);
+    }).toThrow(plain);
   });
 });

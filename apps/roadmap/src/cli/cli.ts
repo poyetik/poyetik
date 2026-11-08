@@ -1,5 +1,6 @@
 import { parseArgs } from "node:util";
 import {
+  ArgumentError,
   addCard,
   addTask,
   completeTask,
@@ -27,11 +28,25 @@ import {
 
 /** Injected I/O: the CLI never touches the disk or the clock directly. */
 export interface Io {
+  /** The board file, as named in messages. */
+  readonly file: string;
   readonly read: () => string;
   readonly write: (text: string) => void;
   readonly out: (line: string) => void;
   readonly err: (line: string) => void;
   readonly today: () => string;
+}
+
+/** Thrown when the command line is not a valid command: exit code 2. */
+export class UsageError extends Error {
+  /**
+   * Describes what is wrong with the command line.
+   * @param message What is wrong.
+   */
+  constructor(message: string) {
+    super(message);
+    this.name = "UsageError";
+  }
 }
 
 /** Help text printed by `roadmap help`. */
@@ -96,11 +111,11 @@ function isTaskAction(value: string): value is TaskAction {
 function runTask(args: readonly string[], io: Io): void {
   const [action = "", ...rest] = args;
   if (!isTaskAction(action)) {
-    throw new BoardError(
+    throw new UsageError(
       `unknown task action: ${action === "" ? "(none)" : action} (expected: ${Object.keys(TASK_USAGE).join(", ")})`,
     );
   }
-  const usage = new BoardError(`expected: ${TASK_USAGE[action]}`);
+  const usage = new UsageError(`expected: ${TASK_USAGE[action]}`);
   const board = load(io);
   const today = io.today();
   let next: Board;
@@ -152,7 +167,7 @@ function runTask(args: readonly string[], io: Io): void {
 
 function toColumn(value: string): ColumnId {
   if (!isColumnId(value)) {
-    throw new BoardError(`unknown column: ${value} (expected: ${COLUMNS.map((c) => c.id).join(", ")})`);
+    throw new UsageError(`unknown column: ${value} (expected: ${COLUMNS.map((c) => c.id).join(", ")})`);
   }
   return value;
 }
@@ -162,7 +177,7 @@ function toPosition(value: string | undefined): number | undefined {
     return undefined;
   }
   if (!/^\d+$/.test(value)) {
-    throw new BoardError(`invalid position: ${value}`);
+    throw new UsageError(`invalid position: ${value}`);
   }
   return Number(value);
 }
@@ -182,7 +197,7 @@ function isThree(args: readonly string[]): args is readonly [string, string, str
 function onlyArg(positionals: readonly string[], name: string): string {
   const [value, ...rest] = positionals;
   if (value === undefined || rest.length > 0) {
-    throw new BoardError(`expected exactly one argument: ${name}`);
+    throw new UsageError(`expected exactly one argument: ${name}`);
   }
   return value;
 }
@@ -193,7 +208,7 @@ function load(io: Io): Board {
   try {
     raw = JSON.parse(text);
   } catch (error: unknown) {
-    throw new BoardError(`unreadable board.json: ${String(error)}`);
+    throw new BoardError(`unreadable ${io.file}: ${String(error)}`);
   }
   return parseBoard(raw);
 }
@@ -258,7 +273,7 @@ function execute(args: readonly string[], io: Io): void {
     }
     case "move": {
       if (!isTwo(positionals)) {
-        throw new BoardError("expected: move <id> <column>");
+        throw new UsageError("expected: move <id> <column>");
       }
       const [idText, column] = positionals;
       const id = parseId(idText);
@@ -290,21 +305,42 @@ function execute(args: readonly string[], io: Io): void {
       return;
     }
     default: {
-      throw new BoardError(`unknown command: ${command}`);
+      throw new UsageError(`unknown command: ${command}`);
     }
   }
 }
 
-/** Testable entry point: returns the exit code. */
+/**
+ * Testable entry point: returns the exit code: 0 on success, 1 when the command failed,
+ * 2 for a usage error. Every error is one `error:` line, never a stack trace.
+ */
 export function run(args: readonly string[], io: Io): number {
   try {
     execute(args, io);
     return 0;
   } catch (error) {
-    if (error instanceof BoardError || (error instanceof TypeError && "code" in error)) {
+    // parseArgs reports unknown or malformed options as TypeErrors with a code.
+    if (error instanceof UsageError || error instanceof ArgumentError || (error instanceof TypeError && "code" in error)) {
+      io.err(`error: ${error.message} (see: roadmap help)`);
+      return 2;
+    }
+    if (error instanceof BoardError) {
       io.err(`error: ${error.message}`);
       return 1;
     }
     throw error;
   }
+}
+
+/**
+ * Makes a closed `stream` (a reader gone, as with `| head`) harmless: what nobody reads
+ * is dropped, and the exit code stays the outcome of the command. Any other stream error
+ * is thrown, as it would be without this.
+ */
+export function ignoreClosedReader(stream: { on: (event: "error", listener: (error: Error) => void) => unknown }): void {
+  stream.on("error", (error) => {
+    if (!("code" in error) || error.code !== "EPIPE") {
+      throw error;
+    }
+  });
 }
