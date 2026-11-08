@@ -6224,3 +6224,56 @@ fn confines_the_ci_marker_to_a_line_of_its_own() {
         "except the published commit that predates the rule"
     );
 }
+
+#[test]
+fn accepts_the_synthetic_merge_of_a_pull_request_only_as_the_commit_checked_out() {
+    let (head, base) = ("a".repeat(40), "0123456789abcdef0123456789abcdef01234567");
+    let merge = format!("Merge {head} into {base}\n");
+    let record = |hash: &str, message: &str| format!("\u{1e}{hash}\u{1f}{message}");
+    for message in [merge.clone(), format!("{merge}\n")] {
+        let merged = format!("{}{HISTORY}", record("ffffffffff", &message));
+        assert_eq!(
+            super::history_gate(&merged, HISTORY_FILES),
+            Ok(()),
+            "the merge GitHub checks out for a pull request, at HEAD: {message:?}"
+        );
+    }
+    let refused = |hash: &str| {
+        found(
+            "the history breaks the commit rules",
+            &[format!(
+                "commit {hash}: invalid commit message: missing \"<type>: \" prefix"
+            )],
+        )
+    };
+    let below = format!(
+        "{}{}{HISTORY}",
+        record("cccccccccc", "docs: x\n"),
+        record("ffffffffff", &merge)
+    );
+    assert_eq!(
+        super::history_gate(&below, HISTORY_FILES),
+        refused("fffffff"),
+        "anywhere but HEAD, the same message is refused"
+    );
+    for message in [
+        "Merge branch 'x' into main\n".to_owned(),
+        format!("Merge {head} into {}\n", base.get(..39).unwrap_or_default()),
+        format!("Merge {} into {base}\n", head.to_uppercase()),
+        format!("Merge {head} into {base}\n\nmore\n"),
+        format!("Merge {head} into {base}g\n"),
+        format!("Merge {head} into {base} \n"),
+        format!("Merge {head}  into {base}\n"),
+        format!("merge {head} into {base}\n"),
+    ] {
+        assert_eq!(
+            super::history_gate(&record("ffffffffff", &message), ""),
+            refused("fffffff"),
+            "{message:?}"
+        );
+    }
+    assert!(
+        commit_msg_gate(&merge).is_err(),
+        "a commit written here never has that message"
+    );
+}

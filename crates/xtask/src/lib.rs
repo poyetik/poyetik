@@ -3142,10 +3142,33 @@ pub fn changes_behavior(message: &str) -> bool {
             .any(|line| line.starts_with("BREAKING CHANGE:"))
 }
 
+/// Whether `message` is exactly the one GitHub writes for the merge it checks out to run a
+/// pull request: `Merge <40 hex> into <40 hex>`, in lowercase, alone (as `git log` writes
+/// it, followed by newlines).
+fn synthetic_merge(message: &str) -> bool {
+    let hash = |text: &str| {
+        text.len() == 40
+            && text
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    };
+    // `git log` ends the message with one newline more than it holds: none or one.
+    message
+        .trim_end_matches('\n')
+        .strip_prefix("Merge ")
+        .and_then(|line| line.split_once(" into "))
+        .is_some_and(|(head, base)| hash(head) && hash(base))
+}
+
 /// Checks the history of commits.
 ///
 /// Every commit message, as recorded, follows the convention ([`commit_msg_gate`]), and every commit
 /// since [`CHANGELOG_SINCE`] that changes behavior touches `CHANGELOG.md`.
+///
+/// One commit is not held to the convention: the first of `messages`, the commit checked
+/// out, when its message is exactly the one GitHub writes for the merge it checks out to
+/// run a pull request (`Merge <commit> into <commit>`). That merge is never recorded (the
+/// repository allows rebase merges only), so the same message anywhere else is refused.
 ///
 /// `messages` and `files` are the outputs of [`history_commands`].
 ///
@@ -3165,8 +3188,12 @@ pub fn history_gate(messages: &str, files: &str) -> Result<(), Failure> {
         })
         .collect();
     let mut problems = Vec::new();
-    for record in messages.split('\u{1e}').filter(|record| !record.is_empty()) {
+    let records = messages.split('\u{1e}').filter(|record| !record.is_empty());
+    for (index, record) in records.enumerate() {
         let (hash, message) = record.split_once('\u{1f}').unwrap_or((record, ""));
+        if index == 0 && synthetic_merge(message) {
+            continue;
+        }
         if let Err(failure) = conventional(message) {
             problems.push(format!("commit {}: {}", short(hash), failure.summary));
         }
