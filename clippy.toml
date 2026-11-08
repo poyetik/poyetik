@@ -3,6 +3,7 @@
 # rounding functions are exact and allowed). The engine crates are no_std, where these
 # methods do not exist at all; this list covers the std crates (test kit, CLIs, bindings).
 disallowed-methods = [
+  { path = "std::env::args", reason = "panics on an argument that is not Unicode: read std::env::args_os and refuse such an argument as a usage error (CLAUDE.md, command-line tools)" },
   { path = "f32::sin", reason = "not correctly rounded: results may differ between targets; use libm" },
   { path = "f32::cos", reason = "not correctly rounded: results may differ between targets; use libm" },
   { path = "f32::tan", reason = "not correctly rounded: results may differ between targets; use libm" },

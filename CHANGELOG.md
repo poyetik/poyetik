@@ -51,6 +51,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `std::env::args`, which panics on an argument that is not Unicode, is banned by Clippy: every command-line tool reads `args_os` and refuses such an argument as a usage error.
 - Playground: the oscilloscope repaints only while playing; stopped, suspended or failed, it is drawn once (the grid and dashes) instead of being redrawn at the display rate, forever, on a page where nothing plays.
 - The plan laws (`engine-testkit`) compare every render with a simple reference renderer, bit for bit, so that a plan routing, summing or handing boxes the sample rate wrongly fails them (a test box outputs its rate); they try different patches at each rate, check that processing block by block gives the same samples as rendering, and measure allocations from the first call on a fresh plan. Property tests run with `engine_testkit::runner`, whose configuration no `PROPTEST_*` environment variable can change.
 - Error messages and the patch format specification say "box", the project's word, instead of "node": "box 3: unknown box type", "too many boxes", `[box id, outlet index]`. The JSON key `nodes` is unchanged.
