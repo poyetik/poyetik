@@ -621,6 +621,9 @@ fn command_lines(steps: &[Step]) -> Vec<String> {
             Action::TypeScriptReportsGate => "typescript reports gate".to_owned(),
             Action::StrykerConfigGate => "stryker config gate".to_owned(),
             Action::TypeScriptScopeGate => "typescript scope gate".to_owned(),
+            Action::TypeScriptMutationGate { package, extent } => {
+                format!("typescript mutation gate of {} ({extent:?})", package.dir)
+            }
             Action::BypassGate => "bypass gate".to_owned(),
             Action::MembershipGate => "membership gate".to_owned(),
             Action::LicenseGate => "license gate".to_owned(),
@@ -1213,6 +1216,355 @@ impl Runner for Unreadable {
     }
     fn parallelism(&mut self) -> NonZeroUsize {
         self.0.parallelism()
+    }
+}
+
+#[test]
+fn reads_every_kind_of_mutation_target() {
+    use super::{Target, mutation_target};
+    let krate = |name: &str| {
+        *super::RUST_CRATES
+            .iter()
+            .find(|krate| krate.name == name)
+            .expect("a crate")
+    };
+    let package = |dir: &str| {
+        *PACKAGES
+            .iter()
+            .find(|package| package.dir == dir)
+            .expect("a package")
+    };
+    assert_eq!(
+        mutation_target("engine-core"),
+        Ok(Target::Crate(krate("engine-core"))),
+        "a crate, by its name"
+    );
+    assert_eq!(
+        mutation_target("crates/xtask/src/lib.rs"),
+        Ok(Target::RustFile {
+            krate: krate("xtask"),
+            path: "crates/xtask/src/lib.rs".to_owned()
+        }),
+        "a Rust file, in its crate"
+    );
+    assert_eq!(
+        mutation_target("bindings/wasm/src/ffi.rs"),
+        Ok(Target::RustFile {
+            krate: krate("engine-wasm"),
+            path: "bindings/wasm/src/ffi.rs".to_owned()
+        }),
+        "a Rust file of the crate that shares a package's directory"
+    );
+    assert_eq!(
+        mutation_target("bindings/wasm"),
+        Ok(Target::Package(package("bindings/wasm"))),
+        "a package, by its directory"
+    );
+    for (path, dir, source) in [
+        ("apps/roadmap/src/board.ts", "apps/roadmap", "src/board.ts"),
+        (
+            "apps/playground/src/app.tsx",
+            "apps/playground",
+            "src/app.tsx",
+        ),
+        (
+            "bindings/wasm/ts/worklet/x.mts",
+            "bindings/wasm",
+            "ts/worklet/x.mts",
+        ),
+        ("tooling/oracle/src/a.cts", "tooling/oracle", "src/a.cts"),
+        ("tooling/config/eslint.js", "tooling/config", "eslint.js"),
+        ("tooling/config/a.jsx", "tooling/config", "a.jsx"),
+        ("tooling/config/a.mjs", "tooling/config", "a.mjs"),
+        ("tooling/config/a.cjs", "tooling/config", "a.cjs"),
+    ] {
+        assert_eq!(
+            mutation_target(path),
+            Ok(Target::TypeScriptFile {
+                package: package(dir),
+                source: source.to_owned()
+            }),
+            "{path}: a source, in its package"
+        );
+    }
+}
+
+#[test]
+fn refuses_what_is_no_mutation_target() {
+    for (text, reason) in [
+        (
+            "apps/roadmap/test/board.test.ts",
+            "\"apps/roadmap/test/board.test.ts\" is test code: name the source it tests",
+        ),
+        (
+            "apps/roadmap/src/board.test.ts",
+            "\"apps/roadmap/src/board.test.ts\" is test code: name the source it tests",
+        ),
+        (
+            "crates/xtask/../engine-core/src/lib.rs",
+            "\"crates/xtask/../engine-core/src/lib.rs\" is not a plain path from the root (no `.`, `..` or empty part)",
+        ),
+        (
+            "./crates/xtask/src/lib.rs",
+            "\"./crates/xtask/src/lib.rs\" is not a plain path from the root (no `.`, `..` or empty part)",
+        ),
+        (
+            "crates/xtask//src/lib.rs",
+            "\"crates/xtask//src/lib.rs\" is not a plain path from the root (no `.`, `..` or empty part)",
+        ),
+        (
+            "apps/roadmap/",
+            "\"apps/roadmap/\" is not a plain path from the root (no `.`, `..` or empty part)",
+        ),
+        (
+            "crates/xtask",
+            "\"crates/xtask\" is no crate, Rust file of a crate, TypeScript package or source of one",
+        ),
+        (
+            "crates/other/src/lib.rs",
+            "\"crates/other/src/lib.rs\" is no crate, Rust file of a crate, TypeScript package or source of one",
+        ),
+        (
+            "crates/xtaskx/src/lib.rs",
+            "\"crates/xtaskx/src/lib.rs\" is no crate, Rust file of a crate, TypeScript package or source of one",
+        ),
+        (
+            "apps/roadmap/src/page.astro",
+            "\"apps/roadmap/src/page.astro\" is no crate, Rust file of a crate, TypeScript package or source of one",
+        ),
+        (
+            "apps/roadmap/README.md",
+            "\"apps/roadmap/README.md\" is no crate, Rust file of a crate, TypeScript package or source of one",
+        ),
+        (
+            "apps/roadmap/src/lib.rs",
+            "\"apps/roadmap/src/lib.rs\" is no crate, Rust file of a crate, TypeScript package or source of one",
+        ),
+        (
+            "crates/engine-core/src/a.ts",
+            "\"crates/engine-core/src/a.ts\" is no crate, Rust file of a crate, TypeScript package or source of one",
+        ),
+        (
+            "crates/xtask/src/lib.RS",
+            "\"crates/xtask/src/lib.RS\" is no crate, Rust file of a crate, TypeScript package or source of one",
+        ),
+        (
+            "\u{1b}[2J",
+            "\"\\u{1b}[2J\" is no crate, Rust file of a crate, TypeScript package or source of one",
+        ),
+    ] {
+        assert_eq!(
+            super::mutation_target(text),
+            Err(reason.to_owned()),
+            "{text}"
+        );
+    }
+}
+
+#[test]
+fn mutates_every_mutant_of_one_target() {
+    use super::{mutants_steps, mutation_target};
+    let jobs = NonZeroUsize::new(3).expect("three is not zero");
+    let lines = |text: &str| {
+        command_lines(&mutants_steps(
+            &mutation_target(text).expect("a target"),
+            jobs,
+        ))
+    };
+    assert_eq!(
+        lines("engine-core"),
+        vec![
+            "fresh mutants.out",
+            "Root: cargo mutants --cap-lints=true --gitignore=true --package engine-core --jobs 3",
+            "unviable gate (Partial)",
+        ],
+        "a crate"
+    );
+    assert_eq!(
+        lines("crates/xtask/src/lib.rs"),
+        vec![
+            "fresh mutants.out",
+            "Root: cargo mutants --cap-lints=true --gitignore=true --package xtask --file crates/xtask/src/lib.rs --jobs 3",
+            "unviable gate (Partial)",
+        ],
+        "a Rust file"
+    );
+    assert_eq!(
+        lines("apps/roadmap"),
+        vec![
+            "fresh apps/roadmap/reports/mutation",
+            "Package(\"apps/roadmap\"): pnpm exec stryker run --incremental --incrementalFile reports/stryker-incremental.json --force",
+            "typescript mutation gate of apps/roadmap (Complete)",
+        ],
+        "a package, every mutant, its incremental file rewritten"
+    );
+    assert_eq!(
+        lines("apps/roadmap/src/board.ts"),
+        vec![
+            "fresh apps/roadmap/reports/mutation",
+            "Package(\"apps/roadmap\"): pnpm exec stryker run --mutate src/board.ts",
+            "typescript mutation gate of apps/roadmap (Partial)",
+        ],
+        "a source: its incremental file untouched"
+    );
+    let names = |text: &str| -> Vec<String> {
+        mutants_steps(&mutation_target(text).expect("a target"), jobs)
+            .into_iter()
+            .map(|step| step.name)
+            .collect()
+    };
+    assert_eq!(
+        names("crates/xtask/src/lib.rs"),
+        vec![
+            "Fresh Rust mutation report",
+            "Rust mutation testing of crates/xtask/src/lib.rs",
+            "Rust unviable mutants reviewed"
+        ],
+        "named"
+    );
+    assert_eq!(
+        names("engine-core")[1],
+        "Rust mutation testing of engine-core",
+        "named"
+    );
+    assert_eq!(
+        names("apps/roadmap/src/board.ts"),
+        vec![
+            "Fresh mutation report of apps/roadmap",
+            "Mutation testing of apps/roadmap/src/board.ts",
+            "TypeScript mutants of apps/roadmap/src/board.ts killed"
+        ],
+        "named"
+    );
+    assert_eq!(
+        names("apps/roadmap")[1],
+        "Mutation testing of apps/roadmap",
+        "named"
+    );
+}
+
+#[test]
+fn cli_mutates_one_target() {
+    let mut out = Vec::new();
+    let mut fake = passing();
+    assert_eq!(
+        run_cli(
+            &["mutants".to_owned(), "engine-core".to_owned()],
+            &mut fake,
+            &mut out,
+            &mut Vec::new()
+        ),
+        0,
+        "a crate"
+    );
+    assert_eq!(
+        fake.ran,
+        vec![
+            "fresh mutants.out",
+            "cargo mutants --cap-lints=true --gitignore=true --package engine-core --jobs 3",
+            "read mutants.out/unviable.txt",
+            "read mutants-unviable.txt",
+        ],
+        "in half the threads of the machine"
+    );
+    assert!(
+        String::from_utf8(out)
+            .expect("UTF-8")
+            .ends_with("✔ all 3 checks passed\n"),
+        "said"
+    );
+    let mut source = passing();
+    assert_eq!(
+        run_cli(
+            &["mutants".to_owned(), "apps/roadmap/src/a.ts".to_owned()],
+            &mut source,
+            &mut Vec::new(),
+            &mut Vec::new()
+        ),
+        0,
+        "a source that exists"
+    );
+    assert_eq!(
+        source.ran.first().map(String::as_str),
+        Some("read apps/roadmap/src/a.ts"),
+        "read first"
+    );
+    assert!(
+        source
+            .ran
+            .contains(&"pnpm exec stryker run --mutate src/a.ts".to_owned())
+            && source
+                .ran
+                .contains(&"read apps/roadmap/reports/mutation/mutation.json".to_owned()),
+        "mutated, its report gated: {:?}",
+        source.ran
+    );
+    let mut survivor = passing();
+    let _report = survivor.files.insert(
+        "apps/roadmap/reports/mutation/mutation.json".to_owned(),
+        one_mutant("Survived", "M", 4),
+    );
+    let mut err = Vec::new();
+    assert_eq!(
+        run_cli(
+            &["mutants".to_owned(), "apps/roadmap".to_owned()],
+            &mut survivor,
+            &mut Vec::new(),
+            &mut err
+        ),
+        1,
+        "a survivor fails"
+    );
+    assert_eq!(
+        String::from_utf8(err).expect("UTF-8"),
+        "error: TypeScript mutants of apps/roadmap killed: apps/roadmap: mutants not killed: apps/roadmap/x.ts:4 M Survived\n",
+        "named"
+    );
+    let mut unlisted = passing();
+    let _sources = unlisted.broken.replace("list *.ts *.tsx".to_owned());
+    assert_eq!(
+        run_cli(
+            &["mutants".to_owned(), "apps/roadmap".to_owned()],
+            &mut unlisted,
+            &mut Vec::new(),
+            &mut Vec::new()
+        ),
+        1,
+        "the disable comments must be read"
+    );
+}
+
+#[test]
+fn refuses_a_mutation_target_in_one_line() {
+    for (args, reason) in [
+        (vec!["mutants"], "`mutants` takes one target"),
+        (vec!["mutants", "a", "b"], "`mutants` takes one target"),
+        (
+            vec!["mutants", "crates/xtask/src/gone.rs"],
+            "cannot read crates/xtask/src/gone.rs: missing",
+        ),
+        (
+            vec!["mutants", "apps/roadmap/src/gone.ts"],
+            "cannot read apps/roadmap/src/gone.ts: missing",
+        ),
+    ] {
+        let args: Vec<String> = args.into_iter().map(str::to_owned).collect();
+        let mut usage = Vec::new();
+        let mut fake = passing();
+        assert_eq!(
+            run_cli(&args, &mut fake, &mut Vec::new(), &mut usage),
+            2,
+            "{args:?}"
+        );
+        assert_eq!(
+            String::from_utf8(usage).expect("UTF-8"),
+            format!("error: {reason} (see: cargo xtask help)\n"),
+            "{args:?}"
+        );
+        assert!(
+            !fake.ran.iter().any(|line| !line.starts_with("read ")),
+            "{args:?}: nothing runs"
+        );
     }
 }
 
@@ -2602,7 +2954,12 @@ fn one_mutant(status: &str, mutator: &str, line: u64) -> String {
 #[test]
 fn accepts_only_typescript_packages_whose_mutants_are_all_killed() {
     assert_eq!(
-        ts_mutation_gate("tooling/config", TS_KILLED_OR_DISABLED, &disabled()),
+        ts_mutation_gate(
+            "tooling/config",
+            TS_KILLED_OR_DISABLED,
+            &disabled(),
+            Extent::Complete
+        ),
         Ok(()),
         "killed, timed out, or ignored where a reviewed comment says so"
     );
@@ -2615,7 +2972,12 @@ fn accepts_only_typescript_packages_whose_mutants_are_all_killed() {
         "Whatever",
     ] {
         assert_eq!(
-            ts_mutation_gate("tooling/config", &one_mutant(status, "M", 7), &disabled()),
+            ts_mutation_gate(
+                "tooling/config",
+                &one_mutant(status, "M", 7),
+                &disabled(),
+                Extent::Complete
+            ),
             failed(format!(
                 "tooling/config: mutants not killed: tooling/config/x.ts:7 M {status}"
             )),
@@ -2628,7 +2990,12 @@ fn accepts_only_typescript_packages_whose_mutants_are_all_killed() {
         ("EqualityOperator", 3, "tooling/oracle"),
     ] {
         assert_eq!(
-            ts_mutation_gate(package, &one_mutant("Ignored", mutator, line), &disabled()),
+            ts_mutation_gate(
+                package,
+                &one_mutant("Ignored", mutator, line),
+                &disabled(),
+                Extent::Complete
+            ),
             failed(format!(
                 "{package}: mutants not killed: {package}/x.ts:{line} {mutator} Ignored"
             )),
@@ -2639,7 +3006,8 @@ fn accepts_only_typescript_packages_whose_mutants_are_all_killed() {
         ts_mutation_gate(
             "p",
             r#"{"files":{"a.ts":{"mutants":[{"status":"Survived","mutatorName":"A","location":{"start":{"line":1}}},{"status":"NoCoverage","mutatorName":"B","location":{"start":{"line":2}}},{"status":"Killed"}]}}}"#,
-            &[]
+            &[],
+            Extent::Partial
         ),
         failed(
             "p: mutants not killed: 2 problems, listed above\np/a.ts:1 A Survived\np/a.ts:2 B NoCoverage"
@@ -2648,13 +3016,18 @@ fn accepts_only_typescript_packages_whose_mutants_are_all_killed() {
     );
     for empty in [r#"{"files":{}}"#, r#"{"files":{"a.ts":{}}}"#, "{}"] {
         assert_eq!(
-            ts_mutation_gate("p", empty, &[]),
+            ts_mutation_gate("p", empty, &[], Extent::Complete),
             failed("p: mutants not killed: no mutant in the mutation report"),
             "{empty}"
         );
+        assert_eq!(
+            ts_mutation_gate("p", empty, &[], Extent::Partial),
+            Ok(()),
+            "{empty}: a partial run may mutate nothing"
+        );
     }
     assert!(
-        ts_mutation_gate("p", "[", &[])
+        ts_mutation_gate("p", "[", &[], Extent::Partial)
             .is_err_and(|error| error.summary.starts_with("p: invalid mutation report: ")),
         "unreadable"
     );

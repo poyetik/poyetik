@@ -435,6 +435,14 @@ pub enum Action {
     /// Require every unviable mutant of the last run to be reviewed; after a
     /// [`Extent::Complete`] run, also every review to be current.
     UnviableGate(Extent),
+    /// Require every mutant of the mutation report of `package` to be killed
+    /// ([`ts_mutation_gate`]), after a run of `extent`.
+    TypeScriptMutationGate {
+        /// The package mutated.
+        package: Package,
+        /// How much of the package the run mutated.
+        extent: Extent,
+    },
     /// Require every disabled TypeScript mutant to be reviewed, and every review to be
     /// current.
     EquivalentGate,
@@ -1158,7 +1166,8 @@ pub struct Disable {
 
 /// Checks the mutation report of a TypeScript package (Stryker `json`).
 ///
-/// At least one mutant; every mutant `Killed`, or `Timeout` (a mutant that makes a test
+/// At least one mutant after a [`Extent::Complete`] run (a partial one may find none);
+/// every mutant `Killed`, or `Timeout` (a mutant that makes a test
 /// hang is detected, as Stryker counts it), or `Ignored` exactly where a disable comment
 /// of `disabled` says so (same file, line and mutator; [`equivalent_gate`] requires every
 /// such comment to be reviewed). Any other status (`Survived`, `NoCoverage`,
@@ -1168,7 +1177,12 @@ pub struct Disable {
 ///
 /// Returns every mutant that was not killed, named `file:line Mutator status`, or why the
 /// report cannot be read.
-pub fn ts_mutation_gate(package: &str, report: &str, disabled: &[Disable]) -> Result<(), Failure> {
+pub fn ts_mutation_gate(
+    package: &str,
+    report: &str,
+    disabled: &[Disable],
+    extent: Extent,
+) -> Result<(), Failure> {
     let json: serde_json::Value = serde_json::from_str(report)
         .map_err(|error| Failure::from(format!("{package}: invalid mutation report: {error}")))?;
     let mut mutants = 0_usize;
@@ -1209,7 +1223,7 @@ pub fn ts_mutation_gate(package: &str, report: &str, disabled: &[Disable]) -> Re
             }
         }
     }
-    if mutants == 0 {
+    if mutants == 0 && extent == Extent::Complete {
         problems.push("no mutant in the mutation report".to_owned());
     }
     verdict(&format!("{package}: mutants not killed"), problems)
@@ -4124,6 +4138,18 @@ fn rust_mutants_of_changes(runner: &mut dyn Runner, out: &mut dyn Write) -> Resu
         .map_err(|failure| Failure::from(failure.to_string()))
 }
 
+/// The mutants disabled by a well-formed comment in the tracked TypeScript sources, which
+/// [`ts_mutation_gate`] accepts as ignored.
+///
+/// # Errors
+///
+/// Returns why the sources cannot be listed or read.
+fn disabled_mutants(runner: &mut dyn Runner) -> Result<Vec<Disable>, Failure> {
+    let paths = list_tracked(runner, &["*.ts", "*.tsx"], "the TypeScript files")?;
+    let (found, _) = disables(&read_all(runner, paths)?);
+    Ok(found.into_iter().map(|(disable, _)| disable).collect())
+}
+
 /// The unviable mutants cargo-mutants reported ([`UNVIABLE_REPORT`]) in a run of `extent`.
 ///
 /// cargo-mutants writes no report when the changes hold no mutant, and its report directory
@@ -4215,16 +4241,20 @@ fn run_action(
             )
         }
         Action::TypeScriptReportsGate => {
-            let paths = list_tracked(runner, &["*.ts", "*.tsx"], "the TypeScript files")?;
-            let (found, _) = disables(&read_all(runner, paths)?);
-            let disabled: Vec<Disable> = found.into_iter().map(|(disable, _)| disable).collect();
+            let disabled = disabled_mutants(runner)?;
             PACKAGES.iter().try_for_each(|package| {
                 let [coverage, mutation] = package.reports();
                 let summary = read_file(runner, &format!("{coverage}/coverage-summary.json"))?;
                 ts_coverage_gate(package.dir, &summary)?;
                 let report = read_file(runner, &format!("{mutation}/mutation.json"))?;
-                ts_mutation_gate(package.dir, &report, &disabled)
+                ts_mutation_gate(package.dir, &report, &disabled, Extent::Complete)
             })
+        }
+        Action::TypeScriptMutationGate { package, extent } => {
+            let disabled = disabled_mutants(runner)?;
+            let [_, mutation] = package.reports();
+            let report = read_file(runner, &format!("{mutation}/mutation.json"))?;
+            ts_mutation_gate(package.dir, &report, &disabled, *extent)
         }
         Action::TypeScriptScopeGate => scope(runner),
         Action::StrykerConfigGate => PACKAGES.iter().try_for_each(|package| {
@@ -4288,16 +4318,188 @@ pub fn run_steps(
 
 /// Usage of the `xtask` command, in the order of its first line.
 pub const USAGE: &str = "\
-usage: cargo xtask <check [--full]|list [--full]|bless|commit-msg <file>|pre-push [commit...]|help>
+usage: cargo xtask <check [--full]|list [--full]|mutants <target>|bless|commit-msg <file>|pre-push [commit...]|help>
   check [--full]        run every quality check; mutation testing covers the changes since
                         the merge base with the upstream, origin/main or main, or with
                         --full every mutant, as CI does
   list [--full]         list the checks of `check` (or `check --full`), in order
+  mutants <target>      run every mutant of one target: a crate (its name), a Rust file
+                        of a crate, a TypeScript package (its directory) or one of its
+                        sources (their paths from the root)
   bless                 rewrite conformance/references.json from the current renders
   commit-msg <file>     check a commit message (used by the commit-msg hook)
   pre-push [commit...]  check that the tree is clean and the pushed commits are checked
                         out, then run `check` (used by the pre-push hook)
   help                  show this help";
+
+/// What `cargo xtask mutants` mutates, every mutant of it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Target {
+    /// A crate of [`RUST_CRATES`], named (`cargo mutants --package`).
+    Crate(RustCrate),
+    /// A Rust file of a crate (`cargo mutants --package <crate> --file <path>`).
+    RustFile {
+        /// The crate holding it.
+        krate: RustCrate,
+        /// Its path, relative to the root.
+        path: String,
+    },
+    /// A package of [`PACKAGES`], by its directory (Stryker in that package).
+    Package(Package),
+    /// A TypeScript source of a package, its tests apart (Stryker with `--mutate`).
+    TypeScriptFile {
+        /// The package holding it.
+        package: Package,
+        /// Its path, relative to the package.
+        source: String,
+    },
+}
+
+impl Target {
+    /// The file the target names, relative to the root, if it is a file.
+    #[must_use]
+    pub fn file(&self) -> Option<String> {
+        match self {
+            Self::Crate(_) | Self::Package(_) => None,
+            Self::RustFile { path, .. } => Some(path.clone()),
+            Self::TypeScriptFile { package, source } => Some(format!("{}/{source}", package.dir)),
+        }
+    }
+}
+
+/// The extensions of the TypeScript sources Stryker can mutate: those of [`TS_SOURCES`],
+/// Astro templates apart.
+fn mutable_source(path: &str) -> bool {
+    TS_SOURCES
+        .iter()
+        .filter_map(|pattern| pattern.strip_prefix('*'))
+        .filter(|extension| *extension != ".astro")
+        .any(|extension| path.ends_with(extension))
+}
+
+/// Reads the target of `cargo xtask mutants`: a crate name, a package directory, or the
+/// path of a file below one, relative to the root and written plainly (no `.`, `..` or
+/// empty part).
+///
+/// # Errors
+///
+/// Returns the usage error, in one line: a path that is not plain, test code, or anything
+/// else that is no target.
+pub fn mutation_target(text: &str) -> Result<Target, String> {
+    if let Some(krate) = RUST_CRATES.iter().find(|krate| krate.name == text) {
+        return Ok(Target::Crate(*krate));
+    }
+    if let Some(package) = PACKAGES.iter().find(|package| package.dir == text) {
+        return Ok(Target::Package(*package));
+    }
+    if text
+        .split('/')
+        .any(|part| part.is_empty() || part == "." || part == "..")
+    {
+        return Err(format!(
+            "{text:?} is not a plain path from the root (no `.`, `..` or empty part)"
+        ));
+    }
+    let below = |dir: &str| {
+        text.strip_prefix(dir)
+            .and_then(|rest| rest.strip_prefix('/'))
+    };
+    if Path::new(text)
+        .extension()
+        .is_some_and(|extension| extension == "rs")
+        && let Some(krate) = RUST_CRATES.iter().find(|krate| below(krate.dir).is_some())
+    {
+        return Ok(Target::RustFile {
+            krate: *krate,
+            path: text.to_owned(),
+        });
+    }
+    if let Some((package, source)) = PACKAGES
+        .iter()
+        .find_map(|package| below(package.dir).map(|source| (*package, source)))
+        && mutable_source(source)
+    {
+        if is_test(source) {
+            return Err(format!("{text:?} is test code: name the source it tests"));
+        }
+        return Ok(Target::TypeScriptFile {
+            package,
+            source: source.to_owned(),
+        });
+    }
+    Err(format!(
+        "{text:?} is no crate, Rust file of a crate, TypeScript package or source of one"
+    ))
+}
+
+/// The steps of `cargo xtask mutants`: every mutant of `target`, then its gate.
+///
+/// Rust runs in `jobs` jobs. The report directory is emptied first, and the gate judges a
+/// partial run unless the target is a whole TypeScript package.
+#[must_use]
+pub fn mutants_steps(target: &Target, jobs: NonZeroUsize) -> Vec<Step> {
+    let jobs = jobs.to_string();
+    let rust = |what: &str, args: &[&str]| {
+        let mut all = args.to_vec();
+        all.extend(["--jobs", &jobs]);
+        vec![
+            Step {
+                name: "Fresh Rust mutation report".to_owned(),
+                action: Action::FreshDirs(vec![MUTANTS_OUT.to_owned()]),
+            },
+            Step {
+                name: format!("Rust mutation testing of {what}"),
+                action: Action::Run(mutants_command(&all)),
+            },
+            Step {
+                name: "Rust unviable mutants reviewed".to_owned(),
+                action: Action::UnviableGate(Extent::Partial),
+            },
+        ]
+    };
+    let typescript = |package: Package, what: &str, cmd: Cmd, extent: Extent| {
+        let [_, mutation] = package.reports();
+        vec![
+            Step {
+                name: format!("Fresh mutation report of {}", package.dir),
+                action: Action::FreshDirs(vec![mutation]),
+            },
+            Step {
+                name: format!("Mutation testing of {what}"),
+                action: Action::Run(cmd),
+            },
+            Step {
+                name: format!("TypeScript mutants of {what} killed"),
+                action: Action::TypeScriptMutationGate { package, extent },
+            },
+        ]
+    };
+    match target {
+        Target::Crate(krate) => rust(krate.name, &["--package", krate.name]),
+        Target::RustFile { krate, path } => rust(path, &["--package", krate.name, "--file", path]),
+        Target::Package(package) => typescript(
+            *package,
+            package.dir,
+            stryker_command(
+                package.dir,
+                Mode::Full {
+                    jobs: NonZeroUsize::MIN,
+                },
+            ),
+            Extent::Complete,
+        ),
+        Target::TypeScriptFile { package, source } => typescript(
+            *package,
+            &format!("{}/{source}", package.dir),
+            Cmd::new(
+                "pnpm",
+                &["exec", "stryker", "run", "--mutate", source],
+                Dir::Package(package.dir),
+            ),
+            Extent::Partial,
+        ),
+    }
+}
 
 /// The only way to change the reference hashes: renders every conformance case and
 /// rewrites `conformance/references.json`. The commit must explain why they changed.
@@ -4327,6 +4529,8 @@ enum Task {
     Check(bool),
     /// The list of the checks: those of `check --full` if `true`.
     List(bool),
+    /// Every mutant of one target.
+    Mutants(Target),
     /// Rewrite the reference hashes.
     Bless,
     /// Check the commit message in this file.
@@ -4362,6 +4566,8 @@ fn task(args: &[OsString]) -> Result<Task, String> {
         [command] if command == "bless" => Ok(Task::Bless),
         [command] if command == "help" => Ok(Task::Help),
         [command, file] if command == "commit-msg" => Ok(Task::CommitMsg(file.clone())),
+        [command, target] if command == "mutants" => mutation_target(target).map(Task::Mutants),
+        [command, ..] if command == "mutants" => Err("`mutants` takes one target".to_owned()),
         [command, pushed @ ..] if command == "pre-push" => Ok(Task::PrePush(pushed.to_vec())),
         [command, ..] if alone.contains(&command.as_str()) => {
             Err(format!("`{command}` takes no argument"))
@@ -4386,7 +4592,19 @@ pub fn cli(
     out: &mut dyn Write,
     err: &mut dyn Write,
 ) -> u8 {
-    let task = match task(args) {
+    // A file target must exist: cargo-mutants and Stryker would find nothing in a missing
+    // one, and pass.
+    let checked = task(args).and_then(|task| {
+        if let Task::Mutants(target) = &task
+            && let Some(path) = target.file()
+        {
+            let _text = runner
+                .read(&path)
+                .map_err(|error| format!("cannot read {path}: {error}"))?;
+        }
+        Ok(task)
+    });
+    let task = match checked {
         Ok(task) => task,
         Err(usage) => {
             // Nothing more can be done if stderr itself is broken: the exit code still tells.
@@ -4414,6 +4632,10 @@ pub fn cli(
         }
         Task::PrePush(pushed) => pre_push(runner, &pushed)
             .and_then(|()| run_steps(&check_steps(Mode::Changes), runner, out)),
+        Task::Mutants(target) => {
+            let steps = mutants_steps(&target, mutation_jobs(runner.parallelism()));
+            run_steps(&steps, runner, out)
+        }
         Task::Help => say(out, USAGE),
         Task::List(full) => {
             check_steps(mode(full))
