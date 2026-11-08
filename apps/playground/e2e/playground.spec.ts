@@ -65,3 +65,42 @@ test("is accessible", async ({ page }) => {
   await expect(page.getByRole("status")).toHaveText("Playing");
   expect((await new AxeBuilder({ page }).analyze()).violations).toStrictEqual([]);
 });
+
+test("plays and stops from the keyboard, the button keeping the focus", async ({ page }) => {
+  await page.goto("./?muted");
+  const button = page.getByRole("button");
+  await button.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("status")).toHaveText("Playing");
+  await expect(button).toBeFocused();
+  await expect(button).toHaveText("Stop");
+  await page.keyboard.press("Space");
+  await expect(page.getByRole("status")).toHaveText("Stopped");
+  await expect(button).toBeFocused();
+});
+
+test("explains a failure next to the button, accessibly, and can start again", async ({ page }) => {
+  await page.route("**/*.wasm", (route) => route.fulfill({ status: 404, body: "" }));
+  await page.goto("./?muted");
+  await page.getByRole("button", { name: "Start" }).click();
+  await expect(page.getByRole("status")).toHaveText("Failed");
+  const alert = page.getByRole("alert");
+  await expect(alert).toContainText("cannot load the engine from");
+  await expect(alert).toContainText("(HTTP 404)");
+  await expect(page.getByRole("button")).toHaveAttribute("aria-describedby", "player-alert");
+  expect((await new AxeBuilder({ page }).analyze()).violations).toStrictEqual([]);
+
+  await page.unroute("**/*.wasm");
+  await page.getByRole("button", { name: "Start" }).click();
+  await expect(page.getByRole("status")).toHaveText("Playing");
+  await expect(page.getByRole("alert")).toHaveCount(0);
+});
+
+test("is accessible once stopped again", async ({ page }) => {
+  await page.goto("./?muted");
+  await page.getByRole("button", { name: "Start" }).click();
+  await expect(page.getByRole("status")).toHaveText("Playing");
+  await page.getByRole("button", { name: "Stop" }).click();
+  await expect(page.getByRole("status")).toHaveText("Stopped");
+  expect((await new AxeBuilder({ page }).analyze()).violations).toStrictEqual([]);
+});

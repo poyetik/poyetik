@@ -32,9 +32,16 @@ p {
 
 .controls {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 1rem;
   margin: 1.5rem 0;
+}
+
+/* A failure is explained right below the button that started it. */
+.controls [role="alert"] {
+  flex-basis: 100%;
+  margin: 0;
 }
 
 button {
@@ -49,12 +56,14 @@ button {
   cursor: pointer;
 }
 
-button[aria-pressed="true"] {
+/* While playing, the button stops the sound: it stands out. */
+button[data-action="stop"] {
   border-color: var(--accent);
   color: var(--accent);
 }
 
-button:disabled {
+/* During a transition the button is inert but keeps the focus (aria-disabled). */
+button[aria-disabled="true"] {
   cursor: wait;
   opacity: 0.6;
 }

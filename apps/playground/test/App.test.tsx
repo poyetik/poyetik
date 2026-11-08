@@ -1,58 +1,54 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { App } from "../src/App.tsx";
-import type { Player, Signal } from "../src/player.ts";
+import type { Player, PlayerState, Signal } from "../src/player.ts";
 
-/** A promise settled by the test. */
-interface Pending {
-  readonly promise: Promise<void>;
-  readonly resolve: () => void;
-  readonly reject: (reason: unknown) => void;
-}
-
-/** A pending promise. */
-function pending(): Pending {
-  let resolve: () => void = () => undefined;
-  let reject: (reason: unknown) => void = () => undefined;
-  const promise = new Promise<void>((done, fail) => {
-    resolve = done;
-    reject = fail;
-  });
-  return { promise, resolve, reject };
-}
-
-/** A player whose calls the test settles. */
+/** A player whose state the test drives, recording the calls. */
 class FakePlayer implements Player {
   readonly calls: string[] = [];
-  readonly starts: Pending[] = [];
-  readonly stops: Pending[] = [];
   signal: Signal | undefined = undefined;
+  #state: PlayerState = { kind: "stopped" };
+  readonly #listeners = new Set<() => void>();
 
   start(): Promise<void> {
     this.calls.push("start");
-    const call = pending();
-    this.starts.push(call);
-    return call.promise;
+    return Promise.resolve();
   }
 
   stop(): Promise<void> {
     this.calls.push("stop");
-    const call = pending();
-    this.stops.push(call);
-    return call.promise;
+    return Promise.resolve();
+  }
+
+  resume(): Promise<void> {
+    this.calls.push("resume");
+    return Promise.resolve();
+  }
+
+  state(): PlayerState {
+    return this.#state;
+  }
+
+  subscribe(listener: () => void): () => void {
+    this.#listeners.add(listener);
+    return () => {
+      this.#listeners.delete(listener);
+    };
   }
 
   latest(): Signal | undefined {
     return this.signal;
   }
-}
 
-/** Settles `call` and lets React apply what follows. */
-async function settle(action: () => void): Promise<void> {
-  await act(async () => {
-    action();
-    await Promise.resolve();
-  });
+  /** Moves to `state`, as the real player would, and tells the page. */
+  become(state: PlayerState): void {
+    act(() => {
+      this.#state = state;
+      this.#listeners.forEach((listener) => {
+        listener();
+      });
+    });
+  }
 }
 
 const button = (): HTMLButtonElement => screen.getByRole("button");
@@ -66,63 +62,51 @@ test("starts stopped", () => {
   render(<App player={new FakePlayer()} />);
   expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Playground");
   expect(button().textContent).toBe("Start");
-  expect(button().disabled).toBe(false);
+  expect(button().getAttribute("aria-disabled")).toBe("false");
   expect(status()).toBe("Stopped");
   expect(screen.queryByRole("alert")).toBeNull();
 });
 
-test("starts and stops the player", async () => {
+test.each([
+  [{ kind: "stopped" }, "Stopped", "Start", "false", "start"],
+  [{ kind: "starting" }, "Starting…", "Start", "true", undefined],
+  [{ kind: "playing" }, "Playing", "Stop", "false", "stop"],
+  [{ kind: "suspended" }, "Paused by the browser", "Resume", "false", "resume"],
+  [{ kind: "stopping" }, "Stopping…", "Stop", "true", undefined],
+  [{ kind: "failed", reason: "no device" }, "Failed", "Start", "false", "start"],
+] as const)("shows %o and acts on it", (state, shown, label, disabled, call) => {
   const player = new FakePlayer();
   render(<App player={player} />);
+  player.become(state);
+  expect(status()).toBe(shown);
+  expect(button().textContent).toBe(label);
+  expect(button().getAttribute("aria-disabled")).toBe(disabled);
+  expect(button().dataset["action"]).toBe(label.toLowerCase());
   fireEvent.click(button());
-  expect(player.calls).toStrictEqual(["start"]);
-  expect(status()).toBe("Starting…");
-  expect(button().textContent).toBe("Start");
-  expect(button().disabled).toBe(true);
-  await settle(() => player.starts[0]?.resolve());
-  expect(status()).toBe("Playing");
-  expect(button().textContent).toBe("Stop");
-  expect(button().disabled).toBe(false);
-
-  fireEvent.click(button());
-  expect(player.calls).toStrictEqual(["start", "stop"]);
-  expect(status()).toBe("Stopping…");
-  expect(button().textContent).toBe("Stop");
-  expect(button().disabled).toBe(true);
-  await settle(() => player.stops[0]?.resolve());
-  expect(status()).toBe("Stopped");
-  expect(button().textContent).toBe("Start");
+  expect(player.calls).toStrictEqual(call === undefined ? [] : [call]);
 });
 
-test("ignores clicks while busy", () => {
+test("keeps the button focused through every transition", () => {
   const player = new FakePlayer();
   render(<App player={player} />);
-  fireEvent.click(button());
-  fireEvent.click(button());
-  expect(player.calls).toStrictEqual(["start"]);
+  button().focus();
+  for (const kind of ["starting", "playing", "stopping", "stopped"] as const) {
+    player.become({ kind });
+    expect(document.activeElement).toBe(button());
+  }
 });
 
-test("shows why starting failed, until the next attempt", async () => {
+test("explains a failure next to the button, and describes the button with it", () => {
   const player = new FakePlayer();
   render(<App player={player} />);
-  fireEvent.click(button());
-  await settle(() => player.starts[0]?.reject(new Error("no audio device")));
-  expect(screen.getByRole("alert").textContent).toBe("Error: no audio device");
-  expect(status()).toBe("Stopped");
-  expect(button().textContent).toBe("Start");
-  fireEvent.click(button());
+  player.become({ kind: "failed", reason: "Audio needs a secure page." });
+  const alert = screen.getByRole("alert");
+  expect(alert.textContent).toBe("Audio needs a secure page.");
+  expect(alert.id).toBe("player-alert");
+  expect(button().getAttribute("aria-describedby")).toBe(alert.id);
+  player.become({ kind: "starting" });
   expect(screen.queryByRole("alert")).toBeNull();
-});
-
-test("shows why stopping failed", async () => {
-  const player = new FakePlayer();
-  render(<App player={player} />);
-  fireEvent.click(button());
-  await settle(() => player.starts[0]?.resolve());
-  fireEvent.click(button());
-  await settle(() => player.stops[0]?.reject(new Error("device lost")));
-  expect(screen.getByRole("alert").textContent).toBe("Error: device lost");
-  expect(status()).toBe("Stopped");
+  expect(button().hasAttribute("aria-describedby")).toBe(false);
 });
 
 test("shows what the player plays", () => {
@@ -149,4 +133,13 @@ test("follows a new player", () => {
     vi.advanceTimersToNextFrame();
   });
   expect(screen.getByTestId("rate").textContent).toBe("16000 Hz");
+});
+
+test("follows the state of a new player", () => {
+  const first = new FakePlayer();
+  const second = new FakePlayer();
+  const { rerender } = render(<App player={first} />);
+  rerender(<App player={second} />);
+  second.become({ kind: "playing" });
+  expect(status()).toBe("Playing");
 });

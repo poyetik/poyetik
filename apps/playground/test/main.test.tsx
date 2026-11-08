@@ -1,7 +1,7 @@
 import { act } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { PlayerOptions } from "../src/player.ts";
-import { GAIN, HISTORY } from "../src/settings.ts";
+import { FADE, GAIN, HISTORY } from "../src/settings.ts";
 
 /** Options given to each player created by the entry point. */
 const created: PlayerOptions[] = [];
@@ -14,6 +14,17 @@ vi.mock("../src/player.ts", () => ({
 
     latest(): undefined {
       return undefined;
+    }
+
+    readonly #state = { kind: "stopped" } as const;
+
+    state(): { readonly kind: "stopped" } {
+      // The same object every time, like the real player: React compares snapshots.
+      return this.#state;
+    }
+
+    subscribe(): () => void {
+      return () => undefined;
     }
   },
 }));
@@ -39,7 +50,7 @@ test("mounts the playground with an audible player", async () => {
   await main();
   expect(document.querySelector("h1")?.textContent).toBe("Playground");
   expect(created).toHaveLength(1);
-  expect(created[0]).toMatchObject({ gain: GAIN, history: HISTORY, onError: reportError });
+  expect(created[0]).toMatchObject({ gain: GAIN, fade: FADE, history: HISTORY, environment: globalThis });
   expect(created[0]?.wasm).toMatch(/engine\.wasm/);
   expect(created[0]?.worklet).toMatch(/processors/);
   expect(new TextDecoder().decode(created[0]?.patch)).toContain('"osc~"');
