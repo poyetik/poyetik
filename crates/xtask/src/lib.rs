@@ -33,6 +33,28 @@ pub const UNVIABLE_REVIEWED: &str = "mutants-unviable.txt";
 /// next-line` comment, each with the reason no test can tell the mutant apart.
 pub const EQUIVALENT_REVIEWED: &str = "mutants-equivalent.txt";
 
+/// The TypeScript packages, by directory: each writes its coverage summary and its
+/// mutation report, both checked by xtask rather than trusted to their own thresholds.
+pub const TYPESCRIPT_PACKAGES: [&str; 4] = [
+    "tooling/oracle",
+    "bindings/wasm",
+    "apps/playground",
+    "apps/roadmap",
+];
+
+/// The report directories of the TypeScript packages, emptied before they run so that
+/// every report read by the gate comes from this run.
+pub const TYPESCRIPT_REPORTS: [&str; 8] = [
+    "tooling/oracle/coverage",
+    "tooling/oracle/reports/mutation",
+    "bindings/wasm/coverage",
+    "bindings/wasm/reports/mutation",
+    "apps/playground/coverage",
+    "apps/playground/reports/mutation",
+    "apps/roadmap/coverage",
+    "apps/roadmap/reports/mutation",
+];
+
 /// Targets the engine core must build for: proof that it depends on no environment.
 pub const PORTABILITY_TARGETS: [&str; 4] = [
     "aarch64-apple-darwin",
@@ -111,6 +133,11 @@ pub enum Action {
     /// Empty this directory (relative to the root), creating it if needed: what a later
     /// step reads there is then produced by this run only.
     FreshDir(&'static str),
+    /// Empty each of these directories, as [`Action::FreshDir`].
+    FreshDirs(&'static [&'static str]),
+    /// Require 100% coverage and no surviving mutant in the reports of every TypeScript
+    /// package.
+    TypeScriptReportsGate,
 }
 
 /// One named check.
@@ -316,6 +343,10 @@ fn release_steps() -> Vec<Step> {
             &["install", "--frozen-lockfile"],
             Dir::Root,
         ),
+        Step {
+            name: "Fresh TypeScript report directories".to_owned(),
+            action: Action::FreshDirs(&TYPESCRIPT_REPORTS),
+        },
         run(
             "Conformance oracle (independent, TypeScript)",
             "pnpm",
@@ -335,6 +366,10 @@ fn release_steps() -> Vec<Step> {
             Dir::Playground,
         ),
         run("Roadmap checks", "pnpm", &["run", "check"], Dir::Roadmap),
+        Step {
+            name: "TypeScript coverage and mutation reports".to_owned(),
+            action: Action::TypeScriptReportsGate,
+        },
     ]
 }
 
@@ -390,6 +425,72 @@ pub fn coverage_gate(report: &str) -> Result<(), String> {
         Ok(())
     } else {
         Err(format!("coverage is not 100%: {}", missing.join(", ")))
+    }
+}
+
+/// Checks the coverage summary of a TypeScript package (Vitest `json-summary`): 100% of
+/// lines, statements, functions and branches, each measured.
+///
+/// # Errors
+///
+/// Returns a message naming the package and every kind not fully covered.
+pub fn ts_coverage_gate(package: &str, summary: &str) -> Result<(), String> {
+    let json: serde_json::Value = serde_json::from_str(summary)
+        .map_err(|error| format!("{package}: invalid coverage summary: {error}"))?;
+    let mut missing = Vec::new();
+    for kind in ["lines", "statements", "functions", "branches"] {
+        let field = |name: &str| {
+            json.get("total")
+                .and_then(|total| total.get(kind))
+                .and_then(|entry| entry.get(name))
+                .and_then(serde_json::Value::as_u64)
+        };
+        match (field("total"), field("covered")) {
+            (Some(0), _) => missing.push(format!("{kind} not measured")),
+            (Some(count), Some(covered)) if covered == count => {}
+            (Some(count), Some(covered)) => missing.push(format!("{kind} {covered}/{count}")),
+            _ => missing.push(format!("no {kind} total")),
+        }
+    }
+    if missing.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "{package}: coverage is not 100%: {}",
+            missing.join(", ")
+        ))
+    }
+}
+
+/// Checks the mutation report of a TypeScript package (Stryker `json`): at least one
+/// mutant, none survived or left without coverage.
+///
+/// # Errors
+///
+/// Returns a message naming the package and the mutants that were not killed.
+pub fn ts_mutation_gate(package: &str, report: &str) -> Result<(), String> {
+    let json: serde_json::Value = serde_json::from_str(report)
+        .map_err(|error| format!("{package}: invalid mutation report: {error}"))?;
+    let statuses: Vec<&str> = json
+        .get("files")
+        .and_then(serde_json::Value::as_object)
+        .into_iter()
+        .flat_map(|files| files.values())
+        .filter_map(|file| file.get("mutants").and_then(serde_json::Value::as_array))
+        .flatten()
+        .filter_map(|mutant| mutant.get("status").and_then(serde_json::Value::as_str))
+        .collect();
+    if statuses.is_empty() {
+        return Err(format!("{package}: no mutant in the mutation report"));
+    }
+    let left = |status: &str| statuses.iter().filter(|s| **s == status).count();
+    let (survived, uncovered) = (left("Survived"), left("NoCoverage"));
+    if survived == 0 && uncovered == 0 {
+        Ok(())
+    } else {
+        Err(format!(
+            "{package}: {survived} mutant(s) survived, {uncovered} without coverage"
+        ))
     }
 }
 
@@ -883,6 +984,17 @@ pub fn run_steps(
             Action::FreshDir(path) => runner
                 .fresh_dir(path)
                 .map_err(|error| format!("cannot empty {path}: {error}")),
+            Action::FreshDirs(paths) => paths.iter().try_for_each(|path| {
+                runner
+                    .fresh_dir(path)
+                    .map_err(|error| format!("cannot empty {path}: {error}"))
+            }),
+            Action::TypeScriptReportsGate => TYPESCRIPT_PACKAGES.iter().try_for_each(|package| {
+                read_file(runner, &format!("{package}/coverage/coverage-summary.json"))
+                    .and_then(|summary| ts_coverage_gate(package, &summary))?;
+                read_file(runner, &format!("{package}/reports/mutation/mutation.json"))
+                    .and_then(|report| ts_mutation_gate(package, &report))
+            }),
             Action::EquivalentGate => runner
                 .typescript_files()
                 .map_err(|error| format!("cannot list the TypeScript files: {error}"))

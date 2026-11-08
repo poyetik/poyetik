@@ -14,7 +14,8 @@
   "reporters": [
     "clear-text",
     "progress",
-    "html"
+    "html",
+    "json"
   ],
   "thresholds": {
     "high": 100,

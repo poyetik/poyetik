@@ -10,8 +10,9 @@ use std::process::Command;
 use super::{
     Action, BestEffort, CARGO_TOML, CHANGELOG, COMMIT_HEADER_MAX, COVERAGE_REPORT, Cmd, Dir,
     EQUIVALENT_REVIEWED, PACKAGE_JSONS, PORTABILITY_TARGETS, Runner, Step, SystemRunner,
-    UNVIABLE_REPORT, UNVIABLE_REVIEWED, USAGE, Version, bless_step, check_steps, cli,
-    commit_msg_gate, coverage_gate, equivalent_gate, release_gate, run_steps, unviable_gate,
+    TYPESCRIPT_PACKAGES, UNVIABLE_REPORT, UNVIABLE_REVIEWED, USAGE, Version, bless_step,
+    check_steps, cli, commit_msg_gate, coverage_gate, equivalent_gate, release_gate, run_steps,
+    ts_coverage_gate, ts_mutation_gate, unviable_gate,
 };
 
 /// Records commands and answers with scripted results.
@@ -89,6 +90,12 @@ fn full_report() -> String {
     report((10, 10), (3, 3), (4, 4))
 }
 
+/// A Vitest coverage summary at 100%.
+const TS_COVERED: &str = r#"{"total":{"lines":{"total":4,"covered":4},"statements":{"total":5,"covered":5},"functions":{"total":2,"covered":2},"branches":{"total":3,"covered":3}}}"#;
+
+/// A Stryker report where every mutant was killed (or timed out, or was disabled).
+const TS_KILLED: &str = r#"{"files":{"a.ts":{"mutants":[{"status":"Killed"},{"status":"Timeout"}]},"b.ts":{"mutants":[{"status":"Ignored"}]}}}"#;
+
 fn passing() -> Fake {
     let mut fake = Fake::default();
     let previous = fake.files.insert(COVERAGE_REPORT.to_owned(), full_report());
@@ -105,6 +112,17 @@ fn passing() -> Fake {
     assert!(first.is_none() && second.is_none(), "fresh fake");
     let source = "const a = 1;\n// Stryker disable next-line EqualityOperator: same result\nwhile (a < 2) {}\n";
     let equivalent = "x/a.ts: EqualityOperator at while (a < 2) {} -- same result\n";
+    for package in TYPESCRIPT_PACKAGES {
+        let summary = fake.files.insert(
+            format!("{package}/coverage/coverage-summary.json"),
+            TS_COVERED.to_owned(),
+        );
+        let mutation = fake.files.insert(
+            format!("{package}/reports/mutation/mutation.json"),
+            TS_KILLED.to_owned(),
+        );
+        assert!(summary.is_none() && mutation.is_none(), "fresh fake");
+    }
     let third = fake.files.insert("x/a.ts".to_owned(), source.to_owned());
     let fourth = fake
         .files
@@ -161,6 +179,8 @@ fn command_lines(steps: &[Step]) -> Vec<String> {
             Action::EquivalentGate => "equivalent gate".to_owned(),
             Action::ReleaseGate => "release gate".to_owned(),
             Action::FreshDir(path) => format!("fresh {path}"),
+            Action::FreshDirs(paths) => format!("fresh {}", paths.join(" ")),
+            Action::TypeScriptReportsGate => "typescript reports gate".to_owned(),
         })
         .collect()
 }
@@ -191,10 +211,12 @@ fn lists_every_check_in_order() {
             "Root: cargo deny --locked check",
             "release gate",
             "Root: pnpm install --frozen-lockfile",
+            "fresh tooling/oracle/coverage tooling/oracle/reports/mutation bindings/wasm/coverage bindings/wasm/reports/mutation apps/playground/coverage apps/playground/reports/mutation apps/roadmap/coverage apps/roadmap/reports/mutation",
             "Oracle: pnpm run check",
             "EngineWasm: pnpm run check",
             "Playground: pnpm run check",
             "Roadmap: pnpm run check",
+            "typescript reports gate",
         ],
         "the full check pipeline"
     );
@@ -221,10 +243,12 @@ fn lists_every_check_in_order() {
             "Rust supply chain",
             "Versions and changelog",
             "JavaScript dependencies",
+            "Fresh TypeScript report directories",
             "Conformance oracle (independent, TypeScript)",
             "Engine WASM checks",
             "Playground checks",
             "Roadmap checks",
+            "TypeScript coverage and mutation reports",
         ],
         "step names"
     );
@@ -322,9 +346,10 @@ fn runs_every_step_and_reports_success() {
     );
     assert_eq!(
         fake.ran.len(),
-        check_steps().len() + 10,
+        check_steps().len() + 7 + 10 + 7,
         "every step ran; the unviable gate reads two files, the equivalent gate lists the \
-         sources and reads two files, the release gate eight"
+         sources and reads two files, the release gate eight, the fresh step empties seven \
+         more directories, the TypeScript gate reads eight reports instead of one action"
     );
     for path in [
         CARGO_TOML,
@@ -348,15 +373,15 @@ fn runs_every_step_and_reports_success() {
     );
     let text = String::from_utf8(out).expect("utf-8 output");
     assert!(
-        text.starts_with("▶ [1/24] Rust formatting\n"),
+        text.starts_with("▶ [1/26] Rust formatting\n"),
         "numbered progress: {text}"
     );
     assert!(
-        text.contains("▶ [24/24] Roadmap checks\n"),
+        text.contains("▶ [25/26] Roadmap checks\n"),
         "last step announced: {text}"
     );
     assert!(
-        text.ends_with("✔ all 24 checks passed\n"),
+        text.ends_with("✔ all 26 checks passed\n"),
         "summary: {text}"
     );
 }
@@ -1258,5 +1283,101 @@ fn bless_renders_and_rewrites_the_references() {
         String::from_utf8(out).expect("utf-8"),
         "▶ [1/1] Bless conformance references\n✔ all 1 checks passed\n",
         "progress"
+    );
+}
+
+#[test]
+fn accepts_only_fully_covered_typescript_packages() {
+    assert_eq!(ts_coverage_gate("p", TS_COVERED), Ok(()), "100%");
+    assert_eq!(
+        ts_coverage_gate(
+            "p",
+            r#"{"total":{"lines":{"total":4,"covered":3},"statements":{"total":0,"covered":0},"functions":{"total":2},"branches":{"total":3,"covered":3}}}"#
+        ),
+        Err(
+            "p: coverage is not 100%: lines 3/4, statements not measured, no functions total"
+                .to_owned()
+        ),
+        "every kind is checked"
+    );
+    assert!(
+        ts_coverage_gate("p", "nope")
+            .is_err_and(|e| e.starts_with("p: invalid coverage summary: ")),
+        "unreadable"
+    );
+}
+
+#[test]
+fn accepts_only_typescript_packages_without_surviving_mutants() {
+    assert_eq!(ts_mutation_gate("p", TS_KILLED), Ok(()), "all killed");
+    assert_eq!(
+        ts_mutation_gate(
+            "p",
+            r#"{"files":{"a.ts":{"mutants":[{"status":"Survived"},{"status":"NoCoverage"},{"status":"NoCoverage"},{"status":"Killed"}]}}}"#
+        ),
+        Err("p: 1 mutant(s) survived, 2 without coverage".to_owned()),
+        "survivors counted"
+    );
+    assert_eq!(
+        ts_mutation_gate(
+            "p",
+            r#"{"files":{"a.ts":{"mutants":[{"status":"Survived"}]}}}"#
+        ),
+        Err("p: 1 mutant(s) survived, 0 without coverage".to_owned()),
+        "a survivor alone"
+    );
+    assert_eq!(
+        ts_mutation_gate(
+            "p",
+            r#"{"files":{"a.ts":{"mutants":[{"status":"NoCoverage"}]}}}"#
+        ),
+        Err("p: 0 mutant(s) survived, 1 without coverage".to_owned()),
+        "an uncovered mutant alone"
+    );
+    for empty in [r#"{"files":{}}"#, r#"{"files":{"a.ts":{}}}"#, "{}"] {
+        assert_eq!(
+            ts_mutation_gate("p", empty),
+            Err("p: no mutant in the mutation report".to_owned()),
+            "{empty}"
+        );
+    }
+    assert!(
+        ts_mutation_gate("p", "[").is_err_and(|e| e.starts_with("p: invalid mutation report: ")),
+        "unreadable"
+    );
+}
+
+#[test]
+fn fails_on_a_missing_or_failing_typescript_report() {
+    let mut no_summary = passing();
+    let removed = no_summary
+        .files
+        .remove("apps/playground/coverage/coverage-summary.json");
+    assert!(removed.is_some(), "summary removed");
+    assert_eq!(
+        run_steps(&check_steps(), &mut no_summary, &mut Vec::new()),
+        Err("✘ TypeScript coverage and mutation reports: cannot read apps/playground/coverage/coverage-summary.json: missing".to_owned()),
+        "missing summary"
+    );
+    let mut survivor = passing();
+    let replaced = survivor.files.insert(
+        "apps/roadmap/reports/mutation/mutation.json".to_owned(),
+        r#"{"files":{"a.ts":{"mutants":[{"status":"Survived"}]}}}"#.to_owned(),
+    );
+    assert!(replaced.is_some(), "report replaced");
+    assert_eq!(
+        run_steps(&check_steps(), &mut survivor, &mut Vec::new()),
+        Err("✘ TypeScript coverage and mutation reports: apps/roadmap: 1 mutant(s) survived, 0 without coverage".to_owned()),
+        "survivor"
+    );
+    let mut busy = passing();
+    busy.broken = Some("fresh apps/playground/coverage".to_owned());
+    assert_eq!(
+        run_steps(&check_steps(), &mut busy, &mut Vec::new()),
+        Err(
+            "✘ Fresh TypeScript report directories: cannot empty apps/playground/coverage: busy"
+                .to_owned()
+        ),
+        "a report directory that cannot be emptied"
     );
 }
