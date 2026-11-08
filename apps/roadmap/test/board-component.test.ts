@@ -63,10 +63,15 @@ describe("Board.astro", () => {
   });
 
   it("renders no empty date, description or milestone", async () => {
-    const html = await render([]);
-    expect(html).not.toContain("updated");
-    expect(html).not.toContain('class="milestone"');
-    expect(html.match(/Nothing yet/g)).toHaveLength(4);
+    const empty = await render([]);
+    expect(empty).not.toContain("updated");
+    expect(empty.match(/Nothing yet/g)).toHaveLength(4);
+    // A real card with an empty description and milestone: neither is rendered.
+    const html = await render([card(1, "next")]);
+    const item = /<li class="card" data-id="1"[^>]*>([\s\S]*?)<\/li>/.exec(html)?.[1] ?? "";
+    expect(item).toContain("<h3>Card 1</h3>");
+    expect(item).not.toMatch(/<p[ >]/);
+    expect(item).not.toContain('class="milestone"');
   });
 
   it("renders no step list or progress for a card without steps", async () => {
