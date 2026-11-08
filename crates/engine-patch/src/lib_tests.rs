@@ -185,22 +185,37 @@ fn refuses_more_nodes_than_a_patch_holds() {
 
 #[test]
 fn parses_numbers_with_correct_rounding() {
-    let patch = parse_patch(
-        r#"{"format":1,"nodes":[{"id":1,"box":"x","params":{"a":0.1,"b":3.4028235e38,"c":-0.0}}],"connections":[]}"#,
-    )
-    .expect("valid patch");
-    let params = &patch.nodes().next().expect("one node").params;
-    assert_eq!(
-        params["a"].to_bits(),
-        0.1_f32.to_bits(),
-        "0.1 rounds like the f32 literal"
-    );
-    assert_eq!(params["b"].to_bits(), f32::MAX.to_bits(), "largest f32");
-    assert_eq!(
-        params["c"].to_bits(),
-        (-0.0_f32).to_bits(),
-        "negative zero is kept"
-    );
+    // Each number is rounded once, from its exact decimal value to the nearest binary32
+    // (spec/patch-format.md). Reading it as binary64 first, then rounding again, gives
+    // another value for the first two below, one ulp off: they sit just above a binary32
+    // midpoint, closer than binary64 can tell. These checks fail without serde_json's
+    // `float_roundtrip` feature, which nothing else pins.
+    let values = [
+        // 1 + 2^-24 + 10^-29: just above the midpoint between 1 and the next binary32.
+        ("1.00000005960464477539062500001", 0x3F80_0001_u32),
+        // 440 + 2^-16 + 2^-70, exactly: just above the midpoint after 440.
+        (
+            "440.0000152587890625000008470329472543003390683225006796419620513916015625",
+            0x43DC_0001,
+        ),
+        // 1 + 2^-24, exactly the midpoint: ties to even, down to 1.
+        ("1.000000059604644775390625", 0x3F80_0000),
+        ("0.1", 0.1_f32.to_bits()),
+        ("3.4028235e38", f32::MAX.to_bits()),
+        ("-0.0", (-0.0_f32).to_bits()),
+        ("-0", (-0.0_f32).to_bits()),
+        // The smallest subnormal, and a value that rounds to it.
+        ("1e-45", 0x0000_0001),
+        ("1.401298464324817e-45", 0x0000_0001),
+    ];
+    for (text, bits) in values {
+        let patch = parse_patch(&format!(
+            r#"{{"format":1,"nodes":[{{"id":1,"box":"x","params":{{"a":{text}}}}}],"connections":[]}}"#
+        ))
+        .expect("valid patch");
+        let params = &patch.nodes().next().expect("one node").params;
+        assert_eq!(params["a"].to_bits(), bits, "{text} rounds to {bits:#010x}");
+    }
 }
 
 #[test]
