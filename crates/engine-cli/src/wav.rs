@@ -5,6 +5,10 @@ use crate::Rendered;
 /// Size of the header written by [`wav_header`], in bytes.
 pub const HEADER_LEN: usize = 58;
 
+/// What the RIFF size field counts besides the samples: the header after its first
+/// 8 bytes (`RIFF` and the size field itself), that is [`HEADER_LEN`] − 8.
+const RIFF_SIZE_OVERHEAD: u32 = 50;
+
 /// Builds the header of a 32-bit float WAV file (`RIFF`, `fmt `, `fact` and `data`
 /// chunk headers) for `samples` interleaved samples of `channels` channels.
 ///
@@ -18,7 +22,9 @@ pub fn wav_header(rate: u32, channels: usize, samples: usize) -> Result<[u8; HEA
     let too_long = || format!("too long for WAV: {samples} samples");
     let sample_count = u32::try_from(samples).map_err(|_| too_long())?;
     let data_len = sample_count.checked_mul(4).ok_or_else(too_long)?;
-    let riff_len = data_len.checked_add(50).ok_or_else(too_long)?;
+    let riff_len = data_len
+        .checked_add(RIFF_SIZE_OVERHEAD)
+        .ok_or_else(too_long)?;
     let frames = sample_count
         .checked_div(u32::from(channel_count))
         .unwrap_or(0);
