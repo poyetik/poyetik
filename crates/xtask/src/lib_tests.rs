@@ -376,9 +376,10 @@ fn passing() -> Fake {
     let third = fake
         .files
         .insert(DISABLED_SOURCE.0.to_owned(), DISABLED_SOURCE.1.to_owned());
-    let bypasses = fake
-        .files
-        .insert(super::BYPASSES_REVIEWED.to_owned(), "# none\n".to_owned());
+    let bypasses = fake.files.insert(
+        super::BYPASSES_REVIEWED.to_owned(),
+        SCOPE_REVIEWED.to_owned(),
+    );
     assert!(bypasses.is_none(), "fresh fake");
     let fourth = fake
         .files
@@ -440,13 +441,31 @@ fn coverage_reports(fake: &mut Fake) {
     assert!(previous.is_none(), "fresh fake");
 }
 
-/// Gives every package of `fake` a fully covered, fully killed report and a Stryker
-/// configuration that hides nothing.
+/// The review, in the fake's register, of the one source of the fake no package measures.
+const SCOPE_REVIEWED: &str = "tooling/config/x.ts: not measured -- a source of the fake\n";
+
+/// A coverage summary like [`TS_COVERED`], measuring `src/a.ts` of the package in `dir`,
+/// with the absolute path Vitest writes.
+fn ts_covered(dir: &str) -> String {
+    TS_COVERED.replacen(
+        "{\"total\"",
+        &format!("{{\"/r/{dir}/src/a.ts\":{{}},\"total\""),
+        1,
+    )
+}
+
+/// Gives every package of `fake` a source, `src/a.ts`, a fully covered, fully killed report
+/// measuring it and a Stryker configuration that hides nothing and mutates it.
 fn typescript_reports(fake: &mut Fake) {
     for package in PACKAGES {
+        let source = fake.files.insert(
+            format!("{}/src/a.ts", package.dir),
+            "export const A = 1;\n".to_owned(),
+        );
+        assert!(source.is_none(), "fresh fake");
         let summary = fake.files.insert(
             format!("{}/coverage/coverage-summary.json", package.dir),
-            TS_COVERED.to_owned(),
+            ts_covered(package.dir),
         );
         let mutations = if package.dir == "tooling/config" {
             TS_KILLED_OR_DISABLED
@@ -561,6 +580,7 @@ fn command_lines(steps: &[Step]) -> Vec<String> {
             Action::FreshDirs(paths) => format!("fresh {}", paths.join(" ")),
             Action::TypeScriptReportsGate => "typescript reports gate".to_owned(),
             Action::StrykerConfigGate => "stryker config gate".to_owned(),
+            Action::TypeScriptScopeGate => "typescript scope gate".to_owned(),
             Action::BypassGate => "bypass gate".to_owned(),
             Action::MembershipGate => "membership gate".to_owned(),
             Action::LicenseGate => "license gate".to_owned(),
@@ -636,6 +656,7 @@ fn lists_every_check_in_order() {
             "Package(\"apps/playground\"): pnpm run check",
             "Package(\"apps/roadmap\"): pnpm run check",
             "typescript reports gate",
+            "typescript scope gate",
             "tree unchanged",
         ],
         "the full check pipeline"
@@ -705,6 +726,7 @@ fn names_every_check_in_order() {
             "Playground checks",
             "Roadmap checks",
             "TypeScript coverage and mutation reports",
+            "Every TypeScript source measured and mutated, or reviewed",
             "Working tree unchanged by the checks",
         ],
         "step names"
@@ -930,8 +952,8 @@ fn runs_every_step_and_reports_success() {
         Ok(()),
         "all green"
     );
-    let (tools, commands, emptied, listed, captured) = (9, 44, 13, 9, 9);
-    let read = 1 + 12 + 2 + 2 + 4 + 2 + 1 + 7 + 3 + 10 + 10 + 8 + 2 + 5 + 11;
+    let (tools, commands, emptied, listed, captured) = (9, 44, 13, 10, 9);
+    let read = 1 + 12 + 2 + 7 + 9 + 2 + 1 + 7 + 3 + 10 + 10 + 8 + 2 + 5 + 16 + 11;
     assert_eq!(
         fake.ran.len(),
         tools + commands + emptied + listed + captured + read,
@@ -939,15 +961,16 @@ fn runs_every_step_and_reports_success() {
          tests, four portability builds, twelve coverage measurements each after emptying \
          the coverage build, mutants, Miri, the \
          conformance check and export, deny, the JavaScript install, audit and five package \
-         checks); thirteen directories are emptied; git lists nine kinds of files; the licenses, \
+         checks); thirteen directories are emptied; git lists ten kinds of files; the licenses, \
          the history and the state of the tree (before and after) are captured twice each, \
          the Cargo metadata once; and the gates read .node-version for the preflight, twelve coverage reports, \
-         the unviable report and reviews, a TypeScript source and its reviews, the three \
+         the unviable report and reviews, six TypeScript sources and their reviews, the eight \
          sources and the register of the bypass gate, the two unsafe files, the Cargo \
          configuration, the six package manifests and the register of the dependency gate, the three \
          supply-chain configurations, ten crate manifests, ten READMEs, eight version files, the workflow and \
-         .node-version, five Stryker configurations, and the TypeScript source and ten \
-         reports of the reports gate"
+         .node-version, five Stryker configurations, the six TypeScript sources and ten \
+         reports of the reports gate, and the five Stryker configurations, five coverage \
+         summaries and the register of the scope gate"
     );
     for path in [CARGO_TOML.to_owned(), CHANGELOG.to_owned()]
         .into_iter()
@@ -966,15 +989,15 @@ fn runs_every_step_and_reports_success() {
     );
     let text = String::from_utf8(out).expect("utf-8 output");
     assert!(
-        text.starts_with("▶ [1/54] Tools and platform\n"),
+        text.starts_with("▶ [1/55] Tools and platform\n"),
         "numbered progress: {text}"
     );
     assert!(
-        text.contains("▶ [52/54] Roadmap checks\n"),
+        text.contains("▶ [52/55] Roadmap checks\n"),
         "last step announced: {text}"
     );
     assert!(
-        text.ends_with("✔ all 54 checks passed\n"),
+        text.ends_with("✔ all 55 checks passed\n"),
         "summary: {text}"
     );
 }
@@ -3234,7 +3257,7 @@ fn prints_the_details_of_a_failure_on_stdout_and_one_line_on_stderr() {
     );
     assert!(
         String::from_utf8(out).expect("UTF-8").ends_with(
-            "▶ [25/54] Rust unviable mutants reviewed\n\
+            "▶ [25/55] Rust unviable mutants reviewed\n\
              not reviewed: crates/a/src/c.rs: replace g -> U with x\n\
              stale review: crates/a/src/b.rs: replace f -> T with Default::default()\n"
         ),
@@ -4197,4 +4220,181 @@ fn refuses_a_second_place_declaring_triggers() {
         ),
         "triggers declared twice"
     );
+}
+
+#[test]
+fn matches_the_globs_of_stryker_mutate() {
+    for (glob, path, expected) in [
+        ("src/**/*.ts", "src/a.ts", true),
+        ("src/**/*.ts", "src/a/b/c.ts", true),
+        ("src/**/*.ts", "src/a.tsx", false),
+        ("src/**/*.ts", "lib/a.ts", false),
+        ("src/**/*.ts", "src", false),
+        ("csp.ts", "csp.ts", true),
+        ("csp.ts", "src/csp.ts", false),
+        ("csp.ts", "csp.tsx", false),
+        ("*.ts", "a.ts", true),
+        ("*.ts", "a/b.ts", false),
+        ("src/*/x.ts", "src/a/x.ts", true),
+        ("src/*/x.ts", "src/a/b/x.ts", false),
+        ("a*b*c.ts", "abxbc.ts", true),
+        ("a*b*c.ts", "ab.ts", false),
+        ("a*b*c.ts", "acb.ts", false),
+        ("a*b*c.ts", "axc.ts", false),
+        ("a*a", "a", false),
+        ("a*a", "aa", true),
+        ("**", "a/b", true),
+        ("**/x.ts", "x.ts", true),
+        ("e2e/**", "e2e/a/b.ts", true),
+    ] {
+        let pattern: Vec<&str> = glob.split('/').collect();
+        let segments: Vec<&str> = path.split('/').collect();
+        assert_eq!(
+            super::glob_matches(&pattern, &segments),
+            expected,
+            "{glob} against {path}"
+        );
+    }
+}
+
+/// A package `p` of the scope gate: its Stryker configuration mutates `mutate` and its
+/// coverage summary measures `measured` (absolute paths).
+fn scope(dir: &'static str, mutate: &[&str], measured: &[&str]) -> super::Scope {
+    let files: serde_json::Map<String, serde_json::Value> = measured
+        .iter()
+        .chain(&["total"])
+        .map(|file| ((*file).to_owned(), serde_json::json!({})))
+        .collect();
+    super::Scope {
+        dir,
+        stryker: serde_json::json!({ "mutate": mutate }).to_string(),
+        summary: serde_json::Value::Object(files).to_string(),
+    }
+}
+
+#[test]
+fn requires_every_typescript_source_measured_and_mutated_or_reviewed() {
+    let tracked: Vec<String> = [
+        "p/src/a.ts",
+        "p/src/b.astro",
+        "p/src/c.ts",
+        "p/test/a.test.ts",
+        "p/test/helper.ts",
+        "p/e2e/x.spec.ts",
+        "p/e2e/helper.ts",
+        "p/vite.config.ts",
+        "q/src/z.ts",
+    ]
+    .map(str::to_owned)
+    .to_vec();
+    let incomplete = scope(
+        "p",
+        &["src/**/*.ts", "{a,b}.ts", "lib/*.ts"],
+        &[
+            "/r/p/src/a.ts",
+            "/r/p/src/b.astro",
+            "/r/p/test/a.test.ts",
+            "/r/q/src/z.ts",
+        ],
+    );
+    let other = scope("q", &["src/**/*.ts"], &["/r/q/src/z.ts"]);
+    let context = "TypeScript sources outside coverage or mutation testing must be reviewed in \
+                   proof-bypasses.txt";
+    assert_eq!(
+        super::scope_gate(&tracked, &[incomplete, other.clone()], ""),
+        failed(format!(
+            "{context}: 8 problems, listed above\n\
+             p: the coverage measures /r/p/test/a.test.ts, which is not a tracked source of the package\n\
+             p: the coverage measures /r/q/src/z.ts, which is not a tracked source of the package\n\
+             p/stryker.config.json: `{{a,b}}.ts` in mutate: only `*` and `**` are understood\n\
+             p/src/c.ts is mutated but not measured: the coverage `include` misses it\n\
+             p/stryker.config.json: `lib/*.ts` in mutate matches no source\n\
+             not reviewed: p/e2e/helper.ts: not measured\n\
+             not reviewed: p/src/b.astro: measured, not mutated\n\
+             not reviewed: p/vite.config.ts: not measured"
+        )),
+        "tests apart, every source measured and mutated or an occurrence; q is complete"
+    );
+    let reviewed = "# reviews\n\
+                    p/e2e/helper.ts: not measured -- a reason\n\
+                    p/src/b.astro: measured, not mutated -- a reason\n\
+                    p/vite.config.ts: not measured -- a reason\n\
+                    p/gone.ts: not measured -- a reason\n\
+                    crates/a/src/lib.rs: a token at a line -- the bypass gate's\n";
+    let complete = scope(
+        "p",
+        &["src/**/*.ts"],
+        &["/r/p/src/a.ts", "/r/p/src/b.astro", "/r/p/src/c.ts"],
+    );
+    assert_eq!(
+        super::scope_gate(&tracked, &[complete, other.clone()], reviewed),
+        failed(format!("{context}: stale review: p/gone.ts: not measured")),
+        "reviewed occurrences pass, a review of nothing is stale, the other reviews are the \
+         bypass gate's"
+    );
+    assert_eq!(
+        super::bypass_gate(&[], reviewed),
+        failed(
+            "bypasses of coverage or mutation testing must be reviewed in proof-bypasses.txt: \
+             stale review: crates/a/src/lib.rs: a token at a line"
+        ),
+        "the bypass gate leaves the scope reviews to the scope gate"
+    );
+    let unreadable = super::Scope {
+        dir: "q",
+        stryker: "{".to_owned(),
+        summary: String::new(),
+    };
+    assert!(
+        super::scope_gate(&tracked, &[unreadable], "").is_err_and(|failure| failure
+            .summary
+            .contains(": q: invalid Stryker configuration: ")),
+        "an unreadable Stryker configuration"
+    );
+    let no_summary = super::Scope {
+        summary: "[".to_owned(),
+        ..other
+    };
+    assert!(
+        super::scope_gate(&tracked, &[no_summary], "")
+            .is_err_and(|failure| failure.summary.contains(": q: invalid coverage summary: ")),
+        "an unreadable coverage summary"
+    );
+}
+
+#[test]
+fn fails_when_the_scope_gate_cannot_read_its_inputs() {
+    let step = [Step {
+        name: "Scope".to_owned(),
+        action: Action::TypeScriptScopeGate,
+    }];
+    assert_eq!(
+        run_steps(&step, &mut passing(), &mut Vec::new()),
+        Ok(()),
+        "the fake passes"
+    );
+    let mut fake = passing();
+    fake.broken = Some("list *.ts *.tsx *.mts *.cts *.js *.jsx *.mjs *.cjs *.astro".to_owned());
+    assert_eq!(
+        run_steps(&step, &mut fake, &mut Vec::new()),
+        failed(
+            "Scope: cannot list the TypeScript sources: `git ls-files -- *.ts *.tsx *.mts *.cts \
+             *.js *.jsx *.mjs *.cjs *.astro` exited with code 128: fatal: not a git repository"
+        ),
+        "the sources cannot be listed"
+    );
+    for missing in [
+        "apps/roadmap/stryker.config.json",
+        "apps/roadmap/coverage/coverage-summary.json",
+        super::BYPASSES_REVIEWED,
+    ] {
+        let mut lacking = passing();
+        let removed = lacking.files.remove(missing);
+        assert!(removed.is_some(), "{missing} removed");
+        assert_eq!(
+            run_steps(&step, &mut lacking, &mut Vec::new()),
+            failed(format!("Scope: cannot read {missing}: missing")),
+            "{missing} cannot be read"
+        );
+    }
 }

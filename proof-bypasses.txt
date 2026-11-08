@@ -1,8 +1,42 @@
 # Reviewed bypasses of coverage or mutation testing: every place where code is removed from
-# a proof without a test failing (a skipped mutant, a coverage exclusion, an ignored or
-# focused test, a cargo-mutants configuration).
+# a proof without a test failing.
 #
-# There should be none. Before adding one, confirm that no test, restructuring or stronger
-# tool can prove the code instead, and say why here.
-# Format: `<file>: <token> at <the line, trimmed> -- <reason>` (one line per occurrence).
-# `cargo xtask check` fails on any occurrence not listed, and on any stale entry.
+# Two gates of `cargo xtask check` read this file:
+# - the bypass gate: every bypass token (a skipped mutant, a coverage exclusion, an ignored
+#   or focused test) and every cargo-mutants configuration, one line per occurrence:
+#   `<file>: <token> at <the line, trimmed> -- <reason>`;
+# - the scope gate: every TypeScript source of a package (tests apart) that its coverage
+#   does not measure, `<file>: not measured -- <reason>`, or that it measures but Stryker
+#   does not mutate, `<file>: measured, not mutated -- <reason>`.
+#
+# Keep it as short as possible. Before adding a line, confirm that no test, restructuring or
+# stronger tool can prove the code instead, and say why here. Both gates fail on any
+# occurrence not listed, and on any stale entry.
+
+# Configuration files read by a tool: declarative options, with what proves their effect.
+tooling/config/eslint.config.js: not measured -- one call of the shared policy's `strict` (eslint.ts, measured and mutated) with the package's ignores; test/linted.test.ts proves every tracked file is linted
+tooling/oracle/eslint.config.js: not measured -- one call of `strict` (tooling/config/eslint.ts, measured and mutated) with the package's ignores; tooling/config/test/linted.test.ts proves every tracked file is linted
+bindings/wasm/eslint.config.js: not measured -- one call of `strict` (tooling/config/eslint.ts, measured and mutated) with the package's ignores; tooling/config/test/linted.test.ts proves every tracked file is linted
+apps/playground/eslint.config.js: not measured -- one call of `strict` (tooling/config/eslint.ts, measured and mutated) with the package's ignores and React's hook rules; tooling/config/test/linted.test.ts proves every tracked file is linted
+apps/roadmap/eslint.config.js: not measured -- one call of `strict` (tooling/config/eslint.ts, measured and mutated) with the package's ignores; tooling/config/test/linted.test.ts proves every tracked file is linted
+tooling/config/vitest.config.ts: not measured -- Vitest's options: `allowOnly: false` is asserted by test/runner.test.ts; what is measured is checked by the scope gate, and the reports by xtask's reports gate, never by the thresholds written here
+tooling/oracle/vitest.config.ts: not measured -- Vitest's options: `allowOnly: false` is asserted by test/runner.test.ts; what is measured is checked by the scope gate, and the reports by xtask's reports gate
+bindings/wasm/vitest.config.ts: not measured -- Vitest's options: `allowOnly: false` is asserted by test/runner.test.ts; what is measured is checked by the scope gate, and the reports by xtask's reports gate
+apps/roadmap/vitest.config.ts: not measured -- Vitest's options: `allowOnly: false` is asserted by test/runner.test.ts; what is measured is checked by the scope gate, and the reports by xtask's reports gate
+bindings/wasm/vitest.allocation.config.ts: not measured -- the options of the allocation tests, which must run uninstrumented: `allowOnly: false` is asserted by test/runner.test.ts, and each V8 tier it sets is a project pnpm test:allocation runs
+bindings/wasm/playwright.config.ts: not measured -- Playwright's options; what they compute is @poyetik/config/playwright (measured and mutated); every end-to-end run loads them
+apps/playground/playwright.config.ts: not measured -- Playwright's options; what they compute is @poyetik/config/playwright (measured and mutated); every end-to-end run loads them
+apps/roadmap/playwright.config.ts: not measured -- Playwright's options; what they compute is @poyetik/config/playwright (measured and mutated); every end-to-end run loads them
+apps/playground/vite.config.ts: not measured -- Vite's and Vitest's options; their one decision, the Content Security Policy inserted at build, is csp.ts (measured and mutated); `allowOnly: false` is asserted by test/runner.test.ts
+apps/roadmap/astro.config.mjs: not measured -- Astro's options; their effect (stylesheets as files, never inlined) is what the end-to-end tests load under a policy that refuses inline styles
+
+# Entry points and browser shells: wiring only, every decision in measured code.
+bindings/wasm/scripts/build-wasm.ts: not measured -- the entry point of pnpm build:wasm: one call of buildMain (scripts/cli.ts) with the real io (scripts/io.ts), both measured and mutated; every check builds through it
+bindings/wasm/scripts/reproducible.ts: not measured -- the entry point of pnpm test:reproducible: one call of reproducibleMain (scripts/cli.ts) with the real io (scripts/io.ts), both measured and mutated; every check runs it
+bindings/wasm/e2e/serve.ts: not measured -- the bench server, wiring node:http to routes.ts (port, route and answer, measured and mutated); every end-to-end test is served by it
+bindings/wasm/e2e/site/harness.ts: not measured -- the bench page, which runs only in a browser (top-level awaits on fetched files, Web Audio); every end-to-end test drives it, and its fetching is fetch.ts (measured and mutated)
+apps/roadmap/e2e/keyboard.ts: not measured -- tabTo, a Playwright helper that needs a browser page; the end-to-end tests that reach targets with Tab run it, and fail if it never does
+
+# Measured, not mutated: Stryker does not mutate Astro templates (roadmap #15).
+apps/roadmap/src/components/Board.astro: measured, not mutated -- an Astro template: its coverage is measured, but Stryker has no mutator for .astro files until roadmap #15
+apps/roadmap/src/pages/index.astro: measured, not mutated -- an Astro template: its coverage is measured, but Stryker has no mutator for .astro files until roadmap #15

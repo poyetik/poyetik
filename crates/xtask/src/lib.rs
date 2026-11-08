@@ -366,6 +366,9 @@ pub enum Action {
     TypeScriptReportsGate,
     /// Require every Stryker configuration to hide no mutant.
     StrykerConfigGate,
+    /// Require every TypeScript source of every package to be measured by its coverage and
+    /// mutated by Stryker, or reviewed as an exception.
+    TypeScriptScopeGate,
     /// Require every bypass of coverage or mutation testing to be reviewed.
     BypassGate,
     /// Require the packages and crates known to xtask to be exactly those of the
@@ -745,6 +748,10 @@ fn typescript_steps() -> Vec<Step> {
     steps.push(Step {
         name: "TypeScript coverage and mutation reports".to_owned(),
         action: Action::TypeScriptReportsGate,
+    });
+    steps.push(Step {
+        name: "Every TypeScript source measured and mutated, or reviewed".to_owned(),
+        action: Action::TypeScriptScopeGate,
     });
     steps
 }
@@ -1200,10 +1207,216 @@ pub fn bypass_gate(sources: &[(String, String)], reviewed: &str) -> Result<(), F
         }
     }
     let mut problems = Vec::new();
-    compare_reviews(&count(keys), reviewed, &mut problems);
+    compare_reviews(&count(keys), &reviews_of(reviewed, false), &mut problems);
     verdict(
         &format!(
             "bypasses of coverage or mutation testing must be reviewed in {BYPASSES_REVIEWED}"
+        ),
+        problems,
+    )
+}
+
+/// The suffixes of the reviews of [`scope_gate`] in [`BYPASSES_REVIEWED`].
+///
+/// A source the coverage of its package does not measure, and one it measures but Stryker
+/// does not mutate. Every other review of that file belongs to [`bypass_gate`].
+pub const SCOPE_REVIEWS: [&str; 2] = [": not measured", ": measured, not mutated"];
+
+/// The lines of `reviewed` that are reviews of [`scope_gate`] (`scope`), or the others.
+fn reviews_of(reviewed: &str, scope: bool) -> String {
+    reviewed
+        .lines()
+        .filter(|line| {
+            let key = line.split_once(" -- ").map_or(*line, |(key, _)| key).trim();
+            SCOPE_REVIEWS.iter().any(|suffix| key.ends_with(suffix)) == scope
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// The tracked files the scope gate reads (git pathspecs): every language a package's
+/// coverage and mutation testing could reach.
+pub const TS_SOURCES: [&str; 9] = [
+    "*.ts", "*.tsx", "*.mts", "*.cts", "*.js", "*.jsx", "*.mjs", "*.cjs", "*.astro",
+];
+
+/// What [`scope_gate`] reads of one TypeScript package.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Scope {
+    /// Its directory, as in [`Package::dir`].
+    pub dir: &'static str,
+    /// The text of its `stryker.config.json`.
+    pub stryker: String,
+    /// The text of its coverage summary (Vitest `json-summary`), whose keys are the
+    /// absolute paths of the files measured.
+    pub summary: String,
+}
+
+/// Whether `rel`, a path relative to its package, is test code: under `test/`, or a test or
+/// end-to-end specification file. Tests are what measures, not what is measured.
+fn is_test(rel: &str) -> bool {
+    rel.starts_with("test/")
+        || [".test.ts", ".test.tsx", ".spec.ts"]
+            .iter()
+            .any(|suffix| rel.ends_with(suffix))
+}
+
+/// Whether `name` (one path segment) matches `pattern`, where `*` matches any run of
+/// characters.
+fn segment_matches(pattern: &str, name: &str) -> bool {
+    let mut parts = pattern.split('*');
+    let first = parts.next().unwrap_or_default();
+    let Some(mut rest) = name.strip_prefix(first) else {
+        return false;
+    };
+    let middle: Vec<&str> = parts.collect();
+    let Some((last, between)) = middle.split_last() else {
+        return rest.is_empty();
+    };
+    for part in between {
+        match rest.find(part) {
+            Some(at) => {
+                rest = rest
+                    .get(at.saturating_add(part.len())..)
+                    .unwrap_or_default();
+            }
+            None => return false,
+        }
+    }
+    rest.ends_with(last)
+}
+
+/// Whether the path `segments` match the glob `pattern` (segments too), where `**` matches
+/// any number of whole segments, none included.
+fn glob_matches(pattern: &[&str], segments: &[&str]) -> bool {
+    match (pattern.split_first(), segments.split_first()) {
+        (None, None) => true,
+        (Some((&"**", rest)), _) => {
+            glob_matches(rest, segments)
+                || segments
+                    .split_first()
+                    .is_some_and(|(_, tail)| glob_matches(pattern, tail))
+        }
+        (Some((glob, rest)), Some((name, tail))) => {
+            segment_matches(glob, name) && glob_matches(rest, tail)
+        }
+        (Some(_), None) | (None, Some(_)) => false,
+    }
+}
+
+/// The characters of a glob syntax [`glob_matches`] does not understand (braces, classes,
+/// single characters, negations, extended globs): a `mutate` glob holding one is refused
+/// rather than read wrongly.
+const GLOB_UNSUPPORTED: [char; 9] = ['{', '}', '[', ']', '?', '!', '(', ')', '@'];
+
+/// Checks that every TypeScript source is both measured and mutated, or reviewed.
+///
+/// `tracked` are the files tracked with an extension of [`TS_SOURCES`]; `scopes` what each
+/// package of [`PACKAGES`] measures (its coverage summary) and mutates (the `mutate` globs of
+/// its Stryker configuration, of which only `*` and `**` are understood). The sources of a
+/// package are its tracked files but its tests (`test/`, `*.test.ts`, `*.spec.ts`). Each
+/// source must be measured and mutated; one measured but not mutated is a
+/// `<source>: measured, not mutated` occurrence, one neither measured nor mutated a
+/// `<source>: not measured` occurrence, each to be reviewed in `reviewed`
+/// ([`BYPASSES_REVIEWED`], whose other reviews are [`bypass_gate`]'s), every review
+/// current. So the coverage `include` and the Stryker `mutate` of a package select the same
+/// sources, but for reviewed differences, and no source escapes both unseen.
+///
+/// # Errors
+///
+/// Returns every source mutated but not measured, every file measured that is not a source
+/// of the package, every `mutate` glob that is not understood or matches no source, every
+/// unreadable configuration or summary, and every unreviewed occurrence or stale review.
+pub fn scope_gate(tracked: &[String], scopes: &[Scope], reviewed: &str) -> Result<(), Failure> {
+    let mut problems = Vec::new();
+    let mut keys = Vec::new();
+    for scope in scopes {
+        let dir = scope.dir;
+        let prefix = format!("{dir}/");
+        let sources: Vec<&str> = tracked
+            .iter()
+            .filter_map(|path| path.strip_prefix(&prefix))
+            .filter(|rel| !is_test(rel))
+            .collect();
+        let stryker: serde_json::Value = match serde_json::from_str(&scope.stryker) {
+            Ok(json) => json,
+            Err(error) => {
+                problems.push(format!("{dir}: invalid Stryker configuration: {error}"));
+                continue;
+            }
+        };
+        let globs: Vec<&str> = stryker
+            .get("mutate")
+            .and_then(serde_json::Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(serde_json::Value::as_str)
+            .collect();
+        let summary: serde_json::Value = match serde_json::from_str(&scope.summary) {
+            Ok(json) => json,
+            Err(error) => {
+                problems.push(format!("{dir}: invalid coverage summary: {error}"));
+                continue;
+            }
+        };
+        let mut measured = BTreeSet::new();
+        for file in summary
+            .as_object()
+            .into_iter()
+            .flat_map(serde_json::Map::keys)
+            .filter(|key| *key != "total")
+        {
+            match sources
+                .iter()
+                .find(|rel| file.ends_with(&format!("/{prefix}{rel}")))
+            {
+                Some(rel) => {
+                    let _new = measured.insert(*rel);
+                }
+                None => problems.push(format!(
+                    "{dir}: the coverage measures {file}, which is not a tracked source of the package"
+                )),
+            }
+        }
+        let mut used = BTreeSet::new();
+        for glob in &globs {
+            if glob.contains(GLOB_UNSUPPORTED) {
+                problems.push(format!(
+                    "{dir}/stryker.config.json: `{glob}` in mutate: only `*` and `**` are understood"
+                ));
+                let _new = used.insert(*glob);
+            }
+        }
+        for rel in &sources {
+            let segments: Vec<&str> = rel.split('/').collect();
+            let matching: Vec<&str> = globs
+                .iter()
+                .copied()
+                .filter(|glob| glob_matches(&glob.split('/').collect::<Vec<_>>(), &segments))
+                .collect();
+            used.extend(matching.iter().copied());
+            match (measured.contains(rel), !matching.is_empty()) {
+                (true, true) => {}
+                (false, true) => problems.push(format!(
+                    "{prefix}{rel} is mutated but not measured: the coverage `include` misses it"
+                )),
+                (true, false) => keys.push(format!("{prefix}{rel}: measured, not mutated")),
+                (false, false) => keys.push(format!("{prefix}{rel}: not measured")),
+            }
+        }
+        problems.extend(
+            globs
+                .iter()
+                .filter(|glob| !used.contains(*glob))
+                .map(|glob| {
+                    format!("{dir}/stryker.config.json: `{glob}` in mutate matches no source")
+                }),
+        );
+    }
+    compare_reviews(&count(keys), &reviews_of(reviewed, true), &mut problems);
+    verdict(
+        &format!(
+            "TypeScript sources outside coverage or mutation testing must be reviewed in {BYPASSES_REVIEWED}"
         ),
         problems,
     )
@@ -2992,6 +3205,22 @@ pub fn readme_gate(parts: &[String], readmes: &[(String, String)]) -> Result<(),
     verdict("parts not described", problems)
 }
 
+/// Reads what each TypeScript package measures and mutates, then checks that every source
+/// is in both, or reviewed.
+fn scope(runner: &mut dyn Runner) -> Result<(), Failure> {
+    let tracked = list_tracked(runner, &TS_SOURCES, "the TypeScript sources")?;
+    let mut scopes = Vec::new();
+    for package in PACKAGES {
+        let [coverage, _] = package.reports();
+        scopes.push(Scope {
+            dir: package.dir,
+            stryker: read_file(runner, &format!("{}/stryker.config.json", package.dir))?,
+            summary: read_file(runner, &format!("{coverage}/coverage-summary.json"))?,
+        });
+    }
+    scope_gate(&tracked, &scopes, &read_file(runner, BYPASSES_REVIEWED)?)
+}
+
 /// Lists the licenses of what ships and of everything, then checks them.
 fn licenses(runner: &mut dyn Runner) -> Result<(), Failure> {
     let [shipped, all] = license_commands().map(|cmd| {
@@ -3078,6 +3307,7 @@ fn run_action(
                 ts_mutation_gate(package.dir, &report, &disabled)
             })
         }
+        Action::TypeScriptScopeGate => scope(runner),
         Action::StrykerConfigGate => PACKAGES.iter().try_for_each(|package| {
             let path = format!("{}/stryker.config.json", package.dir);
             stryker_config_gate(package.dir, &read_file(runner, &path)?)
