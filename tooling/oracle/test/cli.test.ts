@@ -1,6 +1,7 @@
+import { EventEmitter } from "node:events";
 import { runInNewContext } from "node:vm";
 import { describe, expect, test } from "vitest";
-import { USAGE, ignoreClosedReader, main, readJson, type Io } from "../src/cli.ts";
+import { USAGE, guardStreams, main, readJson, type Io } from "../src/cli.ts";
 import { renderHash } from "../src/hash.ts";
 import { parseWav } from "../src/wav.ts";
 import { makeWav, sineSamples } from "./fixtures.ts";
@@ -136,25 +137,62 @@ describe("readJson", () => {
   });
 });
 
-describe("ignoreClosedReader", () => {
-  test("drops a closed reader and lets any other stream error through", () => {
-    const listeners: ((error: Error) => void)[] = [];
-    ignoreClosedReader({ on: (event: string, listener: (error: Error) => void) => (event === "error" ? listeners.push(listener) : 0) });
-    const emit = (error: Error): void => {
-      listeners.forEach((listener) => {
-        listener(error);
-      });
-    };
-    expect(() => {
-      emit(Object.assign(new Error("write EPIPE"), { code: "EPIPE" }));
-    }).not.toThrow();
-    const full = Object.assign(new Error("no space"), { code: "ENOSPC" });
-    expect(() => {
-      emit(full);
-    }).toThrow(full);
-    const plain = new Error("broken");
-    expect(() => {
-      emit(plain);
-    }).toThrow(plain);
+/** Streams that are real event emitters (an `error` nobody listens to throws), and what reached them. */
+function streams(): { stdout: EventEmitter; stderr: EventEmitter & { write: (text: string) => boolean }; written: string[]; failures: number[] } {
+  const written: string[] = [];
+  const failures: number[] = [];
+  return {
+    stdout: new EventEmitter(),
+    stderr: Object.assign(new EventEmitter(), {
+      write: (text: string): boolean => {
+        written.push(text);
+        return true;
+      },
+    }),
+    written,
+    failures,
+  };
+}
+
+/** Guards `target`'s streams, counting the failures reported. */
+function guard(target: ReturnType<typeof streams>): void {
+  guardStreams(target.stdout, target.stderr, () => {
+    target.failures.push(1);
+  });
+}
+
+describe("guardStreams", () => {
+  test("drops a closed stdout silently", () => {
+    const target = streams();
+    guard(target);
+    target.stdout.emit("error", Object.assign(new Error("write EPIPE"), { code: "EPIPE" }));
+    expect(target.written).toStrictEqual([]);
+    expect(target.failures).toStrictEqual([]);
+  });
+
+  test("turns any other stdout error into one error line and a failure", () => {
+    const target = streams();
+    guard(target);
+    target.stdout.emit("error", Object.assign(new Error("write EIO"), { code: "EIO" }));
+    expect(target.written).toStrictEqual(["error: cannot write to stdout: EIO\n"]);
+    expect(target.failures).toStrictEqual([1]);
+    const plain = streams();
+    guard(plain);
+    plain.stdout.emit("error", new Error("broken"));
+    expect(plain.written).toStrictEqual(["error: cannot write to stdout: broken\n"]);
+    expect(plain.failures).toStrictEqual([1]);
+    const numbered = streams();
+    guard(numbered);
+    numbered.stdout.emit("error", Object.assign(new Error("odd"), { code: 5 }));
+    expect(numbered.written).toStrictEqual(["error: cannot write to stdout: odd\n"]);
+  });
+
+  test("ignores a broken stderr: the exit code still tells", () => {
+    const target = streams();
+    guard(target);
+    target.stderr.emit("error", Object.assign(new Error("write EPIPE"), { code: "EPIPE" }));
+    target.stderr.emit("error", Object.assign(new Error("write EIO"), { code: "EIO" }));
+    expect(target.written).toStrictEqual([]);
+    expect(target.failures).toStrictEqual([]);
   });
 });

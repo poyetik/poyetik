@@ -1,9 +1,15 @@
 /** Entry point: `node src/bin.ts <conformance dir> <dir of exported WAV files>`, or `node src/bin.ts help`. */
 
 import { readFileSync, readdirSync } from "node:fs";
-import { ignoreClosedReader, main } from "./cli.ts";
+import { guardStreams, main } from "./cli.ts";
 
-ignoreClosedReader(process.stdout);
+guardStreams(process.stdout, process.stderr, () => {
+  // Stream errors come after `main` has set the exit code: a 1 or a 2 already tells a
+  // failure and is kept; only a success becomes one.
+  if (process.exitCode === 0) {
+    process.exitCode = 1;
+  }
+});
 process.exitCode = main(process.argv.slice(2), {
   readText: (path) => new TextDecoder().decode(readFileSync(path)),
   readBytes: (path) => readFileSync(path),

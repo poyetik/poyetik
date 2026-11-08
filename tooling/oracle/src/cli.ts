@@ -79,15 +79,29 @@ export function main(args: readonly string[], io: Io): number {
   }
 }
 
+/** A stream, as far as its errors go. */
+interface Failing {
+  readonly on: (event: "error", listener: (error: Error) => void) => unknown;
+}
+
 /**
- * Makes a closed `stream` (a reader gone, as with `| head`) harmless: what nobody reads
- * is dropped, and the exit code stays the outcome of the judgement. Any other stream
- * error is thrown, as it would be without this.
+ * Applies the stream part of the command-line contract, as the Rust tools do:
+ * - a closed `stdout` (a reader gone, as with `| head`) is never an error: what nobody
+ *   reads is dropped, and the exit code stays the outcome of the judgement;
+ * - any other `stdout` error is one `error:` line on `stderr`, then `failed` (which
+ *   makes the exit code tell a failure), never a stack trace;
+ * - a broken `stderr` is ignored: nothing more can be said, and the exit code still tells.
  */
-export function ignoreClosedReader(stream: { on: (event: "error", listener: (error: Error) => void) => unknown }): void {
-  stream.on("error", (error) => {
-    if (!("code" in error) || error.code !== "EPIPE") {
-      throw error;
+export function guardStreams(stdout: Failing, stderr: Failing & { readonly write: (text: string) => unknown }, failed: () => void): void {
+  stderr.on("error", () => {
+    // Nothing to do: the exit code still tells.
+  });
+  stdout.on("error", (error) => {
+    const code = "code" in error && typeof error.code === "string" ? error.code : undefined;
+    if (code === "EPIPE") {
+      return;
     }
+    stderr.write(`error: cannot write to stdout: ${code ?? error.message}\n`);
+    failed();
   });
 }

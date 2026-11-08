@@ -19,6 +19,9 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // Each run installs its stream listeners again: keep none from one test to the next.
+  process.stdout.removeAllListeners("error");
+  process.stderr.removeAllListeners("error");
   rmSync(dir, { recursive: true, force: true });
   process.argv = argv;
   process.exitCode = undefined;
@@ -83,4 +86,29 @@ test("prints its usage on stdout when asked", async () => {
 test("ignores a closed stdout", async () => {
   await runBin([]);
   expect(() => process.stdout.emit("error", Object.assign(new Error("write EPIPE"), { code: "EPIPE" }))).not.toThrow();
+  expect(process.exitCode).toBe(2);
+});
+
+test("ignores a broken stderr, keeping the exit code of a usage error", async () => {
+  await runBin([]);
+  expect(() => process.stderr.emit("error", Object.assign(new Error("write EPIPE"), { code: "EPIPE" }))).not.toThrow();
+  expect(process.exitCode).toBe(2);
+});
+
+test("reports any other stdout error as one error line and exit code 1", async () => {
+  let stderr = "";
+  await runBin(["help"]);
+  vi.spyOn(process.stderr, "write").mockImplementation((chunk) => {
+    stderr += String(chunk);
+    return true;
+  });
+  expect(() => process.stdout.emit("error", Object.assign(new Error("write EIO"), { code: "EIO" }))).not.toThrow();
+  expect(stderr).toBe("error: cannot write to stdout: EIO\n");
+  expect(process.exitCode).toBe(1);
+});
+
+test("never hides the exit code of a usage error behind a stdout error", async () => {
+  await runBin([]);
+  expect(() => process.stdout.emit("error", Object.assign(new Error("write EIO"), { code: "EIO" }))).not.toThrow();
+  expect(process.exitCode).toBe(2);
 });
