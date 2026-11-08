@@ -203,6 +203,13 @@ describe("loadPatch", () => {
     expect(error).toHaveProperty("cause.name", "PatchError");
   });
 
+  test("refuses a rate that is not a whole number of hertz, as the AudioContext rate it is given may be", async () => {
+    for (const rate of [48_000.5, -1, 2 ** 32, Number.NaN]) {
+      const error: unknown = await loadPatch(wasmBytes(), SINE_PATCH, rate).catch((reason: unknown) => reason);
+      expect(error).toStrictEqual(new RangeError(`the sample rate must be a whole number of hertz, not ${String(rate)}`));
+    }
+  });
+
   test("lets other errors through", async () => {
     const empty = new Uint8Array([0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]);
     await expect(loadPatch(empty.buffer, SINE_PATCH, RATE)).rejects.toThrow(new ModuleError("no memory"));
