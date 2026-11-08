@@ -230,7 +230,7 @@ fn passing() -> Fake {
         let previous_unsafe = fake.files.insert(path.to_owned(), lifting());
         assert!(previous_unsafe.is_none(), "fresh fake");
     }
-    let [messages, files] = super::history_commands();
+    let [messages, files] = super::history_commands(super::CHANGELOG_SINCE);
     let logged = fake
         .files
         .insert(format!("capture {}", messages.line()), HISTORY.to_owned());
@@ -2088,7 +2088,7 @@ fn checks_every_message_and_the_changelog_of_every_change() {
 #[test]
 fn reads_the_history_or_says_why_it_cannot() {
     let mut fake = passing();
-    let [messages, _] = super::history_commands();
+    let [messages, _] = super::history_commands(super::CHANGELOG_SINCE);
     let _removed = fake.files.remove(&format!("capture {}", messages.line()));
     assert_eq!(
         run_steps(&check_steps(), &mut fake, &mut Vec::new()),
@@ -2470,5 +2470,44 @@ fn pushes_an_annotated_tag_of_the_commit_checked_out() {
     assert!(
         elsewhere.is_err_and(|error| error.starts_with(&format!("pushing {parent}, but "))),
         "the tag of another commit, named by the commit"
+    );
+}
+
+#[test]
+fn checks_the_history_git_really_writes() {
+    let repo = scratch("history");
+    let _init = hermetic_git(&repo, &["init", "--quiet"]);
+    let commit = |message: &str, file: Option<&str>| {
+        if let Some(path) = file {
+            std::fs::write(repo.join(path), message).expect("file written");
+            let _add = hermetic_git(&repo, &["add", path]);
+        }
+        let _commit = hermetic_git(
+            &repo,
+            &["commit", "--quiet", "--allow-empty", "-m", message],
+        );
+        hermetic_git(&repo, &["rev-parse", "HEAD"])
+            .trim()
+            .to_owned()
+    };
+    let _before = commit("fix: before the boundary", Some("a.rs"));
+    let since = commit("fix: the boundary itself", Some("b.rs"));
+    let _recorded = commit("fix: recorded\n\nWhy.", Some(CHANGELOG));
+    let unrecorded = commit("fix: unrecorded", Some("c.rs"));
+    let malformed = commit("Update stuff", None);
+    let mut runner = SystemRunner { root: repo.clone() };
+    let [messages, files] =
+        super::history_commands(&since).map(|cmd| runner.capture(&cmd).expect("git log"));
+    std::fs::remove_dir_all(&repo).expect("cleanup");
+    let short = |hash: &str| hash.chars().take(7).collect::<String>();
+    assert_eq!(
+        super::history_gate(&messages, &files),
+        Err(format!(
+            "commit {}: invalid commit message: missing \"<type>: \" prefix\n\
+             commit {} changes behavior but not CHANGELOG.md",
+            short(&malformed),
+            short(&unrecorded)
+        )),
+        "every message checked; the changelog rule from the commit after the boundary on"
     );
 }

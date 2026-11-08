@@ -1384,10 +1384,12 @@ pub fn commit_msg_gate(message: &str) -> Result<(), String> {
 /// history predates the rule and is not rewritten.
 pub const CHANGELOG_SINCE: &str = "8182fda87a1c631295548ff52eeb4ea08335fa36";
 
-/// The two history listings the history gate reads: every commit with its message, and the
-/// files each commit since [`CHANGELOG_SINCE`] touched. Records are separated by `0x1e`.
+/// The two history listings the history gate reads.
+///
+/// Every commit with its message, and the files each commit after `since` touched (`since`
+/// itself excluded; the check passes [`CHANGELOG_SINCE`]). Records are separated by `0x1e`.
 #[must_use]
-pub fn history_commands() -> [Cmd; 2] {
+pub fn history_commands(since: &str) -> [Cmd; 2] {
     let git = |args: &[&str]| Cmd {
         program: "git",
         args: args.iter().map(|&arg| arg.to_owned()).collect(),
@@ -1399,7 +1401,7 @@ pub fn history_commands() -> [Cmd; 2] {
             "log",
             "--format=%x1e%H",
             "--name-only",
-            &format!("{CHANGELOG_SINCE}..HEAD"),
+            &format!("{since}..HEAD"),
         ]),
     ]
 }
@@ -1803,7 +1805,7 @@ fn is_deletion(object: &str) -> bool {
 
 /// Reads the history, then checks it.
 fn history(runner: &mut dyn Runner) -> Result<(), String> {
-    let [messages, files] = history_commands().map(|cmd| {
+    let [messages, files] = history_commands(CHANGELOG_SINCE).map(|cmd| {
         runner
             .capture(&cmd)
             .map_err(|failure| format!("cannot read the history: {failure}"))
