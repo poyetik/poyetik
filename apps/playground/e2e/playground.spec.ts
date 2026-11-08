@@ -1,7 +1,7 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { CSP } from "../csp.ts";
-import { BUTTON_LABELS } from "../src/App.tsx";
+import { BUTTON_LABELS, REFUSED } from "../src/App.tsx";
 import { explain } from "../src/player.ts";
 import { MAX_FREQUENCY_RATIO } from "../src/scope.ts";
 import { LOCALES, SAMPLE_RATES, TIME_ZONES } from "../test/matrix.ts";
@@ -274,6 +274,61 @@ test("is accessible when the browser pauses the audio, and resumes", async ({ pa
   await page.getByRole("button", { name: "Resume" }).click();
   await expect(page.getByRole("status")).toHaveText("Playing");
   await expect(page.getByTestId("frequency")).toHaveText("440.0 Hz");
+});
+
+test("is accessible while starting, the engine still loading", async ({ page }) => {
+  // The engine is held until axe has run: the start stays in progress.
+  let release = (): void => undefined;
+  const loaded = new Promise<undefined>((resolve) => {
+    release = () => {
+      resolve(undefined);
+    };
+  });
+  await page.route("**/*.wasm", async (route) => {
+    await loaded;
+    await route.continue();
+  });
+  await page.goto("./?muted");
+  await page.getByRole("button", { name: "Start" }).click();
+  await expect(page.getByRole("status")).toHaveText("Starting…");
+  expect((await new AxeBuilder({ page }).analyze()).violations).toStrictEqual([]);
+  await expect(page.getByRole("status")).toHaveText("Starting…");
+  release();
+  await expect(page.getByRole("status")).toHaveText("Playing");
+});
+
+test("explains, accessibly, that a browser without AudioWorklet cannot play", async ({ page }) => {
+  await page.addInitScript(() => {
+    Reflect.deleteProperty(window, "AudioWorkletNode");
+  });
+  await page.goto("./?muted");
+  // The emulation took effect: the page has no AudioWorkletNode.
+  expect(await page.evaluate(() => "AudioWorkletNode" in window)).toBe(false);
+  await expect(page.getByRole("status")).toHaveText("Not supported");
+  await expect(page.getByRole("alert")).toHaveText(explain("audio-worklet"));
+  const button = page.getByRole("button", { name: "Start" });
+  await expect(button).toHaveAttribute("aria-disabled", "true");
+  await expect(button).toHaveAttribute("aria-describedby", "player-alert");
+  expect((await new AxeBuilder({ page }).analyze()).violations).toStrictEqual([]);
+});
+
+test("says, accessibly, when the browser keeps the audio paused after Resume", async ({ page }) => {
+  await trackAudio(page);
+  await page.goto("./?muted");
+  await page.getByRole("button", { name: "Start" }).click();
+  await expect(page.getByRole("status")).toHaveText("Playing");
+  await suspendAudio(page);
+  await expect(page.getByRole("status")).toHaveText("Paused by the browser");
+  // The browser refuses to resume: the context answers, and stays suspended.
+  await page.evaluate(() => {
+    Reflect.set(Object(Reflect.get(window, "audio")), "resume", () => Promise.resolve());
+  });
+  await page.getByRole("button", { name: "Resume" }).click();
+  await expect(page.getByRole("alert")).toHaveText(REFUSED);
+  await expect(page.getByRole("status")).toHaveText("Paused by the browser");
+  expect(await page.evaluate((): unknown => Reflect.get(Object(Reflect.get(window, "audio")), "state"))).toBe("suspended");
+  await expect(page.getByRole("button", { name: "Resume" })).toHaveAttribute("aria-describedby", "player-alert");
+  expect((await new AxeBuilder({ page }).analyze()).violations).toStrictEqual([]);
 });
 
 for (const width of [320, undefined]) {

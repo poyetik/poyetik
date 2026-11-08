@@ -24,6 +24,7 @@ xtask: serde_json (normal) -- reads the coverage, mutation and license reports, 
 apps/playground: react (dependencies) -- the user interface
 apps/playground: react-dom (dependencies) -- renders the interface in the browser
 apps/playground: @axe-core/playwright (devDependencies) -- accessibility checks in the end-to-end tests
+apps/playground: axe-core (devDependencies) -- audits every rendered player state of the component tests, which the end-to-end tests cannot all reach
 apps/playground: @playwright/test (devDependencies) -- end-to-end tests on Chromium, Firefox and WebKit
 apps/playground: @stryker-mutator/core (devDependencies) -- mutation testing
 apps/playground: @stryker-mutator/vitest-runner (devDependencies) -- runs the mutants with Vitest

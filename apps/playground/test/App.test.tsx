@@ -1,7 +1,8 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
+import axe from "axe-core";
 import { afterEach, expect, test, vi } from "vitest";
 import { App, BUTTON_LABELS, REFUSED } from "../src/App.tsx";
-import { explain, type Player, type PlayerState, type Signal } from "../src/player.ts";
+import { explain, type Failure, type Missing, type Player, type PlayerState, type Signal } from "../src/player.ts";
 
 /** A player whose state the test drives, recording the calls. */
 class FakePlayer implements Player {
@@ -263,4 +264,83 @@ test("follows the state of a new player", () => {
   rerender(<App player={second} />);
   second.become({ kind: "playing" });
   expect(status()).toBe("Playing");
+});
+
+/**
+ * Every state the page can show, by kind, each in every variant it renders differently:
+ * a record of records, so that a new kind of state, failure or lack left out of the
+ * accessibility audit does not compile.
+ */
+const EVERY_STATE: Readonly<Record<PlayerState["kind"], readonly PlayerState[]>> = {
+  stopped: [{ kind: "stopped" }],
+  starting: [{ kind: "starting" }],
+  playing: [{ kind: "playing" }],
+  suspended: [
+    { kind: "suspended", refused: false },
+    { kind: "suspended", refused: true },
+  ],
+  stopping: [{ kind: "stopping" }],
+  failed: Object.values({
+    load: { kind: "failed", cause: "load", detail: "Error: cannot load the engine from engine.wasm (HTTP 404)" },
+    engine: { kind: "failed", cause: "engine", detail: "Error: trapped" },
+    device: { kind: "failed", cause: "device", detail: "NotSupportedError: no device" },
+  } satisfies Record<Failure, PlayerState>),
+  unsupported: Object.values({
+    "secure-context": { kind: "unsupported", lacking: "secure-context" },
+    "web-audio": { kind: "unsupported", lacking: "web-audio" },
+    "audio-worklet": { kind: "unsupported", lacking: "audio-worklet" },
+    webassembly: { kind: "unsupported", lacking: "webassembly" },
+  } satisfies Record<Missing, PlayerState>),
+};
+
+/**
+ * What jsdom leaves axe unable to decide, whatever the state: with no layout, it cannot
+ * tell whether the main landmark and the heading are visible. The real page is audited
+ * end to end, where both are decided.
+ */
+const UNDECIDED = ["landmark-one-main", "page-has-heading-one"];
+
+/**
+ * Audits the whole document with axe, as the page sets it up (its language and title):
+ * the violations, each as `rule: offending markup`, and the rules axe could not decide.
+ * jsdom has no layout, so color contrast is left to the end-to-end audits.
+ */
+async function audit(): Promise<{ violations: string[]; incomplete: string[] }> {
+  document.documentElement.lang = "en";
+  document.title = "Playground · Poyetik";
+  const results = await axe.run(document.documentElement, { rules: { "color-contrast": { enabled: false } } });
+  return {
+    violations: results.violations.map((violation) => `${violation.id}: ${violation.nodes.map((node) => node.html).join(" | ")}`),
+    incomplete: results.incomplete.map((rule) => rule.id).sort(),
+  };
+}
+
+test.each(Object.values(EVERY_STATE).flat())("is accessible in %o", async (state) => {
+  const player = new FakePlayer();
+  render(<App player={player} />);
+  player.become(state);
+  expect(await audit()).toStrictEqual({ violations: [], incomplete: UNDECIDED });
+  // A failure also shows its detail on demand: audited open too.
+  const details = screen.queryByRole("group");
+  expect(details !== null).toBe(state.kind === "failed");
+  if (details instanceof HTMLDetailsElement) {
+    details.open = true;
+    expect(await audit()).toStrictEqual({ violations: [], incomplete: UNDECIDED });
+  }
+});
+
+test("finds a duplicate id, so that a clean audit proves something", async () => {
+  const player = new FakePlayer();
+  render(<App player={player} />);
+  player.become({ kind: "failed", cause: "load", detail: "Error: no network" });
+  const copy = document.createElement("p");
+  copy.id = "player-alert";
+  document.body.append(copy);
+  try {
+    // axe leaves a duplicate id referred to by ARIA for review, not as a violation: hence
+    // the exact list of undecided rules every audit checks.
+    expect(await audit()).toStrictEqual({ violations: [], incomplete: ["duplicate-id-aria", ...UNDECIDED] });
+  } finally {
+    copy.remove();
+  }
 });
