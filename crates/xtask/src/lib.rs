@@ -141,6 +141,9 @@ pub enum Action {
     /// Require the packages and crates known to xtask to be exactly those of the
     /// repository, every crate on the workspace version.
     MembershipGate,
+    /// Require every JavaScript dependency under an allowed license: the strict list for
+    /// what the apps ship, the wider one for development tooling.
+    LicenseGate,
 }
 
 /// One named check.
@@ -350,6 +353,11 @@ fn release_steps() -> Vec<Step> {
             &["install", "--frozen-lockfile"],
             Dir::Root,
         ),
+        run("JavaScript vulnerabilities", "pnpm", &["audit"], Dir::Root),
+        Step {
+            name: "JavaScript licenses".to_owned(),
+            action: Action::LicenseGate,
+        },
         Step {
             name: "Fresh TypeScript report directories".to_owned(),
             action: Action::FreshDirs(&TYPESCRIPT_REPORTS),
@@ -701,6 +709,114 @@ pub fn membership_gate(packages: &[String], crates: &[(String, String)]) -> Resu
     }
 }
 
+/// Licenses allowed for what the apps ship (their production dependencies): permissive,
+/// with nothing to publish but a notice.
+pub const SHIPPED_LICENSES: [&str; 6] = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "0BSD",
+];
+
+/// Licenses allowed for development tooling only (never shipped): the shipped ones, plus
+/// those of data and tools used at build and test time.
+pub const TOOLING_LICENSES: [&str; 11] = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "0BSD",
+    "BlueOak-1.0.0",
+    "MPL-2.0",
+    "CC-BY-3.0",
+    "CC-BY-4.0",
+    "CC0-1.0",
+];
+
+/// Tooling packages allowed under another license, by name prefix, with the reason.
+pub const TOOLING_EXCEPTIONS: [(&str, &str, &str); 1] = [(
+    "@img/sharp-libvips-",
+    "LGPL-3.0-or-later",
+    "the image library of sharp, loaded by the Astro build of the roadmap at build time, never shipped",
+)];
+
+/// The pnpm commands listing licenses: of what the apps ship, then of everything.
+fn license_commands() -> [Cmd; 2] {
+    let pnpm = |args: &[&str]| Cmd {
+        program: "pnpm",
+        args: args.iter().map(|&arg| arg.to_owned()).collect(),
+        dir: Dir::Root,
+    };
+    [
+        pnpm(&[
+            "licenses",
+            "list",
+            "--json",
+            "--prod",
+            "--filter",
+            "./apps/playground",
+            "--filter",
+            "./apps/roadmap",
+            "--filter",
+            "./bindings/wasm",
+        ]),
+        pnpm(&["licenses", "list", "--json", "--recursive"]),
+    ]
+}
+
+/// The packages of a `pnpm licenses list --json` report, with their license.
+fn licensed(report: &str, what: &str) -> Result<Vec<(String, String)>, String> {
+    let json: serde_json::Value = serde_json::from_str(report)
+        .map_err(|error| format!("invalid {what} license report: {error}"))?;
+    let groups = json
+        .as_object()
+        .ok_or_else(|| format!("invalid {what} license report: not an object"))?;
+    Ok(groups
+        .iter()
+        .flat_map(|(license, packages)| {
+            packages
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|package| package.get("name").and_then(serde_json::Value::as_str))
+                .map(move |name| (name.to_owned(), license.clone()))
+        })
+        .collect())
+}
+
+/// Checks the license reports: every shipped package under [`SHIPPED_LICENSES`], every
+/// other one under [`TOOLING_LICENSES`] or a [`TOOLING_EXCEPTIONS`] entry.
+///
+/// # Errors
+///
+/// Returns a message naming every package under a license it may not have.
+pub fn license_gate(shipped: &str, all: &str) -> Result<(), String> {
+    let mut problems: Vec<String> = licensed(shipped, "shipped")?
+        .into_iter()
+        .filter(|(_, license)| !SHIPPED_LICENSES.contains(&license.as_str()))
+        .map(|(name, license)| format!("{name} is shipped under {license}"))
+        .collect();
+    problems.extend(
+        licensed(all, "tooling")?
+            .into_iter()
+            .filter(|(name, license)| {
+                !TOOLING_LICENSES.contains(&license.as_str())
+                    && !TOOLING_EXCEPTIONS
+                        .iter()
+                        .any(|(prefix, allowed, _)| name.starts_with(prefix) && license == allowed)
+            })
+            .map(|(name, license)| format!("{name} is under {license}")),
+    );
+    if problems.is_empty() {
+        Ok(())
+    } else {
+        Err(format!("licenses not allowed: {}", problems.join(", ")))
+    }
+}
+
 /// The project manifest holding the workspace version.
 pub const CARGO_TOML: &str = "Cargo.toml";
 
@@ -958,6 +1074,13 @@ pub trait Runner {
     ///
     /// Returns an error when git cannot list them.
     fn tracked(&mut self, patterns: &[&str]) -> io::Result<Vec<String>>;
+
+    /// Runs a command and returns what it wrote on stdout.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the command cannot be started or does not succeed.
+    fn capture(&mut self, cmd: &Cmd) -> io::Result<String>;
 }
 
 /// Runs real commands below a repository root.
@@ -987,6 +1110,20 @@ impl Runner for SystemRunner {
             _ => {}
         }
         std::fs::create_dir_all(dir)
+    }
+
+    fn capture(&mut self, cmd: &Cmd) -> io::Result<String> {
+        Command::new(cmd.program)
+            .args(&cmd.args)
+            .current_dir(cmd.dir.under(&self.root))
+            .output()
+            .and_then(|output| {
+                if output.status.success() {
+                    String::from_utf8(output.stdout).map_err(io::Error::other)
+                } else {
+                    Err(io::Error::other(format!("`{}` failed", cmd.line())))
+                }
+            })
     }
 
     fn tracked(&mut self, patterns: &[&str]) -> io::Result<Vec<String>> {
@@ -1071,6 +1208,17 @@ pub fn run_steps(
                             .collect::<Result<Vec<_>, _>>()
                             .and_then(|crates| membership_gate(&packages, &crates))
                     })
+                })
+            }
+            Action::LicenseGate => {
+                let [shipped, all] = license_commands();
+                let report = |source: &mut dyn Runner, cmd: &Cmd| {
+                    source
+                        .capture(cmd)
+                        .map_err(|error| format!("cannot list licenses: {error}"))
+                };
+                report(runner, &shipped).and_then(|shipped| {
+                    report(runner, &all).and_then(|all| license_gate(&shipped, &all))
                 })
             }
             Action::TypeScriptReportsGate => TYPESCRIPT_PACKAGES.iter().try_for_each(|package| {

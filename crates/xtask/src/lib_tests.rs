@@ -11,8 +11,8 @@ use super::{
     Action, BestEffort, CARGO_TOML, CHANGELOG, COMMIT_HEADER_MAX, COVERAGE_REPORT, Cmd, Dir,
     EQUIVALENT_REVIEWED, PACKAGE_JSONS, PORTABILITY_TARGETS, Runner, Step, SystemRunner,
     TYPESCRIPT_PACKAGES, UNVIABLE_REPORT, UNVIABLE_REVIEWED, USAGE, Version, bless_step,
-    check_steps, cli, commit_msg_gate, coverage_gate, equivalent_gate, membership_gate,
-    release_gate, run_steps, ts_coverage_gate, ts_mutation_gate, unviable_gate,
+    check_steps, cli, commit_msg_gate, coverage_gate, equivalent_gate, license_gate,
+    membership_gate, release_gate, run_steps, ts_coverage_gate, ts_mutation_gate, unviable_gate,
 };
 
 /// Records commands and answers with scripted results.
@@ -61,6 +61,16 @@ impl Runner for Fake {
         Ok(())
     }
 
+    /// Answers a captured command with the file named `capture <command line>`.
+    fn capture(&mut self, cmd: &Cmd) -> io::Result<String> {
+        let line = cmd.line();
+        self.ran.push(format!("capture {line}"));
+        self.files
+            .get(&format!("capture {line}"))
+            .cloned()
+            .ok_or_else(|| io::Error::other("failed"))
+    }
+
     /// Matches the pathspecs this crate uses: `*<suffix>`.
     fn tracked(&mut self, patterns: &[&str]) -> io::Result<Vec<String>> {
         let line = format!("list {}", patterns.join(" "));
@@ -92,6 +102,12 @@ fn report(lines: (u64, u64), functions: (u64, u64), branches: (u64, u64)) -> Str
 fn full_report() -> String {
     report((10, 10), (3, 3), (4, 4))
 }
+
+/// The licenses of what the apps ship, all allowed.
+const SHIPPED: &str = r#"{"MIT":[{"name":"react"}],"ISC":[{"name":"a"}]}"#;
+
+/// The licenses of all tooling, all allowed (sharp's library by its exception).
+const TOOLING: &str = r#"{"MPL-2.0":[{"name":"axe-core"}],"LGPL-3.0-or-later":[{"name":"@img/sharp-libvips-linux-x64"}]}"#;
 
 /// A Vitest coverage summary at 100%.
 const TS_COVERED: &str = r#"{"total":{"lines":{"total":4,"covered":4},"statements":{"total":5,"covered":5},"functions":{"total":2,"covered":2},"branches":{"total":3,"covered":3}}}"#;
@@ -125,6 +141,12 @@ fn passing() -> Fake {
             TS_KILLED.to_owned(),
         );
         assert!(summary.is_none() && mutation.is_none(), "fresh fake");
+    }
+    for (cmd, licenses) in super::license_commands().iter().zip([SHIPPED, TOOLING]) {
+        let replaced = fake
+            .files
+            .insert(format!("capture {}", cmd.line()), licenses.to_owned());
+        assert!(replaced.is_none(), "fresh fake");
     }
     let third = fake.files.insert("x/a.ts".to_owned(), source.to_owned());
     let fourth = fake
@@ -185,6 +207,7 @@ fn command_lines(steps: &[Step]) -> Vec<String> {
             Action::FreshDirs(paths) => format!("fresh {}", paths.join(" ")),
             Action::TypeScriptReportsGate => "typescript reports gate".to_owned(),
             Action::MembershipGate => "membership gate".to_owned(),
+            Action::LicenseGate => "license gate".to_owned(),
         })
         .collect()
 }
@@ -216,6 +239,8 @@ fn lists_every_check_in_order() {
             "membership gate",
             "release gate",
             "Root: pnpm install --frozen-lockfile",
+            "Root: pnpm audit",
+            "license gate",
             "fresh tooling/oracle/coverage tooling/oracle/reports/mutation bindings/wasm/coverage bindings/wasm/reports/mutation apps/playground/coverage apps/playground/reports/mutation apps/roadmap/coverage apps/roadmap/reports/mutation",
             "Oracle: pnpm run check",
             "EngineWasm: pnpm run check",
@@ -249,6 +274,8 @@ fn lists_every_check_in_order() {
             "Packages and crates known to the checks",
             "Versions and changelog",
             "JavaScript dependencies",
+            "JavaScript vulnerabilities",
+            "JavaScript licenses",
             "Fresh TypeScript report directories",
             "Conformance oracle (independent, TypeScript)",
             "Engine WASM checks",
@@ -352,11 +379,12 @@ fn runs_every_step_and_reports_success() {
     );
     assert_eq!(
         fake.ran.len(),
-        check_steps().len() + 7 + 10 + 7 + 2,
+        check_steps().len() + 7 + 10 + 7 + 2 + 1,
         "every step ran; the unviable gate reads two files, the equivalent gate lists the \
          sources and reads two files, the release gate eight, the fresh step empties seven \
          more directories, the TypeScript gate reads eight reports instead of one action, \
-         the membership gate lists twice and reads the root Cargo.toml"
+         the membership gate lists twice and reads the root Cargo.toml, the license gate \
+         captures two reports"
     );
     for path in [
         CARGO_TOML,
@@ -380,15 +408,15 @@ fn runs_every_step_and_reports_success() {
     );
     let text = String::from_utf8(out).expect("utf-8 output");
     assert!(
-        text.starts_with("▶ [1/27] Rust formatting\n"),
+        text.starts_with("▶ [1/29] Rust formatting\n"),
         "numbered progress: {text}"
     );
     assert!(
-        text.contains("▶ [26/27] Roadmap checks\n"),
+        text.contains("▶ [28/29] Roadmap checks\n"),
         "last step announced: {text}"
     );
     assert!(
-        text.ends_with("✔ all 27 checks passed\n"),
+        text.ends_with("✔ all 29 checks passed\n"),
         "summary: {text}"
     );
 }
@@ -1450,5 +1478,78 @@ fn reports_manifests_it_cannot_list() {
         run_steps(&check_steps(), &mut unlisted, &mut Vec::new())
             .is_err_and(|e| e.ends_with("cannot list the *package.json files: no git")),
         "named"
+    );
+}
+
+#[test]
+fn allows_strict_licenses_for_what_ships_and_wider_ones_for_tooling() {
+    assert_eq!(license_gate(SHIPPED, TOOLING), Ok(()), "allowed");
+    assert_eq!(
+        license_gate(
+            r#"{"MPL-2.0":[{"name":"axe-core"}],"MIT":[{"name":"react"}]}"#,
+            r#"{"GPL-3.0":[{"name":"bad"}],"LGPL-3.0-or-later":[{"name":"other-lgpl"},{"name":"@img/sharp-libvips-x"}],"CC0-1.0":[{"name":"data"}]}"#
+        ),
+        Err("licenses not allowed: axe-core is shipped under MPL-2.0, bad is under GPL-3.0, other-lgpl is under LGPL-3.0-or-later".to_owned()),
+        "a tooling license shipped, a license allowed nowhere, an exception for its own package only"
+    );
+    assert_eq!(
+        license_gate(SHIPPED, r#"{"MIT-0":[{"name":"@img/sharp-libvips-x"}]}"#),
+        Err("licenses not allowed: @img/sharp-libvips-x is under MIT-0".to_owned()),
+        "an exception for its own license only"
+    );
+    assert!(
+        license_gate("x", TOOLING)
+            .is_err_and(|e| e.starts_with("invalid shipped license report: ")),
+        "unreadable"
+    );
+    assert_eq!(
+        license_gate(SHIPPED, "[]"),
+        Err("invalid tooling license report: not an object".to_owned()),
+        "not an object"
+    );
+    assert_eq!(
+        license_gate(r#"{"MIT":3,"ISC":[{"version":"1"}]}"#, "{}"),
+        Ok(()),
+        "groups without names have nothing to check"
+    );
+}
+
+#[test]
+fn reports_license_lists_it_cannot_get() {
+    let mut fake = passing();
+    let [shipped, _] = super::license_commands();
+    let removed = fake.files.remove(&format!("capture {}", shipped.line()));
+    assert!(removed.is_some(), "report removed");
+    assert_eq!(
+        run_steps(&check_steps(), &mut fake, &mut Vec::new()),
+        Err("✘ JavaScript licenses: cannot list licenses: failed".to_owned()),
+        "named"
+    );
+}
+
+#[test]
+fn system_runner_captures_output_and_failures() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let mut runner = SystemRunner { root };
+    let echo = Cmd {
+        program: "cargo",
+        args: vec!["--version".to_owned()],
+        dir: Dir::Root,
+    };
+    assert!(
+        runner
+            .capture(&echo)
+            .is_ok_and(|out| out.starts_with("cargo ")),
+        "stdout captured"
+    );
+    let failing = Cmd {
+        program: "cargo",
+        args: vec!["no-such-command".to_owned()],
+        dir: Dir::Root,
+    };
+    assert_eq!(
+        runner.capture(&failing).map_err(|e| e.to_string()),
+        Err("`cargo no-such-command` failed".to_owned()),
+        "a failing command"
     );
 }

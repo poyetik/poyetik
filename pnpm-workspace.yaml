@@ -2,3 +2,9 @@ packages:
   - "apps/*"
   - "bindings/wasm"
   - "tooling/*"
+
+# Versions forced for transitive development dependencies with known vulnerabilities,
+# until their parents depend on fixed versions (checked by `pnpm audit` in the check).
+overrides:
+  "qs": ">=6.16.1"
+  "minimatch@>=7.0.0 <11.0.1": "^11.0.1"

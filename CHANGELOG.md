@@ -78,5 +78,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- The JavaScript supply chain is checked like the Rust one: `pnpm audit` runs in `cargo xtask check` (the five moderate advisories in development tooling, all in transitive dependencies of Stryker and ESLint, are fixed by pnpm overrides), and a license gate allows MIT, Apache-2.0, BSD-2/3-Clause, ISC and 0BSD for what the apps ship, a wider list for tooling, and one documented exception (sharp's image library, build time only).
 - The playground, the roadmap and the engine test bench declare a Content Security Policy: everything from the site itself, no inline script or style, and only `'wasm-unsafe-eval'` where the engine runs. End-to-end tests check on every browser that the page declares it, breaks none of it, and that it is enforced (a blocked image as control). The roadmap's styles are no longer inlined. The roadmap's end-to-end tests serve on a free port too.
 - The end-to-end test server serves only the bench, the built package and the conformance cases, patches and references, to this machine only: a path such as `/conformance//etc/hosts` read any file, and any host name was answered (DNS rebinding).
