@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { ENGINE_PROCESSOR, OptionsError, TAP_PROCESSOR, parseEngineOptions, parseTapBlock } from "../ts/protocol.ts";
+import { ENGINE_PROCESSOR, OptionsError, TAP_PROCESSOR, parseEngineMessage, parseEngineOptions, parseTapBlock } from "../ts/protocol.ts";
 
 describe("parseEngineOptions", () => {
   test("accepts the module bytes and the patch", () => {
@@ -41,4 +41,24 @@ describe("parseTapBlock", () => {
 test("names the processors: a contract with every page that loads them", () => {
   expect(ENGINE_PROCESSOR).toBe("poyetik-engine");
   expect(TAP_PROCESSOR).toBe("poyetik-tap");
+});
+
+describe("parseEngineMessage", () => {
+  test("accepts the three messages of the engine processor", () => {
+    const detail = new Uint8Array([1]);
+    expect(parseEngineMessage({ type: "ready" })).toStrictEqual({ type: "ready" });
+    expect(parseEngineMessage({ type: "rejected", detail })).toStrictEqual({ type: "rejected", detail });
+    expect(parseEngineMessage({ type: "failed", message: "x" })).toStrictEqual({ type: "failed", message: "x" });
+  });
+
+  test.each([
+    [null, "engine message is not an object"],
+    ["ready", "engine message is not an object"],
+    [{ type: "rejected", detail: [1] }, "rejection detail is not a Uint8Array"],
+    [{ type: "failed", message: 1 }, "failure message is not a string"],
+    [{ type: "other" }, "unknown engine message"],
+    [{}, "unknown engine message"],
+  ])("rejects %o", (value, detail) => {
+    expect(() => parseEngineMessage(value)).toThrow(new OptionsError(detail));
+  });
 });

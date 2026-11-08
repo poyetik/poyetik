@@ -3,19 +3,31 @@
  * thread. Built as a module of its own, loaded with `audioWorklet.addModule`.
  *
  * The worklet scope has no `TextEncoder` or `TextDecoder` in every browser: everything
- * it receives and sends is already bytes or numbers.
+ * it receives and sends is bytes, numbers or strings built without them.
  */
 
-import { WasmEngine } from "../engine.ts";
-import { ENGINE_PROCESSOR, TAP_PROCESSOR, parseEngineOptions } from "../protocol.ts";
+import { PatchError, WasmEngine } from "../engine.ts";
+import { ENGINE_PROCESSOR, TAP_PROCESSOR, parseEngineOptions, type EngineMessage } from "../protocol.ts";
 
 /** The outputs of a node without output: one shared, frozen, empty list. */
 const NO_OUTPUT: readonly Float32Array[] = Object.freeze([]);
 
-/** Runs the engine: one output, one channel per patch channel. */
+/** The message telling the main thread the patch is loaded: one shared, frozen object. */
+const READY: EngineMessage = Object.freeze({ type: "ready" });
+
+/** The message describing a failure: the rejection detail of the engine, or a message. */
+function failure(error: unknown): EngineMessage {
+  return error instanceof PatchError ? { type: "rejected", detail: error.detail } : { type: "failed", message: String(error) };
+}
+
+/**
+ * Runs the engine: one output, one channel per patch channel. Tells the main thread once
+ * whether the patch is loaded, or why it is not; after a failure (at load or later) it
+ * outputs silence and stops.
+ */
 class EngineProcessor extends AudioWorkletProcessor {
-  /** The engine, with the patch loaded. */
-  readonly #engine: WasmEngine;
+  /** The engine; `undefined` once it failed. */
+  #engine: WasmEngine | undefined;
 
   /**
    * Loads the patch given in the node options (`processorOptions`, see `EngineOptions`).
@@ -24,14 +36,28 @@ class EngineProcessor extends AudioWorkletProcessor {
    */
   constructor(options: { readonly processorOptions?: unknown }) {
     super();
-    const { wasm, patch } = parseEngineOptions(options.processorOptions);
-    this.#engine = WasmEngine.create(new WebAssembly.Module(wasm), patch, sampleRate);
+    try {
+      const { wasm, patch } = parseEngineOptions(options.processorOptions);
+      this.#engine = WasmEngine.create(new WebAssembly.Module(wasm), patch, sampleRate);
+      this.port.postMessage(READY);
+    } catch (error) {
+      this.port.postMessage(failure(error));
+    }
   }
 
-  /** Renders the next render quantum. Does not allocate. */
+  /** Renders the next render quantum. Does not allocate, except to report a failure once. */
   process(_inputs: Float32Array[][], outputs: Float32Array[][]): boolean {
-    this.#engine.render(outputs[0] ?? NO_OUTPUT);
-    return true;
+    if (this.#engine === undefined) {
+      return false;
+    }
+    try {
+      this.#engine.render(outputs[0] ?? NO_OUTPUT);
+      return true;
+    } catch (error) {
+      this.#engine = undefined;
+      this.port.postMessage(failure(error));
+      return false;
+    }
   }
 }
 

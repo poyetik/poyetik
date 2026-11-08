@@ -54,3 +54,38 @@ export function parseTapBlock(value: unknown): Float32Array[] {
     return channel;
   });
 }
+
+/** What the engine processor tells the main thread, once. */
+export type EngineMessage =
+  /** The patch is loaded: the processor renders it. */
+  | { readonly type: "ready" }
+  /** The engine rejected the patch; `detail` is its UTF-8 explanation. */
+  | { readonly type: "rejected"; readonly detail: Uint8Array }
+  /** Anything else went wrong (invalid options, a trap): the processor is silent. */
+  | { readonly type: "failed"; readonly message: string };
+
+/** Checks a message posted by the engine processor. */
+export function parseEngineMessage(value: unknown): EngineMessage {
+  if (typeof value !== "object" || value === null) {
+    throw new OptionsError("engine message is not an object");
+  }
+  const type: unknown = Reflect.get(value, "type");
+  if (type === "ready") {
+    return { type };
+  }
+  if (type === "rejected") {
+    const detail: unknown = Reflect.get(value, "detail");
+    if (!(detail instanceof Uint8Array)) {
+      throw new OptionsError("rejection detail is not a Uint8Array");
+    }
+    return { type, detail };
+  }
+  if (type === "failed") {
+    const message: unknown = Reflect.get(value, "message");
+    if (typeof message !== "string") {
+      throw new OptionsError("failure message is not a string");
+    }
+    return { type, message };
+  }
+  throw new OptionsError("unknown engine message");
+}

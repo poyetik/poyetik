@@ -61,9 +61,8 @@ on("live", async () => {
   const context = new AudioContext({ sampleRate: loaded.rate });
   await context.suspend();
   await addProcessors(context, PROCESSORS);
-  const node = createEngineNode(context, loaded);
-  node.addEventListener("processorerror", () => {
-    error.value = "processor error";
+  const { node, ready } = createEngineNode(context, loaded, (failure) => {
+    error.value = String(failure);
   });
   const captured = capture(context, node, loaded.channels, testCase.frames);
   // Silent on the speakers: the graph runs for real, the capture reads the engine output
@@ -71,6 +70,7 @@ on("live", async () => {
   const mute = new GainNode(context, { gain: 0 });
   node.connect(mute).connect(context.destination);
   await context.resume();
+  await ready;
   const channels = await captured;
   await context.close();
   element("live-hash", HTMLOutputElement).value = await renderHash(loaded.rate, loaded.channels, interleave(channels));

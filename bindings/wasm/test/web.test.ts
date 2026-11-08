@@ -1,9 +1,9 @@
 import { runInNewContext } from "node:vm";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { ModuleError } from "../ts/engine.ts";
+import { ModuleError, PatchError } from "../ts/engine.ts";
 import { ENGINE_PROCESSOR, OptionsError, TAP_PROCESSOR } from "../ts/protocol.ts";
-import { addProcessors, capture, createEngineNode, loadPatch, renderOffline, tap, type LoadedPatch } from "../ts/web.ts";
-import { SINE_PATCH, UNKNOWN_BOX, wasmBytes } from "./fixtures.ts";
+import { addProcessors, capture, createEngineNode, LoadedPatch, loadPatch, renderOffline, tap } from "../ts/web.ts";
+import { SILENT_PATCH, SINE_PATCH, UNKNOWN_BOX, wasmBytes } from "./fixtures.ts";
 
 const RATE = 48_000;
 
@@ -27,6 +27,7 @@ class FakeNode {
   static readonly created: FakeNode[] = [];
   readonly port = new FakePort();
   readonly connected: unknown[] = [];
+  onprocessorerror: (() => void) | null = null;
 
   readonly context: unknown;
   readonly name: string;
@@ -69,9 +70,27 @@ function fakeContext(sampleRate: number): { sampleRate: number; audioWorklet: { 
   };
 }
 
-/** A loaded patch, built by hand. */
-function loaded(channels: number, rate = RATE): LoadedPatch {
-  return { wasm: new ArrayBuffer(1), patch: new Uint8Array([1]), rate, channels };
+/** A patch loaded by the engine: the sine (2 channels) or a patch without output. */
+function loaded(channels: 0 | 2, rate = RATE): Promise<LoadedPatch> {
+  return loadPatch(wasmBytes(), channels === 2 ? SINE_PATCH : SILENT_PATCH, rate);
+}
+
+/**
+ * What a promise has settled to once every pending callback has run: "resolved", the
+ * rejection, or "pending" when it has not settled.
+ */
+async function settled(promise: Promise<unknown>): Promise<unknown> {
+  let state: unknown = "pending";
+  promise.then(
+    () => {
+      state = "resolved";
+    },
+    (error: unknown) => {
+      state = error;
+    },
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  return state;
 }
 
 afterEach(() => {
@@ -125,12 +144,39 @@ describe("addProcessors", () => {
     await addProcessors(context(fake), "processors.js");
     expect(fake.modules).toStrictEqual(["processors.js"]);
   });
+
+  test("names the URL it could not load", async () => {
+    const fake = fakeContext(RATE);
+    const missing = new Error("404");
+    fake.audioWorklet.addModule = () => Promise.reject(missing);
+    const error: unknown = await addProcessors(context(fake), "nowhere.js").catch((reason: unknown) => reason);
+    expect(error).toStrictEqual(new Error("cannot load the processors from nowhere.js: Error: 404"));
+    expect(error).toHaveProperty("cause", missing);
+  });
 });
 
 describe("loadPatch", () => {
-  test("checks the patch and reports its channels", async () => {
+  test("checks the patch and reports its channels and rate", async () => {
+    const patch = await loadPatch(wasmBytes(), SINE_PATCH, RATE);
+    expect(patch).toBeInstanceOf(LoadedPatch);
+    expect(patch).toMatchObject({ rate: RATE, channels: 2 });
+    expect((await loaded(0, 44_100)).channels).toBe(0);
+  });
+
+  test("keeps its own copies of the bytes", async () => {
     const wasm = wasmBytes();
-    expect(await loadPatch(wasm, SINE_PATCH, RATE)).toStrictEqual({ wasm, patch: SINE_PATCH, rate: RATE, channels: 2 });
+    const patch = SINE_PATCH.slice();
+    const checked = await loadPatch(wasm, patch, RATE);
+    new Uint8Array(wasm).fill(0);
+    patch.fill(0);
+    const options = checked.options();
+    expect(new Uint8Array(options.wasm)).toStrictEqual(new Uint8Array(wasmBytes()));
+    expect(options.patch).toStrictEqual(SINE_PATCH);
+    // Every call gives fresh copies: changing one changes nothing for the next node.
+    options.patch.fill(0);
+    new Uint8Array(options.wasm).fill(0);
+    expect(checked.options().patch).toStrictEqual(SINE_PATCH);
+    expect(new Uint8Array(checked.options().wasm)).toStrictEqual(new Uint8Array(wasmBytes()));
   });
 
   test("throws the explanation of the engine", async () => {
@@ -143,15 +189,22 @@ describe("loadPatch", () => {
     const empty = new Uint8Array([0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]);
     await expect(loadPatch(empty.buffer, SINE_PATCH, RATE)).rejects.toThrow(new ModuleError("no memory"));
   });
+
+  test("explains bytes that are not a module", async () => {
+    const error: unknown = await loadPatch(new Uint8Array([1, 2, 3]).buffer, SINE_PATCH, RATE).catch((reason: unknown) => reason);
+    expect(error).toBeInstanceOf(ModuleError);
+    expect(error instanceof Error ? error.message : "").toMatch(/^not an engine module: cannot be compiled: CompileError: \S/);
+    expect(error).toHaveProperty("cause.name", "CompileError");
+  });
 });
 
 describe("createEngineNode", () => {
-  test("creates an engine node with one channel per patch channel", () => {
+  test("creates an engine node with one channel per patch channel", async () => {
     stubNodes();
     const fake = fakeContext(RATE);
-    const patch = loaded(2);
-    const created = createEngineNode(context(fake), patch);
-    expect(created).toBe(FakeNode.created[0]);
+    const patch = await loaded(2);
+    const created = createEngineNode(context(fake), patch, () => undefined);
+    expect(created.node).toBe(FakeNode.created[0]);
     expect(FakeNode.created[0]).toMatchObject({
       context: fake,
       name: ENGINE_PROCESSOR,
@@ -159,23 +212,73 @@ describe("createEngineNode", () => {
         numberOfInputs: 0,
         numberOfOutputs: 1,
         outputChannelCount: [2],
-        processorOptions: { wasm: patch.wasm, patch: patch.patch },
+        processorOptions: patch.options(),
       },
     });
   });
 
-  test("gives a patch without output one silent channel", () => {
+  test("gives a patch without output one silent channel", async () => {
     stubNodes();
-    createEngineNode(context(fakeContext(RATE)), loaded(0));
+    createEngineNode(context(fakeContext(RATE)), await loaded(0), () => undefined);
     expect(FakeNode.created[0]?.options).toHaveProperty("outputChannelCount", [1]);
   });
 
-  test("refuses a context at another rate", () => {
+  test("refuses a context at another rate", async () => {
     stubNodes();
-    expect(() => createEngineNode(context(fakeContext(44_100)), loaded(2))).toThrow(
+    const patch = await loaded(2);
+    expect(() => createEngineNode(context(fakeContext(44_100)), patch, () => undefined)).toThrow(
       new Error("the context runs at 44100 Hz, the patch was loaded at 48000 Hz"),
     );
     expect(FakeNode.created).toHaveLength(0);
+  });
+
+  test("is ready when the processor has loaded the patch", async () => {
+    stubNodes();
+    const failures: Error[] = [];
+    const { ready } = createEngineNode(context(fakeContext(RATE)), await loaded(2), (error) => failures.push(error));
+    expect(await settled(ready)).toBe("pending");
+    FakeNode.created[0]?.port.deliver({ type: "ready" });
+    expect(await settled(ready)).toBe("resolved");
+    expect(failures).toStrictEqual([]);
+  });
+
+  test.each([
+    [{ type: "rejected", detail: new TextEncoder().encode("bad patch") }, new Error("bad patch")],
+    [{ type: "failed", message: "EngineTrap: trapped" }, new Error("the engine failed: EngineTrap: trapped")],
+    [{ type: "nonsense" }, new OptionsError("unknown engine message")],
+  ])("reports a failure of the processor before it is ready: %o", async (message, expected) => {
+    stubNodes();
+    const failures: Error[] = [];
+    const { ready } = createEngineNode(context(fakeContext(RATE)), await loaded(2), (error) => failures.push(error));
+    FakeNode.created[0]?.port.deliver(message);
+    expect(await settled(ready)).toStrictEqual(expected);
+    expect(failures).toStrictEqual([expected]);
+  });
+
+  test("keeps the rejection of the engine as the cause", async () => {
+    stubNodes();
+    const failures: Error[] = [];
+    createEngineNode(context(fakeContext(RATE)), await loaded(2), (error) => failures.push(error));
+    FakeNode.created[0]?.port.deliver({ type: "rejected", detail: new TextEncoder().encode("bad") });
+    expect(failures[0]?.cause).toBeInstanceOf(PatchError);
+  });
+
+  test("reports a later failure once, and a processor error", async () => {
+    stubNodes();
+    const failures: Error[] = [];
+    const { ready } = createEngineNode(context(fakeContext(RATE)), await loaded(2), (error) => failures.push(error));
+    const fake = FakeNode.created[0];
+    fake?.port.deliver({ type: "ready" });
+    fake?.port.deliver({ type: "failed", message: "trap" });
+    fake?.port.deliver({ type: "failed", message: "again" });
+    fake?.onprocessorerror?.();
+    expect(await settled(ready)).toBe("resolved");
+    expect(failures).toStrictEqual([new Error("the engine failed: trap")]);
+
+    const errors: Error[] = [];
+    createEngineNode(context(fakeContext(RATE)), await loaded(2), (error) => errors.push(error));
+    FakeNode.created[1]?.onprocessorerror?.();
+    expect(errors).toStrictEqual([new Error("the engine processor failed")]);
   });
 });
 
@@ -236,6 +339,18 @@ describe("capture", () => {
     expect(await captured).toStrictEqual([new Float32Array([3])]);
   });
 
+  test.each([
+    [0, 1, "a capture needs a whole number of channels from 1, not 0"],
+    [1.5, 1, "a capture needs a whole number of channels from 1, not 1.5"],
+    [2, -1, "a capture needs a whole number of frames from 0, not -1"],
+    [2, 0.5, "a capture needs a whole number of frames from 0, not 0.5"],
+    [2, Number.NaN, "a capture needs a whole number of frames from 0, not NaN"],
+  ])("refuses %d channels and %d frames", async (channels, frames, message) => {
+    stubNodes();
+    await expect(capture(context(fakeContext(RATE)), node(fakeSource()), channels, frames)).rejects.toThrow(new RangeError(message));
+    expect(FakeNode.created).toHaveLength(0);
+  });
+
   test("captures zero frames without a tap", async () => {
     stubNodes();
     const source = fakeSource();
@@ -272,7 +387,8 @@ describe("capture", () => {
 });
 
 describe("renderOffline", () => {
-  test("renders in an offline context at the rate of the patch", async () => {
+  /** Stubs an offline context whose processor posts `message` once rendering starts. */
+  function offline(message: unknown, later?: unknown): { contexts: { channels: number; frames: number; rate: number }[]; modules: (string | URL)[]; destination: object } {
     stubNodes();
     const contexts: { channels: number; frames: number; rate: number }[] = [];
     const modules: (string | URL)[] = [];
@@ -295,16 +411,36 @@ describe("renderOffline", () => {
         }
 
         startRendering(): Promise<unknown> {
+          const port = FakeNode.created.at(-1)?.port;
+          port?.deliver(message);
+          if (later !== undefined) {
+            port?.deliver(later);
+          }
           return Promise.resolve({ getChannelData: (channel: number) => new Float32Array([channel, channel + 0.5, 9]) });
         }
       },
     );
-    expect(await renderOffline(loaded(2), 2, "processors.js")).toStrictEqual([new Float32Array([0, 0.5]), new Float32Array([1, 1.5])]);
+    return { contexts, modules, destination };
+  }
+
+  test("renders in an offline context at the rate of the patch", async () => {
+    const { contexts, modules, destination } = offline({ type: "ready" });
+    expect(await renderOffline(await loaded(2), 2, "processors.js")).toStrictEqual([new Float32Array([0, 0.5]), new Float32Array([1, 1.5])]);
     expect(contexts).toStrictEqual([{ channels: 2, frames: 2, rate: RATE }]);
     expect(modules).toStrictEqual(["processors.js"]);
     expect(FakeNode.created[0]?.connected).toStrictEqual([destination]);
 
-    expect(await renderOffline(loaded(0), 0, "processors.js")).toStrictEqual([]);
+    expect(await renderOffline(await loaded(0), 0, "processors.js")).toStrictEqual([]);
     expect(contexts[1]).toStrictEqual({ channels: 1, frames: 1, rate: RATE });
+  });
+
+  test("fails instead of returning silence when the processor cannot load the patch", async () => {
+    offline({ type: "rejected", detail: new TextEncoder().encode("bad patch") });
+    await expect(renderOffline(await loaded(2), 2, "processors.js")).rejects.toThrow(new Error("bad patch"));
+  });
+
+  test("fails when the processor fails while rendering", async () => {
+    offline({ type: "ready" }, { type: "failed", message: "trap" });
+    await expect(renderOffline(await loaded(2), 2, "processors.js")).rejects.toThrow(new Error("the engine failed: trap"));
   });
 });

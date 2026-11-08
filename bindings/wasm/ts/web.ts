@@ -6,60 +6,141 @@
  * {@link addProcessors}, giving the URL of the compiled `worklet/processors.js`.
  */
 
-import { PatchError, WasmEngine } from "./engine.ts";
-import { ENGINE_PROCESSOR, TAP_PROCESSOR, parseTapBlock, type EngineOptions } from "./protocol.ts";
+import { ModuleError, PatchError, WasmEngine } from "./engine.ts";
+import { ENGINE_PROCESSOR, TAP_PROCESSOR, parseEngineMessage, parseTapBlock, type EngineOptions } from "./protocol.ts";
 
-/** A patch checked by the engine, ready to run in an engine node. */
-export interface LoadedPatch {
-  /** The engine WebAssembly module, as bytes. */
-  readonly wasm: ArrayBuffer;
-  /** The patch, as UTF-8 text in the patch format. */
-  readonly patch: Uint8Array;
+/**
+ * A patch checked by the engine, ready to run in engine nodes. Only {@link loadPatch}
+ * makes one: holding a `LoadedPatch` proves the engine accepted this patch at this rate.
+ * It keeps its own copies of the bytes, so changing the arrays given to `loadPatch`
+ * afterwards changes nothing.
+ */
+export class LoadedPatch {
   /** Sample rate it was checked at, in hertz: the rate of the contexts it runs in. */
   readonly rate: number;
   /** Number of output channels. */
   readonly channels: number;
+  /** The engine WebAssembly module, as bytes. */
+  readonly #wasm: ArrayBuffer;
+  /** The patch, as UTF-8 text in the patch format. */
+  readonly #patch: Uint8Array;
+
+  /**
+   * Records a checked patch.
+   * @param wasm A copy of the module bytes.
+   * @param patch A copy of the patch bytes.
+   * @param rate The rate it was checked at.
+   * @param channels Its number of output channels.
+   */
+  private constructor(wasm: ArrayBuffer, patch: Uint8Array, rate: number, channels: number) {
+    this.#wasm = wasm;
+    this.#patch = patch;
+    this.rate = rate;
+    this.channels = channels;
+  }
+
+  /**
+   * Checks `patch` with the engine at `rate` hertz, on this thread: errors are thrown here
+   * with the explanation of the engine, rather than in the audio thread.
+   * @throws {ModuleError} when `wasm` is not an engine module.
+   * @throws {Error} with the explanation of the engine, when it rejects the patch.
+   */
+  static async load(wasm: ArrayBuffer, patch: Uint8Array, rate: number): Promise<LoadedPatch> {
+    const bytes = wasm.slice(0);
+    const module = await WebAssembly.compile(bytes).catch((error: unknown) => {
+      throw new ModuleError(`cannot be compiled: ${String(error)}`, { cause: error });
+    });
+    const copy = patch.slice();
+    try {
+      const { channels } = WasmEngine.create(module, copy, rate);
+      return new LoadedPatch(bytes, copy, rate, channels);
+    } catch (error) {
+      throw error instanceof PatchError ? new Error(new TextDecoder().decode(error.detail), { cause: error }) : error;
+    }
+  }
+
+  /** The options of an engine node running this patch, with fresh copies of the bytes. */
+  options(): EngineOptions {
+    return { wasm: this.#wasm.slice(0), patch: this.#patch.slice() };
+  }
 }
 
-/** Registers the engine and tap processors in `context`. */
+/** Registers the engine and tap processors in `context`, naming the URL on failure. */
 export async function addProcessors(context: BaseAudioContext, url: string | URL): Promise<void> {
-  await context.audioWorklet.addModule(url);
+  await context.audioWorklet.addModule(url).catch((error: unknown) => {
+    throw new Error(`cannot load the processors from ${String(url)}: ${String(error)}`, { cause: error });
+  });
 }
 
 /**
- * Checks `patch` with the engine at `rate` hertz, on this thread: errors are thrown here
- * with the explanation of the engine, rather than in the audio thread.
+ * Checks `patch` with the engine at `rate` hertz: see {@link LoadedPatch.load}.
+ * @throws {ModuleError} when `wasm` is not an engine module.
  * @throws {Error} with the explanation of the engine, when it rejects the patch.
  */
-export async function loadPatch(wasm: ArrayBuffer, patch: Uint8Array, rate: number): Promise<LoadedPatch> {
-  const module = await WebAssembly.compile(wasm);
-  try {
-    const { channels } = WasmEngine.create(module, patch, rate);
-    return { wasm, patch, rate, channels };
-  } catch (error) {
-    if (error instanceof PatchError) {
-      throw new Error(new TextDecoder().decode(error.detail), { cause: error });
-    }
-    throw error;
-  }
+export function loadPatch(wasm: ArrayBuffer, patch: Uint8Array, rate: number): Promise<LoadedPatch> {
+  return LoadedPatch.load(wasm, patch, rate);
+}
+
+/** An engine node, and when it is ready. */
+export interface EngineNode {
+  /** The node: no input, one output with one channel per patch channel. */
+  readonly node: AudioWorkletNode;
+  /** Resolves when the processor has loaded the patch; rejects if it could not. */
+  readonly ready: Promise<void>;
 }
 
 /**
  * Creates a node running `loaded`: no input, one output with one channel per patch
- * channel (one silent channel when the patch has none).
+ * channel (one silent channel when the patch has none). `onFailure` receives the first
+ * failure of the processor, at load or later (the node is then silent); `ready` also
+ * rejects with it when it comes before the patch is loaded.
  * @throws {Error} when the context does not run at the rate the patch was checked at.
  */
-export function createEngineNode(context: BaseAudioContext, loaded: LoadedPatch): AudioWorkletNode {
+export function createEngineNode(context: BaseAudioContext, loaded: LoadedPatch, onFailure: (error: Error) => void): EngineNode {
   if (context.sampleRate !== loaded.rate) {
     throw new Error(`the context runs at ${String(context.sampleRate)} Hz, the patch was loaded at ${String(loaded.rate)} Hz`);
   }
-  const processorOptions: EngineOptions = { wasm: loaded.wasm, patch: loaded.patch };
-  return new AudioWorkletNode(context, ENGINE_PROCESSOR, {
+  const node = new AudioWorkletNode(context, ENGINE_PROCESSOR, {
     numberOfInputs: 0,
     numberOfOutputs: 1,
     outputChannelCount: [Math.max(1, loaded.channels)],
-    processorOptions,
+    processorOptions: loaded.options(),
   });
+  const ready = Promise.withResolvers<undefined>();
+  // Rejections also reach onFailure: `ready` is only awaited by those who need it.
+  ready.promise.catch(() => undefined);
+  let failed = false;
+  const fail = (error: Error): void => {
+    if (!failed) {
+      failed = true;
+      ready.reject(error);
+      onFailure(error);
+    }
+  };
+  node.port.onmessage = (event: MessageEvent<unknown>) => {
+    let message;
+    try {
+      message = parseEngineMessage(event.data);
+    } catch (error) {
+      fail(toError(error));
+      return;
+    }
+    switch (message.type) {
+      case "ready":
+        ready.resolve(undefined);
+        break;
+      case "rejected":
+        fail(new Error(new TextDecoder().decode(message.detail), { cause: new PatchError(message.detail) }));
+        break;
+      case "failed":
+        fail(new Error(`the engine failed: ${message.message}`));
+        break;
+    }
+  };
+  node.onprocessorerror = () => {
+    fail(new Error("the engine processor failed"));
+  };
+  return { node, ready: ready.promise };
 }
 
 /** A running tap, posting every block of its source to the main thread. */
@@ -124,6 +205,12 @@ export function tap(
  * its very first frame.
  */
 export function capture(context: BaseAudioContext, source: AudioNode, channels: number, frames: number): Promise<Float32Array[]> {
+  if (!Number.isInteger(channels) || channels < 1) {
+    return Promise.reject(new RangeError(`a capture needs a whole number of channels from 1, not ${String(channels)}`));
+  }
+  if (!Number.isInteger(frames) || frames < 0) {
+    return Promise.reject(new RangeError(`a capture needs a whole number of frames from 0, not ${String(frames)}`));
+  }
   const out = Array.from({ length: channels }, () => new Float32Array(frames));
   if (frames === 0) {
     return Promise.resolve(out);
@@ -153,11 +240,21 @@ export function capture(context: BaseAudioContext, source: AudioNode, channels: 
   });
 }
 
-/** Renders `frames` frames of `loaded` offline, one array per channel. */
+/**
+ * Renders `frames` frames of `loaded` offline, one array per channel.
+ * @throws {Error} when the engine processor fails, instead of returning silence.
+ */
 export async function renderOffline(loaded: LoadedPatch, frames: number, processors: string | URL): Promise<Float32Array[]> {
   const context = new OfflineAudioContext(Math.max(1, loaded.channels), Math.max(1, frames), loaded.rate);
   await addProcessors(context, processors);
-  createEngineNode(context, loaded).connect(context.destination);
-  const buffer = await context.startRendering();
+  let failure: Error | undefined;
+  const engine = createEngineNode(context, loaded, (error) => {
+    failure = error;
+  });
+  engine.node.connect(context.destination);
+  const [buffer] = await Promise.all([context.startRendering(), engine.ready]);
+  if (failure !== undefined) {
+    throw failure;
+  }
   return Array.from({ length: loaded.channels }, (_, channel) => buffer.getChannelData(channel).slice(0, frames));
 }

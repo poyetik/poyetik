@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, test, vi } from "vitest";
 import { WasmEngine } from "../ts/engine.ts";
 import { ENGINE_PROCESSOR, TAP_PROCESSOR } from "../ts/protocol.ts";
-import { SINE_PATCH, wasmBytes } from "./fixtures.ts";
+import { SINE_PATCH, UNKNOWN_BOX, wasmBytes } from "./fixtures.ts";
 
 const RATE = 48_000;
 
@@ -67,9 +67,41 @@ describe("engine processor", () => {
     expect(node.process([], [])).toBe(true);
   });
 
-  test("refuses invalid options", () => {
+  test("tells the main thread it is ready", () => {
     const Engine = processor(ENGINE_PROCESSOR);
-    expect(() => new Engine({})).toThrow("invalid processor options: not an object");
+    const node = new Engine({ processorOptions: { wasm: wasmBytes(), patch: SINE_PATCH } });
+    expect(node.port.posted).toStrictEqual([{ type: "ready" }]);
+  });
+
+  test("reports invalid options, then outputs silence and stops", () => {
+    const Engine = processor(ENGINE_PROCESSOR);
+    const node = new Engine({});
+    expect(node.port.posted).toStrictEqual([{ type: "failed", message: "OptionsError: invalid processor options: not an object" }]);
+    const outputs = [[new Float32Array(4).fill(9)]];
+    expect(node.process([], outputs)).toBe(false);
+    expect(outputs[0]?.[0]).toStrictEqual(new Float32Array(4).fill(9));
+  });
+
+  test("reports the explanation of a rejected patch, as bytes", () => {
+    const Engine = processor(ENGINE_PROCESSOR);
+    const node = new Engine({ processorOptions: { wasm: wasmBytes(), patch: UNKNOWN_BOX } });
+    const [message] = node.port.posted;
+    expect(message).toMatchObject({ type: "rejected" });
+    const detail: unknown = typeof message === "object" && message !== null ? Reflect.get(message, "detail") : undefined;
+    expect(detail instanceof Uint8Array ? new TextDecoder().decode(detail) : detail).toBe('node 1: unknown box type "nope~"');
+  });
+
+  test("reports a failure while rendering once, then stops", () => {
+    const Engine = processor(ENGINE_PROCESSOR);
+    const node = new Engine({ processorOptions: { wasm: wasmBytes(), patch: SINE_PATCH } });
+    // Outputs of different lengths make the engine refuse to render.
+    expect(node.process([], [[new Float32Array(2), new Float32Array(3)]])).toBe(false);
+    expect(node.port.posted).toStrictEqual([
+      { type: "ready" },
+      { type: "failed", message: "RangeError: every output must have the same length: 3 instead of 2" },
+    ]);
+    expect(node.process([], [[new Float32Array(2)]])).toBe(false);
+    expect(node.port.posted).toHaveLength(2);
   });
 });
 

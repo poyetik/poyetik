@@ -35,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Breaking:** `LoadedPatch` (engine-wasm web API) is a class only `loadPatch` creates, with its own copies of the bytes: a patch the engine did not check cannot be passed to an engine node. `createEngineNode` takes an `onFailure` callback and returns `{ node, ready }`: the processor tells the main thread whether it loaded the patch, and reports a later failure (a trap) once, instead of falling silent unnoticed. `renderOffline` rejects instead of returning silence when the processor fails.
 - **Breaking:** conformance expectations no longer declare a tolerance (`max_error`, refused if present). The oracle derives the largest allowed distance from the ideal sine, term by term (binary32 output rounding, binary64 phase accumulation over the case length, evaluation), and computes its reference with an exact phase reduction, so it stays exact however long the case (up to 2^29 frames). The bound went from a guessed 1e-6 to 2.98e-8 at 1 s; a phase computed in binary32 (1.7e-3) or a gain off by 5e-7 is rejected. The `osc~` tests use the same bound.
 - **Breaking:** the patch of each conformance case is its own file, `conformance/patches/<name>.json`, and every runner (native CLI, Node tests, browser bench) passes its bytes to the engine unchanged. The runners used to rewrite the patch from a parsed copy, which could hide differences (a repeated parameter was silently merged; JavaScript writes `-0` as `0`). `engine-cli render` takes the case and the patch files. A case without its patch, or a patch without its case, is an error.
 - The playground plays exactly the sine-440 patch of the conformance corpus (checked by a test), whose render has a reference hash.
@@ -47,6 +48,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `capture` refuses a channel count below 1 or not whole, and a frame count below 0 or not whole (a fractional count never resolved); `addProcessors` and `loadPatch` name the URL or the module they could not load.
 - `WasmEngine.render` no longer allocates: 500,000 renders cause no garbage collection (the previous version caused 100), checked by `test:allocation`, run without instrumentation.
 - `WasmEngine` reads every export as unsigned (addresses from 2 GiB on came back negative), checks the number of arguments of each export, explains a module that cannot be instantiated, turns a trap into an `EngineTrap` and never calls a trapped module again, refuses a sample rate that is not a whole number of hertz (48000.5 was silently truncated) and outputs of different lengths (before rendering anything).
 - The oracle computes ideal sines at the binary32 frequency the engine plays, as the patch format now states (parameters are binary32): an expectation at 440.1 Hz no longer compares with a frequency the patch cannot express.
