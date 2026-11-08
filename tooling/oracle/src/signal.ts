@@ -59,8 +59,6 @@ export function sineError(samples: readonly number[], rate: number, sine: Sine):
  */
 export function sineErrorBound(amplitude: number, frames: number): number {
   const a = Math.abs(amplitude);
-  if (a === 0) {
-    return 0;
-  }
+  // At a = 0, log2 is -Infinity and every term is 0: silence allows no error.
   return 2 ** (Math.ceil(Math.log2(a)) - 25) + a * (2 * Math.PI * frames * 2 ** -52 + 2 ** -48);
 }
