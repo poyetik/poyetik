@@ -875,6 +875,42 @@
         {
           "title": "Playground: an end-to-end test that starts the player from an already suspended context in every browser project (today checked once by hand; Safari unchecked)",
           "done": false
+        },
+        {
+          "title": "xtask: test its copy of the safe-message escaping against spec/safe-message-vectors.json, as engine-patch and the TypeScript tools do",
+          "done": false
+        },
+        {
+          "title": "xtask: a test that every command it runs gets no input (stdin closed)",
+          "done": false
+        },
+        {
+          "title": "xtask: match stryker case-insensitively in the package-script gate",
+          "done": false
+        },
+        {
+          "title": "xtask: the 1,000-character cap cuts long legitimate detail lines and escapes the colors of a failed command's captured stderr: bound only quoted untrusted values",
+          "done": false
+        },
+        {
+          "title": "engine-wasm: renderOffline reports a late rejected or failed message as started too late or engine stopped: keep the real cause, with a test of that order",
+          "done": false
+        },
+        {
+          "title": "engine-wasm: prove in a real browser that a stopped engine gives the tap an empty input (the source-stopped signal is tested with fakes only)",
+          "done": false
+        },
+        {
+          "title": "Playground: the interleaving test that mocks the loader is trivially true; make it vary the mocked load latency",
+          "done": false
+        },
+        {
+          "title": "Oracle: refuse a missing pad byte after any odd-sized WAV chunk, not only the last",
+          "done": false
+        },
+        {
+          "title": "xtask bypass gate: a comment inside an attribute (#[/* x */ignore]) is not caught; tokenize instead of matching text",
+          "done": false
         }
       ]
     },
