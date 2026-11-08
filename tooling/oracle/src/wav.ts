@@ -63,27 +63,29 @@ function format(body: DataView): Format {
 }
 
 /**
- * Reads the chunks from `offset` to the end of the file into `chunks`, by id. Recursive
- * rather than a loop: every call either ends or moves forward, so it always terminates.
+ * Reads the chunks from `offset` to the end of the file into `chunks`, by id. A loop
+ * whose every round moves forward by at least the 8 bytes of a chunk header: it ends,
+ * and its depth never grows with the number of chunks (a recursion overflowed the stack
+ * at about 10 000 chunks, an 80 KB file).
  */
-function readChunks(view: DataView, offset: number, chunks: Map<string, DataView>): void {
-  if (offset >= view.byteLength) {
-    return;
+function readChunks(view: DataView, start: number, chunks: Map<string, DataView>): void {
+  let offset = start;
+  while (offset < view.byteLength) {
+    if (offset + 8 > view.byteLength) {
+      throw new WavError("truncated chunk header");
+    }
+    const id = tag(view, offset);
+    const size = view.getUint32(offset + 4, true);
+    if (offset + 8 + size > view.byteLength) {
+      throw new WavError(`chunk "${id}" extends past the end of the file`);
+    }
+    if (chunks.has(id)) {
+      throw new WavError(`duplicate chunk "${id}"`);
+    }
+    chunks.set(id, new DataView(view.buffer, view.byteOffset + offset + 8, size));
+    // Chunks are aligned on even offsets.
+    offset += 8 + size + (size % 2);
   }
-  if (offset + 8 > view.byteLength) {
-    throw new WavError("truncated chunk header");
-  }
-  const id = tag(view, offset);
-  const size = view.getUint32(offset + 4, true);
-  if (offset + 8 + size > view.byteLength) {
-    throw new WavError(`chunk "${id}" extends past the end of the file`);
-  }
-  if (chunks.has(id)) {
-    throw new WavError(`duplicate chunk "${id}"`);
-  }
-  chunks.set(id, new DataView(view.buffer, view.byteOffset + offset + 8, size));
-  // Chunks are aligned on even offsets.
-  readChunks(view, offset + 8 + size + (size % 2), chunks);
 }
 
 /** Reads a WAV file of 32-bit float samples, checking every size and field it relies on. */

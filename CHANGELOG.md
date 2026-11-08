@@ -54,6 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The oracle reads WAV files of any number of chunks: the chunk reader was recursive and a file of about 10,000 empty chunks (80 KB) overflowed the stack (a RangeError instead of a WAV error).
 - Playground: the oscilloscope has one backing pixel per device pixel, sharp on high-density screens (it was blurry and thin on phones), keeps its colors in forced colors (high contrast: the trace was at 1.91:1 on a forced white background), and is described by its measurements for assistive technologies. Both web apps have a favicon (a 404 before). The end-to-end tests fail on any console error or failed request, not only on uncaught errors.
 - Roadmap: the In progress column comes first, then Next, Later and Done: on a phone the work under way no longer comes after the backlog.
 - Playground oscilloscope: the history is 85 ms at every sample rate (it was 4096 samples, 10.7 ms at 384 kHz, too short to trigger below 1500 Hz there), and the trace is shifted by the fraction of a sample where the signal crosses zero, so it stands still instead of jittering by up to a sample. The frequency is shown only where it is accurate (at least three periods, at most a twentieth of the rate, within 0.05 Hz, tested at every rate of the matrix); it claimed a tenth of a hertz at 19 kHz while 1.3 Hz off. The peak is labelled as the sample peak of the engine output.

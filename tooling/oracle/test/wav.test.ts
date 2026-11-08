@@ -76,3 +76,18 @@ describe("parseWav", () => {
     expect(new WavError("x")).toMatchObject({ name: "WavError", message: "invalid WAV file: x" });
   });
 });
+
+test("reads a file of 100 000 chunks without overflowing the stack", () => {
+  // 100 000 empty chunks with distinct ids, and no "fmt " chunk: a WavError, not a RangeError.
+  const count = 100_000;
+  const bytes = new Uint8Array(12 + 8 * count);
+  const view = new DataView(bytes.buffer);
+  bytes.set([0x52, 0x49, 0x46, 0x46], 0);
+  view.setUint32(4, bytes.length - 8, true);
+  bytes.set([0x57, 0x41, 0x56, 0x45], 8);
+  for (let index = 0; index < count; index += 1) {
+    // Ids made of the index, base 26 in capital letters, after an "x": all distinct.
+    bytes.set([0x78, 65 + (Math.floor(index / 676) % 26), 65 + (Math.floor(index / 26) % 26), 65 + (index % 26)], 12 + 8 * index);
+  }
+  expect(() => parseWav(bytes)).toThrow(WavError);
+});
