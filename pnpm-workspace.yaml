@@ -3,10 +3,15 @@ packages:
   - "bindings/wasm"
   - "tooling/*"
 
+# A package version is installable only once it is a week old (in minutes), so that a
+# hijacked release is likely found and yanked first; an urgent fix is excluded case by case
+# with minimumReleaseAgeExclude.
+minimumReleaseAge: 10080
+
 # Versions forced for transitive development dependencies with known vulnerabilities,
 # until their parents depend on fixed versions (checked by `pnpm audit` in the check).
 overrides:
-  "qs": ">=6.16.1"
+  "qs": "^6.16.1"
   "minimatch@>=7.0.0 <11.0.1": "^11.0.1"
 
 # One version of each tool shared by several packages, referenced as "catalog:".

@@ -347,6 +347,8 @@ pub enum Action {
     CargoConfigGate,
     /// Require every direct dependency to be reviewed, and every review current.
     DependencyGate,
+    /// Require the supply-chain settings of [`SUPPLY_CHAIN_SETTINGS`].
+    SupplyChainGate,
     /// Require the CI workflow to pin every action, tool and runtime.
     WorkflowGate,
     /// Record the state of the working tree ([`TreeState`]), for [`Action::TreeUnchanged`].
@@ -624,6 +626,11 @@ fn consistency_steps() -> Vec<Step> {
         Step {
             name: "Every direct dependency reviewed".to_owned(),
             action: Action::DependencyGate,
+        },
+        Step {
+            name: "Supply-chain settings: a week before a release, libm without features"
+                .to_owned(),
+            action: Action::SupplyChainGate,
         },
         Step {
             name: "Packages and crates known to the checks".to_owned(),
@@ -1697,6 +1704,67 @@ pub fn dependency_gate(
         &format!("direct dependencies must be reviewed in {DEPENDENCIES_REVIEWED}"),
         problems,
     )
+}
+
+/// The Dependabot configuration.
+pub const DEPENDABOT: &str = ".github/dependabot.yml";
+
+/// The pnpm workspace configuration.
+pub const PNPM_WORKSPACE: &str = "pnpm-workspace.yaml";
+
+/// The cargo-deny configuration.
+pub const DENY_TOML: &str = "deny.toml";
+
+/// The supply-chain settings xtask requires, by file: a week before a release is proposed
+/// (each Dependabot ecosystem) or installable (pnpm, in minutes), and `libm` with no
+/// feature, as the engine uses it.
+pub const SUPPLY_CHAIN_SETTINGS: [(&str, &[&str]); 3] = [
+    (DEPENDABOT, &["cooldown:", "default-days: 7"]),
+    (PNPM_WORKSPACE, &["minimumReleaseAge: 10080"]),
+    (
+        DENY_TOML,
+        &[
+            "[[bans.features]]",
+            "crate = \"libm\"",
+            "exact = true",
+            "allow = []",
+        ],
+    ),
+];
+
+/// Checks the supply-chain settings: each file of [`SUPPLY_CHAIN_SETTINGS`] holds its lines
+/// in a row, Dependabot's once for each of its ecosystems.
+///
+/// `files` holds the text of each file, in the order of [`SUPPLY_CHAIN_SETTINGS`].
+///
+/// # Errors
+///
+/// Returns every file, or Dependabot ecosystem, without its settings.
+pub fn supply_chain_gate(files: &[String]) -> Result<(), Failure> {
+    let mut problems = Vec::new();
+    for ((path, settings), text) in SUPPLY_CHAIN_SETTINGS.iter().zip(files) {
+        let trimmed: String = text.lines().map(str::trim).collect::<Vec<_>>().join("\n");
+        let blocks: Vec<&str> = if *path == DEPENDABOT {
+            trimmed.split("- package-ecosystem:").skip(1).collect()
+        } else {
+            vec![trimmed.as_str()]
+        };
+        if blocks.is_empty() {
+            problems.push(format!("{path} configures nothing"));
+        }
+        for block in blocks {
+            if !holds_block(block, settings) {
+                let name = block.lines().next().unwrap_or_default().trim();
+                let place = if *path == DEPENDABOT {
+                    format!("{path} ({name})")
+                } else {
+                    (*path).to_owned()
+                };
+                problems.push(format!("{place} lacks `{}`", settings.join(" ")));
+            }
+        }
+    }
+    verdict("the supply-chain settings", problems)
 }
 
 /// The Cargo configuration file.
@@ -2909,6 +2977,12 @@ fn run_action(
         }
         Action::LicenseGate => licenses(runner),
         Action::CargoConfigGate => cargo_config_gate(&read_file(runner, CARGO_CONFIG_FILE)?),
+        Action::SupplyChainGate => supply_chain_gate(
+            &SUPPLY_CHAIN_SETTINGS
+                .iter()
+                .map(|(path, _)| read_file(runner, path))
+                .collect::<Result<Vec<_>, _>>()?,
+        ),
         Action::DependencyGate => {
             let cmd = metadata_command();
             let metadata = runner

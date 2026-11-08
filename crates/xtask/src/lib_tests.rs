@@ -92,6 +92,12 @@ const TREE_STATUS: (&str, &str) = (
 /// The changes of the tracked files of the fake: none.
 const TREE_DIFF: (&str, &str) = ("git diff HEAD", "");
 
+/// A Dependabot configuration whose two ecosystems wait a week.
+const DEPENDABOT: &str = "version: 2\nupdates:\n  - package-ecosystem: cargo\n    cooldown:\n      default-days: 7\n  - package-ecosystem: npm\n    cooldown:\n      default-days: 7\n";
+
+/// A cargo-deny configuration holding libm to no feature.
+const DENY: &str = "[bans]\n\n[[bans.features]]\ncrate = \"libm\"\nexact = true\nallow = []\n";
+
 /// The Cargo metadata of a workspace whose crate `x` depends on another crate of the
 /// workspace and on one third-party crate.
 const METADATA: &str = r#"{"packages":[{"name":"x","dependencies":[{"name":"engine-core","kind":null,"path":"/r/crates/engine-core"},{"name":"serde_json","kind":null}]}]}"#;
@@ -383,6 +389,12 @@ fn passing() -> Fake {
         (CHANGELOG.to_owned(), LOG),
         ("COMMIT_EDITMSG".to_owned(), "feat(core): add the plan\n"),
         (super::CARGO_CONFIG_FILE.to_owned(), super::CARGO_CONFIG),
+        (super::DEPENDABOT.to_owned(), DEPENDABOT),
+        (
+            super::PNPM_WORKSPACE.to_owned(),
+            "minimumReleaseAge: 10080\n",
+        ),
+        (super::DENY_TOML.to_owned(), DENY),
         (
             super::DEPENDENCIES_REVIEWED.to_owned(),
             "x: serde_json (normal) -- reads JSON\n",
@@ -555,6 +567,7 @@ fn command_lines(steps: &[Step]) -> Vec<String> {
             Action::UnsafeGate => "unsafe gate".to_owned(),
             Action::CargoConfigGate => "cargo config gate".to_owned(),
             Action::DependencyGate => "dependency gate".to_owned(),
+            Action::SupplyChainGate => "supply chain gate".to_owned(),
             Action::Preflight => "preflight".to_owned(),
             Action::HistoryGate => "history gate".to_owned(),
             Action::WorkflowGate => "workflow gate".to_owned(),
@@ -605,6 +618,7 @@ fn lists_every_check_in_order() {
             "Root: cargo run --package engine-cli --locked --quiet -- export conformance target/conformance",
             "Root: cargo deny --locked check",
             "dependency gate",
+            "supply chain gate",
             "membership gate",
             "readme gate",
             "version gate",
@@ -672,6 +686,7 @@ fn names_every_check_in_order() {
             "Conformance export (native WAV files)",
             "Rust supply chain",
             "Every direct dependency reviewed",
+            "Supply-chain settings: a week before a release, libm without features",
             "Packages and crates known to the checks",
             "Every part described in a README",
             "One version everywhere, changelog well formed",
@@ -914,7 +929,7 @@ fn runs_every_step_and_reports_success() {
         "all green"
     );
     let (tools, commands, emptied, listed, captured) = (9, 32, 12, 9, 9);
-    let read = 12 + 2 + 2 + 4 + 2 + 1 + 7 + 10 + 10 + 8 + 2 + 5 + 11;
+    let read = 12 + 2 + 2 + 4 + 2 + 1 + 7 + 3 + 10 + 10 + 8 + 2 + 5 + 11;
     assert_eq!(
         fake.ran.len(),
         tools + commands + emptied + listed + captured + read,
@@ -926,7 +941,8 @@ fn runs_every_step_and_reports_success() {
          the Cargo metadata once; and the gates read twelve coverage reports, \
          the unviable report and reviews, a TypeScript source and its reviews, the three \
          sources and the register of the bypass gate, the two unsafe files, the Cargo \
-         configuration, the six package manifests and the register of the dependency gate, ten crate manifests, ten READMEs, eight version files, the workflow and \
+         configuration, the six package manifests and the register of the dependency gate, the three \
+         supply-chain configurations, ten crate manifests, ten READMEs, eight version files, the workflow and \
          .node-version, five Stryker configurations, and the TypeScript source and ten \
          reports of the reports gate"
     );
@@ -947,15 +963,15 @@ fn runs_every_step_and_reports_success() {
     );
     let text = String::from_utf8(out).expect("utf-8 output");
     assert!(
-        text.starts_with("▶ [1/52] Tools and platform\n"),
+        text.starts_with("▶ [1/53] Tools and platform\n"),
         "numbered progress: {text}"
     );
     assert!(
-        text.contains("▶ [50/52] Roadmap checks\n"),
+        text.contains("▶ [51/53] Roadmap checks\n"),
         "last step announced: {text}"
     );
     assert!(
-        text.ends_with("✔ all 52 checks passed\n"),
+        text.ends_with("✔ all 53 checks passed\n"),
         "summary: {text}"
     );
 }
@@ -3219,7 +3235,7 @@ fn prints_the_details_of_a_failure_on_stdout_and_one_line_on_stderr() {
     );
     assert!(
         String::from_utf8(out).expect("UTF-8").ends_with(
-            "▶ [25/52] Rust unviable mutants reviewed\n\
+            "▶ [25/53] Rust unviable mutants reviewed\n\
              not reviewed: crates/a/src/c.rs: replace g -> U with x\n\
              stale review: crates/a/src/b.rs: replace f -> T with Default::default()\n"
         ),
@@ -3974,5 +3990,49 @@ fn refuses_workflows_that_could_pass_without_checking() {
              which xtask checks"
         ),
         "a second workflow, which nothing checks"
+    );
+}
+
+#[test]
+fn requires_a_week_before_a_release_and_libm_without_features() {
+    let files = |dependabot: &str, pnpm: &str, deny: &str| {
+        [dependabot, pnpm, deny].map(str::to_owned).to_vec()
+    };
+    assert_eq!(
+        super::supply_chain_gate(&files(DEPENDABOT, "minimumReleaseAge: 10080\n", DENY)),
+        Ok(()),
+        "every setting"
+    );
+    assert_eq!(
+        super::supply_chain_gate(&files(
+            &DEPENDABOT.replacen("    cooldown:\n      default-days: 7\n", "", 1),
+            "minimumReleaseAge: 1440\n",
+            &DENY.replace("exact = true\n", "")
+        )),
+        found(
+            "the supply-chain settings",
+            &[
+                ".github/dependabot.yml (cargo) lacks `cooldown: default-days: 7`".to_owned(),
+                "pnpm-workspace.yaml lacks `minimumReleaseAge: 10080`".to_owned(),
+                "deny.toml lacks `[[bans.features]] crate = \"libm\" exact = true allow = []`"
+                    .to_owned(),
+            ]
+        ),
+        "an ecosystem without its cooldown, a shorter age, features allowed"
+    );
+    assert_eq!(
+        super::supply_chain_gate(&files("version: 2\n", "minimumReleaseAge: 10080\n", DENY)),
+        failed("the supply-chain settings: .github/dependabot.yml configures nothing"),
+        "no ecosystem"
+    );
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let real: Vec<String> = super::SUPPLY_CHAIN_SETTINGS
+        .iter()
+        .map(|(path, _)| std::fs::read_to_string(root.join(path)).expect("readable"))
+        .collect();
+    assert_eq!(
+        super::supply_chain_gate(&real),
+        Ok(()),
+        "the repository's settings"
     );
 }

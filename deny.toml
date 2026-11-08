@@ -21,6 +21,14 @@ multiple-versions = "deny"
 wildcards = "deny"
 allow-wildcard-paths = true
 
+# libm without any feature, as the engine depends on it: a dependency enabling one (num-traits'
+# `libm`, through proptest's `no_std`, turns on its `arch` paths) would make the tests run
+# other code than the shipped engine.
+[[bans.features]]
+crate = "libm"
+exact = true
+allow = []
+
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
