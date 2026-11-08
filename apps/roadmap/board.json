@@ -385,7 +385,12 @@
       "milestone": "M1 Engine",
       "createdAt": "2026-11-08",
       "updatedAt": "2026-11-08",
-      "tasks": []
+      "tasks": [
+        {
+          "title": "Lint the TypeScript of .astro files with the shared policy (eslint-plugin-astro, once typed linting of their frontmatter is verified), then remove them from the reviewed unlinted list of @poyetik/config's test/linted.test.ts",
+          "done": false
+        }
+      ]
     },
     {
       "id": 16,
