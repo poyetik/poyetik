@@ -1,5 +1,7 @@
 //! The state of one WebAssembly module instance, behind the [`crate::ffi`] functions.
 
+#![forbid(unsafe_code)]
+
 use alloc::string::String;
 use alloc::vec::Vec;
 

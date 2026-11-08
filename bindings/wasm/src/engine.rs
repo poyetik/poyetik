@@ -1,5 +1,7 @@
 //! One loaded patch, rendered one block at a time.
 
+#![forbid(unsafe_code)]
+
 use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;

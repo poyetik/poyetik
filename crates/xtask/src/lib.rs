@@ -144,6 +144,8 @@ pub enum Action {
     /// Require every JavaScript dependency under an allowed license: the strict list for
     /// what the apps ship, the wider one for development tooling.
     LicenseGate,
+    /// Require the lint against unsafe code to be lifted only in the audited files.
+    UnsafeGate,
 }
 
 /// One named check.
@@ -275,6 +277,10 @@ fn proof_steps() -> Vec<Step> {
             name: "TypeScript equivalent mutants reviewed".to_owned(),
             action: Action::EquivalentGate,
         },
+        Step {
+            name: "Unsafe code confined to the audited files".to_owned(),
+            action: Action::UnsafeGate,
+        },
         // The only `unsafe` code of the engine: Miri checks its tests for undefined behavior.
         run(
             "Rust FFI under Miri",
@@ -285,6 +291,8 @@ fn proof_steps() -> Vec<Step> {
                 "test",
                 "--package",
                 "engine-wasm",
+                "--package",
+                "engine-alloc-counter",
                 "--locked",
             ],
             Dir::Root,
@@ -817,6 +825,50 @@ pub fn license_gate(shipped: &str, all: &str) -> Result<(), String> {
     }
 }
 
+/// The only files allowed to lift the workspace lint against unsafe code, each audited:
+/// the C interface of the WebAssembly module, and the counting allocator of the tests.
+pub const UNSAFE_FILES: [&str; 2] = [
+    "bindings/wasm/src/ffi.rs",
+    "crates/engine-alloc-counter/src/lib.rs",
+];
+
+/// Checks that only [`UNSAFE_FILES`] lift the lint against unsafe code (an `allow` or
+/// `expect` of it), and that each of them still does. The lint name is built at run time,
+/// so that this file does not name it.
+///
+/// # Errors
+///
+/// Returns a message naming every other file that lifts it, and every allowed file that
+/// no longer does.
+pub fn unsafe_gate(sources: &[(String, String)]) -> Result<(), String> {
+    let lint = format!("{}_{}", "unsafe", "code");
+    let lifting: BTreeSet<&str> = sources
+        .iter()
+        .filter(|(_, text)| {
+            text.lines().any(|line| {
+                line.contains(&lint)
+                    && !line.contains(&format!("forbid({lint})"))
+                    && !line.contains(&format!("deny({lint})"))
+            })
+        })
+        .map(|(path, _)| path.as_str())
+        .collect();
+    let allowed: BTreeSet<&str> = UNSAFE_FILES.into_iter().collect();
+    let problems: Vec<String> =
+        lifting
+            .difference(&allowed)
+            .map(|path| format!("{path} lifts the lint against unsafe code"))
+            .chain(allowed.difference(&lifting).map(|path| {
+                format!("{path} is listed in UNSAFE_FILES but no longer lifts the lint")
+            }))
+            .collect();
+    if problems.is_empty() {
+        Ok(())
+    } else {
+        Err(problems.join("; "))
+    }
+}
+
 /// The project manifest holding the workspace version.
 pub const CARGO_TOML: &str = "Cargo.toml";
 
@@ -1210,6 +1262,16 @@ pub fn run_steps(
                     })
                 })
             }
+            Action::UnsafeGate => runner
+                .tracked(&["*.rs"])
+                .map_err(|error| format!("cannot list the Rust files: {error}"))
+                .and_then(|paths| {
+                    paths
+                        .into_iter()
+                        .map(|path| read_file(runner, &path).map(|text| (path, text)))
+                        .collect::<Result<Vec<_>, _>>()
+                })
+                .and_then(|sources| unsafe_gate(&sources)),
             Action::LicenseGate => {
                 let [shipped, all] = license_commands();
                 let report = |source: &mut dyn Runner, cmd: &Cmd| {

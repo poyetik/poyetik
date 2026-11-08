@@ -12,6 +12,7 @@ keywords = ["audio", "testing"]
 categories = ["development-tools::testing"]
 
 [dependencies]
+engine-alloc-counter = { path = "../engine-alloc-counter" }
 engine-core = { path = "../engine-core" }
 proptest = { version = "1", default-features = false, features = ["std"] }
 

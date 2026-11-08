@@ -3,10 +3,9 @@
 use core::hint::black_box;
 use core::sync::atomic::{AtomicU16, Ordering};
 
-use engine_core::{BLOCK_SIZE, Block, Object, ObjectSpec, ParamSpec, PortSpec, SampleRate};
+use engine_core::{Block, Object, ObjectSpec, ParamSpec, PortSpec, SampleRate};
 
 use super::{check_laws, check_metadata, check_registry};
-use crate::allocations_during;
 
 const PORT: PortSpec = PortSpec {
     name: "in",
@@ -508,26 +507,6 @@ fn checks_a_registry() {
         Err("other~: missing description".to_owned()),
         "every box is checked"
     );
-}
-
-#[test]
-fn counts_allocations_but_not_deallocations() {
-    let ((), boxed) = allocations_during(|| drop(black_box(Box::new(1_u64))));
-    assert_eq!(boxed, 1, "alloc");
-    let ((), zeroed) = allocations_during(|| drop(black_box(vec![0_u8; 32])));
-    assert_eq!(zeroed, 1, "alloc_zeroed");
-    let mut grown = Vec::<u8>::with_capacity(1);
-    grown.push(1);
-    let ((), resized) = allocations_during(|| {
-        grown.extend_from_slice(&[0; BLOCK_SIZE]);
-        let _: &Vec<u8> = black_box(&grown);
-    });
-    assert_eq!(resized, 1, "realloc");
-    let prebuilt = Box::new(2_u64);
-    let ((), freed) = allocations_during(|| drop(black_box(prebuilt)));
-    assert_eq!(freed, 0, "dealloc is not an allocation");
-    let (value, none) = allocations_during(|| 6_i32 * 7_i32);
-    assert_eq!((value, none), (42_i32, 0_usize), "returns the result");
 }
 
 #[test]

@@ -110,7 +110,7 @@ Non-negotiable, and **enforced by tooling, not by goodwill**: CI and the pre-pus
 ### Rust
 - Pinned toolchain (`rust-toolchain.toml`), edition 2024, `rustfmt --check`.
 - Workspace-level lints, inherited by every crate, all as errors:
-  - `unsafe_code = "forbid"` everywhere except two minimal, audited modules: the FFI module of `engine-wasm`, and the counting allocator of `engine-testkit` (test-only, every call delegated unchanged to the system allocator), which proves that boxes never allocate while processing;
+  - no `unsafe` code anywhere (`#![forbid(unsafe_code)]`) except two minimal, audited files, checked by `cargo xtask check` to be the only ones lifting the lint, and by Miri: the FFI module of `engine-wasm`, and the counting allocator `engine-alloc-counter` (test-only, every call delegated unchanged to the system allocator), which proves that boxes never allocate while processing;
   - `missing_docs`, `unused_results`, `unreachable_pub`, `rust_2018_idioms`;
   - Clippy `all`, `pedantic`, `nursery` and `cargo` groups, plus selected `restriction` lints: no `unwrap`/`expect`/`panic!`/`todo!`/`unimplemented!`, no `as` numeric casts (use `From`/`TryFrom`), no indexing that can panic, no float equality, no `dbg!`/`print!` in library code, no lint suppressions (`#[allow]`) without an explicit, reviewed `reason`.
 - Determinism rules as Clippy `disallowed_methods` / `disallowed_types` (`f32::sin`, `mul_add`, `Instant::now`, `HashMap` with random state…).

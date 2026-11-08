@@ -1,8 +1,10 @@
-//! A global allocator that counts allocations per thread, to prove that boxes never
-//! allocate while processing audio.
+//! A global allocator that counts allocations per thread, to prove that boxes, plans
+//! and the engine never allocate while processing audio.
+//!
+//! A crate of its own, and the only `unsafe` code of the test bench: implementing
+//! `GlobalAlloc` is unsafe by definition. Every operation is delegated unchanged to the
+//! system allocator. Its tests run under Miri in `cargo xtask check`.
 
-// The only `unsafe` code of the test bench: implementing `GlobalAlloc` is unsafe by
-// definition. Every operation is delegated unchanged to the system allocator.
 #![expect(
     unsafe_code,
     reason = "a counting GlobalAlloc must implement an unsafe trait"
@@ -69,4 +71,52 @@ pub fn allocations_during<R>(action: impl FnOnce() -> R) -> (R, usize) {
     let before = current();
     let result = action();
     (result, current().saturating_sub(before))
+}
+
+#[cfg(test)]
+mod tests {
+    use core::hint::black_box;
+
+    use super::{CountingAllocator, allocations_during};
+
+    /// The test binary counts allocations with the allocator under test.
+    #[global_allocator]
+    static ALLOCATOR: CountingAllocator = CountingAllocator;
+
+    #[test]
+    fn counts_allocations_but_not_deallocations() {
+        let ((), boxed) = allocations_during(|| drop(black_box(Box::new(1_u64))));
+        assert_eq!(boxed, 1, "alloc");
+        let ((), zeroed) = allocations_during(|| drop(black_box(vec![0_u8; 32])));
+        assert_eq!(zeroed, 1, "alloc_zeroed");
+        let mut grown = Vec::<u8>::with_capacity(1);
+        grown.push(1);
+        let ((), resized) = allocations_during(|| {
+            grown.extend_from_slice(&[0; 64]);
+            let _: &Vec<u8> = black_box(&grown);
+        });
+        assert_eq!(resized, 1, "realloc");
+        assert_eq!(grown.len(), 65, "the reallocated memory holds the data");
+        let prebuilt = Box::new(2_u64);
+        let ((), freed) = allocations_during(|| drop(black_box(prebuilt)));
+        assert_eq!(freed, 0, "dealloc is not an allocation");
+        let (value, none) = allocations_during(|| 6_i32 * 7_i32);
+        assert_eq!((value, none), (42_i32, 0_usize), "returns the result");
+    }
+
+    #[test]
+    fn counts_per_thread() {
+        let ((), here) = allocations_during(|| {
+            let other =
+                std::thread::spawn(|| allocations_during(|| drop(black_box(Box::new(3_u8)))).1);
+            assert_eq!(
+                other.join().ok(),
+                Some(1),
+                "the other thread counts its own"
+            );
+        });
+        // Spawning and joining a thread allocates on this thread, but the other thread's
+        // box is not counted here: at least the spawn, never fewer than one.
+        assert!(here >= 1, "this thread's allocations: {here}");
+    }
 }

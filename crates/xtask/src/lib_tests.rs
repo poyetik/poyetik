@@ -10,9 +10,10 @@ use std::process::Command;
 use super::{
     Action, BestEffort, CARGO_TOML, CHANGELOG, COMMIT_HEADER_MAX, COVERAGE_REPORT, Cmd, Dir,
     EQUIVALENT_REVIEWED, PACKAGE_JSONS, PORTABILITY_TARGETS, Runner, Step, SystemRunner,
-    TYPESCRIPT_PACKAGES, UNVIABLE_REPORT, UNVIABLE_REVIEWED, USAGE, Version, bless_step,
-    check_steps, cli, commit_msg_gate, coverage_gate, equivalent_gate, license_gate,
-    membership_gate, release_gate, run_steps, ts_coverage_gate, ts_mutation_gate, unviable_gate,
+    TYPESCRIPT_PACKAGES, UNSAFE_FILES, UNVIABLE_REPORT, UNVIABLE_REVIEWED, USAGE, Version,
+    bless_step, check_steps, cli, commit_msg_gate, coverage_gate, equivalent_gate, license_gate,
+    membership_gate, release_gate, run_steps, ts_coverage_gate, ts_mutation_gate, unsafe_gate,
+    unviable_gate,
 };
 
 /// Records commands and answers with scripted results.
@@ -103,6 +104,15 @@ fn full_report() -> String {
     report((10, 10), (3, 3), (4, 4))
 }
 
+/// An attribute lifting the lint against unsafe code, built so that this file does not
+/// contain the lint name itself (the unsafe gate reads it too).
+fn lifting() -> String {
+    format!(
+        "#![expect(\n    {}_{},\n    reason = \"audited\"\n)]\n",
+        "unsafe", "code"
+    )
+}
+
 /// The licenses of what the apps ship, all allowed.
 const SHIPPED: &str = r#"{"MIT":[{"name":"react"}],"ISC":[{"name":"a"}]}"#;
 
@@ -147,6 +157,10 @@ fn passing() -> Fake {
             .files
             .insert(format!("capture {}", cmd.line()), licenses.to_owned());
         assert!(replaced.is_none(), "fresh fake");
+    }
+    for path in UNSAFE_FILES {
+        let previous_unsafe = fake.files.insert(path.to_owned(), lifting());
+        assert!(previous_unsafe.is_none(), "fresh fake");
     }
     let third = fake.files.insert("x/a.ts".to_owned(), source.to_owned());
     let fourth = fake
@@ -208,6 +222,7 @@ fn command_lines(steps: &[Step]) -> Vec<String> {
             Action::TypeScriptReportsGate => "typescript reports gate".to_owned(),
             Action::MembershipGate => "membership gate".to_owned(),
             Action::LicenseGate => "license gate".to_owned(),
+            Action::UnsafeGate => "unsafe gate".to_owned(),
         })
         .collect()
 }
@@ -231,7 +246,8 @@ fn lists_every_check_in_order() {
             "Root: cargo mutants --workspace --cap-lints=true --gitignore=true",
             "unviable gate",
             "equivalent gate",
-            "Root: cargo +nightly-2026-11-01 miri test --package engine-wasm --locked",
+            "unsafe gate",
+            "Root: cargo +nightly-2026-11-01 miri test --package engine-wasm --package engine-alloc-counter --locked",
             "Root: cargo run --package engine-cli --locked --quiet -- check conformance",
             "fresh target/conformance",
             "Root: cargo run --package engine-cli --locked --quiet -- export conformance target/conformance",
@@ -266,6 +282,7 @@ fn lists_every_check_in_order() {
             "Rust mutation testing",
             "Rust unviable mutants reviewed",
             "TypeScript equivalent mutants reviewed",
+            "Unsafe code confined to the audited files",
             "Rust FFI under Miri",
             "Conformance (native)",
             "Fresh conformance export directory",
@@ -379,12 +396,12 @@ fn runs_every_step_and_reports_success() {
     );
     assert_eq!(
         fake.ran.len(),
-        check_steps().len() + 7 + 10 + 7 + 2 + 1,
+        check_steps().len() + 7 + 10 + 7 + 2 + 1 + 2,
         "every step ran; the unviable gate reads two files, the equivalent gate lists the \
          sources and reads two files, the release gate eight, the fresh step empties seven \
          more directories, the TypeScript gate reads eight reports instead of one action, \
          the membership gate lists twice and reads the root Cargo.toml, the license gate \
-         captures two reports"
+         captures two reports, the unsafe gate lists and reads two files"
     );
     for path in [
         CARGO_TOML,
@@ -408,15 +425,15 @@ fn runs_every_step_and_reports_success() {
     );
     let text = String::from_utf8(out).expect("utf-8 output");
     assert!(
-        text.starts_with("▶ [1/29] Rust formatting\n"),
+        text.starts_with("▶ [1/30] Rust formatting\n"),
         "numbered progress: {text}"
     );
     assert!(
-        text.contains("▶ [28/29] Roadmap checks\n"),
+        text.contains("▶ [29/30] Roadmap checks\n"),
         "last step announced: {text}"
     );
     assert!(
-        text.ends_with("✔ all 29 checks passed\n"),
+        text.ends_with("✔ all 30 checks passed\n"),
         "summary: {text}"
     );
 }
@@ -1551,5 +1568,58 @@ fn system_runner_captures_output_and_failures() {
         runner.capture(&failing).map_err(|e| e.to_string()),
         Err("`cargo no-such-command` failed".to_owned()),
         "a failing command"
+    );
+}
+
+#[test]
+fn confines_unsafe_blocks_to_the_audited_files() {
+    let forbid = format!("#![forbid({}_{})]\n", "unsafe", "code");
+    let deny = format!("#[deny({}_{})]\nmod m;\n", "unsafe", "code");
+    let mut sources: Vec<(String, String)> = UNSAFE_FILES
+        .iter()
+        .map(|path| ((*path).to_owned(), lifting()))
+        .collect();
+    sources.push(("crates/a/src/lib.rs".to_owned(), forbid.clone()));
+    sources.push(("crates/b/src/lib.rs".to_owned(), deny));
+    assert_eq!(
+        unsafe_gate(&sources),
+        Ok(()),
+        "only the audited files lift it"
+    );
+
+    let mut extra = sources.clone();
+    extra.push(("crates/c/src/x.rs".to_owned(), lifting()));
+    extra.push((
+        "crates/d/src/y.rs".to_owned(),
+        format!("#[allow({}_{})]", "unsafe", "code"),
+    ));
+    assert_eq!(
+        unsafe_gate(&extra),
+        Err("crates/c/src/x.rs lifts the lint against unsafe code; crates/d/src/y.rs lifts the lint against unsafe code".to_owned()),
+        "another file lifting it"
+    );
+    let mut stale = sources;
+    stale[0].1 = forbid;
+    assert_eq!(
+        unsafe_gate(&stale),
+        Err(format!(
+            "{} is listed in UNSAFE_FILES but no longer lifts the lint",
+            UNSAFE_FILES[0]
+        )),
+        "a stale entry"
+    );
+}
+
+#[test]
+fn reports_rust_files_it_cannot_list() {
+    let mut fake = passing();
+    fake.broken = Some("list *.rs".to_owned());
+    assert_eq!(
+        run_steps(&check_steps(), &mut fake, &mut Vec::new()),
+        Err(
+            "✘ Unsafe code confined to the audited files: cannot list the Rust files: no git"
+                .to_owned()
+        ),
+        "named"
     );
 }

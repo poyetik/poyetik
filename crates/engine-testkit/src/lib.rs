@@ -17,13 +17,14 @@
 //! - **no allocation** while processing (measured by [`CountingAllocator`], which the
 //!   test binary must install as its global allocator).
 
+#![forbid(unsafe_code)]
+
 extern crate alloc;
 
-mod counting;
 mod laws;
 pub mod matrix;
 
-pub use counting::{CountingAllocator, allocations_during};
+pub use engine_alloc_counter::{CountingAllocator, allocations_during};
 pub use laws::{check_laws, check_metadata, check_registry};
 
 /// The test binary of this crate counts allocations, like every box test binary must.

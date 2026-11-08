@@ -75,6 +75,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "engine-alloc-counter"
+version = "0.1.0"
+
+[[package]]
 name = "engine-cli"
 version = "0.1.0"
 dependencies = [
@@ -120,6 +124,7 @@ dependencies = [
 name = "engine-testkit"
 version = "0.1.0"
 dependencies = [
+ "engine-alloc-counter",
  "engine-core",
  "proptest",
  "serde_json",
