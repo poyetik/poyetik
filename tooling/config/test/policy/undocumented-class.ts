@@ -3,4 +3,4 @@ class Hidden {
   readonly value = 1;
 }
 /** Doc. */
-export const X = new Hidden();
+export const VALUE = new Hidden();

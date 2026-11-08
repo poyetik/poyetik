@@ -82,7 +82,10 @@ fn json_files(files: &mut dyn Files, dir: &Path) -> Result<Vec<(String, PathBuf)
     entries.sort();
     entries
         .into_iter()
-        .filter(|p| p.extension().is_some_and(|e| e == "json"))
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "json")
+        })
         .map(|path| {
             path.file_stem()
                 .and_then(|stem| stem.to_str())
@@ -127,7 +130,7 @@ fn cases(files: &mut dyn Files, dir: &Path) -> Result<Vec<CaseFiles>, String> {
 fn hashes(files: &mut dyn Files, dir: &Path) -> Result<BTreeMap<String, String>, String> {
     let mut hashes = BTreeMap::new();
     for (name, case, patch) in cases(files, dir)? {
-        let rendered = render_case(&case, &patch).map_err(|e| format!("{name}: {e}"))?;
+        let rendered = render_case(&case, &patch).map_err(|error| format!("{name}: {error}"))?;
         // Case names are file names of one directory, hence unique.
         drop(hashes.insert(name, rendered.hash().to_string()));
     }
@@ -224,7 +227,7 @@ fn export(
         .create_dir_all(target)
         .map_err(|error| format!("cannot create {}: {error}", target.display()))?;
     for (name, case, patch) in cases(files, dir)? {
-        let prepared = prepare_case(&case, &patch).map_err(|e| format!("{name}: {e}"))?;
+        let prepared = prepare_case(&case, &patch).map_err(|error| format!("{name}: {error}"))?;
         let header = *prepared.wav_header();
         let rendered = prepared.render();
         let path = target.join(format!("{name}.wav"));

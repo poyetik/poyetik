@@ -1,4 +1,4 @@
 /** Doc. */
-export function f(point: { x: number }): void {
+export function run(point: { x: number }): void {
   point.x = 1;
 }

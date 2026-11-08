@@ -25,8 +25,8 @@ export function wasmBytes(): ArrayBuffer {
 }
 
 /** Reads a field of a JSON object. */
-function field(json: unknown, name: string): unknown {
-  return typeof json === "object" && json !== null ? Reflect.get(json, name) : undefined;
+function field(json: unknown, key: string): unknown {
+  return typeof json === "object" && json !== null ? Reflect.get(json, key) : undefined;
 }
 
 /** The description of the sine-440 case (sample rate, duration), parsed JSON. */
@@ -108,7 +108,7 @@ export const FUNCTIONS = [
 ] as const;
 
 /** Encodes a WebAssembly name. */
-function name(text: string): number[] {
+function encodedName(text: string): number[] {
   return [text.length, ...new TextEncoder().encode(text)];
 }
 
@@ -176,26 +176,26 @@ function sleb128(value: number): number[] {
  * engine module has), and `functions`, each with its own type and body.
  */
 export function handMadeModule(options: { memory: boolean; imports?: boolean; functions: readonly HandMadeFunction[] }): WebAssembly.Module {
-  const types = options.functions.map((f) => [0x60, f.params, ...Array<number>(f.params).fill(0x7f), 0x01, f.body === "i64" ? 0x7e : 0x7f]);
-  const bodies = options.functions.map((f) => {
+  const types = options.functions.map((func) => [0x60, func.params, ...Array<number>(func.params).fill(0x7f), 0x01, func.body === "i64" ? 0x7e : 0x7f]);
+  const bodies = options.functions.map((func) => {
     const grow = [0x41, 0x01, 0x40, 0x00, 0x1a, 0x41, 0x00, 0x43, 0x00, 0x00, 0x00, 0x3f, 0x38, 0x02, 0x00, 0x41, 0x00];
-    const code = f.body === "trap" ? [0x00] : f.body === "i64" ? [0x42, 0x00] : f.body === "grow" ? grow : [0x41, ...sleb128(f.body.i32)];
+    const code = func.body === "trap" ? [0x00] : func.body === "i64" ? [0x42, 0x00] : func.body === "grow" ? grow : [0x41, ...sleb128(func.body.i32)];
     return [code.length + 2, 0x00, ...code, 0x0b];
   });
   const imported = options.imports === true ? 1 : 0;
   const exports: number[][] = [];
   if (options.memory) {
-    exports.push([...name("memory"), 0x02, 0x00]);
+    exports.push([...encodedName("memory"), 0x02, 0x00]);
   }
-  options.functions.forEach((f, index) => {
-    exports.push([...name(f.name), 0x00, index + imported]);
+  options.functions.forEach((func, index) => {
+    exports.push([...encodedName(func.name), 0x00, index + imported]);
   });
   const typeSection = options.imports === true ? [...types, [0x60, 0x00, 0x00]] : types;
   const bytes = [
     ...[0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00],
     ...section(0x01, [typeSection.length, ...typeSection.flat()]),
-    ...(options.imports === true ? section(0x02, [0x01, ...name("env"), ...name("f"), 0x00, types.length]) : []),
-    ...section(0x03, [options.functions.length, ...options.functions.map((_, index) => index)]),
+    ...(options.imports === true ? section(0x02, [0x01, ...encodedName("env"), ...encodedName("f"), 0x00, types.length]) : []),
+    ...section(0x03, [options.functions.length, ...options.functions.map((_func, index) => index)]),
     ...(options.memory ? section(0x05, [0x01, 0x00, 0x01]) : []),
     ...section(0x07, [exports.length, ...exports.flat()]),
     ...section(0x0a, [bodies.length, ...bodies.flat()]),
@@ -206,6 +206,6 @@ export function handMadeModule(options: { memory: boolean; imports?: boolean; fu
 /** Builds a patch: one oscillator per frequency, each into its own inlet of one output. */
 export function oscillators(frequencies: readonly number[]): Uint8Array {
   const nodes = [{ id: 0, box: "dac~" }, ...frequencies.map((frequency, index) => ({ id: index + 1, box: "osc~", params: { frequency } }))];
-  const connections = frequencies.map((_, index) => ({ from: [index + 1, 0], to: [0, index] }));
+  const connections = frequencies.map((_frequency, index) => ({ from: [index + 1, 0], to: [0, index] }));
   return new TextEncoder().encode(JSON.stringify({ format: 1, nodes, connections }));
 }

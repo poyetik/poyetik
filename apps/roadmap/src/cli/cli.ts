@@ -66,13 +66,13 @@ export const HELP = `Usage: roadmap <command> [options]
   validate                                    Check board.json
   help                                        Show this help
 
-Columns: ${COLUMNS.map((c) => `${c.id} (${c.title})`).join(", ")}
+Columns: ${COLUMNS.map((column) => `${column.id} (${column.title})`).join(", ")}
 Steps: in a card of the doing column, the first step that is not done is in progress.`;
 
 /** Local date formatted as YYYY-MM-DD. */
-export function localDate(d: Date): string {
-  const pad = (n: number): string => String(n).padStart(2, "0");
-  return `${String(d.getFullYear())}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+export function localDate(date: Date): string {
+  const pad = (part: number): string => String(part).padStart(2, "0");
+  return `${String(date.getFullYear())}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
 /** Suffix printed after a step for each status; a step still to do gets none, so only Done and In progress stand out. */
@@ -81,7 +81,7 @@ const TAGS = { done: "  [Done]", doing: "  [In progress]", todo: "" } as const;
 /** One-line summary of a card: id, column, title, milestone in brackets when set, and `done/total` steps when it has any. */
 function formatCard(card: Card): string {
   const milestone = card.milestone === "" ? "" : ` [${card.milestone}]`;
-  const done = card.tasks.filter((t) => t.done).length;
+  const done = card.tasks.filter((task) => task.done).length;
   const progress = card.tasks.length === 0 ? "" : `  ${String(done)}/${String(card.tasks.length)}`;
   return `${formatId(card.id)}  ${card.column.padEnd(5)}  ${card.title}${milestone}${progress}`;
 }
@@ -92,8 +92,8 @@ function printCard(io: Io, card: Card): void {
   if (card.description !== "") {
     io.out(card.description);
   }
-  withStatus(card).forEach((t, i) => {
-    io.out(`  ${String(i + 1)}. ${t.title}${TAGS[t.status]}`);
+  withStatus(card).forEach((task, i) => {
+    io.out(`  ${String(i + 1)}. ${task.title}${TAGS[task.status]}`);
   });
 }
 
@@ -148,23 +148,23 @@ function runTask(args: readonly string[], io: Io): void {
     }
     case "undo": {
       if (!isTwo(rest)) throw usage;
-      const [idText, n] = rest;
+      const [idText, taskNumber] = rest;
       id = parseId(idText);
-      next = reopenTask(board, id, parseTaskNumber(n), today);
+      next = reopenTask(board, id, parseTaskNumber(taskNumber), today);
       break;
     }
     case "edit": {
       if (!isThree(rest)) throw usage;
-      const [idText, n, title] = rest;
+      const [idText, taskNumber, title] = rest;
       id = parseId(idText);
-      next = renameTask(board, id, parseTaskNumber(n), title, today);
+      next = renameTask(board, id, parseTaskNumber(taskNumber), title, today);
       break;
     }
     case "rm": {
       if (!isTwo(rest)) throw usage;
-      const [idText, n] = rest;
+      const [idText, taskNumber] = rest;
       id = parseId(idText);
-      next = removeTask(board, id, parseTaskNumber(n), today);
+      next = removeTask(board, id, parseTaskNumber(taskNumber), today);
       break;
     }
   }
@@ -175,7 +175,7 @@ function runTask(args: readonly string[], io: Io): void {
 /** Checks a column typed on the command line; an unknown one is a `UsageError` listing the valid ids. */
 function toColumn(value: string): ColumnId {
   if (!isColumnId(value)) {
-    throw new UsageError(`unknown column: ${value} (expected: ${COLUMNS.map((c) => c.id).join(", ")})`);
+    throw new UsageError(`unknown column: ${value} (expected: ${COLUMNS.map((column) => column.id).join(", ")})`);
   }
   return value;
 }
@@ -256,7 +256,7 @@ function execute(args: readonly string[], io: Io): void {
     }
     case "list": {
       const column = values.column === undefined ? undefined : toColumn(values.column);
-      const cards = load(io).cards.filter((c) => column === undefined || c.column === column);
+      const cards = load(io).cards.filter((card) => column === undefined || card.column === column);
       if (cards.length === 0) {
         io.out("(no cards)");
       }

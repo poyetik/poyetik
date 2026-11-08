@@ -85,8 +85,8 @@ struct ParamsVisitor;
 impl<'de> Visitor<'de> for ParamsVisitor {
     type Value = Params;
 
-    fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "an object of parameter values")
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "an object of parameter values")
     }
 
     fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Params, A::Error> {
@@ -168,11 +168,11 @@ pub fn parse_patch(json: &str) -> Result<Patch, PatchError> {
     let connections = document
         .connections
         .into_iter()
-        .map(|c| Connection {
-            from: NodeId(c.from.0),
-            outlet: c.from.1,
-            to: NodeId(c.to.0),
-            inlet: c.to.1,
+        .map(|connection| Connection {
+            from: NodeId(connection.from.0),
+            outlet: connection.from.1,
+            to: NodeId(connection.to.0),
+            inlet: connection.to.1,
         })
         .collect();
     Patch::new(nodes, connections).map_err(PatchError::Patch)

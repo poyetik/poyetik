@@ -1,5 +1,5 @@
 /** Doc. */
-export function f(): number {
+export function run(): number {
   let count = 1;
   return count;
 }

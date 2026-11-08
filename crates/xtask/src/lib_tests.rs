@@ -285,7 +285,10 @@ fn lists_every_check_in_order() {
         "the full check pipeline"
     );
     assert_eq!(
-        steps.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(),
+        steps
+            .iter()
+            .map(|step| step.name.as_str())
+            .collect::<Vec<_>>(),
         vec![
             "Tools and platform",
             "Rust formatting",
@@ -395,7 +398,8 @@ fn rejects_incomplete_coverage() {
 #[test]
 fn rejects_unreadable_reports() {
     assert!(
-        coverage_gate("not json").is_err_and(|e| e.starts_with("invalid coverage report: ")),
+        coverage_gate("not json")
+            .is_err_and(|error| error.starts_with("invalid coverage report: ")),
         "not JSON"
     );
     assert_eq!(
@@ -677,16 +681,24 @@ impl io::Write for Pipe {
 fn ignores_a_closed_reader_but_not_other_output_errors() {
     use io::Write as _;
     let mut closed = BestEffort(Pipe(io::ErrorKind::BrokenPipe));
-    assert_eq!(closed.write(b"abc").map_err(|e| e.kind()), Ok(3), "write");
-    assert_eq!(closed.flush().map_err(|e| e.kind()), Ok(()), "flush");
+    assert_eq!(
+        closed.write(b"abc").map_err(|error| error.kind()),
+        Ok(3),
+        "write"
+    );
+    assert_eq!(
+        closed.flush().map_err(|error| error.kind()),
+        Ok(()),
+        "flush"
+    );
     let mut full = BestEffort(Pipe(io::ErrorKind::StorageFull));
     assert_eq!(
-        full.write(b"abc").map_err(|e| e.kind()),
+        full.write(b"abc").map_err(|error| error.kind()),
         Err(io::ErrorKind::StorageFull),
         "write"
     );
     assert_eq!(
-        full.flush().map_err(|e| e.kind()),
+        full.flush().map_err(|error| error.kind()),
         Err(io::ErrorKind::StorageFull),
         "flush"
     );
@@ -871,7 +883,7 @@ fn fails_when_unviable_files_are_missing_or_unreviewed() {
         .insert(UNVIABLE_REVIEWED.to_owned(), String::new());
     assert!(
         run_steps(&check_steps(), &mut unreviewed, &mut Vec::new())
-            .is_err_and(|e| e.contains("not reviewed: crates/a/src/b.rs")),
+            .is_err_and(|error| error.contains("not reviewed: crates/a/src/b.rs")),
         "unreviewed mutant"
     );
 }
@@ -1290,7 +1302,8 @@ fn cli_checks_commit_messages() {
         "an invalid message"
     );
     assert!(
-        String::from_utf8(bad_err).is_ok_and(|e| e.starts_with("invalid commit message: ")),
+        String::from_utf8(bad_err)
+            .is_ok_and(|stderr| stderr.starts_with("invalid commit message: ")),
         "explained on stderr"
     );
 
@@ -1314,7 +1327,7 @@ fn release_gate_runs_on_the_real_files() {
     assert!(replaced.is_some(), "changelog replaced");
     assert!(
         run_steps(&check_steps(), &mut fake, &mut Vec::new())
-            .is_err_and(|e| e.starts_with("✘ Versions and changelog: ")),
+            .is_err_and(|error| error.starts_with("✘ Versions and changelog: ")),
         "release gate failure is named"
     );
     for path in [
@@ -1389,7 +1402,7 @@ fn accepts_only_fully_covered_typescript_packages() {
     );
     assert!(
         ts_coverage_gate("p", "nope")
-            .is_err_and(|e| e.starts_with("p: invalid coverage summary: ")),
+            .is_err_and(|error| error.starts_with("p: invalid coverage summary: ")),
         "unreadable"
     );
 }
@@ -1429,7 +1442,8 @@ fn accepts_only_typescript_packages_without_surviving_mutants() {
         );
     }
     assert!(
-        ts_mutation_gate("p", "[").is_err_and(|e| e.starts_with("p: invalid mutation report: ")),
+        ts_mutation_gate("p", "[")
+            .is_err_and(|error| error.starts_with("p: invalid mutation report: ")),
         "unreadable"
     );
 }
@@ -1497,7 +1511,7 @@ fn knows_exactly_the_packages_and_crates_of_the_repository() {
     more.push("apps/editor/package.json".to_owned());
     let fewer: Vec<String> = packages
         .iter()
-        .filter(|p| *p != "apps/roadmap/package.json")
+        .filter(|package| *package != "apps/roadmap/package.json")
         .cloned()
         .collect();
     let own = vec![(
@@ -1532,7 +1546,7 @@ fn reports_manifests_it_cannot_list() {
     unlisted.broken = Some("list *package.json".to_owned());
     assert!(
         run_steps(&check_steps(), &mut unlisted, &mut Vec::new())
-            .is_err_and(|e| e.ends_with("cannot list the *package.json files: no git")),
+            .is_err_and(|error| error.ends_with("cannot list the *package.json files: no git")),
         "named"
     );
 }
@@ -1555,7 +1569,7 @@ fn allows_strict_licenses_for_what_ships_and_wider_ones_for_tooling() {
     );
     assert!(
         license_gate("x", TOOLING)
-            .is_err_and(|e| e.starts_with("invalid shipped license report: ")),
+            .is_err_and(|error| error.starts_with("invalid shipped license report: ")),
         "unreadable"
     );
     assert_eq!(
@@ -1604,7 +1618,7 @@ fn system_runner_captures_output_and_failures() {
         dir: Dir::Root,
     };
     assert_eq!(
-        runner.capture(&failing).map_err(|e| e.to_string()),
+        runner.capture(&failing).map_err(|error| error.to_string()),
         Err("`cargo no-such-command` failed".to_owned()),
         "a failing command"
     );

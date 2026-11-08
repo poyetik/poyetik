@@ -1,3 +1,3 @@
 /** Doc. */
 // @ts-expect-error: reason
-export const X: number = "1";
+export const VALUE: number = "1";

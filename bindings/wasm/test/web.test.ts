@@ -140,7 +140,7 @@ function isNode(value: unknown): value is AudioNode {
 }
 
 /** The fake context, typed as the real one it stands in for. */
-function context(fake: unknown): BaseAudioContext {
+function asContext(fake: unknown): BaseAudioContext {
   if (!isContext(fake)) {
     throw new Error("not a context stand-in");
   }
@@ -148,7 +148,7 @@ function context(fake: unknown): BaseAudioContext {
 }
 
 /** The fake node, typed as the real one it stands in for. */
-function node(fake: unknown): AudioNode {
+function asNode(fake: unknown): AudioNode {
   if (!isNode(fake)) {
     throw new Error("not a node stand-in");
   }
@@ -158,7 +158,7 @@ function node(fake: unknown): AudioNode {
 describe("addProcessors", () => {
   test("adds the processors module to the worklet", async () => {
     const fake = fakeContext(RATE);
-    await addProcessors(context(fake), "processors.js");
+    await addProcessors(asContext(fake), "processors.js");
     expect(fake.modules).toStrictEqual(["processors.js"]);
   });
 
@@ -166,7 +166,7 @@ describe("addProcessors", () => {
     const fake = fakeContext(RATE);
     const missing = new Error("404");
     fake.audioWorklet.addModule = () => Promise.reject(missing);
-    const error: unknown = await addProcessors(context(fake), "nowhere.js").catch((reason: unknown) => reason);
+    const error: unknown = await addProcessors(asContext(fake), "nowhere.js").catch((reason: unknown) => reason);
     expect(error).toStrictEqual(new Error("cannot load the processors from nowhere.js: Error: 404"));
     expect(error).toHaveProperty("cause", missing);
   });
@@ -221,7 +221,7 @@ describe("createEngineNode", () => {
     stubNodes();
     const fake = fakeContext(RATE);
     const patch = await loaded(2);
-    const created = createEngineNode(context(fake), patch, () => undefined);
+    const created = createEngineNode(asContext(fake), patch, () => undefined);
     expect(created.node).toBe(FakeNode.created[0]);
     expect(FakeNode.created[0]).toMatchObject({
       context: fake,
@@ -238,22 +238,22 @@ describe("createEngineNode", () => {
   test("adds a marker channel after the patch channels when asked", async () => {
     stubNodes();
     const patch = await loaded(2);
-    createEngineNode(context(fakeContext(RATE)), patch, () => undefined, true);
+    createEngineNode(asContext(fakeContext(RATE)), patch, () => undefined, true);
     expect(FakeNode.created[0]?.options).toMatchObject({ outputChannelCount: [3], processorOptions: patch.options(true) });
-    createEngineNode(context(fakeContext(RATE)), await loaded(0), () => undefined, true);
+    createEngineNode(asContext(fakeContext(RATE)), await loaded(0), () => undefined, true);
     expect(FakeNode.created[1]?.options).toHaveProperty("outputChannelCount", [1]);
   });
 
   test("gives a patch without output one silent channel", async () => {
     stubNodes();
-    createEngineNode(context(fakeContext(RATE)), await loaded(0), () => undefined);
+    createEngineNode(asContext(fakeContext(RATE)), await loaded(0), () => undefined);
     expect(FakeNode.created[0]?.options).toHaveProperty("outputChannelCount", [1]);
   });
 
   test("refuses a context at another rate", async () => {
     stubNodes();
     const patch = await loaded(2);
-    expect(() => createEngineNode(context(fakeContext(44_100)), patch, () => undefined)).toThrow(
+    expect(() => createEngineNode(asContext(fakeContext(44_100)), patch, () => undefined)).toThrow(
       new Error("the context runs at 44100 Hz, the patch was loaded at 48000 Hz"),
     );
     expect(FakeNode.created).toHaveLength(0);
@@ -262,7 +262,7 @@ describe("createEngineNode", () => {
   test("is ready when the processor has loaded the patch", async () => {
     stubNodes();
     const failures: Error[] = [];
-    const { ready } = createEngineNode(context(fakeContext(RATE)), await loaded(2), (error) => failures.push(error));
+    const { ready } = createEngineNode(asContext(fakeContext(RATE)), await loaded(2), (error) => failures.push(error));
     expect(await settled(ready)).toBe("pending");
     FakeNode.created[0]?.port.deliver({ type: "ready" });
     expect(await settled(ready)).toBe("resolved");
@@ -276,7 +276,7 @@ describe("createEngineNode", () => {
   ])("reports a failure of the processor before it is ready: %o", async (message, expected) => {
     stubNodes();
     const failures: Error[] = [];
-    const { ready } = createEngineNode(context(fakeContext(RATE)), await loaded(2), (error) => failures.push(error));
+    const { ready } = createEngineNode(asContext(fakeContext(RATE)), await loaded(2), (error) => failures.push(error));
     FakeNode.created[0]?.port.deliver(message);
     expect(await settled(ready)).toStrictEqual(expected);
     expect(failures).toStrictEqual([expected]);
@@ -285,7 +285,7 @@ describe("createEngineNode", () => {
   test("keeps the rejection of the engine as the cause", async () => {
     stubNodes();
     const failures: Error[] = [];
-    createEngineNode(context(fakeContext(RATE)), await loaded(2), (error) => failures.push(error));
+    createEngineNode(asContext(fakeContext(RATE)), await loaded(2), (error) => failures.push(error));
     FakeNode.created[0]?.port.deliver({ type: "rejected", detail: new TextEncoder().encode("bad") });
     expect(failures[0]?.cause).toBeInstanceOf(PatchError);
   });
@@ -293,7 +293,7 @@ describe("createEngineNode", () => {
   test("reports a later failure once, and a processor error", async () => {
     stubNodes();
     const failures: Error[] = [];
-    const { ready } = createEngineNode(context(fakeContext(RATE)), await loaded(2), (error) => failures.push(error));
+    const { ready } = createEngineNode(asContext(fakeContext(RATE)), await loaded(2), (error) => failures.push(error));
     const fake = FakeNode.created[0];
     fake?.port.deliver({ type: "ready" });
     fake?.port.deliver({ type: "failed", message: "trap" });
@@ -303,7 +303,7 @@ describe("createEngineNode", () => {
     expect(failures).toStrictEqual([new Error("the engine failed: trap")]);
 
     const errors: Error[] = [];
-    createEngineNode(context(fakeContext(RATE)), await loaded(2), (error) => errors.push(error));
+    createEngineNode(asContext(fakeContext(RATE)), await loaded(2), (error) => errors.push(error));
     FakeNode.created[1]?.onprocessorerror?.();
     expect(errors).toStrictEqual([new Error("the engine processor failed")]);
   });
@@ -315,7 +315,7 @@ describe("tap", () => {
     const source = fakeSource();
     const blocks: Float32Array[][] = [];
     const errors: Error[] = [];
-    const running = tap(context(fakeContext(RATE)), node(source), 1, (block) => blocks.push(block), (error) => errors.push(error));
+    const running = tap(asContext(fakeContext(RATE)), asNode(source), 1, (block) => blocks.push(block), (error) => errors.push(error));
     const port = FakeNode.created[0]?.port;
     port?.deliver([new Float32Array([1])]);
     port?.deliver("garbage");
@@ -334,32 +334,32 @@ describe("capture", () => {
   test("collects exactly the requested frames, then stops the tap", async () => {
     stubNodes();
     const source = fakeSource();
-    const captured = capture(context(fakeContext(RATE)), node(source), 2, 5);
-    const tap = FakeNode.created[0];
-    expect(tap).toMatchObject({
+    const captured = capture(asContext(fakeContext(RATE)), asNode(source), 2, 5);
+    const tapNode = FakeNode.created[0];
+    expect(tapNode).toMatchObject({
       name: TAP_PROCESSOR,
       options: { numberOfInputs: 1, numberOfOutputs: 0, channelCount: 2, channelCountMode: "explicit", channelInterpretation: "discrete" },
     });
     expect(source.log).toStrictEqual([`connect ${TAP_PROCESSOR}`]);
-    tap?.port.deliver([new Float32Array([1, 2, 3]), new Float32Array([4, 5, 6])]);
-    expect(tap?.port.posted).toStrictEqual([]);
-    tap?.port.deliver([new Float32Array([7, 8, 9]), new Float32Array([10, 11, 12])]);
+    tapNode?.port.deliver([new Float32Array([1, 2, 3]), new Float32Array([4, 5, 6])]);
+    expect(tapNode?.port.posted).toStrictEqual([]);
+    tapNode?.port.deliver([new Float32Array([7, 8, 9]), new Float32Array([10, 11, 12])]);
     expect(await captured).toStrictEqual([new Float32Array([1, 2, 3, 7, 8]), new Float32Array([4, 5, 6, 10, 11])]);
-    expect(tap?.port.posted).toStrictEqual(["stop"]);
-    expect(tap?.port.onmessage).toBeNull();
+    expect(tapNode?.port.posted).toStrictEqual(["stop"]);
+    expect(tapNode?.port.onmessage).toBeNull();
     expect(source.log).toStrictEqual([`connect ${TAP_PROCESSOR}`, `disconnect ${TAP_PROCESSOR}`]);
   });
 
   test("fills channels missing from a block with silence", async () => {
     stubNodes();
-    const captured = capture(context(fakeContext(RATE)), node(fakeSource()), 2, 2);
+    const captured = capture(asContext(fakeContext(RATE)), asNode(fakeSource()), 2, 2);
     FakeNode.created[0]?.port.deliver([new Float32Array([1, 2])]);
     expect(await captured).toStrictEqual([new Float32Array([1, 2]), new Float32Array(2)]);
   });
 
   test("ignores empty blocks", async () => {
     stubNodes();
-    const captured = capture(context(fakeContext(RATE)), node(fakeSource()), 1, 1);
+    const captured = capture(asContext(fakeContext(RATE)), asNode(fakeSource()), 1, 1);
     FakeNode.created[0]?.port.deliver([]);
     expect(FakeNode.created[0]?.port.posted).toStrictEqual([]);
     FakeNode.created[0]?.port.deliver([new Float32Array([3])]);
@@ -374,14 +374,14 @@ describe("capture", () => {
     [2, Number.NaN, "a capture needs a whole number of frames from 0, not NaN"],
   ])("refuses %d channels and %d frames", async (channels, frames, message) => {
     stubNodes();
-    await expect(capture(context(fakeContext(RATE)), node(fakeSource()), channels, frames)).rejects.toThrow(new RangeError(message));
+    await expect(capture(asContext(fakeContext(RATE)), asNode(fakeSource()), channels, frames)).rejects.toThrow(new RangeError(message));
     expect(FakeNode.created).toHaveLength(0);
   });
 
   test("captures zero frames without a tap", async () => {
     stubNodes();
     const source = fakeSource();
-    expect(await capture(context(fakeContext(RATE)), node(source), 2, 0)).toStrictEqual([new Float32Array(), new Float32Array()]);
+    expect(await capture(asContext(fakeContext(RATE)), asNode(source), 2, 0)).toStrictEqual([new Float32Array(), new Float32Array()]);
     expect(FakeNode.created).toHaveLength(0);
     expect(source.log).toStrictEqual([]);
   });
@@ -389,7 +389,7 @@ describe("capture", () => {
   test("fails on a malformed block, and stops", async () => {
     stubNodes();
     const source = fakeSource();
-    const captured = capture(context(fakeContext(RATE)), node(source), 1, 4);
+    const captured = capture(asContext(fakeContext(RATE)), asNode(source), 1, 4);
     FakeNode.created[0]?.port.deliver("garbage");
     await expect(captured).rejects.toThrow("invalid processor options: tap block is not an array");
     expect(FakeNode.created[0]?.port.posted).toStrictEqual(["stop"]);
@@ -398,7 +398,7 @@ describe("capture", () => {
 
   test("turns a failure from another realm into an Error of this one", async () => {
     stubNodes();
-    const captured = capture(context(fakeContext(RATE)), node(fakeSource()), 1, 4);
+    const captured = capture(asContext(fakeContext(RATE)), asNode(fakeSource()), 1, 4);
     const block = [new Float32Array(1)];
     // An Error of another realm (like the worklet scope) is not an `instanceof Error` here.
     Object.defineProperty(block, "map", { value: (): unknown => runInNewContext("throw new Error('elsewhere')") });
@@ -407,9 +407,9 @@ describe("capture", () => {
   });
 
   test("rejects stand-ins missing what the code uses", () => {
-    expect(() => context({ sampleRate: 1 })).toThrow("not a context stand-in");
-    expect(() => context(null)).toThrow("not a context stand-in");
-    expect(() => node({ connect: 1 })).toThrow("not a node stand-in");
+    expect(() => asContext({ sampleRate: 1 })).toThrow("not a context stand-in");
+    expect(() => asContext(null)).toThrow("not a context stand-in");
+    expect(() => asNode({ connect: 1 })).toThrow("not a node stand-in");
   });
 });
 
@@ -418,8 +418,8 @@ describe("captureEngine", () => {
     stubNodes();
     const fake = fakeContext(RATE);
     const patch = await loaded(2);
-    const engine = createEngineNode(context(fake), patch, () => undefined, true);
-    const captured = captureEngine(context(fake), engine, 2, 3);
+    const engine = createEngineNode(asContext(fake), patch, () => undefined, true);
+    const captured = captureEngine(asContext(fake), engine, 2, 3);
     const tapNode = FakeNode.created.at(-1);
     expect(tapNode?.options).toMatchObject({ channelCount: 3 });
     // Two silent frames before the processor started, then frames 1, 2, 3 marked.
@@ -432,8 +432,8 @@ describe("captureEngine", () => {
   test("fails when the engine never starts in the captured margin", async () => {
     stubNodes();
     const fake = fakeContext(RATE);
-    const engine = createEngineNode(context(fake), await loaded(2), () => undefined, true);
-    const captured = captureEngine(context(fake), engine, 2, 1);
+    const engine = createEngineNode(asContext(fake), await loaded(2), () => undefined, true);
+    const captured = captureEngine(asContext(fake), engine, 2, 1);
     FakeNode.created.at(-1)?.port.deliver([new Float32Array(START_MARGIN + 1), new Float32Array(START_MARGIN + 1)]);
     await expect(captured).rejects.toThrow(new Error("the engine started too late in the live capture: not within the 16384 frames of margin"));
   });
@@ -491,7 +491,7 @@ describe("renderOffline", () => {
           const marker = this.#channels - 1;
           return Promise.resolve({
             getChannelData: (channel: number) =>
-              Float32Array.from({ length: frames }, (_, frame) => (channel === marker ? (start !== "never" && frame >= start ? 1 : 0) : frame + 1000 * channel)),
+              Float32Array.from({ length: frames }, (_empty, frame) => (channel === marker ? (start !== "never" && frame >= start ? 1 : 0) : frame + 1000 * channel)),
           });
         }
       },

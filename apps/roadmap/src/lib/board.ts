@@ -68,7 +68,7 @@ const BOARD_KEYS = ["version", "title", "nextId", "cards"];
 
 /** Whether a value is a known column identifier. */
 export function isColumnId(value: unknown): value is ColumnId {
-  return COLUMNS.some((c) => c.id === value);
+  return COLUMNS.some((column) => column.id === value);
 }
 
 /** Formats a card id for display: `#12`. */
@@ -130,7 +130,7 @@ function requireDate(value: unknown, field: string): string {
 /** Returns `value` as a column id; throws a `BoardError` listing the valid ids otherwise. */
 function requireColumn(value: unknown): ColumnId {
   if (!isColumnId(value)) {
-    throw new BoardError(`unknown column: ${String(value)} (expected: ${COLUMNS.map((c) => c.id).join(", ")})`);
+    throw new BoardError(`unknown column: ${String(value)} (expected: ${COLUMNS.map((column) => column.id).join(", ")})`);
   }
   return value;
 }
@@ -171,7 +171,7 @@ function parseTasks(raw: unknown, where: string): Task[] {
   if (!Array.isArray(raw)) {
     throw new BoardError(`${where} tasks must be an array`);
   }
-  return raw.map((t, i) => parseTask(t, `${where} task ${String(i + 1)}`));
+  return raw.map((rawTask, i) => parseTask(rawTask, `${where} task ${String(i + 1)}`));
 }
 
 /** Validates one stored card; `index` is its 0-based position in `cards`, used only to locate errors (the id itself may be what is invalid). */
@@ -214,7 +214,7 @@ export function parseBoard(raw: unknown): Board {
   if (!Array.isArray(cards)) {
     throw new BoardError("cards must be an array");
   }
-  const parsed = cards.map((c, i) => parseCard(c, i));
+  const parsed = cards.map((rawCard, i) => parseCard(rawCard, i));
   const seen = new Set<number>();
   for (const card of parsed) {
     if (seen.has(card.id)) {
@@ -234,15 +234,15 @@ export function serializeBoard(board: Board): string {
     version: board.version,
     title: board.title,
     nextId: board.nextId,
-    cards: board.cards.map((c) => ({
-      id: c.id,
-      title: c.title,
-      description: c.description,
-      column: c.column,
-      milestone: c.milestone,
-      createdAt: c.createdAt,
-      updatedAt: c.updatedAt,
-      tasks: c.tasks.map((t) => ({ title: t.title, done: t.done })),
+    cards: board.cards.map((card) => ({
+      id: card.id,
+      title: card.title,
+      description: card.description,
+      column: card.column,
+      milestone: card.milestone,
+      createdAt: card.createdAt,
+      updatedAt: card.updatedAt,
+      tasks: card.tasks.map((task) => ({ title: task.title, done: task.done })),
     })),
   };
   return `${JSON.stringify(ordered, null, 2)}\n`;
@@ -267,7 +267,7 @@ export interface EditInput {
 
 /** Returns the card with this id, or throws a `BoardError`. */
 export function findCard(board: Board, id: number): Card {
-  const card = board.cards.find((c) => c.id === id);
+  const card = board.cards.find((candidate) => candidate.id === id);
   if (card === undefined) {
     throw new BoardError(`card not found: ${formatId(id)}`);
   }
@@ -294,8 +294,8 @@ export function addCard(board: Board, input: AddInput, today: string): { board: 
 export function moveCard(board: Board, id: number, column: ColumnId, position: number | undefined, today: string): Board {
   const date = requireDate(today, "today's date");
   const card: Card = { ...findCard(board, id), column, updatedAt: date };
-  const others = board.cards.filter((c) => c.id !== id);
-  const inTarget = others.filter((c) => c.column === column);
+  const others = board.cards.filter((other) => other.id !== id);
+  const inTarget = others.filter((other) => other.column === column);
   const pos = position ?? inTarget.length;
   if (!Number.isInteger(pos) || pos < 0 || pos > inTarget.length) {
     throw new BoardError(`invalid position: ${String(pos)} (0 to ${String(inTarget.length)})`);
@@ -319,13 +319,13 @@ export function editCard(board: Board, id: number, patch: EditInput, today: stri
     milestone: patch.milestone === undefined ? current.milestone : patch.milestone.trim(),
     updatedAt: date,
   };
-  return { ...board, cards: board.cards.map((c) => (c.id === id ? card : c)) };
+  return { ...board, cards: board.cards.map((existing) => (existing.id === id ? card : existing)) };
 }
 
 /** Removes a card. Its id is never reused. */
 export function removeCard(board: Board, id: number): Board {
   findCard(board, id);
-  return { ...board, cards: board.cards.filter((c) => c.id !== id) };
+  return { ...board, cards: board.cards.filter((card) => card.id !== id) };
 }
 
 // ---------- Tasks ----------
@@ -340,13 +340,13 @@ export interface TaskWithStatus extends Task {
  * A card waiting in another column has nothing in progress. Returns -1 when there is none.
  */
 export function currentTaskIndex(card: Pick<Card, "column" | "tasks">): number {
-  return card.column === "doing" ? card.tasks.findIndex((t) => !t.done) : -1;
+  return card.column === "doing" ? card.tasks.findIndex((task) => !task.done) : -1;
 }
 
 /** Status of each task: done, the one in progress (see {@link currentTaskIndex}), the rest to do. */
 export function withStatus(card: Pick<Card, "column" | "tasks">): TaskWithStatus[] {
   const current = currentTaskIndex(card);
-  return card.tasks.map((t, i) => ({ ...t, status: t.done ? "done" : i === current ? "doing" : "todo" }));
+  return card.tasks.map((task, i) => ({ ...task, status: task.done ? "done" : i === current ? "doing" : "todo" }));
 }
 
 /** Parses a 1-based task number typed by a user. */
@@ -361,15 +361,15 @@ export function parseTaskNumber(text: string): number {
 function updateCard(board: Board, id: number, today: string, change: (card: Card) => Card): Board {
   const date = requireDate(today, "today's date");
   const card = { ...change(findCard(board, id)), updatedAt: date };
-  return { ...board, cards: board.cards.map((c) => (c.id === id ? card : c)) };
+  return { ...board, cards: board.cards.map((existing) => (existing.id === id ? card : existing)) };
 }
 
 /** Converts a 1-based step number into an index of `card.tasks`; throws a `BoardError` giving the valid range otherwise. */
-function requireTaskIndex(card: Card, n: number): number {
-  if (!Number.isInteger(n) || n < 1 || n > card.tasks.length) {
-    throw new BoardError(`invalid task number for ${formatId(card.id)}: ${String(n)} (1 to ${String(card.tasks.length)})`);
+function requireTaskIndex(card: Card, taskNumber: number): number {
+  if (!Number.isInteger(taskNumber) || taskNumber < 1 || taskNumber > card.tasks.length) {
+    throw new BoardError(`invalid task number for ${formatId(card.id)}: ${String(taskNumber)} (1 to ${String(card.tasks.length)})`);
   }
-  return n - 1;
+  return taskNumber - 1;
 }
 
 /** Adds a step at the end of a card. */
@@ -379,37 +379,37 @@ export function addTask(board: Board, id: number, title: string, today: string):
 }
 
 /** Marks a task done, or the task in progress when no number is given. */
-export function completeTask(board: Board, id: number, n: number | undefined, today: string): Board {
+export function completeTask(board: Board, id: number, taskNumber: number | undefined, today: string): Board {
   return updateCard(board, id, today, (card) => {
-    const index = n === undefined ? currentTaskIndex(card) : requireTaskIndex(card, n);
+    const index = taskNumber === undefined ? currentTaskIndex(card) : requireTaskIndex(card, taskNumber);
     if (index === -1) {
       throw new BoardError(`${formatId(card.id)} has no task in progress`);
     }
-    return { ...card, tasks: card.tasks.map((t, i) => (i === index ? { ...t, done: true } : t)) };
+    return { ...card, tasks: card.tasks.map((task, i) => (i === index ? { ...task, done: true } : task)) };
   });
 }
 
-/** Marks step `n` (1-based) of a card as not done. */
-export function reopenTask(board: Board, id: number, n: number, today: string): Board {
+/** Marks step `taskNumber` (1-based) of a card as not done. */
+export function reopenTask(board: Board, id: number, taskNumber: number, today: string): Board {
   return updateCard(board, id, today, (card) => {
-    const index = requireTaskIndex(card, n);
-    return { ...card, tasks: card.tasks.map((t, i) => (i === index ? { ...t, done: false } : t)) };
+    const index = requireTaskIndex(card, taskNumber);
+    return { ...card, tasks: card.tasks.map((task, i) => (i === index ? { ...task, done: false } : task)) };
   });
 }
 
-/** Renames step `n` (1-based) of a card. */
-export function renameTask(board: Board, id: number, n: number, title: string, today: string): Board {
+/** Renames step `taskNumber` (1-based) of a card. */
+export function renameTask(board: Board, id: number, taskNumber: number, title: string, today: string): Board {
   return updateCard(board, id, today, (card) => {
-    const index = requireTaskIndex(card, n);
+    const index = requireTaskIndex(card, taskNumber);
     const text = requireText(title, "task title");
-    return { ...card, tasks: card.tasks.map((t, i) => (i === index ? { ...t, title: text } : t)) };
+    return { ...card, tasks: card.tasks.map((task, i) => (i === index ? { ...task, title: text } : task)) };
   });
 }
 
-/** Removes step `n` (1-based) of a card. */
-export function removeTask(board: Board, id: number, n: number, today: string): Board {
+/** Removes step `taskNumber` (1-based) of a card. */
+export function removeTask(board: Board, id: number, taskNumber: number, today: string): Board {
   return updateCard(board, id, today, (card) => {
-    const index = requireTaskIndex(card, n);
-    return { ...card, tasks: card.tasks.filter((_, i) => i !== index) };
+    const index = requireTaskIndex(card, taskNumber);
+    return { ...card, tasks: card.tasks.filter((_task, i) => i !== index) };
   });
 }

@@ -59,22 +59,24 @@ mod tests {
     #[test]
     fn special_inputs_stay_in_the_input_domain() {
         assert!(
-            SPECIAL_INPUTS.iter().all(|v| (-1.0..=1.0).contains(v)),
+            SPECIAL_INPUTS
+                .iter()
+                .all(|value| (-1.0..=1.0).contains(value)),
             "within [-1, 1]"
         );
         assert!(
-            SPECIAL_INPUTS.iter().any(|v| v.is_subnormal()),
+            SPECIAL_INPUTS.iter().any(|value| value.is_subnormal()),
             "subnormals"
         );
         assert!(
             SPECIAL_INPUTS
                 .iter()
-                .any(|v| v.to_bits() == (-0.0_f32).to_bits()),
+                .any(|value| value.to_bits() == (-0.0_f32).to_bits()),
             "negative zero"
         );
         // Symmetric and without repetition: every value comes with its exact negation.
         let bits: alloc::collections::BTreeSet<u32> =
-            SPECIAL_INPUTS.iter().map(|v| v.to_bits()).collect();
+            SPECIAL_INPUTS.iter().map(|value| value.to_bits()).collect();
         assert_eq!(bits.len(), SPECIAL_INPUTS.len(), "no value twice");
         for value in SPECIAL_INPUTS {
             assert!(bits.contains(&(-value).to_bits()), "-{value} is there too");

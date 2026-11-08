@@ -292,7 +292,7 @@ export async function renderOffline(loaded: LoadedPatch, frames: number, process
   if (failure !== undefined) {
     throw failure;
   }
-  const all = Array.from({ length: loaded.channels + 1 }, (_, channel) => buffer.getChannelData(channel));
+  const all = Array.from({ length: loaded.channels + 1 }, (_empty, channel) => buffer.getChannelData(channel));
   return fromStart(all, loaded.channels, frames, "offline render");
 }
 

@@ -1,4 +1,4 @@
 /** Doc. */
-export function f(...values: any[]): number {
+export function run(...values: any[]): number {
   return values.length;
 }

@@ -14,7 +14,7 @@ export interface Sine {
 /** The samples of one channel, as numbers. */
 export function channel(wav: Wav, index: number): number[] {
   const view = new DataView(wav.data.buffer, wav.data.byteOffset, wav.data.byteLength);
-  return Array.from({ length: wav.frames }, (_, frame) => view.getFloat32((frame * wav.channels + index) * 4, true));
+  return Array.from({ length: wav.frames }, (_empty, frame) => view.getFloat32((frame * wav.channels + index) * 4, true));
 }
 
 /**
@@ -58,7 +58,7 @@ export function sineError(samples: readonly number[], rate: number, sine: Sine):
  * A box computing its phase in binary32, or with a gain error of 5e-7, exceeds it.
  */
 export function sineErrorBound(amplitude: number, frames: number): number {
-  const a = Math.abs(amplitude);
-  // At a = 0, log2 is -Infinity and every term is 0: silence allows no error.
-  return 2 ** (Math.ceil(Math.log2(a)) - 25) + a * (2 * Math.PI * frames * 2 ** -52 + 2 ** -48);
+  const magnitude = Math.abs(amplitude);
+  // At a zero magnitude, log2 is -Infinity and every term is 0: silence allows no error.
+  return 2 ** (Math.ceil(Math.log2(magnitude)) - 25) + magnitude * (2 * Math.PI * frames * 2 ** -52 + 2 ** -48);
 }

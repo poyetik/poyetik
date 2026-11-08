@@ -45,7 +45,7 @@ function manual(): { schedule: (frame: () => void) => () => void; tick: () => vo
 
 /** A 1 kHz square wave sampled at 4 kHz, one second long. */
 /** A 100 Hz square wave at 4 kHz (within the measured domain: a fortieth of the rate). */
-const SQUARE: Signal = { samples: Float32Array.from({ length: 4000 }, (_, index) => (index % 40 < 20 ? 1 : -1)), rate: 4000 };
+const SQUARE: Signal = { samples: Float32Array.from({ length: 4000 }, (_empty, index) => (index % 40 < 20 ? 1 : -1)), rate: 4000 };
 
 afterEach(() => {
   vi.unstubAllGlobals();

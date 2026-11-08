@@ -74,7 +74,7 @@ fn reads_an_empty_patch_and_the_largest_id() {
     let patch =
         parse_patch(r#"{"format":1,"nodes":[{"id":4294967295,"box":"x"}],"connections":[]}"#);
     assert_eq!(
-        patch.map(|p| p.nodes().map(|n| n.id).collect::<Vec<_>>()),
+        patch.map(|parsed| parsed.nodes().map(|node| node.id).collect::<Vec<_>>()),
         Ok(vec![NodeId(u32::MAX)]),
         "u32::MAX"
     );

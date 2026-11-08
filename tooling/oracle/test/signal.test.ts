@@ -29,7 +29,7 @@ test("uses the frequency, the amplitude and the phase", () => {
 });
 
 test("adds the phase", () => {
-  const cosine = Array.from({ length: 48 }, (_, index) => Math.cos((2 * Math.PI * 1000 * index) / 48_000));
+  const cosine = Array.from({ length: 48 }, (_empty, index) => Math.cos((2 * Math.PI * 1000 * index) / 48_000));
   expect(sineError(cosine, 48_000, { ...SINE, phase: Math.PI / 2 })).toBeLessThan(1e-12);
 });
 

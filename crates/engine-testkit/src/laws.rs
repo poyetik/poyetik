@@ -49,9 +49,9 @@ pub fn check_metadata(spec: &ObjectSpec) -> Result<(), String> {
     if spec.description.trim().is_empty() {
         return Err("missing description".to_owned());
     }
-    unique_names("inlet", &mut spec.inlets.iter().map(|p| p.name))?;
-    unique_names("outlet", &mut spec.outlets.iter().map(|p| p.name))?;
-    unique_names("parameter", &mut spec.params.iter().map(|p| p.name))?;
+    unique_names("inlet", &mut spec.inlets.iter().map(|port| port.name))?;
+    unique_names("outlet", &mut spec.outlets.iter().map(|port| port.name))?;
+    unique_names("parameter", &mut spec.params.iter().map(|param| param.name))?;
     for port in spec.inlets.iter().chain(spec.outlets) {
         if port.description.trim().is_empty() {
             return Err(format!("port \"{}\" has no description", port.name));
@@ -140,10 +140,10 @@ fn away_from_default(param: &ParamSpec) -> f32 {
 /// from their default, and all maximums.
 fn param_sets(spec: &ObjectSpec) -> [Vec<f32>; 4] {
     [
-        spec.params.iter().map(|p| p.min).collect(),
-        spec.params.iter().map(|p| p.default).collect(),
+        spec.params.iter().map(|param| param.min).collect(),
+        spec.params.iter().map(|param| param.default).collect(),
         spec.params.iter().map(away_from_default).collect(),
-        spec.params.iter().map(|p| p.max).collect(),
+        spec.params.iter().map(|param| param.max).collect(),
     ]
 }
 

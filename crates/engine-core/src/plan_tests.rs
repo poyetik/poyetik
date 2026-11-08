@@ -72,8 +72,8 @@ impl Object for Add {
     fn process(&mut self, inputs: &[Block], outputs: &mut [Block]) {
         let mut sum = SILENCE;
         for input in inputs {
-            for (s, v) in sum.iter_mut().zip(input) {
-                *s += v;
+            for (total, sample) in sum.iter_mut().zip(input) {
+                *total += sample;
             }
         }
         let mut outs = outputs.iter_mut();
@@ -81,8 +81,8 @@ impl Object for Add {
             *first = sum;
         }
         if let Some(second) = outs.next() {
-            for (s, v) in second.iter_mut().zip(sum) {
-                *s = v * 10.0;
+            for (scaled, summed) in second.iter_mut().zip(sum) {
+                *scaled = summed * 10.0;
             }
         }
     }
@@ -158,9 +158,9 @@ fn node(id: u32, kind: &str) -> Node {
     }
 }
 
-fn with_param(mut n: Node, name: &str, value: f32) -> Node {
-    let _: Option<f32> = n.params.insert(String::from(name), value);
-    n
+fn with_param(mut target: Node, name: &str, value: f32) -> Node {
+    let _: Option<f32> = target.params.insert(String::from(name), value);
+    target
 }
 
 fn wire(from: u32, outlet: usize, to: u32, inlet: usize) -> Connection {
@@ -654,7 +654,7 @@ fn accepts_patches_up_to_the_limits_only() {
         Some(NodeId(u32::MAX)),
         "the output runs last"
     );
-    assert_eq!(plan.render(1).map(|s| s.len()), Ok(2), "renders");
+    assert_eq!(plan.render(1).map(|block| block.len()), Ok(2), "renders");
 }
 
 #[test]

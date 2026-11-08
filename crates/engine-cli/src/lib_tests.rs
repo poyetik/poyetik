@@ -76,7 +76,7 @@ impl Files for Memory {
             .files
             .keys()
             .rev()
-            .filter(|p| p.parent() == Some(dir))
+            .filter(|path| path.parent() == Some(dir))
             .cloned()
             .collect();
         if entries.is_empty() {
@@ -88,7 +88,7 @@ impl Files for Memory {
 }
 
 fn args(words: &[&str]) -> Vec<String> {
-    words.iter().map(|w| (*w).to_owned()).collect()
+    words.iter().map(|word| (*word).to_owned()).collect()
 }
 
 fn run_with(memory: &mut Memory, words: &[&str]) -> (Result<(), String>, String) {
@@ -196,7 +196,7 @@ fn writes_a_float_wav_header() {
     assert_eq!(header.to_vec(), expected, "every field");
     assert_eq!(HEADER_LEN, 58, "header size");
     assert_eq!(
-        wav_header(48_000, 0, 0).map(|h| h[46..50].to_vec()),
+        wav_header(48_000, 0, 0).map(|bytes| bytes[46..50].to_vec()),
         Ok(0_u32.to_le_bytes().to_vec()),
         "no channel, no frame"
     );
@@ -315,7 +315,7 @@ fn render_command_reports_errors() {
     assert!(
         run_with(&mut memory, &["render", "bad.json", "patch.json"])
             .0
-            .is_err_and(|e| e.starts_with("invalid case")),
+            .is_err_and(|error| error.starts_with("invalid case")),
         "invalid case"
     );
     memory.read_only = true;
@@ -387,7 +387,7 @@ fn check_command_reports_unreadable_inputs() {
     assert!(
         run_with(&mut invalid, &["check", "conf"])
             .0
-            .is_err_and(|e| e.starts_with("invalid conf/references.json: ")),
+            .is_err_and(|error| error.starts_with("invalid conf/references.json: ")),
         "invalid references"
     );
     let mut no_refs = Memory::with(&[
@@ -413,7 +413,7 @@ fn check_command_reports_unreadable_inputs() {
     assert!(
         run_with(&mut bad_case, &["check", "conf"])
             .0
-            .is_err_and(|e| e.starts_with("bad: invalid case")),
+            .is_err_and(|error| error.starts_with("bad: invalid case")),
         "case named"
     );
 }
@@ -488,19 +488,20 @@ impl io::Write for Broken {
 fn reports_a_broken_output() {
     let mut memory = conformance(&format!(r#"{{"sine":"{}"}}"#, sine_hash()));
     assert_eq!(
-        run(&args(&["check", "conf"]), &mut memory, &mut Broken).map_err(|e| e.to_string()),
+        run(&args(&["check", "conf"]), &mut memory, &mut Broken).map_err(|error| error.to_string()),
         Err("closed".to_owned()),
         "check"
     );
     let mut bad = conformance(r#"{"sine":"0"}"#);
     assert_eq!(
-        run(&args(&["check", "conf"]), &mut bad, &mut Broken).map_err(|e| e.to_string()),
+        run(&args(&["check", "conf"]), &mut bad, &mut Broken).map_err(|error| error.to_string()),
         Err("closed".to_owned()),
         "mismatch line"
     );
     let mut missing = conformance("{}");
     assert_eq!(
-        run(&args(&["check", "conf"]), &mut missing, &mut Broken).map_err(|e| e.to_string()),
+        run(&args(&["check", "conf"]), &mut missing, &mut Broken)
+            .map_err(|error| error.to_string()),
         Err("closed".to_owned()),
         "missing line"
     );
@@ -514,7 +515,7 @@ fn reports_a_broken_output() {
     ]);
     let mut once = Limited(1);
     assert_eq!(
-        run(&args(&["check", "conf"]), &mut stale, &mut once).map_err(|e| e.to_string()),
+        run(&args(&["check", "conf"]), &mut stale, &mut once).map_err(|error| error.to_string()),
         Err("closed".to_owned()),
         "stale line"
     );
@@ -585,7 +586,7 @@ fn refuses_a_case_too_long_for_a_wav_file_before_rendering() {
     let huge = SINE.replace(r#""frames":100"#, r#""frames":4000000000"#);
     assert_ne!(huge, SINE, "the duration was replaced");
     assert_eq!(
-        super::prepare_case(&huge, PATCH).map(|p| p.sample_count()),
+        super::prepare_case(&huge, PATCH).map(|prepared| prepared.sample_count()),
         Err("too long for WAV: 8000000000 samples".to_owned()),
         "rejected while preparing"
     );
@@ -664,25 +665,28 @@ fn export_command_writes_the_wav_of_every_case_in_order() {
         vec![PathBuf::from("out/wav")],
         "output directory"
     );
-    let a = render_case(SINE, PATCH).expect("valid case");
-    let b = render_case(SINE, &memory.text("conf/patches/b.json")).expect("valid case");
-    assert_ne!(a.samples, b.samples, "two different cases");
+    let rendered_a = render_case(SINE, PATCH).expect("valid case");
+    let rendered_b = render_case(SINE, &memory.text("conf/patches/b.json")).expect("valid case");
+    assert_ne!(
+        rendered_a.samples, rendered_b.samples,
+        "two different cases"
+    );
     assert_eq!(
         memory.files[Path::new("out/wav/a.wav")],
-        wav_bytes(&a).expect("fits"),
+        wav_bytes(&rendered_a).expect("fits"),
         "a"
     );
     assert_eq!(
         memory.files[Path::new("out/wav/b.wav")],
-        wav_bytes(&b).expect("fits"),
+        wav_bytes(&rendered_b).expect("fits"),
         "b"
     );
     assert_eq!(
         out,
         format!(
             "wrote    out/wav/a.wav {}\nwrote    out/wav/b.wav {}\n",
-            a.hash(),
-            b.hash()
+            rendered_a.hash(),
+            rendered_b.hash()
         ),
         "sorted by name"
     );
@@ -715,7 +719,7 @@ fn export_command_reports_errors() {
     assert!(
         run_with(&mut invalid, &["export", "conf", "out"])
             .0
-            .is_err_and(|e| e.starts_with("bad: invalid case: ")),
+            .is_err_and(|error| error.starts_with("bad: invalid case: ")),
         "invalid case named"
     );
     let mut missing = Memory::default();
@@ -804,22 +808,30 @@ impl io::Write for Pipe {
 fn ignores_a_closed_reader_but_not_other_output_errors() {
     use io::Write as _;
     let mut closed = super::BestEffort(Pipe(io::ErrorKind::BrokenPipe));
-    assert_eq!(closed.write(b"abc").map_err(|e| e.kind()), Ok(3), "write");
-    assert_eq!(closed.flush().map_err(|e| e.kind()), Ok(()), "flush");
+    assert_eq!(
+        closed.write(b"abc").map_err(|error| error.kind()),
+        Ok(3),
+        "write"
+    );
+    assert_eq!(
+        closed.flush().map_err(|error| error.kind()),
+        Ok(()),
+        "flush"
+    );
     let mut full = super::BestEffort(Pipe(io::ErrorKind::StorageFull));
     assert_eq!(
-        full.write(b"abc").map_err(|e| e.kind()),
+        full.write(b"abc").map_err(|error| error.kind()),
         Err(io::ErrorKind::StorageFull),
         "write"
     );
     assert_eq!(
-        full.flush().map_err(|e| e.kind()),
+        full.flush().map_err(|error| error.kind()),
         Err(io::ErrorKind::StorageFull),
         "flush"
     );
     let mut fine = super::BestEffort(Vec::new());
     assert_eq!(
-        fine.write(b"ab").map_err(|e| e.kind()),
+        fine.write(b"ab").map_err(|error| error.kind()),
         Ok(2),
         "passes through"
     );

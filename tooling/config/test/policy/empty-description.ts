@@ -1,6 +1,6 @@
 /**
  * @returns one
  */
-export function f(): number {
+export function run(): number {
   return 1;
 }

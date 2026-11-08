@@ -1,3 +1,3 @@
 type Side = "left" | "right";
 /** Doc. */
-export const X: Side = "left";
+export const VALUE: Side = "left";

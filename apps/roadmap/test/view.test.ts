@@ -8,8 +8,8 @@ function card(id: number, column: Card["column"], updatedAt: string): Card {
 }
 
 /** The view expected for a card without steps: the card plus empty step fields. */
-function plain(c: Card | undefined): unknown {
-  return { ...c, steps: [], doneSteps: 0, currentStep: null };
+function plain(source: Card | undefined): unknown {
+  return { ...source, steps: [], doneSteps: 0, currentStep: null };
 }
 
 describe("toView", () => {
@@ -51,7 +51,7 @@ describe("toView", () => {
     const waiting: Board = { version: 1, title: "P", nextId: 2, cards: [{ ...card(1, "next", "2026-11-01"), tasks }] };
     const view = toView(waiting).columns[1]?.cards[0];
     expect(view?.currentStep).toBeNull();
-    expect(view?.steps.map((t) => t.status)).toEqual(["done", "todo"]);
+    expect(view?.steps.map((step) => step.status)).toEqual(["done", "todo"]);
     expect(view?.doneSteps).toBe(1);
   });
 

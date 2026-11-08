@@ -62,6 +62,8 @@ test("each rule of the policy rejects what it forbids, and only that", async () 
     "param-mutation": ["no-param-reassign"],
     "param-reassign": ["no-param-reassign"],
     "let-never-reassigned": ["prefer-const"],
+    "short-name": ["id-length"],
+    shadow: ["@typescript-eslint/no-shadow"],
     var: ["no-var"],
   });
   const severities = results.flatMap((result) => result.messages.filter((message) => message.ruleId !== null).map((message) => message.severity));

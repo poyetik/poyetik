@@ -49,7 +49,7 @@ test("is dark and stays readable whatever the system theme", async ({ page }) =>
 });
 
 test("steps are collapsed by default and expand on click", async ({ page }) => {
-  const withSteps = view.columns.flatMap((c) => c.cards).find((c) => c.steps.length > 0);
+  const withSteps = view.columns.flatMap((column) => column.cards).find((candidate) => candidate.steps.length > 0);
   if (withSteps === undefined) {
     throw new Error("board.json must contain at least one card with steps for this test");
   }
@@ -65,10 +65,10 @@ test("steps are collapsed by default and expand on click", async ({ page }) => {
 
 test("declares its Content Security Policy, breaks none of it, and enforces it", async ({ page }) => {
   await page.addInitScript(() => {
-    const violations: string[] = [];
-    Reflect.set(window, "violations", violations);
+    const seen: string[] = [];
+    Reflect.set(window, "violations", seen);
     document.addEventListener("securitypolicyviolation", (event) => {
-      violations.push(`${event.violatedDirective} ${event.blockedURI}`);
+      seen.push(`${event.violatedDirective} ${event.blockedURI}`);
     });
   });
   await page.goto("./");

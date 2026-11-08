@@ -81,7 +81,7 @@ pub trait Object: Send + core::fmt::Debug {
 mod tests {
     use super::ParamSpec;
 
-    const P: ParamSpec = ParamSpec {
+    const PARAM: ParamSpec = ParamSpec {
         name: "p",
         description: "p",
         default: 0.0,
@@ -92,14 +92,14 @@ mod tests {
     #[test]
     fn accepts_values_within_range_inclusive() {
         for value in [-1.0_f32, 0.0, 2.0] {
-            assert!(P.accepts(value), "{value} is accepted");
+            assert!(PARAM.accepts(value), "{value} is accepted");
         }
     }
 
     #[test]
     fn rejects_values_outside_range_and_nan() {
         for value in [-1.5_f32, 2.5, f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
-            assert!(!P.accepts(value), "{value} is rejected");
+            assert!(!PARAM.accepts(value), "{value} is rejected");
         }
     }
 }

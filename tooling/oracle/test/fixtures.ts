@@ -26,8 +26,8 @@ export function makeWav(fields: WavFields): Uint8Array {
   const size = 12 + 8 + fmtSize + 12 + 8 + dataSize + trailer.length;
   const bytes = new Uint8Array(size);
   const view = new DataView(bytes.buffer);
-  const ascii = (offset: number, text: string): void => {
-    bytes.set(new TextEncoder().encode(text), offset);
+  const ascii = (at: number, text: string): void => {
+    bytes.set(new TextEncoder().encode(text), at);
   };
   ascii(0, "RIFF");
   view.setUint32(4, fields.riffSize ?? size - 8, true);
@@ -59,5 +59,5 @@ export function makeWav(fields: WavFields): Uint8Array {
 
 /** `frames` frames of a sine, the same on every channel, interleaved. */
 export function sineSamples(channels: number, frames: number, rate: number, frequency: number): number[] {
-  return Array.from({ length: frames * channels }, (_, index) => Math.fround(Math.sin((2 * Math.PI * frequency * Math.floor(index / channels)) / rate)));
+  return Array.from({ length: frames * channels }, (_empty, index) => Math.fround(Math.sin((2 * Math.PI * frequency * Math.floor(index / channels)) / rate)));
 }

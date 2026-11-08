@@ -70,3 +70,7 @@ allow-indexing-slicing-in-tests = true
 allow-unwrap-in-tests = false
 allow-print-in-tests = false
 allow-dbg-in-tests = false
+
+# Single-letter names allowed by min_ident_chars: the conventional loop and coordinate
+# names only. Everything else says what it holds (`error`, not `e`).
+allowed-idents-below-min-chars = ["i", "j", "x", "y"]

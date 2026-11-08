@@ -82,7 +82,7 @@ mod tests {
         assert_eq!(text.len(), 64, "32 bytes");
         assert!(
             text.bytes()
-                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)),
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
             "{text}"
         );
     }

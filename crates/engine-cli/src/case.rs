@@ -103,7 +103,7 @@ pub fn prepare_case(case: &str, patch: &str) -> Result<Prepared, String> {
     let case: Case =
         serde_json::from_str(case).map_err(|error| format!("invalid case: {error}"))?;
     let rate = SampleRate::new(case.sample_rate).map_err(|error| error.to_string())?;
-    let patch = engine_patch::parse_patch(patch).map_err(|e| e.to_string())?;
+    let patch = engine_patch::parse_patch(patch).map_err(|error| error.to_string())?;
     let plan = Plan::build(&patch, &REGISTRY, rate).map_err(|error| error.to_string())?;
     if plan.channels() == 0 {
         return Err("the patch has no audio output: nothing to render".to_owned());

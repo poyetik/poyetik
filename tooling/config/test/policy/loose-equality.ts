@@ -1,5 +1,5 @@
 /** Doc. */
-export function f(a: number, b: number): boolean {
+export function run(left: number, right: number): boolean {
   // eslint-disable-next-line eqeqeq
-  return a == b;
+  return left == right;
 }

@@ -76,6 +76,12 @@ export function strict(directory: string, ignores: readonly string[], ...extra: 
         "jsdoc/require-param": "off", // parameters are typed; describe them in the description when useful
         "jsdoc/require-returns": "off", // return types are typed
         eqeqeq: "error",
+        // Names say what they hold (`error`, not `e`), as Clippy's min_ident_chars in Rust:
+        // only the conventional loop and coordinate names are shorter.
+        "id-length": ["error", { min: 2, exceptions: ["i", "j", "x", "y"], properties: "never" }],
+        // A name means one thing in a scope: an inner declaration never hides an outer one.
+        "no-shadow": "off",
+        "@typescript-eslint/no-shadow": ["error", { hoist: "all" }], // even a name declared further down
         // Parameters are never reassigned nor mutated, except the mutable-by-design objects
         // received to be drawn on or written into: canvas contexts and DOM elements.
         "no-param-reassign": ["error", { props: true, ignorePropertyModificationsFor: ["canvas", "element"] }],

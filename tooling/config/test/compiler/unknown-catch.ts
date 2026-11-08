@@ -1,7 +1,7 @@
 /** Doc. */
-export function f(): void {
+export function run(): void {
   try {
-    f();
+    run();
   } catch (error) {
     error.message;
   }

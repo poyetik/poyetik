@@ -194,7 +194,7 @@ class FakeContext {
 const CAPABLE: Environment = { isSecureContext: true, AudioContext: FakeContext, AudioWorkletNode: FakeWorkletNode, WebAssembly };
 
 /** Options of a player. */
-function options(patch = SINE_440, environment = CAPABLE): PlayerOptions {
+function playerOptions(patch = SINE_440, environment = CAPABLE): PlayerOptions {
   return { wasm: "engine.wasm", worklet: "processors.js", patch, gain: 0.25, fade: 0.02, historySeconds: 4 / 48_000, environment };
 }
 
@@ -241,7 +241,7 @@ afterEach(() => {
 
 describe("EnginePlayer", () => {
   test("plays the patch, fading in: engine to speakers through the gain, and to the tap", async () => {
-    const player = new EnginePlayer(options());
+    const player = new EnginePlayer(playerOptions());
     expect(player.state()).toStrictEqual({ kind: "stopped" });
     expect(player.latest()).toBeUndefined();
     await player.start();
@@ -263,7 +263,7 @@ describe("EnginePlayer", () => {
   });
 
   test("tells its listeners about every change of state, until they unsubscribe", async () => {
-    const player = new EnginePlayer(options());
+    const player = new EnginePlayer(playerOptions());
     const seen: string[] = [];
     const unsubscribe = player.subscribe(() => seen.push(player.state().kind));
     await player.start();
@@ -275,7 +275,7 @@ describe("EnginePlayer", () => {
   });
 
   test("keeps the latest samples of the first channel", async () => {
-    const player = new EnginePlayer(options());
+    const player = new EnginePlayer(playerOptions());
     await player.start();
     const tap = workletNode("poyetik-tap")?.port;
     tap?.deliver([new Float32Array([1, 2, 3]), new Float32Array([9, 9, 9])]);
@@ -286,7 +286,7 @@ describe("EnginePlayer", () => {
   });
 
   test("fails, closing the context, on a malformed block from the tap", async () => {
-    const player = new EnginePlayer(options());
+    const player = new EnginePlayer(playerOptions());
     await player.start();
     log = [];
     workletNode("poyetik-tap")?.port.deliver("garbage");
@@ -297,7 +297,7 @@ describe("EnginePlayer", () => {
   });
 
   test("fails when the engine processor fails while playing, once", async () => {
-    const player = new EnginePlayer(options());
+    const player = new EnginePlayer(playerOptions());
     await player.start();
     const engine = workletNode("poyetik-engine");
     engine?.port.deliver({ type: "failed", message: "EngineTrap: trapped" });
@@ -310,14 +310,14 @@ describe("EnginePlayer", () => {
   test("fails when the engine processor cannot load the patch", async () => {
     // Built in this realm, as the structured clone of a real port would deliver it.
     engineAnswer = { type: "rejected", detail: Uint8Array.from(new TextEncoder().encode("bad patch")) };
-    const player = new EnginePlayer(options());
+    const player = new EnginePlayer(playerOptions());
     await player.start();
     expect(player.state()).toStrictEqual({ kind: "failed", reason: "Error: bad patch" });
     expect(log.at(-1)).toBe("close");
   });
 
   test("starts once, even when asked twice at once", async () => {
-    const player = new EnginePlayer(options());
+    const player = new EnginePlayer(playerOptions());
     const first = player.start();
     const second = player.start();
     expect(second).toBe(first);
@@ -327,7 +327,7 @@ describe("EnginePlayer", () => {
   });
 
   test("stops during a start: waits for it, then stops", async () => {
-    const player = new EnginePlayer(options());
+    const player = new EnginePlayer(playerOptions());
     const starting = player.start();
     const stopping = player.stop();
     await Promise.all([starting, stopping]);
@@ -336,7 +336,7 @@ describe("EnginePlayer", () => {
   });
 
   test("stops by fading out on the audio clock, then closing; once", async () => {
-    const player = new EnginePlayer(options());
+    const player = new EnginePlayer(playerOptions());
     await player.start();
     log = [];
     const first = player.stop();
@@ -362,7 +362,7 @@ describe("EnginePlayer", () => {
   });
 
   test("fails, without closing twice, when the browser closes the context during the fade out", async () => {
-    const player = new EnginePlayer(options());
+    const player = new EnginePlayer(playerOptions());
     await player.start();
     log = [];
     const stopping = player.stop();
@@ -373,7 +373,7 @@ describe("EnginePlayer", () => {
   });
 
   test("follows the browser: suspended, resumed, closed", async () => {
-    const player = new EnginePlayer(options());
+    const player = new EnginePlayer(playerOptions());
     await player.start();
     const context = lastContext();
     context?.become("suspended");
@@ -394,7 +394,7 @@ describe("EnginePlayer", () => {
 
   test("ignores the browser while starting: the start decides", async () => {
     engineAnswer = undefined;
-    const player = new EnginePlayer(options());
+    const player = new EnginePlayer(playerOptions());
     const starting = player.start();
     await vi.waitFor(() => {
       expect(workletNode("poyetik-engine")).toBeDefined();
@@ -408,7 +408,7 @@ describe("EnginePlayer", () => {
   });
 
   test("ignores the context of an earlier session", async () => {
-    const player = new EnginePlayer(options());
+    const player = new EnginePlayer(playerOptions());
     await player.start();
     const old = lastContext();
     await player.stop();
@@ -422,7 +422,7 @@ describe("EnginePlayer", () => {
   });
 
   test("stops again after starting again", async () => {
-    const player = new EnginePlayer(options());
+    const player = new EnginePlayer(playerOptions());
     await player.start();
     await player.stop();
     await player.start();
@@ -433,7 +433,7 @@ describe("EnginePlayer", () => {
 
   test("stays suspended when the browser refuses to resume, and closes at once when stopped", async () => {
     FakeContext.resumesTo = "suspended";
-    const player = new EnginePlayer(options());
+    const player = new EnginePlayer(playerOptions());
     await player.start();
     expect(player.state()).toStrictEqual({ kind: "suspended" });
     await player.resume();
@@ -445,7 +445,7 @@ describe("EnginePlayer", () => {
   });
 
   test("resumes only when suspended", async () => {
-    const player = new EnginePlayer(options());
+    const player = new EnginePlayer(playerOptions());
     await player.resume();
     await player.start();
     log = [];
@@ -454,7 +454,7 @@ describe("EnginePlayer", () => {
   });
 
   test("ignores what a closed session reports", async () => {
-    const player = new EnginePlayer(options());
+    const player = new EnginePlayer(playerOptions());
     await player.start();
     const context = lastContext();
     const engine = workletNode("poyetik-engine");
@@ -466,7 +466,7 @@ describe("EnginePlayer", () => {
   });
 
   test("fetches the engine once, and starts again in a new context", async () => {
-    const player = new EnginePlayer(options());
+    const player = new EnginePlayer(playerOptions());
     await player.start();
     await player.stop();
     log = [];
@@ -477,7 +477,7 @@ describe("EnginePlayer", () => {
 
   test("fails, closing the context, when the engine cannot be fetched; and can start again", async () => {
     stubFetch(404);
-    const player = new EnginePlayer(options());
+    const player = new EnginePlayer(playerOptions());
     await player.start();
     expect(player.state()).toStrictEqual({ kind: "failed", reason: "Error: cannot load the engine from engine.wasm (HTTP 404)" });
     expect(log).toStrictEqual(["new context", "fetch engine.wasm", "close"]);
@@ -489,14 +489,14 @@ describe("EnginePlayer", () => {
 
   test("acknowledges a failure when stopped", async () => {
     stubFetch(404);
-    const player = new EnginePlayer(options());
+    const player = new EnginePlayer(playerOptions());
     await player.start();
     await player.stop();
     expect(player.state()).toStrictEqual({ kind: "stopped" });
   });
 
   test("fails when the patch is rejected", async () => {
-    const player = new EnginePlayer(options(new TextEncoder().encode("{}")));
+    const player = new EnginePlayer(playerOptions(new TextEncoder().encode("{}")));
     await player.start();
     expect(player.state().kind).toBe("failed");
     expect(log.at(-1)).toBe("close");
@@ -505,7 +505,7 @@ describe("EnginePlayer", () => {
   test("does not leave the start state when a failure came first", async () => {
     // The engine answers nothing: the tap fails before the start completes.
     engineAnswer = undefined;
-    const player = new EnginePlayer(options());
+    const player = new EnginePlayer(playerOptions());
     const starting = player.start();
     await vi.waitFor(() => {
       expect(workletNode("poyetik-tap")).toBeDefined();
@@ -517,7 +517,7 @@ describe("EnginePlayer", () => {
   });
 
   test("explains what the browser lacks instead of starting", async () => {
-    const player = new EnginePlayer(options(SINE_440, { ...CAPABLE, isSecureContext: false }));
+    const player = new EnginePlayer(playerOptions(SINE_440, { ...CAPABLE, isSecureContext: false }));
     await player.start();
     expect(player.state()).toStrictEqual({ kind: "failed", reason: explain("secure-context") });
     expect(FakeContext.created).toHaveLength(0);
@@ -527,7 +527,7 @@ describe("EnginePlayer", () => {
 describe("EnginePlayer at the rate of the device", () => {
   test.each(SAMPLE_RATES)("plays at %i Hz, the rate of its context, never a default", async (rate) => {
     FakeContext.rate = rate;
-    const player = new EnginePlayer(options());
+    const player = new EnginePlayer(playerOptions());
     await player.start();
     expect(player.state()).toStrictEqual({ kind: "playing" });
     expect(player.latest()?.rate).toBe(rate);

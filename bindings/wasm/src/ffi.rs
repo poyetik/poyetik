@@ -173,11 +173,16 @@ mod tests {
         for _ in 0..2_u8 {
             let planar = block();
             let (left, right) = planar.split_at(BLOCK_SIZE);
-            for (l, r) in left.iter().zip(right) {
-                actual.extend([*l, *r]);
+            for (left_sample, right_sample) in left.iter().zip(right) {
+                actual.extend([*left_sample, *right_sample]);
             }
         }
-        let bits = |samples: &[f32]| samples.iter().map(|s| s.to_bits()).collect::<Vec<_>>();
+        let bits = |samples: &[f32]| {
+            samples
+                .iter()
+                .map(|sample| sample.to_bits())
+                .collect::<Vec<_>>()
+        };
         assert_eq!(bits(&actual), bits(&expected), "bit-identical");
 
         // What the audio thread calls, block after block: no allocation.

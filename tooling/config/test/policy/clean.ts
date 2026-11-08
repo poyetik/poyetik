@@ -25,3 +25,16 @@ export class Box {
     this.content = content;
   }
 }
+
+/** The conventional loop and coordinate names stay allowed, as do short property names. */
+export function grid(size: number): { x: number; y: number; z: number }[] {
+  const points = [];
+  for (let i = 0; i < size; i += 1) {
+    for (let j = 0; j < size; j += 1) {
+      const x = i;
+      const y = j;
+      points.push({ x, y, z: 0 });
+    }
+  }
+  return points;
+}

@@ -73,20 +73,20 @@ fn resolve<'patch>(
     let spec = registry
         .iter()
         .copied()
-        .find(|s| s.name == node.kind)
+        .find(|spec| spec.name == node.kind)
         .ok_or_else(|| CoreError::UnknownObject {
             node: node.id,
             kind: node.kind.clone(),
         })?;
     for (name, &value) in &node.params {
-        let param =
-            spec.params
-                .iter()
-                .find(|p| p.name == name)
-                .ok_or_else(|| CoreError::UnknownParam {
-                    node: node.id,
-                    name: name.clone(),
-                })?;
+        let param = spec
+            .params
+            .iter()
+            .find(|param| param.name == name)
+            .ok_or_else(|| CoreError::UnknownParam {
+                node: node.id,
+                name: name.clone(),
+            })?;
         if !param.accepts(value) {
             return Err(CoreError::ParamOutOfRange {
                 node: node.id,
@@ -98,7 +98,12 @@ fn resolve<'patch>(
     let params = spec
         .params
         .iter()
-        .map(|p| node.params.get(p.name).copied().unwrap_or(p.default))
+        .map(|param| {
+            node.params
+                .get(param.name)
+                .copied()
+                .unwrap_or(param.default)
+        })
         .collect();
     Ok(Resolved {
         node,
@@ -221,25 +226,28 @@ impl Plan {
         let steps: Vec<Step> = order
             .iter()
             .filter_map(|id| nodes.remove(id))
-            .map(|r| {
-                let id = r.node.id;
+            .map(|resolved| {
+                let id = resolved.node.id;
                 Step {
                     node: id,
-                    object: (r.spec.create)(rate, &r.params),
-                    inputs: vec![SILENCE; r.spec.inlets.len()],
-                    outputs: vec![SILENCE; r.spec.outlets.len()],
-                    sources: (0..r.spec.inlets.len())
+                    object: (resolved.spec.create)(rate, &resolved.params),
+                    inputs: vec![SILENCE; resolved.spec.inlets.len()],
+                    outputs: vec![SILENCE; resolved.spec.outlets.len()],
+                    sources: (0..resolved.spec.inlets.len())
                         .map(|inlet| sources.remove(&(id, inlet)).unwrap_or_default())
                         .collect(),
-                    first_slot: r.first_slot,
-                    is_output: r.spec.capabilities.contains(&Capability::AudioOutput),
+                    first_slot: resolved.first_slot,
+                    is_output: resolved
+                        .spec
+                        .capabilities
+                        .contains(&Capability::AudioOutput),
                 }
             })
             .collect();
         let channels = steps
             .iter()
-            .filter(|s| s.is_output)
-            .map(|s| s.inputs.len())
+            .filter(|step| step.is_output)
+            .map(|step| step.inputs.len())
             .max()
             .unwrap_or(0);
         Ok(Self {

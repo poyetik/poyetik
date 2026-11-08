@@ -100,8 +100,8 @@ describe("COLUMNS", () => {
   });
 
   it("recognizes only column ids", () => {
-    for (const c of COLUMNS) {
-      expect(isColumnId(c.id)).toBe(true);
+    for (const column of COLUMNS) {
+      expect(isColumnId(column.id)).toBe(true);
     }
     for (const value of ["", "Later", "todo", 1, null, undefined]) {
       expect(isColumnId(value)).toBe(false);
@@ -267,10 +267,10 @@ describe("parseBoard", () => {
 
 describe("serializeBoard", () => {
   it("produces stable, indented JSON with a trailing newline", () => {
-    const b = board([
+    const sample = board([
       card(1, "next", { description: "d", milestone: "M1", tasks: [{ title: "Step", done: true }] }),
     ]);
-    expect(serializeBoard(b)).toBe(`{
+    expect(serializeBoard(sample)).toBe(`{
   "version": 1,
   "title": "Project",
   "nextId": 2,
@@ -317,8 +317,8 @@ describe("serializeBoard", () => {
   });
 
   it("round-trips through parseBoard", () => {
-    const b = board([card(1, "next"), card(2, "done", { milestone: "M" })]);
-    expect(parseBoard(JSON.parse(serializeBoard(b)))).toEqual(b);
+    const original = board([card(1, "next"), card(2, "done", { milestone: "M" })]);
+    expect(parseBoard(JSON.parse(serializeBoard(original)))).toEqual(original);
   });
 });
 
@@ -360,7 +360,7 @@ describe("addCard", () => {
 
 describe("moveCard", () => {
   const start = board([card(1, "next"), card(2, "next"), card(3, "done"), card(4, "next")]);
-  const ids = (b: Board): string[] => b.cards.map((c) => `${String(c.id)}:${c.column}`);
+  const ids = (result: Board): string[] => result.cards.map((entry) => `${String(entry.id)}:${entry.column}`);
 
   it("moves to the end of the column by default and updates the date", () => {
     const moved = moveCard(start, 1, "done", undefined, LATER);
@@ -487,7 +487,7 @@ describe("tasks in parseBoard", () => {
 
 describe("withStatus", () => {
   const statuses = (column: Card["column"], done: boolean[]): string[] =>
-    withStatus(card(1, column, { tasks: done.map((d, i) => ({ title: String(i), done: d })) })).map((t) => t.status);
+    withStatus(card(1, column, { tasks: done.map((isDone, i) => ({ title: String(i), done: isDone })) })).map((step) => step.status);
 
   it("marks done tasks, the first unfinished task in progress, the rest to do, in the In progress column", () => {
     expect(statuses("doing", [])).toEqual([]);
@@ -521,14 +521,14 @@ describe("parseTaskNumber", () => {
 
 describe("findCard", () => {
   it("returns the card or fails", () => {
-    const b = board([card(1, "next"), card(2, "done")]);
-    expect(findCard(b, 2)).toEqual(card(2, "done"));
-    expectBoardError(() => findCard(b, 3), "card not found: #3");
+    const twoCards = board([card(1, "next"), card(2, "done")]);
+    expect(findCard(twoCards, 2)).toEqual(card(2, "done"));
+    expectBoardError(() => findCard(twoCards, 3), "card not found: #3");
   });
 });
 
 describe("task commands", () => {
-  const steps = (b: Board): string[] => (b.cards[0]?.tasks ?? []).map((t) => `${t.title}:${String(t.done)}`);
+  const steps = (current: Board): string[] => (current.cards[0]?.tasks ?? []).map((task) => `${task.title}:${String(task.done)}`);
   const start = board([card(1, "doing", { tasks: [{ title: "A", done: false }, { title: "B", done: false }, { title: "C", done: false }] }), card(2, "next")]);
 
   it("adds a task at the end, trimmed, and updates the date", () => {
@@ -586,11 +586,11 @@ describe("task commands", () => {
   });
 
   it("rejects out-of-range or non-integer task numbers", () => {
-    for (const n of [0, 4, -1, 1.5]) {
-      expectBoardError(() => reopenTask(start, 1, n, LATER), `invalid task number for #1: ${String(n)} (1 to 3)`);
-      expectBoardError(() => completeTask(start, 1, n, LATER), `invalid task number for #1: ${String(n)} (1 to 3)`);
-      expectBoardError(() => renameTask(start, 1, n, "X", LATER), `invalid task number for #1: ${String(n)} (1 to 3)`);
-      expectBoardError(() => removeTask(start, 1, n, LATER), `invalid task number for #1: ${String(n)} (1 to 3)`);
+    for (const taskNumber of [0, 4, -1, 1.5]) {
+      expectBoardError(() => reopenTask(start, 1, taskNumber, LATER), `invalid task number for #1: ${String(taskNumber)} (1 to 3)`);
+      expectBoardError(() => completeTask(start, 1, taskNumber, LATER), `invalid task number for #1: ${String(taskNumber)} (1 to 3)`);
+      expectBoardError(() => renameTask(start, 1, taskNumber, "X", LATER), `invalid task number for #1: ${String(taskNumber)} (1 to 3)`);
+      expectBoardError(() => removeTask(start, 1, taskNumber, LATER), `invalid task number for #1: ${String(taskNumber)} (1 to 3)`);
     }
     expectBoardError(() => reopenTask(board([card(1, "next")]), 1, 1, LATER), "invalid task number for #1: 1 (1 to 0)");
   });

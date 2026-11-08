@@ -3,7 +3,7 @@ import { NONE, formatFrequency, formatPeak, formatRate } from "../src/readout.ts
 
 /** A sine of `hertz` at 48 kHz, over 4096 samples. */
 function sine(hertz: number): { samples: Float32Array; rate: number } {
-  return { samples: Float32Array.from({ length: 4096 }, (_, index) => Math.sin(0.3 + (2 * Math.PI * hertz * index) / 48_000)), rate: 48_000 };
+  return { samples: Float32Array.from({ length: 4096 }, (_empty, index) => Math.sin(0.3 + (2 * Math.PI * hertz * index) / 48_000)), rate: 48_000 };
 }
 
 test("shows the frequency to a tenth of a hertz, within its domain only", () => {

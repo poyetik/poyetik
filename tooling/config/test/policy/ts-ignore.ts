@@ -1,3 +1,3 @@
 /** Doc. */
 // @ts-ignore: reason
-export const X = 1;
+export const VALUE = 1;

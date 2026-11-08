@@ -1,4 +1,4 @@
 /** Doc. */
-export function f(count: number): number {
+export function run(count: number): number {
   return count ? 1 : 0;
 }

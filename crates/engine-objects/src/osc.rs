@@ -108,12 +108,12 @@ mod tests {
     #[test]
     fn produces_a_440_hz_sine() {
         let samples = render(440.0, 40);
-        for (n, &sample) in samples.iter().enumerate() {
-            let index = f64::from(u32::try_from(n).expect("small index"));
+        for (frame, &sample) in samples.iter().enumerate() {
+            let index = f64::from(u32::try_from(frame).expect("small index"));
             let expected = libm::sin(TAU * 440.0_f64 * index / 48_000.0_f64);
             assert!(
                 (f64::from(sample) - expected).abs() <= bound(2_560),
-                "sample {n}: {sample} instead of {expected}"
+                "sample {frame}: {sample} instead of {expected}"
             );
         }
         assert_eq!(samples[0].to_bits(), 0.0_f32.to_bits(), "starts at phase 0");
@@ -122,7 +122,9 @@ mod tests {
     #[test]
     fn has_a_full_scale_amplitude() {
         let samples = render(440.0, 40);
-        let peak = samples.iter().fold(0.0_f32, |max, s| max.max(s.abs()));
+        let peak = samples
+            .iter()
+            .fold(0.0_f32, |max, sample| max.max(sample.abs()));
         assert!(peak > 0.999_f32, "peak {peak} reaches full scale");
         assert!(peak <= 1.0_f32, "peak {peak} never exceeds full scale");
     }
@@ -132,7 +134,7 @@ mod tests {
         let samples = render(440.0, 750);
         let rising = samples
             .windows(2)
-            .filter(|w| w[0] < 0.0 && w[1] >= 0.0)
+            .filter(|pair| pair[0] < 0.0 && pair[1] >= 0.0)
             .count();
         // 750 blocks of 64 frames = 1 second: 440 periods, the first starting at 0.
         assert_eq!(
@@ -146,7 +148,7 @@ mod tests {
         let samples = render(1_000.0, 750);
         let rising = samples
             .windows(2)
-            .filter(|w| w[0] < 0.0 && w[1] >= 0.0)
+            .filter(|pair| pair[0] < 0.0 && pair[1] >= 0.0)
             .count();
         assert_eq!(rising, 999, "1 kHz");
         assert_eq!(render(0.0, 2), vec![0.0; 2 * BLOCK_SIZE], "0 Hz is silence");
@@ -203,19 +205,19 @@ mod tests {
         let rate = SampleRate::new(8_000).expect("valid rate");
         let mut osc = (OSC.create)(rate, &[10_001.0]);
         let mut out: [Block; 1] = [SILENCE];
-        let mut n = 0_u64;
+        let mut frame = 0_u64;
         for _ in 0_u32..1_250_u32 {
             osc.process(&[], &mut out);
             for &sample in &out[0] {
-                let cycle = (10_001_u64 * n) % 8_000_u64;
+                let cycle = (10_001_u64 * frame) % 8_000_u64;
                 let exact = libm::sin(
                     TAU * f64::from(u32::try_from(cycle).expect("below the rate")) / 8_000.0_f64,
                 );
                 assert!(
                     (f64::from(sample) - exact).abs() <= bound(80_000),
-                    "sample {n}: {sample} instead of {exact}"
+                    "sample {frame}: {sample} instead of {exact}"
                 );
-                n += 1_u64;
+                frame += 1_u64;
             }
         }
     }
@@ -225,9 +227,9 @@ mod tests {
         let rate = SampleRate::new(48_000).expect("valid rate");
         let mut with_default = (OSC.create)(rate, &[]);
         let mut with_440 = (OSC.create)(rate, &[440.0]);
-        let (mut a, mut b): ([Block; 1], [Block; 1]) = ([SILENCE], [SILENCE]);
-        with_default.process(&[], &mut a);
-        with_440.process(&[], &mut b);
-        assert_eq!(a, b, "same output");
+        let (mut default_out, mut explicit_out): ([Block; 1], [Block; 1]) = ([SILENCE], [SILENCE]);
+        with_default.process(&[], &mut default_out);
+        with_440.process(&[], &mut explicit_out);
+        assert_eq!(default_out, explicit_out, "same output");
     }
 }

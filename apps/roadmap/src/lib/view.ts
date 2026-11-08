@@ -31,7 +31,7 @@ function toCardView(card: Card): CardView {
   return {
     ...card,
     steps: withStatus(card),
-    doneSteps: card.tasks.filter((t) => t.done).length,
+    doneSteps: card.tasks.filter((task) => task.done).length,
     // Index -1 (nothing in progress) reads `undefined`, hence null.
     currentStep: card.tasks[currentTaskIndex(card)]?.title ?? null,
   };
@@ -47,18 +47,18 @@ export const DISPLAY_RANK: Readonly<Record<ColumnId, number>> = { doing: 0, next
 /** Prepares the display: cards grouped by column, in display order, then in board order. */
 export function toView(board: Board): BoardView {
   const columns = [...COLUMNS]
-    .sort((a, b) => DISPLAY_RANK[a.id] - DISPLAY_RANK[b.id])
+    .sort((left, right) => DISPLAY_RANK[left.id] - DISPLAY_RANK[right.id])
     .map((col) => ({
       id: col.id,
       title: col.title,
-      cards: board.cards.filter((c) => c.column === col.id).map(toCardView),
+      cards: board.cards.filter((card) => card.column === col.id).map(toCardView),
     }));
-  const dates = board.cards.map((c) => c.updatedAt).sort();
+  const dates = board.cards.map((card) => card.updatedAt).sort();
   return {
     title: board.title,
     columns,
     total: board.cards.length,
-    done: board.cards.filter((c) => c.column === "done").length,
+    done: board.cards.filter((card) => card.column === "done").length,
     lastUpdated: dates.at(-1) ?? null,
   };
 }

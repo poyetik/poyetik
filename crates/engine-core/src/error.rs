@@ -212,8 +212,10 @@ mod tests {
     fn repeats_a_word(message: &str) -> bool {
         message.split(", ").any(|item| {
             let words: Vec<&str> = item
-                .split(|c: char| !c.is_alphanumeric())
-                .filter(|w| !w.is_empty() && !w.chars().all(|c| c.is_ascii_digit()))
+                .split(|character: char| !character.is_alphanumeric())
+                .filter(|word| {
+                    !word.is_empty() && !word.chars().all(|character| character.is_ascii_digit())
+                })
                 .collect();
             words.windows(2).any(|pair| pair[0] == pair[1])
         })

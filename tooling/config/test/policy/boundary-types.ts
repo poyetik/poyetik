@@ -1,4 +1,4 @@
 /** Doc. */
-export function f() {
+export function run() {
   return 1;
 }

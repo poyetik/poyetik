@@ -6,7 +6,7 @@ import { SAMPLE_RATES } from "./matrix.ts";
 
 /** `count` samples of a sine at `hertz`, sampled at `rate`. */
 function sine(hertz: number, rate: number, count: number, phase = 0): Float32Array {
-  return Float32Array.from({ length: count }, (_, index) => Math.sin(phase + (2 * Math.PI * hertz * index) / rate));
+  return Float32Array.from({ length: count }, (_empty, index) => Math.sin(phase + (2 * Math.PI * hertz * index) / rate));
 }
 
 describe("risingCrossings", () => {
@@ -38,7 +38,7 @@ describe("frequency", () => {
 
   test("scales with the sample rate", () => {
     // One rising crossing every 40 samples, four periods.
-    const square = Float32Array.from({ length: 161 }, (_, index) => (index % 40 < 20 ? -1 : 1));
+    const square = Float32Array.from({ length: 161 }, (_empty, index) => (index % 40 < 20 ? -1 : 1));
     expect(frequency(square, 4000)).toBe(100);
     expect(frequency(square, 8000)).toBe(200);
   });
@@ -46,7 +46,7 @@ describe("frequency", () => {
   test("needs three periods", () => {
     expect(MIN_PERIODS).toBe(3);
     // A square of period 40 samples: three crossings are two periods, four are three.
-    const periods = (count: number): Float32Array => Float32Array.from({ length: count * 40 + 21 }, (_, index) => (index % 40 < 20 ? -1 : 1));
+    const periods = (count: number): Float32Array => Float32Array.from({ length: count * 40 + 21 }, (_empty, index) => (index % 40 < 20 ? -1 : 1));
     expect(frequency(periods(2), 4000)).toBeUndefined();
     expect(frequency(periods(3), 4000)).toBe(100);
     expect(frequency(new Float32Array(16), 48_000)).toBeUndefined();
@@ -58,7 +58,7 @@ describe("frequency", () => {
     expect(at(2399)).toBeDefined();
     expect(at(2401)).toBeUndefined();
     // Exactly a twentieth (a square of period 20 samples at 48 kHz) is still measured.
-    const edge = Float32Array.from({ length: 101 }, (_, index) => (index % 20 < 10 ? -1 : 1));
+    const edge = Float32Array.from({ length: 101 }, (_empty, index) => (index % 20 < 10 ? -1 : 1));
     expect(frequency(edge, 48_000)).toBe(2400);
   });
 
@@ -68,7 +68,7 @@ describe("frequency", () => {
     for (const rate of SAMPLE_RATES) {
       const count = Math.round(HISTORY_SECONDS * rate);
       const lowest = (MIN_PERIODS + 1) / HISTORY_SECONDS;
-      for (const hertz of [lowest, 100, 440, 1000, rate * MAX_FREQUENCY_RATIO * 0.99].filter((f) => f <= rate * MAX_FREQUENCY_RATIO)) {
+      for (const hertz of [lowest, 100, 440, 1000, rate * MAX_FREQUENCY_RATIO * 0.99].filter((candidate) => candidate <= rate * MAX_FREQUENCY_RATIO)) {
         for (const phase of [0, 0.7, 2, 4.5]) {
           const measured = frequency(sine(hertz, rate, count, phase), rate);
           expect(measured, `${String(hertz)} Hz at ${String(rate)} Hz, phase ${String(phase)}`).toBeDefined();
@@ -140,7 +140,7 @@ describe("scopeScene", () => {
   test("triggers at every rate of the matrix: the trace is the sine from its crossing", () => {
     // Every period up to 75 ms (85 ms of history, 10 ms shown) finds a crossing, and the
     // trace, shifted by the fraction of a sample, is the sine starting at phase 0 at the
-    // left edge. The crossing comes from the line through two samples h radians apart,
+    // left edge. The crossing comes from the line through two samples h radians apart (h is `radiansPerSample`),
     // which misplaces the zero of a sine by up to h³/16 radians (measured over the matrix
     // at 64 phases: at most half of the h³/8 allowed), plus the binary32 rounding of the
     // samples (2^-24): never the whole sample of jitter of an integer trigger.
@@ -148,9 +148,9 @@ describe("scopeScene", () => {
       const count = Math.round(HISTORY_SECONDS * rate);
       const window = Math.round(WINDOW_SECONDS * rate);
       const step = 900 / (window - 1);
-      for (const hertz of [13.4, 440, 5000].filter((f) => f <= rate / 4)) {
-        const h = (2 * Math.PI * hertz) / rate;
-        const bound = 135 * (h ** 3 / 8 + 2 ** -24);
+      for (const hertz of [13.4, 440, 5000].filter((candidate) => candidate <= rate / 4)) {
+        const radiansPerSample = (2 * Math.PI * hertz) / rate;
+        const bound = 135 * (radiansPerSample ** 3 / 8 + 2 ** -24);
         for (const phase of [0, 1, 2.5, 4, 5.5]) {
           const { trace } = scopeScene(sine(hertz, rate, count, phase), window, 900, 300);
           expect(trace).toHaveLength(window);

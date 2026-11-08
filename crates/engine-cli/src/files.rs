@@ -53,7 +53,7 @@ impl Files for Disk {
 
     fn list(&mut self, dir: &Path) -> io::Result<Vec<PathBuf>> {
         std::fs::read_dir(dir)?
-            .map(|entry| entry.map(|e| e.path()))
+            .map(|entry| entry.map(|dir_entry| dir_entry.path()))
             .collect()
     }
 }

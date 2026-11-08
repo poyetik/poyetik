@@ -1,4 +1,4 @@
 /** Doc. */
-export function f(value): number {
+export function run(value): number {
   return value;
 }

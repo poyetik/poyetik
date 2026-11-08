@@ -1,3 +1,3 @@
 // @ts-nocheck
 /** Doc. */
-export const X = 1;
+export const VALUE = 1;

@@ -116,8 +116,14 @@ mod tests {
         assert_eq!(instance.message(), "", "no error");
         let blocks = instance.process();
         assert_eq!(blocks.len(), 2, "one block per channel");
-        assert!(blocks[0].iter().any(|&s| s != 0.0), "sound on the left");
-        assert!(blocks[1].iter().all(|&s| s == 0.0), "silence on the right");
+        assert!(
+            blocks[0].iter().any(|&sample| sample != 0.0),
+            "sound on the left"
+        );
+        assert!(
+            blocks[1].iter().all(|&sample| sample == 0.0),
+            "silence on the right"
+        );
     }
 
     #[test]

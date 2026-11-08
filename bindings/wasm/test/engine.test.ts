@@ -33,7 +33,7 @@ describe("WasmEngine", () => {
     expect([...REFERENCES.keys()].sort()).toStrictEqual(names);
   });
 
-  test.each(CORPUS.map((testCase) => [testCase.name, testCase] as const))("renders %s in Node bit-identical to the native engine", async (_, testCase) => {
+  test.each(CORPUS.map((testCase) => [testCase.name, testCase] as const))("renders %s in Node bit-identical to the native engine", async (_name, testCase) => {
     const engine = WasmEngine.create(module, testCase.patch, testCase.rate);
     const channels = Array.from({ length: engine.channels }, () => new Float32Array(testCase.frames));
     for (let start = 0; start < testCase.frames; start += 128) {
@@ -131,12 +131,12 @@ describe("WasmEngine", () => {
   });
 
   test.each(FUNCTIONS)("rejects a module without %s", (missing) => {
-    const partial = handMadeModule({ memory: true, functions: engineFunctions().filter((f) => f.name !== missing) });
+    const partial = handMadeModule({ memory: true, functions: engineFunctions().filter((func) => func.name !== missing) });
     expect(() => WasmEngine.create(partial, SINE_PATCH, RATE)).toThrow(new ModuleError(`no function ${missing}`));
   });
 
   test("rejects a function with the wrong number of arguments", () => {
-    const functions = engineFunctions().map((f) => (f.name === "engine_load" ? { ...f, params: 0 } : f));
+    const functions = engineFunctions().map((func) => (func.name === "engine_load" ? { ...func, params: 0 } : func));
     expect(() => WasmEngine.create(handMadeModule({ memory: true, functions }), SINE_PATCH, RATE)).toThrow(
       new ModuleError("engine_load takes 0 argument(s), expected 1"),
     );
@@ -162,7 +162,7 @@ describe("WasmEngine", () => {
 
   test("reads results from 2^31 on as unsigned", () => {
     // A module reporting 2^31 channels (i32 -2^31), with every other call returning 1.
-    const functions = engineFunctions().map((f) => (f.name === "engine_channels" ? { ...f, body: { i32: -(2 ** 31) } } : f));
+    const functions = engineFunctions().map((func) => (func.name === "engine_channels" ? { ...func, body: { i32: -(2 ** 31) } } : func));
     expect(WasmEngine.create(handMadeModule({ memory: true, functions }), SINE_PATCH, RATE).channels).toBe(2 ** 31);
   });
 
@@ -183,7 +183,7 @@ describe("WasmEngine", () => {
   });
 
   test("turns a trap into an EngineTrap, and never calls a trapped module again", () => {
-    const loadTraps = engineFunctions().map((f) => (f.name === "engine_load" ? { ...f, body: "trap" as const } : f));
+    const loadTraps = engineFunctions().map((func) => (func.name === "engine_load" ? { ...func, body: "trap" as const } : func));
     const loadError = (() => {
       try {
         WasmEngine.create(handMadeModule({ memory: true, functions: loadTraps }), SINE_PATCH, RATE);
@@ -194,7 +194,7 @@ describe("WasmEngine", () => {
     })();
     expect(loadError).toBeInstanceOf(EngineTrap);
     expect(loadError instanceof Error ? loadError.cause : undefined).toBeInstanceOf(WebAssembly.RuntimeError);
-    const processTraps = engineFunctions().map((f) => (f.name === "engine_process" ? { ...f, body: "trap" as const } : f));
+    const processTraps = engineFunctions().map((func) => (func.name === "engine_process" ? { ...func, body: "trap" as const } : func));
     const engine = WasmEngine.create(handMadeModule({ memory: true, functions: processTraps }), SINE_PATCH, RATE);
     const error = (() => {
       try {
@@ -213,7 +213,7 @@ describe("WasmEngine", () => {
   });
 
   test("lets other errors of the module through, and stops calling it", () => {
-    const functions = engineFunctions().map((f) => (f.name === "engine_process" ? { ...f, body: "i64" as const } : f));
+    const functions = engineFunctions().map((func) => (func.name === "engine_process" ? { ...func, body: "i64" as const } : func));
     const engine = WasmEngine.create(handMadeModule({ memory: true, functions }), SINE_PATCH, RATE);
     expect(() => {
       engine.render([new Float32Array(1)]);
@@ -225,7 +225,7 @@ describe("WasmEngine", () => {
 
   test("reads the block from the memory as it is after it grew", () => {
     // One channel of one-frame blocks; engine_process grows the memory, then writes 0.5.
-    const functions = engineFunctions().map((f) => (f.name === "engine_process" ? { ...f, body: "grow" as const } : f));
+    const functions = engineFunctions().map((func) => (func.name === "engine_process" ? { ...func, body: "grow" as const } : func));
     const engine = WasmEngine.create(handMadeModule({ memory: true, functions }), SINE_PATCH, RATE);
     const outputs = [new Float32Array(1)];
     engine.render(outputs);
@@ -234,7 +234,7 @@ describe("WasmEngine", () => {
 
   test("outputs silence for a block placed outside the memory", () => {
     // A module pointing its block past the end of its one page of memory.
-    const functions = engineFunctions().map((f) => (f.name === "engine_process" ? { ...f, body: { i32: 70_000 } } : f));
+    const functions = engineFunctions().map((func) => (func.name === "engine_process" ? { ...func, body: { i32: 70_000 } } : func));
     const engine = WasmEngine.create(handMadeModule({ memory: true, functions }), SINE_PATCH, RATE);
     const outputs = [new Float32Array(1).fill(9)];
     engine.render(outputs);

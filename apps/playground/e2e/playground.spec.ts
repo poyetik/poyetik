@@ -139,10 +139,10 @@ test("declares its Content Security Policy and breaks none of it while playing",
   // The control below makes the browser report a blocked image (and a request refused).
   expected = /blocked\.png/;
   await page.addInitScript(() => {
-    const violations: string[] = [];
-    Reflect.set(window, "violations", violations);
+    const seen: string[] = [];
+    Reflect.set(window, "violations", seen);
     document.addEventListener("securitypolicyviolation", (event) => {
-      violations.push(`${event.violatedDirective} ${event.blockedURI}`);
+      seen.push(`${event.violatedDirective} ${event.blockedURI}`);
     });
   });
   await page.goto("./?muted");

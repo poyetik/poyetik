@@ -87,7 +87,7 @@ describe("judge", () => {
     // Amplitude 0: the bound is 0, so the smallest subnormal is already an error.
     const zero = { sine: { frequency: 1000, amplitude: 0, phase: 0 } };
     const judged = (value: number): Verdict => {
-      const flat = makeWav({ rate: RATE, channels: 1, samples: Array.from({ length: FRAMES }, (_, index) => (index === 5 ? value : 0)) });
+      const flat = makeWav({ rate: RATE, channels: 1, samples: Array.from({ length: FRAMES }, (_empty, index) => (index === 5 ? value : 0)) });
       return judge(
         corpus({
           wavs: new Map([["sine", flat]]),

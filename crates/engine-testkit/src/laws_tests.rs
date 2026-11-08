@@ -106,8 +106,8 @@ fn catches_non_finite_output() {
 #[test]
 fn catches_non_deterministic_output() {
     let spec = spec_with(|_, _| {
-        let n = INSTANCES.fetch_add(1, Ordering::Relaxed);
-        Box::new(Counter(f32::from(n % 1000)))
+        let instance = INSTANCES.fetch_add(1, Ordering::Relaxed);
+        Box::new(Counter(f32::from(instance % 1000)))
     });
     let error = check_laws(&spec).expect_err("instances differ");
     assert!(
@@ -149,7 +149,7 @@ fn feeds_inputs_across_the_whole_range() {
     struct NegativeIsNan;
     impl Object for NegativeIsNan {
         fn process(&mut self, inputs: &[Block], outputs: &mut [Block]) {
-            let negative = inputs.iter().flatten().any(|v| *v < 0.0);
+            let negative = inputs.iter().flatten().any(|sample| *sample < 0.0);
             for output in outputs {
                 output.fill(if negative { f32::NAN } else { 0.0 });
             }
@@ -183,7 +183,9 @@ fn feeds_inputs_to_every_inlet_and_reads_every_outlet() {
     struct SecondInlet;
     impl Object for SecondInlet {
         fn process(&mut self, inputs: &[Block], outputs: &mut [Block]) {
-            let second = inputs.get(1).is_some_and(|b| b.iter().any(|v| *v != 0.0));
+            let second = inputs
+                .get(1)
+                .is_some_and(|block| block.iter().any(|sample| *sample != 0.0));
             for output in outputs.iter_mut().skip(1) {
                 output.fill(if second { f32::NAN } else { 0.0 });
             }
@@ -254,7 +256,7 @@ fn feeds_the_special_inputs() {
             let special = inputs
                 .iter()
                 .flatten()
-                .any(|v| v.is_subnormal() || v.to_bits() == (-0.0_f32).to_bits());
+                .any(|sample| sample.is_subnormal() || sample.to_bits() == (-0.0_f32).to_bits());
             for output in outputs {
                 output.fill(if special { f32::NAN } else { 0.0 });
             }
@@ -275,7 +277,10 @@ fn feeds_random_inputs() {
     struct Middle;
     impl Object for Middle {
         fn process(&mut self, inputs: &[Block], outputs: &mut [Block]) {
-            let middle = inputs.iter().flatten().any(|v| *v > 0.25 && *v < 0.75);
+            let middle = inputs
+                .iter()
+                .flatten()
+                .any(|sample| *sample > 0.25 && *sample < 0.75);
             for output in outputs {
                 output.fill(if middle { f32::NAN } else { 0.0 });
             }

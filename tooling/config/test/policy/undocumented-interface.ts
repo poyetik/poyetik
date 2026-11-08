@@ -3,4 +3,4 @@ interface Point {
   readonly x: number;
 }
 /** Doc. */
-export const X: Point = { x: 1 };
+export const VALUE: Point = { x: 1 };

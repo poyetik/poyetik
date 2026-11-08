@@ -49,7 +49,7 @@ describe("parseWav", () => {
     ["byte rate", makeWav({ ...VALID, byteRate: 1 }), "inconsistent block alignment or byte rate"],
     ["partial frame", makeWav({ ...VALID, samples: [0, 0.5, 1] }), "data is not a whole number of frames"],
     ["fact mismatch", makeWav({ ...VALID, factFrames: 3 }), "fact chunk does not match the data"],
-  ])("rejects a file with %s", (_, bytes, detail) => {
+  ])("rejects a file with %s", (_defect, bytes, detail) => {
     expect(() => parseWav(bytes)).toThrow(new WavError(detail));
   });
 
@@ -67,7 +67,7 @@ describe("parseWav", () => {
     ["fmt", 12],
     ["fact", 38],
     ["data", 50],
-  ])("rejects a file without its %s chunk", (_, offset) => {
+  ])("rejects a file without its %s chunk", (_chunk, offset) => {
     const bytes = makeWav(VALID);
     bytes.set(new TextEncoder().encode("JUNK"), offset);
     expect(() => parseWav(bytes)).toThrow(new WavError("missing fmt, fact or data chunk"));

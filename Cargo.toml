@@ -62,6 +62,7 @@ float_cmp_const = "deny"
 lossy_float_literal = "deny"
 indexing_slicing = "deny"                 # no indexing that can panic
 unwrap_used = "deny"
+min_ident_chars = "deny"             # names say what they hold: `error`, not `e` (clippy.toml lists the exceptions)
 expect_used = "deny"
 panic = "deny"
 todo = "deny"

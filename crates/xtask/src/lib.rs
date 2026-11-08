@@ -431,7 +431,7 @@ pub fn check_steps() -> Vec<Step> {
 fn total(totals: Option<&serde_json::Value>, kind: &str) -> Result<(u64, u64), String> {
     let field = |name: &str| {
         totals
-            .and_then(|t| t.get(kind))
+            .and_then(|value| value.get(kind))
             .and_then(|entry| entry.get(name))
             .and_then(serde_json::Value::as_u64)
     };
@@ -525,7 +525,7 @@ pub fn ts_mutation_gate(package: &str, report: &str) -> Result<(), String> {
     if statuses.is_empty() {
         return Err(format!("{package}: no mutant in the mutation report"));
     }
-    let left = |status: &str| statuses.iter().filter(|s| **s == status).count();
+    let left = |status: &str| statuses.iter().filter(|entry| **entry == status).count();
     let (survived, uncovered) = (left("Survived"), left("NoCoverage"));
     if survived == 0 && uncovered == 0 {
         Ok(())
@@ -560,7 +560,7 @@ fn mutant_key(line: &str) -> Option<String> {
 pub fn unviable_gate(report: &str, reviewed: &str) -> Result<(), String> {
     let mut problems = Vec::new();
     let mut found = BTreeSet::new();
-    for line in report.lines().filter(|l| !l.trim().is_empty()) {
+    for line in report.lines().filter(|line| !line.trim().is_empty()) {
         match mutant_key(line) {
             Some(key) => {
                 let _: bool = found.insert(key);
@@ -572,7 +572,7 @@ pub fn unviable_gate(report: &str, reviewed: &str) -> Result<(), String> {
     for line in reviewed
         .lines()
         .map(str::trim)
-        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
     {
         match line.split_once(" -- ") {
             // The line is trimmed, so text always follows the separator: the reason is never empty.
@@ -632,7 +632,9 @@ pub fn equivalent_gate(sources: &[(String, String)], reviewed: &str) -> Result<(
                 .filter(|(mutator, reason)| {
                     !mutator.contains([' ', ',']) && *mutator != "all" && !reason.trim().is_empty()
                 });
-            let next = lines.get(index.saturating_add(1)).map_or("", |l| l.trim());
+            let next = lines
+                .get(index.saturating_add(1))
+                .map_or("", |following| following.trim());
             match rule {
                 Some((mutator, _reason)) if !next.is_empty() => {
                     let _: bool = found.insert(format!("{path}: {mutator} at {next}"));
@@ -648,7 +650,7 @@ pub fn equivalent_gate(sources: &[(String, String)], reviewed: &str) -> Result<(
     for line in reviewed
         .lines()
         .map(str::trim)
-        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
     {
         match line.split_once(" -- ") {
             Some((key, _reason)) => {
@@ -1019,7 +1021,7 @@ impl Version {
     #[must_use]
     pub fn parse(text: &str) -> Option<Self> {
         let number = |part: &str| {
-            let digits = !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit());
+            let digits = !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit());
             let leading_zero = part.len() > 1 && part.starts_with('0');
             if digits && !leading_zero {
                 part.parse::<u64>().ok()
@@ -1068,7 +1070,7 @@ fn released_heading(heading: &str) -> Option<Version> {
     let well_formed = [4, 2, 2].iter().all(|&len| {
         parts
             .next()
-            .is_some_and(|p| p.len() == len && p.bytes().all(|b| b.is_ascii_digit()))
+            .is_some_and(|part| part.len() == len && part.bytes().all(|byte| byte.is_ascii_digit()))
     }) && parts.next().is_none();
     if well_formed {
         Version::parse(version)
@@ -1119,7 +1121,10 @@ pub fn release_gate(
     if changelog.lines().next() != Some("# Changelog") {
         problems.push(format!("{CHANGELOG}: must start with \"# Changelog\""));
     }
-    let headings: Vec<&str> = changelog.lines().filter(|l| l.starts_with("## ")).collect();
+    let headings: Vec<&str> = changelog
+        .lines()
+        .filter(|line| line.starts_with("## "))
+        .collect();
     if headings.first() != Some(&"## [Unreleased]") {
         problems.push(format!(
             "{CHANGELOG}: the first section must be \"## [Unreleased]\""
@@ -1192,10 +1197,11 @@ pub fn commit_msg_gate(message: &str) -> Result<(), String> {
     if !COMMIT_TYPES.contains(&kind) {
         return fail(&format!("unknown type \"{kind}\""));
     }
-    let scope_ok = scope.is_some_and(|s| {
-        !s.is_empty()
-            && s.bytes()
-                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+    let scope_ok = scope.is_some_and(|name| {
+        !name.is_empty()
+            && name
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
     });
     if !scope_ok {
         return fail("the scope must be lowercase letters, digits or hyphens");

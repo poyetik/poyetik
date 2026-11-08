@@ -1,5 +1,5 @@
 /** Doc. */
-export function f(side: "left" | "right"): number {
+export function run(side: "left" | "right"): number {
   switch (side) {
     case "left":
       return 1;

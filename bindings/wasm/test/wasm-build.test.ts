@@ -33,7 +33,7 @@ describe("artifactPath", () => {
     ["no module among the files", artifact("engine_wasm", ["/t/libengine_wasm.rlib", 3])],
     ["files that are not a list", artifact("engine_wasm", "/t/engine_wasm.wasm")],
     ["another reason", JSON.stringify({ reason: "compiler-message", target: { name: "engine_wasm" }, filenames: ["/t/engine_wasm.wasm"] })],
-  ])("explains a build that does not report the module: %s", (_, messages) => {
+  ])("explains a build that does not report the module: %s", (_case, messages) => {
     expect(() => artifactPath(messages)).toThrow(new BuildError("cargo did not report the engine module (engine_wasm .wasm)"));
   });
 

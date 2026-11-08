@@ -63,12 +63,12 @@ mod tests {
         fn process(&mut self, inputs: &[Block], outputs: &mut [Block]) {
             let mut sum = [0.0_f32; engine_core::BLOCK_SIZE];
             for input in inputs {
-                for (s, v) in sum.iter_mut().zip(input) {
-                    *s += v * 0.5;
+                for (total, sample) in sum.iter_mut().zip(input) {
+                    *total += sample * 0.5;
                 }
             }
-            for s in &mut sum {
-                *s += self.0;
+            for total in &mut sum {
+                *total += self.0;
                 self.0 += 1.0e-3;
             }
             for output in outputs {
@@ -164,15 +164,15 @@ mod tests {
         nodes: &[Node],
         connections: &[Connection],
     ) -> Result<Vec<NodeId>, CoreError> {
-        let ids: BTreeSet<NodeId> = nodes.iter().map(|n| n.id).collect();
+        let ids: BTreeSet<NodeId> = nodes.iter().map(|node| node.id).collect();
         let mut placed = BTreeSet::new();
         let mut order = Vec::new();
         while let Some(&id) = ids.iter().find(|id| {
             !placed.contains(*id)
                 && connections
                     .iter()
-                    .filter(|c| c.to == **id)
-                    .all(|c| placed.contains(&c.from))
+                    .filter(|connection| connection.to == **id)
+                    .all(|connection| placed.contains(&connection.from))
         }) {
             let _: bool = placed.insert(id);
             order.push(id);
@@ -185,13 +185,14 @@ mod tests {
     }
 
     fn bits(samples: &[f32]) -> Vec<u32> {
-        samples.iter().map(|s| s.to_bits()).collect()
+        samples.iter().map(|sample| sample.to_bits()).collect()
     }
 
     /// Every law, for one shape at one rate, rendering `frames` split at `split`.
     fn check(shape: &Shape, rate: SampleRate, frames: usize, split: usize) -> Result<(), String> {
         let (nodes, connections) = patch_parts(shape);
-        let patch = Patch::new(nodes.clone(), connections.clone()).map_err(|e| e.to_string())?;
+        let patch =
+            Patch::new(nodes.clone(), connections.clone()).map_err(|error| error.to_string())?;
         let built = Plan::build(&patch, &REGISTRY, rate);
         let expected = reference_order(&nodes, &connections);
         let mut plan = match (built, expected) {
@@ -206,11 +207,11 @@ mod tests {
             (built, expected) => {
                 return Err(format!(
                     "built {:?}, reference {expected:?}",
-                    built.map(|p| p.execution_order().collect::<Vec<_>>())
+                    built.map(|built_plan| built_plan.execution_order().collect::<Vec<_>>())
                 ));
             }
         };
-        let whole = plan.render(frames).map_err(|e| e.to_string())?;
+        let whole = plan.render(frames).map_err(|error| error.to_string())?;
 
         // Same patch, document listed backwards: same samples.
         let mut reversed_nodes = nodes;
@@ -218,21 +219,22 @@ mod tests {
         let mut reversed_connections = connections;
         reversed_connections.reverse();
         let reversed =
-            Patch::new(reversed_nodes, reversed_connections).map_err(|e| e.to_string())?;
-        let mut again = Plan::build(&reversed, &REGISTRY, rate).map_err(|e| e.to_string())?;
+            Patch::new(reversed_nodes, reversed_connections).map_err(|error| error.to_string())?;
+        let mut again =
+            Plan::build(&reversed, &REGISTRY, rate).map_err(|error| error.to_string())?;
         let split_at = split.min(frames);
-        let mut parts = again.render(split_at).map_err(|e| e.to_string())?;
+        let mut parts = again.render(split_at).map_err(|error| error.to_string())?;
         parts.extend(
             again
                 .render(frames.saturating_sub(split_at))
-                .map_err(|e| e.to_string())?,
+                .map_err(|error| error.to_string())?,
         );
         if bits(&parts) != bits(&whole) {
             return Err(format!(
                 "render split at {split_at} or document order changes the samples"
             ));
         }
-        if let Some(sample) = whole.iter().find(|s| !s.is_finite()) {
+        if let Some(sample) = whole.iter().find(|sample| !sample.is_finite()) {
             return Err(format!("non-finite sample {sample}"));
         }
         // A built plan renders without allocating, into a caller buffer or block by block.
