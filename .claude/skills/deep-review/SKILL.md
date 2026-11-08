@@ -26,6 +26,7 @@ Resolve the scope from the argument, then **state it in one line before starting
 Build the **review packet** once, and give it to every reviewer:
 - the list of files in scope, and the diff when the scope is a change;
 - `CLAUDE.md` (the rules every finding is judged against);
+- `spec/` (`engine-design.md`, `measurements.md`, `patch-format.md`, `render-hash.md`): the engine's decisions and the step implementing each, the measurement definitions and how thresholds are derived, and the formats;
 - the local design notes listed in `CLAUDE.md` (section "Documentation"), when present, that are relevant to the scope; they are unversioned: never quote their strategy content in a versioned file;
 - the result of the last `cargo xtask check --full` or green CI run if available (do not rerun it just for the review; a default `cargo xtask check` proves only the mutants of its changes).
 
@@ -75,6 +76,7 @@ Defect classes earlier reviews found, which only a review sees. Give each review
 12. **Copies and loops** (6, 12, 3). Search each pinned value and each list entry and count where it is typed: one source, or a gate tying the copies. Search for test helpers written more than once. Give every animation-frame or polling loop a stop condition. Read every card of the roadmap's `doing` column as a visitor would.
 13. **Performance and bits** (3, 2). A performance finding comes with the measurement to take, and is never applied unmeasured. A fix that changes rendered bits only in cases the corpus does not reach yet is scheduled while it is still hash-neutral, before the change (a new box, a new case) that would make it move the reference hashes.
 14. **Hardening options** (4, 17). At each review, compare the configuration with the current hardening options of the forge (GitHub Actions), the package managers (pnpm, Cargo) and the supply-chain tools (`cargo-deny`).
+15. **Spec and measurements** (6, 15, 16). Every engine change matches the decision of `spec/engine-design.md` it implements, at the step that decision names. Every box and every engine component that touches the signal (resampler, smoothing, limiter, compensation, crossfades, event timing) lands its measurements with derived thresholds (`spec/measurements.md`), and every threshold has its derivation next to it: recompute it, and check one test per regime.
 
 ## 3. Verification: every finding is challenged
 

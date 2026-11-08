@@ -2,6 +2,17 @@
 
 The decisions the engine is built on, recorded before any code that depends on them (roadmap ticket #12, step 1). Each one gives the decision, why, the alternatives rejected, how it meets or exceeds the state of the art of professional audio workstations and visual patching environments, its consequences (engine, patch format, render hash, tests) and the ticket step that implements it. Each decision gives its place in the [implementation order](#implementation-order) at the end, which says what comes first.
 
+**The engine's own signal-touching parts are measured like boxes.** Every engine component that touches the signal has objective measurements with derived thresholds, as `spec/measurements.md` defines them and with its "How to add measurements" steps, landing with the step that builds it:
+
+| Component | Measurements | Decision | Step |
+|---|---|---|---|
+| Subpatch resampler, overlap-add | Imaging and aliasing rejection, passband ripple, SNR; a spectral round trip exact to a derived bound | 2 | #12 step 17 |
+| Parameter smoothing | No zipper noise: the spectral spur level during a ramp; the ramp's exactness (its last frame equal to its target) | 5 | #12 steps 4 and 14 |
+| Output-stage limiter | Transparency below its threshold (bit-identical); a bound on true-peak overshoot; THD while limiting | 12 | #12 step 12 |
+| Latency compensation | Paths aligned to the sample: a null test of two equal paths of different latency | 13 | #12 step 18 |
+| Hot-swap crossfade | No click: a bounded discontinuity across the swap | 15 | #12 step 20 |
+| Sample-accurate event timing | An event lands on its exact frame, proven at engine block and host buffer boundaries | 4 | #12 steps 4 and 14 |
+
 This document states what the engine **will** do. What it does today is specified by [`patch-format.md`](patch-format.md) and [`render-hash.md`](render-hash.md); each of those changes, in the step that implements a decision, with a new format or hash version where the bytes change.
 
 ## How the choices were made
@@ -66,7 +77,7 @@ Sub-decisions:
 
 **State of the art.** Patching environments offer a per-subpatch block size with overlap and resampling, and a global vector size that changes results; workstations offer a buffer size. This offers all three levels, a block of 1 frame anywhere, and adds what neither guarantees: the engine block never changes a single bit.
 
-**Consequences.** Engine: `BLOCK_SIZE` stops being a constant of the core; `Block` becomes a span of a host-chosen length; the plan cuts spans at events and at the grid of absolute frames. Patch format: subpatches, with optional `block`, `overlap` and `resample` (format version 2 or later, ticket #3). Hash: unchanged. Tests: the engine-block law over every case; subpatch blocks across the matrix (1, a prime, a power of two, the maximum); resampling filters measured; a spectral round trip (analysis, synthesis) exact to a derived bound.
+**Consequences.** Engine: `BLOCK_SIZE` stops being a constant of the core; `Block` becomes a span of a host-chosen length; the plan cuts spans at events and at the grid of absolute frames. Patch format: subpatches, with optional `block`, `overlap` and `resample` (format version 2 or later, ticket #3). Hash: unchanged. Tests: the engine-block law over every case; subpatch blocks across the matrix (1, a prime, a power of two, the maximum); the resampler measured with derived thresholds (imaging and aliasing rejection, passband ripple, SNR); a spectral round trip (analysis, synthesis) exact to a derived bound.
 
 **Step.** Engine block: #12 step 13. Subpatch blocks: #12 step 17. **Order:** 5 for the engine block, 10 for subpatch blocks.
 
@@ -111,7 +122,7 @@ Sub-decisions:
 
 **State of the art.** Workstations offer sample-accurate automation and MIDI; patching environments offer deterministic depth-first message ordering, but usually at block resolution unless a scheduler option is set. Here every message is sample-accurate, always, with an order that is total and documented, and MIDI is carried at MIDI 2.0 resolution.
 
-**Consequences.** Engine: an event type, per-box event spans, a preallocated queue per plan. Patch format: message cables (distinguished from signal cables by the ports they join). Hash: unchanged; a conformance case may carry an event list. Tests: ordering laws (same frame, fan-out, depth first) over random graphs; a render with events identical across host buffers, engine blocks and thread counts; late and overflowing events reported.
+**Consequences.** Engine: an event type, per-box event spans, a preallocated queue per plan. Patch format: message cables (distinguished from signal cables by the ports they join). Hash: unchanged; a conformance case may carry an event list. Tests: ordering laws (same frame, fan-out, depth first) over random graphs; a render with events identical across host buffers, engine blocks and thread counts; every event landing on its exact frame, at and around engine block and host buffer boundaries; late and overflowing events reported.
 
 **Step.** #12 steps 4 and 14. **Order:** 6.
 
@@ -130,7 +141,7 @@ Sub-decisions:
 
 **State of the art.** Workstations smooth automation; modular environments take signals on most parameters. This offers both on every parameter, with a choice of combination, ramps that end exactly, and a documented input domain checked by laws on every box.
 
-**Consequences.** Engine: `ParamSpec` gains a kind, a smoothing curve and a default ramp; parameters become inlets. Patch format: the combination setting per parameter inlet; message cables into parameters. Hash: unchanged. Tests: box laws over the special values of the matrix at every inlet and parameter; zipper-noise measurements per parameter kind (step 2's measurements); a ramp's last frame exactly equal to its target.
+**Consequences.** Engine: `ParamSpec` gains a kind, a smoothing curve and a default ramp; parameters become inlets. Patch format: the combination setting per parameter inlet; message cables into parameters. Hash: unchanged. Tests: box laws over the special values of the matrix at every inlet and parameter; zipper-noise measurements per parameter kind (`spec/measurements.md`: the spectral spur level during a ramp, against a derived threshold); a ramp's last frame exactly equal to its target.
 
 **Step.** #12 steps 4 and 14. **Order:** 6.
 
@@ -248,7 +259,7 @@ Sub-decisions:
 
 **State of the art.** Workstations offer a master limiter as a plugin and some protect against non-finite output; this builds both into the engine, proven by conformance.
 
-**Consequences.** Engine: an output stage after `Plan::process`; its report. Hash: references re-blessed where a case output non-finite samples (the special-value vectors of the hash itself are unchanged). Tests: the limiter's measurements (ceiling never exceeded in true peak, distortion below a threshold); non-finite replacement in both modes; the "never NaN" property becomes a law.
+**Consequences.** Engine: an output stage after `Plan::process`; its report. Hash: references re-blessed where a case output non-finite samples (the special-value vectors of the hash itself are unchanged). Tests: the limiter's measurements with derived thresholds (bit-identical below its threshold; true-peak overshoot of the ceiling bounded; THD while limiting); non-finite replacement in both modes; the "never NaN" property becomes a law.
 
 **Step.** #12 step 12. **Order:** 4.
 
@@ -262,7 +273,7 @@ Sub-decisions:
 
 **State of the art.** Matches workstation-grade automatic delay compensation, including automation alignment, which patching environments do not offer.
 
-**Consequences.** Engine: latency in the box contract; compensation delays in the planner (allocated when the plan is built). Patch format: the per-patch compensation setting. Hash: unchanged. Tests: parallel paths with different latencies summing to an exact cancellation; events aligned; reported latency equals the measured one.
+**Consequences.** Engine: latency in the box contract; compensation delays in the planner (allocated when the plan is built). Patch format: the per-patch compensation setting. Hash: unchanged. Tests: a null test, two equal paths of different latency summing to an exact cancellation (aligned to the sample); events aligned; reported latency equals the measured one.
 
 **Step.** #12 step 18. **Order:** 11.
 
@@ -296,7 +307,7 @@ Building off the audio thread, per host:
 
 **State of the art.** Matches the glitch-free editing of the best live environments, with state kept per box and a sample-accurate, reproducible swap.
 
-**Consequences.** Engine: plans as swappable units; incremental, budgeted plan building; the swap event. Hash: unchanged. Tests: a render with swaps equals the expected splice; no allocation or memory growth on the audio thread while swapping; the slice budget measured.
+**Consequences.** Engine: plans as swappable units; incremental, budgeted plan building; the swap event. Hash: unchanged. Tests: a render with swaps equals the expected splice; the crossfade measured: no click, its discontinuity bounded by a derived threshold; no allocation or memory growth on the audio thread while swapping; the slice budget measured.
 
 **Step.** #12 step 20 (with step 5 for the browser's audio thread). **Order:** 12, after state.
 
