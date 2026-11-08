@@ -6,7 +6,7 @@
 
 import { renderHash } from "./hash.ts";
 import { InputError, parseCase, parseExpectations, parseReferences, type Expectation } from "./inputs.ts";
-import { channel, sineError } from "./signal.ts";
+import { channel, sineError, sineErrorBound } from "./signal.ts";
 import { WavError, parseWav } from "./wav.ts";
 
 /** Everything the oracle reads, as found on disk. */
@@ -62,9 +62,10 @@ function judgeCase(name: string, raw: unknown, reference: string, expectation: E
   expectation.channels.forEach((expected, index) => {
     if (index < wav.channels) {
       const error = sineError(channel(wav, index), wav.rate, expected.sine);
+      const bound = sineErrorBound(expected.sine.amplitude, wav.frames);
       worst = Math.max(worst, error);
-      if (!(error <= expected.maxError)) {
-        problems.push(`channel ${String(index)}: off the expected sine by ${error.toExponential(2)} (at most ${expected.maxError.toExponential(2)})`);
+      if (!(error <= bound)) {
+        problems.push(`channel ${String(index)}: off the expected sine by ${error.toExponential(2)} (at most ${bound.toExponential(2)})`);
       }
     }
   });

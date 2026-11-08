@@ -83,6 +83,15 @@ mod tests {
 
     use super::OSC;
 
+    /// The largest distance a correct oscillator has from the exact sine after `frames`
+    /// samples, derived term by term (the oracle uses the same bound, `sineErrorBound`):
+    /// half an f32 ulp below 1 for the output rounding (2^-25), 2^-52 cycle per sample
+    /// for the f64 phase accumulation and the rounding of the increment, and 2^-48 for
+    /// evaluating the sine.
+    fn bound(frames: u32) -> f64 {
+        libm::exp2(-25.0) + TAU * f64::from(frames) * libm::exp2(-52.0) + libm::exp2(-48.0)
+    }
+
     /// Renders `blocks` blocks of `osc~` at 48 kHz.
     fn render(frequency: f32, blocks: usize) -> Vec<f32> {
         let rate = SampleRate::new(48_000).expect("valid rate");
@@ -103,7 +112,7 @@ mod tests {
             let index = f64::from(u32::try_from(n).expect("small index"));
             let expected = libm::sin(TAU * 440.0_f64 * index / 48_000.0_f64);
             assert!(
-                (f64::from(sample) - expected).abs() < 1e-6_f64,
+                (f64::from(sample) - expected).abs() <= bound(2_560),
                 "sample {n}: {sample} instead of {expected}"
             );
         }
@@ -190,7 +199,7 @@ mod tests {
     #[test]
     fn stays_exact_above_the_sample_rate() {
         // 10 001 Hz at 8 kHz: 1.25 cycles per sample. Compared over 10 s with the exact
-        // phase ((f × n) mod rate) / rate, computed in integers: within one f32 step.
+        // phase ((f × n) mod rate) / rate, computed in integers: within the derived bound.
         let rate = SampleRate::new(8_000).expect("valid rate");
         let mut osc = (OSC.create)(rate, &[10_001.0]);
         let mut out: [Block; 1] = [SILENCE];
@@ -203,7 +212,7 @@ mod tests {
                     TAU * f64::from(u32::try_from(cycle).expect("below the rate")) / 8_000.0_f64,
                 );
                 assert!(
-                    (f64::from(sample) - exact).abs() < 6e-8_f64,
+                    (f64::from(sample) - exact).abs() <= bound(80_000),
                     "sample {n}: {sample} instead of {exact}"
                 );
                 n += 1_u64;

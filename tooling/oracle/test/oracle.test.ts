@@ -1,12 +1,12 @@
 import { describe, expect, test } from "vitest";
 import { renderHash } from "../src/hash.ts";
-import { judge, type Corpus } from "../src/oracle.ts";
+import { judge, type Corpus, type Verdict } from "../src/oracle.ts";
 import { parseWav } from "../src/wav.ts";
 import { makeWav, sineSamples } from "./fixtures.ts";
 
 const RATE = 8000;
 const FRAMES = 64;
-const CHANNEL = { sine: { frequency: 1000, amplitude: 1, phase: 0 }, max_error: 1e-6 };
+const CHANNEL = { sine: { frequency: 1000, amplitude: 1, phase: 0 } };
 const WAV = makeWav({ rate: RATE, channels: 2, samples: sineSamples(2, FRAMES, RATE, 1000) });
 const HASH = renderHash(parseWav(WAV));
 
@@ -29,20 +29,15 @@ describe("judge", () => {
     expect(verdict.lines[0]).toMatch(new RegExp(`^ok {7}sine ${HASH} \\(2 channel\\(s\\), sine error \\d\\.\\d{2}e-\\d+\\)$`));
   });
 
-  test("reports the largest error of all channels", () => {
+  test("reports the largest error of all channels, accepted up to the bound", () => {
+    // Channel 1, sample 0: the ideal is 0 and the sample is 2^-25, the output-rounding
+    // term of the bound: accepted, and larger than any rounding error of channel 0.
     const samples = sineSamples(2, FRAMES, RATE, 1000);
-    samples[3] = (samples[3] ?? 0) + 2 ** -10;
+    samples[1] = 2 ** -25;
     const wav = makeWav({ rate: RATE, channels: 2, samples });
-    const loose = { ...CHANNEL, max_error: 1e-3 };
-    const verdict = judge(
-      corpus({
-        wavs: new Map([["sine", wav]]),
-        references: { sine: renderHash(parseWav(wav)) },
-        expectations: { sine: { sample_rate: RATE, frames: FRAMES, channels: [loose, loose] } },
-      }),
-    );
+    const verdict = judge(corpus({ wavs: new Map([["sine", wav]]), references: { sine: renderHash(parseWav(wav)) } }));
     expect(verdict.failures).toBe(0);
-    expect(verdict.lines[0]).toContain("sine error 9.77e-4");
+    expect(verdict.lines[0]).toContain(`sine error ${(2 ** -25).toExponential(2)}`);
   });
 
   test("reports a wrong hash", () => {
@@ -57,13 +52,13 @@ describe("judge", () => {
     const off = { ...CHANNEL, sine: { ...CHANNEL.sine, frequency: 1001 } };
     const verdict = judge(corpus({ expectations: { sine: { sample_rate: RATE, frames: FRAMES, channels: [CHANNEL, off] } } }));
     expect(verdict.failures).toBe(1);
-    expect(verdict.lines[0]).toMatch(/^FAIL {5}sine: channel 1: off the expected sine by \d\.\d{2}e-\d+ \(at most 1\.00e-6\)$/);
+    expect(verdict.lines[0]).toMatch(/^FAIL {5}sine: channel 1: off the expected sine by \d\.\d{2}e-\d+ \(at most 2\.98e-8\)$/);
   });
 
   test("fails a signal that is not finite", () => {
     const wav = makeWav({ rate: RATE, channels: 2, samples: [Number.NaN, ...sineSamples(2, FRAMES, RATE, 1000).slice(1)] });
     const verdict = judge(corpus({ wavs: new Map([["sine", wav]]), references: { sine: renderHash(parseWav(wav)) } }));
-    expect(verdict.lines).toStrictEqual(["FAIL     sine: channel 0: off the expected sine by Infinity (at most 1.00e-6)"]);
+    expect(verdict.lines).toStrictEqual(["FAIL     sine: channel 0: off the expected sine by Infinity (at most 2.98e-8)"]);
   });
 
   test("checks the rate, the duration and the channels against the case and the expectations", () => {
@@ -83,19 +78,21 @@ describe("judge", () => {
     expect(verdict.failures).toBe(5);
   });
 
-  test("accepts an error exactly at the tolerance", () => {
-    // A constant 0.5 against a sine of amplitude 0: off by exactly 0.5.
-    const flat = makeWav({ rate: RATE, channels: 1, samples: Array.from({ length: FRAMES }, () => 0.5) });
-    const zero = { sine: { frequency: 1000, amplitude: 0, phase: 0 }, max_error: 0.5 };
-    const verdict = judge(
-      corpus({
-        wavs: new Map([["sine", flat]]),
-        references: { sine: renderHash(parseWav(flat)) },
-        expectations: { sine: { sample_rate: RATE, frames: FRAMES, channels: [zero] } },
-      }),
-    );
-    expect(verdict.failures).toBe(0);
-    expect(verdict.lines[0]).toContain("sine error 5.00e-1");
+  test("allows no error at all for silence", () => {
+    // Amplitude 0: the bound is 0, so the smallest subnormal is already an error.
+    const zero = { sine: { frequency: 1000, amplitude: 0, phase: 0 } };
+    const judged = (value: number): Verdict => {
+      const flat = makeWav({ rate: RATE, channels: 1, samples: Array.from({ length: FRAMES }, (_, index) => (index === 5 ? value : 0)) });
+      return judge(
+        corpus({
+          wavs: new Map([["sine", flat]]),
+          references: { sine: renderHash(parseWav(flat)) },
+          expectations: { sine: { sample_rate: RATE, frames: FRAMES, channels: [zero] } },
+        }),
+      );
+    };
+    expect(judged(0).lines[0]).toContain("sine error 0.00e+0");
+    expect(judged(2 ** -149).lines).toStrictEqual(["FAIL     sine: channel 0: off the expected sine by 1.40e-45 (at most 0.00e+0)"]);
   });
 
   test.each([

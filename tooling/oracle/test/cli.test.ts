@@ -6,7 +6,7 @@ import { parseWav } from "../src/wav.ts";
 import { makeWav, sineSamples } from "./fixtures.ts";
 
 const WAV = makeWav({ rate: 8000, channels: 1, samples: sineSamples(1, 32, 8000, 1000) });
-const CHANNEL = { sine: { frequency: 1000, amplitude: 1, phase: 0 }, max_error: 1e-6 };
+const CHANNEL = { sine: { frequency: 1000, amplitude: 1, phase: 0 } };
 
 /** Files in memory, and what the command printed. */
 function memory(files: Record<string, string | Uint8Array>): Io & { lines: string[]; errors: string[] } {

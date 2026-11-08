@@ -48,7 +48,7 @@ test("judges a corpus on disk", async () => {
   writeFileSync(join(dir, "conf", "references.json"), JSON.stringify({ tone: renderHash(parseWav(wav)) }));
   writeFileSync(
     join(dir, "conf", "expectations.json"),
-    JSON.stringify({ tone: { sample_rate: 8000, frames: 32, channels: [{ sine: { frequency: 1000, amplitude: 1, phase: 0 }, max_error: 1e-6 }] } }),
+    JSON.stringify({ tone: { sample_rate: 8000, frames: 32, channels: [{ sine: { frequency: 1000, amplitude: 1, phase: 0 } }] } }),
   );
   writeFileSync(join(dir, "wav", "tone.wav"), wav);
   const { stdout, stderr } = await runBin([join(dir, "conf"), join(dir, "wav")]);

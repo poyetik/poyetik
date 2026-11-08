@@ -3,7 +3,7 @@
  * hashes and expectations arrive as `unknown` and leave typed, or are rejected.
  */
 
-import type { Sine } from "./signal.ts";
+import { MAX_FRAMES, type Sine } from "./signal.ts";
 
 /** Thrown when a conformance file does not have the expected shape. */
 export class InputError extends Error {
@@ -23,11 +23,12 @@ export interface Case {
   readonly frames: number;
 }
 
-/** What one channel of a case must contain. */
+/**
+ * What one channel of a case must contain. The allowed distance from it is derived
+ * (`sineErrorBound` in `signal.ts`), never declared.
+ */
 export interface ChannelExpectation {
   readonly sine: Sine;
-  /** Largest allowed distance from the ideal sine. */
-  readonly maxError: number;
 }
 
 /** What the render of a case must be. */
@@ -64,6 +65,15 @@ function count(value: unknown, where: string): number {
   return read;
 }
 
+/** Reads a duration: a positive whole number up to {@link MAX_FRAMES}, or rejects `where`. */
+function frames(value: unknown, where: string): number {
+  const read = count(value, where);
+  if (read > MAX_FRAMES) {
+    throw new InputError(`${where} is above ${String(MAX_FRAMES)}, the longest case with an exact reference`);
+  }
+  return read;
+}
+
 /** The entries of a JSON object, or rejects `where`. */
 function entries(value: unknown, where: string): [string, unknown][] {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -89,8 +99,12 @@ export function parseReferences(value: unknown): Map<string, string> {
   );
 }
 
-/** Reads one channel expectation. */
+/** Reads one channel expectation: an object with a `sine` and nothing else. */
 function parseChannel(value: unknown, where: string): ChannelExpectation {
+  const extra = entries(value, where).find(([key]) => key !== "sine");
+  if (extra !== undefined) {
+    throw new InputError(`${where}: unknown field ${extra[0]} (tolerances are derived, not declared)`);
+  }
   const sine = field(value, "sine");
   return {
     sine: {
@@ -101,7 +115,6 @@ function parseChannel(value: unknown, where: string): ChannelExpectation {
       amplitude: number(field(sine, "amplitude"), `${where}: sine.amplitude`),
       phase: number(field(sine, "phase"), `${where}: sine.phase`),
     },
-    maxError: number(field(value, "max_error"), `${where}: max_error`),
   };
 }
 
@@ -118,7 +131,7 @@ export function parseExpectations(value: unknown): Map<string, Expectation> {
         name,
         {
           rate: count(field(expectation, "sample_rate"), `${where}: sample_rate`),
-          frames: count(field(expectation, "frames"), `${where}: frames`),
+          frames: frames(field(expectation, "frames"), `${where}: frames`),
           channels: channels.map((channel: unknown, index) => parseChannel(channel, `${where}: channel ${String(index)}`)),
         },
       ];

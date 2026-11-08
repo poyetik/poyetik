@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import { InputError, parseCase, parseExpectations, parseReferences } from "../src/inputs.ts";
 
 const HASH = "a".repeat(64);
-const CHANNEL = { sine: { frequency: 440, amplitude: 1, phase: 0.5 }, max_error: 1e-6 };
+const CHANNEL = { sine: { frequency: 440, amplitude: 1, phase: 0.5 } };
 
 describe("parseCase", () => {
   test("reads the rate and the duration", () => {
@@ -47,7 +47,7 @@ describe("parseReferences", () => {
 describe("parseExpectations", () => {
   test("reads every case's rate, duration and channels", () => {
     expect(parseExpectations({ a: { sample_rate: 8000, frames: 4, channels: [CHANNEL] } })).toStrictEqual(
-      new Map([["a", { rate: 8000, frames: 4, channels: [{ sine: { frequency: 440, amplitude: 1, phase: 0.5 }, maxError: 1e-6 }] }]]),
+      new Map([["a", { rate: 8000, frames: 4, channels: [{ sine: { frequency: 440, amplitude: 1, phase: 0.5 } }] }]]),
     );
   });
 
@@ -57,10 +57,15 @@ describe("parseExpectations", () => {
     [{ a: { sample_rate: 8000, frames: 4, channels: [] } }, "expectations.json: a: channels is not a non-empty list"],
     [{ a: { frames: 4, channels: [CHANNEL] } }, "expectations.json: a: sample_rate is not a finite number"],
     [{ a: { sample_rate: 8000, channels: [CHANNEL] } }, "expectations.json: a: frames is not a finite number"],
-    [{ a: { sample_rate: 8000, frames: 4, channels: [{ max_error: 1 }] } }, "expectations.json: a: channel 0: sine.frequency is not a finite number"],
+    [{ a: { sample_rate: 8000, frames: 4, channels: [{}] } }, "expectations.json: a: channel 0: sine.frequency is not a finite number"],
+    [{ a: { sample_rate: 8000, frames: 4, channels: [3] } }, "expectations.json: a: channel 0 is not an object"],
+    [{ a: { sample_rate: 8000, frames: 2 ** 29 + 1, channels: [CHANNEL] } }, "expectations.json: a: frames is above 536870912, the longest case with an exact reference"],
     [{ a: { sample_rate: 8000, frames: 4, channels: [CHANNEL, { ...CHANNEL, sine: { frequency: 1, phase: 0 } }] } }, "expectations.json: a: channel 1: sine.amplitude is not a finite number"],
     [{ a: { sample_rate: 8000, frames: 4, channels: [{ ...CHANNEL, sine: { frequency: 1, amplitude: 1 } }] } }, "expectations.json: a: channel 0: sine.phase is not a finite number"],
-    [{ a: { sample_rate: 8000, frames: 4, channels: [{ sine: CHANNEL.sine }] } }, "expectations.json: a: channel 0: max_error is not a finite number"],
+    [
+      { a: { sample_rate: 8000, frames: 4, channels: [{ sine: CHANNEL.sine, max_error: 1e-6 }] } },
+      "expectations.json: a: channel 0: unknown field max_error (tolerances are derived, not declared)",
+    ],
   ])("rejects %o", (value, detail) => {
     expect(() => parseExpectations(value)).toThrow(new InputError(detail));
   });
@@ -71,9 +76,14 @@ describe("parseExpectations", () => {
 });
 
 test("reads frequencies as the binary32 parameters the engine plays", () => {
-  const channel = { sine: { frequency: 440.1, amplitude: 1, phase: 0 }, max_error: 1e-6 };
+  const channel = { sine: { frequency: 440.1, amplitude: 1, phase: 0 } };
   const parsed = parseExpectations({ a: { sample_rate: 8000, frames: 4, channels: [channel] } });
   const frequency = parsed.get("a")?.channels[0]?.sine.frequency;
   expect(frequency).toBe(Math.fround(440.1));
   expect(frequency).not.toBe(440.1);
+});
+
+test("accepts the longest case with an exact reference", () => {
+  const parsed = parseExpectations({ a: { sample_rate: 8000, frames: 2 ** 29, channels: [CHANNEL] } });
+  expect(parsed.get("a")?.frames).toBe(2 ** 29);
 });
