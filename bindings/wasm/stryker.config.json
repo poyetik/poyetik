@@ -6,7 +6,8 @@
   },
   "mutate": [
     "ts/**/*.ts",
-    "e2e/routes.ts"
+    "e2e/routes.ts",
+    "scripts/wasm.ts"
   ],
   "ignorePatterns": [
     "!dist/engine.wasm"

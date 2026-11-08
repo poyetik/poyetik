@@ -17,15 +17,16 @@
     "./engine.wasm": "./dist/engine.wasm"
   },
   "scripts": {
-    "build:wasm": "cargo build --package engine-wasm --release --locked --target wasm32-unknown-unknown",
-    "build": "pnpm build:wasm && tsc -p tsconfig.build.json && tsc -p ts/worklet/tsconfig.build.json && node scripts/copy-wasm.ts",
+    "build:wasm": "node scripts/build-wasm.ts",
+    "build": "pnpm build:wasm && tsc -p tsconfig.build.json && tsc -p ts/worklet/tsconfig.build.json",
     "typecheck": "tsc --noEmit && tsc --noEmit -p ts/worklet",
     "lint": "eslint . --max-warnings 0",
     "test": "vitest run --coverage",
+    "test:reproducible": "node scripts/reproducible.ts",
     "test:allocation": "vitest run --config vitest.allocation.config.ts",
     "test:mutation": "stryker run",
     "test:e2e": "tsc -p e2e/site/tsconfig.build.json && playwright test",
-    "check": "pnpm build && pnpm typecheck && pnpm lint && pnpm test && pnpm test:allocation && pnpm test:mutation && pnpm test:e2e"
+    "check": "pnpm build && pnpm typecheck && pnpm lint && pnpm test && pnpm test:allocation && pnpm test:reproducible && pnpm test:mutation && pnpm test:e2e"
   },
   "devDependencies": {
     "@poyetik/config": "workspace:*",

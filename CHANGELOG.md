@@ -56,6 +56,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The WebAssembly engine module is reproducible: built with the paths of the Cargo home and of the repository remapped (it embedded `/Users/...` paths), from the artifact path cargo reports (`CARGO_TARGET_DIR` works), and `pnpm test:reproducible` checks that two builds in fresh target directories are identical and contain no path of the machine.
 - The oracle reads WAV files of any number of chunks: the chunk reader was recursive and a file of about 10,000 empty chunks (80 KB) overflowed the stack (a RangeError instead of a WAV error).
 - Playground: the oscilloscope has one backing pixel per device pixel, sharp on high-density screens (it was blurry and thin on phones), keeps its colors in forced colors (high contrast: the trace was at 1.91:1 on a forced white background), and is described by its measurements for assistive technologies. Both web apps have a favicon (a 404 before). The end-to-end tests fail on any console error or failed request, not only on uncaught errors.
 - Roadmap: the In progress column comes first, then Next, Later and Done: on a phone the work under way no longer comes after the backlog.
