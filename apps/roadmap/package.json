@@ -26,7 +26,9 @@
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "astro": "^7.4.7",
+    "axe-core": "catalog:",
     "eslint": "catalog:",
+    "jsdom": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   },

@@ -1,5 +1,7 @@
 import { experimental_AstroContainer as AstroContainer } from "astro/container";
+import axe from "axe-core";
 import { describe, expect, it } from "vitest";
+import { builtinEnvironments } from "vitest/runtime";
 import BoardComponent from "../src/components/Board.astro";
 import type { Card } from "../src/lib/board.ts";
 import { toView } from "../src/lib/view.ts";
@@ -19,12 +21,42 @@ function card(id: number, column: Card["column"], extra: Partial<Card> = {}): Ca
   };
 }
 
-/** Renders the Board component for a board holding `cards`, through the same `toView` as the page, and returns its HTML. */
+/**
+ * The accessibility violations axe finds in `html`, placed as the page places it (in `main`, under the
+ * `h1`), each as `rule: offending markup`. The test file runs in Node, where the Astro container renders;
+ * a jsdom document is installed only for the audit. jsdom has no layout, so colour contrast is left to
+ * the end-to-end audits of the real page.
+ */
+async function violations(html: string): Promise<string[]> {
+  const environment = await builtinEnvironments.jsdom.setup(globalThis, {});
+  try {
+    document.documentElement.lang = "en";
+    document.title = "P · Roadmap";
+    document.body.innerHTML = `<header><h1>P</h1></header><main>${html}</main>`;
+    const results = await axe.run(document.documentElement, { rules: { "color-contrast": { enabled: false } } });
+    return results.violations.map((violation) => `${violation.id}: ${violation.nodes.map((node) => node.html).join(" | ")}`);
+  } finally {
+    await environment.teardown(globalThis);
+  }
+}
+
+/** Renders the Board component for a board holding `cards`, through the same `toView` as the page, checks it has no accessibility violation (see `violations`) and returns its HTML. */
 async function render(cards: Card[]): Promise<string> {
   const container = await AstroContainer.create();
   const view = toView({ version: 1, title: "P", nextId: cards.length + 1, cards });
-  return container.renderToString(BoardComponent, { props: { view } });
+  const html = await container.renderToString(BoardComponent, { props: { view } });
+  expect(await violations(html)).toStrictEqual([]);
+  return html;
 }
+
+describe("violations", () => {
+  it("finds what axe rejects, so that an empty list proves something", async () => {
+    expect(await violations('<ul><li>One</li></ul><p role="listitem" class="empty">Nothing yet</p>')).toStrictEqual([
+      'aria-required-parent: <p role="listitem" class="empty">Nothing yet</p>',
+    ]);
+    expect(await violations("<ul><li>One</li></ul>")).toStrictEqual([]);
+  });
+});
 
 describe("Board.astro", () => {
   it("renders steps with Done and In progress tags in a collapsed summary", async () => {
