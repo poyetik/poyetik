@@ -1380,8 +1380,12 @@ pub fn commit_msg_gate(message: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// The commit from which every change of behavior must update `CHANGELOG.md`: the earlier
-/// history predates the rule and is not rewritten.
+/// The last commit the history gate does not hold to the changelog rule: every change of
+/// behavior after it must update `CHANGELOG.md` in the same commit.
+///
+/// The rule itself is older (9a32301), but it was enforced only when the gate came, after
+/// this commit: this commit and 81509cf, before it, added their entries in later commits,
+/// and the history is not rewritten to move them.
 pub const CHANGELOG_SINCE: &str = "8182fda87a1c631295548ff52eeb4ea08335fa36";
 
 /// The two history listings the history gate reads.
