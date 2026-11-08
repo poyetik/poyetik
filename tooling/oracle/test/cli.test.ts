@@ -1,6 +1,6 @@
 import { runInNewContext } from "node:vm";
 import { describe, expect, test } from "vitest";
-import { USAGE, ignoreClosedReader, main, type Io } from "../src/cli.ts";
+import { USAGE, ignoreClosedReader, main, readJson, type Io } from "../src/cli.ts";
 import { renderHash } from "../src/hash.ts";
 import { parseWav } from "../src/wav.ts";
 import { makeWav, sineSamples } from "./fixtures.ts";
@@ -99,6 +99,24 @@ describe("main", () => {
     const io = memory({});
     expect(main(args, io)).toBe(2);
     expect(io.errors).toStrictEqual([USAGE]);
+  });
+});
+
+describe("readJson", () => {
+  test("parses a JSON file", () => {
+    expect(readJson(memory({ "a.json": '{"x":[1]}' }), "a.json")).toStrictEqual({ x: [1] });
+  });
+
+  test("names the file and keeps the parser's error as the cause", () => {
+    let thrown: unknown;
+    try {
+      readJson(memory({ "a.json": "{" }), "a.json");
+    } catch (error) {
+      thrown = error;
+    }
+    const failure = thrown instanceof Error ? thrown : undefined;
+    expect(failure?.message).toMatch(/^a\.json: SyntaxError: /);
+    expect(failure?.cause).toBeInstanceOf(SyntaxError);
   });
 });
 

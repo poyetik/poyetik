@@ -25,12 +25,16 @@ function byName<T>(io: Io, dir: string, extension: string, read: (path: string) 
   );
 }
 
-/** Parses JSON text: its value, or why it is not JSON. */
-function parseJson(text: string): { readonly value: unknown } | { readonly error: string } {
+/**
+ * Reads and parses the JSON file at `path`.
+ * @throws {Error} Naming `path` when the file is not JSON, with the parser's error as its cause.
+ */
+export function readJson(io: Io, path: string): unknown {
+  const text = io.readText(path);
   try {
-    return { value: JSON.parse(text) };
+    return JSON.parse(text);
   } catch (error) {
-    return { error: String(error) };
+    throw new Error(`${path}: ${String(error)}`, { cause: error });
   }
 }
 
@@ -51,13 +55,7 @@ export function main(args: readonly string[], io: Io): number {
   }
   const [conformance, wavs] = args;
   try {
-    const json = (path: string): unknown => {
-      const parsed = parseJson(io.readText(path));
-      if ("error" in parsed) {
-        throw new Error(`${path}: ${parsed.error}`);
-      }
-      return parsed.value;
-    };
+    const json = (path: string): unknown => readJson(io, path);
     const verdict = judge({
       cases: byName(io, join(conformance, "cases"), ".json", json),
       references: json(join(conformance, "references.json")),
