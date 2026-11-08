@@ -68,7 +68,7 @@ describe("help", () => {
   });
 
   it("lists every command and column", () => {
-    for (const word of ["list", "show", "add", "move", "edit", "rm", "validate", "help"]) {
+    for (const word of ["list", "show", "add", "move", "edit", "rm", "title", "validate", "help"]) {
       expect(HELP).toContain(`  ${word}`);
     }
     for (const action of ["add", "done", "undo", "edit", "rm"]) {
@@ -252,6 +252,33 @@ describe("rm", () => {
     const cli = seeded();
     expect(run(["rm"], cli.io)).toBe(2);
     expect(cli.err).toEqual(["error: expected exactly one argument: id (see: roadmap help)"]);
+  });
+});
+
+describe("title", () => {
+  it("sets the board title, trimmed, and confirms", () => {
+    const cli = seeded();
+    expect(run(["title", "  Poyetik "], cli.io)).toBe(0);
+    expect(cli.out).toEqual(["title: Poyetik"]);
+    expect(boardOf(cli)).toMatchObject({ title: "Poyetik", nextId: 3 });
+    expect(boardOf(cli).cards.map((card) => card.id)).toEqual([1, 2]);
+    expect(cli.writes).toBe(1);
+  });
+
+  it("rejects an empty title without writing", () => {
+    const cli = seeded();
+    expect(run(["title", "  "], cli.io)).toBe(1);
+    expect(cli.err).toEqual(["error: title must be a non-empty string"]);
+    expect(cli.writes).toBe(0);
+  });
+
+  it("rejects zero or several titles", () => {
+    for (const args of [["title"], ["title", "a", "b"]]) {
+      const cli = seeded();
+      expect(run(args, cli.io)).toBe(2);
+      expect(cli.err).toEqual(["error: expected exactly one argument: title (see: roadmap help)"]);
+      expect(cli.writes).toBe(0);
+    }
   });
 });
 

@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "poyetik roadmap kanban: data in board.json (git), CLI driven by Claude, read-only web page.",
+  "description": "Poyetik roadmap kanban: data in board.json (git), CLI driven by Claude, read-only web page.",
   "scripts": {
     "roadmap": "node src/cli/bin.ts",
     "dev": "astro dev",

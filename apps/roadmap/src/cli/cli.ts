@@ -18,6 +18,7 @@ import {
   renameStep,
   reopenStep,
   serializeBoard,
+  setTitle,
   withStatus,
   findCard,
   type Board,
@@ -58,6 +59,7 @@ export const HELP = `Usage: roadmap <command> [options]
   move <id> <col> [--position <n>]            Move (position within the column, 0 = top)
   edit <id> [--title <t>] [--desc <t>] [--milestone <m>]
   rm <id>                                     Remove a card
+  title <text>                                Set the board title (the page heading)
   step add <id> <title>                       Add a step at the end
   step done <id> [n]                          Mark step n done (default: the step in progress)
   step undo <id> <n>                          Mark step n not done
@@ -314,6 +316,13 @@ function execute(args: readonly string[], io: Io): void {
       const id = parseId(onlyArg(positionals, "id"));
       save(io, removeCard(load(io), id));
       io.out(`removed: ${formatId(id)}`);
+      return;
+    }
+    case "title": {
+      const title = onlyArg(positionals, "title");
+      const board = setTitle(load(io), title);
+      save(io, board);
+      io.out(`title: ${board.title}`);
       return;
     }
     case "step": {

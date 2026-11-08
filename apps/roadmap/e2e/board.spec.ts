@@ -10,8 +10,9 @@ const view = toView(parseBoard(JSON.parse(readFileSync(new URL("../board.json", 
 
 test("shows every board.json card in its column", async ({ page }) => {
   await page.goto("./");
-  await expect(page).toHaveTitle(`${view.title} · Roadmap`);
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText(view.title);
+  // The project's name is a fixed fact, not data: literal, so that a wrong board title fails.
+  await expect(page).toHaveTitle("Poyetik · Roadmap");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Poyetik");
   for (const column of view.columns) {
     const section = page.locator(`[data-column="${column.id}"]`);
     await expect(section.getByRole("heading", { level: 2 })).toContainText(column.title);

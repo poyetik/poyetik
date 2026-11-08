@@ -12,7 +12,7 @@ The public roadmap of the project: a kanban board whose data lives in `board.jso
 | `e2e/` | End-to-end tests, with axe, on the browsers and devices of `playwright.config.ts` |
 
 ```sh
-pnpm roadmap help   # every command: list, show, add, move, edit, rm, step …, validate
+pnpm roadmap help   # every command: list, show, add, move, edit, rm, title, step …, validate
 pnpm dev            # http://localhost:4321
 pnpm check          # types, lint, unit tests at 100% coverage, mutation testing, build, end-to-end tests
 ```

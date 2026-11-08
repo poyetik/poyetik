@@ -11,6 +11,7 @@ import {
   editCard,
   emptyBoard,
   formatId,
+  setTitle,
   isColumnId,
   moveCard,
   parseBoard,
@@ -500,6 +501,18 @@ describe("editCard", () => {
   });
 });
 
+describe("setTitle", () => {
+  it("sets the trimmed title and keeps everything else", () => {
+    const start = board([card(1, "next")]);
+    expect(setTitle(start, "  Poyetik ")).toEqual({ ...start, title: "Poyetik" });
+    expect(start.title).toBe("Project");
+  });
+
+  it("rejects an empty title", () => {
+    expectBoardError(() => setTitle(board([]), " "), "title must be a non-empty string");
+  });
+});
+
 describe("removeCard", () => {
   it("removes the card without touching nextId", () => {
     const start = board([card(1, "next"), card(2, "done")]);
@@ -690,7 +703,7 @@ describe("closure law", () => {
 
   /** Every command applied to `start` in every way that succeeds on it. */
   function results(start: Board): Board[] {
-    const all: Board[] = [addCard(start, { title: "New", column: "doing" }, LATER).board];
+    const all: Board[] = [addCard(start, { title: "New", column: "doing" }, LATER).board, setTitle(start, "Poyetik")];
     for (const existing of start.cards) {
       for (const column of COLUMNS) {
         all.push(moveCard(start, existing.id, column.id, 0, LATER));

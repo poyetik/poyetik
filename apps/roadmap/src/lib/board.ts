@@ -341,6 +341,11 @@ export function editCard(board: Board, id: number, patch: EditInput, today: stri
   return { ...board, cards: board.cards.map((existing) => (existing.id === id ? card : existing)) };
 }
 
+/** Sets the board's title, shown as the page heading; throws a `BoardError` if it is blank. */
+export function setTitle(board: Board, title: string): Board {
+  return { ...board, title: requireText(title, "title") };
+}
+
 /** Removes a card. Its id is never reused. */
 export function removeCard(board: Board, id: number): Board {
   findCard(board, id);
