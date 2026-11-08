@@ -108,6 +108,12 @@ fn cases(files: &mut dyn Files, dir: &Path) -> Result<Vec<CaseFiles>, String> {
             path.display()
         ));
     }
+    if names.is_empty() {
+        return Err(format!(
+            "no conformance case in {}",
+            dir.join("cases").display()
+        ));
+    }
     let mut read_cases = Vec::new();
     for (name, path) in names {
         let case = read(files, &path)?;

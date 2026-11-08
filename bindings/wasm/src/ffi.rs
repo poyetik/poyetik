@@ -152,7 +152,10 @@ mod tests {
         assert_eq!(engine_load(48_000), 0, "rejected");
         assert_eq!(engine_channels(), 0, "nothing loaded");
         let explanation = message();
-        assert!(!explanation.is_empty(), "explained");
+        assert_eq!(
+            explanation, b"invalid patch: expected ident at line 1 column 2",
+            "explained"
+        );
         assert!(core::str::from_utf8(&explanation).is_ok(), "UTF-8");
 
         let sine = br#"{"format":1,"nodes":[{"id":1,"box":"osc~"},{"id":2,"box":"dac~"}],

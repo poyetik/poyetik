@@ -143,7 +143,11 @@ mod tests {
         assert!(!instance.load(48_000), "invalid patch");
         assert_eq!(instance.channels(), 0, "unloaded");
         assert!(instance.process().is_empty(), "no blocks");
-        assert!(!instance.message().is_empty(), "explained");
+        assert_eq!(
+            instance.message(),
+            "invalid patch: expected value at line 1 column 1",
+            "explained"
+        );
     }
 
     #[test]

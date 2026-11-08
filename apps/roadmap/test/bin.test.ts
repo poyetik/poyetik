@@ -3,7 +3,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emptyBoard, parseBoard, serializeBoard } from "../src/lib/board.ts";
-import { localDate } from "../src/cli/cli.ts";
 
 // Tests the real entry point (disk, clock, process) in a temporary directory.
 describe("bin", () => {
@@ -49,11 +48,15 @@ describe("bin", () => {
     const file = join(dir, "board.json");
     writeFileSync(file, serializeBoard(emptyBoard("Project")));
     process.env["ROADMAP_FILE"] = file;
+    // A fixed clock, a date unlike any default: the test cannot depend on the day it runs.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2031, 6, 9, 12));
     const { stdout } = await runBin(["add", "Engine"]);
+    vi.useRealTimers();
     expect(stdout).toBe("added: #1  later  Engine\n");
     expect(process.exitCode).toBe(0);
     const saved = parseBoard(JSON.parse(readFileSync(file, "utf8")));
-    expect(saved.cards[0]?.createdAt).toBe(localDate(new Date()));
+    expect(saved.cards[0]?.createdAt).toBe("2031-07-09");
   });
 
   it("writes errors to stderr with exit code 1", async () => {

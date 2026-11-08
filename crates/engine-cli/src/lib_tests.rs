@@ -825,3 +825,25 @@ fn ignores_a_closed_reader_but_not_other_output_errors() {
     );
     assert_eq!(fine.0, b"ab", "written");
 }
+
+#[test]
+fn fails_on_an_empty_corpus() {
+    // A corpus without a case proves nothing: check and export refuse it.
+    let mut empty = Memory::with(&[
+        ("conf/cases/notes.txt", "no case here"),
+        ("conf/patches/notes.txt", "no patch here"),
+        ("conf/references.json", "{}"),
+    ]);
+    for command in ["check", "bless"] {
+        assert_eq!(
+            run_with(&mut empty, &[command, "conf"]).0,
+            Err("no conformance case in conf/cases".to_owned()),
+            "{command}"
+        );
+    }
+    assert_eq!(
+        run_with(&mut empty, &["export", "conf", "out"]).0,
+        Err("no conformance case in conf/cases".to_owned()),
+        "export"
+    );
+}

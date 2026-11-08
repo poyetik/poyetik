@@ -108,13 +108,19 @@ mod tests {
     #[test]
     fn rejects_an_unsupported_sample_rate() {
         let error = Engine::new(SINE.as_bytes(), 0).expect_err("rate 0");
-        assert!(error.contains('0'), "{error}");
+        assert_eq!(
+            error, "invalid sample rate: 0 Hz (supported: 8000 to 384000 Hz)",
+            "the rate and the range"
+        );
     }
 
     #[test]
     fn rejects_an_unreadable_patch() {
         let error = Engine::new(b"{}", 48_000).expect_err("no format");
-        assert!(!error.is_empty(), "explained");
+        assert_eq!(
+            error, "invalid patch: missing field `format` at line 1 column 2",
+            "explained"
+        );
     }
 
     #[test]

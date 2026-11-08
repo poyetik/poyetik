@@ -53,7 +53,6 @@ export class ArgumentError extends BoardError {
   override readonly name = "ArgumentError";
 }
 
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const ID_TEXT_RE = /^#?([1-9]\d*)$/;
 const CARD_KEYS = ["id", "title", "description", "column", "milestone", "createdAt", "updatedAt", "tasks"];
 const TASK_KEYS = ["title", "done"];
@@ -100,8 +99,19 @@ function requireString(value: unknown, field: string): string {
   return value.trim();
 }
 
+/**
+ * Whether `value` is a day of the calendar written YYYY-MM-DD: its midnight UTC must
+ * write itself back as `value`, which refuses other forms ("2026-1-1"), impossible days
+ * (2026-02-31, which would roll over) and months (2026-13-01, not a time at all).
+ */
+function isCalendarDay(value: string): boolean {
+  // An impossible month is not a time at all (NaN); an impossible day rolls over.
+  const time = Date.parse(`${value}T00:00:00Z`);
+  return !Number.isNaN(time) && new Date(time).toISOString().startsWith(value);
+}
+
 function requireDate(value: unknown, field: string): string {
-  if (typeof value !== "string" || !DATE_RE.test(value)) {
+  if (typeof value !== "string" || !isCalendarDay(value)) {
     throw new BoardError(`${field} must be a YYYY-MM-DD date`);
   }
   return value;

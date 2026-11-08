@@ -139,3 +139,12 @@ describe("judge", () => {
     expect(() => judge(corpus({ expectations: [] }))).toThrow("expectations.json is not an object");
   });
 });
+
+describe("an empty corpus", () => {
+  test("fails: judging nothing proves nothing", () => {
+    expect(judge({ cases: new Map(), references: {}, expectations: {}, wavs: new Map() })).toStrictEqual({
+      lines: ["FAIL     the corpus has no case"],
+      failures: 1,
+    });
+  });
+});

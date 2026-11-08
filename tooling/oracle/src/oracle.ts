@@ -77,6 +77,10 @@ export function judge(corpus: Corpus): Verdict {
   const references = parseReferences(corpus.references);
   const expectations = parseExpectations(corpus.expectations);
   const names = [...new Set([...corpus.cases.keys(), ...references.keys(), ...expectations.keys(), ...corpus.wavs.keys()])].sort();
+  if (names.length === 0) {
+    // A corpus judged empty proves nothing: it is a failure, not a pass.
+    return { lines: ["FAIL     the corpus has no case"], failures: 1 };
+  }
   const lines: string[] = [];
   let failures = 0;
   for (const name of names) {

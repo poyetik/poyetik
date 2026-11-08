@@ -58,6 +58,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- An empty conformance corpus fails `engine-cli check`, `bless` and `export`, and the oracle, instead of passing; the roadmap refuses dates that are well formed but not days of the calendar (2026-02-31, 2026-13-01).
 - The roadmap's Astro templates are under coverage (`Board.astro`, and `index.astro` now rendered by a test), and the component test catches a card that would render an empty description or milestone (it checked an empty board, which has no card). Mutation testing of templates is roadmap #15.
 - The WebAssembly engine module is reproducible: built with the paths of the Cargo home and of the repository remapped (it embedded `/Users/...` paths), from the artifact path cargo reports (`CARGO_TARGET_DIR` works), and `pnpm test:reproducible` checks that two builds in fresh target directories are identical and contain no path of the machine.
 - The oracle reads WAV files of any number of chunks: the chunk reader was recursive and a file of about 10,000 empty chunks (80 KB) overflowed the stack (a RangeError instead of a WAV error).

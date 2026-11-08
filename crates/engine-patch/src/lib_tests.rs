@@ -205,26 +205,60 @@ fn rejects_unknown_fields_everywhere() {
 
 #[test]
 fn rejects_missing_and_mistyped_fields() {
-    for json in [
-        "",
-        "not json",
-        "[]",
-        r#"{"nodes":[],"connections":[]}"#,
-        r#"{"format":1,"connections":[]}"#,
-        r#"{"format":1,"nodes":[]}"#,
-        r#"{"format":1,"nodes":[{"box":"x"}],"connections":[]}"#,
-        r#"{"format":1,"nodes":[{"id":1}],"connections":[]}"#,
-        r#"{"format":1,"nodes":[{"id":-1,"box":"x"}],"connections":[]}"#,
-        r#"{"format":1,"nodes":[{"id":4294967296,"box":"x"}],"connections":[]}"#,
-        r#"{"format":1,"nodes":[{"id":1,"box":"x","params":{"a":"loud"}}],"connections":[]}"#,
-        r#"{"format":1,"nodes":[],"connections":[{"from":[1],"to":[2,0]}]}"#,
-        r#"{"format":1,"nodes":[],"connections":[{"from":[1,0,0],"to":[2,0]}]}"#,
-        r#"{"format":"1","nodes":[],"connections":[]}"#,
+    // The exact reasons: each names what is wrong and where.
+    for (json, reason) in [
+        ("", "EOF while parsing a value at line 1 column 0"),
+        ("not json", "expected ident at line 1 column 2"),
+        (
+            "[]",
+            "invalid length 0, expected struct Document with 3 elements at line 1 column 2",
+        ),
+        (
+            r#"{"nodes":[],"connections":[]}"#,
+            "missing field `format` at line 1 column 29",
+        ),
+        (
+            r#"{"format":1,"connections":[]}"#,
+            "missing field `nodes` at line 1 column 29",
+        ),
+        (
+            r#"{"format":1,"nodes":[]}"#,
+            "missing field `connections` at line 1 column 23",
+        ),
+        (
+            r#"{"format":1,"nodes":[{"box":"x"}],"connections":[]}"#,
+            "missing field `id` at line 1 column 32",
+        ),
+        (
+            r#"{"format":1,"nodes":[{"id":1}],"connections":[]}"#,
+            "missing field `box` at line 1 column 29",
+        ),
+        (
+            r#"{"format":1,"nodes":[{"id":-1,"box":"x"}],"connections":[]}"#,
+            "invalid value: integer `-1`, expected u32 at line 1 column 29",
+        ),
+        (
+            r#"{"format":1,"nodes":[{"id":4294967296,"box":"x"}],"connections":[]}"#,
+            "invalid value: integer `4294967296`, expected u32 at line 1 column 37",
+        ),
+        (
+            r#"{"format":1,"nodes":[{"id":1,"box":"x","params":{"a":"loud"}}],"connections":[]}"#,
+            "invalid type: string \"loud\", expected f32 at line 1 column 59",
+        ),
+        (
+            r#"{"format":1,"nodes":[],"connections":[{"from":[1],"to":[2,0]}]}"#,
+            "invalid length 1, expected a tuple of size 2 at line 1 column 49",
+        ),
+        (
+            r#"{"format":1,"nodes":[],"connections":[{"from":[1,0,0],"to":[2,0]}]}"#,
+            "trailing characters at line 1 column 52",
+        ),
+        (
+            r#"{"format":"1","nodes":[],"connections":[]}"#,
+            "invalid type: string \"1\", expected u32 at line 1 column 13",
+        ),
     ] {
-        assert!(
-            !invalid(json).is_empty(),
-            "{json:?} is rejected with a reason"
-        );
+        assert_eq!(invalid(json), reason, "{json:?}");
     }
 }
 
