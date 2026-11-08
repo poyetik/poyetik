@@ -3392,7 +3392,8 @@ pub fn history_gate(messages: &str, files: &str) -> Result<(), Failure> {
 
 /// Checks that the pre-push hook validates exactly what is pushed.
 ///
-/// The working tree has nothing uncommitted (`status`, from `git status --porcelain`), and
+/// The working tree has nothing uncommitted (`status`, from `git status --porcelain
+/// --untracked-files=all --ignore-submodules=none`), and
 /// every commit pushed (`pushed`, each object the hook received peeled to its commit) is
 /// `head`, the commit checked out. A deleted branch (all zeros) pushes nothing.
 ///
@@ -3741,7 +3742,18 @@ fn git_output(runner: &mut dyn Runner, args: &[&str], doing: &str) -> Result<Str
 /// Reads the commit checked out and the state of the working tree, then checks a push.
 fn pre_push(runner: &mut dyn Runner, pushed: &[String]) -> Result<(), Failure> {
     let head = git_output(runner, &["rev-parse", "HEAD"], "read the work tree")?;
-    let status = git_output(runner, &["status", "--porcelain"], "read the work tree")?;
+    // Every untracked file and submodule change, whatever the user's configuration hides
+    // (`status.showUntrackedFiles`, `diff.ignoreSubmodules`): the check would read them.
+    let status = git_output(
+        runner,
+        &[
+            "status",
+            "--porcelain",
+            "--untracked-files=all",
+            "--ignore-submodules=none",
+        ],
+        "read the work tree",
+    )?;
     // Git gives the hook the object pushed: for an annotated tag, the tag object, which is
     // never the commit checked out. The gate compares the commit each object names.
     let commits = pushed

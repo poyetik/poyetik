@@ -4486,7 +4486,10 @@ fn runs_the_full_check_before_pushing_a_tag() {
     let mut tagged = passing();
     for (command, answer) in [
         ("git rev-parse HEAD".to_owned(), format!("{head}\n")),
-        ("git status --porcelain".to_owned(), String::new()),
+        (
+            "git status --porcelain --untracked-files=all --ignore-submodules=none".to_owned(),
+            String::new(),
+        ),
         (
             format!("git rev-parse --verify {head}^{{commit}}"),
             format!("{head}\n"),
@@ -4522,9 +4525,10 @@ fn checks_a_push_then_runs_every_check() {
     let first = fake
         .files
         .insert("capture git rev-parse HEAD".to_owned(), format!("{head}\n"));
-    let second = fake
-        .files
-        .insert("capture git status --porcelain".to_owned(), String::new());
+    let second = fake.files.insert(
+        "capture git status --porcelain --untracked-files=all --ignore-submodules=none".to_owned(),
+        String::new(),
+    );
     assert!(first.is_none() && second.is_none(), "fresh fake");
     let peeled = fake.files.insert(
         format!("capture git rev-parse --verify {head}^{{commit}}"),
@@ -4561,7 +4565,7 @@ fn checks_a_push_then_runs_every_check() {
         .files
         .insert("capture git rev-parse HEAD".to_owned(), format!("{head}\n"));
     let fourth = dirty.files.insert(
-        "capture git status --porcelain".to_owned(),
+        "capture git status --porcelain --untracked-files=all --ignore-submodules=none".to_owned(),
         " M a.rs\n".to_owned(),
     );
     let fifth = dirty.files.insert(
@@ -4792,7 +4796,10 @@ fn pushing(head: &str, objects: &[(&str, &str)]) -> Fake {
     let mut fake = passing();
     for (command, answer) in [
         ("git rev-parse HEAD".to_owned(), format!("{head}\n")),
-        ("git status --porcelain".to_owned(), String::new()),
+        (
+            "git status --porcelain --untracked-files=all --ignore-submodules=none".to_owned(),
+            String::new(),
+        ),
     ]
     .into_iter()
     .chain(objects.iter().map(|(object, commit)| {
@@ -4859,9 +4866,21 @@ fn pushes_an_annotated_tag_of_the_commit_checked_out() {
     let (here, before, parent) = (object("here"), object("before"), object("HEAD~1"));
     assert_ne!(here, object("HEAD"), "a tag object, not the commit");
     let mut runner = SystemRunner { root: repo.clone() };
-    let on_head = super::pre_push(&mut runner, &[here]);
+    let on_head = super::pre_push(&mut runner, core::slice::from_ref(&here));
     let elsewhere = super::pre_push(&mut runner, &[before]);
+    let _hidden = hermetic_git(&repo, &["config", "status.showUntrackedFiles", "no"]);
+    std::fs::create_dir_all(repo.join("src")).expect("folder");
+    std::fs::write(repo.join("src/gain.rs"), "").expect("untracked file");
+    let untracked = super::pre_push(&mut runner, &[here]);
     std::fs::remove_dir_all(&repo).expect("cleanup");
+    assert_eq!(
+        untracked,
+        failed(
+            "the push cannot be checked: the working tree has changes not committed, which the \
+             check would include: ?? src/gain.rs"
+        ),
+        "a file never added, which the user's configuration hides from `git status`"
+    );
     assert_eq!(on_head, Ok(()), "the tag of the commit checked out");
     assert!(
         elsewhere.is_err_and(|error| error.summary.contains(&format!("pushing {parent}, but "))),
