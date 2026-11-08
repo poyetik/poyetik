@@ -38,21 +38,17 @@ function toCardView(card: Card): CardView {
 }
 
 /**
- * The rank of each column on the page: what is in progress first, then what comes next,
- * later, and what is done. On a narrow screen the columns stack, and the work under way
- * must not come after the backlog.
+ * Prepares the display: cards grouped by column, in the classic kanban order of `COLUMNS`
+ * (Later, Next, In progress, Done, from left to right), then in board order. On a phone the
+ * page's stylesheet moves In progress first, so that the work under way never comes after
+ * the backlog.
  */
-export const DISPLAY_RANK: Readonly<Record<ColumnId, number>> = { doing: 0, next: 1, later: 2, done: 3 };
-
-/** Prepares the display: cards grouped by column, in display order, then in board order. */
 export function toView(board: Board): BoardView {
-  const columns = [...COLUMNS]
-    .sort((left, right) => DISPLAY_RANK[left.id] - DISPLAY_RANK[right.id])
-    .map((col) => ({
-      id: col.id,
-      title: col.title,
-      cards: board.cards.filter((card) => card.column === col.id).map(toCardView),
-    }));
+  const columns = COLUMNS.map((col) => ({
+    id: col.id,
+    title: col.title,
+    cards: board.cards.filter((card) => card.column === col.id).map(toCardView),
+  }));
   const dates = board.cards.map((card) => card.updatedAt).sort();
   return {
     title: board.title,

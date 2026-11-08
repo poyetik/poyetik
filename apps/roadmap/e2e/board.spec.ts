@@ -114,3 +114,27 @@ test("passes accessibility rules with every card's steps expanded", async ({ pag
   await expect(page.locator("details.steps-toggle[open]")).toHaveCount(count);
   expect((await new AxeBuilder({ page }).analyze()).violations).toStrictEqual([]);
 });
+
+test("shows the columns in classic kanban order from left to right", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto("./");
+  const lefts = [];
+  for (const id of ["later", "next", "doing", "done"]) {
+    const box = await page.locator(`[data-column="${id}"]`).boundingBox();
+    lefts.push(box?.x ?? Number.NaN);
+  }
+  expect(lefts).toStrictEqual([...lefts].sort((left, right) => left - right));
+  expect(new Set(lefts).size).toBe(4);
+});
+
+test("shows In progress first on a phone, where the columns stack", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("./");
+  const tops = [];
+  for (const id of ["doing", "later", "next", "done"]) {
+    const box = await page.locator(`[data-column="${id}"]`).boundingBox();
+    tops.push(box?.y ?? Number.NaN);
+  }
+  expect(tops).toStrictEqual([...tops].sort((top, bottom) => top - bottom));
+  expect(new Set(tops).size).toBe(4);
+});

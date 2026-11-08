@@ -42,7 +42,12 @@ const policy = pagePolicy(import.meta.env.MODE);
       .summary p { margin: 0 0 1rem; }
       .board { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1rem; align-items: start; }
       @media (max-width: 900px) { .board { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-      @media (max-width: 560px) { .board { grid-template-columns: 1fr; } }
+      /* On a phone the columns stack: In progress moves first, so that the work under way never
+         comes after the backlog. Wider screens keep the classic kanban order of the markup. */
+      @media (max-width: 560px) {
+        .board { grid-template-columns: 1fr; }
+        .column[data-column="doing"] { order: -1; }
+      }
       .column h2 { font-size: 0.95rem; text-transform: uppercase; letter-spacing: 0.04em; margin: 0 0 0.75rem; }
       .count { color: var(--muted); font-weight: normal; }
       ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.6rem; }

@@ -43,6 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The roadmap page shows its columns in classic kanban order, Later, Next, In progress, Done, from left to right; on a phone, where the columns stack, In progress still comes first.
 - **Breaking:** the project is named Poyetik. Every package is `@poyetik/…`, and the WebAssembly module's interface identity is now "PY" (`0x5059_0001`): a module built before the rename is refused by the new JavaScript side, and the reverse.
 - **Breaking (roadmap CLI):** the steps of a card are steps everywhere, as on the page: the command `task add|done|undo|edit|rm` is now `step add|done|undo|edit|rm`, and the messages say "step". The data file keeps its `tasks` key, unchanged byte for byte.
 - The step names of `cargo xtask check` all start with a capital letter (checked), and the engine documents that its output is never clipped or sanitized: the final output stage belongs to the host until the engine defines its own output policy.
