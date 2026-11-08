@@ -629,6 +629,7 @@ fn lists_every_check_in_order() {
             "license gate",
             "stryker config gate",
             "fresh tooling/config/coverage tooling/config/reports/mutation tooling/oracle/coverage tooling/oracle/reports/mutation bindings/wasm/coverage bindings/wasm/reports/mutation apps/playground/coverage apps/playground/reports/mutation apps/roadmap/coverage apps/roadmap/reports/mutation",
+            "fresh bindings/wasm/dist",
             "Package(\"tooling/config\"): pnpm run check",
             "Package(\"tooling/oracle\"): pnpm run check",
             "Package(\"bindings/wasm\"): pnpm run check",
@@ -697,6 +698,7 @@ fn names_every_check_in_order() {
             "JavaScript licenses",
             "Stryker configurations hide no mutant",
             "Fresh TypeScript report directories",
+            "Fresh TypeScript build outputs",
             "Shared TypeScript policy (each rule proven to reject what it forbids)",
             "Conformance oracle (independent, TypeScript)",
             "Engine WASM checks",
@@ -928,7 +930,7 @@ fn runs_every_step_and_reports_success() {
         Ok(()),
         "all green"
     );
-    let (tools, commands, emptied, listed, captured) = (9, 32, 12, 9, 9);
+    let (tools, commands, emptied, listed, captured) = (9, 32, 13, 9, 9);
     let read = 1 + 12 + 2 + 2 + 4 + 2 + 1 + 7 + 3 + 10 + 10 + 8 + 2 + 5 + 11;
     assert_eq!(
         fake.ran.len(),
@@ -936,7 +938,7 @@ fn runs_every_step_and_reports_success() {
         "the preflight asks nine tools; 32 commands run (formatting, lints, documentation, \
          tests, four portability builds, twelve coverage measurements, mutants, Miri, the \
          conformance check and export, deny, the JavaScript install, audit and five package \
-         checks); twelve directories are emptied; git lists nine kinds of files; the licenses, \
+         checks); thirteen directories are emptied; git lists nine kinds of files; the licenses, \
          the history and the state of the tree (before and after) are captured twice each, \
          the Cargo metadata once; and the gates read .node-version for the preflight, twelve coverage reports, \
          the unviable report and reviews, a TypeScript source and its reviews, the three \
@@ -963,15 +965,15 @@ fn runs_every_step_and_reports_success() {
     );
     let text = String::from_utf8(out).expect("utf-8 output");
     assert!(
-        text.starts_with("▶ [1/53] Tools and platform\n"),
+        text.starts_with("▶ [1/54] Tools and platform\n"),
         "numbered progress: {text}"
     );
     assert!(
-        text.contains("▶ [51/53] Roadmap checks\n"),
+        text.contains("▶ [52/54] Roadmap checks\n"),
         "last step announced: {text}"
     );
     assert!(
-        text.ends_with("✔ all 53 checks passed\n"),
+        text.ends_with("✔ all 54 checks passed\n"),
         "summary: {text}"
     );
 }
@@ -3231,7 +3233,7 @@ fn prints_the_details_of_a_failure_on_stdout_and_one_line_on_stderr() {
     );
     assert!(
         String::from_utf8(out).expect("UTF-8").ends_with(
-            "▶ [25/53] Rust unviable mutants reviewed\n\
+            "▶ [25/54] Rust unviable mutants reviewed\n\
              not reviewed: crates/a/src/c.rs: replace g -> U with x\n\
              stale review: crates/a/src/b.rs: replace f -> T with Default::default()\n"
         ),
@@ -4061,4 +4063,28 @@ fn requires_every_crate_to_take_the_workspace_repository() {
         ),
         "a repository of its own"
     );
+}
+
+#[test]
+fn empties_stale_build_outputs_before_the_builds_that_write_them() {
+    let steps = check_steps();
+    assert_eq!(
+        super::build_outputs(),
+        vec!["bindings/wasm/dist".to_owned()],
+        "the outputs of tsc, which never removes a stale one"
+    );
+    for package in PACKAGES {
+        for output in package.outputs {
+            let path = format!("{}/{output}", package.dir);
+            let emptied = steps.iter().position(
+                |step| matches!(&step.action, Action::FreshDirs(paths) if paths.contains(&path)),
+            );
+            let built = steps.iter().position(|step| step.name == package.step);
+            assert!(
+                emptied.is_some() && emptied < built,
+                "{path} is emptied before {} runs",
+                package.step
+            );
+        }
+    }
 }

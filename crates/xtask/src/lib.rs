@@ -173,6 +173,10 @@ pub struct Package {
     /// Whether what it ships reaches users, so that its production dependencies must be
     /// under [`SHIPPED_LICENSES`].
     pub shipped: bool,
+    /// Its build output directories that its build does not empty itself (`tsc` never
+    /// removes an output whose source is gone), relative to its directory: emptied before
+    /// the checks, so that no stale output of an earlier run is used by a later step.
+    pub outputs: &'static [&'static str],
 }
 
 impl Package {
@@ -196,26 +200,31 @@ pub const PACKAGES: [Package; 5] = [
         dir: "tooling/config",
         step: "Shared TypeScript policy (each rule proven to reject what it forbids)",
         shipped: false,
+        outputs: &[],
     },
     Package {
         dir: "tooling/oracle",
         step: "Conformance oracle (independent, TypeScript)",
         shipped: false,
+        outputs: &[],
     },
     Package {
         dir: "bindings/wasm",
         step: "Engine WASM checks",
         shipped: true,
+        outputs: &["dist"],
     },
     Package {
         dir: "apps/playground",
         step: "Playground checks",
         shipped: true,
+        outputs: &[],
     },
     Package {
         dir: "apps/roadmap",
         step: "Roadmap checks",
         shipped: true,
+        outputs: &[],
     },
 ];
 
@@ -226,6 +235,21 @@ pub fn typescript_reports() -> Vec<String> {
     PACKAGES
         .iter()
         .flat_map(|package| package.reports())
+        .collect()
+}
+
+/// The build output directories of every package of [`PACKAGES`] that its build does not
+/// empty, emptied before the checks.
+#[must_use]
+pub fn build_outputs() -> Vec<String> {
+    PACKAGES
+        .iter()
+        .flat_map(|package| {
+            package
+                .outputs
+                .iter()
+                .map(move |output| format!("{}/{output}", package.dir))
+        })
         .collect()
 }
 
@@ -677,6 +701,10 @@ fn typescript_steps() -> Vec<Step> {
         Step {
             name: "Fresh TypeScript report directories".to_owned(),
             action: Action::FreshDirs(typescript_reports()),
+        },
+        Step {
+            name: "Fresh TypeScript build outputs".to_owned(),
+            action: Action::FreshDirs(build_outputs()),
         },
     ];
     steps.extend(PACKAGES.iter().map(|package| {
