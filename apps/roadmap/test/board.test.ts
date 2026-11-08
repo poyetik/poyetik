@@ -98,7 +98,7 @@ describe("BoardError", () => {
 });
 
 describe("COLUMNS", () => {
-  it("defines the four columns in display order", () => {
+  it("defines the four columns in data and CLI order", () => {
     expect(COLUMNS).toEqual([
       { id: "later", title: "Later" },
       { id: "next", title: "Next" },

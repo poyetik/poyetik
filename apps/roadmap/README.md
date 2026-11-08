@@ -6,7 +6,7 @@ The public roadmap of the project: a kanban board whose data lives in `board.jso
 |---|---|
 | `board.json` | The board: cards, their columns, milestones and ordered steps |
 | `src/lib/board.ts` | The board model: parsing (every field proven at the boundary) and every edit, as pure functions |
-| `src/lib/view.ts` | The board prepared for display: columns in display order, step statuses |
+| `src/lib/view.ts` | The board prepared for display: cards grouped by column, step statuses (the column order on screen is described there) |
 | `src/cli/` | The command-line tool (`pnpm roadmap`), the only way to change `board.json` |
 | `src/components/Board.astro`, `src/pages/index.astro` | The page, under a strict Content Security Policy (`src/lib/csp.ts`) |
 | `e2e/` | End-to-end tests, with axe, on the browsers and devices of `playwright.config.ts` |

@@ -3,7 +3,7 @@
  * Every change goes through a command that returns a new board (never mutates).
  */
 
-/** The four roadmap columns, in display order. */
+/** The four roadmap columns, in the order of the data and the CLI; the page shows them in this order on a wide screen, and moves In progress first on a phone (see `toView` in view.ts). */
 export const COLUMNS = [
   { id: "later", title: "Later" },
   { id: "next", title: "Next" },
