@@ -31,7 +31,9 @@ describe("judge", () => {
     const verdict = judge(corpus());
     expect(verdict.failures).toBe(0);
     expect(verdict.lines).toHaveLength(1);
-    expect(verdict.lines[0]).toMatch(new RegExp(`^ok {7}sine ${HASH} \\(2 channel\\(s\\), sine error \\d\\.\\d{2}e-\\d+\\)$`));
+    expect(verdict.lines[0]).toMatch(
+      new RegExp(`^ok {7}sine ${HASH} \\(2 channel\\(s\\), sine error \\d\\.\\d{2}e-\\d+; THD\\+N -\\d+\\.\\d dB, SFDR \\d+\\.\\d dB, THD -\\d+\\.\\d dB, aliasing none, SNR \\d+\\.\\d dB\\)$`),
+    );
   });
 
   test("reports the largest error of all channels, accepted up to the bound", () => {
@@ -56,14 +58,21 @@ describe("judge", () => {
   test("reports a signal off the expected sine, channel by channel", () => {
     const off = { ...CHANNEL, sine: { ...CHANNEL.sine, frequency: 1001 } };
     const verdict = judge(corpus({ expectations: { sine: { sample_rate: RATE, frames: FRAMES, channels: [CHANNEL, off] } } }));
-    expect(verdict.failures).toBe(1);
+    // Off by a hertz over 64 samples: off the sine, and its levels far out of their bounds
+    // (the fundamental's fit leaves most of the signal).
     expect(verdict.lines[0]).toMatch(/^FAIL {5}sine: channel 1: off the expected sine by \d\.\d{2}e-\d+ \(at most 2\.98e-8\)$/);
+    expect(verdict.lines[1]).toMatch(/^FAIL {5}sine: channel 1: THD\+N -\d+\.\d dB, above its bound -\d+\.\d dB$/);
+    expect(verdict.lines.every((line) => line.startsWith("FAIL     sine: channel 1: "))).toBe(true);
+    expect(verdict.failures).toBe(verdict.lines.length);
   });
 
   test("fails a signal that is not finite", () => {
     const wav = makeWav({ rate: RATE, channels: 2, samples: [Number.NaN, ...sineSamples(2, FRAMES, RATE, 1000).slice(1)] });
     const verdict = judge(corpus({ wavs: new Map([["sine", wav]]), references: { sine: renderHash(parseWav(wav)) } }));
-    expect(verdict.lines).toStrictEqual(["FAIL     sine: channel 0: off the expected sine by Infinity (at most 2.98e-8)"]);
+    expect(verdict.lines).toStrictEqual([
+      "FAIL     sine: channel 0: off the expected sine by Infinity (at most 2.98e-8)",
+      "FAIL     sine: channel 0: cannot be measured: sample 0 is not finite",
+    ]);
   });
 
   test("checks the rate, the duration and the channels against the case and the expectations", () => {
@@ -96,7 +105,7 @@ describe("judge", () => {
         }),
       );
     };
-    expect(judged(0).lines[0]).toContain("sine error 0.00e+0");
+    expect(judged(0).lines[0]).toContain("sine error 0.00e+0; levels not measured: no fundamental strictly between DC and Nyquist)");
     expect(judged(2 ** -149).lines).toStrictEqual(["FAIL     sine: channel 0: off the expected sine by 1.40e-45 (at most 0.00e+0)"]);
   });
 

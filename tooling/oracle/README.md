@@ -1,6 +1,6 @@
 # oracle
 
-The independent conformance oracle. For every case of `conformance/`, it rereads the WAV file the native engine wrote (`target/conformance/`, from `engine-cli export`), recomputes its render hash and checks the signal against its mathematical definition, sharing no code with the engine: a defect common to the engine and its own checks cannot hide.
+The independent conformance oracle. For every case of `conformance/`, it rereads the WAV file the native engine wrote (`target/conformance/`, from `engine-cli export`), recomputes its render hash, checks the signal against its mathematical definition and measures its quality against thresholds derived from its expectation (`spec/measurements.md`), sharing no code with the engine: a defect common to the engine and its own checks cannot hide.
 
 | Path | What |
 |---|---|
@@ -8,6 +8,7 @@ The independent conformance oracle. For every case of `conformance/`, it rereads
 | `src/hash.ts` | The render hash, written again from its specification (`spec/render-hash.md`) |
 | `src/signal.ts` | The expected signals and their error bounds |
 | `src/measure.ts` | The measurements (spectrum, THD+N, THD, SNR, SFDR, aliasing level) and the bounds of a sine, written again from `spec/measurements.md` |
+| `src/quality.ts` | Measures a channel that must hold a sine and holds every level to its derived bound |
 | `src/inputs.ts` | Parses the cases (accepting and refusing the same files as `engine-cli`), the references and the expectations |
 | `src/files.ts` | Reads a regular file with a size limit, never more than one byte past it, and lists a directory; a failure is named by its error code |
 | `src/oracle.ts` | The verdict on the whole corpus; an empty corpus fails |

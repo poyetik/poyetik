@@ -6,6 +6,7 @@
 
 import { renderHash } from "./hash.ts";
 import { InputError, parseCase, parseExpectations, parseReferences, type Expectation } from "./inputs.ts";
+import { describe, judgeQuality, UNMEASURED, worst, type Levels } from "./quality.ts";
 import { channel, sineError, sineErrorBound } from "./signal.ts";
 import { WavError, parseWav } from "./wav.ts";
 
@@ -60,18 +61,28 @@ function judgeCase(name: string, raw: string, reference: string, expectation: Ex
   if (hash !== reference) {
     problems.push(`hash: the WAV file hashes to ${hash}, the reference is ${reference}`);
   }
-  let worst = 0;
+  let largest = 0;
+  const measured: Levels[] = [];
   expectation.channels.forEach((expected, index) => {
     if (index < wav.channels) {
-      const error = sineError(channel(wav, index), wav.rate, expected.sine);
+      const samples = channel(wav, index);
+      const error = sineError(samples, wav.rate, expected.sine);
       const bound = sineErrorBound(expected.sine.amplitude, wav.frames);
-      worst = Math.max(worst, error);
+      largest = Math.max(largest, error);
       if (!(error <= bound)) {
         problems.push(`channel ${String(index)}: off the expected sine by ${error.toExponential(2)} (at most ${bound.toExponential(2)})`);
       }
+      const quality = judgeQuality(samples, wav.rate, expected.sine);
+      if (quality.kind === "failed") {
+        problems.push(...quality.problems.map((problem) => `channel ${String(index)}: ${problem}`));
+      } else if (quality.kind === "measured") {
+        measured.push(quality.levels);
+      }
     }
   });
-  return problems.length > 0 ? { problems } : { ok: `${hash} (${String(wav.channels)} channel(s), sine error ${worst.toExponential(2)})` };
+  const combined = worst(measured);
+  const levels = combined === null ? `levels not measured: ${UNMEASURED}` : describe(combined);
+  return problems.length > 0 ? { problems } : { ok: `${hash} (${String(wav.channels)} channel(s), sine error ${largest.toExponential(2)}; ${levels})` };
 }
 
 /** Judges every case of the corpus, sorted by name. */
