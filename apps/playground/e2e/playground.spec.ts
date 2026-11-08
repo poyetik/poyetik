@@ -48,28 +48,42 @@ test("plays the 440 Hz sine of the engine and shows it live", async ({ page }) =
   await expect(page.getByTestId("frequency")).toHaveText("440.0 Hz");
 });
 
-test("draws the waveform on the oscilloscope", async ({ page }) => {
+test("draws the waveform on the oscilloscope: full height, full width", async ({ page }) => {
   await page.goto("./?muted");
   const canvas = page.getByRole("img", { name: "Waveform of the engine output" });
-  /** Number of canvas pixels in the trace color. */
-  const tracePixels = (): Promise<number> =>
+  /** The extent of the pixels in the trace color, as fractions of the canvas size. */
+  const extent = (): Promise<{ top: number; bottom: number; columns: number }> =>
     canvas.evaluate((element) => {
       if (!(element instanceof HTMLCanvasElement)) {
         throw new Error("not a canvas");
       }
-      const { data } = element.getContext("2d")?.getImageData(0, 0, element.width, element.height) ?? { data: [] };
-      let count = 0;
+      const { width, height } = element;
+      const { data } = element.getContext("2d")?.getImageData(0, 0, width, height) ?? { data: [] };
+      let top = height;
+      let bottom = -1;
+      const columns = new Set<number>();
       for (let index = 0; index < data.length; index += 4) {
         // The trace color, #4fd1a5: green dominant, unlike the grid and the background.
         if ((data[index + 1] ?? 0) > 150 && (data[index] ?? 0) < 120) {
-          count += 1;
+          const pixel = index / 4;
+          const row = Math.floor(pixel / width);
+          top = Math.min(top, row);
+          bottom = Math.max(bottom, row);
+          columns.add(pixel % width);
         }
       }
-      return count;
+      return { top: top / height, bottom: (bottom + 1) / height, columns: columns.size / width };
     });
   await page.getByRole("button", { name: "Start" }).click();
   await expect(page.getByTestId("frequency")).toHaveText("440.0 Hz");
-  await expect.poll(tracePixels).toBeGreaterThan(1000);
+  // A full-scale sine reaches ±0.9 of the half height (5% and 95% of the height), and the
+  // trace spans the width but for the sub-sample shift at the left edge (at most 1%).
+  await expect
+    .poll(async () => {
+      const { top, bottom, columns } = await extent();
+      return top <= 0.07 && bottom >= 0.93 && columns >= 0.98;
+    })
+    .toBe(true);
 });
 
 test("is accessible", async ({ page }) => {

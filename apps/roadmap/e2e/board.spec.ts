@@ -101,3 +101,15 @@ test("loads without a failed request or a console error (its favicon included)",
   expect((await page.request.get("/favicon.svg")).status()).toBe(200);
   expect(errors).toStrictEqual([]);
 });
+
+test("passes accessibility rules with every card's steps expanded", async ({ page }) => {
+  await page.goto("./");
+  const toggles = page.locator("details.steps-toggle > summary");
+  const count = await toggles.count();
+  expect(count).toBeGreaterThan(0);
+  for (let index = 0; index < count; index += 1) {
+    await toggles.nth(index).click();
+  }
+  await expect(page.locator("details.steps-toggle[open]")).toHaveCount(count);
+  expect((await new AxeBuilder({ page }).analyze()).violations).toStrictEqual([]);
+});
