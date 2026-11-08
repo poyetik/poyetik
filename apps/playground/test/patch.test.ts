@@ -1,22 +1,12 @@
 import { loadPatch } from "@poyetik/engine-wasm/web";
-import { existsSync, readFileSync } from "node:fs";
-import { pathToFileURL } from "node:url";
+import { readFileSync } from "node:fs";
 import { expect, test } from "vitest";
 import { SINE_440 } from "../src/patch.ts";
+import { findUp } from "./repository.ts";
 
-/**
- * The conformance patch file of sine-440, found by walking up from the package directory
- * (under jsdom, module URLs are not file URLs): the tests also run from a copy of the
- * package (mutation testing sandbox), deeper in the repository.
- */
+/** The conformance patch file of sine-440, parsed. */
 function conformancePatch(): unknown {
-  for (let directory = pathToFileURL(`${process.cwd()}/`); directory.pathname !== "/"; directory = new URL("../", directory)) {
-    const file = new URL("conformance/patches/sine-440.json", directory);
-    if (existsSync(file)) {
-      return JSON.parse(readFileSync(file, "utf8"));
-    }
-  }
-  throw new Error("conformance corpus not found");
+  return JSON.parse(readFileSync(findUp("conformance/patches/sine-440.json"), "utf8"));
 }
 
 test("is the sine-440 patch of the conformance corpus, whose render has a reference hash", () => {

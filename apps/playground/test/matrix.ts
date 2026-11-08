@@ -1,17 +1,16 @@
 // The shared test matrix (conformance/test-matrix.json), read by the TypeScript tests:
 // the same sample rates as the Rust tests, never retyped.
-import { existsSync, readFileSync } from "node:fs";
-import { pathToFileURL } from "node:url";
+//
+// bindings/wasm has its own reader (test/fixtures.ts): a package cannot import another's
+// test files (relative imports break in the mutation testing sandbox). When a third
+// TypeScript package needs the matrix (the editor), the readers move to one shared,
+// tested workspace package instead of a third copy.
+import { readFileSync } from "node:fs";
+import { findUp } from "./repository.ts";
 
-/** The matrix file, found by walking up from the package directory (see patch.test.ts). */
+/** The matrix file, parsed. */
 function matrix(): unknown {
-  for (let directory = pathToFileURL(`${process.cwd()}/`); directory.pathname !== "/"; directory = new URL("../", directory)) {
-    const file = new URL("conformance/test-matrix.json", directory);
-    if (existsSync(file)) {
-      return JSON.parse(readFileSync(file, "utf8"));
-    }
-  }
-  throw new Error("conformance/test-matrix.json not found");
+  return JSON.parse(readFileSync(findUp("conformance/test-matrix.json"), "utf8"));
 }
 
 /** Every sample rate of the matrix, in hertz. */
