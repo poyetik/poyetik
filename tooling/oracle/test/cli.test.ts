@@ -91,14 +91,30 @@ describe("main", () => {
     expect(errors).toStrictEqual(["error: Error: no listing"]);
   });
 
-  test("explains its arguments", () => {
-    expect(USAGE).toBe("usage: oracle <conformance dir> <dir of exported WAV files>");
+  test("explains its arguments on stdout when asked", () => {
+    expect(USAGE).toBe("usage: oracle <conformance dir> <dir of exported WAV files>\n       oracle help");
+    const io = memory({});
+    expect(main(["help"], io)).toBe(0);
+    expect(io.lines).toStrictEqual([USAGE]);
+    expect(io.errors).toStrictEqual([]);
   });
 
-  test.each([[[]], [["conf"]], [["conf", "wav", "extra"]]])("prints the usage for %o", (args) => {
+  test("reads help followed by another argument as two directories", () => {
+    const io = memory({});
+    expect(main(["help", "wav"], io)).toBe(1);
+    expect(io.errors).toStrictEqual(["error: ENOENT: help/references.json"]);
+    expect(io.lines).toStrictEqual([]);
+  });
+
+  test.each([
+    [[], 0],
+    [["conf"], 1],
+    [["conf", "wav", "extra"], 3],
+  ])("rejects %o with one error line and the reason", (args, count) => {
     const io = memory({});
     expect(main(args, io)).toBe(2);
-    expect(io.errors).toStrictEqual([USAGE]);
+    expect(io.errors).toStrictEqual([`error: expected <conformance dir> <dir of exported WAV files>, got ${String(count)} argument(s) (see: oracle help)`]);
+    expect(io.lines).toStrictEqual([]);
   });
 });
 

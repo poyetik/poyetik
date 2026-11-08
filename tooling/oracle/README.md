@@ -9,9 +9,10 @@ The independent conformance oracle. For every case of `conformance/`, it rereads
 | `src/signal.ts` | The expected signals and their error bounds |
 | `src/inputs.ts` | Parses the cases, the references and the expectations |
 | `src/oracle.ts` | The verdict on the whole corpus; an empty corpus fails |
-| `src/cli.ts`, `src/bin.ts` | The command-line tool (exit 0, 1 or 2; one `error:` line on failure) |
+| `src/cli.ts`, `src/bin.ts` | The command-line tool (exit 0, 1 or 2; one `error:` line on failure or misuse; `help` prints the usage) |
 
 ```sh
 pnpm oracle   # judge the corpus exported to ../../target/conformance
 pnpm check    # types, lint, unit tests at 100% coverage, mutation testing, then the oracle itself
+node src/bin.ts help   # the usage
 ```

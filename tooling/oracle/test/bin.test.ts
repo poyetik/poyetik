@@ -66,6 +66,20 @@ test("fails with its message on stderr", async () => {
   expect(process.exitCode).toBe(1);
 });
 
+test("rejects a usage error with one error line and exit code 2", async () => {
+  const { stdout, stderr } = await runBin(["conf"]);
+  expect(stdout).toBe("");
+  expect(stderr).toBe("error: expected <conformance dir> <dir of exported WAV files>, got 1 argument(s) (see: oracle help)\n");
+  expect(process.exitCode).toBe(2);
+});
+
+test("prints its usage on stdout when asked", async () => {
+  const { stdout, stderr } = await runBin(["help"]);
+  expect(stdout).toBe("usage: oracle <conformance dir> <dir of exported WAV files>\n       oracle help\n");
+  expect(stderr).toBe("");
+  expect(process.exitCode).toBe(0);
+});
+
 test("ignores a closed stdout", async () => {
   await runBin([]);
   expect(() => process.stdout.emit("error", Object.assign(new Error("write EPIPE"), { code: "EPIPE" }))).not.toThrow();

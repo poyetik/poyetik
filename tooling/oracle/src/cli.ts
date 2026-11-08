@@ -3,8 +3,8 @@
 import { join } from "node:path";
 import { judge } from "./oracle.ts";
 
-/** Usage of the command. */
-export const USAGE = "usage: oracle <conformance dir> <dir of exported WAV files>";
+/** Usage of the command, printed on stdout by `oracle help`. */
+export const USAGE = "usage: oracle <conformance dir> <dir of exported WAV files>\n       oracle help";
 
 /** What the command needs from the outside world. */
 export interface Io {
@@ -44,13 +44,18 @@ function isPair(args: readonly string[]): args is readonly [string, string] {
 }
 
 /**
- * Runs the oracle; returns the exit code: 0 when every case passes, 1 when a case fails
- * or an input cannot be read, 2 for a usage error. Every error is one `error:` line,
- * naming the file.
+ * Runs the oracle; returns the exit code: 0 when every case passes (or for `help`), 1
+ * when a case fails or an input cannot be read, 2 for a usage error. Every error is one
+ * `error:` line, naming the file, or for a usage error the reason and where to read the
+ * usage.
  */
 export function main(args: readonly string[], io: Io): number {
+  if (args.length === 1 && args[0] === "help") {
+    io.out(USAGE);
+    return 0;
+  }
   if (!isPair(args)) {
-    io.err(USAGE);
+    io.err(`error: expected <conformance dir> <dir of exported WAV files>, got ${String(args.length)} argument(s) (see: oracle help)`);
     return 2;
   }
   const [conformance, wavs] = args;

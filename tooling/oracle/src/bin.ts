@@ -1,4 +1,4 @@
-/** Entry point: `node src/bin.ts <conformance dir> <dir of exported WAV files>`. */
+/** Entry point: `node src/bin.ts <conformance dir> <dir of exported WAV files>`, or `node src/bin.ts help`. */
 
 import { readFileSync, readdirSync } from "node:fs";
 import { ignoreClosedReader, main } from "./cli.ts";
