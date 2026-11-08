@@ -107,6 +107,16 @@ describe("bin", () => {
     expect(stdout).toMatch(/^valid board: \d+ card\(s\)\n$/);
     expect(process.exitCode).toBe(0);
   });
+  it("refuses an empty ROADMAP_FILE, naming it, and leaves the default board alone", async () => {
+    process.env["ROADMAP_FILE"] = "";
+    const board = readFileSync(new URL("../board.json", import.meta.url), "utf8");
+    const { stdout, stderr } = await runBin(["add", "Never added"]);
+    expect(stdout).toBe("");
+    expect(stderr).toBe("error: ROADMAP_FILE is set but empty: unset it or name a board file\n");
+    expect(process.exitCode).toBe(1);
+    expect(readFileSync(new URL("../board.json", import.meta.url), "utf8")).toBe(board);
+  });
+
   it("names the board file it cannot read, without a stack trace", async () => {
     const file = join(dir, "missing.json");
     process.env["ROADMAP_FILE"] = file;
