@@ -295,6 +295,8 @@ impl Runner for Fake {
             .files
             .keys()
             .filter(|path| !path.starts_with("capture "))
+            // Files outside the repository (the toolchain's) are never tracked.
+            .filter(|path| !path.starts_with('/'))
             .filter(|path| {
                 patterns
                     .iter()
@@ -388,6 +390,21 @@ const DISABLED_SOURCE: (&str, &str) = (
 /// A Stryker configuration that hides nothing.
 const STRYKER_CONFIG: &str = r#"{"$schema":"s","testRunner":"vitest","mutate":["src/**/*.ts"],"reporters":["json"],"thresholds":{"break":100}}"#;
 
+/// Gives the fake a toolchain whose float sources are consistent with its `clippy.toml`.
+fn float_sources(fake: &mut Fake) {
+    let (sources, clippy) = float_fixture();
+    let sysroot = fake.files.insert(
+        "capture rustc --print sysroot".to_owned(),
+        format!("{FAKE_SYSROOT}\n"),
+    );
+    let banned = fake.files.insert(super::CLIPPY_TOML.to_owned(), clippy);
+    assert!(sysroot.is_none() && banned.is_none(), "fresh fake");
+    for (path, text) in sources {
+        let source = fake.files.insert(path, text);
+        assert!(source.is_none(), "fresh fake");
+    }
+}
+
 fn passing() -> Fake {
     let mut fake = Fake::default();
     coverage_reports(&mut fake);
@@ -419,6 +436,7 @@ fn passing() -> Fake {
         let previous_unsafe = fake.files.insert(path.to_owned(), lifting());
         assert!(previous_unsafe.is_none(), "fresh fake");
     }
+    float_sources(&mut fake);
     let [messages, files] = HISTORY_LINES;
     let logged = fake
         .files
@@ -713,6 +731,7 @@ fn command_lines(steps: &[Step]) -> Vec<String> {
             Action::LicenseGate => "license gate".to_owned(),
             Action::UnsafeGate => "unsafe gate".to_owned(),
             Action::CargoConfigGate => "cargo config gate".to_owned(),
+            Action::FloatMethodGate => "float method gate".to_owned(),
             Action::DependencyGate => "dependency gate".to_owned(),
             Action::SupplyChainGate => "supply chain gate".to_owned(),
             Action::Preflight => "preflight".to_owned(),
@@ -728,6 +747,318 @@ fn command_lines(steps: &[Step]) -> Vec<String> {
         .collect()
 }
 
+/// The sysroot the fake toolchain answers.
+const FAKE_SYSROOT: &str = "/toolchain";
+
+/// A source of the standard library declaring `methods` (name, stability, documentation)
+/// in an `impl` block of `float`, between a constant and the closing brace.
+fn float_source(float: &str, methods: &[(&str, bool, &str)]) -> String {
+    use core::fmt::Write as _;
+    let mut text = format!(
+        "//! Floats.\n\npub mod consts {{}}\n\nimpl {float} {{\n    pub const RADIX: u32 = 2;\n\n"
+    );
+    for (name, stable, doc) in methods {
+        let attribute = if *stable {
+            "#[stable(feature = \"rust1\", since = \"1.0.0\")]"
+        } else {
+            "#[unstable(feature = \"x\", issue = \"1\")]"
+        };
+        let _written = writeln!(
+            text,
+            "    /// {doc}\n    ///\n    /// ```\n    /// let x = 1.0;\n    /// ```\n    {attribute}\n    #[inline]\n    pub const fn {name}(self) -> {float} {{\n        self\n    }}\n"
+        );
+    }
+    text.push_str("}\n\nfn outside() {}\n");
+    text
+}
+
+/// Consistent float sources, every reviewed method stable in `core`, `sin` banned (and
+/// documented as such) and an unstable `gamma` in `std`, with the `clippy.toml` banning
+/// `sin` (and a method that is not a float's).
+fn float_fixture() -> (Vec<(String, String)>, String) {
+    let reviewed: Vec<(&str, bool, &str)> = super::DETERMINISTIC_FLOAT_METHODS
+        .iter()
+        .map(|(name, _)| (*name, true, "Exact."))
+        .collect();
+    let std_methods = [
+        ("sin", true, "# Unspecified precision"),
+        ("gamma", false, "non-deterministic"),
+    ];
+    let sources = super::FLOAT_SOURCES
+        .iter()
+        .map(|path| {
+            let float = if path.ends_with("f32.rs") {
+                "f32"
+            } else {
+                "f64"
+            };
+            let methods: &[(&str, bool, &str)] = if path.contains("/core/") {
+                &reviewed
+            } else {
+                &std_methods
+            };
+            (
+                format!("{FAKE_SYSROOT}/{path}"),
+                float_source(float, methods),
+            )
+        })
+        .collect();
+    let clippy = "disallowed-methods = [\n  { path = \"std::env::args\", reason = \"r\" },\n  { path = \"f32::sin\", reason = \"r\" },\n  { path = \"f64::sin\", reason = \"r\" },\n]\n".to_owned();
+    (sources, clippy)
+}
+
+#[test]
+fn accepts_every_float_method_banned_or_reviewed() {
+    let (sources, clippy) = float_fixture();
+    assert_eq!(super::float_gate(&sources, &clippy), Ok(()), "consistent");
+    let methods = super::parse_float_methods(
+        "f64.rs",
+        &float_source(
+            "f64",
+            &[
+                ("abs", true, "Exact."),
+                ("gamma", false, "Unspecified precision"),
+            ],
+        ),
+    )
+    .expect("parsed");
+    assert_eq!(
+        methods,
+        vec![
+            super::FloatMethod {
+                float: "f64".to_owned(),
+                name: "abs".to_owned(),
+                stable: true,
+                documented_varying: false
+            },
+            super::FloatMethod {
+                float: "f64".to_owned(),
+                name: "gamma".to_owned(),
+                stable: false,
+                documented_varying: true
+            },
+        ],
+        "every method, with its stability and documentation"
+    );
+    let unsafe_method = "impl f32 {\n    #[stable(feature = \"a\", since = \"1\")]\n    pub unsafe fn to_int_unchecked<Int>(self) -> Int {}\n    /// It is non-deterministic.\n    #[stable(feature = \"a\", since = \"1\")]\n    pub fn sin(self) -> f32 {}\n}\n";
+    let parsed = super::parse_float_methods("f32.rs", unsafe_method).expect("parsed");
+    assert_eq!(
+        parsed
+            .iter()
+            .map(|method| (method.name.as_str(), method.documented_varying))
+            .collect::<Vec<_>>(),
+        [("to_int_unchecked", false), ("sin", true)],
+        "unsafe and const functions, and the documentation of each method alone"
+    );
+}
+
+/// A change of a source's text.
+type SourceEdit = Box<dyn Fn(String) -> String>;
+
+/// The fixture with one change of the `core` source of `f64`: `edit` maps its text.
+fn float_sources_with(edit: impl Fn(String) -> String) -> Vec<(String, String)> {
+    float_fixture()
+        .0
+        .into_iter()
+        .map(|(path, text)| {
+            if path.ends_with("core/src/num/f64.rs") {
+                (path, edit(text))
+            } else {
+                (path, text)
+            }
+        })
+        .collect()
+}
+
+#[test]
+fn refuses_a_float_method_neither_banned_nor_reviewed() {
+    let (_, clippy) = float_fixture();
+    let sources =
+        float_sources_with(|text| text.replace("pub const fn abs(", "pub const fn lerp("));
+    assert_eq!(
+        super::float_gate(&sources, &clippy),
+        found(
+            "the float methods of the pinned toolchain",
+            &[
+                "`f64::lerp` is neither banned in clippy.toml nor reviewed as deterministic (DETERMINISTIC_FLOAT_METHODS in xtask)".to_owned(),
+            ]
+        ),
+        "a new method"
+    );
+    // A method only `f64` lacks keeps its review current through `f32`.
+    let unstable = float_sources_with(|text| {
+        text.replace("#[stable(feature = \"rust1\", since = \"1.0.0\")]\n    #[inline]\n    pub const fn abs(", "#[unstable(feature = \"x\", issue = \"1\")]\n    #[inline]\n    pub const fn abs(")
+    });
+    assert_eq!(
+        super::float_gate(&unstable, &clippy),
+        Ok(()),
+        "an unstable method needs no classification"
+    );
+}
+
+#[test]
+fn refuses_a_float_method_both_banned_and_reviewed_or_documented_as_varying() {
+    let (sources, clippy) = float_fixture();
+    let both = clippy.replace("]\n", "  { path = \"f64::abs\", reason = \"r\" },\n]\n");
+    assert_eq!(
+        super::float_gate(&sources, &both),
+        found(
+            "the float methods of the pinned toolchain",
+            &["`f64::abs` is both banned in clippy.toml and reviewed as deterministic".to_owned()]
+        ),
+        "both"
+    );
+    for warning in [
+        "# Unspecified precision",
+        "may return either, non-deterministically",
+    ] {
+        let varying = float_sources_with(|text| {
+            text.replace("    /// Exact.\n    ///\n    /// ```\n    /// let x = 1.0;\n    /// ```\n    #[stable(feature = \"rust1\", since = \"1.0.0\")]\n    #[inline]\n    pub const fn sqrt(", &format!("    /// {warning}\n    #[stable(feature = \"rust1\", since = \"1.0.0\")]\n    #[inline]\n    pub const fn sqrt("))
+        });
+        assert_eq!(
+            super::float_gate(&varying, &clippy),
+            found(
+                "the float methods of the pinned toolchain",
+                &["`f64::sqrt` is reviewed as deterministic, but its documentation says its result may differ: ban it in clippy.toml".to_owned()]
+            ),
+            "{warning}"
+        );
+    }
+}
+
+#[test]
+fn refuses_stale_float_bans_and_reviews() {
+    let (sources, clippy) = float_fixture();
+    let stale = clippy.replace("]\n", "  { path = \"f64::lerp\", reason = \"r\" },\n]\n");
+    assert_eq!(
+        super::float_gate(&sources, &stale),
+        found(
+            "the float methods of the pinned toolchain",
+            &["clippy.toml bans `f64::lerp`, which the pinned toolchain does not have".to_owned()]
+        ),
+        "a stale ban"
+    );
+    // An unstable method can be banned: it exists.
+    let unstable = clippy.replace("]\n", "  { path = \"f64::gamma\", reason = \"r\" },\n]\n");
+    assert_eq!(
+        super::float_gate(&sources, &unstable),
+        Ok(()),
+        "an unstable ban"
+    );
+    let gone: Vec<(String, String)> = sources
+        .into_iter()
+        .map(|(path, text)| {
+            (
+                path,
+                text.replace("pub const fn trunc(", "pub const fn trunk("),
+            )
+        })
+        .collect();
+    let with_trunk = clippy.replace("]\n", "  { path = \"f32::trunk\", reason = \"r\" },\n  { path = \"f64::trunk\", reason = \"r\" },\n]\n");
+    assert_eq!(
+        super::float_gate(&gone, &with_trunk),
+        found(
+            "the float methods of the pinned toolchain",
+            &[
+                "`trunc` is reviewed as deterministic, but no stable float method has that name"
+                    .to_owned()
+            ]
+        ),
+        "a stale review"
+    );
+}
+
+#[test]
+fn refuses_float_sources_it_cannot_read() {
+    let (_, clippy) = float_fixture();
+    let edits: [(SourceEdit, &str); 6] = [
+        (
+            Box::new(|text: String| text.replace("impl f64 {", "impl F64 {")),
+            "0 `impl f32 {` or `impl f64 {` blocks, expected one",
+        ),
+        (
+            Box::new(|text: String| format!("{text}impl f64 {{\n}}\n")),
+            "2 `impl f32 {` or `impl f64 {` blocks, expected one",
+        ),
+        (
+            Box::new(|text: String| text.replace("\n}\n\nfn outside", "\n\nfn outside")),
+            "the `impl f64 {` block is never closed",
+        ),
+        (
+            Box::new(|text: String| {
+                text.replace("    pub const fn abs(", "        pub const fn abs(")
+            }),
+            "`pub const fn abs(self) -> f64 {` is not a method of the expected shape, with its stability",
+        ),
+        (
+            Box::new(|text: String| text.replace("    pub const fn abs(", "    pub const fn (")),
+            "`pub const fn (self) -> f64 {` is not a method of the expected shape, with its stability",
+        ),
+        (
+            Box::new(|text: String| {
+                text.replacen("#[stable(feature = \"rust1\", since = \"1.0.0\")]\n    #[inline]\n    pub const fn abs(", "#[inline]\n    pub const fn abs(", 1)
+            }),
+            "`pub const fn abs(self) -> f64 {` is not a method of the expected shape, with its stability",
+        ),
+    ];
+    for (edit, problem) in edits {
+        let sources = float_sources_with(edit);
+        let path = format!("{FAKE_SYSROOT}/{}", super::FLOAT_SOURCES[1]);
+        assert_eq!(
+            super::float_gate(&sources, &clippy).map_err(|failure| failure.summary),
+            Err(format!(
+                "the float methods of the pinned toolchain: {path}: {problem}"
+            )),
+            "{problem}"
+        );
+    }
+    assert_eq!(
+        super::parse_float_methods("f64.rs", "impl f64 {\n    pub const RADIX: u32 = 2;\n}\n"),
+        Err("f64.rs: no method in the `impl f64 {` block".to_owned()),
+        "an empty block"
+    );
+}
+
+#[test]
+fn reads_the_float_sources_of_the_toolchain_s_sysroot() {
+    let mut fake = passing();
+    let step = Step {
+        name: "floats".to_owned(),
+        action: Action::FloatMethodGate,
+    };
+    assert_eq!(
+        run_steps(core::slice::from_ref(&step), &mut fake, &mut Vec::new()),
+        Ok(()),
+        "read and checked"
+    );
+    let read: Vec<&String> = fake
+        .ran
+        .iter()
+        .filter(|line| line.starts_with("read ") || line.starts_with("capture rustc"))
+        .collect();
+    assert_eq!(
+        read,
+        [
+            "capture rustc --print sysroot",
+            "read /toolchain/lib/rustlib/src/rust/library/core/src/num/f32.rs",
+            "read /toolchain/lib/rustlib/src/rust/library/core/src/num/f64.rs",
+            "read /toolchain/lib/rustlib/src/rust/library/std/src/num/f32.rs",
+            "read /toolchain/lib/rustlib/src/rust/library/std/src/num/f64.rs",
+            "read clippy.toml",
+        ],
+        "the sysroot, then every source, then the bans"
+    );
+    fake.broken = Some("rustc --print sysroot".to_owned());
+    let failure = run_steps(core::slice::from_ref(&step), &mut fake, &mut Vec::new())
+        .expect_err("no sysroot");
+    assert!(
+        failure.summary
+            == "floats: cannot find the toolchain's sources: cannot run `rustc --print sysroot`: not found",
+        "{}",
+        failure.summary
+    );
+}
+
 #[test]
 fn lists_every_check_in_order() {
     let steps = check_steps(CHANGES_MODE);
@@ -738,6 +1069,7 @@ fn lists_every_check_in_order() {
             "tree recorded",
             "Root: cargo fmt --all --check",
             "Root: cargo clippy --workspace --all-targets --locked",
+            "float method gate",
             "Root: cargo doc --workspace --no-deps --document-private-items --locked",
             "Root: cargo test --workspace --locked -- --include-ignored",
             "Root: cargo build --package engine-core --package engine-objects --package engine-patch --package engine-hash --locked --target aarch64-apple-darwin",
@@ -828,6 +1160,7 @@ fn names_every_check_in_order() {
             "Working tree recorded",
             "Rust formatting",
             "Rust lints",
+            "Float methods of the pinned toolchain banned or reviewed as deterministic",
             "Rust documentation",
             "Rust tests",
             "Engine portability (aarch64-apple-darwin)",
@@ -2048,8 +2381,8 @@ fn runs_every_step_and_reports_success() {
         Ok(()),
         "all green"
     );
-    let (tools, commands, emptied, listed, captured, written) = (10, 50, 14, 19, 14, 1);
-    let read = 2 + 12 + 2 + 7 + 19 + 2 + 1 + 7 + 3 + 10 + 10 + 20 + 8 + 2 + 11 + 40 + 20;
+    let (tools, commands, emptied, listed, captured, written) = (10, 50, 14, 19, 15, 1);
+    let read = 2 + 5 + 12 + 2 + 7 + 19 + 2 + 1 + 7 + 3 + 10 + 10 + 20 + 8 + 2 + 11 + 40 + 20;
     assert_eq!(
         fake.ran.len(),
         tools + commands + emptied + listed + captured + written + read,
@@ -2060,8 +2393,8 @@ fn runs_every_step_and_reports_success() {
          checks each followed by its Stryker run); fourteen directories are emptied; git lists \
          eleven kinds of files, the TypeScript ones again for the reports and scope gates of \
          each package after the first; the licenses and the history are captured twice each, the state \
-         of the tree (before and after) four times, the Cargo metadata, the merge base, the changes and the \
-         new Rust files once; the diff is written once; and the gates read .node-version and the toolchain file for the preflight, twelve coverage reports, \
+         of the tree (before and after) four times, the toolchain's sysroot, the Cargo metadata, the merge base, the changes and the \
+         new Rust files once; the diff is written once; and the gates read .node-version and the toolchain file for the preflight, the four float sources of the toolchain and clippy.toml, twelve coverage reports, \
          the unviable report and reviews, six TypeScript sources and their reviews, the eight \
          sources, the ten Cargo manifests and the register of the bypass gate, the two unsafe files, the Cargo \
          configuration, the six package manifests and the register of the dependency gate, the three \
@@ -2088,15 +2421,15 @@ fn runs_every_step_and_reports_success() {
     );
     let text = String::from_utf8(out).expect("utf-8 output");
     assert!(
-        text.starts_with("▶ [1/72] Tools and platform\n"),
+        text.starts_with("▶ [1/73] Tools and platform\n"),
         "numbered progress: {text}"
     );
     assert!(
-        text.contains("▶ [68/72] Roadmap checks\n"),
+        text.contains("▶ [69/73] Roadmap checks\n"),
         "last step announced: {text}"
     );
     assert!(
-        text.ends_with("✔ all 72 checks passed\n"),
+        text.ends_with("✔ all 73 checks passed\n"),
         "summary: {text}"
     );
 }
@@ -2115,9 +2448,9 @@ fn stops_at_the_first_failing_command() {
     );
     assert_eq!(
         fake.ran.len(),
-        10 + 2 + 3 + 4,
+        10 + 2 + 3 + 6 + 4,
         "the preflight asks ten tools and reads .node-version and the toolchain file, the tree is recorded by three \
-         captures; nothing runs after the failure"
+         captures, the float gate captures the sysroot and reads five files; nothing runs after the failure"
     );
 }
 
@@ -4766,7 +5099,7 @@ fn checks_a_push_then_runs_every_check() {
     assert!(
         String::from_utf8(out)
             .expect("UTF-8")
-            .ends_with("✔ all 72 checks passed\n"),
+            .ends_with("✔ all 73 checks passed\n"),
         "then every check"
     );
     assert!(
@@ -5241,12 +5574,12 @@ fn prints_the_details_of_a_failure_on_stdout_and_one_line_on_stderr() {
     );
     assert_eq!(
         String::from_utf8(err).expect("UTF-8"),
-        "error: 1 of 72 checks failed, listed above\n",
+        "error: 1 of 73 checks failed, listed above\n",
         "one line on stderr, counting the failed steps"
     );
     assert!(
         String::from_utf8(out).expect("UTF-8").ends_with(&format!(
-            "▶ [72/72] Working tree unchanged by the checks\n\
+            "▶ [73/73] Working tree unchanged by the checks\n\
              not reviewed: crates/a/src/c.rs: replace g -> U with x\n\
              stale review: crates/a/src/b.rs: replace f -> T with Default::default()\n\
              Rust unviable mutants reviewed: unviable mutants must be reviewed in \
@@ -7485,8 +7818,8 @@ fn the_parts_run_every_step_of_the_full_check_once() {
     }
     assert_eq!(
         steps_run,
-        18 * 3 + (72 - 3 - 7 - 2) + 8 * 2 + 1 + 2 + 6 * 3 + 1,
-        "each part's frame (three steps); every other step of the 72 once, but the seven \
+        18 * 3 + (73 - 3 - 7 - 2) + 8 * 2 + 1 + 2 + 6 * 3 + 1,
+        "each part's frame (three steps); every other step of the 73 once, but the seven \
          preparations, the mutation run and its unviable gate; in each of the eight shards, \
          the report emptied and the shard's run; the gate over the shards; the conformance \
          export (two steps) for the oracle; the JavaScript preparation (three steps) for the \

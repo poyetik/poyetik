@@ -522,6 +522,9 @@ pub enum Action {
     UnsafeGate,
     /// Require the Cargo configuration to be exactly [`CARGO_CONFIG`].
     CargoConfigGate,
+    /// Require every stable float method of the pinned toolchain to be banned in
+    /// `clippy.toml` or reviewed as deterministic ([`float_gate`]).
+    FloatMethodGate,
     /// Require every direct dependency to be reviewed, and every review current.
     DependencyGate,
     /// Require the supply-chain settings of [`SUPPLY_CHAIN_SETTINGS`].
@@ -691,6 +694,11 @@ fn static_steps() -> Vec<Step> {
             &["clippy", "--workspace", "--all-targets", "--locked"],
             Dir::Root,
         ),
+        Step {
+            name: "Float methods of the pinned toolchain banned or reviewed as deterministic"
+                .to_owned(),
+            action: Action::FloatMethodGate,
+        },
         run(
             "Rust documentation",
             "cargo",
@@ -3123,6 +3131,272 @@ pub fn supply_chain_gate(files: &[String]) -> Result<(), Failure> {
         }
     }
     verdict("the supply-chain settings", problems)
+}
+
+/// The Clippy configuration, whose `disallowed-methods` ban the float methods whose result
+/// may differ between targets.
+pub const CLIPPY_TOML: &str = "clippy.toml";
+
+/// The sources of the inherent methods of `f32` and `f64` in the pinned toolchain.
+///
+/// Relative to its sysroot (the `rust-src` component, which `rust-toolchain.toml` lists):
+/// `core` holds the methods that need no operating system,
+/// `std` those that call the platform's math library.
+pub const FLOAT_SOURCES: [&str; 4] = [
+    "lib/rustlib/src/rust/library/core/src/num/f32.rs",
+    "lib/rustlib/src/rust/library/core/src/num/f64.rs",
+    "lib/rustlib/src/rust/library/std/src/num/f32.rs",
+    "lib/rustlib/src/rust/library/std/src/num/f64.rs",
+];
+
+/// The stable float methods reviewed as giving the same result on every target.
+///
+/// For `f32` and `f64` alike, with the reason. Every other stable method of the pinned toolchain must
+/// be banned in [`CLIPPY_TOML`] ([`float_gate`]).
+pub const DETERMINISTIC_FLOAT_METHODS: [(&str, &str); 32] = [
+    ("abs", "clears the sign bit"),
+    ("ceil", "exact: an integer value, rounded toward +infinity"),
+    ("classify", "reads the bits"),
+    ("copysign", "copies a sign bit"),
+    (
+        "div_euclid",
+        "a correctly rounded division, then exact rounding to an integer value",
+    ),
+    ("floor", "exact: an integer value, rounded toward -infinity"),
+    ("fract", "exact: the value less its integer part"),
+    ("from_be_bytes", "a bit copy in a fixed byte order"),
+    ("from_bits", "a bit copy"),
+    ("from_le_bytes", "a bit copy in a fixed byte order"),
+    ("is_finite", "reads the bits"),
+    ("is_infinite", "reads the bits"),
+    ("is_nan", "reads the bits"),
+    ("is_normal", "reads the bits"),
+    ("is_sign_negative", "reads the sign bit"),
+    ("is_sign_positive", "reads the sign bit"),
+    ("is_subnormal", "reads the bits"),
+    (
+        "midpoint",
+        "correctly rounded additions and exact halvings, in a fixed order",
+    ),
+    (
+        "next_down",
+        "the next value toward -infinity, from the bits (IEEE 754 nextDown)",
+    ),
+    (
+        "next_up",
+        "the next value toward +infinity, from the bits (IEEE 754 nextUp)",
+    ),
+    ("recip", "a correctly rounded division"),
+    ("rem_euclid", "an exact remainder, then an exact correction"),
+    ("round", "exact: an integer value, ties away from zero"),
+    ("round_ties_even", "exact: an integer value, ties to even"),
+    ("signum", "a constant of the sign of the value"),
+    ("sqrt", "correctly rounded by IEEE 754 on every target"),
+    ("to_be_bytes", "a bit copy in a fixed byte order"),
+    ("to_bits", "a bit copy"),
+    (
+        "to_int_unchecked",
+        "unsafe: refused by forbid(unsafe_code) in every crate",
+    ),
+    ("to_le_bytes", "a bit copy in a fixed byte order"),
+    ("total_cmp", "orders the bits"),
+    ("trunc", "exact: an integer value, rounded toward zero"),
+];
+
+/// One inherent method of `f32` or `f64` found in the standard library's sources.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FloatMethod {
+    /// `f32` or `f64`.
+    pub float: String,
+    /// The method's name.
+    pub name: String,
+    /// Whether it is stable, so callable with the pinned toolchain.
+    pub stable: bool,
+    /// Whether its documentation says its result may differ ("non-deterministic",
+    /// "Unspecified precision").
+    pub documented_varying: bool,
+}
+
+/// Reads the inherent methods of `f32` or `f64` from one source of the standard library.
+///
+/// The single `impl f32 {` or `impl f64 {` block at the start of a line, to its closing `}`
+/// at the start of a line; each method is a line `    pub [const] [unsafe] fn <name>`,
+/// after its documentation and its `#[stable(` or `#[unstable(` attribute.
+///
+/// # Errors
+///
+/// Returns what is not in that shape: no such block or more than one, a block never closed,
+/// a line declaring a function that is not read as a method, a method without a stability
+/// attribute, or no method at all. Nothing is skipped.
+pub fn parse_float_methods(path: &str, source: &str) -> Result<Vec<FloatMethod>, String> {
+    let lines: Vec<&str> = source.lines().collect();
+    let starts: Vec<(usize, &str)> = lines
+        .iter()
+        .enumerate()
+        .filter_map(|(index, line)| match *line {
+            "impl f32 {" => Some((index, "f32")),
+            "impl f64 {" => Some((index, "f64")),
+            _ => None,
+        })
+        .collect();
+    let [(start, float)] = starts.as_slice() else {
+        return Err(format!(
+            "{path}: {} `impl f32 {{` or `impl f64 {{` blocks, expected one",
+            starts.len()
+        ));
+    };
+    let body = lines.get(start.saturating_add(1)..).unwrap_or_default();
+    let Some(end) = body.iter().position(|line| *line == "}") else {
+        return Err(format!(
+            "{path}: the `impl {float} {{` block is never closed"
+        ));
+    };
+    let mut methods = Vec::new();
+    let mut doc = String::new();
+    let mut stability: Option<bool> = None;
+    for line in body.iter().take(end) {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("#[stable(") {
+            stability = Some(true);
+        } else if trimmed.starts_with("#[unstable(") {
+            stability = Some(false);
+        } else if trimmed.starts_with("///") {
+            doc.push_str(trimmed);
+            doc.push('\n');
+        }
+        let declares = trimmed.starts_with("pub ") && trimmed.contains("fn ");
+        if !declares {
+            continue;
+        }
+        let name = line
+            .strip_prefix("    pub ")
+            .map(|rest| {
+                rest.trim_start_matches("const ")
+                    .trim_start_matches("unsafe ")
+            })
+            .and_then(|rest| rest.strip_prefix("fn "))
+            .map(|rest| {
+                rest.chars()
+                    .take_while(|letter| {
+                        letter.is_ascii_lowercase() || letter.is_ascii_digit() || *letter == '_'
+                    })
+                    .collect::<String>()
+            })
+            .filter(|name| !name.is_empty());
+        let (Some(name), Some(stable)) = (name, stability) else {
+            return Err(format!(
+                "{path}: `{}` is not a method of the expected shape, with its stability",
+                line.trim()
+            ));
+        };
+        let documented_varying =
+            doc.contains("non-deterministic") || doc.contains("Unspecified precision");
+        methods.push(FloatMethod {
+            float: (*float).to_owned(),
+            name,
+            stable,
+            documented_varying,
+        });
+        doc.clear();
+        stability = None;
+    }
+    if methods.is_empty() {
+        return Err(format!("{path}: no method in the `impl {float} {{` block"));
+    }
+    Ok(methods)
+}
+
+/// The float methods `clippy.toml` bans: every `{ path = "f32::…" }` or `{ path = "f64::…" }`
+/// of its `disallowed-methods`, as `f32::name`.
+fn banned_float_methods(clippy: &str) -> BTreeSet<String> {
+    clippy
+        .lines()
+        .filter_map(|line| line.trim().strip_prefix("{ path = \""))
+        .filter_map(|rest| rest.split('"').next())
+        .filter(|path| path.starts_with("f32::") || path.starts_with("f64::"))
+        .map(str::to_owned)
+        .collect()
+}
+
+/// Checks that every stable float method of the pinned toolchain is banned or reviewed.
+///
+/// A method must give the same result on every target or be banned: each is banned in `clippy` (the text of [`CLIPPY_TOML`]) or
+/// reviewed in [`DETERMINISTIC_FLOAT_METHODS`], never both, and never reviewed when its own
+/// documentation says its result may differ; every ban and every review names a method
+/// that exists. So a new toolchain cannot bring a method no one classified.
+///
+/// `sources` holds the path and text of each file of [`FLOAT_SOURCES`].
+///
+/// # Errors
+///
+/// Returns every source not in the expected shape ([`parse_float_methods`]) and every
+/// method or entry breaking a rule above.
+pub fn float_gate(sources: &[(String, String)], clippy: &str) -> Result<(), Failure> {
+    let mut problems = Vec::new();
+    let mut methods = Vec::new();
+    for (path, text) in sources {
+        match parse_float_methods(path, text) {
+            Ok(found) => methods.extend(found),
+            Err(problem) => problems.push(problem),
+        }
+    }
+    let banned = banned_float_methods(clippy);
+    let reviewed: BTreeMap<&str, &str> = DETERMINISTIC_FLOAT_METHODS.into_iter().collect();
+    for method in methods.iter().filter(|method| method.stable) {
+        let path = format!("{}::{}", method.float, method.name);
+        let is_banned = banned.contains(&path);
+        let is_reviewed = reviewed.contains_key(method.name.as_str());
+        if is_banned && is_reviewed {
+            problems.push(format!(
+                "`{path}` is both banned in {CLIPPY_TOML} and reviewed as deterministic"
+            ));
+        } else if !is_banned && !is_reviewed {
+            problems.push(format!(
+                "`{path}` is neither banned in {CLIPPY_TOML} nor reviewed as deterministic (DETERMINISTIC_FLOAT_METHODS in xtask)"
+            ));
+        } else if is_reviewed && method.documented_varying {
+            problems.push(format!(
+                "`{path}` is reviewed as deterministic, but its documentation says its result may differ: ban it in {CLIPPY_TOML}"
+            ));
+        }
+    }
+    let found: BTreeSet<String> = methods
+        .iter()
+        .map(|method| format!("{}::{}", method.float, method.name))
+        .collect();
+    problems.extend(
+        banned
+            .iter()
+            .filter(|path| !found.contains(*path))
+            .map(|path| {
+                format!("{CLIPPY_TOML} bans `{path}`, which the pinned toolchain does not have")
+            }),
+    );
+    problems.extend(
+        reviewed
+            .keys()
+            .filter(|name| {
+                !methods
+                    .iter()
+                    .any(|method| method.stable && method.name == **name)
+            })
+            .map(|name| format!("`{name}` is reviewed as deterministic, but no stable float method has that name")),
+    );
+    verdict("the float methods of the pinned toolchain", problems)
+}
+
+/// Reads the pinned toolchain's float sources and `clippy.toml`, then checks them.
+fn float_methods(runner: &mut dyn Runner) -> Result<(), Failure> {
+    let cmd = Cmd::new("rustc", &["--print", "sysroot"], Dir::Root);
+    let sysroot = runner.capture(&cmd).map_err(|failure| {
+        Failure::from(format!("cannot find the toolchain's sources: {failure}"))
+    })?;
+    let paths = FLOAT_SOURCES
+        .iter()
+        .map(|source| format!("{}/{source}", sysroot.trim_end()))
+        .collect();
+    let sources = read_all(runner, paths)?;
+    float_gate(&sources, &read_file(runner, CLIPPY_TOML)?)
 }
 
 /// The Cargo configuration file.
@@ -5623,6 +5897,7 @@ fn run_action(
         }
         Action::LicenseGate => licenses(runner),
         Action::CargoConfigGate => cargo_config_gate(&read_file(runner, CARGO_CONFIG_FILE)?),
+        Action::FloatMethodGate => float_methods(runner),
         Action::SupplyChainGate => supply_chain_gate(
             &SUPPLY_CHAIN_SETTINGS
                 .iter()

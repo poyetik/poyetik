@@ -1,7 +1,11 @@
 # Determinism rules: the same samples, bit for bit, on every target. Enforced on every crate.
-# Every f32/f64 method that is not correctly rounded by IEEE 754 is banned (sqrt and the
-# rounding functions are exact and allowed). The engine crates are no_std, where these
-# methods do not exist at all; this list covers the std crates (test kit, CLIs, bindings).
+# Every f32/f64 method whose result may differ between targets is banned: not correctly
+# rounded by IEEE 754, documented as non-deterministic (the sign of a zero from max, min and
+# clamp; the precision of to_degrees), reassociated by the compiler, or in native byte order.
+# `cargo xtask check` audits this list against the pinned toolchain's own sources: every
+# stable float method is banned here or reviewed as deterministic in xtask
+# (DETERMINISTIC_FLOAT_METHODS). Most of these methods do not exist in the no_std engine
+# crates; the list covers every crate.
 disallowed-methods = [
   { path = "std::env::args", reason = "panics on an argument that is not Unicode: read std::env::args_os and refuse such an argument as a usage error (CLAUDE.md, command-line tools)" },
   { path = "f32::sin", reason = "not correctly rounded: results may differ between targets; use libm" },
@@ -31,6 +35,19 @@ disallowed-methods = [
   { path = "f32::cbrt", reason = "not correctly rounded: results may differ between targets; use libm" },
   { path = "f32::hypot", reason = "not correctly rounded: results may differ between targets; use libm" },
   { path = "f32::mul_add", reason = "relies on the platform fma where there is no hardware FMA (and is slow in WebAssembly); write the product and the sum" },
+  { path = "f32::max", reason = "returns either value when they compare equal (+0 and -0): the sign of a zero may differ; compare and select" },
+  { path = "f32::min", reason = "returns either value when they compare equal (+0 and -0): the sign of a zero may differ; compare and select" },
+  { path = "f32::clamp", reason = "may return either zero when its bounds and the value are zeros of different signs; compare and select" },
+  { path = "f32::to_degrees", reason = "unspecified precision: results may differ between targets; multiply by the constant" },
+  { path = "f32::to_radians", reason = "unspecified precision: results may differ between targets; multiply by the constant" },
+  { path = "f32::abs_sub", reason = "calls the platform math library (fdim): results may differ between targets; write the difference and the comparison" },
+  { path = "f32::algebraic_add", reason = "allows the compiler to reassociate: results may differ between targets and builds; write the plain operation" },
+  { path = "f32::algebraic_sub", reason = "allows the compiler to reassociate: results may differ between targets and builds; write the plain operation" },
+  { path = "f32::algebraic_mul", reason = "allows the compiler to reassociate: results may differ between targets and builds; write the plain operation" },
+  { path = "f32::algebraic_div", reason = "allows the compiler to reassociate: results may differ between targets and builds; write the plain operation" },
+  { path = "f32::algebraic_rem", reason = "allows the compiler to reassociate: results may differ between targets and builds; write the plain operation" },
+  { path = "f32::to_ne_bytes", reason = "native byte order differs between targets; use to_le_bytes" },
+  { path = "f32::from_ne_bytes", reason = "native byte order differs between targets; use from_le_bytes" },
   { path = "f64::sin", reason = "not correctly rounded: results may differ between targets; use libm" },
   { path = "f64::cos", reason = "not correctly rounded: results may differ between targets; use libm" },
   { path = "f64::tan", reason = "not correctly rounded: results may differ between targets; use libm" },
@@ -58,6 +75,19 @@ disallowed-methods = [
   { path = "f64::cbrt", reason = "not correctly rounded: results may differ between targets; use libm" },
   { path = "f64::hypot", reason = "not correctly rounded: results may differ between targets; use libm" },
   { path = "f64::mul_add", reason = "relies on the platform fma where there is no hardware FMA (and is slow in WebAssembly); write the product and the sum" },
+  { path = "f64::max", reason = "returns either value when they compare equal (+0 and -0): the sign of a zero may differ; compare and select" },
+  { path = "f64::min", reason = "returns either value when they compare equal (+0 and -0): the sign of a zero may differ; compare and select" },
+  { path = "f64::clamp", reason = "may return either zero when its bounds and the value are zeros of different signs; compare and select" },
+  { path = "f64::to_degrees", reason = "unspecified precision: results may differ between targets; multiply by the constant" },
+  { path = "f64::to_radians", reason = "unspecified precision: results may differ between targets; multiply by the constant" },
+  { path = "f64::abs_sub", reason = "calls the platform math library (fdim): results may differ between targets; write the difference and the comparison" },
+  { path = "f64::algebraic_add", reason = "allows the compiler to reassociate: results may differ between targets and builds; write the plain operation" },
+  { path = "f64::algebraic_sub", reason = "allows the compiler to reassociate: results may differ between targets and builds; write the plain operation" },
+  { path = "f64::algebraic_mul", reason = "allows the compiler to reassociate: results may differ between targets and builds; write the plain operation" },
+  { path = "f64::algebraic_div", reason = "allows the compiler to reassociate: results may differ between targets and builds; write the plain operation" },
+  { path = "f64::algebraic_rem", reason = "allows the compiler to reassociate: results may differ between targets and builds; write the plain operation" },
+  { path = "f64::to_ne_bytes", reason = "native byte order differs between targets; use to_le_bytes" },
+  { path = "f64::from_ne_bytes", reason = "native byte order differs between targets; use from_le_bytes" },
   { path = "std::time::Instant::now", reason = "the engine counts time in samples" },
   { path = "std::time::SystemTime::now", reason = "the engine counts time in samples" },
 ]
