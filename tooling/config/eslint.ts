@@ -16,7 +16,13 @@ export const JSDOC_CONTEXTS: readonly string[] = [
   "TSInterfaceDeclaration",
   "TSTypeAliasDeclaration",
   "PropertyDefinition",
-  "Program > VariableDeclaration",
+  // The members of an interface, as the members of a class (named object types are
+  // interfaces: consistent-type-definitions). Not those of an inline object type, such as
+  // a parameter's, which are no more items than inline callbacks are.
+  "TSInterfaceBody > TSPropertySignature",
+  "TSInterfaceBody > TSMethodSignature",
+  // Constants at the top level of a module, or of a module declaration (`declare module`).
+  ":matches(Program, TSModuleBlock) > VariableDeclaration",
   "ExportNamedDeclaration[declaration.type='VariableDeclaration']",
 ];
 
@@ -53,8 +59,8 @@ export const RULES: Linter.RulesRecord = {
     },
   ],
   // Every named item is documented, exported or not, as in Rust (missing_docs and
-  // missing_docs_in_private_items): functions, classes and their members, types, and
-  // module-level constants. Inline callbacks are not items and need none.
+  // missing_docs_in_private_items): functions, classes, interfaces and their members,
+  // types, and module-level constants. Inline callbacks are not items and need none.
   "jsdoc/require-jsdoc": [
     "error",
     {

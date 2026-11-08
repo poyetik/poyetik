@@ -71,6 +71,11 @@ test("each rule of the policy rejects what it forbids, and only that", async () 
     "undocumented-class": [documented],
     // The property, the getter, the setter and the method; not the constructor (see clean.ts).
     "undocumented-class-members": [documented, documented, documented, documented],
+    // A property and a method signature, as members of a class; the members of an inline
+    // object type (clean.ts) are not items.
+    "undocumented-interface-member": [documented, documented],
+    // A constant declared inside a module declaration, as at the top level.
+    "undocumented-module-member.d": [documented],
     "empty-description": ["jsdoc/require-description"],
     // The inline comment does not silence the rule, and is reported itself.
     "loose-equality": ["eqeqeq", "inline"],
