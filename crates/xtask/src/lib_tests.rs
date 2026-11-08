@@ -293,10 +293,10 @@ fn lifting() -> String {
 }
 
 /// The licenses of what the apps ship, all allowed.
-const SHIPPED: &str = r#"{"MIT":[{"name":"react"}],"ISC":[{"name":"a"}]}"#;
+const SHIPPED: &str = r#"{"MIT":[{"name":"react"},{"name":"react-dom"}],"ISC":[{"name":"a"}]}"#;
 
 /// The licenses of all tooling, all allowed (sharp's library by its exception).
-const TOOLING: &str = r#"{"MPL-2.0":[{"name":"axe-core"}],"LGPL-3.0-or-later":[{"name":"@img/sharp-libvips-linux-x64"}]}"#;
+const TOOLING: &str = r#"{"Apache-2.0":[{"name":"typescript"}],"MPL-2.0":[{"name":"axe-core"}],"LGPL-3.0-or-later":[{"name":"@img/sharp-libvips-linux-x64"}]}"#;
 
 /// A Vitest coverage summary at 100%.
 const TS_COVERED: &str = r#"{"total":{"lines":{"total":4,"covered":4},"statements":{"total":5,"covered":5},"functions":{"total":2,"covered":2},"branches":{"total":3,"covered":3}}}"#;
@@ -2289,8 +2289,8 @@ fn allows_strict_licenses_for_what_ships_and_wider_ones_for_tooling() {
     assert_eq!(license_gate(SHIPPED, TOOLING), Ok(()), "allowed");
     assert_eq!(
         license_gate(
-            r#"{"MPL-2.0":[{"name":"axe-core"}],"MIT":[{"name":"react"}]}"#,
-            r#"{"GPL-3.0":[{"name":"bad"}],"LGPL-3.0-or-later":[{"name":"other-lgpl"},{"name":"@img/sharp-libvips-x"}],"CC0-1.0":[{"name":"data"}]}"#
+            r#"{"MPL-2.0":[{"name":"axe-core"}],"MIT":[{"name":"react"},{"name":"react-dom"}]}"#,
+            r#"{"GPL-3.0":[{"name":"bad"}],"LGPL-3.0-or-later":[{"name":"other-lgpl"},{"name":"@img/sharp-libvips-x"}],"CC0-1.0":[{"name":"data"}],"Apache-2.0":[{"name":"typescript"}]}"#
         ),
         failed(
             "licenses not allowed: 3 problems, listed above\n\
@@ -2301,7 +2301,10 @@ fn allows_strict_licenses_for_what_ships_and_wider_ones_for_tooling() {
         "a tooling license shipped, a license allowed nowhere, an exception for its own package only"
     );
     assert_eq!(
-        license_gate(SHIPPED, r#"{"MIT-0":[{"name":"@img/sharp-libvips-x"}]}"#),
+        license_gate(
+            SHIPPED,
+            r#"{"MIT-0":[{"name":"@img/sharp-libvips-x"}],"Apache-2.0":[{"name":"typescript"}]}"#
+        ),
         failed("licenses not allowed: @img/sharp-libvips-x is under MIT-0"),
         "an exception for its own license only"
     );
@@ -2316,11 +2319,36 @@ fn allows_strict_licenses_for_what_ships_and_wider_ones_for_tooling() {
         failed("invalid tooling license report: not an object"),
         "not an object"
     );
-    assert_eq!(
-        license_gate(r#"{"MIT":3,"ISC":[{"version":"1"}]}"#, "{}"),
-        Ok(()),
-        "groups without names have nothing to check"
-    );
+    for (shipped, all, why) in [
+        (
+            r#"{"MIT":{"x":{"name":"react"}}}"#,
+            TOOLING,
+            "invalid shipped license report: MIT does not list packages",
+        ),
+        (
+            r#"{"MIT":[{"version":"1"}]}"#,
+            TOOLING,
+            "invalid shipped license report: a package under MIT has no name",
+        ),
+        (
+            r#"{"MIT":["react"]}"#,
+            TOOLING,
+            "invalid shipped license report: a package under MIT has no name",
+        ),
+        ("{}", TOOLING, "invalid shipped license report: no package"),
+        (
+            r#"{"MIT":[{"name":"a"}]}"#,
+            TOOLING,
+            "invalid shipped license report: react, react-dom missing",
+        ),
+        (
+            SHIPPED,
+            r#"{"MIT":[{"name":"react"}]}"#,
+            "invalid tooling license report: typescript missing",
+        ),
+    ] {
+        assert_eq!(license_gate(shipped, all), failed(why), "{why}");
+    }
 }
 
 #[test]
@@ -3413,8 +3441,10 @@ fn allows_tooling_every_license_allowed_for_what_ships() {
     for license in super::SHIPPED_LICENSES {
         assert_eq!(
             license_gate(
-                &format!(r#"{{"{license}":[{{"name":"react"}}]}}"#),
-                &format!(r#"{{"{license}":[{{"name":"react"}}]}}"#)
+                &format!(r#"{{"{license}":[{{"name":"react"}},{{"name":"react-dom"}}]}}"#),
+                &format!(
+                    r#"{{"{license}":[{{"name":"react"}},{{"name":"react-dom"}},{{"name":"typescript"}}]}}"#
+                )
             ),
             Ok(()),
             "{license}: a shipped package is in the full report too"

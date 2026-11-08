@@ -1438,39 +1438,65 @@ fn license_commands() -> [Cmd; 2] {
 }
 
 /// The packages of a `pnpm licenses list --json` report, with their license.
-fn licensed(report: &str, what: &str) -> Result<Vec<(String, String)>, String> {
-    let json: serde_json::Value = serde_json::from_str(report)
-        .map_err(|error| format!("invalid {what} license report: {error}"))?;
-    let groups = json
-        .as_object()
-        .ok_or_else(|| format!("invalid {what} license report: not an object"))?;
-    Ok(groups
+///
+/// The report is read strictly, at the boundary: an object whose every value is an array of
+/// objects with a string `name`, holding at least one package, each of `expected`. A report
+/// of another shape (a new pnpm, an empty listing) is refused instead of passing as if it
+/// listed nothing.
+fn licensed(report: &str, what: &str, expected: &[&str]) -> Result<Vec<(String, String)>, String> {
+    let invalid = |why: &str| format!("invalid {what} license report: {why}");
+    let json: serde_json::Value =
+        serde_json::from_str(report).map_err(|error| invalid(&error.to_string()))?;
+    let groups = json.as_object().ok_or_else(|| invalid("not an object"))?;
+    let mut packages = Vec::new();
+    for (license, group) in groups {
+        let entries = group
+            .as_array()
+            .ok_or_else(|| invalid(&format!("{license} does not list packages")))?;
+        for entry in entries {
+            let name = entry
+                .get("name")
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| invalid(&format!("a package under {license} has no name")))?;
+            packages.push((name.to_owned(), license.clone()));
+        }
+    }
+    let missing: Vec<&str> = expected
         .iter()
-        .flat_map(|(license, packages)| {
-            packages
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter_map(|package| package.get("name").and_then(serde_json::Value::as_str))
-                .map(move |name| (name.to_owned(), license.clone()))
-        })
-        .collect())
+        .filter(|name| !packages.iter().any(|(listed, _)| listed == *name))
+        .copied()
+        .collect();
+    if packages.is_empty() {
+        Err(invalid("no package"))
+    } else if missing.is_empty() {
+        Ok(packages)
+    } else {
+        Err(invalid(&format!("{} missing", missing.join(", "))))
+    }
 }
 
-/// Checks the license reports: every shipped package under [`SHIPPED_LICENSES`], every
-/// other one under those or [`TOOLING_EXTRA_LICENSES`], or a [`TOOLING_EXCEPTIONS`] entry.
+/// Packages each license report must list, proving it lists what it should: React for what
+/// the apps ship, TypeScript for everything.
+pub const LICENSE_CONTROLS: [&[&str]; 2] = [&["react", "react-dom"], &["typescript"]];
+
+/// Checks the license reports.
+///
+/// Every shipped package under [`SHIPPED_LICENSES`], every other one under those or
+/// [`TOOLING_EXTRA_LICENSES`], or a [`TOOLING_EXCEPTIONS`] entry; each report of the
+/// expected shape, listing its [`LICENSE_CONTROLS`].
 ///
 /// # Errors
 ///
 /// Returns a message naming every package under a license it may not have.
 pub fn license_gate(shipped: &str, all: &str) -> Result<(), Failure> {
-    let mut problems: Vec<String> = licensed(shipped, "shipped")?
+    let [shipped_controls, all_controls] = LICENSE_CONTROLS;
+    let mut problems: Vec<String> = licensed(shipped, "shipped", shipped_controls)?
         .into_iter()
         .filter(|(_, license)| !SHIPPED_LICENSES.contains(&license.as_str()))
         .map(|(name, license)| format!("{name} is shipped under {license}"))
         .collect();
     problems.extend(
-        licensed(all, "tooling")?
+        licensed(all, "tooling", all_controls)?
             .into_iter()
             .filter(|(name, license)| {
                 !SHIPPED_LICENSES.contains(&license.as_str())
