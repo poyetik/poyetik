@@ -15,8 +15,11 @@ const LABELS: Readonly<Record<PlayerState["kind"], string>> = {
   unsupported: "Not supported",
 };
 
+/** Every label of the button: the button is as wide as the widest, so that nothing moves when it changes. */
+export const BUTTON_LABELS = ["Start", "Cancel", "Stop", "Resume"] as const;
+
 /** What the button does in each state, and says; undefined while stopping. A start can be cancelled. */
-function action(player: Player, state: PlayerState): { readonly label: string; readonly run?: () => Promise<void> } {
+function action(player: Player, state: PlayerState): { readonly label: (typeof BUTTON_LABELS)[number]; readonly run?: () => Promise<void> } {
   switch (state.kind) {
     case "stopped":
     case "failed":
@@ -84,7 +87,13 @@ export function App({ player }: { readonly player: Player }): JSX.Element {
             void run?.();
           }}
         >
-          {label}
+          <span>{label}</span>
+          {/* Invisible copies of every label, in the same grid cell: they size the button. */}
+          {BUTTON_LABELS.map((each) => (
+            <span key={each} className="sizer" aria-hidden="true">
+              {each}
+            </span>
+          ))}
         </button>
         <span role="status">{LABELS[state.kind]}</span>
         {explanation === null ? null : (

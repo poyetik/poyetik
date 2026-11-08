@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
-import { App, REFUSED } from "../src/App.tsx";
+import { App, BUTTON_LABELS, REFUSED } from "../src/App.tsx";
 import { explain, type Player, type PlayerState, type Signal } from "../src/player.ts";
 
 /** A player whose state the test drives, recording the calls. */
@@ -61,8 +61,10 @@ class FakePlayer implements Player {
   }
 }
 
-/** The single button of the page, Start or Stop; throws when there is none or several. */
+/** The single button of the page; throws when there is none or several. */
 const button = (): HTMLButtonElement => screen.getByRole("button");
+/** What the button says: its visible label, not the invisible copies that size it. */
+const label = (): string | null | undefined => button().querySelector(":scope > span:not([aria-hidden])")?.textContent;
 /** The text of the status region: the state the page announces. */
 const status = (): string | null => screen.getByRole("status").textContent;
 
@@ -73,10 +75,17 @@ afterEach(() => {
 test("starts stopped", () => {
   render(<App player={new FakePlayer()} />);
   expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Playground");
-  expect(button().textContent).toBe("Start");
+  expect(label()).toBe("Start");
   expect(button().getAttribute("aria-disabled")).toBe("false");
   expect(status()).toBe("Stopped");
   expect(screen.queryByRole("alert")).toBeNull();
+});
+
+test("sizes the button by every label it can say, invisibly", () => {
+  render(<App player={new FakePlayer()} />);
+  const sizers = [...button().querySelectorAll(":scope > span[aria-hidden='true'].sizer")].map((sizer) => sizer.textContent);
+  expect(sizers).toStrictEqual([...BUTTON_LABELS]);
+  expect(BUTTON_LABELS).toStrictEqual(["Start", "Cancel", "Stop", "Resume"]);
 });
 
 test("warns before the button that it plays a continuous tone", () => {
@@ -94,14 +103,15 @@ test.each([
   [{ kind: "stopping" }, "Stopping…", "Stop", "true", undefined, null],
   [{ kind: "failed", cause: "device", detail: "NotSupportedError: no device" }, "Failed", "Start", "false", "start", explain("device")],
   [{ kind: "unsupported", lacking: "web-audio" }, "Not supported", "Start", "true", undefined, explain("web-audio")],
-] as const)("shows %o and acts on it", (state, shown, label, disabled, call, alert) => {
+] as const)("shows %o and acts on it", (state, shown, said, disabled, call, alert) => {
   const player = new FakePlayer();
   render(<App player={player} />);
   player.become(state);
   expect(status()).toBe(shown);
-  expect(button().textContent).toBe(label);
+  expect(label()).toBe(said);
+  expect(screen.getByRole("button", { name: said })).toBe(button());
   expect(button().getAttribute("aria-disabled")).toBe(disabled);
-  expect(button().dataset["action"]).toBe(label.toLowerCase());
+  expect(button().dataset["action"]).toBe(said.toLowerCase());
   expect(screen.queryByRole("alert")?.textContent ?? null).toBe(alert);
   fireEvent.click(button());
   expect(player.calls).toStrictEqual(call === undefined ? [] : [call]);

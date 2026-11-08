@@ -1,6 +1,7 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
 import { CSP } from "../csp.ts";
+import { BUTTON_LABELS } from "../src/App.tsx";
 import { explain } from "../src/player.ts";
 
 /**
@@ -133,7 +134,7 @@ test("plays and stops from the keyboard, the button keeping the focus", async ({
   await page.keyboard.press("Enter");
   await expect(page.getByRole("status")).toHaveText("Playing");
   await expect(button).toBeFocused();
-  await expect(button).toHaveText("Stop");
+  await expect(button).toHaveAccessibleName("Stop");
   await page.keyboard.press("Space");
   await expect(page.getByRole("status")).toHaveText("Stopped");
   await expect(button).toBeFocused();
@@ -152,6 +153,47 @@ test("is accessible when the browser pauses the audio, and resumes", async ({ pa
   await expect(page.getByRole("status")).toHaveText("Playing");
   await expect(page.getByTestId("frequency")).toHaveText("440.0 Hz");
 });
+
+for (const width of [320, undefined]) {
+  test(`keeps the button a 44 px target, as wide whatever it says, at ${width === undefined ? "the default width" : `${String(width)} px`}`, async ({ page }) => {
+    if (width !== undefined) {
+      await page.setViewportSize({ width, height: 640 });
+    }
+    await trackAudio(page);
+    // The engine is held until released: the start stays in progress (the button cancels it).
+    const loaded = Promise.withResolvers<undefined>();
+    await page.route("**/*.wasm", async (route) => {
+      await loaded.promise;
+      await route.continue();
+    });
+    await page.goto("./?muted");
+    const button = page.getByRole("button");
+    const status = page.getByRole("status");
+    /** Where the button and the status are, and how large the button is. */
+    const geometry = async (): Promise<{ width: number; height: number; status: number }> => {
+      const box = await button.boundingBox();
+      const text = await status.boundingBox();
+      return { width: box?.width ?? 0, height: box?.height ?? 0, status: text?.x ?? 0 };
+    };
+    const seen = new Map<string, { width: number; height: number; status: number }>();
+    seen.set("Start", await geometry());
+    await button.click();
+    await expect(button).toHaveAccessibleName("Cancel");
+    seen.set("Cancel", await geometry());
+    loaded.resolve(undefined);
+    await expect(status).toHaveText("Playing");
+    seen.set("Stop", await geometry());
+    await suspendAudio(page);
+    await expect(button).toHaveAccessibleName("Resume");
+    seen.set("Resume", await geometry());
+    expect([...seen.keys()].sort()).toStrictEqual([...BUTTON_LABELS].sort());
+    const [first] = seen.values();
+    for (const [label, measured] of seen) {
+      expect(measured.height, label).toBeGreaterThanOrEqual(44);
+      expect(measured, label).toStrictEqual(first);
+    }
+  });
+}
 
 test("explains a failure next to the button, accessibly, and can start again", async ({ page }) => {
   expected = /\.wasm|status of 404/;

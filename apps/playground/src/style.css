@@ -45,16 +45,35 @@ p {
   margin: 0;
 }
 
+/* Every label of the button shares one grid cell: the widest sizes it, whatever it says. */
 button {
+  display: inline-grid;
+  justify-items: center;
+  align-items: center;
   font: inherit;
   font-weight: 600;
   min-width: 6rem;
+  /* 44 CSS pixels: the touch target size of the platform guidelines. */
+  min-height: 2.75rem;
   padding: 0.6rem 1.2rem;
   border: 1px solid var(--border);
   border-radius: 0.5rem;
   background: var(--surface);
   color: var(--text);
   cursor: pointer;
+}
+
+button > span {
+  grid-area: 1 / 1;
+}
+
+button > .sizer {
+  visibility: hidden;
+}
+
+/* A pointer over the button is answered. */
+button:hover {
+  border-color: var(--accent);
 }
 
 /* While playing, the button stops the sound: it stands out. */
