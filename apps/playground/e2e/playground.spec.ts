@@ -7,6 +7,7 @@ let errors: string[] = [];
 
 // Every error fails the test: nothing may go wrong silently, in the page, the worklet or
 // the network (a missing favicon included). A test expecting a failure says which.
+/** The errors the current test expects (its deliberate failure), left out of the check; undefined expects none. */
 let expected: RegExp | undefined;
 test.beforeEach(({ page }) => {
   errors = [];

@@ -5,30 +5,39 @@ import type { Player, PlayerState, Signal } from "../src/player.ts";
 
 /** A player whose state the test drives, recording the calls. */
 class FakePlayer implements Player {
+  /** Names of the player methods the page called, in order. */
   readonly calls: string[] = [];
+  /** What {@link FakePlayer.latest} returns: the test sets it to feed the oscilloscope. */
   signal: Signal | undefined = undefined;
+  /** The state the test last moved to with {@link FakePlayer.become}. */
   #state: PlayerState = { kind: "stopped" };
+  /** The page's subscriptions, told by {@link FakePlayer.become}. */
   readonly #listeners = new Set<() => void>();
 
+  /** Records the call and resolves at once: the state changes only through {@link FakePlayer.become}. */
   start(): Promise<void> {
     this.calls.push("start");
     return Promise.resolve();
   }
 
+  /** Records the call and resolves at once: the state changes only through {@link FakePlayer.become}. */
   stop(): Promise<void> {
     this.calls.push("stop");
     return Promise.resolve();
   }
 
+  /** Records the call and resolves at once: the state changes only through {@link FakePlayer.become}. */
   resume(): Promise<void> {
     this.calls.push("resume");
     return Promise.resolve();
   }
 
+  /** The state set by the test, the same object until the next {@link FakePlayer.become}, as React's snapshots require. */
   state(): PlayerState {
     return this.#state;
   }
 
+  /** Adds `listener` to those told on every change; returns how to remove it. */
   subscribe(listener: () => void): () => void {
     this.#listeners.add(listener);
     return () => {
@@ -36,6 +45,7 @@ class FakePlayer implements Player {
     };
   }
 
+  /** The signal the test set, or undefined. */
   latest(): Signal | undefined {
     return this.signal;
   }
@@ -51,7 +61,9 @@ class FakePlayer implements Player {
   }
 }
 
+/** The single button of the page, Start or Stop; throws when there is none or several. */
 const button = (): HTMLButtonElement => screen.getByRole("button");
+/** The text of the status region: the state the page announces. */
 const status = (): string | null => screen.getByRole("status").textContent;
 
 afterEach(() => {

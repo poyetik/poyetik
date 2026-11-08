@@ -3,7 +3,9 @@ import { ABI_VERSION, EngineTrap, ModuleError, PatchError, WasmEngine } from "..
 import { interleave, renderHash } from "../ts/hash.ts";
 import { CORPUS, engineFunctions, FUNCTIONS, oscillators, PATCH_NAMES, REFERENCES, SILENT_PATCH, SINE_FRAMES, SINE_HASH, SINE_PATCH, UNKNOWN_BOX, handMadeModule, wasmBytes } from "./fixtures.ts";
 
+/** The built engine module, compiled once and instantiated afresh by every test. */
 const module = new WebAssembly.Module(wasmBytes());
+/** The sample rate of the tests, in hertz: the one of the sine-440 case. */
 const RATE = 48_000;
 
 /** Renders `frames` frames of the sine case through buffers of `size` frames. */

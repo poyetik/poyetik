@@ -3,13 +3,17 @@ import { WasmEngine } from "../ts/engine.ts";
 import { ENGINE_PROCESSOR, TAP_PROCESSOR } from "../ts/protocol.ts";
 import { SAMPLE_RATES, SILENT_PATCH, SINE_PATCH, UNKNOWN_BOX, wasmBytes } from "./fixtures.ts";
 
+/** The sample rate of the fake worklet scope, in hertz, restored after a test changes it. */
 const RATE = 48_000;
 
 /** Stands in for the processor port: records messages. */
 class FakePort {
+  /** Set by the processor to receive messages from the main thread; the tests call it to simulate one. */
   onmessage: (() => void) | null = null;
+  /** Every message the processor posted, in order. */
   readonly posted: unknown[] = [];
 
+  /** Records `message` instead of sending it to the main thread. */
   postMessage(message: unknown): void {
     this.posted.push(message);
   }
@@ -17,6 +21,7 @@ class FakePort {
 
 /** Stands in for the `AudioWorkletProcessor` base class. */
 class FakeProcessor {
+  /** The fake port of this processor, through which the tests read what it posted. */
   readonly port = new FakePort();
 }
 
@@ -26,6 +31,7 @@ interface Processor {
   process(inputs: Float32Array[][], outputs: Float32Array[][]): boolean;
 }
 
+/** The processor classes registered by the worklet module, by name, filled when it is imported. */
 const registered = new Map<string, new (options?: unknown) => Processor>();
 
 beforeAll(async () => {

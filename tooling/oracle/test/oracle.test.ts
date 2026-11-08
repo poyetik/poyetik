@@ -4,10 +4,15 @@ import { judge, type Corpus, type Verdict } from "../src/oracle.ts";
 import { parseWav } from "../src/wav.ts";
 import { makeWav, sineSamples } from "./fixtures.ts";
 
+/** Sample rate of the test case, in Hz. */
 const RATE = 8000;
+/** Length of the test case, in frames per channel. */
 const FRAMES = 64;
+/** The expected signal of each of the two channels of `WAV`. */
 const CHANNEL = { sine: { frequency: 1000, amplitude: 1, phase: 0 } };
+/** The exported file of the passing case: a 1 kHz sine on two channels. */
 const WAV = makeWav({ rate: RATE, channels: 2, samples: sineSamples(2, FRAMES, RATE, 1000) });
+/** The reference hash of `WAV`, so that the unchanged corpus passes. */
 const HASH = renderHash(parseWav(WAV));
 
 /** A corpus with one passing case, `sine`, changed by `change`. */

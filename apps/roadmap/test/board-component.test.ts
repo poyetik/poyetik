@@ -4,6 +4,7 @@ import BoardComponent from "../src/components/Board.astro";
 import type { Card } from "../src/lib/board.ts";
 import { toView } from "../src/lib/view.ts";
 
+/** Builds a valid card with id `id` in `column` and no steps, dated 2026-11-07; `extra` overrides any field. */
 function card(id: number, column: Card["column"], extra: Partial<Card> = {}): Card {
   return {
     id,
@@ -18,6 +19,7 @@ function card(id: number, column: Card["column"], extra: Partial<Card> = {}): Ca
   };
 }
 
+/** Renders the Board component for a board holding `cards`, through the same `toView` as the page, and returns its HTML. */
 async function render(cards: Card[]): Promise<string> {
   const container = await AstroContainer.create();
   const view = toView({ version: 1, title: "P", nextId: cards.length + 1, cards });

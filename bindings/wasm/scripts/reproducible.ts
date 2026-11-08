@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { buildWasm, PRIVATE_PATHS } from "./build-wasm.ts";
 import { identical, leakedPaths } from "./wasm.ts";
 
+/** Two fresh, empty target directories, so that neither build reuses the other's artifacts; removed whatever the outcome. */
 const dirs = [mkdtempSync(join(tmpdir(), "engine-wasm-a-")), mkdtempSync(join(tmpdir(), "engine-wasm-b-"))];
 try {
   const [first, second] = dirs.map((dir) => new Uint8Array(readFileSync(buildWasm(dir))));

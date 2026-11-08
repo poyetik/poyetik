@@ -28,6 +28,7 @@ describe("bin", () => {
     vi.restoreAllMocks();
   });
 
+  /** Imports the real entry point afresh with `args` as the command line and returns what it wrote to stdout and stderr, captured instead of printed. */
   async function runBin(args: string[]): Promise<{ stdout: string; stderr: string }> {
     let stdout = "";
     let stderr = "";

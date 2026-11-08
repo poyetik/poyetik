@@ -54,13 +54,24 @@ export function strict(directory, ignores, ...extra) {
           { selector: "TSEnumDeclaration", message: "Use a union of string literals or an `as const` object." },
           { selector: "TSNamespaceExportDeclaration, TSModuleDeclaration[global=true]", message: "No global augmentation." },
         ],
-        // Every exported declaration is documented.
+        // Every named item is documented, exported or not, as in Rust (missing_docs and
+        // missing_docs_in_private_items): functions, classes and their members, types, and
+        // module-level constants. Inline callbacks are not items and need none.
         "jsdoc/require-jsdoc": [
           "error",
           {
-            publicOnly: true,
-            require: { FunctionDeclaration: true, ClassDeclaration: true, ArrowFunctionExpression: true },
-            contexts: ["TSInterfaceDeclaration", "TSTypeAliasDeclaration", "ExportNamedDeclaration > VariableDeclaration"],
+            publicOnly: false,
+            require: { FunctionDeclaration: true, ClassDeclaration: true, MethodDefinition: true },
+            checkConstructors: false,
+            checkGetters: true,
+            checkSetters: true,
+            contexts: [
+              "TSInterfaceDeclaration",
+              "TSTypeAliasDeclaration",
+              "PropertyDefinition",
+              "Program > VariableDeclaration",
+              "ExportNamedDeclaration[declaration.type='VariableDeclaration']",
+            ],
           },
         ],
         "jsdoc/require-description": "error",

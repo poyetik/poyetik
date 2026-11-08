@@ -5,6 +5,7 @@ import { parseBoard } from "../src/lib/board.ts";
 import { toView } from "../src/lib/view.ts";
 import { CSP } from "../src/lib/csp.ts";
 
+/** The expected display, computed from the real board.json with the same code as the page, so the tests follow the data instead of hard-coding cards. */
 const view = toView(parseBoard(JSON.parse(readFileSync(new URL("../board.json", import.meta.url), "utf8"))));
 
 test("shows every board.json card in its column", async ({ page }) => {

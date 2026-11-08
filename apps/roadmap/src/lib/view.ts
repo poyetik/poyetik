@@ -26,6 +26,7 @@ export interface BoardView {
   readonly lastUpdated: string | null;
 }
 
+/** Adds to a card its step statuses, its count of done steps and the title of the step in progress. */
 function toCardView(card: Card): CardView {
   return {
     ...card,

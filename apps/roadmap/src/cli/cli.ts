@@ -75,8 +75,10 @@ export function localDate(d: Date): string {
   return `${String(d.getFullYear())}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+/** Suffix printed after a step for each status; a step still to do gets none, so only Done and In progress stand out. */
 const TAGS = { done: "  [Done]", doing: "  [In progress]", todo: "" } as const;
 
+/** One-line summary of a card: id, column, title, milestone in brackets when set, and `done/total` steps when it has any. */
 function formatCard(card: Card): string {
   const milestone = card.milestone === "" ? "" : ` [${card.milestone}]`;
   const done = card.tasks.filter((t) => t.done).length;
@@ -84,6 +86,7 @@ function formatCard(card: Card): string {
   return `${formatId(card.id)}  ${card.column.padEnd(5)}  ${card.title}${milestone}${progress}`;
 }
 
+/** Prints a card in full: its summary line, its description when not empty, then its numbered steps (1-based, as the `task` commands expect) with their status tag. */
 function printCard(io: Io, card: Card): void {
   io.out(formatCard(card));
   if (card.description !== "") {
@@ -94,6 +97,7 @@ function printCard(io: Io, card: Card): void {
   });
 }
 
+/** Usage line of each `task` action; its keys are also the list of valid actions. */
 const TASK_USAGE = {
   add: "task add <id> <title>",
   done: "task done <id> [n]",
@@ -102,12 +106,15 @@ const TASK_USAGE = {
   rm: "task rm <id> <n>",
 } as const;
 
+/** A valid `task` action name. */
 type TaskAction = keyof typeof TASK_USAGE;
 
+/** Whether `value` names a `task` action; `Object.hasOwn` so that inherited names like `toString` are refused. */
 function isTaskAction(value: string): value is TaskAction {
   return Object.hasOwn(TASK_USAGE, value);
 }
 
+/** Runs `roadmap task <action> ...`: checks the action and its argument count (a `UsageError` otherwise), applies the change, saves the board and prints the changed card. */
 function runTask(args: readonly string[], io: Io): void {
   const [action = "", ...rest] = args;
   if (!isTaskAction(action)) {
@@ -165,6 +172,7 @@ function runTask(args: readonly string[], io: Io): void {
   printCard(io, findCard(next, id));
 }
 
+/** Checks a column typed on the command line; an unknown one is a `UsageError` listing the valid ids. */
 function toColumn(value: string): ColumnId {
   if (!isColumnId(value)) {
     throw new UsageError(`unknown column: ${value} (expected: ${COLUMNS.map((c) => c.id).join(", ")})`);
@@ -172,6 +180,7 @@ function toColumn(value: string): ColumnId {
   return value;
 }
 
+/** Parses the `--position` option: a non-negative integer (0 = top of the column), or undefined when absent. The upper bound is checked by `moveCard`. */
 function toPosition(value: string | undefined): number | undefined {
   if (value === undefined) {
     return undefined;
@@ -182,18 +191,22 @@ function toPosition(value: string | undefined): number | undefined {
   return Number(value);
 }
 
+/** Whether exactly one positional argument was given; narrows the array to a one-element tuple. */
 function isOne(args: readonly string[]): args is readonly [string] {
   return args.length === 1;
 }
 
+/** Whether exactly two positional arguments were given; narrows the array to a pair. */
 function isTwo(args: readonly string[]): args is readonly [string, string] {
   return args.length === 2;
 }
 
+/** Whether exactly three positional arguments were given; narrows the array to a triple. */
 function isThree(args: readonly string[]): args is readonly [string, string, string] {
   return args.length === 3;
 }
 
+/** Returns the single positional argument `name`; none or more than one is a `UsageError`. */
 function onlyArg(positionals: readonly string[], name: string): string {
   const [value, ...rest] = positionals;
   if (value === undefined || rest.length > 0) {
@@ -202,6 +215,7 @@ function onlyArg(positionals: readonly string[], name: string): string {
   return value;
 }
 
+/** Reads and validates the board file; malformed JSON or an invalid board is a `BoardError` (exit code 1). */
 function load(io: Io): Board {
   const text = io.read();
   let raw: unknown;
@@ -213,10 +227,12 @@ function load(io: Io): Board {
   return parseBoard(raw);
 }
 
+/** Writes the board back in its stable serialization, so each change is a minimal git diff. */
 function save(io: Io, board: Board): void {
   io.write(serializeBoard(board));
 }
 
+/** Parses the options and dispatches one command; errors are thrown and turned into an exit code by `run`. Options are strict: an unknown one throws a `TypeError` from `parseArgs`. */
 function execute(args: readonly string[], io: Io): void {
   const [command, ...rest] = args;
   const { values, positionals } = parseArgs({

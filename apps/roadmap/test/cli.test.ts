@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import { emptyBoard, parseBoard, serializeBoard, type Board } from "../src/lib/board.ts";
 import { HELP, localDate, run, type Io, ignoreClosedReader, UsageError } from "../src/cli/cli.ts";
 
+/** Today's date as the fake clock gives it. */
 const DAY = "2026-11-07";
 
+/** An in-memory `Io`: the board file held as text, the lines printed on each stream, and a count of writes, to check that failed commands write nothing. */
 interface Fake {
   readonly io: Io;
   readonly out: string[];
@@ -12,6 +14,7 @@ interface Fake {
   writes: number;
 }
 
+/** Builds a fake `Io` whose board file holds `initial` (an empty board by default) and whose clock always says `DAY`. */
 function fake(initial: string = serializeBoard(emptyBoard("Project"))): Fake {
   const state: Fake = {
     out: [],
@@ -33,10 +36,12 @@ function fake(initial: string = serializeBoard(emptyBoard("Project"))): Fake {
   return state;
 }
 
+/** Parses the board file currently held by the fake. */
 function boardOf(f: Fake): Board {
   return parseBoard(JSON.parse(f.file));
 }
 
+/** Builds a fake holding two cards: #1 Engine (doing, milestone M1, with a description) and #2 Editor (later); output and write count are reset so tests see only their own command. */
 function seeded(): Fake {
   const f = fake();
   expect(run(["add", "Engine", "--column", "doing", "--milestone", "M1", "--desc", "The core"], f.io)).toBe(0);
@@ -328,6 +333,7 @@ describe("general errors", () => {
 });
 
 describe("task", () => {
+  /** Builds the seeded fake with three steps on card #1 (Install, Build, Ship), output and write count reset. */
   function withSteps(): Fake {
     const f = seeded();
     expect(run(["task", "add", "1", "Install"], f.io)).toBe(0);

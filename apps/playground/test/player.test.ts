@@ -15,8 +15,10 @@ let engineAnswer: unknown = { type: "ready" };
 
 /** A fake message port. */
 class FakePort {
+  /** The handler the player sets for messages of the processor, called by {@link FakePort.deliver}. */
   onmessage: ((event: { data: unknown }) => void) | null = null;
 
+  /** Logs the message sent to the processor instead of sending it. */
   postMessage(message: unknown): void {
     log.push(`post ${String(message)}`);
   }
@@ -29,18 +31,22 @@ class FakePort {
 
 /** A fake node: logs its connections, returns its target like the real `connect`. */
 class FakeNode {
+  /** The port of the node; only worklet nodes use it, to talk to their processor. */
   readonly port = new FakePort();
+  /** How the node appears in the log: its processor name, or its kind and setting. */
   readonly name: string;
 
   constructor(name: string) {
     this.name = name;
   }
 
+  /** Logs the connection to `target`; returns it, so that connections chain as in Web Audio. */
   connect<T>(target: T): T {
     log.push(`connect ${this.name} -> ${target instanceof FakeNode ? target.name : "destination"}`);
     return target;
   }
 
+  /** Logs the disconnection from `target`. */
   disconnect(target: unknown): void {
     log.push(`disconnect ${this.name} -> ${target instanceof FakeNode ? target.name : "?"}`);
   }
@@ -48,8 +54,11 @@ class FakeNode {
 
 /** Fake `AudioWorkletNode`: named after its processor; the engine one answers `engineAnswer`. */
 class FakeWorkletNode extends FakeNode {
+  /** Every worklet node created, in order; emptied before each test. */
   static readonly created: FakeWorkletNode[] = [];
+  /** The options the player built the node with, checked by the tests. */
   readonly options: unknown;
+  /** The handler the player sets for a processor failure; a test calls it to simulate a crash of the audio thread. */
   onprocessorerror: (() => void) | null = null;
 
   constructor(_context: unknown, name: string, options: unknown) {
@@ -67,7 +76,9 @@ class FakeWorkletNode extends FakeNode {
 
 /** A fake `AudioParam`: logs every scheduled value. */
 class FakeParam {
+  /** The current value of the parameter, updated at the end of a ramp. */
   value: number;
+  /** The node the parameter belongs to, prefixing its log lines. */
   readonly owner: string;
 
   constructor(owner: string, value: number) {
@@ -75,15 +86,18 @@ class FakeParam {
     this.value = value;
   }
 
+  /** Logs `value` scheduled at `time`, in seconds of the context clock. */
   setValueAtTime(value: number, time: number): void {
     log.push(`${this.owner} set ${String(value)} at ${String(time)}`);
   }
 
+  /** Logs a ramp to `value` ending at `time`, in seconds, and takes that value at once. */
   linearRampToValueAtTime(value: number, time: number): void {
     log.push(`${this.owner} ramp to ${String(value)} at ${String(time)}`);
     this.value = value;
   }
 
+  /** Logs the cancellation of the values scheduled from `time`, in seconds. */
   cancelScheduledValues(time: number): void {
     log.push(`${this.owner} cancel from ${String(time)}`);
   }
@@ -91,6 +105,7 @@ class FakeParam {
 
 /** Fake `GainNode`, with a recording gain. */
 class FakeGainNode extends FakeNode {
+  /** The gain parameter, logged under the name "gain". */
   readonly gain: FakeParam;
 
   constructor(_context: unknown, options: { gain: number }) {
@@ -101,16 +116,19 @@ class FakeGainNode extends FakeNode {
 
 /** Fake `ConstantSourceNode`: ends as soon as it is stopped, as if its time had come. */
 class FakeConstantSource extends FakeNode {
+  /** The handler the player sets for the end of the source, called right after `stop`. */
   onended: (() => void) | null = null;
 
   constructor(_context: unknown, options: { offset?: number }) {
     super(`clock offset ${String(options.offset)}`);
   }
 
+  /** Logs the start of the source. */
   start(): void {
     log.push("clock start");
   }
 
+  /** Logs the stop at `time`, in seconds, then ends the source at once instead of waiting for that time. */
   stop(time: number): void {
     log.push(`clock stop at ${String(time)}`);
     queueMicrotask(() => this.onended?.());
@@ -119,16 +137,23 @@ class FakeConstantSource extends FakeNode {
 
 /** Fake `AudioContext`, at 48 kHz, 1 s into its clock. */
 class FakeContext {
+  /** Every context created, in order; emptied before each test. */
   static readonly created: FakeContext[] = [];
   /** The state `resume` leads to: a browser may keep a context suspended. */
   static resumesTo: AudioContextState = "running";
   /** The rate of the device: each test may pick another one. */
   static rate = 48_000;
+  /** Sample rate of the context, in hertz: the device rate when it was created. */
   readonly sampleRate = FakeContext.rate;
+  /** Time of the context clock, in seconds: fixed, so that the scheduled times in the log are predictable. */
   readonly currentTime = 1;
+  /** The speakers, as an opaque target of connections. */
   readonly destination = {};
+  /** State of the context: suspended until `resume`, as browsers create them outside a user gesture. */
   state: AudioContextState = "suspended";
+  /** The handler the player sets for state changes, called by {@link FakeContext.become}. */
   onstatechange: (() => void) | null = null;
+  /** The worklet of the context: logs the modules added, and always loads them. */
   readonly audioWorklet = {
     addModule: (url: string) => {
       log.push(`add module ${url}`);
@@ -141,6 +166,7 @@ class FakeContext {
     log.push("new context");
   }
 
+  /** Logs the resume and moves to {@link FakeContext.resumesTo}. */
   resume(): Promise<void> {
     log.push("resume");
     this.state = FakeContext.resumesTo;

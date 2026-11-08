@@ -25,9 +25,12 @@ import {
   type Card,
 } from "../src/lib/board.ts";
 
+/** Date of the fixtures' creation and last update. */
 const DAY = "2026-11-07";
+/** A later day passed as `today`, so a test can tell an updated date from an untouched one. */
 const LATER = "2026-11-08";
 
+/** Builds a valid card with id `id` in `column` and no steps, dated `DAY`; `extra` overrides any field. */
 function card(id: number, column: Card["column"], extra: Partial<Card> = {}): Card {
   return {
     id,
@@ -42,18 +45,22 @@ function card(id: number, column: Card["column"], extra: Partial<Card> = {}): Ca
   };
 }
 
+/** Builds a valid board holding `cards`, with `nextId` just past them; the cards' ids must be 1 to n. */
 function board(cards: Card[]): Board {
   return { version: 1, title: "Project", nextId: cards.length + 1, cards };
 }
 
+/** Builds a valid untyped board, as read from JSON, with one card; `overrides` replaces top-level fields to make it invalid in one precise way. */
 function raw(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return { version: 1, title: "Project", nextId: 2, cards: [{ ...card(1, "next") }], ...overrides };
 }
 
+/** Builds an untyped board whose only card has the fields `overrides` replaced, to make that card invalid in one precise way. */
 function rawCard(overrides: Record<string, unknown>): Record<string, unknown> {
   return raw({ cards: [{ ...card(1, "next"), ...overrides }] });
 }
 
+/** Asserts that `fn` throws a `BoardError` with exactly `message`. */
 function expectBoardError(fn: () => unknown, message: string): void {
   expect(fn).toThrow(BoardError);
   expect(fn).toThrow(new BoardError(message));

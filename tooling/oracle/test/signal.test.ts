@@ -3,6 +3,7 @@ import { channel, ideal, MAX_FRAMES, sineError, sineErrorBound } from "../src/si
 import { parseWav } from "../src/wav.ts";
 import { makeWav, sineSamples } from "./fixtures.ts";
 
+/** A 1 kHz sine of unit amplitude and zero phase, which `sineSamples` produces. */
 const SINE = { frequency: 1000, amplitude: 1, phase: 0 };
 
 test("reads each channel of interleaved samples", () => {

@@ -25,7 +25,9 @@ async function freePort(variable: string): Promise<number> {
   return port;
 }
 
+/** Port of the preview server for this run, shared by the main process and its workers. */
 const PORT = await freePort("PLAYGROUND_E2E_PORT");
+/** Root URL of the preview server, the base of every page the tests open. */
 const URL = `http://localhost:${String(PORT)}/`;
 
 

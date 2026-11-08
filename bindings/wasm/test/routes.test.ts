@@ -2,7 +2,9 @@ import { resolve } from "node:path";
 import { describe, expect, test } from "vitest";
 import { route } from "../e2e/routes.ts";
 
+/** Fake directories served: no file is read, `route` only resolves paths. */
 const ROOTS = { package: "/repo/bindings/wasm", conformance: "/repo/conformance" };
+/** The `Host` header of a request to this machine on the served port (4000). */
 const HOST = "localhost:4000";
 
 describe("route", () => {

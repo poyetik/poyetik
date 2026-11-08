@@ -5,7 +5,9 @@ import { renderHash } from "../src/hash.ts";
 import { parseWav } from "../src/wav.ts";
 import { makeWav, sineSamples } from "./fixtures.ts";
 
+/** A valid mono WAV file: 32 frames of a 1 kHz sine at 8 kHz, matching `CHANNEL`. */
 const WAV = makeWav({ rate: 8000, channels: 1, samples: sineSamples(1, 32, 8000, 1000) });
+/** The expected signal of the single channel of `WAV`. */
 const CHANNEL = { sine: { frequency: 1000, amplitude: 1, phase: 0 } };
 
 /** Files in memory, and what the command printed. */

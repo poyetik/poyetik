@@ -124,7 +124,7 @@ Non-negotiable, and **enforced by tooling, not by goodwill**: CI and the pre-pus
 Enforced by `cargo xtask check` and the git hooks, like everything else.
 
 ### Documentation
-- **Every item is documented**, public or private: Rust `missing_docs` + Clippy `missing_docs_in_private_items`; TypeScript JSDoc on every exported declaration (`eslint-plugin-jsdoc`).
+- **Every item is documented**, public or private: Rust `missing_docs` + Clippy `missing_docs_in_private_items`; TypeScript JSDoc on every named item, exported or not: functions, classes and their members, types, module-level constants (`eslint-plugin-jsdoc`, `publicOnly: false`).
 - Docs explain **why and what**, not only how: purpose, invariants, units, errors (`# Errors` sections in Rust), panics (there must be none).
 - `cargo doc` runs with the rustdoc lints as errors: no broken or private links, no invalid code blocks, crate-level docs required.
 - `README.md` and each part's `README.md` explain what it is and how to run and check it; the local `doc/architecture.md` holds the architecture, the dependency register and the decisions log. Every architecture decision adds a line to that log.

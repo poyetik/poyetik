@@ -3,6 +3,7 @@
 import { interleave, renderHash } from "../../dist/hash.js";
 import { addProcessors, captureEngine, createEngineNode, loadPatch, renderOffline, type LoadedPatch } from "../../dist/web.js";
 
+/** The built `AudioWorklet` module that registers the engine and tap processors. */
 const PROCESSORS = new URL("../../dist/worklet/processors.js", import.meta.url);
 
 /** The element with this id, of this type. */
@@ -36,9 +37,13 @@ async function fetchCase(name: string): Promise<Case> {
   return { rate, frames, patch };
 }
 
+/** The bytes of the built engine module, fetched once and shared by every button. */
 const wasm = await (await fetch(new URL("../../dist/engine.wasm", import.meta.url))).arrayBuffer();
+/** The case named by `?case=`, sine-440 when absent. */
 const testCase = await fetchCase(new URLSearchParams(location.search).get("case") ?? "sine-440");
+/** The case's patch, already validated by the engine at the case's sample rate: a rejected patch fails the page load. */
 const loaded: LoadedPatch = await loadPatch(wasm, testCase.patch, testCase.rate);
+/** Where the last error is shown; the end-to-end tests expect it empty after a successful render. */
 const error = element("error", HTMLOutputElement);
 
 /** Runs `action` when `button` is clicked, showing any error. */

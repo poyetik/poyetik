@@ -7,6 +7,7 @@ import { artifactPath, CARGO_ARGS, encodedRustflags } from "./wasm.ts";
 
 /** The repository root, and the Cargo home whose path is remapped. */
 const REPOSITORY = fileURLToPath(new URL("../../../", import.meta.url)).replace(/\/$/, "");
+/** The Cargo home of this machine, remapped to `/cargo` in the module; `~/.cargo` unless `CARGO_HOME` says otherwise. */
 const CARGO_HOME = process.env["CARGO_HOME"] ?? `${homedir()}/.cargo`;
 
 /** Builds the module (in `targetDir` when given) and returns its path. */

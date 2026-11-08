@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { BoardError } from "../lib/board.ts";
 import { ignoreClosedReader, localDate, run } from "./cli.ts";
 
+/** Path of the board file: `ROADMAP_FILE` when set (tests, other boards), otherwise the package's own board.json. */
 const file = process.env["ROADMAP_FILE"] ?? fileURLToPath(new URL("../../board.json", import.meta.url));
 
 /** Runs a file operation, turning its failure into a message naming the file. */

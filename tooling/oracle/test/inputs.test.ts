@@ -1,7 +1,9 @@
 import { describe, expect, test } from "vitest";
 import { InputError, parseCase, parseExpectations, parseReferences } from "../src/inputs.ts";
 
+/** A well-formed SHA-256 hash: 64 lowercase hexadecimal digits. */
 const HASH = "a".repeat(64);
+/** A valid channel expectation, with a non-zero phase so that a dropped field shows. */
 const CHANNEL = { sine: { frequency: 440, amplitude: 1, phase: 0.5 } };
 
 describe("parseCase", () => {

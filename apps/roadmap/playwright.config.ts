@@ -26,7 +26,9 @@ async function freePort(variable: string): Promise<number> {
 }
 
 
+/** Port of the preview server for this run, shared by the main process and the workers through `ROADMAP_E2E_PORT`. */
 const PORT = await freePort("ROADMAP_E2E_PORT");
+/** Root URL of the preview server: the base URL of every test and the address Playwright waits on before starting. */
 const URL = `http://localhost:${String(PORT)}/`;
 
 

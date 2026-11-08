@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { readdirSync, readFileSync } from "node:fs";
 
+/** The conformance corpus at the repository root, shared with the native engine tests. */
 const CONFORMANCE = new URL("../../../conformance/", import.meta.url);
 
 /** Reference hashes of the conformance corpus, rendered by the native engine. */
@@ -27,6 +28,7 @@ function reference(name: string): string {
   return hash;
 }
 
+/** A SHA-256 hash in lowercase hex, as the bench page shows it once a render finished. */
 const HASH = /^[0-9a-f]{64}$/;
 
 test("covers the whole corpus, with a reference for every case", () => {

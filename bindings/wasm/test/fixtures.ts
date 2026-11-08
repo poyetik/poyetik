@@ -15,6 +15,7 @@ function conformance(): URL {
   throw new Error("conformance corpus not found");
 }
 
+/** The conformance corpus directory, resolved once when the fixtures load. */
 const CONFORMANCE = conformance();
 
 /** The built engine module (`pnpm build` writes it). */
@@ -28,7 +29,9 @@ function field(json: unknown, name: string): unknown {
   return typeof json === "object" && json !== null ? Reflect.get(json, name) : undefined;
 }
 
+/** The description of the sine-440 case (sample rate, duration), parsed JSON. */
 const sineCase: unknown = JSON.parse(readFileSync(new URL("cases/sine-440.json", CONFORMANCE), "utf8"));
+/** The native reference hashes of the corpus, by case name, as parsed JSON. */
 const references: unknown = JSON.parse(readFileSync(new URL("references.json", CONFORMANCE), "utf8"));
 
 /** The patch file of the sine-440 case, byte for byte: never parsed and written again. */

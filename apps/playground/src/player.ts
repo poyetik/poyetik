@@ -114,7 +114,9 @@ export interface PlayerOptions {
 
 /** One audio context, from start to close. */
 class Session {
+  /** The context of this session, created at the device rate and closed by {@link Session.close}. */
   readonly context: AudioContext;
+  /** The latest engine output, {@link PlayerOptions.historySeconds} long in samples at the context rate. */
   readonly history: SampleHistory;
   /** The output stage, silent until the fade in: fades and gain, before the speakers. */
   readonly gain: GainNode;
@@ -151,9 +153,13 @@ class Session {
 
 /** The states, as shared objects: `state()` returns the same object until a change. */
 const STOPPED: PlayerState = { kind: "stopped" };
+/** Shared state while the engine and the patch load. */
 const STARTING: PlayerState = { kind: "starting" };
+/** Shared state while the context runs. */
 const PLAYING: PlayerState = { kind: "playing" };
+/** Shared state while the browser keeps the context suspended. */
 const SUSPENDED: PlayerState = { kind: "suspended" };
+/** Shared state while fading out and closing the context. */
 const STOPPING: PlayerState = { kind: "stopping" };
 
 /** A live state: the player holds a session, from start until the context is released. */

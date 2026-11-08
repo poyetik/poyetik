@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 import type { Board, Card } from "../src/lib/board.ts";
 import { toView, DISPLAY_RANK } from "../src/lib/view.ts";
 
+/** Builds a card with id `id` in `column`, last updated `updatedAt`, and no steps. */
 function card(id: number, column: Card["column"], updatedAt: string): Card {
   return { id, title: `C${String(id)}`, description: "", column, milestone: "", createdAt: "2026-01-01", updatedAt, tasks: [] };
 }
 
+/** The view expected for a card without steps: the card plus empty step fields. */
 function plain(c: Card | undefined): unknown {
   return { ...c, steps: [], doneSteps: 0, currentStep: null };
 }

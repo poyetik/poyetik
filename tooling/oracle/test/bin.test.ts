@@ -7,7 +7,9 @@ import { parseWav } from "../src/wav.ts";
 import { makeWav, sineSamples } from "./fixtures.ts";
 
 // Runs the real entry point (disk, process) on a corpus in a temporary directory.
+/** The temporary directory of the current test, created before and removed after each one. */
 let dir = "";
+/** The real `process.argv`, restored after each test since `runBin` overwrites it. */
 const argv = process.argv;
 
 beforeEach(() => {

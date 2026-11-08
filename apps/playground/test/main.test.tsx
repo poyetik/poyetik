@@ -12,17 +12,21 @@ vi.mock("../src/player.ts", () => ({
       created.push(options);
     }
 
+    /** Nothing played: the stub never plays. */
     latest(): undefined {
       return undefined;
     }
 
+    /** The only state of the stub, shared so that `state()` is stable. */
     readonly #state = { kind: "stopped" } as const;
 
+    /** Always stopped: the entry point is tested, not the player. */
     state(): { readonly kind: "stopped" } {
       // The same object every time, like the real player: React compares snapshots.
       return this.#state;
     }
 
+    /** Never notifies, since the state never changes; the unsubscribe does nothing. */
     subscribe(): () => void {
       return () => undefined;
     }

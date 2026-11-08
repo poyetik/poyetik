@@ -5,13 +5,17 @@ import { ENGINE_PROCESSOR, OptionsError, TAP_PROCESSOR } from "../ts/protocol.ts
 import { addProcessors, capture, captureEngine, createEngineNode, LoadedPatch, loadPatch, START_MARGIN, renderOffline, tap } from "../ts/web.ts";
 import { SILENT_PATCH, SINE_PATCH, UNKNOWN_BOX, wasmBytes } from "./fixtures.ts";
 
+/** The sample rate of the fake audio contexts, in hertz. */
 const RATE = 48_000;
 
 /** A fake `MessagePort`: records what is posted. */
 class FakePort {
+  /** Set by the code under test to receive messages from the processor; called by `deliver`. */
   onmessage: ((event: { data: unknown }) => void) | null = null;
+  /** Every message the code under test posted to the processor, in order. */
   readonly posted: unknown[] = [];
 
+  /** Records `message` instead of sending it to the processor. */
   postMessage(message: unknown): void {
     this.posted.push(message);
   }
@@ -24,13 +28,20 @@ class FakePort {
 
 /** A fake `AudioWorkletNode`: records its construction. */
 class FakeNode {
+  /** Every node constructed since the last reset, in order, for the tests to drive and inspect. */
   static readonly created: FakeNode[] = [];
+  /** The fake port of this node, through which the tests talk as the processor. */
   readonly port = new FakePort();
+  /** The nodes this one is connected to, in order; `disconnect` removes them. */
   readonly connected: unknown[] = [];
+  /** Set by the code under test to learn that the processor failed; the tests call it to simulate a failure. */
   onprocessorerror: (() => void) | null = null;
 
+  /** The context this node was created in. */
   readonly context: unknown;
+  /** The name of the processor this node runs. */
   readonly name: string;
+  /** The `AudioWorkletNodeOptions` it was created with, for the tests to check what the processor would receive. */
   readonly options: unknown;
 
   constructor(context: unknown, name: string, options: unknown) {
@@ -40,10 +51,12 @@ class FakeNode {
     FakeNode.created.push(this);
   }
 
+  /** Records a connection to `target`. */
   connect(target: unknown): void {
     this.connected.push(target);
   }
 
+  /** Removes the connection to `target`. */
   disconnect(target: unknown): void {
     this.connected.splice(this.connected.indexOf(target), 1);
   }
@@ -444,10 +457,15 @@ describe("renderOffline", () => {
     vi.stubGlobal(
       "OfflineAudioContext",
       class {
+        /** The rate the context renders at, in hertz. */
         readonly sampleRate: number;
+        /** The shared fake destination, so that tests can check what was connected to it. */
         readonly destination = destination;
+        /** Channel count of the rendering; the last one is the engine's start marker. */
         readonly #channels: number;
+        /** Duration of the rendering, in frames. */
         readonly #frames: number;
+        /** Records each module added to the worklet and resolves at once. */
         readonly audioWorklet = {
           addModule: (url: string | URL) => {
             modules.push(url);
@@ -462,6 +480,7 @@ describe("renderOffline", () => {
           contexts.push({ channels, frames, rate });
         }
 
+        /** Delivers `message` (then `later`, when given) to the last node created, as its processor would during rendering, then resolves with a fake buffer: channel `c` holds `frame + 1000 * c`, and the marker channel holds 1 from frame `start` on (never, with `"never"`). */
         startRendering(): Promise<unknown> {
           const port = FakeNode.created.at(-1)?.port;
           port?.deliver(message);

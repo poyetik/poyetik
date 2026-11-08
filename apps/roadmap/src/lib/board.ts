@@ -45,18 +45,25 @@ export interface Board {
 
 /** An expected, user-facing error: invalid data or an invalid command. */
 export class BoardError extends Error {
+  /** Error name shown in messages and stack traces; typed `string` so that subclasses can set their own. */
   override readonly name: string = "BoardError";
 }
 
 /** Thrown when a value typed by a user (an id, a step number) is not valid: a usage error. */
 export class ArgumentError extends BoardError {
+  /** Error name, telling a usage error apart from other `BoardError`s in output. */
   override readonly name = "ArgumentError";
 }
 
+/** A card id as typed by a user: a positive integer without leading zero, with an optional `#`. */
 const ID_TEXT_RE = /^#?([1-9]\d*)$/;
+/** The exact fields of a stored card: an unknown or missing field is an error, so typos in board.json never pass silently. */
 const CARD_KEYS = ["id", "title", "description", "column", "milestone", "createdAt", "updatedAt", "tasks"];
+/** The exact fields of a stored step. */
 const TASK_KEYS = ["title", "done"];
+/** A 1-based step number as typed by a user: a positive integer without leading zero. */
 const TASK_NUMBER_RE = /^[1-9]\d*$/;
+/** The exact top-level fields of board.json. */
 const BOARD_KEYS = ["version", "title", "nextId", "cards"];
 
 /** Whether a value is a known column identifier. */
@@ -85,6 +92,7 @@ export function emptyBoard(title: string): Board {
 
 // ---------- Validation ----------
 
+/** Returns `value` trimmed; throws a `BoardError` naming `field` unless it is a string with at least one non-blank character. */
 function requireText(value: unknown, field: string): string {
   if (typeof value !== "string" || value.trim() === "") {
     throw new BoardError(`${field} must be a non-empty string`);
@@ -92,6 +100,7 @@ function requireText(value: unknown, field: string): string {
   return value.trim();
 }
 
+/** Returns `value` trimmed, possibly empty (optional texts such as a description); throws a `BoardError` naming `field` if it is not a string. */
 function requireString(value: unknown, field: string): string {
   if (typeof value !== "string") {
     throw new BoardError(`${field} must be a string`);
@@ -110,6 +119,7 @@ function isCalendarDay(value: string): boolean {
   return !Number.isNaN(time) && new Date(time).toISOString().startsWith(value);
 }
 
+/** Returns `value` unchanged if it is a valid YYYY-MM-DD calendar day; throws a `BoardError` naming `field` otherwise. */
 function requireDate(value: unknown, field: string): string {
   if (typeof value !== "string" || !isCalendarDay(value)) {
     throw new BoardError(`${field} must be a YYYY-MM-DD date`);
@@ -117,6 +127,7 @@ function requireDate(value: unknown, field: string): string {
   return value;
 }
 
+/** Returns `value` as a column id; throws a `BoardError` listing the valid ids otherwise. */
 function requireColumn(value: unknown): ColumnId {
   if (!isColumnId(value)) {
     throw new BoardError(`unknown column: ${String(value)} (expected: ${COLUMNS.map((c) => c.id).join(", ")})`);
@@ -124,6 +135,7 @@ function requireColumn(value: unknown): ColumnId {
   return value;
 }
 
+/** Throws a `BoardError` unless `value` has exactly the fields `keys`, in any order: no missing and no extra field. */
 function requireExactKeys(value: object, keys: readonly string[], what: string): void {
   const actual = Object.keys(value).sort();
   const expected = [...keys].sort();
@@ -132,14 +144,17 @@ function requireExactKeys(value: object, keys: readonly string[], what: string):
   }
 }
 
+/** Whether `value` is an integer of at least 1, the valid range of card ids and of `nextId`. */
 function isPositiveInteger(value: unknown): value is number {
   return Number.isInteger(value) && Number(value) >= 1;
 }
 
+/** Whether `value` is a plain object (not null, not an array), so that its fields can be read. */
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/** Validates one stored step; `where` locates it in error messages. */
 function parseTask(raw: unknown, where: string): Task {
   if (!isRecord(raw)) {
     throw new BoardError(`${where} must be an object`);
@@ -151,6 +166,7 @@ function parseTask(raw: unknown, where: string): Task {
   return { title: requireText(raw["title"], `${where} title`), done: raw["done"] };
 }
 
+/** Validates the step list of a card; `where` names the card in error messages, and each step is located by its 1-based number. */
 function parseTasks(raw: unknown, where: string): Task[] {
   if (!Array.isArray(raw)) {
     throw new BoardError(`${where} tasks must be an array`);
@@ -158,6 +174,7 @@ function parseTasks(raw: unknown, where: string): Task[] {
   return raw.map((t, i) => parseTask(t, `${where} task ${String(i + 1)}`));
 }
 
+/** Validates one stored card; `index` is its 0-based position in `cards`, used only to locate errors (the id itself may be what is invalid). */
 function parseCard(raw: unknown, index: number): Card {
   const where = `card #${String(index)}`;
   if (!isRecord(raw)) {
@@ -340,12 +357,14 @@ export function parseTaskNumber(text: string): number {
   return Number(text);
 }
 
+/** Applies `change` to the card `id`, stamps it with `today` (YYYY-MM-DD) and returns the new board; throws a `BoardError` if the date is invalid or the card does not exist. */
 function updateCard(board: Board, id: number, today: string, change: (card: Card) => Card): Board {
   const date = requireDate(today, "today's date");
   const card = { ...change(findCard(board, id)), updatedAt: date };
   return { ...board, cards: board.cards.map((c) => (c.id === id ? card : c)) };
 }
 
+/** Converts a 1-based step number into an index of `card.tasks`; throws a `BoardError` giving the valid range otherwise. */
 function requireTaskIndex(card: Card, n: number): number {
   if (!Number.isInteger(n) || n < 1 || n > card.tasks.length) {
     throw new BoardError(`invalid task number for ${formatId(card.id)}: ${String(n)} (1 to ${String(card.tasks.length)})`);

@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import { WavError, parseWav } from "../src/wav.ts";
 import { makeWav } from "./fixtures.ts";
 
+/** Fields of a valid stereo file of two frames, which each invalid case alters by one field. */
 const VALID = { rate: 48_000, channels: 2, samples: [0, 0.5, -0.5, 1] };
 
 describe("parseWav", () => {

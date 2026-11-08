@@ -25,7 +25,9 @@ async function freePort(variable: string): Promise<number> {
   return port;
 }
 
+/** The port of the static server for this run, shared with the workers through the environment. */
 const PORT = await freePort("ENGINE_WASM_E2E_PORT");
+/** The base URL of the static server, ending with a slash. */
 const URL = `http://localhost:${String(PORT)}/`;
 
 
