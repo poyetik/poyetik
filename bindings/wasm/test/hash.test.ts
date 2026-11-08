@@ -113,6 +113,33 @@ describe("renderHash", () => {
     expect(await renderHash(48_000, 2, whole.subarray(1, 5))).toBe(await renderHash(48_000, 2, new Float32Array([0, 0.5, -0.5, 1])));
   });
 
+  test.each([44_100.5, -1, 2 ** 32, Number.NaN])("refuses the sample rate %d, which is not a 32-bit unsigned integer", async (rate) => {
+    await expect(renderHash(rate, 1, new Float32Array())).rejects.toThrow(new RangeError(`the sample rate must be a whole number from 0 to 4294967295, not ${String(rate)}`));
+  });
+
+  test.each([1.5, -1, Number.NaN, 2 ** 53])("refuses the channel count %d", async (channels) => {
+    await expect(renderHash(48_000, channels, new Float32Array())).rejects.toThrow(
+      new RangeError(`the channel count must be a whole number from 0 to 2^53 - 1, not ${String(channels)}`),
+    );
+  });
+
+  test.each([
+    [3, 2],
+    [2, 3],
+    [0, 1],
+  ])("refuses %i channels over %i samples, not whole frames", async (channels, samples) => {
+    await expect(renderHash(48_000, channels, new Float32Array(samples))).rejects.toThrow(
+      new RangeError(`${String(samples)} samples are not whole frames of ${String(channels)} channels`),
+    );
+  });
+
+  test("accepts the edges of each domain", async () => {
+    // Independent values (Python hashlib), as for the empty render above.
+    expect(await renderHash(0, 0, new Float32Array())).toBe("73bb8fb3046e2d4d171ba2908f7763651c8efe39ea1d2a9cccf5477634ff9d34");
+    expect(await renderHash(0xff_ff_ff_ff, 2 ** 53 - 1, new Float32Array())).toBe("543a137ceaabcb4f43f8b251ff79e283d802b100c91eeaad67a4ee026e274404");
+    expect(await renderHash(48_000, 2, new Float32Array(4))).toBe("85128fb66ebd04473178caf90bd357604ea9250a71c25920e999771ae78a7f75");
+  });
+
   test("is 64 lowercase hex digits", async () => {
     expect(await renderHash(1, 1, new Float32Array([1e-45]))).toMatch(/^[0-9a-f]{64}$/);
   });
@@ -123,12 +150,11 @@ describe("interleave", () => {
     expect(interleave([new Float32Array([1, 2]), new Float32Array([3, 4])])).toStrictEqual(new Float32Array([1, 3, 2, 4]));
   });
 
-  test("takes its length from the first channel, padding shorter ones with zeros", () => {
-    expect(interleave([new Float32Array([1, 2]), new Float32Array([3])])).toStrictEqual(new Float32Array([1, 3, 2, 0]));
-  });
-
-  test("ignores samples beyond the length of the first channel", () => {
-    expect(interleave([new Float32Array([1]), new Float32Array([2, 3])])).toStrictEqual(new Float32Array([1, 2]));
+  test.each([
+    [[new Float32Array([1, 2]), new Float32Array([3])], "every channel must have the same length: 1 instead of 2"],
+    [[new Float32Array([1]), new Float32Array([2, 3])], "every channel must have the same length: 2 instead of 1"],
+  ])("refuses channels of different lengths: %o", (channels, message) => {
+    expect(() => interleave(channels)).toThrow(new RangeError(message));
   });
 
   test("keeps every bit, NaN payloads included", () => {
