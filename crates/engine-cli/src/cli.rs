@@ -13,6 +13,51 @@ pub const USAGE: &str = "usage: engine-cli <command>
   bless <dir>         rewrite <dir>/references.json from the current renders
   export <dir> <out>  write the WAV file of every case of <dir>/cases to <out>/<case>.wav";
 
+/// Why a command did not succeed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CliError {
+    /// The arguments do not form a command: shown with [`USAGE`], exit code 2.
+    Usage,
+    /// The command ran and failed: shown as one `error:` line, exit code 1.
+    Failed(String),
+}
+
+impl core::fmt::Display for CliError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Usage => f.write_str(USAGE),
+            Self::Failed(message) => f.write_str(message),
+        }
+    }
+}
+
+impl From<String> for CliError {
+    fn from(message: String) -> Self {
+        Self::Failed(message)
+    }
+}
+
+/// Writes to `W`, treating a closed reader (a broken pipe, as with `| head`) as success:
+/// what nobody reads is not an error, and the exit code stays the outcome of the work.
+#[derive(Debug)]
+pub struct BestEffort<W>(pub W);
+
+impl<W: Write> Write for BestEffort<W> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        match self.0.write(buf) {
+            Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => Ok(buf.len()),
+            other => other,
+        }
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        match self.0.flush() {
+            Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => Ok(()),
+            other => other,
+        }
+    }
+}
+
 /// Reads a file, naming it on failure.
 fn read(files: &mut dyn Files, path: &Path) -> Result<String, String> {
     files
@@ -89,11 +134,11 @@ fn references_path(dir: &Path) -> PathBuf {
 }
 
 /// `render <case> <patch> [--wav <file>]`.
-fn render(files: &mut dyn Files, out: &mut dyn Write, args: &[String]) -> Result<(), String> {
+fn render(files: &mut dyn Files, out: &mut dyn Write, args: &[String]) -> Result<(), CliError> {
     let (case, patch, wav) = match args {
         [case, patch] => (case, patch, None),
         [case, patch, flag, wav] if flag == "--wav" => (case, patch, Some(wav)),
-        _ => return Err(USAGE.to_owned()),
+        _ => return Err(CliError::Usage),
     };
     let case = read(files, Path::new(case))?;
     let prepared = prepare_case(&case, &read(files, Path::new(patch))?)?;
@@ -104,7 +149,7 @@ fn render(files: &mut dyn Files, out: &mut dyn Write, args: &[String]) -> Result
             .write(Path::new(path), &wav_file(&header, &rendered.samples))
             .map_err(|error| format!("cannot write {path}: {error}"))?;
     }
-    say(out, &rendered.hash().to_string())
+    Ok(say(out, &rendered.hash().to_string())?)
 }
 
 /// `check <dir>`.
@@ -192,16 +237,16 @@ fn export(
 ///
 /// # Errors
 ///
-/// Returns a message for an unknown command, invalid arguments, an unreadable or
-/// invalid case, or a conformance failure.
-pub fn run(args: &[String], files: &mut dyn Files, out: &mut dyn Write) -> Result<(), String> {
+/// Returns [`CliError::Usage`] for an unknown command or invalid arguments, and
+/// [`CliError::Failed`] for an unreadable or invalid case or a conformance failure.
+pub fn run(args: &[String], files: &mut dyn Files, out: &mut dyn Write) -> Result<(), CliError> {
     match args {
         [command, rest @ ..] if command == "render" => render(files, out, rest),
-        [command, dir] if command == "check" => check(files, out, Path::new(dir)),
-        [command, dir] if command == "bless" => bless(files, out, Path::new(dir)),
+        [command, dir] if command == "check" => Ok(check(files, out, Path::new(dir))?),
+        [command, dir] if command == "bless" => Ok(bless(files, out, Path::new(dir))?),
         [command, dir, target] if command == "export" => {
-            export(files, out, Path::new(dir), Path::new(target))
+            Ok(export(files, out, Path::new(dir), Path::new(target))?)
         }
-        _ => Err(USAGE.to_owned()),
+        _ => Err(CliError::Usage),
     }
 }

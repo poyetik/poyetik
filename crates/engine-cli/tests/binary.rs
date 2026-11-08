@@ -45,14 +45,18 @@ mod tests {
             .output()
             .expect("the binary runs");
         std::fs::remove_dir_all(&dir).expect("cleanup");
-        assert!(!output.status.success(), "a mismatch fails");
+        assert_eq!(
+            output.status.code(),
+            Some(1_i32),
+            "a mismatch fails with exit code 1"
+        );
         assert!(
             String::from_utf8_lossy(&output.stdout)
                 .starts_with("MISMATCH sine-440: expected 0, got "),
             "explained"
         );
         assert_eq!(
-            output.stderr, b"conformance failed: 1 problem(s)\n",
+            output.stderr, b"error: conformance failed: 1 problem(s)\n",
             "summary on stderr"
         );
     }
@@ -90,5 +94,32 @@ mod tests {
             output.stderr.starts_with(b"usage: engine-cli <command>"),
             "usage on stderr"
         );
+    }
+
+    #[test]
+    fn refuses_a_bad_command_line_with_exit_code_2() {
+        let output = Command::new(env!("CARGO_BIN_EXE_engine-cli"))
+            .args(["nope"])
+            .output()
+            .expect("the binary runs");
+        assert_eq!(output.status.code(), Some(2_i32), "usage error");
+        assert!(output.stdout.is_empty(), "nothing on stdout");
+        assert!(
+            String::from_utf8_lossy(&output.stderr).starts_with("usage: engine-cli"),
+            "the usage on stderr"
+        );
+    }
+
+    #[test]
+    fn succeeds_when_nobody_reads_its_output() {
+        // The read end is closed before the binary writes: every write gets a broken pipe.
+        let (reader, writer) = std::io::pipe().expect("a pipe");
+        drop(reader);
+        let status = Command::new(env!("CARGO_BIN_EXE_engine-cli"))
+            .args(["check", &conformance()])
+            .stdout(writer)
+            .status()
+            .expect("the binary runs");
+        assert_eq!(status.code(), Some(0_i32), "the check passed: exit code 0");
     }
 }

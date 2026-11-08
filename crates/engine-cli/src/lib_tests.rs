@@ -93,7 +93,7 @@ fn args(words: &[&str]) -> Vec<String> {
 
 fn run_with(memory: &mut Memory, words: &[&str]) -> (Result<(), String>, String) {
     let mut out = Vec::new();
-    let result = run(&args(words), memory, &mut out);
+    let result = run(&args(words), memory, &mut out).map_err(|error| error.to_string());
     (result, String::from_utf8(out).expect("utf-8 output"))
 }
 
@@ -488,19 +488,19 @@ impl io::Write for Broken {
 fn reports_a_broken_output() {
     let mut memory = conformance(&format!(r#"{{"sine":"{}"}}"#, sine_hash()));
     assert_eq!(
-        run(&args(&["check", "conf"]), &mut memory, &mut Broken),
+        run(&args(&["check", "conf"]), &mut memory, &mut Broken).map_err(|e| e.to_string()),
         Err("closed".to_owned()),
         "check"
     );
     let mut bad = conformance(r#"{"sine":"0"}"#);
     assert_eq!(
-        run(&args(&["check", "conf"]), &mut bad, &mut Broken),
+        run(&args(&["check", "conf"]), &mut bad, &mut Broken).map_err(|e| e.to_string()),
         Err("closed".to_owned()),
         "mismatch line"
     );
     let mut missing = conformance("{}");
     assert_eq!(
-        run(&args(&["check", "conf"]), &mut missing, &mut Broken),
+        run(&args(&["check", "conf"]), &mut missing, &mut Broken).map_err(|e| e.to_string()),
         Err("closed".to_owned()),
         "missing line"
     );
@@ -514,7 +514,7 @@ fn reports_a_broken_output() {
     ]);
     let mut once = Limited(1);
     assert_eq!(
-        run(&args(&["check", "conf"]), &mut stale, &mut once),
+        run(&args(&["check", "conf"]), &mut stale, &mut once).map_err(|e| e.to_string()),
         Err("closed".to_owned()),
         "stale line"
     );
@@ -769,4 +769,59 @@ fn pairs_every_case_with_its_patch() {
         Err("cannot list conf/patches: no such directory".to_owned()),
         "no patch directory"
     );
+}
+
+#[test]
+fn tells_usage_errors_from_failures() {
+    let mut memory = Memory::default();
+    assert_eq!(
+        run(&args(&["nope"]), &mut memory, &mut Vec::new()),
+        Err(super::CliError::Usage),
+        "usage"
+    );
+    assert_eq!(
+        run(&args(&["check", "conf"]), &mut memory, &mut Vec::new()),
+        Err(super::CliError::Failed(
+            "cannot list conf/cases: no such directory".to_owned()
+        )),
+        "failure"
+    );
+    assert_eq!(super::CliError::Usage.to_string(), USAGE, "usage text");
+}
+
+/// An output whose reader is gone, or that fails another way.
+struct Pipe(io::ErrorKind);
+impl io::Write for Pipe {
+    fn write(&mut self, _buf: &[u8]) -> io::Result<usize> {
+        Err(io::Error::from(self.0))
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        Err(io::Error::from(self.0))
+    }
+}
+
+#[test]
+fn ignores_a_closed_reader_but_not_other_output_errors() {
+    use io::Write as _;
+    let mut closed = super::BestEffort(Pipe(io::ErrorKind::BrokenPipe));
+    assert_eq!(closed.write(b"abc").map_err(|e| e.kind()), Ok(3), "write");
+    assert_eq!(closed.flush().map_err(|e| e.kind()), Ok(()), "flush");
+    let mut full = super::BestEffort(Pipe(io::ErrorKind::StorageFull));
+    assert_eq!(
+        full.write(b"abc").map_err(|e| e.kind()),
+        Err(io::ErrorKind::StorageFull),
+        "write"
+    );
+    assert_eq!(
+        full.flush().map_err(|e| e.kind()),
+        Err(io::ErrorKind::StorageFull),
+        "flush"
+    );
+    let mut fine = super::BestEffort(Vec::new());
+    assert_eq!(
+        fine.write(b"ab").map_err(|e| e.kind()),
+        Ok(2),
+        "passes through"
+    );
+    assert_eq!(fine.0, b"ab", "written");
 }

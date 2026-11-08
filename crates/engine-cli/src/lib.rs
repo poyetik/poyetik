@@ -1,7 +1,7 @@
 //! Offline renderer and conformance checker.
 //!
-//! A **conformance case** is a JSON file holding a patch, a sample rate and a duration
-//! in frames. `engine-cli` renders cases offline with the native engine, writes WAV
+//! A **conformance case** is a JSON file holding a sample rate and a duration in frames,
+//! with its patch in a file of its own. `engine-cli` renders cases offline with the native engine, writes WAV
 //! files, and compares render hashes with the reference hashes of
 //! `conformance/references.json`, which only `bless` may change.
 
@@ -15,7 +15,7 @@ mod files;
 mod wav;
 
 pub use case::{Prepared, Rendered, prepare_case, render_case};
-pub use cli::{USAGE, run};
+pub use cli::{BestEffort, CliError, USAGE, run};
 pub use files::{Disk, Files};
 pub use wav::{HEADER_LEN, wav_bytes, wav_file, wav_header};
 
