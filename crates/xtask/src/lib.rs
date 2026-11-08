@@ -348,6 +348,10 @@ pub const PACKAGES: [Package; 5] = [
     },
 ];
 
+/// The package of the engine in the browser, whose build (the WebAssembly module and the
+/// JavaScript around it) the packages that use it need: the playground.
+pub const ENGINE_PACKAGE: Package = PACKAGES[2];
+
 /// The report directories of every package of [`PACKAGES`], emptied before they run so
 /// that every report read by the gate comes from this run.
 #[must_use]
@@ -1008,6 +1012,14 @@ fn typescript_steps(mode: Mode) -> Vec<Step> {
             name: "Fresh TypeScript build outputs".to_owned(),
             action: Action::FreshDirs(build_outputs()),
         },
+        // Built before any package, so that a package using it can be checked without the
+        // checks of the engine package itself (as a part of the full check does).
+        run(
+            "Engine WASM build, for the packages that use it",
+            "pnpm",
+            &["run", "build"],
+            Dir::Package(ENGINE_PACKAGE.dir),
+        ),
     ];
     for package in PACKAGES {
         steps.push(run(

@@ -744,6 +744,7 @@ fn lists_every_check_in_order() {
             "stryker config gate",
             "fresh tooling/config/coverage tooling/config/reports/mutation tooling/oracle/coverage tooling/oracle/reports/mutation bindings/wasm/coverage bindings/wasm/reports/mutation apps/playground/coverage apps/playground/reports/mutation apps/roadmap/coverage apps/roadmap/reports/mutation",
             "fresh bindings/wasm/dist",
+            "Package(\"bindings/wasm\"): pnpm run build",
             "Package(\"tooling/config\"): pnpm run check",
             "Package(\"tooling/config\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json",
             "typescript reports gate of tooling/config",
@@ -829,6 +830,7 @@ fn names_every_check_in_order() {
             "Stryker configurations hide no mutant",
             "Fresh TypeScript report directories",
             "Fresh TypeScript build outputs",
+            "Engine WASM build, for the packages that use it",
             "Shared TypeScript policy (each rule proven to reject what it forbids)",
             "Mutation testing of tooling/config (what changed since the last run)",
             "TypeScript coverage and mutation reports of tooling/config",
@@ -2002,15 +2004,15 @@ fn runs_every_step_and_reports_success() {
         Ok(()),
         "all green"
     );
-    let (tools, commands, emptied, listed, captured, written) = (10, 49, 14, 19, 14, 1);
+    let (tools, commands, emptied, listed, captured, written) = (10, 50, 14, 19, 14, 1);
     let read = 2 + 12 + 2 + 7 + 19 + 2 + 1 + 7 + 3 + 10 + 10 + 20 + 8 + 2 + 11 + 40 + 20;
     assert_eq!(
         fake.ran.len(),
         tools + commands + emptied + listed + captured + written + read,
-        "the preflight asks ten tools; 49 commands run (formatting, lints, documentation, \
+        "the preflight asks ten tools; 50 commands run (formatting, lints, documentation, \
          tests, four portability builds, twelve coverage measurements each after emptying \
          the coverage build, the mutants of the changes, Miri, the \
-         conformance check and export, deny, the JavaScript install, audit, and five package \
+         conformance check and export, deny, the JavaScript install, audit, the engine build and five package \
          checks each followed by its Stryker run); fourteen directories are emptied; git lists \
          eleven kinds of files, the TypeScript ones again for the reports and scope gates of \
          each package after the first; the licenses and the history are captured twice each, the state \
@@ -2042,15 +2044,15 @@ fn runs_every_step_and_reports_success() {
     );
     let text = String::from_utf8(out).expect("utf-8 output");
     assert!(
-        text.starts_with("▶ [1/70] Tools and platform\n"),
+        text.starts_with("▶ [1/71] Tools and platform\n"),
         "numbered progress: {text}"
     );
     assert!(
-        text.contains("▶ [66/70] Roadmap checks\n"),
+        text.contains("▶ [67/71] Roadmap checks\n"),
         "last step announced: {text}"
     );
     assert!(
-        text.ends_with("✔ all 70 checks passed\n"),
+        text.ends_with("✔ all 71 checks passed\n"),
         "summary: {text}"
     );
 }
@@ -4720,7 +4722,7 @@ fn checks_a_push_then_runs_every_check() {
     assert!(
         String::from_utf8(out)
             .expect("UTF-8")
-            .ends_with("✔ all 70 checks passed\n"),
+            .ends_with("✔ all 71 checks passed\n"),
         "then every check"
     );
     assert!(
@@ -5147,12 +5149,12 @@ fn prints_the_details_of_a_failure_on_stdout_and_one_line_on_stderr() {
     );
     assert_eq!(
         String::from_utf8(err).expect("UTF-8"),
-        "error: 1 of 70 checks failed, listed above\n",
+        "error: 1 of 71 checks failed, listed above\n",
         "one line on stderr, counting the failed steps"
     );
     assert!(
         String::from_utf8(out).expect("UTF-8").ends_with(&format!(
-            "▶ [70/70] Working tree unchanged by the checks\n\
+            "▶ [71/71] Working tree unchanged by the checks\n\
              not reviewed: crates/a/src/c.rs: replace g -> U with x\n\
              stale review: crates/a/src/b.rs: replace f -> T with Default::default()\n\
              Rust unviable mutants reviewed: unviable mutants must be reviewed in \
@@ -7130,4 +7132,34 @@ fn knows_a_deletion_by_its_all_zero_object_name() {
     ] {
         assert_eq!(super::is_deletion(&object), deletion, "{object:?}");
     }
+}
+
+#[test]
+fn builds_the_engine_package_before_every_package() {
+    assert_eq!(
+        super::ENGINE_PACKAGE.dir,
+        "bindings/wasm",
+        "the engine in the browser"
+    );
+    assert!(
+        super::WASM_MODULE.starts_with("bindings/wasm/dist/"),
+        "its build writes the module"
+    );
+    let steps = check_steps(CHANGES_MODE);
+    let built = steps.iter().position(|step| {
+        step.action
+            == Action::Run(Cmd::new(
+                "pnpm",
+                &["run", "build"],
+                Dir::Package("bindings/wasm"),
+            ))
+    });
+    let emptied = steps
+        .iter()
+        .position(|step| step.action == Action::FreshDirs(super::build_outputs()));
+    let first_package = steps.iter().position(|step| step.name == PACKAGES[0].step);
+    assert!(
+        emptied < built && built < first_package && emptied.is_some(),
+        "built after its outputs are emptied, before any package is checked"
+    );
 }
