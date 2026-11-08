@@ -4,7 +4,7 @@
 // the real process, files and cargo.
 import { createHash } from "node:crypto";
 import { join } from "node:path";
-import { artifactPath, BuildError, CARGO_ARGS, cargoHomeOf, commandFailure, encodedRustflags, privatePaths, reproducibilityProblems } from "./wasm.ts";
+import { artifactPath, BuildError, CARGO_ARGS, cargoHomeOf, commandFailure, commitHashOf, encodedRustflags, privatePaths, reproducibilityProblems, sysrootOf, type Toolchain } from "./wasm.ts";
 
 /** What the commands need from the outside world. */
 export interface Io {
@@ -36,13 +36,36 @@ export interface Io {
 }
 
 /**
- * Builds the module reproducibly (in `targetDir` when given) and returns its path.
+ * Runs `rustc` with `args` in the repository, so that it is the toolchain the repository
+ * pins, and returns its stdout.
+ * @throws {BuildError} when it fails.
+ */
+function rustc(io: Io, args: readonly string[]): string {
+  try {
+    return io.run("rustc", args, { cwd: io.repository, env: io.env });
+  } catch (error) {
+    throw new BuildError(commandFailure(`rustc ${args.join(" ")}`, error));
+  }
+}
+
+/**
+ * The toolchain that builds the module, asked of rustc.
+ * @throws {BuildError} when rustc fails, or prints what is not understood.
+ */
+function toolchainOf(io: Io): Toolchain {
+  const sysroot = sysrootOf(rustc(io, ["--print", "sysroot"]));
+  return { sysroot, commit: commitHashOf(rustc(io, ["-vV"])) };
+}
+
+/**
+ * Builds the module reproducibly with `toolchain` (in `targetDir` when given) and returns
+ * its path.
  * @throws {BuildError} when cargo fails, or does not report the module.
  */
-function build(io: Io, targetDir?: string): string {
+function build(io: Io, toolchain: Toolchain, targetDir?: string): string {
   const env = {
     ...io.env,
-    CARGO_ENCODED_RUSTFLAGS: encodedRustflags(cargoHomeOf(io.env, io.home), io.repository),
+    CARGO_ENCODED_RUSTFLAGS: encodedRustflags(cargoHomeOf(io.env, io.home), io.repository, toolchain),
     ...(targetDir === undefined ? {} : { CARGO_TARGET_DIR: targetDir }),
   };
   let messages: string;
@@ -70,7 +93,7 @@ function reported(io: Io, action: () => number): number {
 /** `pnpm build:wasm`: builds the module and copies it to `dist/engine.wasm`; returns the exit code. */
 export function buildMain(io: Io, dist: string): number {
   return reported(io, () => {
-    const artifact = build(io);
+    const artifact = build(io, toolchainOf(io));
     io.makeDirectory(dist);
     io.copy(artifact, join(dist, "engine.wasm"));
     return 0;
@@ -88,9 +111,10 @@ export function reproducibleMain(io: Io): number {
   const dirs = [io.temporaryDirectory("engine-wasm-a-"), io.temporaryDirectory("engine-wasm-b-")] as const;
   try {
     return reported(io, () => {
-      const first = io.read(build(io, dirs[0]));
-      const second = io.read(build(io, dirs[1]));
-      const paths = privatePaths(io.repository, cargoHomeOf(io.env, io.home), io.home);
+      const toolchain = toolchainOf(io);
+      const first = io.read(build(io, toolchain, dirs[0]));
+      const second = io.read(build(io, toolchain, dirs[1]));
+      const paths = privatePaths(io.repository, cargoHomeOf(io.env, io.home), io.home, toolchain.sysroot);
       const problems = reproducibilityProblems(first, second, paths);
       if (problems.length > 0) {
         problems.forEach(io.out);

@@ -8,11 +8,41 @@ function reported(path: string): string {
   return `${JSON.stringify({ reason: "compiler-artifact", target: { name: "engine_wasm" }, filenames: [path] })}\n`;
 }
 
+/** The sysroot of the fake toolchain: outside the home directory, as `RUSTUP_HOME` may put it. */
+const SYSROOT = "/opt/rustup/toolchains/1.99.1";
+
+/** The commit of the fake toolchain. */
+const COMMIT = "58cf8f9c35b355199727627d07ae34a4e2846d67";
+
+/** What the fake `rustc -vV` prints. */
+const VERBOSE_VERSION = `rustc 1.99.1 (58cf8f9c3 2026-10-13)\nbinary: rustc\ncommit-hash: ${COMMIT}\ncommit-date: 2026-10-13\nhost: aarch64-apple-darwin\nrelease: 1.99.1\nLLVM version: 23.1.1\n`;
+
+/** The flags every build of the fake world passes, the Cargo home being `cargoHome`. */
+function flags(cargoHome: string): string {
+  return [
+    "--remap-path-prefix",
+    `${cargoHome}=/cargo`,
+    "--remap-path-prefix",
+    "/src/repo=/poyetik",
+    "--remap-path-prefix",
+    `${SYSROOT}/lib/rustlib/src/rust=/rustc/${COMMIT}`,
+  ].join("\u001f");
+}
+
+/** The answers of the fake toolchain: `rustc --print sysroot`, then `rustc -vV`. */
+const TOOLCHAIN = (args: readonly string[]): string => (args[0] === "--print" ? `${SYSROOT}\n` : VERBOSE_VERSION);
+
 /**
- * A fake outside world: `run` answers with `cargo` (given the target directory), files
- * are read from `files`, and everything done is recorded in `log`.
+ * A fake outside world: `run` answers `cargo` with `cargo` (given the target directory)
+ * and `rustc` with `rustc` (given its arguments), files are read from `files`, and
+ * everything done is recorded in `log`.
  */
-function fakeIo(cargo: (targetDir: string | undefined) => string, files: Readonly<Record<string, Uint8Array>> = {}, env: Readonly<Record<string, string>> = {}) {
+function fakeIo(
+  cargo: (targetDir: string | undefined) => string,
+  files: Readonly<Record<string, Uint8Array>> = {},
+  env: Readonly<Record<string, string>> = {},
+  rustc: (args: readonly string[]) => string = TOOLCHAIN,
+) {
   const log: string[] = [];
   const out: string[] = [];
   const err: string[] = [];
@@ -24,7 +54,7 @@ function fakeIo(cargo: (targetDir: string | undefined) => string, files: Readonl
     repository: "/src/repo",
     run: (command, args, options) => {
       runs.push({ command, args, cwd: options.cwd, env: options.env });
-      return cargo(options.env["CARGO_TARGET_DIR"]);
+      return command === "rustc" ? rustc(args) : cargo(options.env["CARGO_TARGET_DIR"]);
     },
     read: (path) => {
       log.push(`read ${path}`);
@@ -57,13 +87,11 @@ describe("build:wasm", () => {
   test("builds the module reproducibly and copies it into dist", () => {
     const { io, log, out, err, runs } = fakeIo(() => `   Compiling\n${reported("/t/engine_wasm.wasm")}`);
     expect(buildMain(io, "/pkg/dist")).toBe(0);
+    // rustc is asked in the repository, so that it is the toolchain the repository pins.
     expect(runs).toStrictEqual([
-      {
-        command: "cargo",
-        args: CARGO_ARGS,
-        cwd: "/src/repo",
-        env: { PATH: "/bin", CARGO_ENCODED_RUSTFLAGS: "--remap-path-prefix\u001f/home/u/.cargo=/cargo\u001f--remap-path-prefix\u001f/src/repo=/poyetik" },
-      },
+      { command: "rustc", args: ["--print", "sysroot"], cwd: "/src/repo", env: { PATH: "/bin" } },
+      { command: "rustc", args: ["-vV"], cwd: "/src/repo", env: { PATH: "/bin" } },
+      { command: "cargo", args: CARGO_ARGS, cwd: "/src/repo", env: { PATH: "/bin", CARGO_ENCODED_RUSTFLAGS: flags("/home/u/.cargo") } },
     ]);
     expect(log).toStrictEqual(["mkdir /pkg/dist", "copy /t/engine_wasm.wasm /pkg/dist/engine.wasm"]);
     expect([out, err]).toStrictEqual([[], []]);
@@ -72,11 +100,7 @@ describe("build:wasm", () => {
   test("remaps the Cargo home CARGO_HOME names", () => {
     const { io, runs } = fakeIo(() => reported("/t/engine_wasm.wasm"), {}, { CARGO_HOME: "/opt/cargo" });
     expect(buildMain(io, "/pkg/dist")).toBe(0);
-    expect(runs[0]?.env).toStrictEqual({
-      PATH: "/bin",
-      CARGO_HOME: "/opt/cargo",
-      CARGO_ENCODED_RUSTFLAGS: "--remap-path-prefix\u001f/opt/cargo=/cargo\u001f--remap-path-prefix\u001f/src/repo=/poyetik",
-    });
+    expect(runs[2]?.env).toStrictEqual({ PATH: "/bin", CARGO_HOME: "/opt/cargo", CARGO_ENCODED_RUSTFLAGS: flags("/opt/cargo") });
   });
 
   test.each([
@@ -89,6 +113,40 @@ describe("build:wasm", () => {
     });
     expect(buildMain(io, "/pkg/dist")).toBe(1);
     expect([out, err, log]).toStrictEqual([[], [line], []]);
+  });
+
+  test.each([
+    [["--print"], failed(1, null), "error: rustc --print sysroot failed (exit 1)"],
+    [["-vV"], failed(null, "SIGKILL"), "error: rustc -vV was stopped by signal SIGKILL"],
+  ])("explains a failed rustc %s in one line, and builds nothing", (failing, thrown, line) => {
+    const { io, log, out, err, runs } = fakeIo(
+      () => reported("/t/engine_wasm.wasm"),
+      {},
+      {},
+      (args) => {
+        if (args[0] === failing[0]) {
+          throw thrown;
+        }
+        return TOOLCHAIN(args);
+      },
+    );
+    expect(buildMain(io, "/pkg/dist")).toBe(1);
+    expect([out, err, log]).toStrictEqual([[], [line], []]);
+    expect(runs.map((run) => run.command)).not.toContain("cargo");
+  });
+
+  test.each([
+    [["", VERBOSE_VERSION], "error: rustc --print sysroot printed no single path: \"\""],
+    [[`${SYSROOT}\n`, "rustc 1.99.1\ncommit-hash: unknown\n"], "error: rustc -vV reported no commit hash (40 hexadecimal digits)"],
+  ])("refuses what rustc prints when it is not understood: %j", ([sysroot, verbose], line) => {
+    const { io, err } = fakeIo(
+      () => reported("/t/engine_wasm.wasm"),
+      {},
+      {},
+      (args) => String(args[0] === "--print" ? sysroot : verbose),
+    );
+    expect(buildMain(io, "/pkg/dist")).toBe(1);
+    expect(err).toStrictEqual([line]);
   });
 
   test("explains a build that does not report the module", () => {
@@ -122,7 +180,7 @@ describe("test:reproducible", () => {
     const module = new Uint8Array([0, 97, 115, 109]);
     const { io, log, out, err, runs } = builds(module, module.slice());
     expect(reproducibleMain(io)).toBe(0);
-    expect(runs.map((run) => run.env["CARGO_TARGET_DIR"])).toStrictEqual(["/tmp/engine-wasm-a-1", "/tmp/engine-wasm-b-2"]);
+    expect(runs.filter((run) => run.command === "cargo").map((run) => run.env["CARGO_TARGET_DIR"])).toStrictEqual(["/tmp/engine-wasm-a-1", "/tmp/engine-wasm-b-2"]);
     expect(log).toStrictEqual([
       "temp engine-wasm-a-",
       "temp engine-wasm-b-",
@@ -138,7 +196,9 @@ describe("test:reproducible", () => {
   });
 
   test("lists every problem on stdout, then fails with one error line", () => {
-    const leaking = new TextEncoder().encode("panic at /src/repo/x.rs and /home/u/.cargo/y.rs");
+    // The standard library's sources, which the rust-src component installs in the
+    // sysroot, outside the home directory here.
+    const leaking = new TextEncoder().encode(`panic at /src/repo/x.rs and /home/u/.cargo/y.rs and ${SYSROOT}/lib/rustlib/src/rust/library/core/src/str/pattern.rs`);
     const { io, out, err } = builds(leaking, new Uint8Array([1]));
     expect(reproducibleMain(io)).toBe(1);
     expect(out).toStrictEqual([
@@ -146,8 +206,9 @@ describe("test:reproducible", () => {
       "the engine module contains the path /src/repo",
       "the engine module contains the path /home/u/.cargo",
       "the engine module contains the path /home/u",
+      `the engine module contains the path ${SYSROOT}`,
     ]);
-    expect(err).toStrictEqual(["error: the engine module is not reproducible (4 problem(s))"]);
+    expect(err).toStrictEqual(["error: the engine module is not reproducible (5 problem(s))"]);
   });
 
   test("removes both directories when a build fails", () => {

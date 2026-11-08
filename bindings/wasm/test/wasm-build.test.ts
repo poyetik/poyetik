@@ -1,10 +1,12 @@
 import { describe, expect, test } from "vitest";
-import { artifactPath, BuildError, CARGO_ARGS, encodedRustflags, identical, leakedPaths } from "../scripts/wasm.ts";
+import { artifactPath, BuildError, CARGO_ARGS, commitHashOf, encodedRustflags, identical, leakedPaths, sysrootOf } from "../scripts/wasm.ts";
 
 describe("encodedRustflags", () => {
-  test("remaps the Cargo home and the repository, separated by U+001F", () => {
-    expect(encodedRustflags("/home/u/.cargo", "/src/repo")).toBe(
-      "--remap-path-prefix\u001f/home/u/.cargo=/cargo\u001f--remap-path-prefix\u001f/src/repo=/poyetik",
+  test("remaps the Cargo home, the repository and the standard library's sources, separated by U+001F", () => {
+    // The sources rust-src installs in the sysroot become the path the standard library
+    // was built with, /rustc/<commit>, which a toolchain without rust-src embeds.
+    expect(encodedRustflags("/home/u/.cargo", "/src/repo", { sysroot: "/r/1.99.1", commit: "0123456789abcdef0123456789abcdef01234567" })).toBe(
+      "--remap-path-prefix\u001f/home/u/.cargo=/cargo\u001f--remap-path-prefix\u001f/src/repo=/poyetik\u001f--remap-path-prefix\u001f/r/1.99.1/lib/rustlib/src/rust=/rustc/0123456789abcdef0123456789abcdef01234567",
     );
   });
 
@@ -39,6 +41,39 @@ describe("artifactPath", () => {
 
   test("names its errors", () => {
     expect(new BuildError("x")).toMatchObject({ name: "BuildError", message: "x" });
+  });
+});
+
+describe("sysrootOf", () => {
+  test("reads the one path rustc --print sysroot prints", () => {
+    expect(sysrootOf("/r/1.99.1\n")).toBe("/r/1.99.1");
+    expect(sysrootOf("/r/with space\n")).toBe("/r/with space");
+  });
+
+  test.each(["", "\n", "/r/1.99.1", "/r/1.99.1\n\n", "/a\n/b\n", "/r/1.99.1\r\n", "/r/\u007f\n"])("refuses anything else: %j", (printed) => {
+    expect(() => sysrootOf(printed)).toThrow(new BuildError(`rustc --print sysroot printed no single path: ${JSON.stringify(printed)}`));
+  });
+});
+
+describe("commitHashOf", () => {
+  const commit = "58cf8f9c35b355199727627d07ae34a4e2846d67";
+
+  test("reads the commit hash rustc -vV prints", () => {
+    expect(commitHashOf(`rustc 1.99.1 (58cf8f9c3 2026-10-13)\nbinary: rustc\ncommit-hash: ${commit}\ncommit-date: 2026-10-13\n`)).toBe(commit);
+  });
+
+  test.each([
+    "rustc 1.99.1\n",
+    "commit-hash: unknown\n",
+    `commit-hash: ${commit.slice(1)}\n`,
+    `commit-hash: ${commit}0\n`,
+    `commit-hash: ${commit.toUpperCase()}\n`,
+    `commit-hash:  ${commit}\n`,
+    ` commit-hash: ${commit}\n`,
+    `commit-hash: ${commit} \n`,
+    `commit-hash: ${commit.slice(0, 39)}g\n`,
+  ])("refuses a missing, truncated, padded or malformed hash: %j", (verbose) => {
+    expect(() => commitHashOf(verbose)).toThrow(new BuildError("rustc -vV reported no commit hash (40 hexadecimal digits)"));
   });
 });
 

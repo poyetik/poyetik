@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - CI runs the full check as parallel jobs, one per part of the full check, then a final job that reviews the unviable mutants of every mutation shard together, instead of one job running it whole (one to two hours on a single runner). Every job keeps the `[ci]` condition and the workflow's concurrency; each part has its own Rust cache. The workflow gate requires the matrix to list exactly the parts of `cargo xtask list --full --parts`, every part to run whatever the others find (`fail-fast: false`), every job to hold the `[ci]` condition, and the upload and download of the shards' unviable mutants; it refuses a matrix exclusion.
 
+### Fixed
+
+- The engine module is the same bytes whether or not the `rust-src` component is installed: with it, rustc embedded the standard library's local sources (`<sysroot>/lib/rustlib/src/rust/…`, in panic locations) instead of `/rustc/<commit>/…`, so `pnpm test:reproducible` failed on a path of the machine. The build now asks rustc for its sysroot and commit (`rustc --print sysroot`, `rustc -vV`, in the repository, so the pinned toolchain) and remaps those sources to `/rustc/<commit>`, and the reproducibility check also scans the module for the sysroot, which `RUSTUP_HOME` may put outside the home directory.
+
 ## [0.1.0] - 2026-11-08
 
 ### Added
