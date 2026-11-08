@@ -82,6 +82,22 @@
         {
           "title": "Benchmarks in CI: instruction counts per box and for building large plans, with regression thresholds; the construction of the engine processor timed on the three browser engines",
           "done": false
+        },
+        {
+          "title": "Real-time cost: estimate a patch's cost per block before it runs and report its load, so that a valid patch too heavy for real time is flagged (after the benchmarks); measure the copy of every outlet into the bus each block and remove it if it costs",
+          "done": false
+        },
+        {
+          "title": "Patches without audio output: decide whether time advances with zero channels, and make the native renderer and the WebAssembly engine agree (one runs no box, the other runs them all)",
+          "done": false
+        },
+        {
+          "title": "Subnormal parameters: flush or reject, decided with the denormal strategy (flush on the f64 side before rounding, parameters treated as zero below the smallest normal), with a 1e-40 Hz oscillator case",
+          "done": false
+        },
+        {
+          "title": "Long-run drift check of oscillators against the exact phase, skipping ahead in state to cover hours of signal",
+          "done": false
         }
       ]
     },
@@ -92,7 +108,7 @@
       "column": "next",
       "milestone": "M1 Engine",
       "createdAt": "2026-11-07",
-      "updatedAt": "2026-11-07",
+      "updatedAt": "2026-11-08",
       "tasks": [
         {
           "title": "Version 1: boxes, parameters and cables (spec/patch-format.md, read by engine-patch)",
@@ -104,6 +120,10 @@
         },
         {
           "title": "Box arguments (ports computed at creation, e.g. multichannel output) and the project's own box naming conventions",
+          "done": false
+        },
+        {
+          "title": "Coverage-guided fuzzing of patch reading (cargo-fuzz, a versioned corpus seeded from the conformance cases), then native-versus-WebAssembly differential runs of the same inputs",
           "done": false
         }
       ]
@@ -132,7 +152,7 @@
           "done": false
         },
         {
-          "title": "Typed errors end to end: error codes in the C library, exported error classes in TypeScript, each class named by the API importable through the package name and recognized by instanceof; distinct load errors (bytes that are not UTF-8, an unsupported rate, an invalid patch, a plan that cannot be built); the cause of a failure on the audio thread kept as a field of its own",
+          "title": "Typed errors end to end: each operation returns only the errors it can raise (SampleRate::new, Renderer::render); error codes in the C library, exported error classes in TypeScript, each class named by the API importable through the package name and recognized by instanceof; distinct load errors (bytes that are not UTF-8, an unsupported rate, an invalid patch, a plan that cannot be built); the cause of a failure on the audio thread kept as a field of its own",
           "done": false
         },
         {
@@ -145,6 +165,14 @@
         },
         {
           "title": "Final names of the public engine API, with a glossary; a Node entry point for the npm package; the Rust render hash takes a checked render, its channel count proven to match its samples",
+          "done": false
+        },
+        {
+          "title": "Box registries valid by construction: a registry from outside the engine is checked (unique names, complete metadata, finite ranges) before any plan uses it",
+          "done": false
+        },
+        {
+          "title": "Offline renders of untrusted durations allocate fallibly: running out of memory is an error, never an abort",
           "done": false
         }
       ]
