@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use engine_core::{Plan, SampleRate};
+use engine_core::{Plan, Renderer, SampleRate};
 
 use crate::{HEADER_LEN, wav_header};
 use engine_hash::{RenderHash, render_hash};
@@ -116,12 +116,13 @@ impl Prepared {
     /// allocated at once: if memory cannot hold them, the process aborts, as any Rust
     /// allocation failure does.
     #[must_use]
-    pub fn render(mut self) -> Rendered {
+    pub fn render(self) -> Rendered {
         let mut samples = vec![0.0_f32; self.sample_count()];
-        self.plan.render_into(&mut samples);
+        let channels = self.plan.channels();
+        Renderer::new(self.plan).render_into(&mut samples);
         Rendered {
             rate: self.rate,
-            channels: self.plan.channels(),
+            channels,
             samples,
         }
     }

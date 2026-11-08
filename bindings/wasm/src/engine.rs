@@ -56,7 +56,7 @@ impl Engine {
 mod tests {
     use alloc::vec::Vec;
 
-    use engine_core::{BLOCK_SIZE, Plan, SampleRate};
+    use engine_core::{BLOCK_SIZE, Plan, Renderer, SampleRate};
     use engine_objects::REGISTRY;
 
     use super::Engine;
@@ -70,9 +70,11 @@ mod tests {
         let mut engine = Engine::new(SINE.as_bytes(), 48_000).expect("valid patch");
         assert_eq!(engine.channels(), 2, "stereo");
         let patch = engine_patch::parse_patch(SINE).expect("valid patch");
-        let mut plan = Plan::build(&patch, &REGISTRY, SampleRate::HZ_48000).expect("valid plan");
+        let mut renderer = Renderer::new(
+            Plan::build(&patch, &REGISTRY, SampleRate::HZ_48000).expect("valid plan"),
+        );
         let blocks = 10_usize;
-        let expected = plan.render(blocks * BLOCK_SIZE).expect("small render");
+        let expected = renderer.render(blocks * BLOCK_SIZE).expect("small render");
         let mut actual = Vec::new();
         for _ in 0..blocks {
             let out = engine.process();

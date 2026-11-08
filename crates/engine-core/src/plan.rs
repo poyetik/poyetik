@@ -11,8 +11,8 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::{
-    BLOCK_SIZE, Block, Capability, Connection, CoreError, Node, NodeId, Object, ObjectSpec, Patch,
-    SILENCE, SampleRate,
+    Block, Capability, Connection, CoreError, Node, NodeId, Object, ObjectSpec, Patch, SILENCE,
+    SampleRate,
 };
 
 /// One box instance in execution order, with its own input and output buffers.
@@ -39,7 +39,12 @@ struct Instance {
     covered: usize,
 }
 
-/// A validated, ready-to-run execution plan.
+/// A validated, ready-to-run execution plan, advanced one block at a time by
+/// [`Plan::process`].
+///
+/// To render a number of frames offline, whatever the block boundaries, hand the plan to
+/// a [`crate::Renderer`], which owns it: the two ways of advancing time can then never be
+/// mixed on one plan.
 #[derive(Debug)]
 pub struct Plan {
     /// Box instances in execution order.
@@ -48,11 +53,6 @@ pub struct Plan {
     bus: Vec<Block>,
     /// Number of engine output channels.
     channels: usize,
-    /// The last block rendered by [`Plan::render`], one per channel.
-    last: Vec<Block>,
-    /// Frames of `last` already returned by [`Plan::render`]; [`BLOCK_SIZE`] when none
-    /// is left.
-    used: usize,
 }
 
 /// A node resolved against the registry.
@@ -259,8 +259,6 @@ impl Plan {
         Ok(Self {
             instances,
             bus: vec![SILENCE; bus_len],
-            last: vec![SILENCE; channels],
-            used: BLOCK_SIZE,
             channels,
         })
     }
@@ -275,55 +273,6 @@ impl Plan {
     /// The nodes in execution order.
     pub fn execution_order(&self) -> impl Iterator<Item = NodeId> + '_ {
         self.instances.iter().map(|instance| instance.node)
-    }
-
-    /// Renders the next `frames` frames offline and returns them interleaved by channel
-    /// ([`Plan::channels`] samples per frame).
-    ///
-    /// Successive calls continue exactly where the previous one stopped, whatever their
-    /// lengths: rendering `a` then `b` frames gives the same samples as rendering `a + b`
-    /// (also across [`Plan::render_into`]). A plan without output renders nothing (and
-    /// runs no box).
-    ///
-    /// # Errors
-    ///
-    /// Returns [`CoreError::RenderTooLong`] when the samples cannot be held in memory.
-    pub fn render(&mut self, frames: usize) -> Result<Vec<f32>, CoreError> {
-        let length = frames
-            .checked_mul(self.channels)
-            .ok_or(CoreError::RenderTooLong(frames))?;
-        let mut samples = Vec::new();
-        samples
-            .try_reserve_exact(length)
-            .map_err(|_| CoreError::RenderTooLong(frames))?;
-        samples.resize(length, 0.0);
-        self.render_into(&mut samples);
-        Ok(samples)
-    }
-
-    /// Renders the next frames offline into `out`, interleaved by channel: as many whole
-    /// frames as `out` holds ([`Plan::channels`] samples each). Samples after the last
-    /// whole frame are left untouched; a plan without output writes nothing.
-    ///
-    /// Continues exactly where the previous render stopped, like [`Plan::render`]. Does
-    /// not allocate.
-    pub fn render_into(&mut self, out: &mut [f32]) {
-        if self.channels == 0 {
-            return;
-        }
-        // One frame per round: a fixed number of rounds, so it always ends.
-        for frame in out.chunks_exact_mut(self.channels) {
-            if self.used == BLOCK_SIZE {
-                let mut last = core::mem::take(&mut self.last);
-                self.process(&mut last);
-                self.last = last;
-                self.used = 0;
-            }
-            for (sample, channel) in frame.iter_mut().zip(&self.last) {
-                *sample = channel.get(self.used).copied().unwrap_or(0.0);
-            }
-            self.used = self.used.saturating_add(1);
-        }
     }
 
     /// Runs every box once, then writes one block per output channel into `out`.

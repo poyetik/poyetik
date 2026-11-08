@@ -17,7 +17,7 @@ mod tests {
 
     use engine_core::{
         Block, Capability, Connection, CoreError, Node, NodeId, Object, ObjectSpec, ParamSpec,
-        Patch, Plan, PortSpec, SampleRate,
+        Patch, Plan, PortSpec, Renderer, SampleRate,
     };
     use engine_testkit::allocations_during;
     use engine_testkit::matrix::sample_rates;
@@ -195,7 +195,7 @@ mod tests {
             Patch::new(nodes.clone(), connections.clone()).map_err(|error| error.to_string())?;
         let built = Plan::build(&patch, &REGISTRY, rate);
         let expected = reference_order(&nodes, &connections);
-        let mut plan = match (built, expected) {
+        let plan = match (built, expected) {
             (Err(error), Err(reference)) if error == reference => return Ok(()),
             (Ok(plan), Ok(order)) => {
                 let actual: Vec<NodeId> = plan.execution_order().collect();
@@ -211,7 +211,22 @@ mod tests {
                 ));
             }
         };
-        let whole = plan.render(frames).map_err(|error| error.to_string())?;
+        // The same plan, advanced block by block: the same samples, interleaved.
+        let mut blocks = Plan::build(&patch, &REGISTRY, rate).map_err(|error| error.to_string())?;
+        let mut renderer = Renderer::new(plan);
+        let whole = renderer.render(frames).map_err(|error| error.to_string())?;
+        let mut processed = Vec::with_capacity(whole.len());
+        let mut block = vec![[0.0_f32; engine_core::BLOCK_SIZE]; blocks.channels()];
+        while processed.len() < whole.len() {
+            blocks.process(&mut block);
+            for frame in 0..engine_core::BLOCK_SIZE {
+                processed.extend(block.iter().map(|channel| channel[frame]));
+            }
+        }
+        processed.truncate(whole.len());
+        if bits(&processed) != bits(&whole) {
+            return Err("processing block by block differs from rendering".to_owned());
+        }
 
         // Same patch, document listed backwards: same samples.
         let mut reversed_nodes = nodes;
@@ -220,8 +235,9 @@ mod tests {
         reversed_connections.reverse();
         let reversed =
             Patch::new(reversed_nodes, reversed_connections).map_err(|error| error.to_string())?;
-        let mut again =
-            Plan::build(&reversed, &REGISTRY, rate).map_err(|error| error.to_string())?;
+        let mut again = Renderer::new(
+            Plan::build(&reversed, &REGISTRY, rate).map_err(|error| error.to_string())?,
+        );
         let split_at = split.min(frames);
         let mut parts = again.render(split_at).map_err(|error| error.to_string())?;
         parts.extend(
@@ -239,10 +255,10 @@ mod tests {
         }
         // A built plan renders without allocating, into a caller buffer or block by block.
         let mut buffer = vec![0.0_f32; whole.len()];
-        let mut blocks = vec![[0.0_f32; engine_core::BLOCK_SIZE]; 3];
+        let mut three = vec![[0.0_f32; engine_core::BLOCK_SIZE]; 3];
         let ((), allocations) = allocations_during(|| {
-            plan.render_into(&mut buffer);
-            plan.process(&mut blocks);
+            renderer.render_into(&mut buffer);
+            blocks.process(&mut three);
         });
         if allocations > 0 {
             return Err(format!("{allocations} allocations while rendering"));

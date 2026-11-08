@@ -24,12 +24,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The WebAssembly module exports `engine_abi_version`: the interface identity ("PY") and version (1), checked before anything else by the JavaScript side.
 - No-allocation proofs beyond single boxes: the plan laws check that rendering any random built plan allocates nothing, and the WASM engine tests check `Engine::process`, `Instance::process` and `engine_process` (at every sample rate of the matrix). The CLAUDE.md claim about an `assert_no_alloc` check, which did not exist, is corrected.
 - Seven conformance cases from the test matrix: 8 kHz near and above Nyquist and above the sample rate, 44.1 kHz with a partial last block, 20 kHz at 48 kHz, 19,999 Hz at 384 kHz, and 0 Hz. The Node tests and the four browsers render the whole corpus (each at its own rate) and check it is complete; live captures cover 48 and 44.1 kHz.
-- `Plan::render_into` renders the next frames into a caller buffer, without allocating; it continues exactly like `Plan::render`.
+- `Renderer::render_into` renders the next frames into a caller buffer, without allocating; it continues exactly like `Renderer::render`.
 - `engine-core`: the box contract (`Object`, `ObjectSpec`), strong types (`SampleRate`, fixed 64-frame `Block`, `NodeId`) and the deterministic execution plan (validation, topological sort, cycle detection, allocation-free processing).
 - `engine-objects`: the first boxes, `osc~` (sine oscillator, 440 Hz by default) and `dac~` (stereo audio output), and their registry.
 - `engine-testkit`: the laws every registered box must respect (metadata, determinism, finite output, no allocation while processing), checked with random inputs from a fixed seed.
 - Patch format, version 1 (`spec/patch-format.md`), read by `engine-patch`.
-- `engine-core`: `Plan::render` renders frames offline.
+- `engine-core`: `Renderer::render` renders the frames of a plan offline.
 - `engine-hash`: canonical SHA-256 hash of a render, cross-checked with an independent implementation.
 - `engine-cli`: renders conformance cases to WAV files, checks and blesses reference hashes.
 - First conformance case, `sine-440`, checked by `cargo xtask check`; `cargo xtask bless` is the only way to update reference hashes.
@@ -47,6 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Playground: the oscilloscope repaints only while playing; stopped, suspended or failed, it is drawn once (the grid and dashes) instead of being redrawn at the display rate, forever, on a page where nothing plays.
+- **Breaking:** offline rendering moves from `Plan` to a new `Renderer`, which owns its plan: `Renderer::new(plan)`, then `render` or `render_into`. `Plan` keeps `process`, one block at a time. Mixing both on one plan used to reorder time silently (a later block returned before the rest of the current one); it no longer compiles. `render_into` copies one channel at a time, as many frames as the current block and the buffer hold, instead of testing every sample.
 - The box laws (`engine-testkit`) also try every parameter at `-0.0` and at the smallest subnormal (`1e-45`), where its range accepts them; the long run is documented for what it reveals (late overflow, non-finite output, late allocation), not slow drift, which it has no reference to detect.
 - Patch format: port indices range from 0 to 65535, read as 16-bit integers. A larger index was accepted by the native reader and rejected by the WebAssembly one (whose pointers are 32 bits wide), so the same patch failed differently on each target; every target now rejects it while reading.
 - The roadmap page shows its columns in classic kanban order, Later, Next, In progress, Done, from left to right; on a phone, where the columns stack, In progress still comes first.
@@ -68,7 +69,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Breaking:** the patch of each conformance case is its own file, `conformance/patches/<name>.json`, and every runner (native CLI, Node tests, browser bench) passes its bytes to the engine unchanged. The runners used to rewrite the patch from a parsed copy, which could hide differences (a repeated parameter was silently merged; JavaScript writes `-0` as `0`). `engine-cli render` takes the case and the patch files. A case without its patch, or a patch without its case, is an error.
 - The playground plays the same document as the sine-440 patch of the conformance corpus (compared after parsing by a test), whose render has a reference hash.
 - **Breaking:** `Patch` is a validated type, built only by `Patch::new`: node ids are unique, cables are never repeated, and a patch holds at most 65,536 nodes and 262,144 cables. The cables into an inlet are summed in a fixed order (source id, then outlet), whatever the order of the document. The patch reader also refuses documents over 16 MiB and a parameter named twice in one node.
-- **Breaking:** `Plan::render` continues exactly where the previous call stopped (rendering `a` then `b` frames equals rendering `a + b`), and returns `CoreError::RenderTooLong` instead of failing when the samples cannot be held in memory.
+- **Breaking:** `Renderer::render` continues exactly where the previous call stopped (rendering `a` then `b` frames equals rendering `a + b`), and returns `CoreError::RenderTooLong` instead of failing when the samples cannot be held in memory.
 - Execution order is computed with Kahn's algorithm, in O((N + E) log N) instead of O(N²·E): a patch of 16,000 boxes is ordered in milliseconds instead of seconds. The order is unchanged.
 - Error messages name the faulty element once and say what is expected ("node 2 is declared twice", "invalid sample rate: 5 Hz (supported: 8000 to 384000 Hz)").
 - The conformance CLI refuses a case whose patch has no audio output, instead of rendering nothing.

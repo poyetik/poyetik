@@ -8,7 +8,7 @@ use alloc::vec::Vec;
 
 use crate::{
     BLOCK_SIZE, Block, Capability, Connection, CoreError, Node, NodeId, Object, ObjectSpec,
-    ParamSpec, Patch, Plan, PortSpec, SILENCE, SampleRate,
+    ParamSpec, Patch, Plan, PortSpec, Renderer, SILENCE, SampleRate,
 };
 
 const PORT: PortSpec = PortSpec {
@@ -509,16 +509,18 @@ fn rejects_cycles() {
 
 #[test]
 fn renders_interleaved_frames_offline() {
-    let mut plan = build(
-        vec![
-            node(1, "ramp~"),
-            with_param(node(2, "const~"), "value", -1.0),
-            node(3, "out~"),
-        ],
-        vec![wire(1, 0, 3, 0), wire(2, 0, 3, 1)],
-    )
-    .expect("valid patch");
-    let samples = plan.render(130).expect("small render");
+    let mut renderer = Renderer::new(
+        build(
+            vec![
+                node(1, "ramp~"),
+                with_param(node(2, "const~"), "value", -1.0),
+                node(3, "out~"),
+            ],
+            vec![wire(1, 0, 3, 0), wire(2, 0, 3, 1)],
+        )
+        .expect("valid patch"),
+    );
+    let samples = renderer.render(130).expect("small render");
     assert_eq!(samples.len(), 260, "130 frames of 2 channels");
     assert_eq!(
         &samples[..6],
@@ -530,7 +532,7 @@ fn renders_interleaved_frames_offline() {
         &[128.0, -1.0, 129.0, -1.0],
         "continues across blocks"
     );
-    let next = plan.render(1).expect("small render");
+    let next = renderer.render(1).expect("small render");
     assert_eq!(
         next,
         vec![130.0, -1.0],
@@ -540,18 +542,20 @@ fn renders_interleaved_frames_offline() {
 
 #[test]
 fn renders_nothing_for_zero_frames_or_channels() {
-    let mut plan = build(
-        vec![node(1, "ramp~"), node(2, "mono~")],
-        vec![wire(1, 0, 2, 0)],
-    )
-    .expect("valid patch");
-    assert_eq!(plan.render(0), Ok(Vec::<f32>::new()), "zero frames");
+    let mut renderer = Renderer::new(
+        build(
+            vec![node(1, "ramp~"), node(2, "mono~")],
+            vec![wire(1, 0, 2, 0)],
+        )
+        .expect("valid patch"),
+    );
+    assert_eq!(renderer.render(0), Ok(Vec::<f32>::new()), "zero frames");
     assert_eq!(
-        plan.render(64).expect("small render"),
+        renderer.render(64).expect("small render"),
         (0..64_u16).map(f32::from).collect::<Vec<_>>(),
         "nothing was processed before"
     );
-    let mut silent = build(vec![node(1, "ramp~")], vec![]).expect("valid patch");
+    let mut silent = Renderer::new(build(vec![node(1, "ramp~")], vec![]).expect("valid patch"));
     assert_eq!(
         silent.render(usize::MAX),
         Ok(Vec::<f32>::new()),
@@ -561,23 +565,25 @@ fn renders_nothing_for_zero_frames_or_channels() {
 
 #[test]
 fn refuses_renders_too_long_for_memory() {
-    let mut plan = build(
-        vec![node(1, "ramp~"), node(2, "out~")],
-        vec![wire(1, 0, 2, 0)],
-    )
-    .expect("valid patch");
+    let mut renderer = Renderer::new(
+        build(
+            vec![node(1, "ramp~"), node(2, "out~")],
+            vec![wire(1, 0, 2, 0)],
+        )
+        .expect("valid patch"),
+    );
     assert_eq!(
-        plan.render(usize::MAX),
+        renderer.render(usize::MAX),
         Err(CoreError::RenderTooLong(usize::MAX)),
         "frames times channels overflows"
     );
     assert_eq!(
-        plan.render(usize::MAX / 4),
+        renderer.render(usize::MAX / 4),
         Err(CoreError::RenderTooLong(usize::MAX / 4)),
         "fits the arithmetic, not the memory"
     );
     assert_eq!(
-        plan.render(2).expect("small render"),
+        renderer.render(2).expect("small render"),
         vec![0.0, 0.0, 1.0, 0.0],
         "nothing was rendered by the refused calls"
     );
@@ -663,7 +669,7 @@ fn accepts_patches_up_to_the_limits_only() {
     cables.extend(all_ports(0, 2));
     assert_eq!(cables.len(), Patch::MAX_CONNECTIONS, "exactly the limit");
     let patch = Patch::new(nodes, cables).expect("within the limits");
-    let mut plan = Plan::build(&patch, &REGISTRY, rate()).expect("valid plan");
+    let plan = Plan::build(&patch, &REGISTRY, rate()).expect("valid plan");
     assert_eq!(
         plan.execution_order().count(),
         Patch::MAX_NODES,
@@ -674,7 +680,11 @@ fn accepts_patches_up_to_the_limits_only() {
         Some(NodeId(u32::MAX)),
         "the output runs last"
     );
-    assert_eq!(plan.render(1).map(|block| block.len()), Ok(2), "renders");
+    assert_eq!(
+        Renderer::new(plan).render(1).map(|block| block.len()),
+        Ok(2),
+        "renders"
+    );
 }
 
 #[test]
@@ -693,15 +703,17 @@ fn rejects_repeated_cables() {
 #[test]
 fn renders_into_a_buffer_continuing_like_render() {
     let patch = || {
-        build(
-            vec![
-                node(1, "ramp~"),
-                with_param(node(2, "const~"), "value", -1.0),
-                node(3, "out~"),
-            ],
-            vec![wire(1, 0, 3, 0), wire(2, 0, 3, 1)],
+        Renderer::new(
+            build(
+                vec![
+                    node(1, "ramp~"),
+                    with_param(node(2, "const~"), "value", -1.0),
+                    node(3, "out~"),
+                ],
+                vec![wire(1, 0, 3, 0), wire(2, 0, 3, 1)],
+            )
+            .expect("valid patch"),
         )
-        .expect("valid patch")
     };
     let mut whole = patch();
     let expected = whole.render(100).expect("small render");
@@ -720,7 +732,7 @@ fn renders_into_a_buffer_continuing_like_render() {
         "30 frames into a buffer, then 70 rendered"
     );
 
-    let mut silent = build(vec![node(1, "ramp~")], vec![]).expect("valid patch");
+    let mut silent = Renderer::new(build(vec![node(1, "ramp~")], vec![]).expect("valid patch"));
     let mut untouched = [7.0_f32; 4];
     silent.render_into(&mut untouched);
     assert_eq!(untouched, [7.0; 4], "no output: nothing written");
@@ -755,7 +767,7 @@ fn a_single_cable_passes_its_samples_bit_for_bit() {
         vec![0x8000_0000; BLOCK_SIZE],
         "-0.0 at the inlet of pass~ and at the output, through process"
     );
-    let rendered: Vec<u32> = chain()
+    let rendered: Vec<u32> = Renderer::new(chain())
         .render(BLOCK_SIZE + 3)
         .expect("small render")
         .iter()

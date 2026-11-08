@@ -16,6 +16,7 @@ mod object;
 mod patch;
 mod plan;
 mod rate;
+mod render;
 
 pub use block::{BLOCK_SIZE, Block, SILENCE};
 pub use error::CoreError;
@@ -23,3 +24,4 @@ pub use object::{Capability, Factory, Object, ObjectSpec, ParamSpec, PortSpec};
 pub use patch::{Connection, Node, NodeId, Patch};
 pub use plan::Plan;
 pub use rate::SampleRate;
+pub use render::Renderer;
