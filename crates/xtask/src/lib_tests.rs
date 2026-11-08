@@ -382,11 +382,10 @@ fn command_lines(steps: &[Step]) -> Vec<String> {
         .iter()
         .map(|step| match &step.action {
             Action::Run(cmd) => format!("{:?}: {} {}", cmd.dir, cmd.program, cmd.args.join(" ")),
-            Action::CoverageGate(path) => format!("gate {path}"),
+            Action::CoverageGate => "coverage gate".to_owned(),
             Action::UnviableGate => "unviable gate".to_owned(),
             Action::EquivalentGate => "equivalent gate".to_owned(),
             Action::ReleaseGate => "release gate".to_owned(),
-            Action::FreshDir(path) => format!("fresh {path}"),
             Action::FreshDirs(paths) => format!("fresh {}", paths.join(" ")),
             Action::TypeScriptReportsGate => "typescript reports gate".to_owned(),
             Action::MembershipGate => "membership gate".to_owned(),
@@ -415,7 +414,7 @@ fn lists_every_check_in_order() {
             "Root: cargo build --package engine-core --package engine-objects --package engine-patch --package engine-hash --locked --target wasm32-unknown-unknown",
             "Root: cargo build --package engine-core --package engine-objects --package engine-patch --package engine-hash --locked --target thumbv7em-none-eabihf",
             "Root: cargo +nightly-2026-11-01 llvm-cov --workspace --locked --branch --json --summary-only --output-path target/coverage.json",
-            "gate target/coverage.json",
+            "coverage gate",
             "Root: cargo mutants --workspace --cap-lints=true --gitignore=true",
             "unviable gate",
             "equivalent gate",
@@ -1974,7 +1973,7 @@ fn checks_the_tools_and_the_platform_first() {
         preflight_gate("linux", &present("v22.17.9")),
         found(
             "the checks cannot run here",
-            &["Node.js v22.17.9 is too old: install Node.js 22.18 or later".to_owned()]
+            &["Node.js v22.17.9 is not supported: install Node.js 22.18 or later".to_owned()]
         ),
         "older minor"
     );
@@ -1982,7 +1981,7 @@ fn checks_the_tools_and_the_platform_first() {
         preflight_gate("linux", &present("v21.99.0")),
         found(
             "the checks cannot run here",
-            &["Node.js v21.99.0 is too old: install Node.js 22.18 or later".to_owned()]
+            &["Node.js v21.99.0 is not supported: install Node.js 22.18 or later".to_owned()]
         ),
         "older major"
     );
@@ -2422,7 +2421,8 @@ fn requires_a_workflow_that_pins_everything() {
         ("24.1.0\n", true),
         ("22.17.9", false),
         ("21.99.0", false),
-        ("v22.23.4", false),
+        // As `node --version` writes it, which setup-node and the version managers read too.
+        ("v22.23.4", true),
         ("22.x.1", false),
         ("22.23.4.1", false),
     ] {
@@ -2897,6 +2897,41 @@ fn allows_tooling_every_license_allowed_for_what_ships() {
             ),
             Ok(()),
             "{license}: a shipped package is in the full report too"
+        );
+    }
+}
+
+#[test]
+fn reads_node_releases_alike_everywhere() {
+    for (text, release) in [
+        ("v22.18.0\n", Some((22, 18, 0))),
+        ("22.23.4", Some((22, 23, 4))),
+        ("v24.1.0", Some((24, 1, 0))),
+        ("v22.18.0-nightly", None),
+        ("v22.x", None),
+        ("22.18", None),
+        ("vv22.18.0", None),
+        ("22.23.4.1", None),
+    ] {
+        assert_eq!(
+            super::node_release(text).map(|version| (version.major, version.minor, version.patch)),
+            release,
+            "{text:?}"
+        );
+        let answers: Vec<Result<String, CommandFailure>> = super::TOOLS
+            .iter()
+            .map(|tool| {
+                Ok(if tool.program == "node" {
+                    text.to_owned()
+                } else {
+                    tool_answer(tool.program, tool.args.first().copied())
+                })
+            })
+            .collect();
+        assert_eq!(
+            preflight_gate("linux", &answers).is_ok(),
+            super::workflow_gate(PINNED_WORKFLOW, text).is_ok(),
+            "{text:?}: the same verdict from the preflight and the workflow gate"
         );
     }
 }

@@ -158,6 +158,16 @@ pub struct Cmd {
 }
 
 impl Cmd {
+    /// `program` with `args`, run in `dir`.
+    #[must_use]
+    pub fn new(program: &'static str, args: &[&str], dir: Dir) -> Self {
+        Self {
+            program,
+            args: args.iter().map(|&arg| (*arg).to_owned()).collect(),
+            dir,
+        }
+    }
+
     /// The command line, as a shell would show it (in its directory).
     #[must_use]
     pub fn line(&self) -> String {
@@ -175,8 +185,8 @@ impl Cmd {
 pub enum Action {
     /// Run an external command; the step fails if it exits with an error.
     Run(Cmd),
-    /// Require 100% line, function and branch coverage in the report at this path.
-    CoverageGate(&'static str),
+    /// Require 100% line, function and branch coverage in the report at [`COVERAGE_REPORT`].
+    CoverageGate,
     /// Require every unviable mutant to be reviewed, and every review to be current.
     UnviableGate,
     /// Require every disabled TypeScript mutant to be reviewed, and every review to be
@@ -184,10 +194,8 @@ pub enum Action {
     EquivalentGate,
     /// Require one project version everywhere, consistent with a well-formed changelog.
     ReleaseGate,
-    /// Empty this directory (relative to the root), creating it if needed: what a later
-    /// step reads there is then produced by this run only.
-    FreshDir(&'static str),
-    /// Empty each of these directories, as [`Action::FreshDir`].
+    /// Empty each of these directories (relative to the root), creating them if needed:
+    /// what a later step reads there is then produced by this run only.
     FreshDirs(Vec<String>),
     /// Require 100% coverage and no surviving mutant in the reports of every TypeScript
     /// package.
@@ -255,11 +263,7 @@ fn verdict(context: &str, problems: Vec<String>) -> Result<(), Failure> {
 fn run(name: &str, program: &'static str, args: &[&str], dir: Dir) -> Step {
     Step {
         name: name.to_owned(),
-        action: Action::Run(Cmd {
-            program,
-            args: args.iter().map(|&arg| arg.to_owned()).collect(),
-            dir,
-        }),
+        action: Action::Run(Cmd::new(program, args, dir)),
     }
 }
 
@@ -352,7 +356,7 @@ fn proof_steps() -> Vec<Step> {
         ),
         Step {
             name: "Rust coverage: 100% lines, functions and branches".to_owned(),
-            action: Action::CoverageGate(COVERAGE_REPORT),
+            action: Action::CoverageGate,
         },
         // Lints are capped while building mutants: otherwise a mutant that merely leaves a
         // variable unused fails to compile and is silently skipped instead of tested.
@@ -420,7 +424,7 @@ fn release_steps() -> Vec<Step> {
         // dependencies are installed.
         Step {
             name: "Fresh conformance export directory".to_owned(),
-            action: Action::FreshDir(CONFORMANCE_EXPORT),
+            action: Action::FreshDirs(vec![CONFORMANCE_EXPORT.to_owned()]),
         },
         run(
             "Conformance export (native WAV files)",
@@ -640,25 +644,12 @@ fn mutant_key(line: &str) -> Option<String> {
     Some(format!("{file}.rs: {}", description.trim()))
 }
 
-/// Checks that the unviable mutants of the last run are exactly the reviewed ones.
+/// Compares what a gate `found` with the keys of a review file, adding to `problems` every
+/// line without a reason, every key found but not reviewed and every stale review.
 ///
-/// `reviewed` holds one `<file>.rs: <mutant> -- <reason>` line per mutant; blank lines
-/// and lines starting with `#` are ignored.
-///
-/// # Errors
-///
-/// Returns a message listing unreviewed mutants, stale reviews and malformed lines.
-pub fn unviable_gate(report: &str, reviewed: &str) -> Result<(), Failure> {
-    let mut problems = Vec::new();
-    let mut found = BTreeSet::new();
-    for line in report.lines().filter(|line| !line.trim().is_empty()) {
-        match mutant_key(line) {
-            Some(key) => {
-                let _: bool = found.insert(key);
-            }
-            None => problems.push(format!("unrecognized mutant: {line}")),
-        }
-    }
+/// `reviewed` holds one `<key> -- <reason>` line per entry; blank lines and lines starting
+/// with `#` are ignored.
+fn compare_reviews(found: &BTreeSet<String>, reviewed: &str, problems: &mut Vec<String>) {
     let mut known = BTreeSet::new();
     for line in reviewed
         .lines()
@@ -680,9 +671,31 @@ pub fn unviable_gate(report: &str, reviewed: &str) -> Result<(), Failure> {
     );
     problems.extend(
         known
-            .difference(&found)
+            .difference(found)
             .map(|key| format!("stale review: {key}")),
     );
+}
+
+/// Checks that the unviable mutants of the last run are exactly the reviewed ones.
+///
+/// `reviewed` holds one `<file>.rs: <mutant> -- <reason>` line per mutant; blank lines
+/// and lines starting with `#` are ignored.
+///
+/// # Errors
+///
+/// Returns a message listing unreviewed mutants, stale reviews and malformed lines.
+pub fn unviable_gate(report: &str, reviewed: &str) -> Result<(), Failure> {
+    let mut problems = Vec::new();
+    let mut found = BTreeSet::new();
+    for line in report.lines().filter(|line| !line.trim().is_empty()) {
+        match mutant_key(line) {
+            Some(key) => {
+                let _: bool = found.insert(key);
+            }
+            None => problems.push(format!("unrecognized mutant: {line}")),
+        }
+    }
+    compare_reviews(&found, reviewed, &mut problems);
     verdict(
         &format!("unviable mutants must be reviewed in {UNVIABLE_REVIEWED}"),
         problems,
@@ -733,29 +746,7 @@ pub fn equivalent_gate(sources: &[(String, String)], reviewed: &str) -> Result<(
             }
         }
     }
-    let mut known = BTreeSet::new();
-    for line in reviewed
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty() && !line.starts_with('#'))
-    {
-        match line.split_once(" -- ") {
-            Some((key, _reason)) => {
-                let _: bool = known.insert(key.trim().to_owned());
-            }
-            None => problems.push(format!("review without a reason: {line}")),
-        }
-    }
-    problems.extend(
-        found
-            .difference(&known)
-            .map(|key| format!("not reviewed: {key}")),
-    );
-    problems.extend(
-        known
-            .difference(&found)
-            .map(|key| format!("stale review: {key}")),
-    );
+    compare_reviews(&found, reviewed, &mut problems);
     verdict(
         &format!("disabled mutants must be reviewed in {EQUIVALENT_REVIEWED}"),
         problems,
@@ -847,11 +838,7 @@ pub const TOOLING_EXCEPTIONS: [(&str, &str, &str); 1] = [(
 
 /// The pnpm commands listing licenses: of what the apps ship, then of everything.
 fn license_commands() -> [Cmd; 2] {
-    let pnpm = |args: &[&str]| Cmd {
-        program: "pnpm",
-        args: args.iter().map(|&arg| arg.to_owned()).collect(),
-        dir: Dir::Root,
-    };
+    let pnpm = |args: &[&str]| Cmd::new("pnpm", args, Dir::Root);
     let filters: Vec<String> = PACKAGES
         .iter()
         .filter(|package| package.shipped)
@@ -1087,6 +1074,19 @@ pub const TOOLS: [Tool; 9] = [
     },
 ];
 
+/// Reads a Node.js release as `node --version` and `.node-version` write it: `X.Y.Z`, with
+/// or without a leading `v`, nothing else (no pre-release, no partial version).
+#[must_use]
+pub fn node_release(text: &str) -> Option<Version> {
+    let text = text.trim();
+    Version::parse(text.strip_prefix('v').unwrap_or(text))
+}
+
+/// Whether a Node.js release is at [`NODE_FLOOR`] or later.
+fn supported(release: Version) -> bool {
+    (release.major, release.minor) >= NODE_FLOOR
+}
+
 /// The oldest Node.js release the packages support, major and minor: the `engines` of
 /// every `package.json` is exactly `>=` this release (checked by [`release_gate`]).
 pub const NODE_FLOOR: (u64, u64) = (22, 18);
@@ -1120,15 +1120,8 @@ pub fn preflight_gate(os: &str, answers: &[Result<String, CommandFailure>]) -> R
         match tool.need {
             Need::Present => {}
             Need::NodeFloor => {
-                let numbers: Vec<u64> = version
-                    .trim_start_matches('v')
-                    .split('.')
-                    .map_while(|part| part.parse().ok())
-                    .collect();
-                if (numbers.first().copied(), numbers.get(1).copied())
-                    < (Some(NODE_FLOOR.0), Some(NODE_FLOOR.1))
-                {
-                    problems.push(format!("Node.js {version} is too old: {install}"));
+                if !node_release(version).is_some_and(supported) {
+                    problems.push(format!("Node.js {version} is not supported: {install}"));
                 }
             }
             Need::Pinned((name, needed)) => {
@@ -1231,16 +1224,7 @@ pub fn workflow_gate(workflow: &str, node_version: &str) -> Result<(), Failure> 
             problems.push(format!("{WORKFLOW} lacks `{expected}`"));
         }
     }
-    let numbers: Vec<u64> = node_version
-        .trim()
-        .split('.')
-        .map(|part| part.parse().unwrap_or(u64::MAX))
-        .collect();
-    let pinned_exactly = numbers.len() == 3 && numbers.iter().all(|&number| number != u64::MAX);
-    if !pinned_exactly
-        || (numbers.first().copied(), numbers.get(1).copied())
-            < (Some(NODE_FLOOR.0), Some(NODE_FLOOR.1))
-    {
+    if !node_release(node_version).is_some_and(supported) {
         problems.push(format!(
             "{NODE_VERSION_FILE} must pin one Node.js release, {}.{} or later (X.Y.Z): found {:?}",
             NODE_FLOOR.0,
@@ -1507,11 +1491,7 @@ pub const CHANGELOG_SINCE: &str = "8182fda87a1c631295548ff52eeb4ea08335fa36";
 /// itself excluded; the check passes [`CHANGELOG_SINCE`]). Records are separated by `0x1e`.
 #[must_use]
 pub fn history_commands(since: &str) -> [Cmd; 2] {
-    let git = |args: &[&str]| Cmd {
-        program: "git",
-        args: args.iter().map(|&arg| arg.to_owned()).collect(),
-        dir: Dir::Root,
-    };
+    let git = |args: &[&str]| Cmd::new("git", args, Dir::Root);
     [
         git(&["log", "--format=%x1e%H%x1f%B", "HEAD"]),
         git(&[
@@ -1855,12 +1835,8 @@ impl Runner for SystemRunner {
     fn tracked(&mut self, patterns: &[&str]) -> Result<Vec<String>, CommandFailure> {
         let mut args = vec!["ls-files", "--"];
         args.extend(patterns);
-        self.capture(&Cmd {
-            program: "git",
-            args: args.into_iter().map(str::to_owned).collect(),
-            dir: Dir::Root,
-        })
-        .map(|text| text.lines().map(str::to_owned).collect())
+        self.capture(&Cmd::new("git", &args, Dir::Root))
+            .map(|text| text.lines().map(str::to_owned).collect())
     }
 }
 
@@ -1875,11 +1851,7 @@ fn read_file(runner: &mut dyn Runner, path: &str) -> Result<String, Failure> {
 /// (`doing`: "read the work tree") when it fails.
 fn git_output(runner: &mut dyn Runner, args: &[&str], doing: &str) -> Result<String, Failure> {
     runner
-        .capture(&Cmd {
-            program: "git",
-            args: args.iter().map(|&arg| arg.to_owned()).collect(),
-            dir: Dir::Root,
-        })
+        .capture(&Cmd::new("git", args, Dir::Root))
         .map_err(|failure| Failure::from(format!("cannot {doing}: {failure}")))
 }
 
@@ -1925,14 +1897,7 @@ fn history(runner: &mut dyn Runner) -> Result<(), Failure> {
 fn preflight(runner: &mut dyn Runner) -> Result<(), Failure> {
     let answers: Vec<Result<String, CommandFailure>> = TOOLS
         .iter()
-        .map(|tool| {
-            let cmd = Cmd {
-                program: tool.program,
-                args: tool.args.iter().map(|&arg| arg.to_owned()).collect(),
-                dir: Dir::Root,
-            };
-            runner.capture(&cmd)
-        })
+        .map(|tool| runner.capture(&Cmd::new(tool.program, tool.args, Dir::Root)))
         .collect();
     preflight_gate(std::env::consts::OS, &answers)
 }
@@ -2047,13 +2012,12 @@ fn run_action(action: &Action, runner: &mut dyn Runner) -> Result<(), Failure> {
         Action::Run(cmd) => runner
             .run(cmd)
             .map_err(|failure| Failure::from(failure.to_string())),
-        Action::CoverageGate(path) => Ok(coverage_gate(&read_file(runner, path)?)?),
+        Action::CoverageGate => Ok(coverage_gate(&read_file(runner, COVERAGE_REPORT)?)?),
         Action::ReleaseGate => {
             let cargo = read_file(runner, CARGO_TOML)?;
             let packages = read_all(runner, package_jsons())?;
             release_gate(&cargo, &packages, &read_file(runner, CHANGELOG)?)
         }
-        Action::FreshDir(path) => fresh(runner, path),
         Action::FreshDirs(paths) => paths.iter().try_for_each(|path| fresh(runner, path)),
         Action::MembershipGate => membership(runner),
         Action::Preflight => preflight(runner),
