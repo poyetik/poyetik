@@ -7,10 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Security
-
-- The end-to-end test server serves only the bench, the built package and the conformance cases, patches and references, to this machine only: a path such as `/conformance//etc/hosts` read any file, and any host name was answered (DNS rebinding).
-
 ### Added
 
 - `mutants-equivalent.txt` and a gate in `cargo xtask check`: every TypeScript mutant disabled as equivalent is listed there with its justification; a disable comment that is not listed, a stale entry, or a broader disable (a whole file, every mutator) fails the check.
@@ -71,3 +67,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `cargo xtask check` rejects a coverage report that measured nothing (0 of 0 lines, functions or branches).
 - The conformance export directory is emptied before every export, so no WAV file from an earlier run is judged.
 - Mutation testing copies only versioned files (`--gitignore=true`).
+
+### Security
+
+- The end-to-end test server serves only the bench, the built package and the conformance cases, patches and references, to this machine only: a path such as `/conformance//etc/hosts` read any file, and any host name was answered (DNS rebinding).
