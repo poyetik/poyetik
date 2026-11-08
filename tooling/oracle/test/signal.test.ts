@@ -106,11 +106,21 @@ test.each([
   // 2.498 cycles per sample, the regime from 2 to 4 cycles where the increment rounds by
   // up to 2^-52: the worst measured rounding (0.992 × 2^-52), over 10 s.
   [8000, 19_984, 80_000],
-] as const)("accepts a correct oscillator at %d Hz, %d Hz, over %d frames", (rate, frequency, frames) => {
-  const samples = oscillator(frames, rate, frequency, double);
-  const sine = { frequency: Math.fround(frequency), amplitude: 1, phase: 0 };
-  expect(sineError(samples, rate, sine)).toBeLessThanOrEqual(sineErrorBound(1, frames));
-});
+] as const)(
+  "accepts a correct oscillator at %d Hz, %d Hz, over %d frames",
+  (rate, frequency, frames) => {
+    const samples = oscillator(frames, rate, frequency, double);
+    const sine = { frequency: Math.fround(frequency), amplitude: 1, phase: 0 };
+    expect(sineError(samples, rate, sine)).toBeLessThanOrEqual(sineErrorBound(1, frames));
+  },
+  // The 10 s case is a fixed amount of work, 3.84 million samples through the oracle's
+  // reference, which cannot be shortened (the phase drift it bounds accumulates sample by
+  // sample) nor skipped ahead (each phase rounds the previous one). It takes about 2.5 s
+  // plain, and several times that instrumented for mutation testing on a loaded machine:
+  // Vitest's default of 5 s failed the initial run of Stryker. 60 s leaves a margin of
+  // more than 20 times the plain run.
+  60_000,
+);
 
 test("rejects oscillators measurably worse than the engine's", () => {
   const sine = { frequency: 440, amplitude: 1, phase: 0 };
