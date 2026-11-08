@@ -616,6 +616,7 @@ describe("captureEngine", () => {
     [MAX_MARKED_FRAMES + 1, `at most ${String(MAX_MARKED_FRAMES)} frames can be rendered from the start of the engine, not ${String(MAX_MARKED_FRAMES + 1)}`],
     [-1, "a capture needs a whole number of frames from 0, not -1"],
     [0.5, "a capture needs a whole number of frames from 0, not 0.5"],
+    [Number.NaN, "a capture needs a whole number of frames from 0, not NaN"],
   ])("refuses to capture %d frames", async (frames, message) => {
     stubNodes();
     const fake = fakeContext(RATE);
@@ -746,6 +747,16 @@ describe("renderOffline", () => {
     await expect(renderOffline(await loaded(2), 200, "processors.js")).rejects.toThrow(
       new Error("the engine output of the offline render breaks at frame 128: the engine stopped"),
     );
+  });
+
+  test.each([
+    [-1, "a render needs a whole number of frames from 0, not -1"],
+    [0.5, "a render needs a whole number of frames from 0, not 0.5"],
+    [Number.NaN, "a render needs a whole number of frames from 0, not NaN"],
+  ])("refuses to render %d frames, before rendering", async (frames, message) => {
+    const { contexts } = offline({ type: "ready" });
+    await expect(renderOffline(await loaded(2), frames, "processors.js")).rejects.toThrow(new RangeError(message));
+    expect(contexts).toStrictEqual([]);
   });
 
   test("renders up to the frames the marker counts, and refuses more before rendering", async () => {

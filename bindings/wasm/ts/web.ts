@@ -292,8 +292,9 @@ export function capture(context: BaseAudioContext, source: AudioNode, channels: 
   if (!Number.isInteger(channels) || channels < 1) {
     return Promise.reject(new RangeError(`a capture needs a whole number of channels from 1, not ${String(channels)}`));
   }
-  if (!Number.isInteger(frames) || frames < 0) {
-    return Promise.reject(new RangeError(`a capture needs a whole number of frames from 0, not ${String(frames)}`));
+  const invalid = frameCount("a capture", frames);
+  if (invalid !== undefined) {
+    return Promise.reject(invalid);
   }
   const out = Array.from({ length: channels }, () => new Float32Array(frames));
   return fill(context, source, out, frames).then(() => out);
@@ -366,9 +367,20 @@ export const START_MARGIN = 16_384;
  */
 export const MAX_MARKED_FRAMES = MARKER_PERIOD - START_MARGIN;
 
-/** Rejects a number of frames the marker channel cannot count. */
-function markedFrames(frames: number): RangeError | undefined {
-  return frames > MAX_MARKED_FRAMES ? new RangeError(`at most ${String(MAX_MARKED_FRAMES)} frames can be rendered from the start of the engine, not ${String(frames)}`) : undefined;
+/**
+ * Rejects a number of frames that is not a whole number from 0, asked for by `what` (an
+ * entry point: "a capture", "a render").
+ */
+function frameCount(what: string, frames: number): RangeError | undefined {
+  return Number.isInteger(frames) && frames >= 0 ? undefined : new RangeError(`${what} needs a whole number of frames from 0, not ${String(frames)}`);
+}
+
+/** Rejects, as {@link frameCount} does, a number of frames, and one the marker channel cannot count. */
+function markedFrames(what: string, frames: number): RangeError | undefined {
+  return (
+    frameCount(what, frames) ??
+    (frames > MAX_MARKED_FRAMES ? new RangeError(`at most ${String(MAX_MARKED_FRAMES)} frames can be rendered from the start of the engine, not ${String(frames)}`) : undefined)
+  );
 }
 
 /**
@@ -395,7 +407,7 @@ function fromStart(channels: readonly Float32Array[], marker: Float32Array, fram
   if (start > START_MARGIN) {
     throw new Error(`the engine started too late in the ${where}: at frame ${String(start)}, beyond the ${String(START_MARGIN)} frames of margin`);
   }
-  for (let frame = 0; frame !== frames; frame += 1) {
+  for (let frame = 0; frame < frames; frame += 1) {
     if (marker[start + frame] !== frame + 1) {
       throw new Error(`the engine output of the ${where} breaks at frame ${String(frame)}: the engine stopped`);
     }
@@ -407,14 +419,14 @@ function fromStart(channels: readonly Float32Array[], marker: Float32Array, fram
  * Renders `frames` frames of `loaded` offline, one array per channel: exactly the first
  * frames the engine renders, wherever the browser started the processor (located by the
  * marker channel), never a silent beginning or a silent end.
- * @throws {RangeError} when `frames` is above {@link MAX_MARKED_FRAMES}.
+ * @throws {RangeError} when `frames` is not a whole number from 0 to {@link MAX_MARKED_FRAMES}.
  * @throws {Error} when the engine processor fails, starts too late in the render, or
  * stops before its end.
  */
 export async function renderOffline(loaded: LoadedPatch, frames: number, processors: string | URL): Promise<Float32Array[]> {
-  const tooMany = markedFrames(frames);
-  if (tooMany !== undefined) {
-    throw tooMany;
+  const invalid = markedFrames("a render", frames);
+  if (invalid !== undefined) {
+    throw invalid;
   }
   const context = new OfflineAudioContext(loaded.channels + 1, frames + START_MARGIN, loaded.rate);
   await addProcessors(context, processors);
@@ -446,9 +458,9 @@ export async function renderOffline(loaded: LoadedPatch, frames: number, process
  * the capture started after it, or when it stopped before the end of the capture.
  */
 export function captureEngine(context: BaseAudioContext, engine: MarkedEngineNode, frames: number): Promise<Float32Array[]> {
-  const tooMany = markedFrames(frames);
-  if (!Number.isInteger(frames) || frames < 0 || tooMany !== undefined) {
-    return Promise.reject(tooMany ?? new RangeError(`a capture needs a whole number of frames from 0, not ${String(frames)}`));
+  const invalid = markedFrames("a capture", frames);
+  if (invalid !== undefined) {
+    return Promise.reject(invalid);
   }
   const length = frames + START_MARGIN;
   const channels = Array.from({ length: engine.channels }, () => new Float32Array(length));
