@@ -10,11 +10,11 @@ use std::process::Command;
 
 use super::{
     Action, BestEffort, CARGO_TOML, CHANGELOG, COMMIT_HEADER_MAX, COVERAGE_REPORT, Cmd,
-    CommandFailure, Dir, EQUIVALENT_REVIEWED, Exit, Failed, Failure, PACKAGE_JSONS,
-    PORTABILITY_TARGETS, Runner, Step, SystemRunner, TYPESCRIPT_PACKAGES, UNSAFE_FILES,
-    UNVIABLE_REPORT, UNVIABLE_REVIEWED, USAGE, Version, bless_step, check_steps, cli,
-    commit_msg_gate, coverage_gate, equivalent_gate, license_gate, membership_gate, preflight_gate,
-    release_gate, run_steps, ts_coverage_gate, ts_mutation_gate, unsafe_gate, unviable_gate,
+    CommandFailure, Dir, EQUIVALENT_REVIEWED, Exit, Failed, Failure, PACKAGES, PORTABILITY_TARGETS,
+    Runner, Step, SystemRunner, UNSAFE_FILES, UNVIABLE_REPORT, UNVIABLE_REVIEWED, USAGE, Version,
+    bless_step, check_steps, cli, commit_msg_gate, coverage_gate, equivalent_gate, license_gate,
+    membership_gate, package_jsons, preflight_gate, release_gate, run_steps, ts_coverage_gate,
+    ts_mutation_gate, unsafe_gate, unviable_gate,
 };
 
 /// Runs git in `dir` hermetically, and returns its stdout: no variable of an enclosing git
@@ -243,13 +243,13 @@ fn passing() -> Fake {
     assert!(first.is_none() && second.is_none(), "fresh fake");
     let source = "const a = 1;\n// Stryker disable next-line EqualityOperator: same result\nwhile (a < 2) {}\n";
     let equivalent = "x/a.ts: EqualityOperator at while (a < 2) {} -- same result\n";
-    for package in TYPESCRIPT_PACKAGES {
+    for package in PACKAGES {
         let summary = fake.files.insert(
-            format!("{package}/coverage/coverage-summary.json"),
+            format!("{}/coverage/coverage-summary.json", package.dir),
             TS_COVERED.to_owned(),
         );
         let mutation = fake.files.insert(
-            format!("{package}/reports/mutation/mutation.json"),
+            format!("{}/reports/mutation/mutation.json", package.dir),
             TS_KILLED.to_owned(),
         );
         assert!(summary.is_none() && mutation.is_none(), "fresh fake");
@@ -290,17 +290,14 @@ fn passing() -> Fake {
         .insert(EQUIVALENT_REVIEWED.to_owned(), equivalent.to_owned());
     assert!(third.is_none() && fourth.is_none(), "fresh fake");
     for (path, text) in [
-        (CARGO_TOML, CARGO),
-        (PACKAGE_JSONS[0], PACKAGE),
-        (PACKAGE_JSONS[1], PACKAGE),
-        (PACKAGE_JSONS[2], PACKAGE),
-        (PACKAGE_JSONS[3], PACKAGE),
-        (PACKAGE_JSONS[4], PACKAGE),
-        (PACKAGE_JSONS[5], PACKAGE),
-        (CHANGELOG, LOG),
-        ("COMMIT_EDITMSG", "feat(core): add the plan\n"),
-    ] {
-        let earlier = fake.files.insert(path.to_owned(), text.to_owned());
+        (CARGO_TOML.to_owned(), CARGO),
+        (CHANGELOG.to_owned(), LOG),
+        ("COMMIT_EDITMSG".to_owned(), "feat(core): add the plan\n"),
+    ]
+    .into_iter()
+    .chain(package_jsons().into_iter().map(|path| (path, PACKAGE)))
+    {
+        let earlier = fake.files.insert(path, text.to_owned());
         assert!(earlier.is_none(), "fresh fake");
     }
     fake
@@ -347,24 +344,30 @@ const READMES: [(&str, &str); 9] = [
 
 const CARGO: &str = "[workspace]\nmembers = []\n\n[workspace.package]\nedition = \"2024\"\nversion = \"0.2.0\"\n\n[other]\nversion = \"9.9.9\"\n";
 const PACKAGE: &str = r#"{"name": "x", "version": "0.2.0"}"#;
-/// Both workspace manifests with the same content.
-fn packages(text: &str) -> Vec<(&'static str, String)> {
-    PACKAGE_JSONS
-        .iter()
-        .map(|&path| (path, text.to_owned()))
+/// Every workspace manifest with the same content.
+fn packages(text: &str) -> Vec<(String, String)> {
+    package_jsons()
+        .into_iter()
+        .map(|path| (path, text.to_owned()))
         .collect()
 }
 
+/// The roadmap's manifest.
+const ROADMAP_PACKAGE: &str = "apps/roadmap/package.json";
+
 /// Every manifest correct except the roadmap one, with `text`.
-fn roadmap_package(text: &str) -> Vec<(&'static str, String)> {
-    vec![
-        (PACKAGE_JSONS[0], PACKAGE.to_owned()),
-        (PACKAGE_JSONS[1], text.to_owned()),
-        (PACKAGE_JSONS[2], PACKAGE.to_owned()),
-        (PACKAGE_JSONS[3], PACKAGE.to_owned()),
-        (PACKAGE_JSONS[4], PACKAGE.to_owned()),
-        (PACKAGE_JSONS[5], PACKAGE.to_owned()),
-    ]
+fn roadmap_package(text: &str) -> Vec<(String, String)> {
+    package_jsons()
+        .into_iter()
+        .map(|path| {
+            let content = if path == ROADMAP_PACKAGE {
+                text
+            } else {
+                PACKAGE
+            };
+            (path, content.to_owned())
+        })
+        .collect()
 }
 
 const LOG: &str = "# Changelog\n\nIntro.\n\n## [Unreleased]\n\n### Added\n\n- x\n\n## [0.2.0] - 2026-11-07\n\n## [0.1.10] - 2026-10-01\n\n## [0.1.2] - 2026-09-30\n";
@@ -425,11 +428,11 @@ fn lists_every_check_in_order() {
             "Root: pnpm audit",
             "license gate",
             "fresh tooling/config/coverage tooling/config/reports/mutation tooling/oracle/coverage tooling/oracle/reports/mutation bindings/wasm/coverage bindings/wasm/reports/mutation apps/playground/coverage apps/playground/reports/mutation apps/roadmap/coverage apps/roadmap/reports/mutation",
-            "Config: pnpm run check",
-            "Oracle: pnpm run check",
-            "EngineWasm: pnpm run check",
-            "Playground: pnpm run check",
-            "Roadmap: pnpm run check",
+            "Package(\"tooling/config\"): pnpm run check",
+            "Package(\"tooling/oracle\"): pnpm run check",
+            "Package(\"bindings/wasm\"): pnpm run check",
+            "Package(\"apps/playground\"): pnpm run check",
+            "Package(\"apps/roadmap\"): pnpm run check",
             "typescript reports gate",
         ],
         "the full check pipeline"
@@ -485,29 +488,9 @@ fn resolves_directories() {
     let root = Path::new("/repo");
     assert_eq!(Dir::Root.under(root), Path::new("/repo"), "root");
     assert_eq!(
-        Dir::Roadmap.under(root),
+        Dir::Package("apps/roadmap").under(root),
         Path::new("/repo/apps/roadmap"),
-        "roadmap"
-    );
-    assert_eq!(
-        Dir::EngineWasm.under(root),
-        Path::new("/repo/bindings/wasm"),
-        "engine-wasm"
-    );
-    assert_eq!(
-        Dir::Playground.under(root),
-        Path::new("/repo/apps/playground"),
-        "playground"
-    );
-    assert_eq!(
-        Dir::Oracle.under(root),
-        Path::new("/repo/tooling/oracle"),
-        "oracle"
-    );
-    assert_eq!(
-        Dir::Config.under(root),
-        Path::new("/repo/tooling/config"),
-        "config"
+        "a package"
     );
 }
 
@@ -585,16 +568,10 @@ fn runs_every_step_and_reports_success() {
          captures two reports, the unsafe gate lists and reads two files, the preflight \
          asks nine tools, the history gate reads two listings, the workflow gate two files"
     );
-    for path in [
-        CARGO_TOML,
-        PACKAGE_JSONS[0],
-        PACKAGE_JSONS[1],
-        PACKAGE_JSONS[2],
-        PACKAGE_JSONS[3],
-        PACKAGE_JSONS[4],
-        PACKAGE_JSONS[5],
-        CHANGELOG,
-    ] {
+    for path in [CARGO_TOML.to_owned(), CHANGELOG.to_owned()]
+        .into_iter()
+        .chain(package_jsons())
+    {
         assert!(fake.ran.contains(&format!("read {path}")), "{path} read");
     }
     assert!(
@@ -1256,8 +1233,7 @@ fn rejects_inconsistent_versions() {
         found(
             "the versions and the changelog",
             &[format!(
-                "{}: version 0.3.0 differs from the workspace version 0.2.0",
-                PACKAGE_JSONS[1]
+                "{ROADMAP_PACKAGE}: version 0.3.0 differs from the workspace version 0.2.0"
             )]
         ),
         "different versions"
@@ -1267,8 +1243,7 @@ fn rejects_inconsistent_versions() {
         found(
             "the versions and the changelog",
             &[format!(
-                "{}: version (missing) differs from the workspace version 0.2.0",
-                PACKAGE_JSONS[1]
+                "{ROADMAP_PACKAGE}: version (missing) differs from the workspace version 0.2.0"
             )]
         ),
         "unreadable package"
@@ -1277,7 +1252,7 @@ fn rejects_inconsistent_versions() {
         release_gate(CARGO, &packages(r#"{"version": "0.1.0"}"#), LOG),
         found(
             "the versions and the changelog",
-            &PACKAGE_JSONS
+            &package_jsons()
                 .iter()
                 .map(|path| format!(
                     "{path}: version 0.1.0 differs from the workspace version 0.2.0"
@@ -1526,18 +1501,12 @@ fn release_gate_runs_on_the_real_files() {
             .is_err_and(|error| error.summary.starts_with("Versions and changelog: ")),
         "release gate failure is named"
     );
-    for path in [
-        CARGO_TOML,
-        PACKAGE_JSONS[0],
-        PACKAGE_JSONS[1],
-        PACKAGE_JSONS[2],
-        PACKAGE_JSONS[3],
-        PACKAGE_JSONS[4],
-        PACKAGE_JSONS[5],
-        CHANGELOG,
-    ] {
+    for path in [CARGO_TOML.to_owned(), CHANGELOG.to_owned()]
+        .into_iter()
+        .chain(package_jsons())
+    {
         let mut without = passing();
-        let removed = without.files.remove(path);
+        let removed = without.files.remove(&path);
         assert!(removed.is_some(), "{path} removed");
         // The release step alone: the membership gate before it also notices a removal.
         let release: Vec<Step> = check_steps()
@@ -1706,10 +1675,7 @@ fn fails_on_a_missing_or_failing_typescript_report() {
 
 #[test]
 fn knows_exactly_the_packages_and_crates_of_the_repository() {
-    let packages: Vec<String> = PACKAGE_JSONS
-        .iter()
-        .map(|path| (*path).to_owned())
-        .collect();
+    let packages = package_jsons();
     let crates = vec![
         ("Cargo.toml".to_owned(), "[workspace]".to_owned()),
         (
@@ -1744,8 +1710,7 @@ fn knows_exactly_the_packages_and_crates_of_the_repository() {
         found(
             "the manifests differ from what xtask knows",
             &[
-                "apps/editor/package.json is not in PACKAGE_JSONS".to_owned(),
-                "apps/editor is not in TYPESCRIPT_PACKAGES: its checks and reports are not run"
+                "apps/editor/package.json is not a package of PACKAGES: its checks and reports would not run"
                     .to_owned(),
                 "crates/b/Cargo.toml does not take the workspace version".to_owned(),
             ]
@@ -1756,10 +1721,7 @@ fn knows_exactly_the_packages_and_crates_of_the_repository() {
         membership_gate(&fewer, &[], &[]),
         found(
             "the manifests differ from what xtask knows",
-            &[
-                "apps/roadmap/package.json is in PACKAGE_JSONS but not tracked".to_owned(),
-                "apps/roadmap is in TYPESCRIPT_PACKAGES but has no tracked package.json".to_owned(),
-            ]
+            &["apps/roadmap/package.json belongs to PACKAGES but is not tracked".to_owned(),]
         ),
         "a package that is gone"
     );
@@ -2078,9 +2040,9 @@ fn requires_every_part_to_be_described() {
         .iter()
         .map(|&(path, text)| (path.to_owned(), text.to_owned()))
         .collect();
-    let mut parts: Vec<String> = TYPESCRIPT_PACKAGES
+    let mut parts: Vec<String> = PACKAGES
         .iter()
-        .map(|&dir| dir.to_owned())
+        .map(|package| package.dir.to_owned())
         .collect();
     assert_eq!(super::readme_gate(&parts, &readmes), Ok(()), "described");
     parts.push("crates/engine-core".to_owned());
@@ -2111,7 +2073,7 @@ fn requires_every_part_to_be_described() {
         .cloned()
         .collect();
     assert_eq!(
-        super::readme_gate(&TYPESCRIPT_PACKAGES.map(str::to_owned), &unnamed),
+        super::readme_gate(&PACKAGES.map(|package| package.dir.to_owned()), &unnamed),
         found(
             "parts not described",
             &[
@@ -2772,6 +2734,56 @@ fn refuses_usage_errors_in_one_line() {
             String::from_utf8(usage).expect("UTF-8"),
             "error: argument is not valid UTF-8: che\u{fffd}ck (see: cargo xtask help)\n",
             "named as well as it can be"
+        );
+    }
+}
+
+#[test]
+fn wires_every_package_into_the_checks() {
+    let steps = check_steps();
+    let fresh: Vec<String> = steps
+        .iter()
+        .filter_map(|step| {
+            if let Action::FreshDirs(paths) = &step.action {
+                Some(paths.clone())
+            } else {
+                None
+            }
+        })
+        .flatten()
+        .collect();
+    let [shipped, _] = super::license_commands();
+    for package in PACKAGES {
+        let checked = steps.iter().position(|step| {
+            step.name == package.step
+                && step.action
+                    == Action::Run(Cmd {
+                        program: "pnpm",
+                        args: vec!["run".to_owned(), "check".to_owned()],
+                        dir: Dir::Package(package.dir),
+                    })
+        });
+        let gated = steps
+            .iter()
+            .position(|step| step.action == Action::TypeScriptReportsGate);
+        assert!(
+            checked.is_some() && checked < gated,
+            "{}: its checks run, before the reports gate",
+            package.dir
+        );
+        for report in package.reports() {
+            assert!(fresh.contains(&report), "{report} is emptied first");
+        }
+        assert!(
+            package_jsons().contains(&format!("{}/package.json", package.dir)),
+            "{}: its manifest is versioned",
+            package.dir
+        );
+        assert_eq!(
+            shipped.args.contains(&format!("./{}", package.dir)),
+            package.shipped,
+            "{}: its production licenses are held to the shipped list if it ships",
+            package.dir
         );
     }
 }

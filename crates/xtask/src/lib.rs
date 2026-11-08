@@ -34,30 +34,89 @@ pub const UNVIABLE_REVIEWED: &str = "mutants-unviable.txt";
 /// next-line` comment, each with the reason no test can tell the mutant apart.
 pub const EQUIVALENT_REVIEWED: &str = "mutants-equivalent.txt";
 
-/// The TypeScript packages, by directory: each writes its coverage summary and its
-/// mutation report, both checked by xtask rather than trusted to their own thresholds.
-pub const TYPESCRIPT_PACKAGES: [&str; 5] = [
-    "tooling/config",
-    "tooling/oracle",
-    "bindings/wasm",
-    "apps/playground",
-    "apps/roadmap",
+/// A TypeScript package of the pnpm workspace.
+///
+/// Everything xtask does with a package derives from its entry in [`PACKAGES`]: its check
+/// step, its report directories (emptied before it runs, then read by the reports gate),
+/// its `package.json` (version and membership), its README, and whether its production
+/// dependencies are held to the shipped licenses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Package {
+    /// Its directory, relative to the root: `<folder of parts>/<name>`.
+    pub dir: &'static str,
+    /// The name of its check step (`pnpm run check` in its directory).
+    pub step: &'static str,
+    /// Whether what it ships reaches users, so that its production dependencies must be
+    /// under [`SHIPPED_LICENSES`].
+    pub shipped: bool,
+}
+
+impl Package {
+    /// Its report directories: the coverage summary, then the mutation report.
+    #[must_use]
+    pub fn reports(self) -> [String; 2] {
+        [
+            format!("{}/coverage", self.dir),
+            format!("{}/reports/mutation", self.dir),
+        ]
+    }
+}
+
+/// The TypeScript packages, in the order their checks run.
+///
+/// The shared policy, the oracle, the engine in the browser, the playground built on it,
+/// then the roadmap. Each writes its coverage summary and its mutation report, both checked
+/// by xtask rather than trusted to their own thresholds.
+pub const PACKAGES: [Package; 5] = [
+    Package {
+        dir: "tooling/config",
+        step: "Shared TypeScript policy (each rule proven to reject what it forbids)",
+        shipped: false,
+    },
+    Package {
+        dir: "tooling/oracle",
+        step: "Conformance oracle (independent, TypeScript)",
+        shipped: false,
+    },
+    Package {
+        dir: "bindings/wasm",
+        step: "Engine WASM checks",
+        shipped: true,
+    },
+    Package {
+        dir: "apps/playground",
+        step: "Playground checks",
+        shipped: true,
+    },
+    Package {
+        dir: "apps/roadmap",
+        step: "Roadmap checks",
+        shipped: true,
+    },
 ];
 
-/// The report directories of the TypeScript packages, emptied before they run so that
-/// every report read by the gate comes from this run.
-pub const TYPESCRIPT_REPORTS: [&str; 10] = [
-    "tooling/config/coverage",
-    "tooling/config/reports/mutation",
-    "tooling/oracle/coverage",
-    "tooling/oracle/reports/mutation",
-    "bindings/wasm/coverage",
-    "bindings/wasm/reports/mutation",
-    "apps/playground/coverage",
-    "apps/playground/reports/mutation",
-    "apps/roadmap/coverage",
-    "apps/roadmap/reports/mutation",
-];
+/// The report directories of every package of [`PACKAGES`], emptied before they run so
+/// that every report read by the gate comes from this run.
+#[must_use]
+pub fn typescript_reports() -> Vec<String> {
+    PACKAGES
+        .iter()
+        .flat_map(|package| package.reports())
+        .collect()
+}
+
+/// Every `package.json` of the pnpm workspace, all carrying the project version: the root
+/// one, then one per package of [`PACKAGES`].
+#[must_use]
+pub fn package_jsons() -> Vec<String> {
+    core::iter::once("package.json".to_owned())
+        .chain(
+            PACKAGES
+                .iter()
+                .map(|package| format!("{}/package.json", package.dir)),
+        )
+        .collect()
+}
 
 /// Targets the engine core must build for: proof that it depends on no environment.
 pub const PORTABILITY_TARGETS: [&str; 4] = [
@@ -72,16 +131,8 @@ pub const PORTABILITY_TARGETS: [&str; 4] = [
 pub enum Dir {
     /// The repository root.
     Root,
-    /// The `apps/roadmap/` package.
-    Roadmap,
-    /// The `bindings/wasm/` package.
-    EngineWasm,
-    /// The `apps/playground/` package.
-    Playground,
-    /// The `tooling/oracle/` package.
-    Oracle,
-    /// The `tooling/config/` package: the shared TypeScript policy.
-    Config,
+    /// The directory of a package of [`PACKAGES`].
+    Package(&'static str),
 }
 
 impl Dir {
@@ -90,11 +141,7 @@ impl Dir {
     pub fn under(self, root: &Path) -> PathBuf {
         match self {
             Self::Root => root.to_path_buf(),
-            Self::Roadmap => root.join("apps").join("roadmap"),
-            Self::EngineWasm => root.join("bindings").join("wasm"),
-            Self::Playground => root.join("apps").join("playground"),
-            Self::Oracle => root.join("tooling").join("oracle"),
-            Self::Config => root.join("tooling").join("config"),
+            Self::Package(dir) => root.join(dir),
         }
     }
 }
@@ -141,7 +188,7 @@ pub enum Action {
     /// step reads there is then produced by this run only.
     FreshDir(&'static str),
     /// Empty each of these directories, as [`Action::FreshDir`].
-    FreshDirs(&'static [&'static str]),
+    FreshDirs(Vec<String>),
     /// Require 100% coverage and no surviving mutant in the reports of every TypeScript
     /// package.
     TypeScriptReportsGate,
@@ -416,11 +463,10 @@ fn release_steps() -> Vec<Step> {
     ]
 }
 
-/// The TypeScript packages: dependencies, their audit and licenses, then each package's
-/// own checks (the shared policy, the oracle, the engine in the browser, the playground
-/// built on it, then the roadmap) and the gate on their reports.
+/// The TypeScript packages: dependencies, their audit and licenses, then the checks of
+/// each package of [`PACKAGES`], in order, and the gate on their reports.
 fn typescript_steps() -> Vec<Step> {
-    vec![
+    let mut steps = vec![
         run(
             "JavaScript dependencies",
             "pnpm",
@@ -434,38 +480,22 @@ fn typescript_steps() -> Vec<Step> {
         },
         Step {
             name: "Fresh TypeScript report directories".to_owned(),
-            action: Action::FreshDirs(&TYPESCRIPT_REPORTS),
+            action: Action::FreshDirs(typescript_reports()),
         },
+    ];
+    steps.extend(PACKAGES.iter().map(|package| {
         run(
-            "Shared TypeScript policy (each rule proven to reject what it forbids)",
+            package.step,
             "pnpm",
             &["run", "check"],
-            Dir::Config,
-        ),
-        run(
-            "Conformance oracle (independent, TypeScript)",
-            "pnpm",
-            &["run", "check"],
-            Dir::Oracle,
-        ),
-        run(
-            "Engine WASM checks",
-            "pnpm",
-            &["run", "check"],
-            Dir::EngineWasm,
-        ),
-        run(
-            "Playground checks",
-            "pnpm",
-            &["run", "check"],
-            Dir::Playground,
-        ),
-        run("Roadmap checks", "pnpm", &["run", "check"], Dir::Roadmap),
-        Step {
-            name: "TypeScript coverage and mutation reports".to_owned(),
-            action: Action::TypeScriptReportsGate,
-        },
-    ]
+            Dir::Package(package.dir),
+        )
+    }));
+    steps.push(Step {
+        name: "TypeScript coverage and mutation reports".to_owned(),
+        action: Action::TypeScriptReportsGate,
+    });
+    steps
 }
 
 /// Every check of the repository, in the order they run.
@@ -734,46 +764,34 @@ pub fn equivalent_gate(sources: &[(String, String)], reviewed: &str) -> Result<(
 
 /// Checks that the manifests tracked by git are exactly those xtask knows.
 ///
-/// Every `package.json` is in [`PACKAGE_JSONS`], every TypeScript package but the root
-/// one is in [`TYPESCRIPT_PACKAGES`], and every crate manifest
+/// The tracked `package.json` files are exactly [`package_jsons`]: the root one and one per
+/// package of [`PACKAGES`], whose checks and reports therefore run. Every crate manifest
 /// (`Cargo.toml` below the root) takes the workspace version. The only `.gitignore` is the
 /// root one: build outputs go to `dist/` or `target/`, never hidden inside a source folder.
 ///
 /// # Errors
 ///
-/// Returns a message listing every manifest unknown to xtask or missing from the
-/// repository, and every crate with a version of its own.
+/// Returns every manifest unknown to xtask or missing from the repository, and every crate
+/// with a version of its own.
 pub fn membership_gate(
     packages: &[String],
     crates: &[(String, String)],
     ignores: &[String],
 ) -> Result<(), Failure> {
     let tracked: BTreeSet<&str> = packages.iter().map(String::as_str).collect();
-    let known: BTreeSet<&str> = PACKAGE_JSONS.into_iter().collect();
+    let expected = package_jsons();
+    let known: BTreeSet<&str> = expected.iter().map(String::as_str).collect();
     let mut problems: Vec<String> = tracked
         .difference(&known)
-        .map(|path| format!("{path} is not in PACKAGE_JSONS"))
+        .map(|path| {
+            format!("{path} is not a package of PACKAGES: its checks and reports would not run")
+        })
         .chain(
             known
                 .difference(&tracked)
-                .map(|path| format!("{path} is in PACKAGE_JSONS but not tracked")),
+                .map(|path| format!("{path} belongs to PACKAGES but is not tracked")),
         )
         .collect();
-    let checked: BTreeSet<String> = tracked
-        .iter()
-        .filter(|path| **path != "package.json")
-        .filter_map(|path| path.strip_suffix("/package.json"))
-        .map(str::to_owned)
-        .collect();
-    let gated: BTreeSet<String> = TYPESCRIPT_PACKAGES.into_iter().map(str::to_owned).collect();
-    problems.extend(checked.difference(&gated).map(|dir| {
-        format!("{dir} is not in TYPESCRIPT_PACKAGES: its checks and reports are not run")
-    }));
-    problems.extend(
-        gated
-            .difference(&checked)
-            .map(|dir| format!("{dir} is in TYPESCRIPT_PACKAGES but has no tracked package.json")),
-    );
     problems.extend(
         crates
             .iter()
@@ -839,19 +857,15 @@ fn license_commands() -> [Cmd; 2] {
         args: args.iter().map(|&arg| arg.to_owned()).collect(),
         dir: Dir::Root,
     };
+    let filters: Vec<String> = PACKAGES
+        .iter()
+        .filter(|package| package.shipped)
+        .flat_map(|package| ["--filter".to_owned(), format!("./{}", package.dir)])
+        .collect();
+    let mut shipped = vec!["licenses", "list", "--json", "--prod"];
+    shipped.extend(filters.iter().map(String::as_str));
     [
-        pnpm(&[
-            "licenses",
-            "list",
-            "--json",
-            "--prod",
-            "--filter",
-            "./apps/playground",
-            "--filter",
-            "./apps/roadmap",
-            "--filter",
-            "./bindings/wasm",
-        ]),
+        pnpm(&shipped),
         pnpm(&["licenses", "list", "--json", "--recursive"]),
     ]
 }
@@ -1070,7 +1084,7 @@ pub fn failure_uploads() -> Vec<String> {
     ]
     .map(str::to_owned)
     .to_vec();
-    for report in TYPESCRIPT_REPORTS {
+    for report in typescript_reports() {
         // `<folder>/<package>/<kind>[/…]` becomes `<folder>/*/<kind>`.
         let mut parts = report.split('/');
         let folder = parts.next().unwrap_or_default();
@@ -1159,16 +1173,6 @@ pub fn workflow_gate(workflow: &str, node_version: &str) -> Result<(), Failure> 
 
 /// The project manifest holding the workspace version.
 pub const CARGO_TOML: &str = "Cargo.toml";
-
-/// Every `package.json` of the pnpm workspace: all carry the project version.
-pub const PACKAGE_JSONS: [&str; 6] = [
-    "package.json",
-    "apps/roadmap/package.json",
-    "bindings/wasm/package.json",
-    "apps/playground/package.json",
-    "tooling/config/package.json",
-    "tooling/oracle/package.json",
-];
 
 /// The changelog.
 pub const CHANGELOG: &str = "CHANGELOG.md";
@@ -1259,7 +1263,7 @@ fn released_heading(heading: &str) -> Option<Version> {
 /// Returns a message listing every problem found.
 pub fn release_gate(
     cargo_toml: &str,
-    packages: &[(&str, String)],
+    packages: &[(String, String)],
     changelog: &str,
 ) -> Result<(), Failure> {
     let mut problems = Vec::new();
@@ -1869,9 +1873,9 @@ fn membership(runner: &mut dyn Runner) -> Result<(), Failure> {
     let crates = read_all(runner, manifests)?;
     let readmes = read_all(runner, readmes)?;
     membership_gate(&packages, &crates, &ignores)?;
-    let parts: Vec<String> = TYPESCRIPT_PACKAGES
+    let parts: Vec<String> = PACKAGES
         .iter()
-        .map(|&dir| dir.to_owned())
+        .map(|package| package.dir.to_owned())
         .chain(
             crates
                 .iter()
@@ -1902,9 +1906,9 @@ pub fn readme_gate(parts: &[String], readmes: &[(String, String)]) -> Result<(),
             .map(|(_, content)| content.as_str())
     };
     let mut problems = Vec::new();
-    for package in TYPESCRIPT_PACKAGES {
-        if text(&format!("{package}/README.md")).is_none() {
-            problems.push(format!("{package} has no README.md"));
+    for package in PACKAGES {
+        if text(&format!("{}/README.md", package.dir)).is_none() {
+            problems.push(format!("{} has no README.md", package.dir));
         }
     }
     let mut folders = BTreeSet::new();
@@ -1953,10 +1957,7 @@ fn run_action(action: &Action, runner: &mut dyn Runner) -> Result<(), Failure> {
         Action::CoverageGate(path) => Ok(coverage_gate(&read_file(runner, path)?)?),
         Action::ReleaseGate => {
             let cargo = read_file(runner, CARGO_TOML)?;
-            let packages = PACKAGE_JSONS
-                .iter()
-                .map(|&path| read_file(runner, path).map(|text| (path, text)))
-                .collect::<Result<Vec<_>, _>>()?;
+            let packages = read_all(runner, package_jsons())?;
             release_gate(&cargo, &packages, &read_file(runner, CHANGELOG)?)
         }
         Action::FreshDir(path) => fresh(runner, path),
@@ -1973,11 +1974,12 @@ fn run_action(action: &Action, runner: &mut dyn Runner) -> Result<(), Failure> {
             unsafe_gate(&read_all(runner, paths)?)
         }
         Action::LicenseGate => licenses(runner),
-        Action::TypeScriptReportsGate => TYPESCRIPT_PACKAGES.iter().try_for_each(|package| {
-            let summary = read_file(runner, &format!("{package}/coverage/coverage-summary.json"))?;
-            ts_coverage_gate(package, &summary)?;
-            let report = read_file(runner, &format!("{package}/reports/mutation/mutation.json"))?;
-            Ok(ts_mutation_gate(package, &report)?)
+        Action::TypeScriptReportsGate => PACKAGES.iter().try_for_each(|package| {
+            let [coverage, mutation] = package.reports();
+            let summary = read_file(runner, &format!("{coverage}/coverage-summary.json"))?;
+            ts_coverage_gate(package.dir, &summary)?;
+            let report = read_file(runner, &format!("{mutation}/mutation.json"))?;
+            Ok(ts_mutation_gate(package.dir, &report)?)
         }),
         Action::EquivalentGate => {
             let paths = list_tracked(runner, &["*.ts", "*.tsx"], "the TypeScript files")?;
