@@ -20,6 +20,15 @@ export interface ColumnView {
   readonly cards: readonly CardView[];
 }
 
+/**
+ * What the `Board` component receives. Declared here, in TypeScript the policy lints,
+ * rather than in the component's frontmatter, which no ESLint configuration reads yet.
+ */
+export interface BoardProps {
+  /** The board to show. */
+  readonly view: BoardView;
+}
+
 /** The whole board, prepared for display. */
 export interface BoardView {
   /** Title of the board, shown as the page heading. */

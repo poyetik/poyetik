@@ -1,10 +1,6 @@
 ---
 import { formatId } from "../lib/board.ts";
-import type { BoardView } from "../lib/view.ts";
-
-interface Props {
-  view: BoardView;
-}
+import type { BoardProps as Props } from "../lib/view.ts";
 
 const { view } = Astro.props;
 ---

@@ -8,6 +8,7 @@
 | `eslint.ts` | `strict(directory, ignores, ...extra)`: the shared ESLint configuration (no casts, no `any`, no inline disabling, strict booleans, exhaustive switches, every item documented …) |
 | `test/policy/` | One fixture per lint rule, each breaking it, plus `clean.ts` that nothing rejects |
 | `test/compiler/` | One fixture per strict compiler setting, each breaking it |
+| `test/linted.test.ts` | Every tracked TypeScript or JavaScript file of the repository is linted by its package's configuration, but for a reviewed list, each with what proves it instead |
 
 The tests prove the policy: each fixture must be rejected by exactly the rule it breaks, as an error. A rule turned off or weakened fails them, and so does a rule the policy sets (`RULES`) or a JSDoc context it requires (`JSDOC_CONTEXTS`) that no fixture breaks.
 
