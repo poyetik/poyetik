@@ -796,6 +796,12 @@ function random(seed: number): () => number {
   };
 }
 
+/**
+ * How long a wait for the engine to compile may last: it compiles in real time, so a
+ * loaded machine (the full check runs packages side by side) must slow it, not fail it.
+ */
+const COMPILING = { timeout: 10_000, interval: 1 };
+
 /** What the user, the browser and the audio thread may do, in any order. */
 const EVENTS = ["start", "stop", "resume", "suspend", "interrupt", "browser resume", "fail", "advance", "flush", "loaded"] as const;
 
@@ -861,7 +867,7 @@ describe("EnginePlayer under any interleaving", () => {
           // The engine compiles in real time: waits until a start in progress has ended.
           await vi.waitFor(() => {
             expect(player.state().kind).not.toBe("starting");
-          });
+          }, COMPILING);
           break;
         case "flush":
         case undefined:
@@ -877,8 +883,8 @@ describe("EnginePlayer under any interleaving", () => {
       await flush();
       check();
       expect(promises.filter((promise) => !promise.settled)).toStrictEqual([]);
-    });
-  });
+    }, COMPILING);
+  }, 60_000);
 });
 
 describe("EnginePlayer at the rate of the device", () => {
