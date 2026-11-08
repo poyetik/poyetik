@@ -103,7 +103,7 @@ describe("main", () => {
 describe("ignoreClosedReader", () => {
   test("drops a closed reader and lets any other stream error through", () => {
     const listeners: ((error: Error) => void)[] = [];
-    ignoreClosedReader({ on: (_event, listener) => listeners.push(listener) });
+    ignoreClosedReader({ on: (event: string, listener: (error: Error) => void) => (event === "error" ? listeners.push(listener) : 0) });
     const emit = (error: Error): void => {
       listeners.forEach((listener) => {
         listener(error);

@@ -63,3 +63,8 @@ test("fails with its message on stderr", async () => {
   expect(stderr).toMatch(/ENOENT.*\n$/);
   expect(process.exitCode).toBe(1);
 });
+
+test("ignores a closed stdout", async () => {
+  await runBin([]);
+  expect(() => process.stdout.emit("error", Object.assign(new Error("write EPIPE"), { code: "EPIPE" }))).not.toThrow();
+});

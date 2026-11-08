@@ -95,4 +95,8 @@ describe("bin", () => {
     expect(stderr).toBe("error: unknown command: frobnicate (see: roadmap help)\n");
     expect(process.exitCode).toBe(2);
   });
+  it("ignores a closed stdout", async () => {
+    await runBin(["help"]);
+    expect(() => process.stdout.emit("error", Object.assign(new Error("write EPIPE"), { code: "EPIPE" }))).not.toThrow();
+  });
 });

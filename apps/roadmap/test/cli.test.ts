@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { emptyBoard, parseBoard, serializeBoard, type Board } from "../src/lib/board.ts";
-import { HELP, localDate, run, type Io, ignoreClosedReader } from "../src/cli/cli.ts";
+import { HELP, localDate, run, type Io, ignoreClosedReader, UsageError } from "../src/cli/cli.ts";
 
 const DAY = "2026-11-07";
 
@@ -452,7 +452,7 @@ describe("ignoreClosedReader", () => {
   function stream(): { on: (event: "error", listener: (error: Error) => void) => unknown; emit: (error: Error) => void } {
     const listeners: ((error: Error) => void)[] = [];
     return {
-      on: (_event, listener) => listeners.push(listener),
+      on: (event: string, listener: (error: Error) => void) => (event === "error" ? listeners.push(listener) : 0),
       emit: (error) => {
         listeners.forEach((listener) => {
           listener(error);
@@ -475,5 +475,11 @@ describe("ignoreClosedReader", () => {
     expect(() => {
       output.emit(plain);
     }).toThrow(plain);
+  });
+});
+
+describe("UsageError", () => {
+  it("is a named Error", () => {
+    expect(new UsageError("x")).toMatchObject({ name: "UsageError", message: "x" });
   });
 });

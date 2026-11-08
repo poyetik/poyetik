@@ -25,6 +25,15 @@ function byName<T>(io: Io, dir: string, extension: string, read: (path: string) 
   );
 }
 
+/** Parses JSON text: its value, or why it is not JSON. */
+function parseJson(text: string): { readonly value: unknown } | { readonly error: string } {
+  try {
+    return { value: JSON.parse(text) };
+  } catch (error) {
+    return { error: String(error) };
+  }
+}
+
 /** Whether there are exactly two arguments. */
 function isPair(args: readonly string[]): args is readonly [string, string] {
   return args.length === 2;
@@ -43,12 +52,11 @@ export function main(args: readonly string[], io: Io): number {
   const [conformance, wavs] = args;
   try {
     const json = (path: string): unknown => {
-      const text = io.readText(path);
-      try {
-        return JSON.parse(text);
-      } catch (error) {
-        throw new Error(`${path}: ${String(error)}`, { cause: error });
+      const parsed = parseJson(io.readText(path));
+      if ("error" in parsed) {
+        throw new Error(`${path}: ${parsed.error}`);
       }
+      return parsed.value;
     };
     const verdict = judge({
       cases: byName(io, join(conformance, "cases"), ".json", json),
