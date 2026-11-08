@@ -1,43 +1,39 @@
-// Static server for the end-to-end tests: only what `route` allows, for this machine only.
+// Static server of the test bench (`pnpm bench`, started by the end-to-end tests): only
+// what `route` allows, for this machine only, on the port `ENGINE_WASM_E2E_PORT` gives.
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
-import { extname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { route } from "./routes.ts";
+import { contentType, parsePort, route } from "./routes.ts";
 
-/** The port chosen for this run by the Playwright configuration. */
-const PORT = Number(process.env["ENGINE_WASM_E2E_PORT"]);
-if (!Number.isInteger(PORT) || PORT <= 0) {
-  throw new Error("ENGINE_WASM_E2E_PORT is not set: run the tests with pnpm test:e2e");
-}
+/** The port of this run: chosen by the Playwright configuration, or by whoever runs the bench. */
+const PORT = parsePort(process.env["ENGINE_WASM_E2E_PORT"] ?? "");
 /** The only two directories served: this package (for `dist/` and the bench page) and the conformance corpus. */
 const ROOTS = {
   package: fileURLToPath(new URL("../", import.meta.url)),
   conformance: fileURLToPath(new URL("../../../conformance/", import.meta.url)),
 };
-/** The `content-type` of each served extension: anything else is served as `application/octet-stream`. */
-const TYPES: Readonly<Record<string, string>> = {
-  ".html": "text/html; charset=utf-8",
-  ".js": "text/javascript; charset=utf-8",
-  ".json": "application/json",
-  ".wasm": "application/wasm",
-};
 
-createServer((request, response) => {
-  const target = route(request.url ?? "/", request.headers.host, PORT, ROOTS);
-  if ("status" in target) {
-    response.writeHead(target.status);
-    response.end();
-    return;
-  }
-  readFile(target.file).then(
-    (body) => {
-      response.writeHead(200, { "content-type": TYPES[extname(target.file)] ?? "application/octet-stream" });
-      response.end(body);
-    },
-    () => {
-      response.writeHead(404);
+if (PORT === undefined) {
+  process.stderr.write("error: ENGINE_WASM_E2E_PORT must be a port from 1 to 65535 (see: bindings/wasm/README.md)\n");
+  process.exitCode = 2;
+} else {
+  const port = PORT;
+  createServer((request, response) => {
+    const target = route(request.url ?? "/", request.headers.host, port, ROOTS);
+    if ("status" in target) {
+      response.writeHead(target.status);
       response.end();
-    },
-  );
-}).listen(PORT, "localhost");
+      return;
+    }
+    readFile(target.file).then(
+      (body) => {
+        response.writeHead(200, { "content-type": contentType(target.file) });
+        response.end(body);
+      },
+      () => {
+        response.writeHead(404);
+        response.end();
+      },
+    );
+  }).listen(port, "localhost");
+}

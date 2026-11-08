@@ -1,6 +1,6 @@
 // What the end-to-end server may serve: a pure function, tested on its own, so that the
 // server never reads a file outside the few it is meant to.
-import { resolve, sep } from "node:path";
+import { extname, resolve, sep } from "node:path";
 
 /** Where a request leads: a file to read, or a refusal. */
 export type Route = { readonly file: string } | { readonly status: 403 | 404 };
@@ -51,4 +51,29 @@ export function route(target: string, host: string | undefined, port: number, ro
     }
   }
   return { status: 404 };
+}
+
+/** The `content-type` of each served extension. */
+const TYPES: Readonly<Record<string, string>> = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".json": "application/json",
+  ".wasm": "application/wasm",
+};
+
+/** The `content-type` of a served file, by its extension: `application/octet-stream` for any other. */
+export function contentType(file: string): string {
+  return TYPES[extname(file)] ?? "application/octet-stream";
+}
+
+/** The largest port number. */
+const MAX_PORT = 65_535;
+
+/** The port written in `value`: a whole number from 1 to 65535, in plain decimal digits; `undefined` for anything else. */
+export function parsePort(value: string): number | undefined {
+  if (!/^[1-9][0-9]*$/.test(value)) {
+    return undefined;
+  }
+  const port = Number(value);
+  return port <= MAX_PORT ? port : undefined;
 }
