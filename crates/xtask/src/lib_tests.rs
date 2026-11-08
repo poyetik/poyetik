@@ -4702,3 +4702,46 @@ fn accepts_exactly_the_conditions_decided() {
         );
     }
 }
+
+#[test]
+fn confines_the_ci_marker_to_a_line_of_its_own() {
+    let ok = "ci: rerun the check\n\nAsked by the maintainer.\n\n[ci]\n";
+    assert_eq!(commit_msg_gate(ok), Ok(()), "alone on a line");
+    assert_eq!(
+        super::ci_marker("docs: x\n\n  [ci]  \n"),
+        None,
+        "spaces around it"
+    );
+    assert_eq!(
+        super::ci_marker("docs: x\n\nno marker at all\n"),
+        None,
+        "none"
+    );
+    let expected = Some(
+        "invalid commit message: [ci] asks CI to run; write it alone on a line, or not at all"
+            .to_owned(),
+    );
+    for message in [
+        "docs: x\n\nA push runs CI when it says [ci] in its message.\n",
+        "docs: run [ci] now\n",
+        "docs: x\n\n[ci] please\n",
+    ] {
+        assert_eq!(super::ci_marker(message), expected, "{message:?}");
+        assert!(commit_msg_gate(message).is_err(), "{message:?}");
+    }
+    let record = |hash: &str, message: &str| format!("\u{1e}{hash}\u{1f}{message}");
+    let sentence = "docs: x\n\nIt runs with [ci] in the message.\n";
+    assert!(
+        super::history_gate(
+            &record("1111111111111111111111111111111111111111", sentence),
+            ""
+        )
+        .is_err(),
+        "the history refuses it too"
+    );
+    assert_eq!(
+        super::history_gate(&record(super::CI_MARKER_EXEMPT[0], sentence), ""),
+        Ok(()),
+        "except the published commit that predates the rule"
+    );
+}

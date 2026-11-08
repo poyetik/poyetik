@@ -2652,7 +2652,34 @@ pub fn commit_msg_gate(message: &str) -> Result<(), Failure> {
         .lines()
         .filter(|line| !line.starts_with('#'))
         .collect();
-    conventional(&text.join("\n"))
+    let text = text.join("\n");
+    conventional(&text)?;
+    ci_marker(&text).map_or(Ok(()), |problem| Err(Failure::from(problem)))
+}
+
+/// The marker asking CI to run on a push: the workflow runs the check when the last
+/// commit's message contains it (see [`WORKFLOW_CONDITIONS`]).
+pub const CI_MARKER: &str = "[ci]";
+
+/// Commits published before the marker was confined to a line of its own, whose message
+/// names it in a sentence: their history is not rewritten.
+pub const CI_MARKER_EXEMPT: [&str; 1] = ["baa21644eeb1ec9354743fe07ef69f21a173f685"];
+
+/// Why `message` names [`CI_MARKER`] other than alone on a line, if it does.
+///
+/// GitHub only offers `contains` to read a commit message, so the marker in a sentence
+/// (a commit describing the rule, say) would start CI unasked: it is refused anywhere but
+/// on a line of its own, the one way to ask for CI.
+#[must_use]
+pub fn ci_marker(message: &str) -> Option<String> {
+    message
+        .lines()
+        .any(|line| line.contains(CI_MARKER) && line.trim() != CI_MARKER)
+        .then(|| {
+            format!(
+                "invalid commit message: {CI_MARKER} asks CI to run; write it alone on a line, or not at all"
+            )
+        })
 }
 
 /// Checks a recorded commit message, as it is, against the convention of
@@ -2770,6 +2797,9 @@ pub fn history_gate(messages: &str, files: &str) -> Result<(), Failure> {
         let (hash, message) = record.split_once('\u{1f}').unwrap_or((record, ""));
         if let Err(failure) = conventional(message) {
             problems.push(format!("commit {}: {}", short(hash), failure.summary));
+        }
+        if let Some(problem) = ci_marker(message).filter(|_| !CI_MARKER_EXEMPT.contains(&hash)) {
+            problems.push(format!("commit {}: {problem}", short(hash)));
         }
         let unrecorded = touched
             .get(hash)

@@ -1,6 +1,7 @@
 # Quality: runs `cargo xtask check`, the check the pre-push hook runs once its own refusals pass.
 # On demand, because the full check is long and commits are frequent: on a push only when the
-# last commit's message contains [ci], on every pull request, and by hand (Run workflow).
+# last commit's message holds [ci] alone on a line (xtask refuses it anywhere else), on every
+# pull request, and by hand (Run workflow).
 name: Quality
 
 on:
