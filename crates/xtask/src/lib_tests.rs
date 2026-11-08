@@ -7398,6 +7398,24 @@ fn runs_each_part_of_the_full_check_as_its_own_job() {
 }
 
 #[test]
+fn checks_the_parts_of_the_full_check_as_a_step() {
+    assert_eq!(
+        super::parts_of_the_full_check(super::full_parts()),
+        Ok(()),
+        "every part"
+    );
+    let without_miri: Vec<super::Part> = super::full_parts()
+        .into_iter()
+        .filter(|part| *part != super::Part::Miri)
+        .collect();
+    assert_eq!(
+        super::parts_of_the_full_check(without_miri),
+        parts_refused(&["`Unsafe code under Miri` runs in no part"]),
+        "a part left out"
+    );
+}
+
+#[test]
 fn the_parts_run_every_step_of_the_full_check_once() {
     let preparation = super::preparation_steps();
     assert_eq!(
@@ -8076,6 +8094,20 @@ fn requires_the_ci_condition_on_every_job() {
         named("a.b"),
         refused("`a.b:`: a job is written `  <name>:`"),
         "any other character"
+    );
+    assert_eq!(
+        gate(&final_unconditioned.replace("  final:\n", "\n  final:\n")),
+        refused(&format!(
+            "job `final` lacks `{CI_CONDITION}`, which every job holds"
+        )),
+        "a blank line does not end the jobs"
+    );
+    assert_eq!(
+        gate(&format!(
+            "{PINNED_WORKFLOW}defaults:\n  run:\n    shell: bash\n"
+        )),
+        Ok(()),
+        "a top-level key ends the jobs"
     );
     let commented = PINNED_WORKFLOW
         .replace("  final:\n", "  # The final job.\n\n  final:\n")

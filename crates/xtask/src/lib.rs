@@ -5519,11 +5519,11 @@ fn shards_unviable(runner: &mut dyn Runner, reports: &[String]) -> Result<(), Fa
     )
 }
 
-/// Checks the parts of the full check against it ([`parts_gate`]); the number of
-/// cargo-mutants jobs changes neither.
-fn parts_of_the_full_check() -> Result<(), Failure> {
+/// Checks `parts` against the full check ([`parts_gate`]); the number of cargo-mutants
+/// jobs changes neither.
+fn parts_of_the_full_check(parts: Vec<Part>) -> Result<(), Failure> {
     let jobs = NonZeroUsize::MIN;
-    let parts: Vec<(String, Vec<Step>)> = full_parts()
+    let parts: Vec<(String, Vec<Step>)> = parts
         .into_iter()
         .map(|part| (part.name(), part_steps(part, jobs)))
         .collect();
@@ -5636,7 +5636,7 @@ fn run_action(
             unviable_gate(&report, *extent, &read_file(runner, UNVIABLE_REVIEWED)?)
         }
         Action::ShardsUnviableGate(reports) => shards_unviable(runner, reports),
-        Action::PartsGate => parts_of_the_full_check(),
+        Action::PartsGate => parts_of_the_full_check(full_parts()),
     }
 }
 
