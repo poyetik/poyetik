@@ -105,7 +105,10 @@ export function parseTapMessage(value: unknown): TapMessage {
   };
 }
 
-/** What the engine processor tells the main thread, once. */
+/**
+ * What the engine processor tells the main thread: once whether the patch is loaded
+ * (`ready`) or why not, then, after `ready`, at most one failure while rendering.
+ */
 export type EngineMessage =
   /** The patch is loaded: the processor renders it. */
   | { readonly type: "ready" }
