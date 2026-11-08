@@ -16,9 +16,13 @@ use serde::Deserialize;
 struct Case {
     /// Sample rate, in hertz.
     sample_rate: u32,
-    /// Duration, in frames.
+    /// Duration, in frames, from 1 to [`MAX_FRAMES`].
     frames: usize,
 }
+
+/// Longest case, in frames: 2^29, about three hours at 48 kHz. Shared with the oracle,
+/// whose exact reference holds up to there; it also bounds the memory of a render.
+pub const MAX_FRAMES: usize = 536_870_912;
 
 /// Why a case cannot be rendered, and which of its two files is at fault.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -108,7 +112,9 @@ impl Prepared {
 
     /// Renders the case with the native engine.
     ///
-    /// The samples fit a WAV file (checked by [`prepare_case`]), at most 4 GiB.
+    /// The samples fit a WAV file (checked by [`prepare_case`]), at most 4 GiB. They are
+    /// allocated at once: if memory cannot hold them, the process aborts, as any Rust
+    /// allocation failure does.
     #[must_use]
     pub fn render(mut self) -> Rendered {
         let mut samples = vec![0.0_f32; self.sample_count()];
@@ -128,12 +134,19 @@ impl Prepared {
 ///
 /// # Errors
 ///
-/// Returns [`CaseError::Case`] when the case or its sample rate is invalid or when its
+/// Returns [`CaseError::Case`] when the case, its duration (1 to [`MAX_FRAMES`] frames)
+/// or its sample rate is invalid or when its
 /// render would not fit a WAV file, and [`CaseError::Patch`] when the patch is invalid
 /// or has no audio output.
 pub fn prepare_case(case: &str, patch: &str) -> Result<Prepared, CaseError> {
     let case: Case = serde_json::from_str(case)
         .map_err(|error| CaseError::Case(format!("invalid case: {error}")))?;
+    if !(1..=MAX_FRAMES).contains(&case.frames) {
+        return Err(CaseError::Case(format!(
+            "invalid case: frames must be between 1 and {MAX_FRAMES}, got {}",
+            case.frames
+        )));
+    }
     let rate =
         SampleRate::new(case.sample_rate).map_err(|error| CaseError::Case(error.to_string()))?;
     let patch =

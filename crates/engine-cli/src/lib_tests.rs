@@ -194,6 +194,50 @@ fn rejects_invalid_cases() {
 }
 
 #[test]
+fn accepts_durations_from_one_frame_to_the_limit_only() {
+    let with_frames = |frames: &str| format!(r#"{{"sample_rate":48000,"frames":{frames}}}"#);
+    for frames in ["0", "536870913", "18446744073709551615"] {
+        assert_eq!(
+            super::prepare_case(&with_frames(frames), PATCH).map(|_| ()),
+            Err(CaseError::Case(format!(
+                "invalid case: frames must be between 1 and 536870912, got {frames}"
+            ))),
+            "{frames} frames"
+        );
+    }
+    assert!(
+        super::prepare_case(&with_frames("1"), PATCH).is_ok(),
+        "one frame"
+    );
+    // The longest case passes the duration check; in stereo, only the WAV size stops it.
+    assert_eq!(
+        super::prepare_case(&with_frames("536870912"), PATCH).map(|_| ()),
+        Err(CaseError::Case(
+            "too long for WAV: 1073741824 samples".to_owned()
+        )),
+        "2^29 frames are a valid duration"
+    );
+    assert_eq!(super::MAX_FRAMES, 1 << 29_u32, "2^29 frames");
+}
+
+#[test]
+fn rejects_every_case_of_the_shared_invalid_corpus() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../conformance/invalid/cases");
+    let mut count = 0_u32;
+    for entry in std::fs::read_dir(&dir).expect("the invalid corpus") {
+        let path = entry.expect("an entry").path();
+        let case = std::fs::read_to_string(&path).expect("a case file");
+        assert!(
+            matches!(super::prepare_case(&case, PATCH), Err(CaseError::Case(_))),
+            "{} is rejected",
+            path.display()
+        );
+        count += 1;
+    }
+    assert!(count >= 2, "{count} invalid cases");
+}
+
+#[test]
 fn reads_the_patch_bytes_unchanged() {
     // The same parameter written twice is refused by the patch reader; a reader that
     // went through a JSON value first would silently keep the last one.
@@ -825,12 +869,13 @@ fn prepares_a_case_before_rendering() {
 #[test]
 fn refuses_a_case_too_long_for_a_wav_file_before_rendering() {
     // Only prepares the case: a broken size check fails at once instead of rendering.
-    let huge = SINE.replace(r#""frames":100"#, r#""frames":4000000000"#);
+    // The longest stereo case, 2^29 frames, is 4 GiB of samples: one byte too many.
+    let huge = SINE.replace(r#""frames":100"#, r#""frames":536870912"#);
     assert_ne!(huge, SINE, "the duration was replaced");
     assert_eq!(
         super::prepare_case(&huge, PATCH).map(|prepared| prepared.sample_count()),
         Err(CaseError::Case(
-            "too long for WAV: 8000000000 samples".to_owned()
+            "too long for WAV: 1073741824 samples".to_owned()
         )),
         "rejected while preparing"
     );
