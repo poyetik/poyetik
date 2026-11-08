@@ -87,7 +87,7 @@ This is proven, not assumed: `cargo xtask check` builds the core and the boxes (
 
 - **As few as possible.** Every dependency (library or tool) is a liability: prefer the standard library, then a tool or library already used in the project, then a new one.
 - **Modern, mainstream and well maintained.** Only widely used projects with active maintenance and a healthy community. Nothing obscure, experimental or abandoned.
-- **Every dependency is justified** in the dependency register of the local `doc/architecture.md` (what it is for, why it is needed, why this one). Adding one means adding its entry first.
+- **Every dependency is justified** in the dependency register of the local `doc/architecture.md` (what it is for, why it is needed, why this one). Adding one means adding its entry first. Every direct dependency of a crate or a package is also listed with its reason in `dependencies.txt`, which `cargo xtask check` requires to match the manifests exactly.
 - Versions are locked (`Cargo.lock`, `pnpm-lock.yaml`) and the toolchains are pinned.
 
 ## Strict typing and linting policy

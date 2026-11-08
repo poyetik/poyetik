@@ -345,6 +345,8 @@ pub enum Action {
     UnsafeGate,
     /// Require the Cargo configuration to be exactly [`CARGO_CONFIG`].
     CargoConfigGate,
+    /// Require every direct dependency to be reviewed, and every review current.
+    DependencyGate,
     /// Require the CI workflow to pin every action, tool and runtime.
     WorkflowGate,
     /// Record the state of the working tree ([`TreeState`]), for [`Action::TreeUnchanged`].
@@ -619,6 +621,10 @@ fn consistency_steps() -> Vec<Step> {
             &["deny", "--locked", "check"],
             Dir::Root,
         ),
+        Step {
+            name: "Every direct dependency reviewed".to_owned(),
+            action: Action::DependencyGate,
+        },
         Step {
             name: "Packages and crates known to the checks".to_owned(),
             action: Action::MembershipGate,
@@ -1572,6 +1578,100 @@ pub const CARGO_CONFIG: &str = "[alias]
 # The single entry point for project automation: `cargo xtask check` runs every check.
 xtask = \"run --package xtask --locked --quiet --\"
 ";
+
+/// The reviewed direct dependencies of every part, each with its reason.
+pub const DEPENDENCIES_REVIEWED: &str = "dependencies.txt";
+
+/// The fields of a `package.json` that declare dependencies.
+pub const NPM_FIELDS: [&str; 4] = [
+    "dependencies",
+    "devDependencies",
+    "peerDependencies",
+    "optionalDependencies",
+];
+
+/// The command listing the crates of the workspace and their direct dependencies.
+#[must_use]
+pub fn metadata_command() -> Cmd {
+    Cmd::new(
+        "cargo",
+        &["metadata", "--format-version", "1", "--no-deps", "--locked"],
+        Dir::Root,
+    )
+}
+
+/// Checks that every direct third-party dependency is reviewed, and every review current.
+///
+/// `metadata` is the output of [`metadata_command`]: each crate's dependencies, those on
+/// another crate of the workspace (a `path`) apart; `packages` the `package.json` files
+/// (path and text), each declaring dependencies in its [`NPM_FIELDS`], those on another
+/// package of the workspace (`workspace:`) apart. `reviewed` ([`DEPENDENCIES_REVIEWED`])
+/// holds one `<crate or package directory>: <dependency> (<kind>) -- <reason>` line per
+/// dependency.
+///
+/// # Errors
+///
+/// Returns every unreviewed dependency, stale review and review without a reason, or why
+/// the metadata or a manifest cannot be read.
+pub fn dependency_gate(
+    metadata: &str,
+    packages: &[(String, String)],
+    reviewed: &str,
+) -> Result<(), Failure> {
+    let json: serde_json::Value = serde_json::from_str(metadata)
+        .map_err(|error| Failure::from(format!("invalid cargo metadata: {error}")))?;
+    let crates = json
+        .get("packages")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| Failure::from("cargo metadata lists no packages".to_owned()))?;
+    let mut keys = Vec::new();
+    for krate in crates {
+        let name = krate
+            .get("name")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default();
+        let dependencies = krate
+            .get("dependencies")
+            .and_then(serde_json::Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter(|dependency| dependency.get("path").is_none());
+        for dependency in dependencies {
+            let text = |key: &str| dependency.get(key).and_then(serde_json::Value::as_str);
+            let kind = text("kind").unwrap_or("normal");
+            keys.push(format!(
+                "{name}: {} ({kind})",
+                text("name").unwrap_or_default()
+            ));
+        }
+    }
+    for (path, manifest) in packages {
+        let fields: serde_json::Value = serde_json::from_str(manifest)
+            .map_err(|error| Failure::from(format!("{path}: invalid package.json: {error}")))?;
+        let part = path.strip_suffix("/package.json").unwrap_or(".");
+        for field in NPM_FIELDS {
+            let declared = fields
+                .get(field)
+                .and_then(serde_json::Value::as_object)
+                .into_iter()
+                .flatten()
+                .filter(|(_, version)| {
+                    !version
+                        .as_str()
+                        .is_some_and(|version| version.starts_with("workspace:"))
+                });
+            for (dependency, _) in declared {
+                keys.push(format!("{part}: {dependency} ({field})"));
+            }
+        }
+    }
+    let mut problems = Vec::new();
+    compare_reviews(&count(keys), reviewed, &mut problems);
+    verdict(
+        &format!("direct dependencies must be reviewed in {DEPENDENCIES_REVIEWED}"),
+        problems,
+    )
+}
 
 /// The Cargo configuration file.
 pub const CARGO_CONFIG_FILE: &str = ".cargo/config.toml";
@@ -2700,6 +2800,18 @@ fn run_action(
         }
         Action::LicenseGate => licenses(runner),
         Action::CargoConfigGate => cargo_config_gate(&read_file(runner, CARGO_CONFIG_FILE)?),
+        Action::DependencyGate => {
+            let cmd = metadata_command();
+            let metadata = runner
+                .capture(&cmd)
+                .map_err(|failure| Failure::from(format!("cannot list the crates: {failure}")))?;
+            let packages = read_all(runner, package_jsons())?;
+            dependency_gate(
+                &metadata,
+                &packages,
+                &read_file(runner, DEPENDENCIES_REVIEWED)?,
+            )
+        }
         Action::TypeScriptReportsGate => {
             let paths = list_tracked(runner, &["*.ts", "*.tsx"], "the TypeScript files")?;
             let (found, _) = disables(&read_all(runner, paths)?);

@@ -1,0 +1,78 @@
+# Direct dependencies: every third-party crate and npm package a part of the repository
+# depends on directly, with the reason it is needed. Parts of the repository that depend on
+# each other (path and `workspace:` dependencies) are not listed.
+#
+# Adding a dependency means adding its line here, with its reason, after its entry in the
+# dependency register of the local design notes (see CLAUDE.md, "Technologies and
+# dependencies"): as few as possible, mainstream and well maintained.
+# Format: `<crate or package directory>: <dependency> (<kind>) -- <reason>`, the kind being
+# Cargo's (`normal`, `dev`, `build`) or the package.json field.
+# `cargo xtask check` fails on any direct dependency not listed, and on any stale entry.
+
+engine-cli: serde (normal) -- reads the conformance case files into typed values, refusing unknown fields
+engine-cli: serde_json (normal) -- parses the case files and writes the reference hashes
+engine-hash: sha2 (normal) -- the SHA-256 of a render, without std, the same on every target
+engine-objects: libm (normal) -- deterministic, portable math functions (sine), identical on every target where std's are not
+engine-patch: serde (normal) -- reads the patch format into typed values, refusing unknown fields
+engine-patch: serde_json (normal) -- parses patch documents
+engine-testkit: proptest (normal) -- property tests of the box and plan laws, from a fixed seed
+engine-testkit: serde_json (dev) -- reads the shared test matrix, conformance/test-matrix.json
+xtask: serde_json (normal) -- reads the coverage, mutation and license reports, the Cargo metadata and the package manifests
+
+apps/playground: react (dependencies) -- the user interface
+apps/playground: react-dom (dependencies) -- renders the interface in the browser
+apps/playground: @axe-core/playwright (devDependencies) -- accessibility checks in the end-to-end tests
+apps/playground: @playwright/test (devDependencies) -- end-to-end tests on Chromium, Firefox and WebKit
+apps/playground: @stryker-mutator/core (devDependencies) -- mutation testing
+apps/playground: @stryker-mutator/vitest-runner (devDependencies) -- runs the mutants with Vitest
+apps/playground: @testing-library/react (devDependencies) -- component tests
+apps/playground: @types/node (devDependencies) -- types of the Node.js APIs the tests and the build use
+apps/playground: @types/react (devDependencies) -- types of React
+apps/playground: @types/react-dom (devDependencies) -- types of React DOM
+apps/playground: @vitejs/plugin-react (devDependencies) -- builds the React components with Vite
+apps/playground: @vitest/coverage-v8 (devDependencies) -- coverage of the unit tests
+apps/playground: eslint (devDependencies) -- runs the shared lint policy
+apps/playground: eslint-plugin-react-hooks (devDependencies) -- the rules of React hooks, which the shared policy cannot hold
+apps/playground: jsdom (devDependencies) -- a DOM for the component tests
+apps/playground: typescript (devDependencies) -- type checking
+apps/playground: vite (devDependencies) -- builds and serves the page
+apps/playground: vitest (devDependencies) -- unit and component tests
+apps/roadmap: @astrojs/check (devDependencies) -- type checks the Astro templates
+apps/roadmap: @axe-core/playwright (devDependencies) -- accessibility checks in the end-to-end tests
+apps/roadmap: @playwright/test (devDependencies) -- end-to-end tests on Chromium, Firefox and WebKit
+apps/roadmap: @stryker-mutator/core (devDependencies) -- mutation testing
+apps/roadmap: @stryker-mutator/vitest-runner (devDependencies) -- runs the mutants with Vitest
+apps/roadmap: @types/node (devDependencies) -- types of the Node.js APIs of the CLI and the tests
+apps/roadmap: @vitest/coverage-v8 (devDependencies) -- coverage of the unit tests
+apps/roadmap: astro (devDependencies) -- builds the static page of the roadmap
+apps/roadmap: eslint (devDependencies) -- runs the shared lint policy
+apps/roadmap: typescript (devDependencies) -- type checking
+apps/roadmap: vitest (devDependencies) -- unit and component tests
+bindings/wasm: @playwright/test (devDependencies) -- runs the engine in Chromium, Firefox and WebKit
+bindings/wasm: @stryker-mutator/core (devDependencies) -- mutation testing
+bindings/wasm: @stryker-mutator/vitest-runner (devDependencies) -- runs the mutants with Vitest
+bindings/wasm: @types/audioworklet (devDependencies) -- types of the AudioWorklet global scope, which TypeScript lacks
+bindings/wasm: @types/node (devDependencies) -- types of the Node.js APIs of the scripts and the tests
+bindings/wasm: @vitest/coverage-v8 (devDependencies) -- coverage of the unit tests
+bindings/wasm: eslint (devDependencies) -- runs the shared lint policy
+bindings/wasm: typescript (devDependencies) -- type checking and the build of the glue
+bindings/wasm: vitest (devDependencies) -- unit tests in Node
+tooling/config: @eslint/js (dependencies) -- the recommended JavaScript rules the policy starts from
+tooling/config: eslint-plugin-jsdoc (dependencies) -- requires the documentation of every named item
+tooling/config: typescript-eslint (dependencies) -- the strict, type-checked TypeScript rules of the policy
+tooling/config: @stryker-mutator/core (devDependencies) -- mutation testing
+tooling/config: @stryker-mutator/vitest-runner (devDependencies) -- runs the mutants with Vitest
+tooling/config: @types/node (devDependencies) -- types of the Node.js APIs of the tests
+tooling/config: @vitest/coverage-v8 (devDependencies) -- coverage of the policy tests
+tooling/config: eslint (devDependencies) -- runs the policy on its fixtures
+tooling/config: typescript (devDependencies) -- type checking and the compiler fixtures
+tooling/config: vitest (devDependencies) -- tests proving each rule rejects what it forbids
+tooling/config: eslint (peerDependencies) -- the policy is an ESLint configuration, run by each package's ESLint
+tooling/config: typescript (peerDependencies) -- the policy's type-checked rules use each package's TypeScript
+tooling/oracle: @stryker-mutator/core (devDependencies) -- mutation testing
+tooling/oracle: @stryker-mutator/vitest-runner (devDependencies) -- runs the mutants with Vitest
+tooling/oracle: @types/node (devDependencies) -- types of the Node.js APIs the oracle uses (files, SHA-256)
+tooling/oracle: @vitest/coverage-v8 (devDependencies) -- coverage of the unit tests
+tooling/oracle: eslint (devDependencies) -- runs the shared lint policy
+tooling/oracle: typescript (devDependencies) -- type checking
+tooling/oracle: vitest (devDependencies) -- unit tests

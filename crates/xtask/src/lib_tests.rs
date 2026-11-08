@@ -92,6 +92,10 @@ const TREE_STATUS: (&str, &str) = (
 /// The changes of the tracked files of the fake: none.
 const TREE_DIFF: (&str, &str) = ("git diff HEAD", "");
 
+/// The Cargo metadata of a workspace whose crate `x` depends on another crate of the
+/// workspace and on one third-party crate.
+const METADATA: &str = r#"{"packages":[{"name":"x","dependencies":[{"name":"engine-core","kind":null,"path":"/r/crates/engine-core"},{"name":"serde_json","kind":null}]}]}"#;
+
 /// The two license listings, written out: the production dependencies of what ships
 /// (the engine package, the playground and the roadmap), then everything.
 const LICENSE_LINES: [&str; 2] = [
@@ -315,24 +319,7 @@ const STRYKER_CONFIG: &str = r#"{"$schema":"s","testRunner":"vitest","mutate":["
 
 fn passing() -> Fake {
     let mut fake = Fake::default();
-    for step in check_steps() {
-        if let Action::Coverage(coverage) = step.action {
-            let previous = fake.files.insert(coverage.report(), full_report(coverage));
-            assert!(previous.is_none(), "fresh fake");
-        }
-    }
-    let locality = Coverage {
-        krate: super::COVERAGE_LOCALITY,
-        measured: Measured::Library,
-    };
-    let refused = report(&[(
-        &format!("{}/src/lib.rs", super::COVERAGE_LOCALITY.dir),
-        (10, 7),
-        (3, 2),
-        (2, 2),
-    )]);
-    let previous = fake.files.insert(locality.report(), refused);
-    assert!(previous.is_none(), "fresh fake");
+    coverage_reports(&mut fake);
     let report = "crates/a/src/b.rs:3:5: replace f -> T with Default::default()\n";
     let reviewed =
         "crates/a/src/b.rs: replace f -> T with Default::default() -- T has no Default\n";
@@ -396,6 +383,14 @@ fn passing() -> Fake {
         (CHANGELOG.to_owned(), LOG),
         ("COMMIT_EDITMSG".to_owned(), "feat(core): add the plan\n"),
         (super::CARGO_CONFIG_FILE.to_owned(), super::CARGO_CONFIG),
+        (
+            super::DEPENDENCIES_REVIEWED.to_owned(),
+            "x: serde_json (normal) -- reads JSON\n",
+        ),
+        (
+            format!("capture {}", super::metadata_command().line()),
+            METADATA,
+        ),
     ]
     .into_iter()
     .chain(package_jsons().into_iter().map(|path| (path, PACKAGE)))
@@ -408,6 +403,29 @@ fn passing() -> Fake {
         assert!(earlier.is_none(), "fresh fake");
     }
     fake
+}
+
+/// Gives every coverage measurement of `fake` a full report, and the locality fixture the
+/// report the gate must refuse.
+fn coverage_reports(fake: &mut Fake) {
+    for step in check_steps() {
+        if let Action::Coverage(coverage) = step.action {
+            let previous = fake.files.insert(coverage.report(), full_report(coverage));
+            assert!(previous.is_none(), "fresh fake");
+        }
+    }
+    let locality = Coverage {
+        krate: super::COVERAGE_LOCALITY,
+        measured: Measured::Library,
+    };
+    let refused = report(&[(
+        &format!("{}/src/lib.rs", super::COVERAGE_LOCALITY.dir),
+        (10, 7),
+        (3, 2),
+        (2, 2),
+    )]);
+    let previous = fake.files.insert(locality.report(), refused);
+    assert!(previous.is_none(), "fresh fake");
 }
 
 /// Gives every package of `fake` a fully covered, fully killed report and a Stryker
@@ -536,6 +554,7 @@ fn command_lines(steps: &[Step]) -> Vec<String> {
             Action::LicenseGate => "license gate".to_owned(),
             Action::UnsafeGate => "unsafe gate".to_owned(),
             Action::CargoConfigGate => "cargo config gate".to_owned(),
+            Action::DependencyGate => "dependency gate".to_owned(),
             Action::Preflight => "preflight".to_owned(),
             Action::HistoryGate => "history gate".to_owned(),
             Action::WorkflowGate => "workflow gate".to_owned(),
@@ -585,6 +604,7 @@ fn lists_every_check_in_order() {
             "fresh target/conformance",
             "Root: cargo run --package engine-cli --locked --quiet -- export conformance target/conformance",
             "Root: cargo deny --locked check",
+            "dependency gate",
             "membership gate",
             "readme gate",
             "version gate",
@@ -651,6 +671,7 @@ fn names_every_check_in_order() {
             "Fresh conformance export directory",
             "Conformance export (native WAV files)",
             "Rust supply chain",
+            "Every direct dependency reviewed",
             "Packages and crates known to the checks",
             "Every part described in a README",
             "One version everywhere, changelog well formed",
@@ -892,8 +913,8 @@ fn runs_every_step_and_reports_success() {
         Ok(()),
         "all green"
     );
-    let (tools, commands, emptied, listed, captured) = (9, 32, 12, 8, 8);
-    let read = 12 + 2 + 2 + 4 + 2 + 1 + 10 + 10 + 8 + 2 + 5 + 11;
+    let (tools, commands, emptied, listed, captured) = (9, 32, 12, 8, 9);
+    let read = 12 + 2 + 2 + 4 + 2 + 1 + 7 + 10 + 10 + 8 + 2 + 5 + 11;
     assert_eq!(
         fake.ran.len(),
         tools + commands + emptied + listed + captured + read,
@@ -901,10 +922,11 @@ fn runs_every_step_and_reports_success() {
          tests, four portability builds, twelve coverage measurements, mutants, Miri, the \
          conformance check and export, deny, the JavaScript install, audit and five package \
          checks); twelve directories are emptied; git lists eight kinds of files; the licenses, \
-         the history and the state of the tree (before and after) are captured twice each; and the gates read twelve coverage reports, \
+         the history and the state of the tree (before and after) are captured twice each, \
+         the Cargo metadata once; and the gates read twelve coverage reports, \
          the unviable report and reviews, a TypeScript source and its reviews, the three \
          sources and the register of the bypass gate, the two unsafe files, the Cargo \
-         configuration, ten crate manifests, ten READMEs, eight version files, the workflow and \
+         configuration, the six package manifests and the register of the dependency gate, ten crate manifests, ten READMEs, eight version files, the workflow and \
          .node-version, five Stryker configurations, and the TypeScript source and ten \
          reports of the reports gate"
     );
@@ -925,15 +947,15 @@ fn runs_every_step_and_reports_success() {
     );
     let text = String::from_utf8(out).expect("utf-8 output");
     assert!(
-        text.starts_with("▶ [1/51] Tools and platform\n"),
+        text.starts_with("▶ [1/52] Tools and platform\n"),
         "numbered progress: {text}"
     );
     assert!(
-        text.contains("▶ [49/51] Roadmap checks\n"),
+        text.contains("▶ [50/52] Roadmap checks\n"),
         "last step announced: {text}"
     );
     assert!(
-        text.ends_with("✔ all 51 checks passed\n"),
+        text.ends_with("✔ all 52 checks passed\n"),
         "summary: {text}"
     );
 }
@@ -3165,7 +3187,7 @@ fn prints_the_details_of_a_failure_on_stdout_and_one_line_on_stderr() {
     );
     assert!(
         String::from_utf8(out).expect("UTF-8").ends_with(
-            "▶ [25/51] Rust unviable mutants reviewed\n\
+            "▶ [25/52] Rust unviable mutants reviewed\n\
              not reviewed: crates/a/src/c.rs: replace g -> U with x\n\
              stale review: crates/a/src/b.rs: replace f -> T with Default::default()\n"
         ),
@@ -3745,5 +3767,79 @@ fn requires_the_exact_cargo_configuration() {
         ),
         Ok(()),
         "the configuration of the repository"
+    );
+}
+
+#[test]
+fn requires_every_direct_dependency_to_be_reviewed() {
+    let reviewed = "x: serde_json (normal) -- reads JSON\n./: left-pad (devDependencies) -- old\n";
+    let packages = vec![
+        (
+            "package.json".to_owned(),
+            r#"{"devDependencies":{"left-pad":"1"}}"#.to_owned(),
+        ),
+        (
+            "apps/a/package.json".to_owned(),
+            r#"{"dependencies":{"@poyetik/engine-wasm":"workspace:*","react":"^19"},"peerDependencies":{"typescript":"~6"}}"#.to_owned(),
+        ),
+    ];
+    let metadata = r#"{"packages":[{"name":"x","dependencies":[{"name":"engine-core","kind":null,"path":"/r"},{"name":"serde_json","kind":null},{"name":"rand","kind":"dev"}]},{"name":"y"}]}"#;
+    assert_eq!(
+        super::dependency_gate(metadata, &packages, reviewed),
+        found(
+            "direct dependencies must be reviewed in dependencies.txt",
+            &[
+                "not reviewed: .: left-pad (devDependencies)".to_owned(),
+                "not reviewed: apps/a: react (dependencies)".to_owned(),
+                "not reviewed: apps/a: typescript (peerDependencies)".to_owned(),
+                "not reviewed: x: rand (dev)".to_owned(),
+                "stale review: ./: left-pad (devDependencies)".to_owned(),
+            ]
+        ),
+        "a new crate, an extra npm key in each field, a review of nothing; parts of the \
+         workspace apart"
+    );
+    assert!(
+        super::dependency_gate("[", &[], "")
+            .is_err_and(|failure| failure.summary.starts_with("invalid cargo metadata: ")),
+        "unreadable metadata"
+    );
+    assert_eq!(
+        super::dependency_gate("{}", &[], ""),
+        failed("cargo metadata lists no packages"),
+        "metadata without packages"
+    );
+    assert!(
+        super::dependency_gate(
+            METADATA,
+            &[("p/package.json".to_owned(), "{".to_owned())],
+            ""
+        )
+        .is_err_and(|failure| failure
+            .summary
+            .starts_with("p/package.json: invalid package.json: ")),
+        "an unreadable manifest"
+    );
+}
+
+#[test]
+fn reviews_the_real_dependencies() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let mut runner = SystemRunner { root: root.clone() };
+    let metadata = runner
+        .capture(&super::metadata_command())
+        .expect("cargo metadata");
+    let read = |path: &str| std::fs::read_to_string(root.join(path)).expect("readable");
+    let packages: Vec<(String, String)> = package_jsons()
+        .into_iter()
+        .map(|path| {
+            let text = read(&path);
+            (path, text)
+        })
+        .collect();
+    assert_eq!(
+        super::dependency_gate(&metadata, &packages, &read(super::DEPENDENCIES_REVIEWED)),
+        Ok(()),
+        "every direct dependency of the repository"
     );
 }
