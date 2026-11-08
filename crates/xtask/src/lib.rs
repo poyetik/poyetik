@@ -580,24 +580,38 @@ fn proof_steps() -> Vec<Step> {
             name: "Cargo configuration: no build flag, a locked alias".to_owned(),
             action: Action::CargoConfigGate,
         },
-        // The only `unsafe` code of the engine: Miri checks its tests for undefined behavior.
-        run(
-            "Rust FFI under Miri",
-            "cargo",
-            &[
-                NIGHTLY_TOOLCHAIN,
-                "miri",
-                "test",
-                "--package",
-                "engine-wasm",
-                "--package",
-                "engine-alloc-counter",
-                "--locked",
-            ],
-            Dir::Root,
-        ),
+        Step {
+            name: "Unsafe code under Miri".to_owned(),
+            action: Action::Run(miri_command()),
+        },
     ]);
     steps
+}
+
+/// The crates holding a file of [`UNSAFE_FILES`], whose tests Miri runs.
+#[must_use]
+pub fn unsafe_crates() -> Vec<&'static str> {
+    RUST_CRATES
+        .iter()
+        .filter(|krate| {
+            UNSAFE_FILES
+                .iter()
+                .any(|file| file.starts_with(&format!("{}/", krate.dir)))
+        })
+        .map(|krate| krate.name)
+        .collect()
+}
+
+/// Miri runs the tests of every crate holding unsafe code ([`unsafe_crates`]), checking
+/// them for undefined behavior.
+#[must_use]
+pub fn miri_command() -> Cmd {
+    let mut args = vec![NIGHTLY_TOOLCHAIN, "miri", "test"];
+    for krate in unsafe_crates() {
+        args.extend(["--package", krate]);
+    }
+    args.push("--locked");
+    Cmd::new("cargo", &args, Dir::Root)
 }
 
 /// Conformance, supply chain, then the consistency of the repository: membership, READMEs,

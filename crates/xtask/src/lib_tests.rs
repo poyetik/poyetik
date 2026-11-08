@@ -612,7 +612,7 @@ fn lists_every_check_in_order() {
             "bypass gate",
             "unsafe gate",
             "cargo config gate",
-            "Root: cargo +nightly-2026-11-01 miri test --package engine-wasm --package engine-alloc-counter --locked",
+            "Root: cargo +nightly-2026-11-01 miri test --package engine-alloc-counter --package engine-wasm --locked",
             "Root: cargo run --package engine-cli --locked --quiet -- check conformance",
             "fresh target/conformance",
             "Root: cargo run --package engine-cli --locked --quiet -- export conformance target/conformance",
@@ -681,7 +681,7 @@ fn names_every_check_in_order() {
             "Every bypass of coverage or mutation testing reviewed",
             "Unsafe code confined to the audited files",
             "Cargo configuration: no build flag, a locked alias",
-            "Rust FFI under Miri",
+            "Unsafe code under Miri",
             "Conformance (native)",
             "Fresh conformance export directory",
             "Conformance export (native WAV files)",
@@ -4087,4 +4087,25 @@ fn empties_stale_build_outputs_before_the_builds_that_write_them() {
             );
         }
     }
+}
+
+#[test]
+fn runs_miri_on_every_crate_holding_unsafe_code() {
+    assert_eq!(
+        super::unsafe_crates(),
+        vec!["engine-alloc-counter", "engine-wasm"],
+        "the crates of the audited files, in the order of RUST_CRATES"
+    );
+    assert_eq!(
+        super::miri_command().line(),
+        "cargo +nightly-2026-11-01 miri test --package engine-alloc-counter --package \
+         engine-wasm --locked",
+        "Miri on each of them"
+    );
+    assert!(
+        check_steps()
+            .iter()
+            .any(|step| step.action == Action::Run(super::miri_command())),
+        "a step of the check"
+    );
 }
