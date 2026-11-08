@@ -1,4 +1,33 @@
 import { defineConfig, devices } from "@playwright/test";
+import { createServer } from "node:net";
+
+/**
+ * A free local port for this run, so that two runs (two worktrees, two packages) never
+ * share a server. Chosen once by the main process, then read from the environment by the
+ * workers and the server, which it starts.
+ */
+async function freePort(variable: string): Promise<number> {
+  const chosen = process.env[variable];
+  if (chosen !== undefined) {
+    return Number(chosen);
+  }
+  const port = await new Promise<number>((resolve, reject) => {
+    const server = createServer();
+    server.on("error", reject);
+    server.listen(0, "localhost", () => {
+      const address = server.address();
+      server.close(() => {
+        resolve(typeof address === "object" && address !== null ? address.port : 0);
+      });
+    });
+  });
+  process.env[variable] = String(port);
+  return port;
+}
+
+const PORT = await freePort("ENGINE_WASM_E2E_PORT");
+const URL = `http://localhost:${String(PORT)}/`;
+
 
 // The engine runs in all three browser engines: Chromium, Firefox, WebKit (Safari),
 // on desktop and on a phone.
@@ -14,8 +43,8 @@ export default defineConfig({
   workers: 1,
   retries: 0,
   reporter: "list",
-  use: { baseURL: "http://localhost:4392/" },
-  webServer: { command: "node e2e/serve.ts", url: "http://localhost:4392/e2e/site/index.html", reuseExistingServer: false },
+  use: { baseURL: URL },
+  webServer: { command: "node e2e/serve.ts", url: `${URL}e2e/site/index.html`, reuseExistingServer: false },
   projects: [
     { name: "chromium", use: { ...devices["Desktop Chrome"], launchOptions: { args: ["--disable-audio-output"] } } },
     { name: "firefox", use: { ...devices["Desktop Firefox"] } },

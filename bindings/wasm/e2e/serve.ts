@@ -4,7 +4,11 @@ import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { extname } from "node:path";
 
-const PORT = 4392;
+/** The port chosen for this run by the Playwright configuration. */
+const PORT = Number(process.env["ENGINE_WASM_E2E_PORT"]);
+if (!Number.isInteger(PORT) || PORT <= 0) {
+  throw new Error("ENGINE_WASM_E2E_PORT is not set: run the tests with pnpm test:e2e");
+}
 const PACKAGE = new URL("../", import.meta.url);
 const CONFORMANCE = new URL("../../../conformance/", import.meta.url);
 const TYPES: Readonly<Record<string, string>> = {

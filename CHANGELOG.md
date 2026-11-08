@@ -53,6 +53,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- End-to-end tests serve on a free port chosen at each run instead of fixed ports (4392, 4393): two runs (two worktrees, or two packages) never share a server.
 - `capture` refuses a channel count below 1 or not whole, and a frame count below 0 or not whole (a fractional count never resolved); `addProcessors` and `loadPatch` name the URL or the module they could not load.
 - `WasmEngine.render` no longer allocates: 500,000 renders cause no garbage collection (the previous version caused 100), checked by `test:allocation`, run without instrumentation.
 - `WasmEngine` reads every export as unsigned (addresses from 2 GiB on came back negative), checks the number of arguments of each export, explains a module that cannot be instantiated, turns a trap into an `EngineTrap` and never calls a trapped module again, refuses a sample rate that is not a whole number of hertz (48000.5 was silently truncated) and outputs of different lengths (before rendering anything).
