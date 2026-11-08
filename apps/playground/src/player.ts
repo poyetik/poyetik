@@ -36,13 +36,16 @@ export type PlayerState =
 export interface Player {
   /**
    * Starts playing, from "stopped" or "failed"; while starting, returns the start in
-   * progress. Call it from a user gesture: browsers only start audio then. Never rejects:
-   * a failure is a state.
+   * progress. Call it from a user gesture: browsers only start audio then. Never throws
+   * nor rejects: a failure is a state.
    */
   start(): Promise<void>;
-  /** Stops playing, fading out; during a start, cancels it. From "failed", acknowledges it. */
+  /**
+   * Stops playing, fading out; during a start, cancels it. From "failed", acknowledges it.
+   * Never throws nor rejects: a failure is a state.
+   */
   stop(): Promise<void>;
-  /** Resumes a suspended player. Call it from a user gesture. */
+  /** Resumes a suspended player. Call it from a user gesture. Never throws nor rejects: a failure is a state. */
   resume(): Promise<void>;
   /** The current state. The same object until the state changes. */
   state(): PlayerState;
@@ -178,15 +181,14 @@ class Session {
   /**
    * Ends the session: its waits stop, its downloads are cancelled, the tap stops and the
    * context is released. Called once per session: only by whoever detaches it from the
-   * player first (a stop, a cancel or a failure). A context the browser already closed is
-   * not closed again (browsers reject that).
+   * player first (a stop, a cancel or a failure). Never rejects: a context that cannot be
+   * closed (the browser rejects closing a context it already closed) has nothing left to
+   * do, and the session is already over, so that failure is reported nowhere.
    */
   async close(): Promise<void> {
     this.#abort.abort();
     this.#tap?.stop();
-    if (this.context.state !== "closed") {
-      await this.context.close();
-    }
+    await this.context.close().catch(() => undefined);
   }
 }
 /** The states, as shared objects: `state()` returns the same object until a change. */
@@ -285,8 +287,15 @@ export class EnginePlayer implements Player {
       this.#goIdle({ kind: "failed", reason: explain(lacking) });
       return Promise.resolve();
     }
-    // Created before any await, while the user gesture is still active (required by Safari).
-    const session = new Session(this.#options.historySeconds);
+    let session;
+    try {
+      // Created before any await, while the user gesture is still active (required by Safari).
+      session = new Session(this.#options.historySeconds);
+    } catch (error) {
+      // No context, for instance no audio device: there is no session to end.
+      this.#goIdle({ kind: "failed", reason: String(error) });
+      return Promise.resolve();
+    }
     this.#goLive(STARTING, session);
     void this.#open(session);
     return session.started.promise;
@@ -380,7 +389,13 @@ export class EnginePlayer implements Player {
     if (live?.state !== SUSPENDED) {
       return;
     }
-    await live.session.context.resume();
+    try {
+      await live.session.until(live.session.context.resume());
+    } catch (error) {
+      // A context that cannot resume is closing or broken.
+      await this.#fail(live.session, error);
+      return;
+    }
     this.#follow(live.session);
   }
 
@@ -401,7 +416,12 @@ export class EnginePlayer implements Player {
   /** Fades `session` out, then ends it. */
   async #stop(session: Session): Promise<void> {
     this.#goLive(STOPPING, session);
-    await this.#fadeOut(session);
+    try {
+      await this.#fadeOut(session);
+    } catch (error) {
+      await this.#fail(session, error);
+      return;
+    }
     await this.#end(session, STOPPED);
   }
 

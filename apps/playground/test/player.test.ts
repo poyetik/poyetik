@@ -122,6 +122,9 @@ class FakeConstantSource extends FakeNode {
   end: number | undefined;
 
   constructor(context: FakeContext, options: { offset?: number }) {
+    if (FakeContext.refuses.has("fade")) {
+      throw new DOMException("cannot schedule", "InvalidStateError");
+    }
     super(`clock offset ${String(options.offset)}`);
     context.sources.push(this);
   }
@@ -166,24 +169,33 @@ class FakeContext {
     },
   };
 
+  /** Creates the context, unless the fake browser refuses to (no audio device). */
   constructor() {
+    if (FakeContext.refuses.has("create")) {
+      throw new DOMException("no device", "NotSupportedError");
+    }
     FakeContext.created.push(this);
     log.push("new context");
   }
 
+  /** What the fake browser refuses, to check that the player never rejects nor throws. */
+  static readonly refuses = new Set<"create" | "resume" | "close" | "fade">();
   /** When set, `resume` answers only once the test resolves it. */
   static resuming: PromiseWithResolvers<undefined> | undefined;
 
   /** Logs the resume and moves to {@link FakeContext.resumesTo}; answers at once, or when {@link FakeContext.resuming} is resolved. */
   resume(): Promise<void> {
+    if (FakeContext.refuses.has("resume")) {
+      return Promise.reject(new DOMException("closing", "InvalidStateError"));
+    }
     log.push("resume");
     this.state = FakeContext.resumesTo;
     return FakeContext.resuming?.promise ?? Promise.resolve();
   }
 
-  /** Rejects on a closed context, like browsers. */
+  /** Rejects on a closed context, like browsers, or when the fake browser refuses. */
   close(): Promise<void> {
-    if (this.state === "closed") {
+    if (this.state === "closed" || FakeContext.refuses.has("close")) {
       return Promise.reject(new DOMException("already closed", "InvalidStateError"));
     }
     log.push("close");
@@ -268,6 +280,7 @@ beforeEach(() => {
   FakeContext.created.length = 0;
   FakeContext.resumesTo = "running";
   FakeContext.resuming = undefined;
+  FakeContext.refuses.clear();
   FakeContext.rate = 48_000;
   FakeWorkletNode.created.length = 0;
   vi.stubGlobal("AudioContext", FakeContext);
@@ -637,6 +650,46 @@ describe("EnginePlayer", () => {
     workletNode("poyetik-engine")?.port.deliver({ type: "ready" });
     await starting;
     expect(player.state().kind).toBe("failed");
+  });
+
+  test("never throws nor rejects when no context can be created: fails instead", async () => {
+    FakeContext.refuses.add("create");
+    const player = new EnginePlayer(playerOptions());
+    await player.start();
+    expect(player.state()).toStrictEqual({ kind: "failed", reason: "NotSupportedError: no device" });
+    expect(log).toStrictEqual([]);
+  });
+
+  test("never rejects when the browser refuses to resume: fails, closing the context once", async () => {
+    FakeContext.resumesTo = "suspended";
+    const player = new EnginePlayer(playerOptions());
+    await player.start();
+    FakeContext.refuses.add("resume");
+    log = [];
+    await player.resume();
+    expect(player.state()).toStrictEqual({ kind: "failed", reason: "InvalidStateError: closing" });
+    expect(log).toStrictEqual(["post stop", "disconnect poyetik-engine -> poyetik-tap", "close"]);
+  });
+
+  test("never rejects when the context cannot be closed", async () => {
+    FakeContext.refuses.add("close");
+    stubFetch(404);
+    const player = new EnginePlayer(playerOptions());
+    await player.start();
+    expect(player.state()).toStrictEqual({ kind: "failed", reason: "Error: cannot load the engine from engine.wasm (HTTP 404)" });
+    stubFetch();
+    await player.start();
+    await stopPlaying(player);
+    expect(player.state()).toStrictEqual({ kind: "stopped" });
+  });
+
+  test("never rejects when the fade out cannot be scheduled: fails, closing the context", async () => {
+    const player = new EnginePlayer(playerOptions());
+    await player.start();
+    FakeContext.refuses.add("fade");
+    await player.stop();
+    expect(player.state()).toStrictEqual({ kind: "failed", reason: "InvalidStateError: cannot schedule" });
+    expect(lastContext()?.state).toBe("closed");
   });
 
   test("explains what the browser lacks instead of starting", async () => {
