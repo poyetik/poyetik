@@ -1095,6 +1095,20 @@ fn mutates_everything_when_what_every_test_uses_changed() {
             "{path}: only the changes"
         );
     }
+    let mut broken = passing();
+    let _changes = broken.files.insert(
+        format!("capture {}", CHANGES.0),
+        one_line_change("Cargo.lock"),
+    );
+    broken.fail =
+        Some("cargo mutants --cap-lints=true --gitignore=true --workspace --jobs 3".to_owned());
+    assert_eq!(
+        run_steps(&rust_mutation_of_changes(), &mut broken, &mut Vec::new()),
+        failed(
+            "Rust mutation testing of the changes: `cargo mutants --cap-lints=true --gitignore=true --workspace --jobs 3` exited with code 3"
+        ),
+        "a surviving mutant of the workspace fails"
+    );
     assert!(
         super::RUST_CRATES
             .iter()
