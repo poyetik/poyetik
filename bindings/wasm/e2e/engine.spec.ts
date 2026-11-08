@@ -72,6 +72,13 @@ test("runs the engine under a strict Content Security Policy, breaking none of i
   expect(violations).toStrictEqual([]);
 });
 
+test("names the file it could not fetch", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto("e2e/site/index.html?case=missing-case");
+  await expect.poll(() => errors).toStrictEqual(["GET /conformance/cases/missing-case.json: 404"]);
+});
+
 test("explains why a patch is rejected", async ({ page }) => {
   await page.goto("e2e/site/index.html?case=sine-440");
   await page.getByRole("button", { name: "Load an invalid patch" }).click();

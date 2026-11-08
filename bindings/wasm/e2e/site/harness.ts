@@ -2,6 +2,7 @@
 // end-to-end tests and for Claude in Chrome. The case comes from `?case=<name>`.
 import { interleave, renderHash } from "../../dist/hash.js";
 import { addProcessors, captureEngine, createEngineNode, loadPatch, renderOffline, type LoadedPatch } from "../../dist/web.js";
+import { fetchOk } from "./fetch.ts";
 
 /** The built `AudioWorklet` module that registers the engine and tap processors. */
 const PROCESSORS = new URL("../../dist/worklet/processors.js", import.meta.url);
@@ -24,8 +25,8 @@ interface Case {
 
 /** Fetches a conformance case and its patch file, kept byte for byte. */
 async function fetchCase(name: string): Promise<Case> {
-  const json: unknown = await (await fetch(`/conformance/cases/${name}.json`)).json();
-  const patch = new Uint8Array(await (await fetch(`/conformance/patches/${name}.json`)).arrayBuffer());
+  const json: unknown = await (await fetchOk(`/conformance/cases/${name}.json`)).json();
+  const patch = new Uint8Array(await (await fetchOk(`/conformance/patches/${name}.json`)).arrayBuffer());
   if (typeof json !== "object" || json === null) {
     throw new Error("invalid case");
   }
@@ -38,7 +39,7 @@ async function fetchCase(name: string): Promise<Case> {
 }
 
 /** The bytes of the built engine module, fetched once and shared by every button. */
-const wasm = await (await fetch(new URL("../../dist/engine.wasm", import.meta.url))).arrayBuffer();
+const wasm = await (await fetchOk(new URL("../../dist/engine.wasm", import.meta.url))).arrayBuffer();
 /** The case named by `?case=`, sine-440 when absent. */
 const testCase = await fetchCase(new URLSearchParams(location.search).get("case") ?? "sine-440");
 /** The case's patch, already validated by the engine at the case's sample rate: a rejected patch fails the page load. */

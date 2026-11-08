@@ -15,7 +15,7 @@ export default defineConfig({
       // process, files, network or browser: scripts/build-wasm.ts, scripts/reproducible.ts,
       // scripts/io.ts, e2e/serve.ts and e2e/site/harness.ts (run by pnpm build,
       // test:reproducible and test:e2e).
-      include: ["ts/**/*.ts", "e2e/routes.ts", "scripts/wasm.ts", "scripts/cli.ts"],
+      include: ["ts/**/*.ts", "e2e/routes.ts", "e2e/site/fetch.ts", "scripts/wasm.ts", "scripts/cli.ts"],
       reporter: ["text", "json-summary", "html"],
       thresholds: { lines: 100, branches: 100, functions: 100, statements: 100 },
     },

@@ -7,6 +7,7 @@
   "mutate": [
     "ts/**/*.ts",
     "e2e/routes.ts",
+    "e2e/site/fetch.ts",
     "scripts/wasm.ts",
     "scripts/cli.ts"
   ],
