@@ -1,7 +1,7 @@
 {
   "version": 1,
   "title": "Poyetik",
-  "nextId": 28,
+  "nextId": 29,
   "cards": [
     {
       "id": 1,
@@ -611,7 +611,7 @@
           "done": false
         },
         {
-          "title": "Set the job's timeout-minutes to 1.5 times the measured duration",
+          "title": "Set each job's timeout-minutes to 1.5 times the measured duration of its part",
           "done": false
         },
         {
@@ -625,6 +625,10 @@
         {
           "title": "Check that the concurrency group of a skipped run does not cancel a requested run in progress",
           "done": false
+        },
+        {
+          "title": "Split the full check into parallel jobs (parts and mutation shards from xtask, proven to cover every step once)",
+          "done": true
         }
       ]
     },
@@ -943,6 +947,37 @@
       "createdAt": "2026-11-08",
       "updatedAt": "2026-11-08",
       "tasks": []
+    },
+    {
+      "id": 28,
+      "title": "Make the repository public",
+      "description": "Open the repository to everyone once its history and settings are ready: what a public repository shows and allows, decided before the switch.",
+      "column": "later",
+      "milestone": "M0 Foundations",
+      "createdAt": "2026-11-08",
+      "updatedAt": "2026-11-08",
+      "tasks": [
+        {
+          "title": "Decide the author email of the history: keep it, or rewrite every commit to the GitHub noreply address before the switch (every SHA and the v0.1.0 tag change; force-push while the repository is still private), and set git to the chosen address for future commits",
+          "done": false
+        },
+        {
+          "title": "Re-audit the whole history just before the switch: no secret, no local-only file, no forbidden name",
+          "done": false
+        },
+        {
+          "title": "Keep the setting that requires approval before running workflows for first-time contributors, and check the workflow gives forked pull requests a read-only token and no secret",
+          "done": false
+        },
+        {
+          "title": "Decide what a public repository without a license means for contributors, or choose the license first (ticket #6)",
+          "done": false
+        },
+        {
+          "title": "Switch the visibility (maintainer's action or explicit approval)",
+          "done": false
+        }
+      ]
     }
   ]
 }
