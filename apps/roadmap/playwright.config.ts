@@ -1,4 +1,34 @@
 import { defineConfig, devices } from "@playwright/test";
+import { createServer } from "node:net";
+
+/**
+ * A free local port for this run, so that two runs (two worktrees, two packages) never
+ * share a server. Chosen once by the main process, then read from the environment by the
+ * workers and the server, which it starts.
+ */
+async function freePort(variable: string): Promise<number> {
+  const chosen = process.env[variable];
+  if (chosen !== undefined) {
+    return Number(chosen);
+  }
+  const port = await new Promise<number>((resolve, reject) => {
+    const server = createServer();
+    server.on("error", reject);
+    server.listen(0, "localhost", () => {
+      const address = server.address();
+      server.close(() => {
+        resolve(typeof address === "object" && address !== null ? address.port : 0);
+      });
+    });
+  });
+  process.env[variable] = String(port);
+  return port;
+}
+
+
+const PORT = await freePort("ROADMAP_E2E_PORT");
+const URL = `http://localhost:${String(PORT)}/`;
+
 
 // The page is tested on all three engines: Chromium, Firefox, WebKit (Safari).
 export default defineConfig({
@@ -6,8 +36,8 @@ export default defineConfig({
   forbidOnly: true,
   retries: 0,
   reporter: "list",
-  use: { baseURL: "http://localhost:4391/" },
-  webServer: { command: "pnpm build && astro preview --port 4391 --ignore-lock", url: "http://localhost:4391/", reuseExistingServer: false },
+  use: { baseURL: URL },
+  webServer: { command: `pnpm build && astro preview --port ${String(PORT)} --ignore-lock`, url: URL, reuseExistingServer: false },
   projects: [
     { name: "chromium", use: { ...devices["Desktop Chrome"] } },
     { name: "firefox", use: { ...devices["Desktop Firefox"] } },

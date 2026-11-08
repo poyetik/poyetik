@@ -70,4 +70,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- The playground, the roadmap and the engine test bench declare a Content Security Policy: everything from the site itself, no inline script or style, and only `'wasm-unsafe-eval'` where the engine runs. End-to-end tests check on every browser that the page declares it, breaks none of it, and that it is enforced (a blocked image as control). The roadmap's styles are no longer inlined. The roadmap's end-to-end tests serve on a free port too.
 - The end-to-end test server serves only the bench, the built package and the conformance cases, patches and references, to this machine only: a path such as `/conformance//etc/hosts` read any file, and any host name was answered (DNS rebinding).

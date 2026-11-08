@@ -3,6 +3,7 @@ import rawBoard from "../../board.json";
 import Board from "../components/Board.astro";
 import { parseBoard } from "../lib/board.ts";
 import { toView } from "../lib/view.ts";
+import { CSP } from "../lib/csp.ts";
 
 // Validated at build time: an invalid board.json fails the build.
 const view = toView(parseBoard(rawBoard));
@@ -11,6 +12,7 @@ const view = toView(parseBoard(rawBoard));
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content={CSP} />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{view.title} · Roadmap</title>
     <style is:global>

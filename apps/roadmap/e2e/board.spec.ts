@@ -3,6 +3,7 @@ import { expect, test } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { parseBoard } from "../src/lib/board.ts";
 import { toView } from "../src/lib/view.ts";
+import { CSP } from "../src/lib/csp.ts";
 
 const view = toView(parseBoard(JSON.parse(readFileSync(new URL("../board.json", import.meta.url), "utf8"))));
 
@@ -59,4 +60,26 @@ test("steps are collapsed by default and expand on click", async ({ page }) => {
   await card.locator("summary").click();
   await expect(steps).toHaveCount(withSteps.steps.length);
   await expect(steps.first()).toBeVisible();
+});
+
+test("declares its Content Security Policy, breaks none of it, and enforces it", async ({ page }) => {
+  await page.addInitScript(() => {
+    const violations: string[] = [];
+    Reflect.set(window, "violations", violations);
+    document.addEventListener("securitypolicyviolation", (event) => {
+      violations.push(`${event.violatedDirective} ${event.blockedURI}`);
+    });
+  });
+  await page.goto("./");
+  await expect(page.locator('meta[http-equiv="Content-Security-Policy"]')).toHaveAttribute("content", CSP);
+  await expect(page.locator("style")).toHaveCount(0);
+  const violations = (): Promise<unknown> => page.evaluate((): unknown => Reflect.get(window, "violations"));
+  expect(await violations()).toStrictEqual([]);
+  // Control: an image from another site is blocked before any request.
+  await page.evaluate(() => {
+    const image = document.createElement("img");
+    image.src = "https://example.invalid/blocked.png";
+    document.body.append(image);
+  });
+  await expect.poll(violations).toStrictEqual(["img-src https://example.invalid/blocked.png"]);
 });

@@ -1,5 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
+import { CSP } from "../csp.ts";
 
 /** Errors of the page during the current test. */
 let errors: Error[] = [];
@@ -103,4 +104,30 @@ test("is accessible once stopped again", async ({ page }) => {
   await page.getByRole("button", { name: "Stop" }).click();
   await expect(page.getByRole("status")).toHaveText("Stopped");
   expect((await new AxeBuilder({ page }).analyze()).violations).toStrictEqual([]);
+});
+
+test("declares its Content Security Policy and breaks none of it while playing", async ({ page }) => {
+  await page.addInitScript(() => {
+    const violations: string[] = [];
+    Reflect.set(window, "violations", violations);
+    document.addEventListener("securitypolicyviolation", (event) => {
+      violations.push(`${event.violatedDirective} ${event.blockedURI}`);
+    });
+  });
+  await page.goto("./?muted");
+  await expect(page.locator('meta[http-equiv="Content-Security-Policy"]')).toHaveAttribute("content", CSP);
+  await page.getByRole("button", { name: "Start" }).click();
+  await expect(page.getByTestId("frequency")).toHaveText("440.0 Hz");
+  await page.getByRole("button", { name: "Stop" }).click();
+  await expect(page.getByRole("status")).toHaveText("Stopped");
+  const violations = (): Promise<unknown> => page.evaluate((): unknown => Reflect.get(window, "violations"));
+  expect(await violations()).toStrictEqual([]);
+  // Control: the policy is enforced and violations are seen. An image from another site
+  // is blocked before any request.
+  await page.evaluate(() => {
+    const image = document.createElement("img");
+    image.src = "https://example.invalid/blocked.png";
+    document.body.append(image);
+  });
+  await expect.poll(violations).toStrictEqual(["img-src https://example.invalid/blocked.png"]);
 });

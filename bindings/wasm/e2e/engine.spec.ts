@@ -57,6 +57,19 @@ for (const name of LIVE) {
   });
 }
 
+test("runs the engine under a strict Content Security Policy, breaking none of it", async ({ page }) => {
+  const violations: string[] = [];
+  page.on("console", (message) => {
+    if (message.text().includes("Content Security Policy")) {
+      violations.push(message.text());
+    }
+  });
+  await page.goto("e2e/site/index.html?case=sine-440");
+  await page.getByRole("button", { name: "Render offline" }).click();
+  await expect(page.locator("#offline-hash")).toHaveText(reference("sine-440"));
+  expect(violations).toStrictEqual([]);
+});
+
 test("explains why a patch is rejected", async ({ page }) => {
   await page.goto("e2e/site/index.html?case=sine-440");
   await page.getByRole("button", { name: "Load an invalid patch" }).click();

@@ -6,7 +6,8 @@
   },
   "mutate": [
     "src/**/*.ts",
-    "src/**/*.tsx"
+    "src/**/*.tsx",
+    "csp.ts"
   ],
   "reporters": [
     "clear-text",
