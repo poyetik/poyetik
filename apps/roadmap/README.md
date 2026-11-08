@@ -9,7 +9,7 @@ The public roadmap of the project: a kanban board whose data lives in `board.jso
 | `src/lib/view.ts` | The board prepared for display: columns in display order, step statuses |
 | `src/cli/` | The command-line tool (`pnpm roadmap`), the only way to change `board.json` |
 | `src/components/Board.astro`, `src/pages/index.astro` | The page, under a strict Content Security Policy (`src/lib/csp.ts`) |
-| `e2e/` | End-to-end tests on Chromium, Firefox and WebKit, with axe |
+| `e2e/` | End-to-end tests, with axe, on the browsers and devices of `playwright.config.ts` |
 
 ```sh
 pnpm roadmap help   # every command: list, show, add, move, edit, rm, step …, validate

@@ -1,4 +1,4 @@
-# Quality: runs exactly what the pre-push hook runs, `cargo xtask check`.
+# Quality: runs `cargo xtask check`, the check the pre-push hook runs once its own refusals pass.
 # On demand, because the full check is long and commits are frequent: on a push only when the
 # last commit's message contains [ci], on every pull request, and by hand (Run workflow).
 name: Quality

@@ -5,7 +5,8 @@
 //! box type, so a new box cannot escape them.
 //!
 //! Every law is checked at every sample rate of the shared [`matrix`], with the
-//! parameters at their minimum, default, midpoint and maximum.
+//! parameters at their minimum, default and maximum, and at a value away from the default
+//! (see `away_from_default`).
 //!
 //! The laws:
 //! - **metadata**: names and descriptions are present, port and parameter names are
