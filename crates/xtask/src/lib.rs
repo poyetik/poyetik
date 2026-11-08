@@ -9,6 +9,7 @@
 extern crate alloc;
 
 use alloc::collections::{BTreeMap, BTreeSet};
+use std::ffi::OsString;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -169,6 +170,38 @@ pub struct Step {
     pub name: String,
     /// How it is checked.
     pub action: Action,
+}
+
+/// Why a check or a command failed: one line for stderr, and the details, one per line,
+/// for stdout (every problem a gate found, how to fix it).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Failure {
+    /// What failed, in one line, naming the file or the command involved.
+    pub summary: String,
+    /// The details: one problem or hint per line.
+    pub details: Vec<String>,
+}
+
+impl From<String> for Failure {
+    fn from(summary: String) -> Self {
+        Self {
+            summary,
+            details: Vec::new(),
+        }
+    }
+}
+
+/// The verdict of a gate that found `problems` about `context`: none passes; a single one
+/// is said in the summary line; several are counted there and listed in the details.
+fn verdict(context: &str, problems: Vec<String>) -> Result<(), Failure> {
+    match problems.as_slice() {
+        [] => Ok(()),
+        [only] => Err(Failure::from(format!("{context}: {only}"))),
+        _ => Err(Failure {
+            summary: format!("{context}: {} problems, listed above", problems.len()),
+            details: problems,
+        }),
+    }
 }
 
 /// Builds a command step.
@@ -585,7 +618,7 @@ fn mutant_key(line: &str) -> Option<String> {
 /// # Errors
 ///
 /// Returns a message listing unreviewed mutants, stale reviews and malformed lines.
-pub fn unviable_gate(report: &str, reviewed: &str) -> Result<(), String> {
+pub fn unviable_gate(report: &str, reviewed: &str) -> Result<(), Failure> {
     let mut problems = Vec::new();
     let mut found = BTreeSet::new();
     for line in report.lines().filter(|line| !line.trim().is_empty()) {
@@ -620,14 +653,10 @@ pub fn unviable_gate(report: &str, reviewed: &str) -> Result<(), String> {
             .difference(&found)
             .map(|key| format!("stale review: {key}")),
     );
-    if problems.is_empty() {
-        Ok(())
-    } else {
-        Err(format!(
-            "unviable mutants must be reviewed in {UNVIABLE_REVIEWED}:\n{}",
-            problems.join("\n")
-        ))
-    }
+    verdict(
+        &format!("unviable mutants must be reviewed in {UNVIABLE_REVIEWED}"),
+        problems,
+    )
 }
 
 /// The comment that disables one mutator on the next line, in TypeScript sources.
@@ -644,7 +673,7 @@ const STRYKER_DISABLE: &str = "// Stryker disable next-line ";
 /// # Errors
 ///
 /// Returns a message listing malformed comments, unreviewed and stale entries.
-pub fn equivalent_gate(sources: &[(String, String)], reviewed: &str) -> Result<(), String> {
+pub fn equivalent_gate(sources: &[(String, String)], reviewed: &str) -> Result<(), Failure> {
     let mut problems = Vec::new();
     let mut found = BTreeSet::new();
     for (path, text) in sources {
@@ -697,14 +726,10 @@ pub fn equivalent_gate(sources: &[(String, String)], reviewed: &str) -> Result<(
             .difference(&found)
             .map(|key| format!("stale review: {key}")),
     );
-    if problems.is_empty() {
-        Ok(())
-    } else {
-        Err(format!(
-            "disabled mutants must be reviewed in {EQUIVALENT_REVIEWED}:\n{}",
-            problems.join("\n")
-        ))
-    }
+    verdict(
+        &format!("disabled mutants must be reviewed in {EQUIVALENT_REVIEWED}"),
+        problems,
+    )
 }
 
 /// Checks that the manifests tracked by git are exactly those xtask knows.
@@ -722,7 +747,7 @@ pub fn membership_gate(
     packages: &[String],
     crates: &[(String, String)],
     ignores: &[String],
-) -> Result<(), String> {
+) -> Result<(), Failure> {
     let tracked: BTreeSet<&str> = packages.iter().map(String::as_str).collect();
     let known: BTreeSet<&str> = PACKAGE_JSONS.into_iter().collect();
     let mut problems: Vec<String> = tracked
@@ -770,11 +795,7 @@ pub fn membership_gate(
                 )
             }),
     );
-    if problems.is_empty() {
-        Ok(())
-    } else {
-        Err(problems.join("; "))
-    }
+    verdict("the manifests differ from what xtask knows", problems)
 }
 
 /// Licenses allowed for what the apps ship (their production dependencies): permissive,
@@ -861,7 +882,7 @@ fn licensed(report: &str, what: &str) -> Result<Vec<(String, String)>, String> {
 /// # Errors
 ///
 /// Returns a message naming every package under a license it may not have.
-pub fn license_gate(shipped: &str, all: &str) -> Result<(), String> {
+pub fn license_gate(shipped: &str, all: &str) -> Result<(), Failure> {
     let mut problems: Vec<String> = licensed(shipped, "shipped")?
         .into_iter()
         .filter(|(_, license)| !SHIPPED_LICENSES.contains(&license.as_str()))
@@ -878,11 +899,7 @@ pub fn license_gate(shipped: &str, all: &str) -> Result<(), String> {
             })
             .map(|(name, license)| format!("{name} is under {license}")),
     );
-    if problems.is_empty() {
-        Ok(())
-    } else {
-        Err(format!("licenses not allowed: {}", problems.join(", ")))
-    }
+    verdict("licenses not allowed", problems)
 }
 
 /// The only files allowed to lift the workspace lint against unsafe code, each audited:
@@ -900,7 +917,7 @@ pub const UNSAFE_FILES: [&str; 2] = [
 ///
 /// Returns a message naming every other file that lifts it, and every allowed file that
 /// no longer does.
-pub fn unsafe_gate(sources: &[(String, String)]) -> Result<(), String> {
+pub fn unsafe_gate(sources: &[(String, String)]) -> Result<(), Failure> {
     let lint = format!("{}_{}", "unsafe", "code");
     let lifting: BTreeSet<&str> = sources
         .iter()
@@ -922,11 +939,7 @@ pub fn unsafe_gate(sources: &[(String, String)]) -> Result<(), String> {
                 format!("{path} is listed in UNSAFE_FILES but no longer lifts the lint")
             }))
             .collect();
-    if problems.is_empty() {
-        Ok(())
-    } else {
-        Err(problems.join("; "))
-    }
+    verdict("the lint against unsafe code", problems)
 }
 
 /// The Cargo tools the checks run, at the exact version they need (as `cargo install`
@@ -991,10 +1004,10 @@ pub const NODE_FLOOR: (u64, u64) = (22, 18);
 ///
 /// # Errors
 ///
-/// Returns one message listing every problem found, each with how to fix it: an
+/// Returns one failure listing every problem found, each with how to fix it: an
 /// unsupported platform, a tool that did not answer (with its own reason), or a tool at a
 /// version the checks do not accept.
-pub fn preflight_gate(os: &str, answers: &[Result<String, CommandFailure>]) -> Result<(), String> {
+pub fn preflight_gate(os: &str, answers: &[Result<String, CommandFailure>]) -> Result<(), Failure> {
     let mut problems = Vec::new();
     if os == "windows" {
         problems.push("the checks run on macOS and Linux: on Windows, run them in WSL2".to_owned());
@@ -1030,11 +1043,7 @@ pub fn preflight_gate(os: &str, answers: &[Result<String, CommandFailure>]) -> R
             }
         }
     }
-    if problems.is_empty() {
-        Ok(())
-    } else {
-        Err(problems.join("; "))
-    }
+    verdict("the checks cannot run here", problems)
 }
 
 /// The CI workflow.
@@ -1084,7 +1093,7 @@ pub fn failure_uploads() -> Vec<String> {
 /// # Errors
 ///
 /// Returns every unpinned action and every missing pin.
-pub fn workflow_gate(workflow: &str, node_version: &str) -> Result<(), String> {
+pub fn workflow_gate(workflow: &str, node_version: &str) -> Result<(), Failure> {
     let mut problems: Vec<String> = workflow
         .lines()
         .filter_map(|line| line.trim().trim_start_matches("- ").strip_prefix("uses: "))
@@ -1142,11 +1151,10 @@ pub fn workflow_gate(workflow: &str, node_version: &str) -> Result<(), String> {
             node_version.trim()
         ));
     }
-    if problems.is_empty() {
-        Ok(())
-    } else {
-        Err(problems.join("; "))
-    }
+    verdict(
+        &format!("{WORKFLOW} can change CI without a commit"),
+        problems,
+    )
 }
 
 /// The project manifest holding the workspace version.
@@ -1253,7 +1261,7 @@ pub fn release_gate(
     cargo_toml: &str,
     packages: &[(&str, String)],
     changelog: &str,
-) -> Result<(), String> {
+) -> Result<(), Failure> {
     let mut problems = Vec::new();
     let workspace = workspace_version(cargo_toml);
     let version = workspace.and_then(Version::parse);
@@ -1309,11 +1317,7 @@ pub fn release_gate(
             "version {current} is older than the latest release {latest}"
         ));
     }
-    if problems.is_empty() {
-        Ok(())
-    } else {
-        Err(problems.join("\n"))
-    }
+    verdict("the versions and the changelog", problems)
 }
 
 /// Commit types allowed by the Conventional Commits rule of the project.
@@ -1336,7 +1340,7 @@ pub const COMMIT_HEADER_MAX: usize = 72;
 /// # Errors
 ///
 /// Returns a message explaining the expected format.
-pub fn commit_msg_gate(message: &str) -> Result<(), String> {
+pub fn commit_msg_gate(message: &str) -> Result<(), Failure> {
     let text: Vec<&str> = message
         .lines()
         .filter(|line| !line.starts_with('#'))
@@ -1346,14 +1350,17 @@ pub fn commit_msg_gate(message: &str) -> Result<(), String> {
 
 /// Checks a recorded commit message, as it is, against the convention of
 /// [`commit_msg_gate`].
-fn conventional(message: &str) -> Result<(), String> {
+fn conventional(message: &str) -> Result<(), Failure> {
     let mut lines = message.lines();
     let header = lines.next().unwrap_or("");
     let fail = |reason: &str| {
-        Err(format!(
-            "invalid commit message: {reason}\nexpected: <type>(<scope>)!: <summary>, type one of {}",
-            COMMIT_TYPES.join(", ")
-        ))
+        Err(Failure {
+            summary: format!("invalid commit message: {reason}"),
+            details: vec![format!(
+                "expected: <type>(<scope>)!: <summary>, type one of {}",
+                COMMIT_TYPES.join(", ")
+            )],
+        })
     };
     let Some((prefix, summary)) = header.split_once(": ") else {
         return fail("missing \"<type>: \" prefix");
@@ -1443,7 +1450,7 @@ pub fn changes_behavior(message: &str) -> bool {
 /// # Errors
 ///
 /// Returns one line per commit at fault, naming it by its short hash.
-pub fn history_gate(messages: &str, files: &str) -> Result<(), String> {
+pub fn history_gate(messages: &str, files: &str) -> Result<(), Failure> {
     let short = |hash: &str| hash.chars().take(7).collect::<String>();
     let touched: BTreeMap<&str, Vec<&str>> = files
         .split('\u{1e}')
@@ -1458,9 +1465,8 @@ pub fn history_gate(messages: &str, files: &str) -> Result<(), String> {
     let mut problems = Vec::new();
     for record in messages.split('\u{1e}').filter(|record| !record.is_empty()) {
         let (hash, message) = record.split_once('\u{1f}').unwrap_or((record, ""));
-        if let Err(error) = conventional(message) {
-            let reason = error.lines().next().unwrap_or_default();
-            problems.push(format!("commit {}: {reason}", short(hash)));
+        if let Err(failure) = conventional(message) {
+            problems.push(format!("commit {}: {}", short(hash), failure.summary));
         }
         let unrecorded = touched
             .get(hash)
@@ -1472,11 +1478,7 @@ pub fn history_gate(messages: &str, files: &str) -> Result<(), String> {
             ));
         }
     }
-    if problems.is_empty() {
-        Ok(())
-    } else {
-        Err(problems.join("\n"))
-    }
+    verdict("the history breaks the commit rules", problems)
 }
 
 /// Checks that the pre-push hook validates exactly what is pushed.
@@ -1488,7 +1490,7 @@ pub fn history_gate(messages: &str, files: &str) -> Result<(), String> {
 /// # Errors
 ///
 /// Returns what to commit or check out first.
-pub fn pre_push_gate(head: &str, status: &str, pushed: &[String]) -> Result<(), String> {
+pub fn pre_push_gate(head: &str, status: &str, pushed: &[String]) -> Result<(), Failure> {
     let mut problems = Vec::new();
     if !status.trim().is_empty() {
         problems.push(format!(
@@ -1504,11 +1506,7 @@ pub fn pre_push_gate(head: &str, status: &str, pushed: &[String]) -> Result<(), 
             ));
         }
     }
-    if problems.is_empty() {
-        Ok(())
-    } else {
-        Err(problems.join("; "))
-    }
+    verdict("the push cannot be checked", problems)
 }
 
 /// How a command that ran ended without success.
@@ -1770,26 +1768,28 @@ impl Runner for SystemRunner {
 }
 
 /// Reads a file through `runner`, naming it when it cannot be read.
-fn read_file(runner: &mut dyn Runner, path: &str) -> Result<String, String> {
+fn read_file(runner: &mut dyn Runner, path: &str) -> Result<String, Failure> {
     runner
         .read(path)
-        .map_err(|error| format!("cannot read {path}: {error}"))
+        .map_err(|error| Failure::from(format!("cannot read {path}: {error}")))
+}
+
+/// Captures what a git command run at the root writes, saying what could not be done
+/// (`doing`: "read the work tree") when it fails.
+fn git_output(runner: &mut dyn Runner, args: &[&str], doing: &str) -> Result<String, Failure> {
+    runner
+        .capture(&Cmd {
+            program: "git",
+            args: args.iter().map(|&arg| arg.to_owned()).collect(),
+            dir: Dir::Root,
+        })
+        .map_err(|failure| Failure::from(format!("cannot {doing}: {failure}")))
 }
 
 /// Reads the commit checked out and the state of the working tree, then checks a push.
-fn pre_push(runner: &mut dyn Runner, pushed: &[String]) -> Result<(), String> {
-    let git = |args: &[&str]| Cmd {
-        program: "git",
-        args: args.iter().map(|&arg| arg.to_owned()).collect(),
-        dir: Dir::Root,
-    };
-    let mut read = |cmd: Cmd| {
-        runner
-            .capture(&cmd)
-            .map_err(|failure| format!("cannot read the work tree: {failure}"))
-    };
-    let head = read(git(&["rev-parse", "HEAD"]))?;
-    let status = read(git(&["status", "--porcelain"]))?;
+fn pre_push(runner: &mut dyn Runner, pushed: &[String]) -> Result<(), Failure> {
+    let head = git_output(runner, &["rev-parse", "HEAD"], "read the work tree")?;
+    let status = git_output(runner, &["status", "--porcelain"], "read the work tree")?;
     // Git gives the hook the object pushed: for an annotated tag, the tag object, which is
     // never the commit checked out. The gate compares the commit each object names.
     let commits = pushed
@@ -1798,14 +1798,12 @@ fn pre_push(runner: &mut dyn Runner, pushed: &[String]) -> Result<(), String> {
             if is_deletion(object) {
                 return Ok(object.clone());
             }
-            runner
-                .capture(&git(&[
-                    "rev-parse",
-                    "--verify",
-                    &format!("{object}^{{commit}}"),
-                ]))
-                .map(|commit| commit.trim().to_owned())
-                .map_err(|failure| format!("cannot resolve the pushed {object}: {failure}"))
+            git_output(
+                runner,
+                &["rev-parse", "--verify", &format!("{object}^{{commit}}")],
+                &format!("resolve the pushed {object}"),
+            )
+            .map(|commit| commit.trim().to_owned())
         })
         .collect::<Result<Vec<_>, _>>()?;
     pre_push_gate(&head, &status, &commits)
@@ -1817,17 +1815,17 @@ fn is_deletion(object: &str) -> bool {
 }
 
 /// Reads the history, then checks it.
-fn history(runner: &mut dyn Runner) -> Result<(), String> {
+fn history(runner: &mut dyn Runner) -> Result<(), Failure> {
     let [messages, files] = history_commands(CHANGELOG_SINCE).map(|cmd| {
         runner
             .capture(&cmd)
-            .map_err(|failure| format!("cannot read the history: {failure}"))
+            .map_err(|failure| Failure::from(format!("cannot read the history: {failure}")))
     });
     history_gate(&messages?, &files?)
 }
 
 /// Asks every tool of [`TOOLS`] for its version, then checks them.
-fn preflight(runner: &mut dyn Runner) -> Result<(), String> {
+fn preflight(runner: &mut dyn Runner) -> Result<(), Failure> {
     let answers: Vec<Result<String, CommandFailure>> = TOOLS
         .iter()
         .map(|(program, args, _)| {
@@ -1842,23 +1840,32 @@ fn preflight(runner: &mut dyn Runner) -> Result<(), String> {
     preflight_gate(std::env::consts::OS, &answers)
 }
 
+/// The files tracked by git matching `patterns`, described as `what` if they cannot be
+/// listed.
+fn list_tracked(
+    runner: &mut dyn Runner,
+    patterns: &[&str],
+    what: &str,
+) -> Result<Vec<String>, Failure> {
+    runner
+        .tracked(patterns)
+        .map_err(|failure| Failure::from(format!("cannot list {what}: {failure}")))
+}
+
+/// Reads each of `paths`, with its path.
+fn read_all(runner: &mut dyn Runner, paths: Vec<String>) -> Result<Vec<(String, String)>, Failure> {
+    paths
+        .into_iter()
+        .map(|path| read_file(runner, &path).map(|text| (path, text)))
+        .collect()
+}
+
 /// Lists the manifests tracked by git, then checks them.
-fn membership(runner: &mut dyn Runner) -> Result<(), String> {
-    let list = |source: &mut dyn Runner, pattern: &str| {
-        source
-            .tracked(&[pattern])
-            .map_err(|failure| format!("cannot list the {pattern} files: {failure}"))
-    };
-    let read_all = |source: &mut dyn Runner, paths: Vec<String>| {
-        paths
-            .into_iter()
-            .map(|path| read_file(source, &path).map(|text| (path, text)))
-            .collect::<Result<Vec<_>, _>>()
-    };
-    let packages = list(runner, "*package.json")?;
-    let ignores = list(runner, "*.gitignore")?;
-    let manifests = list(runner, "*Cargo.toml")?;
-    let readmes = list(runner, "*README.md")?;
+fn membership(runner: &mut dyn Runner) -> Result<(), Failure> {
+    let packages = list_tracked(runner, &["*package.json"], "the *package.json files")?;
+    let ignores = list_tracked(runner, &["*.gitignore"], "the *.gitignore files")?;
+    let manifests = list_tracked(runner, &["*Cargo.toml"], "the *Cargo.toml files")?;
+    let readmes = list_tracked(runner, &["*README.md"], "the *README.md files")?;
     let crates = read_all(runner, manifests)?;
     let readmes = read_all(runner, readmes)?;
     membership_gate(&packages, &crates, &ignores)?;
@@ -1887,7 +1894,7 @@ fn membership(runner: &mut dyn Runner) -> Result<(), String> {
 /// # Errors
 ///
 /// Returns every missing README and every part a README does not name.
-pub fn readme_gate(parts: &[String], readmes: &[(String, String)]) -> Result<(), String> {
+pub fn readme_gate(parts: &[String], readmes: &[(String, String)]) -> Result<(), Failure> {
     let text = |path: &str| {
         readmes
             .iter()
@@ -1924,116 +1931,112 @@ pub fn readme_gate(parts: &[String], readmes: &[(String, String)]) -> Result<(),
             .filter(|folder| !root.contains(&format!("`{folder}/`")))
             .map(|folder| format!("README.md does not name {folder}/")),
     );
-    if problems.is_empty() {
-        Ok(())
-    } else {
-        Err(problems.join("; "))
-    }
+    verdict("parts not described", problems)
 }
 
 /// Lists the licenses of what ships and of everything, then checks them.
-fn licenses(runner: &mut dyn Runner) -> Result<(), String> {
-    let [shipped, all] = license_commands();
-    let report = |source: &mut dyn Runner, cmd: &Cmd| {
-        source
-            .capture(cmd)
-            .map_err(|failure| format!("cannot list licenses: {failure}"))
-    };
-    report(runner, &shipped)
-        .and_then(|shipped| report(runner, &all).and_then(|all| license_gate(&shipped, &all)))
+fn licenses(runner: &mut dyn Runner) -> Result<(), Failure> {
+    let [shipped, all] = license_commands().map(|cmd| {
+        runner
+            .capture(&cmd)
+            .map_err(|failure| Failure::from(format!("cannot list licenses: {failure}")))
+    });
+    license_gate(&shipped?, &all?)
 }
 
 /// Runs one action of a step.
-fn run_action(action: &Action, runner: &mut dyn Runner) -> Result<(), String> {
+fn run_action(action: &Action, runner: &mut dyn Runner) -> Result<(), Failure> {
     match action {
-        Action::Run(cmd) => runner.run(cmd).map_err(|failure| failure.to_string()),
-        Action::CoverageGate(path) => {
-            read_file(runner, path).and_then(|report| coverage_gate(&report))
-        }
-        Action::ReleaseGate => read_file(runner, CARGO_TOML).and_then(|cargo| {
-            PACKAGE_JSONS
+        Action::Run(cmd) => runner
+            .run(cmd)
+            .map_err(|failure| Failure::from(failure.to_string())),
+        Action::CoverageGate(path) => Ok(coverage_gate(&read_file(runner, path)?)?),
+        Action::ReleaseGate => {
+            let cargo = read_file(runner, CARGO_TOML)?;
+            let packages = PACKAGE_JSONS
                 .iter()
                 .map(|&path| read_file(runner, path).map(|text| (path, text)))
-                .collect::<Result<Vec<_>, _>>()
-                .and_then(|packages| {
-                    read_file(runner, CHANGELOG)
-                        .and_then(|changelog| release_gate(&cargo, &packages, &changelog))
-                })
-        }),
-        Action::FreshDir(path) => runner
-            .fresh_dir(path)
-            .map_err(|error| format!("cannot empty {path}: {error}")),
-        Action::FreshDirs(paths) => paths.iter().try_for_each(|path| {
-            runner
-                .fresh_dir(path)
-                .map_err(|error| format!("cannot empty {path}: {error}"))
-        }),
+                .collect::<Result<Vec<_>, _>>()?;
+            release_gate(&cargo, &packages, &read_file(runner, CHANGELOG)?)
+        }
+        Action::FreshDir(path) => fresh(runner, path),
+        Action::FreshDirs(paths) => paths.iter().try_for_each(|path| fresh(runner, path)),
         Action::MembershipGate => membership(runner),
         Action::Preflight => preflight(runner),
         Action::HistoryGate => history(runner),
-        Action::WorkflowGate => read_file(runner, WORKFLOW).and_then(|workflow| {
-            read_file(runner, NODE_VERSION_FILE).and_then(|node| workflow_gate(&workflow, &node))
-        }),
-        Action::UnsafeGate => runner
-            .tracked(&["*.rs"])
-            .map_err(|failure| format!("cannot list the Rust files: {failure}"))
-            .and_then(|paths| {
-                paths
-                    .into_iter()
-                    .map(|path| read_file(runner, &path).map(|text| (path, text)))
-                    .collect::<Result<Vec<_>, _>>()
-            })
-            .and_then(|sources| unsafe_gate(&sources)),
+        Action::WorkflowGate => {
+            let workflow = read_file(runner, WORKFLOW)?;
+            workflow_gate(&workflow, &read_file(runner, NODE_VERSION_FILE)?)
+        }
+        Action::UnsafeGate => {
+            let paths = list_tracked(runner, &["*.rs"], "the Rust files")?;
+            unsafe_gate(&read_all(runner, paths)?)
+        }
         Action::LicenseGate => licenses(runner),
         Action::TypeScriptReportsGate => TYPESCRIPT_PACKAGES.iter().try_for_each(|package| {
-            read_file(runner, &format!("{package}/coverage/coverage-summary.json"))
-                .and_then(|summary| ts_coverage_gate(package, &summary))?;
-            read_file(runner, &format!("{package}/reports/mutation/mutation.json"))
-                .and_then(|report| ts_mutation_gate(package, &report))
+            let summary = read_file(runner, &format!("{package}/coverage/coverage-summary.json"))?;
+            ts_coverage_gate(package, &summary)?;
+            let report = read_file(runner, &format!("{package}/reports/mutation/mutation.json"))?;
+            Ok(ts_mutation_gate(package, &report)?)
         }),
-        Action::EquivalentGate => runner
-            .tracked(&["*.ts", "*.tsx"])
-            .map_err(|failure| format!("cannot list the TypeScript files: {failure}"))
-            .and_then(|paths| {
-                paths
-                    .into_iter()
-                    .map(|path| read_file(runner, &path).map(|text| (path, text)))
-                    .collect::<Result<Vec<_>, _>>()
-            })
-            .and_then(|sources| {
-                read_file(runner, EQUIVALENT_REVIEWED)
-                    .and_then(|reviewed| equivalent_gate(&sources, &reviewed))
-            }),
-        Action::UnviableGate => read_file(runner, UNVIABLE_REPORT).and_then(|report| {
-            read_file(runner, UNVIABLE_REVIEWED)
-                .and_then(|reviewed| unviable_gate(&report, &reviewed))
-        }),
+        Action::EquivalentGate => {
+            let paths = list_tracked(runner, &["*.ts", "*.tsx"], "the TypeScript files")?;
+            let sources = read_all(runner, paths)?;
+            equivalent_gate(&sources, &read_file(runner, EQUIVALENT_REVIEWED)?)
+        }
+        Action::UnviableGate => {
+            let report = read_file(runner, UNVIABLE_REPORT)?;
+            unviable_gate(&report, &read_file(runner, UNVIABLE_REVIEWED)?)
+        }
     }
+}
+
+/// Empties a directory through `runner`, naming it when it cannot.
+fn fresh(runner: &mut dyn Runner, path: &str) -> Result<(), Failure> {
+    runner
+        .fresh_dir(path)
+        .map_err(|error| Failure::from(format!("cannot empty {path}: {error}")))
+}
+
+/// Writes one line to stdout, naming stdout when it cannot.
+fn say(out: &mut dyn Write, line: &str) -> Result<(), Failure> {
+    writeln!(out, "{line}")
+        .map_err(|error| Failure::from(format!("cannot write to stdout: {error}")))
 }
 
 /// Runs `steps` in order and stops at the first failure.
 ///
 /// # Errors
 ///
-/// Returns a message naming the failed step and why.
+/// Returns the failure of the first step that failed, its summary naming the step, or why
+/// the progress could not be written.
 pub fn run_steps(
     steps: &[Step],
     runner: &mut dyn Runner,
     out: &mut dyn Write,
-) -> Result<(), String> {
+) -> Result<(), Failure> {
     let total_steps = steps.len();
     for (index, step) in steps.iter().enumerate() {
         let number = index.saturating_add(1);
-        writeln!(out, "▶ [{number}/{total_steps}] {}", step.name)
-            .map_err(|error| error.to_string())?;
-        let outcome = run_action(&step.action, runner);
-        outcome.map_err(|reason| format!("✘ {}: {reason}", step.name))?;
+        say(out, &format!("▶ [{number}/{total_steps}] {}", step.name))?;
+        run_action(&step.action, runner).map_err(|failure| Failure {
+            summary: format!("{}: {}", step.name, failure.summary),
+            details: failure.details,
+        })?;
     }
-    writeln!(out, "✔ all {total_steps} checks passed").map_err(|error| error.to_string())
+    say(out, &format!("✔ all {total_steps} checks passed"))
 }
 
-/// Usage of the `xtask` command.
-pub const USAGE: &str = "usage: cargo xtask <check|list|bless|commit-msg <file>|pre-push [commit...]|help>\n  check              run every quality check, as CI and the pre-push hook do\n  pre-push [commit...] check that the tree is clean and the pushed commits are checked out, then check\n  list               list the checks, in the order they run\n  bless              rewrite conformance/references.json from the current renders\n  commit-msg <file>  check a commit message (used by the commit-msg hook)\n  help               show this help";
+/// Usage of the `xtask` command, in the order of its first line.
+pub const USAGE: &str = "\
+usage: cargo xtask <check|list|bless|commit-msg <file>|pre-push [commit...]|help>
+  check                 run every quality check, as CI and the pre-push hook do
+  list                  list the checks, in the order they run
+  bless                 rewrite conformance/references.json from the current renders
+  commit-msg <file>     check a commit message (used by the commit-msg hook)
+  pre-push [commit...]  check that the tree is clean and the pushed commits are checked
+                        out, then run every check (used by the pre-push hook)
+  help                  show this help";
 
 /// The only way to change the reference hashes: renders every conformance case and
 /// rewrites `conformance/references.json`. The commit must explain why they changed.
@@ -2056,44 +2059,103 @@ pub fn bless_step() -> Step {
     )
 }
 
-/// Entry point: runs the command named by `args` and returns the exit code: 0 on success,
-/// 1 when a check or a command failed (the reason on `err`), 2 for a usage error.
+/// A command of `cargo xtask`, read from its arguments.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Task {
+    /// Every check.
+    Check,
+    /// The list of the checks.
+    List,
+    /// Rewrite the reference hashes.
+    Bless,
+    /// Check the commit message in this file.
+    CommitMsg(String),
+    /// Check what is pushed (these objects), then every check.
+    PrePush(Vec<String>),
+    /// The usage.
+    Help,
+}
+
+/// Reads the arguments (the program name excluded): every one must be UTF-8 text.
+///
+/// # Errors
+///
+/// Returns the usage error, in one line.
+fn task(args: &[OsString]) -> Result<Task, String> {
+    let args = args
+        .iter()
+        .map(|arg| {
+            arg.to_str()
+                .map(str::to_owned)
+                .ok_or_else(|| format!("argument is not valid UTF-8: {}", arg.to_string_lossy()))
+        })
+        .collect::<Result<Vec<String>, String>>()?;
+    let alone = ["check", "list", "bless", "help"];
+    match args.as_slice() {
+        [] => Err("no command given".to_owned()),
+        [command] if command == "check" => Ok(Task::Check),
+        [command] if command == "list" => Ok(Task::List),
+        [command] if command == "bless" => Ok(Task::Bless),
+        [command] if command == "help" => Ok(Task::Help),
+        [command, file] if command == "commit-msg" => Ok(Task::CommitMsg(file.clone())),
+        [command, pushed @ ..] if command == "pre-push" => Ok(Task::PrePush(pushed.to_vec())),
+        [command, ..] if alone.contains(&command.as_str()) => {
+            Err(format!("`{command}` takes no argument"))
+        }
+        [command, ..] if command == "commit-msg" => Err("`commit-msg` takes one file".to_owned()),
+        [command, ..] => Err(format!("unknown command \"{command}\"")),
+    }
+}
+
+/// Entry point: runs the command named by `args` (the program name excluded) and returns
+/// the exit code, as every command-line tool of the repository does.
+///
+/// 0 on success. 1 when a check or a command failed: one `error: …` line on `err`, its
+/// details on `out`. 2 for a usage error: one `error: … (see: cargo xtask help)` line on
+/// `err`, nothing on `out`. Only `help` prints the usage, on `out`.
 pub fn cli(
-    args: &[String],
+    args: &[OsString],
     runner: &mut dyn Runner,
     out: &mut dyn Write,
     err: &mut dyn Write,
 ) -> u8 {
-    let result = match args {
-        [command] if command == "check" => run_steps(&check_steps(), runner, out),
-        [command] if command == "bless" => run_steps(&[bless_step()], runner, out),
-        [command, path] if command == "commit-msg" => {
-            read_file(runner, path).and_then(|message| commit_msg_gate(&message))
-        }
-        [command, pushed @ ..] if command == "pre-push" => {
-            pre_push(runner, pushed).and_then(|()| run_steps(&check_steps(), runner, out))
-        }
-        [command] if command == "help" => {
-            writeln!(out, "{USAGE}").map_err(|error| error.to_string())
-        }
-        [command] if command == "list" => check_steps()
-            .iter()
-            .enumerate()
-            .try_for_each(|(index, step)| {
-                writeln!(out, "{:>2}. {}", index.saturating_add(1), step.name)
-            })
-            .map_err(|error| error.to_string()),
-        _ => {
+    let task = match task(args) {
+        Ok(task) => task,
+        Err(usage) => {
             // Nothing more can be done if stderr itself is broken: the exit code still tells.
-            drop(writeln!(err, "{USAGE}"));
+            drop(writeln!(err, "error: {usage} (see: cargo xtask help)"));
             return 2;
         }
     };
+    let result = match task {
+        Task::Check => run_steps(&check_steps(), runner, out),
+        Task::Bless => run_steps(&[bless_step()], runner, out),
+        Task::CommitMsg(path) => {
+            read_file(runner, &path).and_then(|message| commit_msg_gate(&message))
+        }
+        Task::PrePush(pushed) => {
+            pre_push(runner, &pushed).and_then(|()| run_steps(&check_steps(), runner, out))
+        }
+        Task::Help => say(out, USAGE),
+        Task::List => check_steps()
+            .iter()
+            .enumerate()
+            .try_for_each(|(index, step)| {
+                say(
+                    out,
+                    &format!("{:>2}. {}", index.saturating_add(1), step.name),
+                )
+            }),
+    };
     match result {
         Ok(()) => 0,
-        Err(message) => {
-            // Nothing more can be done if stderr itself is broken: the exit code still fails.
-            drop(writeln!(err, "{message}"));
+        Err(failure) => {
+            // Nothing more can be done if an output itself is broken: the exit code still
+            // fails.
+            for detail in &failure.details {
+                drop(writeln!(out, "{detail}"));
+            }
+            drop(writeln!(err, "error: {}", failure.summary));
             1
         }
     }

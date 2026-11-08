@@ -7,9 +7,11 @@ use std::process::ExitCode;
 
 /// Runs the requested task from the repository root.
 ///
-/// Exit codes: 0 on success, 1 when a check or a command failed, 2 for a usage error.
+/// The arguments are read as they are (`args_os`): one that is not UTF-8 is a usage error,
+/// never a panic. Exit codes: 0 on success, 1 when a check or a command failed, 2 for a
+/// usage error, each failure told in one `error:` line on stderr.
 fn main() -> ExitCode {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    let args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let mut runner = xtask::SystemRunner { root };
     ExitCode::from(xtask::cli(

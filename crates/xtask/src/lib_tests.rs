@@ -3,17 +3,18 @@
 extern crate alloc;
 
 use alloc::collections::BTreeMap;
+use std::ffi::OsString;
 use std::io;
 use std::path::Path;
 use std::process::Command;
 
 use super::{
     Action, BestEffort, CARGO_TOML, CHANGELOG, COMMIT_HEADER_MAX, COVERAGE_REPORT, Cmd,
-    CommandFailure, Dir, EQUIVALENT_REVIEWED, Exit, Failed, PACKAGE_JSONS, PORTABILITY_TARGETS,
-    Runner, Step, SystemRunner, TYPESCRIPT_PACKAGES, UNSAFE_FILES, UNVIABLE_REPORT,
-    UNVIABLE_REVIEWED, USAGE, Version, bless_step, check_steps, cli, commit_msg_gate,
-    coverage_gate, equivalent_gate, license_gate, membership_gate, preflight_gate, release_gate,
-    run_steps, ts_coverage_gate, ts_mutation_gate, unsafe_gate, unviable_gate,
+    CommandFailure, Dir, EQUIVALENT_REVIEWED, Exit, Failed, Failure, PACKAGE_JSONS,
+    PORTABILITY_TARGETS, Runner, Step, SystemRunner, TYPESCRIPT_PACKAGES, UNSAFE_FILES,
+    UNVIABLE_REPORT, UNVIABLE_REVIEWED, USAGE, Version, bless_step, check_steps, cli,
+    commit_msg_gate, coverage_gate, equivalent_gate, license_gate, membership_gate, preflight_gate,
+    release_gate, run_steps, ts_coverage_gate, ts_mutation_gate, unsafe_gate, unviable_gate,
 };
 
 /// Runs git in `dir` hermetically, and returns its stdout: no variable of an enclosing git
@@ -46,6 +47,39 @@ fn scratch(name: &str) -> std::path::PathBuf {
     }
     std::fs::create_dir_all(&dir).expect("scratch directory");
     dir
+}
+
+/// Runs [`cli`] on UTF-8 arguments.
+fn run_cli(
+    args: &[String],
+    runner: &mut dyn Runner,
+    out: &mut dyn io::Write,
+    err: &mut dyn io::Write,
+) -> u8 {
+    let args: Vec<OsString> = args.iter().map(OsString::from).collect();
+    cli(&args, runner, out, err)
+}
+
+/// The failure a test expects, written as it is shown: its summary line, then one line
+/// per detail.
+fn failed(text: impl AsRef<str>) -> Result<(), Failure> {
+    let mut lines = text.as_ref().lines().map(str::to_owned);
+    Err(Failure {
+        summary: lines.next().unwrap_or_default(),
+        details: lines.collect(),
+    })
+}
+
+/// The failure of a gate that found `problems` about `context`, as [`super::verdict`]
+/// shows it (tested on its own by `shows_one_problem_inline_and_lists_several`).
+fn found(context: &str, problems: &[String]) -> Result<(), Failure> {
+    match problems {
+        [only] => failed(format!("{context}: {only}")),
+        _ => Err(Failure {
+            summary: format!("{context}: {} problems, listed above", problems.len()),
+            details: problems.to_vec(),
+        }),
+    }
 }
 
 /// Records commands and answers with scripted results.
@@ -593,7 +627,7 @@ fn stops_at_the_first_failing_command() {
     let mut out = Vec::new();
     assert_eq!(
         run_steps(&check_steps(), &mut fake, &mut out),
-        Err("✘ Rust tests: `cargo test --workspace --locked` exited with code 3".to_owned()),
+        failed("Rust tests: `cargo test --workspace --locked` exited with code 3"),
         "failure is named"
     );
     assert_eq!(
@@ -609,7 +643,7 @@ fn reports_commands_that_cannot_start() {
     fake.broken = Some("cargo fmt --all --check".to_owned());
     assert_eq!(
         run_steps(&check_steps(), &mut fake, &mut Vec::new()),
-        Err("✘ Rust formatting: cannot run `cargo fmt --all --check`: not found".to_owned()),
+        failed("Rust formatting: cannot run `cargo fmt --all --check`: not found"),
         "start failure is named"
     );
 }
@@ -619,8 +653,8 @@ fn fails_on_missing_or_incomplete_coverage() {
     let mut missing = Fake::default();
     assert_eq!(
         run_steps(&check_steps(), &mut missing, &mut Vec::new()),
-        Err(format!(
-            "✘ Rust coverage: 100% lines, functions and branches: cannot read {COVERAGE_REPORT}: missing"
+        failed(format!(
+            "Rust coverage: 100% lines, functions and branches: cannot read {COVERAGE_REPORT}: missing"
         )),
         "missing report"
     );
@@ -631,9 +665,8 @@ fn fails_on_missing_or_incomplete_coverage() {
     assert!(previous.is_none(), "fresh fake");
     assert_eq!(
         run_steps(&check_steps(), &mut partial, &mut Vec::new()),
-        Err(
-            "✘ Rust coverage: 100% lines, functions and branches: coverage is not 100%: lines 1/2"
-                .to_owned()
+        failed(
+            "Rust coverage: 100% lines, functions and branches: coverage is not 100%: lines 1/2"
         ),
         "incomplete coverage"
     );
@@ -654,14 +687,14 @@ impl io::Write for Broken {
 fn reports_a_broken_output() {
     assert_eq!(
         run_steps(&check_steps(), &mut passing(), &mut Broken),
-        Err("closed".to_owned()),
+        failed("cannot write to stdout: closed"),
         "cannot even announce a step"
     );
     let one = vec![check_steps().remove(0)];
     let mut limited = Limited(1);
     assert_eq!(
         run_steps(&one, &mut passing(), &mut limited),
-        Err("closed".to_owned()),
+        failed("cannot write to stdout: closed"),
         "cannot write the summary"
     );
 }
@@ -687,7 +720,7 @@ impl io::Write for Limited {
 fn cli_runs_check_and_reports_errors() {
     let (mut out, mut err) = (Vec::new(), Vec::new());
     assert_eq!(
-        cli(&["check".to_owned()], &mut passing(), &mut out, &mut err),
+        run_cli(&["check".to_owned()], &mut passing(), &mut out, &mut err),
         0,
         "check passes"
     );
@@ -697,7 +730,7 @@ fn cli_runs_check_and_reports_errors() {
     failing.fail = Some("cargo deny --locked check".to_owned());
     let mut err2 = Vec::new();
     assert_eq!(
-        cli(
+        run_cli(
             &["check".to_owned()],
             &mut failing,
             &mut Vec::new(),
@@ -708,7 +741,7 @@ fn cli_runs_check_and_reports_errors() {
     );
     assert_eq!(
         String::from_utf8(err2).expect("UTF-8"),
-        "✘ Rust supply chain: `cargo deny --locked check` exited with code 3\n",
+        "error: Rust supply chain: `cargo deny --locked check` exited with code 3\n",
         "the command and its exit code on stderr"
     );
 
@@ -716,7 +749,7 @@ fn cli_runs_check_and_reports_errors() {
     killed.killed = Some("cargo deny --locked check".to_owned());
     let mut err3 = Vec::new();
     assert_eq!(
-        cli(
+        run_cli(
             &["check".to_owned()],
             &mut killed,
             &mut Vec::new(),
@@ -727,13 +760,13 @@ fn cli_runs_check_and_reports_errors() {
     );
     assert_eq!(
         String::from_utf8(err3).expect("UTF-8"),
-        "✘ Rust supply chain: `cargo deny --locked check` was stopped by signal 9 (SIGKILL)\n",
+        "error: Rust supply chain: `cargo deny --locked check` was stopped by signal 9 (SIGKILL)\n",
         "explained"
     );
 
     let mut help = Vec::new();
     assert_eq!(
-        cli(
+        run_cli(
             &["help".to_owned()],
             &mut passing(),
             &mut help,
@@ -744,7 +777,7 @@ fn cli_runs_check_and_reports_errors() {
     );
     assert_eq!(help, format!("{USAGE}\n").into_bytes(), "help on stdout");
     assert_eq!(
-        cli(
+        run_cli(
             &["help".to_owned()],
             &mut passing(),
             &mut Broken,
@@ -754,26 +787,13 @@ fn cli_runs_check_and_reports_errors() {
         "broken stdout"
     );
 
-    for args in [
-        vec![],
-        vec!["nope".to_owned()],
-        vec!["check".to_owned(), "x".to_owned()],
-    ] {
-        let mut usage = Vec::new();
-        assert_eq!(
-            cli(&args, &mut passing(), &mut Vec::new(), &mut usage),
-            2,
-            "{args:?} is a usage error"
-        );
-        assert_eq!(usage, format!("{USAGE}\n").into_bytes(), "usage on stderr");
-    }
     assert_eq!(
-        cli(&[], &mut passing(), &mut Vec::new(), &mut Broken),
+        run_cli(&[], &mut passing(), &mut Vec::new(), &mut Broken),
         2,
         "broken stderr still tells"
     );
     assert_eq!(
-        cli(
+        run_cli(
             &["commit-msg".to_owned(), "missing".to_owned()],
             &mut passing(),
             &mut Vec::new(),
@@ -949,10 +969,7 @@ fn reports_a_directory_that_cannot_be_emptied() {
     fake.broken = Some("fresh target/conformance".to_owned());
     assert_eq!(
         run_steps(&check_steps(), &mut fake, &mut Vec::new()),
-        Err(
-            "✘ Fresh conformance export directory: cannot empty target/conformance: busy"
-                .to_owned()
-        ),
+        failed("Fresh conformance export directory: cannot empty target/conformance: busy"),
         "named and explained"
     );
 }
@@ -977,8 +994,8 @@ fn rejects_unreviewed_stale_and_malformed_entries() {
     );
     assert_eq!(
         error,
-        Err(format!(
-            "unviable mutants must be reviewed in {UNVIABLE_REVIEWED}:\n{}",
+        failed(format!(
+            "unviable mutants must be reviewed in {UNVIABLE_REVIEWED}: 6 problems, listed above\n{}",
             [
                 "unrecognized mutant: not a mutant line",
                 "unrecognized mutant: crates/a/src/b.rs:9:9",
@@ -1000,8 +1017,8 @@ fn fails_when_unviable_files_are_missing_or_unreviewed() {
     assert!(removed_report.is_some(), "report removed");
     assert_eq!(
         run_steps(&check_steps(), &mut no_report, &mut Vec::new()),
-        Err(format!(
-            "✘ Rust unviable mutants reviewed: cannot read {UNVIABLE_REPORT}: missing"
+        failed(format!(
+            "Rust unviable mutants reviewed: cannot read {UNVIABLE_REPORT}: missing"
         )),
         "missing report"
     );
@@ -1010,8 +1027,8 @@ fn fails_when_unviable_files_are_missing_or_unreviewed() {
     assert!(removed_reviews.is_some(), "reviews removed");
     assert_eq!(
         run_steps(&check_steps(), &mut no_reviews, &mut Vec::new()),
-        Err(format!(
-            "✘ Rust unviable mutants reviewed: cannot read {UNVIABLE_REVIEWED}: missing"
+        failed(format!(
+            "Rust unviable mutants reviewed: cannot read {UNVIABLE_REVIEWED}: missing"
         )),
         "missing reviews"
     );
@@ -1021,7 +1038,7 @@ fn fails_when_unviable_files_are_missing_or_unreviewed() {
         .insert(UNVIABLE_REVIEWED.to_owned(), String::new());
     assert!(
         run_steps(&check_steps(), &mut unreviewed, &mut Vec::new())
-            .is_err_and(|error| error.contains("not reviewed: crates/a/src/b.rs")),
+            .is_err_and(|error| error.summary.contains("not reviewed: crates/a/src/b.rs")),
         "unreviewed mutant"
     );
 }
@@ -1044,19 +1061,18 @@ fn accepts_exactly_the_reviewed_equivalent_mutants() {
         Ok(()),
         "nothing disabled"
     );
-    let error = equivalent_gate(&source(disabled), "b.ts: X at y -- old\nno reason here\n")
-        .expect_err("unreviewed, stale and malformed");
+    let error = equivalent_gate(&source(disabled), "b.ts: X at y -- old\nno reason here\n");
     assert_eq!(
         error,
-        format!(
-            "disabled mutants must be reviewed in {EQUIVALENT_REVIEWED}:\n{}",
+        failed(format!(
+            "disabled mutants must be reviewed in {EQUIVALENT_REVIEWED}: 3 problems, listed above\n{}",
             [
                 "review without a reason: no reason here",
                 "not reviewed: a.ts: EqualityOperator at i < n",
                 "stale review: b.ts: X at y",
             ]
             .join("\n")
-        ),
+        )),
         "every problem is listed"
     );
 }
@@ -1084,8 +1100,8 @@ fn refuses_broad_or_unexplained_disables() {
     ] {
         assert_eq!(
             equivalent_gate(&[("a.ts".to_owned(), text.to_owned())], ""),
-            Err(format!(
-                "disabled mutants must be reviewed in {EQUIVALENT_REVIEWED}:\na.ts:{line}: write `// Stryker disable next-line <Mutator>: <reason>` above the line"
+            failed(format!(
+                "disabled mutants must be reviewed in {EQUIVALENT_REVIEWED}: a.ts:{line}: write `// Stryker disable next-line <Mutator>: <reason>` above the line"
             )),
             "{text:?}"
         );
@@ -1098,9 +1114,8 @@ fn fails_when_equivalent_files_cannot_be_read() {
     no_list.broken = Some("list *.ts *.tsx".to_owned());
     assert_eq!(
         run_steps(&check_steps(), &mut no_list, &mut Vec::new()),
-        Err(
-            "✘ TypeScript equivalent mutants reviewed: cannot list the TypeScript files: `git ls-files -- *.ts *.tsx` exited with code 128: fatal: not a git repository"
-                .to_owned()
+        failed(
+            "TypeScript equivalent mutants reviewed: cannot list the TypeScript files: `git ls-files -- *.ts *.tsx` exited with code 128: fatal: not a git repository"
         ),
         "no listing"
     );
@@ -1109,8 +1124,8 @@ fn fails_when_equivalent_files_cannot_be_read() {
     assert!(removed.is_some(), "reviews removed");
     assert_eq!(
         run_steps(&check_steps(), &mut no_reviews, &mut Vec::new()),
-        Err(format!(
-            "✘ TypeScript equivalent mutants reviewed: cannot read {EQUIVALENT_REVIEWED}: missing"
+        failed(format!(
+            "TypeScript equivalent mutants reviewed: cannot read {EQUIVALENT_REVIEWED}: missing"
         )),
         "missing reviews"
     );
@@ -1238,48 +1253,67 @@ fn accepts_a_consistent_release_setup() {
 fn rejects_inconsistent_versions() {
     assert_eq!(
         release_gate(CARGO, &roadmap_package(r#"{"version": "0.3.0"}"#), LOG),
-        Err(format!(
-            "{}: version 0.3.0 differs from the workspace version 0.2.0",
-            PACKAGE_JSONS[1]
-        )),
+        found(
+            "the versions and the changelog",
+            &[format!(
+                "{}: version 0.3.0 differs from the workspace version 0.2.0",
+                PACKAGE_JSONS[1]
+            )]
+        ),
         "different versions"
     );
     assert_eq!(
         release_gate(CARGO, &roadmap_package("not json"), LOG),
-        Err(format!(
-            "{}: version (missing) differs from the workspace version 0.2.0",
-            PACKAGE_JSONS[1]
-        )),
+        found(
+            "the versions and the changelog",
+            &[format!(
+                "{}: version (missing) differs from the workspace version 0.2.0",
+                PACKAGE_JSONS[1]
+            )]
+        ),
         "unreadable package"
     );
     assert_eq!(
         release_gate(CARGO, &packages(r#"{"version": "0.1.0"}"#), LOG),
-        Err(PACKAGE_JSONS
-            .iter()
-            .map(|path| format!("{path}: version 0.1.0 differs from the workspace version 0.2.0"))
-            .collect::<Vec<_>>()
-            .join("\n")),
+        found(
+            "the versions and the changelog",
+            &PACKAGE_JSONS
+                .iter()
+                .map(|path| format!(
+                    "{path}: version 0.1.0 differs from the workspace version 0.2.0"
+                ))
+                .collect::<Vec<_>>()
+        ),
         "every manifest is checked"
     );
     assert_eq!(
         release_gate("[workspace]\n", &packages(r#"{"version": 1}"#), LOG),
-        Err(format!(
-            "{CARGO_TOML}: [workspace.package] version must be X.Y.Z"
-        )),
+        found(
+            "the versions and the changelog",
+            &[format!(
+                "{CARGO_TOML}: [workspace.package] version must be X.Y.Z"
+            )]
+        ),
         "no workspace version, and none in the package either"
     );
     let bad = CARGO.replace("0.2.0\"\n\n[other]", "0.2\"\n\n[other]");
     assert_eq!(
         release_gate(&bad, &packages(&PACKAGE.replace("0.2.0", "0.2")), LOG),
-        Err(format!(
-            "{CARGO_TOML}: [workspace.package] version must be X.Y.Z"
-        )),
+        found(
+            "the versions and the changelog",
+            &[format!(
+                "{CARGO_TOML}: [workspace.package] version must be X.Y.Z"
+            )]
+        ),
         "not X.Y.Z"
     );
     let old = CARGO.replace("0.2.0\"\n\n[other]", "0.1.9\"\n\n[other]");
     assert_eq!(
         release_gate(&old, &packages(&PACKAGE.replace("0.2.0", "0.1.9")), LOG),
-        Err("version 0.1.9 is older than the latest release 0.2.0".to_owned()),
+        found(
+            "the versions and the changelog",
+            &["version 0.1.9 is older than the latest release 0.2.0".to_owned()]
+        ),
         "older than released"
     );
 }
@@ -1292,9 +1326,13 @@ fn rejects_a_malformed_changelog() {
             &packages(PACKAGE),
             "Changelog\n## [0.2.0] - 2026-11-07\n"
         ),
-        Err(format!(
-            "{CHANGELOG}: must start with \"# Changelog\"\n{CHANGELOG}: the first section must be \"## [Unreleased]\""
-        )),
+        found(
+            "the versions and the changelog",
+            &[
+                format!("{CHANGELOG}: must start with \"# Changelog\""),
+                format!("{CHANGELOG}: the first section must be \"## [Unreleased]\"")
+            ]
+        ),
         "missing title and unreleased section"
     );
     for heading in [
@@ -1314,7 +1352,10 @@ fn rejects_a_malformed_changelog() {
                 &packages(PACKAGE),
                 &format!("# Changelog\n## [Unreleased]\n{heading}\n")
             ),
-            Err(format!("{CHANGELOG}: malformed heading \"{heading}\"")),
+            found(
+                "the versions and the changelog",
+                &[format!("{CHANGELOG}: malformed heading \"{heading}\"")]
+            ),
             "{heading}"
         );
     }
@@ -1328,9 +1369,12 @@ fn rejects_a_malformed_changelog() {
                 &packages(PACKAGE),
                 &format!("# Changelog\n## [Unreleased]\n{order}\n")
             ),
-            Err(format!(
-                "{CHANGELOG}: releases must be in strictly decreasing order"
-            )),
+            found(
+                "the versions and the changelog",
+                &[format!(
+                    "{CHANGELOG}: releases must be in strictly decreasing order"
+                )]
+            ),
             "{order}"
         );
     }
@@ -1369,7 +1413,7 @@ fn accepts_conventional_commit_messages() {
 #[test]
 fn rejects_other_commit_messages() {
     let expected = |reason: &str| {
-        Err(format!(
+        failed(format!(
             "invalid commit message: {reason}\nexpected: <type>(<scope>)!: <summary>, type one of feat, fix, docs, test, refactor, perf, build, ci, chore, style, revert"
         ))
     };
@@ -1430,7 +1474,7 @@ fn cli_checks_commit_messages() {
     let (mut out, mut err) = (Vec::new(), Vec::new());
     let args = ["commit-msg".to_owned(), "COMMIT_EDITMSG".to_owned()];
     assert_eq!(
-        cli(&args, &mut passing(), &mut out, &mut err),
+        run_cli(&args, &mut passing(), &mut out, &mut err),
         0,
         "a valid message"
     );
@@ -1441,27 +1485,33 @@ fn cli_checks_commit_messages() {
         .files
         .insert("COMMIT_EDITMSG".to_owned(), "wip".to_owned());
     assert!(replaced.is_some(), "message replaced");
-    let mut bad_err = Vec::new();
+    let (mut bad_out, mut bad_err) = (Vec::new(), Vec::new());
     assert_eq!(
-        cli(&args, &mut bad, &mut Vec::new(), &mut bad_err),
+        run_cli(&args, &mut bad, &mut bad_out, &mut bad_err),
         1,
         "an invalid message"
     );
-    assert!(
-        String::from_utf8(bad_err)
-            .is_ok_and(|stderr| stderr.starts_with("invalid commit message: ")),
-        "explained on stderr"
+    assert_eq!(
+        String::from_utf8(bad_err).expect("UTF-8"),
+        "error: invalid commit message: missing \"<type>: \" prefix\n",
+        "one line on stderr"
+    );
+    assert_eq!(
+        String::from_utf8(bad_out).expect("UTF-8"),
+        "expected: <type>(<scope>)!: <summary>, type one of feat, fix, docs, test, refactor, \
+         perf, build, ci, chore, style, revert\n",
+        "the expected form on stdout"
     );
 
     let mut missing_err = Vec::new();
     let missing = ["commit-msg".to_owned(), "nowhere".to_owned()];
     assert_eq!(
-        cli(&missing, &mut passing(), &mut Vec::new(), &mut missing_err),
+        run_cli(&missing, &mut passing(), &mut Vec::new(), &mut missing_err),
         1,
         "a missing file"
     );
     assert_eq!(
-        missing_err, b"cannot read nowhere: missing\n",
+        missing_err, b"error: cannot read nowhere: missing\n",
         "named on stderr"
     );
 }
@@ -1473,7 +1523,7 @@ fn release_gate_runs_on_the_real_files() {
     assert!(replaced.is_some(), "changelog replaced");
     assert!(
         run_steps(&check_steps(), &mut fake, &mut Vec::new())
-            .is_err_and(|error| error.starts_with("✘ Versions and changelog: ")),
+            .is_err_and(|error| error.summary.starts_with("Versions and changelog: ")),
         "release gate failure is named"
     );
     for path in [
@@ -1496,8 +1546,8 @@ fn release_gate_runs_on_the_real_files() {
             .collect();
         assert_eq!(
             run_steps(&release, &mut without, &mut Vec::new()),
-            Err(format!(
-                "✘ Versions and changelog: cannot read {path}: missing"
+            failed(format!(
+                "Versions and changelog: cannot read {path}: missing"
             )),
             "missing {path}"
         );
@@ -1516,7 +1566,7 @@ fn bless_renders_and_rewrites_the_references() {
     let mut fake = passing();
     let mut out = Vec::new();
     assert_eq!(
-        cli(&["bless".to_owned()], &mut fake, &mut out, &mut Vec::new()),
+        run_cli(&["bless".to_owned()], &mut fake, &mut out, &mut Vec::new()),
         0,
         "bless succeeds"
     );
@@ -1627,7 +1677,9 @@ fn fails_on_a_missing_or_failing_typescript_report() {
     assert!(removed.is_some(), "summary removed");
     assert_eq!(
         run_steps(&check_steps(), &mut no_summary, &mut Vec::new()),
-        Err("✘ TypeScript coverage and mutation reports: cannot read apps/playground/coverage/coverage-summary.json: missing".to_owned()),
+        failed(
+            "TypeScript coverage and mutation reports: cannot read apps/playground/coverage/coverage-summary.json: missing"
+        ),
         "missing summary"
     );
     let mut survivor = passing();
@@ -1638,17 +1690,16 @@ fn fails_on_a_missing_or_failing_typescript_report() {
     assert!(replaced.is_some(), "report replaced");
     assert_eq!(
         run_steps(&check_steps(), &mut survivor, &mut Vec::new()),
-        Err("✘ TypeScript coverage and mutation reports: apps/roadmap: 1 mutant(s) survived, 0 without coverage".to_owned()),
+        failed(
+            "TypeScript coverage and mutation reports: apps/roadmap: 1 mutant(s) survived, 0 without coverage"
+        ),
         "survivor"
     );
     let mut busy = passing();
     busy.broken = Some("fresh apps/playground/coverage".to_owned());
     assert_eq!(
         run_steps(&check_steps(), &mut busy, &mut Vec::new()),
-        Err(
-            "✘ Fresh TypeScript report directories: cannot empty apps/playground/coverage: busy"
-                .to_owned()
-        ),
+        failed("Fresh TypeScript report directories: cannot empty apps/playground/coverage: busy"),
         "a report directory that cannot be emptied"
     );
 }
@@ -1673,7 +1724,7 @@ fn knows_exactly_the_packages_and_crates_of_the_repository() {
     );
     assert_eq!(
         membership_gate(&packages, &crates, &[".gitignore".to_owned(), "bindings/wasm/.gitignore".to_owned()]),
-        Err("bindings/wasm/.gitignore: build outputs go to dist/ or target/, not hidden in a source folder".to_owned()),
+        found("the manifests differ from what xtask knows", &["bindings/wasm/.gitignore: build outputs go to dist/ or target/, not hidden in a source folder".to_owned()]),
         "a nested .gitignore"
     );
 
@@ -1690,12 +1741,26 @@ fn knows_exactly_the_packages_and_crates_of_the_repository() {
     )];
     assert_eq!(
         membership_gate(&more, &own, &[]),
-        Err("apps/editor/package.json is not in PACKAGE_JSONS; apps/editor is not in TYPESCRIPT_PACKAGES: its checks and reports are not run; crates/b/Cargo.toml does not take the workspace version".to_owned()),
+        found(
+            "the manifests differ from what xtask knows",
+            &[
+                "apps/editor/package.json is not in PACKAGE_JSONS".to_owned(),
+                "apps/editor is not in TYPESCRIPT_PACKAGES: its checks and reports are not run"
+                    .to_owned(),
+                "crates/b/Cargo.toml does not take the workspace version".to_owned(),
+            ]
+        ),
         "unknown package and crate with its own version"
     );
     assert_eq!(
         membership_gate(&fewer, &[], &[]),
-        Err("apps/roadmap/package.json is in PACKAGE_JSONS but not tracked; apps/roadmap is in TYPESCRIPT_PACKAGES but has no tracked package.json".to_owned()),
+        found(
+            "the manifests differ from what xtask knows",
+            &[
+                "apps/roadmap/package.json is in PACKAGE_JSONS but not tracked".to_owned(),
+                "apps/roadmap is in TYPESCRIPT_PACKAGES but has no tracked package.json".to_owned(),
+            ]
+        ),
         "a package that is gone"
     );
 }
@@ -1706,9 +1771,8 @@ fn reports_manifests_it_cannot_list() {
     broken.broken = Some("list *Cargo.toml".to_owned());
     assert_eq!(
         run_steps(&check_steps(), &mut broken, &mut Vec::new()),
-        Err(
-            "✘ Packages and crates known to the checks: cannot list the *Cargo.toml files: `git ls-files -- *Cargo.toml` exited with code 128: fatal: not a git repository"
-                .to_owned()
+        failed(
+            "Packages and crates known to the checks: cannot list the *Cargo.toml files: `git ls-files -- *Cargo.toml` exited with code 128: fatal: not a git repository"
         ),
         "named"
     );
@@ -1716,7 +1780,7 @@ fn reports_manifests_it_cannot_list() {
     unlisted.broken = Some("list *package.json".to_owned());
     assert!(
         run_steps(&check_steps(), &mut unlisted, &mut Vec::new())
-            .is_err_and(|error| error.ends_with("cannot list the *package.json files: `git ls-files -- *package.json` exited with code 128: fatal: not a git repository")),
+            .is_err_and(|error| error.summary.ends_with("cannot list the *package.json files: `git ls-files -- *package.json` exited with code 128: fatal: not a git repository")),
         "named"
     );
 }
@@ -1729,22 +1793,28 @@ fn allows_strict_licenses_for_what_ships_and_wider_ones_for_tooling() {
             r#"{"MPL-2.0":[{"name":"axe-core"}],"MIT":[{"name":"react"}]}"#,
             r#"{"GPL-3.0":[{"name":"bad"}],"LGPL-3.0-or-later":[{"name":"other-lgpl"},{"name":"@img/sharp-libvips-x"}],"CC0-1.0":[{"name":"data"}]}"#
         ),
-        Err("licenses not allowed: axe-core is shipped under MPL-2.0, bad is under GPL-3.0, other-lgpl is under LGPL-3.0-or-later".to_owned()),
+        failed(
+            "licenses not allowed: 3 problems, listed above\n\
+             axe-core is shipped under MPL-2.0\n\
+             bad is under GPL-3.0\n\
+             other-lgpl is under LGPL-3.0-or-later"
+        ),
         "a tooling license shipped, a license allowed nowhere, an exception for its own package only"
     );
     assert_eq!(
         license_gate(SHIPPED, r#"{"MIT-0":[{"name":"@img/sharp-libvips-x"}]}"#),
-        Err("licenses not allowed: @img/sharp-libvips-x is under MIT-0".to_owned()),
+        failed("licenses not allowed: @img/sharp-libvips-x is under MIT-0"),
         "an exception for its own license only"
     );
     assert!(
-        license_gate("x", TOOLING)
-            .is_err_and(|error| error.starts_with("invalid shipped license report: ")),
+        license_gate("x", TOOLING).is_err_and(|error| error
+            .summary
+            .starts_with("invalid shipped license report: ")),
         "unreadable"
     );
     assert_eq!(
         license_gate(SHIPPED, "[]"),
-        Err("invalid tooling license report: not an object".to_owned()),
+        failed("invalid tooling license report: not an object"),
         "not an object"
     );
     assert_eq!(
@@ -1762,8 +1832,8 @@ fn reports_license_lists_it_cannot_get() {
     assert!(removed.is_some(), "report removed");
     assert_eq!(
         run_steps(&check_steps(), &mut fake, &mut Vec::new()),
-        Err(format!(
-            "✘ JavaScript licenses: cannot list licenses: `{}` exited with code 1: failed",
+        failed(format!(
+            "JavaScript licenses: cannot list licenses: `{}` exited with code 1: failed",
             shipped.line()
         )),
         "named"
@@ -1857,15 +1927,21 @@ fn confines_unsafe_blocks_to_the_audited_files() {
     ));
     assert_eq!(
         unsafe_gate(&extra),
-        Err("crates/c/src/x.rs lifts the lint against unsafe code; crates/d/src/y.rs lifts the lint against unsafe code".to_owned()),
+        found(
+            "the lint against unsafe code",
+            &[
+                "crates/c/src/x.rs lifts the lint against unsafe code".to_owned(),
+                "crates/d/src/y.rs lifts the lint against unsafe code".to_owned(),
+            ]
+        ),
         "another file lifting it"
     );
     let mut stale = sources;
     stale[0].1 = forbid;
     assert_eq!(
         unsafe_gate(&stale),
-        Err(format!(
-            "{} is listed in UNSAFE_FILES but no longer lifts the lint",
+        failed(format!(
+            "the lint against unsafe code: {} is listed in UNSAFE_FILES but no longer lifts the lint",
             UNSAFE_FILES[0]
         )),
         "a stale entry"
@@ -1878,9 +1954,8 @@ fn reports_rust_files_it_cannot_list() {
     fake.broken = Some("list *.rs".to_owned());
     assert_eq!(
         run_steps(&check_steps(), &mut fake, &mut Vec::new()),
-        Err(
-            "✘ Unsafe code confined to the audited files: cannot list the Rust files: `git ls-files -- *.rs` exited with code 128: fatal: not a git repository"
-                .to_owned()
+        failed(
+            "Unsafe code confined to the audited files: cannot list the Rust files: `git ls-files -- *.rs` exited with code 128: fatal: not a git repository"
         ),
         "named"
     );
@@ -1912,12 +1987,18 @@ fn checks_the_tools_and_the_platform_first() {
     );
     assert_eq!(
         preflight_gate("linux", &present("v22.17.9")),
-        Err("Node.js v22.17.9 is too old: install Node.js 22.18 or later".to_owned()),
+        found(
+            "the checks cannot run here",
+            &["Node.js v22.17.9 is too old: install Node.js 22.18 or later".to_owned()]
+        ),
         "older minor"
     );
     assert_eq!(
         preflight_gate("linux", &present("v21.99.0")),
-        Err("Node.js v21.99.0 is too old: install Node.js 22.18 or later".to_owned()),
+        found(
+            "the checks cannot run here",
+            &["Node.js v21.99.0 is too old: install Node.js 22.18 or later".to_owned()]
+        ),
         "older major"
     );
     assert!(
@@ -1934,7 +2015,10 @@ fn checks_the_tools_and_the_platform_first() {
     });
     assert_eq!(
         preflight_gate("windows", &missing),
-        Err("the checks run on macOS and Linux: on Windows, run them in WSL2; `cargo mutants --version` exited with code 101: error: no such command: `mutants`; to install: cargo install --locked cargo-mutants@27.1.0".to_owned()),
+        found("the checks cannot run here", &[
+            "the checks run on macOS and Linux: on Windows, run them in WSL2".to_owned(),
+            "`cargo mutants --version` exited with code 101: error: no such command: `mutants`; to install: cargo install --locked cargo-mutants@27.1.0".to_owned(),
+        ]),
         "platform, and a missing tool with its own reason and how to install it"
     );
     assert_eq!(
@@ -1948,7 +2032,7 @@ fn checks_the_tools_and_the_platform_first() {
 fn lists_the_checks_in_order() {
     let mut out = Vec::new();
     assert_eq!(
-        cli(
+        run_cli(
             &["list".to_owned()],
             &mut passing(),
             &mut out,
@@ -1964,7 +2048,7 @@ fn lists_the_checks_in_order() {
     );
     assert_eq!(text.lines().count(), check_steps().len(), "every check");
     assert_eq!(
-        cli(
+        run_cli(
             &["list".to_owned()],
             &mut passing(),
             &mut Broken,
@@ -1981,7 +2065,9 @@ fn stops_at_a_missing_tool() {
     fake.broken = Some("cargo mutants --version".to_owned());
     assert_eq!(
         run_steps(&check_steps(), &mut fake, &mut Vec::new()),
-        Err("✘ Tools and platform: cannot run `cargo mutants --version`: not found; to install: cargo install --locked cargo-mutants@27.1.0".to_owned()),
+        failed(
+            "Tools and platform: the checks cannot run here: cannot run `cargo mutants --version`: not found; to install: cargo install --locked cargo-mutants@27.1.0"
+        ),
         "named, with how to install it"
     );
 }
@@ -2010,11 +2096,12 @@ fn requires_every_part_to_be_described() {
         .collect();
     assert_eq!(
         super::readme_gate(&parts, &without),
-        Err(
-            "tooling/oracle has no README.md; crates/README.md does not name engine-core; \
-             lonely is not inside a folder of parts (apps/, crates/ …); \
+        failed(
+            "parts not described: 4 problems, listed above\n\
+             tooling/oracle has no README.md\n\
+             crates/README.md does not name engine-core\n\
+             lonely is not inside a folder of parts (apps/, crates/ …)\n\
              README.md does not name crates/"
-                .to_owned()
         ),
         "a package without a README, a crate the table forgets, a part outside any folder"
     );
@@ -2025,7 +2112,13 @@ fn requires_every_part_to_be_described() {
         .collect();
     assert_eq!(
         super::readme_gate(&TYPESCRIPT_PACKAGES.map(str::to_owned), &unnamed),
-        Err("apps has no README.md; apps has no README.md".to_owned()),
+        found(
+            "parts not described",
+            &[
+                "apps has no README.md".to_owned(),
+                "apps has no README.md".to_owned()
+            ]
+        ),
         "a folder without its README"
     );
 }
@@ -2081,20 +2174,28 @@ fn checks_every_message_and_the_changelog_of_every_change() {
     let files = "\u{1e}cccccccccc\n\nsrc/a.rs\n\u{1e}bbbbbbbbbb\n\nsrc/b.rs\n";
     assert_eq!(
         super::history_gate(messages, files),
-        Err("commit ccccccc changes behavior but not CHANGELOG.md\n\
+        failed(
+            "the history breaks the commit rules: 2 problems, listed above\n\
+             commit ccccccc changes behavior but not CHANGELOG.md\n\
              commit bbbbbbb: invalid commit message: missing \"<type>: \" prefix"
-            .to_owned()),
+        ),
         "a change without its entry, a malformed message; the commit before the rule is not held to it"
     );
     assert_eq!(super::history_gate("", ""), Ok(()), "no commit");
     assert_eq!(
         super::history_gate("\u{1e}eeeeeeeeee\u{1f}# fix: hidden\nfix: shown\n", ""),
-        Err("commit eeeeeee: invalid commit message: unknown type \"# fix\"".to_owned()),
+        found(
+            "the history breaks the commit rules",
+            &["commit eeeeeee: invalid commit message: unknown type \"# fix\"".to_owned()]
+        ),
         "a recorded message is read as it is: a first line starting with # is its header"
     );
     assert_eq!(
         super::history_gate("\u{1e}dddddddddd", "\u{1e}dddddddddd\n"),
-        Err("commit ddddddd: invalid commit message: missing \"<type>: \" prefix".to_owned()),
+        found(
+            "the history breaks the commit rules",
+            &["commit ddddddd: invalid commit message: missing \"<type>: \" prefix".to_owned()]
+        ),
         "a record without a message"
     );
     assert_eq!(super::CHANGELOG_SINCE.len(), 40, "a full commit hash");
@@ -2107,7 +2208,9 @@ fn reads_the_history_or_says_why_it_cannot() {
     let _removed = fake.files.remove(&format!("capture {}", messages.line()));
     assert_eq!(
         run_steps(&check_steps(), &mut fake, &mut Vec::new()),
-        Err("✘ Commit messages and changelog: cannot read the history: `git log --format=%x1e%H%x1f%B HEAD` exited with code 1: failed".to_owned()),
+        failed(
+            "Commit messages and changelog: cannot read the history: `git log --format=%x1e%H%x1f%B HEAD` exited with code 1: failed"
+        ),
         "a shallow clone, or no git"
     );
 }
@@ -2145,11 +2248,17 @@ fn pushes_only_what_was_checked() {
         "nothing pushed, nothing changed"
     );
     assert_eq!(
-        super::pre_push_gate(head, " M src/a.rs\n?? notes.txt\n", &pushed(&["2222222222222222222222222222222222222222"])),
-        Err("the working tree has changes not committed, which the check would include: M src/a.rs, ?? notes.txt; \
+        super::pre_push_gate(
+            head,
+            " M src/a.rs\n?? notes.txt\n",
+            &pushed(&["2222222222222222222222222222222222222222"])
+        ),
+        failed(
+            "the push cannot be checked: 2 problems, listed above\n\
+             the working tree has changes not committed, which the check would include: M src/a.rs, ?? notes.txt\n\
              pushing 2222222222222222222222222222222222222222, but 1111111111111111111111111111111111111111 \
              is checked out: check out the pushed commit, then push again"
-            .to_owned()),
+        ),
         "a dirty tree, another commit"
     );
 }
@@ -2173,7 +2282,7 @@ fn checks_a_push_then_runs_every_check() {
     let mut out = Vec::new();
     let args = ["pre-push".to_owned(), head.to_owned()];
     assert_eq!(
-        cli(&args, &mut fake, &mut out, &mut Vec::new()),
+        run_cli(&args, &mut fake, &mut out, &mut Vec::new()),
         0,
         "clean push"
     );
@@ -2201,7 +2310,7 @@ fn checks_a_push_then_runs_every_check() {
     );
     let mut err = Vec::new();
     assert_eq!(
-        cli(&args, &mut dirty, &mut Vec::new(), &mut err),
+        run_cli(&args, &mut dirty, &mut Vec::new(), &mut err),
         1,
         "dirty tree"
     );
@@ -2211,19 +2320,19 @@ fn checks_a_push_then_runs_every_check() {
     );
     assert_eq!(
         String::from_utf8(err).expect("UTF-8"),
-        "the working tree has changes not committed, which the check would include: M a.rs\n",
+        "error: the push cannot be checked: the working tree has changes not committed, which the check would include: M a.rs\n",
         "says what to commit"
     );
     let mut blind = passing();
     let mut blind_err = Vec::new();
     assert_eq!(
-        cli(&args, &mut blind, &mut Vec::new(), &mut blind_err),
+        run_cli(&args, &mut blind, &mut Vec::new(), &mut blind_err),
         1,
         "no git"
     );
     assert_eq!(
         String::from_utf8(blind_err).expect("UTF-8"),
-        "cannot read the work tree: `git rev-parse HEAD` exited with code 1: failed\n",
+        "error: cannot read the work tree: `git rev-parse HEAD` exited with code 1: failed\n",
         "says what it could not read"
     );
 }
@@ -2244,12 +2353,11 @@ fn refuses_cargo_tools_at_other_versions() {
     older[6] = Ok("cargo-deny".to_owned());
     assert_eq!(
         preflight_gate("linux", &older),
-        Err(
+        found("the checks cannot run here", &[
             "cargo-mutants 26.0.0 is installed, the checks need cargo-mutants 27.1.0: \
-             cargo install --locked cargo-mutants@27.1.0; cargo-deny is installed, the checks \
-             need cargo-deny 0.20.2: cargo install --locked cargo-deny@0.20.2"
-                .to_owned()
-        ),
+             cargo install --locked cargo-mutants@27.1.0".to_owned(),
+            "cargo-deny is installed, the checks need cargo-deny 0.20.2: cargo install --locked cargo-deny@0.20.2".to_owned(),
+        ]),
         "another version, no version"
     );
 }
@@ -2280,15 +2388,17 @@ fn requires_a_workflow_that_pins_everything() {
         .replace("run: cargo xtask check", "run: cargo test");
     assert_eq!(
         super::workflow_gate(&loose, "22"),
-        Err("actions/checkout@v7 is not pinned to a full commit hash; \
-             taiki-e/install-action is not pinned to a full commit hash; \
-             actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15cz # v7.1.0 is not pinned to a full commit hash; \
-             .github/workflows/quality.yml lacks `tool: cargo-llvm-cov@0.9.1,cargo-mutants@27.1.0,cargo-deny@0.20.2`; \
-             .github/workflows/quality.yml lacks `node-version-file: .node-version`; \
-             .github/workflows/quality.yml lacks `fetch-depth: 0`; \
-             .github/workflows/quality.yml lacks `run: cargo xtask check`; \
+        failed(
+            ".github/workflows/quality.yml can change CI without a commit: 8 problems, listed above\n\
+             actions/checkout@v7 is not pinned to a full commit hash\n\
+             taiki-e/install-action is not pinned to a full commit hash\n\
+             actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15cz # v7.1.0 is not pinned to a full commit hash\n\
+             .github/workflows/quality.yml lacks `tool: cargo-llvm-cov@0.9.1,cargo-mutants@27.1.0,cargo-deny@0.20.2`\n\
+             .github/workflows/quality.yml lacks `node-version-file: .node-version`\n\
+             .github/workflows/quality.yml lacks `fetch-depth: 0`\n\
+             .github/workflows/quality.yml lacks `run: cargo xtask check`\n\
              .node-version must pin one Node.js release, 22.18 or later (X.Y.Z): found \"22\""
-            .to_owned()),
+        ),
         "every kind of loose pin"
     );
     let unkept = PINNED_WORKFLOW
@@ -2298,11 +2408,13 @@ fn requires_a_workflow_that_pins_everything() {
         .replace("            target/coverage.json\n", "");
     assert_eq!(
         super::workflow_gate(&unkept, "22.23.4"),
-        Err("`runs-on: ubuntu-latest` moves to a new OS release without a commit: name the release; \
-             .github/workflows/quality.yml lacks `cache-on-failure: true`; \
-             .github/workflows/quality.yml lacks `target/coverage.json`; \
+        failed(
+            ".github/workflows/quality.yml can change CI without a commit: 4 problems, listed above\n\
+             `runs-on: ubuntu-latest` moves to a new OS release without a commit: name the release\n\
+             .github/workflows/quality.yml lacks `cache-on-failure: true`\n\
+             .github/workflows/quality.yml lacks `target/coverage.json`\n\
              .github/workflows/quality.yml lacks `tooling/*/coverage`"
-            .to_owned()),
+        ),
         "a moving runner, a cache lost on failure, reports not uploaded"
     );
     assert_eq!(
@@ -2448,14 +2560,14 @@ fn compares_the_commits_pushed_not_their_tags() {
     );
     assert_eq!(
         push(&mut pushing(head, &[(tag, other)]), &[tag]),
-        Err(format!(
-            "pushing {other}, but {head} is checked out: check out the pushed commit, then push again"
+        failed(format!(
+            "the push cannot be checked: pushing {other}, but {head} is checked out: check out the pushed commit, then push again"
         )),
         "a tag of another commit, named by its commit"
     );
     assert_eq!(
         push(&mut pushing(head, &[]), &[tag]),
-        Err(format!(
+        failed(format!(
             "cannot resolve the pushed {tag}: `git rev-parse --verify {tag}^{{commit}}` exited with code 1: failed"
         )),
         "an object that is not a commit"
@@ -2483,7 +2595,7 @@ fn pushes_an_annotated_tag_of_the_commit_checked_out() {
     std::fs::remove_dir_all(&repo).expect("cleanup");
     assert_eq!(on_head, Ok(()), "the tag of the commit checked out");
     assert!(
-        elsewhere.is_err_and(|error| error.starts_with(&format!("pushing {parent}, but "))),
+        elsewhere.is_err_and(|error| error.summary.contains(&format!("pushing {parent}, but "))),
         "the tag of another commit, named by the commit"
     );
 }
@@ -2517,12 +2629,149 @@ fn checks_the_history_git_really_writes() {
     let short = |hash: &str| hash.chars().take(7).collect::<String>();
     assert_eq!(
         super::history_gate(&messages, &files),
-        Err(format!(
-            "commit {}: invalid commit message: missing \"<type>: \" prefix\n\
+        failed(format!(
+            "the history breaks the commit rules: 2 problems, listed above\n\
+             commit {}: invalid commit message: missing \"<type>: \" prefix\n\
              commit {} changes behavior but not CHANGELOG.md",
             short(&malformed),
             short(&unrecorded)
         )),
         "every message checked; the changelog rule from the commit after the boundary on"
     );
+}
+
+#[test]
+fn shows_one_problem_inline_and_lists_several() {
+    assert_eq!(super::verdict("context", vec![]), Ok(()), "no problem");
+    assert_eq!(
+        super::verdict("context", vec!["a".to_owned()]),
+        Err(Failure {
+            summary: "context: a".to_owned(),
+            details: vec![],
+        }),
+        "one problem, in the summary line"
+    );
+    assert_eq!(
+        super::verdict("context", vec!["a".to_owned(), "b".to_owned()]),
+        Err(Failure {
+            summary: "context: 2 problems, listed above".to_owned(),
+            details: vec!["a".to_owned(), "b".to_owned()],
+        }),
+        "several problems, counted, then listed"
+    );
+}
+
+#[test]
+fn prints_the_details_of_a_failure_on_stdout_and_one_line_on_stderr() {
+    let mut fake = passing();
+    let unreviewed = fake.files.insert(
+        UNVIABLE_REPORT.to_owned(),
+        "crates/a/src/c.rs:1:1: replace g -> U with x\n".to_owned(),
+    );
+    assert!(unreviewed.is_some(), "report replaced");
+    let (mut out, mut err) = (Vec::new(), Vec::new());
+    assert_eq!(
+        run_cli(&["check".to_owned()], &mut fake, &mut out, &mut err),
+        1,
+        "the check fails"
+    );
+    assert_eq!(
+        String::from_utf8(err).expect("UTF-8"),
+        format!(
+            "error: Rust unviable mutants reviewed: unviable mutants must be reviewed in \
+             {UNVIABLE_REVIEWED}: 2 problems, listed above\n"
+        ),
+        "one line on stderr, naming the step and the file"
+    );
+    assert!(
+        String::from_utf8(out).expect("UTF-8").ends_with(
+            "▶ [13/34] Rust unviable mutants reviewed\n\
+             not reviewed: crates/a/src/c.rs: replace g -> U with x\n\
+             stale review: crates/a/src/b.rs: replace f -> T with Default::default()\n"
+        ),
+        "the problems on stdout, after the progress"
+    );
+}
+
+#[test]
+fn aligns_the_usage_in_the_order_of_its_first_line() {
+    let mut lines = USAGE.lines();
+    let first = lines.next().expect("a first line");
+    let listed: Vec<&str> = first
+        .trim_start_matches("usage: cargo xtask <")
+        .trim_end_matches('>')
+        .split('|')
+        .filter_map(|form| form.split_whitespace().next())
+        .collect();
+    let mut described = Vec::new();
+    let mut columns = Vec::new();
+    for line in lines {
+        let body = line.trim_start();
+        let indent = line.len() - body.len();
+        if indent == 2 {
+            described.push(body.split_whitespace().next().expect("a command"));
+            let (_, description) = body
+                .split_once("  ")
+                .expect("a description after two spaces");
+            columns.push(line.len() - description.trim_start().len());
+        } else {
+            columns.push(indent);
+        }
+    }
+    assert_eq!(listed, described, "the rows follow the first line");
+    assert!(
+        columns.windows(2).all(|pair| pair[0] == pair[1]),
+        "every description starts at the same column: {columns:?}"
+    );
+}
+
+#[test]
+fn refuses_usage_errors_in_one_line() {
+    for (args, reason) in [
+        (vec![], "no command given"),
+        (vec!["nope"], "unknown command \"nope\""),
+        (vec!["nope", "x"], "unknown command \"nope\""),
+        (vec!["check", "x"], "`check` takes no argument"),
+        (vec!["list", "x"], "`list` takes no argument"),
+        (vec!["bless", "x"], "`bless` takes no argument"),
+        (vec!["help", "x"], "`help` takes no argument"),
+        (vec!["commit-msg"], "`commit-msg` takes one file"),
+        (vec!["commit-msg", "a", "b"], "`commit-msg` takes one file"),
+    ] {
+        let args: Vec<String> = args.into_iter().map(str::to_owned).collect();
+        let (mut stdout, mut usage) = (Vec::new(), Vec::new());
+        let mut fake = passing();
+        assert_eq!(
+            run_cli(&args, &mut fake, &mut stdout, &mut usage),
+            2,
+            "{args:?} is a usage error"
+        );
+        assert_eq!(
+            String::from_utf8(usage).expect("UTF-8"),
+            format!("error: {reason} (see: cargo xtask help)\n"),
+            "{args:?}: one line on stderr, the reason and where to look"
+        );
+        assert!(stdout.is_empty(), "{args:?}: nothing on stdout");
+        assert!(fake.ran.is_empty(), "{args:?}: nothing runs");
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStringExt as _;
+        let mut usage = Vec::new();
+        assert_eq!(
+            cli(
+                &[OsString::from_vec(b"che\xffck".to_vec())],
+                &mut passing(),
+                &mut Vec::new(),
+                &mut usage
+            ),
+            2,
+            "an argument that is not UTF-8 is a usage error, not a panic"
+        );
+        assert_eq!(
+            String::from_utf8(usage).expect("UTF-8"),
+            "error: argument is not valid UTF-8: che\u{fffd}ck (see: cargo xtask help)\n",
+            "named as well as it can be"
+        );
+    }
 }
