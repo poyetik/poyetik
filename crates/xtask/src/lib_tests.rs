@@ -351,11 +351,11 @@ const TOOLING: &str = r#"{"Apache-2.0":[{"name":"typescript"}],"MPL-2.0":[{"name
 const TS_COVERED: &str = r#"{"total":{"lines":{"total":4,"covered":4},"statements":{"total":5,"covered":5},"functions":{"total":2,"covered":2},"branches":{"total":3,"covered":3}}}"#;
 
 /// A Stryker report where every mutant was killed (or timed out, or was disabled).
-const TS_KILLED: &str = r#"{"files":{"a.ts":{"mutants":[{"status":"Killed","mutatorName":"A","location":{"start":{"line":1}}},{"status":"Timeout","mutatorName":"B","location":{"start":{"line":2}}}]}}}"#;
+const TS_KILLED: &str = r#"{"files":{"src/a.ts":{"mutants":[{"status":"Killed","mutatorName":"A","location":{"start":{"line":1}}},{"status":"Timeout","mutatorName":"B","location":{"start":{"line":2}}}]}}}"#;
 
 /// A Stryker report of the shared policy: killed mutants, and one ignored where the
 /// reviewed disable comment of [`DISABLED_SOURCE`] says so.
-const TS_KILLED_OR_DISABLED: &str = r#"{"files":{"a.ts":{"mutants":[{"status":"Killed","mutatorName":"A","location":{"start":{"line":1}}}]},"x.ts":{"mutants":[{"status":"Ignored","mutatorName":"EqualityOperator","location":{"start":{"line":3}}}]}}}"#;
+const TS_KILLED_OR_DISABLED: &str = r#"{"files":{"src/a.ts":{"mutants":[{"status":"Killed","mutatorName":"A","location":{"start":{"line":1}}}]},"x.ts":{"mutants":[{"status":"Ignored","mutatorName":"EqualityOperator","location":{"start":{"line":3}}}]}}}"#;
 
 /// A TypeScript source of the shared policy whose third line disables one mutator.
 const DISABLED_SOURCE: (&str, &str) = (
@@ -704,15 +704,15 @@ fn lists_every_check_in_order() {
             "fresh tooling/config/coverage tooling/config/reports/mutation tooling/oracle/coverage tooling/oracle/reports/mutation bindings/wasm/coverage bindings/wasm/reports/mutation apps/playground/coverage apps/playground/reports/mutation apps/roadmap/coverage apps/roadmap/reports/mutation",
             "fresh bindings/wasm/dist",
             "Package(\"tooling/config\"): pnpm run check",
-            "Package(\"tooling/config\"): pnpm exec stryker run --incremental --incrementalFile reports/stryker-incremental.json",
+            "Package(\"tooling/config\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json",
             "Package(\"tooling/oracle\"): pnpm run check",
-            "Package(\"tooling/oracle\"): pnpm exec stryker run --incremental --incrementalFile reports/stryker-incremental.json",
+            "Package(\"tooling/oracle\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json",
             "Package(\"bindings/wasm\"): pnpm run check",
-            "Package(\"bindings/wasm\"): pnpm exec stryker run --incremental --incrementalFile reports/stryker-incremental.json",
+            "Package(\"bindings/wasm\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json",
             "Package(\"apps/playground\"): pnpm run check",
-            "Package(\"apps/playground\"): pnpm exec stryker run --incremental --incrementalFile reports/stryker-incremental.json",
+            "Package(\"apps/playground\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json",
             "Package(\"apps/roadmap\"): pnpm run check",
-            "Package(\"apps/roadmap\"): pnpm exec stryker run --incremental --incrementalFile reports/stryker-incremental.json",
+            "Package(\"apps/roadmap\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json",
             "typescript reports gate",
             "typescript scope gate",
             "tree unchanged",
@@ -812,10 +812,10 @@ fn the_full_check_differs_only_by_its_mutation_testing() {
     let stryker = |dir: &str, force: &str| {
         (
             format!(
-                "Package(\"{dir}\"): pnpm exec stryker run --incremental --incrementalFile reports/stryker-incremental.json"
+                "Package(\"{dir}\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json"
             ),
             format!(
-                "Package(\"{dir}\"): pnpm exec stryker run --incremental --incrementalFile reports/stryker-incremental.json{force}"
+                "Package(\"{dir}\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json{force}"
             ),
         )
     };
@@ -1537,7 +1537,7 @@ fn mutates_every_mutant_of_one_target() {
         lines("apps/roadmap"),
         vec![
             "fresh apps/roadmap/reports/mutation",
-            "Package(\"apps/roadmap\"): pnpm exec stryker run --incremental --incrementalFile reports/stryker-incremental.json --force",
+            "Package(\"apps/roadmap\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json --force",
             "typescript mutation gate of apps/roadmap (Complete)",
         ],
         "a package, every mutant, its incremental file rewritten"
@@ -1546,7 +1546,7 @@ fn mutates_every_mutant_of_one_target() {
         lines("apps/roadmap/src/board.ts"),
         vec![
             "fresh apps/roadmap/reports/mutation",
-            "Package(\"apps/roadmap\"): pnpm exec stryker run --mutate src/board.ts",
+            "Package(\"apps/roadmap\"): pnpm exec stryker run stryker.config.json --mutate src/board.ts",
             "typescript mutation gate of apps/roadmap (Partial)",
         ],
         "a source: its incremental file untouched"
@@ -1636,7 +1636,7 @@ fn cli_mutates_one_target() {
     assert!(
         source
             .ran
-            .contains(&"pnpm exec stryker run --mutate src/a.ts".to_owned())
+            .contains(&"pnpm exec stryker run stryker.config.json --mutate src/a.ts".to_owned())
             && source
                 .ran
                 .contains(&"read apps/roadmap/reports/mutation/mutation.json".to_owned()),
@@ -1943,7 +1943,7 @@ fn runs_every_step_and_reports_success() {
         "all green"
     );
     let (tools, commands, emptied, listed, captured, written) = (9, 49, 14, 11, 12, 1);
-    let read = 1 + 12 + 2 + 7 + 19 + 2 + 1 + 7 + 3 + 10 + 10 + 20 + 8 + 2 + 5 + 16 + 11;
+    let read = 1 + 12 + 2 + 7 + 19 + 2 + 1 + 7 + 3 + 10 + 10 + 20 + 8 + 2 + 11 + 16 + 16;
     assert_eq!(
         fake.ran.len(),
         tools + commands + emptied + listed + captured + written + read,
@@ -1959,9 +1959,10 @@ fn runs_every_step_and_reports_success() {
          sources, the ten Cargo manifests and the register of the bypass gate, the two unsafe files, the Cargo \
          configuration, the six package manifests and the register of the dependency gate, the three \
          supply-chain configurations, ten crate manifests, ten READMEs, the changelog, ten READMEs, two Rust and six TypeScript sources and the vocabulary of the vocabulary gate, eight version files, the workflow and \
-         .node-version, five Stryker configurations, the six TypeScript sources and ten \
-         reports of the reports gate, and the five Stryker configurations, five coverage \
-         summaries and the register of the scope gate"
+         .node-version, five Stryker configurations and the six package manifests, the six \
+         TypeScript sources and ten reports of the reports gate, and the five Stryker \
+         configurations, five coverage summaries, five mutation reports and the register of \
+         the scope gate"
     );
     for path in [CARGO_TOML.to_owned(), CHANGELOG.to_owned()]
         .into_iter()
@@ -3414,6 +3415,100 @@ fn accepts_what_only_resembles_a_bypass() {
             bypass_gate_text(&[(path.to_owned(), text.clone())], ""),
             Ok(()),
             "{path}: {text:?} is no bypass"
+        );
+    }
+}
+
+#[test]
+fn refuses_a_package_script_running_stryker_otherwise() {
+    let manifest = |scripts: serde_json::Value| {
+        serde_json::json!({ "name": "p", "scripts": scripts }).to_string()
+    };
+    for accepted in [
+        manifest(serde_json::json!({ "test:mutation": "stryker run stryker.config.json" })),
+        manifest(serde_json::json!({ "check": "vitest run" })),
+        r#"{"name":"p"}"#.to_owned(),
+    ] {
+        assert_eq!(
+            super::stryker_scripts_gate("p/package.json", &accepted),
+            Ok(()),
+            "{accepted}"
+        );
+    }
+    assert_eq!(
+        super::stryker_scripts_gate(
+            "p/package.json",
+            &manifest(serde_json::json!({
+                "a": "stryker run",
+                "b": "stryker run stryker.conf.json",
+                "c": "stryker run stryker.config.json --mutate src/a.ts",
+                "d": "pnpm exec stryker run stryker.config.json",
+                "e": "vitest run",
+            }))
+        ),
+        failed(
+            "p/package.json runs Stryker otherwise than `stryker run stryker.config.json`: \
+             4 problems, listed above\n\
+             `a`: stryker run\n\
+             `b`: stryker run stryker.conf.json\n\
+             `c`: stryker run stryker.config.json --mutate src/a.ts\n\
+             `d`: pnpm exec stryker run stryker.config.json"
+        ),
+        "another configuration, another argument, another wrapper"
+    );
+    assert!(
+        super::stryker_scripts_gate("p/package.json", "{").is_err_and(|failure| failure
+            .summary
+            .starts_with("p/package.json: invalid manifest: ")),
+        "unreadable"
+    );
+    assert_eq!(
+        super::stryker_scripts_gate("p/package.json", r#"{"scripts":{"a":1}}"#),
+        failed(
+            "p/package.json runs Stryker otherwise than `stryker run stryker.config.json`: \
+             `a` is not a command"
+        ),
+        "a script that is no string is refused, not skipped"
+    );
+}
+
+#[test]
+fn the_stryker_step_reads_every_manifest() {
+    let step = [Step {
+        name: "Stryker".to_owned(),
+        action: Action::StrykerConfigGate,
+    }];
+    assert_eq!(
+        run_steps(&step, &mut passing(), &mut Vec::new()),
+        Ok(()),
+        "the fake passes"
+    );
+    for path in package_jsons() {
+        let mut fake = passing();
+        let _script = fake.files.insert(
+            path.clone(),
+            r#"{"scripts":{"m":"stryker run"}}"#.to_owned(),
+        );
+        assert_eq!(
+            run_steps(&step, &mut fake, &mut Vec::new()),
+            failed(format!(
+                "Stryker: {path} runs Stryker otherwise than `stryker run stryker.config.json`: \
+                 `m`: stryker run"
+            )),
+            "{path}"
+        );
+    }
+    for missing in [
+        "apps/roadmap/stryker.config.json",
+        "apps/roadmap/package.json",
+    ] {
+        let mut lacking = passing();
+        let removed = lacking.files.remove(missing);
+        assert!(removed.is_some(), "{missing} removed");
+        assert_eq!(
+            run_steps(&step, &mut lacking, &mut Vec::new()),
+            failed(format!("Stryker: cannot read {missing}: missing")),
+            "{missing} cannot be read"
         );
     }
 }
@@ -5576,18 +5671,85 @@ fn matches_the_globs_of_stryker_mutate() {
     }
 }
 
-/// A package `p` of the scope gate: its Stryker configuration mutates `mutate` and its
-/// coverage summary measures `measured` (absolute paths).
+/// A package `p` of the scope gate: its Stryker configuration mutates `mutate`, its
+/// coverage summary measures `measured` (absolute paths, below `/r/`) and its mutation
+/// report lists each of them.
 fn scope(dir: &'static str, mutate: &[&str], measured: &[&str]) -> super::Scope {
     let files: serde_json::Map<String, serde_json::Value> = measured
         .iter()
         .chain(&["total"])
         .map(|file| ((*file).to_owned(), serde_json::json!({})))
         .collect();
+    let reported: serde_json::Map<String, serde_json::Value> = measured
+        .iter()
+        .filter_map(|file| file.strip_prefix(&format!("/r/{dir}/")))
+        .map(|file| (file.to_owned(), serde_json::json!({ "mutants": [] })))
+        .collect();
     super::Scope {
         dir,
         stryker: serde_json::json!({ "mutate": mutate }).to_string(),
         summary: serde_json::Value::Object(files).to_string(),
+        mutation: serde_json::json!({ "files": reported }).to_string(),
+    }
+}
+
+#[test]
+fn requires_every_source_mutated_in_the_mutation_report() {
+    let tracked: Vec<String> = ["p/src/a.ts", "p/src/b.ts", "p/src/c.ts", "p/src/env.d.ts"]
+        .map(str::to_owned)
+        .to_vec();
+    let statements = |count: u64| serde_json::json!({ "statements": { "total": count } });
+    let summary = serde_json::json!({
+        "/r/p/src/a.ts": statements(4),
+        "/r/p/src/b.ts": statements(1),
+        "/r/p/src/c.ts": {},
+        "/r/p/src/env.d.ts": statements(0),
+        "total": statements(5),
+    })
+    .to_string();
+    let only_a = super::Scope {
+        dir: "p",
+        stryker: serde_json::json!({ "mutate": ["src/**/*.ts"] }).to_string(),
+        summary,
+        mutation: r#"{"files":{"src/a.ts":{"mutants":[]}}}"#.to_owned(),
+    };
+    let context = "TypeScript sources outside coverage or mutation testing must be reviewed in \
+                   proof-bypasses.txt";
+    assert_eq!(
+        super::scope_gate(&tracked, core::slice::from_ref(&only_a), ""),
+        failed(format!(
+            "{context}: 2 problems, listed above\n\
+             not reviewed: p/src/b.ts: mutated, no mutant reported\n\
+             not reviewed: p/src/c.ts: mutated, no mutant reported"
+        )),
+        "a source with statements, or whose statements are not counted, must be reported; \
+         one without any (declarations only) need not"
+    );
+    let reviewed = "p/src/b.ts: mutated, no mutant reported -- constants only\n\
+                    p/src/c.ts: mutated, no mutant reported -- constants only\n";
+    assert_eq!(
+        super::scope_gate(&tracked, core::slice::from_ref(&only_a), reviewed),
+        Ok(()),
+        "reviewed"
+    );
+    assert_eq!(
+        super::bypass_gate(&[], reviewed),
+        Ok(()),
+        "a scope review, left to the scope gate"
+    );
+    for (mutation, problem) in [
+        ("{", "invalid mutation report: "),
+        ("{}", "the mutation report lists no `files`"),
+    ] {
+        let unreadable = super::Scope {
+            mutation: mutation.to_owned(),
+            ..only_a.clone()
+        };
+        assert!(
+            super::scope_gate(&tracked, &[unreadable], "")
+                .is_err_and(|failure| failure.summary.contains(&format!(": p: {problem}"))),
+            "{mutation}"
+        );
     }
 }
 
@@ -5663,6 +5825,7 @@ fn requires_every_typescript_source_measured_and_mutated_or_reviewed() {
         dir: "q",
         stryker: "{".to_owned(),
         summary: String::new(),
+        mutation: String::new(),
     };
     assert!(
         super::scope_gate(&tracked, &[unreadable], "").is_err_and(|failure| failure
@@ -5705,6 +5868,7 @@ fn fails_when_the_scope_gate_cannot_read_its_inputs() {
     for missing in [
         "apps/roadmap/stryker.config.json",
         "apps/roadmap/coverage/coverage-summary.json",
+        "apps/roadmap/reports/mutation/mutation.json",
         super::BYPASSES_REVIEWED,
     ] {
         let mut lacking = passing();

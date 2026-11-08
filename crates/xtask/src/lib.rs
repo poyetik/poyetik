@@ -872,6 +872,9 @@ fn consistency_steps() -> Vec<Step> {
 
 /// The Stryker command of the package in `dir`, in `mode`.
 ///
+/// It names [`STRYKER_CONFIG`], the one configuration the gates read: run without a file,
+/// Stryker would take the first of the names it seeks (`stryker.conf.json` before it).
+///
 /// Always incremental, so that the default check reuses what the last run found;
 /// [`Mode::Full`] adds `--force`, which runs every mutant again and rewrites the incremental
 /// file from that complete run.
@@ -881,6 +884,7 @@ pub fn stryker_command(dir: &'static str, mode: Mode) -> Cmd {
         "exec",
         "stryker",
         "run",
+        STRYKER_CONFIG,
         "--incremental",
         "--incrementalFile",
         STRYKER_INCREMENTAL,
@@ -1257,6 +1261,44 @@ pub fn ts_mutation_gate(
     verdict(&format!("{package}: mutants not killed"), problems)
 }
 
+/// The Stryker configuration of every package, relative to it: the one file the gates read
+/// ([`stryker_config_gate`], [`scope_gate`]), so the one every Stryker run names.
+pub const STRYKER_CONFIG: &str = "stryker.config.json";
+
+/// The only command a package script may run Stryker with.
+pub const STRYKER_SCRIPT: &str = "stryker run stryker.config.json";
+
+/// Checks that no script of the package manifest at `path` runs Stryker but as
+/// [`STRYKER_SCRIPT`], so that none reads another configuration or narrows the run.
+///
+/// # Errors
+///
+/// Returns every script that mentions Stryker otherwise and every script that is not a
+/// command, or why the manifest cannot be read.
+pub fn stryker_scripts_gate(path: &str, manifest: &str) -> Result<(), Failure> {
+    let json: serde_json::Value = serde_json::from_str(manifest)
+        .map_err(|error| Failure::from(format!("{path}: invalid manifest: {error}")))?;
+    let mut problems = Vec::new();
+    let scripts = json
+        .get("scripts")
+        .and_then(serde_json::Value::as_object)
+        .into_iter()
+        .flatten();
+    for (name, script) in scripts {
+        match script.as_str() {
+            Some(command) if command.contains("stryker") && command != STRYKER_SCRIPT => {
+                problems.push(format!("`{name}`: {command}"));
+            }
+            Some(_) => {}
+            None => problems.push(format!("`{name}` is not a command")),
+        }
+    }
+    verdict(
+        &format!("{path} runs Stryker otherwise than `{STRYKER_SCRIPT}`"),
+        problems,
+    )
+}
+
 /// The keys a Stryker configuration may use: none of them hides a mutant. Any other key
 /// (`ignoreStatic`, `mutator.excludedMutations`, `ignorers` …) could, and is refused.
 pub const STRYKER_KEYS: [&str; 11] = [
@@ -1508,9 +1550,15 @@ pub fn bypass_gate(sources: &[(String, String)], reviewed: &str) -> Result<(), F
 
 /// The suffixes of the reviews of [`scope_gate`] in [`BYPASSES_REVIEWED`].
 ///
-/// A source the coverage of its package does not measure, and one it measures but Stryker
-/// does not mutate. Every other review of that file belongs to [`bypass_gate`].
-pub const SCOPE_REVIEWS: [&str; 2] = [": not measured", ": measured, not mutated"];
+/// A source the coverage of its package does not measure, one it measures but Stryker
+/// does not mutate, and one with statements that the `mutate` globs select but the mutation
+/// report lacks (Stryker found no mutant in it, or read another configuration). Every other
+/// review of that file belongs to [`bypass_gate`].
+pub const SCOPE_REVIEWS: [&str; 3] = [
+    ": not measured",
+    ": measured, not mutated",
+    ": mutated, no mutant reported",
+];
 
 /// The lines of `reviewed` that are reviews of [`scope_gate`] (`scope`), or the others.
 fn reviews_of(reviewed: &str, scope: bool) -> String {
@@ -1540,6 +1588,9 @@ pub struct Scope {
     /// The text of its coverage summary (Vitest `json-summary`), whose keys are the
     /// absolute paths of the files measured.
     pub summary: String,
+    /// The text of its mutation report (Stryker `json`), complete: its `files` are the
+    /// sources Stryker read, relative to the package.
+    pub mutation: String,
 }
 
 /// Whether `rel`, a path relative to its package, is test code: under `test/`, or a test or
@@ -1599,6 +1650,20 @@ fn glob_matches(pattern: &[&str], segments: &[&str]) -> bool {
 /// rather than read wrongly.
 const GLOB_UNSUPPORTED: [char; 9] = ['{', '}', '[', ']', '?', '!', '(', ')', '@'];
 
+/// The Stryker configuration, the coverage summary and the mutation report of `scope`, or
+/// the first that cannot be read.
+fn parse_scope(scope: &Scope) -> Result<[serde_json::Value; 3], String> {
+    let dir = scope.dir;
+    let parse = |text: &str, what: &str| {
+        serde_json::from_str(text).map_err(|error| format!("{dir}: invalid {what}: {error}"))
+    };
+    Ok([
+        parse(&scope.stryker, "Stryker configuration")?,
+        parse(&scope.summary, "coverage summary")?,
+        parse(&scope.mutation, "mutation report")?,
+    ])
+}
+
 /// Checks that every TypeScript source is both measured and mutated, or reviewed.
 ///
 /// `tracked` are the files tracked with an extension of [`TS_SOURCES`]; `scopes` what each
@@ -1607,7 +1672,11 @@ const GLOB_UNSUPPORTED: [char; 9] = ['{', '}', '[', ']', '?', '!', '(', ')', '@'
 /// package are its tracked files but its tests (`test/`, `*.test.ts`, `*.spec.ts`). Each
 /// source must be measured and mutated; one measured but not mutated is a
 /// `<source>: measured, not mutated` occurrence, one neither measured nor mutated a
-/// `<source>: not measured` occurrence, each to be reviewed in `reviewed`
+/// `<source>: not measured` occurrence, and one mutated, measured with statements (or with
+/// no count of them) but absent from the package's mutation report (which a check makes
+/// complete, the incremental runs included) a `<source>: mutated, no mutant reported`
+/// occurrence: Stryker found no mutant in it, or ran with another configuration than
+/// [`STRYKER_CONFIG`]. Each is to be reviewed in `reviewed`
 /// ([`BYPASSES_REVIEWED`], whose other reviews are [`bypass_gate`]'s), every review
 /// current. So the coverage `include` and the Stryker `mutate` of a package select the same
 /// sources, but for reviewed differences, and no source escapes both unseen.
@@ -1616,7 +1685,8 @@ const GLOB_UNSUPPORTED: [char; 9] = ['{', '}', '[', ']', '?', '!', '(', ')', '@'
 ///
 /// Returns every source mutated but not measured, every file measured that is not a source
 /// of the package, every `mutate` glob that is not understood or matches no source, every
-/// unreadable configuration or summary, and every unreviewed occurrence or stale review.
+/// unreadable configuration, summary or mutation report, every mutation report without
+/// `files`, and every unreviewed occurrence or stale review.
 pub fn scope_gate(tracked: &[String], scopes: &[Scope], reviewed: &str) -> Result<(), Failure> {
     let mut problems = Vec::new();
     let mut keys = Vec::new();
@@ -1628,10 +1698,10 @@ pub fn scope_gate(tracked: &[String], scopes: &[Scope], reviewed: &str) -> Resul
             .filter_map(|path| path.strip_prefix(&prefix))
             .filter(|rel| !is_test(rel))
             .collect();
-        let stryker: serde_json::Value = match serde_json::from_str(&scope.stryker) {
-            Ok(json) => json,
-            Err(error) => {
-                problems.push(format!("{dir}: invalid Stryker configuration: {error}"));
+        let [stryker, summary, mutation] = match parse_scope(scope) {
+            Ok(parsed) => parsed,
+            Err(problem) => {
+                problems.push(problem);
                 continue;
             }
         };
@@ -1642,26 +1712,26 @@ pub fn scope_gate(tracked: &[String], scopes: &[Scope], reviewed: &str) -> Resul
             .flatten()
             .filter_map(serde_json::Value::as_str)
             .collect();
-        let summary: serde_json::Value = match serde_json::from_str(&scope.summary) {
-            Ok(json) => json,
-            Err(error) => {
-                problems.push(format!("{dir}: invalid coverage summary: {error}"));
-                continue;
-            }
+        let Some(reported) = mutation.get("files").and_then(serde_json::Value::as_object) else {
+            problems.push(format!("{dir}: the mutation report lists no `files`"));
+            continue;
         };
-        let mut measured = BTreeSet::new();
-        for file in summary
+        // Each source measured, with whether it has statements: one without any (only
+        // declarations) has nothing to mutate, and Stryker leaves it out of its report.
+        let mut measured = BTreeMap::new();
+        for (file, entry) in summary
             .as_object()
             .into_iter()
-            .flat_map(serde_json::Map::keys)
-            .filter(|key| *key != "total")
+            .flatten()
+            .filter(|(key, _)| *key != "total")
         {
             match sources
                 .iter()
                 .find(|rel| file.ends_with(&format!("/{prefix}{rel}")))
             {
                 Some(rel) => {
-                    let _new = measured.insert(*rel);
+                    let statements = entry.pointer("/statements/total");
+                    let _new = measured.insert(*rel, statements != Some(&0_u64.into()));
                 }
                 None => problems.push(format!(
                     "{dir}: the coverage measures {file}, which is not a tracked source of the package"
@@ -1685,13 +1755,16 @@ pub fn scope_gate(tracked: &[String], scopes: &[Scope], reviewed: &str) -> Resul
                 .filter(|glob| glob_matches(&glob.split('/').collect::<Vec<_>>(), &segments))
                 .collect();
             used.extend(matching.iter().copied());
-            match (measured.contains(rel), !matching.is_empty()) {
-                (true, true) => {}
-                (false, true) => problems.push(format!(
+            match (measured.get(rel), !matching.is_empty()) {
+                (Some(true), true) if !reported.contains_key(*rel) => {
+                    keys.push(format!("{prefix}{rel}: mutated, no mutant reported"));
+                }
+                (Some(_), true) => {}
+                (None, true) => problems.push(format!(
                     "{prefix}{rel} is mutated but not measured: the coverage `include` misses it"
                 )),
-                (true, false) => keys.push(format!("{prefix}{rel}: measured, not mutated")),
-                (false, false) => keys.push(format!("{prefix}{rel}: not measured")),
+                (Some(_), false) => keys.push(format!("{prefix}{rel}: measured, not mutated")),
+                (None, false) => keys.push(format!("{prefix}{rel}: not measured")),
             }
         }
         problems.extend(
@@ -3575,17 +3648,30 @@ pub fn readme_gate(parts: &[String], readmes: &[(String, String)]) -> Result<(),
     verdict("parts not described", problems)
 }
 
+/// Reads the Stryker configuration of every package and every package manifest, then checks
+/// that no configuration hides a mutant and that no script runs Stryker otherwise.
+fn stryker_configs(runner: &mut dyn Runner) -> Result<(), Failure> {
+    PACKAGES.iter().try_for_each(|package| {
+        let path = format!("{}/{STRYKER_CONFIG}", package.dir);
+        stryker_config_gate(package.dir, &read_file(runner, &path)?)
+    })?;
+    package_jsons()
+        .iter()
+        .try_for_each(|path| stryker_scripts_gate(path, &read_file(runner, path)?))
+}
+
 /// Reads what each TypeScript package measures and mutates, then checks that every source
 /// is in both, or reviewed.
 fn scope(runner: &mut dyn Runner) -> Result<(), Failure> {
     let tracked = list_tracked(runner, &TS_SOURCES, "the TypeScript sources")?;
     let mut scopes = Vec::new();
     for package in PACKAGES {
-        let [coverage, _] = package.reports();
+        let [coverage, mutation] = package.reports();
         scopes.push(Scope {
             dir: package.dir,
-            stryker: read_file(runner, &format!("{}/stryker.config.json", package.dir))?,
+            stryker: read_file(runner, &format!("{}/{STRYKER_CONFIG}", package.dir))?,
             summary: read_file(runner, &format!("{coverage}/coverage-summary.json"))?,
+            mutation: read_file(runner, &format!("{mutation}/mutation.json"))?,
         });
     }
     scope_gate(&tracked, &scopes, &read_file(runner, BYPASSES_REVIEWED)?)
@@ -4458,10 +4544,7 @@ fn run_action(
             ts_mutation_gate(package.dir, &report, &disabled, *extent)
         }
         Action::TypeScriptScopeGate => scope(runner),
-        Action::StrykerConfigGate => PACKAGES.iter().try_for_each(|package| {
-            let path = format!("{}/stryker.config.json", package.dir);
-            stryker_config_gate(package.dir, &read_file(runner, &path)?)
-        }),
+        Action::StrykerConfigGate => stryker_configs(runner),
         Action::BypassGate => {
             let paths = list_tracked(runner, &BYPASS_SOURCES, "the source files")?;
             let sources = read_all(runner, paths)?;
@@ -4702,7 +4785,7 @@ pub fn mutants_steps(target: &Target, jobs: NonZeroUsize) -> Vec<Step> {
             &format!("{}/{source}", package.dir),
             Cmd::new(
                 "pnpm",
-                &["exec", "stryker", "run", "--mutate", source],
+                &["exec", "stryker", "run", STRYKER_CONFIG, "--mutate", source],
                 Dir::Package(package.dir),
             ),
             Extent::Partial,
