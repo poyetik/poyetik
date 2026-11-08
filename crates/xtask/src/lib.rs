@@ -4480,8 +4480,8 @@ fn mutable_source(path: &str) -> bool {
 ///
 /// # Errors
 ///
-/// Returns the usage error, in one line: a path that is not plain, test code, or anything
-/// else that is no target.
+/// Returns the usage error, in one line: a path that is not plain, test code (Rust or
+/// TypeScript, fixtures included), or anything else that is no target.
 pub fn mutation_target(text: &str) -> Result<Target, String> {
     if let Some(krate) = RUST_CRATES.iter().find(|krate| krate.name == text) {
         return Ok(Target::Crate(*krate));
@@ -4504,8 +4504,13 @@ pub fn mutation_target(text: &str) -> Result<Target, String> {
     if Path::new(text)
         .extension()
         .is_some_and(|extension| extension == "rs")
-        && let Some(krate) = RUST_CRATES.iter().find(|krate| below(krate.dir).is_some())
+        && let Some((krate, rel)) = RUST_CRATES
+            .iter()
+            .find_map(|krate| below(krate.dir).map(|rel| (krate, rel)))
     {
+        if rust_test_code(rel) {
+            return Err(format!("{text:?} is test code: name the source it tests"));
+        }
         return Ok(Target::RustFile {
             krate: *krate,
             path: text.to_owned(),

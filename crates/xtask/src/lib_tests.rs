@@ -1464,6 +1464,18 @@ fn refuses_what_is_no_mutation_target() {
             "\"crates/engine-core/src/a.ts\" is no crate, Rust file of a crate, TypeScript package or source of one",
         ),
         (
+            "crates/xtask/src/lib_tests.rs",
+            "\"crates/xtask/src/lib_tests.rs\" is test code: name the source it tests",
+        ),
+        (
+            "crates/xtask/tests/binary.rs",
+            "\"crates/xtask/tests/binary.rs\" is test code: name the source it tests",
+        ),
+        (
+            "crates/xtask/tests/fixtures/coverage-locality/src/lib.rs",
+            "\"crates/xtask/tests/fixtures/coverage-locality/src/lib.rs\" is test code: name the source it tests",
+        ),
+        (
             "crates/xtask/src/lib.RS",
             "\"crates/xtask/src/lib.RS\" is no crate, Rust file of a crate, TypeScript package or source of one",
         ),
