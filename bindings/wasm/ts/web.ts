@@ -245,11 +245,29 @@ export function capture(context: BaseAudioContext, source: AudioNode, channels: 
 }
 
 /**
- * Frames rendered offline beyond those asked for, in which the engine processor may start:
- * a browser may render the first quanta before the processor exists (seen in WebKit
- * under load, starting at frame 128). 16 384 frames: 128 render quanta.
+ * Frames rendered or captured beyond those asked for, in which the engine processor may
+ * start: a browser may render the first quanta before the processor exists (seen in
+ * WebKit under load, starting at frame 128). 16 384 frames: 128 render quanta.
  */
-export const OFFLINE_MARGIN = 16_384;
+export const START_MARGIN = 16_384;
+
+/**
+ * The `frames` frames of `channels` patch channels from where the engine started, found
+ * by the marker channel that follows them (see `EngineOptions.marker`).
+ * @throws {Error} when the engine did not start within {@link START_MARGIN}.
+ */
+function fromStart(all: readonly Float32Array[], channels: number, frames: number, where: string): Float32Array[] {
+  // The marker comes after the patch channels: its first 1.0 is the first frame rendered.
+  const marker = all.slice(channels).flatMap((channel) => Array.from(channel));
+  const start = marker.indexOf(1);
+  if (start < 0) {
+    throw new Error(`the engine started too late in the ${where}: not within the ${String(START_MARGIN)} frames of margin`);
+  }
+  if (start > START_MARGIN) {
+    throw new Error(`the engine started too late in the ${where}: at frame ${String(start)}, beyond the ${String(START_MARGIN)} frames of margin`);
+  }
+  return all.slice(0, channels).map((channel) => channel.slice(start, start + frames));
+}
 
 /**
  * Renders `frames` frames of `loaded` offline, one array per channel: exactly the first
@@ -258,7 +276,7 @@ export const OFFLINE_MARGIN = 16_384;
  * @throws {Error} when the engine processor fails, or starts too late in the render.
  */
 export async function renderOffline(loaded: LoadedPatch, frames: number, processors: string | URL): Promise<Float32Array[]> {
-  const context = new OfflineAudioContext(loaded.channels + 1, frames + OFFLINE_MARGIN, loaded.rate);
+  const context = new OfflineAudioContext(loaded.channels + 1, frames + START_MARGIN, loaded.rate);
   await addProcessors(context, processors);
   let failure: Error | undefined;
   const engine = createEngineNode(
@@ -274,12 +292,16 @@ export async function renderOffline(loaded: LoadedPatch, frames: number, process
   if (failure !== undefined) {
     throw failure;
   }
-  const start = buffer.getChannelData(loaded.channels).indexOf(1);
-  if (start < 0) {
-    throw new Error(`the engine started too late in the offline render: not within the ${String(OFFLINE_MARGIN)} frames of margin`);
-  }
-  if (start > OFFLINE_MARGIN) {
-    throw new Error(`the engine started too late in the offline render: at frame ${String(start)}, beyond the ${String(OFFLINE_MARGIN)} frames of margin`);
-  }
-  return Array.from({ length: loaded.channels }, (_, channel) => buffer.getChannelData(channel).slice(start, start + frames));
+  const all = Array.from({ length: loaded.channels + 1 }, (_, channel) => buffer.getChannelData(channel));
+  return fromStart(all, loaded.channels, frames, "offline render");
+}
+
+/**
+ * Captures the first `frames` frames the engine of `engine` renders live, `channels`
+ * patch channels, wherever the browser started its processor: `engine` must have been
+ * created with the marker channel. Start it, as `capture`, before the context runs.
+ * @throws {Error} when the engine did not start within {@link START_MARGIN} frames.
+ */
+export function captureEngine(context: BaseAudioContext, engine: EngineNode, channels: number, frames: number): Promise<Float32Array[]> {
+  return capture(context, engine.node, channels + 1, frames + START_MARGIN).then((all) => fromStart(all, channels, frames, "live capture"));
 }

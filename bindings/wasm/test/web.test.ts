@@ -2,7 +2,7 @@ import { runInNewContext } from "node:vm";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { ModuleError, PatchError } from "../ts/engine.ts";
 import { ENGINE_PROCESSOR, OptionsError, TAP_PROCESSOR } from "../ts/protocol.ts";
-import { addProcessors, capture, createEngineNode, LoadedPatch, loadPatch, OFFLINE_MARGIN, renderOffline, tap } from "../ts/web.ts";
+import { addProcessors, capture, captureEngine, createEngineNode, LoadedPatch, loadPatch, START_MARGIN, renderOffline, tap } from "../ts/web.ts";
 import { SILENT_PATCH, SINE_PATCH, UNKNOWN_BOX, wasmBytes } from "./fixtures.ts";
 
 const RATE = 48_000;
@@ -42,6 +42,10 @@ class FakeNode {
 
   connect(target: unknown): void {
     this.connected.push(target);
+  }
+
+  disconnect(target: unknown): void {
+    this.connected.splice(this.connected.indexOf(target), 1);
   }
 }
 
@@ -396,6 +400,32 @@ describe("capture", () => {
   });
 });
 
+describe("captureEngine", () => {
+  test("captures the frames the engine rendered, from where its marker starts", async () => {
+    stubNodes();
+    const fake = fakeContext(RATE);
+    const patch = await loaded(2);
+    const engine = createEngineNode(context(fake), patch, () => undefined, true);
+    const captured = captureEngine(context(fake), engine, 2, 3);
+    const tapNode = FakeNode.created.at(-1);
+    expect(tapNode?.options).toMatchObject({ channelCount: 3 });
+    // Two silent frames before the processor started, then frames 1, 2, 3 marked.
+    const block = (left: number[], right: number[], marker: number[]): Float32Array[] => [new Float32Array(left), new Float32Array(right), new Float32Array(marker)];
+    tapNode?.port.deliver(block([0, 0, 1, 2, 3], [0, 0, 11, 12, 13], [0, 0, 1, 1, 1]));
+    tapNode?.port.deliver(block(Array<number>(START_MARGIN).fill(9), Array<number>(START_MARGIN).fill(9), Array<number>(START_MARGIN).fill(1)));
+    expect(await captured).toStrictEqual([new Float32Array([1, 2, 3]), new Float32Array([11, 12, 13])]);
+  });
+
+  test("fails when the engine never starts in the captured margin", async () => {
+    stubNodes();
+    const fake = fakeContext(RATE);
+    const engine = createEngineNode(context(fake), await loaded(2), () => undefined, true);
+    const captured = captureEngine(context(fake), engine, 2, 1);
+    FakeNode.created.at(-1)?.port.deliver([new Float32Array(START_MARGIN + 1), new Float32Array(START_MARGIN + 1)]);
+    await expect(captured).rejects.toThrow(new Error("the engine started too late in the live capture: not within the 16384 frames of margin"));
+  });
+});
+
 describe("renderOffline", () => {
   /**
    * Stubs an offline context whose processor posts `message` once rendering starts, and
@@ -452,27 +482,27 @@ describe("renderOffline", () => {
 
   test("renders in an offline context at the rate of the patch, with a marker and a margin", async () => {
     const { contexts, modules, destination } = offline({ type: "ready" });
-    expect(OFFLINE_MARGIN).toBe(16_384);
+    expect(START_MARGIN).toBe(16_384);
     expect(await renderOffline(await loaded(2), 2, "processors.js")).toStrictEqual([new Float32Array([0, 1]), new Float32Array([1000, 1001])]);
-    expect(contexts).toStrictEqual([{ channels: 3, frames: 2 + OFFLINE_MARGIN, rate: RATE }]);
+    expect(contexts).toStrictEqual([{ channels: 3, frames: 2 + START_MARGIN, rate: RATE }]);
     expect(modules).toStrictEqual(["processors.js"]);
     expect(FakeNode.created[0]?.connected).toStrictEqual([destination]);
     expect(FakeNode.created[0]?.options).toHaveProperty("processorOptions.marker", true);
 
     expect(await renderOffline(await loaded(0), 0, "processors.js")).toStrictEqual([]);
-    expect(contexts[1]).toStrictEqual({ channels: 1, frames: OFFLINE_MARGIN, rate: RATE });
+    expect(contexts[1]).toStrictEqual({ channels: 1, frames: START_MARGIN, rate: RATE });
   });
 
   test("returns the frames the engine rendered, wherever the processor started", async () => {
     offline({ type: "ready" }, { start: 128 });
     expect(await renderOffline(await loaded(2), 3, "processors.js")).toStrictEqual([new Float32Array([128, 129, 130]), new Float32Array([1128, 1129, 1130])]);
-    offline({ type: "ready" }, { start: OFFLINE_MARGIN });
-    expect((await renderOffline(await loaded(2), 1, "processors.js"))[0]).toStrictEqual(new Float32Array([OFFLINE_MARGIN]));
+    offline({ type: "ready" }, { start: START_MARGIN });
+    expect((await renderOffline(await loaded(2), 1, "processors.js"))[0]).toStrictEqual(new Float32Array([START_MARGIN]));
   });
 
   test("fails when the processor starts too late, or not at all", async () => {
     // Two frames asked: the render holds frame 16 385, where the marker starts, one too late.
-    offline({ type: "ready" }, { start: OFFLINE_MARGIN + 1 });
+    offline({ type: "ready" }, { start: START_MARGIN + 1 });
     await expect(renderOffline(await loaded(2), 2, "processors.js")).rejects.toThrow(
       new Error("the engine started too late in the offline render: at frame 16385, beyond the 16384 frames of margin"),
     );

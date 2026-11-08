@@ -1,7 +1,7 @@
 // Test bench page: drives the built package (dist/) and shows results as text, for the
 // end-to-end tests and for Claude in Chrome. The case comes from `?case=<name>`.
 import { interleave, renderHash } from "../../dist/hash.js";
-import { addProcessors, capture, createEngineNode, loadPatch, renderOffline, type LoadedPatch } from "../../dist/web.js";
+import { addProcessors, captureEngine, createEngineNode, loadPatch, renderOffline, type LoadedPatch } from "../../dist/web.js";
 
 const PROCESSORS = new URL("../../dist/worklet/processors.js", import.meta.url);
 
@@ -61,10 +61,16 @@ on("live", async () => {
   const context = new AudioContext({ sampleRate: loaded.rate });
   await context.suspend();
   await addProcessors(context, PROCESSORS);
-  const { node, ready } = createEngineNode(context, loaded, (failure) => {
-    error.value = String(failure);
-  });
-  const captured = capture(context, node, loaded.channels, testCase.frames);
+  const engine = createEngineNode(
+    context,
+    loaded,
+    (failure) => {
+      error.value = String(failure);
+    },
+    true,
+  );
+  const { node, ready } = engine;
+  const captured = captureEngine(context, engine, loaded.channels, testCase.frames);
   // Silent on the speakers: the graph runs for real, the capture reads the engine output
   // before this gain.
   const mute = new GainNode(context, { gain: 0 });

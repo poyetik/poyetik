@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `captureEngine` (engine-wasm web API): captures live the first frames the engine renders, from where its processor really started, as `renderOffline` does offline (`OFFLINE_MARGIN` is renamed `START_MARGIN`, shared by both).
 - `mutants-equivalent.txt` and a gate in `cargo xtask check`: every TypeScript mutant disabled as equivalent is listed there with its justification; a disable comment that is not listed, a stale entry, or a broader disable (a whole file, every mutator) fails the check.
 - The WebAssembly module exports `engine_abi_version`: the interface identity ("M4") and version (1), checked before anything else by the JavaScript side.
 - No-allocation proofs beyond single boxes: the plan laws check that rendering any random built plan allocates nothing, and the WASM engine tests check `Engine::process`, `Instance::process` and `engine_process` (at every sample rate of the matrix). The CLAUDE.md claim about an `assert_no_alloc` check, which did not exist, is corrected.
