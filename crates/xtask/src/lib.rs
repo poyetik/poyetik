@@ -3196,7 +3196,7 @@ pub const DETERMINISTIC_FLOAT_METHODS: [(&str, &str); 32] = [
     ("to_bits", "a bit copy"),
     (
         "to_int_unchecked",
-        "unsafe: refused by forbid(unsafe_code) in every crate",
+        "an unsafe function: every crate forbids unsafe code, so none can call it",
     ),
     ("to_le_bytes", "a bit copy in a fixed byte order"),
     ("total_cmp", "orders the bits"),
