@@ -57,6 +57,25 @@ Axis briefs:
 
 If the scope plainly cannot touch an axis (for example UX for a Rust-only change), still run it with the instruction to confirm that nothing in scope reaches it: coherence across parts is exactly what single-axis thinking misses.
 
+### Standing checks
+
+Defect classes earlier reviews found, which only a review sees. Give each reviewer the checks of its axes (in brackets), in addition to its brief; each check is reported done, with what it found, like any other area.
+
+1. **Inherited environment** (1, 11, 17). For each process spawned by tests, hooks and tools, list the environment it inherits from each caller: an interactive shell, a git hook run from the main checkout and from a linked worktree, CI. For each workflow `CLAUDE.md` prescribes (worktrees, releases, hooks, tags), find the test that runs it end to end, or report that none does.
+2. **Absolute claims** (6, 10, 17). For every absolute claim ("checked", "enforced", "never", "always", "exactly", "must", "already validated", "now does") in `CLAUDE.md`, the READMEs, doc comments and the changelog, open the check that enforces it and compare its conditions with the claim's wording. A `[Unreleased]` changelog entry must hold at the reviewed commit, not only at the commit that added it.
+3. **Waits that never end** (1, 13). For each `await` on an external event (a browser callback, a message, a fetch, a child process), say what settles it if the event never comes. For each memoised promise, say who clears it when it fails.
+4. **Numbers recomputed** (16). Recompute every documented bound, threshold and numeric claim exactly, at the extremes of its inputs, and check there is one test per regime of the formula.
+5. **Gates attacked** (5, 17). For each gate, try odd whitespace or flow form, a comment, an unexpected type or shape, and a file it should read but does not. List its early successful returns and its allowlists, and justify each. For each rule backed by a tool, probe one case the tool exempts and compare with the written rule.
+6. **Renames** (6, 7). After a rename, search the new name in every case and form, and the old name in its encoded forms too (hexadecimal, ASCII codes, identities, test values), in local branches and refs, and in the local design notes listed in `CLAUDE.md`.
+7. **Environment dimensions** (5, 11). For each test loop over a dimension of the environment, check that the value reaches the code under test and that the assertion would differ at another value. For each `is_err()`, `toBe(true)`, error-kind or "throws" assertion, ask whether the exact value is known and should be asserted. Check third-party default configurations for reads of the environment.
+8. **Glossary against code** (6, 7, 10). Read every glossary row against the code it names: the definition, not only the name. Check every roadmap ticket number cited in a versioned file with `pnpm roadmap show <id>`.
+9. **Markers and magic values** (1, 2). For every marker, sentinel or magic value, ask which wrong state also produces it.
+10. **Fixes proven before endorsed** (5, and the analysts). A proposed fix is run against the normal path of the existing tests before it is recommended, and states how it keeps 100% coverage and no surviving mutant. A proof names the layer it observes. A length or count claimed about data comes with the script that measured it.
+11. **Accessibility rules** (9). List every CSS rule or attribute that matters to accessibility with the test that fails without it.
+12. **Copies and loops** (6, 12, 3). Search each pinned value and each list entry and count where it is typed: one source, or a gate tying the copies. Search for test helpers written more than once. Give every animation-frame or polling loop a stop condition. Read every card of the roadmap's `doing` column as a visitor would.
+13. **Performance and bits** (3, 2). A performance finding comes with the measurement to take, and is never applied unmeasured. A fix that changes rendered bits only in cases the corpus does not reach yet is scheduled while it is still hash-neutral, before the change (a new box, a new case) that would make it move the reference hashes.
+14. **Hardening options** (4, 17). At each review, compare the configuration with the current hardening options of the forge (GitHub Actions), the package managers (pnpm, Cargo) and the supply-chain tools (`cargo-deny`).
+
 ## 3. Verification: every finding is challenged
 
 1. Merge the reports, and deduplicate findings that describe the same defect (keep the clearest scenario, note every axis that found it).
