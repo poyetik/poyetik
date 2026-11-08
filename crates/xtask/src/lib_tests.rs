@@ -930,13 +930,14 @@ fn runs_every_step_and_reports_success() {
         Ok(()),
         "all green"
     );
-    let (tools, commands, emptied, listed, captured) = (9, 32, 13, 9, 9);
+    let (tools, commands, emptied, listed, captured) = (9, 44, 13, 9, 9);
     let read = 1 + 12 + 2 + 2 + 4 + 2 + 1 + 7 + 3 + 10 + 10 + 8 + 2 + 5 + 11;
     assert_eq!(
         fake.ran.len(),
         tools + commands + emptied + listed + captured + read,
-        "the preflight asks nine tools; 32 commands run (formatting, lints, documentation, \
-         tests, four portability builds, twelve coverage measurements, mutants, Miri, the \
+        "the preflight asks nine tools; 44 commands run (formatting, lints, documentation, \
+         tests, four portability builds, twelve coverage measurements each after emptying \
+         the coverage build, mutants, Miri, the \
          conformance check and export, deny, the JavaScript install, audit and five package \
          checks); thirteen directories are emptied; git lists nine kinds of files; the licenses, \
          the history and the state of the tree (before and after) are captured twice each, \
@@ -4108,4 +4109,34 @@ fn runs_miri_on_every_crate_holding_unsafe_code() {
             .any(|step| step.action == Action::Run(super::miri_command())),
         "a step of the check"
     );
+}
+
+#[test]
+fn empties_the_coverage_build_before_every_measurement() {
+    let mut fake = passing();
+    assert_eq!(
+        run_steps(&check_steps(), &mut fake, &mut Vec::new()),
+        Ok(()),
+        "all green"
+    );
+    let clean = Coverage::clean_command().line();
+    let measurements: Vec<usize> = fake
+        .ran
+        .iter()
+        .enumerate()
+        .filter(|(_, line)| line.contains("llvm-cov --manifest-path"))
+        .map(|(index, _)| index)
+        .collect();
+    assert_eq!(
+        measurements.len(),
+        11 + 1,
+        "every crate and binary measured, and the locality fixture"
+    );
+    for index in measurements {
+        assert_eq!(
+            fake.ran.get(index.wrapping_sub(1)),
+            Some(&clean),
+            "a measurement right after a clean coverage build"
+        );
+    }
 }

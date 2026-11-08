@@ -123,6 +123,19 @@ impl Coverage {
         format!("{COVERAGE_DIR}/{}{suffix}.json", self.krate.name)
     }
 
+    /// The command emptying the coverage build first. The measured crates share one build
+    /// directory: an object left there by an earlier measurement (the same crate compiled
+    /// as a dependency of another) would enter the report as a second copy of its code,
+    /// never run, and halve its coverage; each measurement starts from nothing.
+    #[must_use]
+    pub fn clean_command() -> Cmd {
+        Cmd::new(
+            "cargo",
+            &[NIGHTLY_TOOLCHAIN, "llvm-cov", "clean", "--workspace"],
+            Dir::Root,
+        )
+    }
+
     /// The command measuring it, with branch coverage (which needs the pinned nightly).
     #[must_use]
     pub fn command(self) -> Cmd {
@@ -921,6 +934,9 @@ fn coverage_locality(runner: &mut dyn Runner) -> Result<(), Failure> {
 
 /// Runs a coverage measurement and reads its report.
 fn measure(runner: &mut dyn Runner, coverage: Coverage) -> Result<String, Failure> {
+    runner
+        .run(&Coverage::clean_command())
+        .map_err(|failure| Failure::from(failure.to_string()))?;
     runner
         .run(&coverage.command())
         .map_err(|failure| Failure::from(failure.to_string()))?;

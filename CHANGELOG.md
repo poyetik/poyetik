@@ -95,6 +95,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Each crate's coverage is measured from an emptied coverage build: an object left by an earlier measurement (the same crate compiled as a dependency of another) entered the report as a second copy of its code, never run, and halved its coverage.
 - The oracle follows the stream part of the command-line contract, like the Rust tools: a broken stderr no longer changes its exit code, and a stdout error other than a closed reader is one `error: cannot write to stdout: <code>` line and exit code 1 (never hiding a usage error's 2) instead of a stack trace.
 - The oracle reports a usage error as one line, `error: <reason> (see: oracle help)`, as the command-line contract requires, instead of printing its usage on stderr with no `error:` prefix and no reason; `oracle help` prints the usage on stdout.
 - The oracle's error bound is derived regime by regime of cycles per sample (below 1, and from 1 to 4, where the phase additions are exact), and an expectation's frequency must lie in [0, 4 × sample rate), the domain where the bound holds; the previous derivation was wrong from one cycle per sample on, and the 2 to 4 cycles regime (19,984 Hz at 8 kHz) is now tested.
