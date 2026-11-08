@@ -2,7 +2,12 @@
 //!
 //! The execution order is compared with a deliberately simple reference algorithm
 //! (quadratic, obviously correct); renders are checked for determinism, independence
-//! from the document order, independence from how the render is split, and finiteness.
+//! from the document order, independence from how the render is split, finiteness, and
+//! for not allocating once the plan is built.
+
+/// Counts allocations, so that rendering a built plan can be checked not to allocate.
+#[global_allocator]
+static ALLOCATOR: engine_testkit::CountingAllocator = engine_testkit::CountingAllocator;
 
 #[cfg(test)]
 mod tests {
@@ -14,6 +19,7 @@ mod tests {
         Block, Capability, Connection, CoreError, Node, NodeId, Object, ObjectSpec, ParamSpec,
         Patch, Plan, PortSpec, SampleRate,
     };
+    use engine_testkit::allocations_during;
     use engine_testkit::matrix::sample_rates;
     use proptest::collection::vec;
     use proptest::test_runner::{Config, RngAlgorithm, TestCaseError, TestRng, TestRunner};
@@ -229,6 +235,16 @@ mod tests {
         if let Some(sample) = whole.iter().find(|s| !s.is_finite()) {
             return Err(format!("non-finite sample {sample}"));
         }
+        // A built plan renders without allocating, into a caller buffer or block by block.
+        let mut buffer = vec![0.0_f32; whole.len()];
+        let mut blocks = vec![[0.0_f32; engine_core::BLOCK_SIZE]; 3];
+        let ((), allocations) = allocations_during(|| {
+            plan.render_into(&mut buffer);
+            plan.process(&mut blocks);
+        });
+        if allocations > 0 {
+            return Err(format!("{allocations} allocations while rendering"));
+        }
         Ok(())
     }
 
@@ -253,6 +269,12 @@ mod tests {
             );
             assert!(result.is_ok(), "at {} Hz: {result:?}", rate.hz());
         }
+    }
+
+    #[test]
+    fn counts_allocations() {
+        let ((), allocations) = allocations_during(|| drop(Box::new(0_u8)));
+        assert_eq!(allocations, 1, "the no-allocation law is not vacuous");
     }
 
     #[test]

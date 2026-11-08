@@ -119,6 +119,22 @@ mod tests {
     }
 
     #[test]
+    fn renders_without_allocating() {
+        let mut instance = loaded();
+        let ((), allocations) = engine_testkit::allocations_during(|| {
+            for _ in 0_u16..100_u16 {
+                let _: &[engine_core::Block] = instance.process();
+            }
+        });
+        assert_eq!(allocations, 0, "100 blocks");
+        let mut empty = Instance::new();
+        let ((), none) = engine_testkit::allocations_during(|| {
+            let _: &[engine_core::Block] = empty.process();
+        });
+        assert_eq!(none, 0, "nothing loaded");
+    }
+
+    #[test]
     fn a_failed_load_unloads_and_explains() {
         let mut instance = loaded();
         instance.input(1).copy_from_slice(b"x");

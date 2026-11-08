@@ -150,5 +150,14 @@ mod tests {
         }
         let bits = |samples: &[f32]| samples.iter().map(|s| s.to_bits()).collect::<Vec<_>>();
         assert_eq!(bits(&actual), bits(&expected), "bit-identical");
+
+        // What the audio thread calls, block after block: no allocation.
+        let ((), allocations) = engine_testkit::allocations_during(|| {
+            for _ in 0_u16..100_u16 {
+                let _: *const f32 = core::hint::black_box(engine_process());
+                let _: usize = core::hint::black_box(engine_channels());
+            }
+        });
+        assert_eq!(allocations, 0, "engine_process does not allocate");
     }
 }

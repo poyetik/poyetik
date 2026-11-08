@@ -20,5 +20,8 @@ engine-core = { path = "../../crates/engine-core" }
 engine-objects = { path = "../../crates/engine-objects" }
 engine-patch = { path = "../../crates/engine-patch" }
 
+[dev-dependencies]
+engine-testkit = { path = "../../crates/engine-testkit" }
+
 [lints]
 workspace = true

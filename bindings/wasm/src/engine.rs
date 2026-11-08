@@ -83,6 +83,21 @@ mod tests {
     }
 
     #[test]
+    fn renders_without_allocating() {
+        let ((), probe) = engine_testkit::allocations_during(|| drop(Box::new(0_u8)));
+        assert_eq!(probe, 1, "allocations are counted");
+        for rate in engine_testkit::matrix::sample_rates() {
+            let mut engine = Engine::new(SINE.as_bytes(), rate.hz()).expect("valid patch");
+            let ((), allocations) = engine_testkit::allocations_during(|| {
+                for _ in 0_u16..100_u16 {
+                    let _: &[engine_core::Block] = engine.process();
+                }
+            });
+            assert_eq!(allocations, 0, "100 blocks at {} Hz", rate.hz());
+        }
+    }
+
+    #[test]
     fn rejects_text_that_is_not_utf8() {
         let error = Engine::new(&[0xff], 48_000).expect_err("invalid UTF-8");
         assert!(error.starts_with("patch is not UTF-8: "), "{error}");

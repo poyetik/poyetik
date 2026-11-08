@@ -15,3 +15,8 @@ mod instance;
 
 pub use engine::Engine;
 pub use instance::Instance;
+
+/// The test binary counts allocations, so that rendering can be checked not to allocate.
+#[cfg(test)]
+#[global_allocator]
+static ALLOCATOR: engine_testkit::CountingAllocator = engine_testkit::CountingAllocator;
