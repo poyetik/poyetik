@@ -63,7 +63,9 @@ describe("localDate", () => {
     }
   });
 
-  // Node reads TZ again when it is assigned: each case runs in its own zone, whatever the machine's.
+  // Node reads TZ again when it is assigned, in a process's main thread only: the tests run in forked
+  // processes (Vitest's default, and the pool stryker.config.json sets). Each case asserts that its zone
+  // took effect, so a run where it did not fails instead of passing at the machine's zone.
   it.each(TIME_ZONES)("formats the local day with zero padding in %s, early and late in the day", (timeZone) => {
     process.env.TZ = timeZone;
     expect(new Date(2026, 0, 5, 0, 30).getTimezoneOffset()).toBe(offsetOf(timeZone));

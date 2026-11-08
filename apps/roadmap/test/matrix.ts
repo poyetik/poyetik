@@ -1,9 +1,20 @@
 // The shared test matrix (conformance/test-matrix.json), read by the roadmap's tests and its
 // Playwright configuration: the time zones and locales are never retyped.
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 
-/** The matrix, parsed but not yet trusted. */
-const MATRIX: unknown = JSON.parse(readFileSync(new URL("../../../conformance/test-matrix.json", import.meta.url), "utf8"));
+/**
+ * The matrix, parsed but not yet trusted. It is found by walking up from this file, since mutation
+ * testing runs the tests from a copy of the package nested deeper in it.
+ */
+const MATRIX = ((): unknown => {
+  for (let directory = new URL("./", import.meta.url); directory.pathname !== "/"; directory = new URL("../", directory)) {
+    const file = new URL("conformance/test-matrix.json", directory);
+    if (existsSync(file)) {
+      return JSON.parse(readFileSync(file, "utf8"));
+    }
+  }
+  throw new Error("conformance/test-matrix.json not found");
+})();
 
 /** The non-empty list of strings under `key` in the matrix; throws if it is missing or of another shape. */
 function strings(key: string): readonly [string, ...string[]] {
