@@ -5,6 +5,7 @@ extern crate alloc;
 use alloc::collections::BTreeMap;
 use std::io;
 use std::path::Path;
+use std::process::Command;
 
 use super::{
     Action, CARGO_TOML, CHANGELOG, COMMIT_HEADER_MAX, COVERAGE_REPORT, Cmd, Dir,
@@ -760,19 +761,37 @@ fn fails_when_equivalent_files_cannot_be_read() {
 
 #[test]
 fn system_runner_lists_the_tracked_typescript_files() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let files = SystemRunner { root }
-        .typescript_files()
-        .expect("git lists the files");
-    assert!(
-        files.iter().any(|f| f == "bindings/wasm/ts/engine.ts"),
-        "a tracked source"
-    );
-    assert!(
-        files.iter().all(|f| Path::new(f)
-            .extension()
-            .is_some_and(|e| e == "ts" || e == "tsx")),
-        "TypeScript only"
+    // A repository of its own: the tests also run from copies without git history.
+    let root = std::env::temp_dir().join(format!("xtask-git-{}", std::process::id()));
+    std::fs::create_dir_all(root.join("src")).expect("temporary repository");
+    for (file, text) in [
+        ("src/a.ts", "a"),
+        ("src/b.tsx", "b"),
+        ("src/c.js", "c"),
+        ("d.ts", "d"),
+    ] {
+        std::fs::write(root.join(file), text).expect("source file");
+    }
+    std::fs::write(root.join("untracked.ts"), "u").expect("untracked file");
+    let git = |args: &[&str]| {
+        Command::new("git")
+            .args(args)
+            .current_dir(&root)
+            .output()
+            .is_ok_and(|output| output.status.success())
+    };
+    assert!(git(&["init", "--quiet"]), "git init");
+    assert!(git(&["add", "src", "d.ts"]), "git add");
+    let files = SystemRunner { root: root.clone() }.typescript_files();
+    std::fs::remove_dir_all(&root).expect("cleanup");
+    assert_eq!(
+        files.expect("git lists the files"),
+        vec![
+            "d.ts".to_owned(),
+            "src/a.ts".to_owned(),
+            "src/b.tsx".to_owned()
+        ],
+        "tracked TypeScript only"
     );
     let outside = std::env::temp_dir().join(format!("xtask-no-git-{}", std::process::id()));
     std::fs::create_dir_all(&outside).expect("temporary directory");
@@ -1135,19 +1154,5 @@ fn bless_renders_and_rewrites_the_references() {
         String::from_utf8(out).expect("utf-8"),
         "▶ [1/1] Bless conformance references\n✔ all 1 checks passed\n",
         "progress"
-    );
-}
-
-#[test]
-fn equivalent_gate_passes_on_the_repository() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let step = [Step {
-        name: "equivalent".to_owned(),
-        action: Action::EquivalentGate,
-    }];
-    assert_eq!(
-        run_steps(&step, &mut SystemRunner { root }, &mut Vec::new()),
-        Ok(()),
-        "every disabled mutant of the repository is reviewed"
     );
 }
