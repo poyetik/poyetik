@@ -1,4 +1,5 @@
-// Shared test data: the built engine module and the sine-440 conformance case.
+// Shared test data: the built engine module, the conformance corpus and the shared test
+// matrix, read from their files and never retyped.
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 
 /**
@@ -29,19 +30,11 @@ function field(json: unknown, key: string): unknown {
   return typeof json === "object" && json !== null ? Reflect.get(json, key) : undefined;
 }
 
-/** The description of the sine-440 case (sample rate, duration), parsed JSON. */
-const sineCase: unknown = JSON.parse(readFileSync(new URL("cases/sine-440.json", CONFORMANCE), "utf8"));
 /** The native reference hashes of the corpus, by case name, as parsed JSON. */
 const references: unknown = JSON.parse(readFileSync(new URL("references.json", CONFORMANCE), "utf8"));
 
 /** The patch file of the sine-440 case, byte for byte: never parsed and written again. */
 export const SINE_PATCH = new Uint8Array(readFileSync(new URL("patches/sine-440.json", CONFORMANCE)));
-
-/** Duration of the sine-440 case, in frames. */
-export const SINE_FRAMES = Number(field(sineCase, "frames"));
-
-/** The native reference hash of the sine-440 case. */
-export const SINE_HASH = String(field(references, "sine-440"));
 
 /** A case of the conformance corpus, read from its files. */
 export interface CorpusCase {
@@ -71,15 +64,29 @@ export const CORPUS: readonly CorpusCase[] = jsonNames("cases/").map((name) => {
   };
 });
 
-/** Every sample rate of the shared test matrix (conformance/test-matrix.json), in hertz. */
-export const SAMPLE_RATES: readonly number[] = ((): number[] => {
-  const matrix: unknown = JSON.parse(readFileSync(new URL("test-matrix.json", CONFORMANCE), "utf8"));
-  const rates = field(matrix, "sample_rates");
-  if (!Array.isArray(rates) || !rates.every((rate) => typeof rate === "number")) {
-    throw new Error("invalid test matrix");
+/** The keys of the shared test matrix, each read once below: a key added to the file fails here until it is read. */
+const MATRIX_KEYS = ["host_buffer_sizes", "sample_rates"] as const;
+
+/** The shared test matrix (conformance/test-matrix.json), parsed JSON. */
+const matrix: unknown = JSON.parse(readFileSync(new URL("test-matrix.json", CONFORMANCE), "utf8"));
+if (typeof matrix !== "object" || matrix === null || Object.keys(matrix).sort().join() !== MATRIX_KEYS.join()) {
+  throw new Error(`the test matrix must have exactly the keys ${MATRIX_KEYS.join(", ")}`);
+}
+
+/** One key of the shared test matrix: a list of positive whole numbers. */
+function matrixValues(key: (typeof MATRIX_KEYS)[number]): readonly number[] {
+  const values = field(matrix, key);
+  if (!Array.isArray(values) || !values.every((value): value is number => Number.isSafeInteger(value) && Number(value) > 0)) {
+    throw new Error(`invalid test matrix: ${key} is not a list of positive whole numbers`);
   }
-  return rates.map(Number);
-})();
+  return values;
+}
+
+/** Every sample rate of the shared test matrix, in hertz. */
+export const SAMPLE_RATES: readonly number[] = matrixValues("sample_rates");
+
+/** Every host buffer size of the shared test matrix, in frames: how hosts split time. */
+export const HOST_BUFFER_SIZES: readonly number[] = matrixValues("host_buffer_sizes");
 
 /** The names of the patch files of the corpus, sorted. */
 export const PATCH_NAMES: readonly string[] = jsonNames("patches/");
