@@ -331,8 +331,16 @@ test("says, accessibly, when the browser keeps the audio paused after Resume", a
   expect((await new AxeBuilder({ page }).analyze()).violations).toStrictEqual([]);
 });
 
-for (const width of [320, undefined]) {
-  test(`keeps the button a 44 px target, as wide whatever it says, at ${width === undefined ? "the default width" : `${String(width)} px`}`, async ({ page }) => {
+/**
+ * The layouts the button and the status are checked in: the narrowest width the page
+ * supports, also in a font wider than any platform's default (the generic monospace,
+ * about 0.6 em per character), since the fonts a platform falls back to decide whether
+ * a status fits beside the button; and the default width.
+ */
+const LAYOUTS: readonly { readonly width?: number; readonly font?: string }[] = [{ width: 320 }, { width: 320, font: "monospace" }, {}];
+
+for (const { width, font } of LAYOUTS) {
+  test(`keeps the button a 44 px target, as wide whatever it says, and the status in place, at ${width === undefined ? "the default width" : `${String(width)} px`}${font === undefined ? "" : ` in ${font}`}`, async ({ page }) => {
     if (width !== undefined) {
       await page.setViewportSize({ width, height: 640 });
     }
@@ -351,6 +359,15 @@ for (const width of [320, undefined]) {
     await page.goto("./?muted");
     const button = page.getByRole("button");
     const status = page.getByRole("status");
+    if (font !== undefined) {
+      // Through the CSSOM, which the page's CSP allows. At the default size, 16 px, written
+      // out: browsers shrink the default size of the generic monospace alone (to 13 px).
+      // The emulation took effect.
+      await page.evaluate((family) => {
+        document.documentElement.style.font = `16px ${family}`;
+      }, font);
+      expect(await status.evaluate((element) => [getComputedStyle(element).fontFamily, getComputedStyle(element).fontSize])).toStrictEqual([font, "16px"]);
+    }
     /** Where the button and the status are, and how large the button is. */
     const geometry = async (): Promise<{ width: number; height: number; status: number }> => {
       const box = await button.boundingBox();
@@ -373,6 +390,24 @@ for (const width of [320, undefined]) {
     for (const [label, measured] of seen) {
       expect(measured.height, label).toBeGreaterThanOrEqual(44);
       expect(measured, label).toStrictEqual(first);
+    }
+    if (font !== undefined) {
+      // The control: on one line, the longest status is wider than the room beside the
+      // button, so the layout above was put to the test.
+      const [needed, room] = await status.evaluate((element) => {
+        const context = document.createElement("canvas").getContext("2d");
+        const controls = element.parentElement;
+        const before = element.previousElementSibling;
+        if (context === null || controls === null || before === null) {
+          return [0, 0];
+        }
+        context.font = getComputedStyle(element).font;
+        const gap = Number.parseFloat(getComputedStyle(controls).columnGap);
+        return [context.measureText(element.textContent).width, controls.getBoundingClientRect().right - before.getBoundingClientRect().right - gap];
+      });
+      expect(await status.textContent()).toBe("Paused by the browser");
+      expect(room).toBeGreaterThan(0);
+      expect(needed).toBeGreaterThan(room);
     }
   });
 }

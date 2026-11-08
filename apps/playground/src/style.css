@@ -38,6 +38,15 @@ p {
   margin: 1.5rem 0;
 }
 
+/*
+ * The status takes the rest of the line beside the button and wraps its own text there
+ * (its basis is 0, so only its longest word must fit): a status longer than that room,
+ * which depends on the fonts of the platform, never moves below the button.
+ */
+.controls [role="status"] {
+  flex: 1 1 0;
+}
+
 /* A failure is explained right below the button that started it, its detail below. */
 .controls [role="alert"],
 .controls details {
