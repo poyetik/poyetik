@@ -82,13 +82,16 @@ describe("parseExpectations", () => {
 
   test.each([
     [[], "expectations.json is not an object"],
-    [{ a: null }, "expectations.json: a: channels is not a non-empty list"],
-    [{ a: { sample_rate: 8000, frames: 4, channels: [{ sine: null }] } }, "expectations.json: a: channel 0: sine.frequency is not a finite number"],
+    [{ a: null }, "expectations.json: a is not an object"],
+    [{ a: { sample_rate: 8000, frames: 4, channels: [{ sine: null }] } }, "expectations.json: a: channel 0: sine is not an object"],
+    // Exactly the documented fields, at every level.
+    [{ a: { sample_rate: 8000, frames: 4, channels: [CHANNEL], max_error: 1e-6 } }, "expectations.json: a: unknown field max_error"],
+    [{ a: { sample_rate: 8000, frames: 4, channels: [{ sine: { ...CHANNEL.sine, offset: 0 } }] } }, "expectations.json: a: channel 0: sine: unknown field offset"],
     [{ a: { sample_rate: 8000, frames: 4 } }, "expectations.json: a: channels is not a non-empty list"],
     [{ a: { sample_rate: 8000, frames: 4, channels: [] } }, "expectations.json: a: channels is not a non-empty list"],
     [{ a: { frames: 4, channels: [CHANNEL] } }, "expectations.json: a: sample_rate is not a finite number"],
     [{ a: { sample_rate: 8000, channels: [CHANNEL] } }, "expectations.json: a: frames is not a finite number"],
-    [{ a: { sample_rate: 8000, frames: 4, channels: [{}] } }, "expectations.json: a: channel 0: sine.frequency is not a finite number"],
+    [{ a: { sample_rate: 8000, frames: 4, channels: [{}] } }, "expectations.json: a: channel 0: sine is not an object"],
     [{ a: { sample_rate: 8000, frames: 4, channels: [3] } }, "expectations.json: a: channel 0 is not an object"],
     [{ a: { sample_rate: 8000, frames: 2 ** 29 + 1, channels: [CHANNEL] } }, "expectations.json: a: frames is above 536870912, the longest case with an exact reference"],
     [{ a: { sample_rate: 8000, frames: 4, channels: [CHANNEL, { ...CHANNEL, sine: { frequency: 1, phase: 0 } }] } }, "expectations.json: a: channel 1: sine.amplitude is not a finite number"],

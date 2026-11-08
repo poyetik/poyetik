@@ -53,9 +53,9 @@ export interface Expectation {
   readonly channels: readonly ChannelExpectation[];
 }
 
-/** Reads a field of an object. */
-function field(value: unknown, name: string): unknown {
-  return typeof value === "object" && value !== null ? Reflect.get(value, name) : undefined;
+/** Reads a field of an object (`undefined` when it has none). */
+function field(value: object, name: string): unknown {
+  return Reflect.get(value, name);
 }
 
 /** Whether `value` is a finite number (`Number.isFinite` is false for anything but a number). */
@@ -127,20 +127,30 @@ function sampleRate(value: unknown, where: string): number {
   return read;
 }
 
-/** The entries of a JSON object, or rejects `where`. */
-function entries(value: unknown, where: string): [string, unknown][] {
+/** `value`, a JSON object (not an array), or rejects `where`. */
+function object(value: unknown, where: string): object {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new InputError(`${where} is not an object`);
   }
-  return Object.entries(value);
+  return value;
 }
 
-/** Rejects `where` if the JSON object `value` has a field not in `keys` (a missing one is rejected by its reader). */
-function onlyKeys(value: unknown, keys: readonly string[], where: string, why = ""): void {
-  const extra = entries(value, where).find(([key]) => !keys.includes(key));
+/** The entries of a JSON object, or rejects `where`. */
+function entries(value: unknown, where: string): [string, unknown][] {
+  return Object.entries(object(value, where));
+}
+
+/**
+ * `value`, a JSON object with no field but `keys`, or rejects `where` (a missing field is
+ * rejected by its reader); `why` is added to the message of an unknown field.
+ */
+function onlyKeys(value: unknown, keys: readonly string[], where: string, why = ""): object {
+  const checked = object(value, where);
+  const extra = Object.keys(checked).find((key) => !keys.includes(key));
   if (extra !== undefined) {
-    throw new InputError(`${where}: unknown field ${extra[0]}${why}`);
+    throw new InputError(`${where}: unknown field ${extra}${why}`);
   }
+  return checked;
 }
 
 /**
@@ -151,7 +161,7 @@ function onlyKeys(value: unknown, keys: readonly string[], where: string, why = 
  */
 function wholeNumbers(name: string): (this: unknown, key: string, value: unknown, ...context: unknown[]) => unknown {
   return (key, value, ...context) => {
-    if (typeof value === "number" && !/^-?\d+$/.test(String(field(context[0], "source")))) {
+    if (typeof value === "number" && !/^-?\d+$/.test(String(Reflect.get(Object(context[0]), "source")))) {
       throw new InputError(`${name}: ${key} is not a whole number written without fraction or exponent`);
     }
     return value;
@@ -177,8 +187,8 @@ export function parseCase(text: string, name: string): Case {
   } catch (error) {
     throw new InputError(`${name}: not JSON (${String(error)})`);
   }
-  onlyKeys(value, ["sample_rate", "frames"], name);
-  const read = { rate: sampleRate(field(value, "sample_rate"), `${name}: sample_rate`), frames: frames(field(value, "frames"), `${name}: frames`) };
+  const checked = onlyKeys(value, ["sample_rate", "frames"], name);
+  const read = { rate: sampleRate(field(checked, "sample_rate"), `${name}: sample_rate`), frames: frames(field(checked, "frames"), `${name}: frames`) };
   JSON.parse(text, wholeNumbers(name));
   return read;
 }
@@ -196,12 +206,12 @@ export function parseReferences(value: unknown): Map<string, string> {
 }
 
 /**
- * Reads one channel expectation: an object with a `sine` and nothing else, whose
- * frequency lies in [0, 4 × `rate`), the domain `sineErrorBound` is derived for.
+ * Reads one channel expectation: an object with a `sine` and nothing else, the sine
+ * having exactly a frequency, an amplitude and a phase, and its frequency lying in
+ * [0, 4 × `rate`), the domain `sineErrorBound` is derived for.
  */
 function parseChannel(value: unknown, rate: number, where: string): ChannelExpectation {
-  onlyKeys(value, ["sine"], where, " (tolerances are derived, not declared)");
-  const sine = field(value, "sine");
+  const sine = onlyKeys(field(onlyKeys(value, ["sine"], where, " (tolerances are derived, not declared)"), "sine"), ["frequency", "amplitude", "phase"], `${where}: sine`);
   const frequency = binary32(field(sine, "frequency"), `${where}: sine.frequency`);
   if (!(frequency >= 0 && frequency < 4 * rate)) {
     throw new InputError(`${where}: sine.frequency is not in [0, 4 × sample_rate)`);
@@ -215,21 +225,22 @@ function parseChannel(value: unknown, rate: number, where: string): ChannelExpec
   };
 }
 
-/** Reads `expectations.json`: case name → what its render must be. */
+/** Reads `expectations.json`: case name → what its render must be, each with exactly a `sample_rate`, `frames` and `channels`. */
 export function parseExpectations(value: unknown): Map<string, Expectation> {
   return new Map(
     entries(value, "expectations.json").map(([name, expectation]) => {
       const where = `expectations.json: ${name}`;
-      const channels = field(expectation, "channels");
+      const checked = onlyKeys(expectation, ["sample_rate", "frames", "channels"], where);
+      const channels = field(checked, "channels");
       if (!Array.isArray(channels) || channels.length === 0) {
         throw new InputError(`${where}: channels is not a non-empty list`);
       }
-      const rate = sampleRate(field(expectation, "sample_rate"), `${where}: sample_rate`);
+      const rate = sampleRate(field(checked, "sample_rate"), `${where}: sample_rate`);
       return [
         name,
         {
           rate,
-          frames: frames(field(expectation, "frames"), `${where}: frames`),
+          frames: frames(field(checked, "frames"), `${where}: frames`),
           channels: channels.map((channel: unknown, index) => parseChannel(channel, rate, `${where}: channel ${String(index)}`)),
         },
       ];
