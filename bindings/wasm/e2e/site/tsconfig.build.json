@@ -1,6 +1,6 @@
 {
   "extends": "../../tsconfig.json",
-  "compilerOptions": { "noEmit": false, "rootDir": ".", "outDir": "." },
+  "compilerOptions": { "noEmit": false, "rootDir": ".", "outDir": "../../dist/e2e-site" },
   "include": ["harness.ts"],
   "exclude": []
 }

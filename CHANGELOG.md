@@ -38,6 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The engine test bench is compiled into `dist/e2e-site/`, not next to its source behind a nested `.gitignore`; the membership gate now refuses any `.gitignore` but the root one.
 - The tools shared by several TypeScript packages (TypeScript, Vitest, Playwright, Stryker, ESLint, axe, Node types) have one version each, in the pnpm catalog of the workspace; the Node type definitions follow the Node version the packages require (22.18), not Node 26, and the roadmap no longer allows a newer TypeScript than the others.
 - The counting allocator of the tests is its own crate, `engine-alloc-counter`, checked by Miri; `engine-testkit` and the engine and instance modules of `engine-wasm` forbid unsafe code, and `cargo xtask check` fails when any file but the two audited ones lifts the lint against unsafe code.
 - Roadmap: only a card in the In progress (`doing`) column has a step in progress; a card waiting in another column shows nothing in progress, and `task done <id>` without a step number fails for it.

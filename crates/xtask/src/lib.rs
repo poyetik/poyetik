@@ -666,13 +666,18 @@ pub const CONFIGURATION_PACKAGE: &str = "tooling/config/package.json";
 ///
 /// Every `package.json` is in [`PACKAGE_JSONS`], every TypeScript package but the root
 /// and the configuration one is in [`TYPESCRIPT_PACKAGES`], and every crate manifest
-/// (`Cargo.toml` below the root) takes the workspace version.
+/// (`Cargo.toml` below the root) takes the workspace version. The only `.gitignore` is the
+/// root one: build outputs go to `dist/` or `target/`, never hidden inside a source folder.
 ///
 /// # Errors
 ///
 /// Returns a message listing every manifest unknown to xtask or missing from the
 /// repository, and every crate with a version of its own.
-pub fn membership_gate(packages: &[String], crates: &[(String, String)]) -> Result<(), String> {
+pub fn membership_gate(
+    packages: &[String],
+    crates: &[(String, String)],
+    ignores: &[String],
+) -> Result<(), String> {
     let tracked: BTreeSet<&str> = packages.iter().map(String::as_str).collect();
     let known: BTreeSet<&str> = PACKAGE_JSONS.into_iter().collect();
     let mut problems: Vec<String> = tracked
@@ -709,6 +714,16 @@ pub fn membership_gate(packages: &[String], crates: &[(String, String)]) -> Resu
                     .any(|line| line.trim() == "version.workspace = true")
             })
             .map(|(path, _)| format!("{path} does not take the workspace version")),
+    );
+    problems.extend(
+        ignores
+            .iter()
+            .filter(|path| path.as_str() != ".gitignore")
+            .map(|path| {
+                format!(
+                    "{path}: build outputs go to dist/ or target/, not hidden in a source folder"
+                )
+            }),
     );
     if problems.is_empty() {
         Ok(())
@@ -1253,12 +1268,14 @@ pub fn run_steps(
                         .map_err(|error| format!("cannot list the {pattern} files: {error}"))
                 };
                 list(runner, "*package.json").and_then(|packages| {
-                    list(runner, "*Cargo.toml").and_then(|manifests| {
-                        manifests
-                            .into_iter()
-                            .map(|path| read_file(runner, &path).map(|text| (path, text)))
-                            .collect::<Result<Vec<_>, _>>()
-                            .and_then(|crates| membership_gate(&packages, &crates))
+                    list(runner, "*.gitignore").and_then(|ignores| {
+                        list(runner, "*Cargo.toml").and_then(|manifests| {
+                            manifests
+                                .into_iter()
+                                .map(|path| read_file(runner, &path).map(|text| (path, text)))
+                                .collect::<Result<Vec<_>, _>>()
+                                .and_then(|crates| membership_gate(&packages, &crates, &ignores))
+                        })
                     })
                 })
             }

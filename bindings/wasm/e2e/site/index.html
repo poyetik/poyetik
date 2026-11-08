@@ -5,7 +5,8 @@
     <!-- The policy of a page running the engine: the site only, plus compiling WebAssembly. -->
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; base-uri 'none'; form-action 'none'" />
     <title>engine-wasm test bench</title>
-    <script type="module" src="./harness.js"></script>
+    <!-- Built into dist/, never into this source folder (pnpm test:e2e builds it). -->
+    <script type="module" src="/dist/e2e-site/harness.js"></script>
   </head>
   <body>
     <main>

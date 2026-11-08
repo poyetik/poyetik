@@ -396,11 +396,11 @@ fn runs_every_step_and_reports_success() {
     );
     assert_eq!(
         fake.ran.len(),
-        check_steps().len() + 7 + 10 + 7 + 2 + 1 + 2,
+        check_steps().len() + 7 + 10 + 7 + 3 + 1 + 2,
         "every step ran; the unviable gate reads two files, the equivalent gate lists the \
          sources and reads two files, the release gate eight, the fresh step empties seven \
          more directories, the TypeScript gate reads eight reports instead of one action, \
-         the membership gate lists twice and reads the root Cargo.toml, the license gate \
+         the membership gate lists three times and reads the root Cargo.toml, the license gate \
          captures two reports, the unsafe gate lists and reads two files"
     );
     for path in [
@@ -1452,7 +1452,16 @@ fn knows_exactly_the_packages_and_crates_of_the_repository() {
             "[package]\nversion.workspace = true\n".to_owned(),
         ),
     ];
-    assert_eq!(membership_gate(&packages, &crates), Ok(()), "known");
+    assert_eq!(
+        membership_gate(&packages, &crates, &[".gitignore".to_owned()]),
+        Ok(()),
+        "known"
+    );
+    assert_eq!(
+        membership_gate(&packages, &crates, &[".gitignore".to_owned(), "bindings/wasm/.gitignore".to_owned()]),
+        Err("bindings/wasm/.gitignore: build outputs go to dist/ or target/, not hidden in a source folder".to_owned()),
+        "a nested .gitignore"
+    );
 
     let mut more = packages.clone();
     more.push("apps/editor/package.json".to_owned());
@@ -1466,12 +1475,12 @@ fn knows_exactly_the_packages_and_crates_of_the_repository() {
         "[package]\nversion = \"9.0.0\"\n".to_owned(),
     )];
     assert_eq!(
-        membership_gate(&more, &own),
+        membership_gate(&more, &own, &[]),
         Err("apps/editor/package.json is not in PACKAGE_JSONS; apps/editor is not in TYPESCRIPT_PACKAGES: its checks and reports are not run; crates/b/Cargo.toml does not take the workspace version".to_owned()),
         "unknown package and crate with its own version"
     );
     assert_eq!(
-        membership_gate(&fewer, &[]),
+        membership_gate(&fewer, &[], &[]),
         Err("apps/roadmap/package.json is in PACKAGE_JSONS but not tracked; apps/roadmap is in TYPESCRIPT_PACKAGES but has no tracked package.json".to_owned()),
         "a package that is gone"
     );
