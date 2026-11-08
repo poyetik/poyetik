@@ -6689,3 +6689,134 @@ fn accepts_the_synthetic_merge_of_a_pull_request_only_as_the_commit_checked_out(
         "a commit written here never has that message"
     );
 }
+
+#[test]
+fn makes_a_message_safe_to_show() {
+    use super::{MAX_MESSAGE_CHARS, safe_message};
+    assert_eq!(
+        safe_message("commit abc: unknown type \"x\""),
+        "commit abc: unknown type \"x\"",
+        "plain text is unchanged, quotes included"
+    );
+    let hostile = "a\nb\rc\td\u{7f}e\u{85}f\u{202e}g\u{2066}h\u{200f}i\u{200e}i\u{61c}j\u{2028}k\u{2029}l\u{202a}m\u{2069}n\u{1b}";
+    assert_eq!(
+        safe_message(hostile),
+        "a\\u{a}b\\u{d}c\\u{9}d\\u{7f}e\\u{85}f\\u{202e}g\\u{2066}h\\u{200f}i\\u{200e}i\\u{61c}j\\u{2028}k\\u{2029}l\\u{202a}m\\u{2069}n\\u{1b}",
+        "control, bidi and line-separator characters are escaped"
+    );
+    assert_eq!(
+        safe_message("é ü 音 \u{202f}\u{206a}\u{2065}"),
+        "é ü 音 \u{202f}\u{206a}\u{2065}",
+        "other text is kept, the neighbours of the escaped ranges included"
+    );
+    assert_eq!(safe_message(""), "", "nothing to show");
+    let at_limit = "x".repeat(MAX_MESSAGE_CHARS);
+    assert_eq!(safe_message(&at_limit), at_limit, "exactly at the limit");
+    assert_eq!(
+        safe_message(&format!("{at_limit}y")),
+        format!("{}…", "x".repeat(MAX_MESSAGE_CHARS - 1)),
+        "one character more: cut, and marked"
+    );
+    assert_eq!(
+        safe_message(&"\n".repeat(MAX_MESSAGE_CHARS)),
+        format!("{}…", "\\u{a}".repeat((MAX_MESSAGE_CHARS - 1) / 5)),
+        "whole escapes only"
+    );
+    assert_eq!(
+        MAX_MESSAGE_CHARS, 1_000,
+        "the limit of engine_patch::safe_message"
+    );
+}
+
+/// Whether `text` is lines of at most `max` characters, none holding a control character.
+fn safe_lines(text: &[u8], max: usize) -> bool {
+    String::from_utf8(text.to_vec()).is_ok_and(|text| {
+        text.lines()
+            .all(|line| line.chars().count() <= max && !line.chars().any(char::is_control))
+    })
+}
+
+#[test]
+fn shows_untrusted_text_on_one_bounded_line() {
+    let line_max = "error: ".len() + super::MAX_MESSAGE_CHARS;
+    let args = ["commit-msg".to_owned(), "COMMIT_EDITMSG".to_owned()];
+    for (message, shown) in [
+        (
+            "\u{1b}]0;owned\u{7} feat: x\n".to_owned(),
+            "error: invalid commit message: unknown type \"\\u{1b}]0;owned\\u{7} feat\"\n"
+                .to_owned(),
+        ),
+        (
+            format!("{}: y\n", "x".repeat(200_000)),
+            format!(
+                "error: {}…\n",
+                format!(
+                    "invalid commit message: unknown type \"{}",
+                    "x".repeat(1_000)
+                )
+                .chars()
+                .take(super::MAX_MESSAGE_CHARS - 1)
+                .collect::<String>()
+            ),
+        ),
+    ] {
+        let mut fake = passing();
+        let _replaced = fake.files.insert("COMMIT_EDITMSG".to_owned(), message);
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        assert_eq!(run_cli(&args, &mut fake, &mut out, &mut err), 1, "refused");
+        assert_eq!(String::from_utf8(err).expect("UTF-8"), shown, "one line");
+        assert_eq!(
+            String::from_utf8(out).expect("UTF-8"),
+            "expected: <type>(<scope>)!: <summary>, type one of feat, fix, docs, test, refactor, \
+             perf, build, ci, chore, style, revert\n",
+            "the details"
+        );
+    }
+    let (mut out, mut err) = (Vec::new(), Vec::new());
+    assert_eq!(
+        run_cli(
+            &["\u{1b}[2J\nerror: forged".to_owned()],
+            &mut passing(),
+            &mut out,
+            &mut err
+        ),
+        2,
+        "a usage error"
+    );
+    assert_eq!(
+        String::from_utf8(err).expect("UTF-8"),
+        "error: unknown command \"\\u{1b}[2J\\u{a}error: forged\" (see: cargo xtask help)\n",
+        "one line, the argument escaped"
+    );
+    assert!(out.is_empty(), "nothing on stdout");
+
+    let mut hostile = passing();
+    let _replaced = hostile.files.insert(
+        super::CARGO_CONFIG_FILE.to_owned(),
+        format!(
+            "[build]\u{1b}[8m\nrustflags = [\"{}\"]\n",
+            "x".repeat(5_000)
+        ),
+    );
+    let (mut check_out, mut check_err) = (Vec::new(), Vec::new());
+    assert_eq!(
+        run_cli(
+            &["check".to_owned()],
+            &mut hostile,
+            &mut check_out,
+            &mut check_err
+        ),
+        1,
+        "a configuration refused"
+    );
+    let details = String::from_utf8(check_out.clone()).expect("UTF-8");
+    assert!(
+        details.contains("\nfound:\n[build]\\u{1b}[8m\nrustflags = [\"xxx"),
+        "each line of a detail on its own line, escaped: {details}"
+    );
+    assert!(
+        safe_lines(&check_out, super::MAX_MESSAGE_CHARS),
+        "bounded: {details}"
+    );
+    assert!(safe_lines(&check_err, line_max), "one bounded error line");
+}

@@ -534,6 +534,61 @@ impl From<String> for Failure {
     }
 }
 
+/// Longest line [`safe_message`] returns, in characters after escaping: the same bound as
+/// `engine_patch::MAX_MESSAGE_CHARS`.
+pub const MAX_MESSAGE_CHARS: usize = 1_000;
+
+/// Whether `character` must not reach a terminal as is: control characters (a newline
+/// would forge a second line, ESC starts terminal sequences), bidirectional formatting
+/// characters (they reorder what is shown) and the Unicode line and paragraph separators.
+const fn needs_escape(character: char) -> bool {
+    character.is_control()
+        || matches!(
+            character,
+            '\u{61c}'
+                | '\u{200e}'
+                | '\u{200f}'
+                | '\u{202a}'..='\u{202e}'
+                | '\u{2066}'..='\u{2069}'
+                | '\u{2028}'
+                | '\u{2029}'
+        )
+}
+
+/// `message` made safe to show, on one line and bounded.
+///
+/// Every character that could break the line or drive a terminal is escaped as `\u{..}`;
+/// past [`MAX_MESSAGE_CHARS`] characters (escapes counted whole, never split), the text is
+/// cut and marked with `…`. The algorithm of `engine_patch::safe_message`, copied: xtask
+/// depends on no engine crate. The messages of xtask quote untrusted text (a commit
+/// message, a file, an argument), so [`cli`] passes every line it writes through it.
+#[must_use]
+pub fn safe_message(message: &str) -> String {
+    let mut safe = String::new();
+    // Where to cut if the message is too long: after the last whole character (or
+    // escape) that leaves room for the `…`.
+    let mut cut = 0_usize;
+    let mut used = 0_usize;
+    for character in message.chars() {
+        let piece = if needs_escape(character) {
+            character.escape_unicode().to_string()
+        } else {
+            String::from(character)
+        };
+        used = used.saturating_add(piece.chars().count());
+        if used > MAX_MESSAGE_CHARS {
+            safe.truncate(cut);
+            safe.push('…');
+            return safe;
+        }
+        safe.push_str(&piece);
+        if used < MAX_MESSAGE_CHARS {
+            cut = safe.len();
+        }
+    }
+    safe
+}
+
 /// The verdict of a gate that found `problems` about `context`: none passes; a single one
 /// is said in the summary line; several are counted there and listed in the details.
 fn verdict(context: &str, problems: Vec<String>) -> Result<(), Failure> {
@@ -5142,7 +5197,8 @@ fn task(args: &[OsString]) -> Result<Task, String> {
 ///
 /// 0 on success. 1 when a check or a command failed: one `error: …` line on `err`, its
 /// details on `out`. 2 for a usage error: one `error: … (see: cargo xtask help)` line on
-/// `err`, nothing on `out`. Only `help` prints the usage, on `out`.
+/// `err`, nothing on `out`. Only `help` prints the usage, on `out`. The error line and
+/// each line of the details go through [`safe_message`]: escaped, and bounded.
 pub fn cli(
     args: &[OsString],
     runner: &mut dyn Runner,
@@ -5165,7 +5221,11 @@ pub fn cli(
         Ok(task) => task,
         Err(usage) => {
             // Nothing more can be done if stderr itself is broken: the exit code still tells.
-            drop(writeln!(err, "error: {usage} (see: cargo xtask help)"));
+            drop(writeln!(
+                err,
+                "error: {} (see: cargo xtask help)",
+                safe_message(&usage)
+            ));
             return 2;
         }
     };
@@ -5216,10 +5276,11 @@ pub fn cli(
         Err(failure) => {
             // Nothing more can be done if an output itself is broken: the exit code still
             // fails.
-            for detail in &failure.details {
-                drop(writeln!(out, "{detail}"));
+            // Each line of a detail on a line of its own, every line made safe.
+            for line in failure.details.iter().flat_map(|detail| detail.lines()) {
+                drop(writeln!(out, "{}", safe_message(line)));
             }
-            drop(writeln!(err, "error: {}", failure.summary));
+            drop(writeln!(err, "error: {}", safe_message(&failure.summary)));
             1
         }
     }
