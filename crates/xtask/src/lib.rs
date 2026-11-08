@@ -1044,12 +1044,43 @@ pub const WORKFLOW: &str = ".github/workflows/quality.yml";
 /// The Node.js release CI uses, pinned.
 pub const NODE_VERSION_FILE: &str = ".node-version";
 
+/// The WebAssembly module the engine package builds: uploaded by a failed CI run, so that
+/// its bytes can be compared with a local build.
+pub const WASM_MODULE: &str = "bindings/wasm/dist/engine.wasm";
+
+/// What a failed CI run uploads.
+///
+/// Every report a gate of xtask reads (the mutants, the Rust coverage, the coverage and
+/// mutation reports of every TypeScript package, as one glob per folder of parts) and the
+/// WebAssembly module.
+#[must_use]
+pub fn failure_uploads() -> Vec<String> {
+    let mut uploads: Vec<String> = [
+        UNVIABLE_REPORT.split('/').next().unwrap_or(UNVIABLE_REPORT),
+        COVERAGE_REPORT,
+        WASM_MODULE,
+    ]
+    .map(str::to_owned)
+    .to_vec();
+    for report in TYPESCRIPT_REPORTS {
+        // `<folder>/<package>/<kind>[/…]` becomes `<folder>/*/<kind>`.
+        let mut parts = report.split('/');
+        let folder = parts.next().unwrap_or_default();
+        let glob = format!("{folder}/*/{}", parts.nth(1).unwrap_or_default());
+        if !uploads.contains(&glob) {
+            uploads.push(glob);
+        }
+    }
+    uploads
+}
+
 /// Checks that CI cannot change under the project's feet.
 ///
 /// Every action of the workflow is pinned to a full commit hash, the Cargo tools to
 /// [`PINNED_TOOLS`], Node.js to the release in `.node-version` (at [`NODE_FLOOR`] or
-/// later), the whole history is fetched for the history gate, and the workflow runs
-/// `cargo xtask check`.
+/// later), the runner to an OS release (never `-latest`), the whole history is fetched for
+/// the history gate, the workflow runs `cargo xtask check`, its Rust cache is saved even
+/// when the run fails, and a failed run uploads every [`failure_uploads`] path.
 ///
 /// # Errors
 ///
@@ -1067,6 +1098,15 @@ pub fn workflow_gate(workflow: &str, node_version: &str) -> Result<(), String> {
         })
         .map(|action| format!("{action} is not pinned to a full commit hash"))
         .collect();
+    problems.extend(
+        workflow
+            .lines()
+            .map(str::trim)
+            .filter(|line| line.starts_with("runs-on:") && line.ends_with("-latest"))
+            .map(|line| {
+                format!("`{line}` moves to a new OS release without a commit: name the release")
+            }),
+    );
     let tools = PINNED_TOOLS
         .iter()
         .map(|(name, version)| format!("{name}@{version}"))
@@ -1077,7 +1117,11 @@ pub fn workflow_gate(workflow: &str, node_version: &str) -> Result<(), String> {
         "node-version-file: .node-version".to_owned(),
         "fetch-depth: 0".to_owned(),
         "run: cargo xtask check".to_owned(),
-    ] {
+        "cache-on-failure: true".to_owned(),
+    ]
+    .into_iter()
+    .chain(failure_uploads())
+    {
         if !workflow.lines().any(|line| line.trim() == expected) {
             problems.push(format!("{WORKFLOW} lacks `{expected}`"));
         }

@@ -231,7 +231,7 @@ fn tool_answer(program: &str, subcommand: Option<&str>) -> String {
 }
 
 /// A workflow that pins everything, as the workflow gate requires.
-const PINNED_WORKFLOW: &str = "jobs:\n  check:\n    steps:\n      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n        with:\n          fetch-depth: 0\n      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39\n        with:\n          tool: cargo-llvm-cov@0.9.1,cargo-mutants@27.1.0,cargo-deny@0.20.2\n      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0\n        with:\n          node-version-file: .node-version\n      - name: Every quality check\n        run: cargo xtask check\n";
+const PINNED_WORKFLOW: &str = "jobs:\n  check:\n    runs-on: ubuntu-24.04\n    steps:\n      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n        with:\n          fetch-depth: 0\n      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39\n        with:\n          tool: cargo-llvm-cov@0.9.1,cargo-mutants@27.1.0,cargo-deny@0.20.2\n      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0\n        with:\n          node-version-file: .node-version\n      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3\n        with:\n          cache-on-failure: true\n      - name: Every quality check\n        run: cargo xtask check\n      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2\n        if: failure()\n        with:\n          path: |\n            mutants.out\n            target/coverage.json\n            bindings/wasm/dist/engine.wasm\n            apps/*/coverage\n            apps/*/reports\n            bindings/*/coverage\n            bindings/*/reports\n            tooling/*/coverage\n            tooling/*/reports\n";
 
 /// A history whose two commits follow the convention, the change of behavior with its
 /// changelog entry, as `git log` writes it for the history gate.
@@ -2146,6 +2146,35 @@ fn requires_a_workflow_that_pins_everything() {
             .to_owned()),
         "every kind of loose pin"
     );
+    let unkept = PINNED_WORKFLOW
+        .replace("runs-on: ubuntu-24.04", "runs-on: ubuntu-latest")
+        .replace("cache-on-failure: true", "cache-on-failure: false")
+        .replace("            tooling/*/coverage\n", "")
+        .replace("            target/coverage.json\n", "");
+    assert_eq!(
+        super::workflow_gate(&unkept, "22.23.4"),
+        Err("`runs-on: ubuntu-latest` moves to a new OS release without a commit: name the release; \
+             .github/workflows/quality.yml lacks `cache-on-failure: true`; \
+             .github/workflows/quality.yml lacks `target/coverage.json`; \
+             .github/workflows/quality.yml lacks `tooling/*/coverage`"
+            .to_owned()),
+        "a moving runner, a cache lost on failure, reports not uploaded"
+    );
+    assert_eq!(
+        super::failure_uploads(),
+        vec![
+            "mutants.out",
+            "target/coverage.json",
+            "bindings/wasm/dist/engine.wasm",
+            "tooling/*/coverage",
+            "tooling/*/reports",
+            "bindings/*/coverage",
+            "bindings/*/reports",
+            "apps/*/coverage",
+            "apps/*/reports",
+        ],
+        "every report a failed run leaves, derived from where xtask reads them"
+    );
     for (node, accepted) in [
         ("22.18.0", true),
         ("24.1.0\n", true),
@@ -2161,4 +2190,15 @@ fn requires_a_workflow_that_pins_everything() {
             "{node:?}"
         );
     }
+}
+
+#[test]
+fn the_real_workflow_pins_everything() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let read = |path: &str| std::fs::read_to_string(root.join(path)).expect("readable");
+    assert_eq!(
+        super::workflow_gate(&read(super::WORKFLOW), &read(super::NODE_VERSION_FILE)),
+        Ok(()),
+        "the workflow of the repository"
+    );
 }
