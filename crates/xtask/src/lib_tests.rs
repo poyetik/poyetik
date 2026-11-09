@@ -1495,7 +1495,7 @@ fn names_every_check_in_order() {
             "Conformance export (native WAV files)",
             "Rust supply chain",
             "Every direct dependency reviewed",
-            "Box arithmetic only through the math layer: libm in engine-core and engine-testkit only, no raw float in box code",
+            "Box arithmetic only through the math layer: libm in engine-core and engine-testkit only, no raw float in box code, sums only in the reduction order",
             "Supply-chain settings: a week before a release, libm without features",
             "Packages and crates known to the checks",
             "Every part described in a README",
@@ -6666,7 +6666,8 @@ fn requires_every_direct_dependency_to_be_reviewed() {
 /// The summary of the math layer gate's failures.
 const MATH_LAYER: &str = "box arithmetic only through the math layer (engine-core, \
                           engine-testkit only may depend on libm; box code names no raw float, \
-                          libm, host or delivery)";
+                          libm, host or delivery; sums of more than two terms only through \
+                          ordered_sum)";
 
 #[test]
 fn refuses_libm_outside_the_math_layer_and_the_measurements() {
@@ -6871,6 +6872,86 @@ fn reads_char_literals_and_raw_strings_as_prose() {
 }
 
 #[test]
+fn refuses_sums_outside_the_math_layer() {
+    let gate = |path: &str, text: &str| {
+        super::math_layer_gate(r#"{"packages":[]}"#, &[(path.to_owned(), text.to_owned())])
+    };
+    let refused = |path: &str, line: usize, word: &str| {
+        Err(Failure::from(format!(
+            "{MATH_LAYER}: {path}:{line}: `{word}` reduces outside the math layer: every sum \
+             of more than two terms goes through ordered_sum, in the reduction order"
+        )))
+    };
+    let (boxes, engine) = (
+        "crates/engine-objects/src/a.rs",
+        "crates/engine-core/src/plan.rs",
+    );
+    for path in [boxes, engine] {
+        for word in super::REDUCTION_NAMES {
+            assert_eq!(
+                gate(path, &format!("let a = 1;\nlet t = x.iter().{word}(y);")),
+                refused(path, 2, word),
+                "{path}: {word}"
+            );
+        }
+        assert_eq!(
+            gate(
+                path,
+                "let t = ordered_sum(x); // a fold, a sum\nlet s = \"sum\";"
+            ),
+            Ok(()),
+            "{path}: the helper, prose and strings"
+        );
+    }
+    assert_eq!(
+        gate(
+            engine,
+            "#[expect(clippy::arithmetic_side_effects, reason = \"x\")]"
+        ),
+        Err(Failure::from(format!(
+            "{MATH_LAYER}: {engine}:1: engine code names `arithmetic_side_effects`: it does \
+             no arithmetic on a sample type outside the math layer"
+        ))),
+        "arithmetic on a generic sample type in the engine"
+    );
+    assert_eq!(
+        gate(
+            boxes,
+            "#[expect(clippy::arithmetic_side_effects, reason = \"x\")]"
+        ),
+        Ok(()),
+        "a box computes on its samples"
+    );
+    assert_eq!(
+        gate(engine, "let x: f64 = host::Raw::raw(y);"),
+        Ok(()),
+        "the engine core names floats and its host module"
+    );
+    for exempt in [
+        "crates/engine-core/src/math.rs",
+        "crates/engine-core/src/plan_tests.rs",
+        "crates/engine-objects/src/osc_tests.rs",
+    ] {
+        assert_eq!(
+            gate(
+                exempt,
+                "let t = x.iter().fold(0, f).sum(); arithmetic_side_effects"
+            ),
+            Ok(()),
+            "{exempt}"
+        );
+    }
+    assert_eq!(
+        gate("crates/engine-patch/src/lib.rs", "let a = 1;"),
+        Err(Failure::from(format!(
+            "{MATH_LAYER}: crates/engine-patch/src/lib.rs: not a source the math layer gate \
+             reads"
+        ))),
+        "a source of another crate"
+    );
+}
+
+#[test]
 fn keeps_the_box_code_of_the_repository_in_the_math_layer() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let mut runner = SystemRunner { root: root.clone() };
@@ -6879,28 +6960,34 @@ fn keeps_the_box_code_of_the_repository_in_the_math_layer() {
         .expect("cargo metadata");
     // The files of the box crate's sources, read from the directory (a copy of the
     // repository, as cargo-mutants makes, has no git to list them).
-    let dir = root.join("crates/engine-objects/src");
-    let mut sources: Vec<(String, String)> = std::fs::read_dir(&dir)
-        .expect("the box sources")
-        .map(|entry| {
-            let name = entry.expect("an entry").file_name();
-            let name = name.to_str().expect("UTF-8").to_owned();
-            let text = std::fs::read_to_string(dir.join(&name)).expect("readable");
-            (format!("crates/engine-objects/src/{name}"), text)
-        })
-        .collect();
+    let mut sources: Vec<(String, String)> =
+        ["crates/engine-objects/src", "crates/engine-core/src"]
+            .into_iter()
+            .flat_map(|dir| {
+                std::fs::read_dir(root.join(dir))
+                    .expect("the sources")
+                    .map(|entry| {
+                        let name = entry.expect("an entry").file_name();
+                        let name = name.to_str().expect("UTF-8").to_owned();
+                        let text =
+                            std::fs::read_to_string(root.join(dir).join(&name)).expect("readable");
+                        (format!("{dir}/{name}"), text)
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect();
     sources.sort();
     assert!(
-        sources.iter().any(|(path, _)| path.ends_with("/osc.rs"))
-            && sources
-                .iter()
-                .any(|(path, _)| path.ends_with("/osc_tests.rs")),
-        "the box sources and their tests are read"
+        ["/osc.rs", "/osc_tests.rs", "/plan.rs", "/math.rs"]
+            .iter()
+            .all(|file| sources.iter().any(|(path, _)| path.ends_with(file))),
+        "the box and engine sources and their tests are read"
     );
     assert_eq!(
         super::math_layer_gate(&metadata, &sources),
         Ok(()),
-        "only the math layer and the measurements depend on libm, and box code names no raw float"
+        "only the math layer and the measurements depend on libm, box code names no raw \
+         float, and only the math layer sums"
     );
 }
 
