@@ -135,14 +135,22 @@ const FAKE_JOBS: NonZeroUsize = NonZeroUsize::new(3).expect("three is not zero")
 const CHANGES_MODE: Mode = Mode::Changes { jobs: FAKE_JOBS };
 
 /// What the fake's git answers about its tree and its changes.
-const GIT_ANSWERS: [(&str, &str); 6] = [
+const GIT_ANSWERS: [(&str, &str); 8] = [
     TREE_STATUS,
     TREE_DIFF,
     TREE_HEAD,
     MERGE_BASE,
     CHANGES,
     NEW_RUST_FILES,
+    COMMON_DIR,
+    HEAD_TREE,
 ];
+
+/// How the fake names git's common directory, and what it answers: the repository's own.
+const COMMON_DIR: (&str, &str) = ("git rev-parse --git-common-dir", ".git\n");
+
+/// How the fake reads the tree of the commit checked out, and what it answers.
+const HEAD_TREE: (&str, &str) = ("git log -1 --format=%T HEAD", "def456\n");
 
 /// How the fake finds the base of the changes, and what it answers: the upstream resolves.
 const MERGE_BASE: (&str, &str) = ("git merge-base HEAD @{upstream}", "abc123\n");
@@ -731,6 +739,7 @@ fn command_lines(steps: &[Step]) -> Vec<String> {
                 format!("rust mutants of the changes ({jobs} jobs)")
             }
             Action::UnviableGate(extent) => format!("unviable gate ({extent:?})"),
+            Action::MutationProofRecorded => "mutation proof recorded".to_owned(),
             Action::EquivalentGate => "equivalent gate".to_owned(),
             Action::VersionGate => "version gate".to_owned(),
             Action::ReadmeGate => "readme gate".to_owned(),
@@ -1391,6 +1400,7 @@ fn lists_every_check_in_order() {
             "fresh mutants.out",
             "rust mutants of the changes (3 jobs)",
             "unviable gate (Partial)",
+            "mutation proof recorded",
             "equivalent gate",
             "bypass gate",
             "unsafe gate",
@@ -1485,6 +1495,7 @@ fn names_every_check_in_order() {
             "Fresh Rust mutation report",
             "Rust mutation testing of the changes",
             "Rust unviable mutants reviewed",
+            "Rust mutation proof recorded for the next default check",
             "TypeScript equivalent mutants reviewed",
             "Every bypass of coverage or mutation testing reviewed",
             "Unsafe code confined to the audited files",
@@ -1540,8 +1551,26 @@ fn names_every_check_in_order() {
 #[test]
 fn the_full_check_differs_only_by_its_mutation_testing() {
     let jobs = NonZeroUsize::new(3).expect("three is not zero");
-    let changes = check_steps(CHANGES_MODE);
+    // The default check records the proof of its mutation testing, which the full check
+    // never reads nor writes: one step more, after the unviable gate.
+    let mut changes = check_steps(CHANGES_MODE);
+    let recorded = changes
+        .iter()
+        .position(|step| step.action == Action::MutationProofRecorded)
+        .expect("the default check records its proof");
+    assert_eq!(
+        changes.get(recorded - 1).map(|step| &step.action),
+        Some(&Action::UnviableGate(Extent::Partial)),
+        "after the unviable gate"
+    );
+    let _record = changes.remove(recorded);
     let full = check_steps(Mode::Full { jobs });
+    assert!(
+        !full
+            .iter()
+            .any(|step| step.action == Action::MutationProofRecorded),
+        "the full check records nothing"
+    );
     assert_eq!(changes.len(), full.len(), "the same number of steps");
     let differences: Vec<(String, String)> = command_lines(&changes)
         .into_iter()
@@ -1644,6 +1673,9 @@ fn mutates_the_changes_since_the_merge_base_with_the_upstream() {
         fake.ran,
         vec![
             "capture git merge-base HEAD @{upstream}",
+            "write target/xtask/mutants-base",
+            "capture git rev-parse --git-common-dir",
+            "read .git/poyetik/rust-mutants-proven/abc123",
             "capture git diff --no-color --no-ext-diff --no-textconv --no-renames --src-prefix=a/ --dst-prefix=b/ abc123",
             "capture git ls-files -z --others --exclude-standard -- *.rs",
             "write target/xtask/changes.diff",
@@ -1800,7 +1832,7 @@ fn mutates_everything_when_what_every_test_uses_changed() {
         assert!(
             fake.ran.contains(
                 &"cargo mutants --cap-lints=true --gitignore=true --cargo-arg=--locked --workspace --jobs 3 -- -- --include-ignored".to_owned()
-            ) && !fake.ran.iter().any(|line| line.starts_with("write")),
+            ) && !fake.ran.iter().any(|line| line.starts_with("write target/xtask/changes")),
             "{path}: every mutant of the workspace, no diff: {:?}",
             fake.ran
         );
@@ -1869,11 +1901,9 @@ fn mutates_nothing_without_a_change() {
         "an empty diff passes"
     );
     assert!(
-        !fake
-            .ran
-            .iter()
-            .any(|line| line.starts_with("cargo mutants") || line.starts_with("write")),
-        "nothing written, nothing mutated: {:?}",
+        !fake.ran.iter().any(|line| line.starts_with("cargo mutants")
+            || line.starts_with("write target/xtask/changes")),
+        "no diff written, nothing mutated: {:?}",
         fake.ran
     );
     assert!(
@@ -2684,8 +2714,8 @@ fn runs_every_step_and_reports_success() {
         Ok(()),
         "all green"
     );
-    let (tools, commands, emptied, listed, captured, written) = (10, 52, 14, 20, 18, 1);
-    let read = 2 + 7 + 13 + 2 + 7 + 21 + 3 + 1 + 7 + 3 + 11 + 10 + 21 + 8 + 2 + 11 + 40 + 20;
+    let (tools, commands, emptied, listed, captured, written) = (10, 52, 14, 20, 25, 3);
+    let read = 2 + 7 + 13 + 2 + 7 + 21 + 3 + 1 + 7 + 3 + 11 + 10 + 21 + 8 + 2 + 11 + 40 + 20 + 3;
     assert_eq!(
         fake.ran.len(),
         tools + commands + emptied + listed + captured + written + read,
@@ -2696,8 +2726,11 @@ fn runs_every_step_and_reports_success() {
          checks each followed by its Stryker run); fourteen directories are emptied; git lists \
          twelve kinds of files (the box sources among them), the TypeScript ones again for the reports and scope gates of \
          each package after the first; the licenses and the history are captured twice each, the state \
-         of the tree (before and after) four times, the nightly's version and sysroot, the Cargo metadata (for the dependency and the math layer gates), the output of the fused test build, the merge base, the changes and the \
-         new Rust files once; the diff is written once; and the gates read .node-version and the toolchain file for the preflight, the toolchain file, the four float sources and the float macros of the nightly and clippy.toml for the float gate, thirteen coverage reports, \
+         of the tree (before, for the proof record and after) six times, the nightly's version and sysroot, the Cargo metadata (for the dependency and the math layer gates), the output of the fused test build, the merge base, the changes and the \
+         new Rust files once, git's common directory twice, the tree checked out and \
+         cargo-mutants' version for the proof record; the measured base, the diff and the \
+         proof record are written once each; the proof record, the measured base and the \
+         toolchain file are read for it; and the gates read .node-version and the toolchain file for the preflight, the toolchain file, the four float sources and the float macros of the nightly and clippy.toml for the float gate, thirteen coverage reports, \
          the unviable report and reviews, six TypeScript sources and their reviews, the nine \
          sources, the eleven Cargo manifests and the register of the bypass gate, the three unsafe files, the Cargo \
          configuration, the six package manifests and the register of the dependency gate, the three \
@@ -2724,15 +2757,15 @@ fn runs_every_step_and_reports_success() {
     );
     let text = String::from_utf8(out).expect("utf-8 output");
     assert!(
-        text.starts_with("▶ [1/76] Tools and platform\n"),
+        text.starts_with("▶ [1/77] Tools and platform\n"),
         "numbered progress: {text}"
     );
     assert!(
-        text.contains("▶ [72/76] Roadmap checks\n"),
+        text.contains("▶ [73/77] Roadmap checks\n"),
         "last step announced: {text}"
     );
     assert!(
-        text.ends_with("✔ all 76 checks passed\n"),
+        text.ends_with("✔ all 77 checks passed\n"),
         "summary: {text}"
     );
 }
@@ -5470,7 +5503,7 @@ fn checks_a_push_then_runs_every_check() {
     assert!(
         String::from_utf8(out)
             .expect("UTF-8")
-            .ends_with("✔ all 76 checks passed\n"),
+            .ends_with("✔ all 77 checks passed\n"),
         "then every check"
     );
     assert!(
@@ -9304,4 +9337,576 @@ fn requires_the_ci_condition_on_every_job() {
         Ok(()),
         "comments and blank lines between jobs"
     );
+}
+
+/// A commit, a tree and a base of the proof record tests: full object names.
+const PROVEN: [&str; 3] = [
+    "1111111111111111111111111111111111111111",
+    "2222222222222222222222222222222222222222",
+    "3333333333333333333333333333333333333333",
+];
+
+/// A record of the fake's tools for `base`, proving [`PROVEN`]'s commit.
+fn proof_record(base: &str) -> super::ProofRecord {
+    let [commit, tree, _] = PROVEN;
+    super::ProofRecord {
+        commit: commit.to_owned(),
+        tree: tree.to_owned(),
+        base: base.to_owned(),
+        mutants: "cargo-mutants 27.1.0".to_owned(),
+        toolchain: "1.99.1".to_owned(),
+    }
+}
+
+#[test]
+fn reads_exactly_the_proof_records_it_writes() {
+    let record = proof_record(PROVEN[2]);
+    let text = record.text();
+    assert_eq!(
+        text,
+        format!(
+            "poyetik rust-mutants-proven 1\ncommit {}\ntree {}\nbase {}\ncargo-mutants cargo-mutants 27.1.0\ntoolchain 1.99.1\n",
+            PROVEN[0], PROVEN[1], PROVEN[2]
+        ),
+        "one field per line, after the tag"
+    );
+    assert_eq!(
+        super::ProofRecord::parse(&text),
+        Ok(record.clone()),
+        "round trip"
+    );
+    let long = super::ProofRecord {
+        commit: "a".repeat(64),
+        ..record
+    };
+    assert_eq!(
+        super::ProofRecord::parse(&long.text()),
+        Ok(long),
+        "SHA-256 object names"
+    );
+    let refused = |malformed: &str| super::ProofRecord::parse(malformed).err();
+    for (malformed, reason) in [
+        (
+            text.trim_end().to_owned(),
+            "it does not end with a line break",
+        ),
+        (
+            text.replacen("proven 1", "proven 2", 1),
+            "its first line is not `poyetik rust-mutants-proven 1`",
+        ),
+        (
+            text.replacen("commit ", "comit ", 1),
+            "it has no `commit` line where expected",
+        ),
+        (
+            text.replacen("toolchain 1.99.1", "toolchain ", 1),
+            "it has no `toolchain` line where expected",
+        ),
+        (
+            text.replacen("toolchain 1.99.1", "toolchain  ", 1),
+            "it has no `toolchain` line where expected",
+        ),
+        (
+            text.replacen("tree ", "treex", 1),
+            "it has no `tree` line where expected",
+        ),
+        (format!("{text}extra\n"), "it has a line more"),
+        (
+            text.replacen(PROVEN[0], &"1".repeat(39), 1),
+            "its commit is not an object name",
+        ),
+        (
+            text.replacen(PROVEN[1], &"G".repeat(40), 1),
+            "its tree is not an object name",
+        ),
+        (
+            text.replacen(PROVEN[2], &"A".repeat(40), 1),
+            "its base is not an object name",
+        ),
+        (
+            text.replacen(PROVEN[2], &"3".repeat(41), 1),
+            "its base is not an object name",
+        ),
+        (
+            "poyetik rust-mutants-proven 1\ncommit x\n".to_owned(),
+            "it has no `tree` line where expected",
+        ),
+    ] {
+        assert_eq!(
+            refused(&malformed),
+            Some(reason.to_owned()),
+            "{malformed:?}"
+        );
+    }
+    for name in ["g", "/", "`", "@"] {
+        assert!(
+            refused(&text.replacen('1', name, 1)).is_some(),
+            "{name} is no hexadecimal digit"
+        );
+    }
+}
+
+/// The path of the proof record of the base `base`, below the fake's common directory.
+fn record_path(base: &str) -> String {
+    format!(".git/poyetik/rust-mutants-proven/{base}")
+}
+
+/// The command reading the tree of the proven commit.
+fn proven_tree_command() -> String {
+    format!(
+        "capture git rev-parse --verify --quiet {}^{{tree}}",
+        PROVEN[0]
+    )
+}
+
+/// The command reading the changes since `since`.
+fn diff_since(since: &str) -> String {
+    format!(
+        "capture git diff --no-color --no-ext-diff --no-textconv --no-renames --src-prefix=a/ --dst-prefix=b/ {since}"
+    )
+}
+
+/// A passing fake whose base is [`PROVEN`]'s, holding `record` as its proof record, the
+/// tree of the proven commit, `since_commit` as the changes since it and a change of
+/// `crates/a/src/d.rs` as the changes since the base.
+fn proven_fake(record: &super::ProofRecord, since_commit: &str) -> Fake {
+    let mut fake = passing();
+    for (key, value) in [
+        (record_path(PROVEN[2]), record.text()),
+        (proven_tree_command(), format!("{}\n", PROVEN[1])),
+        (diff_since(PROVEN[0]), since_commit.to_owned()),
+        (diff_since(PROVEN[2]), one_line_change("crates/a/src/d.rs")),
+        (
+            format!("capture {}", MERGE_BASE.0),
+            format!("{}\n", PROVEN[2]),
+        ),
+    ] {
+        drop(fake.files.insert(key, value));
+    }
+    fake
+}
+
+/// Runs the mutation of the changes on `fake`, and returns what it said.
+fn mutate_changes(fake: &mut Fake) -> String {
+    let mut out = Vec::new();
+    assert_eq!(
+        run_steps(&rust_mutation_of_changes(), fake, &mut out),
+        Ok(()),
+        "mutated"
+    );
+    String::from_utf8(out).expect("UTF-8")
+}
+
+#[test]
+fn mutates_only_what_changed_since_a_valid_proof_record() {
+    let mut fake = proven_fake(
+        &proof_record(PROVEN[2]),
+        &one_line_change("crates/a/src/c.rs"),
+    );
+    let said = mutate_changes(&mut fake);
+    assert_eq!(
+        fake.files.get(CHANGES_DIFF).cloned(),
+        Some(one_line_change("crates/a/src/c.rs")),
+        "the diff since the proven commit, not since the base"
+    );
+    assert!(
+        said.contains(&format!(
+            "  the changes since {} (proven by an earlier check against {}, merge base with @{{upstream}})\n",
+            PROVEN[0], PROVEN[2]
+        )),
+        "said: {said}"
+    );
+    assert_eq!(
+        fake.files.get(super::MEASURED_BASE).cloned(),
+        Some(format!("{}\n", PROVEN[2])),
+        "the base noted for the record of this run"
+    );
+    // The widening rules apply to the diff since the proven commit.
+    let mut widened = proven_fake(
+        &proof_record(PROVEN[2]),
+        &one_line_change("crates/engine-testkit/src/lib.rs"),
+    );
+    assert!(
+        mutate_changes(&mut widened)
+            .contains("  crates/engine-testkit/src/lib.rs changed: every Rust mutant\n"),
+        "what every test uses changed since the proven commit: everything"
+    );
+    let mut nothing = proven_fake(&proof_record(PROVEN[2]), "");
+    drop(nothing.files.remove(UNVIABLE_REPORT));
+    assert!(
+        mutate_changes(&mut nothing).contains(&format!(
+            "  no change since {} (proven by an earlier check against {}, merge base with @{{upstream}}): no mutant to test\n",
+            PROVEN[0], PROVEN[2]
+        )),
+        "nothing changed since the proven commit"
+    );
+    assert!(
+        !nothing
+            .ran
+            .iter()
+            .any(|line| line.starts_with("cargo mutants")),
+        "nothing mutated"
+    );
+}
+
+/// Checks that `fake` ignores its proof record for `reason`, saying so, and mutates the
+/// changes since the base.
+fn ignored(fake: &mut Fake, reason: &str) {
+    let said = mutate_changes(fake);
+    assert!(
+        said.contains(&format!(
+            "  ignored the mutation proof record {}: {reason}\n",
+            record_path(PROVEN[2])
+        )) && said.contains(&format!(
+            "  the changes since {} (merge base with @{{upstream}})\n",
+            PROVEN[2]
+        )),
+        "{reason}: said, then the changes since the base: {said}"
+    );
+    assert_eq!(
+        fake.files.get(CHANGES_DIFF).cloned(),
+        Some(one_line_change("crates/a/src/d.rs")),
+        "{reason}: the diff since the base"
+    );
+}
+
+#[test]
+fn ignores_a_proof_record_it_cannot_trust() {
+    let change = one_line_change("crates/a/src/c.rs");
+    let other = |edit: &dyn Fn(&mut super::ProofRecord)| {
+        let mut record = proof_record(PROVEN[2]);
+        edit(&mut record);
+        proven_fake(&record, &change)
+    };
+    ignored(
+        &mut other(&|record| record.base = "4".repeat(40)),
+        &format!("it is of the base {}", "4".repeat(40)),
+    );
+    ignored(
+        &mut other(&|record| record.mutants = "cargo-mutants 27.0.0".to_owned()),
+        "it was made with cargo-mutants 27.0.0 and 1.99.1, not cargo-mutants 27.1.0 and 1.99.1",
+    );
+    ignored(
+        &mut other(&|record| record.toolchain = "1.98.0".to_owned()),
+        "it was made with cargo-mutants 27.1.0 and 1.98.0, not cargo-mutants 27.1.0 and 1.99.1",
+    );
+    let missing = format!("git has no commit {} of tree {}", PROVEN[0], PROVEN[1]);
+    let mut gone = proven_fake(&proof_record(PROVEN[2]), &change);
+    drop(gone.files.remove(&proven_tree_command()));
+    ignored(&mut gone, &missing);
+    let mut retreed = proven_fake(&proof_record(PROVEN[2]), &change);
+    drop(
+        retreed
+            .files
+            .insert(proven_tree_command(), format!("{}\n", PROVEN[2])),
+    );
+    ignored(&mut retreed, &missing);
+    let mut malformed = proven_fake(&proof_record(PROVEN[2]), &change);
+    drop(
+        malformed
+            .files
+            .insert(record_path(PROVEN[2]), "nonsense\n".to_owned()),
+    );
+    ignored(
+        &mut malformed,
+        "its first line is not `poyetik rust-mutants-proven 1`",
+    );
+    let mut no_tools = proven_fake(&proof_record(PROVEN[2]), &change);
+    no_tools.broken = Some("cargo mutants --version".to_owned());
+    ignored(
+        &mut no_tools,
+        "cannot read the version of cargo-mutants: cannot run `cargo mutants --version`: not found",
+    );
+}
+
+#[test]
+fn falls_back_without_a_common_directory() {
+    let mut fake = proven_fake(
+        &proof_record(PROVEN[2]),
+        &one_line_change("crates/a/src/c.rs"),
+    );
+    drop(fake.files.remove(&format!("capture {}", COMMON_DIR.0)));
+    let said = mutate_changes(&mut fake);
+    assert!(
+        said.contains(
+            "  no mutation proof record: cannot find git's common directory: `git rev-parse --git-common-dir` exited with code 1: failed\n"
+        ),
+        "said: {said}"
+    );
+    assert_eq!(
+        fake.files.get(CHANGES_DIFF).cloned(),
+        Some(one_line_change("crates/a/src/d.rs")),
+        "the diff since the base"
+    );
+    let mut unwritable = passing();
+    unwritable.broken = Some(format!("write {}", super::MEASURED_BASE));
+    assert_eq!(
+        run_steps(
+            &rust_mutation_of_changes(),
+            &mut unwritable,
+            &mut Vec::new()
+        ),
+        failed(format!(
+            "Rust mutation testing of the changes: cannot write {}: read-only",
+            super::MEASURED_BASE
+        )),
+        "the base measured cannot be noted"
+    );
+}
+
+/// The steps that record the proof: the tree recorded, then the record.
+fn proof_steps() -> Vec<Step> {
+    vec![
+        Step {
+            name: "Working tree recorded".to_owned(),
+            action: Action::TreeRecorded,
+        },
+        Step {
+            name: "Rust mutation proof recorded for the next default check".to_owned(),
+            action: Action::MutationProofRecorded,
+        },
+    ]
+}
+
+/// A passing fake that measured [`PROVEN`]'s base.
+fn measured() -> Fake {
+    let mut fake = passing();
+    drop(
+        fake.files
+            .insert(super::MEASURED_BASE.to_owned(), format!("{}\n", PROVEN[2])),
+    );
+    fake
+}
+
+#[test]
+fn records_the_proof_of_a_clean_tree() {
+    let mut fake = measured();
+    let mut out = Vec::new();
+    assert_eq!(
+        run_steps(&proof_steps(), &mut fake, &mut out),
+        Ok(()),
+        "recorded"
+    );
+    let record = super::ProofRecord {
+        commit: "abc123".to_owned(),
+        tree: "def456".to_owned(),
+        base: PROVEN[2].to_owned(),
+        mutants: "cargo-mutants 27.1.0".to_owned(),
+        toolchain: "1.99.1".to_owned(),
+    };
+    assert_eq!(
+        fake.files.get(&record_path(PROVEN[2])).cloned(),
+        Some(record.text()),
+        "the commit and tree checked out, the base measured, the tools"
+    );
+    assert!(
+        String::from_utf8(out).expect("UTF-8").contains(&format!(
+            "  recorded: the mutants of abc123 are proven against {}\n",
+            PROVEN[2]
+        )),
+        "said"
+    );
+}
+
+#[test]
+fn records_no_proof_of_a_tree_not_clean() {
+    for status in [
+        " M crates/a/src/b.rs\n",
+        "?? crates/a/src/new.rs\n",
+        "?? x.RS\n",
+    ] {
+        let mut dirty = measured();
+        drop(
+            dirty
+                .files
+                .insert(format!("capture {}", TREE_STATUS.0), status.to_owned()),
+        );
+        let mut out = Vec::new();
+        assert_eq!(
+            run_steps(&proof_steps(), &mut dirty, &mut out),
+            Ok(()),
+            "{status}"
+        );
+        assert!(
+            !dirty.ran.iter().any(|line| line.starts_with("write")),
+            "{status}: nothing recorded"
+        );
+        assert!(
+            String::from_utf8(out).expect("UTF-8").contains(
+                "  not recorded: the tree is not clean, or changed while the checks ran\n"
+            ),
+            "{status}: said"
+        );
+    }
+    let mut unrecorded = measured();
+    assert_eq!(
+        run_steps(
+            &proof_steps().split_off(1),
+            &mut unrecorded,
+            &mut Vec::new()
+        ),
+        Ok(()),
+        "no state of the tree"
+    );
+    assert!(
+        !unrecorded.ran.iter().any(|line| line.starts_with("write")),
+        "nothing recorded without the tree's state at the start"
+    );
+    let mut moved = measured();
+    moved.rewrite = Some((
+        "git checkout other".to_owned(),
+        format!("capture {}", TREE_HEAD.0),
+        "fed987\nrefs/heads/other\n".to_owned(),
+    ));
+    let mut steps = proof_steps();
+    steps.insert(
+        1,
+        Step {
+            name: "move".to_owned(),
+            action: Action::Run(Cmd::new("git", &["checkout", "other"], Dir::Root)),
+        },
+    );
+    assert_eq!(
+        run_steps(&steps, &mut moved, &mut Vec::new()),
+        Ok(()),
+        "moved"
+    );
+    assert!(
+        !moved.ran.iter().any(|line| line.starts_with("write")),
+        "nothing recorded when what is checked out changed"
+    );
+}
+
+#[test]
+fn fails_to_record_what_it_cannot_read_or_write() {
+    let step = "Rust mutation proof recorded for the next default check";
+    for (broken, error) in [
+        (
+            "git log -1 --format=%T HEAD".to_owned(),
+            "cannot read the tree checked out: cannot run `git log -1 --format=%T HEAD`: not found"
+                .to_owned(),
+        ),
+        (
+            "cargo mutants --version".to_owned(),
+            "cannot read the version of cargo-mutants: cannot run `cargo mutants --version`: not found"
+                .to_owned(),
+        ),
+        (
+            format!("write {}", record_path(PROVEN[2])),
+            format!("cannot write {}: read-only", record_path(PROVEN[2])),
+        ),
+    ] {
+        let mut fake = measured();
+        fake.broken = Some(broken.clone());
+        assert_eq!(
+            run_steps(&proof_steps(), &mut fake, &mut Vec::new()),
+            failed(format!("{step}: {error}")),
+            "{broken}"
+        );
+    }
+    let mut no_base = passing();
+    assert!(
+        run_steps(&proof_steps(), &mut no_base, &mut Vec::new())
+            .is_err_and(|failure| failure.summary.contains(super::MEASURED_BASE)),
+        "no base measured"
+    );
+    let mut no_channel = measured();
+    drop(no_channel.files.insert(
+        super::RUST_TOOLCHAIN_FILE.to_owned(),
+        "[toolchain]\n".to_owned(),
+    ));
+    assert_eq!(
+        run_steps(&proof_steps(), &mut no_channel, &mut Vec::new()),
+        failed(format!("{step}: rust-toolchain.toml pins no channel")),
+        "no channel"
+    );
+    let mut no_common = measured();
+    drop(no_common.files.remove(&format!("capture {}", COMMON_DIR.0)));
+    assert!(
+        run_steps(&proof_steps(), &mut no_common, &mut Vec::new()).is_err_and(|failure| failure
+            .summary
+            .contains("cannot find git's common directory")),
+        "no common directory"
+    );
+}
+
+#[test]
+fn shares_proof_records_between_the_worktrees_of_real_git() {
+    let dir = scratch("proof-record");
+    let main = dir.join("main");
+    std::fs::create_dir_all(&main).expect("main worktree");
+    let _init = hermetic_git(&main, &["init", "--quiet", "--initial-branch=main"]);
+    std::fs::write(main.join("a.rs"), "fn a() {}\n").expect("a source");
+    let _add = hermetic_git(&main, &["add", "a.rs"]);
+    let _commit = hermetic_git(&main, &["commit", "--quiet", "-m", "first"]);
+    let commit = hermetic_git(&main, &["rev-parse", "HEAD"])
+        .trim()
+        .to_owned();
+    let tree = hermetic_git(&main, &["log", "-1", "--format=%T", "HEAD"])
+        .trim()
+        .to_owned();
+    let linked = dir.join("linked");
+    let _worktree = hermetic_git(
+        &main,
+        &[
+            "worktree",
+            "add",
+            "--quiet",
+            "-b",
+            "other",
+            linked.to_str().expect("UTF-8"),
+        ],
+    );
+    let record = super::ProofRecord {
+        commit: commit.clone(),
+        tree,
+        base: commit.clone(),
+        mutants: "cargo-mutants 27.1.0".to_owned(),
+        toolchain: "1.99.1".to_owned(),
+    };
+    // Written from the linked worktree, read from the main one: one common directory.
+    let mut from_linked = SystemRunner { root: linked };
+    let path = super::proof_record_path(&mut from_linked, &commit).expect("common directory");
+    from_linked
+        .write(&path, &record.text())
+        .expect("the record is written");
+    let mut from_main = SystemRunner { root: main.clone() };
+    let main_path = super::proof_record_path(&mut from_main, &commit).expect("common directory");
+    let read = from_main.read(&main_path).expect("the record is read");
+    assert_eq!(
+        super::ProofRecord::parse(&read),
+        Ok(record),
+        "the same record"
+    );
+    // Real git names the proven commit's tree, and nothing for a commit it does not have.
+    let peel = |runner: &mut SystemRunner, object: &str| {
+        runner
+            .capture(&Cmd::new(
+                "git",
+                &[
+                    "rev-parse",
+                    "--verify",
+                    "--quiet",
+                    &format!("{object}^{{tree}}"),
+                ],
+                Dir::Root,
+            ))
+            .map(|named| named.trim().to_owned())
+            .ok()
+    };
+    assert_eq!(
+        peel(&mut from_main, &commit),
+        Some(
+            hermetic_git(&main, &["log", "-1", "--format=%T", "HEAD"])
+                .trim()
+                .to_owned()
+        ),
+        "the tree of a commit git has"
+    );
+    assert_eq!(
+        peel(&mut from_main, &"1".repeat(40)),
+        None,
+        "nothing for a commit git does not have"
+    );
+    std::fs::remove_dir_all(&dir).expect("cleanup");
 }
