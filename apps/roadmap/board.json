@@ -1147,6 +1147,10 @@
         {
           "title": "Desktop editor shell chosen by a measured prototype on macOS, Windows and Linux (Tauri and Electron at least): the native GPU render shown inside the editor window without copying, low-latency native audio, the interface on each system's web engine; show outputs in separate native windows",
           "done": false
+        },
+        {
+          "title": "Third-party visual operators in the editor: shaders validated by WebGPU, recovery from a lost GPU device without taking the editor down, GPU cost measured by timestamp queries, a determinism tier per shader (exact, measured, not guaranteed) with the CPU interpreter as reference, invariance to resolution and frame rate and random access in the compatibility report",
+          "done": false
         }
       ]
     },
