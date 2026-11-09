@@ -21,7 +21,7 @@
 //! - **no subnormal output**: every output sample is zero or normal, in every one of those
 //!   runs (`spec/engine-design.md`, decision 11: a box flushes its outputs with
 //!   `engine_core::flush`). A box's recursive state is out of the laws' reach until box
-//!   state can be read (roadmap #12, step 19): each box documents and tests how its own
+//!   state can be read (roadmap #12, step 28): each box documents and tests how its own
 //!   state stays free of subnormals;
 //! - **no heap operation** while processing: no allocation, reallocation or release
 //!   (measured by [`CountingAllocator`], which the test binary must install as its

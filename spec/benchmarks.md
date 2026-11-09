@@ -1,6 +1,6 @@
 # Benchmarks
 
-What the engine's cost benchmarks measure, how their thresholds are derived, what they cannot see, and how to add one (roadmap ticket #12, step 6). They exist so that the cost of the engine's later decisions (`engine-design.md`, implementation order) is measured, not guessed.
+What the engine's cost benchmarks measure, how their thresholds are derived, what they cannot see, and how to add one (roadmap ticket #12, step 3). They exist so that the cost of the engine's later decisions (`engine-design.md`, implementation order) is measured, not guessed.
 
 | File | Contents | Changed by |
 |---|---|---|
@@ -34,7 +34,7 @@ A WebAssembly instruction count is a proxy for cost, not a time:
 - **Vector width**: a vector instruction counts as one, however many lanes it computes (the module has no vector instructions today; the instrumenter refuses them until it is taught them).
 - **Instruction cost**: a division, a square root and an addition each count as one.
 
-So a count catches what changes the work done (an algorithm, a loop, an approximation, a copy); it does not rank two designs whose work differs in kind. Wall-time measurements on each browser engine, per box, are planned with the 32-bit precision setting (step 11), which needs them to measure the real ratio decision 10 speaks of.
+So a count catches what changes the work done (an algorithm, a loop, an approximation, a copy); it does not rank two designs whose work differs in kind. Wall-time measurements on each browser engine, per box, are planned with the 32-bit precision setting (step 6), which needs them to measure the real ratio decision 10 speaks of.
 
 ### What is measured
 

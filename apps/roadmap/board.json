@@ -869,39 +869,27 @@
           "done": true
         },
         {
-          "title": "Deterministic strategy for denormal numbers, proven on every target: a subnormal conformance case, and a native test with flush-to-zero forced on",
-          "done": true
-        },
-        {
-          "title": "Typed, smoothed parameters (kinds such as frequency, with a declared Nyquist policy) and sample-accurate timestamped events, in the engine and the patch format",
-          "done": false
-        },
-        {
-          "title": "Allocation-free audio thread in the browser, without per-frame garbage: oscilloscope through an AnalyserNode; capture and metering through a SharedArrayBuffer ring when cross-origin isolated, with a tested fallback otherwise; garbage collections while rendering measured in every browser engine, not only in V8. Until then, the tap processor behind capture and the playground oscilloscope copies every render quantum on the audio thread (a known deviation, pinned by an allocation test)",
-          "done": false
-        },
-        {
           "title": "Benchmarks in CI: instruction counts per box and for building large plans, with regression thresholds; the construction of the engine processor timed on the three browser engines",
           "done": true
         },
         {
-          "title": "Real-time cost: estimate a patch's cost per block before it runs and report its load, so that a valid patch too heavy for real time is flagged (after the benchmarks); measure the copy of every outlet into the bus each block and remove it if it costs",
-          "done": false
-        },
-        {
-          "title": "Patches without audio output: time advances and every box runs with zero channels, in the native renderer as in the WebAssembly engine (today one runs no box, the other runs them all)",
-          "done": false
+          "title": "Deterministic strategy for denormal numbers, proven on every target: a subnormal conformance case, and a native test with flush-to-zero forced on",
+          "done": true
         },
         {
           "title": "Subnormal parameters treated as zero (flushed on the f64 side before rounding, below the smallest normal), with the denormal strategy, and a 1e-40 Hz oscillator case",
           "done": true
         },
         {
-          "title": "Long-run drift check of oscillators against the exact phase, skipping ahead in state to cover hours of signal",
+          "title": "Engine precision: 64-bit processing by default and 32-bit as a setting, boxes written once, generic over the sample type, all their arithmetic through the engine's math layer (the sample type, its operators and the math functions); a render hash version that records the precision and the arithmetic mode as a versioned set of option flags (all off, the strict default, the only one built), an unknown flag refused; every reference re-blessed for both precisions (a migration step), checked native and WebAssembly",
           "done": false
         },
         {
-          "title": "Engine precision: 64-bit processing by default and 32-bit as a setting, boxes written once, generic over the sample type, all their arithmetic through the engine's math layer (the sample type, its operators and the math functions); a render hash version that records the precision and the arithmetic mode as a versioned set of option flags (all off, the strict default, the only one built), an unknown flag refused; every reference re-blessed for both precisions (a migration step), checked native and WebAssembly",
+          "title": "Reduction order: every sum of more than two terms through one helper, 16 lanes summed in order then a fixed pairwise tree, whatever the machine's SIMD width; tested against a literal scalar reference on every target (with step 6's re-bless)",
+          "done": false
+        },
+        {
+          "title": "Box algorithm versions: every box carries its algorithm version in the patch, any change of bits takes a new one, old versions keep playing or migrate explicitly (with step 6 and format version 2)",
           "done": false
         },
         {
@@ -913,7 +901,35 @@
           "done": false
         },
         {
+          "title": "Patches without audio output: time advances and every box runs with zero channels, in the native renderer as in the WebAssembly engine (today one runs no box, the other runs them all)",
+          "done": false
+        },
+        {
+          "title": "Execution modes: live, offline and build give the same bits; every box type declares itself live-capable or offline-only, the real-time rules proven on every live-capable box, and a live plan refusing an offline-only box",
+          "done": false
+        },
+        {
+          "title": "Box contract as a public, versioned ABI shared by built-in boxes and third-party externals: explicit state, compile-friendly processing, buffers aligned to 64 bytes and padded, routing resolved when the plan is built; every built-in box giving the same bits directly and through the ABI",
+          "done": false
+        },
+        {
+          "title": "Typed, smoothed parameters (kinds such as frequency, with a declared Nyquist policy) and sample-accurate timestamped events, in the engine and the patch format",
+          "done": false
+        },
+        {
           "title": "Messages and rates: every parameter driven by messages or by an audio-rate signal; a total order of messages within a frame; MIDI input as timestamped events (MIDI 2.0 packets, MPE)",
+          "done": false
+        },
+        {
+          "title": "Message payloads: trigger, number, symbol, list, MIDI 2.0 packet, note with its spelling, resource; bounded and allocation-free, symbols interned when the plan is built, typed message ports, overflow refused and reported",
+          "done": false
+        },
+        {
+          "title": "Control boundary: events stamped by the host (immediate or scheduled), times from other bases converted to the nearest frame by exact integer arithmetic; quotas and horizons enforced on the sending side, identical live and offline; a return path that never waits (timestamped streams, latest-value slots, engine reports, gaps reported exactly); a live event log replaying bit for bit",
+          "done": false
+        },
+        {
+          "title": "Seeded randomness: the seed in the patch, per-box streams from stable box paths, a counter-based generator addressed by frame, exact conversion to floats, a live new-seed mode that logs its seed; its laws",
           "done": false
         },
         {
@@ -921,7 +937,27 @@
           "done": false
         },
         {
+          "title": "Long-run drift check of oscillators against the exact phase, skipping ahead in state to cover hours of signal",
+          "done": false
+        },
+        {
+          "title": "Allocation-free audio thread in the browser, without per-frame garbage: oscilloscope through an AnalyserNode; capture and metering through a SharedArrayBuffer ring when cross-origin isolated, with a tested fallback otherwise; garbage collections while rendering measured in every browser engine, not only in V8. Until then, the tap processor behind capture and the playground oscilloscope copies every render quantum on the audio thread (a known deviation, pinned by an allocation test)",
+          "done": false
+        },
+        {
+          "title": "Real-time cost: estimate a patch's cost per block before it runs and report its load, so that a valid patch too heavy for real time is flagged (after the benchmarks); measure the copy of every outlet into the bus each block and remove it if it costs",
+          "done": false
+        },
+        {
+          "title": "Silence skipping: a box declares when its output stays exactly zero, the engine skips it only then; a law that renders are identical with skipping on and off",
+          "done": false
+        },
+        {
           "title": "Multichannel cables with automatic expansion and channel layouts (speaker roles and positions, ambisonic components, binaural, discrete; presets and custom layouts) checked when the plan is built; buses (sends, groups) summed in a fixed order",
+          "done": false
+        },
+        {
+          "title": "Deterministic FFT: one code path on every target, no run-time feature detection, twiddles from the pure-Rust libm, its error bounded against a higher-precision direct transform",
           "done": false
         },
         {
@@ -937,7 +973,15 @@
           "done": false
         },
         {
+          "title": "Seek law: a render that jumps to a frame with every state restored, by snapshot or replay, equals from that frame a render played from the start",
+          "done": false
+        },
+        {
           "title": "Hot swap: patch edits while playing without a dropout, state transferred by box identity, optional crossfade; plans built off the audio thread, in the browser in bounded slices",
+          "done": false
+        },
+        {
+          "title": "Resources: content-addressed by SHA-256, immutable, decoded and resampled off the audio thread with the same code on every target, swapped at a frame, read through handles whether in memory or streamed, underruns logged",
           "done": false
         },
         {
@@ -946,6 +990,10 @@
         },
         {
           "title": "Parallel graph scheduling natively, with renders identical whatever the thread count",
+          "done": false
+        },
+        {
+          "title": "Render-ahead hooks: future events, plan parts marked live or ahead, invalidation from a frame by restoring state; a render with render-ahead identical to one without",
           "done": false
         },
         {
@@ -958,54 +1006,6 @@
         },
         {
           "title": "External processor boxes for third-party plugins: declared latency, imposed block size, opaque state, marked non-deterministic and excluded from hash guarantees",
-          "done": false
-        },
-        {
-          "title": "Control boundary: events stamped by the host (immediate or scheduled), times from other bases converted to the nearest frame by exact integer arithmetic; quotas and horizons enforced on the sending side, identical live and offline; a return path that never waits (timestamped streams, latest-value slots, engine reports, gaps reported exactly); a live event log replaying bit for bit",
-          "done": false
-        },
-        {
-          "title": "Execution modes: live, offline and build give the same bits; every box type declares itself live-capable or offline-only, the real-time rules proven on every live-capable box, and a live plan refusing an offline-only box",
-          "done": false
-        },
-        {
-          "title": "Message payloads: trigger, number, symbol, list, MIDI 2.0 packet, note with its spelling, resource; bounded and allocation-free, symbols interned when the plan is built, typed message ports, overflow refused and reported",
-          "done": false
-        },
-        {
-          "title": "Render-ahead hooks: future events, plan parts marked live or ahead, invalidation from a frame by restoring state; a render with render-ahead identical to one without",
-          "done": false
-        },
-        {
-          "title": "Seeded randomness: the seed in the patch, per-box streams from stable box paths, a counter-based generator addressed by frame, exact conversion to floats, a live new-seed mode that logs its seed; its laws",
-          "done": false
-        },
-        {
-          "title": "Seek law: a render that jumps to a frame with every state restored, by snapshot or replay, equals from that frame a render played from the start",
-          "done": false
-        },
-        {
-          "title": "Box contract as a public, versioned ABI shared by built-in boxes and third-party externals: explicit state, compile-friendly processing, buffers aligned to 64 bytes and padded, routing resolved when the plan is built; every built-in box giving the same bits directly and through the ABI",
-          "done": false
-        },
-        {
-          "title": "Resources: content-addressed by SHA-256, immutable, decoded and resampled off the audio thread with the same code on every target, swapped at a frame, read through handles whether in memory or streamed, underruns logged",
-          "done": false
-        },
-        {
-          "title": "Deterministic FFT: one code path on every target, no run-time feature detection, twiddles from the pure-Rust libm, its error bounded against a higher-precision direct transform",
-          "done": false
-        },
-        {
-          "title": "Reduction order: every sum of more than two terms through one helper, 16 lanes summed in order then a fixed pairwise tree, whatever the machine's SIMD width; tested against a literal scalar reference on every target (with step 11's re-bless)",
-          "done": false
-        },
-        {
-          "title": "Box algorithm versions: every box carries its algorithm version in the patch, any change of bits takes a new one, old versions keep playing or migrate explicitly (with step 11 and format version 2)",
-          "done": false
-        },
-        {
-          "title": "Silence skipping: a box declares when its output stays exactly zero, the engine skips it only then; a law that renders are identical with skipping on and off",
           "done": false
         },
         {
