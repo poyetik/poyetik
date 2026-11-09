@@ -86,6 +86,30 @@
         {
           "title": "Further languages when their work needs them (Swift and Kotlin with the mobile exports, C# for game engines, Python for research), each a thin layer over the C interface, checked on the same vectors",
           "done": false
+        },
+        {
+          "title": "A C interface with handles and no lock: several engines at once, never blocking the audio thread (then a WebAssembly build with threads can be allowed)",
+          "done": false
+        },
+        {
+          "title": "Typed errors end to end: each operation returns only the errors it can raise (SampleRate::new, Renderer::render); error codes in the C library, exported error classes in TypeScript, each class named by the API importable through the package name and recognized by instanceof; distinct load errors (bytes that are not UTF-8, an unsupported rate, an invalid patch, a plan that cannot be built); the cause of a failure on the audio thread kept as a field of its own",
+          "done": false
+        },
+        {
+          "title": "One patch loader shared by native and WebAssembly, with a differential test",
+          "done": false
+        },
+        {
+          "title": "The public API tracked by cargo public-api: no change goes unnoticed",
+          "done": false
+        },
+        {
+          "title": "Final names of the public engine API, with a glossary; a Node entry point for the npm package; the Rust render hash takes a checked render, its channel count proven to match its samples",
+          "done": false
+        },
+        {
+          "title": "Box registries valid by construction: a registry from outside the engine is checked (unique names, complete metadata, finite ranges) before any plan uses it",
+          "done": false
         }
       ]
     },
@@ -195,55 +219,6 @@
       ]
     },
     {
-      "id": 4,
-      "title": "HTML documentation site",
-      "description": "One site with guides, the API reference of every part (generated from docstrings), the box reference generated from the registry metadata and the patch format reference generated from the schema.",
-      "column": "next",
-      "milestone": "M1 Engine",
-      "createdAt": "2026-11-07",
-      "updatedAt": "2026-11-07",
-      "tasks": []
-    },
-    {
-      "id": 5,
-      "title": "Developer SDKs: Rust crate, npm package, C library",
-      "description": "Thin wrappers around the engine core for developers: a Rust crate, an npm package (WASM + TypeScript types, browser and Node) and a C library with a header (usable from C/C++, Swift, Kotlin, Python, Unity, Godot). Each one passes the same conformance corpus.",
-      "column": "later",
-      "milestone": "M5 SDKs",
-      "createdAt": "2026-11-07",
-      "updatedAt": "2026-11-08",
-      "tasks": [
-        {
-          "title": "A C interface with handles and no lock: several engines at once, never blocking the audio thread (then a WebAssembly build with threads can be allowed)",
-          "done": false
-        },
-        {
-          "title": "Typed errors end to end: each operation returns only the errors it can raise (SampleRate::new, Renderer::render); error codes in the C library, exported error classes in TypeScript, each class named by the API importable through the package name and recognized by instanceof; distinct load errors (bytes that are not UTF-8, an unsupported rate, an invalid patch, a plan that cannot be built); the cause of a failure on the audio thread kept as a field of its own",
-          "done": false
-        },
-        {
-          "title": "One patch loader shared by native and WebAssembly, with a differential test",
-          "done": false
-        },
-        {
-          "title": "The public API tracked by cargo public-api: no change goes unnoticed",
-          "done": false
-        },
-        {
-          "title": "Final names of the public engine API, with a glossary; a Node entry point for the npm package; the Rust render hash takes a checked render, its channel count proven to match its samples",
-          "done": false
-        },
-        {
-          "title": "Box registries valid by construction: a registry from outside the engine is checked (unique names, complete metadata, finite ranges) before any plan uses it",
-          "done": false
-        },
-        {
-          "title": "Offline renders of untrusted durations allocate fallibly: running out of memory is an error, never an abort",
-          "done": false
-        }
-      ]
-    },
-    {
       "id": 2,
       "title": "Monorepo structure: spec, crates, bindings, apps, conformance",
       "description": "Organize the repository as separate parts with clear contracts: the patch format spec, the reusable engine core, thin developer SDKs, the applications and the conformance corpus.",
@@ -271,37 +246,6 @@
         {
           "title": "xtask, pre-push hook and CI updated for the new layout",
           "done": true
-        }
-      ]
-    },
-    {
-      "id": 9,
-      "title": "Native bridge: OSC, MIDI, serial and HID over a local WebSocket",
-      "description": "A small open-source native companion (apps/bridge, Rust) that gives the web app what browsers cannot do (OSC over UDP, MIDI on Safari, serial, HID), over a local WebSocket. The app stays frontend-only and works without it. Released by CI for every platform.",
-      "column": "later",
-      "milestone": "M2 Bridge",
-      "createdAt": "2026-11-07",
-      "updatedAt": "2026-11-07",
-      "tasks": [
-        {
-          "title": "Bridge: OSC, MIDI, serial and HID over a local WebSocket, with secure pairing (token and origin check)",
-          "done": false
-        },
-        {
-          "title": "Web app: detect the bridge and show which capabilities are available",
-          "done": false
-        },
-        {
-          "title": "CI build matrix and releases: binaries, checksums, provenance attestation, build-from-source instructions",
-          "done": false
-        },
-        {
-          "title": "Docs: how to run the unsigned binaries on macOS and Windows",
-          "done": false
-        },
-        {
-          "title": "Optional, later: code signing and notarization (macOS, Windows)",
-          "done": false
         }
       ]
     },
@@ -392,37 +336,6 @@
       ]
     },
     {
-      "id": 13,
-      "title": "Integration engine: plugin contract to import other patch formats",
-      "description": "Start the integration engine: a small, documented plugin contract (detect, import) that turns a foreign patch file into our patch format plus an import report (each source object converted, approximated or unsupported, never silently lost). Integrations are pure, treat their input as untrusted, and their output is validated by the engine's own patch reader. Every registered integration is tested automatically by a shared test kit. Depends on the patch format (#3) and on the message model (#12).",
-      "column": "later",
-      "milestone": "M3 Integrations",
-      "createdAt": "2026-11-07",
-      "updatedAt": "2026-11-07",
-      "tasks": [
-        {
-          "title": "Define the integration contract (detect, import, import report) and its versioning",
-          "done": false
-        },
-        {
-          "title": "Shared test kit: corpus, laws (never throws, valid output, deterministic, every source object reported once), fuzzing",
-          "done": false
-        },
-        {
-          "title": "Template command creating a new integration with its tests wired",
-          "done": false
-        },
-        {
-          "title": "First integration: Pure Data (.pd) for a first set of objects, compared with reference renders",
-          "done": false
-        },
-        {
-          "title": "Contributor documentation: write and submit an integration",
-          "done": false
-        }
-      ]
-    },
-    {
       "id": 14,
       "title": "Visual regression tests for the web interfaces",
       "description": "Screenshots of the playground, the roadmap and later the editor, compared on every browser in a pinned rendering environment, so that a visual change is always seen and approved.",
@@ -447,49 +360,6 @@
         },
         {
           "title": "Find or build a mutator for .astro templates, run it from the check, and hold the roadmap templates to no surviving mutant",
-          "done": false
-        }
-      ]
-    },
-    {
-      "id": 16,
-      "title": "Music notation foundations: a first engraved score in a responsive box",
-      "description": "Lay the foundations of music notation like the DSP foundations do for audio: design decisions first, then the smallest complete vertical slice, a proof of concept of the whole chain. The first case is the D Dorian scale in quarter notes on one treble-clef staff, engraved by a Rust library and shown in a fully responsive box of the web page. The library depends on no platform: layout produces a display list (positioned glyphs and lines) that is identical on every target, and thin renderers draw it. Quality is proven like the audio engine: laws, a conformance case, an independent oracle. Note events keep their symbolic information, decided with the engine design (#12).",
-      "column": "later",
-      "milestone": "M4 Notation",
-      "createdAt": "2026-11-08",
-      "updatedAt": "2026-11-08",
-      "tasks": [
-        {
-          "title": "Design decisions recorded before any code: score data model (spelled pitches, exact rational durations, voices, stable element ids; inspired by the MNX draft), layout units (integer fractions of a staff space), display list format and its canonical hash, crate layout, SMuFL font and its metadata, how the layout fits a given width, licenses of every dependency checked",
-          "done": false
-        },
-        {
-          "title": "Score model, the minimum for the first case: one staff, treble clef, 4/4, spelled pitches in quarter notes, exact rational durations, validated at the boundary",
-          "done": false
-        },
-        {
-          "title": "Layout as a pure function of the score and a width: staff, clef, time signature, note heads, stems and their direction, bar lines and final bar line, justified on one line; laws over the width matrix: deterministic, no collision, notes on the right staff positions",
-          "done": false
-        },
-        {
-          "title": "Command line and first conformance case, the D Dorian scale in quarter notes: SVG render and canonical hash of the display list, reference render reviewed by an engraver",
-          "done": false
-        },
-        {
-          "title": "WebAssembly bindings: the same display list hash as native, proven by end-to-end tests in the browsers and in Node",
-          "done": false
-        },
-        {
-          "title": "Web page: the score drawn with Canvas 2D in a fully responsive box (phone to wide screen, every pixel density, laid out again on resize, always one line), with a text description for screen readers; end-to-end and accessibility tests on Chrome, Firefox and WebKit",
-          "done": false
-        },
-        {
-          "title": "Independent oracle (TypeScript): rereads the SVG, recomputes the hash and checks the laws and the expected notes, in cargo xtask check",
-          "done": false
-        },
-        {
-          "title": "Deep review: every finding analyzed and applied, then a fresh review",
           "done": false
         }
       ]
@@ -918,36 +788,6 @@
       ]
     },
     {
-      "id": 25,
-      "title": "Transport and timeline",
-      "description": "The transport (play, stop, locate, loop, tempo and time signature maps), the timeline and the arrangement of tracks, driving the engine's musical time through sample-accurate events.",
-      "column": "later",
-      "milestone": "",
-      "createdAt": "2026-11-08",
-      "updatedAt": "2026-11-08",
-      "tasks": []
-    },
-    {
-      "id": 26,
-      "title": "Audio and MIDI devices",
-      "description": "Choosing and opening audio and MIDI devices in each native host and in the browser: device lists, sample rate and buffer size, channel selection, hot plugging and permissions, with the settings a device cannot honor reported.",
-      "column": "later",
-      "milestone": "",
-      "createdAt": "2026-11-08",
-      "updatedAt": "2026-11-08",
-      "tasks": []
-    },
-    {
-      "id": 27,
-      "title": "Native plugin hosting (VST3, CLAP, AU)",
-      "description": "Load third-party VST3, CLAP and AU plugins into the engine's external processor boxes, natively only: scanning, sandboxing, their editors, latency and state, and the mark that excludes their output from hash guarantees.",
-      "column": "later",
-      "milestone": "",
-      "createdAt": "2026-11-08",
-      "updatedAt": "2026-11-08",
-      "tasks": []
-    },
-    {
       "id": 28,
       "title": "Make the repository public",
       "description": "Open the repository to everyone once its history and settings are ready: what a public repository shows and allows, decided before the switch.",
@@ -974,37 +814,6 @@
         },
         {
           "title": "Switch the visibility (maintainer's action or explicit approval)",
-          "done": false
-        }
-      ]
-    },
-    {
-      "id": 30,
-      "title": "Export to embedded audio boards",
-      "description": "A patch exported to embedded audio boards for pedals, modules, hardware synthesizers and installations: microcontroller boards (such as Daisy Seed, Teensy, ESP32, RP2350) and single-board computers running Linux (such as Raspberry Pi, Bela), with the same proof as every target: its renders give the conformance hashes, run on the board or in an emulator.",
-      "column": "later",
-      "milestone": "",
-      "createdAt": "2026-11-09",
-      "updatedAt": "2026-11-09",
-      "tasks": [
-        {
-          "title": "Choose the first boards: single-board computers running Linux first (aarch64 Linux, close to the native desktop shell), then microcontrollers from measured cost (single-precision FPUs: the 32-bit precision setting of #12)",
-          "done": false
-        },
-        {
-          "title": "Run the conformance corpus on the target, on a board or in an emulator, in CI where possible, with identical hashes",
-          "done": false
-        },
-        {
-          "title": "A board shell: audio codec input and output, controls (knobs, buttons, CV, MIDI) mapped to events",
-          "done": false
-        },
-        {
-          "title": "Export a patch to a firmware image, from the editor",
-          "done": false
-        },
-        {
-          "title": "Measure CPU and memory per box on each board, and warn in the editor when a patch will not fit",
           "done": false
         }
       ]
@@ -1216,35 +1025,14 @@
       ]
     },
     {
-      "id": 33,
-      "title": "Real-time collaboration on patches",
-      "description": "Several people edit one patch at the same time, like design tools do: the document is merged with a CRDT, every participant renders the sound locally from the same patch (identical bits, so no audio is sent), with presence, comments, shared history and permissions. Local, offline, single-user work stays free; the collaboration server is a paid service.",
+      "id": 4,
+      "title": "HTML documentation site",
+      "description": "One site with guides, the API reference of every part (generated from docstrings), the box reference generated from the registry metadata and the patch format reference generated from the schema.",
       "column": "later",
-      "milestone": "M2 Editor",
-      "createdAt": "2026-11-09",
+      "milestone": "M1 Engine",
+      "createdAt": "2026-11-07",
       "updatedAt": "2026-11-09",
-      "tasks": [
-        {
-          "title": "The editor's commands applied to a CRDT document (such as Yjs or Automerge, chosen then), undo and redo per participant, property tests: any order of concurrent edits converges to the same document on every client",
-          "done": false
-        },
-        {
-          "title": "Presence: cursors, selections and who is editing what",
-          "done": false
-        },
-        {
-          "title": "Comments on boxes and cables, shared history and named versions",
-          "done": false
-        },
-        {
-          "title": "A collaboration server (paid service), with permissions per patch; offline edits merged on reconnection",
-          "done": false
-        },
-        {
-          "title": "Playing together live (shared transport, clock synchronization, each participant hearing the others' gestures with a stated latency), designed separately",
-          "done": false
-        }
-      ]
+      "tasks": []
     }
   ]
 }
