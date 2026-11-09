@@ -1,32 +1,56 @@
 {
-  "scheme": "render-hash/1",
+  "scheme": "render-hash/2",
   "vectors": [
     {
       "name": "empty",
-      "description": "No sample: the tag and the header alone (rate 48 000 Hz, 1 channel, 0 samples).",
+      "description": "No sample: the tag and the header alone (binary64, the strict mode, 48 000 Hz, 1 channel, 0 samples).",
+      "format": "binary64",
+      "arithmetic_mode": "0000000000000000",
       "rate": 48000,
       "channels": 1,
       "samples": [],
-      "bytes": "72656e6465722d686173682f3180bb000001000000000000000000000000000000",
-      "sha256": "b39af19db79a2adf7bb979d48f7dc3d88915fbc9688f9fa86b9fb2a1930c66f8"
+      "bytes": "72656e6465722d686173682f324040000000000000000080bb000001000000000000000000000000000000",
+      "sha256": "c34d34b6493fad04437c46679f16b9d0475b02d7fbd7553b12d7d55fd43959ff"
     },
     {
       "name": "stereo-48000",
-      "description": "Two frames of two channels: 0, 0.5, then -0.5, 1.",
+      "description": "Two frames of two channels in binary64: 0, 0.5, then -0.5, 1.",
+      "format": "binary64",
+      "arithmetic_mode": "0000000000000000",
       "rate": 48000,
       "channels": 2,
       "samples": [
-        "00000000",
-        "3f000000",
-        "bf000000",
-        "3f800000"
+        "0000000000000000",
+        "3fe0000000000000",
+        "bfe0000000000000",
+        "3ff0000000000000"
       ],
-      "bytes": "72656e6465722d686173682f3180bb000002000000000000000400000000000000000000000000003f000000bf0000803f",
-      "sha256": "9d1756287e39b44f34500c890770292a9c31c69410b00dc87b670967cfce6397"
+      "bytes": "72656e6465722d686173682f324040000000000000000080bb0000020000000000000004000000000000000000000000000000000000000000e03f000000000000e0bf000000000000f03f",
+      "sha256": "db0e6183f5bc4f59ff67176c368cf2a560e7c88077b5198f5d7422fec4dbdc9c"
     },
     {
-      "name": "special-values",
-      "description": "Three frames of two channels at 11 025 Hz: 0 and -0, the smallest subnormal and 1, -0.5 and a quiet NaN with a payload. Each sample is hashed by its bits, never by its value.",
+      "name": "special-values-binary64",
+      "description": "Three frames of two channels at 11 025 Hz in binary64: 0 and -0, the smallest binary64 subnormal and 1, -0.5 and a quiet NaN with payload 1. Each sample is hashed by its bits, never by its value.",
+      "format": "binary64",
+      "arithmetic_mode": "0000000000000000",
+      "rate": 11025,
+      "channels": 2,
+      "samples": [
+        "0000000000000000",
+        "8000000000000000",
+        "0000000000000001",
+        "3ff0000000000000",
+        "bfe0000000000000",
+        "7ff8000000000001"
+      ],
+      "bytes": "72656e6465722d686173682f3240400000000000000000112b000002000000000000000600000000000000000000000000000000000000000000800100000000000000000000000000f03f000000000000e0bf010000000000f87f",
+      "sha256": "f60e833ff80a7c2a74e91faa059bc86209e27acaa49db2cd394ce53ce4086658"
+    },
+    {
+      "name": "special-values-binary64-as-binary32",
+      "description": "The same values in binary32, given by a 64-bit render: the header differs from the binary32 render's in the precision only.",
+      "format": "binary64-as-binary32",
+      "arithmetic_mode": "0000000000000000",
       "rate": 11025,
       "channels": 2,
       "samples": [
@@ -37,8 +61,74 @@
         "bf000000",
         "7fc00001"
       ],
-      "bytes": "72656e6465722d686173682f31112b0000020000000000000006000000000000000000000000000080010000000000803f000000bf0100c07f",
-      "sha256": "3dab487551f6c3e1a40fa4d4823546661761b9a54dcad993aa522cf252763770"
+      "bytes": "72656e6465722d686173682f3240200000000000000000112b0000020000000000000006000000000000000000000000000080010000000000803f000000bf0100c07f",
+      "sha256": "746ffd678067d288ab7fdb240ee7c77c76c55038b763304f37f8baf3187cefbd"
+    },
+    {
+      "name": "special-values-binary32",
+      "description": "The same binary32 values, computed in binary32.",
+      "format": "binary32",
+      "arithmetic_mode": "0000000000000000",
+      "rate": 11025,
+      "channels": 2,
+      "samples": [
+        "00000000",
+        "80000000",
+        "00000001",
+        "3f800000",
+        "bf000000",
+        "7fc00001"
+      ],
+      "bytes": "72656e6465722d686173682f3220200000000000000000112b0000020000000000000006000000000000000000000000000080010000000000803f000000bf0100c07f",
+      "sha256": "0f5c40d1f97bd8bf331603273c86965deafc648f547d2d574811d09340da2c2b"
+    },
+    {
+      "name": "special-values-fused-multiply-add",
+      "description": "The binary32 render with the fused multiply-add option on: the arithmetic mode alone changes the hash.",
+      "format": "binary32",
+      "arithmetic_mode": "0000000000000001",
+      "rate": 11025,
+      "channels": 2,
+      "samples": [
+        "00000000",
+        "80000000",
+        "00000001",
+        "3f800000",
+        "bf000000",
+        "7fc00001"
+      ],
+      "bytes": "72656e6465722d686173682f3220200100000000000000112b0000020000000000000006000000000000000000000000000080010000000000803f000000bf0100c07f",
+      "sha256": "afed293d767aca922ea7f60d72af1e0d5ca8551d9a033f670502a931a7533d0e"
+    },
+    {
+      "name": "every-option",
+      "description": "Every option of the arithmetic mode on (fused multiply-add, reassociable operations, platform math functions), one binary64 sample of 1, mono at 8 000 Hz.",
+      "format": "binary64",
+      "arithmetic_mode": "0000000000000007",
+      "rate": 8000,
+      "channels": 1,
+      "samples": [
+        "3ff0000000000000"
+      ],
+      "bytes": "72656e6465722d686173682f3240400700000000000000401f000001000000000000000100000000000000000000000000f03f",
+      "sha256": "7773e35d6a5fb13ed33a4876349598fce51c2e39929c5b769a5972833369e4c0"
+    }
+  ],
+  "refused_modes": [
+    {
+      "name": "unknown-option",
+      "description": "Flag 3, which no option defines: refused.",
+      "arithmetic_mode": "0000000000000008"
+    },
+    {
+      "name": "highest-flag",
+      "description": "The highest flag alone: refused.",
+      "arithmetic_mode": "8000000000000000"
+    },
+    {
+      "name": "known-and-unknown",
+      "description": "Every known option with every unknown flag: refused.",
+      "arithmetic_mode": "ffffffffffffffff"
     }
   ]
 }
