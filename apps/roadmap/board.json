@@ -817,6 +817,22 @@
         {
           "title": "MXCSR bit 17 (MM, the misaligned exception mask of some AMD processors) is outside the mode fields of engine-fpenv and kept as the host set it: confirm on an AMD runner that it cannot change a result, and say so in the audit",
           "done": false
+        },
+        {
+          "title": "Browser render hash: renderHash (bindings/wasm) defaults the arithmetic mode to 0n with nothing tying it to the module's MODE; export the module's mode and hash with it once a second mode exists",
+          "done": false
+        },
+        {
+          "title": "Unknown arithmetic mode: the oracle, engine-hash and the browser renderHash word their refusal differently; one message and a shared vector of it",
+          "done": false
+        },
+        {
+          "title": "Math layer gate: it sees only a direct libm dependency of a box crate; also refuse engine-testkit as a normal dependency of a box crate, and math reached through other crates (num-traits, a libm feature of another dependency)",
+          "done": false
+        },
+        {
+          "title": "Box laws: parameters are tried only at binary32-representable values; extend them to binary64 values with patch format version 2",
+          "done": false
         }
       ]
     },
