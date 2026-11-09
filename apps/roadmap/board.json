@@ -1013,7 +1013,7 @@
           "done": false
         },
         {
-          "title": "Musical time hook: per-sample transport position, tempo and time signature for boxes, tempo changes sample-accurate",
+          "title": "Musical time hook: per-sample transport position, tempo and time signature for boxes, tempo changes sample-accurate; transports as exact time maps (tempo curves, recorded beats, irregular and additive meters, grooves, several transports, unpulsed time)",
           "done": false
         },
         {
