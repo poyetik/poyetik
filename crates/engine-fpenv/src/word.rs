@@ -96,5 +96,7 @@ fn write(word: Word) {
 /// Sets the mode fields ([`CONTROL`]) of the control register to those of `control`, and
 /// keeps every other bit (flags, reserved bits) as it is.
 pub(crate) fn set_control(control: Word) {
-    write(read() & !CONTROL | control & CONTROL);
+    let current = read();
+    // A masked merge: the bits of `control` under `CONTROL`, those of `current` elsewhere.
+    write(current ^ ((current ^ control) & CONTROL));
 }

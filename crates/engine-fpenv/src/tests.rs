@@ -396,3 +396,26 @@ fn changes_the_mode_of_its_own_thread_only() {
     );
     assert_eq!(set & ROUNDING_UP, ROUNDING_UP, "this thread's host mode");
 }
+
+#[test]
+fn sets_the_mode_fields_exactly_whatever_they_were() {
+    // Every host mode written over itself, and over the mode with every field set: the
+    // mode fields read back are exactly those written, whatever bits they shared.
+    let (all, ()) = as_host(CONTROL, || ());
+    for host in every_host_mode() {
+        let (set, (again, from_all)) = as_host(host, || {
+            set_control(host);
+            let again = control();
+            set_control(CONTROL);
+            set_control(host);
+            (again, control())
+        });
+        assert_eq!(again, set, "{host:#x} over itself");
+        assert_eq!(from_all, set, "{host:#x} over {all:#x}");
+    }
+    assert_ne!(
+        all & FLUSH_TO_ZERO,
+        0,
+        "every field set, flush-to-zero included"
+    );
+}
