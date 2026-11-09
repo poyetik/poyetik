@@ -40,6 +40,57 @@ async function corpusHash(testCase: CorpusCase, size: number, format: RenderForm
   return renderHash(rate, engine.channels, interleave(channels), format);
 }
 
+/**
+ * The sum of `terms` in the reduction order of `spec/engine-design.md`, decision 28, written
+ * literally from the rule, apart from the engine: no term is +0; term `k` goes to lane
+ * `k mod 16`, each lane summing its terms in increasing `k` from -0; then lane `i` with lane
+ * `i + 8`, then `i + 4`, `i + 2`, `i + 1`. `add` is the addition of the precision.
+ */
+function reductionOrder(terms: readonly number[], add: (left: number, right: number) => number): number {
+  if (terms.length === 0) {
+    return 0;
+  }
+  const lanes = Array.from({ length: 16 }, () => -0);
+  terms.forEach((term, index) => {
+    lanes[index % 16] = add(lanes[index % 16] ?? Number.NaN, term);
+  });
+  for (const half of [8, 4, 2, 1]) {
+    for (let lane = 0; lane < half; lane += 1) {
+      lanes[lane] = add(lanes[lane] ?? Number.NaN, lanes[lane + half] ?? Number.NaN);
+    }
+  }
+  return lanes[0] ?? Number.NaN;
+}
+
+/**
+ * A patch of oscillators at `frequencies` (ids 1 to n) summed onto channel 0: all into the
+ * left inlet of one `dac~` (id n + 1), or each into the left inlet of its own `dac~` (ids
+ * n + 1 to 2n, run in that order).
+ */
+function summedPatch(frequencies: readonly number[], outputs: "one" | "each"): Uint8Array {
+  const count = frequencies.length;
+  const oscillatorNodes = frequencies.map((frequency, index) => ({ id: index + 1, box: "osc~", params: { frequency } }));
+  const dacs = outputs === "one" ? [{ id: count + 1, box: "dac~" }] : frequencies.map((_frequency, index) => ({ id: count + index + 1, box: "dac~" }));
+  const connections = frequencies.map((_frequency, index) => ({ from: [index + 1, 0], to: [outputs === "one" ? count + 1 : count + index + 1, 0] }));
+  return new TextEncoder().encode(JSON.stringify({ format: 1, nodes: [...oscillatorNodes, ...dacs], connections }));
+}
+
+/** The first `frames` frames of channel 0 of `patch`, computed in `precision`, as binary64 values, and the bytes of their samples. */
+function channelZero(patch: Uint8Array, precision: "binary64" | "binary32", frames: number): { readonly values: number[]; readonly bytes: Uint8Array } {
+  if (precision === "binary64") {
+    const wide = WasmEngine.create(module, patch, RATE, "binary64");
+    const wideOutputs = Array.from({ length: wide.channels }, () => new Float64Array(frames));
+    wide.render(wideOutputs);
+    const wideLeft = wideOutputs[0] ?? new Float64Array(0);
+    return { values: Array.from(wideLeft), bytes: new Uint8Array(wideLeft.buffer) };
+  }
+  const engine = WasmEngine.create(module, patch, RATE, "binary32");
+  const outputs = Array.from({ length: engine.channels }, () => new Float32Array(frames));
+  engine.render(outputs);
+  const left = outputs[0] ?? new Float32Array(0);
+  return { values: Array.from(left), bytes: new Uint8Array(left.buffer) };
+}
+
 describe("WasmEngine", () => {
   test("knows the whole corpus: every case has its patch and its reference, and nothing else", () => {
     const names = CORPUS.map((testCase) => testCase.name);
@@ -72,6 +123,30 @@ describe("WasmEngine", () => {
     expect(Array.from(given[0] ?? [])).toStrictEqual(Array.from(wide[0] ?? [], (sample) => Math.fround(sample)));
     expect(Array.from(wide[0] ?? []).some((sample) => Math.fround(sample) !== sample)).toBe(true);
     expect(narrow[0]).not.toStrictEqual(given[0]);
+  });
+
+  test.each(PRECISION_NAMES)("sums cables and output boxes in the reduction order in %s, at every count around the multiples of 16", (precision) => {
+    // Each oscillator alone gives its terms bit for bit (one cable is a copy); the sum of n
+    // of them, through one inlet or n output boxes, must be the reduction order of those
+    // terms, computed here in the precision of the render (binary32: each sum rounded).
+    const frames = 64;
+    const add = precision === "binary64" ? (left: number, right: number) => left + right : (left: number, right: number) => Math.fround(left + right);
+    const frequencies = Array.from({ length: 100 }, (_entry, index) => 100 + 173.5 * index);
+    const alone = frequencies.map((frequency) => channelZero(summedPatch([frequency], "one"), precision, frames).values);
+    let revealed = false;
+    for (const count of [0, 1, 2, 3, 15, 16, 17, 31, 32, 33, 48, 49, 100]) {
+      const terms = alone.slice(0, count);
+      const expected = Array.from({ length: frames }, (_entry, frame) => reductionOrder(terms.map((samples) => samples[frame] ?? Number.NaN), add));
+      const bytes = precision === "binary64" ? new Uint8Array(Float64Array.from(expected).buffer) : new Uint8Array(Float32Array.from(expected).buffer);
+      // No term: one unconnected output (n output boxes would be none, and no channel).
+      for (const outputs of count === 0 ? (["one"] as const) : (["one", "each"] as const)) {
+        expect(channelZero(summedPatch(frequencies.slice(0, count), outputs), precision, frames).bytes, `${String(count)} terms, ${outputs}`).toStrictEqual(bytes);
+      }
+      const sequential = Array.from({ length: frames }, (_entry, frame) => terms.reduce((total, samples) => add(total, samples[frame] ?? Number.NaN), 0));
+      revealed ||= sequential.some((value, frame) => !Object.is(value, expected[frame]));
+    }
+    // The terms do reveal the order: a sequential sum differs somewhere.
+    expect(revealed).toBe(true);
   });
 
   test("keeps every channel apart", () => {

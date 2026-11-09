@@ -756,6 +756,8 @@ fn sums_cables_in_source_order_whatever_the_document_order<S: Bits>() {
         ]
     };
     let (one, small) = (of::<S>(1.0), of::<S>(f64::from(tiny)));
+    // The reduction order (decision 28) of the terms 1, e, e: lane 0 (1) with lane 2 (e),
+    // then lane 1 (e).
     let in_order = (one + small) + small;
     assert_eq!(in_order.bits(), one.bits(), "(1 + e) + e = 1");
     assert_ne!(
@@ -1100,6 +1102,103 @@ fn renders_a_product_then_a_sum_in_the_mode_of_the_build<S: Bits>() {
     );
 }
 
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "S is f32 or f64: IEEE 754 addition, which neither overflows nor panics"
+)]
+fn sums_three_cables_and_three_outputs_in_the_reduction_order<S: Bits>() {
+    // 1, -1 and 2^-60: the reduction order (decision 28) adds the third term to the first,
+    // (1 + 2^-60) + -1 = +0, where the sequential sum (1 + -1) + 2^-60 keeps 2^-60.
+    let values = [1.0_f32, -1.0, 8.673_617e-19];
+    let consts = || {
+        (1_u32..=3)
+            .zip(values)
+            .map(|(id, value)| with_param(node(id, "const~"), "value", value))
+            .collect::<Vec<Node>>()
+    };
+    let mut cables = build::<S>(
+        [consts(), vec![node(4, "mono~")]].concat(),
+        vec![wire(1, 0, 4, 0), wire(2, 0, 4, 0), wire(3, 0, 4, 0)],
+    )
+    .expect("valid patch");
+    assert_eq!(
+        block_bits(&run(&mut cables, 1)),
+        vec![0; BLOCK_SIZE],
+        "three cables into one inlet"
+    );
+    // Three output boxes on one channel, run in the order of their ids (4, 5, 6), each fed
+    // by one constant: the same three terms.
+    let mut outputs = build::<S>(
+        [
+            consts(),
+            vec![node(4, "mono~"), node(5, "mono~"), node(6, "mono~")],
+        ]
+        .concat(),
+        vec![wire(1, 0, 4, 0), wire(2, 0, 5, 0), wire(3, 0, 6, 0)],
+    )
+    .expect("valid patch");
+    assert_eq!(
+        block_bits(&run(&mut outputs, 1)),
+        vec![0; BLOCK_SIZE],
+        "three output boxes on one channel"
+    );
+    let tiny = of::<S>(f64::from(values[2]));
+    let sequential = (of::<S>(1.0) + of::<S>(-1.0)) + tiny;
+    assert_eq!(
+        sequential.bits(),
+        tiny.bits(),
+        "the values reveal the order: the sequential sum differs"
+    );
+}
+
+fn sums_seventeen_cables_and_seventeen_outputs_in_the_reduction_order<S: Bits>() {
+    // Terms 0, 8 and 16 are 1, -1 and 2^-60, the others 0: term 16 joins lane 0 before the
+    // tree, (1 + 2^-60) + -1 = +0, where a sequential sum (or 32 lanes) keeps 2^-60.
+    let value = |index: u32| match index {
+        0 => 1.0_f32,
+        8 => -1.0,
+        16 => 8.673_617e-19,
+        _ => 0.0,
+    };
+    let consts = || {
+        (0_u32..17)
+            .map(|index| {
+                with_param(
+                    node(index.saturating_add(1), "const~"),
+                    "value",
+                    value(index),
+                )
+            })
+            .collect::<Vec<Node>>()
+    };
+    let mut cables = build::<S>(
+        [consts(), vec![node(18, "mono~")]].concat(),
+        (1_u32..=17).map(|id| wire(id, 0, 18, 0)).collect(),
+    )
+    .expect("valid patch");
+    assert_eq!(
+        block_bits(&run(&mut cables, 1)),
+        vec![0; BLOCK_SIZE],
+        "seventeen cables into one inlet"
+    );
+    let mut outputs = build::<S>(
+        [
+            consts(),
+            (18_u32..=34).map(|id| node(id, "mono~")).collect(),
+        ]
+        .concat(),
+        (1_u32..=17)
+            .map(|id| wire(id, 0, id.saturating_add(17), 0))
+            .collect(),
+    )
+    .expect("valid patch");
+    assert_eq!(
+        block_bits(&run(&mut outputs, 1)),
+        vec![0; BLOCK_SIZE],
+        "seventeen output boxes on one channel"
+    );
+}
+
 /// Runs each generic test in both precisions, each instantiation a test of its own.
 macro_rules! in_both_precisions {
     ($($test:ident),* $(,)?) => {
@@ -1153,4 +1252,6 @@ in_both_precisions!(
     several_output_boxes_are_summed_starting_from_the_first,
     delivers_a_binary64_render_rounded_to_binary32,
     renders_a_product_then_a_sum_in_the_mode_of_the_build,
+    sums_three_cables_and_three_outputs_in_the_reduction_order,
+    sums_seventeen_cables_and_seventeen_outputs_in_the_reduction_order,
 );

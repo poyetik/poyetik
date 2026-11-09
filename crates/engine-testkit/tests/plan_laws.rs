@@ -270,30 +270,41 @@ mod tests {
         samples.iter().map(|sample| sample.bits()).collect()
     }
 
-    /// Adds `block` to `total`, or starts `total` with it, bit for bit, when empty.
+    /// The sum of `terms` frame by frame, written literally from decision 28 of
+    /// `spec/engine-design.md`, apart from the engine's helper: no term is silence (+0); term
+    /// `k` goes to lane `k mod 16`, each lane summing its terms in increasing `k` from -0;
+    /// then lane `i` with lane `i + 8`, `i + 4`, `i + 2`, `i + 1`, for `i` from 0.
     #[expect(
         clippy::arithmetic_side_effects,
-        reason = "S is f32 or f64: IEEE 754 addition, which neither overflows nor panics"
+        clippy::integer_division_remainder_used,
+        reason = "the rule as the specification writes it, on indices below 16 and frames below the block size"
     )]
-    fn accumulate<S: Sample>(total: &mut Option<Block<S>>, block: &Block<S>) {
-        match total {
-            None => *total = Some(*block),
-            Some(sum) => {
-                for (sample, value) in sum.iter_mut().zip(block) {
-                    *sample += *value;
+    fn reduce<S: Sample>(terms: &[Block<S>]) -> Block<S> {
+        if terms.is_empty() {
+            return S::SILENCE;
+        }
+        core::array::from_fn(|frame| {
+            let mut lanes = [-S::ZERO; 16];
+            for (index, term) in terms.iter().enumerate() {
+                lanes[index % 16] += term[frame];
+            }
+            for half in [8, 4, 2, 1] {
+                for i in 0..half {
+                    lanes[i] += lanes[i + half];
                 }
             }
-        }
+            lanes[0]
+        })
     }
 
     /// The reference renderer: `frames` frames of the patch at `rate`, interleaved.
     ///
     /// Deliberately simple and independent of the plan: the boxes run in `order`, one
-    /// block at a time; each inlet copies its first cable and adds the others, in the
-    /// canonical cable order (source, outlet), and is silent without one; each output
-    /// channel is the sum of the matching inlets of the output boxes, in execution order,
-    /// starting from the first, and silent without one; there are as many channels as
-    /// the widest output box has inlets.
+    /// block at a time; each inlet sums its cables in the canonical cable order (source,
+    /// outlet), and is silent without one; each output channel sums the matching inlets of
+    /// the output boxes, in execution order, and is silent without one, every sum in the
+    /// reduction order ([`reduce`]); there are as many channels as the widest output box
+    /// has inlets.
     fn reference_render<S: Sample>(
         nodes: &[Node],
         connections: &[Connection],
@@ -336,20 +347,17 @@ mod tests {
         let mut outputs: BTreeMap<NodeId, Vec<Block<S>>> = BTreeMap::new();
         let mut samples = Vec::new();
         while samples.len() < frames.saturating_mul(channels) {
-            let mut out: Vec<Option<Block<S>>> = vec![None; channels];
+            let mut out: Vec<Vec<Block<S>>> = vec![Vec::new(); channels];
             for id in order {
                 let node = by_id[id];
                 let inputs: Vec<Block<S>> = (0..spec(node).inlets.len())
                     .map(|inlet| {
-                        let mut sum: Option<Block<S>> = None;
-                        for cable in cables
+                        let sources: Vec<Block<S>> = cables
                             .iter()
                             .filter(|cable| cable.to == *id && cable.inlet == inlet)
-                        {
-                            let source = outputs[&cable.from][cable.outlet];
-                            accumulate(&mut sum, &source);
-                        }
-                        sum.unwrap_or(S::SILENCE)
+                            .map(|cable| outputs[&cable.from][cable.outlet])
+                            .collect();
+                        reduce(&sources)
                     })
                     .collect();
                 let mut produced = vec![S::SILENCE; spec(node).outlets.len()];
@@ -360,15 +368,13 @@ mod tests {
                 drop(outputs.insert(*id, produced));
                 if is_output(node) {
                     for (channel, input) in out.iter_mut().zip(&inputs) {
-                        accumulate(channel, input);
+                        channel.push(*input);
                     }
                 }
             }
+            let summed: Vec<Block<S>> = out.iter().map(|channel| reduce(channel)).collect();
             for frame in 0..BLOCK_SIZE {
-                samples.extend(
-                    out.iter()
-                        .map(|channel| channel.unwrap_or(S::SILENCE)[frame]),
-                );
+                samples.extend(summed.iter().map(|channel| channel[frame]));
             }
         }
         samples.truncate(frames.saturating_mul(channels));
@@ -554,6 +560,85 @@ mod tests {
         assert_eq!(distinct.len(), sample_rates().len(), "{first_shapes:?}");
     }
 
+    /// Sums of every count around the multiples of 16 the random patches do not reach: `n`
+    /// constants into one inlet, and `n` output boxes on one channel, rendered by the plan
+    /// as by the reference renderer, bit for bit, in both precisions; on some count the
+    /// sequential sum differs, so the comparison sees the order.
+    #[test]
+    fn sums_many_cables_and_outputs_like_the_reference() {
+        fn sums<S: Bits>(count: u32) -> Result<bool, String> {
+            // Values of every sign, their magnitudes spread from 2^-1 to 2^-60, so that
+            // sums round in both precisions: sign, exponent and fraction from the index.
+            let value = |index: u32| {
+                let sign = (index % 2) << 31_u32;
+                let exponent = (126 - index.wrapping_mul(7) % 60) << 23_u32;
+                f32::from_bits(sign | exponent | (index.wrapping_mul(0x9e37) % (1 << 23)))
+            };
+            let consts: Vec<Node> = (1..=count)
+                .map(|id| Node {
+                    id: NodeId(id),
+                    kind: String::from("const~"),
+                    params: BTreeMap::from([(String::from("value"), value(id))]),
+                })
+                .collect();
+            let output = |id: u32| Node {
+                id: NodeId(id),
+                kind: String::from("out~"),
+                params: BTreeMap::new(),
+            };
+            let wire = |from: u32, to: u32| Connection {
+                from: NodeId(from),
+                outlet: 0,
+                to: NodeId(to),
+                inlet: 0,
+            };
+            let rate = SampleRate::new(8_000).map_err(|error| error.to_string())?;
+            let into_one = (
+                [consts.clone(), vec![output(count + 1)]].concat(),
+                (1..=count)
+                    .map(|id| wire(id, count + 1))
+                    .collect::<Vec<_>>(),
+            );
+            let on_one = (
+                [consts, (1..=count).map(|id| output(count + id)).collect()].concat(),
+                (1..=count)
+                    .map(|id| wire(id, count + id))
+                    .collect::<Vec<_>>(),
+            );
+            let mut revealed = false;
+            for (nodes, connections) in [into_one, on_one] {
+                let patch = Patch::new(nodes.clone(), connections.clone())
+                    .map_err(|error| error.to_string())?;
+                let plan =
+                    Plan::<S>::build(&patch, &REGISTRY, rate).map_err(|error| error.to_string())?;
+                let order: Vec<NodeId> = plan.execution_order().collect();
+                let expected = reference_render::<S>(&nodes, &connections, &order, rate, 1);
+                let rendered = first_render(plan, 1)?;
+                if bits(&rendered) != bits(&expected) {
+                    return Err(format!(
+                        "{count} terms: the plan differs from the reference"
+                    ));
+                }
+                let sequential = (1..=count)
+                    .map(|id| of::<S>(f64::from(value(id))))
+                    .fold(S::ZERO, |total, term| total + term);
+                revealed |= bits(&rendered).first() != Some(&sequential.bits());
+            }
+            Ok(revealed)
+        }
+        for precision in PRECISIONS {
+            let mut revealed = false;
+            for count in [3, 15, 16, 17, 31, 32, 33, 48, 49] {
+                revealed |= match precision {
+                    Precision::Binary64 => sums::<Binary64>(count),
+                    Precision::Binary32 => sums::<Binary32>(count),
+                }
+                .expect("the plan sums like the reference");
+            }
+            assert!(revealed, "the order shows in {precision:?}");
+        }
+    }
+
     #[test]
     fn the_reference_renderer_follows_the_spec() {
         // const~ 0.25 and const~ 0.5 into inlet 0 of out~, rate~ into its inlet 1, and
@@ -596,6 +681,22 @@ mod tests {
             [0.75_f32, 800.0_f32].repeat(70),
             "in binary32 too"
         );
+        // Three cables, 1, -1 and 2^-60: the reduction order adds the third to the first,
+        // (1 + 2^-60) - 1 = +0, where a sequential sum would keep 2^-60.
+        let three = [
+            node(1, "const~", Some(1.0)),
+            node(2, "const~", Some(-1.0)),
+            node(3, "const~", Some(8.673_617e-19)),
+            node(4, "out~", None),
+        ];
+        let summed = reference_render::<Binary64>(
+            &three,
+            &[wire(1, 4, 0), wire(2, 4, 0), wire(3, 4, 0)],
+            &order[..4],
+            rate,
+            1,
+        );
+        assert_eq!(bits(&summed), [0, 0], "three cables in the reduction order");
         let silent = reference_render::<Binary32>(&nodes[..1], &[], &order[..1], rate, 70);
         assert!(silent.is_empty(), "no output box, no channel");
     }
@@ -710,6 +811,9 @@ mod tests {
         // The generator is useful only if it produces both outcomes and non-trivial
         // graphs with every kind of box: count them over the cases of the laws.
         let (mut cycles, mut plans, mut cables) = (0_u32, 0_u32, 0_usize);
+        // Inlets with three cables or more: the reduction order is exercised, not only
+        // pairs (longer sums: `sums_many_cables_and_outputs_like_the_reference`).
+        let mut three = 0_u32;
         let mut kinds = BTreeSet::new();
         let result = at_every_rate(|runner, rate| {
             for _ in 0..CASES {
@@ -719,6 +823,12 @@ mod tests {
                     .current();
                 let (nodes, connections) = patch_parts(&shape);
                 cables += connections.len();
+                let mut into: BTreeMap<(NodeId, usize), usize> = BTreeMap::new();
+                for cable in &connections {
+                    *into.entry((cable.to, cable.inlet)).or_default() += 1;
+                }
+                three += u32::try_from(into.values().filter(|&&count| count >= 3).count())
+                    .expect("few inlets");
                 kinds.extend(nodes.iter().map(|node| node.kind.clone()));
                 let patch = Patch::new(nodes, connections).map_err(|error| error.to_string())?;
                 match Plan::<Binary64>::build(&patch, &REGISTRY, rate) {
@@ -733,6 +843,7 @@ mod tests {
         assert!(cycles >= 40, "{cycles} cycles");
         assert!(plans >= 40, "{plans} valid plans");
         assert!(cables >= 512 * 3, "{cables} cables in all");
+        assert!(three >= 40, "{three} inlets with three cables or more");
         assert_eq!(kinds.len(), REGISTRY.len(), "every kind of box: {kinds:?}");
     }
 }

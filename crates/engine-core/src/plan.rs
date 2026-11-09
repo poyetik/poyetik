@@ -12,6 +12,7 @@ use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec;
 use alloc::vec::Vec;
 
+use crate::math::sum_blocks;
 use crate::{
     Binary64, Block, Capability, Connection, CoreError, Node, NodeId, Object, ObjectSpec, Patch,
     Sample, SampleRate, flush,
@@ -29,16 +30,14 @@ struct Instance<S: Sample> {
     inputs: Vec<Block<S>>,
     /// Output buffers, one per outlet.
     outputs: Vec<Block<S>>,
-    /// For each inlet, the bus slots summed into it, in a fixed order: the first is
-    /// copied, the others added, so that a single cable passes its samples bit for bit.
+    /// For each inlet, the bus slots summed into it, in a fixed order (the canonical cable
+    /// order), in the reduction order of decision 28: a single cable passes its samples
+    /// bit for bit.
     sources: Vec<Vec<usize>>,
     /// First bus slot holding this instance's outputs.
     first_slot: usize,
     /// Whether the inputs of this instance go to the engine output.
     is_output: bool,
-    /// For an output, how many output channels the outputs before it in execution order
-    /// write: it adds to those channels and copies into the next ones.
-    covered: usize,
 }
 
 /// A validated, ready-to-run execution plan computing in `S` (the precision of the render,
@@ -53,6 +52,10 @@ pub struct Plan<S: Sample> {
     instances: Vec<Instance<S>>,
     /// Every outlet of every box, boxes in id order: what connections read from.
     bus: Vec<Block<S>>,
+    /// The instances whose inputs go to the engine output (boxes with
+    /// [`Capability::AudioOutput`]), in execution order: channel `c` sums the inlets `c` of
+    /// those that have one, in that order.
+    outputs: Vec<usize>,
     /// Number of engine output channels.
     channels: usize,
 }
@@ -241,7 +244,7 @@ impl<S: Sample> Plan<S> {
         let order = execution_order(&ids, &connections)?;
 
         // Every id of the order is a resolved box: `remove` always finds it.
-        let mut instances: Vec<Instance<S>> = order
+        let instances: Vec<Instance<S>> = order
             .iter()
             .filter_map(|id| nodes.remove(id))
             .map(|resolved| {
@@ -259,19 +262,27 @@ impl<S: Sample> Plan<S> {
                         .spec
                         .capabilities
                         .contains(&Capability::AudioOutput),
-                    covered: 0,
                 }
             })
             .collect();
-        // The channels written by the outputs run so far: in the end, every channel.
-        let mut channels = 0_usize;
-        for instance in instances.iter_mut().filter(|instance| instance.is_output) {
-            instance.covered = channels;
-            channels = channels.max(instance.inputs.len());
-        }
+        // The output boxes, by their place in the execution order.
+        let outputs: Vec<usize> = instances
+            .iter()
+            .enumerate()
+            .filter(|(_, instance)| instance.is_output)
+            .map(|(index, _)| index)
+            .collect();
+        // As many channels as the widest output box has inlets.
+        let channels = outputs
+            .iter()
+            .filter_map(|&index| instances.get(index))
+            .map(|instance| instance.inputs.len())
+            .max()
+            .unwrap_or(0);
         Ok(Self {
             instances,
             bus: vec![S::SILENCE; bus_len],
+            outputs,
             channels,
         })
     }
@@ -291,35 +302,25 @@ impl<S: Sample> Plan<S> {
     /// Runs every box once, then writes one block per output channel into `out`.
     ///
     /// Channels beyond `out.len()` are dropped; extra blocks in `out` receive silence.
-    /// A single cable, or a single output box on a channel, passes its samples bit for
-    /// bit (`-0.0` and NaN payloads included); several are summed in their fixed order,
-    /// starting from the first.
+    /// The cables into an inlet, and the output boxes on a channel, are summed by the
+    /// reduction order of decision 28 of `spec/engine-design.md` (cables in their canonical
+    /// order, output boxes in execution order): a single one passes its samples bit for
+    /// bit (`-0.0` and NaN payloads included).
     /// Does not use the heap. The samples are written as the boxes computed them: never
     /// clipped to ±1, scaled or sanitized, so that every target renders the same bits. The
     /// final output stage (limiting, clipping, handling non-finite values) belongs to the
     /// host, until the engine defines its own output policy (roadmap ticket #12).
-    #[expect(
-        clippy::arithmetic_side_effects,
-        reason = "S is f32 or f64 (Sample is sealed): IEEE 754 addition, which neither overflows nor panics"
-    )]
     pub fn process(&mut self, out: &mut [Block<S>]) {
-        // Every channel below `channels` is written by an output below.
-        for channel in out.iter_mut().skip(self.channels) {
-            *channel = S::SILENCE;
-        }
         for instance in &mut self.instances {
-            for (input, slots) in instance.inputs.iter_mut().zip(&instance.sources) {
+            // An unconnected inlet has no source: it stays silent from the build on.
+            for (input, slots) in instance
+                .inputs
+                .iter_mut()
+                .zip(&instance.sources)
+                .filter(|(_, slots)| !slots.is_empty())
+            {
                 // Every slot is below the bus length (`source_slot`): none is skipped.
-                let mut sources = slots.iter().filter_map(|&slot| self.bus.get(slot));
-                // An unconnected inlet has no source: it stays silent.
-                if let Some(first) = sources.next() {
-                    *input = *first;
-                    for source in sources {
-                        for (sample, value) in input.iter_mut().zip(source) {
-                            *sample += *value;
-                        }
-                    }
-                }
+                sum_blocks(input, &slots.iter().filter_map(|&slot| self.bus.get(slot)));
             }
             instance
                 .object
@@ -332,20 +333,16 @@ impl<S: Sample> Plan<S> {
             {
                 *slot = *output;
             }
-            if instance.is_output {
-                let (written, fresh) = out.split_at_mut(instance.covered.min(out.len()));
-                for (channel, input) in written.iter_mut().zip(&instance.inputs) {
-                    for (sample, value) in channel.iter_mut().zip(input) {
-                        *sample += *value;
-                    }
-                }
-                for (channel, input) in fresh
-                    .iter_mut()
-                    .zip(instance.inputs.iter().skip(instance.covered))
-                {
-                    *channel = *input;
-                }
-            }
+        }
+        for (index, channel) in out.iter_mut().enumerate() {
+            // Every output index is an instance; the boxes without that inlet are left
+            // out, and a channel beyond `channels` has none: silence.
+            let inputs = self.outputs.iter().filter_map(|&output| {
+                self.instances
+                    .get(output)
+                    .and_then(|instance| instance.inputs.get(index))
+            });
+            sum_blocks(channel, &inputs);
         }
     }
 }

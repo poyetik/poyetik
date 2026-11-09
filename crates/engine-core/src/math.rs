@@ -545,6 +545,93 @@ impl Sample for Binary32 {
     }
 }
 
+/// The number of lanes of the reduction order: a constant of the specification
+/// (`spec/engine-design.md`, decision 28), never the vector width of a machine.
+const LANES: usize = 16;
+
+/// How the reduction order combines its lanes: lane `i` with lane `i + 8`, then `i + 4`,
+/// `i + 2` and `i + 1`, for `i` from 0 (decision 28).
+const TREE: [usize; 4] = [8, 4, 2, 1];
+
+/// The sum of `terms`, in the reduction order (`spec/engine-design.md`, decision 28).
+///
+/// Every sum of more than two terms of the engine and of boxes goes through it, so that
+/// vectorizing it later, at any width dividing 16, never changes a bit.
+///
+/// The terms are numbered `k = 0 … n-1` in the order `terms` gives them, which the caller
+/// fixes (cables in their fixed order, taps by index). Term `k` goes to lane `k mod 16`;
+/// each of the 16 lanes sums its terms in increasing `k`, from -0; the lanes are then
+/// combined by a fixed pairwise tree, lane `i` with lane `i + 8`, then `i + 4`, `i + 2`,
+/// `i + 1`. A sum of no terms is +0.
+///
+/// Adding -0 changes no value (`x + -0` is `x`, -0 included), so a lane starts from its
+/// first term and an empty lane is left out of the tree: the same bits as the rule for
+/// every result but a NaN, which stays a NaN. So one term is returned bit for bit (a NaN
+/// payload included), and two give their sum. A NaN result has the payload of one of the
+/// NaN terms, or the target's default NaN; which one, and its sign, may differ between
+/// targets (WebAssembly leaves them open).
+///
+/// No other sum of samples is offered: the sample types implement neither `Sum` nor
+/// `Product`, so an iterator of samples cannot be summed otherwise.
+///
+/// ```compile_fail,E0277
+/// fn total(samples: &[engine_core::Binary64]) -> engine_core::Binary64 {
+///     samples.iter().copied().sum()
+/// }
+/// ```
+#[must_use]
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "IEEE 754 addition of the sample type, which neither overflows nor panics"
+)]
+pub fn ordered_sum<S: Sample>(terms: impl IntoIterator<Item = S>) -> S {
+    let mut terms = terms.into_iter().peekable();
+    let mut lanes = [S::ZERO; LANES];
+    // Terms 0 to 15 start their lanes.
+    let mut used = 0_usize;
+    for (lane, term) in lanes.iter_mut().zip(terms.by_ref()) {
+        *lane = term;
+        used = used.saturating_add(1);
+    }
+    // Every further 16 terms add to the lanes in turn, in increasing `k`, until none is left.
+    // `zip` asks the lanes first, so a term is never taken from `terms` without a lane to
+    // add it to.
+    while terms.peek().is_some() {
+        for (lane, term) in lanes.iter_mut().zip(terms.by_ref()) {
+            *lane += term;
+        }
+    }
+    // The tree, over the lanes holding a term: below `used`, the lanes `i + half` it adds.
+    for half in TREE {
+        let (low, high) = lanes.split_at_mut(half);
+        for (lane, other) in low
+            .iter_mut()
+            .zip(high.iter().take(used.saturating_sub(half)))
+        {
+            *lane += *other;
+        }
+    }
+    let [sum, ..] = lanes;
+    sum
+}
+
+/// The sum of the blocks `terms` frame by frame, by [`ordered_sum`]: the block itself for
+/// one (bit for bit), each frame through [`ordered_sum`] otherwise (silence, +0, for no
+/// block). The plan sums the cables into an inlet and the output boxes on a channel with it.
+pub(crate) fn sum_blocks<'terms, S: Sample, T: Iterator<Item = &'terms Block<S>> + Clone>(
+    out: &mut Block<S>,
+    terms: &T,
+) {
+    let mut first = terms.clone();
+    if let (Some(only), None) = (first.next(), first.next()) {
+        *out = *only;
+    } else {
+        for (frame, sample) in out.iter_mut().enumerate() {
+            *sample = ordered_sum(terms.clone().filter_map(|block| block.get(frame)).copied());
+        }
+    }
+}
+
 /// What a host, never a box, needs of the engine's samples: their floats and their bits,
 /// to give them to the platform, hash them, read them back and test them.
 ///
@@ -663,3 +750,7 @@ pub mod host {
 #[cfg(test)]
 #[path = "math_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "reduction_tests.rs"]
+mod reduction_tests;

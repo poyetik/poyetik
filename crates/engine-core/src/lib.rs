@@ -28,7 +28,7 @@ pub use block::{BLOCK_SIZE, Block};
 pub use error::CoreError;
 pub use math::{
     ArithmeticMode, ArithmeticOption, Binary32, Binary64, Constructor, MODE, Precision,
-    RenderFormat, Sample, UnknownArithmeticOptions, host,
+    RenderFormat, Sample, UnknownArithmeticOptions, host, ordered_sum,
 };
 pub use object::{Capability, Create, Factory, Object, ObjectSpec, ParamSpec, PortSpec};
 pub use patch::{Connection, Node, NodeId, Patch};
