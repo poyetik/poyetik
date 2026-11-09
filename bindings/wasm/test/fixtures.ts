@@ -255,8 +255,12 @@ function sleb128(value: number): number[] {
   }
 }
 
-/** The bits of the binary32 NaN a hand-made module's `nan` body writes: a quiet NaN with payload 1. */
-export const NAN_BITS = 0x7f_c0_00_01;
+/**
+ * The bits of the binary32 NaN a hand-made module's `nan` body writes: a signaling NaN with
+ * payload 1, which a trip through a JavaScript number quiets (its quiet bit set), so that a
+ * copy through numbers cannot keep it.
+ */
+export const NAN_BITS = 0x7f_80_00_01;
 
 /** What a hand-made module holds: see {@link handMadeBytes}. */
 export interface HandMade {
