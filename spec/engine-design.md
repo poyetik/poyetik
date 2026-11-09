@@ -39,6 +39,7 @@ Words this document introduces, to enter `GLOSSARY.md` with the step that gives 
 | **signal** | A value at every frame, carried by a cable as one or more channels |
 | **voice** | One instance of a polyphonic subpatch |
 | **bus** | A named, multichannel signal path that several boxes send to and others read from |
+| **channel layout** | The ordered meaning of an outlet's channels (speaker roles, positions, ambisonic components, binaural ears, or discrete), checked when the plan is built |
 | **coordinating layer** | What runs above the engine, outside it: asynchronous work (interface, files, network, an assistant), heavy logic ahead of time, and the conversion of times between the engine and sibling engines |
 | **return path** | What the engine sends out: streams of timestamped messages, latest-value slots, and engine reports |
 | **event log** | The record of what a live engine applied (events at their applied frames, plan swaps, seed, resources, underruns); replayed, it gives the same bits |
@@ -157,11 +158,26 @@ Sub-decisions:
 
 **Decision.** **A cable carries N channels**, N fixed when the plan is built (from 0 to a named maximum). **Automatic expansion**: a box written for one channel that receives N is instantiated N times, one state per channel. Mismatched counts: a 1-channel signal is broadcast to all; any other mismatch is rejected when the plan is built, naming the cable. Several cables into one inlet are summed channel by channel, in the existing fixed order. **Buses**: named, multichannel paths with sends (with a gain) and receives, and groups (a bus feeding a bus); a bus sums its senders in the order of their box ids, so a mix is deterministic; a send and a receive are graph edges, so a bus cycle needs a delay like any cycle.
 
-**Why.** Surround, ambisonics, per-voice processing and track routing all need it; per-channel expansion lets one mono box serve every width.
+**Channel layouts.** Every signal outlet has a **channel layout**, fixed when the plan is built: an ordered list of channel descriptions, one per channel. A description is one of a closed, versioned set of kinds:
 
-**Rejected.** One cable per channel only: patches become unreadable at 16 channels. Wrapping mismatched counts (2 into 3 cycling): a silent surprise. Unordered bus summing: the bits would depend on scheduling.
+- a **speaker role**, from the speaker labels of ITU-R BS.2051 (left, right, centre, LFE, the surrounds, the heights…);
+- a **speaker position**: azimuth and elevation in degrees (azimuth 0 straight ahead, positive to the listener's left; elevation positive upwards), and an optional distance in metres;
+- an **ambisonic component**: its order and degree, with its normalization named (SN3D, N3D, or the legacy FuMa weights);
+- a **binaural ear**: left or right;
+- **discrete**: no meaning, numbered.
 
-**Consequences.** Engine: a channel count per outlet, instances per channel, buses in the planner. Patch format: bus names, sends and receives; box arguments that set channel counts (ticket #3, step 3). Hash: unchanged. Tests: expansion against N separate boxes, bit for bit; a mismatched cable rejected; bus summing order; channel counts 0, 1 and the maximum, and one past it.
+Sub-decisions:
+
+- **Presets and custom layouts.** The standard layouts are named presets built from those kinds: mono, stereo, the ITU-R BS.775 and BS.2051 surround and height layouts (5.1, 7.1, 7.1.4 and the others), ambisonics of order N in each channel ordering and normalization (ACN with SN3D or N3D, FuMa), binaural. A custom layout is any list of descriptions, with a name, stored in the patch.
+- **Checked when the plan is built.** A cable connects equal layouts. An inlet declared `discrete` accepts any layout of its channel count; an inlet of an expanded box also accepts the 1-channel broadcast above. Any other mismatch is refused, naming the cable and both layouts. A box declares the layout of each outlet: fixed, or the same as one of its inlets'; an expanded mono box keeps the layout of its input.
+- **Conversions are boxes.** Ambisonics to binaural, downmixes, upmixes and re-ordering between ambisonic conventions are explicit boxes, never implicit.
+- **Metadata only.** Layouts live in the plan, not in the samples: they cost nothing while processing and do not enter the render hash; a render's report names its output layout, and a host reports its device's layout when it knows it (decision 1).
+
+**Why.** Surround, ambisonics, per-voice processing and track routing all need it; per-channel expansion lets one mono box serve every width. A channel count alone cannot tell third-order ambisonics from 7.1.4 plus four: layouts make such a cable a refusal when the plan is built instead of a silent mis-wiring.
+
+**Rejected.** One cable per channel only: patches become unreadable at 16 channels. Wrapping mismatched counts (2 into 3 cycling): a silent surprise. Unordered bus summing: the bits would depend on scheduling. Channel counts without meaning: ambisonics wired into a 7.1 input would play, wrongly, without a word. Implicit conversions between layouts: a hidden, lossy process. A fixed list of layouts without custom ones: arrays of speakers and research setups could not be described.
+
+**Consequences.** Engine: a channel count and a layout per outlet, instances per channel, buses and layout checks in the planner; the layout in the render's report and in the applied host settings. Patch format: bus names, sends and receives; box arguments that set channel counts (ticket #3, step 3); layouts, as preset names or custom lists of descriptions, with their names (ticket #3). Hash: unchanged. Tests: expansion against N separate boxes, bit for bit; a mismatched cable rejected; bus summing order; channel counts 0, 1 and the maximum, and one past it; every preset and a custom layout through the patch format and back; a mismatch refused for every pair of kinds; a `discrete` inlet accepting every layout of its count and refusing other counts; an expanded mono box keeping its input's layout.
 
 **Step.** #12 step 16. **Order:** 9.
 
