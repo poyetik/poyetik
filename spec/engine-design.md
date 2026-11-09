@@ -49,6 +49,7 @@ Words this document introduces, to enter `GLOSSARY.md` with the step that gives 
 | **seek** | Jumping a render to a frame with every state restored for it |
 | **external** | A box type written by a third party as a WebAssembly module implementing the box contract (not an external processor, decision 17) |
 | **resource** | Immutable data a box reads (samples, tables, impulse responses), identified by the SHA-256 of its source bytes |
+| **algorithm version** | The version of a box type's algorithm, stored per box in the patch; any change that can change a bit takes a new one |
 | **arithmetic mode** | How a render computes: today only the default (correctly rounded IEEE 754 operations, no fused multiply-add, the pinned `libm`); recorded by the render hash with the precision |
 | **render-ahead** | Rendering a part of the plan that depends on no live source before its frames are heard |
 
@@ -80,14 +81,14 @@ The first two are **performance settings only: a render never depends on them.**
 
 Sub-decisions:
 
-- **Renders are independent of the engine block.** Every box processes sample-accurately; a box that saves work by updating derived values (coefficients) less than every frame does it on a grid of **absolute frame numbers**, never on engine block boundaries. A law checks the bits of every conformance case across the engine block sizes of the test matrix, 1 included.
+- **Renders are independent of the engine block.** Every box processes sample-accurately; a box that saves work by updating derived values (filter coefficients, the segments of an envelope) less than every frame does it every `N` frames on a grid of **absolute frame numbers** (the multiples of `N` counted from frame 0, at the rate the box runs at), never on engine block or host buffer boundaries. `N` is part of the box's algorithm, so changing it takes a new algorithm version (decision 29). A law checks the bits of every conformance case across the engine block sizes of the test matrix, 1 included.
 - **A subpatch without a declared block has none**: it is processed in whatever spans the engine chooses, and its result is the same.
 - **A subpatch with a declared block `B`, overlap `O` and factor `R`** collects `B` frames of its inputs at its own rate (`R` times the outer rate, or `1/R` of it), runs every `B/O` frames, and overlap-adds its outputs. It introduces a latency the engine derives from `B`, `O` and the resampling filters, declares and compensates (decision 13). The resampling filters are linear-phase, specified by their coefficient tables (identical on every target), and measured (passband ripple, stopband rejection, aliasing) like any box.
 - Internal rates of a resampled subpatch may exceed the host's supported range; the type of an internal rate is wider than `SampleRate`, and the limits of the factor are named constants, tested at the limit and one past it.
 
 **Why.** The engine block trades CPU (fewer calls, better vectorization) against latency and granularity; making it semantic would make the same patch sound different on two hosts. The subpatch block is the opposite: a musical choice, which must travel with the patch.
 
-**Rejected.** A fixed engine block (today's 64 frames): it would fix the latency floor and the cost of every host. A single engine-wide block chosen by the patch: the host could no longer pick its latency. Power-of-two engine blocks only: an odd host buffer (a plugin host asking 441 frames) is then rebuffered for nothing.
+**Rejected.** A fixed engine block (today's 64 frames): it would fix the latency floor and the cost of every host. A single engine-wide block chosen by the patch: the host could no longer pick its latency. Power-of-two engine blocks only: an odd host buffer (a plugin host asking 441 frames) is then rebuffered for nothing. Updating coefficients once per engine block: the result would depend on the block size.
 
 **Consequences.** Engine: `BLOCK_SIZE` stops being a constant of the core; `Block` becomes a span of a host-chosen length; the plan cuts spans at events and at the grid of absolute frames. Patch format: subpatches, with optional `block`, `overlap` and `resample` (format version 2 or later, ticket #3). Hash: unchanged. Tests: the engine-block law over every case; subpatch blocks across the matrix (1, a prime, a power of two, the maximum); the resampler measured with derived thresholds (imaging and aliasing rejection, passband ripple, SNR); a spectral round trip (analysis, synthesis) exact to a derived bound.
 
@@ -208,6 +209,7 @@ Sub-decisions:
 
 Sub-decisions:
 
+- **Boxes are written once, generic over the engine's sample type** (binary64 or binary32), and every arithmetic operation of a box goes through the operators of that engine-owned type, so that a future arithmetic mode is added in one place, without rewriting a box. Rust has no global switch for its floating-point semantics, which is why this single type is the hook. Nothing more is added now: no type parameter for another mode, and no instantiation that nothing uses.
 - The precision setting governs signal buffers and per-frame arithmetic. **Parameter values and values derived from them** (coefficients, increments) are always computed in 64 bits; phase and musical-time accumulators are integers in both precisions.
 - **Parameter values become IEEE 754 binary64** in the patch format (version 2): the nearest binary64 to the JSON number, which is what every JSON reader and JavaScript already produce. Today's binary32 rule stays for version 1 documents, read as their binary32 values.
 - **Delivery to a 32-bit host** (the AudioWorklet, most device backends): the 64-bit output is rounded to binary32, correctly and identically on every target, after the output stage.
@@ -219,6 +221,8 @@ Sub-decisions:
   4. the fused multiply-add mode is **not** implemented in ticket #12: it is a future option, enabled only if measurements justify it, and the ban of `mul_add` in `clippy.toml` stays until the maintainer decides otherwise; a box may later offer a fused variant only as an explicit patch setting, under the same rules.
 
   A fused multiply-add is correctly rounded once (IEEE 754), so a mode that uses it also gives the same bits on every target; but WebAssembly has no fused multiply-add instruction (only relaxed SIMD's `relaxed_madd`, which may or may not fuse, so it is non-deterministic and banned), so it would be emulated there in software, slowly. Its native gain is real but moderate, largest on FIR filters, convolution and matrix kernels, and would be measured with the benchmarks of step 6 before any decision.
+
+  A possible **fast** arithmetic mode, at export only, is a future option outside the guarantees, like the external processors of decision 17: marked as outside bit identity wherever it is used, its audio quality still measured on each target, and never assuming that NaN and infinities are absent (that assumption would silently remove the engine's protections against them).
 
 **Cost.** A 64-bit sample takes twice the memory, cache and memory bandwidth of a 32-bit one. Vector units hold half as many lanes (2 instead of 4 in a 128-bit register, the WebAssembly SIMD width; 4 instead of 8 in 256-bit ones), so vectorized loops do up to half the work per instruction. Scalar 64-bit arithmetic costs about the same as 32-bit on current processors, in browsers too, but 64-bit transcendental functions need more terms. The per-box wall-time benchmarks that step 11 adds to those of step 6 (`spec/benchmarks.md`) measure the real ratio per box and on each browser engine; the 32-bit setting exists for hosts where it matters.
 
@@ -339,6 +343,7 @@ The engine provides the hook; the rest is outside it, on later cards. **Order:**
 - **Without SharedArrayBuffer** (a page not cross-origin isolated): the oscilloscope uses an AnalyserNode (no shared memory needed); capture and metering post a bounded summary (peaks, a decimated window) at a fixed low rate, in buffers from a pool transferred back and forth, instead of a message per render quantum; full-rate capture is reported as unavailable, never approximated. Events to the engine go through the processor's message port, batched, with frame timestamps, so they stay sample-accurate when scheduled ahead and are counted late otherwise. The allocations of a message are bounded per second, measured, and listed among the known deviations. Step 5, order 8.
 - **Off-audio-thread construction**: decision 15.
 - **The real-time cost estimate** (step 7) uses the task graph of decision 16 and the per-box benchmarks of step 6.
+- **Optimizations left to each box and to the build**, under the rules of decisions 2, 10, 28, 29 and 30 (an absolute update grid, an arithmetic mode as a render setting, the reduction order, a new algorithm version for any change of bits, skipping only when bit-identical), with no further engine decision: fast approximations and wavetables (only when measured faster and within the derived thresholds), oversampling of non-linear boxes, buffer reuse and cache locality in the plan, specialized compilation at export (the build mode, decision 20), and fixed-point arithmetic for some microcontrollers, as a possible future arithmetic mode.
 
 ## 19. The control boundary
 
@@ -496,6 +501,7 @@ Sub-decisions:
 
 - **Contents**: metadata (type name, contract version, ports with their payload kinds, parameters with kind, range, unit, default and smoothing, latency, state version and maximum size, execution mode (decision 20), the maximum messages emitted per message received, the resources it reads and how, decision 26, and the capabilities it asks for: none by default); a life cycle (prepare at a rate, precision and maximum span, where every allocation happens; process a span with its inputs, outputs and events; reset; save and restore state).
 - **The ABI**: functions with integer and float arguments only; every buffer exchanged by offset and length in the module's own memory, which the engine fills and reads; no pointer into the engine; every float that leaves a module has its NaN made canonical, since WebAssembly leaves NaN payloads open. Versioned major.minor: a module declares the version it implements, the engine supports a declared range, and a minor version only adds. Relaxed SIMD and threads are refused when a module is loaded (their results may differ between runtimes).
+- **Buffer layout**: every signal buffer handed to a box starts on a 64-byte boundary and is padded to a multiple of 64 bytes (the widest vector considered, 512 bits), the padding written as zeros by the engine and never read back from a box's outputs; the contract states it, so externals may rely on it. It changes no bit.
 - **Compile-friendly**: a box's processing is a function of its explicit state, its inputs and its events, and of nothing else (no global, no static mutable value), so code generated at build time (decision 20) can call and inline it, and it gives the same bits whether called by the plan or by generated code.
 - **Routing is resolved when the plan is built**: sends and receives by name, buses, watched cables and named destinations all become direct edges in the plan; nothing is looked up by name while processing. Changing a route is a patch edit, played through a hot swap (decision 15).
 - **Externals are referenced by content**: a patch names an external by the SHA-256 of its module, with a readable name, so the same patch always plays the same external.
@@ -504,7 +510,7 @@ Sub-decisions:
 
 **Rejected.** A Rust-only contract (no externals, no other languages). Native libraries as externals (one build per platform, no browser, no sandbox, no determinism). Pointers across the boundary (unsafe, and meaningless between memories). Run-time lookup of routes by name (cost and hidden state while processing, and nothing to compile).
 
-**Consequences.** Engine: the contract as an ABI with its version; the Rust trait as its binding; routing resolution in the planner; NaN made canonical at the boundary. Patch format: external references by hash and name (ticket #3). Hash: unchanged. Tests: every built-in box run directly and through the ABI form (hosted in a test harness by a WebAssembly runtime added at this step, with its entry in the dependency register), giving the same bits; the box laws on both; a module of an unsupported version, an invalid metadata or a forbidden feature refused with its reason; routes by name resolved before the first frame; the law that generated code equals the plan lands with the build's compiler, on a later card.
+**Consequences.** Engine: the contract as an ABI with its version; the Rust trait as its binding; aligned and padded buffers; routing resolution in the planner; NaN made canonical at the boundary. Patch format: external references by hash and name (ticket #3). Hash: unchanged. Tests: every built-in box run directly and through the ABI form (hosted in a test harness by a WebAssembly runtime added at this step, with its entry in the dependency register), giving the same bits; the box laws on both; a module of an unsupported version, an invalid metadata or a forbidden feature refused with its reason; every buffer handed to a box aligned and padded, its padding zero; routes by name resolved before the first frame; the law that generated code equals the plan lands with the build's compiler, on a later card.
 
 **Step.** #12 step 32. **Order:** 6, first: the contract is shaped with events, before boxes are written against it.
 
@@ -540,18 +546,61 @@ Sub-decisions:
 
 **Step.** #12 step 34. **Order:** 10, before spectral subpatches.
 
+## 28. Reduction order
+
+**Decision.** **Every sum of more than two terms** that a box or the engine computes in one place (mixing, cables into one inlet, buses, FIR filters, convolution, dot products, the sums inside an FFT where there are any) follows one specified, vectorizable order:
+
+- the terms are numbered `k = 0 … n-1` by the order the decision concerned already fixes (cables in their fixed order, decision 6; taps by index; senders by box id);
+- term `k` goes to **lane** `k mod 16`; each of the 16 lanes sums its terms in increasing `k`, starting from -0 (the exact identity of IEEE 754 addition: `x + (-0)` is `x` for every `x`, -0 included);
+- a sum of no terms is +0;
+- the 16 lane sums are combined by a fixed pairwise tree: lane `i` with lane `i + 8`, then `i` with `i + 4`, then `i + 2`, then `i + 1`, for `i` from 0.
+
+The lane count is a constant of the specification, 16, never the SIMD width of the machine: any vector width that divides 16 (1, 2, 4, 8 or 16 lanes, whatever the sample type) computes exactly this order, so vectorizing a loop later, or running it on a wider machine, never changes a bit. One shared helper in the core implements it; no box writes its own long sum.
+
+**Why.** Floating-point addition is not associative: a sequential sum cannot be vectorized without changing its result. Fixing a vector-shaped order now costs nothing in bits today and keeps every later vectorization free.
+
+**Rejected.** Left-to-right sequential sums (vectorizing them later changes bits). An order that follows the SIMD width of the target (bits would differ between a WebAssembly build with 128-bit vectors and a native one with 256- or 512-bit vectors). Compensated or exact summation everywhere (correct, but several times the cost of every mix; a box that needs it, such as a measurement, uses it explicitly).
+
+**Consequences.** Engine: the reduction helper in `engine-core`, used by every sum of more than two terms; decision 16's fixed summation order is this order applied to the terms its tasks produce. Patch format: none. Hash: renders with three or more terms in one sum change; covered by the single re-bless of step 11. Tests: the helper against a scalar reference written literally from the rule above, for every `n` from 0 to past several multiples of 16, special values included (-0, infinities, NaN, subnormals), natively and in WebAssembly; each vectorized form, when one is added, against the same reference; a law that every box's sums go through the helper (a sum of three cables differs from the sequential sum on chosen inputs, and must match the rule).
+
+**Step.** #12 step 35. **Order:** 3, with step 11.
+
+## 29. Box algorithm version
+
+**Decision.** Every box in a patch carries the **algorithm version** of its box type. Any change of a box type that can change a bit (an exact function replaced by a faster approximation, a new filter topology, a different update grid, decision 2) gives the box type a new algorithm version. A patch keeps the version it was made with: the engine keeps playing every supported version of a box type, and moving a patch to a newer version is an explicit migration, shown to the user, never a side effect of an update. Approximations stay allowed only when they are measured faster and within the box's derived thresholds.
+
+**Why.** Optimizing a box must never change how an existing patch sounds behind its author's back; versioning each box's algorithm lets boxes improve while every saved patch keeps its bits, and the render identity covers it through the patch.
+
+**Rejected.** Silent algorithm changes (a patch would sound different after an update, and its reference hash would change for no visible reason). One global engine version instead (improving one box would migrate every patch). Never changing an algorithm (no box could ever become faster or better).
+
+**Consequences.** Engine: an algorithm version in every box type's metadata (decision 25), and a box type able to provide each version it still supports. Patch format: the algorithm version per box, in format version 2, with a migration from version 1 that records the current versions (ticket #3). Hash: unchanged in form; a case pins its versions through its patch. Tests: a change of a box that changes the bits of a conformance case without a new algorithm version fails (the case's reference no longer matches); each supported version keeps its own cases; a patch naming an unsupported version is refused with its reason; migrations tested like every format migration.
+
+**Step.** #12 step 36. **Order:** 3, with step 11 (format version 2).
+
+## 30. Silence skipping
+
+**Decision.** A box or a part of the plan may **skip processing** a span only when skipping is **proven bit-identical** to processing it. A box type declares, in the box contract, the condition under which its output stays exactly zero (typically: its inputs exactly zero, its state exactly zero, its tail finished; decision 11's flush makes a decaying recursive state reach exact zeros); the engine skips the box while that condition holds and writes exact zeros to its outputs (zeros of the sign processing would have produced). A box that declares nothing is always processed.
+
+**Why.** Silent voices, idle effects and finished tails are most of a large session; skipping them is the largest single saving, and the only safe version of it is one that cannot change a bit.
+
+**Rejected.** Sleeping below a level threshold (inaudible, but the bits change, and they change with the threshold). Letting the host decide when a box is silent (it cannot know the box's state).
+
+**Consequences.** Engine: the silence condition in the box contract (decision 25), skipping in the plan. Patch format: none. Hash: unchanged. Tests: a law over every box and random patches: every render is identical with skipping on and off, at and around the frames where a box falls silent and wakes; the sign of each zero checked.
+
+**Step.** #12 step 37. **Order:** 8, with the cost estimate (the condition in the contract at 6).
+
 ## Implementation order
 
 Each step lands with its tests, its format or hash version, and its conformance re-bless when bits change. The order follows dependencies; what changes every reference comes before more references are added.
 
 1. **Step 2**, measurements: every later quality claim needs them.
 2. **Step 6**, benchmarks: the cost of the decisions below is measured, not guessed.
-3. **Steps 3 and 9**, denormals and subnormal parameters, then **step 11**, precision and `render-hash/2`: one re-bless of every reference, in both precisions.
+3. **Steps 3 and 9**, denormals and subnormal parameters, then **step 11**, precision and `render-hash/2`, with **step 35**, the reduction order, and **step 36**, box algorithm versions: one re-bless of every reference, in both precisions.
 4. **Step 12**, output stage: fixes what a render ends with.
 5. **Steps 13 and 8**, host settings and the engine-block law, then outputs without channels, then **step 27**, execution modes (the mode is a host setting and the box contract's first new field).
 6. **Step 32**, the box contract as a versioned ABI, first (every box is written against it); then **steps 4 and 14**, parameters, events, messages and rates, with **step 28**, message payloads, **step 26**, the control boundary (quotas, return path, the event log's hook) and **step 30**, seeded randomness (draws are addressed by frame and message order): everything after relies on events.
 7. **Steps 15 and 10**, oscillators: integer phase, Nyquist policy, long-run drift.
-8. **Steps 5 and 7**, the browser's audio thread (with the browser's transport of the control boundary), then the cost estimate.
+8. **Steps 5 and 7**, the browser's audio thread (with the browser's transport of the control boundary), then the cost estimate, with **step 37**, silence skipping.
 9. **Step 16**, multichannel cables and buses.
 10. **Step 34**, the FFT, then **step 17**, subpatches with their blocks, and feedback (needs subpatches in the format, ticket #3).
 11. **Step 18**, latency compensation (subpatch blocks and the limiter introduce latency).
