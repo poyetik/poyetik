@@ -90,7 +90,11 @@ describe("Board.astro", () => {
 
   it("renders columns, cards, description and milestone", async () => {
     const html = await render([card(1, "doing", { description: "The core", milestone: "M1" }), card(2, "done"), card(3, "next")]);
-    expect(html).toContain("<strong>1</strong> / 3 done");
+    const tallies = [...html.matchAll(/<span class="tally"[^>]*>([\s\S]*?)<\/span>\s*(?=<span class="tally"|<span class="muted"> · updated|<\/p>)/g)].map(([, inner = ""]) =>
+      inner.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim(),
+    );
+    expect(tallies).toStrictEqual(["0 Later", "· 1 Next", "· 1 In progress", "· 1 Done"]);
+    expect(html).not.toContain(" / ");
     expect(html).toContain('datetime="2026-11-07"');
     for (const title of ["In progress", "Next", "Later", "Done"]) {
       expect(html).toContain(title);
@@ -107,7 +111,7 @@ describe("Board.astro", () => {
     // A real card with an empty description and milestone: neither is rendered.
     const html = await render([card(1, "next")]);
     const item = /<li class="card" data-id="1"[^>]*>([\s\S]*?)<\/li>/.exec(html)?.[1] ?? "";
-    expect(item).toContain("<h3>Card 1</h3>");
+    expect(item).toMatch(/<details class="card-toggle"[^>]*>\s*<summary[^>]*>\s*<h3[^>]*>Card 1<\/h3>\s*<\/summary>/);
     expect(item).not.toMatch(/<p[ >]/);
     expect(item).not.toContain('class="milestone"');
   });
@@ -116,7 +120,7 @@ describe("Board.astro", () => {
     const html = await render([card(1, "next")]);
     expect(html).toContain('data-id="1"');
     expect(html).not.toContain('class="steps"');
-    expect(html).not.toContain("<details");
+    expect(html).not.toContain("steps-toggle");
   });
 
   it("shows no current step in the summary when every step is done", async () => {
@@ -137,6 +141,34 @@ describe("Board.astro", () => {
   it("keeps list semantics on every column's card list, whatever its style", async () => {
     const html = await render([card(1, "doing"), card(2, "next"), card(3, "later"), card(4, "done")]);
     expect(html.match(/<ul\b[^>]*>/g)).toStrictEqual(Array.from({ length: 4 }, () => '<ul role="list">'));
+  });
+
+  it("collapses every card to its title, its content inside the same toggle", async () => {
+    const html = await render([card(1, "doing", { description: "The core", milestone: "M1", steps: [{ title: "Install", done: false }] })]);
+    expect(html).toMatch(
+      /<li class="card" data-id="1"[^>]*>\s*<details class="card-toggle"[^>]*>\s*<summary[^>]*>\s*<h3[^>]*>Card 1<\/h3>\s*<\/summary>[\s\S]*The core[\s\S]*steps-toggle[\s\S]*#1[\s\S]*M1[\s\S]*<\/details>\s*<\/li>/,
+    );
+    expect(html).not.toMatch(/<details[^>]*\bopen\b/);
+  });
+
+  it("shows the five most recent Done cards, the rest behind Show all", async () => {
+    const done = ["01", "02", "03", "04", "05", "06", "07"].map((day, index) => card(index + 1, "done", { updatedAt: `2026-11-${day}` }));
+    const html = await render([...done, card(8, "later")]);
+    const column = /<section class="column" data-column="done"[\s\S]*?<\/section>/.exec(html)?.[0] ?? "";
+    const [shown = "", more = ""] = column.split('<details class="more"');
+    expect([...shown.matchAll(/data-id="(\d+)"/g)].map(([, id]) => id)).toStrictEqual(["7", "6", "5", "4", "3"]);
+    expect([...more.matchAll(/data-id="(\d+)"/g)].map(([, id]) => id)).toStrictEqual(["2", "1"]);
+    expect(more).toMatch(/^[^>]*>\s*<summary[^>]*>\s*<span class="when-closed"[^>]*>Show all 7<\/span>\s*<span class="when-open"[^>]*>Show fewer<\/span>\s*<\/summary>\s*<ul role="list">/);
+    // The count in the heading is every card, hidden ones included.
+    expect(column).toMatch(/<span class="count"[^>]*>7</);
+    // No other column has a Show all.
+    expect(html.match(/class="more"/g)).toHaveLength(1);
+  });
+
+  it("has no Show all when Done holds five cards or fewer", async () => {
+    const html = await render(["01", "02", "03", "04", "05"].map((day, index) => card(index + 1, "done", { updatedAt: `2026-11-${day}` })));
+    expect(html).not.toContain('class="more"');
+    expect(html.match(/class="card"/g)).toHaveLength(5);
   });
 
   it("escapes card content (no HTML injection)", async () => {

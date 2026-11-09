@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The roadmap page is easier to scan: each card is collapsed to its title on one line, cut with an ellipsis, and opens on click to show its description, steps (still collapsed on their own) and footer; the Done column shows its five most recently finished cards first, the others behind a "Show all" toggle; the summary line gives the number of cards of each column instead of "done / total".
 - CI runs the full check as parallel jobs, one per part of the full check, then a final job that reviews the unviable mutants of every mutation shard together, instead of one job running it whole (one to two hours on a single runner). Every job keeps the `[ci]` condition and the workflow's concurrency; each part has its own Rust cache. The workflow gate requires the matrix to list exactly the parts of `cargo xtask list --full --parts`, every part to run whatever the others find (`fail-fast: false`), every job to hold the `[ci]` condition, and the upload and download of the shards' unviable mutants; it refuses a matrix exclusion.
 
 ### Fixed

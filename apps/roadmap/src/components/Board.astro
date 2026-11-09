@@ -1,58 +1,81 @@
 ---
 import { formatId } from "../lib/board.ts";
-import type { BoardProps as Props } from "../lib/view.ts";
+import type { BoardProps as Props, CardView } from "../lib/view.ts";
 
 const { view } = Astro.props;
 ---
 
 <section class="summary" aria-label="Progress">
   <p>
-    <strong>{view.done}</strong> / {view.total} done
+    {
+      view.columns.map((column, index) => (
+        <span class="tally" data-tally={column.id}>
+          {index > 0 && <span class="muted"> · </span>}
+          <strong>{column.cards.length}</strong> {column.title}
+        </span>
+      ))
+    }
     {view.lastUpdated !== null && <span class="muted"> · updated <time datetime={view.lastUpdated}>{view.lastUpdated}</time></span>}
   </p>
 </section>
 
 <div class="board">
   {
-    view.columns.map((column) => (
-      <section class="column" data-column={column.id} aria-labelledby={`col-${column.id}`}>
-        <h2 id={`col-${column.id}`}>
-          {column.title} <span class="count">{column.cards.length}<span class="visually-hidden"> {column.cards.length === 1 ? "card" : "cards"}</span></span>
-        </h2>
-        {column.cards.length === 0 ? (
-          <p class="empty">Nothing yet</p>
-        ) : (
-          <ul role="list">
-            {column.cards.map((card) => (
-              <li class="card" data-id={card.id}>
-                <h3>{card.title}</h3>
-                {card.description !== "" && <p>{card.description}</p>}
-                {card.steps.length > 0 && (
-                  <details class="steps-toggle">
-                    <summary>
-                      Steps {card.doneSteps}/{card.steps.length}
-                      {card.currentStep !== null && <span class="current"> · {card.currentStep}</span>}
-                    </summary>
-                  <ol class="steps" aria-label="Steps">
-                    {card.steps.map((step) => (
-                      <li class="step" data-status={step.status}>
-                        <span class="step-title">{step.title}</span>
-                        {step.status === "done" && <span class="tag tag-done">Done</span>}
-                        {step.status === "doing" && <span class="tag tag-doing">In progress</span>}
-                      </li>
-                    ))}
-                  </ol>
-                  </details>
-                )}
-                <footer>
-                  <span class="id">{formatId(card.id)}</span>
-                  {card.milestone !== "" && <span class="milestone">{card.milestone}</span>}
-                </footer>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-    ))
+    view.columns.map((column) => {
+      // One card, collapsed to its title on one line; opened, its description, steps and footer.
+      // Defined once, rendered for the cards always shown and for those behind "Show all".
+      const cardItem = (card: CardView) => (
+        <li class="card" data-id={card.id}>
+          <details class="card-toggle">
+            <summary>
+              <h3>{card.title}</h3>
+            </summary>
+            {card.description !== "" && <p>{card.description}</p>}
+            {card.steps.length > 0 && (
+              <details class="steps-toggle">
+                <summary>
+                  Steps {card.doneSteps}/{card.steps.length}
+                  {card.currentStep !== null && <span class="current"> · {card.currentStep}</span>}
+                </summary>
+                <ol class="steps" aria-label="Steps">
+                  {card.steps.map((step) => (
+                    <li class="step" data-status={step.status}>
+                      <span class="step-title">{step.title}</span>
+                      {step.status === "done" && <span class="tag tag-done">Done</span>}
+                      {step.status === "doing" && <span class="tag tag-doing">In progress</span>}
+                    </li>
+                  ))}
+                </ol>
+              </details>
+            )}
+            <footer>
+              <span class="id">{formatId(card.id)}</span>
+              {card.milestone !== "" && <span class="milestone">{card.milestone}</span>}
+            </footer>
+          </details>
+        </li>
+      );
+      return (
+        <section class="column" data-column={column.id} aria-labelledby={`col-${column.id}`}>
+          <h2 id={`col-${column.id}`}>
+            {column.title} <span class="count">{column.cards.length}<span class="visually-hidden"> {column.cards.length === 1 ? "card" : "cards"}</span></span>
+          </h2>
+          {column.cards.length === 0 ? (
+            <p class="empty">Nothing yet</p>
+          ) : (
+            <ul role="list">{column.shown.map(cardItem)}</ul>
+          )}
+          {column.more.length > 0 && (
+            <details class="more">
+              <summary>
+                <span class="when-closed">Show all {column.cards.length}</span>
+                <span class="when-open">Show fewer</span>
+              </summary>
+              <ul role="list">{column.more.map(cardItem)}</ul>
+            </details>
+          )}
+        </section>
+      );
+    })
   }
 </div>

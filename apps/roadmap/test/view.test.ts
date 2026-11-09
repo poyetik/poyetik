@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Board, Card } from "../src/lib/board.ts";
-import { toView } from "../src/lib/view.ts";
+import { DONE_SHOWN, toView } from "../src/lib/view.ts";
 
 /** Builds a card with id `id` in `column`, last updated `updatedAt`, and no steps. */
 function card(id: number, column: Card["column"], updatedAt: string): Card {
@@ -64,18 +64,55 @@ describe("toView", () => {
       card(5, "later", "2026-11-02"),
     ];
     const board: Board = { version: 1, title: "P", nextId: 6, cards };
+    /** A column whose cards are all shown. */
+    const column = (id: string, title: string, list: unknown[]): unknown => ({ id, title, cards: list, shown: list, more: [] });
     expect(toView(board)).toEqual({
       title: "P",
       columns: [
-        { id: "later", title: "Later", cards: [plain(cards[4])] },
-        { id: "next", title: "Next", cards: [plain(cards[1])] },
-        { id: "doing", title: "In progress", cards: [plain(cards[3])] },
-        { id: "done", title: "Done", cards: [plain(cards[0]), plain(cards[2])] },
+        column("later", "Later", [plain(cards[4])]),
+        column("next", "Next", [plain(cards[1])]),
+        column("doing", "In progress", [plain(cards[3])]),
+        column("done", "Done", [plain(cards[0]), plain(cards[2])]),
       ],
-      total: 5,
-      done: 2,
       lastUpdated: "2026-11-09",
     });
+  });
+
+  it("keeps board order outside Done, whatever the dates", () => {
+    const board: Board = { version: 1, title: "P", nextId: 4, cards: [card(1, "next", "2026-11-01"), card(2, "next", "2026-11-09"), card(3, "next", "2026-11-05")] };
+    expect(toView(board).columns[1]?.cards.map((item) => item.id)).toStrictEqual([1, 2, 3]);
+  });
+
+  it("orders Done most recent first, the later in the board first on the same day", () => {
+    const board: Board = {
+      version: 1,
+      title: "P",
+      nextId: 6,
+      cards: [card(1, "done", "2026-11-02"), card(2, "done", "2026-11-09"), card(3, "done", "2026-11-02"), card(4, "done", "2026-10-30"), card(5, "done", "2026-11-09")],
+    };
+    expect(toView(board).columns[3]?.cards.map((item) => item.id)).toStrictEqual([5, 2, 3, 1, 4]);
+  });
+
+  it("shows the five most recent Done cards and puts the rest behind Show all", () => {
+    // The limit is a fixed fact of the page: literal, so that a changed constant fails here.
+    expect(DONE_SHOWN).toBe(5);
+    const days = ["01", "02", "03", "04", "05", "06", "07"];
+    const done = days.map((day, index) => card(index + 1, "done", `2026-11-${day}`));
+    const board: Board = { version: 1, title: "P", nextId: 9, cards: [...done, card(8, "later", "2026-11-01")] };
+    const [later, , , doneColumn] = toView(board).columns;
+    expect(doneColumn?.cards.map((item) => item.id)).toStrictEqual([7, 6, 5, 4, 3, 2, 1]);
+    expect(doneColumn?.shown.map((item) => item.id)).toStrictEqual([7, 6, 5, 4, 3]);
+    expect(doneColumn?.more.map((item) => item.id)).toStrictEqual([2, 1]);
+    // At exactly the limit, nothing is hidden; other columns never hide anything.
+    const five: Board = { version: 1, title: "P", nextId: 6, cards: done.slice(0, 5) };
+    expect(toView(five).columns[3]?.more).toStrictEqual([]);
+    expect(toView(five).columns[3]?.shown).toHaveLength(5);
+    const six: Board = { version: 1, title: "P", nextId: 7, cards: done.slice(0, 6) };
+    expect(toView(six).columns[3]?.more.map((item) => item.id)).toStrictEqual([1]);
+    const many: Board = { version: 1, title: "P", nextId: 9, cards: days.map((day, index) => card(index + 1, "later", `2026-11-${day}`)) };
+    expect(toView(many).columns[0]?.shown).toHaveLength(7);
+    expect(toView(many).columns[0]?.more).toStrictEqual([]);
+    expect(later?.shown.map((item) => item.id)).toStrictEqual([8]);
   });
 
   it("takes the most recent date even when it is not last", () => {
@@ -89,6 +126,8 @@ describe("toView", () => {
   });
 
   it("handles an empty board", () => {
-    expect(toView({ version: 1, title: "P", nextId: 1, cards: [] })).toMatchObject({ total: 0, done: 0, lastUpdated: null });
+    const view = toView({ version: 1, title: "P", nextId: 1, cards: [] });
+    expect(view.lastUpdated).toBeNull();
+    expect(view.columns.map((column) => [column.cards, column.shown, column.more])).toStrictEqual(Array.from({ length: 4 }, () => [[], [], []]));
   });
 });

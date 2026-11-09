@@ -1,5 +1,5 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { parseBoard } from "../src/lib/board.ts";
 import { toView } from "../src/lib/view.ts";
@@ -10,6 +10,28 @@ import { tabTo } from "./keyboard.ts";
 
 /** The expected display, computed from the real board.json with the same code as the page, so the tests follow the data instead of hard-coding cards. */
 const view = toView(parseBoard(JSON.parse(readFileSync(new URL("../board.json", import.meta.url), "utf8"))));
+
+/** Opens card `id` with clicks, as a user would: its column's "Show all" first when the card is behind it, then the card itself. */
+async function openCard(page: Page, id: number): Promise<void> {
+  const card = page.locator(`[data-id="${String(id)}"]`);
+  const more = page.locator("details.more", { has: card });
+  if ((await more.count()) > 0 && (await more.getAttribute("open")) === null) {
+    await more.locator("> summary").click();
+  }
+  await card.locator("details.card-toggle > summary").click();
+  await expect(card.locator("details.card-toggle")).toHaveAttribute("open", "");
+}
+
+/** Opens every toggle of the page with clicks, outermost first: every "Show all", every card, then every card's steps. */
+async function openEverything(page: Page): Promise<void> {
+  for (const selector of ["details.more", "details.card-toggle", "details.steps-toggle"]) {
+    const toggles = page.locator(`${selector}:not([open]) > summary`);
+    while ((await toggles.count()) > 0) {
+      await toggles.first().click();
+    }
+  }
+  await expect(page.locator("details:not([open])")).toHaveCount(0);
+}
 
 test("shows every board.json card in its column", async ({ page }) => {
   await page.goto("./");
@@ -58,11 +80,13 @@ test("steps are collapsed by default and expand on click", async ({ page }) => {
     throw new Error("board.json must contain at least one card with steps for this test");
   }
   await page.goto("./");
+  await openCard(page, withSteps.id);
   const card = page.locator(`[data-id="${String(withSteps.id)}"]`);
   const steps = card.locator(".step");
-  await expect(card.locator("summary")).toContainText(`Steps ${String(withSteps.doneSteps)}/${String(withSteps.steps.length)}`);
+  const summary = card.locator("details.steps-toggle > summary");
+  await expect(summary).toContainText(`Steps ${String(withSteps.doneSteps)}/${String(withSteps.steps.length)}`);
   await expect(steps.first()).toBeHidden();
-  await card.locator("summary").click();
+  await summary.click();
   await expect(steps).toHaveCount(withSteps.steps.length);
   await expect(steps.first()).toBeVisible();
 });
@@ -107,16 +131,83 @@ test("loads without a failed request or a console error (its favicon included)",
   expect(errors).toStrictEqual([]);
 });
 
-test("passes accessibility rules with every card's steps expanded", async ({ page }) => {
+test("passes accessibility rules with every card and its steps expanded", async ({ page }) => {
   await page.goto("./");
-  const toggles = page.locator("details.steps-toggle > summary");
-  const count = await toggles.count();
-  expect(count).toBeGreaterThan(0);
-  for (let index = 0; index < count; index += 1) {
-    await toggles.nth(index).click();
-  }
-  await expect(page.locator("details.steps-toggle[open]")).toHaveCount(count);
+  expect(await page.locator("details.steps-toggle").count()).toBeGreaterThan(0);
+  await openEverything(page);
   expect((await new AxeBuilder({ page }).analyze()).violations).toStrictEqual([]);
+});
+
+test("collapses every card to its title on one line, cut with an ellipsis, and opens it on click", async ({ page }) => {
+  await page.goto("./");
+  const all = view.columns.flatMap((column) => column.cards);
+  await expect(page.locator("details.card-toggle")).toHaveCount(all.length);
+  await expect(page.locator("details.card-toggle[open]")).toHaveCount(0);
+  // A title far longer than a card is wide, on the first card.
+  const first = all[0];
+  if (first === undefined) {
+    throw new Error("board.json must contain at least one card for this test");
+  }
+  const card = page.locator(`[data-id="${String(first.id)}"]`);
+  const title = card.locator("h3");
+  const long = Array.from({ length: 40 }, () => "word").join(" ");
+  await title.evaluate((element, text) => {
+    element.textContent = text;
+  }, long);
+  const measure = (): Promise<{ lines: number; cut: boolean; ellipsis: string }> =>
+    title.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return {
+        lines: Math.round(element.getBoundingClientRect().height / Number.parseFloat(style.lineHeight === "normal" ? String(Number.parseFloat(style.fontSize) * 1.2) : style.lineHeight)),
+        cut: element.scrollWidth > element.clientWidth,
+        ellipsis: style.textOverflow,
+      };
+    });
+  expect(await measure()).toStrictEqual({ lines: 1, cut: true, ellipsis: "ellipsis" });
+  // Cut, never wider than its column: a title kept on one line must not widen the card.
+  const overflowing = await page.locator(".card").evaluateAll((cards) =>
+    cards.filter((item) => item.getBoundingClientRect().right > (item.closest(".column")?.getBoundingClientRect().right ?? 0)).map((item) => item.getAttribute("data-id")),
+  );
+  expect(overflowing).toStrictEqual([]);
+  // The whole title stays in the page, for screen readers and search.
+  await expect(title).toHaveText(long);
+  await expect(card.locator("footer")).toBeHidden();
+  await openCard(page, first.id);
+  const opened = await measure();
+  expect(opened.lines).toBeGreaterThan(1);
+  expect(opened.cut).toBe(false);
+  await expect(card.locator("footer")).toBeVisible();
+  await expect(card.locator(".id")).toHaveText(`#${String(first.id)}`);
+});
+
+test("shows the most recent Done cards, the others behind Show all", async ({ page }) => {
+  await page.goto("./");
+  const done = view.columns.find((column) => column.id === "done");
+  if (done === undefined) {
+    throw new Error("the board has a Done column");
+  }
+  const section = page.locator('[data-column="done"]');
+  const visible = section.locator(".card:visible");
+  await expect(visible).toHaveCount(done.shown.length);
+  const ids = async (): Promise<(string | null)[]> => visible.evaluateAll((cards) => cards.map((card) => card.getAttribute("data-id")));
+  expect(await ids()).toStrictEqual(done.shown.map((card) => String(card.id)));
+  const more = section.locator("details.more > summary");
+  if (done.more.length === 0) {
+    // Five cards or fewer: nothing hidden, no toggle (the toggle itself is covered by the component tests).
+    await expect(more).toHaveCount(0);
+    return;
+  }
+  await expect(more).toHaveText(`Show all ${String(done.cards.length)}`);
+  await more.click();
+  await expect(more).toHaveText("Show fewer");
+  expect(await ids()).toStrictEqual(done.cards.map((card) => String(card.id)));
+});
+
+test("sums up the board with the number of cards of each column", async ({ page }) => {
+  await page.goto("./");
+  const expected = view.columns.map((column) => `${String(column.cards.length)} ${column.title}`).join(" · ");
+  await expect(page.getByRole("region", { name: "Progress", exact: true })).toContainText(expected);
+  await expect(page.getByRole("region", { name: "Progress", exact: true })).not.toContainText(" / ");
 });
 
 test("shows the columns in classic kanban order from left to right", async ({ page }) => {
@@ -175,10 +266,8 @@ test("wraps an unbreakable word inside its card on the narrowest four-column lay
   await page.goto("./");
   // A token longer than any card is wide, in a title, a description and a step.
   const word = "x".repeat(80);
+  await openEverything(page);
   await page.evaluate((text) => {
-    for (const details of document.querySelectorAll<HTMLDetailsElement>("details.steps-toggle")) {
-      details.open = true;
-    }
     for (const selector of [".card h3", ".card p", ".card .step-title"]) {
       const element = document.querySelector(selector);
       if (element !== null) {
@@ -207,10 +296,14 @@ test("measures contrast as WCAG defines it", () => {
   expect(() => channels("rgba(0, 0, 0, 0.5)")).toThrow("not an opaque");
 });
 
-test("opens and closes a card's steps with the keyboard alone", async ({ page }) => {
+test("opens a card, then its steps, with the keyboard alone", async ({ page }) => {
   await page.goto("./");
-  const summary = page.locator("details.steps-toggle > summary").first();
-  const step = summary.locator("xpath=..").locator(".step").first();
+  const card = page.locator(".card", { has: page.locator("details.steps-toggle") }).first();
+  await tabTo(page, card.locator("details.card-toggle > summary"));
+  await page.keyboard.press("Enter");
+  await expect(card.locator("details.card-toggle")).toHaveAttribute("open", "");
+  const summary = card.locator("details.steps-toggle > summary");
+  const step = card.locator(".step").first();
   await tabTo(page, summary);
   await expect(step).toBeHidden();
   await page.keyboard.press("Enter");
@@ -219,18 +312,30 @@ test("opens and closes a card's steps with the keyboard alone", async ({ page })
   await expect(step).toBeHidden();
 });
 
-test("draws a visible focus ring on a keyboard-focused steps toggle", async ({ page }) => {
+test("draws a visible focus ring on every keyboard-focused toggle", async ({ page }) => {
   await page.goto("./");
-  const summary = page.locator("details.steps-toggle > summary").first();
-  await tabTo(page, summary);
-  const ring = await summary.evaluate((element) => {
-    const style = getComputedStyle(element);
-    // The ring is drawn over its card: that is the color it must stand out from.
-    const card = element.closest(".card") ?? document.body;
-    return { style: style.outlineStyle, width: style.outlineWidth, color: style.outlineColor, background: getComputedStyle(card).backgroundColor };
-  });
-  expect(ring.style).toBe("solid");
-  expect(Number.parseFloat(ring.width)).toBeGreaterThanOrEqual(2);
-  // WCAG 2.4.13 and 1.4.11: at least 3:1 against what surrounds it.
-  expect(contrast(channels(ring.color), channels(ring.background))).toBeGreaterThanOrEqual(3);
+  // Every kind of toggle the board has: a card, its steps (in a card opened by keyboard), and Show all when Done hides cards.
+  // Each is reached by Tab from the previous one, in page order: a click would move the focus where Tab starts from.
+  const withSteps = page.locator(".card", { has: page.locator("details.steps-toggle") }).first();
+  const toggles = [withSteps.locator("details.card-toggle > summary"), withSteps.locator("details.steps-toggle > summary"), page.locator("details.more > summary")];
+  for (const summary of toggles) {
+    // Show all exists only when Done hides cards (the component tests cover it otherwise); the other two always exist.
+    if (summary === toggles[2] && (await summary.count()) === 0) {
+      continue;
+    }
+    await tabTo(page, summary);
+    if (summary === toggles[0]) {
+      await page.keyboard.press("Enter");
+    }
+    const ring = await summary.evaluate((element) => {
+      const style = getComputedStyle(element);
+      // The ring is drawn over its card, or over the page for Show all: that is the color it must stand out from.
+      const behind = element.closest(".card") ?? document.body;
+      return { style: style.outlineStyle, width: style.outlineWidth, color: style.outlineColor, background: getComputedStyle(behind).backgroundColor };
+    });
+    expect(ring.style).toBe("solid");
+    expect(Number.parseFloat(ring.width)).toBeGreaterThanOrEqual(2);
+    // WCAG 2.4.13 and 1.4.11: at least 3:1 against what surrounds it.
+    expect(contrast(channels(ring.color), channels(ring.background))).toBeGreaterThanOrEqual(3);
+  }
 });

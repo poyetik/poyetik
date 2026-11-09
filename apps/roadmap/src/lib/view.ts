@@ -18,6 +18,10 @@ export interface ColumnView {
   readonly title: string;
   /** The cards of the column, in display order. */
   readonly cards: readonly CardView[];
+  /** The first cards of `cards`, always shown: every card, except in the Done column, which shows its {@link DONE_SHOWN} most recent. */
+  readonly shown: readonly CardView[];
+  /** The rest of `cards`, behind a "Show all" toggle; empty when every card is shown. */
+  readonly more: readonly CardView[];
 }
 
 /**
@@ -35,13 +39,12 @@ export interface BoardView {
   readonly title: string;
   /** The columns, in the order of `COLUMNS` (the page's stylesheet moves In progress first on a phone). */
   readonly columns: readonly ColumnView[];
-  /** Number of cards on the board. */
-  readonly total: number;
-  /** Number of cards in the `done` column. */
-  readonly done: number;
   /** Date of the most recent card update, or null if the board is empty. */
   readonly lastUpdated: string | null;
 }
+
+/** How many cards the Done column shows before its "Show all" toggle: the most recent ones. */
+export const DONE_SHOWN = 5;
 
 /** Adds to a card its step statuses, its count of done steps and the title of the step in progress. */
 function toCardView(card: Card): CardView {
@@ -55,23 +58,37 @@ function toCardView(card: Card): CardView {
 }
 
 /**
+ * The cards of one column in display order: board order, except in the Done column, where the most
+ * recently finished come first (latest `updatedAt` first; on the same day, the later in the board first).
+ */
+function columnCards(board: Board, column: ColumnId): Card[] {
+  const cards = board.cards.filter((card) => card.column === column);
+  if (column !== "done") {
+    return cards;
+  }
+  // Each date, most recent first, then that day's cards, the later in the board first. Dates are ISO
+  // (YYYY-MM-DD), so the default sort (by code unit, never through a locale) orders them in time.
+  const dates = [...new Set(cards.map((card) => card.updatedAt))].sort().reverse();
+  return dates.flatMap((date) => cards.filter((card) => card.updatedAt === date).reverse());
+}
+
+/**
  * Prepares the display: cards grouped by column, in the classic kanban order of `COLUMNS`
- * (Later, Next, In progress, Done, from left to right), then in board order. On a phone the
- * page's stylesheet moves In progress first, so that the work under way never comes after
+ * (Later, Next, In progress, Done, from left to right), then in board order, except Done, most
+ * recent first, of which only the {@link DONE_SHOWN} first are shown until "Show all". On a phone
+ * the page's stylesheet moves In progress first, so that the work under way never comes after
  * the backlog.
  */
 export function toView(board: Board): BoardView {
-  const columns = COLUMNS.map((col) => ({
-    id: col.id,
-    title: col.title,
-    cards: board.cards.filter((card) => card.column === col.id).map(toCardView),
-  }));
+  const columns = COLUMNS.map((col) => {
+    const cards = columnCards(board, col.id).map(toCardView);
+    const limit = col.id === "done" ? DONE_SHOWN : cards.length;
+    return { id: col.id, title: col.title, cards, shown: cards.slice(0, limit), more: cards.slice(limit) };
+  });
   const dates = board.cards.map((card) => card.updatedAt).sort();
   return {
     title: board.title,
     columns,
-    total: board.cards.length,
-    done: board.cards.filter((card) => card.column === "done").length,
     lastUpdated: dates.at(-1) ?? null,
   };
 }
