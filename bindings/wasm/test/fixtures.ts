@@ -211,9 +211,10 @@ export interface HandMadeFunction {
    * `grow`: grows the memory by one page, writes 0.5 (f32) at address 0, returns 0; or
    * `alternate`: writes 0.25 (f32) at address 2048, then returns 4096 and 2048 in turn
    * (which one is kept at address 1024, away from the patch copied from address 1): a
-   * block that moves without the memory growing.
+   * block that moves without the memory growing; or `nan`: writes the binary32 NaN of
+   * payload `NAN_BITS` at addresses 0 and 4, then returns 0.
    */
-  readonly body: { readonly i32: number } | "i64" | "trap" | "grow" | "alternate";
+  readonly body: { readonly i32: number } | "i64" | "trap" | "grow" | "alternate" | "nan";
 }
 
 /** The arity of each engine export. */
@@ -254,6 +255,9 @@ function sleb128(value: number): number[] {
   }
 }
 
+/** The bits of the binary32 NaN a hand-made module's `nan` body writes: a quiet NaN with payload 1. */
+export const NAN_BITS = 0x7f_c0_00_01;
+
 /** What a hand-made module holds: see {@link handMadeBytes}. */
 export interface HandMade {
   /** Whether the module exports a memory, as every engine module does. */
@@ -277,8 +281,11 @@ export function handMadeBytes(options: HandMade): Uint8Array<ArrayBuffer> {
       ...[0x41, 0x80, 0x08, 0x41, 0x80, 0x10, 0x41, 0x80, 0x08, 0x28, 0x02, 0x00, 0x6b, 0x36, 0x02, 0x00],
       ...[0x41, 0x80, 0x08, 0x28, 0x02, 0x00, 0x41, 0x80, 0x10, 0x6a],
     ];
+    const nan = [...[0x41, 0x00, 0x41, ...sleb128(NAN_BITS), 0x36, 0x02, 0x00], ...[0x41, 0x04, 0x41, ...sleb128(NAN_BITS), 0x36, 0x02, 0x00], 0x41, 0x00];
     const code =
-      func.body === "trap"
+      func.body === "nan"
+        ? nan
+        : func.body === "trap"
         ? [0x00]
         : func.body === "i64"
           ? [0x42, 0x00]

@@ -2,7 +2,7 @@ import { describe, expect, test, vi } from "vitest";
 import { ABI_VERSION, EngineTrap, ModuleError, PatchError, RENDER_FORMATS, WasmEngine, givenAsBinary32, type RenderFormat } from "../ts/engine.ts";
 import { interleave, interleave64, renderHash } from "../ts/hash.ts";
 import { Counted, created } from "./counted.ts";
-import { CORPUS, engineFunctions, HOST_BUFFER_SIZES, FUNCTIONS, oscillators, PATCH_NAMES, PRECISION_NAMES, REFERENCES, SILENT_PATCH, SINE_PATCH, UNKNOWN_BOX, handMadeModule, reference, wasmBytes, type CorpusCase } from "./fixtures.ts";
+import { CORPUS, engineFunctions, HOST_BUFFER_SIZES, FUNCTIONS, oscillators, PATCH_NAMES, PRECISION_NAMES, REFERENCES, SILENT_PATCH, SINE_PATCH, UNKNOWN_BOX, handMadeModule, NAN_BITS, reference, wasmBytes, type CorpusCase } from "./fixtures.ts";
 
 /** The built engine module, compiled once and instantiated afresh by every test. */
 const module = new WebAssembly.Module(wasmBytes());
@@ -437,7 +437,23 @@ describe("WasmEngine", () => {
     }
   });
 
-  test("copies a whole block at once, and a partial one sample by sample", () => {
+  test("copies a part of a block bit for bit, a NaN payload included", () => {
+    // Two-frame blocks of one channel holding a NaN with a payload: one frame, a part of the
+    // block, keeps its bits, as does the next frame.
+    const answers: Readonly<Record<string, number>> = { engine_channels: 1, engine_block_size: 2 };
+    const functions = engineFunctions().map((func) => {
+      const answer = answers[func.name];
+      return func.name === "engine_process" ? { ...func, body: "nan" as const } : answer === undefined ? func : { ...func, body: { i32: answer } };
+    });
+    const engine = WasmEngine.create(handMadeModule({ memory: true, functions }), SINE_PATCH, RATE, "binary64-as-binary32");
+    const first = new Float32Array(1);
+    engine.render([first]);
+    const second = new Float32Array(1);
+    engine.render([second]);
+    expect([...new Uint32Array(first.buffer), ...new Uint32Array(second.buffer)]).toStrictEqual([NAN_BITS, NAN_BITS]);
+  });
+
+  test("copies a whole block at once, and a part of one in one copy", () => {
     /** An output that counts the copies made into it with `set`. */
     class Recorded extends Float32Array {
       /** Calls of `set`. */
@@ -453,7 +469,7 @@ describe("WasmEngine", () => {
     // 160 frames: two whole blocks, then half of one.
     const outputs = [new Recorded(160), new Recorded(160)];
     engine.render(outputs);
-    expect(outputs.map((output) => output.copies)).toStrictEqual([2, 2]);
+    expect(outputs.map((output) => output.copies)).toStrictEqual([3, 3]);
     expect(Array.from(outputs[0] ?? [])).toStrictEqual(Array.from(renderSine(160, 160)[0] ?? []));
   });
 

@@ -49,22 +49,18 @@ interface Layout {
   readonly bytes: number;
   /** A view of the whole memory as samples. */
   readonly view: (buffer: ArrayBuffer) => Samples;
-  /** Reads the sample at a byte offset of the memory, little-endian as WebAssembly. */
-  readonly read: (data: DataView, offset: number) => number;
 }
 
 /** The layout of binary64 samples. */
 const BINARY64: Layout = {
   bytes: Float64Array.BYTES_PER_ELEMENT,
   view: (buffer) => new Float64Array(buffer),
-  read: (data, offset) => data.getFloat64(offset, true),
 };
 
 /** The layout of binary32 samples. */
 const BINARY32: Layout = {
   bytes: Float32Array.BYTES_PER_ELEMENT,
   view: (buffer) => new Float32Array(buffer),
-  read: (data, offset) => data.getFloat32(offset, true),
 };
 
 /** The exports of the engine module. */
@@ -250,8 +246,8 @@ function guarded<T>(action: () => T): T {
  * from them, so the result never depends on how the host splits time. Rendering does
  * not allocate when the buffers are whole blocks (the 128-frame quanta of Web Audio
  * included): it can run on an audio thread without causing garbage collection, before
- * and after the JavaScript engine optimizes it. Buffers of other lengths are copied
- * sample by sample, which may allocate until the code is optimized.
+ * and after the JavaScript engine optimizes it. A part of a block (a buffer of another
+ * length) is copied through a view of that part, which allocates the view.
  */
 export class WasmEngine<A extends Samples> {
   /** Number of output channels of the patch. */
@@ -264,8 +260,6 @@ export class WasmEngine<A extends Samples> {
   readonly #layout: Layout;
   /** A view of the module memory as samples, renewed when the memory grows. */
   #memory: Samples;
-  /** The module memory read sample by sample (little-endian, as WebAssembly), renewed with {@link WasmEngine.#memory}. */
-  #data: DataView;
   /**
    * Index in {@link WasmEngine.#memory} of the current block, planar; -1 before the first,
    * so that it builds the views. Always a small integer: a field once holding a fraction
@@ -305,8 +299,8 @@ export class WasmEngine<A extends Samples> {
   /**
    * Copies the current chunk into one output (see {@link WasmEngine.#checkLength} for
    * why it is made once): silence beyond the patch channels; a whole block in one copy,
-   * which reads no sample as a number and so allocates nothing; a part of a block sample
-   * by sample.
+   * which reads no sample as a number and so allocates nothing; a part of a block in one
+   * copy through a view of that part, bit for bit too.
    */
   readonly #copyChunk = (output: A, channel: number): void => {
     const view = this.#views[channel];
@@ -315,12 +309,10 @@ export class WasmEngine<A extends Samples> {
     } else if (this.#count === this.#blockSize) {
       output.set(view, this.#written);
     } else {
-      const bytes = this.#layout.bytes;
-      const offset = view.byteOffset + this.#position * bytes;
-      for (let frame = 0; frame !== this.#count; frame += 1) {
-        const at = this.#written + frame;
-        output.fill(this.#layout.read(this.#data, offset + frame * bytes), at, at + 1);
-      }
+      // A part of the block, through a view of that part: copied bit for bit, as `set`
+      // copies between arrays of one type (a NaN payload included), where reading samples
+      // as numbers could change a NaN.
+      output.set(view.subarray(this.#position, this.#position + this.#count), this.#written);
     }
   };
 
@@ -339,7 +331,6 @@ export class WasmEngine<A extends Samples> {
       throw new ModuleError("engine_block_size returned 0: a block has at least one frame");
     }
     this.#memory = layout.view(exports.memory.buffer);
-    this.#data = new DataView(exports.memory.buffer);
     this.#position = this.#blockSize;
   }
 
@@ -439,7 +430,6 @@ export class WasmEngine<A extends Samples> {
     if (this.#memory.buffer !== buffer || base !== this.#base) {
       if (this.#memory.buffer !== buffer) {
         this.#memory = this.#layout.view(buffer);
-        this.#data = new DataView(buffer);
       }
       for (let channel = 0; channel !== this.channels; channel += 1) {
         const start = base + channel * this.#blockSize;
