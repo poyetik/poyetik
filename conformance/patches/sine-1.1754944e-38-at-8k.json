@@ -1,0 +1,11 @@
+{
+  "format": 1,
+  "nodes": [
+    { "id": 1, "box": "osc~", "params": { "frequency": 1.1754944e-38 } },
+    { "id": 2, "box": "dac~" }
+  ],
+  "connections": [
+    { "from": [1, 0], "to": [2, 0] },
+    { "from": [1, 0], "to": [2, 1] }
+  ]
+}

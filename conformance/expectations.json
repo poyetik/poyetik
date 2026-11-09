@@ -7,6 +7,14 @@
       { "sine": { "frequency": 0, "amplitude": 1, "phase": 0 } }
     ]
   },
+  "sine-1.1754944e-38-at-8k": {
+    "sample_rate": 8000,
+    "frames": 2048,
+    "channels": [
+      { "sine": { "frequency": 1.1754943508222875e-38, "amplitude": 1, "phase": 0 } },
+      { "sine": { "frequency": 1.1754943508222875e-38, "amplitude": 1, "phase": 0 } }
+    ]
+  },
   "sine-1000-at-11k025": {
     "sample_rate": 11025,
     "frames": 11025,
