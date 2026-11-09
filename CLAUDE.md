@@ -20,7 +20,7 @@ When in doubt, choose the stronger guarantee, even if it costs more work. A shor
 
 A visual audio patching environment (boxes connected by cables) running in the browser, with a Rust engine (WebAssembly on the web, native elsewhere).
 
-A finished patch can be exported natively, user interface included, to: web, macOS, Windows, Linux, iOS, Android, and plugins (VST3, CLAP, AU…).
+A finished patch can be exported natively, user interface included, to: web, macOS, Windows, Linux, iOS, Android, plugins (VST3, CLAP, AU…), and embedded audio boards (microcontrollers, and single-board computers running Linux), without a user interface or with their own controls.
 
 Core promise: **the engine produces exactly the same samples, bit for bit, on every target**. A strict, public testing policy proves it.
 

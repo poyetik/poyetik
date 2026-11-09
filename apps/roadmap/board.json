@@ -1,7 +1,7 @@
 {
   "version": 1,
   "title": "Poyetik",
-  "nextId": 30,
+  "nextId": 31,
   "cards": [
     {
       "id": 1,
@@ -1010,6 +1010,37 @@
         },
         {
           "title": "The application depends on the published engine",
+          "done": false
+        }
+      ]
+    },
+    {
+      "id": 30,
+      "title": "Export to embedded audio boards",
+      "description": "A patch exported to embedded audio boards for pedals, modules, hardware synthesizers and installations: microcontroller boards (such as Daisy Seed, Teensy, ESP32, RP2350) and single-board computers running Linux (such as Raspberry Pi, Bela), with the same proof as every target: its renders give the conformance hashes, run on the board or in an emulator.",
+      "column": "later",
+      "milestone": "",
+      "createdAt": "2026-11-09",
+      "updatedAt": "2026-11-09",
+      "tasks": [
+        {
+          "title": "Choose the first boards: single-board computers running Linux first (aarch64 Linux, close to the native desktop shell), then microcontrollers from measured cost (single-precision FPUs: the 32-bit precision setting of #12)",
+          "done": false
+        },
+        {
+          "title": "Run the conformance corpus on the target, on a board or in an emulator, in CI where possible, with identical hashes",
+          "done": false
+        },
+        {
+          "title": "A board shell: audio codec input and output, controls (knobs, buttons, CV, MIDI) mapped to events",
+          "done": false
+        },
+        {
+          "title": "Export a patch to a firmware image, from the editor",
+          "done": false
+        },
+        {
+          "title": "Measure CPU and memory per box on each board, and warn in the editor when a patch will not fit",
           "done": false
         }
       ]
