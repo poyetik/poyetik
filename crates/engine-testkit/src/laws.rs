@@ -182,7 +182,11 @@ fn check_rendered(rendered: &[Block], operations: usize, params: &[f32]) -> Resu
     if rendered.iter().flatten().any(|sample| !sample.is_finite()) {
         return Err(format!("non-finite output with parameters {params:?}"));
     }
-    if rendered.iter().flatten().any(|sample| sample.is_subnormal()) {
+    if rendered
+        .iter()
+        .flatten()
+        .any(|sample| sample.is_subnormal())
+    {
         return Err(format!("subnormal output with parameters {params:?}"));
     }
     if operations > 0 {
