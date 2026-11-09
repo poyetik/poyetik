@@ -350,7 +350,7 @@ Why the browser's plan is built in the worklet's own instance:
 
 ## 17. Hooks for what the engine does not own
 
-The engine provides the hook; the rest is outside it, later work outside the engine. **Order:** 15, after everything above: musical time, then inputs, then external processors.
+The engine provides the hook; the rest is later work, outside the engine. **Order:** 15, after everything above: musical time, then inputs, then external processors.
 
 - **Musical time.** Boxes receive, at every frame, the transport position, tempo and time signature. The host sends transport events (play, stop, locate, loop, tempo, signature) at their frames; the engine advances the position between them with an exact integer accumulator (as the phase, decision 9), so a tempo change is sample-accurate and the position never drifts; the host's own position is authoritative at each transport event. The transport interface, the timeline and the arrangement are outside the engine (later work: transport and timeline). Step 23.
 - **Inputs.** Audio input boxes read the host's input channels (a plugin's input and side-chain buses, a device's inputs, a file offline). Device access is outside the engine (later work: audio and MIDI devices). A conformance case with inputs records them, so it stays deterministic. Step 24.
