@@ -304,7 +304,7 @@
       "column": "next",
       "milestone": "M1 Engine",
       "createdAt": "2026-11-07",
-      "updatedAt": "2026-11-08",
+      "updatedAt": "2026-11-09",
       "tasks": [
         {
           "title": "First version in the playground: help, snapshot, signal, levels, pitch, renderOffline",
@@ -332,6 +332,22 @@
         },
         {
           "title": "Oscilloscope: window in seconds at every rate, reduced motion honoured, no allocation per frame by construction (caller-owned buffers: no copy of the history per frame, one zero-crossing pass instead of two, no point object per sample, no spread when drawing, min/max decimation above one sample per device pixel; drawScope given the same buffers on consecutive frames, tested; an ESLint rule banning allocation in frame functions), redrawn when resized while stopped, and an accessible hint of what to do while nothing plays",
+          "done": false
+        },
+        {
+          "title": "Slow motion for debugging logic: the editor drives the engine as an offline host, at a chosen speed (from real time down to a few frames per second) or frame by frame, at 48 kHz unchanged, so what is seen slowed is bit for bit what runs at full speed",
+          "done": false
+        },
+        {
+          "title": "Step to the next frame, the next event or the next message; breakpoints on a message reaching a box, a value crossing a threshold, or a frame",
+          "done": false
+        },
+        {
+          "title": "Messages animated along their cables in their exact delivery order (the explicit order of an outlet's cables visible), with every box's values, from the engine's trace stream",
+          "done": false
+        },
+        {
+          "title": "Rewind: go back to an earlier frame through state snapshots and the seek law; replay a live session from its event log, slowed, up to the moment of a problem",
           "done": false
         }
       ]
