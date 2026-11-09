@@ -41,6 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - `spec/engine-design.md`: one outlet feeding several inlets with messages delivers them in the order of its cables in the patch, an explicit order stored in the patch, instead of the order of the destinations' box ids (decision 4); the reasons for building the browser's plan inside the worklet's instance are stated (decision 15); the decisions no longer carry a comparison with other tools, only their reasons, rejected alternatives and consequences.
+- `spec/engine-design.md`, decision 10: `render-hash/2` (roadmap #12 step 11) also records an arithmetic mode, a versioned closed set whose only value is the default (correctly rounded IEEE 754 operations, no fused multiply-add, the pinned `libm`), so that a future fused multiply-add mode, not implemented in #12, would not force another re-bless of every reference; a mode is a setting of the render, never chosen per target.
 - The oracle measures no levels of a channel whose expected sine stays within its error bound of zero over the frames measured (a sine at 2^-126 Hz over a few thousand frames): no level can tell it from silence, and its distance from the ideal sine is still checked. Before, such a case failed as impossible to measure.
 - Clippy's `suboptimal_flops` and `imprecise_flops` are allowed for the whole workspace: they suggest `mul_add`, `hypot` and other methods `clippy.toml` bans, whose results differ between targets.
 

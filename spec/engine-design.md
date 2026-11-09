@@ -49,6 +49,7 @@ Words this document introduces, to enter `GLOSSARY.md` with the step that gives 
 | **seek** | Jumping a render to a frame with every state restored for it |
 | **external** | A box type written by a third party as a WebAssembly module implementing the box contract (not an external processor, decision 17) |
 | **resource** | Immutable data a box reads (samples, tables, impulse responses), identified by the SHA-256 of its source bytes |
+| **arithmetic mode** | How a render computes: today only the default (correctly rounded IEEE 754 operations, no fused multiply-add, the pinned `libm`); recorded by the render hash with the precision |
 | **render-ahead** | Rendering a part of the plan that depends on no live source before its frames are heard |
 
 ---
@@ -211,6 +212,13 @@ Sub-decisions:
 - **Parameter values become IEEE 754 binary64** in the patch format (version 2): the nearest binary64 to the JSON number, which is what every JSON reader and JavaScript already produce. Today's binary32 rule stays for version 1 documents, read as their binary32 values.
 - **Delivery to a 32-bit host** (the AudioWorklet, most device backends): the 64-bit output is rounded to binary32, correctly and identically on every target, after the output stage.
 - **The render hash records the precision**: a new version, `render-hash/2`, adds the sample format of the hashed samples (binary32 or binary64, 4 or 8 bytes each) and the processing precision that produced them. A case therefore has up to three references: 64-bit, 64-bit delivered as binary32 (what a browser captures), and 32-bit.
+- **The render hash also records the arithmetic mode**, so that a later mode never forces another re-bless of every reference. `render-hash/2` reserves it now: its header carries the **arithmetic mode** as a versioned, closed set whose only value today is the default: IEEE 754 operations each correctly rounded, no fused multiply-add, transcendental functions from the pinned pure-Rust `libm`. Room is left for one future value, a **fused multiply-add** mode. Its rules, fixed now:
+  1. a mode is a setting of the render, never chosen automatically per target (a web preview and a native export of the same patch would differ);
+  2. every mode has its own references, proven on every target;
+  3. a host or the editor shows the mode, and a preview rendered in another mode than its export is marked as such;
+  4. the fused multiply-add mode is **not** implemented in ticket #12: it is a future option, enabled only if measurements justify it, and the ban of `mul_add` in `clippy.toml` stays until the maintainer decides otherwise; a box may later offer a fused variant only as an explicit patch setting, under the same rules.
+
+  A fused multiply-add is correctly rounded once (IEEE 754), so a mode that uses it also gives the same bits on every target; but WebAssembly has no fused multiply-add instruction (only relaxed SIMD's `relaxed_madd`, which may or may not fuse, so it is non-deterministic and banned), so it would be emulated there in software, slowly. Its native gain is real but moderate, largest on FIR filters, convolution and matrix kernels, and would be measured with the benchmarks of step 6 before any decision.
 
 **Cost.** A 64-bit sample takes twice the memory, cache and memory bandwidth of a 32-bit one. Vector units hold half as many lanes (2 instead of 4 in a 128-bit register, the WebAssembly SIMD width; 4 instead of 8 in 256-bit ones), so vectorized loops do up to half the work per instruction. Scalar 64-bit arithmetic costs about the same as 32-bit on current processors, in browsers too, but 64-bit transcendental functions need more terms. The per-box wall-time benchmarks that step 11 adds to those of step 6 (`spec/benchmarks.md`) measure the real ratio per box and on each browser engine; the 32-bit setting exists for hosts where it matters.
 
@@ -218,9 +226,9 @@ Sub-decisions:
 
 **Why.** 64-bit processing removes rounding noise from recursive filters, long mixes and slow modulations, and keeps every box far inside its thresholds; it is what the most demanding professional tools offer.
 
-**Rejected.** 32-bit only (rounding noise in low-frequency recursive filters). 64-bit only (no way to trade precision for CPU on a phone or a heavy browser patch). A precision per subpatch: conversions at every boundary and a hash that no longer names one precision.
+**Rejected.** 32-bit only (rounding noise in low-frequency recursive filters). 64-bit only (no way to trade precision for CPU on a phone or a heavy browser patch). A precision per subpatch: conversions at every boundary and a hash that no longer names one precision. Fused multiply-add natively and not in WebAssembly for the same render: the bits would differ between targets. Letting a compiler contract `a * b + c` into a fused operation: Rust never does it, and the lint configuration bans `mul_add`. A hash that records the precision only: a later arithmetic mode would force another re-bless of every reference.
 
-**Consequences.** Engine: a `Sample` trait for `f32` and `f64`; every box generic over it; the hash crates and the oracle read both formats. Patch format: version 2, binary64 parameters, with a migration from version 1. Hash: `render-hash/2`. Tests: every conformance case and every law in both precisions, native and WebAssembly; the measurements of step 2 in both.
+**Consequences.** Engine: a `Sample` trait for `f32` and `f64`; every box generic over it; the hash crates and the oracle read both formats. Patch format: version 2, binary64 parameters, with a migration from version 1. Hash: `render-hash/2`, with the precision and the arithmetic mode in its header. Tests: every conformance case and every law in both precisions, native and WebAssembly; the measurements of step 2 in both; an unknown arithmetic mode value refused by every reader of the hash; the mode changes the hash (two headers differing only by mode hash differently, in the known-answer vectors).
 
 **Step.** #12 step 11. **Order:** 3.
 
