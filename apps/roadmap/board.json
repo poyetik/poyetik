@@ -1151,6 +1151,10 @@
         {
           "title": "Third-party visual operators in the editor: shaders validated by WebGPU, recovery from a lost GPU device without taking the editor down, GPU cost measured by timestamp queries, a determinism tier per shader (exact, measured, not guaranteed) with the CPU interpreter as reference, invariance to resolution and frame rate and random access in the compatibility report",
           "done": false
+        },
+        {
+          "title": "Interaction with the output: pointer, multi-touch, pen, keyboard and gamepad inputs of every output window as timestamped events (recorded in the event log); coordinates converted through the render chain, projection-mapping warps inverted; exact picking (CPU ray casting in 3D, point-in-shape in 2D and vector); gesture-to-image latency measured; the base for interactive web pages and creative apps as build targets, and for the interface runtime of exported apps",
+          "done": false
         }
       ]
     },
