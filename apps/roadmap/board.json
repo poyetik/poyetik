@@ -1155,6 +1155,10 @@
         {
           "title": "Interaction with the output: pointer, multi-touch, pen, keyboard and gamepad inputs of every output window as timestamped events (recorded in the event log); coordinates converted through the render chain, projection-mapping warps inverted; exact picking (CPU ray casting in 3D, point-in-shape in 2D and vector); gesture-to-image latency measured; the base for interactive web pages and creative apps as build targets, and for the interface runtime of exported apps",
           "done": false
+        },
+        {
+          "title": "Further capabilities weighed in the target matrix before the design decisions: a 3D scene shared with audio (sound sources, loudspeakers, lights and projectors as objects of one scene), keyframe animation and curves, cue states and crossfades between scenes, seeded fixed-timestep particles and simulations, physically based materials and lights in photometric units shared with the light previsualization, haze and fog, dynamic quality scaling live only and reported, asset import (glTF, SVG, point clouds, images, LUTs), surtitles and captions, camera and projector calibration, keying and masks, output recording, time remapping, visual debugging, headless rendering",
+          "done": false
         }
       ]
     },
