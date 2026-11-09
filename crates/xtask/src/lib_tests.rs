@@ -422,6 +422,11 @@ fn float_sources(fake: &mut Fake) {
 
 fn passing() -> Fake {
     let mut fake = Fake::default();
+    let fused = fake.files.insert(
+        format!("capture {}", super::fused_command().line()),
+        format!("running 1 test\n{}\n", super::FUSED_PROOF),
+    );
+    assert!(fused.is_none(), "fresh fake");
     coverage_reports(&mut fake);
     let report = "crates/a/src/b.rs:3:5: replace f -> T with Default::default()\n";
     let reviewed =
@@ -748,6 +753,7 @@ fn command_lines(steps: &[Step]) -> Vec<String> {
             Action::CargoConfigGate => "cargo config gate".to_owned(),
             Action::FloatMethodGate => "float method gate".to_owned(),
             Action::DependencyGate => "dependency gate".to_owned(),
+            Action::FusedBuild => "fused build".to_owned(),
             Action::MathLayerGate => "math layer gate".to_owned(),
             Action::SupplyChainGate => "supply chain gate".to_owned(),
             Action::Preflight => "preflight".to_owned(),
@@ -1363,6 +1369,7 @@ fn lists_every_check_in_order() {
             "float method gate",
             "Root: cargo doc --workspace --no-deps --document-private-items --locked",
             "Root: cargo test --workspace --locked -- --include-ignored",
+            "fused build",
             "Root: cargo build --package engine-core --package engine-objects --package engine-patch --package engine-hash --locked --target aarch64-apple-darwin",
             "Root: cargo build --package engine-core --package engine-objects --package engine-patch --package engine-hash --locked --target x86_64-unknown-linux-gnu",
             "Root: cargo build --package engine-core --package engine-objects --package engine-patch --package engine-hash --locked --target wasm32-unknown-unknown",
@@ -1456,6 +1463,7 @@ fn names_every_check_in_order() {
             "Float methods of the pinned toolchain banned or reviewed as deterministic",
             "Rust documentation",
             "Rust tests",
+            "Boxes unchanged under the math layer's fused multiply-add option (a test build)",
             "Engine portability (aarch64-apple-darwin)",
             "Engine portability (x86_64-unknown-linux-gnu)",
             "Engine portability (wasm32-unknown-unknown)",
@@ -1487,7 +1495,7 @@ fn names_every_check_in_order() {
             "Conformance export (native WAV files)",
             "Rust supply chain",
             "Every direct dependency reviewed",
-            "Math functions only through the math layer: libm in engine-core and engine-testkit only",
+            "Box arithmetic only through the math layer: libm in engine-core and engine-testkit only, no raw float in box code",
             "Supply-chain settings: a week before a release, libm without features",
             "Packages and crates known to the checks",
             "Every part described in a README",
@@ -2676,7 +2684,7 @@ fn runs_every_step_and_reports_success() {
         Ok(()),
         "all green"
     );
-    let (tools, commands, emptied, listed, captured, written) = (10, 52, 14, 19, 17, 1);
+    let (tools, commands, emptied, listed, captured, written) = (10, 52, 14, 20, 18, 1);
     let read = 2 + 7 + 13 + 2 + 7 + 21 + 3 + 1 + 7 + 3 + 11 + 10 + 21 + 8 + 2 + 11 + 40 + 20;
     assert_eq!(
         fake.ran.len(),
@@ -2686,9 +2694,9 @@ fn runs_every_step_and_reports_success() {
          the coverage build, the mutants of the changes, Miri, the \
          conformance check and export, deny, the JavaScript install, audit, the engine build and five package \
          checks each followed by its Stryker run); fourteen directories are emptied; git lists \
-         eleven kinds of files, the TypeScript ones again for the reports and scope gates of \
+         twelve kinds of files (the box sources among them), the TypeScript ones again for the reports and scope gates of \
          each package after the first; the licenses and the history are captured twice each, the state \
-         of the tree (before and after) four times, the nightly's version and sysroot, the Cargo metadata (for the dependency and the math layer gates), the merge base, the changes and the \
+         of the tree (before and after) four times, the nightly's version and sysroot, the Cargo metadata (for the dependency and the math layer gates), the output of the fused test build, the merge base, the changes and the \
          new Rust files once; the diff is written once; and the gates read .node-version and the toolchain file for the preflight, the toolchain file, the four float sources and the float macros of the nightly and clippy.toml for the float gate, thirteen coverage reports, \
          the unviable report and reviews, six TypeScript sources and their reviews, the nine \
          sources, the eleven Cargo manifests and the register of the bypass gate, the three unsafe files, the Cargo \
@@ -2716,15 +2724,15 @@ fn runs_every_step_and_reports_success() {
     );
     let text = String::from_utf8(out).expect("utf-8 output");
     assert!(
-        text.starts_with("▶ [1/75] Tools and platform\n"),
+        text.starts_with("▶ [1/76] Tools and platform\n"),
         "numbered progress: {text}"
     );
     assert!(
-        text.contains("▶ [71/75] Roadmap checks\n"),
+        text.contains("▶ [72/76] Roadmap checks\n"),
         "last step announced: {text}"
     );
     assert!(
-        text.ends_with("✔ all 75 checks passed\n"),
+        text.ends_with("✔ all 76 checks passed\n"),
         "summary: {text}"
     );
 }
@@ -5462,7 +5470,7 @@ fn checks_a_push_then_runs_every_check() {
     assert!(
         String::from_utf8(out)
             .expect("UTF-8")
-            .ends_with("✔ all 75 checks passed\n"),
+            .ends_with("✔ all 76 checks passed\n"),
         "then every check"
     );
     assert!(
@@ -5937,12 +5945,12 @@ fn prints_the_details_of_a_failure_on_stdout_and_one_line_on_stderr() {
     );
     assert_eq!(
         String::from_utf8(err).expect("UTF-8"),
-        "error: 1 of 75 checks failed, listed above\n",
+        "error: 1 of 76 checks failed, listed above\n",
         "one line on stderr, counting the failed steps"
     );
     assert!(
         String::from_utf8(out).expect("UTF-8").ends_with(&format!(
-            "▶ [75/75] Working tree unchanged by the checks\n\
+            "▶ [76/76] Working tree unchanged by the checks\n\
              not reviewed: crates/a/src/c.rs: replace g -> U with x\n\
              stale review: crates/a/src/b.rs: replace f -> T with Default::default()\n\
              Rust unviable mutants reviewed: unviable mutants must be reviewed in \
@@ -6655,18 +6663,24 @@ fn requires_every_direct_dependency_to_be_reviewed() {
     );
 }
 
+/// The summary of the math layer gate's failures.
+const MATH_LAYER: &str = "box arithmetic only through the math layer (engine-core, \
+                          engine-testkit only may depend on libm; box code names no raw float, \
+                          libm or host)";
+
 #[test]
 fn refuses_libm_outside_the_math_layer_and_the_measurements() {
     let gate = |dependencies: &str| {
-        super::math_layer_gate(&format!(
-            r#"{{"packages":[{{"name":"engine-core","dependencies":[{{"name":"libm","kind":null}}]}},{{"name":"engine-testkit","dependencies":[{{"name":"libm","kind":null}}]}},{{"name":"engine-objects","dependencies":{dependencies}}}]}}"#
-        ))
+        super::math_layer_gate(
+            &format!(
+                r#"{{"packages":[{{"name":"engine-core","dependencies":[{{"name":"libm","kind":null}}]}},{{"name":"engine-testkit","dependencies":[{{"name":"libm","kind":null}}]}},{{"name":"engine-objects","dependencies":{dependencies}}}]}}"#
+            ),
+            &[],
+        )
     };
-    let summary = "math functions only through the math layer (engine-core, engine-testkit only \
-                   may depend on libm)";
     let refused = |name: &str| {
         Err(Failure::from(format!(
-            "{summary}: {name} depends on libm: its arithmetic must go through the math \
+            "{MATH_LAYER}: {name} depends on libm: its arithmetic must go through the math \
              layer of engine-core"
         )))
     };
@@ -6697,35 +6711,115 @@ fn refuses_libm_outside_the_math_layer_and_the_measurements() {
     );
     let two = super::math_layer_gate(
         r#"{"packages":[{"name":"a","dependencies":[{"name":"libm"}]},{"name":"b","dependencies":[{"name":"libm","kind":"normal"}]}]}"#,
+        &[],
     );
     assert_eq!(
         two.map_err(|failure| (failure.summary, failure.details.len())),
-        Err((format!("{summary}: 2 problems, listed above"), 2)),
+        Err((format!("{MATH_LAYER}: 2 problems, listed above"), 2)),
         "every crate"
     );
     assert!(
-        super::math_layer_gate("[")
+        super::math_layer_gate("[", &[])
             .is_err_and(|failure| failure.summary.starts_with("invalid cargo metadata: ")),
         "unreadable metadata"
     );
     assert_eq!(
-        super::math_layer_gate("{}"),
+        super::math_layer_gate("{}", &[]),
         failed("cargo metadata lists no packages"),
         "metadata without packages"
     );
 }
 
 #[test]
-fn keeps_libm_in_the_math_layer_of_the_repository() {
+fn refuses_raw_floats_libm_and_host_in_box_code() {
+    let gate = |text: &str| {
+        super::math_layer_gate(
+            r#"{"packages":[]}"#,
+            &[("crates/engine-objects/src/a.rs".to_owned(), text.to_owned())],
+        )
+    };
+    let refused = |line: usize, word: &str| {
+        Err(Failure::from(format!(
+            "{MATH_LAYER}: crates/engine-objects/src/a.rs:{line}: box code names `{word}`: it \
+             computes with the engine's sample types, through the math layer"
+        )))
+    };
+    for word in super::BOX_FORBIDDEN_NAMES {
+        assert_eq!(
+            gate(&format!("fn a() {{}}\nlet x: {word} = y;")),
+            refused(2, word),
+            "{word}"
+        );
+    }
+    assert_eq!(
+        gate("let x = 1.5_f64;"),
+        refused(1, "5_f64"),
+        "a suffixed literal"
+    );
+    assert_eq!(
+        gate("let x = 2f32;"),
+        refused(1, "2f32"),
+        "a suffix without separator"
+    );
+    assert_eq!(
+        gate("use engine_core::host::Raw;"),
+        refused(1, "host"),
+        "the host module"
+    );
+    assert_eq!(gate("x as f64"), refused(1, "f64"), "a cast");
+    // Prose and other words are not code: comments, strings, longer names.
+    for allowed in [
+        "// an f64 phase\nlet a = 1;",
+        "/* f32\n libm */ let a = 1;",
+        "/// in f64\nfn a() {}",
+        r#"let s = "f64 \" host";"#,
+        "let f64x = hostname + libm_like + f32_; let n = 1.0e-3;",
+        "let x = Binary64::new(440.0);",
+    ] {
+        assert_eq!(gate(allowed), Ok(()), "{allowed}");
+    }
+    assert_eq!(
+        gate("/* x */\n// y\nlet s = \"a\nb\";\nf64"),
+        refused(5, "f64"),
+        "lines counted through comments and strings"
+    );
+    assert_eq!(
+        super::math_layer_gate(
+            r#"{"packages":[]}"#,
+            &[(
+                "crates/engine-objects/src/osc_tests.rs".to_owned(),
+                "let x: f64 = libm::sin(1.0);".to_owned()
+            )],
+        ),
+        Ok(()),
+        "test files are not box code"
+    );
+}
+
+#[test]
+fn keeps_the_box_code_of_the_repository_in_the_math_layer() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let mut runner = SystemRunner { root };
+    let mut runner = SystemRunner { root: root.clone() };
     let metadata = runner
         .capture(&super::metadata_command())
         .expect("cargo metadata");
+    let paths = runner.tracked(&super::BOX_SOURCES).expect("git ls-files");
+    assert!(
+        paths.iter().any(|path| path.ends_with("osc.rs"))
+            && paths.iter().any(|path| path.ends_with("osc_tests.rs")),
+        "the box sources and their tests are listed: {paths:?}"
+    );
+    let sources: Vec<(String, String)> = paths
+        .into_iter()
+        .map(|path| {
+            let text = std::fs::read_to_string(root.join(&path)).expect("readable");
+            (path, text)
+        })
+        .collect();
     assert_eq!(
-        super::math_layer_gate(&metadata),
+        super::math_layer_gate(&metadata, &sources),
         Ok(()),
-        "only the math layer and the measurements depend on libm"
+        "only the math layer and the measurements depend on libm, and box code names no raw float"
     );
 }
 
@@ -7057,6 +7151,63 @@ fn fails_when_the_crates_cannot_be_listed() {
         failure.summary.contains("cannot list the crates"),
         "says what it could not do: {}",
         failure.summary
+    );
+}
+
+#[test]
+fn requires_the_fused_build_to_have_run_with_its_option() {
+    assert_eq!(
+        super::fused_gate(&format!("a\n{}\nb", super::FUSED_PROOF)),
+        Ok(()),
+        "the proof line"
+    );
+    for output in [
+        String::new(),
+        "test result: ok. 81 passed".to_owned(),
+        format!("{} extra", super::FUSED_PROOF),
+        super::FUSED_PROOF.replace("... ok", "... FAILED"),
+    ] {
+        assert_eq!(
+            super::fused_gate(&output),
+            failed(format!(
+                "the fused test build ran without its option: `{}` is missing from its output",
+                super::FUSED_PROOF
+            )),
+            "{output:?}"
+        );
+    }
+    let command = super::fused_command().line();
+    assert!(
+        command.contains(r#"--config build.rustflags=["--cfg", "poyetik_math=\"fused\""]"#)
+            && command.contains("--target-dir target/fused")
+            && command.contains("--package engine-core --package engine-objects"),
+        "{command}"
+    );
+    let steps: Vec<Step> = check_steps(CHANGES_MODE)
+        .into_iter()
+        .filter(|step| step.action == Action::FusedBuild)
+        .collect();
+    assert_eq!(steps.len(), 1, "one fused build");
+    let mut broken = passing();
+    let _removed = broken
+        .files
+        .remove(&format!("capture {}", super::fused_command().line()));
+    let failure = run_steps(&steps, &mut broken, &mut Vec::new()).expect_err("stops");
+    assert!(
+        failure
+            .summary
+            .contains(": the fused test build failed: `cargo test --locked"),
+        "{}",
+        failure.summary
+    );
+    let mut silent = passing();
+    let _replaced = silent.files.insert(
+        format!("capture {}", super::fused_command().line()),
+        "test result: ok.\n".to_owned(),
+    );
+    assert!(
+        run_steps(&steps, &mut silent, &mut Vec::new()).is_err(),
+        "a build without the option fails"
     );
 }
 
@@ -8294,8 +8445,8 @@ fn the_parts_run_every_step_of_the_full_check_once() {
     }
     assert_eq!(
         steps_run,
-        18 * 3 + (75 - 3 - 7 - 2) + 8 * 2 + 1 + 2 + 6 * 3 + 1,
-        "each part's frame (three steps); every other step of the 75 once, but the seven \
+        18 * 3 + (76 - 3 - 7 - 2) + 8 * 2 + 1 + 2 + 6 * 3 + 1,
+        "each part's frame (three steps); every other step of the 76 once, but the seven \
          preparations, the mutation run and its unviable gate; in each of the eight shards, \
          the report emptied and the shard's run; the gate over the shards; the conformance \
          export (two steps) for the oracle; the JavaScript preparation (three steps) for the \

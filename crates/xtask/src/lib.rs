@@ -532,6 +532,10 @@ pub enum Action {
     FloatMethodGate,
     /// Require every direct dependency to be reviewed, and every review current.
     DependencyGate,
+    /// Build and test the engine core and the boxes with the math layer's fused multiply-add
+    /// option ([`fused_command`]), and require the option to have been in force
+    /// ([`fused_gate`]).
+    FusedBuild,
     /// Require `libm` to be a dependency of the crates of [`LIBM_CRATES`] only, outside
     /// tests: boxes reach math functions through the engine's math layer alone
     /// ([`math_layer_gate`]).
@@ -726,7 +730,73 @@ fn static_steps() -> Vec<Step> {
             &["test", "--workspace", "--locked", "--", INCLUDE_IGNORED],
             Dir::Root,
         ),
+        Step {
+            name: "Boxes unchanged under the math layer's fused multiply-add option (a test build)"
+                .to_owned(),
+            action: Action::FusedBuild,
+        },
     ]
+}
+
+/// The target directory of the fused test build, apart from the main one, so that neither
+/// build replaces the other's artifacts.
+pub const FUSED_TARGET: &str = "target/fused";
+
+/// The configuration of the fused test build.
+///
+/// The one build-time choice of the math layer a build may make, `poyetik_math = "fused"`,
+/// given on the command line of this step only (`.cargo/config.toml` holds no build flag),
+/// so that no other build sees it.
+pub const FUSED_CONFIG: &str = r#"build.rustflags=["--cfg", "poyetik_math=\"fused\""]"#;
+
+/// The line of the test only the fused test build holds.
+///
+/// Its output must show it passed: the proof that the option took effect.
+pub const FUSED_PROOF: &str =
+    "test math::tests::is_built_with_the_fused_multiply_add_option ... ok";
+
+/// The fused test build: the engine core and the box crate, compiled and tested with it.
+///
+/// The fused multiply-add option of the math layer (`spec/engine-design.md`, decision 10):
+/// the boxes compile unchanged and pass their tests; the core's tests prove the option
+/// changes what `mul_then_add` gives, in a render too.
+#[must_use]
+pub fn fused_command() -> Cmd {
+    Cmd::new(
+        "cargo",
+        &[
+            "test",
+            "--locked",
+            "--package",
+            "engine-core",
+            "--package",
+            "engine-objects",
+            "--target-dir",
+            FUSED_TARGET,
+            "--config",
+            FUSED_CONFIG,
+            "--",
+            INCLUDE_IGNORED,
+        ],
+        Dir::Root,
+    )
+}
+
+/// Checks the output of [`fused_command`]: the test only the fused build holds passed
+/// ([`FUSED_PROOF`]), so the option was in force.
+///
+/// # Errors
+///
+/// Returns a failure when that line is missing.
+pub fn fused_gate(output: &str) -> Result<(), Failure> {
+    if output.lines().any(|line| line == FUSED_PROOF) {
+        Ok(())
+    } else {
+        Err(Failure::from(format!(
+            "the fused test build ran without its option: `{FUSED_PROOF}` is missing from its \
+             output"
+        )))
+    }
 }
 
 /// The engine crates build for every portability target.
@@ -1006,8 +1076,8 @@ fn consistency_steps() -> Vec<(Role, Step)> {
             action: Action::DependencyGate,
         },
         Step {
-            name: "Math functions only through the math layer: libm in engine-core and \
-                   engine-testkit only"
+            name: "Box arithmetic only through the math layer: libm in engine-core and \
+                   engine-testkit only, no raw float in box code"
                 .to_owned(),
             action: Action::MathLayerGate,
         },
@@ -3123,15 +3193,91 @@ pub fn dependency_gate(
 /// under test.
 pub const LIBM_CRATES: [&str; 2] = ["engine-core", "engine-testkit"];
 
-/// Checks that no crate but those of [`LIBM_CRATES`] depends on `libm`, as a normal or a
-/// build dependency, under any name it is renamed to.
+/// The sources of the box crates (`engine-objects`), as git pathspecs: the code the math
+/// layer gate reads, its `*_tests.rs` files apart.
+pub const BOX_SOURCES: [&str; 1] = ["crates/engine-objects/src/*.rs"];
+
+/// The names box code may not write (`spec/engine-design.md`, decision 10).
 ///
-/// `metadata` is the output of [`metadata_command`].
+/// The raw float types, whose operators and methods bypass the math layer, `libm`, and
+/// `host`, the module of the engine that reads and writes the floats of samples.
+pub const BOX_FORBIDDEN_NAMES: [&str; 4] = ["f32", "f64", "libm", "host"];
+
+/// The words of Rust code in `text`, with their line numbers: maximal runs of letters,
+/// digits and `_`, outside comments (line and block) and string literals, which are prose.
+fn code_words(text: &str) -> Vec<(usize, String)> {
+    /// Ends the word being read, if any, at `line`.
+    fn end(found: &mut Vec<(usize, String)>, current: &mut String, line: usize) {
+        if !current.is_empty() {
+            found.push((line, core::mem::take(current)));
+        }
+    }
+    let mut words = Vec::new();
+    let (mut line, mut word) = (1_usize, String::new());
+    let mut chars = text.chars().peekable();
+    while let Some(character) = chars.next() {
+        if character.is_ascii_alphanumeric() || character == '_' {
+            word.push(character);
+            continue;
+        }
+        end(&mut words, &mut word, line);
+        match (character, chars.peek()) {
+            ('/', Some('/')) => {
+                for skipped in chars.by_ref() {
+                    if skipped == '\n' {
+                        line = line.saturating_add(1);
+                        break;
+                    }
+                }
+            }
+            ('/', Some('*')) => {
+                let mut last = ' ';
+                for skipped in chars.by_ref() {
+                    if skipped == '\n' {
+                        line = line.saturating_add(1);
+                    }
+                    if last == '*' && skipped == '/' {
+                        break;
+                    }
+                    last = skipped;
+                }
+            }
+            ('"', _) => {
+                let mut escaped = false;
+                for skipped in chars.by_ref() {
+                    if skipped == '\n' {
+                        line = line.saturating_add(1);
+                    }
+                    if !escaped && skipped == '"' {
+                        break;
+                    }
+                    escaped = !escaped && skipped == '\\';
+                }
+            }
+            ('\n', _) => line = line.saturating_add(1),
+            _ => {}
+        }
+    }
+    end(&mut words, &mut word, line);
+    words
+}
+
+/// Checks that box arithmetic can only go through the math layer.
+///
+/// No crate but those of [`LIBM_CRATES`] depends on `libm`, as a normal or a build
+/// dependency, under any name it is renamed to, and box code names none of
+/// [`BOX_FORBIDDEN_NAMES`], nor a float literal suffixed `f32` or `f64`.
+///
+/// `metadata` is the output of [`metadata_command`]; `sources` the files of [`BOX_SOURCES`]
+/// (path and text), of which the `*_tests.rs` files are test code, not read. So a box crate,
+/// `no_std` and without `libm`, computes with the engine's sample types alone, whose
+/// operators and math functions are the math layer's.
 ///
 /// # Errors
 ///
-/// Returns every other crate that does, or why the metadata cannot be read.
-pub fn math_layer_gate(metadata: &str) -> Result<(), Failure> {
+/// Returns every other crate that depends on `libm` and every forbidden name of box code,
+/// with its file and line, or why the metadata cannot be read.
+pub fn math_layer_gate(metadata: &str, sources: &[(String, String)]) -> Result<(), Failure> {
     let json: serde_json::Value = serde_json::from_str(metadata)
         .map_err(|error| Failure::from(format!("invalid cargo metadata: {error}")))?;
     let crates = json
@@ -3160,9 +3306,25 @@ pub fn math_layer_gate(metadata: &str) -> Result<(), Failure> {
             ));
         }
     }
+    for (path, text) in sources
+        .iter()
+        .filter(|(path, _)| !path.ends_with("_tests.rs"))
+    {
+        for (line, word) in code_words(text) {
+            let suffixed = word.starts_with(|first: char| first.is_ascii_digit())
+                && (word.ends_with("f32") || word.ends_with("f64"));
+            if suffixed || BOX_FORBIDDEN_NAMES.contains(&word.as_str()) {
+                problems.push(format!(
+                    "{path}:{line}: box code names `{word}`: it computes with the engine's \
+                     sample types, through the math layer"
+                ));
+            }
+        }
+    }
     verdict(
         &format!(
-            "math functions only through the math layer ({} only may depend on libm)",
+            "box arithmetic only through the math layer ({} only may depend on libm; box code \
+             names no raw float, libm or host)",
             LIBM_CRATES.join(", ")
         ),
         problems,
@@ -6126,6 +6288,21 @@ fn crates_metadata(runner: &mut dyn Runner) -> Result<String, Failure> {
         .map_err(|failure| Failure::from(format!("cannot list the crates: {failure}")))
 }
 
+/// Runs the fused test build ([`fused_command`]) and checks its option was in force.
+fn fused_build(runner: &mut dyn Runner) -> Result<(), Failure> {
+    let output = runner
+        .capture(&fused_command())
+        .map_err(|failure| Failure::from(format!("the fused test build failed: {failure}")))?;
+    fused_gate(&output)
+}
+
+/// Reads what the math layer gate checks, and runs it ([`math_layer_gate`]).
+fn math_layer(runner: &mut dyn Runner) -> Result<(), Failure> {
+    let metadata = crates_metadata(runner)?;
+    let paths = list_tracked(runner, &BOX_SOURCES, "the box sources")?;
+    math_layer_gate(&metadata, &read_all(runner, paths)?)
+}
+
 /// Runs one action of a step, saying on `out` what it found when that matters.
 fn run_action(
     action: &Action,
@@ -6185,7 +6362,8 @@ fn run_action(
                 .map(|(path, _)| read_file(runner, path))
                 .collect::<Result<Vec<_>, _>>()?,
         ),
-        Action::MathLayerGate => math_layer_gate(&crates_metadata(runner)?),
+        Action::FusedBuild => fused_build(runner),
+        Action::MathLayerGate => math_layer(runner),
         Action::DependencyGate => {
             let metadata = crates_metadata(runner)?;
             let packages = read_all(runner, package_jsons())?;
