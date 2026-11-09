@@ -3200,8 +3200,10 @@ pub const BOX_SOURCES: [&str; 1] = ["crates/engine-objects/src/*.rs"];
 /// The names box code may not write (`spec/engine-design.md`, decision 10).
 ///
 /// The raw float types, whose operators and methods bypass the math layer, `libm`, and
-/// `host`, the module of the engine that reads and writes the floats of samples.
-pub const BOX_FORBIDDEN_NAMES: [&str; 4] = ["f32", "f64", "libm", "host"];
+/// `host`, the module of the engine that reads and writes the floats of samples, with the
+/// name of its delivery of samples to a host and of that delivery's function (a box naming
+/// them could take a sample's float out with the type inferred, `f64` never written).
+pub const BOX_FORBIDDEN_NAMES: [&str; 6] = ["f32", "f64", "libm", "host", "Delivered", "deliver"];
 
 /// The words of Rust code in `text`, with their line numbers: maximal runs of letters,
 /// digits and `_`, outside comments (line and block) and string literals, which are prose.
@@ -3324,7 +3326,7 @@ pub fn math_layer_gate(metadata: &str, sources: &[(String, String)]) -> Result<(
     verdict(
         &format!(
             "box arithmetic only through the math layer ({} only may depend on libm; box code \
-             names no raw float, libm or host)",
+             names no raw float, libm, host or delivery)",
             LIBM_CRATES.join(", ")
         ),
         problems,

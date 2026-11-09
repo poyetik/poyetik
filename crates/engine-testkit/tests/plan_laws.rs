@@ -23,11 +23,11 @@ mod tests {
 
     use alloc::collections::{BTreeMap, BTreeSet};
 
-    use engine_core::host::Raw;
+    use engine_core::host::{Delivered, ParamBounds, Raw};
     use engine_core::{
-        BLOCK_SIZE, Binary32, Binary64, Block, Capability, Connection, CoreError, Create,
-        Delivered, Factory, Node, NodeId, Object, ObjectSpec, ParamSpec, Patch, Plan, PortSpec,
-        Precision, Renderer, Sample, SampleRate,
+        BLOCK_SIZE, Binary32, Binary64, Block, Capability, Connection, CoreError, Create, Factory,
+        Node, NodeId, Object, ObjectSpec, ParamSpec, Patch, Plan, PortSpec, Precision, Renderer,
+        Sample, SampleRate,
     };
     use engine_testkit::heap_operations_during;
     use engine_testkit::matrix::{HOST_BUFFER_SIZES, PRECISIONS, sample_rates};
@@ -77,13 +77,7 @@ mod tests {
         description: "constant",
         inlets: &[],
         outlets: &[PORT],
-        params: &[ParamSpec {
-            name: "value",
-            description: "value",
-            default: 0.5,
-            min: -1.0,
-            max: 1.0,
-        }],
+        params: &[ParamSpec::new("value", "value", 0.5, -1.0, 1.0)],
         capabilities: &[],
         create: Factory::new::<Const>(),
     };
@@ -325,7 +319,7 @@ mod tests {
                         node.params
                             .get(param.name)
                             .copied()
-                            .unwrap_or(param.default),
+                            .unwrap_or_else(|| param.default_value()),
                     ))
                 })
                 .collect();

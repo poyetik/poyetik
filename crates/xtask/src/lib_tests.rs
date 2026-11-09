@@ -6666,7 +6666,7 @@ fn requires_every_direct_dependency_to_be_reviewed() {
 /// The summary of the math layer gate's failures.
 const MATH_LAYER: &str = "box arithmetic only through the math layer (engine-core, \
                           engine-testkit only may depend on libm; box code names no raw float, \
-                          libm or host)";
+                          libm, host or delivery)";
 
 #[test]
 fn refuses_libm_outside_the_math_layer_and_the_measurements() {
@@ -6787,6 +6787,23 @@ fn refuses_raw_floats_libm_and_host_in_box_code() {
         gate("/* x */\n// y\nlet s = \"a\nb\";\nf64"),
         refused(5, "f64"),
         "lines counted through comments and strings"
+    );
+    // A sample's float taken out through the host's delivery, as a box could write it.
+    assert_eq!(
+        gate("let p = Delivered::deliver(self.phase);")
+            .map_err(|failure| (failure.summary, failure.details)),
+        Err((
+            format!("{MATH_LAYER}: 2 problems, listed above"),
+            vec![
+                "crates/engine-objects/src/a.rs:1: box code names `Delivered`: it computes \
+                 with the engine's sample types, through the math layer"
+                    .to_owned(),
+                "crates/engine-objects/src/a.rs:1: box code names `deliver`: it computes with \
+                 the engine's sample types, through the math layer"
+                    .to_owned(),
+            ]
+        )),
+        "the delivery of samples to a host"
     );
     assert_eq!(
         super::math_layer_gate(

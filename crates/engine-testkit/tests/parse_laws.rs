@@ -18,8 +18,8 @@ static ALLOCATOR: engine_testkit::CountingAllocator = engine_testkit::CountingAl
 mod tests {
     extern crate alloc;
 
-    use engine_core::host::Raw;
-    use engine_core::{Binary32, Binary64, Delivered, Plan, Precision, Renderer, SampleRate};
+    use engine_core::host::{Delivered, Raw};
+    use engine_core::{Binary32, Binary64, Plan, Precision, Renderer, SampleRate};
     use engine_objects::REGISTRY;
     use engine_testkit::heap_operations_during;
     use engine_testkit::matrix::PRECISIONS;

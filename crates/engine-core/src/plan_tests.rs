@@ -7,11 +7,11 @@ use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
 
-use crate::host::Raw;
+use crate::host::{Delivered, Raw};
 use crate::{
-    BLOCK_SIZE, Binary32, Binary64, Block, Capability, Connection, CoreError, Create, Delivered,
-    Factory, Node, NodeId, Object, ObjectSpec, ParamSpec, Patch, Plan, PortSpec, Precision,
-    Renderer, Sample, SampleRate,
+    BLOCK_SIZE, Binary32, Binary64, Block, Capability, Connection, CoreError, Create, Factory,
+    Node, NodeId, Object, ObjectSpec, ParamSpec, Patch, Plan, PortSpec, Precision, Renderer,
+    Sample, SampleRate,
 };
 
 const PORT: PortSpec = PortSpec {
@@ -50,13 +50,7 @@ static CONST: ObjectSpec = ObjectSpec {
     description: "constant",
     inlets: &[],
     outlets: &[PORT],
-    params: &[ParamSpec {
-        name: "value",
-        description: "value",
-        default: 1.0,
-        min: -10.0,
-        max: 10.0,
-    }],
+    params: &[ParamSpec::new("value", "value", 1.0, -10.0, 10.0)],
     capabilities: &[],
     create: Factory::new::<Const>(),
 };
@@ -219,13 +213,7 @@ static LEVEL: ObjectSpec = ObjectSpec {
     description: "a constant level",
     inlets: &[],
     outlets: &[PORT],
-    params: &[ParamSpec {
-        name: "level",
-        description: "level",
-        default: 1.0e-45,
-        min: 0.0,
-        max: 1.0,
-    }],
+    params: &[ParamSpec::new("level", "level", 1.0e-45, 0.0, 1.0)],
     capabilities: &[],
     create: Factory::new::<Const>(),
 };
@@ -233,13 +221,7 @@ static LEVEL: ObjectSpec = ObjectSpec {
 /// A constant whose range excludes zero: a subnormal written for it is refused.
 static ABOVE: ObjectSpec = ObjectSpec {
     name: "above~",
-    params: &[ParamSpec {
-        name: "value",
-        description: "value",
-        default: 1.0,
-        min: 1.0,
-        max: 2.0,
-    }],
+    params: &[ParamSpec::new("value", "value", 1.0, 1.0, 2.0)],
     ..CONST
 };
 

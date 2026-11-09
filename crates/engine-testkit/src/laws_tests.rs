@@ -19,13 +19,7 @@ const OUT: PortSpec = PortSpec {
     name: "out",
     description: "a signal",
 };
-const GAIN: ParamSpec = ParamSpec {
-    name: "gain",
-    description: "gain",
-    default: 0.5,
-    min: 0.0,
-    max: 1.0,
-};
+const GAIN: ParamSpec = ParamSpec::new("gain", "gain", 0.5, 0.0, 1.0);
 
 /// The boxes of these tests, each written once for both precisions.
 #[derive(Debug)]
@@ -370,18 +364,8 @@ fn checks_parameters_at_negative_zero_and_the_smallest_subnormal_and_normal() {
 
 #[test]
 fn tries_special_parameter_values_only_within_the_range() {
-    const POSITIVE: ParamSpec = ParamSpec {
-        default: 2.0,
-        min: 1.0,
-        max: 3.0,
-        ..GAIN
-    };
-    const NEGATIVE: ParamSpec = ParamSpec {
-        default: -2.0,
-        min: -3.0,
-        max: -1.0,
-        ..GAIN
-    };
+    const POSITIVE: ParamSpec = ParamSpec::new("gain", "gain", 2.0, 1.0, 3.0);
+    const NEGATIVE: ParamSpec = ParamSpec::new("gain", "gain", -2.0, -3.0, -1.0);
     let bits = |param: &'static ParamSpec| {
         super::param_sets(&ObjectSpec {
             params: core::slice::from_ref(param),
@@ -556,10 +540,7 @@ fn runs_long_enough_to_reveal_late_failures() {
 #[test]
 fn checks_parameters_away_from_their_default() {
     // NaN only at 0.5, away from the default 0.25 and from both limits.
-    const QUARTER: ParamSpec = ParamSpec {
-        default: 0.25,
-        ..GAIN
-    };
+    const QUARTER: ParamSpec = ParamSpec::new("gain", "gain", 0.25, 0.0, 1.0);
     let spec = ObjectSpec {
         params: &[QUARTER],
         create: factory!(|_, params| {
@@ -584,22 +565,14 @@ fn checks_parameters_away_from_their_default() {
     let failure = check_laws(&shifted).expect_err("a value away from the default");
     assert!(failure.contains("with parameters [0.75]"), "{failure}");
     // A range not starting at zero: the midpoint of [-1, 1] is 0.
-    let centered = ParamSpec {
-        default: 0.5,
-        min: -1.0,
-        max: 1.0,
-        ..GAIN
-    };
+    let centered = ParamSpec::new("gain", "gain", 0.5, -1.0, 1.0);
     assert_eq!(
         super::away_from_default(&centered).to_bits(),
         0.0_f32.to_bits(),
         "midpoint of [-1, 1]"
     );
     assert_eq!(
-        super::away_from_default(&ParamSpec {
-            default: 0.0,
-            ..centered
-        }),
+        super::away_from_default(&ParamSpec::new("gain", "gain", 0.0, -1.0, 1.0)),
         0.5,
         "halfway from the default 0 to the maximum"
     );
@@ -678,40 +651,28 @@ static INVALID_METADATA: [(ObjectSpec, &str); 13] = [
     ),
     (
         ObjectSpec {
-            params: &[ParamSpec {
-                description: "",
-                ..GAIN
-            }],
+            params: &[ParamSpec::new("gain", "", 0.5, 0.0, 1.0)],
             ..GOOD
         },
         "parameter \"gain\" has no description",
     ),
     (
         ObjectSpec {
-            params: &[ParamSpec {
-                default: 2.0,
-                ..GAIN
-            }],
+            params: &[ParamSpec::new("gain", "gain", 2.0, 0.0, 1.0)],
             ..GOOD
         },
         "parameter \"gain\": default 2 outside finite range [0, 1]",
     ),
     (
         ObjectSpec {
-            params: &[ParamSpec {
-                min: f32::NEG_INFINITY,
-                ..GAIN
-            }],
+            params: &[ParamSpec::new("gain", "gain", 0.5, f32::NEG_INFINITY, 1.0)],
             ..GOOD
         },
         "parameter \"gain\": default 0.5 outside finite range [-inf, 1]",
     ),
     (
         ObjectSpec {
-            params: &[ParamSpec {
-                max: f32::INFINITY,
-                ..GAIN
-            }],
+            params: &[ParamSpec::new("gain", "gain", 0.5, 0.0, f32::INFINITY)],
             ..GOOD
         },
         "parameter \"gain\": default 0.5 outside finite range [0, inf]",

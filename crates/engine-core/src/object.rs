@@ -22,6 +22,18 @@ pub struct PortSpec {
 }
 
 /// Description of a parameter: its range and default value.
+///
+/// Its values are binary32 floats, which box code never reads: they are private, and only
+/// the engine and a host (through [`crate::host::ParamBounds`]) read them, so that a box
+/// reaches a raw float through no parameter (`spec/engine-design.md`, decision 10). A box
+/// receives its parameter values as [`Binary64`], from the plan. Reading one outside the
+/// engine but through `host` does not compile:
+///
+/// ```compile_fail,E0616
+/// fn default(param: &engine_core::ParamSpec) -> f32 {
+///     param.default
+/// }
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ParamSpec {
     /// Name used in patches.
@@ -29,14 +41,33 @@ pub struct ParamSpec {
     /// What the parameter controls.
     pub description: &'static str,
     /// Value used when the patch does not set it.
-    pub default: f32,
+    pub(crate) default: f32,
     /// Lowest accepted value.
-    pub min: f32,
+    pub(crate) min: f32,
     /// Highest accepted value.
-    pub max: f32,
+    pub(crate) max: f32,
 }
 
 impl ParamSpec {
+    /// The parameter `name`, described by `description`, of default value `default`,
+    /// accepting `min` to `max` (inclusive).
+    #[must_use]
+    pub const fn new(
+        name: &'static str,
+        description: &'static str,
+        default: f32,
+        min: f32,
+        max: f32,
+    ) -> Self {
+        Self {
+            name,
+            description,
+            default,
+            min,
+            max,
+        }
+    }
+
     /// Whether `value` is within range. Always `false` for NaN.
     #[must_use]
     pub fn accepts(&self, value: f32) -> bool {
@@ -118,14 +149,9 @@ pub trait Object<S: Sample>: Send + core::fmt::Debug {
 #[cfg(test)]
 mod tests {
     use super::ParamSpec;
+    use crate::host::ParamBounds;
 
-    const PARAM: ParamSpec = ParamSpec {
-        name: "p",
-        description: "p",
-        default: 0.0,
-        min: -1.0,
-        max: 2.0,
-    };
+    const PARAM: ParamSpec = ParamSpec::new("p", "p", 0.0, -1.0, 2.0);
 
     #[test]
     fn accepts_values_within_range_inclusive() {
@@ -139,5 +165,20 @@ mod tests {
         for value in [-1.5_f32, 2.5, f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
             assert!(!PARAM.accepts(value), "{value} is rejected");
         }
+    }
+
+    #[test]
+    fn gives_hosts_its_values_as_written() {
+        let param = ParamSpec::new("q", "a q", 0.25, -1.5, 2.5);
+        assert_eq!(
+            (param.name, param.description),
+            ("q", "a q"),
+            "name and description"
+        );
+        assert_eq!(
+            [param.default_value(), param.minimum(), param.maximum()].map(f32::to_bits),
+            [0.25_f32, -1.5, 2.5].map(f32::to_bits),
+            "default, minimum, maximum"
+        );
     }
 }

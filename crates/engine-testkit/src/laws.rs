@@ -2,7 +2,7 @@
 
 use alloc::collections::BTreeSet;
 
-use engine_core::host::Raw;
+use engine_core::host::{ParamBounds, Raw};
 use engine_core::{
     BLOCK_SIZE, Binary32, Binary64, Block, Object, ObjectSpec, ParamSpec, Precision, SampleRate,
 };
@@ -107,11 +107,14 @@ pub fn check_metadata(spec: &ObjectSpec) -> Result<(), String> {
         if param.description.trim().is_empty() {
             return Err(format!("parameter \"{}\" has no description", param.name));
         }
-        let finite = param.min.is_finite() && param.max.is_finite();
-        if !finite || !param.accepts(param.default) {
+        let finite = param.minimum().is_finite() && param.maximum().is_finite();
+        if !finite || !param.accepts(param.default_value()) {
             return Err(format!(
                 "parameter \"{}\": default {} outside finite range [{}, {}]",
-                param.name, param.default, param.min, param.max
+                param.name,
+                param.default_value(),
+                param.minimum(),
+                param.maximum()
             ));
         }
     }
@@ -185,9 +188,9 @@ fn bits<S: LawSample>(blocks: &[Block<S>]) -> Vec<u64> {
 /// midpoint, or the point halfway between the default and the maximum when the default
 /// is the midpoint. So that a box hard-coding its default cannot pass.
 fn away_from_default(param: &ParamSpec) -> f32 {
-    let midpoint = param.min / 2.0 + param.max / 2.0;
-    if midpoint.to_bits() == param.default.to_bits() {
-        param.default / 2.0 + param.max / 2.0
+    let midpoint = param.minimum() / 2.0 + param.maximum() / 2.0;
+    if midpoint.to_bits() == param.default_value().to_bits() {
+        param.default_value() / 2.0 + param.maximum() / 2.0
     } else {
         midpoint
     }
@@ -199,7 +202,7 @@ fn within(param: &ParamSpec, value: f32) -> f32 {
     if param.accepts(value) {
         value
     } else {
-        param.default
+        param.default_value()
     }
 }
 
@@ -216,10 +219,10 @@ fn param_sets(spec: &ObjectSpec) -> [Vec<f32>; 7] {
             .collect()
     };
     [
-        spec.params.iter().map(|param| param.min).collect(),
-        spec.params.iter().map(|param| param.default).collect(),
+        spec.params.iter().map(ParamBounds::minimum).collect(),
+        spec.params.iter().map(ParamBounds::default_value).collect(),
         spec.params.iter().map(away_from_default).collect(),
-        spec.params.iter().map(|param| param.max).collect(),
+        spec.params.iter().map(ParamBounds::maximum).collect(),
         special(-0.0),
         special(f32::from_bits(1)),
         special(f32::MIN_POSITIVE),

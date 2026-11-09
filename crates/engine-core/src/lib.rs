@@ -27,7 +27,7 @@ mod render;
 pub use block::{BLOCK_SIZE, Block};
 pub use error::CoreError;
 pub use math::{
-    ArithmeticMode, ArithmeticOption, Binary32, Binary64, Constructor, Delivered, MODE, Precision,
+    ArithmeticMode, ArithmeticOption, Binary32, Binary64, Constructor, MODE, Precision,
     RenderFormat, Sample, UnknownArithmeticOptions, host,
 };
 pub use object::{Capability, Create, Factory, Object, ObjectSpec, ParamSpec, PortSpec};

@@ -397,7 +397,7 @@ impl SubAssign for Binary32 {
     }
 }
 
-/// Hides [`Sample`] and [`Delivered`] from implementations outside this crate: the engine
+/// Hides [`Sample`] and [`host::Delivered`] from implementations outside this crate: the engine
 /// computes in binary64 and binary32 only.
 mod sealed {
     /// The sample types, and the floats a render is given in.
@@ -545,34 +545,6 @@ impl Sample for Binary32 {
     }
 }
 
-/// How a render of samples `S` is given to its host, as floats of this type.
-///
-/// A binary64 render as binary64 or rounded to the nearest binary32 (ties to even; a NaN
-/// by its bits), a binary32 render as binary32. A binary32 render cannot be given as binary64: no [`RenderFormat`]
-/// is one.
-pub trait Delivered<S: Sample>: sealed::Sealed + Copy {
-    /// `sample`, given as this type.
-    fn deliver(sample: S) -> Self;
-}
-
-impl Delivered<Binary64> for f64 {
-    fn deliver(sample: Binary64) -> Self {
-        sample.0
-    }
-}
-
-impl Delivered<Binary32> for f32 {
-    fn deliver(sample: Binary32) -> Self {
-        sample.0
-    }
-}
-
-impl Delivered<Binary64> for f32 {
-    fn deliver(sample: Binary64) -> Self {
-        to_binary32(sample.0)
-    }
-}
-
 /// What a host, never a box, needs of the engine's samples: their floats and their bits,
 /// to give them to the platform, hash them, read them back and test them.
 ///
@@ -580,6 +552,65 @@ impl Delivered<Binary64> for f32 {
 /// and `f64`, in a box crate's code (tests apart), so a box cannot leave the math layer.
 pub mod host {
     use super::{Binary32, Binary64, Sample};
+
+    /// How a render of samples `S` is given to its host, as floats of this type.
+    ///
+    /// A binary64 render as binary64 or rounded to the nearest binary32 (ties to even; a NaN
+    /// by its bits), a binary32 render as binary32. A binary32 render cannot be given as
+    /// binary64: no [`RenderFormat`](super::RenderFormat) is one. A host concern, here so that box code, which
+    /// may not name this module, cannot take a sample's float out through it.
+    /// It is not reachable from the crate root:
+    ///
+    /// ```compile_fail,E0432
+    /// use engine_core::Delivered;
+    /// ```
+    pub trait Delivered<S: Sample>: super::sealed::Sealed + Copy {
+        /// `sample`, given as this type.
+        fn deliver(sample: S) -> Self;
+    }
+
+    impl Delivered<Binary64> for f64 {
+        fn deliver(sample: Binary64) -> Self {
+            sample.0
+        }
+    }
+
+    impl Delivered<Binary32> for f32 {
+        fn deliver(sample: Binary32) -> Self {
+            sample.0
+        }
+    }
+
+    impl Delivered<Binary64> for f32 {
+        fn deliver(sample: Binary64) -> Self {
+            super::to_binary32(sample.0)
+        }
+    }
+
+    /// The values of a parameter's description, as its box type writes them: for the
+    /// engine's peers that check or show box types (the laws, an editor), never a box.
+    pub trait ParamBounds {
+        /// Value used when the patch does not set it.
+        fn default_value(&self) -> f32;
+        /// Lowest accepted value.
+        fn minimum(&self) -> f32;
+        /// Highest accepted value.
+        fn maximum(&self) -> f32;
+    }
+
+    impl ParamBounds for crate::ParamSpec {
+        fn default_value(&self) -> f32 {
+            self.default
+        }
+
+        fn minimum(&self) -> f32 {
+            self.min
+        }
+
+        fn maximum(&self) -> f32 {
+            self.max
+        }
+    }
 
     /// The float of a sample, in and out.
     pub trait Raw: Sample {

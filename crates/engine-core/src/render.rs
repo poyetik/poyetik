@@ -3,13 +3,14 @@
 use alloc::vec;
 use alloc::vec::Vec;
 
-use crate::{BLOCK_SIZE, Block, CoreError, Delivered, Plan, Sample};
+use crate::host::Delivered;
+use crate::{BLOCK_SIZE, Block, CoreError, Plan, Sample};
 
 /// Renders a plan computing in `S` offline, frame by frame, as one continuous stream.
 ///
 /// Rendering `a` then `b` frames gives the same samples as rendering `a + b`. Its samples
 /// are given as they are computed, or rounded to binary32 for a host that takes binary32
-/// ([`Delivered`]).
+/// ([`host::Delivered`](Delivered)).
 ///
 /// It owns its [`Plan`] and offers no way to run [`Plan::process`] on it: a block
 /// processed behind its back would reorder time (frames of a later block returned before
@@ -48,7 +49,7 @@ impl<S: Sample> Renderer<S> {
     }
 
     /// Renders the next `frames` frames and returns them interleaved by channel
-    /// ([`Renderer::channels`] samples per frame), given as `D` ([`Delivered`]).
+    /// ([`Renderer::channels`] samples per frame), given as `D` ([`host::Delivered`](Delivered)).
     ///
     /// Successive calls continue exactly where the previous one stopped, whatever their
     /// lengths (also across [`Renderer::render_into`]). A plan without output renders
@@ -71,7 +72,7 @@ impl<S: Sample> Renderer<S> {
     }
 
     /// Renders the next frames into `out`, interleaved by channel and given as `D`
-    /// ([`Delivered`]): as many whole frames as `out` holds ([`Renderer::channels`] samples
+    /// ([`host::Delivered`](Delivered)): as many whole frames as `out` holds ([`Renderer::channels`] samples
     /// each). Samples after the last whole
     /// frame are left untouched; a plan without output writes nothing.
     ///

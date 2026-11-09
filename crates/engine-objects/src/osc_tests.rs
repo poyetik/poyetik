@@ -5,10 +5,8 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::f64::consts::TAU;
 
-use engine_core::host::Raw;
-use engine_core::{
-    BLOCK_SIZE, Binary32, Binary64, Block, Delivered, RenderFormat, Sample, SampleRate,
-};
+use engine_core::host::{Delivered, ParamBounds, Raw};
+use engine_core::{BLOCK_SIZE, Binary32, Binary64, Block, RenderFormat, Sample, SampleRate};
 
 /// The nearest binary32 to `value`, as the engine gives a binary64 render to a host that
 /// takes binary32.
@@ -501,7 +499,7 @@ fn keeps_its_phase_zero_or_normal() {
 fn stays_below_four_cycles_per_sample() {
     // The precondition of `bound`: from 4 cycles per sample on, the increment rounds
     // by up to 2^-51 and the bound no longer holds.
-    let highest = f64::from(OSC.params[0].max) / f64::from(SampleRate::MIN);
+    let highest = f64::from(OSC.params[0].maximum()) / f64::from(SampleRate::MIN);
     assert!(highest < 4.0_f64, "{highest} cycles per sample");
 }
 

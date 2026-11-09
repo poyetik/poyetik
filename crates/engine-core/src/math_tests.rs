@@ -5,10 +5,10 @@ use alloc::format;
 use alloc::vec::Vec;
 
 use super::to_binary32;
-use crate::host::Raw;
+use crate::host::{Delivered, Raw};
 use crate::{
-    ArithmeticMode, ArithmeticOption, BLOCK_SIZE, Binary32, Binary64, Block, Create, Delivered,
-    Factory, MODE, Object, Precision, RenderFormat, Sample, SampleRate, UnknownArithmeticOptions,
+    ArithmeticMode, ArithmeticOption, BLOCK_SIZE, Binary32, Binary64, Block, Create, Factory, MODE,
+    Object, Precision, RenderFormat, Sample, SampleRate, UnknownArithmeticOptions,
 };
 
 /// The nearest binary32 to the binary64 `bits`, worked out in integers from IEEE 754 alone

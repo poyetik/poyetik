@@ -72,13 +72,13 @@ pub static OSC: ObjectSpec = ObjectSpec {
         name: "out",
         description: "The sine wave",
     }],
-    params: &[ParamSpec {
-        name: "frequency",
-        description: "Frequency, in hertz",
-        default: 440.0,
-        min: 0.0,
-        max: 20_000.0,
-    }],
+    params: &[ParamSpec::new(
+        "frequency",
+        "Frequency, in hertz",
+        440.0,
+        0.0,
+        20_000.0,
+    )],
     capabilities: &[],
     create: Factory::new::<Osc>(),
 };
