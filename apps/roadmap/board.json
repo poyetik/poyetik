@@ -57,7 +57,7 @@
       "column": "next",
       "milestone": "M1 Engine",
       "createdAt": "2026-11-07",
-      "updatedAt": "2026-11-08",
+      "updatedAt": "2026-11-09",
       "tasks": [
         {
           "title": "Version 1: boxes, parameters and cables (spec/patch-format.md, read by engine-patch)",
@@ -73,6 +73,68 @@
         },
         {
           "title": "Coverage-guided fuzzing of patch reading (cargo-fuzz, a versioned corpus seeded from the conformance cases), then native-versus-WebAssembly differential runs of the same inputs",
+          "done": false
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Choose and set up the project license",
+      "description": "Choose the license of the project, have it reviewed, and set it up everywhere.",
+      "column": "next",
+      "milestone": "M0 Foundations",
+      "createdAt": "2026-11-07",
+      "updatedAt": "2026-11-09",
+      "tasks": [
+        {
+          "title": "Choose the license and have it reviewed",
+          "done": false
+        },
+        {
+          "title": "Add LICENSE and set the SPDX identifier in Cargo.toml and every package.json",
+          "done": false
+        },
+        {
+          "title": "README: what users may do with what they create",
+          "done": false
+        },
+        {
+          "title": "Contribution policy: DCO or CLA",
+          "done": false
+        }
+      ]
+    },
+    {
+      "id": 29,
+      "title": "Publish the engine as an open-source library in its own repository",
+      "description": "Once roadmap #12 is closed, the audio engine (core, boxes, WebAssembly binding) lives in a public repository of its own, with its proofs (conformance, independent oracle, gates, CI), so that Rust and web developers can use it on its own; the application then depends on the published engine like any other user.",
+      "column": "next",
+      "milestone": "",
+      "createdAt": "2026-11-09",
+      "updatedAt": "2026-11-09",
+      "tasks": [
+        {
+          "title": "License chosen by the maintainer",
+          "done": false
+        },
+        {
+          "title": "Extract the engine with its history and its proofs (conformance corpus, oracle, gates, its own CI)",
+          "done": false
+        },
+        {
+          "title": "Stabilize the public API: entry points, host settings, events, the box contract, versioned",
+          "done": false
+        },
+        {
+          "title": "External documentation and examples (native host, WebAssembly in the browser, writing a box)",
+          "done": false
+        },
+        {
+          "title": "Publish the crates on crates.io and the WebAssembly package",
+          "done": false
+        },
+        {
+          "title": "The application depends on the published engine",
           "done": false
         }
       ]
@@ -154,33 +216,6 @@
         {
           "title": "xtask, pre-push hook and CI updated for the new layout",
           "done": true
-        }
-      ]
-    },
-    {
-      "id": 6,
-      "title": "Choose and set up the project license",
-      "description": "Choose the license of the project, have it reviewed, and set it up everywhere.",
-      "column": "next",
-      "milestone": "M0 Foundations",
-      "createdAt": "2026-11-07",
-      "updatedAt": "2026-11-08",
-      "tasks": [
-        {
-          "title": "Choose the license and have it reviewed",
-          "done": false
-        },
-        {
-          "title": "Add LICENSE and set the SPDX identifier in Cargo.toml and every package.json",
-          "done": false
-        },
-        {
-          "title": "README: what users may do with what they create",
-          "done": false
-        },
-        {
-          "title": "Contribution policy: DCO or CLA",
-          "done": false
         }
       ]
     },
@@ -864,41 +899,6 @@
         },
         {
           "title": "Switch the visibility (maintainer's action or explicit approval)",
-          "done": false
-        }
-      ]
-    },
-    {
-      "id": 29,
-      "title": "Publish the engine as an open-source library in its own repository",
-      "description": "Once roadmap #12 is closed, the audio engine (core, boxes, WebAssembly binding) lives in a public repository of its own, with its proofs (conformance, independent oracle, gates, CI), so that Rust and web developers can use it on its own; the application then depends on the published engine like any other user.",
-      "column": "later",
-      "milestone": "",
-      "createdAt": "2026-11-09",
-      "updatedAt": "2026-11-09",
-      "tasks": [
-        {
-          "title": "License chosen by the maintainer",
-          "done": false
-        },
-        {
-          "title": "Extract the engine with its history and its proofs (conformance corpus, oracle, gates, its own CI)",
-          "done": false
-        },
-        {
-          "title": "Stabilize the public API: entry points, host settings, events, the box contract, versioned",
-          "done": false
-        },
-        {
-          "title": "External documentation and examples (native host, WebAssembly in the browser, writing a box)",
-          "done": false
-        },
-        {
-          "title": "Publish the crates on crates.io and the WebAssembly package",
-          "done": false
-        },
-        {
-          "title": "The application depends on the published engine",
           "done": false
         }
       ]
