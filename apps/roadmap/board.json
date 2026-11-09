@@ -918,7 +918,7 @@
         },
         {
           "title": "Reduction order: every sum of more than two terms through one helper, 16 lanes summed in order then a fixed pairwise tree, whatever the machine's SIMD width; tested against a literal scalar reference on every target (with step 6's re-bless)",
-          "done": false
+          "done": true
         },
         {
           "title": "Box algorithm versions: every box carries its algorithm version in the patch, any change of bits takes a new one, old versions keep playing or migrate explicitly (with step 6 and format version 2); then a deep review of this block (steps 6 to 8) on its pull request, with a green full check",
