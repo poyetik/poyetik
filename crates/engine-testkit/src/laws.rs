@@ -154,9 +154,11 @@ fn within(param: &ParamSpec, value: f32) -> f32 {
 }
 
 /// Parameter sets every law is checked with: all minimums, all defaults, all values away
-/// from their default, all maximums, then the special values a patch can hold (`-0.0`
-/// and the smallest subnormal, `1e-45`) where the range accepts them.
-fn param_sets(spec: &ObjectSpec) -> [Vec<f32>; 6] {
+/// from their default, all maximums, then special values where the range accepts them:
+/// `-0.0`, the smallest subnormal, `1e-45` (a plan flushes it to zero, but a box must not
+/// break on it), and the smallest normal, `2^-126` (the smallest magnitude above zero a
+/// plan passes on).
+fn param_sets(spec: &ObjectSpec) -> [Vec<f32>; 7] {
     let special = |value: f32| {
         spec.params
             .iter()
@@ -170,18 +172,18 @@ fn param_sets(spec: &ObjectSpec) -> [Vec<f32>; 6] {
         spec.params.iter().map(|param| param.max).collect(),
         special(-0.0),
         special(f32::from_bits(1)),
+        special(f32::MIN_POSITIVE),
     ]
 }
 
-/// Checks that rendered blocks are finite and that rendering made no heap operation (no
-/// allocation, reallocation or release).
-fn check_finite_without_heap(
-    rendered: &[Block],
-    operations: usize,
-    params: &[f32],
-) -> Result<(), String> {
+/// Checks that rendered blocks are finite and hold no subnormal, and that rendering made
+/// no heap operation (no allocation, reallocation or release).
+fn check_rendered(rendered: &[Block], operations: usize, params: &[f32]) -> Result<(), String> {
     if rendered.iter().flatten().any(|sample| !sample.is_finite()) {
         return Err(format!("non-finite output with parameters {params:?}"));
+    }
+    if rendered.iter().flatten().any(|sample| sample.is_subnormal()) {
+        return Err(format!("subnormal output with parameters {params:?}"));
     }
     if operations > 0 {
         return Err(format!(
@@ -191,7 +193,7 @@ fn check_finite_without_heap(
     Ok(())
 }
 
-/// Checks one input against the determinism, finite-output and no-heap laws.
+/// Checks one input against the determinism, finite-output, no-subnormal and no-heap laws.
 fn check_input(spec: &ObjectSpec, rate: SampleRate, input: &[f32]) -> Result<(), String> {
     for params in param_sets(spec) {
         let (first, operations) = render(spec, rate, &params, input, BLOCKS)?;
@@ -199,17 +201,17 @@ fn check_input(spec: &ObjectSpec, rate: SampleRate, input: &[f32]) -> Result<(),
         if bits(&first) != bits(&second) {
             return Err(format!("not deterministic with parameters {params:?}"));
         }
-        check_finite_without_heap(&first, operations, &params)?;
+        check_rendered(&first, operations, &params)?;
     }
     Ok(())
 }
 
-/// Checks a long run of silence-fed blocks, per parameter set: finite and without heap
-/// operations.
+/// Checks a long run of silence-fed blocks, per parameter set: finite, without subnormal
+/// and without heap operations.
 fn check_long_run(spec: &ObjectSpec, rate: SampleRate) -> Result<(), String> {
     for params in param_sets(spec) {
         let (rendered, operations) = render(spec, rate, &params, &[], LONG_RUN_BLOCKS)?;
-        check_finite_without_heap(&rendered, operations, &params)
+        check_rendered(&rendered, operations, &params)
             .map_err(|problem| format!("long run: {problem}"))?;
     }
     Ok(())

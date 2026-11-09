@@ -23,14 +23,14 @@ const GAIN: ParamSpec = ParamSpec {
     max: 1.0,
 };
 
-/// Multiplies its input by a gain: respects every law.
+/// Multiplies its input by a gain, flushing subnormal products: respects every law.
 #[derive(Debug)]
 struct Gain(f32);
 impl Object for Gain {
     fn process(&mut self, inputs: &[Block], outputs: &mut [Block]) {
         for (output, input) in outputs.iter_mut().zip(inputs) {
             for (out, value) in output.iter_mut().zip(input) {
-                *out = value * self.0;
+                *out = engine_core::flush(value * self.0);
             }
         }
     }
@@ -114,6 +114,41 @@ fn catches_non_finite_output() {
 }
 
 #[test]
+fn catches_subnormal_output() {
+    // A constant subnormal output, of either sign: finite and deterministic, but not
+    // flushed.
+    let positive = check_laws(&spec_with(|_, _| Box::new(Counter(f32::from_bits(1)))))
+        .expect_err("a positive subnormal is caught");
+    assert!(
+        positive.contains("subnormal output with parameters [0.0]"),
+        "{positive}"
+    );
+    let negative = check_laws(&spec_with(|_, _| {
+        Box::new(Counter(f32::from_bits(0x8040_0000)))
+    }))
+    .expect_err("a negative subnormal is caught");
+    assert!(
+        negative.contains("subnormal output with parameters [0.0]"),
+        "{negative}"
+    );
+    // The smallest normal and zeros of both signs are not subnormal.
+    for value in [f32::MIN_POSITIVE, -f32::MIN_POSITIVE, 0.0, -0.0] {
+        let spec = ObjectSpec {
+            inlets: &[],
+            params: &[],
+            create: match value.to_bits() {
+                0x0080_0000 => |_, _| Box::new(Counter(f32::MIN_POSITIVE)),
+                0x8080_0000 => |_, _| Box::new(Counter(-f32::MIN_POSITIVE)),
+                0x0000_0000 => |_, _| Box::new(Counter(0.0)),
+                _ => |_, _| Box::new(Counter(-0.0)),
+            },
+            ..GOOD
+        };
+        assert_eq!(check_laws(&spec), Ok(()), "{value:e} is not subnormal");
+    }
+}
+
+#[test]
 fn catches_non_deterministic_output() {
     let spec = spec_with(|_, _| {
         let instance = INSTANCES.fetch_add(1, Ordering::Relaxed);
@@ -146,9 +181,9 @@ fn catches_a_release_while_processing() {
 }
 
 #[test]
-fn checks_parameters_at_negative_zero_and_the_smallest_subnormal() {
-    // NaN only for a parameter of -0.0, then only for a subnormal parameter: neither is
-    // a minimum, default, midpoint or maximum.
+fn checks_parameters_at_negative_zero_and_the_smallest_subnormal_and_normal() {
+    // NaN only for a parameter of -0.0, then only for a subnormal parameter, then only for
+    // the smallest normal: none is a minimum, default, midpoint or maximum.
     let negative_zero = spec_with(|_, params| {
         if params.first().map(|value| value.to_bits()) == Some(0x8000_0000) {
             Box::new(Nan)
@@ -167,6 +202,18 @@ fn checks_parameters_at_negative_zero_and_the_smallest_subnormal() {
     });
     let failure = check_laws(&subnormal).expect_err("a subnormal is tried");
     assert!(failure.contains("with parameters [1e-45]"), "{failure}");
+    let normal = spec_with(|_, params| {
+        if params.first().map(|value| value.to_bits()) == Some(0x0080_0000) {
+            Box::new(Nan)
+        } else {
+            Box::new(Gain(1.0))
+        }
+    });
+    let smallest = check_laws(&normal).expect_err("the smallest normal is tried");
+    assert!(
+        smallest.contains("with parameters [1.1754944e-38]"),
+        "{smallest}"
+    );
 }
 
 #[test]
@@ -199,34 +246,43 @@ fn tries_special_parameter_values_only_within_the_range() {
             vec![1.0_f32.to_bits()],
             vec![0x8000_0000],
             vec![0x0000_0001],
+            vec![0x0080_0000],
         ],
-        "[0, 1]: minimum, default, away from the default, maximum, -0.0, 1e-45"
+        "[0, 1]: minimum, default, away from the default, maximum, -0.0, 1e-45, 2^-126"
     );
     assert_eq!(
         bits(&POSITIVE)[4..],
-        [vec![2.0_f32.to_bits()], vec![2.0_f32.to_bits()]],
+        [
+            vec![2.0_f32.to_bits()],
+            vec![2.0_f32.to_bits()],
+            vec![2.0_f32.to_bits()]
+        ],
         "above zero: the default instead"
     );
     assert_eq!(
         bits(&NEGATIVE)[4..],
-        [vec![(-2.0_f32).to_bits()], vec![(-2.0_f32).to_bits()]],
+        [
+            vec![(-2.0_f32).to_bits()],
+            vec![(-2.0_f32).to_bits()],
+            vec![(-2.0_f32).to_bits()]
+        ],
         "below zero: the default instead"
     );
 }
 
 #[test]
-fn tries_every_case_at_every_rate_with_six_parameter_sets() {
+fn tries_every_case_at_every_rate_with_seven_parameter_sets() {
     static CREATED: AtomicU16 = AtomicU16::new(0);
     let spec = spec_with(|_, _| {
         let _: u16 = CREATED.fetch_add(1, Ordering::Relaxed);
         Box::new(Gain(1.0))
     });
     assert_eq!(check_laws(&spec), Ok(()), "a correct box");
-    // Per rate: (special inputs + 32 random cases) x 6 parameter sets x 2 runs, plus a
+    // Per rate: (special inputs + 32 random cases) x 7 parameter sets x 2 runs, plus a
     // long run per parameter set.
     assert_eq!(
         usize::from(CREATED.load(Ordering::Relaxed)),
-        crate::matrix::SAMPLE_RATES.len() * ((1 + 32) * 6 * 2 + 6),
+        crate::matrix::SAMPLE_RATES.len() * ((1 + 32) * 7 * 2 + 7),
         "every rate, case and parameter set"
     );
 }

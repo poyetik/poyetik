@@ -3,22 +3,22 @@
     {
       "box": "osc~",
       "setting": "440 Hz at 48 kHz",
-      "instructions": 709941
+      "instructions": 754997
     },
     {
       "box": "osc~",
       "setting": "1000 Hz at 8 kHz",
-      "instructions": 755392
+      "instructions": 800448
     },
     {
       "box": "osc~",
       "setting": "19999 Hz at 384 kHz",
-      "instructions": 709627
+      "instructions": 754683
     },
     {
       "box": "osc~",
       "setting": "0 Hz at 44.1 kHz",
-      "instructions": 298176
+      "instructions": 343232
     },
     {
       "box": "dac~",

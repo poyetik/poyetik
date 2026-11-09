@@ -3,7 +3,7 @@
 use alloc::boxed::Box;
 use core::f64::consts::TAU;
 
-use engine_core::{Block, Object, ObjectSpec, ParamSpec, PortSpec, SampleRate};
+use engine_core::{Block, Object, ObjectSpec, ParamSpec, PortSpec, SampleRate, flush};
 
 use crate::sample::to_sample;
 
@@ -13,6 +13,11 @@ use crate::sample::to_sample;
 /// The increment is reduced to `[0, 1)` cycle per sample, so that one subtraction always
 /// wraps the phase, at any frequency and sample rate. Above Nyquist the output aliases
 /// (the policy there is decided with roadmap #12).
+///
+/// Subnormal outputs are flushed to zero (`spec/engine-design.md`, decision 11): at the
+/// smallest frequencies, the first frames of the sine are below 2^-126 and come out as +0.
+/// The phase, its only recursive state, is never subnormal
+/// (`keeps_its_phase_zero_or_normal`).
 #[derive(Debug)]
 struct Osc {
     /// Current phase, in cycles, within `[0, 1)`.
@@ -25,7 +30,7 @@ impl Object for Osc {
     fn process(&mut self, _inputs: &[Block], outputs: &mut [Block]) {
         for output in outputs.iter_mut().take(1) {
             for sample in output.iter_mut() {
-                *sample = to_sample(libm::sin(TAU * self.phase));
+                *sample = flush(to_sample(libm::sin(TAU * self.phase)));
                 self.phase += self.increment;
                 if self.phase >= 1.0_f64 {
                     self.phase -= 1.0_f64;
@@ -408,6 +413,67 @@ mod tests {
             libm::sin(TAU * (2.0 / 8_000.0 * libm::exp2(-126.0))).to_bits(),
             "the smallest normal frequency"
         );
+    }
+
+    #[test]
+    fn flushes_its_subnormal_outputs() {
+        // 2^-126 Hz, the smallest normal frequency, at every rate: the exact sine stays
+        // below the smallest normal binary32 value for the first `rate / 2π` frames or so
+        // (about 1,273 at 8 kHz), where the output must be +0, never a subnormal; then it
+        // is normal and within the bound of the exact sine (`stays_exact_at_every_rate_and_
+        // frequency`). Near the crossing, an exact value just below 2^-126 may round up to
+        // it: those frames are left out of the zero check.
+        let smallest_normal = f64::from(f32::MIN_POSITIVE);
+        for rate in engine_testkit::matrix::sample_rates() {
+            let frames = usize::try_from(rate.hz() / 4).expect("a short render");
+            let samples = render_at(f32::MIN_POSITIVE, rate.hz(), frames);
+            let mut zeros = 0_u32;
+            for (frame, &sample) in (0_u64..).zip(&samples) {
+                let what = format!("frame {frame} at {} Hz", rate.hz());
+                assert!(!sample.is_subnormal(), "{what}: {sample:e}");
+                let exact = exact(f32::MIN_POSITIVE, rate.hz(), frame);
+                if exact < smallest_normal * (1.0_f64 - libm::exp2(-20.0_f64)) {
+                    assert_eq!(sample.to_bits(), 0_u32, "{what}: +0");
+                    zeros += 1;
+                } else if exact >= smallest_normal {
+                    assert!(sample.is_normal(), "{what}: {sample:e}");
+                }
+            }
+            // Below 2^-126 while 2π · frame · 2^-126 / rate < 2^-126: frame < rate / 2π.
+            let crossing = f64::from(rate.hz()) / TAU;
+            assert!(
+                (f64::from(zeros) - crossing).abs() < 2.0_f64,
+                "{zeros} zeros at {} Hz instead of about {crossing}",
+                rate.hz()
+            );
+        }
+    }
+
+    #[test]
+    fn keeps_its_phase_zero_or_normal() {
+        // The only recursive state of `osc~` is its binary64 phase: it is 0, a sum of
+        // positive increments, or such a sum less 1 (exact, a multiple of 2^-52). So it is
+        // either 0 or at least the smallest increment, the smallest positive binary32
+        // frequency at the highest rate (about 2^-167.6), a normal binary64 value: it never
+        // needs a flush.
+        let fastest = SampleRate::new(SampleRate::MAX).expect("valid rate");
+        let smallest = super::Osc::new(fastest, f64::from(f32::from_bits(1)));
+        assert!(smallest.increment.is_normal(), "{:e}", smallest.increment);
+        for frequency in [f32::from_bits(1), f32::MIN_POSITIVE, 1.0, 20_000.0] {
+            for rate in engine_testkit::matrix::sample_rates() {
+                let mut osc = super::Osc::new(rate, f64::from(frequency));
+                let mut out: [Block; 1] = [SILENCE];
+                for _ in 0_u16..64_u16 {
+                    engine_core::Object::process(&mut osc, &[], &mut out);
+                    assert!(
+                        osc.phase.to_bits() == 0_u64 || osc.phase.is_normal(),
+                        "phase {:e} at {frequency:e} Hz and {} Hz",
+                        osc.phase,
+                        rate.hz()
+                    );
+                }
+            }
+        }
     }
 
     #[test]
