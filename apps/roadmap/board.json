@@ -1,7 +1,7 @@
 {
   "version": 1,
   "title": "Poyetik",
-  "nextId": 32,
+  "nextId": 33,
   "cards": [
     {
       "id": 1,
@@ -73,6 +73,57 @@
         },
         {
           "title": "Coverage-guided fuzzing of patch reading (cargo-fuzz, a versioned corpus seeded from the conformance cases), then native-versus-WebAssembly differential runs of the same inputs",
+          "done": false
+        }
+      ]
+    },
+    {
+      "id": 32,
+      "title": "Public API of the engine library, in Rust, C and TypeScript",
+      "description": "The engine's public interface, designed in one place and grown with each step of #12 that adds a piece of it: a low-level host API, the box contract, a toolkit of proven DSP building blocks, and a patch builder; exposed in Rust, through a C interface (functions written in Rust with the C calling convention, the bridge every other language can call), and in TypeScript over the WebAssembly module. Other languages come with the work that needs them. Stabilized and versioned by #29.",
+      "column": "next",
+      "milestone": "M1 Engine",
+      "createdAt": "2026-11-09",
+      "updatedAt": "2026-11-09",
+      "tasks": [
+        {
+          "title": "An API specification in spec/, completed at each step of #12 that adds a piece (host settings, events, the return path, state, hot swap, the box contract)",
+          "done": false
+        },
+        {
+          "title": "Low-level host API in Rust: build a plan from a graph, process blocks, send timestamped events, read the return path, save and restore state, swap plans; no_std, no allocation while processing",
+          "done": false
+        },
+        {
+          "title": "The box contract, versioned: what a box implements (inputs, outputs, events, state, latency, its modes), usable by built-in boxes and third-party externals",
+          "done": false
+        },
+        {
+          "title": "A DSP toolkit crate (engine-dsp): proven building blocks (oscillators, filters stable under modulation, smoothers, delay lines, interpolation, oversampling, envelopes, the deterministic FFT) and the math layer; the boxes are built with it",
+          "done": false
+        },
+        {
+          "title": "A patch builder in Rust: assemble boxes and cables in code, without writing a document",
+          "done": false
+        },
+        {
+          "title": "The C interface, written in Rust (extern \"C\"), with its header; the existing WebAssembly interface becomes one case of it; isolated, audited unsafe, checked by Miri",
+          "done": false
+        },
+        {
+          "title": "TypeScript over the WebAssembly module, the same functions as the C interface",
+          "done": false
+        },
+        {
+          "title": "Every interface checked against the same test vectors and conformance hashes, a gate proving the Rust, C and TypeScript surfaces expose the same functions",
+          "done": false
+        },
+        {
+          "title": "Examples that run as tests: a native host, a page in the browser, writing a box, building a patch in code",
+          "done": false
+        },
+        {
+          "title": "Further languages when their work needs them (Swift and Kotlin with the mobile exports, C# for game engines, Python for research), each a thin layer over the C interface, checked on the same vectors",
           "done": false
         }
       ]
