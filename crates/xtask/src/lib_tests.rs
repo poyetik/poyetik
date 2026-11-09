@@ -6803,19 +6803,26 @@ fn keeps_the_box_code_of_the_repository_in_the_math_layer() {
     let metadata = runner
         .capture(&super::metadata_command())
         .expect("cargo metadata");
-    let paths = runner.tracked(&super::BOX_SOURCES).expect("git ls-files");
-    assert!(
-        paths.iter().any(|path| path.ends_with("osc.rs"))
-            && paths.iter().any(|path| path.ends_with("osc_tests.rs")),
-        "the box sources and their tests are listed: {paths:?}"
-    );
-    let sources: Vec<(String, String)> = paths
-        .into_iter()
-        .map(|path| {
-            let text = std::fs::read_to_string(root.join(&path)).expect("readable");
-            (path, text)
+    // The files of the box crate's sources, read from the directory (a copy of the
+    // repository, as cargo-mutants makes, has no git to list them).
+    let dir = root.join("crates/engine-objects/src");
+    let mut sources: Vec<(String, String)> = std::fs::read_dir(&dir)
+        .expect("the box sources")
+        .map(|entry| {
+            let name = entry.expect("an entry").file_name();
+            let name = name.to_str().expect("UTF-8").to_owned();
+            let text = std::fs::read_to_string(dir.join(&name)).expect("readable");
+            (format!("crates/engine-objects/src/{name}"), text)
         })
         .collect();
+    sources.sort();
+    assert!(
+        sources.iter().any(|(path, _)| path.ends_with("/osc.rs"))
+            && sources
+                .iter()
+                .any(|(path, _)| path.ends_with("/osc_tests.rs")),
+        "the box sources and their tests are read"
+    );
     assert_eq!(
         super::math_layer_gate(&metadata, &sources),
         Ok(()),
