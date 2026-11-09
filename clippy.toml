@@ -2,8 +2,8 @@
 # Every f32/f64 method whose result may differ between targets is banned: not correctly
 # rounded by IEEE 754, documented as non-deterministic (the sign of a zero from max, min and
 # clamp; the precision of to_degrees), reassociated by the compiler, or in native byte order.
-# `cargo xtask check` audits this list against the pinned toolchain's own sources: every
-# stable float method is banned here or reviewed as deterministic in xtask
+# `cargo xtask check` audits this list against the standard library's sources: every float
+# method the pinned release has stabilized is banned here or reviewed as deterministic in xtask
 # (DETERMINISTIC_FLOAT_METHODS). Most of these methods do not exist in the no_std engine
 # crates; the list covers every crate.
 disallowed-methods = [

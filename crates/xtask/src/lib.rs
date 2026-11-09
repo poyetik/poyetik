@@ -3137,11 +3137,15 @@ pub fn supply_chain_gate(files: &[String]) -> Result<(), Failure> {
 /// may differ between targets.
 pub const CLIPPY_TOML: &str = "clippy.toml";
 
-/// The sources of the inherent methods of `f32` and `f64` in the pinned toolchain.
+/// The sources of the inherent methods of `f32` and `f64` in the standard library.
 ///
-/// Relative to its sysroot (the `rust-src` component, which `rust-toolchain.toml` lists):
-/// `core` holds the methods that need no operating system,
-/// `std` those that call the platform's math library.
+/// Relative to the sysroot of the pinned nightly ([`NIGHTLY_TOOLCHAIN`]), whose `rust-src`
+/// component Miri already needs: the pinned release has no sources of its own, since
+/// installing them would make the compiler write their local paths into the engine's
+/// module, which would no longer be reproducible. The nightly is newer than the release,
+/// and each method's `#[stable(since = …)]` says whether the release has it. `core` holds
+/// the methods that need no operating system, `std` those that call the platform's math
+/// library.
 pub const FLOAT_SOURCES: [&str; 4] = [
     "lib/rustlib/src/rust/library/core/src/num/f32.rs",
     "lib/rustlib/src/rust/library/core/src/num/f64.rs",
@@ -3203,6 +3207,26 @@ pub const DETERMINISTIC_FLOAT_METHODS: [(&str, &str); 32] = [
     ("trunc", "exact: an integer value, rounded toward zero"),
 ];
 
+/// A release number, `X.Y.Z`, ordered as releases are.
+pub type Release = (u32, u32, u32);
+
+/// Reads a release number written `X.Y.Z`, nothing else.
+#[must_use]
+pub fn parse_release(text: &str) -> Option<Release> {
+    let mut parts = text.split('.').map(|part| {
+        part.bytes()
+            .all(|byte| byte.is_ascii_digit())
+            .then(|| part.parse::<u32>().ok())
+            .flatten()
+    });
+    match (parts.next(), parts.next(), parts.next(), parts.next()) {
+        (Some(Some(major)), Some(Some(minor)), Some(Some(patch)), None) => {
+            Some((major, minor, patch))
+        }
+        _ => None,
+    }
+}
+
 /// One inherent method of `f32` or `f64` found in the standard library's sources.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FloatMethod {
@@ -3210,8 +3234,9 @@ pub struct FloatMethod {
     pub float: String,
     /// The method's name.
     pub name: String,
-    /// Whether it is stable, so callable with the pinned toolchain.
-    pub stable: bool,
+    /// The release that stabilized it; `None` when it is unstable, or stabilized by the
+    /// nightly only (`since = "CURRENT_RUSTC_VERSION"`).
+    pub since: Option<Release>,
     /// Whether its documentation says its result may differ ("non-deterministic",
     /// "Unspecified precision").
     pub documented_varying: bool,
@@ -3221,13 +3246,14 @@ pub struct FloatMethod {
 ///
 /// The single `impl f32 {` or `impl f64 {` block at the start of a line, to its closing `}`
 /// at the start of a line; each method is a line `    pub [const] [unsafe] fn <name>`,
-/// after its documentation and its `#[stable(` or `#[unstable(` attribute.
+/// after its documentation and its `#[stable(…, since = "X.Y.Z")]` (or
+/// `"CURRENT_RUSTC_VERSION"`) or `#[unstable(` attribute.
 ///
 /// # Errors
 ///
 /// Returns what is not in that shape: no such block or more than one, a block never closed,
 /// a line declaring a function that is not read as a method, a method without a stability
-/// attribute, or no method at all. Nothing is skipped.
+/// attribute, a `since` of another shape, or no method at all. Nothing is skipped.
 pub fn parse_float_methods(path: &str, source: &str) -> Result<Vec<FloatMethod>, String> {
     let lines: Vec<&str> = source.lines().collect();
     let starts: Vec<(usize, &str)> = lines
@@ -3253,13 +3279,26 @@ pub fn parse_float_methods(path: &str, source: &str) -> Result<Vec<FloatMethod>,
     };
     let mut methods = Vec::new();
     let mut doc = String::new();
-    let mut stability: Option<bool> = None;
+    let mut stability: Option<Option<Release>> = None;
     for line in body.iter().take(end) {
         let trimmed = line.trim_start();
         if trimmed.starts_with("#[stable(") {
-            stability = Some(true);
+            let since = trimmed
+                .split_once("since = \"")
+                .and_then(|(_, rest)| rest.split_once('"'))
+                .map(|(since, _)| since);
+            stability = match since {
+                Some("CURRENT_RUSTC_VERSION") => Some(None),
+                Some(release) if parse_release(release).is_some() => Some(parse_release(release)),
+                _ => {
+                    return Err(format!(
+                        "{path}: `{}` gives no release the method was stabilized in",
+                        trimmed.trim_end()
+                    ));
+                }
+            };
         } else if trimmed.starts_with("#[unstable(") {
-            stability = Some(false);
+            stability = Some(None);
         } else if trimmed.starts_with("///") {
             doc.push_str(trimmed);
             doc.push('\n');
@@ -3283,7 +3322,7 @@ pub fn parse_float_methods(path: &str, source: &str) -> Result<Vec<FloatMethod>,
                     .collect::<String>()
             })
             .filter(|name| !name.is_empty());
-        let (Some(name), Some(stable)) = (name, stability) else {
+        let (Some(name), Some(since)) = (name, stability) else {
             return Err(format!(
                 "{path}: `{}` is not a method of the expected shape, with its stability",
                 line.trim()
@@ -3294,7 +3333,7 @@ pub fn parse_float_methods(path: &str, source: &str) -> Result<Vec<FloatMethod>,
         methods.push(FloatMethod {
             float: (*float).to_owned(),
             name,
-            stable,
+            since,
             documented_varying,
         });
         doc.clear();
@@ -3318,21 +3357,43 @@ fn banned_float_methods(clippy: &str) -> BTreeSet<String> {
         .collect()
 }
 
-/// Checks that every stable float method of the pinned toolchain is banned or reviewed.
+/// Checks that every stable float method of the pinned release is banned or reviewed.
 ///
 /// A method must give the same result on every target or be banned: each is banned in `clippy` (the text of [`CLIPPY_TOML`]) or
 /// reviewed in [`DETERMINISTIC_FLOAT_METHODS`], never both, and never reviewed when its own
 /// documentation says its result may differ; every ban and every review names a method
 /// that exists. So a new toolchain cannot bring a method no one classified.
 ///
-/// `sources` holds the path and text of each file of [`FLOAT_SOURCES`].
+/// `sources` holds the path and text of each file of [`FLOAT_SOURCES`], read from a
+/// toolchain whose `rustc --version` is `sources_version`; `release` is the pinned release:
+/// its stable methods are those stabilized in it or before.
 ///
 /// # Errors
 ///
-/// Returns every source not in the expected shape ([`parse_float_methods`]) and every
-/// method or entry breaking a rule above.
-pub fn float_gate(sources: &[(String, String)], clippy: &str) -> Result<(), Failure> {
+/// Returns sources not newer than the release, every source not in the expected shape
+/// ([`parse_float_methods`]) and every method or entry breaking a rule above.
+pub fn float_gate(
+    sources: &[(String, String)],
+    sources_version: &str,
+    release: Release,
+    clippy: &str,
+) -> Result<(), Failure> {
     let mut problems = Vec::new();
+    let newer = sources_version
+        .split_whitespace()
+        .nth(1)
+        .and_then(|version| version.split('-').next())
+        .and_then(parse_release)
+        .is_some_and(|version| version >= release);
+    if !newer {
+        problems.push(format!(
+            "the sources come from `{}`, not from a release at least {}.{}.{}: they may lack its methods",
+            sources_version.trim(),
+            release.0,
+            release.1,
+            release.2
+        ));
+    }
     let mut methods = Vec::new();
     for (path, text) in sources {
         match parse_float_methods(path, text) {
@@ -3342,7 +3403,8 @@ pub fn float_gate(sources: &[(String, String)], clippy: &str) -> Result<(), Fail
     }
     let banned = banned_float_methods(clippy);
     let reviewed: BTreeMap<&str, &str> = DETERMINISTIC_FLOAT_METHODS.into_iter().collect();
-    for method in methods.iter().filter(|method| method.stable) {
+    let in_release = |method: &FloatMethod| method.since.is_some_and(|since| since <= release);
+    for method in methods.iter().filter(|method| in_release(method)) {
         let path = format!("{}::{}", method.float, method.name);
         let is_banned = banned.contains(&path);
         let is_reviewed = reviewed.contains_key(method.name.as_str());
@@ -3378,25 +3440,44 @@ pub fn float_gate(sources: &[(String, String)], clippy: &str) -> Result<(), Fail
             .filter(|name| {
                 !methods
                     .iter()
-                    .any(|method| method.stable && method.name == **name)
+                    .any(|method| in_release(method) && method.name == **name)
             })
             .map(|name| format!("`{name}` is reviewed as deterministic, but no stable float method has that name")),
     );
     verdict("the float methods of the pinned toolchain", problems)
 }
 
-/// Reads the pinned toolchain's float sources and `clippy.toml`, then checks them.
+/// Reads the pinned release, the pinned nightly's float sources and `clippy.toml`, then
+/// checks them.
 fn float_methods(runner: &mut dyn Runner) -> Result<(), Failure> {
-    let cmd = Cmd::new("rustc", &["--print", "sysroot"], Dir::Root);
-    let sysroot = runner.capture(&cmd).map_err(|failure| {
-        Failure::from(format!("cannot find the toolchain's sources: {failure}"))
-    })?;
+    let toolchain = read_file(runner, RUST_TOOLCHAIN_FILE)?;
+    let release = toolchain_channel(&toolchain)
+        .and_then(parse_release)
+        .ok_or_else(|| {
+            Failure::from(format!(
+                "{RUST_TOOLCHAIN_FILE} must pin one release: channel = \"X.Y.Z\""
+            ))
+        })?;
+    let mut capture = |args: &[&str]| {
+        runner
+            .capture(&Cmd::new("rustc", args, Dir::Root))
+            .map_err(|failure| {
+                Failure::from(format!("cannot find the toolchain's sources: {failure}"))
+            })
+    };
+    let version = capture(&[NIGHTLY_TOOLCHAIN, "--version"])?;
+    let sysroot = capture(&[NIGHTLY_TOOLCHAIN, "--print", "sysroot"])?;
     let paths = FLOAT_SOURCES
         .iter()
         .map(|source| format!("{}/{source}", sysroot.trim_end()))
         .collect();
     let sources = read_all(runner, paths)?;
-    float_gate(&sources, &read_file(runner, CLIPPY_TOML)?)
+    float_gate(
+        &sources,
+        &version,
+        release,
+        &read_file(runner, CLIPPY_TOML)?,
+    )
 }
 
 /// The Cargo configuration file.

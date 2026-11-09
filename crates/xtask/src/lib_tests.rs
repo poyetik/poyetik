@@ -394,9 +394,14 @@ const STRYKER_CONFIG: &str = r#"{"$schema":"s","testRunner":"vitest","mutate":["
 fn float_sources(fake: &mut Fake) {
     let (sources, clippy) = float_fixture();
     let sysroot = fake.files.insert(
-        "capture rustc --print sysroot".to_owned(),
+        "capture rustc +nightly-2026-11-01 --print sysroot".to_owned(),
         format!("{FAKE_SYSROOT}\n"),
     );
+    let version = fake.files.insert(
+        "capture rustc +nightly-2026-11-01 --version".to_owned(),
+        FAKE_NIGHTLY.to_owned(),
+    );
+    assert!(version.is_none(), "fresh fake");
     let banned = fake.files.insert(super::CLIPPY_TOML.to_owned(), clippy);
     assert!(sysroot.is_none() && banned.is_none(), "fresh fake");
     for (path, text) in sources {
@@ -747,8 +752,14 @@ fn command_lines(steps: &[Step]) -> Vec<String> {
         .collect()
 }
 
-/// The sysroot the fake toolchain answers.
+/// The sysroot the fake nightly answers.
 const FAKE_SYSROOT: &str = "/toolchain";
+
+/// The version the fake nightly answers: newer than [`RELEASE`].
+const FAKE_NIGHTLY: &str = "rustc 1.101.0-nightly (f9ceb4a4d 2026-10-31)\n";
+
+/// The release of the fake toolchain file, [`TOOLCHAIN`].
+const RELEASE: super::Release = (1, 99, 1);
 
 /// A source of the standard library declaring `methods` (name, stability, documentation)
 /// in an `impl` block of `float`, between a constant and the closing brace.
@@ -810,7 +821,11 @@ fn float_fixture() -> (Vec<(String, String)>, String) {
 #[test]
 fn accepts_every_float_method_banned_or_reviewed() {
     let (sources, clippy) = float_fixture();
-    assert_eq!(super::float_gate(&sources, &clippy), Ok(()), "consistent");
+    assert_eq!(
+        super::float_gate(&sources, FAKE_NIGHTLY, RELEASE, &clippy),
+        Ok(()),
+        "consistent"
+    );
     let methods = super::parse_float_methods(
         "f64.rs",
         &float_source(
@@ -829,25 +844,25 @@ fn accepts_every_float_method_banned_or_reviewed() {
             super::FloatMethod {
                 float: "f64".to_owned(),
                 name: "abs".to_owned(),
-                stable: true,
+                since: Some((1, 0, 0)),
                 documented_varying: false
             },
             super::FloatMethod {
                 float: "f64".to_owned(),
                 name: "gamma".to_owned(),
-                stable: false,
+                since: None,
                 documented_varying: true
             },
             super::FloatMethod {
                 float: "f64".to_owned(),
                 name: "log2".to_owned(),
-                stable: true,
+                since: Some((1, 0, 0)),
                 documented_varying: true
             },
         ],
         "every method, with its stability and documentation"
     );
-    let unsafe_method = "impl f32 {\n    #[stable(feature = \"a\", since = \"1\")]\n    pub unsafe fn to_int_unchecked<Int>(self) -> Int {}\n    /// It is non-deterministic.\n    #[stable(feature = \"a\", since = \"1\")]\n    pub fn sin(self) -> f32 {}\n}\n";
+    let unsafe_method = "impl f32 {\n    #[stable(feature = \"a\", since = \"1.0.0\")]\n    pub unsafe fn to_int_unchecked<Int>(self) -> Int {}\n    /// It is non-deterministic.\n    #[stable(feature = \"a\", since = \"1.0.0\")]\n    pub fn sin(self) -> f32 {}\n}\n";
     let parsed = super::parse_float_methods("f32.rs", unsafe_method).expect("parsed");
     assert_eq!(
         parsed
@@ -883,7 +898,7 @@ fn refuses_a_float_method_neither_banned_nor_reviewed() {
     let sources =
         float_sources_with(|text| text.replace("pub const fn abs(", "pub const fn lerp("));
     assert_eq!(
-        super::float_gate(&sources, &clippy),
+        super::float_gate(&sources, FAKE_NIGHTLY, RELEASE, &clippy),
         found(
             "the float methods of the pinned toolchain",
             &[
@@ -897,7 +912,7 @@ fn refuses_a_float_method_neither_banned_nor_reviewed() {
         text.replace("#[stable(feature = \"rust1\", since = \"1.0.0\")]\n    #[inline]\n    pub const fn abs(", "#[unstable(feature = \"x\", issue = \"1\")]\n    #[inline]\n    pub const fn abs(")
     });
     assert_eq!(
-        super::float_gate(&unstable, &clippy),
+        super::float_gate(&unstable, FAKE_NIGHTLY, RELEASE, &clippy),
         Ok(()),
         "an unstable method needs no classification"
     );
@@ -908,7 +923,7 @@ fn refuses_a_float_method_both_banned_and_reviewed_or_documented_as_varying() {
     let (sources, clippy) = float_fixture();
     let both = clippy.replace("]\n", "  { path = \"f64::abs\", reason = \"r\" },\n]\n");
     assert_eq!(
-        super::float_gate(&sources, &both),
+        super::float_gate(&sources, FAKE_NIGHTLY, RELEASE, &both),
         found(
             "the float methods of the pinned toolchain",
             &["`f64::abs` is both banned in clippy.toml and reviewed as deterministic".to_owned()]
@@ -923,7 +938,7 @@ fn refuses_a_float_method_both_banned_and_reviewed_or_documented_as_varying() {
             text.replace("    /// Exact.\n    ///\n    /// ```\n    /// let x = 1.0;\n    /// ```\n    #[stable(feature = \"rust1\", since = \"1.0.0\")]\n    #[inline]\n    pub const fn sqrt(", &format!("    /// {warning}\n    #[stable(feature = \"rust1\", since = \"1.0.0\")]\n    #[inline]\n    pub const fn sqrt("))
         });
         assert_eq!(
-            super::float_gate(&varying, &clippy),
+            super::float_gate(&varying, FAKE_NIGHTLY, RELEASE, &clippy),
             found(
                 "the float methods of the pinned toolchain",
                 &["`f64::sqrt` is reviewed as deterministic, but its documentation says its result may differ: ban it in clippy.toml".to_owned()]
@@ -938,7 +953,7 @@ fn refuses_stale_float_bans_and_reviews() {
     let (sources, clippy) = float_fixture();
     let stale = clippy.replace("]\n", "  { path = \"f64::lerp\", reason = \"r\" },\n]\n");
     assert_eq!(
-        super::float_gate(&sources, &stale),
+        super::float_gate(&sources, FAKE_NIGHTLY, RELEASE, &stale),
         found(
             "the float methods of the pinned toolchain",
             &["clippy.toml bans `f64::lerp`, which the pinned toolchain does not have".to_owned()]
@@ -948,7 +963,7 @@ fn refuses_stale_float_bans_and_reviews() {
     // An unstable method can be banned: it exists.
     let unstable = clippy.replace("]\n", "  { path = \"f64::gamma\", reason = \"r\" },\n]\n");
     assert_eq!(
-        super::float_gate(&sources, &unstable),
+        super::float_gate(&sources, FAKE_NIGHTLY, RELEASE, &unstable),
         Ok(()),
         "an unstable ban"
     );
@@ -963,7 +978,7 @@ fn refuses_stale_float_bans_and_reviews() {
         .collect();
     let with_trunk = clippy.replace("]\n", "  { path = \"f32::trunk\", reason = \"r\" },\n  { path = \"f64::trunk\", reason = \"r\" },\n]\n");
     assert_eq!(
-        super::float_gate(&gone, &with_trunk),
+        super::float_gate(&gone, FAKE_NIGHTLY, RELEASE, &with_trunk),
         found(
             "the float methods of the pinned toolchain",
             &[
@@ -976,9 +991,136 @@ fn refuses_stale_float_bans_and_reviews() {
 }
 
 #[test]
+fn reads_release_numbers() {
+    assert_eq!(
+        super::parse_release("1.99.1"),
+        Some((1, 99, 1)),
+        "a release"
+    );
+    assert_eq!(
+        super::parse_release("1.101.0"),
+        Some((1, 101, 0)),
+        "numbers, not text"
+    );
+    for text in [
+        "1.99", "1.99.1.0", "1.99.x", "1..1", "", "1.99.+1", "1.99. 1",
+    ] {
+        assert_eq!(super::parse_release(text), None, "{text:?}");
+    }
+}
+
+#[test]
+fn audits_the_methods_of_the_pinned_release_only() {
+    let (_, clippy) = float_fixture();
+    // Stabilized after the release, or by the nightly only: not callable with the release.
+    for since in ["1.100.0", "CURRENT_RUSTC_VERSION"] {
+        let later = float_sources_with(|text| {
+            text.replace(
+                "#[stable(feature = \"rust1\", since = \"1.0.0\")]\n    #[inline]\n    pub const fn abs(",
+                &format!("#[stable(feature = \"rust1\", since = \"1.0.0\")]\n    #[inline]\n    pub const fn abs(self) -> f64 {{\n        self\n    }}\n\n    #[stable(feature = \"lerp\", since = \"{since}\")]\n    pub const fn lerp("),
+            )
+        });
+        assert_eq!(
+            super::float_gate(&later, FAKE_NIGHTLY, RELEASE, &clippy),
+            Ok(()),
+            "{since}"
+        );
+    }
+    // Stabilized by the release itself: audited.
+    let now = float_sources_with(|text| {
+        text.replace(
+            "#[stable(feature = \"rust1\", since = \"1.0.0\")]\n    #[inline]\n    pub const fn abs(",
+            "#[stable(feature = \"rust1\", since = \"1.0.0\")]\n    #[inline]\n    pub const fn abs(self) -> f64 {\n        self\n    }\n\n    #[stable(feature = \"lerp\", since = \"1.99.1\")]\n    pub const fn lerp(",
+        )
+    });
+    assert_eq!(
+        super::float_gate(&now, FAKE_NIGHTLY, RELEASE, &clippy),
+        found(
+            "the float methods of the pinned toolchain",
+            &["`f64::lerp` is neither banned in clippy.toml nor reviewed as deterministic (DETERMINISTIC_FLOAT_METHODS in xtask)".to_owned()]
+        ),
+        "stabilized in the release"
+    );
+    // A reviewed method the release does not have yet is a stale review.
+    let (sources, _) = float_fixture();
+    let unreleased: Vec<(String, String)> = sources
+        .into_iter()
+        .map(|(path, text)| {
+            (
+                path,
+                text.replace(
+                    "since = \"1.0.0\")]\n    #[inline]\n    pub const fn trunc(",
+                    "since = \"1.100.0\")]\n    #[inline]\n    pub const fn trunc(",
+                ),
+            )
+        })
+        .collect();
+    assert_eq!(
+        super::float_gate(&unreleased, FAKE_NIGHTLY, RELEASE, &clippy),
+        found(
+            "the float methods of the pinned toolchain",
+            &[
+                "`trunc` is reviewed as deterministic, but no stable float method has that name"
+                    .to_owned()
+            ]
+        ),
+        "not in the release yet"
+    );
+}
+
+#[test]
+fn refuses_sources_older_than_the_release() {
+    let (sources, clippy) = float_fixture();
+    for version in [
+        "rustc 1.98.0-nightly (a 2026-08-01)\n",
+        "rustc 1.99.0 (a 2026-09-01)\n",
+        "rustc\n",
+        "rustc nightly (a)\n",
+    ] {
+        assert_eq!(
+            super::float_gate(&sources, version, RELEASE, &clippy),
+            found(
+                "the float methods of the pinned toolchain",
+                &[format!(
+                    "the sources come from `{}`, not from a release at least 1.99.1: they may lack its methods",
+                    version.trim()
+                )]
+            ),
+            "{version}"
+        );
+    }
+    for version in [
+        "rustc 1.99.1 (58cf8f9c3 2026-10-13)\n",
+        "rustc 1.99.1-nightly (a 2026-10-01)\n",
+    ] {
+        assert_eq!(
+            super::float_gate(&sources, version, RELEASE, &clippy),
+            Ok(()),
+            "{version}"
+        );
+    }
+}
+
+#[test]
 fn refuses_float_sources_it_cannot_read() {
     let (_, clippy) = float_fixture();
-    let edits: [(SourceEdit, &str); 6] = [
+    let edits: [(SourceEdit, &str); 8] = [
+        (
+            Box::new(|text: String| {
+                text.replacen(
+                    "since = \"1.0.0\")]\n    #[inline]\n    pub const fn abs(",
+                    "since = \"1.0\")]\n    #[inline]\n    pub const fn abs(",
+                    1,
+                )
+            }),
+            "`#[stable(feature = \"rust1\", since = \"1.0\")]` gives no release the method was stabilized in",
+        ),
+        (
+            Box::new(|text: String| {
+                text.replacen("#[stable(feature = \"rust1\", since = \"1.0.0\")]\n    #[inline]\n    pub const fn abs(", "#[stable(feature = \"rust1\")]\n    #[inline]\n    pub const fn abs(", 1)
+            }),
+            "`#[stable(feature = \"rust1\")]` gives no release the method was stabilized in",
+        ),
         (
             Box::new(|text: String| text.replace("impl f64 {", "impl F64 {")),
             "0 `impl f32 {` or `impl f64 {` blocks, expected one",
@@ -1012,7 +1154,8 @@ fn refuses_float_sources_it_cannot_read() {
         let sources = float_sources_with(edit);
         let path = format!("{FAKE_SYSROOT}/{}", super::FLOAT_SOURCES[1]);
         assert_eq!(
-            super::float_gate(&sources, &clippy).map_err(|failure| failure.summary),
+            super::float_gate(&sources, FAKE_NIGHTLY, RELEASE, &clippy)
+                .map_err(|failure| failure.summary),
             Err(format!(
                 "the float methods of the pinned toolchain: {path}: {problem}"
             )),
@@ -1046,21 +1189,46 @@ fn reads_the_float_sources_of_the_toolchain_s_sysroot() {
     assert_eq!(
         read,
         [
-            "capture rustc --print sysroot",
+            "read rust-toolchain.toml",
+            "capture rustc +nightly-2026-11-01 --version",
+            "capture rustc +nightly-2026-11-01 --print sysroot",
             "read /toolchain/lib/rustlib/src/rust/library/core/src/num/f32.rs",
             "read /toolchain/lib/rustlib/src/rust/library/core/src/num/f64.rs",
             "read /toolchain/lib/rustlib/src/rust/library/std/src/num/f32.rs",
             "read /toolchain/lib/rustlib/src/rust/library/std/src/num/f64.rs",
             "read clippy.toml",
         ],
-        "the sysroot, then every source, then the bans"
+        "the release, the nightly's version and sysroot, then every source, then the bans"
     );
-    fake.broken = Some("rustc --print sysroot".to_owned());
+    let unpinned = fake.files.insert(
+        super::RUST_TOOLCHAIN_FILE.to_owned(),
+        "[toolchain]\nchannel = \"stable\"\n".to_owned(),
+    );
+    assert!(unpinned.is_some(), "replaced");
+    assert_eq!(
+        run_steps(core::slice::from_ref(&step), &mut fake, &mut Vec::new())
+            .map_err(|failure| failure.summary),
+        Err("floats: rust-toolchain.toml must pin one release: channel = \"X.Y.Z\"".to_owned()),
+        "no release"
+    );
+    let pinned = fake
+        .files
+        .insert(super::RUST_TOOLCHAIN_FILE.to_owned(), TOOLCHAIN.to_owned());
+    assert!(pinned.is_some(), "replaced");
+    fake.broken = Some("rustc +nightly-2026-11-01 --version".to_owned());
+    let unversioned = run_steps(core::slice::from_ref(&step), &mut fake, &mut Vec::new())
+        .expect_err("no version");
+    assert_eq!(
+        unversioned.summary,
+        "floats: cannot find the toolchain's sources: cannot run `rustc +nightly-2026-11-01 --version`: not found",
+        "no version"
+    );
+    fake.broken = Some("rustc +nightly-2026-11-01 --print sysroot".to_owned());
     let failure = run_steps(core::slice::from_ref(&step), &mut fake, &mut Vec::new())
         .expect_err("no sysroot");
     assert!(
         failure.summary
-            == "floats: cannot find the toolchain's sources: cannot run `rustc --print sysroot`: not found",
+            == "floats: cannot find the toolchain's sources: cannot run `rustc +nightly-2026-11-01 --print sysroot`: not found",
         "{}",
         failure.summary
     );
@@ -2388,8 +2556,8 @@ fn runs_every_step_and_reports_success() {
         Ok(()),
         "all green"
     );
-    let (tools, commands, emptied, listed, captured, written) = (10, 50, 14, 19, 15, 1);
-    let read = 2 + 5 + 12 + 2 + 7 + 19 + 2 + 1 + 7 + 3 + 10 + 10 + 20 + 8 + 2 + 11 + 40 + 20;
+    let (tools, commands, emptied, listed, captured, written) = (10, 50, 14, 19, 16, 1);
+    let read = 2 + 6 + 12 + 2 + 7 + 19 + 2 + 1 + 7 + 3 + 10 + 10 + 20 + 8 + 2 + 11 + 40 + 20;
     assert_eq!(
         fake.ran.len(),
         tools + commands + emptied + listed + captured + written + read,
@@ -2400,8 +2568,8 @@ fn runs_every_step_and_reports_success() {
          checks each followed by its Stryker run); fourteen directories are emptied; git lists \
          eleven kinds of files, the TypeScript ones again for the reports and scope gates of \
          each package after the first; the licenses and the history are captured twice each, the state \
-         of the tree (before and after) four times, the toolchain's sysroot, the Cargo metadata, the merge base, the changes and the \
-         new Rust files once; the diff is written once; and the gates read .node-version and the toolchain file for the preflight, the four float sources of the toolchain and clippy.toml, twelve coverage reports, \
+         of the tree (before and after) four times, the nightly's version and sysroot, the Cargo metadata, the merge base, the changes and the \
+         new Rust files once; the diff is written once; and the gates read .node-version and the toolchain file for the preflight, the toolchain file, the four float sources of the nightly and clippy.toml for the float gate, twelve coverage reports, \
          the unviable report and reviews, six TypeScript sources and their reviews, the eight \
          sources, the ten Cargo manifests and the register of the bypass gate, the two unsafe files, the Cargo \
          configuration, the six package manifests and the register of the dependency gate, the three \
@@ -2455,9 +2623,9 @@ fn stops_at_the_first_failing_command() {
     );
     assert_eq!(
         fake.ran.len(),
-        10 + 2 + 3 + 6 + 4,
+        10 + 2 + 3 + 8 + 4,
         "the preflight asks ten tools and reads .node-version and the toolchain file, the tree is recorded by three \
-         captures, the float gate captures the sysroot and reads five files; nothing runs after the failure"
+         captures, the float gate reads the toolchain file, captures the nightly's version and sysroot and reads five files; nothing runs after the failure"
     );
 }
 
