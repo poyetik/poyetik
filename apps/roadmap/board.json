@@ -889,7 +889,7 @@
           "done": false
         },
         {
-          "title": "Box algorithm versions: every box carries its algorithm version in the patch, any change of bits takes a new one, old versions keep playing or migrate explicitly (with step 6 and format version 2)",
+          "title": "Box algorithm versions: every box carries its algorithm version in the patch, any change of bits takes a new one, old versions keep playing or migrate explicitly (with step 6 and format version 2); then a deep review of this block (steps 6 to 8) on its pull request, with a green full check",
           "done": false
         },
         {
@@ -929,7 +929,7 @@
           "done": false
         },
         {
-          "title": "Seeded randomness: the seed in the patch, per-box streams from stable box paths, a counter-based generator addressed by frame, exact conversion to floats, a live new-seed mode that logs its seed; its laws",
+          "title": "Seeded randomness: the seed in the patch, per-box streams from stable box paths, a counter-based generator addressed by frame, exact conversion to floats, a live new-seed mode that logs its seed; its laws; then a deep review of this block (steps 9 to 18) on its pull request, with a green full check",
           "done": false
         },
         {
@@ -981,7 +981,7 @@
           "done": false
         },
         {
-          "title": "Resources: content-addressed by SHA-256, immutable, decoded and resampled off the audio thread with the same code on every target, swapped at a frame, read through handles whether in memory or streamed, underruns logged",
+          "title": "Resources: content-addressed by SHA-256, immutable, decoded and resampled off the audio thread with the same code on every target, swapped at a frame, read through handles whether in memory or streamed, underruns logged; then a deep review of this block (steps 19 to 31) on its pull request, with a green full check",
           "done": false
         },
         {
@@ -1009,7 +1009,7 @@
           "done": false
         },
         {
-          "title": "Clean the specification and the documentation once the engine is complete: spec/ keeps what and why (decisions, rules, laws, formats, acceptance tests), without planning (the Step and Order lines, the implementation order, what is implemented when, a section named after the ticket); the documentation describes the finished engine",
+          "title": "Clean the specification and the documentation once the engine is complete: spec/ keeps what and why (decisions, rules, laws, formats, acceptance tests), without planning (the Step and Order lines, the implementation order, what is implemented when, a section named after the ticket); the documentation describes the finished engine; then a deep review of this block (steps 32 to 38) on its pull request, with a green full check",
           "done": false
         }
       ]
