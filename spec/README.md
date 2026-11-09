@@ -13,6 +13,6 @@ The specifications every implementation follows: the **patch format**, the contr
 | [`benchmarks.md`](benchmarks.md) | The cost benchmarks: instruction counts of every box and of building plans (how they are counted, what they cannot see, the tolerance and the n log n law), the bound on constructing the engine processor in each browser engine, and how to add a benchmark |
 | [`benchmark-baseline.json`](benchmark-baseline.json) | The instruction counts every check compares with, written only by `cargo xtask bless-benchmarks` |
 | [`benchmark-thresholds.json`](benchmark-thresholds.json) | The tolerance of the counts and the measured construction times the browser bounds derive from |
-| [`engine-design.md`](engine-design.md) | The engine design decisions: what the engine will do (events, block sizes, precision, multichannel, polyphony, latency, hot swap…), why, and in what order; the formats above change with the steps that implement them |
+| [`engine-design.md`](engine-design.md) | The engine design decisions: what the engine will do (events, block sizes, precision, multichannel, polyphony, latency, hot swap, the control boundary, payloads, randomness, the box contract, resources…), why, and in what order; the formats above change with the steps that implement them |
 
 The format grows incrementally (roadmap ticket #3): only what the engine actually supports is specified.

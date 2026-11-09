@@ -1,6 +1,6 @@
 # Engine design decisions
 
-The decisions the engine is built on, recorded before any code that depends on them (roadmap ticket #12, step 1). Each one gives the decision, why, the alternatives rejected, how it meets or exceeds the state of the art of professional audio workstations and visual patching environments, its consequences (engine, patch format, render hash, tests) and the ticket step that implements it. Each decision gives its place in the [implementation order](#implementation-order) at the end, which says what comes first.
+The decisions the engine is built on, recorded before any code that depends on them (roadmap ticket #12, step 1). Each one gives the decision, why, the alternatives rejected, its consequences (engine, patch format, render hash, tests) and the ticket step that implements it. Each decision gives its place in the [implementation order](#implementation-order) at the end, which says what comes first.
 
 **The engine's own signal-touching parts are measured like boxes.** Every engine component that touches the signal has objective measurements with derived thresholds, as `spec/measurements.md` defines them and with its "How to add measurements" steps, landing with the step that builds it:
 
@@ -12,6 +12,8 @@ The decisions the engine is built on, recorded before any code that depends on t
 | Latency compensation | Paths aligned to the sample: a null test of two equal paths of different latency | 13 | #12 step 18 |
 | Hot-swap crossfade | No click: a bounded discontinuity across the swap | 15 | #12 step 20 |
 | Sample-accurate event timing | An event lands on its exact frame, proven at engine block and host buffer boundaries | 4 | #12 steps 4 and 14 |
+| Resource resampler | Passband ripple, stopband rejection, aliasing | 26 | #12 step 33 |
+| FFT | Error against a direct transform in higher precision, within a derived bound; inverse after forward within a derived bound | 27 | #12 step 34 |
 
 This document states what the engine **will** do. What it does today is specified by [`patch-format.md`](patch-format.md) and [`render-hash.md`](render-hash.md); each of those changes, in the step that implements a decision, with a new format or hash version where the bytes change.
 
@@ -19,7 +21,7 @@ This document states what the engine **will** do. What it does today is specifie
 
 1. Maximum quality, proof and flexibility.
 2. Where two good options conflict, both are offered as a setting; the default is what the most demanding professional tools offer.
-3. Where only one can exist, the one that matches or exceeds the state of the art.
+3. Where only one can exist, the one with the highest quality and the strongest proof.
 
 The engine must power both a full audio workstation (tracks, sample-accurate automation, latency compensation, transport) and a visual patching environment with fine control of block sizes, inputs and outputs. Nothing below may weaken the core promise: **the same samples, bit for bit, on every target**.
 
@@ -37,6 +39,17 @@ Words this document introduces, to enter `GLOSSARY.md` with the step that gives 
 | **signal** | A value at every frame, carried by a cable as one or more channels |
 | **voice** | One instance of a polyphonic subpatch |
 | **bus** | A named, multichannel signal path that several boxes send to and others read from |
+| **coordinating layer** | What runs above the engine, outside it: asynchronous work (interface, files, network, an assistant), heavy logic ahead of time, and the conversion of times between the engine and sibling engines |
+| **return path** | What the engine sends out: streams of timestamped messages, latest-value slots, and engine reports |
+| **event log** | The record of what a live engine applied (events at their applied frames, plan swaps, seed, resources, underruns); replayed, it gives the same bits |
+| **execution mode** | Live, offline or build; a box type is **live-capable** or **offline-only** |
+| **payload** | The typed, bounded content of a message: trigger, number, symbol, list, MIDI, note, resource |
+| **symbol** | A bounded piece of text in a message, interned when the plan is built |
+| **seed**, **stream** | The patch's 64-bit random seed; a box's random stream, derived from its path of box ids |
+| **seek** | Jumping a render to a frame with every state restored for it |
+| **external** | A box type written by a third party as a WebAssembly module implementing the box contract (not an external processor, decision 17) |
+| **resource** | Immutable data a box reads (samples, tables, impulse responses), identified by the SHA-256 of its source bytes |
+| **render-ahead** | Rendering a part of the plan that depends on no live source before its frames are heard |
 
 ---
 
@@ -44,11 +57,11 @@ Words this document introduces, to enter `GLOSSARY.md` with the step that gives 
 
 **Decision.** The engine is a library. Its host chooses the sample rate, the host buffer (the device buffer of an audio backend is one), the engine block and the input and output channel counts. The browser's AudioWorklet is one host among others: a native audio backend, a desktop shell embedding the native engine, the engine packaged as a VST3, CLAP or AU plugin, the offline renderer. A host states what it asks for; the engine answers with what it applies. **A setting a host cannot honor is reported, never faked**: the AudioWorklet cannot choose its render quantum (128 frames) nor guarantee the sample rate asked of its context, so it reports both as imposed.
 
-**Why.** One engine for every product; a fixed browser assumption would make the native and plugin hosts second-class.
+**The engine is an audio engine, standalone.** It counts time in frames, processes signals and the messages that drive them, and is usable as it is by any host. Other domains (symbolic scores, video, heavy patch logic) are **sibling engines** when they come: separate libraries that share the engine's conventions (a graph of boxes, the box contract of decision 25, determinism, serializable state), each with its own time unit. A **coordinating layer** above the engines, outside them, carries what crosses from one to another and converts times at that boundary by one written rule (decision 19).
 
-**Rejected.** An engine shaped around the AudioWorklet (fixed 128 frames): it would forbid small buffers natively and large ones offline. Silently substituting a setting: a user tuning latency must see what is really applied.
+**Why.** One engine for every product; a fixed browser assumption would make the native and plugin hosts second-class. An audio engine kept to audio stays small, fast and provable; generality comes from shared conventions, not from a core that abstracts every domain.
 
-**State of the art.** Professional tools let the user choose the device buffer and the internal processing size separately; this does the same on every host, and adds an explicit report of what a host could not honor.
+**Rejected.** An engine shaped around the AudioWorklet (fixed 128 frames): it would forbid small buffers natively and large ones offline. Silently substituting a setting: a user tuning latency must see what is really applied. A domain-agnostic core in which audio is one plugged-in domain among others: every frame would pay for indirections audio does not need, and the core's types (time, payloads, rates) would be shaped by the needs of every domain at once.
 
 **Consequences.** Engine: a `HostSettings` request and an `AppliedSettings` answer, with one reason per refused setting. Patch format: unchanged (host settings are not part of a patch). Hash: unchanged (the rate and channel count already are). Tests: every setting across the test matrix, and a law that the applied settings equal the request whenever the host can honor it.
 
@@ -75,8 +88,6 @@ Sub-decisions:
 
 **Rejected.** A fixed engine block (today's 64 frames): it would fix the latency floor and the cost of every host. A single engine-wide block chosen by the patch: the host could no longer pick its latency. Power-of-two engine blocks only: an odd host buffer (a plugin host asking 441 frames) is then rebuffered for nothing.
 
-**State of the art.** Patching environments offer a per-subpatch block size with overlap and resampling, and a global vector size that changes results; workstations offer a buffer size. This offers all three levels, a block of 1 frame anywhere, and adds what neither guarantees: the engine block never changes a single bit.
-
 **Consequences.** Engine: `BLOCK_SIZE` stops being a constant of the core; `Block` becomes a span of a host-chosen length; the plan cuts spans at events and at the grid of absolute frames. Patch format: subpatches, with optional `block`, `overlap` and `resample` (format version 2 or later, ticket #3). Hash: unchanged. Tests: the engine-block law over every case; subpatch blocks across the matrix (1, a prime, a power of two, the maximum); the resampler measured with derived thresholds (imaging and aliasing rejection, passband ripple, SNR); a spectral round trip (analysis, synthesis) exact to a derived bound.
 
 **Step.** Engine block: #12 step 13. Subpatch blocks: #12 step 17. **Order:** 5 for the engine block, 10 for subpatch blocks.
@@ -94,8 +105,6 @@ Inside a subpatch with a declared block `B`, a cycle's delay must be at least `B
 
 **Rejected.** An implicit block of delay in every cycle: the result depends on the block size. Running the whole patch frame by frame when any cycle exists: correct but needlessly costly. Implicit solving of delay-free loops (zero-delay feedback across boxes): a numerical solver in the planner, with convergence that cannot be proven bit for bit; zero-delay feedback belongs inside a box (filter topologies), where it is exact.
 
-**State of the art.** Patching environments require a delay of at least one block in a cycle, or a dedicated single-sample subpatch. This gives single-sample feedback anywhere, automatically, at the cost of only the cycle.
-
 **Consequences.** Engine: strongly connected components in the planner, per-component span limits. Patch format: today's rule "a cycle without delay is rejected" keeps its meaning; a cycle with a delay box becomes valid. Hash: unchanged. Tests: a one-frame feedback comb filter checked against an exact reference across engine blocks; a cycle shorter than its subpatch block rejected; the existing cycle rejection kept.
 
 **Step.** #12 step 17. **Order:** 10.
@@ -108,21 +117,19 @@ Sub-decisions:
 
 - **Timestamps are absolute frame numbers** (64-bit, counted from the start of the render), so an event's effect never depends on how time is split. A host gives timestamps relative to its buffer; the engine converts them.
 - **Late events** (a live event whose frame has passed) are applied at the first frame still to be processed and **counted as late** in the engine's report. Offline renders have no late events and stay deterministic.
-- **Queues are bounded and preallocated**; an overflow is reported, never allocated around. Their capacities are named constants.
+- **Queues are bounded and preallocated**; an overflow is reported, never allocated around. Their capacities are named constants, and they and their overflow behavior are the same in every execution mode (decisions 19 and 20).
 - **Message cables are edges of the graph** like signal cables: a message always flows forward in execution order, and a cycle of messages needs an explicit delay (at least one frame), like any cycle. A box that iterates (a counter loop) does it inside itself. So a message cascade is finite by construction.
-- **Order of messages within one frame** (a total order, independent of thread count and of the document's order):
+- **Order of messages within one frame** (a total order, independent of thread count and of the order of boxes in the document):
   1. events from the host, in the order the host gave them;
   2. then messages produced by boxes, **depth first**: when a box sends a message, it reaches every destination, and everything those destinations send in turn, before the box's next message;
-  3. one outlet feeding several inlets delivers in the order of the destinations' box ids, then inlet indices: the order cables into one inlet are already summed in;
+  3. one outlet feeding several inlets with messages delivers them in an **explicit order stored in the patch**: the order of that outlet's cables in the patch's cable list, resolved when the plan is built, at no cost while processing. The engine never infers an order from creation history, box ids or position on screen. (Signal cables into one inlet keep their rule: they are summed in a fixed order.);
   4. a message arriving at frame `t` takes effect before the receiving box computes its sample at `t`.
 
 **Why.** Sample-accurate events are what makes automation, sequencing and MIDI exact; absolute frames make them independent of the host; a forward-only message graph makes ordering deterministic and parallel-safe. Depth first is the order a user can predict from the cables.
 
-**Rejected.** Events quantized to the block (a block's worth of jitter, and results that depend on block size). A separate, lower-priority message scheduler outside the audio thread with its own clock: messages would drift against audio. Breadth-first delivery: the order of side effects stops following the cables. Unbounded message loops within a frame: they can hang the audio thread. Ordering fan-out by creation order or position on screen: a hidden dependency on the editor's state.
+**Rejected.** Events quantized to the block (a block's worth of jitter, and results that depend on block size). A separate, lower-priority message scheduler outside the audio thread with its own clock: messages would drift against audio. Breadth-first delivery: the order of side effects stops following the cables. Unbounded message loops within a frame: they can hang the audio thread. Ordering fan-out by creation order: hidden, and deleting and recreating a cable changes behavior invisibly. By position on screen, right to left: moving a box changes behavior. By box id: deterministic, but invisible to the user. A universal time base inside the engine, rational or a tick shared with video and scores (such as 705,600,000 ticks per second): no such tick divides every supported rate (that one does not divide 384 kHz, so frames would no longer be whole ticks), and rational arithmetic on every event costs where 64-bit frame counts are exact and cheap; conversions belong to the coordinating layer (decision 19). Superdense time (several ordered microsteps within one frame) inside the engine: a message cycle keeps its delay of at least one frame, so a cascade stays finite by construction; logic that must iterate without advancing audio time runs in the coordinating layer or inside one box.
 
-**State of the art.** Workstations offer sample-accurate automation and MIDI; patching environments offer deterministic depth-first message ordering, but usually at block resolution unless a scheduler option is set. Here every message is sample-accurate, always, with an order that is total and documented, and MIDI is carried at MIDI 2.0 resolution.
-
-**Consequences.** Engine: an event type, per-box event spans, a preallocated queue per plan. Patch format: message cables (distinguished from signal cables by the ports they join). Hash: unchanged; a conformance case may carry an event list. Tests: ordering laws (same frame, fan-out, depth first) over random graphs; a render with events identical across host buffers, engine blocks and thread counts; every event landing on its exact frame, at and around engine block and host buffer boundaries; late and overflowing events reported.
+**Consequences.** Engine: an event type, per-box event spans, a preallocated queue per plan. Patch format: message cables (distinguished from signal cables by the ports they join); the cables of one outlet are kept in a meaningful order, which the canonical serialization preserves (ticket #3). Editor: when an outlet has more than one message cable, their order is visible; a new cable goes last by default and can be reordered (a "right to left" reorder command may exist); moving a box never changes the order. Hash: unchanged; a conformance case may carry an event list. Tests: ordering laws (same frame, fan-out, depth first) over random graphs; the fan-out order law: permuting the cables of an outlet permutes the delivery, and nothing else does (moving boxes, renumbering box ids, reordering boxes in the document); a render with events identical across host buffers, engine blocks and thread counts; every event landing on its exact frame, at and around engine block and host buffer boundaries; late and overflowing events reported.
 
 **Step.** #12 steps 4 and 14. **Order:** 6.
 
@@ -139,8 +146,6 @@ Sub-decisions:
 
 **Rejected.** Separate "control" and "audio" variants of each parameter: twice the boxes, and a user must know which. One-pole smoothing: it never reaches the target exactly and its end depends on rounding. A single global smoothing time: too slow for a gate, too fast for a filter cutoff. Rejecting runtime values out of range: impossible for a signal, which cannot be refused.
 
-**State of the art.** Workstations smooth automation; modular environments take signals on most parameters. This offers both on every parameter, with a choice of combination, ramps that end exactly, and a documented input domain checked by laws on every box.
-
 **Consequences.** Engine: `ParamSpec` gains a kind, a smoothing curve and a default ramp; parameters become inlets. Patch format: the combination setting per parameter inlet; message cables into parameters. Hash: unchanged. Tests: box laws over the special values of the matrix at every inlet and parameter; zipper-noise measurements per parameter kind (`spec/measurements.md`: the spectral spur level during a ramp, against a derived threshold); a ramp's last frame exactly equal to its target.
 
 **Step.** #12 steps 4 and 14. **Order:** 6.
@@ -152,8 +157,6 @@ Sub-decisions:
 **Why.** Surround, ambisonics, per-voice processing and track routing all need it; per-channel expansion lets one mono box serve every width.
 
 **Rejected.** One cable per channel only: patches become unreadable at 16 channels. Wrapping mismatched counts (2 into 3 cycling): a silent surprise. Unordered bus summing: the bits would depend on scheduling.
-
-**State of the art.** Recent patching environments offer multichannel cables with expansion; workstations offer buses, sends and groups. This offers both in one engine, with summing orders that are part of the result and so identical everywhere.
 
 **Consequences.** Engine: a channel count per outlet, instances per channel, buses in the planner. Patch format: bus names, sends and receives; box arguments that set channel counts (ticket #3, step 3). Hash: unchanged. Tests: expansion against N separate boxes, bit for bit; a mismatched cable rejected; bus summing order; channel counts 0, 1 and the maximum, and one past it.
 
@@ -170,8 +173,6 @@ Sub-decisions:
 
 **Rejected.** Allocating a voice on note-on (allocation on the audio thread). A single, fixed stealing policy. Unordered voice summing.
 
-**State of the art.** Matches the voice management of professional samplers and synthesizers (polyphony limits, stealing modes, MPE) and the per-subpatch polyphony and multichannel polyphony of patching environments, deterministically.
-
 **Consequences.** Engine: the voice allocator, voice activity, per-note routing. Patch format: a polyphonic subpatch with V and its policies. Hash: unchanged. Tests: allocation and stealing laws over random note streams; voice summing order; MPE routing; no allocation at note-on, by the counting allocator.
 
 **Step.** #12 step 21. **Order:** 13.
@@ -184,8 +185,6 @@ Sub-decisions:
 
 **Rejected.** Raw by default (aliasing for every user who does not know). Band-limited only (no exact naive shapes for control).
 
-**State of the art.** Professional synthesizers are band-limited; patching environments often default to raw shapes. This defaults to the professional choice, keeps the raw one, and publishes each box's measured aliasing.
-
 **Consequences.** Engine: the policy in `ParamSpec`; `osc~`'s documented aliasing above Nyquist becomes a declared policy. Patch format: a per-box variant (`raw`), as a box argument. Hash: unchanged for a sine below Nyquist; re-blessed where the policy changes output. Tests: aliasing measurements across the rate matrix; each policy at, below and above Nyquist.
 
 **Step.** #12 steps 4 and 15. **Order:** 7.
@@ -197,8 +196,6 @@ Sub-decisions:
 **Why.** Integer addition is exact: the only error is the increment's rounding, at most 2^-65 cycle per frame, with no accumulated rounding of the phase and no wrap test. Long renders never drift beyond that bound, and a reference is exact rational arithmetic.
 
 **Rejected.** A floating-point phase (today's `f64`): each addition rounds, the error grows with time and depends on the regime. A 32-bit integer phase: frequency resolution too coarse at high rates.
-
-**State of the art.** Exceeds the floating-point phase of most environments; matches the best hardware-style accumulators, with frequency resolution of `rate / 2^64`.
 
 **Consequences.** Engine: `osc~` rewritten on the accumulator. Hash: `osc~` references re-blessed (they change in the last bits). Tests: the long-run drift check against the exact phase, skipping ahead in state over hours (step 10); the increment's rounding bound tested at the extremes.
 
@@ -223,8 +220,6 @@ Sub-decisions:
 
 **Rejected.** 32-bit only (rounding noise in low-frequency recursive filters). 64-bit only (no way to trade precision for CPU on a phone or a heavy browser patch). A precision per subpatch: conversions at every boundary and a hash that no longer names one precision.
 
-**State of the art.** Professional workstations offer 64-bit processing as an option; this makes it the default on every target, the browser included, and proves both precisions bit for bit across targets.
-
 **Consequences.** Engine: a `Sample` trait for `f32` and `f64`; every box generic over it; the hash crates and the oracle read both formats. Patch format: version 2, binary64 parameters, with a migration from version 1. Hash: `render-hash/2`. Tests: every conformance case and every law in both precisions, native and WebAssembly; the measurements of step 2 in both.
 
 **Step.** #12 step 11. **Order:** 3.
@@ -236,8 +231,6 @@ Sub-decisions:
 **Why.** WebAssembly has no hardware flush; a native plugin host may set one. Results equal on both require the same arithmetic on both, and software flushing keeps subnormals from slowing down recursive tails.
 
 **Rejected.** Relying on the hardware flags (absent in WebAssembly, host-dependent natively). Proving every box insensitive to the host's mode instead of setting it: not provable for intermediate results. Adding noise or offsets to avoid subnormals: changes the signal.
-
-**State of the art.** Professional tools set the hardware flags on their own threads; this gets the same speed and also the same bits as WebAssembly.
 
 **Consequences.** Engine: a flush function used by box laws. Native shells: setting the floating-point control register needs platform code that safe Rust does not offer: one more minimal, audited file lifting `unsafe` (x86_64 and aarch64), added to the list `cargo xtask check` enforces, and tested by forcing the host's modes on. Hash: unchanged (subnormals are already hashed as they are). Tests: a subnormal conformance case; a law that no box outputs or keeps a subnormal; a native test with flush-to-zero forced on before the call.
 
@@ -257,8 +250,6 @@ Sub-decisions:
 
 **Rejected.** A single mode. Clipping instead of limiting (distortion as protection). Leaving non-finite samples to the host (today's behavior, which makes "never NaN in the output" a host duty).
 
-**State of the art.** Workstations offer a master limiter as a plugin and some protect against non-finite output; this builds both into the engine, proven by conformance.
-
 **Consequences.** Engine: an output stage after `Plan::process`; its report. Hash: references re-blessed where a case output non-finite samples (the special-value vectors of the hash itself are unchanged). Tests: the limiter's measurements with derived thresholds (bit-identical below its threshold; true-peak overshoot of the ceiling bounded; THD while limiting); non-finite replacement in both modes; the "never NaN" property becomes a law.
 
 **Step.** #12 step 12. **Order:** 4.
@@ -270,8 +261,6 @@ Sub-decisions:
 **Why.** Look-ahead limiters, linear-phase filters, spectral subpatches and external processors all add latency; without compensation parallel paths comb-filter.
 
 **Rejected.** Manual compensation by the user. Compensating audio but not events (automation would lead the audio).
-
-**State of the art.** Matches workstation-grade automatic delay compensation, including automation alignment, which patching environments do not offer.
 
 **Consequences.** Engine: latency in the box contract; compensation delays in the planner (allocated when the plan is built). Patch format: the per-patch compensation setting. Hash: unchanged. Tests: a null test, two equal paths of different latency summing to an exact cancellation (aligned to the sample); events aligned; reported latency equals the measured one.
 
@@ -285,7 +274,7 @@ Sub-decisions:
 
 **Rejected.** Saving parameters only (a delay line or a sequencer's position is lost). A text encoding of state (floats would not round-trip by bits).
 
-**State of the art.** Matches the full plugin-state save of workstations, and adds a law they do not prove: **a render saved at frame t and restored continues with exactly the same bits**.
+The seek law (decision 24) generalizes this law to any frame.
 
 **Consequences.** Engine: `save` and `restore` in the box contract. Patch format: an optional state per box, versioned (ticket #3). Hash: unchanged. Tests: the resume law over every box and random patches; old state versions migrate; malformed state is refused, never trusted.
 
@@ -303,9 +292,14 @@ Building off the audio thread, per host:
 
 **Why.** Live coding and live patching need edits that are heard immediately and never click.
 
-**Rejected.** Rebuilding everything with a silence gap. Transferring state by position in the document (an edit that reorders boxes would scramble state). Building the browser plan in one go on the audio thread (an unbounded stall).
+Why the browser's plan is built in the worklet's own instance:
 
-**State of the art.** Matches the glitch-free editing of the best live environments, with state kept per box and a sample-accurate, reproducible swap.
+- a plan is data laid out in the memory of the instance that runs it; built anywhere else, it would have to be copied into that memory, and that copy runs on the audio thread, in one piece, in time proportional to the plan: no less work than building it, and unbounded per render quantum;
+- without cross-origin isolation a page has no shared memory, so nothing outside the worklet can write into the instance's memory at all; building there is the only path every page has;
+- a second instance in a Worker would compile and hold the module twice, and its plan would still have to be copied across;
+- in slices, the work per render quantum has a budget, measured (steps 6 and 20), while the old plan keeps playing; where shared memory and WebAssembly threads exist, a worker builds into that same memory, which takes even the slices off the audio thread.
+
+**Rejected.** Rebuilding everything with a silence gap. Transferring state by position in the document (an edit that reorders boxes would scramble state). Building the browser plan in one go on the audio thread (an unbounded stall). Building the browser plan in a Worker without shared memory and transferring it: the transfer lands on the audio thread as one unbounded copy.
 
 **Consequences.** Engine: plans as swappable units; incremental, budgeted plan building; the swap event. Hash: unchanged. Tests: a render with swaps equals the expected splice; the crossfade measured: no click, its discontinuity bounded by a derived threshold; no allocation or memory growth on the audio thread while swapping; the slice budget measured.
 
@@ -319,8 +313,6 @@ Building off the audio thread, per host:
 
 **Rejected.** Atomic accumulation into shared buses (the order of additions, so the bits, would depend on timing). Threads inside the core (it would no longer be portable).
 
-**State of the art.** Matches the multi-core graph scheduling of workstations, and adds bit-identical results at any thread count.
-
 **Consequences.** Engine: a task graph in the plan. Hash: unchanged. Tests: every case rendered with 1 to many threads, identical; Miri and the counting allocator on the shell's scheduler.
 
 **Step.** #12 step 22. **Order:** 14.
@@ -333,14 +325,212 @@ The engine provides the hook; the rest is outside it, on later cards. **Order:**
 - **Inputs.** Audio input boxes read the host's input channels (a plugin's input and side-chain buses, a device's inputs, a file offline). Device access is outside the engine (card "Audio and MIDI devices"). A conformance case with inputs records them, so it stays deterministic. Step 24.
 - **External processors.** A box kind for third-party plugins: it declares its latency (compensated), imposes its block size (the engine rebuffers for it, adding declared latency), saves an opaque state blob, and is **marked non-deterministic**: every output that depends on it is marked, and a render so marked is excluded from hash guarantees and says so. Loading, sandboxing and plugin interfaces are outside the engine, native only (card "Native plugin hosting (VST3, CLAP, AU)"). On a host without plugin support, the box loads, outputs silence or passes its input through (a per-box setting) and is reported as unavailable; the patch stays intact. Step 25.
 
-**State of the art.** Matches workstation transport sync, side-chain inputs and plugin hosting with compensated latency; adds an explicit, propagated mark of what cannot be proven.
-
 ## 18. Remaining points of ticket #12
 
 - **Patches without audio output: time advances.** A patch with no output channel still runs every box (it may record, analyze, send messages or MIDI); a render of it has zero samples per frame but its frames are processed. The native renderer, which today runs no box, changes to agree with the WebAssembly engine, which runs them all. Its conformance is proven through what it observes (probe outputs), since its hash only covers rate and duration. Step 8, order 5.
 - **Without SharedArrayBuffer** (a page not cross-origin isolated): the oscilloscope uses an AnalyserNode (no shared memory needed); capture and metering post a bounded summary (peaks, a decimated window) at a fixed low rate, in buffers from a pool transferred back and forth, instead of a message per render quantum; full-rate capture is reported as unavailable, never approximated. Events to the engine go through the processor's message port, batched, with frame timestamps, so they stay sample-accurate when scheduled ahead and are counted late otherwise. The allocations of a message are bounded per second, measured, and listed among the known deviations. Step 5, order 8.
 - **Off-audio-thread construction**: decision 15.
 - **The real-time cost estimate** (step 7) uses the task graph of decision 16 and the per-box benchmarks of step 6.
+
+## 19. The control boundary
+
+**Decision.** The engine meets the outside world at one boundary, in both directions, and never waits on it: **events in** (decision 4), **the return path out**, both bounded, preallocated, timestamped in frames, and with the same capacities and overflow behavior in every execution mode (decision 20). What runs asynchronously (the interface, files, network, an assistant, heavy patch logic) lives in the **coordinating layer** above the engine (decision 1), which only talks to the engine through this boundary.
+
+Sub-decisions, inbound:
+
+- **The host stamps, the engine never guesses.** An event reaches the engine with its absolute frame already set. Two stamping policies, chosen per input source by the host:
+  - `immediate` (the default for interface gestures, which carry no precise time): the event takes the first frame of the host buffer during which the host's audio-thread glue drains it (in the browser, the first frame of the render quantum whose `process` call drains it); the lowest latency, with a jitter of at most one host buffer;
+  - `scheduled` (the default for sources that carry a timestamp: MIDI devices, the coordinating layer, render-ahead): the event's own time converted to a frame, plus a constant control latency the host declares; no jitter. One that arrives after its frame is late (decision 4).
+- **Conversion rule at the boundary.** A time from another base (seconds as a rational number, a video frame, a tick of a tempo map) becomes the **nearest frame, ties to the later frame**, computed in exact integer arithmetic (no floating point); a frame `n` becomes the exact instant `n / rate` seconds, and the other side rounds it by the same rule. The engine itself only ever sees frames.
+- **Quota and horizon, enforced on the sending side.** The engine's sender (the host-facing part of the engine library, never on the audio thread) refuses at once, with its reason, an event beyond `EVENTS_PER_WINDOW` events stamped in one window of `EVENT_WINDOW` frames of the absolute frame grid, or stamped more than `EVENT_HORIZON` frames ahead of the render position it last read. The audio-thread side drains the transport into a pending queue sorted by frame whose capacity is derived from those three constants and the maximum engine block, so it **cannot** overflow: the only loss is a refusal the sender sees synchronously. The refusal depends only on the events' frames and order, so an offline render of the same event list refuses the same events.
+- **Message cascades** inside a frame need no queue: depth-first delivery (decision 4) uses a stack whose depth is the longest message path, known when the plan is built and preallocated exactly. Their time is bounded by the counts of messages each box declares it may emit per message received (decision 25), which the cost estimate uses (step 7).
+
+Sub-decisions, outbound (the **return path**):
+
+- **Streams**: messages a box sends outward (a print, a value a display shows, MIDI out, a notice to the editor), each entry with its frame, the box id and outlet, a 64-bit sequence number and a bounded payload (decision 21). At most `OUTBOUND_PER_WINDOW` entries per window of `EVENT_WINDOW` frames; beyond, an entry is dropped and counted, by a rule that depends only on the render, so the content of a stream is identical in every mode.
+- **Latest-value slots**: meters, scope summaries and watched cables, where only the newest value matters. The engine writes a fixed-size summary per period of frames into a slot (three buffers, so writing never waits for a reader); a slow reader reads the newest and loses nothing it needed. A watched cable is a probe registered when the plan is built, never a lookup while processing.
+- **Engine reports** (late events, refusals, overflows, non-finite samples replaced, resource underruns, the applied frame of each late event) have their own stream with its own reserved capacity, so box messages never crowd them out.
+- **Delivery.** Each stream crosses to its reader through a preallocated single-producer, single-consumer ring. When the reader is slow and the ring is full, the newest entries are dropped and the reader learns the exact range of missing sequence numbers: a delivery gap, reported like a late event, which never changes a sample. Offline the renderer drains the ring whenever it fills (it has no deadline), so it has no gap.
+- A host shows an entry when it is heard: its frame plus the output latency the host reports.
+
+The **live event log** is a host feature with an engine hook: the host records, as the engine applied them, every event (with its applied frame; late events take the frame the engine reports), every plan swap with the patch it installed, the seed (decision 23), the resources by hash (decision 26), resource underruns, and the host settings that change bits (rate, precision, channel counts). **The same patch and the same log give the same bits**: replaying a log offline applies every event at its logged frame, so nothing is late and nothing differs. The log has a canonical, versioned binary encoding (like state, decision 14), symbols written as text; the host decides whether to record it (the editor records by default, an exported app only if its author enables it) and keeps it local.
+
+**Why.** A live performance is only reproducible if everything that entered the engine is known by frame; stamping on the host side and logging what the engine applied makes a live take an offline render. Overflow decided by frames and order, never by timing, is what keeps live and offline identical. The return path must never make the audio thread wait for a reader, so loss is allowed only where it is visible and exact.
+
+**Rejected.** Letting the engine stamp events by reading a clock (the core has no clock, and its result would depend on timing). Blocking or allocating when a queue is full. Overflow decided by how full a ring happens to be (the result would differ between live and offline). One queue for box messages and engine reports (a chatty box would hide the report of a fault). Logging what was sent rather than what was applied (late events would replay at other frames). Converting times in floating point at the boundary.
+
+**Consequences.** Engine: the sender with its quota and horizon, the sorted pending queue sized by construction, the depth-first stack sized when the plan is built, the outbound streams, slots and report stream, the applied frame of late events. Patch format: none (the log is its own versioned document, specified in `spec/` with test vectors when it is implemented). Hash: unchanged; a conformance case may carry an event log. Tests: the conversion rule against an exact rational reference, at ties and at the extremes of 64-bit frames; quota and horizon at the limit and one past it, the same refusals live and offline; a simulated live host with random lateness, slow readers and full rings: its log replayed offline gives the same bits; every gap reported with its exact sequence numbers; no allocation and no wait on the audio-thread side, by the counting allocator.
+
+**Step.** #12 step 26 (the browser's transport for it with step 5). **Order:** 6.
+
+## 20. Execution modes
+
+**Decision.** One engine, three **execution modes**, with the same semantics and the same bits:
+
+- **live**: a deadline every host buffer; what cannot keep up is reported (late events, delivery gaps, underruns), never hidden;
+- **offline**: no deadline; the renderer waits for what it needs (resources, events), so it is never late and never underruns;
+- **build**: the export; the patch is frozen and may be compiled and precomputed (decision 25), and the built result must give the bits of an offline render of the same patch.
+
+Sub-decisions:
+
+- **Every box type declares its mode**: **live-capable** (bounded work per frame and per message, no allocation or release of memory, no lock, no I/O while processing) or **offline-only** (it may allocate while processing; it is still deterministic, with no clock, file or network access).
+- **The real-time rules apply to live-capable boxes**, and are proven on each of them by the box laws under the counting allocator, as today; an offline-only box is held to every other law.
+- **A live plan cannot hold an offline-only box, by construction**: the plan builder takes the mode, and building a live plan with an offline-only box is refused, naming the box. The editor shows the mode of each box; the cost estimate (step 7) warns when a live-capable patch is too heavy for live use on the machine.
+- Queue capacities, quotas, horizons and their overflow rules are the same constants in every mode (decision 19); the mode is never part of the result.
+
+**Why.** Heavy work (engraving-grade analysis, exhaustive searches, offline-quality processing) is legitimate where there is no deadline, and needs no excuse there; real-time rules where there is a deadline must be proven, not hoped. One semantics for every mode is what lets a live take, its offline replay and its export agree bit for bit.
+
+**Rejected.** Real-time rules on every box (heavy offline processes would be impossible for nothing). Real-time rules on no box, with live failure left to luck. A mode that changes semantics (larger queues offline, block-quantized events live): live and offline would differ. Detecting at run time that a box allocated: too late, the audio thread has already paid.
+
+**Consequences.** Engine: the mode in the box contract's metadata (decision 25) and in the plan builder; the live plan's refusal. Patch format: none (the mode belongs to the box type, not the patch). Hash: unchanged; the mode is not recorded, since it cannot change a bit. Tests: every registered box declares a mode (a gate over the registry); every live-capable box passes the allocation laws; a live plan refuses an offline-only box; every conformance case rendered offline and through a simulated live host gives the same hash.
+
+**Step.** #12 step 27. **Order:** 5.
+
+## 21. Message payloads
+
+**Decision.** A message carries a **payload** of one **kind**, typed and bounded, and never allocates:
+
+| Kind | Content |
+|---|---|
+| trigger | no value |
+| number | an IEEE 754 binary64 value |
+| symbol | an interned symbol: UTF-8 text of at most `SYMBOL_BYTES_MAX` bytes |
+| list | at most `LIST_MAX` atoms, each a number or a symbol |
+| MIDI | one MIDI 2.0 Universal MIDI Packet (32 to 128 bits) |
+| note | a MIDI 2.0 note packet with its optional spelling (below) |
+| resource | a reference to a resource (decision 26) |
+
+Sub-decisions:
+
+- **Open by version.** Each kind has a stable numeric tag; tags not listed are reserved. A new kind (a domain type such as a video frame handle) is added by a minor version of the box contract (decision 25), never by a box on its own.
+- **Typed ports.** Every message inlet declares the kinds it accepts; a cable from an outlet whose kinds it cannot accept is refused when the plan is built, naming the cable. No kind is converted into another implicitly; conversion is a box.
+- **Symbols are interned when the plan is built**: every symbol in the patch becomes an index in the plan's symbol table, built off the audio thread. A box that makes new text while processing interns it in the table's preallocated spare capacity, with a fixed hash and bounded work; a full table refuses the symbol and reports it. An index is never observable: symbols compare by equality, and any order between them is the order of their bytes; state (decision 14) and the event log (decision 19) write symbols as text, so a symbol's index can differ between plans without changing a bit.
+- **No pool can run dry.** Depth-first delivery means a payload lives only until its cascade returns, so payloads live on the preallocated delivery stack (decision 19); a box that holds messages (a delay, a queue) holds them in its own state, of a declared maximum size.
+- **Overflow is refused, never truncated**: a list longer than `LIST_MAX` or a symbol longer than `SYMBOL_BYTES_MAX` cannot be built (the builder returns an error); the message is dropped and reported with its frame and box. A truncated list would silently change its meaning.
+- **Note spelling.** A note event keeps its symbolic information beside what playback needs: the spelling (a letter and an alteration from double flat to double sharp, quarter tones included), the voice, and the written duration as a fraction of a whole note. A symbolic field is either correct or absent, never stale: a box that changes pitch either computes the new spelling or removes it, and declares which. MIDI 1.0 input and MIDI 2.0 packets without it have no spelling.
+
+**Why.** Allocation on the audio thread slips in through variable-sized data: bounding every payload and interning every symbol before playing closes that door by construction. Typed ports catch at build time what would otherwise be a silent mismatch while playing. Spelling kept on note events lets scores be shown and edited from what the engine played, at no cost to playback.
+
+**Rejected.** Unbounded lists or strings (allocation, or unbounded copies, on the audio thread). Symbols as owned strings in messages (allocation per message). Symbol indices visible to boxes (results would depend on interning order). Implicit conversions between kinds (hidden behavior). Truncating what overflows. Spelling derived from the pitch afterwards (C sharp and D flat cannot be told apart).
+
+**Consequences.** Engine: the payload type and its kind tags, the plan's symbol table with spare capacity, the bounded list builder, typed message ports. Patch format: message contents and box arguments with kinds (symbols as text, numbers as binary64), with ticket #3. Hash: unchanged; event lists in conformance cases carry every kind. Tests: every kind at its limit and one past it; a list or symbol overflow refused and reported; a law that the interning order never changes a bit (the same patch with its boxes listed in another order, symbols interned in another order); a cable of incompatible kinds refused; spelling kept or removed, never wrong, by every box that changes pitch; no allocation while delivering any payload.
+
+**Step.** #12 step 28. **Order:** 6.
+
+## 22. Render-ahead
+
+**Decision.** The engine is designed so that parts of a patch can be **rendered ahead** of the live position, on other cores, without changing a bit; the hooks land now, the scheduling later:
+
+- **Future events**: events may be given with frames ahead of the render position, up to the horizon of decision 19, and wait in the pending queue (order 6).
+- **Live and ahead parts**: the plan's task graph (decision 16) is cut into **parts**; a part is **live** when it depends on something that cannot be known ahead (an audio input, an inlet receiving `immediate` events, an external processor), otherwise **ahead**. The host may render an ahead part early, into a buffer, and the live render mixes it in the fixed order of decision 16.
+- **Invalidation**: when an event arrives for an ahead part at a frame already rendered ahead but not yet heard, the host discards that part's buffer from that frame, restores the part's state at that frame (decision 24) and renders it again. It is not late. An event whose frame has already been heard is late, as in decision 4.
+- **The law**: a render with render-ahead, given the same applied events, equals the same render without it, bit for bit.
+
+What is implemented when: future events and the pending queue at order 6; the cut into parts with the task graph and the law, with an in-process simulation of rendering ahead and invalidating, at order 14; the threads that render ahead (Workers in the browser, threads natively) belong to the hosts, on a later card, without changing the core.
+
+**Why.** A browser page has one real-time thread and cannot make it wait; other cores can only help ahead of time. Retrofitting parts, future events and invalidation into a finished engine would touch everything; designing them in costs little now.
+
+**Rejected.** Never rendering ahead (one core in the browser for ever). Rendering ahead without invalidation (an edit would be heard late, or the render would depend on timing). Treating an edit inside the rendered-ahead span as late (it would be applied at another frame than asked, though there is still time to honor it).
+
+**Consequences.** Engine: the parts and their live or ahead mark in the plan; restoring a part's state at a frame. Patch format: none. Hash: unchanged. Tests: the law over random patches and random event arrivals, with invalidations at and around part boundaries; a part depending on a live source is always marked live.
+
+**Step.** #12 step 29. **Order:** 14 (future events at 6).
+
+## 23. Seeded randomness
+
+**Decision.** Randomness is a pure function of the patch's **seed**, the box and the instant: `random(seed, stream, frame, draw)`. No generator holds state.
+
+Sub-decisions:
+
+- **The seed** is a 64-bit integer stored in the patch.
+- **Streams from stable ids.** A box's **stream** is derived from the path of box ids from the top patch to the box (subpatches included), its channel or voice index, and a purpose index (a box with several random sources numbers them); never from creation order, call order or position in the document. The path's identity is the first 128 bits of the SHA-256 of its canonical text; the planner checks that no two streams of a plan collide and refuses the plan if they do, so two boxes never share a stream.
+- **The generator** is **Threefry-4×64-20** (Salmon, Moraes, Dror and Shaw, "Parallel random numbers: as easy as 1, 2, 3", SC 2011): a counter-based generator made of 64-bit additions, rotations and exclusive ors only, so it is exact on every target. Key: the seed, the 128 bits of the path, and the channel, voice and purpose indices; counter: the absolute frame and the index of the draw within that frame (draws at one frame follow the total message order of decision 4). Each call gives 256 bits.
+- **Exact conversion**: a uniform binary64 in [0, 1) is `(x >> 11) · 2^-53`, a binary32 one `(x >> 40) · 2^-24`; in (0, 1), for distributions that take a logarithm, `((x >> 11) + 1/2) · 2^-53`. Other distributions are computed from these with the engine's pure-Rust `libm`, like every transcendental function.
+- **New seed live.** A live "new seed on every play" mode draws a seed from the host's entropy when playback starts, writes it to the event log (decision 19) and shows it, so the take can be replayed, kept in the patch or exported exactly.
+- **Changing the generator or its derivation** changes renders, so it takes a new patch format version, with migration (a version 1 document keeps the generator it was made with).
+
+The laws: the same seed gives the same bits; different seeds give different streams; adding, removing or renaming a box leaves every other box's random values unchanged; a box's values at a frame do not depend on what was rendered before (so seeking, rendering ahead, several threads and freezing one part need no replay of randomness).
+
+**Why.** Randomness tied to stable ids and instants is reproducible however a patch is edited, split, seeked or scheduled; a stateful generator ties every value to everything drawn before it.
+
+**Rejected.** A stateful generator per box or per patch (seeking and rendering ahead would need replay, and one more box would shift everyone's values). Streams from creation or call order. Platform or library randomness (it differs between targets). Hashing for each draw with a cryptographic hash (correct, but far costlier per value than a generator built for it). Converting integers to floats by division (rounding differs from the exact shift).
+
+**Consequences.** Engine: the generator in the core, the stream key computed when the plan is built, a per-frame draw index in the state of a box that draws. Patch format: the seed (ticket #3). Hash: unchanged; a conformance case states its seed. Tests: the generator against the published known-answer vectors of Threefry-4×64-20, so the published statistical batteries apply to it bit for bit; the laws above over random patches and edits; the conversions exact at their extremes (0, the largest value below 1); white and other noise boxes measured against derived tolerances (mean, variance, spectral flatness, autocorrelation, `spec/measurements.md`); a stream collision refused.
+
+**Step.** #12 step 30. **Order:** 6.
+
+## 24. The seek law
+
+**Decision.** **A render that jumps to frame `t`, with every box's state restored for `t`, equals from `t` on a render that played from frame 0**, bit for bit. The state for `t` comes either from a snapshot taken at `t` (decision 14) or from the nearest earlier snapshot (or frame 0), replayed to `t` with every event before `t` applied and its output discarded.
+
+Sub-decisions:
+
+- "Every box's state" includes the engine's own state: ramps in progress (decision 5), compensation delays (decision 13), crossfades (decision 15), voice allocation (decision 7), the transport position (decision 17), held messages (decision 21); the engine's state is serializable like a box's.
+- A box may offer a faster way to reach `t` (an oscillator computing its phase at `t` directly, decision 9); the law checks it against replay.
+- Across plan swaps, the patch in effect at `t` is the one the event list or the log (decision 19) installed before `t`.
+- Randomness needs no replay (decision 23); every other state does, which is why snapshots exist.
+
+The resume law of decision 14 is this law at the frame of the snapshot.
+
+**Why.** Seeking a timeline, rendering ahead with invalidation (decision 22), parallel rendering, freezing, and tests that cover hours of signal all depend on it; stated as one law, it is proven once for all of them.
+
+**Rejected.** Starting boxes fresh at `t` (a filter, a delay or a reverb tail would differ from continuous playback). A seek that is only "close" to continuous playback (no bit-exact guarantee could survive it).
+
+**Consequences.** Engine: seeking in the renderer (snapshot, then replay); the engine's own state in snapshots. Patch format: none. Hash: unchanged. Tests: the law over every box and over random patches with events and swaps, at random `t` (0, at and around engine block and host buffer boundaries, after hours of signal by skipping); each box's fast path against replay.
+
+**Step.** #12 step 31. **Order:** 12, with state.
+
+## 25. The box contract
+
+**Decision.** The **box contract** is public and versioned, and the same for built-in boxes and **externals** (box types written by third parties as WebAssembly modules): built-in boxes are externals compiled into the engine. It is defined as a **stable ABI** that a WebAssembly module can implement, and the Rust trait of built-in boxes is one binding of it.
+
+Sub-decisions:
+
+- **Contents**: metadata (type name, contract version, ports with their payload kinds, parameters with kind, range, unit, default and smoothing, latency, state version and maximum size, execution mode (decision 20), the maximum messages emitted per message received, the resources it reads and how, decision 26, and the capabilities it asks for: none by default); a life cycle (prepare at a rate, precision and maximum span, where every allocation happens; process a span with its inputs, outputs and events; reset; save and restore state).
+- **The ABI**: functions with integer and float arguments only; every buffer exchanged by offset and length in the module's own memory, which the engine fills and reads; no pointer into the engine; every float that leaves a module has its NaN made canonical, since WebAssembly leaves NaN payloads open. Versioned major.minor: a module declares the version it implements, the engine supports a declared range, and a minor version only adds. Relaxed SIMD and threads are refused when a module is loaded (their results may differ between runtimes).
+- **Compile-friendly**: a box's processing is a function of its explicit state, its inputs and its events, and of nothing else (no global, no static mutable value), so code generated at build time (decision 20) can call and inline it, and it gives the same bits whether called by the plan or by generated code.
+- **Routing is resolved when the plan is built**: sends and receives by name, buses, watched cables and named destinations all become direct edges in the plan; nothing is looked up by name while processing. Changing a route is a patch edit, played through a hot swap (decision 15).
+- **Externals are referenced by content**: a patch names an external by the SHA-256 of its module, with a readable name, so the same patch always plays the same external.
+
+**Why.** One contract used by every box means no first- and second-class boxes, and every law applies to externals as it applies to built-in boxes. A contract that only exists as a Rust trait cannot be implemented in another language or crossed by a WebAssembly boundary; an ABI can. Explicit state and routing resolved in advance are what let a frozen patch compile to direct code.
+
+**Rejected.** A Rust-only contract (no externals, no other languages). Native libraries as externals (one build per platform, no browser, no sandbox, no determinism). Pointers across the boundary (unsafe, and meaningless between memories). Run-time lookup of routes by name (cost and hidden state while processing, and nothing to compile).
+
+**Consequences.** Engine: the contract as an ABI with its version; the Rust trait as its binding; routing resolution in the planner; NaN made canonical at the boundary. Patch format: external references by hash and name (ticket #3). Hash: unchanged. Tests: every built-in box run directly and through the ABI form (hosted in a test harness by a WebAssembly runtime added at this step, with its entry in the dependency register), giving the same bits; the box laws on both; a module of an unsupported version, an invalid metadata or a forbidden feature refused with its reason; routes by name resolved before the first frame; the law that generated code equals the plan lands with the build's compiler, on a later card.
+
+**Step.** #12 step 32. **Order:** 6, first: the contract is shaped with events, before boxes are written against it.
+
+## 26. Resources
+
+**Decision.** **Resources** (samples, tables, impulse responses) are immutable data a box reads, identified by the **SHA-256 of their source bytes**, with a readable name.
+
+Sub-decisions:
+
+- **Prepared outside the audio thread**: the host reads the bytes, then decodes them and resamples them to the session rate with Rust code that is the same on every target; the browser's own decoding is never used (its output is not specified bit for bit). The resampler is a rational polyphase filter specified by its coefficient tables, like the subpatch resampler of decision 2, and measured the same way. What a box reads is a function of the source hash, the decoding version, the rate and the precision.
+- **A table per engine instance**, no global state. A resource is immutable once handed to the engine; replacing it means preparing the new one beside the old one and **swapping it at a frame**, as an event, between two blocks, with no allocation and no lock on the audio thread; the old one is freed off it.
+- **Boxes never know where the bytes are.** A box reads through a handle, resolved when the plan is built: `read(handle, channel, first frame, count)` copies frames into the box's buffer, whether the resource is in memory or streamed. A box declares its access as **linear** (may be streamed) or **random** (must be in memory); the host chooses the memory mode, and the mode never changes which bytes are read.
+- **Defined at every edge**: frames outside the resource read as zero; a missing resource reads as one of length zero and is reported; a streaming underrun (live only) reads zeros, is reported and logged (decision 19), so its replay gives the same bits. Offline the renderer waits for the data and never underruns.
+- **Across the ABI** (decision 25), reading is an imported function that copies into the module's memory, bounded by the maximum span; a module never sees the resource's memory.
+
+**Why.** Content addressing makes a patch portable and its inputs exact; decoding with one code everywhere makes the samples a box reads identical on every target; reading through a handle lets streaming arrive later without touching a box.
+
+**Rejected.** Paths in patches (machine-specific, and a file can change under the same path). Decoding with the platform's decoder. Boxes holding a reference to resource memory (streaming would need every box to change, and the ABI could not offer it). Mutable resources (a change in the middle of a block would depend on timing).
+
+**Consequences.** Engine: the resource table, handles, the read call, swaps as events, the underrun report. Host shells: decoding and resampling. Patch format: a resources section (hash and name) and box arguments that name a resource (ticket #3). Hash: unchanged; a conformance case carries its resources' bytes. Tests: the resampler's measurements with derived thresholds (passband ripple, stopband rejection, aliasing); reads at the edges (first and last frame, beyond, zero length); renders identical with the resource in memory and streamed; a swap applied at its exact frame; an underrun logged and replayed bit for bit; bytes whose hash does not match refused; no allocation in a read or a swap.
+
+**Step.** #12 step 33. **Order:** 12, after hot swap (the same swap mechanism); the read call in the contract at 6.
+
+## 27. A deterministic FFT
+
+**Decision.** The engine has its own FFT, in the core (`no_std`, safe Rust), with **one code path on every target**: no detection of processor features at run time; no fused multiply-add; the order of every floating-point operation fixed by the source. An iterative Stockham FFT (radix 4, with a final radix-2 pass) for powers of two; any other length through Bluestein's algorithm on a power-of-two FFT. **Twiddle factors** are computed when the plan is built, with the pure-Rust `libm`, from angles reduced exactly in integers to the first octant (so `k / N` is never rounded) and unfolded by symmetry; generic over the sample type, the binary32 twiddles rounded from binary64.
+
+**Why.** Spectral subpatches (decision 2), convolution, analysis and linear-phase filters need an FFT, and a general-purpose library that picks its code path from the processor, or takes its twiddles from the platform's trigonometry, can round differently on two machines. Owning it keeps the core promise and lets its error be derived.
+
+**Rejected.** A general-purpose FFT library that selects SIMD code at run time. Such a library restricted to its scalar path (its twiddles may still come from the platform's math). Twiddle tables stored in the repository (a second source of the same fact, and large for long transforms). Sharing the FFT of the measurements (`engine_testkit::measure`): the instrument would then measure itself.
+
+**Consequences.** Engine: the FFT in the core, its twiddle tables allocated when the plan is built. Patch format: none. Hash: unchanged. Tests, with the steps of `spec/measurements.md` for an engine component: its error against a direct transform computed in higher precision, within a bound derived term by term (as the FFT term of `spec/measurements.md`), for every power of two up to the maximum and lengths that are prime, odd and composite; inverse after forward within a derived bound; impulses and sines on bins exact to their bound; the same bits natively and in WebAssembly; its cost counted per length by the benchmarks of `spec/benchmarks.md`.
+
+**Step.** #12 step 34. **Order:** 10, before spectral subpatches.
 
 ## Implementation order
 
@@ -350,14 +540,14 @@ Each step lands with its tests, its format or hash version, and its conformance 
 2. **Step 6**, benchmarks: the cost of the decisions below is measured, not guessed.
 3. **Steps 3 and 9**, denormals and subnormal parameters, then **step 11**, precision and `render-hash/2`: one re-bless of every reference, in both precisions.
 4. **Step 12**, output stage: fixes what a render ends with.
-5. **Steps 13 and 8**, host settings and the engine-block law, then outputs without channels.
-6. **Steps 4 and 14**, parameters, events, messages and rates: everything after relies on events.
+5. **Steps 13 and 8**, host settings and the engine-block law, then outputs without channels, then **step 27**, execution modes (the mode is a host setting and the box contract's first new field).
+6. **Step 32**, the box contract as a versioned ABI, first (every box is written against it); then **steps 4 and 14**, parameters, events, messages and rates, with **step 28**, message payloads, **step 26**, the control boundary (quotas, return path, the event log's hook) and **step 30**, seeded randomness (draws are addressed by frame and message order): everything after relies on events.
 7. **Steps 15 and 10**, oscillators: integer phase, Nyquist policy, long-run drift.
-8. **Steps 5 and 7**, the browser's audio thread, then the cost estimate.
+8. **Steps 5 and 7**, the browser's audio thread (with the browser's transport of the control boundary), then the cost estimate.
 9. **Step 16**, multichannel cables and buses.
-10. **Step 17**, subpatches with their blocks, and feedback (needs subpatches in the format, ticket #3).
+10. **Step 34**, the FFT, then **step 17**, subpatches with their blocks, and feedback (needs subpatches in the format, ticket #3).
 11. **Step 18**, latency compensation (subpatch blocks and the limiter introduce latency).
-12. **Step 19**, state, then **step 20**, hot swap (needs state).
+12. **Step 19**, state, with **step 31**, the seek law, then **step 20**, hot swap (needs state), then **step 33**, resources (the same swap mechanism).
 13. **Step 21**, polyphony (needs subpatches, events, multichannel and state).
-14. **Step 22**, parallel scheduling, once the graph's shape is stable.
+14. **Step 22**, parallel scheduling, once the graph's shape is stable, with **step 29**, render-ahead (parts of the task graph, invalidation through the seek law).
 15. **Steps 23, 24, 25**, the three hooks; external processors last (they need latency, state and rebuffering).
