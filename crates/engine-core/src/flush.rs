@@ -44,7 +44,8 @@ mod tests {
     /// comparison with 2^-126 is exact and no hardware flush mode can touch it.
     fn expected(value: f32) -> u32 {
         let wide = f64::from(value);
-        if wide.abs() < SMALLEST_NORMAL && !wide.is_nan() {
+        // A NaN compares false: it keeps its bits.
+        if wide.abs() < SMALLEST_NORMAL {
             value.to_bits() & 0x8000_0000_u32
         } else {
             value.to_bits()
