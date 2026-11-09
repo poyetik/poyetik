@@ -762,11 +762,12 @@ const FAKE_NIGHTLY: &str = "rustc 1.101.0-nightly (f9ceb4a4d 2026-10-31)\n";
 const RELEASE: super::Release = (1, 99, 1);
 
 /// A source of the standard library declaring `methods` (name, stability, documentation)
-/// in an `impl` block of `float`, between a constant and the closing brace.
+/// in an `impl` block of `float`, between a constant, a call of the reviewed macro
+/// `float_impl!` and the closing brace; each method's body calls a macro.
 fn float_source(float: &str, methods: &[(&str, bool, &str)]) -> String {
     use core::fmt::Write as _;
     let mut text = format!(
-        "//! Floats.\n\npub mod consts {{}}\n\nimpl {float} {{\n    pub const RADIX: u32 = 2;\n\n"
+        "//! Floats.\n\npub mod consts {{}}\n\nimpl {float} {{\n    pub const RADIX: u32 = 2;\n\n    float_impl! {{\n        Self = {float},\n    }}\n\n"
     );
     for (name, stable, doc) in methods {
         let attribute = if *stable {
@@ -776,16 +777,20 @@ fn float_source(float: &str, methods: &[(&str, bool, &str)]) -> String {
         };
         let _written = writeln!(
             text,
-            "    /// {doc}\n    ///\n    /// ```\n    /// let x = 1.0;\n    /// ```\n    {attribute}\n    #[inline]\n    pub const fn {name}(self) -> {float} {{\n        self\n    }}\n"
+            "    /// {doc}\n    ///\n    /// ```\n    /// let x = 1.0;\n    /// ```\n    {attribute}\n    #[inline]\n    pub const fn {name}(self) -> {float} {{\n        debug_assert!(true);\n        self\n    }}\n"
         );
     }
     text.push_str("}\n\nfn outside() {}\n");
     text
 }
 
+/// The source of the reviewed macro `float_impl!`: it defines a constant, and names a
+/// function only in a comment and in an attribute.
+const FLOAT_MACRO_SOURCE: &str = "#[rustc_macro_transparency = \"semiopaque\"]\npub(crate) macro float_impl(\n    Self = $SelfT:ty,\n) {\n    /// Not a fn here.\n    #[doc = concat!(\"fn get_exp(a: \", stringify!($SelfT), \")\")]\n    pub const RADIX: u32 = 2;\n}\n";
+
 /// Consistent float sources, every reviewed method stable in `core`, `sin` banned (and
-/// documented as such) and an unstable `gamma` in `std`, with the `clippy.toml` banning
-/// `sin` (and a method that is not a float's).
+/// documented as such) and an unstable `gamma` in `std`, then the source of `float_impl!`,
+/// with the `clippy.toml` banning `sin` (and a method that is not a float's).
 fn float_fixture() -> (Vec<(String, String)>, String) {
     let reviewed: Vec<(&str, bool, &str)> = super::DETERMINISTIC_FLOAT_METHODS
         .iter()
@@ -813,6 +818,12 @@ fn float_fixture() -> (Vec<(String, String)>, String) {
                 float_source(float, methods),
             )
         })
+        .chain(super::FLOAT_ITEM_MACROS.iter().map(|(_, path)| {
+            (
+                format!("{FAKE_SYSROOT}/{path}"),
+                FLOAT_MACRO_SOURCE.to_owned(),
+            )
+        }))
         .collect();
     let clippy = "disallowed-methods = [\n  { path = \"std::env::args\", reason = \"r\" },\n  { path = \"f32::sin\", reason = \"r\" },\n  { path = \"f64::sin\", reason = \"r\" },\n]\n".to_owned();
     (sources, clippy)
@@ -1170,6 +1181,99 @@ fn refuses_float_sources_it_cannot_read() {
 }
 
 #[test]
+fn refuses_a_macro_among_the_float_methods_unless_reviewed() {
+    let (_, clippy) = float_fixture();
+    let path = format!("{FAKE_SYSROOT}/{}", super::FLOAT_SOURCES[1]);
+    // A macro may define methods: among the items, only a reviewed one is accepted (the
+    // fixture calls `float_impl!` there, and a macro inside each method's body).
+    for call in ["cfg_select! {", "methods!(", "float_impl2!{", "!x {"] {
+        let sources =
+            float_sources_with(|text| text.replace("    float_impl! {", &format!("    {call}")));
+        assert_eq!(
+            super::float_gate(&sources, FAKE_NIGHTLY, RELEASE, &clippy),
+            found(
+                "the float methods of the pinned toolchain",
+                &[format!(
+                    "{path}: `{call}` calls a macro among the items of the `impl f64 {{` block that is not reviewed as defining only constants (FLOAT_ITEM_MACROS in xtask)"
+                )]
+            ),
+            "{call}"
+        );
+    }
+}
+
+#[test]
+fn refuses_a_reviewed_float_macro_that_may_define_methods() {
+    let (sources, clippy) = float_fixture();
+    let (name, source) = super::FLOAT_ITEM_MACROS[0];
+    let macro_path = format!("{FAKE_SYSROOT}/{source}");
+    let edited = |from: &str, to: &str| -> Vec<(String, String)> {
+        sources
+            .iter()
+            .map(|(path, text)| {
+                if *path == macro_path {
+                    (path.clone(), text.replace(from, to))
+                } else {
+                    (path.clone(), text.clone())
+                }
+            })
+            .collect()
+    };
+    let radix = "    pub const RADIX: u32 = 2;\n";
+    for (line, problem) in [
+        ("pub fn lerp(self) -> Self {}", "may define a method"),
+        ("const fn helper() {}", "may define a method"),
+        ("methods! {}", "may define a method"),
+    ] {
+        assert_eq!(
+            super::float_gate(
+                &edited(radix, &format!("{radix}    {line}\n")),
+                FAKE_NIGHTLY,
+                RELEASE,
+                &clippy
+            ),
+            found(
+                "the float methods of the pinned toolchain",
+                &[format!(
+                    "{macro_path}: `{line}` {problem} in `{name}!`, which is reviewed as defining only constants"
+                )]
+            ),
+            "{line}"
+        );
+    }
+    assert_eq!(
+        super::float_gate(
+            &edited("macro float_impl(", "macro float_impl2("),
+            FAKE_NIGHTLY,
+            RELEASE,
+            &clippy
+        ),
+        found(
+            "the float methods of the pinned toolchain",
+            &[format!(
+                "{macro_path}: no `macro {name}(` definition, reviewed in FLOAT_ITEM_MACROS"
+            )]
+        ),
+        "another macro"
+    );
+    let unaudited: Vec<(String, String)> = sources
+        .iter()
+        .filter(|(path, _)| *path != macro_path)
+        .cloned()
+        .collect();
+    assert_eq!(
+        super::float_gate(&unaudited, FAKE_NIGHTLY, RELEASE, &clippy),
+        found(
+            "the float methods of the pinned toolchain",
+            &[format!(
+                "`{name}!` is reviewed as defining only constants, but its source {source} is not audited"
+            )]
+        ),
+        "an unaudited macro"
+    );
+}
+
+#[test]
 fn reads_the_float_sources_of_the_toolchain_s_sysroot() {
     let mut fake = passing();
     let step = Step {
@@ -1196,6 +1300,7 @@ fn reads_the_float_sources_of_the_toolchain_s_sysroot() {
             "read /toolchain/lib/rustlib/src/rust/library/core/src/num/f64.rs",
             "read /toolchain/lib/rustlib/src/rust/library/std/src/num/f32.rs",
             "read /toolchain/lib/rustlib/src/rust/library/std/src/num/f64.rs",
+            "read /toolchain/lib/rustlib/src/rust/library/core/src/num/float_macros.rs",
             "read clippy.toml",
         ],
         "the release, the nightly's version and sysroot, then every source, then the bans"
@@ -2557,7 +2662,7 @@ fn runs_every_step_and_reports_success() {
         "all green"
     );
     let (tools, commands, emptied, listed, captured, written) = (10, 50, 14, 19, 16, 1);
-    let read = 2 + 6 + 12 + 2 + 7 + 19 + 2 + 1 + 7 + 3 + 10 + 10 + 20 + 8 + 2 + 11 + 40 + 20;
+    let read = 2 + 7 + 12 + 2 + 7 + 19 + 2 + 1 + 7 + 3 + 10 + 10 + 20 + 8 + 2 + 11 + 40 + 20;
     assert_eq!(
         fake.ran.len(),
         tools + commands + emptied + listed + captured + written + read,
@@ -2569,7 +2674,7 @@ fn runs_every_step_and_reports_success() {
          eleven kinds of files, the TypeScript ones again for the reports and scope gates of \
          each package after the first; the licenses and the history are captured twice each, the state \
          of the tree (before and after) four times, the nightly's version and sysroot, the Cargo metadata, the merge base, the changes and the \
-         new Rust files once; the diff is written once; and the gates read .node-version and the toolchain file for the preflight, the toolchain file, the four float sources of the nightly and clippy.toml for the float gate, twelve coverage reports, \
+         new Rust files once; the diff is written once; and the gates read .node-version and the toolchain file for the preflight, the toolchain file, the four float sources and the float macros of the nightly and clippy.toml for the float gate, twelve coverage reports, \
          the unviable report and reviews, six TypeScript sources and their reviews, the eight \
          sources, the ten Cargo manifests and the register of the bypass gate, the two unsafe files, the Cargo \
          configuration, the six package manifests and the register of the dependency gate, the three \
@@ -2623,9 +2728,9 @@ fn stops_at_the_first_failing_command() {
     );
     assert_eq!(
         fake.ran.len(),
-        10 + 2 + 3 + 8 + 4,
+        10 + 2 + 3 + 8 + 5,
         "the preflight asks ten tools and reads .node-version and the toolchain file, the tree is recorded by three \
-         captures, the float gate reads the toolchain file, captures the nightly's version and sysroot and reads five files; nothing runs after the failure"
+         captures, the float gate reads the toolchain file, captures the nightly's version and sysroot and reads six files; nothing runs after the failure"
     );
 }
 

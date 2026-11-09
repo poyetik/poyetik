@@ -3153,6 +3153,19 @@ pub const FLOAT_SOURCES: [&str; 4] = [
     "lib/rustlib/src/rust/library/std/src/num/f64.rs",
 ];
 
+/// The macros a float's `impl` block may call among its methods, each with the source of
+/// the nightly that defines it (relative to the sysroot, as [`FLOAT_SOURCES`]).
+///
+/// A macro called there could define methods the audit would not see, so
+/// [`parse_float_methods`] refuses any other, and [`float_gate`] audits each source here:
+/// it must define the macro and declare no function nor call a macro, so that the macro
+/// defines only constants. `float_impl!`, shared by every float type of `core`, defines
+/// their constants.
+pub const FLOAT_ITEM_MACROS: [(&str, &str); 1] = [(
+    "float_impl",
+    "lib/rustlib/src/rust/library/core/src/num/float_macros.rs",
+)];
+
 /// The stable float methods reviewed as giving the same result on every target.
 ///
 /// For `f32` and `f64` alike, with the reason. Every other stable method of the pinned toolchain must
@@ -3247,13 +3260,17 @@ pub struct FloatMethod {
 /// The single `impl f32 {` or `impl f64 {` block at the start of a line, to its closing `}`
 /// at the start of a line; each method is a line `    pub [const] [unsafe] fn <name>`,
 /// after its documentation and its `#[stable(…, since = "X.Y.Z")]` (or
-/// `"CURRENT_RUSTC_VERSION"`) or `#[unstable(` attribute.
+/// `"CURRENT_RUSTC_VERSION"`) or `#[unstable(` attribute. A line indented by fewer than
+/// eight spaces is among the block's items, not in a method's body: a macro called there
+/// could define methods, so it must be one of [`FLOAT_ITEM_MACROS`], whose sources
+/// [`float_gate`] audits.
 ///
 /// # Errors
 ///
 /// Returns what is not in that shape: no such block or more than one, a block never closed,
 /// a line declaring a function that is not read as a method, a method without a stability
-/// attribute, a `since` of another shape, or no method at all. Nothing is skipped.
+/// attribute, a `since` of another shape, a macro called among the items that is not
+/// reviewed, or no method at all. Nothing is skipped.
 pub fn parse_float_methods(path: &str, source: &str) -> Result<Vec<FloatMethod>, String> {
     let lines: Vec<&str> = source.lines().collect();
     let starts: Vec<(usize, &str)> = lines
@@ -3303,6 +3320,18 @@ pub fn parse_float_methods(path: &str, source: &str) -> Result<Vec<FloatMethod>,
             doc.push_str(trimmed);
             doc.push('\n');
         }
+        let item = !line.starts_with("        ");
+        let unreviewed = macro_call(trimmed).is_some_and(|name| {
+            item && !FLOAT_ITEM_MACROS
+                .iter()
+                .any(|(reviewed, _)| *reviewed == name)
+        });
+        if unreviewed {
+            return Err(format!(
+                "{path}: `{}` calls a macro among the items of the `impl {float} {{` block that is not reviewed as defining only constants (FLOAT_ITEM_MACROS in xtask)",
+                trimmed.trim_end()
+            ));
+        }
         let declares = trimmed.starts_with("pub ") && trimmed.contains("fn ");
         if !declares {
             continue;
@@ -3345,6 +3374,41 @@ pub fn parse_float_methods(path: &str, source: &str) -> Result<Vec<FloatMethod>,
     Ok(methods)
 }
 
+/// The name of the macro a line calls, when it starts with one: `name!` (an empty name
+/// when it starts with `!`, which is no Rust item either).
+fn macro_call(trimmed: &str) -> Option<&str> {
+    let end = trimmed.find(|letter: char| !(letter.is_ascii_alphanumeric() || letter == '_'))?;
+    let (name, rest) = trimmed.split_at(end);
+    rest.starts_with('!').then_some(name)
+}
+
+/// Checks that a macro of [`FLOAT_ITEM_MACROS`] defines only constants.
+///
+/// Its source must define it (a line holding `macro <name>(`), and no line may declare a
+/// function (hold `fn ` outside a comment or an attribute, private ones included) or call a
+/// macro, which could declare one.
+///
+/// # Errors
+///
+/// Returns the missing definition, or the first line that may define a method.
+pub fn audit_float_macro(path: &str, source: &str, name: &str) -> Result<(), String> {
+    let definition = format!("macro {name}(");
+    if !source.lines().any(|line| line.contains(&definition)) {
+        return Err(format!(
+            "{path}: no `{definition}` definition, reviewed in FLOAT_ITEM_MACROS"
+        ));
+    }
+    for line in source.lines().map(str::trim) {
+        let declares = line.contains("fn ") && !line.starts_with("//") && !line.starts_with("#[");
+        if declares || macro_call(line).is_some() {
+            return Err(format!(
+                "{path}: `{line}` may define a method in `{name}!`, which is reviewed as defining only constants"
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// The float methods `clippy.toml` bans: every `{ path = "f32::…" }` or `{ path = "f64::…" }`
 /// of its `disallowed-methods`, as `f32::name`.
 fn banned_float_methods(clippy: &str) -> BTreeSet<String> {
@@ -3364,14 +3428,15 @@ fn banned_float_methods(clippy: &str) -> BTreeSet<String> {
 /// documentation says its result may differ; every ban and every review names a method
 /// that exists. So a new toolchain cannot bring a method no one classified.
 ///
-/// `sources` holds the path and text of each file of [`FLOAT_SOURCES`], read from a
-/// toolchain whose `rustc --version` is `sources_version`; `release` is the pinned release:
+/// `sources` holds the path and text of each file of [`FLOAT_SOURCES`] and of
+/// [`FLOAT_ITEM_MACROS`] (each audited by [`audit_float_macro`]), read from a toolchain whose `rustc --version` is `sources_version`; `release` is the pinned release:
 /// its stable methods are those stabilized in it or before.
 ///
 /// # Errors
 ///
 /// Returns sources not newer than the release, every source not in the expected shape
-/// ([`parse_float_methods`]) and every method or entry breaking a rule above.
+/// ([`parse_float_methods`], [`audit_float_macro`]) or missing, and every method or entry
+/// breaking a rule above.
 pub fn float_gate(
     sources: &[(String, String)],
     sources_version: &str,
@@ -3396,11 +3461,26 @@ pub fn float_gate(
     }
     let mut methods = Vec::new();
     for (path, text) in sources {
-        match parse_float_methods(path, text) {
+        let audited = match FLOAT_ITEM_MACROS
+            .iter()
+            .find(|(_, source)| path.ends_with(source))
+        {
+            Some((name, _)) => audit_float_macro(path, text, name).map(|()| Vec::new()),
+            None => parse_float_methods(path, text),
+        };
+        match audited {
             Ok(found) => methods.extend(found),
             Err(problem) => problems.push(problem),
         }
     }
+    problems.extend(
+        FLOAT_ITEM_MACROS
+            .iter()
+            .filter(|(_, source)| !sources.iter().any(|(path, _)| path.ends_with(source)))
+            .map(|(name, source)| {
+                format!("`{name}!` is reviewed as defining only constants, but its source {source} is not audited")
+            }),
+    );
     let banned = banned_float_methods(clippy);
     let reviewed: BTreeMap<&str, &str> = DETERMINISTIC_FLOAT_METHODS.into_iter().collect();
     let in_release = |method: &FloatMethod| method.since.is_some_and(|since| since <= release);
@@ -3469,6 +3549,7 @@ fn float_methods(runner: &mut dyn Runner) -> Result<(), Failure> {
     let sysroot = capture(&[NIGHTLY_TOOLCHAIN, "--print", "sysroot"])?;
     let paths = FLOAT_SOURCES
         .iter()
+        .chain(FLOAT_ITEM_MACROS.iter().map(|(_, source)| source))
         .map(|source| format!("{}/{source}", sysroot.trim_end()))
         .collect();
     let sources = read_all(runner, paths)?;
