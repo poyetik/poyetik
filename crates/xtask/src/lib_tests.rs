@@ -6779,6 +6779,11 @@ fn refuses_raw_floats_libm_and_host_in_box_code() {
         assert_eq!(gate(allowed), Ok(()), "{allowed}");
     }
     assert_eq!(
+        gate("/* a comment */ f64"),
+        refused(1, "f64"),
+        "code after a block comment"
+    );
+    assert_eq!(
         gate("/* x */\n// y\nlet s = \"a\nb\";\nf64"),
         refused(5, "f64"),
         "lines counted through comments and strings"
