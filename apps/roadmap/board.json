@@ -1067,14 +1067,14 @@
         },
         {
           "title": "Subnormal parameters treated as zero (flushed on the f64 side before rounding, below the smallest normal), with the denormal strategy, and a 1e-40 Hz oscillator case",
-          "done": false
+          "done": true
         },
         {
           "title": "Long-run drift check of oscillators against the exact phase, skipping ahead in state to cover hours of signal",
           "done": false
         },
         {
-          "title": "Engine precision: 64-bit processing by default and 32-bit as a setting, the engine generic over its sample type; a render hash version that records the precision; every reference re-blessed for both precisions (a migration step), checked native and WebAssembly",
+          "title": "Engine precision: 64-bit processing by default and 32-bit as a setting, boxes written once, generic over the sample type, all their arithmetic through the engine's math layer (the sample type, its operators and the math functions); a render hash version that records the precision and the arithmetic mode as a versioned set of option flags (all off, the strict default, the only one built), an unknown flag refused; every reference re-blessed for both precisions (a migration step), checked native and WebAssembly",
           "done": false
         },
         {
@@ -1082,7 +1082,7 @@
           "done": false
         },
         {
-          "title": "Host settings: sample rate, host buffer, engine block and channel counts chosen by the host, renders independent of the engine block, settings a host cannot honor reported",
+          "title": "Host settings: sample rate, host buffer, engine block and channel counts chosen by the host, renders independent of the engine block (reduced-rate updates only on a grid of absolute frames), settings a host cannot honor reported",
           "done": false
         },
         {
@@ -1094,7 +1094,7 @@
           "done": false
         },
         {
-          "title": "Multichannel cables with automatic expansion; buses (sends, groups) summed in a fixed order",
+          "title": "Multichannel cables with automatic expansion and channel layouts (speaker roles and positions, ambisonic components, binaural, discrete; presets and custom layouts) checked when the plan is built; buses (sends, groups) summed in a fixed order",
           "done": false
         },
         {
@@ -1131,6 +1131,54 @@
         },
         {
           "title": "External processor boxes for third-party plugins: declared latency, imposed block size, opaque state, marked non-deterministic and excluded from hash guarantees",
+          "done": false
+        },
+        {
+          "title": "Control boundary: events stamped by the host (immediate or scheduled), times from other bases converted to the nearest frame by exact integer arithmetic; quotas and horizons enforced on the sending side, identical live and offline; a return path that never waits (timestamped streams, latest-value slots, engine reports, gaps reported exactly); a live event log replaying bit for bit",
+          "done": false
+        },
+        {
+          "title": "Execution modes: live, offline and build give the same bits; every box type declares itself live-capable or offline-only, the real-time rules proven on every live-capable box, and a live plan refusing an offline-only box",
+          "done": false
+        },
+        {
+          "title": "Message payloads: trigger, number, symbol, list, MIDI 2.0 packet, note with its spelling, resource; bounded and allocation-free, symbols interned when the plan is built, typed message ports, overflow refused and reported",
+          "done": false
+        },
+        {
+          "title": "Render-ahead hooks: future events, plan parts marked live or ahead, invalidation from a frame by restoring state; a render with render-ahead identical to one without",
+          "done": false
+        },
+        {
+          "title": "Seeded randomness: the seed in the patch, per-box streams from stable box paths, a counter-based generator addressed by frame, exact conversion to floats, a live new-seed mode that logs its seed; its laws",
+          "done": false
+        },
+        {
+          "title": "Seek law: a render that jumps to a frame with every state restored, by snapshot or replay, equals from that frame a render played from the start",
+          "done": false
+        },
+        {
+          "title": "Box contract as a public, versioned ABI shared by built-in boxes and third-party externals: explicit state, compile-friendly processing, buffers aligned to 64 bytes and padded, routing resolved when the plan is built; every built-in box giving the same bits directly and through the ABI",
+          "done": false
+        },
+        {
+          "title": "Resources: content-addressed by SHA-256, immutable, decoded and resampled off the audio thread with the same code on every target, swapped at a frame, read through handles whether in memory or streamed, underruns logged",
+          "done": false
+        },
+        {
+          "title": "Deterministic FFT: one code path on every target, no run-time feature detection, twiddles from the pure-Rust libm, its error bounded against a higher-precision direct transform",
+          "done": false
+        },
+        {
+          "title": "Reduction order: every sum of more than two terms through one helper, 16 lanes summed in order then a fixed pairwise tree, whatever the machine's SIMD width; tested against a literal scalar reference on every target (with step 11's re-bless)",
+          "done": false
+        },
+        {
+          "title": "Box algorithm versions: every box carries its algorithm version in the patch, any change of bits takes a new one, old versions keep playing or migrate explicitly (with step 11 and format version 2)",
+          "done": false
+        },
+        {
+          "title": "Silence skipping: a box declares when its output stays exactly zero, the engine skips it only then; a law that renders are identical with skipping on and off",
           "done": false
         }
       ]
