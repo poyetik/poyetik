@@ -8,8 +8,8 @@
 //!   allowed in user mode, touches only the register named and the operand given, and is
 //!   the instruction the architecture manuals define for that register.
 //! - **The reserved bits.** Writing a reserved bit of MXCSR set faults, and FPCR's reserved
-//!   bits must be kept as read. [`write`] is private, and its only caller,
-//!   [`set_control`], writes back every bit outside [`CONTROL`] exactly as [`read`] gave it:
+//!   bits must be kept as read. [`write()`] is private, and its only caller,
+//!   [`set_control`], writes back every bit outside [`CONTROL`] exactly as [`read()`] gave it:
 //!   no reserved bit is ever changed.
 //! - **Ordering.** No `asm!` here is `pure` or `nomem`: the compiler treats each one as
 //!   reading and writing memory, so it keeps them in program order with the loads and stores
