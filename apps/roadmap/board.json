@@ -1101,7 +1101,7 @@
           "done": false
         },
         {
-          "title": "Engine design decisions, recorded before any code that depends on them: time and rates, push and pull computation, resources and GPU memory, data types (textures, buffers, geometry including vector paths, channels), colour pipeline, outputs, execution modes, random access, hot swap, latency, state",
+          "title": "Engine design decisions, recorded before any code that depends on them: time and rates, push and pull computation, resources and GPU memory, data types (textures, buffers, geometry including vector paths, channels), colour pipeline, outputs, execution modes, random access, hot swap, latency, state; and interaction: the input event model (the image a gesture applies to), a scene queryable on the CPU for picking, the operator contract mapping output coordinates back to input coordinates, gesture-to-image latency, the state of interactive objects, 3D camera navigation and manipulators",
           "done": false
         },
         {
