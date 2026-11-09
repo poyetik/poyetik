@@ -1110,6 +1110,16 @@ fn accepts_a_conditioning_of_one_half_and_no_more() {
     )
     .expect("accepted");
     assert_eq!(rows.to_bits(), 0.5_f64.to_bits(), "the larger row");
+    // Rows of different deviations: the largest decides, 0.6 here, refused.
+    let uneven = [
+        1.0_f64, 0.3_f64, 0.3_f64, 0.3_f64, 1.0_f64, 0.0_f64, 0.3_f64, 0.0_f64, 1.0_f64,
+    ]
+    .map(sum_of);
+    let ones = [1.0_f64; 3].map(sum_of);
+    assert!(
+        matches!(solve(&uneven, &ones, &[1.0_f64; 3]), Err(MeasureError::Unresolvable { conditioning: largest }) if largest.to_bits() == 0.6_f64.to_bits()),
+        "the largest row"
+    );
     assert!(
         coupled[0].abs() < 1e-15_f64 && (coupled[1] - 2.0_f64).abs() < 1e-15_f64,
         "{coupled:?}"

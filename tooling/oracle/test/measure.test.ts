@@ -382,6 +382,13 @@ describe("the fits", () => {
       [0.5, 1],
     );
     expect(two.conditioning).toBe(0.5);
+    // Rows of different deviations: the largest decides, 0.6 here, refused.
+    const uneven = [
+      [1, 0.3, 0.3],
+      [0.3, 1, 0],
+      [0.3, 0, 1],
+    ];
+    expect(() => solve(uneven, [1, 1, 1], [1, 1, 1])).toThrow(expect.objectContaining({ kind: "Unresolvable", message: "the components are too close to be told apart (conditioning 0.6, at most 0.5)" }));
     expect(at(two.coefficients, 0)).toBeCloseTo(0, 15);
     expect(at(two.coefficients, 1)).toBeCloseTo(2, 15);
   });

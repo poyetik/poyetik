@@ -192,11 +192,10 @@ export function solve(gram: readonly (readonly number[])[], projections: readonl
     throw new MeasureError("Unresolvable", `the components are too close to be told apart (conditioning ${String(conditioning)}, at most ${String(CONDITIONING_MAX)})`);
   }
   const right = projections.map((value, i) => value * at(scales, i));
-  let solution = right;
-  for (let iteration = 0; iteration < JACOBI_ITERATIONS; iteration++) {
-    const previous = solution;
-    solution = deviation.map((row, i) => at(right, i) - row.reduce((total, value, j) => total + value * at(previous, j), 0));
-  }
+  const solution = Array.from({ length: JACOBI_ITERATIONS }).reduce<number[]>(
+    (previous) => deviation.map((row, i) => at(right, i) - row.reduce((total, value, j) => total + value * at(previous, j), 0)),
+    right,
+  );
   return { coefficients: solution.map((value, i) => value * at(scales, i)), conditioning };
 }
 
@@ -327,8 +326,9 @@ export function window(frames: number): Float64Array {
 export function fft(re: Float64Array<ArrayBuffer>, im: Float64Array<ArrayBuffer>): [Float64Array<ArrayBuffer>, Float64Array<ArrayBuffer>] {
   const points = re.length;
   const half = points / 2;
-  const cosines = Float64Array.from({ length: half }, (_empty, index) => Math.cos((-2 * Math.PI * index) / points));
-  const sines = Float64Array.from({ length: half }, (_empty, index) => Math.sin((-2 * Math.PI * index) / points));
+  const angles = Float64Array.from({ length: half }, (_empty, index) => (-2 * Math.PI * index) / points);
+  const cosines = angles.map((angle) => Math.cos(angle));
+  const sines = angles.map((angle) => Math.sin(angle));
   let [inRe, inIm] = [re, im];
   let [outRe, outIm] = [new Float64Array(points), new Float64Array(points)];
   for (let stride = 1; stride < points; stride *= 2) {
@@ -479,6 +479,20 @@ function margins(amplitude: number, error: number, quality: Quality): [number, n
   return lowest > 0 ? [total, lowest] : null;
 }
 
+/** The bounds of the harmonic fit of quality `quality` (see {@link Bounds}); null without a margin. */
+function harmonicBounds(amplitude: number, error: number, quality: Quality): Bounds["harmonics"] {
+  const found = margins(amplitude, error, quality);
+  if (found === null) {
+    return null;
+  }
+  const [total, lowest] = found;
+  const rho = quality.conditioning;
+  return {
+    thd: 20 * Math.log10((Math.SQRT2 * total * Math.sqrt(1 + rho)) / ((1 - rho) * lowest)),
+    snr: -20 * Math.log10((Math.SQRT2 * total) / lowest),
+  };
+}
+
 /** The {@link Bounds} of a signal within `error` per sample of an ideal sine of `amplitude`, for the fits and window of `measured`; null when there is no margin. */
 export function sineBounds(amplitude: number, error: number, measured: Pick<Measurements, "sine" | "enbw" | "harmonics">): Bounds | null {
   const sine = margins(amplitude, error, measured.sine);
@@ -486,17 +500,9 @@ export function sineBounds(amplitude: number, error: number, measured: Pick<Meas
     return null;
   }
   const [total, lowest] = sine;
-  const harmonic = measured.harmonics instanceof MeasureError ? null : measured.harmonics.quality;
-  const harmonicMargins = harmonic === null ? null : margins(amplitude, error, harmonic);
   return {
     thdPlusN: 20 * Math.log10((Math.SQRT2 * total) / lowest),
     sfdr: 20 * Math.log10(lowest / (2 * total * Math.sqrt(measured.enbw))),
-    harmonics:
-      harmonic === null || harmonicMargins === null
-        ? null
-        : {
-            thd: 20 * Math.log10((Math.SQRT2 * harmonicMargins[0] * Math.sqrt(1 + harmonic.conditioning)) / ((1 - harmonic.conditioning) * harmonicMargins[1])),
-            snr: -20 * Math.log10((Math.SQRT2 * harmonicMargins[0]) / harmonicMargins[1]),
-          },
+    harmonics: measured.harmonics instanceof MeasureError ? null : harmonicBounds(amplitude, error, measured.harmonics.quality),
   };
 }
