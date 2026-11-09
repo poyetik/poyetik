@@ -3206,61 +3206,72 @@ pub const BOX_SOURCES: [&str; 1] = ["crates/engine-objects/src/*.rs"];
 pub const BOX_FORBIDDEN_NAMES: [&str; 6] = ["f32", "f64", "libm", "host", "Delivered", "deliver"];
 
 /// The words of Rust code in `text`, with their line numbers: maximal runs of letters,
-/// digits and `_`, outside comments (line and block) and string literals, which are prose.
+/// digits and `_`, outside comments (line and block), string literals (raw ones included,
+/// `r#"…"#`, `br"…"`, `cr"…"`) and char literals (`'"'`, `'\''`), which are prose. A
+/// lifetime (`'a`) is code, as is a raw identifier (`r#f64` names `f64`). Every literal or
+/// comment left open runs to the end of the text.
 fn code_words(text: &str) -> Vec<(usize, String)> {
-    /// Ends the word being read, if any, at `line`.
-    fn end(found: &mut Vec<(usize, String)>, current: &mut String, line: usize) {
-        if !current.is_empty() {
-            found.push((line, core::mem::take(current)));
-        }
-    }
+    let chars: Vec<char> = text.chars().collect();
+    let at = |index: usize| chars.get(index).copied();
+    // The index after the first position from `from` where `ends` holds, or the end.
+    let after = |from: usize, ends: &mut dyn FnMut(usize) -> bool| {
+        (from..chars.len())
+            .find(|&index| ends(index))
+            .map_or(chars.len(), |index| index.saturating_add(1))
+    };
     let mut words = Vec::new();
-    let (mut line, mut word) = (1_usize, String::new());
-    let mut chars = text.chars().peekable();
-    while let Some(character) = chars.next() {
+    let (mut line, mut word, mut index) = (1_usize, String::new(), 0_usize);
+    while let Some(character) = at(index) {
         if character.is_ascii_alphanumeric() || character == '_' {
             word.push(character);
+            index = index.saturating_add(1);
             continue;
         }
-        end(&mut words, &mut word, line);
-        match (character, chars.peek()) {
-            ('/', Some('/')) => {
-                for skipped in chars.by_ref() {
-                    if skipped == '\n' {
-                        line = line.saturating_add(1);
-                        break;
-                    }
-                }
-            }
-            ('/', Some('*')) => {
-                let mut last = ' ';
-                for skipped in chars.by_ref() {
-                    if skipped == '\n' {
-                        line = line.saturating_add(1);
-                    }
-                    if last == '*' && skipped == '/' {
-                        break;
-                    }
-                    last = skipped;
-                }
+        let raw_prefix = matches!(word.as_str(), "r" | "br" | "cr");
+        if !word.is_empty() {
+            words.push((line, core::mem::take(&mut word)));
+        }
+        let next = at(index.saturating_add(1));
+        // The hashes of a raw string from here, when one starts here: `#…#"`.
+        let hashes = (index..chars.len())
+            .take_while(|&position| at(position) == Some('#'))
+            .count();
+        let quote = index.saturating_add(hashes);
+        let end = match (character, next) {
+            ('/', Some('/')) => after(index, &mut |position| at(position) == Some('\n')),
+            // Closed by the first `*/` after the opening `/*`: `/*/` does not close it.
+            ('/', Some('*')) => after(index.saturating_add(3), &mut |position| {
+                at(position) == Some('/') && at(position.saturating_sub(1)) == Some('*')
+            }),
+            ('"' | '#', _) if raw_prefix && at(quote) == Some('"') => {
+                after(quote.saturating_add(1), &mut |position| {
+                    at(position) == Some('"')
+                        && (1..=hashes)
+                            .all(|offset| at(position.saturating_add(offset)) == Some('#'))
+                })
+                .saturating_add(hashes)
             }
             ('"', _) => {
                 let mut escaped = false;
-                for skipped in chars.by_ref() {
-                    if skipped == '\n' {
-                        line = line.saturating_add(1);
-                    }
-                    if !escaped && skipped == '"' {
-                        break;
-                    }
-                    escaped = !escaped && skipped == '\\';
-                }
+                after(index.saturating_add(1), &mut |position| {
+                    let closes = !escaped && at(position) == Some('"');
+                    escaped = !escaped && at(position) == Some('\\');
+                    closes
+                })
             }
-            ('\n', _) => line = line.saturating_add(1),
-            _ => {}
-        }
+            ('\'', Some('\\')) => after(index.saturating_add(3), &mut |position| {
+                at(position) == Some('\'')
+            }),
+            ('\'', _) if at(index.saturating_add(2)) == Some('\'') => index.saturating_add(3),
+            _ => index.saturating_add(1),
+        };
+        let skipped = chars.get(index..end).unwrap_or_default();
+        line = line.saturating_add(skipped.iter().filter(|&&skipped| skipped == '\n').count());
+        index = end;
     }
-    end(&mut words, &mut word, line);
+    if !word.is_empty() {
+        words.push((line, word));
+    }
     words
 }
 

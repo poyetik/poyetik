@@ -6819,6 +6819,58 @@ fn refuses_raw_floats_libm_and_host_in_box_code() {
 }
 
 #[test]
+fn reads_char_literals_and_raw_strings_as_prose() {
+    let gate = |text: &str| {
+        super::math_layer_gate(
+            r#"{"packages":[]}"#,
+            &[("crates/engine-objects/src/a.rs".to_owned(), text.to_owned())],
+        )
+    };
+    let refused = |line: usize, word: &str| {
+        Err(Failure::from(format!(
+            "{MATH_LAYER}: crates/engine-objects/src/a.rs:{line}: box code names `{word}`: it \
+             computes with the engine's sample types, through the math layer"
+        )))
+    };
+    // Literals that hold a quote: a char literal and raw strings are not strings to the end
+    // of the file, and the code after them is read.
+    for (text, line) in [
+        ("let q = '\"'; let x: f64 = 2.0;", 1),
+        ("let q = '\\''; let x: f64 = 2.0;", 1),
+        ("let q = '\\\\'; let s = \"\"; f64", 1),
+        ("let q = '\\u{22}'; f64", 1),
+        ("fn a<'a>(x: &'a u8) {}\nf64", 2),
+        ("let s = r\"\\\"; f64", 1),
+        ("let s = r#\"a\"b\"#; let t = \"\";\nf64", 2),
+        ("let s = br##\"a\"#b\n\"##; f64", 2),
+        ("let s = cr#\"a\"#; f64", 1),
+        ("let a = 1; /*/ f64 */ f64", 1),
+        ("let a = 1; /**/ f64", 1),
+        ("let q = '\\\"'; f64", 1),
+        ("let a = ['\\x41','\"', f64];", 1),
+        ("fn a<'f64>() {}", 1),
+        ("let r#f64 = 1;", 1),
+    ] {
+        let found = gate(text);
+        assert_eq!(found, refused(line, "f64"), "{text}");
+    }
+    for allowed in [
+        "let q = '\"'; let s = \"f64\";",
+        "let s = r#\"f64 \" libm\"#;",
+        "let s = r\"f64\";",
+        "let r#type = 1; let s = \"f64\";",
+        "let s = \"unterminated f64",
+        "let q = '\\",
+        "/* unterminated f64",
+        "let s = r#\"unterminated f64",
+        "/* a/b f64 */ let a = 1;",
+        "/* a* f64 */ let a = 1;",
+    ] {
+        assert_eq!(gate(allowed), Ok(()), "{allowed}");
+    }
+}
+
+#[test]
 fn keeps_the_box_code_of_the_repository_in_the_math_layer() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let mut runner = SystemRunner { root: root.clone() };
