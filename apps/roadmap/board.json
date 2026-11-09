@@ -805,6 +805,18 @@
         {
           "title": "Browser construction bounds: measured on the maintainer's Mac only, unconfirmed on the CI runner; measure on CI and record where",
           "done": false
+        },
+        {
+          "title": "Native float mode, host side: decision 11 also has native shells detect, in safe code, a floating-point mode they could not set and report it; engine-fpenv always sets it on x86_64 and aarch64, so nothing reports yet. Implement the detection and report with the first plugin shell, or scope it in the spec there",
+          "done": false
+        },
+        {
+          "title": "Native float mode inside a call: when the host is already in the default mode, with_default_mode writes nothing on entry, so a mode change made by foreign code inside its body is not undone on exit; document the precondition where engine calls reach foreign code, or always restore the mode found on entry",
+          "done": false
+        },
+        {
+          "title": "MXCSR bit 17 (MM, the misaligned exception mask of some AMD processors) is outside the mode fields of engine-fpenv and kept as the host set it: confirm on an AMD runner that it cannot change a result, and say so in the audit",
+          "done": false
         }
       ]
     },
