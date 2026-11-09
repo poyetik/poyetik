@@ -3174,7 +3174,10 @@ pub const DETERMINISTIC_FLOAT_METHODS: [(&str, &str); 32] = [
     ("abs", "clears the sign bit"),
     ("ceil", "exact: an integer value, rounded toward +infinity"),
     ("classify", "reads the bits"),
-    ("copysign", "copies a sign bit"),
+    (
+        "copysign",
+        "copies a sign bit; a NaN's bits, which arithmetic may set differently per target, are outside this audit (roadmap #12, output stage)",
+    ),
     (
         "div_euclid",
         "a correctly rounded division, then exact rounding to an integer value",
@@ -3188,8 +3191,14 @@ pub const DETERMINISTIC_FLOAT_METHODS: [(&str, &str); 32] = [
     ("is_infinite", "reads the bits"),
     ("is_nan", "reads the bits"),
     ("is_normal", "reads the bits"),
-    ("is_sign_negative", "reads the sign bit"),
-    ("is_sign_positive", "reads the sign bit"),
+    (
+        "is_sign_negative",
+        "reads the sign bit; a NaN's bits, which arithmetic may set differently per target, are outside this audit (roadmap #12, output stage)",
+    ),
+    (
+        "is_sign_positive",
+        "reads the sign bit; a NaN's bits, which arithmetic may set differently per target, are outside this audit (roadmap #12, output stage)",
+    ),
     ("is_subnormal", "reads the bits"),
     (
         "midpoint",
@@ -3213,7 +3222,10 @@ pub const DETERMINISTIC_FLOAT_METHODS: [(&str, &str); 32] = [
     ("signum", "a constant of the sign of the value"),
     ("sqrt", "correctly rounded by IEEE 754 on every target"),
     ("to_be_bytes", "a bit copy in a fixed byte order"),
-    ("to_bits", "a bit copy"),
+    (
+        "to_bits",
+        "a bit copy; a NaN's bits, which arithmetic may set differently per target, are outside this audit (roadmap #12, output stage)",
+    ),
     (
         "to_int_unchecked",
         "an unsafe function: every crate forbids unsafe code, so none can call it",
