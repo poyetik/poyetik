@@ -922,7 +922,7 @@
         },
         {
           "title": "Box algorithm versions: every box carries its algorithm version in the patch, any change of bits takes a new one, old versions keep playing or migrate explicitly (with step 6 and format version 2); then a deep review of this block (steps 6 to 8) on its pull request, with a green full check",
-          "done": false
+          "done": true
         },
         {
           "title": "Output stage: raw and protected (safety limiter) modes; non-finite samples always replaced and reported; the playground protected by default",
