@@ -357,7 +357,7 @@
       "bound": 2.981375498790327e-08
     },
     {
-      "description": "full scale over the longest measured signal",
+      "description": "full scale over 2^20 frames, longer than any measured signal",
       "amplitude": 1,
       "frames": 1048576,
       "bound": 3.126524401967615e-08
