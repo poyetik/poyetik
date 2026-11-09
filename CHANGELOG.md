@@ -36,6 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The oracle measures no levels of a channel whose expected sine stays within its error bound of zero over the frames measured (a sine at 2^-126 Hz over a few thousand frames): no level can tell it from silence, and its distance from the ideal sine is still checked. Before, such a case failed as impossible to measure.
 - Clippy's `suboptimal_flops` and `imprecise_flops` are allowed for the whole workspace: they suggest `mul_add`, `hypot` and other methods `clippy.toml` bans, whose results differ between targets.
 
 ## [0.1.0] - 2026-11-08

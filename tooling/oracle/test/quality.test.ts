@@ -44,6 +44,18 @@ group("judgeQuality", () => {
     expect(judgeQuality(new Array<number>(64).fill(0), 8000, sine)).toStrictEqual({ kind: "unmeasured" });
   });
 
+  test.each([
+    // 2^-126 Hz: over 64 frames at 8 kHz, the ideal sine stays below 1e-39, within its
+    // error bound (about 2^-25) of silence, where no level can tell it from silence.
+    ["2^-126 Hz", 2 ** -126, "unmeasured"],
+    // Its peak about half its error bound over 64 frames, then twice it: measured, and too
+    // close to DC to be told apart.
+    ["half its bound", (0.5 * 2 ** -25 * 8000) / (2 * Math.PI * 63), "unmeasured"],
+    ["twice its bound", (2 * 2 ** -25 * 8000) / (2 * Math.PI * 63), "failed"],
+  ])("measures nothing of a sine that stays within its error bound of silence: %s", (_name, frequency, kind) => {
+    expect(judgeQuality(new Array<number>(64).fill(0), 8000, { ...SINE, frequency }).kind).toBe(kind);
+  });
+
   test("reports what cannot be measured", () => {
     expect(judgeQuality(new Array<number>(64).fill(0), 8000, SINE)).toStrictEqual({
       kind: "failed",

@@ -105,7 +105,7 @@ describe("judge", () => {
         }),
       );
     };
-    expect(judged(0).lines[0]).toContain("sine error 0.00e+0; levels not measured: no fundamental strictly between DC and Nyquist)");
+    expect(judged(0).lines[0]).toContain("sine error 0.00e+0; levels not measured: no fundamental strictly between DC and Nyquist above its error bound)");
     expect(judged(2 ** -149).lines).toStrictEqual(["FAIL     sine: channel 0: off the expected sine by 1.40e-45 (at most 0.00e+0)"]);
   });
 

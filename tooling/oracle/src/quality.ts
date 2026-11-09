@@ -6,7 +6,7 @@
  */
 
 import { MAX_FRAMES, MeasureError, measure, sineBounds, type Bounds, type Measurements } from "./measure.ts";
-import { sineErrorBound, type Sine } from "./signal.ts";
+import { ideal, sineErrorBound, type Sine } from "./signal.ts";
 
 /** The levels of a channel, in dB relative to its fundamental. */
 export interface Levels {
@@ -19,7 +19,7 @@ export interface Levels {
 }
 
 /** Why a channel measures nothing: its expectation has no fundamental to measure. */
-export const UNMEASURED = "no fundamental strictly between DC and Nyquist";
+export const UNMEASURED = "no fundamental strictly between DC and Nyquist above its error bound";
 
 /** What the measurement of a channel found: its levels within their bounds, the levels out of them, or that it measures nothing ({@link UNMEASURED}). */
 export type Quality = { readonly kind: "measured"; readonly levels: Levels } | { readonly kind: "failed"; readonly problems: readonly string[] } | { readonly kind: "unmeasured" };
@@ -38,10 +38,24 @@ function db(value: number): string {
 /**
  * Measures `samples`, which must hold `sine` at `rate`, over at most {@link MAX_FRAMES}
  * frames from the start, and holds every level to its bound.
+ *
+ * Measures nothing when the sine has no fundamental strictly between DC and Nyquist, or
+ * when its ideal values over those frames all stay within its error bound of zero (silence
+ * included, and a sine at 2^-126 Hz over a few thousand frames): no level can then tell it
+ * from silence, which its distance from the ideal sine (`sineError`) already checks.
  */
 export function judgeQuality(samples: readonly number[], rate: number, sine: Sine): Quality {
   const fundamental = fold(sine.frequency, rate);
-  if (sine.amplitude === 0 || !(fundamental > 0 && fundamental < rate / 2)) {
+  if (!(fundamental > 0 && fundamental < rate / 2)) {
+    return { kind: "unmeasured" };
+  }
+  const frames = Math.min(samples.length, MAX_FRAMES);
+  const bound = sineErrorBound(sine.amplitude, frames);
+  let peak = 0;
+  for (let frame = 0; frame < frames; frame += 1) {
+    peak = Math.max(peak, Math.abs(ideal(sine, rate, frame)));
+  }
+  if (peak <= bound) {
     return { kind: "unmeasured" };
   }
   let measured;
@@ -55,7 +69,7 @@ export function judgeQuality(samples: readonly number[], rate: number, sine: Sin
     }
     throw error;
   }
-  return hold(levels, sineBounds(sine.amplitude, sineErrorBound(sine.amplitude, measured.length), levels));
+  return hold(levels, sineBounds(sine.amplitude, bound, levels));
 }
 
 /**

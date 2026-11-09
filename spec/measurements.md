@@ -109,7 +109,7 @@ The aliasing law: a sine below Nyquist has no aliased component above the floor 
 
 ## The oracle
 
-The oracle (`tooling/oracle`) measures every channel of every conformance render whose expectation is a sine strictly between DC and Nyquist once folded (`quality.ts`): the first `MAX_FRAMES` frames, held to the bounds above for the expectation's amplitude and `sineErrorBound` at that length, so the thresholds come from the expectation and its derivation alone. A level out of its bound, or a render it cannot measure, fails the case; its verdict prints the worst levels of the case's channels. The browser renders are the same bits as the native ones (the render hashes of `bindings/wasm`'s end-to-end tests), so measuring the native export measures them too.
+The oracle (`tooling/oracle`) measures every channel of every conformance render whose expectation is a sine strictly between DC and Nyquist once folded, and rises above its error bound (`sineErrorBound`) somewhere in the frames measured (`quality.ts`): a sine whose ideal values all stay within that bound of zero, such as one at 2^-126 Hz over a few thousand frames, cannot be told from silence by any level, and its distance from the ideal sine is checked anyway. It measures the first `MAX_FRAMES` frames, held to the bounds above for the expectation's amplitude and `sineErrorBound` at that length, so the thresholds come from the expectation and its derivation alone. A level out of its bound, or a render it cannot measure, fails the case; its verdict prints the worst levels of the case's channels. The browser renders are the same bits as the native ones (the render hashes of `bindings/wasm`'s end-to-end tests), so measuring the native export measures them too.
 
 ## Known-answer vectors
 
