@@ -421,8 +421,9 @@ mod tests {
         // below the smallest normal binary32 value for the first `rate / 2π` frames or so
         // (about 1,273 at 8 kHz), where the output must be +0, never a subnormal; then it
         // is normal and within the bound of the exact sine (`stays_exact_at_every_rate_and_
-        // frequency`). Near the crossing, an exact value just below 2^-126 may round up to
-        // it: those frames are left out of the zero check.
+        // frequency`). An exact value just below 2^-126 could round up to it and break the
+        // strict split below; no frame of these renders comes that close, which the split
+        // itself checks.
         let smallest_normal = f64::from(f32::MIN_POSITIVE);
         for rate in engine_testkit::matrix::sample_rates() {
             let frames = usize::try_from(rate.hz() / 4).expect("a short render");
@@ -432,10 +433,10 @@ mod tests {
                 let what = format!("frame {frame} at {} Hz", rate.hz());
                 assert!(!sample.is_subnormal(), "{what}: {sample:e}");
                 let exact = exact(f32::MIN_POSITIVE, rate.hz(), frame);
-                if exact < smallest_normal * (1.0_f64 - libm::exp2(-20.0_f64)) {
+                if exact < smallest_normal {
                     assert_eq!(sample.to_bits(), 0_u32, "{what}: +0");
                     zeros += 1;
-                } else if exact >= smallest_normal {
+                } else {
                     assert!(sample.is_normal(), "{what}: {sample:e}");
                 }
             }
@@ -459,14 +460,17 @@ mod tests {
         let fastest = SampleRate::new(SampleRate::MAX).expect("valid rate");
         let smallest = super::Osc::new(fastest, f64::from(f32::from_bits(1)));
         assert!(smallest.increment.is_normal(), "{:e}", smallest.increment);
-        for frequency in [f32::from_bits(1), f32::MIN_POSITIVE, 1.0, 20_000.0] {
+        for frequency in [0.0, f32::from_bits(1), f32::MIN_POSITIVE, 1.0, 20_000.0] {
             for rate in engine_testkit::matrix::sample_rates() {
                 let mut osc = super::Osc::new(rate, f64::from(frequency));
                 let mut out: [Block; 1] = [SILENCE];
                 for _ in 0_u16..64_u16 {
                     engine_core::Object::process(&mut osc, &[], &mut out);
                     assert!(
-                        osc.phase.to_bits() == 0_u64 || osc.phase.is_normal(),
+                        matches!(
+                            osc.phase.classify(),
+                            core::num::FpCategory::Zero | core::num::FpCategory::Normal
+                        ),
                         "phase {:e} at {frequency:e} Hz and {} Hz",
                         osc.phase,
                         rate.hz()
