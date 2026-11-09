@@ -48,7 +48,7 @@ impl ParamSpec {
 ///
 /// The values come in the order of [`ObjectSpec::params`], already validated against their
 /// ranges, and never subnormal: a plan flushes a subnormal parameter to a zero of its sign
-/// ([`crate::flush`]).
+/// ([`crate::flush()`]).
 pub type Factory = fn(SampleRate, &[f32]) -> Box<dyn Object>;
 
 /// Static description of a box type: everything the editor, the AI assistant, the
