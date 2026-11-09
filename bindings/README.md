@@ -4,4 +4,4 @@ Thin **developer SDKs** around the engine core. All the logic stays in the core;
 
 - [`wasm/`](wasm/): `engine-wasm`, the engine in browsers (`AudioWorklet`) and in Node.
 
-Planned: a Rust crate, an npm package and a C library (roadmap ticket #5).
+Planned: a Rust crate, an npm package and a C library (roadmap ticket #32).

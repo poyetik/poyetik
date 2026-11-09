@@ -42,7 +42,7 @@ export class LoadedPatch {
   /**
    * Checks `patch` with the engine at `rate` hertz, on this thread: errors are thrown here
    * with the explanation of the engine, rather than in the audio thread. What it rejects
-   * with, told apart by `name` (the error classes are not exported yet, roadmap #5):
+   * with, told apart by `name` (the error classes are not exported yet, roadmap #32):
    * @throws {RangeError} when `rate` is not a whole number of hertz that fits 32 bits.
    * @throws {Error} named `ModuleError` ("not an engine module: …") when `wasm` is not an
    * engine module of this version.

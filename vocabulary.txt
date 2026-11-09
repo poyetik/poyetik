@@ -17,7 +17,7 @@ forbid behavioural -> behavioral -- the project's spelling is American
 forbid colour -> color -- the project's spelling is American
 forbid colours -> colors -- the project's spelling is American
 
-forbid node -> box -- GLOSSARY.md: one processing unit of a patch is a box (the code's `Node` keeps its name until roadmap #5)
+forbid node -> box -- GLOSSARY.md: one processing unit of a patch is a box (the code's `Node` keeps its name until roadmap #32)
 forbid nodes -> boxes -- GLOSSARY.md: one processing unit of a patch is a box
 forbid Nodes -> Boxes -- GLOSSARY.md: one processing unit of a patch is a box
 allow node as "engine node" -- a Web Audio node (`AudioWorkletNode`) running the engine: a node of the browser's audio graph, not a box
@@ -34,7 +34,7 @@ allow node in bindings/wasm/test/types/ -- compiler fixtures about `MarkedEngine
 allow node in crates/xtask/src/lib_tests.rs -- the tests of this gate, whose fixtures hold the refused words on purpose
 allow node in apps/playground/test/fakes.ts -- the fake Web Audio nodes the tests of the player drive
 
-forbid object -> box in crates/engine-core/ crates/engine-objects/ crates/engine-patch/ crates/engine-testkit/ crates/engine-hash/ crates/engine-cli/ bindings/wasm/src/ spec/ conformance/ GLOSSARY.md -- GLOSSARY.md: one processing unit of a patch is a box (the `Object` trait keeps its name until roadmap #5)
+forbid object -> box in crates/engine-core/ crates/engine-objects/ crates/engine-patch/ crates/engine-testkit/ crates/engine-hash/ crates/engine-cli/ bindings/wasm/src/ spec/ conformance/ GLOSSARY.md -- GLOSSARY.md: one processing unit of a patch is a box (the `Object` trait keeps its name until roadmap #32)
 forbid objects -> boxes in crates/engine-core/ crates/engine-objects/ crates/engine-patch/ crates/engine-testkit/ crates/engine-hash/ crates/engine-cli/ bindings/wasm/src/ spec/ conformance/ GLOSSARY.md -- GLOSSARY.md: one processing unit of a patch is a box
 allow object as "JSON object" -- the JSON value, as the patch format names it
 allow object as "trait object" -- Rust's `dyn Trait` value

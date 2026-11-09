@@ -1,6 +1,6 @@
 # Glossary
 
-The words of the project, with the name each one takes in the patch format and in the code. One concept, one word: when a document or a message needs one of these concepts, it uses the word of this list. The names in the code that still differ (`Object`, `kind`, `node`) are kept until the public engine API takes its final names (roadmap ticket #5); the patch format's own naming conventions are roadmap ticket #3. This table maps them meanwhile.
+The words of the project, with the name each one takes in the patch format and in the code. One concept, one word: when a document or a message needs one of these concepts, it uses the word of this list. The names in the code that still differ (`Object`, `kind`, `node`) are kept until the public engine API takes its final names (roadmap ticket #32); the patch format's own naming conventions are roadmap ticket #3. This table maps them meanwhile.
 
 ## Patches and the engine
 
@@ -16,7 +16,7 @@ The words of the project, with the name each one takes in the patch format and i
 | **plan** | The patch compiled for execution: boxes in a deterministic order, buffers allocated once | — | `Plan` (`engine-core`) |
 | **block** | The fixed number of frames the engine processes at once, whatever the host buffer: each box processes one block per call | — | `Block`, `BLOCK_SIZE` (`engine-core`), `Plan::process`, `Object::process`, `engine_block_size` (`engine-wasm`) |
 | **host buffer** | The span of frames a host asks the engine for at once (an audio callback, a call of an offline render); any length, and the result never depends on how a render is split into host buffers | — | `Renderer::render`, `Renderer::render_into`, `WasmEngine.render`; the sizes tested are `host_buffer_sizes` of the test matrix |
-| **render quantum** | The frames a browser's audio thread processes at once (Web Audio): the host buffer of the engine in a browser, and what a tap delivers | — | `tap` and its `onBlock` callback, `parseTapBlock` (`engine-wasm`; names kept until roadmap ticket #5) |
+| **render quantum** | The frames a browser's audio thread processes at once (Web Audio): the host buffer of the engine in a browser, and what a tap delivers | — | `tap` and its `onBlock` callback, `parseTapBlock` (`engine-wasm`; names kept until roadmap ticket #32) |
 | **frame**, **sample** | A frame is one instant of every channel; a sample is one channel's value at one frame (32-bit float) | — | `f32`; planar (one buffer per channel, mono `Block`s) inside the engine and in `WasmEngine.render`; interleaved by channel in `Renderer::render`, `Renderer::render_into` and the render hash |
 | **sample rate** | Frames per second, 8 000 to 384 000 Hz | — | `SampleRate` |
 | **render** | The output of a patch over a duration at a sample rate, offline | — | `Renderer` (`engine-core`), `engine-cli`, `renderOffline` (browser) |

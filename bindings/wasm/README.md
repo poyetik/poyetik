@@ -1,6 +1,6 @@
 # engine-wasm
 
-The engine in browsers: a WebAssembly module (Rust crate `engine-wasm`) and its TypeScript glue (package `@poyetik/engine-wasm`). The package exports the browser API (`./web`, `./hash`, `./worklet`, `./engine.wasm`); a Node entry point comes with the SDK (roadmap ticket #5), and the unit tests drive the module in Node through `ts/engine.ts` directly.
+The engine in browsers: a WebAssembly module (Rust crate `engine-wasm`) and its TypeScript glue (package `@poyetik/engine-wasm`). The package exports the browser API (`./web`, `./hash`, `./worklet`, `./engine.wasm`); a Node entry point comes with the SDK (roadmap ticket #32), and the unit tests drive the module in Node through `ts/engine.ts` directly.
 
 | Path | What |
 |---|---|

@@ -498,29 +498,6 @@
       ]
     },
     {
-      "id": 23,
-      "title": "Host the playground and the roadmap",
-      "description": "The playground and the roadmap page are built and tested locally but served nowhere. Choose where they are hosted, and keep the HTTP security headers in versioned configuration, tested against what the host really serves.",
-      "column": "later",
-      "milestone": "M1 Engine",
-      "createdAt": "2026-11-08",
-      "updatedAt": "2026-11-08",
-      "tasks": [
-        {
-          "title": "Choose the host",
-          "done": false
-        },
-        {
-          "title": "Set frame-ancestors and the other security headers (Content-Security-Policy, Referrer-Policy, X-Content-Type-Options, Permissions-Policy) in versioned configuration",
-          "done": false
-        },
-        {
-          "title": "Test the headers the host really serves, in a check that fails when one is missing or different",
-          "done": false
-        }
-      ]
-    },
-    {
       "id": 24,
       "title": "Hardening from the third review",
       "description": "The third review found small defects across the engine, the bindings, the tools, the tests, the pages and the documentation that no current card covers. Each step names a defect and its fix; take them by area, next to related work when a card already touches the same files.",
@@ -1026,13 +1003,30 @@
     },
     {
       "id": 4,
-      "title": "HTML documentation site",
-      "description": "One site with guides, the API reference of every part (generated from docstrings), the box reference generated from the registry metadata and the patch format reference generated from the schema.",
+      "title": "Public website: documentation, roadmap and playground",
+      "description": "One public site, hosted: guides, the API reference of every part (generated from docstrings), the box reference generated from the registry metadata, the patch format reference generated from the schema, the roadmap page and the playground. The HTTP security headers live in versioned configuration and are tested against what the host really serves.",
       "column": "later",
       "milestone": "M1 Engine",
       "createdAt": "2026-11-07",
       "updatedAt": "2026-11-09",
-      "tasks": []
+      "tasks": [
+        {
+          "title": "Choose the host",
+          "done": false
+        },
+        {
+          "title": "Set frame-ancestors and the other security headers (Content-Security-Policy, Referrer-Policy, X-Content-Type-Options, Permissions-Policy) in versioned configuration",
+          "done": false
+        },
+        {
+          "title": "Test the headers the host really serves, in a check that fails when one is missing or different",
+          "done": false
+        },
+        {
+          "title": "The roadmap page and the playground served by the site",
+          "done": false
+        }
+      ]
     }
   ]
 }
