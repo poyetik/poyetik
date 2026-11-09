@@ -1,7 +1,7 @@
 {
   "version": 1,
   "title": "Poyetik",
-  "nextId": 31,
+  "nextId": 32,
   "cards": [
     {
       "id": 1,
@@ -73,6 +73,45 @@
         },
         {
           "title": "Coverage-guided fuzzing of patch reading (cargo-fuzz, a versioned corpus seeded from the conformance cases), then native-versus-WebAssembly differential runs of the same inputs",
+          "done": false
+        }
+      ]
+    },
+    {
+      "id": 31,
+      "title": "First version of the patch editor",
+      "description": "A first web editor for patches, built on the patch format (#3): place boxes, connect them with cables, edit their parameters, play the patch with the engine, save and load the document. Every edit is a tested command with undo and redo; the interface follows the project's interface test strategy from its first line.",
+      "column": "next",
+      "milestone": "M2 Editor",
+      "createdAt": "2026-11-09",
+      "updatedAt": "2026-11-09",
+      "tasks": [
+        {
+          "title": "Patch model and command layer: every edit a command (add, remove, move, connect, disconnect, set parameter), each tested for success, rejection and undo/redo round trip, with property tests over random command sequences",
+          "done": false
+        },
+        {
+          "title": "Load and save documents in the patch format of #3, the serialization round trip identical",
+          "done": false
+        },
+        {
+          "title": "Canvas: boxes and cables drawn, selected, moved and connected with mouse, touch and keyboard; zoom and pan",
+          "done": false
+        },
+        {
+          "title": "Box creation by typing its name, with the registry's boxes and their parameters",
+          "done": false
+        },
+        {
+          "title": "Message cables and their explicit order on an outlet, shown when an outlet feeds several inlets, reorderable",
+          "done": false
+        },
+        {
+          "title": "Play and stop the patch with the engine in the browser, a running patch updated live as it is edited",
+          "done": false
+        },
+        {
+          "title": "Accessibility audited in every state, end-to-end tests on Chromium, Firefox and WebKit, visual regression (#14)",
           "done": false
         }
       ]
