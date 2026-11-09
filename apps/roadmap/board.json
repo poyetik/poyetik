@@ -1,7 +1,7 @@
 {
   "version": 1,
   "title": "Poyetik",
-  "nextId": 36,
+  "nextId": 37,
   "cards": [
     {
       "id": 3,
@@ -1146,6 +1146,61 @@
         },
         {
           "title": "Desktop editor shell chosen by a measured prototype on macOS, Windows and Linux (Tauri and Electron at least): the native GPU render shown inside the editor window without copying, low-latency native audio, the interface on each system's web engine; show outputs in separate native windows",
+          "done": false
+        }
+      ]
+    },
+    {
+      "id": 36,
+      "title": "Third-party boxes in the editor: sandboxed WebAssembly externals with a compatibility report",
+      "description": "Let anyone write boxes, as WebAssembly modules implementing the public box contract, loaded in the editor (browser and desktop) without a server. The platform is protected by construction whatever an external does; its quality stays the author's, measured and shown; a compatibility report says which features it breaks and why. Exported apps stay fully compiled: externals are translated ahead of time and proven identical by conformance.",
+      "column": "later",
+      "milestone": "M2 Editor",
+      "createdAt": "2026-11-09",
+      "updatedAt": "2026-11-09",
+      "tasks": [
+        {
+          "title": "Box contract expressible across a WebAssembly boundary: a stable, versioned interface, the same for built-in boxes",
+          "done": false
+        },
+        {
+          "title": "Loading a module in the browser and desktop editor: contract check, requested capabilities shown and granted by the user, cached by content hash, referenced by content hash in patches",
+          "done": false
+        },
+        {
+          "title": "Platform protections, always on: a failing external goes silent and is reported, never the host; a memory ceiling; a deterministic cost budget counted by instructions injected at load",
+          "done": false
+        },
+        {
+          "title": "Static determinism analysis at load: relaxed SIMD, threads and shared memory, imports beyond the contract, reads of NaN bits; NaN canonicalization and identical stack and memory limits on every engine",
+          "done": false
+        },
+        {
+          "title": "Determinism declared by every box and propagated through the plan; each feature (collaboration, multi-machine, replay, seek and render-ahead, conformance hashes) declares what it requires and adapts or warns; non-deterministic outputs recorded in the event log like an audio input",
+          "done": false
+        },
+        {
+          "title": "Compatibility report computed in the browser without a server: static analysis at once, a quick test battery in Web Workers, a deeper one in the background, cached by content hash; each failed property mapped to the features it breaks; passes stated as measurements (cases run, code coverage)",
+          "done": false
+        },
+        {
+          "title": "Editor display: deterministic or not and why, labels (unverified, laws passed, verified, proven), cables downstream of a non-deterministic box marked",
+          "done": false
+        },
+        {
+          "title": "External SDK: a Rust crate and a C header, a project template, and an external check command producing the same report",
+          "done": false
+        },
+        {
+          "title": "Export: externals translated ahead of time, or compiled from source when they follow the engine's rules, proven identical to the WebAssembly version by conformance",
+          "done": false
+        },
+        {
+          "title": "Hot reload of our own boxes in development through the same mechanism",
+          "done": false
+        },
+        {
+          "title": "Catalogue: the full battery across WebAssembly engines, continuous fuzzing, reproducible builds proving a module comes from its published source",
           "done": false
         }
       ]
