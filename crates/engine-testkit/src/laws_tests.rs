@@ -80,7 +80,11 @@ impl<S: Sample> Object<S> for Fixture {
             Self::Constant(value) => fill(outputs, S::from_f64(*value)),
             Self::ConstantIn(precision, value) => fill(
                 outputs,
-                S::from_f64(if *precision == S::PRECISION { *value } else { 0.0 }),
+                S::from_f64(if *precision == S::PRECISION {
+                    *value
+                } else {
+                    0.0
+                }),
             ),
             Self::Subnormal => fill(
                 outputs,
