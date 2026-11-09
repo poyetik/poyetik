@@ -833,6 +833,22 @@
         {
           "title": "Box laws: parameters are tried only at binary32-representable values; extend them to binary64 values with patch format version 2",
           "done": false
+        },
+        {
+          "title": "Binary32 error bound of a gain: when a box multiplies by a gain not exact in binary32, rounded through from_binary64 before the product, its bound counts one more 2^(e-25); state it in the shared formula when the first gain box lands",
+          "done": false
+        },
+        {
+          "title": "Math layer gate: decide whether casts to an inferred type (as _) given to Binary64::new are refused by the gate rather than left to review and to the as_conversions lint",
+          "done": false
+        },
+        {
+          "title": "Math layer gate: read every file box code compiles (include!d files, #[path] modules outside src/, a future build.rs) or refuse them in box crates",
+          "done": false
+        },
+        {
+          "title": "Decision 10's cost claim: the newtypes' instruction counts are held only within the benchmark tolerance; prove them identical to plain floats (an exact comparison of the counts) or keep the weaker wording",
+          "done": false
         }
       ]
     },
