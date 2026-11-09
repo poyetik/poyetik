@@ -3,7 +3,8 @@
 use alloc::boxed::Box;
 
 use engine_core::{
-    Binary64, Block, Capability, Create, Factory, Object, ObjectSpec, PortSpec, Sample, SampleRate,
+    AlgorithmVersion, Binary64, Block, Capability, Create, Factory, Object, ObjectSpec, PortSpec,
+    Sample, SampleRate,
 };
 
 /// Audio output: the engine sums the inlets of this box into its output channels.
@@ -39,4 +40,5 @@ pub static DAC: ObjectSpec = ObjectSpec {
     params: &[],
     capabilities: &[Capability::AudioOutput],
     create: Factory::new::<Dac>(),
+    algorithm_version: AlgorithmVersion::FIRST,
 };

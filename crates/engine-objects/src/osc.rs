@@ -3,7 +3,8 @@
 use alloc::boxed::Box;
 
 use engine_core::{
-    Binary64, Block, Create, Factory, Object, ObjectSpec, ParamSpec, PortSpec, Sample, SampleRate,
+    AlgorithmVersion, Binary64, Block, Create, Factory, Object, ObjectSpec, ParamSpec, PortSpec,
+    Sample, SampleRate,
 };
 
 /// Sine oscillator, written once for both precisions. The phase is accumulated in binary64
@@ -81,6 +82,7 @@ pub static OSC: ObjectSpec = ObjectSpec {
     )],
     capabilities: &[],
     create: Factory::new::<Osc>(),
+    algorithm_version: AlgorithmVersion::FIRST,
 };
 
 #[cfg(test)]

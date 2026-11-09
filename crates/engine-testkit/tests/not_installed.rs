@@ -5,7 +5,9 @@
 
 #[cfg(test)]
 mod tests {
-    use engine_core::{Binary64, Block, Create, Factory, Object, ObjectSpec, Sample, SampleRate};
+    use engine_core::{
+        AlgorithmVersion, Binary64, Block, Create, Factory, Object, ObjectSpec, Sample, SampleRate,
+    };
 
     #[derive(Debug)]
     struct Silent;
@@ -26,6 +28,7 @@ mod tests {
         params: &[],
         capabilities: &[],
         create: Factory::new::<Silent>(),
+        algorithm_version: AlgorithmVersion::FIRST,
     };
 
     #[test]

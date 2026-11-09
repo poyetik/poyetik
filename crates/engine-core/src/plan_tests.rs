@@ -9,9 +9,9 @@ use alloc::vec::Vec;
 
 use crate::host::{Delivered, Raw};
 use crate::{
-    BLOCK_SIZE, Binary32, Binary64, Block, Capability, Connection, CoreError, Create, Factory,
-    Node, NodeId, Object, ObjectSpec, ParamSpec, Patch, Plan, PortSpec, Precision, Renderer,
-    Sample, SampleRate,
+    AlgorithmVersion, BLOCK_SIZE, Binary32, Binary64, Block, Capability, Connection, CoreError,
+    Create, Factory, Node, NodeId, Object, ObjectSpec, ParamSpec, Patch, Plan, PortSpec, Precision,
+    Renderer, Sample, SampleRate,
 };
 
 const PORT: PortSpec = PortSpec {
@@ -53,6 +53,7 @@ static CONST: ObjectSpec = ObjectSpec {
     params: &[ParamSpec::new("value", "value", 1.0, -10.0, 10.0)],
     capabilities: &[],
     create: Factory::new::<Const>(),
+    algorithm_version: AlgorithmVersion::FIRST,
 };
 
 /// Outputs 0, 1, 2… continuing across blocks: checks that state is kept.
@@ -81,6 +82,7 @@ static RAMP: ObjectSpec = ObjectSpec {
     params: &[],
     capabilities: &[],
     create: Factory::new::<Ramp>(),
+    algorithm_version: AlgorithmVersion::FIRST,
 };
 
 /// Outputs on outlet 0 the sum of its inlets, and on outlet 1 ten times that sum.
@@ -122,6 +124,7 @@ static ADD: ObjectSpec = ObjectSpec {
     params: &[],
     capabilities: &[],
     create: Factory::new::<Add>(),
+    algorithm_version: AlgorithmVersion::FIRST,
 };
 
 /// Sends its two inlets to the engine output.
@@ -143,6 +146,7 @@ static OUT: ObjectSpec = ObjectSpec {
     params: &[],
     capabilities: &[Capability::AudioOutput],
     create: Factory::new::<Out>(),
+    algorithm_version: AlgorithmVersion::FIRST,
 };
 
 /// A mono output, to check the channel count.
@@ -154,6 +158,7 @@ static MONO_OUT: ObjectSpec = ObjectSpec {
     params: &[],
     capabilities: &[Capability::AudioOutput],
     create: Factory::new::<Out>(),
+    algorithm_version: AlgorithmVersion::FIRST,
 };
 
 /// Records the sample rate it was created with on its outlet.
@@ -179,6 +184,7 @@ static RATE: ObjectSpec = ObjectSpec {
     params: &[],
     capabilities: &[],
     create: Factory::new::<Rate>(),
+    algorithm_version: AlgorithmVersion::FIRST,
 };
 
 /// Copies its inlet to its outlet, bit for bit.
@@ -204,6 +210,7 @@ static PASS: ObjectSpec = ObjectSpec {
     params: &[],
     capabilities: &[],
     create: Factory::new::<Pass>(),
+    algorithm_version: AlgorithmVersion::FIRST,
 };
 
 /// Outputs its level, which cannot be negative, with the smallest subnormal as default: a
@@ -216,6 +223,7 @@ static LEVEL: ObjectSpec = ObjectSpec {
     params: &[ParamSpec::new("level", "level", 1.0e-45, 0.0, 1.0)],
     capabilities: &[],
     create: Factory::new::<Const>(),
+    algorithm_version: AlgorithmVersion::FIRST,
 };
 
 /// A constant whose range excludes zero: a subnormal written for it is refused.
@@ -1077,6 +1085,7 @@ fn renders_a_product_then_a_sum_in_the_mode_of_the_build<S: Bits>() {
         params: &[],
         capabilities: &[],
         create: Factory::new::<ProductThenSum>(),
+        algorithm_version: AlgorithmVersion::FIRST,
     };
     let patch = Patch::new(
         vec![node(1, "product~"), node(2, "mono~")],

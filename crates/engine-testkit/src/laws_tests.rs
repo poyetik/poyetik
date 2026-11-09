@@ -5,8 +5,8 @@ use core::sync::atomic::{AtomicU16, Ordering};
 
 use engine_core::host::Raw;
 use engine_core::{
-    Binary64, Block, Create, Factory, Object, ObjectSpec, ParamSpec, PortSpec, Precision, Sample,
-    SampleRate,
+    AlgorithmVersion, Binary64, Block, Create, Factory, Object, ObjectSpec, ParamSpec, PortSpec,
+    Precision, Sample, SampleRate,
 };
 
 use super::{check_laws, check_metadata, check_registry};
@@ -174,6 +174,7 @@ const GOOD: ObjectSpec = ObjectSpec {
     params: &[GAIN],
     capabilities: &[],
     create: factory!(|_, params| Fixture::Gain(params.first().copied().unwrap_or(1.0))),
+    algorithm_version: AlgorithmVersion::FIRST,
 };
 
 static INSTANCES: AtomicU16 = AtomicU16::new(0);

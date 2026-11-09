@@ -46,6 +46,11 @@ mod tests {
             r#"{"sine-440":{"binary64":"0"}}"#,
         )
         .expect("references");
+        std::fs::write(
+            dir.join("algorithms.json"),
+            r#"{"sine-440":{"dac~":1,"osc~":1}}"#,
+        )
+        .expect("algorithm versions");
         let output = Command::new(env!("CARGO_BIN_EXE_engine-cli"))
             .args(["check", &dir.display().to_string()])
             .output()
@@ -301,6 +306,11 @@ mod tests {
              \"gone\\nok       gone\\u0007\":{}}",
         )
         .expect("references");
+        std::fs::write(
+            dir.join("algorithms.json"),
+            r#"{"b\u001b[2J":{"dac~":1,"osc~":1}}"#,
+        )
+        .expect("algorithm versions");
         let output = engine_cli(&[std::ffi::OsStr::new("check"), dir.as_os_str()]);
         std::fs::remove_dir_all(&dir).expect("cleanup");
         assert_eq!(output.status.code(), Some(1_i32), "a failure");

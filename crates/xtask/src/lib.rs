@@ -6572,7 +6572,8 @@ usage: cargo xtask <check [--full [--part <part>]]|list [--full [--parts]]|mutan
   mutants <target>      run every mutant of one target: a crate (its name), a Rust file
                         of a crate, a TypeScript package (its directory) or one of its
                         sources (their paths from the root)
-  bless                 rewrite conformance/references.json from the current renders
+  bless                 rewrite conformance/references.json from the current renders,
+                        and conformance/algorithms.json from the current box types
   bless-benchmarks      rewrite spec/benchmark-baseline.json from the current instruction
                         counts of the engine module (spec/benchmarks.md)
   commit-msg <file>     check a commit message (used by the commit-msg hook)
@@ -6756,8 +6757,10 @@ pub fn mutants_steps(target: &Target, jobs: NonZeroUsize) -> Vec<Step> {
     }
 }
 
-/// The only way to change the reference hashes: renders every conformance case and
-/// rewrites `conformance/references.json`. The commit must explain why they changed.
+/// The only way to change the reference hashes: renders every conformance case.
+///
+/// It rewrites `conformance/references.json`, and the algorithm versions they were blessed
+/// with, `conformance/algorithms.json`. The commit must explain why they changed.
 #[must_use]
 pub fn bless_step() -> Step {
     run(

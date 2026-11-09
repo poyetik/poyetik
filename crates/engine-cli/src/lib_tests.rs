@@ -26,6 +26,7 @@ struct Memory {
     read_only: bool,
     no_dirs: bool,
     unreadable: Option<PathBuf>,
+    unwritable: Option<PathBuf>,
     dirs: Vec<PathBuf>,
 }
 
@@ -64,7 +65,7 @@ impl Files for Memory {
     }
 
     fn write(&mut self, path: &Path, bytes: &[u8]) -> io::Result<()> {
-        if self.read_only {
+        if self.read_only || self.unwritable.as_deref() == Some(path) {
             return Err(io::Error::other("read-only"));
         }
         drop(self.files.insert(path.to_path_buf(), bytes.to_vec()));
@@ -653,12 +654,22 @@ fn render_command_reports_errors() {
     );
 }
 
+/// The algorithm versions of the box types of [`PATCH`], as `bless` records them for the
+/// case `name`.
+fn sine_algorithms(name: &str) -> String {
+    format!(r#""{name}":{{"dac~":1,"osc~":1}}"#)
+}
+
 fn conformance(references: &str) -> Memory {
     Memory::with(&[
         ("conf/cases/sine.json", SINE),
         ("conf/patches/sine.json", PATCH),
         ("conf/cases/notes.txt", "ignored"),
         ("conf/references.json", references),
+        (
+            "conf/algorithms.json",
+            &format!("{{{}}}", sine_algorithms("sine")),
+        ),
     ])
 }
 
@@ -688,7 +699,8 @@ fn check_command_reports_every_problem() {
     assert_eq!(
         out,
         format!(
-            "MISMATCH sine binary64: expected 0000, got {}\n\
+            "MISMATCH sine binary64: expected 0000, got {} (the same algorithm versions: its \
+             bits changed without a new version)\n\
              MISSING  sine binary64-as-binary32: no reference hash (run bless)\n\
              ok       sine binary32 {binary32}\n\
              STALE    sine binary16: reference of no render format\n\
@@ -711,6 +723,137 @@ fn check_command_reports_every_problem() {
          MISSING  sine binary32: no reference hash (run bless)\n",
         "explained, format by format"
     );
+}
+
+#[test]
+fn check_command_refuses_algorithm_versions_other_than_blessed() {
+    let references = format!(r#"{{"sine":{}}}"#, sine_references());
+    let check = |algorithms: &str, hashes: &str| {
+        let mut memory = conformance(hashes);
+        drop(memory.files.insert(
+            PathBuf::from("conf/algorithms.json"),
+            algorithms.as_bytes().to_vec(),
+        ));
+        run_with(&mut memory, &["check", "conf"])
+    };
+    let ok = RenderFormat::ALL
+        .map(|format| format!("ok       sine {format} {}\n", sine_hash(format)))
+        .concat();
+    // A new version of a box type without new references: refused, naming both versions.
+    let (bumped, bumped_out) = check(r#"{"sine":{"dac~":1,"osc~":2}}"#, &references);
+    assert_eq!(
+        bumped,
+        Err("conformance failed in conf: 1 problem(s)".to_owned()),
+        "a version other than blessed"
+    );
+    assert_eq!(
+        bumped_out,
+        format!(
+            "{ok}VERSION  sine osc~: at algorithm version 1, the references were blessed with \
+             version 2 (bless again)\n"
+        ),
+        "explained"
+    );
+    // A box type without a recorded version, a version of a box type the patch does not
+    // use, a case without versions, versions without a case.
+    let (partial, partial_out) = check(
+        r#"{"sine":{"osc~":1,"env~":1},"gone":{"osc~":1}}"#,
+        &references,
+    );
+    assert_eq!(
+        partial,
+        Err("conformance failed in conf: 3 problem(s)".to_owned()),
+        "missing and stale versions"
+    );
+    assert_eq!(
+        partial_out,
+        format!(
+            "{ok}MISSING  sine dac~: no algorithm version (run bless)\n\
+             STALE    sine env~: algorithm version of a box type the case does not use\n\
+             STALE    gone: algorithm versions without a case\n"
+        ),
+        "each named"
+    );
+    let (none, none_out) = check("{}", &references);
+    assert_eq!(
+        none,
+        Err("conformance failed in conf: 1 problem(s)".to_owned()),
+        "no versions"
+    );
+    assert_eq!(
+        none_out,
+        format!("{ok}MISSING  sine: no algorithm versions (run bless)\n"),
+        "explained"
+    );
+    // Bits changed under a new version: the mismatch says nothing of a missing version,
+    // which the version line explains.
+    let changed = format!(
+        r#"{{"sine":{}}}"#,
+        sine_references().replace(&sine_hash(RenderFormat::Binary32), "0000")
+    );
+    let (both, both_out) = check(r#"{"sine":{"dac~":1,"osc~":2}}"#, &changed);
+    assert_eq!(
+        both,
+        Err("conformance failed in conf: 2 problem(s)".to_owned()),
+        "the mismatch and the version"
+    );
+    assert!(
+        both_out.contains(&format!(
+            "MISMATCH sine binary32: expected 0000, got {}\n",
+            sine_hash(RenderFormat::Binary32)
+        )),
+        "a plain mismatch: {both_out}"
+    );
+    assert!(
+        both_out.contains("VERSION  sine osc~: at algorithm version 1"),
+        "with the version: {both_out}"
+    );
+    for (algorithms, error) in [
+        ("[1]", "invalid conf/algorithms.json: "),
+        (r#"{"sine":{"osc~":-1}}"#, "invalid conf/algorithms.json: "),
+    ] {
+        assert!(
+            check(algorithms, &references)
+                .0
+                .is_err_and(|failure| failure.starts_with(error)),
+            "{algorithms}"
+        );
+    }
+    let mut absent = conformance(&references);
+    drop(absent.files.remove(Path::new("conf/algorithms.json")));
+    assert_eq!(
+        run_with(&mut absent, &["check", "conf"]).0,
+        Err("cannot read conf/algorithms.json: no such file".to_owned()),
+        "no algorithm versions"
+    );
+}
+
+#[test]
+fn reads_the_algorithm_versions_of_a_readable_patch_only() {
+    // A patch that cannot be read: its renders fail and say why, no version is compared,
+    // and bless stops on it, naming the patch, before writing anything.
+    let mut memory = Memory::with(&[
+        ("conf/cases/sine.json", SINE),
+        ("conf/patches/sine.json", "{"),
+        ("conf/references.json", "{}"),
+        ("conf/algorithms.json", "{}"),
+    ]);
+    let (result, out) = run_with(&mut memory, &["check", "conf"]);
+    assert_eq!(
+        result,
+        Err("conformance failed in conf: 3 problem(s)".to_owned()),
+        "one failed render per format, no version line"
+    );
+    assert!(
+        out.lines().all(|line| line.starts_with("FAILED   sine ")),
+        "{out}"
+    );
+    let (blessed, _) = run_with(&mut memory, &["bless", "conf"]);
+    assert!(
+        blessed.is_err_and(|error| error.starts_with("conf/patches/sine.json: ")),
+        "bless names the patch"
+    );
+    assert_eq!(memory.text("conf/algorithms.json"), "{}", "nothing written");
 }
 
 #[test]
@@ -757,6 +900,10 @@ fn check_command_reports_every_case_that_fails_to_render() {
             "conf/references.json",
             &format!(r#"{{"a":{{}},"b":{{}},"sine":{}}}"#, sine_references()),
         ),
+        (
+            "conf/algorithms.json",
+            &format!("{{{},{}}}", sine_algorithms("a"), sine_algorithms("sine")),
+        ),
     ]);
     let (result, out) = run_with(&mut memory, &["check", "conf"]);
     assert_eq!(
@@ -788,6 +935,7 @@ fn check_command_reports_every_case_that_fails_to_render() {
         ("conf/cases/a.json", "{"),
         ("conf/patches/a.json", PATCH),
         ("conf/references.json", "{}"),
+        ("conf/algorithms.json", "{}"),
     ]);
     assert_eq!(
         run(&args(&["check", "conf"]), &mut broken, &mut Broken).map_err(|error| error.to_string()),
@@ -822,9 +970,20 @@ fn bless_command_writes_sorted_references() {
         "sorted JSON: cases, then the names of the formats"
     );
     assert_eq!(
+        memory.text("conf/algorithms.json"),
+        "{\n  \"a\": {\n    \"dac~\": 1,\n    \"osc~\": 1\n  },\n  \"sine\": {\n    \"dac~\": 1,\n    \"osc~\": 1\n  }\n}\n",
+        "the algorithm version of every box type of every case, sorted"
+    );
+    assert_eq!(
         run_with(&mut memory, &["check", "conf"]).0,
         Ok(()),
         "check agrees"
+    );
+    memory.unwritable = Some(PathBuf::from("conf/algorithms.json"));
+    assert_eq!(
+        run_with(&mut memory, &["bless", "conf"]).0,
+        Err("cannot write conf/algorithms.json: read-only".to_owned()),
+        "unwritable algorithm versions"
     );
     memory.read_only = true;
     assert_eq!(
@@ -948,6 +1107,10 @@ fn reports_a_broken_output() {
             "conf/references.json",
             &format!(r#"{{"sine":{},"z":{{}}}}"#, sine_references()),
         ),
+        (
+            "conf/algorithms.json",
+            &format!("{{{}}}", sine_algorithms("sine")),
+        ),
     ]);
     let mut three = Limited(3);
     assert_eq!(
@@ -1060,12 +1223,18 @@ fn refuses_files_larger_than_their_limit() {
         "{hashes}{}",
         " ".repeat(super::MAX_REFERENCES_BYTES - hashes.len())
     );
+    let recorded = format!("{{{}}}", sine_algorithms("c"));
+    let algorithms = format!(
+        "{recorded}{}",
+        " ".repeat(super::MAX_REFERENCES_BYTES - recorded.len())
+    );
     let mut memory = Memory::with(&[
         ("c.json", &case),
         ("p.json", &patch),
         ("conf/cases/c.json", &case),
         ("conf/patches/c.json", &patch),
         ("conf/references.json", &references),
+        ("conf/algorithms.json", &algorithms),
     ]);
     assert_eq!(
         run_with(&mut memory, &["render", "c.json", "p.json"]).0,
@@ -1096,11 +1265,13 @@ fn refuses_files_larger_than_their_limit() {
         ("conf/cases/c.json", super::MAX_CASE_BYTES),
         ("conf/patches/c.json", engine_patch::MAX_PATCH_BYTES),
         ("conf/references.json", super::MAX_REFERENCES_BYTES),
+        ("conf/algorithms.json", super::MAX_REFERENCES_BYTES),
     ] {
         let mut over = Memory::with(&[
             ("conf/cases/c.json", &case),
             ("conf/patches/c.json", &patch),
             ("conf/references.json", &references),
+            ("conf/algorithms.json", &algorithms),
         ]);
         over.files
             .get_mut(Path::new(file))
@@ -1524,6 +1695,10 @@ fn hostile_corpus() -> Memory {
         ("conf/cases/d\u{1b}]0;title\u{7}.json", SINE),
         ("conf/patches/d\u{1b}]0;title\u{7}.json", PATCH),
         ("conf/references.json", references),
+        (
+            "conf/algorithms.json",
+            "{\"gone\\nok       gone\\u0007\":{}}",
+        ),
     ])
 }
 
@@ -1533,10 +1708,10 @@ fn check_command_prints_one_safe_line_per_problem() {
     let (result, out) = run_with(&mut memory, &["check", "conf"]);
     assert_eq!(
         result,
-        Err("conformance failed in conf: 15 problem(s)".to_owned()),
+        Err("conformance failed in conf: 18 problem(s)".to_owned()),
         "every problem counted, in every format"
     );
-    assert_safe_lines(&out, 15);
+    assert_safe_lines(&out, 18);
     assert!(
         out.contains("FAILED   a\\u{a}ok       a 0 binary64: "),
         "the case name is escaped: {out}"
@@ -1561,6 +1736,10 @@ fn check_command_prints_one_safe_line_per_problem() {
     assert!(
         out.contains("STALE    gone\\u{a}ok       gone\\u{7}: reference without a case"),
         "the reference key is escaped: {out}"
+    );
+    assert!(
+        out.contains("STALE    gone\\u{a}ok       gone\\u{7}: algorithm versions without a case"),
+        "the key of the algorithm versions is escaped: {out}"
     );
 }
 

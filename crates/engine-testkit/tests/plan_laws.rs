@@ -25,9 +25,9 @@ mod tests {
 
     use engine_core::host::{Delivered, ParamBounds, Raw};
     use engine_core::{
-        BLOCK_SIZE, Binary32, Binary64, Block, Capability, Connection, CoreError, Create, Factory,
-        Node, NodeId, Object, ObjectSpec, ParamSpec, Patch, Plan, PortSpec, Precision, Renderer,
-        Sample, SampleRate,
+        AlgorithmVersion, BLOCK_SIZE, Binary32, Binary64, Block, Capability, Connection, CoreError,
+        Create, Factory, Node, NodeId, Object, ObjectSpec, ParamSpec, Patch, Plan, PortSpec,
+        Precision, Renderer, Sample, SampleRate,
     };
     use engine_testkit::heap_operations_during;
     use engine_testkit::matrix::{HOST_BUFFER_SIZES, PRECISIONS, sample_rates};
@@ -80,6 +80,7 @@ mod tests {
         params: &[ParamSpec::new("value", "value", 0.5, -1.0, 1.0)],
         capabilities: &[],
         create: Factory::new::<Const>(),
+        algorithm_version: AlgorithmVersion::FIRST,
     };
 
     /// Outputs on both outlets a running count of its samples (state across blocks),
@@ -120,6 +121,7 @@ mod tests {
         params: &[],
         capabilities: &[],
         create: Factory::new::<Mix>(),
+        algorithm_version: AlgorithmVersion::FIRST,
     };
 
     /// Sends its two inlets to the engine output.
@@ -141,6 +143,7 @@ mod tests {
         params: &[],
         capabilities: &[Capability::AudioOutput],
         create: Factory::new::<Out>(),
+        algorithm_version: AlgorithmVersion::FIRST,
     };
 
     /// Outputs a tenth of the sample rate it was created with: a plan handing boxes a
@@ -167,6 +170,7 @@ mod tests {
         params: &[],
         capabilities: &[],
         create: Factory::new::<Rate>(),
+        algorithm_version: AlgorithmVersion::FIRST,
     };
 
     static REGISTRY: [&ObjectSpec; 4] = [&CONST, &MIX, &OUT, &RATE];
@@ -725,6 +729,7 @@ mod tests {
         params: &[],
         capabilities: &[],
         create: Factory::new::<Freeing>(),
+        algorithm_version: AlgorithmVersion::FIRST,
     };
 
     #[test]

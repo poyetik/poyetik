@@ -1,6 +1,8 @@
 //! The contract every box implements.
 
 use alloc::boxed::Box;
+use core::fmt;
+use core::num::NonZeroU32;
 
 use crate::{Binary32, Binary64, Block, Constructor, Sample, SampleRate};
 
@@ -116,6 +118,42 @@ impl Factory {
     }
 }
 
+/// The version of a box type's algorithm (`spec/engine-design.md`, decision 29).
+///
+/// Any change of a box type that can change a bit of its output takes a new one, and the
+/// conformance
+/// references record the version of every box type they were blessed with, so that bits
+/// changed without a new version, or a new version without new references, are refused.
+///
+/// Versions count from 1 ([`AlgorithmVersion::FIRST`]); a box type declares its version in
+/// its [`ObjectSpec`], so a box type without one does not compile.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct AlgorithmVersion(NonZeroU32);
+
+impl AlgorithmVersion {
+    /// Version 1, the first algorithm of a box type.
+    pub const FIRST: Self = Self(NonZeroU32::MIN);
+
+    /// The version after this one; the largest version stays the largest, never wrapping
+    /// to an earlier one.
+    #[must_use]
+    pub const fn next(self) -> Self {
+        Self(self.0.saturating_add(1))
+    }
+
+    /// Its number, from 1.
+    #[must_use]
+    pub const fn get(self) -> u32 {
+        self.0.get()
+    }
+}
+
+impl fmt::Display for AlgorithmVersion {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 /// Static description of a box type: everything the editor, the AI assistant, the
 /// documentation and the plan builder need to know about it.
 #[derive(Debug, Clone, Copy)]
@@ -134,10 +172,13 @@ pub struct ObjectSpec {
     pub capabilities: &'static [Capability],
     /// Creates its instances, in either precision.
     pub create: Factory,
+    /// The version of its algorithm (decision 29): a new one for any change that can
+    /// change a bit of its output.
+    pub algorithm_version: AlgorithmVersion,
 }
 
 /// A box instance, processing audio one block at a time, in the samples `S` of its render.
-pub trait Object<S: Sample>: Send + core::fmt::Debug {
+pub trait Object<S: Sample>: Send + fmt::Debug {
     /// Processes one block.
     ///
     /// `inputs` holds one block per inlet and `outputs` one block per outlet, in the
@@ -148,7 +189,9 @@ pub trait Object<S: Sample>: Send + core::fmt::Debug {
 
 #[cfg(test)]
 mod tests {
-    use super::ParamSpec;
+    use alloc::format;
+
+    use super::{AlgorithmVersion, ParamSpec};
     use crate::host::ParamBounds;
 
     const PARAM: ParamSpec = ParamSpec::new("p", "p", 0.0, -1.0, 2.0);
@@ -179,6 +222,23 @@ mod tests {
             [param.default_value(), param.minimum(), param.maximum()].map(f32::to_bits),
             [0.25_f32, -1.5, 2.5].map(f32::to_bits),
             "default, minimum, maximum"
+        );
+    }
+
+    #[test]
+    fn numbers_algorithm_versions_from_one() {
+        let first = AlgorithmVersion::FIRST;
+        assert_eq!(first.get(), 1, "the first version");
+        assert_eq!(first.next().get(), 2, "the next one");
+        assert_eq!(first.next().next().get(), 3, "and the one after");
+        assert!(first < first.next(), "ordered");
+        assert_eq!(format!("{}", first.next()), "2", "shown as its number");
+        let last = AlgorithmVersion(core::num::NonZeroU32::MAX);
+        assert_eq!(last.get(), u32::MAX, "the largest version");
+        assert_eq!(
+            last.next().get(),
+            u32::MAX,
+            "stays the largest, never wraps to zero"
         );
     }
 }

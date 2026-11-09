@@ -9,6 +9,8 @@ use engine_core::RenderFormat;
 use engine_fpenv::{DefaultMode, with_default_mode};
 use engine_patch::MAX_PATCH_BYTES;
 
+use engine_objects::REGISTRY;
+
 use crate::{Files, Prepared, prepare_case, wav_file};
 
 /// Usage of the `engine-cli` command, printed on stdout by `engine-cli help`.
@@ -19,8 +21,11 @@ usage: engine-cli <command>
                       binary64-as-binary32 or binary32), print its hash,
                       optionally write a WAV file
   check <dir>         compare every case of <dir>/cases (patches in <dir>/patches),
-                      in every format, with <dir>/references.json
-  bless <dir>         rewrite <dir>/references.json from the current renders
+                      in every format, with <dir>/references.json, and
+                      the algorithm versions of its box types, with
+                      <dir>/algorithms.json
+  bless <dir>         rewrite <dir>/references.json from the current renders,
+                      and <dir>/algorithms.json from the current box types
   export <dir> <out>  write the WAV file of every case of <dir>/cases, in every
                       format, to <out>/<case>.<format>.wav
   help                print this help";
@@ -198,6 +203,43 @@ impl CaseFiles {
 /// format, by the format's name.
 type References = BTreeMap<String, BTreeMap<String, String>>;
 
+/// The algorithm versions a conformance directory's references were blessed with
+/// (`spec/engine-design.md`, decision 29): for each case, the version of each box type its
+/// patch uses, by the box type's name.
+type Algorithms = BTreeMap<String, BTreeMap<String, u32>>;
+
+/// Where the algorithm versions of a conformance directory live, beside its references.
+fn algorithms_path(dir: &Path) -> PathBuf {
+    dir.join("algorithms.json")
+}
+
+/// The current algorithm version of every box type the patch of `case` uses, by name.
+///
+/// # Errors
+///
+/// Returns why the patch cannot be read, or the box type no registered box type is: the
+/// render of such a case fails too.
+fn algorithms(case: &CaseFiles) -> Result<BTreeMap<String, u32>, String> {
+    let patch = engine_patch::parse_patch(&case.patch)
+        .map_err(|error| format!("{}: {error}", case.patch_path.display()))?;
+    patch
+        .nodes()
+        .map(|node| {
+            REGISTRY
+                .iter()
+                .find(|spec| spec.name == node.kind)
+                .map(|spec| (node.kind.clone(), spec.algorithm_version.get()))
+                .ok_or_else(|| {
+                    format!(
+                        "{}: unknown box type \"{}\"",
+                        case.patch_path.display(),
+                        node.kind
+                    )
+                })
+        })
+        .collect()
+}
+
 /// The names of the `.json` files of `dir`, sorted, with their paths.
 fn json_files(files: &mut dyn Files, dir: &Path) -> Result<Vec<(String, PathBuf)>, String> {
     let mut entries = files
@@ -336,6 +378,45 @@ fn render(
     Ok(say(out, &OneLine::new(&rendered.hash().to_string()))?)
 }
 
+/// The problems of the algorithm versions of case `name`: `current`, those of its box types
+/// now (none when its patch cannot be read), against `recorded`, those its references were
+/// blessed with. A box type at another version than its references were blessed with is
+/// refused (a new version needs new references), as are a missing record and the record of
+/// a box type the patch does not use.
+fn version_problems(
+    name: &str,
+    current: Option<&BTreeMap<String, u32>>,
+    recorded: Option<&BTreeMap<String, u32>>,
+) -> Vec<String> {
+    let Some(current) = current else {
+        return Vec::new();
+    };
+    let Some(recorded) = recorded else {
+        return vec![format!(
+            "MISSING  {name}: no algorithm versions (run bless)"
+        )];
+    };
+    let changed = current
+        .iter()
+        .filter_map(|(kind, version)| match recorded.get(kind) {
+            Some(blessed) if blessed == version => None,
+            Some(blessed) => Some(format!(
+                "VERSION  {name} {kind}: at algorithm version {version}, the references were \
+             blessed with version {blessed} (bless again)"
+            )),
+            None => Some(format!(
+                "MISSING  {name} {kind}: no algorithm version (run bless)"
+            )),
+        });
+    let stale = recorded
+        .keys()
+        .filter(|kind| !current.contains_key(*kind))
+        .map(|kind| {
+            format!("STALE    {name} {kind}: algorithm version of a box type the case does not use")
+        });
+    changed.chain(stale).collect()
+}
+
 /// `check <dir>`: renders every case and reports each one on `out`, a case that fails
 /// to render included, so that one run lists every problem.
 ///
@@ -351,6 +432,10 @@ fn check(
     let path = references_path(dir);
     let expected: References = serde_json::from_str(&read(files, &path, MAX_REFERENCES_BYTES)?)
         .map_err(|error| format!("invalid {}: {error}", path.display()))?;
+    let versions_path = algorithms_path(dir);
+    let blessed: Algorithms =
+        serde_json::from_str(&read(files, &versions_path, MAX_REFERENCES_BYTES)?)
+            .map_err(|error| format!("invalid {}: {error}", versions_path.display()))?;
     let mut failures = 0_usize;
     let mut report = |stdout: &mut dyn Write, passed: bool, line: String| {
         if !passed {
@@ -361,6 +446,11 @@ fn check(
     for case in &cases {
         let name = &case.name;
         let references = expected.get(name);
+        // The versions now and when blessed; a case whose patch cannot be read has none
+        // now, and its render reports why.
+        let current = algorithms(case).ok();
+        let recorded = blessed.get(name);
+        let same_versions = current.is_some() && current.as_ref() == recorded;
         for format in RenderFormat::ALL {
             let (passed, line) = match case
                 .prepare(format)
@@ -372,7 +462,15 @@ fn check(
                     }
                     Some(reference) => (
                         false,
-                        format!("MISMATCH {name} {format}: expected {reference}, got {hash}"),
+                        format!(
+                            "MISMATCH {name} {format}: expected {reference}, got {hash}{}",
+                            if same_versions {
+                                " (the same algorithm versions: its bits changed without a \
+                                 new version)"
+                            } else {
+                                ""
+                            }
+                        ),
                     ),
                     None => (
                         false,
@@ -394,6 +492,9 @@ fn check(
                 format!("STALE    {name} {unknown}: reference of no render format"),
             )?;
         }
+        for line in version_problems(name, current.as_ref(), recorded) {
+            report(out, false, line)?;
+        }
     }
     for name in expected
         .keys()
@@ -403,6 +504,16 @@ fn check(
             out,
             false,
             format!("STALE    {name}: reference without a case"),
+        )?;
+    }
+    for name in blessed
+        .keys()
+        .filter(|name| !cases.iter().any(|case| case.name == **name))
+    {
+        report(
+            out,
+            false,
+            format!("STALE    {name}: algorithm versions without a case"),
         )?;
     }
     if failures == 0 {
@@ -423,12 +534,22 @@ fn bless(
     dir: &Path,
     mode: DefaultMode<'_>,
 ) -> Result<(), String> {
+    // The versions first: a patch that cannot be read stops the bless before any render.
+    let versions: Algorithms = cases(files, dir)?
+        .iter()
+        .map(|case| algorithms(case).map(|current| (case.name.clone(), current)))
+        .collect::<Result<_, _>>()?;
     let actual = hashes(files, dir, mode)?;
     let path = references_path(dir);
     let json = format!("{:#}\n", serde_json::json!(actual));
     files
         .write(&path, json.as_bytes())
         .map_err(|error| format!("cannot write {}: {error}", path.display()))?;
+    let versions_path = algorithms_path(dir);
+    let versions_json = format!("{:#}\n", serde_json::json!(versions));
+    files
+        .write(&versions_path, versions_json.as_bytes())
+        .map_err(|error| format!("cannot write {}: {error}", versions_path.display()))?;
     say(
         out,
         &OneLine::new(&format!(
