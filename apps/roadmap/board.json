@@ -1,7 +1,7 @@
 {
   "version": 1,
   "title": "Poyetik",
-  "nextId": 29,
+  "nextId": 30,
   "cards": [
     {
       "id": 1,
@@ -975,6 +975,41 @@
         },
         {
           "title": "Switch the visibility (maintainer's action or explicit approval)",
+          "done": false
+        }
+      ]
+    },
+    {
+      "id": 29,
+      "title": "Publish the engine as an open-source library in its own repository",
+      "description": "Once roadmap #12 is closed, the audio engine (core, boxes, WebAssembly binding) lives in a public repository of its own, with its proofs (conformance, independent oracle, gates, CI), so that Rust and web developers can use it on its own; the application then depends on the published engine like any other user.",
+      "column": "later",
+      "milestone": "",
+      "createdAt": "2026-11-09",
+      "updatedAt": "2026-11-09",
+      "tasks": [
+        {
+          "title": "License chosen by the maintainer",
+          "done": false
+        },
+        {
+          "title": "Extract the engine with its history and its proofs (conformance corpus, oracle, gates, its own CI)",
+          "done": false
+        },
+        {
+          "title": "Stabilize the public API: entry points, host settings, events, the box contract, versioned",
+          "done": false
+        },
+        {
+          "title": "External documentation and examples (native host, WebAssembly in the browser, writing a box)",
+          "done": false
+        },
+        {
+          "title": "Publish the crates on crates.io and the WebAssembly package",
+          "done": false
+        },
+        {
+          "title": "The application depends on the published engine",
           "done": false
         }
       ]
