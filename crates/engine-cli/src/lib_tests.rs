@@ -159,7 +159,13 @@ fn renders_a_case_in_every_format() {
     };
     let given: Vec<f64> = widened(&render(RenderFormat::Binary64))
         .into_iter()
-        .map(|sample| f64::from(engine_core::to_binary32(sample)))
+        .map(|sample| {
+            f64::from(
+                <f32 as engine_core::Delivered<engine_core::Binary64>>::deliver(
+                    <engine_core::Binary64 as engine_core::host::Raw>::from_raw(sample),
+                ),
+            )
+        })
         .collect();
     assert_eq!(
         widened(&render(RenderFormat::Binary64AsBinary32)),

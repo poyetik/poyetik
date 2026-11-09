@@ -30,6 +30,10 @@ let_underscore_drop = "deny"
 non_ascii_idents = "deny"
 rust_2018_idioms = { level = "deny", priority = -1 }
 warnings = "deny"
+# The one build-time choice of the math layer a build may make: `fused`, the fused
+# multiply-add option, built only by xtask's fused test build (spec/engine-design.md,
+# decision 10).
+unexpected_cfgs = { level = "deny", check-cfg = ['cfg(poyetik_math, values("fused"))'] }
 
 [workspace.lints.rustdoc]
 broken_intra_doc_links = "deny"

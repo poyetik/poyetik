@@ -23,10 +23,11 @@ mod tests {
 
     use alloc::collections::{BTreeMap, BTreeSet};
 
+    use engine_core::host::Raw;
     use engine_core::{
-        BLOCK_SIZE, Block, Capability, Connection, CoreError, Create, Factory, Node, NodeId,
-        Object, ObjectSpec, ParamSpec, Patch, Plan, PortSpec, Precision, Renderer, Sample,
-        SampleRate,
+        BLOCK_SIZE, Binary32, Binary64, Block, Capability, Connection, CoreError, Create,
+        Delivered, Factory, Node, NodeId, Object, ObjectSpec, ParamSpec, Patch, Plan, PortSpec,
+        Precision, Renderer, Sample, SampleRate,
     };
     use engine_testkit::heap_operations_during;
     use engine_testkit::matrix::{HOST_BUFFER_SIZES, PRECISIONS, sample_rates};
@@ -40,22 +41,20 @@ mod tests {
         description: "test port",
     };
 
-    /// The bits of a sample, widened to 64 bits, in either precision.
-    trait Bits: Sample {
-        /// The bit pattern.
-        fn bits(self) -> u64;
+    /// The samples whose renders these laws compare, in either precision: rendered as their
+    /// own floats, read back bit for bit.
+    trait Bits: Raw<Float: Delivered<Self>> {}
+    impl Bits for Binary64 {}
+    impl Bits for Binary32 {}
+
+    /// `value`, a literal, in the precision `S`.
+    fn of<S: Sample>(value: f64) -> S {
+        S::from_binary64(Binary64::from_raw(value))
     }
 
-    impl Bits for f64 {
-        fn bits(self) -> u64 {
-            self.to_bits()
-        }
-    }
-
-    impl Bits for f32 {
-        fn bits(self) -> u64 {
-            u64::from(self.to_bits())
-        }
+    /// A rendered buffer of `S`'s floats, read back as samples.
+    fn read_back<S: Bits>(floats: &[S::Float]) -> Vec<S> {
+        floats.iter().map(|&float| S::from_raw(float)).collect()
     }
 
     /// Outputs a constant.
@@ -64,13 +63,13 @@ mod tests {
     impl<S: Sample> Object<S> for Const {
         fn process(&mut self, _inputs: &[Block<S>], outputs: &mut [Block<S>]) {
             for output in outputs {
-                output.fill(S::from_f64(self.0));
+                output.fill(of::<S>(self.0));
             }
         }
     }
     impl Create for Const {
-        fn create<S: Sample>(_rate: SampleRate, params: &[f64]) -> Box<dyn Object<S>> {
-            Box::new(Self(params.first().copied().unwrap_or(0.0)))
+        fn create<S: Sample>(_rate: SampleRate, params: &[Binary64]) -> Box<dyn Object<S>> {
+            Box::new(Self(params.first().map_or(0.0, |param| param.raw())))
         }
     }
     static CONST: ObjectSpec = ObjectSpec {
@@ -102,11 +101,11 @@ mod tests {
             let mut sum = S::SILENCE;
             for input in inputs {
                 for (total, sample) in sum.iter_mut().zip(input) {
-                    *total += *sample * S::from_f64(0.5);
+                    *total += *sample * of::<S>(0.5);
                 }
             }
             for total in &mut sum {
-                *total += S::from_f64(self.0);
+                *total += of::<S>(self.0);
                 self.0 += 1.0e-3_f64;
             }
             for output in outputs {
@@ -115,7 +114,7 @@ mod tests {
         }
     }
     impl Create for Mix {
-        fn create<S: Sample>(_rate: SampleRate, _params: &[f64]) -> Box<dyn Object<S>> {
+        fn create<S: Sample>(_rate: SampleRate, _params: &[Binary64]) -> Box<dyn Object<S>> {
             Box::new(Self(0.0))
         }
     }
@@ -136,7 +135,7 @@ mod tests {
         fn process(&mut self, _inputs: &[Block<S>], _outputs: &mut [Block<S>]) {}
     }
     impl Create for Out {
-        fn create<S: Sample>(_rate: SampleRate, _params: &[f64]) -> Box<dyn Object<S>> {
+        fn create<S: Sample>(_rate: SampleRate, _params: &[Binary64]) -> Box<dyn Object<S>> {
             Box::new(Self)
         }
     }
@@ -157,12 +156,12 @@ mod tests {
     impl<S: Sample> Object<S> for Rate {
         fn process(&mut self, _inputs: &[Block<S>], outputs: &mut [Block<S>]) {
             for output in outputs {
-                output.fill(S::from_f64(self.0));
+                output.fill(of::<S>(self.0));
             }
         }
     }
     impl Create for Rate {
-        fn create<S: Sample>(rate: SampleRate, _params: &[f64]) -> Box<dyn Object<S>> {
+        fn create<S: Sample>(rate: SampleRate, _params: &[Binary64]) -> Box<dyn Object<S>> {
             Box::new(Self(f64::from(rate.hz() / 10)))
         }
     }
@@ -318,16 +317,16 @@ mod tests {
         let by_id: BTreeMap<NodeId, &Node> = nodes.iter().map(|node| (node.id, node)).collect();
         let mut boxes: BTreeMap<NodeId, Box<dyn Object<S>>> = BTreeMap::new();
         for node in nodes {
-            let params: Vec<f64> = spec(node)
+            let params: Vec<Binary64> = spec(node)
                 .params
                 .iter()
                 .map(|param| {
-                    f64::from(
+                    Binary64::new(f64::from(
                         node.params
                             .get(param.name)
                             .copied()
                             .unwrap_or(param.default),
-                    )
+                    ))
                 })
                 .collect();
             drop(boxes.insert(node.id, spec(node).create.create(rate, &params)));
@@ -384,14 +383,14 @@ mod tests {
 
     /// Renders `frames` frames of a fresh plan at once: no heap operation from its very
     /// first call.
-    fn first_render<S: Sample>(plan: Plan<S>, frames: usize) -> Result<Vec<S>, String> {
+    fn first_render<S: Bits>(plan: Plan<S>, frames: usize) -> Result<Vec<S>, String> {
         let mut renderer = Renderer::new(plan);
-        let mut whole = vec![S::ZERO; frames.saturating_mul(renderer.channels())];
+        let mut whole = vec![S::ZERO.raw(); frames.saturating_mul(renderer.channels())];
         let ((), operations) = heap_operations_during(|| renderer.render_into(&mut whole))?;
         if operations > 0 {
             return Err(format!("{operations} heap operations in a first render"));
         }
-        Ok(whole)
+        Ok(read_back::<S>(&whole))
     }
 
     /// Processes a fresh plan block by block until `samples` interleaved samples: no
@@ -448,7 +447,10 @@ mod tests {
         if bits(&whole) != bits(&reference) {
             return Err("the plan differs from the reference renderer".to_owned());
         }
-        if let Some(sample) = whole.iter().find(|sample| !sample.to_f64().is_finite()) {
+        if let Some(sample) = whole
+            .iter()
+            .find(|sample| !sample.to_binary64().raw().is_finite())
+        {
             return Err(format!("non-finite sample {sample:?}"));
         }
 
@@ -457,11 +459,11 @@ mod tests {
             let mut chunked = Renderer::new(
                 Plan::<S>::build(&patch, &REGISTRY, rate).map_err(|error| error.to_string())?,
             );
-            let mut parts = vec![S::ZERO; whole.len()];
+            let mut parts = vec![S::ZERO.raw(); whole.len()];
             for buffer in parts.chunks_mut(size.saturating_mul(chunked.channels()).max(1)) {
                 chunked.render_into(buffer);
             }
-            if bits(&parts) != bits(&whole) {
+            if bits(&read_back::<S>(&parts)) != bits(&whole) {
                 return Err(format!(
                     "rendering in buffers of {size} frames changes the samples"
                 ));
@@ -488,12 +490,13 @@ mod tests {
             Plan::<S>::build(&reversed, &REGISTRY, rate).map_err(|error| error.to_string())?,
         );
         let split_at = split.min(frames);
-        let mut parts: Vec<S> = again.render(split_at).map_err(|error| error.to_string())?;
+        let mut parts: Vec<S::Float> = again.render(split_at).map_err(|error| error.to_string())?;
         parts.extend(
             again
-                .render::<S>(frames.saturating_sub(split_at))
+                .render::<S::Float>(frames.saturating_sub(split_at))
                 .map_err(|error| error.to_string())?,
         );
+        let parts = read_back::<S>(&parts);
         if bits(&parts) != bits(&whole) {
             return Err(format!(
                 "render split at {split_at} or document order changes the samples"
@@ -532,8 +535,8 @@ mod tests {
     fn plans_obey_their_laws_in_every_precision_at_every_rate() {
         for precision in PRECISIONS {
             let result = match precision {
-                Precision::Binary64 => obeys_the_laws_in::<f64>(),
-                Precision::Binary32 => obeys_the_laws_in::<f32>(),
+                Precision::Binary64 => obeys_the_laws_in::<Binary64>(),
+                Precision::Binary32 => obeys_the_laws_in::<Binary32>(),
             };
             assert_eq!(result, Ok(()), "plan laws in binary{}", precision.bits());
         }
@@ -584,16 +587,23 @@ mod tests {
         let rate = SampleRate::new(8_000).expect("valid rate");
         let order = [NodeId(1), NodeId(2), NodeId(3), NodeId(4), NodeId(5)];
         let cables = [wire(1, 4, 0), wire(2, 4, 0), wire(3, 4, 1)];
-        let samples = reference_render::<f64>(&nodes, &cables, &order, rate, 70);
+        let samples = reference_render::<Binary64>(&nodes, &cables, &order, rate, 70);
         assert_eq!(
-            samples,
+            samples
+                .iter()
+                .map(|sample| sample.raw())
+                .collect::<Vec<_>>(),
             [0.75_f64, 800.0_f64].repeat(70),
             "summed, routed, at the rate"
         );
-        let narrow = reference_render::<f32>(&nodes, &cables, &order, rate, 70);
-        assert_eq!(narrow, [0.75, 800.0].repeat(70), "in binary32 too");
-        let silent = reference_render::<f32>(&nodes[..1], &[], &order[..1], rate, 70);
-        assert_eq!(silent, Vec::<f32>::new(), "no output box, no channel");
+        let narrow = reference_render::<Binary32>(&nodes, &cables, &order, rate, 70);
+        assert_eq!(
+            narrow.iter().map(|sample| sample.raw()).collect::<Vec<_>>(),
+            [0.75_f32, 800.0_f32].repeat(70),
+            "in binary32 too"
+        );
+        let silent = reference_render::<Binary32>(&nodes[..1], &[], &order[..1], rate, 70);
+        assert!(silent.is_empty(), "no output box, no channel");
     }
 
     /// Frees memory allocated when it was created, on its first call only.
@@ -603,12 +613,12 @@ mod tests {
         fn process(&mut self, _inputs: &[Block<S>], outputs: &mut [Block<S>]) {
             drop(core::hint::black_box(self.0.take()));
             for output in outputs {
-                output.fill(S::from_f64(0.25));
+                output.fill(of::<S>(0.25));
             }
         }
     }
     impl Create for Freeing {
-        fn create<S: Sample>(_rate: SampleRate, _params: &[f64]) -> Box<dyn Object<S>> {
+        fn create<S: Sample>(_rate: SampleRate, _params: &[Binary64]) -> Box<dyn Object<S>> {
             Box::new(Self(Some(vec![0.0; 8])))
         }
     }
@@ -657,7 +667,7 @@ mod tests {
         )
         .expect("valid patch");
         let rate = SampleRate::new(48_000).expect("valid rate");
-        let plan = || Plan::<f64>::build(&patch, &[&FREEING, &OUT], rate).expect("valid plan");
+        let plan = || Plan::<Binary64>::build(&patch, &[&FREEING, &OUT], rate).expect("valid plan");
         assert_eq!(
             first_render(plan(), 100),
             Err("1 heap operations in a first render".to_owned()),
@@ -668,7 +678,7 @@ mod tests {
             Err("1 heap operations while processing a block".to_owned()),
             "block by block"
         );
-        let narrow = Plan::<f32>::build(&patch, &[&FREEING, &OUT], rate).expect("valid plan");
+        let narrow = Plan::<Binary32>::build(&patch, &[&FREEING, &OUT], rate).expect("valid plan");
         assert_eq!(
             first_render(narrow, 100),
             Err("1 heap operations in a first render".to_owned()),
@@ -717,7 +727,7 @@ mod tests {
                 cables += connections.len();
                 kinds.extend(nodes.iter().map(|node| node.kind.clone()));
                 let patch = Patch::new(nodes, connections).map_err(|error| error.to_string())?;
-                match Plan::<f64>::build(&patch, &REGISTRY, rate) {
+                match Plan::<Binary64>::build(&patch, &REGISTRY, rate) {
                     Ok(_) => plans += 1,
                     Err(CoreError::Cycle(_)) => cycles += 1,
                     Err(other) => return Err(format!("unexpected error {other}")),

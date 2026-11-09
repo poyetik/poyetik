@@ -3,8 +3,10 @@
 use core::hint::black_box;
 use core::sync::atomic::{AtomicU16, Ordering};
 
+use engine_core::host::Raw;
 use engine_core::{
-    Block, Create, Factory, Object, ObjectSpec, ParamSpec, PortSpec, Precision, Sample, SampleRate,
+    Binary64, Block, Create, Factory, Object, ObjectSpec, ParamSpec, PortSpec, Precision, Sample,
+    SampleRate,
 };
 
 use super::{check_laws, check_metadata, check_registry};
@@ -63,7 +65,7 @@ impl<S: Sample> Object<S> for Fixture {
         reason = "S is f32 or f64: IEEE 754 multiplication, which neither overflows nor panics"
     )]
     fn process(&mut self, inputs: &[Block<S>], outputs: &mut [Block<S>]) {
-        let nan = S::from_f64(f64::NAN);
+        let nan = of::<S>(f64::NAN);
         let either = |condition: bool| if condition { nan } else { S::ZERO };
         let inputs_any =
             |test: &dyn Fn(f64) -> bool| inputs.iter().flatten().any(|sample| test(widen(*sample)));
@@ -71,16 +73,16 @@ impl<S: Sample> Object<S> for Fixture {
             Self::Gain(gain) => {
                 for (output, input) in outputs.iter_mut().zip(inputs) {
                     for (out, value) in output.iter_mut().zip(input) {
-                        *out = (*value * S::from_f64(*gain)).flush();
+                        *out = (*value * of::<S>(*gain)).flush();
                     }
                 }
             }
             Self::Nan => fill(outputs, nan),
             Self::NanIn(precision) => fill(outputs, either(*precision == S::PRECISION)),
-            Self::Constant(value) => fill(outputs, S::from_f64(*value)),
+            Self::Constant(value) => fill(outputs, of::<S>(*value)),
             Self::ConstantIn(precision, value) => fill(
                 outputs,
-                S::from_f64(if *precision == S::PRECISION {
+                of::<S>(if *precision == S::PRECISION {
                     *value
                 } else {
                     0.0
@@ -88,7 +90,7 @@ impl<S: Sample> Object<S> for Fixture {
             ),
             Self::Subnormal => fill(
                 outputs,
-                S::from_f64(match S::PRECISION {
+                of::<S>(match S::PRECISION {
                     Precision::Binary64 => f64::from_bits(1),
                     Precision::Binary32 => f64::from(f32::from_bits(1)),
                 }),
@@ -121,7 +123,7 @@ impl<S: Sample> Object<S> for Fixture {
                 } else {
                     0.0_f64
                 };
-                fill(outputs, S::from_f64(value));
+                fill(outputs, of::<S>(value));
             }
         }
     }
@@ -136,7 +138,12 @@ fn fill<S: Sample>(outputs: &mut [Block<S>], value: S) {
 
 /// `sample` in binary64, exactly.
 fn widen<S: Sample>(sample: S) -> f64 {
-    sample.to_f64()
+    sample.to_binary64().raw()
+}
+
+/// `value` in the precision `S`.
+fn of<S: Sample>(value: f64) -> S {
+    S::from_binary64(Binary64::from_raw(value))
 }
 
 /// Whether `value`, a sample of `S` in binary64, is subnormal in `S`.
@@ -155,7 +162,9 @@ macro_rules! factory {
         /// The fixture's box type.
         struct Chosen;
         impl Create for Chosen {
-            fn create<S: Sample>($rate: SampleRate, $params: &[f64]) -> Box<dyn Object<S>> {
+            fn create<S: Sample>($rate: SampleRate, given: &[Binary64]) -> Box<dyn Object<S>> {
+                let raw: Vec<f64> = given.iter().map(|param| param.raw()).collect();
+                let $params: &[f64] = &raw;
                 Box::new($body)
             }
         }

@@ -2,8 +2,9 @@
 
 use alloc::collections::BTreeSet;
 
+use engine_core::host::Raw;
 use engine_core::{
-    BLOCK_SIZE, Block, Object, ObjectSpec, ParamSpec, Precision, Sample, SampleRate,
+    BLOCK_SIZE, Binary32, Binary64, Block, Object, ObjectSpec, ParamSpec, Precision, SampleRate,
 };
 use proptest::collection::vec;
 use proptest::test_runner::TestCaseError;
@@ -12,12 +13,9 @@ use crate::heap_operations_during;
 use crate::matrix::{PRECISIONS, SPECIAL_INPUTS, SPECIAL_INPUTS_BINARY64, sample_rates};
 
 /// What the laws read of a sample, in either precision.
-trait LawSample: Sample {
+trait LawSample: Raw {
     /// The special inputs of the matrix in this precision.
-    const SPECIAL_INPUTS: [Self; 8];
-
-    /// Its bit pattern, widened: `-0.0` and NaN payloads compared exactly.
-    fn bits(self) -> u64;
+    fn special_inputs() -> [Self; 8];
 
     /// Whether it is neither NaN nor infinite.
     fn finite(self) -> bool;
@@ -26,35 +24,31 @@ trait LawSample: Sample {
     fn subnormal(self) -> bool;
 }
 
-impl LawSample for f64 {
-    const SPECIAL_INPUTS: [Self; 8] = SPECIAL_INPUTS_BINARY64;
-
-    fn bits(self) -> u64 {
-        self.to_bits()
+impl LawSample for Binary64 {
+    fn special_inputs() -> [Self; 8] {
+        SPECIAL_INPUTS_BINARY64.map(Self::from_raw)
     }
 
     fn finite(self) -> bool {
-        self.is_finite()
+        self.raw().is_finite()
     }
 
     fn subnormal(self) -> bool {
-        self.is_subnormal()
+        self.raw().is_subnormal()
     }
 }
 
-impl LawSample for f32 {
-    const SPECIAL_INPUTS: [Self; 8] = SPECIAL_INPUTS;
-
-    fn bits(self) -> u64 {
-        u64::from(self.to_bits())
+impl LawSample for Binary32 {
+    fn special_inputs() -> [Self; 8] {
+        SPECIAL_INPUTS.map(Self::from_raw)
     }
 
     fn finite(self) -> bool {
-        self.is_finite()
+        self.raw().is_finite()
     }
 
     fn subnormal(self) -> bool {
-        self.is_subnormal()
+        self.raw().is_subnormal()
     }
 }
 
@@ -154,7 +148,10 @@ fn render<S: LawSample>(
     input: &[S],
     blocks: usize,
 ) -> Result<(Vec<Block<S>>, usize), String> {
-    let wide: Vec<f64> = params.iter().copied().map(f64::from).collect();
+    let wide: Vec<Binary64> = params
+        .iter()
+        .map(|&param| Binary64::from_raw(f64::from(param)))
+        .collect();
     let mut object: Box<dyn Object<S>> = spec.create.create(rate, &wide);
     let (chunked, _remainder) = input.as_chunks::<BLOCK_SIZE>();
     let mut chunks = chunked.iter();
@@ -281,7 +278,7 @@ fn check_long_run<S: LawSample>(spec: &ObjectSpec, rate: SampleRate) -> Result<(
 /// The special inputs of the matrix in the precision `S`, repeated to fill every inlet for
 /// every block.
 fn special_input<S: LawSample>(length: usize) -> Vec<S> {
-    S::SPECIAL_INPUTS
+    S::special_inputs()
         .iter()
         .copied()
         .cycle()
@@ -300,7 +297,10 @@ fn check_rate<S: LawSample>(
     check_long_run::<S>(spec, rate)?;
     crate::runner::runner(CASES)
         .run(&vec(-1.0_f64..=1.0_f64, length), |input| {
-            let samples: Vec<S> = input.into_iter().map(S::from_f64).collect();
+            let samples: Vec<S> = input
+                .into_iter()
+                .map(|value| S::from_binary64(Binary64::from_raw(value)))
+                .collect();
             check_input(spec, rate, &samples).map_err(TestCaseError::fail)
         })
         .map_err(|error| error.to_string())
@@ -333,8 +333,8 @@ pub fn check_laws(spec: &ObjectSpec) -> Result<(), String> {
         .saturating_mul(spec.inlets.len());
     for precision in PRECISIONS {
         match precision {
-            Precision::Binary64 => check_precision::<f64>(spec, length),
-            Precision::Binary32 => check_precision::<f32>(spec, length),
+            Precision::Binary64 => check_precision::<Binary64>(spec, length),
+            Precision::Binary32 => check_precision::<Binary32>(spec, length),
         }
         .map_err(|problem| format!("binary{}, {problem}", precision.bits()))?;
     }

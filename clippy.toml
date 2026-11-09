@@ -95,6 +95,9 @@ disallowed-types = [
   { path = "std::collections::HashMap", reason = "random iteration order: use BTreeMap" },
   { path = "std::collections::HashSet", reason = "random iteration order: use BTreeSet" },
 ]
+# The engine's sample types: their operators are the math layer's IEEE 754 operations, which
+# neither overflow nor panic (spec/engine-design.md, decision 10).
+arithmetic-side-effects-allowed = ["engine_core::Binary64", "engine_core::Binary32"]
 allow-expect-in-tests = true
 allow-panic-in-tests = true
 allow-indexing-slicing-in-tests = true

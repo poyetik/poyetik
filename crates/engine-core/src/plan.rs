@@ -13,8 +13,8 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::{
-    Block, Capability, Connection, CoreError, Node, NodeId, Object, ObjectSpec, Patch, Sample,
-    SampleRate,
+    Binary64, Block, Capability, Connection, CoreError, Node, NodeId, Object, ObjectSpec, Patch,
+    Sample, SampleRate, flush,
 };
 
 /// One box instance in execution order, with its own input and output buffers.
@@ -67,7 +67,7 @@ struct Resolved<'patch> {
     /// Its parameter values, in spec order, none subnormal, in binary64 (decision 10 of
     /// `spec/engine-design.md`): a parameter of format 1 is its binary32 value, exact in
     /// binary64.
-    params: Vec<f64>,
+    params: Vec<Binary64>,
     /// First bus slot of its outlets (outlets occupy consecutive slots, boxes in id
     /// order).
     first_slot: usize,
@@ -102,7 +102,7 @@ fn resolve<'patch>(
                 node: node.id,
                 name: name.clone(),
             })?;
-        if !param.accepts(value.flush()) {
+        if !param.accepts(flush::binary32(value)) {
             return Err(CoreError::ParamOutOfRange {
                 node: node.id,
                 name: name.clone(),
@@ -114,13 +114,12 @@ fn resolve<'patch>(
         .params
         .iter()
         .map(|param| {
-            f64::from(
+            Binary64::new(f64::from(flush::binary32(
                 node.params
                     .get(param.name)
                     .copied()
-                    .unwrap_or(param.default)
-                    .flush(),
-            )
+                    .unwrap_or(param.default),
+            )))
         })
         .collect();
     Ok(Resolved {

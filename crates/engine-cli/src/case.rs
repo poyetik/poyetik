@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use engine_core::{MODE, Plan, RenderFormat, Renderer, SampleRate};
+use engine_core::{Binary32, Binary64, MODE, Plan, RenderFormat, Renderer, SampleRate};
 use engine_fpenv::DefaultMode;
 
 use crate::{HEADER_LEN, wav_header};
@@ -123,11 +123,11 @@ impl Rendered {
 #[derive(Debug)]
 enum Built {
     /// Rendered and given in binary64.
-    Binary64(Plan<f64>),
+    Binary64(Plan<Binary64>),
     /// Rendered in binary64, given in binary32.
-    Binary64AsBinary32(Plan<f64>),
+    Binary64AsBinary32(Plan<Binary64>),
     /// Rendered and given in binary32.
-    Binary32(Plan<f32>),
+    Binary32(Plan<Binary32>),
 }
 
 impl Built {

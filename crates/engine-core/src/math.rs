@@ -18,7 +18,7 @@
 
 use alloc::boxed::Box;
 use core::fmt;
-use core::ops::{Add, AddAssign, BitOr, Div, Mul, Neg, Sub};
+use core::ops::{Add, AddAssign, BitOr, Div, Mul, Neg, Sub, SubAssign};
 
 use crate::{BLOCK_SIZE, Block, Factory, Object, SampleRate};
 
@@ -184,7 +184,13 @@ impl ArithmeticMode {
 
 /// The arithmetic mode of this build of the math layer: the strict default, the only one
 /// built.
+#[cfg(not(poyetik_math = "fused"))]
 pub const MODE: ArithmeticMode = ArithmeticMode::STRICT;
+
+/// The arithmetic mode of a test build with the fused multiply-add option, which proves the
+/// option a hook of the math layer alone (xtask's fused build); no engine is built so.
+#[cfg(poyetik_math = "fused")]
+pub const MODE: ArithmeticMode = ArithmeticMode(1);
 
 /// The nearest binary32 value to `value`, the same bits on every target.
 ///
@@ -199,7 +205,7 @@ pub const MODE: ArithmeticMode = ArithmeticMode::STRICT;
     clippy::cast_possible_truncation,
     reason = "f64 to f32 rounding is the intended, IEEE 754-defined conversion; no From exists"
 )]
-pub fn to_binary32(value: f64) -> f32 {
+pub(crate) fn to_binary32(value: f64) -> f32 {
     if value.is_nan() {
         let bits = value.to_bits();
         let sign = if bits >> 63_u32 == 0 {
@@ -217,22 +223,194 @@ pub fn to_binary32(value: f64) -> f32 {
 }
 
 /// A constructor of box instances computing in `S`.
-pub type Constructor<S> = fn(SampleRate, &[f64]) -> Box<dyn Object<S>>;
+pub type Constructor<S> = fn(SampleRate, &[Binary64]) -> Box<dyn Object<S>>;
 
-/// Hides [`Sample`] from implementations outside this crate: the engine computes in
-/// binary64 and binary32 only.
-mod sealed {
-    /// The sample types.
-    pub trait Sealed {}
-    impl Sealed for f32 {}
-    impl Sealed for f64 {}
+/// A binary64 value of the engine: a signal sample of a 64-bit render, and in both
+/// precisions a parameter value and what boxes derive from it (increments, coefficients,
+/// phases).
+///
+/// Its operators and comparisons are the math layer's, and nothing else can reach its
+/// float: a box computes with it only through this layer, which a build-time arithmetic
+/// option changes without a box changing (`spec/engine-design.md`, decision 10). A host
+/// reads and writes its bits through [`host::Raw`].
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+#[repr(transparent)]
+pub struct Binary64(f64);
+
+/// A binary32 value of the engine: a signal sample of a 32-bit render. As [`Binary64`], its
+/// operators and comparisons are the math layer's.
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+#[repr(transparent)]
+pub struct Binary32(f32);
+
+impl Binary64 {
+    /// 2π, the nearest binary64.
+    pub const TAU: Self = Self(core::f64::consts::TAU);
+
+    /// One.
+    pub const ONE: Self = Self(1.0);
+
+    /// The value `value`, which a box writes as a literal: a constant, never a computed
+    /// float (a box has none to give).
+    #[must_use]
+    pub const fn new(value: f64) -> Self {
+        Self(value)
+    }
 }
 
-/// A type the engine computes signals in: `f64` or `f32`, nothing else. Its operators are
-/// IEEE 754's, each correctly rounded; its math functions are the pinned `libm`'s.
-///
-/// Also the type of parameter values and what boxes derive from them, as `f64`, whatever the
-/// precision of the render.
+impl From<SampleRate> for Binary64 {
+    /// The rate in hertz, exactly.
+    fn from(rate: SampleRate) -> Self {
+        Self(f64::from(rate.hz()))
+    }
+}
+
+impl Add for Binary64 {
+    type Output = Self;
+
+    /// The IEEE 754 `+` of the two floats, correctly rounded: the strict mode's.
+    #[inline]
+    fn add(self, other: Self) -> Self {
+        Self(self.0 + other.0)
+    }
+}
+
+impl Sub for Binary64 {
+    type Output = Self;
+
+    /// The IEEE 754 `-` of the two floats, correctly rounded: the strict mode's.
+    #[inline]
+    fn sub(self, other: Self) -> Self {
+        Self(self.0 - other.0)
+    }
+}
+
+impl Mul for Binary64 {
+    type Output = Self;
+
+    /// The IEEE 754 `*` of the two floats, correctly rounded: the strict mode's.
+    #[inline]
+    fn mul(self, other: Self) -> Self {
+        Self(self.0 * other.0)
+    }
+}
+
+impl Div for Binary64 {
+    type Output = Self;
+
+    /// The IEEE 754 `/` of the two floats, correctly rounded: the strict mode's.
+    #[inline]
+    fn div(self, other: Self) -> Self {
+        Self(self.0 / other.0)
+    }
+}
+
+impl Neg for Binary64 {
+    type Output = Self;
+
+    /// The negation: the sign flipped, exact.
+    #[inline]
+    fn neg(self) -> Self {
+        Self(-self.0)
+    }
+}
+
+impl AddAssign for Binary64 {
+    /// The IEEE 754 `+=`, correctly rounded: the strict mode's.
+    #[inline]
+    fn add_assign(&mut self, other: Self) {
+        self.0 += other.0;
+    }
+}
+
+impl SubAssign for Binary64 {
+    /// The IEEE 754 `-=`, correctly rounded: the strict mode's.
+    #[inline]
+    fn sub_assign(&mut self, other: Self) {
+        self.0 -= other.0;
+    }
+}
+
+impl Add for Binary32 {
+    type Output = Self;
+
+    /// The IEEE 754 `+` of the two floats, correctly rounded: the strict mode's.
+    #[inline]
+    fn add(self, other: Self) -> Self {
+        Self(self.0 + other.0)
+    }
+}
+
+impl Sub for Binary32 {
+    type Output = Self;
+
+    /// The IEEE 754 `-` of the two floats, correctly rounded: the strict mode's.
+    #[inline]
+    fn sub(self, other: Self) -> Self {
+        Self(self.0 - other.0)
+    }
+}
+
+impl Mul for Binary32 {
+    type Output = Self;
+
+    /// The IEEE 754 `*` of the two floats, correctly rounded: the strict mode's.
+    #[inline]
+    fn mul(self, other: Self) -> Self {
+        Self(self.0 * other.0)
+    }
+}
+
+impl Div for Binary32 {
+    type Output = Self;
+
+    /// The IEEE 754 `/` of the two floats, correctly rounded: the strict mode's.
+    #[inline]
+    fn div(self, other: Self) -> Self {
+        Self(self.0 / other.0)
+    }
+}
+
+impl Neg for Binary32 {
+    type Output = Self;
+
+    /// The negation: the sign flipped, exact.
+    #[inline]
+    fn neg(self) -> Self {
+        Self(-self.0)
+    }
+}
+
+impl AddAssign for Binary32 {
+    /// The IEEE 754 `+=`, correctly rounded: the strict mode's.
+    #[inline]
+    fn add_assign(&mut self, other: Self) {
+        self.0 += other.0;
+    }
+}
+
+impl SubAssign for Binary32 {
+    /// The IEEE 754 `-=`, correctly rounded: the strict mode's.
+    #[inline]
+    fn sub_assign(&mut self, other: Self) {
+        self.0 -= other.0;
+    }
+}
+
+/// Hides [`Sample`] and [`Delivered`] from implementations outside this crate: the engine
+/// computes in binary64 and binary32 only.
+mod sealed {
+    /// The sample types, and the floats a render is given in.
+    pub trait Sealed {}
+    impl Sealed for super::Binary64 {}
+    impl Sealed for super::Binary32 {}
+    impl Sealed for f64 {}
+    impl Sealed for f32 {}
+}
+
+/// A type the engine computes signals in: [`Binary64`] or [`Binary32`], nothing else. Its
+/// operators are IEEE 754's, each correctly rounded; its math functions are the pinned
+/// `libm`'s; all are the math layer's.
 pub trait Sample:
     sealed::Sealed
     + Copy
@@ -247,6 +425,7 @@ pub trait Sample:
     + Div<Output = Self>
     + Neg<Output = Self>
     + AddAssign
+    + SubAssign
     + 'static
 {
     /// The precision this type computes in.
@@ -258,16 +437,12 @@ pub trait Sample:
     /// A block of silence: positive zeros.
     const SILENCE: Block<Self> = [Self::ZERO; BLOCK_SIZE];
 
-    /// The nearest value of this type to `value` ([`to_binary32`] for `f32`, `value` itself
-    /// for `f64`).
-    fn from_f64(value: f64) -> Self;
+    /// The nearest value of this type to `value` ([`to_binary32`] for [`Binary32`], `value`
+    /// itself for [`Binary64`]).
+    fn from_binary64(value: Binary64) -> Self;
 
     /// Itself in binary64, exactly.
-    fn to_f64(self) -> f64;
-
-    /// Its nearest binary32 value ([`to_binary32`] for `f64`, itself for `f32`): what a host
-    /// that takes binary32 is given.
-    fn to_binary32(self) -> f32;
+    fn to_binary64(self) -> Binary64;
 
     /// Itself, or a zero of its sign when it is subnormal (`spec/engine-design.md`,
     /// decision 11): decided from its bits, so that no hardware mode can change it.
@@ -282,36 +457,48 @@ pub trait Sample:
     #[must_use]
     fn floor(self) -> Self;
 
+    /// `self × mul + add`, the operation every box writes for a product then a sum: in the
+    /// strict mode, the product rounded, then the sum rounded, exactly as `self * mul + add`.
+    /// A fused multiply-add option (decision 10) changes this function alone.
+    #[must_use]
+    fn mul_then_add(self, mul: Self, add: Self) -> Self;
+
     /// The constructor of `factory` for this type.
     fn constructor(factory: &Factory) -> Constructor<Self>;
 }
 
-impl Sample for f64 {
+impl Sample for Binary64 {
     const PRECISION: Precision = Precision::Binary64;
-    const ZERO: Self = 0.0;
+    const ZERO: Self = Self(0.0);
 
-    fn from_f64(value: f64) -> Self {
+    fn from_binary64(value: Binary64) -> Self {
         value
     }
 
-    fn to_f64(self) -> f64 {
+    fn to_binary64(self) -> Binary64 {
         self
     }
 
-    fn to_binary32(self) -> f32 {
-        to_binary32(self)
-    }
-
     fn flush(self) -> Self {
-        crate::flush::binary64(self)
+        Self(crate::flush::binary64(self.0))
     }
 
     fn sin(self) -> Self {
-        libm::sin(self)
+        Self(libm::sin(self.0))
     }
 
     fn floor(self) -> Self {
-        libm::floor(self)
+        Self(libm::floor(self.0))
+    }
+
+    fn mul_then_add(self, mul: Self, add: Self) -> Self {
+        // The strict mode: the product rounded, then the sum rounded.
+        #[cfg(not(poyetik_math = "fused"))]
+        let result = Self(self.0 * mul.0 + add.0);
+        // The fused test build (xtask): one rounding, by the pinned `libm`'s `fma`.
+        #[cfg(poyetik_math = "fused")]
+        let result = Self(libm::fma(self.0, mul.0, add.0));
+        result
     }
 
     fn constructor(factory: &Factory) -> Constructor<Self> {
@@ -319,32 +506,38 @@ impl Sample for f64 {
     }
 }
 
-impl Sample for f32 {
+impl Sample for Binary32 {
     const PRECISION: Precision = Precision::Binary32;
-    const ZERO: Self = 0.0;
+    const ZERO: Self = Self(0.0);
 
-    fn from_f64(value: f64) -> Self {
-        to_binary32(value)
+    fn from_binary64(value: Binary64) -> Self {
+        Self(to_binary32(value.0))
     }
 
-    fn to_f64(self) -> f64 {
-        f64::from(self)
-    }
-
-    fn to_binary32(self) -> f32 {
-        self
+    fn to_binary64(self) -> Binary64 {
+        Binary64(f64::from(self.0))
     }
 
     fn flush(self) -> Self {
-        crate::flush::binary32(self)
+        Self(crate::flush::binary32(self.0))
     }
 
     fn sin(self) -> Self {
-        libm::sinf(self)
+        Self(libm::sinf(self.0))
     }
 
     fn floor(self) -> Self {
-        libm::floorf(self)
+        Self(libm::floorf(self.0))
+    }
+
+    fn mul_then_add(self, mul: Self, add: Self) -> Self {
+        // The strict mode: the product rounded, then the sum rounded.
+        #[cfg(not(poyetik_math = "fused"))]
+        let result = Self(self.0 * mul.0 + add.0);
+        // The fused test build (xtask): one rounding, by the pinned `libm`'s `fmaf`.
+        #[cfg(poyetik_math = "fused")]
+        let result = Self(libm::fmaf(self.0, mul.0, add.0));
+        result
     }
 
     fn constructor(factory: &Factory) -> Constructor<Self> {
@@ -352,24 +545,87 @@ impl Sample for f32 {
     }
 }
 
-/// How a render of samples `S` is given to its host as samples of this type.
+/// How a render of samples `S` is given to its host, as floats of this type.
 ///
-/// As they are, or a binary64 sample rounded to binary32 ([`Sample::to_binary32`]). A
-/// binary32 render cannot be given as binary64: no [`RenderFormat`] is one.
+/// A binary64 render as binary64 or rounded to binary32 ([`to_binary32`]), a binary32
+/// render as binary32. A binary32 render cannot be given as binary64: no [`RenderFormat`]
+/// is one.
 pub trait Delivered<S: Sample>: sealed::Sealed + Copy {
     /// `sample`, given as this type.
     fn deliver(sample: S) -> Self;
 }
 
-impl<S: Sample> Delivered<S> for S {
-    fn deliver(sample: S) -> Self {
-        sample
+impl Delivered<Binary64> for f64 {
+    fn deliver(sample: Binary64) -> Self {
+        sample.0
     }
 }
 
-impl Delivered<f64> for f32 {
-    fn deliver(sample: f64) -> Self {
-        sample.to_binary32()
+impl Delivered<Binary32> for f32 {
+    fn deliver(sample: Binary32) -> Self {
+        sample.0
+    }
+}
+
+impl Delivered<Binary64> for f32 {
+    fn deliver(sample: Binary64) -> Self {
+        to_binary32(sample.0)
+    }
+}
+
+/// What a host, never a box, needs of the engine's samples: their floats and their bits,
+/// to give them to the platform, hash them, read them back and test them.
+///
+/// A box crate does not name this module: xtask's math layer gate refuses it, with `f32`
+/// and `f64`, in a box crate's code (tests apart), so a box cannot leave the math layer.
+pub mod host {
+    use super::{Binary32, Binary64, Sample};
+
+    /// The float of a sample, in and out.
+    pub trait Raw: Sample {
+        /// Its float: `f64` or `f32`.
+        type Float: Copy;
+
+        /// The sample holding `value`.
+        fn from_raw(value: Self::Float) -> Self;
+
+        /// Its float.
+        fn raw(self) -> Self::Float;
+
+        /// Its bit pattern, widened to 64 bits: `-0.0` and NaN payloads compared exactly.
+        fn bits(self) -> u64;
+    }
+
+    impl Raw for Binary64 {
+        type Float = f64;
+
+        fn from_raw(value: f64) -> Self {
+            Self(value)
+        }
+
+        fn raw(self) -> f64 {
+            self.0
+        }
+
+        fn bits(self) -> u64 {
+            self.0.to_bits()
+        }
+    }
+
+    impl Raw for Binary32 {
+        type Float = f32;
+
+        fn from_raw(value: f32) -> Self {
+            Self(value)
+        }
+
+        fn raw(self) -> f32 {
+            self.0
+        }
+
+        fn bits(self) -> u64 {
+            u64::from(self.0.to_bits())
+        }
     }
 }
 

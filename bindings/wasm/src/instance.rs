@@ -105,6 +105,7 @@ impl Instance {
 
 #[cfg(test)]
 mod tests {
+    use engine_core::host::Raw;
     use engine_core::{BLOCK_SIZE, RenderFormat};
 
     use super::Instance;
@@ -113,18 +114,13 @@ mod tests {
     /// The first channel of `blocks`, widened to 64 bits.
     fn first(blocks: Blocks<'_>) -> Vec<u64> {
         match blocks {
-            Blocks::Binary64(channels) => {
-                channels[0].iter().map(|sample| sample.to_bits()).collect()
-            }
-            Blocks::Binary32(channels) => channels[0]
-                .iter()
-                .map(|sample| u64::from(sample.to_bits()))
-                .collect(),
+            Blocks::Binary64(channels) => channels[0].iter().map(|sample| sample.bits()).collect(),
+            Blocks::Binary32(channels) => channels[0].iter().map(|sample| sample.bits()).collect(),
         }
     }
 
     /// The blocks of a binary32 render, or `None` for binary64.
-    fn narrow(blocks: Blocks<'_>) -> Option<&[engine_core::Block<f32>]> {
+    fn narrow(blocks: Blocks<'_>) -> Option<&[engine_core::Block<engine_core::Binary32>]> {
         match blocks {
             Blocks::Binary64(_) => None,
             Blocks::Binary32(channels) => Some(channels),
@@ -198,11 +194,11 @@ mod tests {
         let blocks = narrow(instance.process()).expect("binary32 blocks");
         assert_eq!(blocks.len(), 2, "one block per channel");
         assert!(
-            blocks[0].iter().any(|&sample| sample != 0.0),
+            blocks[0].iter().any(|&sample| sample.raw() != 0.0),
             "sound on the left"
         );
         assert!(
-            blocks[1].iter().all(|&sample| sample == 0.0),
+            blocks[1].iter().all(|&sample| sample.raw() == 0.0),
             "silence on the right"
         );
     }
@@ -216,8 +212,12 @@ mod tests {
             instance.input(MONO.len()).copy_from_slice(MONO);
             assert!(instance.load(rate.hz(), 0), "{}", instance.message());
             let expected = engine_core::Renderer::new(
-                engine_core::Plan::<f64>::build(&patch, &engine_objects::REGISTRY, rate)
-                    .expect("valid plan"),
+                engine_core::Plan::<engine_core::Binary64>::build(
+                    &patch,
+                    &engine_objects::REGISTRY,
+                    rate,
+                )
+                .expect("valid plan"),
             )
             .render::<f64>(BLOCK_SIZE)
             .expect("one block");

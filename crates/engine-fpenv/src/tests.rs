@@ -175,7 +175,9 @@ fn render(case: &str, patch: &str, format: RenderFormat) -> String {
     let frames = usize::try_from(case["frames"].as_u64().expect("frames")).expect("usize");
     let patch = engine_patch::parse_patch(patch).expect("a valid patch");
     let registry = &engine_objects::REGISTRY;
-    let wide = || engine_core::Plan::<f64>::build(&patch, registry, rate).expect("a plan");
+    let wide = || {
+        engine_core::Plan::<engine_core::Binary64>::build(&patch, registry, rate).expect("a plan")
+    };
     let hash = |channels, samples| {
         engine_hash::render_hash(rate, channels, samples, engine_core::MODE).to_string()
     };
@@ -193,7 +195,8 @@ fn render(case: &str, patch: &str, format: RenderFormat) -> String {
             hash(channels, Samples::Binary64AsBinary32(&samples))
         }
         RenderFormat::Binary32 => {
-            let plan = engine_core::Plan::<f32>::build(&patch, registry, rate).expect("a plan");
+            let plan = engine_core::Plan::<engine_core::Binary32>::build(&patch, registry, rate)
+                .expect("a plan");
             let channels = plan.channels();
             let samples: Vec<f32> = Renderer::new(plan).render(frames).expect("a render");
             hash(channels, Samples::Binary32(&samples))

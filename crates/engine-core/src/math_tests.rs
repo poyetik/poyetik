@@ -4,9 +4,11 @@ use alloc::boxed::Box;
 use alloc::format;
 use alloc::vec::Vec;
 
+use super::to_binary32;
+use crate::host::Raw;
 use crate::{
-    ArithmeticMode, ArithmeticOption, BLOCK_SIZE, Block, Create, Delivered, Factory, MODE, Object,
-    Precision, RenderFormat, Sample, SampleRate, UnknownArithmeticOptions, to_binary32,
+    ArithmeticMode, ArithmeticOption, BLOCK_SIZE, Binary32, Binary64, Block, Create, Delivered,
+    Factory, MODE, Object, Precision, RenderFormat, Sample, SampleRate, UnknownArithmeticOptions,
 };
 
 /// The nearest binary32 to the binary64 `bits`, worked out in integers from IEEE 754 alone
@@ -214,7 +216,25 @@ fn defines_the_arithmetic_options_by_their_flags() {
         "fused multiply-add, reassociable operations, platform math functions"
     );
     assert_eq!(ArithmeticMode::STRICT.bits(), 0, "all off");
-    assert_eq!(MODE, ArithmeticMode::STRICT, "the only mode built");
+    assert_eq!(MODE.bits(), BUILT_MODE, "the mode of this build");
+}
+
+/// The flags of the mode this build was made in, written apart from the code under test:
+/// the strict mode, but in xtask's fused test build.
+#[cfg(not(poyetik_math = "fused"))]
+const BUILT_MODE: u64 = 0;
+
+/// The flags of the mode this build was made in: fused multiply-add, in xtask's fused
+/// test build.
+#[cfg(poyetik_math = "fused")]
+const BUILT_MODE: u64 = 1;
+
+/// The proof xtask's fused test build reads in its output: this test exists, and passes,
+/// only when the option is in force.
+#[cfg(poyetik_math = "fused")]
+#[test]
+fn is_built_with_the_fused_multiply_add_option() {
+    assert_eq!(MODE.bits(), 1, "fused multiply-add");
 }
 
 #[test]
@@ -243,37 +263,47 @@ fn reads_every_known_mode_and_refuses_every_unknown_flag() {
     );
 }
 
+/// Shorthand for a binary64 sample.
+fn wide(value: f64) -> Binary64 {
+    Binary64::from_raw(value)
+}
+
+/// Shorthand for a binary32 sample.
+fn narrow(value: f32) -> Binary32 {
+    Binary32::from_raw(value)
+}
+
 #[test]
 fn computes_each_precision_with_the_pinned_libm() {
     // Known values first, so that the function is the right one, then the delegation.
-    assert_eq!(Sample::sin(0.0_f64).to_bits(), 0, "sin 0");
-    assert_eq!(Sample::sin(-0.0_f32).to_bits(), 0x8000_0000, "sin -0");
+    assert_eq!(wide(0.0).sin().bits(), 0, "sin 0");
+    assert_eq!(narrow(-0.0).sin().bits(), 0x8000_0000, "sin -0");
     assert_eq!(
-        Sample::sin(core::f64::consts::FRAC_PI_2).to_bits(),
+        wide(core::f64::consts::FRAC_PI_2).sin().raw().to_bits(),
         1.0_f64.to_bits(),
         "sin π/2"
     );
     assert_eq!(
-        Sample::sin(core::f32::consts::FRAC_PI_2).to_bits(),
+        narrow(core::f32::consts::FRAC_PI_2).sin().raw().to_bits(),
         1.0_f32.to_bits(),
         "sinf π/2"
     );
     for value in [0.5_f64, 1.0_f64, 3.0_f64, 6.25_f64, -2.5_f64, 1e-300_f64] {
         assert_eq!(
-            Sample::sin(value).to_bits(),
+            wide(value).sin().bits(),
             libm::sin(value).to_bits(),
             "{value}"
         );
-        let narrow = to_binary32(value);
+        let rounded = to_binary32(value);
         assert_eq!(
-            Sample::sin(narrow).to_bits(),
-            libm::sinf(narrow).to_bits(),
-            "{narrow}"
+            narrow(rounded).sin().bits(),
+            u64::from(libm::sinf(rounded).to_bits()),
+            "{rounded}"
         );
     }
     assert_ne!(
-        f64::from(Sample::sin(1.0_f32)).to_bits(),
-        Sample::sin(1.0_f64).to_bits(),
+        narrow(1.0).sin().to_binary64().bits(),
+        wide(1.0).sin().bits(),
         "each in its own precision"
     );
     for (value, floor) in [
@@ -282,69 +312,213 @@ fn computes_each_precision_with_the_pinned_libm() {
         (-0.0_f64, -0.0_f64),
         (7.0_f64, 7.0_f64),
     ] {
-        assert_eq!(Sample::floor(value).to_bits(), floor.to_bits(), "{value}");
+        assert_eq!(wide(value).floor().bits(), floor.to_bits(), "{value}");
         assert_eq!(
-            Sample::floor(to_binary32(value)).to_bits(),
-            to_binary32(floor).to_bits(),
+            narrow(to_binary32(value)).floor().bits(),
+            u64::from(to_binary32(floor).to_bits()),
             "{value}"
         );
     }
 }
 
 #[test]
-fn converts_and_flushes_in_each_precision() {
-    assert_eq!(f64::from_f64(0.1).to_bits(), 0.1_f64.to_bits(), "exact");
-    assert_eq!(f32::from_f64(0.1).to_bits(), 0x3dcc_cccd, "rounded");
-    let tiny = f64::from_bits(1);
-    assert_eq!(Sample::to_f64(tiny).to_bits(), 1, "binary64 as it is");
+fn operates_and_compares_as_ieee_754() {
+    // Each operator is the float's, correctly rounded: worked values, signed zeros.
     assert_eq!(
-        Sample::to_f64(f32::from_bits(1)).to_bits(),
+        (wide(0.1) + wide(0.2)).bits(),
+        0x3fd3_3333_3333_3334,
+        "0.1 + 0.2"
+    );
+    assert_eq!(
+        (narrow(0.1) + narrow(0.2)).bits(),
+        0x3e99_999a,
+        "0.1 + 0.2 in binary32"
+    );
+    assert_eq!((wide(1.0) - wide(1.0)).bits(), 0, "+0");
+    assert_eq!(
+        (narrow(1.5) - narrow(2.0)).raw().to_bits(),
+        (-0.5_f32).to_bits(),
+        "-0.5"
+    );
+    assert_eq!(
+        (wide(3.0) * wide(0.5)).raw().to_bits(),
+        1.5_f64.to_bits(),
+        "1.5"
+    );
+    assert_eq!((narrow(-2.0) * narrow(0.0)).bits(), 0x8000_0000, "-0");
+    assert_eq!((wide(1.0) / wide(3.0)).bits(), 0x3fd5_5555_5555_5555, "1/3");
+    assert_eq!(
+        (narrow(1.0) / narrow(3.0)).bits(),
+        0x3eaa_aaab,
+        "1/3 in binary32"
+    );
+    assert_eq!((-wide(0.0)).bits(), 1 << 63_u32, "-(+0)");
+    assert_eq!((-narrow(2.0)).raw().to_bits(), (-2.0_f32).to_bits(), "-2");
+    let mut sum = wide(1.0);
+    sum += wide(0.5);
+    sum -= wide(0.25);
+    assert_eq!(sum.raw().to_bits(), 1.25_f64.to_bits(), "+= and -=");
+    let mut narrow_sum = narrow(1.0);
+    narrow_sum += narrow(0.5);
+    narrow_sum -= narrow(2.0);
+    assert_eq!(
+        narrow_sum.raw().to_bits(),
+        (-0.5_f32).to_bits(),
+        "+= and -= in binary32"
+    );
+    assert!(
+        wide(1.0) < wide(2.0) && narrow(-1.0) < narrow(0.0),
+        "ordered"
+    );
+    assert!(wide(f64::NAN) != wide(f64::NAN), "NaN is unordered");
+    assert_eq!(wide(0.0), wide(-0.0), "zeros compare equal");
+    assert_eq!(Binary64::TAU.raw().to_bits(), 0x4019_21fb_5444_2d18, "2π");
+    assert_eq!(Binary64::ONE.raw().to_bits(), 1.0_f64.to_bits(), "1");
+    assert_eq!(
+        Binary64::new(0.25).raw().to_bits(),
+        0.25_f64.to_bits(),
+        "a literal"
+    );
+    assert_eq!(
+        Binary64::from(SampleRate::new(44_100).expect("valid rate"))
+            .raw()
+            .to_bits(),
+        44_100.0_f64.to_bits(),
+        "a rate, exactly"
+    );
+}
+
+/// `a × a - 1` for `a = 1 + 2^-27`, the product rounded then the sum: `a²` is
+/// `1 + 2^-26 + 2^-54`, whose last term is a quarter of an ulp of 1, so the product rounds to
+/// `1 + 2^-26` and the result is 2^-26.
+const TWO_ROUNDINGS_64: u64 = 0x3e50_0000_0000_0000;
+
+/// The same with one rounding (fused): 2^-26 + 2^-54, exact.
+const ONE_ROUNDING_64: u64 = 0x3e50_0000_0100_0000;
+
+/// The binary32 counterpart, `a = 1 + 2^-12`: `a²` is `1 + 2^-11 + 2^-24`, its last term
+/// half an ulp of 1, rounding to the even `1 + 2^-11`: 2^-11 in two roundings.
+const TWO_ROUNDINGS_32: u32 = 0x3a00_0000;
+
+/// The fused binary32 result: 2^-11 + 2^-24, exact.
+const ONE_ROUNDING_32: u32 = 0x3a00_0400;
+
+/// The binary64 `mul_then_add` this build must give.
+#[cfg(not(poyetik_math = "fused"))]
+const MUL_THEN_ADD_64: u64 = TWO_ROUNDINGS_64;
+
+/// The binary64 `mul_then_add` of the fused test build.
+#[cfg(poyetik_math = "fused")]
+const MUL_THEN_ADD_64: u64 = ONE_ROUNDING_64;
+
+/// The binary32 `mul_then_add` this build must give.
+#[cfg(not(poyetik_math = "fused"))]
+const MUL_THEN_ADD_32: u32 = TWO_ROUNDINGS_32;
+
+/// The binary32 `mul_then_add` of the fused test build.
+#[cfg(poyetik_math = "fused")]
+const MUL_THEN_ADD_32: u32 = ONE_ROUNDING_32;
+
+#[test]
+fn multiplies_then_adds_in_the_mode_of_the_build() {
+    // Inputs where one rounding and two differ, the two worked out by hand above.
+    let near_one = wide(f64::from_bits(0x3ff0_0000_0200_0000)); // 1 + 2^-27
+    assert_eq!(
+        near_one.mul_then_add(near_one, wide(-1.0)).bits(),
+        MUL_THEN_ADD_64,
+        "binary64"
+    );
+    assert_eq!(
+        (near_one * near_one + wide(-1.0)).bits(),
+        TWO_ROUNDINGS_64,
+        "the operators round twice in every build"
+    );
+    assert_ne!(
+        TWO_ROUNDINGS_64, ONE_ROUNDING_64,
+        "the inputs tell the modes apart"
+    );
+    let narrow_one = narrow(f32::from_bits(0x3f80_0800)); // 1 + 2^-12
+    assert_eq!(
+        narrow_one.mul_then_add(narrow_one, narrow(-1.0)).bits(),
+        u64::from(MUL_THEN_ADD_32),
+        "binary32"
+    );
+    assert_ne!(
+        TWO_ROUNDINGS_32, ONE_ROUNDING_32,
+        "the inputs tell the modes apart"
+    );
+    // Special values: signed zeros and infinities follow IEEE 754 in either mode.
+    assert_eq!(
+        wide(-0.0).mul_then_add(wide(1.0), wide(-0.0)).bits(),
+        1 << 63_u32,
+        "-0 × 1 + -0 = -0"
+    );
+    assert_eq!(
+        narrow(f32::INFINITY)
+            .mul_then_add(narrow(2.0), narrow(1.0))
+            .raw(),
+        f32::INFINITY,
+        "infinity"
+    );
+}
+
+#[test]
+fn converts_and_flushes_in_each_precision() {
+    assert_eq!(
+        Binary64::from_binary64(wide(0.1)).bits(),
+        0.1_f64.to_bits(),
+        "exact"
+    );
+    assert_eq!(
+        Binary32::from_binary64(wide(0.1)).bits(),
+        0x3dcc_cccd,
+        "rounded"
+    );
+    assert_eq!(
+        narrow(f32::from_bits(1)).to_binary64().bits(),
         0x36a0_0000_0000_0000,
         "2^-149, exactly"
     );
     assert_eq!(
-        Sample::to_binary32(0.1_f64).to_bits(),
-        0x3dcc_cccd,
-        "rounded"
+        wide(-0.5).to_binary64().bits(),
+        (-0.5_f64).to_bits(),
+        "itself"
     );
-    let nan = f32::from_bits(0x7fa0_0001);
-    assert_eq!(Sample::to_binary32(nan).to_bits(), 0x7fa0_0001, "as it is");
-    let subnormal_64 = f64::from_bits(1);
     assert_eq!(
-        Sample::flush(subnormal_64).to_bits(),
+        wide(f64::from_bits(1)).flush().bits(),
         0,
         "binary64 subnormal"
     );
     assert_eq!(
-        Sample::flush(-f64::MIN_POSITIVE).to_bits(),
+        wide(-f64::MIN_POSITIVE).flush().raw().to_bits(),
         (-f64::MIN_POSITIVE).to_bits(),
         "binary64 normal"
     );
     // 2^-1000 is normal in binary64 and below every binary32: a binary64 flush keeps it.
     let below_binary32 = f64::from_bits(0x0170_0000_0000_0000);
     assert_eq!(
-        Sample::flush(below_binary32).to_bits(),
+        wide(below_binary32).flush().raw().to_bits(),
         below_binary32.to_bits(),
         "kept"
     );
     assert_eq!(
-        Sample::flush(-f32::from_bits(1)).to_bits(),
+        narrow(-f32::from_bits(1)).flush().bits(),
         0x8000_0000,
         "binary32 subnormal"
     );
     assert_eq!(
-        Sample::flush(f32::MIN_POSITIVE).to_bits(),
+        narrow(f32::MIN_POSITIVE).flush().raw().to_bits(),
         f32::MIN_POSITIVE.to_bits(),
         "binary32 normal"
     );
-    assert_eq!(f64::PRECISION, Precision::Binary64, "binary64");
-    assert_eq!(f32::PRECISION, Precision::Binary32, "binary32");
+    assert_eq!(Binary64::PRECISION, Precision::Binary64, "binary64");
+    assert_eq!(Binary32::PRECISION, Precision::Binary32, "binary32");
     assert!(
-        f64::SILENCE.iter().all(|sample| sample.to_bits() == 0),
+        Binary64::SILENCE.iter().all(|sample| sample.bits() == 0),
         "+0"
     );
     assert!(
-        f32::SILENCE.iter().all(|sample| sample.to_bits() == 0),
+        Binary32::SILENCE.iter().all(|sample| sample.bits() == 0),
         "+0"
     );
 }
@@ -353,23 +527,22 @@ fn converts_and_flushes_in_each_precision() {
 fn delivers_a_render_as_it_is_or_rounded_to_binary32() {
     let nan = f64::from_bits(0x7ff4_0000_0000_0001);
     assert_eq!(
-        <f64 as Delivered<f64>>::deliver(nan).to_bits(),
+        <f64 as Delivered<Binary64>>::deliver(wide(nan)).to_bits(),
         nan.to_bits(),
         "binary64 as it is"
     );
-    let narrow_nan = f32::from_bits(0xffa0_0002);
     assert_eq!(
-        <f32 as Delivered<f32>>::deliver(narrow_nan).to_bits(),
+        <f32 as Delivered<Binary32>>::deliver(narrow(f32::from_bits(0xffa0_0002))).to_bits(),
         0xffa0_0002,
         "binary32 as it is"
     );
     assert_eq!(
-        <f32 as Delivered<f64>>::deliver(0.1_f64).to_bits(),
+        <f32 as Delivered<Binary64>>::deliver(wide(0.1)).to_bits(),
         0x3dcc_cccd,
         "binary64 rounded"
     );
     assert_eq!(
-        <f32 as Delivered<f64>>::deliver(nan).to_bits(),
+        <f32 as Delivered<Binary64>>::deliver(wide(nan)).to_bits(),
         0x7fe0_0000,
         "a NaN by its bits"
     );
@@ -382,16 +555,17 @@ struct Width(f64);
 
 impl<S: Sample> Object<S> for Width {
     fn process(&mut self, _inputs: &[Block<S>], outputs: &mut [Block<S>]) {
+        let value = wide(f64::from(S::PRECISION.bits()) + self.0);
         for output in outputs {
-            *output = [S::from_f64(f64::from(S::PRECISION.bits()) + self.0); BLOCK_SIZE];
+            *output = [S::from_binary64(value); BLOCK_SIZE];
         }
     }
 }
 
 impl Create for Width {
-    fn create<S: Sample>(rate: SampleRate, params: &[f64]) -> Box<dyn Object<S>> {
-        let given = params.iter().sum::<f64>() + f64::from(rate.hz()) / 1e6_f64;
-        Box::new(Self(given))
+    fn create<S: Sample>(rate: SampleRate, params: &[Binary64]) -> Box<dyn Object<S>> {
+        let sum = params.iter().map(|param| param.raw()).sum::<f64>();
+        Box::new(Self(sum + f64::from(rate.hz()) / 1e6_f64))
     }
 }
 
@@ -399,15 +573,19 @@ impl Create for Width {
 fn a_factory_creates_instances_in_either_precision() {
     let factory = Factory::new::<Width>();
     let rate = SampleRate::new(8_000).expect("valid rate");
-    let mut out64 = [f64::SILENCE];
+    let mut out64 = [Binary64::SILENCE];
     factory
-        .create::<f64>(rate, &[0.25_f64, 0.5_f64])
+        .create::<Binary64>(rate, &[wide(0.25), wide(0.5)])
         .process(&[], &mut out64);
-    assert_eq!(out64[0][0].to_bits(), 64.758_f64.to_bits(), "binary64");
-    let mut out32 = [f32::SILENCE];
+    assert_eq!(out64[0][0].bits(), 64.758_f64.to_bits(), "binary64");
+    let mut out32 = [Binary32::SILENCE];
     factory
-        .create::<f32>(rate, &[0.25_f64])
+        .create::<Binary32>(rate, &[wide(0.25)])
         .process(&[], &mut out32);
-    assert_eq!(out32[0][0].to_bits(), 32.258_f32.to_bits(), "binary32");
+    assert_eq!(
+        out32[0][0].bits(),
+        u64::from(32.258_f32.to_bits()),
+        "binary32"
+    );
     assert!(format!("{factory:?}").starts_with("Factory"), "{factory:?}");
 }

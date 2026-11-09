@@ -132,7 +132,7 @@ pub extern "C" fn engine_process() -> *const u8 {
 mod tests {
     use alloc::vec::Vec;
 
-    use engine_core::{BLOCK_SIZE, Plan, Renderer, SampleRate};
+    use engine_core::{BLOCK_SIZE, Binary32, Binary64, Plan, Renderer, SampleRate};
     use engine_objects::REGISTRY;
 
     use super::{
@@ -202,7 +202,8 @@ mod tests {
             "loaded at {} Hz",
             rate.hz()
         );
-        let wide = || Renderer::new(Plan::<f64>::build(&patch, &REGISTRY, rate).expect("plan"));
+        let wide =
+            || Renderer::new(Plan::<Binary64>::build(&patch, &REGISTRY, rate).expect("plan"));
         let (exported, expected): (Vec<u64>, Vec<u64>) = match format {
             0 => (
                 wide_block(),
@@ -230,7 +231,7 @@ mod tests {
                     .iter()
                     .map(|sample| u64::from(sample.to_bits()))
                     .collect(),
-                Renderer::new(Plan::<f32>::build(&patch, &REGISTRY, rate).expect("plan"))
+                Renderer::new(Plan::<Binary32>::build(&patch, &REGISTRY, rate).expect("plan"))
                     .render::<f32>(BLOCK_SIZE)
                     .expect("small render")
                     .iter()
@@ -284,7 +285,7 @@ mod tests {
         let patch = engine_patch::parse_patch(core::str::from_utf8(sine).expect("UTF-8"))
             .expect("valid patch");
         let mut renderer = Renderer::new(
-            Plan::<f64>::build(&patch, &REGISTRY, SampleRate::HZ_48000).expect("valid plan"),
+            Plan::<Binary64>::build(&patch, &REGISTRY, SampleRate::HZ_48000).expect("valid plan"),
         );
         let expected: Vec<f32> = renderer.render(2 * BLOCK_SIZE).expect("small render");
         let mut actual = Vec::new();

@@ -18,7 +18,8 @@ static ALLOCATOR: engine_testkit::CountingAllocator = engine_testkit::CountingAl
 mod tests {
     extern crate alloc;
 
-    use engine_core::{Plan, Precision, Renderer, Sample, SampleRate};
+    use engine_core::host::Raw;
+    use engine_core::{Binary32, Binary64, Delivered, Plan, Precision, Renderer, SampleRate};
     use engine_objects::REGISTRY;
     use engine_testkit::heap_operations_during;
     use engine_testkit::matrix::PRECISIONS;
@@ -190,7 +191,7 @@ mod tests {
 
     /// Builds and, when accepted, renders `patch` (read from `text`), computing in `S`: any
     /// failure but a refusal.
-    fn play<S: Sample>(
+    fn play<S: Raw<Float: Delivered<S>>>(
         patch: &engine_core::Patch,
         text: &str,
         rate: SampleRate,
@@ -199,12 +200,15 @@ mod tests {
             return Ok(());
         };
         let mut renderer = Renderer::new(plan);
-        let mut samples = vec![S::ZERO; FRAMES.saturating_mul(renderer.channels())];
+        let mut samples = vec![S::ZERO.raw(); FRAMES.saturating_mul(renderer.channels())];
         let ((), operations) = heap_operations_during(|| renderer.render_into(&mut samples))?;
         if operations > 0 {
             return Err(format!("{operations} heap operations rendering {text}"));
         }
-        if samples.iter().any(|sample| !sample.to_f64().is_finite()) {
+        if samples
+            .iter()
+            .any(|&sample| !S::from_raw(sample).to_binary64().raw().is_finite())
+        {
             return Err(format!("non-finite samples from {text}"));
         }
         Ok(())
@@ -218,8 +222,8 @@ mod tests {
         };
         for precision in PRECISIONS {
             match precision {
-                Precision::Binary64 => play::<f64>(&patch, text, rate),
-                Precision::Binary32 => play::<f32>(&patch, text, rate),
+                Precision::Binary64 => play::<Binary64>(&patch, text, rate),
+                Precision::Binary32 => play::<Binary32>(&patch, text, rate),
             }
             .map_err(|problem| format!("binary{}: {problem}", precision.bits()))?;
         }
@@ -280,7 +284,7 @@ mod tests {
             );
             match engine_patch::parse_patch(&text) {
                 Err(_) => unread += 1,
-                Ok(patch) => match Plan::<f64>::build(&patch, &REGISTRY, rate) {
+                Ok(patch) => match Plan::<Binary64>::build(&patch, &REGISTRY, rate) {
                     Err(_) => unbuilt += 1,
                     Ok(plan) => played += u32::from(plan.channels() > 0),
                 },

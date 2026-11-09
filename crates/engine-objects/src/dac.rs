@@ -3,7 +3,7 @@
 use alloc::boxed::Box;
 
 use engine_core::{
-    Block, Capability, Create, Factory, Object, ObjectSpec, PortSpec, Sample, SampleRate,
+    Binary64, Block, Capability, Create, Factory, Object, ObjectSpec, PortSpec, Sample, SampleRate,
 };
 
 /// Audio output: the engine sums the inlets of this box into its output channels.
@@ -16,7 +16,7 @@ impl<S: Sample> Object<S> for Dac {
 }
 
 impl Create for Dac {
-    fn create<S: Sample>(_rate: SampleRate, _params: &[f64]) -> Box<dyn Object<S>> {
+    fn create<S: Sample>(_rate: SampleRate, _params: &[Binary64]) -> Box<dyn Object<S>> {
         Box::new(Self)
     }
 }

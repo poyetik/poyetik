@@ -7,9 +7,11 @@ use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
 
+use crate::host::Raw;
 use crate::{
-    BLOCK_SIZE, Block, Capability, Connection, CoreError, Create, Factory, Node, NodeId, Object,
-    ObjectSpec, ParamSpec, Patch, Plan, PortSpec, Precision, Renderer, Sample, SampleRate,
+    BLOCK_SIZE, Binary32, Binary64, Block, Capability, Connection, CoreError, Create, Delivered,
+    Factory, Node, NodeId, Object, ObjectSpec, ParamSpec, Patch, Plan, PortSpec, Precision,
+    Renderer, Sample, SampleRate,
 };
 
 const PORT: PortSpec = PortSpec {
@@ -17,38 +19,30 @@ const PORT: PortSpec = PortSpec {
     description: "test port",
 };
 
-/// The bits of a sample, widened to 64 bits: compared exactly, `-0.0` and NaN payloads
-/// included, in either precision.
-trait Bits: Sample {
-    /// The bit pattern.
-    fn bits(self) -> u64;
-}
+/// The samples these tests read the bits of, in either precision, rendered as their own
+/// floats.
+trait Bits: Raw<Float: Delivered<Self> + PartialEq + core::fmt::Debug> {}
+impl Bits for Binary64 {}
+impl Bits for Binary32 {}
 
-impl Bits for f64 {
-    fn bits(self) -> u64 {
-        self.to_bits()
-    }
-}
-
-impl Bits for f32 {
-    fn bits(self) -> u64 {
-        u64::from(self.to_bits())
-    }
+/// `value`, a literal, in the precision `S`.
+fn of<S: Sample>(value: f64) -> S {
+    S::from_binary64(Binary64::new(value))
 }
 
 /// Outputs a constant value: its parameter, in the precision of the render.
 #[derive(Debug)]
-struct Const(f64);
+struct Const(Binary64);
 impl<S: Sample> Object<S> for Const {
     fn process(&mut self, _inputs: &[Block<S>], outputs: &mut [Block<S>]) {
         for output in outputs {
-            output.fill(S::from_f64(self.0));
+            output.fill(S::from_binary64(self.0));
         }
     }
 }
 impl Create for Const {
-    fn create<S: Sample>(_rate: SampleRate, params: &[f64]) -> Box<dyn Object<S>> {
-        Box::new(Self(params.first().copied().unwrap_or(0.0)))
+    fn create<S: Sample>(_rate: SampleRate, params: &[Binary64]) -> Box<dyn Object<S>> {
+        Box::new(Self(params.first().copied().unwrap_or(Binary64::ONE)))
     }
 }
 static CONST: ObjectSpec = ObjectSpec {
@@ -74,14 +68,14 @@ impl<S: Sample> Object<S> for Ramp {
     fn process(&mut self, _inputs: &[Block<S>], outputs: &mut [Block<S>]) {
         for output in outputs {
             for sample in output.iter_mut() {
-                *sample = S::from_f64(self.0);
+                *sample = of::<S>(self.0);
                 self.0 += 1.0_f64;
             }
         }
     }
 }
 impl Create for Ramp {
-    fn create<S: Sample>(_rate: SampleRate, _params: &[f64]) -> Box<dyn Object<S>> {
+    fn create<S: Sample>(_rate: SampleRate, _params: &[Binary64]) -> Box<dyn Object<S>> {
         Box::new(Self(0.0))
     }
 }
@@ -116,13 +110,13 @@ impl<S: Sample> Object<S> for Add {
         }
         if let Some(second) = outs.next() {
             for (scaled, summed) in second.iter_mut().zip(sum) {
-                *scaled = summed * S::from_f64(10.0);
+                *scaled = summed * of::<S>(10.0);
             }
         }
     }
 }
 impl Create for Add {
-    fn create<S: Sample>(_rate: SampleRate, _params: &[f64]) -> Box<dyn Object<S>> {
+    fn create<S: Sample>(_rate: SampleRate, _params: &[Binary64]) -> Box<dyn Object<S>> {
         Box::new(Self)
     }
 }
@@ -143,7 +137,7 @@ impl<S: Sample> Object<S> for Out {
     fn process(&mut self, _inputs: &[Block<S>], _outputs: &mut [Block<S>]) {}
 }
 impl Create for Out {
-    fn create<S: Sample>(_rate: SampleRate, _params: &[f64]) -> Box<dyn Object<S>> {
+    fn create<S: Sample>(_rate: SampleRate, _params: &[Binary64]) -> Box<dyn Object<S>> {
         Box::new(Self)
     }
 }
@@ -174,12 +168,12 @@ struct Rate(f64);
 impl<S: Sample> Object<S> for Rate {
     fn process(&mut self, _inputs: &[Block<S>], outputs: &mut [Block<S>]) {
         for output in outputs {
-            output.fill(S::from_f64(self.0));
+            output.fill(of::<S>(self.0));
         }
     }
 }
 impl Create for Rate {
-    fn create<S: Sample>(rate: SampleRate, _params: &[f64]) -> Box<dyn Object<S>> {
+    fn create<S: Sample>(rate: SampleRate, _params: &[Binary64]) -> Box<dyn Object<S>> {
         Box::new(Self(f64::from(rate.hz() / 10)))
     }
 }
@@ -204,7 +198,7 @@ impl<S: Sample> Object<S> for Pass {
     }
 }
 impl Create for Pass {
-    fn create<S: Sample>(_rate: SampleRate, _params: &[f64]) -> Box<dyn Object<S>> {
+    fn create<S: Sample>(_rate: SampleRate, _params: &[Binary64]) -> Box<dyn Object<S>> {
         Box::new(Self)
     }
 }
@@ -282,23 +276,23 @@ fn build<S: Sample>(nodes: Vec<Node>, connections: Vec<Connection>) -> Result<Pl
 }
 
 fn run<S: Sample>(plan: &mut Plan<S>, channels: usize) -> Vec<Block<S>> {
-    let mut out = vec![[S::from_f64(99.0); BLOCK_SIZE]; channels];
+    let mut out = vec![[of::<S>(99.0); BLOCK_SIZE]; channels];
     plan.process(&mut out);
     out
 }
 
 fn block<S: Sample>(value: f64) -> Block<S> {
-    [S::from_f64(value); BLOCK_SIZE]
+    [of::<S>(value); BLOCK_SIZE]
 }
 
-/// `values`, in the precision `S`.
-fn samples<S: Sample>(values: &[f64]) -> Vec<S> {
-    values.iter().map(|&value| S::from_f64(value)).collect()
+/// `values`, in the precision `S`, as its renders give them.
+fn samples<S: Bits>(values: &[f64]) -> Vec<S::Float> {
+    values.iter().map(|&value| of::<S>(value).raw()).collect()
 }
 
 /// The bits of `value`, a binary32 parameter, as a box computing in `S` outputs it.
 fn bits_of<S: Bits>(value: f32) -> u64 {
-    S::from_f64(f64::from(value)).bits()
+    of::<S>(f64::from(value)).bits()
 }
 
 fn routes_a_box_to_the_output<S: Bits>() {
@@ -402,17 +396,13 @@ fn keeps_box_state_across_blocks<S: Bits>() {
     .expect("valid");
     let first = run(&mut plan, 1);
     let second = run(&mut plan, 1);
-    assert_eq!(first[0][0], S::from_f64(0.0), "starts at zero");
+    assert_eq!(first[0][0], of::<S>(0.0), "starts at zero");
     assert_eq!(
         first[0][BLOCK_SIZE - 1],
-        S::from_f64(63.0),
+        of::<S>(63.0),
         "counts within a block"
     );
-    assert_eq!(
-        second[0][0],
-        S::from_f64(64.0),
-        "continues in the next block"
-    );
+    assert_eq!(second[0][0], of::<S>(64.0), "continues in the next block");
 }
 
 fn passes_the_sample_rate_to_boxes<S: Bits>() {
@@ -687,7 +677,7 @@ fn renders_interleaved_frames_offline<S: Bits>() {
         )
         .expect("valid patch"),
     );
-    let interleaved: Vec<S> = renderer.render(130).expect("small render");
+    let interleaved: Vec<S::Float> = renderer.render(130).expect("small render");
     assert_eq!(interleaved.len(), 260, "130 frames of 2 channels");
     assert_eq!(
         &interleaved[..6],
@@ -699,7 +689,7 @@ fn renders_interleaved_frames_offline<S: Bits>() {
         samples::<S>(&[128.0_f64, -1.0_f64, 129.0_f64, -1.0_f64]),
         "continues across blocks"
     );
-    let next: Vec<S> = renderer.render(1).expect("small render");
+    let next: Vec<S::Float> = renderer.render(1).expect("small render");
     assert_eq!(
         next,
         samples::<S>(&[130.0_f64, -1.0_f64]),
@@ -715,11 +705,15 @@ fn renders_nothing_for_zero_frames_or_channels<S: Bits>() {
         )
         .expect("valid patch"),
     );
-    assert_eq!(renderer.render(0), Ok(Vec::<S>::new()), "zero frames");
     assert_eq!(
-        renderer.render::<S>(64).expect("small render"),
+        renderer.render(0),
+        Ok(Vec::<S::Float>::new()),
+        "zero frames"
+    );
+    assert_eq!(
+        renderer.render::<S::Float>(64).expect("small render"),
         (0..64_u16)
-            .map(|value| S::from_f64(f64::from(value)))
+            .map(|value| of::<S>(f64::from(value)).raw())
             .collect::<Vec<_>>(),
         "nothing was processed before"
     );
@@ -727,7 +721,7 @@ fn renders_nothing_for_zero_frames_or_channels<S: Bits>() {
         Renderer::new(build::<S>(vec![node(1, "ramp~")], vec![]).expect("valid patch"));
     assert_eq!(
         silent.render(usize::MAX),
-        Ok(Vec::<S>::new()),
+        Ok(Vec::<S::Float>::new()),
         "no output channel: nothing to render, at once"
     );
 }
@@ -741,17 +735,17 @@ fn refuses_renders_too_long_for_memory<S: Bits>() {
         .expect("valid patch"),
     );
     assert_eq!(
-        renderer.render::<S>(usize::MAX),
+        renderer.render::<S::Float>(usize::MAX),
         Err(CoreError::RenderTooLong(usize::MAX)),
         "frames times channels overflows"
     );
     assert_eq!(
-        renderer.render::<S>(usize::MAX / 4),
+        renderer.render::<S::Float>(usize::MAX / 4),
         Err(CoreError::RenderTooLong(usize::MAX / 4)),
         "fits the arithmetic, not the memory"
     );
     assert_eq!(
-        renderer.render::<S>(2).expect("small render"),
+        renderer.render::<S::Float>(2).expect("small render"),
         samples::<S>(&[0.0_f64, 0.0_f64, 1.0_f64, 0.0_f64]),
         "nothing was rendered by the refused calls"
     );
@@ -779,7 +773,7 @@ fn sums_cables_in_source_order_whatever_the_document_order<S: Bits>() {
             node(4, "mono~"),
         ]
     };
-    let (one, small) = (S::from_f64(1.0), S::from_f64(f64::from(tiny)));
+    let (one, small) = (of::<S>(1.0), of::<S>(f64::from(tiny)));
     let in_order = (one + small) + small;
     assert_eq!(in_order.bits(), one.bits(), "(1 + e) + e = 1");
     assert_ne!(
@@ -863,7 +857,7 @@ fn accepts_patches_up_to_the_limits_only<S: Bits>() {
     );
     assert_eq!(
         Renderer::new(plan)
-            .render::<S>(1)
+            .render::<S::Float>(1)
             .map(|rendered| rendered.len()),
         Ok(2),
         "renders"
@@ -897,16 +891,16 @@ fn renders_into_a_buffer_continuing_like_render<S: Bits>() {
         )
     };
     let mut whole = patch();
-    let expected: Vec<S> = whole.render(100).expect("small render");
+    let expected: Vec<S::Float> = whole.render(100).expect("small render");
     let mut parts = patch();
-    let mut first = [S::from_f64(7.0); 61];
+    let mut first = [of::<S>(7.0).raw(); 61];
     parts.render_into(&mut first);
     assert_eq!(
         first[60],
-        S::from_f64(7.0),
+        of::<S>(7.0).raw(),
         "the sample after the last whole frame is untouched"
     );
-    let mut rest: Vec<S> = parts.render(70).expect("small render");
+    let mut rest: Vec<S::Float> = parts.render(70).expect("small render");
     let mut actual = first[..60].to_vec();
     actual.append(&mut rest);
     assert_eq!(
@@ -916,11 +910,11 @@ fn renders_into_a_buffer_continuing_like_render<S: Bits>() {
 
     let mut silent =
         Renderer::new(build::<S>(vec![node(1, "ramp~")], vec![]).expect("valid patch"));
-    let mut untouched = [S::from_f64(7.0); 4];
+    let mut untouched = [of::<S>(7.0).raw(); 4];
     silent.render_into(&mut untouched);
     assert_eq!(
         untouched,
-        [S::from_f64(7.0); 4],
+        [of::<S>(7.0).raw(); 4],
         "no output: nothing written"
     );
 }
@@ -955,10 +949,10 @@ fn a_single_cable_passes_its_samples_bit_for_bit<S: Bits>() {
         "-0.0 at the inlet of pass~ and at the output, through process"
     );
     let rendered: Vec<u64> = Renderer::new(chain())
-        .render::<S>(BLOCK_SIZE + 3)
+        .render::<S::Float>(BLOCK_SIZE + 3)
         .expect("small render")
         .iter()
-        .map(|sample| sample.bits())
+        .map(|sample| S::from_raw(*sample).bits())
         .collect();
     assert_eq!(
         rendered,
@@ -1025,7 +1019,7 @@ fn several_output_boxes_are_summed_starting_from_the_first<S: Bits>() {
 
 fn delivers_a_binary64_render_rounded_to_binary32<S: Bits>()
 where
-    f32: crate::Delivered<S>,
+    f32: Delivered<S>,
 {
     // 0.1 in binary64, given to a host that takes binary32: rounded once, correctly; a
     // binary32 render given as binary32 is the same samples.
@@ -1052,6 +1046,78 @@ where
     );
 }
 
+/// Outputs `a × a - 1` through the math layer's `mul_then_add`, with `a` chosen per
+/// precision where one rounding and two differ (`1 + 2^-27`, `1 + 2^-12`): what the
+/// arithmetic mode of the build makes of a box's product then sum.
+#[derive(Debug)]
+struct ProductThenSum;
+impl<S: Sample> Object<S> for ProductThenSum {
+    fn process(&mut self, _inputs: &[Block<S>], outputs: &mut [Block<S>]) {
+        let near_one = match S::PRECISION {
+            Precision::Binary64 => of::<S>(f64::from_bits(0x3ff0_0000_0200_0000)),
+            Precision::Binary32 => of::<S>(f64::from(f32::from_bits(0x3f80_0800))),
+        };
+        output_all(outputs, near_one.mul_then_add(near_one, of::<S>(-1.0)));
+    }
+}
+impl Create for ProductThenSum {
+    fn create<S: Sample>(_rate: SampleRate, _params: &[Binary64]) -> Box<dyn Object<S>> {
+        Box::new(Self)
+    }
+}
+
+/// Fills every output with `value`.
+fn output_all<S: Sample>(outputs: &mut [Block<S>], value: S) {
+    for output in outputs {
+        output.fill(value);
+    }
+}
+
+/// The bits of `a × a - 1` in each precision, product and sum rounded apart (the strict
+/// mode): 2^-26 in binary64, 2^-11 in binary32, worked out in `math_tests.rs`.
+#[cfg(not(poyetik_math = "fused"))]
+const PRODUCT_THEN_SUM: [u64; 2] = [0x3e50_0000_0000_0000, 0x3a00_0000];
+
+/// The same with one rounding, in xtask's fused test build: 2^-26 + 2^-54, 2^-11 + 2^-24.
+#[cfg(poyetik_math = "fused")]
+const PRODUCT_THEN_SUM: [u64; 2] = [0x3e50_0000_0100_0000, 0x3a00_0400];
+
+fn renders_a_product_then_a_sum_in_the_mode_of_the_build<S: Bits>() {
+    // The positive control of the arithmetic mode: a box's `mul_then_add`, rendered through
+    // a plan, gives what the mode of the build says, and only that function changes it.
+    static PRODUCT: ObjectSpec = ObjectSpec {
+        name: "product~",
+        description: "a product then a sum",
+        inlets: &[],
+        outlets: &[PORT],
+        params: &[],
+        capabilities: &[],
+        create: Factory::new::<ProductThenSum>(),
+    };
+    let patch = Patch::new(
+        vec![node(1, "product~"), node(2, "mono~")],
+        vec![wire(1, 0, 2, 0)],
+    )
+    .expect("valid patch");
+    let plan = Plan::<S>::build(&patch, &[&PRODUCT, &MONO_OUT], rate()).expect("valid plan");
+    let rendered: Vec<u64> = Renderer::new(plan)
+        .render::<S::Float>(3)
+        .expect("small render")
+        .iter()
+        .map(|sample| S::from_raw(*sample).bits())
+        .collect();
+    let index = match S::PRECISION {
+        Precision::Binary64 => 0,
+        Precision::Binary32 => 1,
+    };
+    assert_eq!(
+        rendered,
+        vec![PRODUCT_THEN_SUM[index]; 3],
+        "{:?}",
+        S::PRECISION
+    );
+}
+
 /// Runs each generic test in both precisions, each instantiation a test of its own.
 macro_rules! in_both_precisions {
     ($($test:ident),* $(,)?) => {
@@ -1060,7 +1126,7 @@ macro_rules! in_both_precisions {
             $(
                 #[test]
                 fn $test() {
-                    super::$test::<f64>();
+                    super::$test::<crate::Binary64>();
                 }
             )*
         }
@@ -1069,7 +1135,7 @@ macro_rules! in_both_precisions {
             $(
                 #[test]
                 fn $test() {
-                    super::$test::<f32>();
+                    super::$test::<crate::Binary32>();
                 }
             )*
         }
@@ -1104,4 +1170,5 @@ in_both_precisions!(
     several_cables_are_summed_starting_from_the_first,
     several_output_boxes_are_summed_starting_from_the_first,
     delivers_a_binary64_render_rounded_to_binary32,
+    renders_a_product_then_a_sum_in_the_mode_of_the_build,
 );

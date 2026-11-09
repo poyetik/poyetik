@@ -5,7 +5,7 @@
 
 #[cfg(test)]
 mod tests {
-    use engine_core::{Block, Create, Factory, Object, ObjectSpec, Sample, SampleRate};
+    use engine_core::{Binary64, Block, Create, Factory, Object, ObjectSpec, Sample, SampleRate};
 
     #[derive(Debug)]
     struct Silent;
@@ -13,7 +13,7 @@ mod tests {
         fn process(&mut self, _inputs: &[Block<S>], _outputs: &mut [Block<S>]) {}
     }
     impl Create for Silent {
-        fn create<S: Sample>(_rate: SampleRate, _params: &[f64]) -> Box<dyn Object<S>> {
+        fn create<S: Sample>(_rate: SampleRate, _params: &[Binary64]) -> Box<dyn Object<S>> {
             Box::new(Self)
         }
     }

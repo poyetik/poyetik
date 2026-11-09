@@ -6,7 +6,7 @@ use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
 
-use engine_core::{Block, Plan, RenderFormat, Sample, SampleRate};
+use engine_core::{Binary32, Binary64, Block, Plan, RenderFormat, Sample, SampleRate};
 use engine_objects::REGISTRY;
 
 /// The plan of a patch and its output buffers, in one render format.
@@ -15,25 +15,25 @@ enum Rendering {
     /// Computed and given in binary64.
     Binary64 {
         /// The execution plan.
-        plan: Plan<f64>,
+        plan: Plan<Binary64>,
         /// The last rendered block, one per output channel.
-        out: Vec<Block<f64>>,
+        out: Vec<Block<Binary64>>,
     },
     /// Computed in binary64, given in binary32.
     Binary64AsBinary32 {
         /// The execution plan.
-        plan: Plan<f64>,
+        plan: Plan<Binary64>,
         /// The last rendered block, one per output channel, as computed.
-        out: Vec<Block<f64>>,
+        out: Vec<Block<Binary64>>,
         /// The same block rounded to binary32: what the host is given.
-        given: Vec<Block<f32>>,
+        given: Vec<Block<Binary32>>,
     },
     /// Computed and given in binary32.
     Binary32 {
         /// The execution plan.
-        plan: Plan<f32>,
+        plan: Plan<Binary32>,
         /// The last rendered block, one per output channel.
-        out: Vec<Block<f32>>,
+        out: Vec<Block<Binary32>>,
     },
 }
 
@@ -42,9 +42,9 @@ enum Rendering {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Blocks<'engine> {
     /// Binary64 samples, 8 bytes each.
-    Binary64(&'engine [Block<f64>]),
+    Binary64(&'engine [Block<Binary64>]),
     /// Binary32 samples, 4 bytes each.
-    Binary32(&'engine [Block<f32>]),
+    Binary32(&'engine [Block<Binary32>]),
 }
 
 impl Blocks<'_> {
@@ -102,36 +102,36 @@ impl Engine {
         let parsed = engine_patch::parse_patch(text).map_err(|error| error.to_string())?;
         let (channels, rendering) = match format {
             RenderFormat::Binary64 => {
-                let plan = plan::<f64>(&parsed, rate)?;
+                let plan = plan::<Binary64>(&parsed, rate)?;
                 let channels = plan.channels();
                 (
                     channels,
                     Rendering::Binary64 {
                         plan,
-                        out: vec![f64::SILENCE; channels],
+                        out: vec![Binary64::SILENCE; channels],
                     },
                 )
             }
             RenderFormat::Binary64AsBinary32 => {
-                let plan = plan::<f64>(&parsed, rate)?;
+                let plan = plan::<Binary64>(&parsed, rate)?;
                 let channels = plan.channels();
                 (
                     channels,
                     Rendering::Binary64AsBinary32 {
                         plan,
-                        out: vec![f64::SILENCE; channels],
-                        given: vec![f32::SILENCE; channels],
+                        out: vec![Binary64::SILENCE; channels],
+                        given: vec![Binary32::SILENCE; channels],
                     },
                 )
             }
             RenderFormat::Binary32 => {
-                let plan = plan::<f32>(&parsed, rate)?;
+                let plan = plan::<Binary32>(&parsed, rate)?;
                 let channels = plan.channels();
                 (
                     channels,
                     Rendering::Binary32 {
                         plan,
-                        out: vec![f32::SILENCE; channels],
+                        out: vec![Binary32::SILENCE; channels],
                     },
                 )
             }
@@ -150,7 +150,7 @@ impl Engine {
 
     /// Renders the next block and returns it, one block per output channel, in the render
     /// format: a 64-bit render given as binary32 is rounded sample by sample
-    /// ([`Sample::to_binary32`]).
+    /// ([`Sample::from_binary64`]).
     ///
     /// Does not use the heap (no allocation or release).
     pub fn process(&mut self) -> Blocks<'_> {
@@ -163,7 +163,7 @@ impl Engine {
                 plan.process(out);
                 for (narrow, wide) in given.iter_mut().zip(out.iter()) {
                     for (sample, value) in narrow.iter_mut().zip(wide) {
-                        *sample = value.to_binary32();
+                        *sample = Binary32::from_binary64(*value);
                     }
                 }
                 Blocks::Binary32(given)
@@ -180,7 +180,8 @@ impl Engine {
 mod tests {
     use alloc::vec::Vec;
 
-    use engine_core::{BLOCK_SIZE, Plan, RenderFormat, Renderer, SampleRate};
+    use engine_core::host::Raw;
+    use engine_core::{BLOCK_SIZE, Binary32, Binary64, Plan, RenderFormat, Renderer, SampleRate};
     use engine_objects::REGISTRY;
 
     use super::{Blocks, Engine};
@@ -195,13 +196,11 @@ mod tests {
         for frame in 0..BLOCK_SIZE {
             match blocks {
                 Blocks::Binary64(channels) => {
-                    bits.extend(channels.iter().map(|channel| channel[frame].to_bits()));
+                    bits.extend(channels.iter().map(|channel| channel[frame].bits()));
                 }
-                Blocks::Binary32(channels) => bits.extend(
-                    channels
-                        .iter()
-                        .map(|channel| u64::from(channel[frame].to_bits())),
-                ),
+                Blocks::Binary32(channels) => {
+                    bits.extend(channels.iter().map(|channel| channel[frame].bits()));
+                }
             }
         }
         bits
@@ -215,7 +214,8 @@ mod tests {
         format: RenderFormat,
         frames: usize,
     ) -> Vec<u64> {
-        let wide = || Renderer::new(Plan::<f64>::build(patch, &REGISTRY, rate).expect("a plan"));
+        let wide =
+            || Renderer::new(Plan::<Binary64>::build(patch, &REGISTRY, rate).expect("a plan"));
         match format {
             RenderFormat::Binary64 => wide()
                 .render::<f64>(frames)
@@ -230,7 +230,7 @@ mod tests {
                 .map(|sample| u64::from(sample.to_bits()))
                 .collect(),
             RenderFormat::Binary32 => {
-                Renderer::new(Plan::<f32>::build(patch, &REGISTRY, rate).expect("a plan"))
+                Renderer::new(Plan::<Binary32>::build(patch, &REGISTRY, rate).expect("a plan"))
                     .render::<f32>(frames)
                     .expect("small render")
                     .iter()

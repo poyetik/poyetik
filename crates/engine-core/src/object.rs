@@ -2,7 +2,7 @@
 
 use alloc::boxed::Box;
 
-use crate::{Block, Constructor, Sample, SampleRate};
+use crate::{Binary32, Binary64, Block, Constructor, Sample, SampleRate};
 
 /// A capability a box needs from the host platform.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -53,7 +53,7 @@ pub trait Create {
     /// their ranges, never subnormal (a plan flushes a subnormal parameter to a zero of its
     /// sign, [`Sample::flush`]), and given in binary64 whatever the precision of the render
     /// (`spec/engine-design.md`, decision 10).
-    fn create<S: Sample>(rate: SampleRate, params: &[f64]) -> Box<dyn Object<S>>;
+    fn create<S: Sample>(rate: SampleRate, params: &[Binary64]) -> Box<dyn Object<S>>;
 }
 
 /// Creates the instances of a box type, in either precision: built only from one generic
@@ -62,9 +62,9 @@ pub trait Create {
 #[derive(Debug, Clone, Copy)]
 pub struct Factory {
     /// Creates a binary64 instance.
-    pub(crate) binary64: Constructor<f64>,
+    pub(crate) binary64: Constructor<Binary64>,
     /// Creates a binary32 instance.
-    pub(crate) binary32: Constructor<f32>,
+    pub(crate) binary32: Constructor<Binary32>,
 }
 
 impl Factory {
@@ -72,15 +72,15 @@ impl Factory {
     #[must_use]
     pub const fn new<T: Create>() -> Self {
         Self {
-            binary64: T::create::<f64>,
-            binary32: T::create::<f32>,
+            binary64: T::create::<Binary64>,
+            binary32: T::create::<Binary32>,
         }
     }
 
     /// Creates an instance computing in `S`, at `rate`, with `params` as
     /// [`Create::create`] receives them.
     #[must_use]
-    pub fn create<S: Sample>(&self, rate: SampleRate, params: &[f64]) -> Box<dyn Object<S>> {
+    pub fn create<S: Sample>(&self, rate: SampleRate, params: &[Binary64]) -> Box<dyn Object<S>> {
         S::constructor(self)(rate, params)
     }
 }
