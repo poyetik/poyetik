@@ -925,11 +925,11 @@
           "done": false
         },
         {
-          "title": "Box contract as a public, versioned ABI shared by built-in boxes and third-party externals: explicit state, compile-friendly processing, buffers aligned to 64 bytes and padded, routing resolved when the plan is built; every built-in box giving the same bits directly and through the ABI",
+          "title": "Box contract as a public, versioned ABI shared by built-in boxes and third-party externals: explicit state, compile-friendly processing, buffers aligned to 64 bytes and padded, routing resolved when the plan is built; every built-in box giving the same bits directly and through the ABI; instantaneous responses and sub-sample discontinuity ports declared",
           "done": false
         },
         {
-          "title": "Typed, smoothed parameters (kinds such as frequency, with a declared Nyquist policy) and sample-accurate timestamped events, in the engine and the patch format",
+          "title": "Typed, smoothed parameters (kinds such as frequency, with a declared Nyquist policy) and sample-accurate timestamped events, in the engine and the patch format; an event quantum per patch and subpatch (1 frame by default)",
           "done": false
         },
         {
@@ -949,7 +949,7 @@
           "done": false
         },
         {
-          "title": "Oscillators: an exact 64-bit integer phase accumulator; band-limited by default, with a raw variant per box",
+          "title": "Oscillators: an exact 64-bit integer phase accumulator; band-limited by default, with a raw variant per box; hard sync with sub-sample discontinuities",
           "done": false
         },
         {
@@ -977,7 +977,7 @@
           "done": false
         },
         {
-          "title": "Subpatches with their own block size, resampling and overlap, a block of 1 frame included; feedback cycles through an explicit delay, single-sample feedback included",
+          "title": "Subpatches with their own block size, resampling and overlap, a block of 1 frame included; feedback cycles through an explicit delay, single-sample feedback included; delay-free loops resolved per sample (linear exactly, non-linear with a fixed iteration count)",
           "done": false
         },
         {
