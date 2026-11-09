@@ -5,7 +5,8 @@
 //! box type, so a new box cannot escape them. [`measure`] gives the objective measurements
 //! of a signal (`spec/measurements.md`), by which every box proves its audio quality.
 //!
-//! Every law is checked at every sample rate of the shared [`matrix`], with the
+//! Every law is checked in both precisions (binary64 and binary32, [`matrix::PRECISIONS`])
+//! and at every sample rate of the shared [`matrix`], with the
 //! parameters at their minimum, default and maximum, at a value away from the default
 //! (see `away_from_default`), and at `-0.0`, the smallest subnormal and the smallest
 //! normal (where the range accepts them).

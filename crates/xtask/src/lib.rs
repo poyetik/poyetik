@@ -532,6 +532,10 @@ pub enum Action {
     FloatMethodGate,
     /// Require every direct dependency to be reviewed, and every review current.
     DependencyGate,
+    /// Require `libm` to be a dependency of the crates of [`LIBM_CRATES`] only, outside
+    /// tests: boxes reach math functions through the engine's math layer alone
+    /// ([`math_layer_gate`]).
+    MathLayerGate,
     /// Require the supply-chain settings of [`SUPPLY_CHAIN_SETTINGS`].
     SupplyChainGate,
     /// Require the CI workflow to pin every action, tool and runtime.
@@ -1000,6 +1004,12 @@ fn consistency_steps() -> Vec<(Role, Step)> {
         Step {
             name: "Every direct dependency reviewed".to_owned(),
             action: Action::DependencyGate,
+        },
+        Step {
+            name: "Math functions only through the math layer: libm in engine-core and \
+                   engine-testkit only"
+                .to_owned(),
+            action: Action::MathLayerGate,
         },
         Step {
             name: "Supply-chain settings: a week before a release, libm without features"
@@ -3098,6 +3108,63 @@ pub fn dependency_gate(
     compare_reviews(&count(keys), Extent::Complete, reviewed, &mut problems);
     verdict(
         &format!("direct dependencies must be reviewed in {DEPENDENCIES_REVIEWED}"),
+        problems,
+    )
+}
+
+/// The crates that may depend on `libm` outside their tests (`spec/engine-design.md`,
+/// decision 10).
+///
+/// `engine-core`, whose math layer is the only path from box arithmetic to a math
+/// function, and `engine-testkit`, whose measurements must not share the arithmetic of the
+/// boxes they measure. A box crate is `no_std`, where `f32` and `f64` have no math
+/// method: without `libm`, it can only reach the math layer's. A test may use `libm`
+/// directly (a development dependency), for references computed apart from the code
+/// under test.
+pub const LIBM_CRATES: [&str; 2] = ["engine-core", "engine-testkit"];
+
+/// Checks that no crate but those of [`LIBM_CRATES`] depends on `libm`, as a normal or a
+/// build dependency, under any name it is renamed to.
+///
+/// `metadata` is the output of [`metadata_command`].
+///
+/// # Errors
+///
+/// Returns every other crate that does, or why the metadata cannot be read.
+pub fn math_layer_gate(metadata: &str) -> Result<(), Failure> {
+    let json: serde_json::Value = serde_json::from_str(metadata)
+        .map_err(|error| Failure::from(format!("invalid cargo metadata: {error}")))?;
+    let crates = json
+        .get("packages")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| Failure::from("cargo metadata lists no packages".to_owned()))?;
+    let mut problems = Vec::new();
+    for krate in crates {
+        let name = krate
+            .get("name")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default();
+        let reaches_libm = krate
+            .get("dependencies")
+            .and_then(serde_json::Value::as_array)
+            .into_iter()
+            .flatten()
+            .any(|dependency| {
+                let text = |key: &str| dependency.get(key).and_then(serde_json::Value::as_str);
+                text("name") == Some("libm") && text("kind") != Some("dev")
+            });
+        if reaches_libm && !LIBM_CRATES.contains(&name) {
+            problems.push(format!(
+                "{name} depends on libm: its arithmetic must go through the math layer of \
+                 engine-core"
+            ));
+        }
+    }
+    verdict(
+        &format!(
+            "math functions only through the math layer ({} only may depend on libm)",
+            LIBM_CRATES.join(", ")
+        ),
         problems,
     )
 }
@@ -6052,6 +6119,13 @@ fn parts_of_the_full_check(parts: Vec<Part>) -> Result<(), Failure> {
     )
 }
 
+/// The crates of the workspace and their direct dependencies ([`metadata_command`]).
+fn crates_metadata(runner: &mut dyn Runner) -> Result<String, Failure> {
+    runner
+        .capture(&metadata_command())
+        .map_err(|failure| Failure::from(format!("cannot list the crates: {failure}")))
+}
+
 /// Runs one action of a step, saying on `out` what it found when that matters.
 fn run_action(
     action: &Action,
@@ -6111,11 +6185,9 @@ fn run_action(
                 .map(|(path, _)| read_file(runner, path))
                 .collect::<Result<Vec<_>, _>>()?,
         ),
+        Action::MathLayerGate => math_layer_gate(&crates_metadata(runner)?),
         Action::DependencyGate => {
-            let cmd = metadata_command();
-            let metadata = runner
-                .capture(&cmd)
-                .map_err(|failure| Failure::from(format!("cannot list the crates: {failure}")))?;
+            let metadata = crates_metadata(runner)?;
             let packages = read_all(runner, package_jsons())?;
             dependency_gate(
                 &metadata,

@@ -11,6 +11,12 @@ const SIGN: u32 = 0x8000_0000;
 /// The exponent bits of a binary32 value: all zero for a zero or a subnormal.
 const EXPONENT: u32 = 0x7f80_0000;
 
+/// The sign bit of a binary64 value.
+const SIGN_64: u64 = 0x8000_0000_0000_0000;
+
+/// The exponent bits of a binary64 value: all zero for a zero or a subnormal.
+const EXPONENT_64: u64 = 0x7ff0_0000_0000_0000;
+
 /// `value`, or a zero of its sign when it is subnormal.
 ///
 /// A subnormal is nonzero and below the smallest normal binary32 value, 2^-126, in
@@ -22,7 +28,7 @@ const EXPONENT: u32 = 0x7f80_0000;
 /// a floating-point comparison.
 #[must_use]
 #[inline]
-pub const fn flush(value: f32) -> f32 {
+pub(crate) const fn binary32(value: f32) -> f32 {
     let bits = value.to_bits();
     if bits & EXPONENT == 0 {
         f32::from_bits(bits & SIGN)
@@ -31,9 +37,22 @@ pub const fn flush(value: f32) -> f32 {
     }
 }
 
+/// `value`, or a zero of its sign when it is subnormal: below the smallest normal binary64
+/// value, 2^-1022, in magnitude. Decided from the bits alone, as [`binary32`].
+#[must_use]
+#[inline]
+pub(crate) const fn binary64(value: f64) -> f64 {
+    let bits = value.to_bits();
+    if bits & EXPONENT_64 == 0 {
+        f64::from_bits(bits & SIGN_64)
+    } else {
+        value
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::flush;
+    use super::{binary32 as flush, binary64};
 
     /// The smallest normal binary32 value, 2^-126, written as a literal (not read from
     /// the constants of the code under test).
@@ -98,6 +117,63 @@ mod tests {
         assert_eq!(
             flush(f32::MIN_POSITIVE).to_bits(),
             f32::MIN_POSITIVE.to_bits(),
+            "the smallest normal"
+        );
+    }
+
+    /// The smallest normal binary64 value, 2^-1022, written as a literal.
+    const SMALLEST_NORMAL_64: f64 = 2.225_073_858_507_201_4e-308;
+
+    #[test]
+    fn the_binary64_threshold_is_the_smallest_normal() {
+        assert_eq!(
+            SMALLEST_NORMAL_64.to_bits(),
+            1_u64 << 52_u32,
+            "2^-1022: a biased exponent of 1, no fraction"
+        );
+        assert_eq!(
+            SMALLEST_NORMAL_64.to_bits(),
+            f64::MIN_POSITIVE.to_bits(),
+            "binary64's smallest normal"
+        );
+    }
+
+    #[test]
+    fn flushes_binary64_subnormals_to_a_zero_of_their_sign() {
+        // Fractions at both ends of the subnormal range and between, every bit position.
+        let mut fractions: alloc::vec::Vec<u64> = (0_u32..52_u32).map(|bit| 1_u64 << bit).collect();
+        fractions.extend([
+            0x000f_ffff_ffff_ffff_u64,
+            0x0001_2345_6789_abcd,
+            3,
+            0x0008_0000_0000_0001,
+        ]);
+        for fraction in fractions {
+            for sign in [0_u64, 1_u64 << 63_u32] {
+                let value = f64::from_bits(sign | fraction);
+                assert!(value.abs() < SMALLEST_NORMAL_64, "{value:e} is subnormal");
+                assert_eq!(binary64(value).to_bits(), sign, "{:#018x}", value.to_bits());
+            }
+        }
+    }
+
+    #[test]
+    fn keeps_every_other_binary64_class_bit_for_bit() {
+        for exponent in [1_u64, 2, 0x3fe, 0x3ff, 0x400, 0x7fe, 0x7ff] {
+            for fraction in [0_u64, 1, 0x0008_0000_0000_0000, 0x000f_ffff_ffff_ffff] {
+                for sign in [0_u64, 1_u64 << 63_u32] {
+                    let bits = sign | exponent << 52_u32 | fraction;
+                    let value = f64::from_bits(bits);
+                    assert!(!value.is_subnormal(), "{bits:#018x}");
+                    assert_eq!(binary64(value).to_bits(), bits, "{bits:#018x}");
+                }
+            }
+        }
+        assert_eq!(binary64(0.0).to_bits(), 0_u64, "+0");
+        assert_eq!(binary64(-0.0).to_bits(), 1_u64 << 63_u32, "-0");
+        assert_eq!(
+            binary64(SMALLEST_NORMAL_64).to_bits(),
+            SMALLEST_NORMAL_64.to_bits(),
             "the smallest normal"
         );
     }

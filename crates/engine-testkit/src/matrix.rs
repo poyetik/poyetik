@@ -4,7 +4,11 @@
 //! `conformance/test-matrix.json` holds the same values for the TypeScript tests; a test
 //! checks that both stay equal.
 
-use engine_core::SampleRate;
+use engine_core::{Precision, SampleRate};
+
+/// The precisions a render computes in (`spec/engine-design.md`, decision 10): every one,
+/// the default first. Everything a box or a plan computes is tested in each.
+pub const PRECISIONS: [Precision; 2] = [Precision::Binary64, Precision::Binary32];
 
 /// Sample rates, in hertz: the limits of [`SampleRate`], common device rates and the
 /// low rates of telephony headsets. Deliberately more than the default 48 kHz.
@@ -32,6 +36,19 @@ pub const SPECIAL_INPUTS: [f32; 8] = [
     -1.0,
 ];
 
+/// [`SPECIAL_INPUTS`] in binary64: signed zeros, the smallest subnormals and normals of
+/// binary64, and full scale.
+pub const SPECIAL_INPUTS_BINARY64: [f64; 8] = [
+    0.0,
+    -0.0,
+    f64::from_bits(1),
+    -f64::from_bits(1),
+    f64::MIN_POSITIVE,
+    -f64::MIN_POSITIVE,
+    1.0,
+    -1.0,
+];
+
 /// [`SAMPLE_RATES`] as checked sample rates.
 #[must_use]
 pub fn sample_rates() -> Vec<SampleRate> {
@@ -43,9 +60,12 @@ pub fn sample_rates() -> Vec<SampleRate> {
 
 #[cfg(test)]
 mod tests {
-    use engine_core::SampleRate;
+    use engine_core::{Precision, SampleRate};
 
-    use super::{HOST_BUFFER_SIZES, SAMPLE_RATES, SPECIAL_INPUTS, sample_rates};
+    use super::{
+        HOST_BUFFER_SIZES, PRECISIONS, SAMPLE_RATES, SPECIAL_INPUTS, SPECIAL_INPUTS_BINARY64,
+        sample_rates,
+    };
 
     #[test]
     fn every_rate_is_supported_and_the_limits_are_included() {
@@ -84,6 +104,47 @@ mod tests {
     }
 
     #[test]
+    fn special_inputs_are_the_same_classes_in_binary64() {
+        // The same list, class by class and sign by sign, at binary64's own extremes.
+        for (narrow, wide) in SPECIAL_INPUTS.iter().zip(SPECIAL_INPUTS_BINARY64) {
+            assert_eq!(
+                narrow.classify(),
+                wide.classify(),
+                "{narrow:e} and {wide:e}"
+            );
+            assert_eq!(
+                narrow.is_sign_negative(),
+                wide.is_sign_negative(),
+                "{narrow:e} and {wide:e}"
+            );
+            assert!(
+                (-1.0_f64..=1.0_f64).contains(&wide),
+                "{wide:e} within [-1, 1]"
+            );
+        }
+        assert_eq!(
+            SPECIAL_INPUTS_BINARY64[2].to_bits(),
+            1,
+            "the smallest binary64 subnormal"
+        );
+        assert_eq!(
+            SPECIAL_INPUTS_BINARY64[4].to_bits(),
+            1_u64 << 52_u32,
+            "the smallest binary64 normal"
+        );
+    }
+
+    #[test]
+    fn every_precision_once_the_default_first() {
+        assert_eq!(PRECISIONS[0], Precision::default(), "64-bit first");
+        assert_eq!(
+            PRECISIONS.map(Precision::bits),
+            [64, 32],
+            "binary64 and binary32"
+        );
+    }
+
+    #[test]
     fn matches_the_shared_json_matrix() {
         let json: serde_json::Value =
             serde_json::from_str(include_str!("../../../conformance/test-matrix.json"))
@@ -97,6 +158,11 @@ mod tests {
             json["host_buffer_sizes"],
             serde_json::json!(HOST_BUFFER_SIZES),
             "same buffer sizes"
+        );
+        assert_eq!(
+            json["precisions"],
+            serde_json::json!(PRECISIONS.map(Precision::bits)),
+            "same precisions, by their widths"
         );
     }
 }

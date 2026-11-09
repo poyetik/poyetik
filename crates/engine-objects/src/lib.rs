@@ -1,7 +1,8 @@
 //! Poyetik boxes.
 //!
 //! Each box type lives in its own module and depends only on the `engine-core`
-//! contract. [`REGISTRY`] lists every box type; being in the registry is enough for a
+//! contract, written once for both precisions: generic over `engine_core::Sample`, its
+//! arithmetic through the engine's math layer (this crate does not depend on `libm`). [`REGISTRY`] lists every box type; being in the registry is enough for a
 //! box to be checked against the generic laws of `engine-testkit`.
 //!
 //! Like the core, this crate is `no_std` and forbids `unsafe`.
@@ -13,7 +14,6 @@ extern crate alloc;
 
 mod dac;
 mod osc;
-mod sample;
 
 use engine_core::ObjectSpec;
 

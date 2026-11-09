@@ -748,6 +748,7 @@ fn command_lines(steps: &[Step]) -> Vec<String> {
             Action::CargoConfigGate => "cargo config gate".to_owned(),
             Action::FloatMethodGate => "float method gate".to_owned(),
             Action::DependencyGate => "dependency gate".to_owned(),
+            Action::MathLayerGate => "math layer gate".to_owned(),
             Action::SupplyChainGate => "supply chain gate".to_owned(),
             Action::Preflight => "preflight".to_owned(),
             Action::HistoryGate => "history gate".to_owned(),
@@ -1396,6 +1397,7 @@ fn lists_every_check_in_order() {
             "Root: cargo run --package engine-cli --locked --quiet -- export conformance target/conformance",
             "Root: cargo deny --locked check",
             "dependency gate",
+            "math layer gate",
             "supply chain gate",
             "membership gate",
             "readme gate",
@@ -1485,6 +1487,7 @@ fn names_every_check_in_order() {
             "Conformance export (native WAV files)",
             "Rust supply chain",
             "Every direct dependency reviewed",
+            "Math functions only through the math layer: libm in engine-core and engine-testkit only",
             "Supply-chain settings: a week before a release, libm without features",
             "Packages and crates known to the checks",
             "Every part described in a README",
@@ -2673,7 +2676,7 @@ fn runs_every_step_and_reports_success() {
         Ok(()),
         "all green"
     );
-    let (tools, commands, emptied, listed, captured, written) = (10, 52, 14, 19, 16, 1);
+    let (tools, commands, emptied, listed, captured, written) = (10, 52, 14, 19, 17, 1);
     let read = 2 + 7 + 13 + 2 + 7 + 21 + 3 + 1 + 7 + 3 + 11 + 10 + 21 + 8 + 2 + 11 + 40 + 20;
     assert_eq!(
         fake.ran.len(),
@@ -2685,7 +2688,7 @@ fn runs_every_step_and_reports_success() {
          checks each followed by its Stryker run); fourteen directories are emptied; git lists \
          eleven kinds of files, the TypeScript ones again for the reports and scope gates of \
          each package after the first; the licenses and the history are captured twice each, the state \
-         of the tree (before and after) four times, the nightly's version and sysroot, the Cargo metadata, the merge base, the changes and the \
+         of the tree (before and after) four times, the nightly's version and sysroot, the Cargo metadata (for the dependency and the math layer gates), the merge base, the changes and the \
          new Rust files once; the diff is written once; and the gates read .node-version and the toolchain file for the preflight, the toolchain file, the four float sources and the float macros of the nightly and clippy.toml for the float gate, thirteen coverage reports, \
          the unviable report and reviews, six TypeScript sources and their reviews, the nine \
          sources, the eleven Cargo manifests and the register of the bypass gate, the three unsafe files, the Cargo \
@@ -2713,15 +2716,15 @@ fn runs_every_step_and_reports_success() {
     );
     let text = String::from_utf8(out).expect("utf-8 output");
     assert!(
-        text.starts_with("▶ [1/74] Tools and platform\n"),
+        text.starts_with("▶ [1/75] Tools and platform\n"),
         "numbered progress: {text}"
     );
     assert!(
-        text.contains("▶ [70/74] Roadmap checks\n"),
+        text.contains("▶ [71/75] Roadmap checks\n"),
         "last step announced: {text}"
     );
     assert!(
-        text.ends_with("✔ all 74 checks passed\n"),
+        text.ends_with("✔ all 75 checks passed\n"),
         "summary: {text}"
     );
 }
@@ -5459,7 +5462,7 @@ fn checks_a_push_then_runs_every_check() {
     assert!(
         String::from_utf8(out)
             .expect("UTF-8")
-            .ends_with("✔ all 74 checks passed\n"),
+            .ends_with("✔ all 75 checks passed\n"),
         "then every check"
     );
     assert!(
@@ -5934,12 +5937,12 @@ fn prints_the_details_of_a_failure_on_stdout_and_one_line_on_stderr() {
     );
     assert_eq!(
         String::from_utf8(err).expect("UTF-8"),
-        "error: 1 of 74 checks failed, listed above\n",
+        "error: 1 of 75 checks failed, listed above\n",
         "one line on stderr, counting the failed steps"
     );
     assert!(
         String::from_utf8(out).expect("UTF-8").ends_with(&format!(
-            "▶ [74/74] Working tree unchanged by the checks\n\
+            "▶ [75/75] Working tree unchanged by the checks\n\
              not reviewed: crates/a/src/c.rs: replace g -> U with x\n\
              stale review: crates/a/src/b.rs: replace f -> T with Default::default()\n\
              Rust unviable mutants reviewed: unviable mutants must be reviewed in \
@@ -6653,6 +6656,80 @@ fn requires_every_direct_dependency_to_be_reviewed() {
 }
 
 #[test]
+fn refuses_libm_outside_the_math_layer_and_the_measurements() {
+    let gate = |dependencies: &str| {
+        super::math_layer_gate(&format!(
+            r#"{{"packages":[{{"name":"engine-core","dependencies":[{{"name":"libm","kind":null}}]}},{{"name":"engine-testkit","dependencies":[{{"name":"libm","kind":null}}]}},{{"name":"engine-objects","dependencies":{dependencies}}}]}}"#
+        ))
+    };
+    let summary = "math functions only through the math layer (engine-core, engine-testkit only \
+                   may depend on libm)";
+    let refused = |name: &str| {
+        Err(Failure::from(format!(
+            "{summary}: {name} depends on libm: its arithmetic must go through the math \
+             layer of engine-core"
+        )))
+    };
+    assert_eq!(
+        gate("[]"),
+        Ok(()),
+        "the math layer and the measurements may"
+    );
+    assert_eq!(
+        gate(r#"[{"name":"libm","kind":"dev"}]"#),
+        Ok(()),
+        "a test's reference may"
+    );
+    assert_eq!(
+        gate(r#"[{"name":"libm","kind":null}]"#),
+        refused("engine-objects"),
+        "a box crate may not"
+    );
+    assert_eq!(
+        gate(r#"[{"name":"libm","kind":"build","rename":"math"}]"#),
+        refused("engine-objects"),
+        "not as a build dependency, not renamed"
+    );
+    assert_eq!(
+        gate(r#"[{"name":"libmx","kind":null},{"name":"engine-core","kind":null,"path":"/r"}]"#),
+        Ok(()),
+        "another crate"
+    );
+    let two = super::math_layer_gate(
+        r#"{"packages":[{"name":"a","dependencies":[{"name":"libm"}]},{"name":"b","dependencies":[{"name":"libm","kind":"normal"}]}]}"#,
+    );
+    assert_eq!(
+        two.map_err(|failure| (failure.summary, failure.details.len())),
+        Err((format!("{summary}: 2 problems, listed above"), 2)),
+        "every crate"
+    );
+    assert!(
+        super::math_layer_gate("[")
+            .is_err_and(|failure| failure.summary.starts_with("invalid cargo metadata: ")),
+        "unreadable metadata"
+    );
+    assert_eq!(
+        super::math_layer_gate("{}"),
+        failed("cargo metadata lists no packages"),
+        "metadata without packages"
+    );
+}
+
+#[test]
+fn keeps_libm_in_the_math_layer_of_the_repository() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let mut runner = SystemRunner { root };
+    let metadata = runner
+        .capture(&super::metadata_command())
+        .expect("cargo metadata");
+    assert_eq!(
+        super::math_layer_gate(&metadata),
+        Ok(()),
+        "only the math layer and the measurements depend on libm"
+    );
+}
+
+#[test]
 fn reviews_the_real_dependencies() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let mut runner = SystemRunner { root: root.clone() };
@@ -6980,6 +7057,30 @@ fn fails_when_the_crates_cannot_be_listed() {
         failure.summary.contains("cannot list the crates"),
         "says what it could not do: {}",
         failure.summary
+    );
+}
+
+#[test]
+fn the_math_layer_gate_fails_when_the_crates_cannot_be_listed() {
+    let steps: Vec<Step> = check_steps(CHANGES_MODE)
+        .into_iter()
+        .filter(|step| step.action == Action::MathLayerGate)
+        .collect();
+    assert_eq!(steps.len(), 1, "one math layer gate");
+    let mut fake = passing();
+    let _removed = fake
+        .files
+        .remove(&format!("capture {}", super::metadata_command().line()));
+    let failure = run_steps(&steps, &mut fake, &mut Vec::new()).expect_err("stops");
+    assert!(
+        failure.summary.contains("cannot list the crates"),
+        "says what it could not do: {}",
+        failure.summary
+    );
+    assert_eq!(
+        run_steps(&steps, &mut passing(), &mut Vec::new()),
+        Ok(()),
+        "the fake's metadata has no libm"
     );
 }
 
@@ -8193,8 +8294,8 @@ fn the_parts_run_every_step_of_the_full_check_once() {
     }
     assert_eq!(
         steps_run,
-        18 * 3 + (74 - 3 - 7 - 2) + 8 * 2 + 1 + 2 + 6 * 3 + 1,
-        "each part's frame (three steps); every other step of the 74 once, but the seven \
+        18 * 3 + (75 - 3 - 7 - 2) + 8 * 2 + 1 + 2 + 6 * 3 + 1,
+        "each part's frame (three steps); every other step of the 75 once, but the seven \
          preparations, the mutation run and its unviable gate; in each of the eight shards, \
          the report emptied and the shard's run; the gate over the shards; the conformance \
          export (two steps) for the oracle; the JavaScript preparation (three steps) for the \

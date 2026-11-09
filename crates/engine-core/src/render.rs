@@ -3,36 +3,39 @@
 use alloc::vec;
 use alloc::vec::Vec;
 
-use crate::{BLOCK_SIZE, Block, CoreError, Plan, SILENCE};
+use crate::{BLOCK_SIZE, Block, CoreError, Delivered, Plan, Sample};
 
-/// Renders a plan offline, frame by frame, as one continuous stream: rendering `a` then
-/// `b` frames gives the same samples as rendering `a + b`.
+/// Renders a plan computing in `S` offline, frame by frame, as one continuous stream.
+///
+/// Rendering `a` then `b` frames gives the same samples as rendering `a + b`. Its samples
+/// are given as they are computed, or rounded to binary32 for a host that takes binary32
+/// ([`Delivered`]).
 ///
 /// It owns its [`Plan`] and offers no way to run [`Plan::process`] on it: a block
 /// processed behind its back would reorder time (frames of a later block returned before
 /// the rest of the current one). That mix does not compile:
 ///
 /// ```compile_fail,E0599
-/// fn mix(renderer: &mut engine_core::Renderer, out: &mut [engine_core::Block]) {
+/// fn mix(renderer: &mut engine_core::Renderer<f64>, out: &mut [engine_core::Block<f64>]) {
 ///     renderer.process(out);
 /// }
 /// ```
 #[derive(Debug)]
-pub struct Renderer {
+pub struct Renderer<S: Sample> {
     /// The plan, advanced only by this renderer.
-    plan: Plan,
+    plan: Plan<S>,
     /// The last block the plan produced, one per channel.
-    last: Vec<Block>,
+    last: Vec<Block<S>>,
     /// Frames of `last` already returned; [`BLOCK_SIZE`] when none is left.
     used: usize,
 }
 
-impl Renderer {
+impl<S: Sample> Renderer<S> {
     /// A renderer starting at the first frame of `plan`.
     #[must_use]
-    pub fn new(plan: Plan) -> Self {
+    pub fn new(plan: Plan<S>) -> Self {
         Self {
-            last: vec![SILENCE; plan.channels()],
+            last: vec![S::SILENCE; plan.channels()],
             plan,
             used: BLOCK_SIZE,
         }
@@ -45,7 +48,7 @@ impl Renderer {
     }
 
     /// Renders the next `frames` frames and returns them interleaved by channel
-    /// ([`Renderer::channels`] samples per frame).
+    /// ([`Renderer::channels`] samples per frame), given as `D` ([`Delivered`]).
     ///
     /// Successive calls continue exactly where the previous one stopped, whatever their
     /// lengths (also across [`Renderer::render_into`]). A plan without output renders
@@ -54,7 +57,7 @@ impl Renderer {
     /// # Errors
     ///
     /// Returns [`CoreError::RenderTooLong`] when the samples cannot be held in memory.
-    pub fn render(&mut self, frames: usize) -> Result<Vec<f32>, CoreError> {
+    pub fn render<D: Delivered<S>>(&mut self, frames: usize) -> Result<Vec<D>, CoreError> {
         let length = frames
             .checked_mul(self.channels())
             .ok_or(CoreError::RenderTooLong(frames))?;
@@ -62,19 +65,20 @@ impl Renderer {
         samples
             .try_reserve_exact(length)
             .map_err(|_| CoreError::RenderTooLong(frames))?;
-        samples.resize(length, 0.0);
+        samples.resize(length, D::deliver(S::ZERO));
         self.render_into(&mut samples);
         Ok(samples)
     }
 
-    /// Renders the next frames into `out`, interleaved by channel: as many whole frames
-    /// as `out` holds ([`Renderer::channels`] samples each). Samples after the last whole
+    /// Renders the next frames into `out`, interleaved by channel and given as `D`
+    /// ([`Delivered`]): as many whole frames as `out` holds ([`Renderer::channels`] samples
+    /// each). Samples after the last whole
     /// frame are left untouched; a plan without output writes nothing.
     ///
     /// Continues exactly where the previous render stopped, like [`Renderer::render`].
     /// Does not use the heap. Copies one channel at a time, as many frames as both the
     /// current block and `out` still hold.
-    pub fn render_into(&mut self, out: &mut [f32]) {
+    pub fn render_into<D: Delivered<S>>(&mut self, out: &mut [D]) {
         let channels = self.channels();
         let Some(frames) = out.len().checked_div(channels) else {
             return;
@@ -98,7 +102,7 @@ impl Renderer {
             for (offset, block) in self.last.iter().enumerate() {
                 let samples = rest.iter_mut().skip(offset).step_by(channels);
                 for (sample, value) in samples.zip(block.iter().skip(self.used)).take(count) {
-                    *sample = *value;
+                    *sample = D::deliver(*value);
                 }
             }
             self.used = self.used.saturating_add(count);

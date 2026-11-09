@@ -3,20 +3,23 @@
 use alloc::boxed::Box;
 use core::f64::consts::TAU;
 
-use engine_core::{Block, Object, ObjectSpec, ParamSpec, PortSpec, SampleRate, flush};
+use engine_core::{
+    Block, Create, Factory, Object, ObjectSpec, ParamSpec, PortSpec, Sample, SampleRate,
+};
 
-use crate::sample::to_sample;
-
-/// Sine oscillator. The phase is accumulated in `f64` and wrapped to `[0, 1)`; the
-/// sine comes from `libm`, so the output is identical on every target.
+/// Sine oscillator, written once for both precisions. The phase is accumulated in `f64`
+/// and wrapped to `[0, 1)`, in both (decision 10 of `spec/engine-design.md`: what derives
+/// from parameters and accumulates is binary64); the sine is computed in the precision of
+/// the render, `S`, from the angle `2π · phase` rounded to it, with the math layer's `libm`,
+/// so the output is identical on every target.
 ///
 /// The increment is reduced to `[0, 1)` cycle per sample, so that one subtraction always
 /// wraps the phase, at any frequency and sample rate. Above Nyquist the output aliases
 /// (the policy there is decided with roadmap #12).
 ///
 /// Subnormal outputs are flushed to zero (`spec/engine-design.md`, decision 11): at the
-/// smallest frequencies, the first frames of the sine are below 2^-126 and come out as +0.
-/// The phase, its only recursive state, is never subnormal
+/// smallest frequencies, the first frames of a binary32 sine are below 2^-126 and come out
+/// as +0. The phase, its only recursive state, is never subnormal
 /// (`keeps_its_phase_zero_or_normal`).
 #[derive(Debug)]
 struct Osc {
@@ -26,11 +29,11 @@ struct Osc {
     increment: f64,
 }
 
-impl Object for Osc {
-    fn process(&mut self, _inputs: &[Block], outputs: &mut [Block]) {
+impl<S: Sample> Object<S> for Osc {
+    fn process(&mut self, _inputs: &[Block<S>], outputs: &mut [Block<S>]) {
         for output in outputs.iter_mut().take(1) {
             for sample in output.iter_mut() {
-                *sample = flush(to_sample(libm::sin(TAU * self.phase)));
+                *sample = S::from_f64(TAU * self.phase).sin().flush();
                 self.phase += self.increment;
                 if self.phase >= 1.0_f64 {
                     self.phase -= 1.0_f64;
@@ -47,15 +50,17 @@ impl Osc {
         Self {
             phase: 0.0,
             // Whole cycles per sample do not change the output: drop them.
-            increment: cycles - libm::floor(cycles),
+            increment: cycles - cycles.floor(),
         }
     }
 }
 
-/// Creates an oscillator from its frequency parameter.
-fn create(rate: SampleRate, params: &[f32]) -> Box<dyn Object> {
-    let frequency = params.first().copied().map_or(440.0_f64, f64::from);
-    Box::new(Osc::new(rate, frequency))
+impl Create for Osc {
+    /// An oscillator from its frequency parameter.
+    fn create<S: Sample>(rate: SampleRate, params: &[f64]) -> Box<dyn Object<S>> {
+        let frequency = params.first().copied().unwrap_or(440.0_f64);
+        Box::new(Self::new(rate, frequency))
+    }
 }
 
 /// The `osc~` box type.
@@ -75,7 +80,7 @@ pub static OSC: ObjectSpec = ObjectSpec {
         max: 20_000.0,
     }],
     capabilities: &[],
-    create,
+    create: Factory::new::<Osc>(),
 };
 
 #[cfg(test)]
@@ -85,14 +90,38 @@ mod tests {
     use alloc::vec::Vec;
     use core::f64::consts::TAU;
 
-    use engine_core::{BLOCK_SIZE, Block, SILENCE, SampleRate};
+    use engine_core::{BLOCK_SIZE, Block, RenderFormat, Sample, SampleRate, to_binary32};
 
     use super::OSC;
 
-    /// The largest distance a correct oscillator has from the exact sine after `frames`
-    /// samples, derived term by term (the oracle uses the same bound, `sineErrorBound`):
+    /// The terms of [`bound`] that depend on the render format: how the sine of the angle is
+    /// computed and given (`spec/measurements.md`, "Thresholds of `osc~`"):
     ///
-    /// - output rounding: half an f32 ulp below 1, 2^-25;
+    /// - binary64: the sine computed in binary64, half an ulp below 1, 2^-54 (the error of
+    ///   `libm::sin` beyond its rounding counts in the evaluation term of [`bound`]);
+    /// - binary64 given as binary32: the binary64 sine rounded to binary32, half an ulp below
+    ///   1, 2^-25 (a value below 2^-126 is given as a binary32 subnormal, rounded by at most
+    ///   2^-150);
+    /// - binary32: the angle `2π · phase`, below 2π < 8, rounded to binary32, by at most
+    ///   half an ulp of [4, 8), 2^-22 (`computes_its_angle_below_eight`), which moves the
+    ///   sine by at most as much; `libm::sinf` computes in binary64 within 2^-34.1 of the
+    ///   sine of that angle (FreeBSD's kernels: 2^-34.1 for the cosine, 2^-37.5 relative for
+    ///   the sine, after a reduction by multiples of π/2 in binary64), bounded by 2^-33, then
+    ///   rounds to binary32, half an ulp below 1, 2^-25; a value below 2^-126 is flushed to
+    ///   zero, an error below 2^-126.
+    fn output_term(format: RenderFormat) -> f64 {
+        match format {
+            RenderFormat::Binary64 => libm::exp2(-54.0),
+            RenderFormat::Binary64AsBinary32 => libm::exp2(-25.0),
+            RenderFormat::Binary32 => libm::exp2(-22.0) + libm::exp2(-25.0) + libm::exp2(-33.0),
+        }
+    }
+
+    /// The largest distance a correct oscillator has from the exact sine after `frames`
+    /// samples in `format`, derived term by term (the oracle uses the same bound,
+    /// `sineErrorBound`):
+    ///
+    /// - computing and giving the sine: [`output_term`], by render format;
     /// - phase accumulation: at most 2^-52 cycle per sample, hence 2π · 2^-52 radians,
     ///   in each regime of `cycles = frequency / rate`:
     ///   - below 1 cycle per sample, the increment is `cycles` rounded once (at most
@@ -104,9 +133,10 @@ mod tests {
     ///   - from 4 cycles on, rounding `cycles` costs up to 2^-51: the bound would no
     ///     longer hold. The parameter range keeps `cycles` below 4 at every supported
     ///     rate, checked by `stays_below_four_cycles_per_sample`;
-    /// - evaluating the sine: 2^-48.
-    fn bound(frames: u32) -> f64 {
-        libm::exp2(-25.0) + TAU * f64::from(frames) * libm::exp2(-52.0) + libm::exp2(-48.0)
+    /// - evaluating the sine: 2^-48 (the angle `2π · phase` in binary64, within 2^-50.3,
+    ///   and `libm::sin`'s error, within an ulp).
+    fn bound(format: RenderFormat, frames: u32) -> f64 {
+        output_term(format) + TAU * f64::from(frames) * libm::exp2(-52.0) + libm::exp2(-48.0)
     }
 
     /// The largest error of [`exact`] itself: its argument, 2π times a correctly rounded
@@ -204,25 +234,29 @@ mod tests {
         libm::sin(TAU * (exact_f64(remainder) / f64::from(rate) * scale))
     }
 
-    /// Checks `samples`, rendered from frame 0 at `frequency` Hz and `rate` Hz, against
-    /// [`exact`] within `bound(frames)`, leaving room for the reference's own error.
-    fn assert_exact(samples: &[f32], frequency: f32, rate: u32) {
+    /// Checks `samples` of `format`, rendered from frame 0 at `frequency` Hz and `rate` Hz,
+    /// against [`exact`] within `bound(format, frames)`, leaving room for the reference's
+    /// own error.
+    fn assert_exact(samples: &[f64], format: RenderFormat, frequency: f32, rate: u32) {
         let frames = u32::try_from(samples.len()).expect("a short render");
         for (frame, &sample) in (0_u64..).zip(samples) {
             let expected = exact(frequency, rate, frame);
             assert!(
-                (f64::from(sample) - expected).abs() + REFERENCE_ERROR <= bound(frames),
-                "{frequency} Hz at {rate} Hz, sample {frame}: {sample} instead of {expected}"
+                (sample - expected).abs() + REFERENCE_ERROR <= bound(format, frames),
+                "{format}: {frequency} Hz at {rate} Hz, sample {frame}: {sample} instead of {expected}"
             );
         }
     }
 
-    /// Renders `frames` frames of `osc~` at `frequency` Hz and `rate` Hz.
-    fn render_at(frequency: f32, rate: u32, frames: usize) -> Vec<f32> {
-        let mut osc = (OSC.create)(SampleRate::new(rate).expect("valid rate"), &[frequency]);
+    /// Renders `frames` frames of `osc~` computing in `S`, at `frequency` Hz and `rate` Hz.
+    fn render_in<S: Sample>(frequency: f32, rate: u32, frames: usize) -> Vec<S> {
+        let mut osc = OSC.create.create::<S>(
+            SampleRate::new(rate).expect("valid rate"),
+            &[f64::from(frequency)],
+        );
         let mut samples = Vec::new();
         while samples.len() < frames {
-            let mut out: [Block; 1] = [SILENCE];
+            let mut out: [Block<S>; 1] = [S::SILENCE];
             osc.process(&[], &mut out);
             samples.extend_from_slice(&out[0]);
         }
@@ -230,77 +264,104 @@ mod tests {
         samples
     }
 
-    /// Renders `blocks` blocks of `osc~` at 48 kHz.
-    fn render(frequency: f32, blocks: usize) -> Vec<f32> {
-        let rate = SampleRate::new(48_000).expect("valid rate");
-        let mut osc = (OSC.create)(rate, &[frequency]);
-        let mut samples = Vec::new();
-        for _ in 0..blocks {
-            let mut out: [Block; 1] = [SILENCE];
-            osc.process(&[], &mut out);
-            samples.extend_from_slice(&out[0]);
+    /// Renders `frames` frames of `osc~` in `format` at `frequency` Hz and `rate` Hz, each
+    /// sample widened to binary64 (exactly).
+    fn render_at(format: RenderFormat, frequency: f32, rate: u32, frames: usize) -> Vec<f64> {
+        match format {
+            RenderFormat::Binary64 => render_in::<f64>(frequency, rate, frames),
+            RenderFormat::Binary64AsBinary32 => render_in::<f64>(frequency, rate, frames)
+                .into_iter()
+                .map(|sample| f64::from(to_binary32(sample)))
+                .collect(),
+            RenderFormat::Binary32 => render_in::<f32>(frequency, rate, frames)
+                .into_iter()
+                .map(f64::from)
+                .collect(),
         }
-        samples
+    }
+
+    /// Renders `blocks` blocks of `osc~` in `format` at 48 kHz.
+    fn render(format: RenderFormat, frequency: f32, blocks: usize) -> Vec<f64> {
+        render_at(format, frequency, 48_000, blocks.saturating_mul(BLOCK_SIZE))
     }
 
     #[test]
     fn produces_a_440_hz_sine() {
-        let samples = render(440.0, 40);
-        assert_exact(&samples, 440.0, 48_000);
-        assert_eq!(samples[0].to_bits(), 0.0_f32.to_bits(), "starts at phase 0");
+        for format in RenderFormat::ALL {
+            let samples = render(format, 440.0, 40);
+            assert_exact(&samples, format, 440.0, 48_000);
+            assert_eq!(samples[0].to_bits(), 0_u64, "{format}: starts at phase 0");
+        }
     }
 
     #[test]
     fn has_a_full_scale_amplitude() {
-        let samples = render(440.0, 40);
-        let peak = samples.iter().fold(0.0_f32, |max, sample| {
-            if sample.abs() > max {
-                sample.abs()
-            } else {
-                max
-            }
-        });
-        assert!(peak > 0.999_f32, "peak {peak} reaches full scale");
-        assert!(peak <= 1.0_f32, "peak {peak} never exceeds full scale");
+        for format in RenderFormat::ALL {
+            let samples = render(format, 440.0, 40);
+            let peak = samples.iter().fold(0.0_f64, |max, sample| {
+                if sample.abs() > max {
+                    sample.abs()
+                } else {
+                    max
+                }
+            });
+            assert!(peak > 0.999_f64, "{format}: peak {peak} reaches full scale");
+            assert!(
+                peak <= 1.0_f64,
+                "{format}: peak {peak} never exceeds full scale"
+            );
+        }
     }
 
     #[test]
     fn rises_through_zero_once_per_period() {
-        let samples = render(440.0, 750);
-        let rising = samples
-            .windows(2)
-            .filter(|pair| pair[0] < 0.0 && pair[1] >= 0.0)
-            .count();
-        // 750 blocks of 64 frames = 1 second: 440 periods, the first starting at 0.
-        assert_eq!(
-            rising, 439,
-            "one rising zero crossing per period after the first"
-        );
+        for format in RenderFormat::ALL {
+            let samples = render(format, 440.0, 750);
+            let rising = samples
+                .windows(2)
+                .filter(|pair| pair[0] < 0.0_f64 && pair[1] >= 0.0_f64)
+                .count();
+            // 750 blocks of 64 frames = 1 second: 440 periods, the first starting at 0.
+            assert_eq!(
+                rising, 439,
+                "{format}: one rising zero crossing per period after the first"
+            );
+        }
     }
 
     #[test]
     fn follows_its_frequency_parameter() {
-        let samples = render(1_000.0, 750);
-        let rising = samples
-            .windows(2)
-            .filter(|pair| pair[0] < 0.0 && pair[1] >= 0.0)
-            .count();
-        assert_eq!(rising, 999, "1 kHz");
-        assert_eq!(render(0.0, 2), vec![0.0; 2 * BLOCK_SIZE], "0 Hz is silence");
+        for format in RenderFormat::ALL {
+            let samples = render(format, 1_000.0, 750);
+            let rising = samples
+                .windows(2)
+                .filter(|pair| pair[0] < 0.0_f64 && pair[1] >= 0.0_f64)
+                .count();
+            assert_eq!(rising, 999, "{format}: 1 kHz");
+            assert_eq!(
+                render(format, 0.0, 2),
+                vec![0.0_f64; 2 * BLOCK_SIZE],
+                "{format}: 0 Hz is silence"
+            );
+        }
+    }
+
+    /// Renders one block into a first outlet and an extra buffer, which must stay as it was.
+    fn leaves_extra_buffers<S: Sample>() {
+        let rate = SampleRate::new(48_000).expect("valid rate");
+        let mut osc = OSC.create.create::<S>(rate, &[440.0_f64]);
+        let seven = [S::from_f64(7.0); BLOCK_SIZE];
+        let mut out: [Block<S>; 2] = [S::SILENCE, seven];
+        osc.process(&[], &mut out);
+        assert_eq!(out[1], seven, "extra buffers are left untouched");
+        let mut none: [Block<S>; 0] = [];
+        osc.process(&[], &mut none);
     }
 
     #[test]
     fn writes_only_its_single_outlet() {
-        let rate = SampleRate::new(48_000).expect("valid rate");
-        let mut osc = (OSC.create)(rate, &[440.0]);
-        let mut out: [Block; 2] = [SILENCE, [7.0; BLOCK_SIZE]];
-        osc.process(&[], &mut out);
-        assert_eq!(
-            out[1], [7.0; BLOCK_SIZE],
-            "extra buffers are left untouched"
-        );
-        let mut none: [Block; 0] = [];
-        osc.process(&[], &mut none);
+        leaves_extra_buffers::<f64>();
+        leaves_extra_buffers::<f32>();
     }
 
     #[test]
@@ -319,7 +380,7 @@ mod tests {
                 nyquist + 1.0_f64,
             ] {
                 let mut osc = super::Osc::new(rate, frequency);
-                let mut out: [Block; 1] = [SILENCE];
+                let mut out: [Block<f64>; 1] = [f64::SILENCE];
                 for _ in 0_u16..200_u16 {
                     engine_core::Object::process(&mut osc, &[], &mut out);
                     assert!(
@@ -336,14 +397,20 @@ mod tests {
     #[test]
     fn stays_exact_above_the_sample_rate() {
         // 10 001 Hz at 8 kHz: 1.25 cycles per sample, over 10 s.
-        assert_exact(&render_at(10_001.0, 8_000, 80_000), 10_001.0, 8_000);
+        for format in RenderFormat::ALL {
+            let samples = render_at(format, 10_001.0, 8_000, 80_000);
+            assert_exact(&samples, format, 10_001.0, 8_000);
+        }
     }
 
     #[test]
     fn stays_exact_between_two_and_four_cycles_per_sample() {
         // 19 984 Hz at 8 kHz: 2.498 cycles per sample, the regime where the increment
         // rounds by up to 2^-52 (here 0.992 · 2^-52, among the worst), over 10 s.
-        assert_exact(&render_at(19_984.0, 8_000, 80_000), 19_984.0, 8_000);
+        for format in RenderFormat::ALL {
+            let samples = render_at(format, 19_984.0, 8_000, 80_000);
+            assert_exact(&samples, format, 19_984.0, 8_000);
+        }
     }
 
     /// 16,000.0087890625 Hz, 16,000 + 9/1024: a binary32 frequency that is not whole.
@@ -355,22 +422,25 @@ mod tests {
         // normal frequency, binary32 frequencies that are not whole (16,000.0087890625 Hz
         // rounds its increment by 0.992 · 2^-52 at 8 kHz, among the worst) and the
         // regimes of `bound`: a rate- or frequency-specific defect cannot pass.
-        for rate in engine_testkit::matrix::sample_rates() {
-            for frequency in [
-                0.0_f32,
-                f32::MIN_POSITIVE,
-                1.0,
-                440.0,
-                440.25,
-                FRACTIONAL,
-                19_984.0,
-                20_000.0,
-            ] {
-                assert_exact(
-                    &render_at(frequency, rate.hz(), 4_096),
-                    frequency,
-                    rate.hz(),
-                );
+        for format in RenderFormat::ALL {
+            for rate in engine_testkit::matrix::sample_rates() {
+                for frequency in [
+                    0.0_f32,
+                    f32::MIN_POSITIVE,
+                    1.0,
+                    440.0,
+                    440.25,
+                    FRACTIONAL,
+                    19_984.0,
+                    20_000.0,
+                ] {
+                    assert_exact(
+                        &render_at(format, frequency, rate.hz(), 4_096),
+                        format,
+                        frequency,
+                        rate.hz(),
+                    );
+                }
             }
         }
     }
@@ -424,10 +494,22 @@ mod tests {
         // frequency`). An exact value just below 2^-126 could round up to it and break the
         // strict split below; no frame of these renders comes that close, which the split
         // itself checks.
+        //
+        // In binary64 the same sine is normal from its second frame on (2^-126 Hz moves the
+        // angle by more than 2^-145 per frame, far above 2^-1022): nothing to flush. Given as
+        // binary32, its first frames are rounded to binary32 subnormals, as the delivery
+        // rounds every sample (decision 10 of `spec/engine-design.md`), not flushed.
         let smallest_normal = f64::from(f32::MIN_POSITIVE);
         for rate in engine_testkit::matrix::sample_rates() {
             let frames = usize::try_from(rate.hz() / 4).expect("a short render");
-            let samples = render_at(f32::MIN_POSITIVE, rate.hz(), frames);
+            let wide = render_in::<f64>(f32::MIN_POSITIVE, rate.hz(), frames);
+            assert_eq!(wide[0].to_bits(), 0_u64, "+0 at phase 0");
+            assert!(
+                wide.iter().skip(1).all(|sample| sample.is_normal()),
+                "binary64 at {} Hz: normal",
+                rate.hz()
+            );
+            let samples = render_in::<f32>(f32::MIN_POSITIVE, rate.hz(), frames);
             let mut zeros = 0_u32;
             for (frame, &sample) in (0_u64..).zip(&samples) {
                 let what = format!("frame {frame} at {} Hz", rate.hz());
@@ -463,7 +545,7 @@ mod tests {
         for frequency in [0.0, f32::from_bits(1), f32::MIN_POSITIVE, 1.0, 20_000.0] {
             for rate in engine_testkit::matrix::sample_rates() {
                 let mut osc = super::Osc::new(rate, f64::from(frequency));
-                let mut out: [Block; 1] = [SILENCE];
+                let mut out: [Block<f32>; 1] = [f32::SILENCE];
                 for _ in 0_u16..64_u16 {
                     engine_core::Object::process(&mut osc, &[], &mut out);
                     assert!(
@@ -488,15 +570,36 @@ mod tests {
         assert!(highest < 4.0_f64, "{highest} cycles per sample");
     }
 
-    #[test]
-    fn defaults_to_440_hz_without_parameter() {
+    /// Checks that an oscillator computing in `S` given no parameter plays 440 Hz.
+    fn defaults_to_440_hz_in<S: Sample>() {
         let rate = SampleRate::new(48_000).expect("valid rate");
-        let mut with_default = (OSC.create)(rate, &[]);
-        let mut with_440 = (OSC.create)(rate, &[440.0]);
-        let (mut default_out, mut explicit_out): ([Block; 1], [Block; 1]) = ([SILENCE], [SILENCE]);
+        let mut with_default = OSC.create.create::<S>(rate, &[]);
+        let mut with_440 = OSC.create.create::<S>(rate, &[440.0_f64]);
+        let (mut default_out, mut explicit_out) = ([S::SILENCE], [S::SILENCE]);
         with_default.process(&[], &mut default_out);
         with_440.process(&[], &mut explicit_out);
         assert_eq!(default_out, explicit_out, "same output");
+    }
+
+    #[test]
+    fn defaults_to_440_hz_without_parameter() {
+        defaults_to_440_hz_in::<f64>();
+        defaults_to_440_hz_in::<f32>();
+    }
+
+    #[test]
+    fn computes_its_angle_below_eight() {
+        // The precondition of the binary32 term of `output_term`: the angle `2π · phase`,
+        // with the phase below 1 (`keeps_its_phase_within_one_cycle_at_every_rate`), is below
+        // 2π, so within [0, 8), where binary32 values are at most 2^-21 apart.
+        let largest = to_binary32(TAU);
+        let below_eight = f32::from_bits(8.0_f32.to_bits() - 1);
+        assert!(largest <= below_eight, "{largest}");
+        assert_eq!(
+            f64::from(below_eight),
+            8.0_f64 - libm::exp2(-21.0),
+            "the spacing of [4, 8)"
+        );
     }
 
     /// The known-answer vectors of the measurements, whose `sine_error_bounds` the oracle's
@@ -507,19 +610,29 @@ mod tests {
     fn bounds_its_error_like_the_shared_vectors() {
         let vectors: serde_json::Value = serde_json::from_str(VECTORS).expect("valid JSON");
         let list = vectors["sine_error_bounds"].as_array().expect("bounds");
-        let full_scale: Vec<_> = list
-            .iter()
-            .filter(|vector| vector["amplitude"].as_f64() == Some(1.0_f64))
-            .collect();
-        assert_eq!(full_scale.len(), 4, "every full-scale vector");
-        for vector in full_scale {
-            let frames = u32::try_from(vector["frames"].as_u64().expect("frames")).expect("u32");
-            let wanted = vector["bound"].as_f64().expect("a bound");
-            assert!(
-                (bound(frames) - wanted).abs() <= wanted * 1e-15_f64,
-                "{frames} frames: {} instead of {wanted}",
-                bound(frames)
+        for (format, count) in RenderFormat::ALL.into_iter().zip([3_usize, 4, 3]) {
+            let full_scale: Vec<_> = list
+                .iter()
+                .filter(|vector| {
+                    vector["amplitude"].as_f64() == Some(1.0_f64)
+                        && vector["format"].as_str() == Some(format.name())
+                })
+                .collect();
+            assert_eq!(
+                full_scale.len(),
+                count,
+                "every full-scale vector of {format}"
             );
+            for vector in full_scale {
+                let frames =
+                    u32::try_from(vector["frames"].as_u64().expect("frames")).expect("u32");
+                let wanted = vector["bound"].as_f64().expect("a bound");
+                let derived = bound(format, frames);
+                assert!(
+                    (derived - wanted).abs() <= wanted * 1e-15_f64,
+                    "{format}, {frames} frames: {derived} instead of {wanted}"
+                );
+            }
         }
     }
 
@@ -527,13 +640,12 @@ mod tests {
     /// every frequency below is at least five bins from DC and Nyquist at every rate.
     const MEASURED_FRAMES: u32 = 8_192;
 
-    /// The THD+N of a full-scale sine whose binary32 rounding errors are spread uniformly
-    /// over an ulp, `ulp² / 12` in mean square: `p_k = (2/π)(asin 2^(1-k) - asin 2^-k)` of
-    /// the samples of a sine lie in `[2^-k, 2^(1-k))`, where the ulp is `2^(-k-23)`
-    /// (`spec/measurements.md`, "Thresholds of `osc~`"); the terms beyond `k = 60` are
-    /// below 2^-160 of the sum.
-    fn predicted_thd_plus_n() -> f64 {
-        let power: f64 = (1_u32..=60_u32)
+    /// The mean square of the rounding of a full-scale sine to binary32, its errors spread
+    /// uniformly over an ulp, `ulp² / 12`: `p_k = (2/π)(asin 2^(1-k) - asin 2^-k)` of the
+    /// samples of a sine lie in `[2^-k, 2^(1-k))`, where the ulp is `2^(-k-23)`; the terms
+    /// beyond `k = 60` are below 2^-160 of the sum.
+    fn output_rounding_power() -> f64 {
+        (1_u32..=60_u32)
             .map(|octave| {
                 let top = libm::exp2(-f64::from(octave) + 1.0_f64);
                 let share =
@@ -541,111 +653,190 @@ mod tests {
                 let ulp = libm::exp2(-f64::from(octave) - 23.0_f64);
                 share * ulp * ulp / 12.0_f64
             })
+            .sum()
+    }
+
+    /// The mean square of the error of a binary32 sine from the rounding of its angle `x`,
+    /// uniform over `[0, 2π)`, to binary32, spread uniformly over the ulp of `x`: the sine
+    /// moves by `cos x` times it, so `(1/2π) ∫ cos²(x) ulp(x)² / 12 dx`, octave by octave,
+    /// with `∫ cos² = x/2 + sin(2x)/4` and an ulp of `2^(k-23)` in `[2^k, 2^(k+1))`; the
+    /// octaves below `2^-60` add less than 2^-140 of the sum.
+    fn angle_rounding_power() -> f64 {
+        let integral = |x: f64| x / 2.0_f64 + libm::sin(2.0_f64 * x) / 4.0_f64;
+        let sum: f64 = (-60_i32..=2_i32)
+            .map(|octave| {
+                let low = libm::exp2(f64::from(octave));
+                let high = if octave == 2_i32 { TAU } else { 2.0_f64 * low };
+                let ulp = libm::exp2(f64::from(octave) - 23.0_f64);
+                (integral(high) - integral(low)) * ulp * ulp / 12.0_f64
+            })
             .sum();
-        10.0_f64 * libm::log10(power / 0.5_f64)
+        sum / TAU
+    }
+
+    /// The THD+N a non-periodic full-scale sine of `format` is predicted to measure, from
+    /// its rounding spread uniformly (`spec/measurements.md`, "Thresholds of `osc~`"): the
+    /// binary32 rounding of its value, and in binary32 that of its angle too; `None` in
+    /// binary64, whose error is far below the floor of the measurements.
+    fn predicted_thd_plus_n(format: RenderFormat) -> Option<f64> {
+        let power = match format {
+            RenderFormat::Binary64 => return None,
+            RenderFormat::Binary64AsBinary32 => output_rounding_power(),
+            RenderFormat::Binary32 => output_rounding_power() + angle_rounding_power(),
+        };
+        Some(10.0_f64 * libm::log10(power / 0.5_f64))
     }
 
     #[test]
     fn measures_within_its_derived_thresholds_at_every_rate() {
         // The thresholds of `osc~` (`spec/measurements.md`, "Thresholds of `osc~`"): the
-        // bounds of a signal within `bound(frames)` per sample of the ideal full-scale sine,
-        // for the fits and the window of each measurement. At every rate of the matrix: low,
-        // mid and near-Nyquist frequencies, all fractional (they rarely repeat), a quarter of
-        // the rate, and a periodic case where the rounding falls into a few harmonics.
-        let predicted = predicted_thd_plus_n();
-        assert!((predicted + 153.73_f64).abs() < 0.01_f64, "{predicted}");
-        for rate in engine_testkit::matrix::sample_rates() {
-            let hz = f64::from(rate.hz());
-            let mut cases: Vec<(f64, bool)> = [0.000_7_f64, 0.022_9_f64, 0.287_1_f64, 0.499_3_f64]
-                .iter()
-                .map(|cycles| (cycles * hz, true))
-                .collect();
-            cases.push((hz / 4.0_f64, false));
-            cases.push((hz / 8.0_f64, false));
-            for (wanted, spread) in cases {
-                let frequency = super::super::sample::to_sample(wanted);
-                let samples: Vec<f64> = render_at(frequency, rate.hz(), 8_192)
-                    .into_iter()
-                    .map(f64::from)
-                    .collect();
-                let what = format!("{frequency} Hz at {} Hz", rate.hz());
-                let measured =
-                    engine_testkit::measure::measure(&samples, rate, f64::from(frequency))
-                        .expect(&what);
-                let bounds = engine_testkit::measure::sine_bounds(
-                    1.0_f64,
-                    bound(MEASURED_FRAMES),
-                    &measured,
-                )
-                .expect(&what);
-                assert!(
-                    measured.thd_plus_n <= bounds.thd_plus_n,
-                    "{what}: THD+N {} above {}",
-                    measured.thd_plus_n,
-                    bounds.thd_plus_n
-                );
-                assert!(
-                    measured.sfdr >= bounds.sfdr,
-                    "{what}: SFDR {} below {}",
-                    measured.sfdr,
-                    bounds.sfdr
-                );
-                let harmonics = measured.harmonics.as_ref().expect(&what);
-                let limits = bounds.harmonics.expect(&what);
-                assert!(
-                    harmonics.snr >= limits.snr,
-                    "{what}: SNR {} below {}",
-                    harmonics.snr,
-                    limits.snr
-                );
-                for level in [harmonics.thd, harmonics.aliasing].into_iter().flatten() {
-                    // The aliasing law: below Nyquist, no aliased component above the floor
-                    // of the binary32 output.
-                    assert!(
-                        level <= limits.thd,
-                        "{what}: {level} dB above {}",
-                        limits.thd
-                    );
-                }
-                if spread {
-                    // The gap to the bound explained: uniform rounding, 6.2 dB below it.
-                    assert!(
-                        (measured.thd_plus_n - predicted).abs() < 0.5_f64,
-                        "{what}: THD+N {} instead of about {predicted}",
-                        measured.thd_plus_n
-                    );
+        // bounds of a signal within `bound(format, frames)` per sample of the ideal full-scale
+        // sine, for the fits and the window of each measurement, in every render format. At
+        // every rate of the matrix: low, mid and near-Nyquist frequencies, all fractional
+        // (they rarely repeat), a quarter of the rate, and a periodic case where the rounding
+        // falls into a few harmonics.
+        let predicted = predicted_thd_plus_n(RenderFormat::Binary64AsBinary32);
+        assert!(
+            predicted.is_some_and(|level| (level + 153.73_f64).abs() < 0.01_f64),
+            "{predicted:?}"
+        );
+        for format in RenderFormat::ALL {
+            for rate in engine_testkit::matrix::sample_rates() {
+                let hz = f64::from(rate.hz());
+                let mut cases: Vec<(f64, bool)> =
+                    [0.000_7_f64, 0.022_9_f64, 0.287_1_f64, 0.499_3_f64]
+                        .iter()
+                        .map(|cycles| (cycles * hz, true))
+                        .collect();
+                cases.push((hz / 4.0_f64, false));
+                cases.push((hz / 8.0_f64, false));
+                for (wanted, spread) in cases {
+                    measures_within_its_thresholds(format, rate, to_binary32(wanted), spread);
                 }
             }
         }
     }
 
-    #[test]
-    fn has_thresholds_of_a_binary32_sine() {
-        // The numbers `spec/measurements.md` gives for 8192 frames, from the bounds of an
-        // orthogonal fit at the floor of a full-scale signal and the window's ENBW.
-        let samples: Vec<f64> = render_at(1_000.0, 8_000, 8_192)
-            .into_iter()
-            .map(f64::from)
-            .collect();
-        let rate = SampleRate::new(8_000).expect("valid rate");
+    /// Measures `osc~` at `frequency` Hz in `format` at `rate` and holds every level to its
+    /// bound; `spread` when its rounding is spread (not periodic), where the THD+N is
+    /// predicted.
+    fn measures_within_its_thresholds(
+        format: RenderFormat,
+        rate: SampleRate,
+        frequency: f32,
+        spread: bool,
+    ) {
+        let samples = render_at(format, frequency, rate.hz(), 8_192);
+        let what = format!("{format}: {frequency} Hz at {} Hz", rate.hz());
         let measured =
-            engine_testkit::measure::measure(&samples, rate, 1_000.0_f64).expect("measurable");
-        let bounds =
-            engine_testkit::measure::sine_bounds(1.0_f64, bound(MEASURED_FRAMES), &measured)
-                .expect("bounded");
+            engine_testkit::measure::measure(&samples, rate, f64::from(frequency)).expect(&what);
+        let bounds = engine_testkit::measure::sine_bounds(
+            1.0_f64,
+            bound(format, MEASURED_FRAMES),
+            &measured,
+        )
+        .expect(&what);
         assert!(
-            (bounds.thd_plus_n + 147.5_f64).abs() < 0.05_f64,
-            "{}",
+            measured.thd_plus_n <= bounds.thd_plus_n,
+            "{what}: THD+N {} above {}",
+            measured.thd_plus_n,
             bounds.thd_plus_n
         );
         assert!(
-            (bounds.sfdr - 141.5_f64).abs() < 0.05_f64,
-            "{}",
+            measured.sfdr >= bounds.sfdr,
+            "{what}: SFDR {} below {}",
+            measured.sfdr,
             bounds.sfdr
         );
+        let harmonics = measured.harmonics.as_ref().expect(&what);
+        let limits = bounds.harmonics.expect(&what);
         assert!(
-            (bounds.thd_plus_n - predicted_thd_plus_n() - 6.2_f64).abs() < 0.1_f64,
-            "the gap"
+            harmonics.snr >= limits.snr,
+            "{what}: SNR {} below {}",
+            harmonics.snr,
+            limits.snr
         );
+        for level in [harmonics.thd, harmonics.aliasing].into_iter().flatten() {
+            // The aliasing law: below Nyquist, no aliased component above the floor of the
+            // output.
+            assert!(
+                level <= limits.thd,
+                "{what}: {level} dB above {}",
+                limits.thd
+            );
+        }
+        match predicted_thd_plus_n(format) {
+            // The gap to the bound explained: uniform rounding.
+            Some(predicted) if spread => assert!(
+                (measured.thd_plus_n - predicted).abs() < 0.5_f64,
+                "{what}: THD+N {} instead of about {predicted}",
+                measured.thd_plus_n
+            ),
+            Some(_) => {}
+            // In binary64, the error of the sine is far below what the measurements can
+            // resolve: its levels are those of the floor of the measurements alone.
+            None => {
+                let floor =
+                    engine_testkit::measure::sine_bounds(1.0_f64, 0.0_f64, &measured).expect(&what);
+                assert!(
+                    measured.thd_plus_n <= floor.thd_plus_n,
+                    "{what}: THD+N {} above the floor {}",
+                    measured.thd_plus_n,
+                    floor.thd_plus_n
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn has_the_thresholds_of_each_render_format() {
+        // The numbers `spec/measurements.md` gives for 8192 frames, from the bounds of an
+        // orthogonal fit at the floor of a full-scale signal and the window's ENBW: the
+        // THD+N bound, the SFDR bound and the gap from the bound to the predicted THD+N.
+        let rate = SampleRate::new(8_000).expect("valid rate");
+        for (format, thd_plus_n, sfdr, gap) in [
+            (RenderFormat::Binary64, -204.8_f64, 198.8_f64, None),
+            (
+                RenderFormat::Binary64AsBinary32,
+                -147.5_f64,
+                141.5_f64,
+                Some(6.2_f64),
+            ),
+            (
+                RenderFormat::Binary32,
+                -128.4_f64,
+                122.4_f64,
+                Some(12.5_f64),
+            ),
+        ] {
+            let samples = render_at(format, 1_000.0, 8_000, 8_192);
+            let measured =
+                engine_testkit::measure::measure(&samples, rate, 1_000.0_f64).expect("measurable");
+            let bounds = engine_testkit::measure::sine_bounds(
+                1.0_f64,
+                bound(format, MEASURED_FRAMES),
+                &measured,
+            )
+            .expect("bounded");
+            assert!(
+                (bounds.thd_plus_n - thd_plus_n).abs() < 0.05_f64,
+                "{format}: {}",
+                bounds.thd_plus_n
+            );
+            assert!(
+                (bounds.sfdr - sfdr).abs() < 0.05_f64,
+                "{format}: {}",
+                bounds.sfdr
+            );
+            assert_eq!(
+                predicted_thd_plus_n(format).map(|predicted| (bounds.thd_plus_n
+                    - predicted
+                    - gap.unwrap_or(0.0_f64))
+                .abs()
+                    < 0.1_f64),
+                gap.map(|_| true),
+                "{format}: the gap"
+            );
+        }
     }
 }

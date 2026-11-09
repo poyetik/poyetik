@@ -5,12 +5,17 @@
 
 #[cfg(test)]
 mod tests {
-    use engine_core::{Block, Object, ObjectSpec};
+    use engine_core::{Block, Create, Factory, Object, ObjectSpec, Sample, SampleRate};
 
     #[derive(Debug)]
     struct Silent;
-    impl Object for Silent {
-        fn process(&mut self, _inputs: &[Block], _outputs: &mut [Block]) {}
+    impl<S: Sample> Object<S> for Silent {
+        fn process(&mut self, _inputs: &[Block<S>], _outputs: &mut [Block<S>]) {}
+    }
+    impl Create for Silent {
+        fn create<S: Sample>(_rate: SampleRate, _params: &[f64]) -> Box<dyn Object<S>> {
+            Box::new(Self)
+        }
     }
 
     static SILENT: ObjectSpec = ObjectSpec {
@@ -20,7 +25,7 @@ mod tests {
         outlets: &[],
         params: &[],
         capabilities: &[],
-        create: |_, _| Box::new(Silent),
+        create: Factory::new::<Silent>(),
     };
 
     #[test]

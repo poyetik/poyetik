@@ -1,9 +1,11 @@
-//! Tests of the laws: each law must catch a box that breaks it.
+//! Tests of the laws: each law must catch a box that breaks it, in either precision.
 
 use core::hint::black_box;
 use core::sync::atomic::{AtomicU16, Ordering};
 
-use engine_core::{Block, Object, ObjectSpec, ParamSpec, PortSpec, SampleRate};
+use engine_core::{
+    Block, Create, Factory, Object, ObjectSpec, ParamSpec, PortSpec, Precision, Sample, SampleRate,
+};
 
 use super::{check_laws, check_metadata, check_registry};
 
@@ -23,17 +25,138 @@ const GAIN: ParamSpec = ParamSpec {
     max: 1.0,
 };
 
-/// Multiplies its input by a gain, flushing subnormal products: respects every law.
+/// The boxes of these tests, each written once for both precisions.
 #[derive(Debug)]
-struct Gain(f32);
-impl Object for Gain {
-    fn process(&mut self, inputs: &[Block], outputs: &mut [Block]) {
-        for (output, input) in outputs.iter_mut().zip(inputs) {
-            for (out, value) in output.iter_mut().zip(input) {
-                *out = engine_core::flush(value * self.0);
+enum Fixture {
+    /// Multiplies its input by a gain, flushing subnormal products: respects every law.
+    Gain(f64),
+    /// Outputs NaN.
+    Nan,
+    /// Outputs NaN in one precision only, and silence in the other.
+    NanIn(Precision),
+    /// Outputs a constant, rounded to the precision of the render.
+    Constant(f64),
+    /// Outputs a constant in one precision only, and silence in the other.
+    ConstantIn(Precision, f64),
+    /// Outputs the smallest subnormal of the precision of the render.
+    Subnormal,
+    /// Allocates and frees while processing.
+    Allocating,
+    /// Frees memory allocated when it was created, on its first call only: it never
+    /// allocates while processing.
+    Freeing(Option<Vec<u8>>),
+    /// NaN as soon as an input is negative.
+    NegativeIsNan,
+    /// NaN on its second outlet only when its second inlet carries a non-zero signal.
+    SecondInlet,
+    /// NaN only on a negative zero or a subnormal input.
+    Special,
+    /// NaN only on inputs strictly between 0.25 and 0.75.
+    Middle,
+    /// Infinity after 512 blocks.
+    Drifts(u32),
+}
+
+impl<S: Sample> Object<S> for Fixture {
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "S is f32 or f64: IEEE 754 multiplication, which neither overflows nor panics"
+    )]
+    fn process(&mut self, inputs: &[Block<S>], outputs: &mut [Block<S>]) {
+        let nan = S::from_f64(f64::NAN);
+        let either = |condition: bool| if condition { nan } else { S::ZERO };
+        let inputs_any =
+            |test: &dyn Fn(f64) -> bool| inputs.iter().flatten().any(|sample| test(widen(*sample)));
+        match self {
+            Self::Gain(gain) => {
+                for (output, input) in outputs.iter_mut().zip(inputs) {
+                    for (out, value) in output.iter_mut().zip(input) {
+                        *out = (*value * S::from_f64(*gain)).flush();
+                    }
+                }
+            }
+            Self::Nan => fill(outputs, nan),
+            Self::NanIn(precision) => fill(outputs, either(*precision == S::PRECISION)),
+            Self::Constant(value) => fill(outputs, S::from_f64(*value)),
+            Self::ConstantIn(precision, value) => fill(
+                outputs,
+                S::from_f64(if *precision == S::PRECISION { *value } else { 0.0 }),
+            ),
+            Self::Subnormal => fill(
+                outputs,
+                S::from_f64(match S::PRECISION {
+                    Precision::Binary64 => f64::from_bits(1),
+                    Precision::Binary32 => f64::from(f32::from_bits(1)),
+                }),
+            ),
+            Self::Allocating => drop(black_box(Vec::<u8>::with_capacity(8))),
+            Self::Freeing(memory) => drop(black_box(memory.take())),
+            Self::NegativeIsNan => fill(outputs, either(inputs_any(&|sample| sample < 0.0_f64))),
+            Self::SecondInlet => {
+                let second = inputs
+                    .get(1)
+                    .is_some_and(|block| block.iter().any(|sample| widen(*sample) != 0.0_f64));
+                for output in outputs.iter_mut().skip(1) {
+                    output.fill(either(second));
+                }
+            }
+            Self::Special => {
+                let special = inputs_any(&|sample| {
+                    sample.to_bits() == (-0.0_f64).to_bits() || subnormal_in::<S>(sample)
+                });
+                fill(outputs, either(special));
+            }
+            Self::Middle => fill(
+                outputs,
+                either(inputs_any(&|sample| sample > 0.25_f64 && sample < 0.75_f64)),
+            ),
+            Self::Drifts(blocks) => {
+                *blocks = blocks.saturating_add(1);
+                let value = if *blocks > 512 {
+                    f64::INFINITY
+                } else {
+                    0.0_f64
+                };
+                fill(outputs, S::from_f64(value));
             }
         }
     }
+}
+
+/// Fills every output with `value`.
+fn fill<S: Sample>(outputs: &mut [Block<S>], value: S) {
+    for output in outputs {
+        output.fill(value);
+    }
+}
+
+/// `sample` in binary64, exactly.
+fn widen<S: Sample>(sample: S) -> f64 {
+    sample.to_f64()
+}
+
+/// Whether `value`, a sample of `S` in binary64, is subnormal in `S`.
+fn subnormal_in<S: Sample>(value: f64) -> bool {
+    let smallest = match S::PRECISION {
+        Precision::Binary64 => f64::MIN_POSITIVE,
+        Precision::Binary32 => f64::from(f32::MIN_POSITIVE),
+    };
+    value != 0.0 && value.abs() < smallest
+}
+
+/// A [`Factory`] from a function of the sample rate and the parameters that chooses the
+/// [`Fixture`] to create, in either precision.
+macro_rules! factory {
+    (|$rate:pat_param, $params:pat_param| $body:expr) => {{
+        /// The fixture's box type.
+        struct Chosen;
+        impl Create for Chosen {
+            fn create<S: Sample>($rate: SampleRate, $params: &[f64]) -> Box<dyn Object<S>> {
+                Box::new($body)
+            }
+        }
+        Factory::new::<Chosen>()
+    }};
 }
 
 const GOOD: ObjectSpec = ObjectSpec {
@@ -43,52 +166,12 @@ const GOOD: ObjectSpec = ObjectSpec {
     outlets: &[OUT],
     params: &[GAIN],
     capabilities: &[],
-    create: |_, params| Box::new(Gain(params.first().copied().unwrap_or(1.0))),
+    create: factory!(|_, params| Fixture::Gain(params.first().copied().unwrap_or(1.0))),
 };
 
-/// Outputs NaN.
-#[derive(Debug)]
-struct Nan;
-impl Object for Nan {
-    fn process(&mut self, _inputs: &[Block], outputs: &mut [Block]) {
-        for output in outputs {
-            output.fill(f32::NAN);
-        }
-    }
-}
-
-/// Outputs a value that differs for every instance.
-#[derive(Debug)]
-struct Counter(f32);
-impl Object for Counter {
-    fn process(&mut self, _inputs: &[Block], outputs: &mut [Block]) {
-        for output in outputs {
-            output.fill(self.0);
-        }
-    }
-}
 static INSTANCES: AtomicU16 = AtomicU16::new(0);
 
-/// Allocates and frees while processing.
-#[derive(Debug)]
-struct Allocating;
-impl Object for Allocating {
-    fn process(&mut self, _inputs: &[Block], _outputs: &mut [Block]) {
-        drop(black_box(Vec::<u8>::with_capacity(8)));
-    }
-}
-
-/// Frees memory allocated when it was created, on its first call only: it never
-/// allocates while processing.
-#[derive(Debug)]
-struct Freeing(Option<Vec<u8>>);
-impl Object for Freeing {
-    fn process(&mut self, _inputs: &[Block], _outputs: &mut [Block]) {
-        drop(black_box(self.0.take()));
-    }
-}
-
-fn spec_with(create: engine_core::Factory) -> ObjectSpec {
+fn spec_with(create: Factory) -> ObjectSpec {
     ObjectSpec { create, ..GOOD }
 }
 
@@ -106,64 +189,116 @@ fn a_correct_box_passes_every_law() {
 
 #[test]
 fn catches_non_finite_output() {
-    let error = check_laws(&spec_with(|_, _| Box::new(Nan))).expect_err("NaN is caught");
+    let error = check_laws(&spec_with(factory!(|_, _| Fixture::Nan))).expect_err("NaN is caught");
     assert!(
-        error.contains("non-finite output with parameters [0.0]"),
+        error.starts_with(
+            "binary64, at 8000 Hz: special inputs: non-finite output with parameters [0.0]"
+        ),
         "{error}"
     );
 }
 
 #[test]
+fn catches_a_broken_law_in_either_precision() {
+    for precision in [Precision::Binary64, Precision::Binary32] {
+        let spec = spec_with(match precision {
+            Precision::Binary64 => factory!(|_, _| Fixture::NanIn(Precision::Binary64)),
+            Precision::Binary32 => factory!(|_, _| Fixture::NanIn(Precision::Binary32)),
+        });
+        let error = check_laws(&spec).expect_err("NaN in one precision");
+        assert!(
+            error.starts_with(&format!(
+                "binary{}, at 8000 Hz: special inputs: non-finite output",
+                precision.bits()
+            )),
+            "{error}"
+        );
+    }
+}
+
+#[test]
 fn catches_subnormal_output() {
-    // A constant subnormal output, of either sign: finite and deterministic, but not
-    // flushed.
-    let positive = check_laws(&spec_with(|_, _| Box::new(Counter(f32::from_bits(1)))))
-        .expect_err("a positive subnormal is caught");
+    // The smallest subnormal of each precision: finite and deterministic, but not flushed.
+    // Each precision is checked against its own smallest normal: 2^-149 is subnormal in
+    // binary32 and normal in binary64, where 2^-1074 is subnormal.
+    let error = check_laws(&spec_with(factory!(|_, _| Fixture::Subnormal)))
+        .expect_err("a subnormal is caught");
     assert!(
-        positive.contains("subnormal output with parameters [0.0]"),
-        "{positive}"
+        error.starts_with(
+            "binary64, at 8000 Hz: special inputs: subnormal output with parameters [0.0]"
+        ),
+        "{error}"
     );
-    let negative = check_laws(&spec_with(|_, _| {
-        Box::new(Counter(f32::from_bits(0x8040_0000)))
-    }))
-    .expect_err("a negative subnormal is caught");
+    let narrow = spec_with(factory!(|_, _| Fixture::Constant(f64::from(
+        f32::from_bits(1)
+    ))));
+    let caught = check_laws(&narrow).expect_err("a binary32 subnormal is caught");
     assert!(
-        negative.contains("subnormal output with parameters [0.0]"),
-        "{negative}"
+        caught.starts_with("binary32, at 8000 Hz: special inputs: subnormal output"),
+        "{caught}"
+    );
+    let negative = spec_with(factory!(|_, _| Fixture::Constant(f64::from(
+        f32::from_bits(0x8040_0000)
+    ))));
+    let failure = check_laws(&negative).expect_err("a negative subnormal is caught");
+    assert!(
+        failure.contains("subnormal output with parameters [0.0]"),
+        "{failure}"
     );
     // The smallest normal and zeros of both signs are not subnormal.
-    for value in [f32::MIN_POSITIVE, -f32::MIN_POSITIVE, 0.0, -0.0] {
+    let not_subnormal = [
+        factory!(|_, _| Fixture::Constant(f64::from(f32::MIN_POSITIVE))),
+        factory!(|_, _| Fixture::Constant(-f64::from(f32::MIN_POSITIVE))),
+        factory!(|_, _| Fixture::Constant(0.0)),
+        factory!(|_, _| Fixture::Constant(-0.0)),
+    ];
+    for create in not_subnormal {
         let spec = ObjectSpec {
             inlets: &[],
             params: &[],
-            create: match value.to_bits() {
-                0x0080_0000 => |_, _| Box::new(Counter(f32::MIN_POSITIVE)),
-                0x8080_0000 => |_, _| Box::new(Counter(-f32::MIN_POSITIVE)),
-                0x0000_0000 => |_, _| Box::new(Counter(0.0)),
-                _ => |_, _| Box::new(Counter(-0.0)),
-            },
+            create,
             ..GOOD
         };
-        assert_eq!(check_laws(&spec), Ok(()), "{value:e} is not subnormal");
+        assert_eq!(check_laws(&spec), Ok(()), "not subnormal");
     }
 }
 
 #[test]
 fn catches_non_deterministic_output() {
-    let spec = spec_with(|_, _| {
+    let spec = spec_with(factory!(|_, _| {
         let instance = INSTANCES.fetch_add(1, Ordering::Relaxed);
-        Box::new(Counter(f32::from(instance % 1000)))
-    });
+        Fixture::Constant(f64::from(instance % 1000))
+    }));
     let error = check_laws(&spec).expect_err("instances differ");
     assert!(
         error.contains("not deterministic with parameters [0.0]"),
         "{error}"
     );
+    // In each precision on its own: the other one is silent, hence deterministic.
+    let wide = spec_with(factory!(|_, _| {
+        let instance = INSTANCES.fetch_add(1, Ordering::Relaxed);
+        Fixture::ConstantIn(Precision::Binary64, f64::from(instance % 1000))
+    }));
+    let in_wide = check_laws(&wide).expect_err("binary64 instances differ");
+    assert!(
+        in_wide.starts_with("binary64, at 8000 Hz: special inputs: not deterministic"),
+        "{in_wide}"
+    );
+    let narrow = spec_with(factory!(|_, _| {
+        let instance = INSTANCES.fetch_add(1, Ordering::Relaxed);
+        Fixture::ConstantIn(Precision::Binary32, f64::from(instance % 1000))
+    }));
+    let in_narrow = check_laws(&narrow).expect_err("binary32 instances differ");
+    assert!(
+        in_narrow.starts_with("binary32, at 8000 Hz: special inputs: not deterministic"),
+        "{in_narrow}"
+    );
 }
 
 #[test]
 fn catches_allocation_while_processing() {
-    let error = check_laws(&spec_with(|_, _| Box::new(Allocating))).expect_err("allocation");
+    let error =
+        check_laws(&spec_with(factory!(|_, _| Fixture::Allocating))).expect_err("allocation");
     assert!(
         error.contains("uses the heap while processing (16 heap operations)"),
         "{error}"
@@ -172,7 +307,7 @@ fn catches_allocation_while_processing() {
 
 #[test]
 fn catches_a_release_while_processing() {
-    let spec = spec_with(|_, _| Box::new(Freeing(Some(vec![0_u8; 8]))));
+    let spec = spec_with(factory!(|_, _| Fixture::Freeing(Some(vec![0_u8; 8]))));
     let error = check_laws(&spec).expect_err("a release");
     assert!(
         error.contains("uses the heap while processing (1 heap operations)"),
@@ -182,33 +317,37 @@ fn catches_a_release_while_processing() {
 
 #[test]
 fn checks_parameters_at_negative_zero_and_the_smallest_subnormal_and_normal() {
-    // NaN only for a parameter of -0.0, then only for a subnormal parameter, then only for
-    // the smallest normal: none is a minimum, default, midpoint or maximum.
-    let negative_zero = spec_with(|_, params| {
-        if params.first().map(|value| value.to_bits()) == Some(0x8000_0000) {
-            Box::new(Nan)
+    // NaN only for a parameter of -0.0, then only for a binary32 subnormal parameter, then
+    // only for the smallest normal binary32: none is a minimum, default, midpoint or maximum.
+    // Parameters reach a box in binary64, as written.
+    let negative_zero = spec_with(factory!(|_, params| {
+        if params.first().map(|value| value.to_bits()) == Some((-0.0_f64).to_bits()) {
+            Fixture::Nan
         } else {
-            Box::new(Gain(1.0))
+            Fixture::Gain(1.0)
         }
-    });
+    }));
     let error = check_laws(&negative_zero).expect_err("-0.0 is tried");
     assert!(error.contains("with parameters [-0.0]"), "{error}");
-    let subnormal = spec_with(|_, params| {
-        if params.first().is_some_and(|value| value.is_subnormal()) {
-            Box::new(Nan)
+    let subnormal = spec_with(factory!(|_, params| {
+        if params
+            .first()
+            .is_some_and(|value| *value != 0.0_f64 && value.abs() < f64::from(f32::MIN_POSITIVE))
+        {
+            Fixture::Nan
         } else {
-            Box::new(Gain(1.0))
+            Fixture::Gain(1.0)
         }
-    });
+    }));
     let failure = check_laws(&subnormal).expect_err("a subnormal is tried");
     assert!(failure.contains("with parameters [1e-45]"), "{failure}");
-    let normal = spec_with(|_, params| {
-        if params.first().map(|value| value.to_bits()) == Some(0x0080_0000) {
-            Box::new(Nan)
+    let normal = spec_with(factory!(|_, params| {
+        if params.first().copied() == Some(f64::from(f32::MIN_POSITIVE)) {
+            Fixture::Nan
         } else {
-            Box::new(Gain(1.0))
+            Fixture::Gain(1.0)
         }
-    });
+    }));
     let smallest = check_laws(&normal).expect_err("the smallest normal is tried");
     assert!(
         smallest.contains("with parameters [1.1754944e-38]"),
@@ -273,47 +412,42 @@ fn tries_special_parameter_values_only_within_the_range() {
 #[test]
 fn tries_every_case_at_every_rate_with_seven_parameter_sets() {
     static CREATED: AtomicU16 = AtomicU16::new(0);
-    let spec = spec_with(|_, _| {
+    let spec = spec_with(factory!(|_, _| {
         let _: u16 = CREATED.fetch_add(1, Ordering::Relaxed);
-        Box::new(Gain(1.0))
-    });
+        Fixture::Gain(1.0)
+    }));
     assert_eq!(check_laws(&spec), Ok(()), "a correct box");
-    // Per rate: (special inputs + 32 random cases) x 7 parameter sets x 2 runs, plus a
-    // long run per parameter set.
+    // Per precision and rate: (special inputs + 32 random cases) x 7 parameter sets x 2
+    // runs, plus a long run per parameter set.
+    let per_rate = (1_usize + 32) * 7 * 2 + 7;
+    let expected = per_rate
+        .checked_mul(crate::matrix::SAMPLE_RATES.len())
+        .and_then(|count| count.checked_mul(crate::matrix::PRECISIONS.len()));
     assert_eq!(
-        usize::from(CREATED.load(Ordering::Relaxed)),
-        crate::matrix::SAMPLE_RATES.len() * ((1 + 32) * 7 * 2 + 7),
-        "every rate, case and parameter set"
+        Some(usize::from(CREATED.load(Ordering::Relaxed))),
+        expected,
+        "every precision, rate, case and parameter set"
     );
 }
 
 #[test]
 fn feeds_inputs_across_the_whole_range() {
     // NaN as soon as an input is negative: the law must try negative inputs.
-    #[derive(Debug)]
-    struct NegativeIsNan;
-    impl Object for NegativeIsNan {
-        fn process(&mut self, inputs: &[Block], outputs: &mut [Block]) {
-            let negative = inputs.iter().flatten().any(|sample| *sample < 0.0);
-            for output in outputs {
-                output.fill(if negative { f32::NAN } else { 0.0 });
-            }
-        }
-    }
-    let error = check_laws(&spec_with(|_, _| Box::new(NegativeIsNan))).expect_err("negatives");
+    let error =
+        check_laws(&spec_with(factory!(|_, _| Fixture::NegativeIsNan))).expect_err("negatives");
     assert!(error.contains("non-finite output"), "{error}");
 }
 
 #[test]
 fn checks_parameters_at_minimum_default_and_maximum() {
     // NaN only at the maximum gain: the law must try the maximum too.
-    let spec = spec_with(|_, params| {
+    let spec = spec_with(factory!(|_, params| {
         if params.first().copied() == Some(1.0) {
-            Box::new(Nan)
+            Fixture::Nan
         } else {
-            Box::new(Gain(1.0))
+            Fixture::Gain(1.0)
         }
-    });
+    }));
     let error = check_laws(&spec).expect_err("maximum is checked");
     assert!(
         error.contains("non-finite output with parameters [1.0]"),
@@ -324,18 +458,6 @@ fn checks_parameters_at_minimum_default_and_maximum() {
 #[test]
 fn feeds_inputs_to_every_inlet_and_reads_every_outlet() {
     // NaN only when the second inlet carries a non-zero signal.
-    #[derive(Debug)]
-    struct SecondInlet;
-    impl Object for SecondInlet {
-        fn process(&mut self, inputs: &[Block], outputs: &mut [Block]) {
-            let second = inputs
-                .get(1)
-                .is_some_and(|block| block.iter().any(|sample| *sample != 0.0));
-            for output in outputs.iter_mut().skip(1) {
-                output.fill(if second { f32::NAN } else { 0.0 });
-            }
-        }
-    }
     const TWO: [PortSpec; 2] = [
         PortSpec {
             name: "a",
@@ -350,7 +472,7 @@ fn feeds_inputs_to_every_inlet_and_reads_every_outlet() {
         inlets: &TWO,
         outlets: &TWO,
         params: &[],
-        create: |_, _| Box::new(SecondInlet),
+        create: factory!(|_, _| Fixture::SecondInlet),
         ..GOOD
     };
     let error = check_laws(&spec).expect_err("the second inlet and outlet are exercised");
@@ -360,31 +482,25 @@ fn feeds_inputs_to_every_inlet_and_reads_every_outlet() {
 #[test]
 fn checks_every_sample_rate_of_the_matrix() {
     // NaN at every rate but 48 kHz: the laws must try the other rates.
-    #[derive(Debug)]
-    struct Rate(f32);
-    impl Object for Rate {
-        fn process(&mut self, _inputs: &[Block], outputs: &mut [Block]) {
-            for output in outputs {
-                output.fill(self.0);
-            }
-        }
-    }
-    let spec = spec_with(|rate: SampleRate, _| {
-        Box::new(Rate(if rate.hz() == 48_000 { 0.0 } else { f32::NAN }))
-    });
+    let spec = spec_with(factory!(|rate, _| {
+        Fixture::Constant(if rate.hz() == 48_000 { 0.0 } else { f64::NAN })
+    }));
     let error = check_laws(&spec).expect_err("other rates are checked");
-    assert!(error.starts_with("at 8000 Hz: "), "{error}");
+    assert!(error.starts_with("binary64, at 8000 Hz: "), "{error}");
     for hz in crate::matrix::SAMPLE_RATES {
-        let only = spec_with(|rate: SampleRate, _| {
-            Box::new(Rate(if rate.hz() == ONLY.load(Ordering::Relaxed) {
-                f32::NAN
+        let only = spec_with(factory!(|rate, _| {
+            Fixture::Constant(if rate.hz() == ONLY.load(Ordering::Relaxed) {
+                f64::NAN
             } else {
                 0.0
-            }))
-        });
+            })
+        }));
         ONLY.store(hz, Ordering::Relaxed);
         let failure = check_laws(&only).expect_err("each rate is checked");
-        assert!(failure.starts_with(&format!("at {hz} Hz: ")), "{failure}");
+        assert!(
+            failure.starts_with(&format!("binary64, at {hz} Hz: ")),
+            "{failure}"
+        );
     }
 }
 
@@ -393,23 +509,12 @@ static ONLY: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(
 
 #[test]
 fn feeds_the_special_inputs() {
-    // NaN only on a negative zero or a subnormal input: random inputs never hit them.
-    #[derive(Debug)]
-    struct Special;
-    impl Object for Special {
-        fn process(&mut self, inputs: &[Block], outputs: &mut [Block]) {
-            let special = inputs
-                .iter()
-                .flatten()
-                .any(|sample| sample.is_subnormal() || sample.to_bits() == (-0.0_f32).to_bits());
-            for output in outputs {
-                output.fill(if special { f32::NAN } else { 0.0 });
-            }
-        }
-    }
-    let error = check_laws(&spec_with(|_, _| Box::new(Special))).expect_err("special inputs");
+    // NaN only on a negative zero or a subnormal input of the precision: random inputs never
+    // hit them, in either precision.
+    let error =
+        check_laws(&spec_with(factory!(|_, _| Fixture::Special))).expect_err("special inputs");
     assert!(
-        error.contains("special inputs: non-finite output"),
+        error.starts_with("binary64, at 8000 Hz: special inputs: non-finite output"),
         "{error}"
     );
 }
@@ -418,21 +523,9 @@ fn feeds_the_special_inputs() {
 fn feeds_random_inputs() {
     // NaN only on inputs strictly between 0.25 and 0.75: no special input, no silence,
     // only the random inputs reach it.
-    #[derive(Debug)]
-    struct Middle;
-    impl Object for Middle {
-        fn process(&mut self, inputs: &[Block], outputs: &mut [Block]) {
-            let middle = inputs
-                .iter()
-                .flatten()
-                .any(|sample| *sample > 0.25 && *sample < 0.75);
-            for output in outputs {
-                output.fill(if middle { f32::NAN } else { 0.0 });
-            }
-        }
-    }
-    let error = check_laws(&spec_with(|_, _| Box::new(Middle))).expect_err("random inputs");
-    assert!(error.starts_with("at 8000 Hz: "), "{error}");
+    let error =
+        check_laws(&spec_with(factory!(|_, _| Fixture::Middle))).expect_err("random inputs");
+    assert!(error.starts_with("binary64, at 8000 Hz: "), "{error}");
     assert!(error.contains("non-finite output"), "{error}");
     assert!(
         !error.contains("special inputs") && !error.contains("long run"),
@@ -443,17 +536,7 @@ fn feeds_random_inputs() {
 #[test]
 fn runs_long_enough_to_reveal_late_failures() {
     // Breaks only after 512 blocks: the short runs never see it.
-    #[derive(Debug)]
-    struct Drifts(u32);
-    impl Object for Drifts {
-        fn process(&mut self, _inputs: &[Block], outputs: &mut [Block]) {
-            self.0 = self.0.saturating_add(1);
-            for output in outputs {
-                output.fill(if self.0 > 512 { f32::INFINITY } else { 0.0 });
-            }
-        }
-    }
-    let error = check_laws(&spec_with(|_, _| Box::new(Drifts(0)))).expect_err("long run");
+    let error = check_laws(&spec_with(factory!(|_, _| Fixture::Drifts(0)))).expect_err("long run");
     assert!(error.contains("long run: non-finite output"), "{error}");
 }
 
@@ -466,25 +549,25 @@ fn checks_parameters_away_from_their_default() {
     };
     let spec = ObjectSpec {
         params: &[QUARTER],
-        create: |_, params| {
+        create: factory!(|_, params| {
             if params.first().copied() == Some(0.5) {
-                Box::new(Nan)
+                Fixture::Nan
             } else {
-                Box::new(Gain(1.0))
+                Fixture::Gain(1.0)
             }
-        },
+        }),
         ..GOOD
     };
     let error = check_laws(&spec).expect_err("the midpoint is checked");
     assert!(error.contains("with parameters [0.5]"), "{error}");
     // With the default at the midpoint (GAIN: 0.5 in [0, 1]), 0.75 is tried instead.
-    let shifted = spec_with(|_, params| {
+    let shifted = spec_with(factory!(|_, params| {
         if params.first().copied() == Some(0.75) {
-            Box::new(Nan)
+            Fixture::Nan
         } else {
-            Box::new(Gain(1.0))
+            Fixture::Gain(1.0)
         }
-    });
+    }));
     let failure = check_laws(&shifted).expect_err("a value away from the default");
     assert!(failure.contains("with parameters [0.75]"), "{failure}");
     // A range not starting at zero: the midpoint of [-1, 1] is 0.

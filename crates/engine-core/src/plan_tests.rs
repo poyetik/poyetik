@@ -1,4 +1,5 @@
-//! Tests of plan building and execution, using test-only boxes.
+//! Tests of plan building and execution, using test-only boxes, each run in both precisions
+//! (`in_both_precisions!`): every instantiation of the generic plan is covered on its own.
 
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
@@ -7,8 +8,8 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::{
-    BLOCK_SIZE, Block, Capability, Connection, CoreError, Node, NodeId, Object, ObjectSpec,
-    ParamSpec, Patch, Plan, PortSpec, Renderer, SILENCE, SampleRate,
+    BLOCK_SIZE, Block, Capability, Connection, CoreError, Create, Factory, Node, NodeId, Object,
+    ObjectSpec, ParamSpec, Patch, Plan, PortSpec, Precision, Renderer, Sample, SampleRate,
 };
 
 const PORT: PortSpec = PortSpec {
@@ -16,14 +17,38 @@ const PORT: PortSpec = PortSpec {
     description: "test port",
 };
 
-/// Outputs a constant value.
+/// The bits of a sample, widened to 64 bits: compared exactly, `-0.0` and NaN payloads
+/// included, in either precision.
+trait Bits: Sample {
+    /// The bit pattern.
+    fn bits(self) -> u64;
+}
+
+impl Bits for f64 {
+    fn bits(self) -> u64 {
+        self.to_bits()
+    }
+}
+
+impl Bits for f32 {
+    fn bits(self) -> u64 {
+        u64::from(self.to_bits())
+    }
+}
+
+/// Outputs a constant value: its parameter, in the precision of the render.
 #[derive(Debug)]
-struct Const(f32);
-impl Object for Const {
-    fn process(&mut self, _inputs: &[Block], outputs: &mut [Block]) {
+struct Const(f64);
+impl<S: Sample> Object<S> for Const {
+    fn process(&mut self, _inputs: &[Block<S>], outputs: &mut [Block<S>]) {
         for output in outputs {
-            output.fill(self.0);
+            output.fill(S::from_f64(self.0));
         }
+    }
+}
+impl Create for Const {
+    fn create<S: Sample>(_rate: SampleRate, params: &[f64]) -> Box<dyn Object<S>> {
+        Box::new(Self(params.first().copied().unwrap_or(0.0)))
     }
 }
 static CONST: ObjectSpec = ObjectSpec {
@@ -39,20 +64,25 @@ static CONST: ObjectSpec = ObjectSpec {
         max: 10.0,
     }],
     capabilities: &[],
-    create: |_, params| Box::new(Const(params.first().copied().unwrap_or(0.0))),
+    create: Factory::new::<Const>(),
 };
 
 /// Outputs 0, 1, 2… continuing across blocks: checks that state is kept.
 #[derive(Debug)]
-struct Ramp(f32);
-impl Object for Ramp {
-    fn process(&mut self, _inputs: &[Block], outputs: &mut [Block]) {
+struct Ramp(f64);
+impl<S: Sample> Object<S> for Ramp {
+    fn process(&mut self, _inputs: &[Block<S>], outputs: &mut [Block<S>]) {
         for output in outputs {
             for sample in output.iter_mut() {
-                *sample = self.0;
-                self.0 += 1.0;
+                *sample = S::from_f64(self.0);
+                self.0 += 1.0_f64;
             }
         }
+    }
+}
+impl Create for Ramp {
+    fn create<S: Sample>(_rate: SampleRate, _params: &[f64]) -> Box<dyn Object<S>> {
+        Box::new(Self(0.0))
     }
 }
 static RAMP: ObjectSpec = ObjectSpec {
@@ -62,18 +92,22 @@ static RAMP: ObjectSpec = ObjectSpec {
     outlets: &[PORT],
     params: &[],
     capabilities: &[],
-    create: |_, _| Box::new(Ramp(0.0)),
+    create: Factory::new::<Ramp>(),
 };
 
 /// Outputs on outlet 0 the sum of its inlets, and on outlet 1 ten times that sum.
 #[derive(Debug)]
 struct Add;
-impl Object for Add {
-    fn process(&mut self, inputs: &[Block], outputs: &mut [Block]) {
-        let mut sum = SILENCE;
+impl<S: Sample> Object<S> for Add {
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "S is f32 or f64: IEEE 754 arithmetic, which neither overflows nor panics"
+    )]
+    fn process(&mut self, inputs: &[Block<S>], outputs: &mut [Block<S>]) {
+        let mut sum = S::SILENCE;
         for input in inputs {
             for (total, sample) in sum.iter_mut().zip(input) {
-                *total += sample;
+                *total += *sample;
             }
         }
         let mut outs = outputs.iter_mut();
@@ -82,9 +116,14 @@ impl Object for Add {
         }
         if let Some(second) = outs.next() {
             for (scaled, summed) in second.iter_mut().zip(sum) {
-                *scaled = summed * 10.0;
+                *scaled = summed * S::from_f64(10.0);
             }
         }
+    }
+}
+impl Create for Add {
+    fn create<S: Sample>(_rate: SampleRate, _params: &[f64]) -> Box<dyn Object<S>> {
+        Box::new(Self)
     }
 }
 static ADD: ObjectSpec = ObjectSpec {
@@ -94,14 +133,19 @@ static ADD: ObjectSpec = ObjectSpec {
     outlets: &[PORT, PORT],
     params: &[],
     capabilities: &[],
-    create: |_, _| Box::new(Add),
+    create: Factory::new::<Add>(),
 };
 
 /// Sends its two inlets to the engine output.
 #[derive(Debug)]
 struct Out;
-impl Object for Out {
-    fn process(&mut self, _inputs: &[Block], _outputs: &mut [Block]) {}
+impl<S: Sample> Object<S> for Out {
+    fn process(&mut self, _inputs: &[Block<S>], _outputs: &mut [Block<S>]) {}
+}
+impl Create for Out {
+    fn create<S: Sample>(_rate: SampleRate, _params: &[f64]) -> Box<dyn Object<S>> {
+        Box::new(Self)
+    }
 }
 static OUT: ObjectSpec = ObjectSpec {
     name: "out~",
@@ -110,7 +154,7 @@ static OUT: ObjectSpec = ObjectSpec {
     outlets: &[],
     params: &[],
     capabilities: &[Capability::AudioOutput],
-    create: |_, _| Box::new(Out),
+    create: Factory::new::<Out>(),
 };
 
 /// A mono output, to check the channel count.
@@ -121,17 +165,22 @@ static MONO_OUT: ObjectSpec = ObjectSpec {
     outlets: &[],
     params: &[],
     capabilities: &[Capability::AudioOutput],
-    create: |_, _| Box::new(Out),
+    create: Factory::new::<Out>(),
 };
 
 /// Records the sample rate it was created with on its outlet.
 #[derive(Debug)]
-struct Rate(f32);
-impl Object for Rate {
-    fn process(&mut self, _inputs: &[Block], outputs: &mut [Block]) {
+struct Rate(f64);
+impl<S: Sample> Object<S> for Rate {
+    fn process(&mut self, _inputs: &[Block<S>], outputs: &mut [Block<S>]) {
         for output in outputs {
-            output.fill(self.0);
+            output.fill(S::from_f64(self.0));
         }
+    }
+}
+impl Create for Rate {
+    fn create<S: Sample>(rate: SampleRate, _params: &[f64]) -> Box<dyn Object<S>> {
+        Box::new(Self(f64::from(rate.hz() / 10)))
     }
 }
 static RATE: ObjectSpec = ObjectSpec {
@@ -141,17 +190,22 @@ static RATE: ObjectSpec = ObjectSpec {
     outlets: &[PORT],
     params: &[],
     capabilities: &[],
-    create: |rate, _| Box::new(Rate(f32::from(u16::try_from(rate.hz() / 10).unwrap_or(0)))),
+    create: Factory::new::<Rate>(),
 };
 
 /// Copies its inlet to its outlet, bit for bit.
 #[derive(Debug)]
 struct Pass;
-impl Object for Pass {
-    fn process(&mut self, inputs: &[Block], outputs: &mut [Block]) {
+impl<S: Sample> Object<S> for Pass {
+    fn process(&mut self, inputs: &[Block<S>], outputs: &mut [Block<S>]) {
         for (output, input) in outputs.iter_mut().zip(inputs) {
             *output = *input;
         }
+    }
+}
+impl Create for Pass {
+    fn create<S: Sample>(_rate: SampleRate, _params: &[f64]) -> Box<dyn Object<S>> {
+        Box::new(Self)
     }
 }
 static PASS: ObjectSpec = ObjectSpec {
@@ -161,7 +215,7 @@ static PASS: ObjectSpec = ObjectSpec {
     outlets: &[PORT],
     params: &[],
     capabilities: &[],
-    create: |_, _| Box::new(Pass),
+    create: Factory::new::<Pass>(),
 };
 
 /// Outputs its level, which cannot be negative, with the smallest subnormal as default: a
@@ -179,7 +233,7 @@ static LEVEL: ObjectSpec = ObjectSpec {
         max: 1.0,
     }],
     capabilities: &[],
-    create: |_, params| Box::new(Const(params.first().copied().unwrap_or(1.0))),
+    create: Factory::new::<Const>(),
 };
 
 /// A constant whose range excludes zero: a subnormal written for it is refused.
@@ -223,23 +277,32 @@ fn wire(from: u32, outlet: usize, to: u32, inlet: usize) -> Connection {
     }
 }
 
-fn build(nodes: Vec<Node>, connections: Vec<Connection>) -> Result<Plan, CoreError> {
-    Patch::new(nodes, connections).and_then(|patch| Plan::build(&patch, &REGISTRY, rate()))
+fn build<S: Sample>(nodes: Vec<Node>, connections: Vec<Connection>) -> Result<Plan<S>, CoreError> {
+    Patch::new(nodes, connections).and_then(|patch| Plan::<S>::build(&patch, &REGISTRY, rate()))
 }
 
-fn run(plan: &mut Plan, channels: usize) -> Vec<Block> {
-    let mut out = vec![[99.0_f32; BLOCK_SIZE]; channels];
+fn run<S: Sample>(plan: &mut Plan<S>, channels: usize) -> Vec<Block<S>> {
+    let mut out = vec![[S::from_f64(99.0); BLOCK_SIZE]; channels];
     plan.process(&mut out);
     out
 }
 
-fn block(value: f32) -> Block {
-    [value; BLOCK_SIZE]
+fn block<S: Sample>(value: f64) -> Block<S> {
+    [S::from_f64(value); BLOCK_SIZE]
 }
 
-#[test]
-fn routes_a_box_to_the_output() {
-    let mut plan = build(
+/// `values`, in the precision `S`.
+fn samples<S: Sample>(values: &[f64]) -> Vec<S> {
+    values.iter().map(|&value| S::from_f64(value)).collect()
+}
+
+/// The bits of `value`, a binary32 parameter, as a box computing in `S` outputs it.
+fn bits_of<S: Bits>(value: f32) -> u64 {
+    S::from_f64(f64::from(value)).bits()
+}
+
+fn routes_a_box_to_the_output<S: Bits>() {
+    let mut plan = build::<S>(
         vec![with_param(node(1, "const~"), "value", 0.5), node(2, "out~")],
         vec![wire(1, 0, 2, 0)],
     )
@@ -247,28 +310,26 @@ fn routes_a_box_to_the_output() {
     assert_eq!(plan.channels(), 2, "out~ has two inlets");
     assert_eq!(
         run(&mut plan, 2),
-        vec![block(0.5), SILENCE],
+        vec![block::<S>(0.5), S::SILENCE],
         "unconnected inlet is silent"
     );
 }
 
-#[test]
-fn uses_parameter_defaults() {
-    let mut plan = build(
+fn uses_parameter_defaults<S: Bits>() {
+    let mut plan = build::<S>(
         vec![node(1, "const~"), node(2, "out~")],
         vec![wire(1, 0, 2, 1)],
     )
     .expect("valid");
     assert_eq!(
         run(&mut plan, 2),
-        vec![SILENCE, block(1.0)],
+        vec![S::SILENCE, block::<S>(1.0)],
         "default value is 1"
     );
 }
 
-#[test]
-fn sums_cables_into_an_inlet_and_fans_out() {
-    let mut plan = build(
+fn sums_cables_into_an_inlet_and_fans_out<S: Bits>() {
+    let mut plan = build::<S>(
         vec![
             with_param(node(1, "const~"), "value", 0.25),
             with_param(node(2, "const~"), "value", 0.5),
@@ -279,14 +340,13 @@ fn sums_cables_into_an_inlet_and_fans_out() {
     .expect("valid patch");
     assert_eq!(
         run(&mut plan, 2),
-        vec![block(0.75), block(0.5)],
+        vec![block::<S>(0.75), block::<S>(0.5)],
         "fan-in sums, fan-out copies"
     );
 }
 
-#[test]
-fn chains_boxes_and_reads_every_outlet() {
-    let mut plan = build(
+fn chains_boxes_and_reads_every_outlet<S: Bits>() {
+    let mut plan = build::<S>(
         vec![
             with_param(node(5, "const~"), "value", 2.0),
             with_param(node(4, "const~"), "value", 3.0),
@@ -311,14 +371,13 @@ fn chains_boxes_and_reads_every_outlet() {
     );
     assert_eq!(
         run(&mut plan, 2),
-        vec![block(55.0), block(550.0)],
+        vec![block::<S>(55.0), block::<S>(550.0)],
         "(2 + 3) * 10 + (2 + 3) = 55 on outlet 0, ten times that on outlet 1"
     );
 }
 
-#[test]
-fn orders_independent_nodes_by_id() {
-    let plan = build(
+fn orders_independent_nodes_by_id<S: Bits>() {
+    let plan = build::<S>(
         vec![
             node(9, "ramp~"),
             node(3, "ramp~"),
@@ -335,22 +394,28 @@ fn orders_independent_nodes_by_id() {
     );
 }
 
-#[test]
-fn keeps_box_state_across_blocks() {
-    let mut plan = build(
+fn keeps_box_state_across_blocks<S: Bits>() {
+    let mut plan = build::<S>(
         vec![node(1, "ramp~"), node(2, "mono~")],
         vec![wire(1, 0, 2, 0)],
     )
     .expect("valid");
     let first = run(&mut plan, 1);
     let second = run(&mut plan, 1);
-    assert_eq!(first[0][0], 0.0, "starts at zero");
-    assert_eq!(first[0][BLOCK_SIZE - 1], 63.0, "counts within a block");
-    assert_eq!(second[0][0], 64.0, "continues in the next block");
+    assert_eq!(first[0][0], S::from_f64(0.0), "starts at zero");
+    assert_eq!(
+        first[0][BLOCK_SIZE - 1],
+        S::from_f64(63.0),
+        "counts within a block"
+    );
+    assert_eq!(
+        second[0][0],
+        S::from_f64(64.0),
+        "continues in the next block"
+    );
 }
 
-#[test]
-fn passes_the_sample_rate_to_boxes() {
+fn passes_the_sample_rate_to_boxes<S: Bits>() {
     // Every rate of the shared test matrix: a plan that hands boxes a fixed rate fails at
     // all of them but one.
     let json: serde_json::Value =
@@ -376,15 +441,14 @@ fn passes_the_sample_rate_to_boxes() {
         )
         .expect("valid patch");
         let rate = SampleRate::new(hz).expect("a supported rate");
-        let mut plan = Plan::build(&patch, &REGISTRY, rate).expect("valid plan");
-        let tenth = f32::from(u16::try_from(hz / 10).expect("small"));
-        assert_eq!(run(&mut plan, 1), vec![block(tenth)], "{hz} Hz / 10");
+        let mut plan = Plan::<S>::build(&patch, &REGISTRY, rate).expect("valid plan");
+        let tenth = f64::from(u16::try_from(hz / 10).expect("small"));
+        assert_eq!(run(&mut plan, 1), vec![block::<S>(tenth)], "{hz} Hz / 10");
     }
 }
 
-#[test]
-fn sums_several_outputs_and_uses_the_widest_channel_count() {
-    let mut plan = build(
+fn sums_several_outputs_and_uses_the_widest_channel_count<S: Bits>() {
+    let mut plan = build::<S>(
         vec![
             with_param(node(1, "const~"), "value", 0.5),
             node(2, "mono~"),
@@ -396,61 +460,57 @@ fn sums_several_outputs_and_uses_the_widest_channel_count() {
     assert_eq!(plan.channels(), 2, "widest output");
     assert_eq!(
         run(&mut plan, 2),
-        vec![block(1.0), block(0.5)],
+        vec![block::<S>(1.0), block::<S>(0.5)],
         "outputs are summed"
     );
 }
 
-#[test]
-fn adapts_to_the_output_slice_length() {
-    let mut plan = build(
+fn adapts_to_the_output_slice_length<S: Bits>() {
+    let mut plan = build::<S>(
         vec![with_param(node(1, "const~"), "value", 0.5), node(2, "out~")],
         vec![wire(1, 0, 2, 0), wire(1, 0, 2, 1)],
     )
     .expect("valid patch");
     assert_eq!(
         run(&mut plan, 1),
-        vec![block(0.5)],
+        vec![block::<S>(0.5)],
         "extra channels are dropped"
     );
     assert_eq!(
         run(&mut plan, 3),
-        vec![block(0.5), block(0.5), SILENCE],
+        vec![block::<S>(0.5), block::<S>(0.5), S::SILENCE],
         "extra slots are silent"
     );
     assert_eq!(
         run(&mut plan, 0),
-        Vec::<Block>::new(),
+        Vec::<Block<S>>::new(),
         "no output slice is fine"
     );
 }
 
-#[test]
-fn has_no_channel_without_an_output_box() {
-    let mut plan = build(vec![node(1, "ramp~")], vec![]).expect("valid patch");
+fn has_no_channel_without_an_output_box<S: Bits>() {
+    let mut plan = build::<S>(vec![node(1, "ramp~")], vec![]).expect("valid patch");
     assert_eq!(plan.channels(), 0, "no output box");
-    assert_eq!(run(&mut plan, 1), vec![SILENCE], "nothing is written");
-    let mut empty = build(vec![], vec![]).expect("empty patch is valid");
+    assert_eq!(run(&mut plan, 1), vec![S::SILENCE], "nothing is written");
+    let mut empty = build::<S>(vec![], vec![]).expect("empty patch is valid");
     assert_eq!(
         run(&mut empty, 2),
-        vec![SILENCE, SILENCE],
+        vec![S::SILENCE, S::SILENCE],
         "empty patch is silent"
     );
 }
 
-#[test]
-fn rejects_duplicate_nodes() {
+fn rejects_duplicate_nodes<S: Bits>() {
     assert_eq!(
-        build(vec![node(1, "ramp~"), node(1, "out~")], vec![]).map(|_| ()),
+        build::<S>(vec![node(1, "ramp~"), node(1, "out~")], vec![]).map(|_| ()),
         Err(CoreError::DuplicateNode(NodeId(1))),
         "ids are unique"
     );
 }
 
-#[test]
-fn rejects_unknown_boxes_and_parameters() {
+fn rejects_unknown_boxes_and_parameters<S: Bits>() {
     assert_eq!(
-        build(vec![node(1, "nope~")], vec![]).map(|_| ()),
+        build::<S>(vec![node(1, "nope~")], vec![]).map(|_| ()),
         Err(CoreError::UnknownObject {
             node: NodeId(1),
             kind: String::from("nope~")
@@ -458,7 +518,7 @@ fn rejects_unknown_boxes_and_parameters() {
         "unknown box"
     );
     assert_eq!(
-        build(vec![with_param(node(2, "const~"), "level", 1.0)], vec![]).map(|_| ()),
+        build::<S>(vec![with_param(node(2, "const~"), "level", 1.0)], vec![]).map(|_| ()),
         Err(CoreError::UnknownParam {
             node: NodeId(2),
             name: String::from("level")
@@ -467,11 +527,10 @@ fn rejects_unknown_boxes_and_parameters() {
     );
 }
 
-#[test]
-fn rejects_out_of_range_parameters() {
+fn rejects_out_of_range_parameters<S: Bits>() {
     for value in [10.5_f32, -10.5_f32, f32::INFINITY] {
         assert_eq!(
-            build(vec![with_param(node(1, "const~"), "value", value)], vec![]).map(|_| ()),
+            build::<S>(vec![with_param(node(1, "const~"), "value", value)], vec![]).map(|_| ()),
             Err(CoreError::ParamOutOfRange {
                 node: NodeId(1),
                 name: String::from("value"),
@@ -480,7 +539,7 @@ fn rejects_out_of_range_parameters() {
             "{value} is out of range"
         );
     }
-    let nan = build(
+    let nan = build::<S>(
         vec![with_param(node(1, "const~"), "value", f32::NAN)],
         vec![],
     );
@@ -496,14 +555,13 @@ fn rejects_out_of_range_parameters() {
     );
     for value in [10.0_f32, -10.0_f32] {
         assert!(
-            build(vec![with_param(node(1, "const~"), "value", value)], vec![]).is_ok(),
+            build::<S>(vec![with_param(node(1, "const~"), "value", value)], vec![]).is_ok(),
             "{value} is within range"
         );
     }
 }
 
-#[test]
-fn treats_subnormal_parameters_as_zero() {
+fn treats_subnormal_parameters_as_zero<S: Bits>() {
     // What a box is given, by bits, for a parameter written as `value`.
     let given = |kind: &str, name: &str, value: Option<f32>| {
         let source = node(1, kind);
@@ -511,9 +569,9 @@ fn treats_subnormal_parameters_as_zero() {
             Some(value) => with_param(source, name, value),
             None => source,
         };
-        let mut plan =
-            build(vec![source, node(2, "mono~")], vec![wire(1, 0, 2, 0)]).expect("valid patch");
-        run(&mut plan, 1)[0][0].to_bits()
+        let mut plan = build::<S>(vec![source, node(2, "mono~")], vec![wire(1, 0, 2, 0)])
+            .expect("valid patch");
+        run::<S>(&mut plan, 1)[0][0].bits()
     };
     // Subnormals of both signs, from the smallest to the largest, 1e-40 among them: a zero
     // of their sign (decisions 5 and 11 of spec/engine-design.md).
@@ -521,7 +579,7 @@ fn treats_subnormal_parameters_as_zero() {
         for sign in [0_u32, 0x8000_0000] {
             assert_eq!(
                 given("const~", "value", Some(f32::from_bits(sign | bits))),
-                sign,
+                bits_of::<S>(f32::from_bits(sign)),
                 "{:#010x}",
                 sign | bits
             );
@@ -531,14 +589,14 @@ fn treats_subnormal_parameters_as_zero() {
     for bits in [0x0080_0000_u32, 0x8080_0000, 0x3f80_0000, 0, 0x8000_0000] {
         assert_eq!(
             given("const~", "value", Some(f32::from_bits(bits))),
-            bits,
+            bits_of::<S>(f32::from_bits(bits)),
             "{bits:#010x}"
         );
     }
     // A negative subnormal is a zero, within a range that starts at 0: accepted.
     assert_eq!(
         given("level~", "level", Some(-1.0e-40)),
-        0x8000_0000,
+        bits_of::<S>(-0.0),
         "-1e-40 is -0"
     );
     // A subnormal default is flushed too.
@@ -550,7 +608,7 @@ fn treats_subnormal_parameters_as_zero() {
     )
     .expect("a valid patch");
     assert_eq!(
-        Plan::build(&patch, &[&ABOVE], rate()).map(|_| ()),
+        Plan::<S>::build(&patch, &[&ABOVE], rate()).map(|_| ()),
         Err(CoreError::ParamOutOfRange {
             node: NodeId(1),
             name: String::from("value"),
@@ -560,21 +618,20 @@ fn treats_subnormal_parameters_as_zero() {
     );
 }
 
-#[test]
-fn rejects_invalid_connections() {
+fn rejects_invalid_connections<S: Bits>() {
     let nodes = || vec![node(1, "const~"), node(2, "out~")];
     assert_eq!(
-        build(nodes(), vec![wire(3, 0, 2, 0)]).map(|_| ()),
+        build::<S>(nodes(), vec![wire(3, 0, 2, 0)]).map(|_| ()),
         Err(CoreError::UnknownNode(NodeId(3))),
         "unknown source"
     );
     assert_eq!(
-        build(nodes(), vec![wire(1, 0, 4, 0)]).map(|_| ()),
+        build::<S>(nodes(), vec![wire(1, 0, 4, 0)]).map(|_| ()),
         Err(CoreError::UnknownNode(NodeId(4))),
         "unknown destination"
     );
     assert_eq!(
-        build(nodes(), vec![wire(1, 1, 2, 0)]).map(|_| ()),
+        build::<S>(nodes(), vec![wire(1, 1, 2, 0)]).map(|_| ()),
         Err(CoreError::InvalidOutlet {
             node: NodeId(1),
             outlet: 1
@@ -582,7 +639,7 @@ fn rejects_invalid_connections() {
         "const~ has one outlet"
     );
     assert_eq!(
-        build(nodes(), vec![wire(1, 0, 2, 2)]).map(|_| ()),
+        build::<S>(nodes(), vec![wire(1, 0, 2, 2)]).map(|_| ()),
         Err(CoreError::InvalidInlet {
             node: NodeId(2),
             inlet: 2
@@ -591,10 +648,9 @@ fn rejects_invalid_connections() {
     );
 }
 
-#[test]
-fn rejects_cycles() {
+fn rejects_cycles<S: Bits>() {
     assert_eq!(
-        build(
+        build::<S>(
             vec![
                 node(1, "add~"),
                 node(2, "add~"),
@@ -613,16 +669,15 @@ fn rejects_cycles() {
         "the cycle and what depends on it"
     );
     assert_eq!(
-        build(vec![node(1, "add~")], vec![wire(1, 0, 1, 0)]).map(|_| ()),
+        build::<S>(vec![node(1, "add~")], vec![wire(1, 0, 1, 0)]).map(|_| ()),
         Err(CoreError::Cycle(vec![NodeId(1)])),
         "a box feeding itself"
     );
 }
 
-#[test]
-fn renders_interleaved_frames_offline() {
+fn renders_interleaved_frames_offline<S: Bits>() {
     let mut renderer = Renderer::new(
-        build(
+        build::<S>(
             vec![
                 node(1, "ramp~"),
                 with_param(node(2, "const~"), "value", -1.0),
@@ -632,81 +687,90 @@ fn renders_interleaved_frames_offline() {
         )
         .expect("valid patch"),
     );
-    let samples = renderer.render(130).expect("small render");
-    assert_eq!(samples.len(), 260, "130 frames of 2 channels");
+    let interleaved: Vec<S> = renderer.render(130).expect("small render");
+    assert_eq!(interleaved.len(), 260, "130 frames of 2 channels");
     assert_eq!(
-        &samples[..6],
-        &[0.0, -1.0, 1.0, -1.0, 2.0, -1.0],
+        &interleaved[..6],
+        samples::<S>(&[0.0_f64, -1.0_f64, 1.0_f64, -1.0_f64, 2.0_f64, -1.0_f64]),
         "interleaved left, right"
     );
     assert_eq!(
-        &samples[256..],
-        &[128.0, -1.0, 129.0, -1.0],
+        &interleaved[256..],
+        samples::<S>(&[128.0_f64, -1.0_f64, 129.0_f64, -1.0_f64]),
         "continues across blocks"
     );
-    let next = renderer.render(1).expect("small render");
+    let next: Vec<S> = renderer.render(1).expect("small render");
     assert_eq!(
         next,
-        vec![130.0, -1.0],
+        samples::<S>(&[130.0_f64, -1.0_f64]),
         "the next render continues exactly where the previous one stopped"
     );
 }
 
-#[test]
-fn renders_nothing_for_zero_frames_or_channels() {
+fn renders_nothing_for_zero_frames_or_channels<S: Bits>() {
     let mut renderer = Renderer::new(
-        build(
+        build::<S>(
             vec![node(1, "ramp~"), node(2, "mono~")],
             vec![wire(1, 0, 2, 0)],
         )
         .expect("valid patch"),
     );
-    assert_eq!(renderer.render(0), Ok(Vec::<f32>::new()), "zero frames");
+    assert_eq!(renderer.render(0), Ok(Vec::<S>::new()), "zero frames");
     assert_eq!(
-        renderer.render(64).expect("small render"),
-        (0..64_u16).map(f32::from).collect::<Vec<_>>(),
+        renderer.render::<S>(64).expect("small render"),
+        (0..64_u16)
+            .map(|value| S::from_f64(f64::from(value)))
+            .collect::<Vec<_>>(),
         "nothing was processed before"
     );
-    let mut silent = Renderer::new(build(vec![node(1, "ramp~")], vec![]).expect("valid patch"));
+    let mut silent =
+        Renderer::new(build::<S>(vec![node(1, "ramp~")], vec![]).expect("valid patch"));
     assert_eq!(
         silent.render(usize::MAX),
-        Ok(Vec::<f32>::new()),
+        Ok(Vec::<S>::new()),
         "no output channel: nothing to render, at once"
     );
 }
 
-#[test]
-fn refuses_renders_too_long_for_memory() {
+fn refuses_renders_too_long_for_memory<S: Bits>() {
     let mut renderer = Renderer::new(
-        build(
+        build::<S>(
             vec![node(1, "ramp~"), node(2, "out~")],
             vec![wire(1, 0, 2, 0)],
         )
         .expect("valid patch"),
     );
     assert_eq!(
-        renderer.render(usize::MAX),
+        renderer.render::<S>(usize::MAX),
         Err(CoreError::RenderTooLong(usize::MAX)),
         "frames times channels overflows"
     );
     assert_eq!(
-        renderer.render(usize::MAX / 4),
+        renderer.render::<S>(usize::MAX / 4),
         Err(CoreError::RenderTooLong(usize::MAX / 4)),
         "fits the arithmetic, not the memory"
     );
     assert_eq!(
-        renderer.render(2).expect("small render"),
-        vec![0.0, 0.0, 1.0, 0.0],
+        renderer.render::<S>(2).expect("small render"),
+        samples::<S>(&[0.0_f64, 0.0_f64, 1.0_f64, 0.0_f64]),
         "nothing was rendered by the refused calls"
     );
 }
 
-#[test]
-fn sums_cables_in_source_order_whatever_the_document_order() {
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "S is f32 or f64: IEEE 754 addition, which neither overflows nor panics"
+)]
+fn sums_cables_in_source_order_whatever_the_document_order<S: Bits>() {
     // Float addition is not associative: with these values, (1 + e) + e = 1 while
     // e + (e + 1) and (e + e) + 1 give the next float above 1. The sum must follow
-    // the source ids (1, then 2, then 3) for every order of the cables.
-    let tiny = 3.0e-8_f32;
+    // the source ids (1, then 2, then 3) for every order of the cables. `e` is between a
+    // quarter and half an ulp of 1, in the precision of the render: 3e-8 in binary32,
+    // 3 · 2^-55 in binary64 (a binary32 parameter too).
+    let tiny = match S::PRECISION {
+        Precision::Binary64 => 8.326_673e-17_f32,
+        Precision::Binary32 => 3.0e-8_f32,
+    };
     let nodes = || {
         vec![
             with_param(node(1, "const~"), "value", 1.0),
@@ -715,10 +779,12 @@ fn sums_cables_in_source_order_whatever_the_document_order() {
             node(4, "mono~"),
         ]
     };
-    let in_order = (1.0_f32 + tiny) + tiny;
+    let (one, small) = (S::from_f64(1.0), S::from_f64(f64::from(tiny)));
+    let in_order = (one + small) + small;
+    assert_eq!(in_order.bits(), one.bits(), "(1 + e) + e = 1");
     assert_ne!(
-        in_order.to_bits(),
-        ((tiny + tiny) + 1.0_f32).to_bits(),
+        in_order.bits(),
+        ((small + small) + one).bits(),
         "the values do reveal the order"
     );
     let cables = [wire(1, 0, 4, 0), wire(2, 0, 4, 0), wire(3, 0, 4, 0)];
@@ -731,18 +797,21 @@ fn sums_cables_in_source_order_whatever_the_document_order() {
         [2, 1, 0],
     ] {
         let mut plan =
-            build(nodes(), order.iter().map(|&i| cables[i]).collect()).expect("valid patch");
+            build::<S>(nodes(), order.iter().map(|&i| cables[i]).collect()).expect("valid patch");
         let out = run(&mut plan, 1);
         assert_eq!(
-            out[0][0].to_bits(),
-            in_order.to_bits(),
+            out[0][0].bits(),
+            in_order.bits(),
             "cables listed as {order:?}"
         );
     }
 }
 
-#[test]
-fn accepts_patches_up_to_the_limits_only() {
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "counts of boxes near the patch limits, 2^16, far from overflowing u32"
+)]
+fn accepts_patches_up_to_the_limits_only<S: Bits>() {
     /// The four cables joining both outlets of `from` to both inlets of `to`.
     fn all_ports(from: u32, to: u32) -> [Connection; 4] {
         [
@@ -781,7 +850,7 @@ fn accepts_patches_up_to_the_limits_only() {
     cables.extend(all_ports(0, 2));
     assert_eq!(cables.len(), Patch::MAX_CONNECTIONS, "exactly the limit");
     let patch = Patch::new(nodes, cables).expect("within the limits");
-    let plan = Plan::build(&patch, &REGISTRY, rate()).expect("valid plan");
+    let plan = Plan::<S>::build(&patch, &REGISTRY, rate()).expect("valid plan");
     assert_eq!(
         plan.execution_order().count(),
         Patch::MAX_NODES,
@@ -793,16 +862,17 @@ fn accepts_patches_up_to_the_limits_only() {
         "the output runs last"
     );
     assert_eq!(
-        Renderer::new(plan).render(1).map(|block| block.len()),
+        Renderer::new(plan)
+            .render::<S>(1)
+            .map(|rendered| rendered.len()),
         Ok(2),
         "renders"
     );
 }
 
-#[test]
-fn rejects_repeated_cables() {
+fn rejects_repeated_cables<S: Bits>() {
     assert_eq!(
-        build(
+        build::<S>(
             vec![node(1, "ramp~"), node(2, "out~")],
             vec![wire(1, 0, 2, 0), wire(1, 0, 2, 1), wire(1, 0, 2, 0)]
         )
@@ -812,11 +882,10 @@ fn rejects_repeated_cables() {
     );
 }
 
-#[test]
-fn renders_into_a_buffer_continuing_like_render() {
+fn renders_into_a_buffer_continuing_like_render<S: Bits>() {
     let patch = || {
         Renderer::new(
-            build(
+            build::<S>(
                 vec![
                     node(1, "ramp~"),
                     with_param(node(2, "const~"), "value", -1.0),
@@ -828,15 +897,16 @@ fn renders_into_a_buffer_continuing_like_render() {
         )
     };
     let mut whole = patch();
-    let expected = whole.render(100).expect("small render");
+    let expected: Vec<S> = whole.render(100).expect("small render");
     let mut parts = patch();
-    let mut first = [7.0_f32; 61];
+    let mut first = [S::from_f64(7.0); 61];
     parts.render_into(&mut first);
     assert_eq!(
-        first[60], 7.0,
+        first[60],
+        S::from_f64(7.0),
         "the sample after the last whole frame is untouched"
     );
-    let mut rest = parts.render(70).expect("small render");
+    let mut rest: Vec<S> = parts.render(70).expect("small render");
     let mut actual = first[..60].to_vec();
     actual.append(&mut rest);
     assert_eq!(
@@ -844,27 +914,31 @@ fn renders_into_a_buffer_continuing_like_render() {
         "30 frames into a buffer, then 70 rendered"
     );
 
-    let mut silent = Renderer::new(build(vec![node(1, "ramp~")], vec![]).expect("valid patch"));
-    let mut untouched = [7.0_f32; 4];
+    let mut silent =
+        Renderer::new(build::<S>(vec![node(1, "ramp~")], vec![]).expect("valid patch"));
+    let mut untouched = [S::from_f64(7.0); 4];
     silent.render_into(&mut untouched);
-    assert_eq!(untouched, [7.0; 4], "no output: nothing written");
+    assert_eq!(
+        untouched,
+        [S::from_f64(7.0); 4],
+        "no output: nothing written"
+    );
 }
 
 /// The bit patterns of every sample of `blocks`.
-fn block_bits(blocks: &[Block]) -> Vec<u32> {
+fn block_bits<S: Bits>(blocks: &[Block<S>]) -> Vec<u64> {
     blocks
         .iter()
         .flatten()
-        .map(|sample| sample.to_bits())
+        .map(|sample| sample.bits())
         .collect()
 }
 
-#[test]
-fn a_single_cable_passes_its_samples_bit_for_bit() {
+fn a_single_cable_passes_its_samples_bit_for_bit<S: Bits>() {
     // -0.0 through one cable into a box, then through one cable to the output: unchanged.
     // Summing onto silence would turn it into +0.0 (+0.0 + -0.0 = +0.0).
     let chain = || {
-        build(
+        build::<S>(
             vec![
                 with_param(node(1, "const~"), "value", -0.0),
                 node(2, "pass~"),
@@ -874,28 +948,28 @@ fn a_single_cable_passes_its_samples_bit_for_bit() {
         )
         .expect("valid patch")
     };
+    let negative_zero = bits_of::<S>(-0.0);
     assert_eq!(
         block_bits(&run(&mut chain(), 1)),
-        vec![0x8000_0000; BLOCK_SIZE],
+        vec![negative_zero; BLOCK_SIZE],
         "-0.0 at the inlet of pass~ and at the output, through process"
     );
-    let rendered: Vec<u32> = Renderer::new(chain())
-        .render(BLOCK_SIZE + 3)
+    let rendered: Vec<u64> = Renderer::new(chain())
+        .render::<S>(BLOCK_SIZE + 3)
         .expect("small render")
         .iter()
-        .map(|sample| sample.to_bits())
+        .map(|sample| sample.bits())
         .collect();
     assert_eq!(
         rendered,
-        vec![0x8000_0000; BLOCK_SIZE + 3],
+        vec![negative_zero; BLOCK_SIZE + 3],
         "and through render"
     );
 }
 
-#[test]
-fn several_cables_are_summed_starting_from_the_first() {
+fn several_cables_are_summed_starting_from_the_first<S: Bits>() {
     let sum = |first: f32, second: f32| {
-        let mut plan = build(
+        let mut plan = build::<S>(
             vec![
                 with_param(node(1, "const~"), "value", first),
                 with_param(node(2, "const~"), "value", second),
@@ -908,17 +982,16 @@ fn several_cables_are_summed_starting_from_the_first() {
     };
     assert_eq!(
         sum(-0.0, -0.0),
-        vec![0x8000_0000; BLOCK_SIZE],
+        vec![bits_of::<S>(-0.0); BLOCK_SIZE],
         "-0.0 + -0.0 = -0.0"
     );
     assert_eq!(sum(-0.0, 0.0), vec![0; BLOCK_SIZE], "-0.0 + +0.0 = +0.0");
 }
 
-#[test]
-fn several_output_boxes_are_summed_starting_from_the_first() {
+fn several_output_boxes_are_summed_starting_from_the_first<S: Bits>() {
     // Two outputs, a mono one and a stereo one, each fed -0.0: channel 0 sums both
     // (-0.0 + -0.0), channel 1 comes from the stereo one alone; a third slot is silent.
-    let mut plan = build(
+    let mut plan = build::<S>(
         vec![
             with_param(node(1, "const~"), "value", -0.0),
             node(2, "mono~"),
@@ -930,12 +1003,12 @@ fn several_output_boxes_are_summed_starting_from_the_first() {
     let out = run(&mut plan, 3);
     assert_eq!(
         block_bits(&out[..2]),
-        vec![0x8000_0000; 2 * BLOCK_SIZE],
+        vec![bits_of::<S>(-0.0); 2 * BLOCK_SIZE],
         "both channels keep -0.0"
     );
     assert_eq!(block_bits(&out[2..]), vec![0; BLOCK_SIZE], "+0.0 beyond");
     // A stereo output fed on its second inlet only: its first channel is silence, +0.0.
-    let mut half = build(
+    let mut half = build::<S>(
         vec![
             with_param(node(1, "const~"), "value", -0.0),
             node(2, "out~"),
@@ -945,7 +1018,90 @@ fn several_output_boxes_are_summed_starting_from_the_first() {
     .expect("valid patch");
     assert_eq!(
         block_bits(&run(&mut half, 2)),
-        [vec![0; BLOCK_SIZE], vec![0x8000_0000; BLOCK_SIZE]].concat(),
+        [vec![0; BLOCK_SIZE], vec![bits_of::<S>(-0.0); BLOCK_SIZE]].concat(),
         "an unconnected inlet is +0.0, a connected one is passed as is"
     );
 }
+
+fn delivers_a_binary64_render_rounded_to_binary32<S: Bits>()
+where
+    f32: crate::Delivered<S>,
+{
+    // 0.1 in binary64, given to a host that takes binary32: rounded once, correctly; a
+    // binary32 render given as binary32 is the same samples.
+    let mut renderer = Renderer::new(
+        build::<S>(
+            vec![
+                with_param(node(1, "const~"), "value", 0.1),
+                node(2, "mono~"),
+            ],
+            vec![wire(1, 0, 2, 0)],
+        )
+        .expect("valid patch"),
+    );
+    let delivered: Vec<f32> = renderer.render(3).expect("small render");
+    let mut more = [0.0_f32; 2];
+    renderer.render_into(&mut more);
+    let expected = 0.1_f32.to_bits();
+    assert!(
+        delivered
+            .iter()
+            .chain(&more)
+            .all(|sample| sample.to_bits() == expected),
+        "{delivered:?} {more:?}"
+    );
+}
+
+/// Runs each generic test in both precisions, each instantiation a test of its own.
+macro_rules! in_both_precisions {
+    ($($test:ident),* $(,)?) => {
+        /// The tests in binary64, the default precision.
+        mod binary64 {
+            $(
+                #[test]
+                fn $test() {
+                    super::$test::<f64>();
+                }
+            )*
+        }
+        /// The tests in binary32.
+        mod binary32 {
+            $(
+                #[test]
+                fn $test() {
+                    super::$test::<f32>();
+                }
+            )*
+        }
+    };
+}
+
+in_both_precisions!(
+    routes_a_box_to_the_output,
+    uses_parameter_defaults,
+    sums_cables_into_an_inlet_and_fans_out,
+    chains_boxes_and_reads_every_outlet,
+    orders_independent_nodes_by_id,
+    keeps_box_state_across_blocks,
+    passes_the_sample_rate_to_boxes,
+    sums_several_outputs_and_uses_the_widest_channel_count,
+    adapts_to_the_output_slice_length,
+    has_no_channel_without_an_output_box,
+    rejects_duplicate_nodes,
+    rejects_unknown_boxes_and_parameters,
+    rejects_out_of_range_parameters,
+    treats_subnormal_parameters_as_zero,
+    rejects_invalid_connections,
+    rejects_cycles,
+    renders_interleaved_frames_offline,
+    renders_nothing_for_zero_frames_or_channels,
+    refuses_renders_too_long_for_memory,
+    sums_cables_in_source_order_whatever_the_document_order,
+    accepts_patches_up_to_the_limits_only,
+    rejects_repeated_cables,
+    renders_into_a_buffer_continuing_like_render,
+    a_single_cable_passes_its_samples_bit_for_bit,
+    several_cables_are_summed_starting_from_the_first,
+    several_output_boxes_are_summed_starting_from_the_first,
+    delivers_a_binary64_render_rounded_to_binary32,
+);

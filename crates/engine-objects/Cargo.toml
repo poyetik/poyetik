@@ -13,10 +13,12 @@ categories = ["multimedia::audio", "no-std"]
 
 [dependencies]
 engine-core = { path = "../engine-core" }
-libm = { workspace = true }
 
 [dev-dependencies]
 engine-testkit = { path = "../engine-testkit" }
+# The exact references of the tests compute their sines directly, not through the math
+# layer of the code under test.
+libm = { workspace = true }
 serde_json = "1"
 
 [lints]

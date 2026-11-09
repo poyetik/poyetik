@@ -346,57 +346,136 @@
   "sine_error_bounds": [
     {
       "description": "full scale, no accumulation",
+      "format": "binary64-as-binary32",
       "amplitude": 1,
       "frames": 0,
       "bound": 2.980232594040899e-08
     },
     {
       "description": "full scale over 8192 frames",
+      "format": "binary64-as-binary32",
       "amplitude": 1,
       "frames": 8192,
       "bound": 2.981375498790327e-08
     },
     {
       "description": "full scale over 2^20 frames, longer than any measured signal",
+      "format": "binary64-as-binary32",
       "amplitude": 1,
       "frames": 1048576,
       "bound": 3.126524401967615e-08
     },
     {
       "description": "full scale over the longest case (2^29 frames)",
+      "format": "binary64-as-binary32",
       "amplitude": 1,
       "frames": 536870912,
       "bound": 7.788163825251947e-07
     },
     {
       "description": "half scale: half an ulp below 0.5",
+      "format": "binary64-as-binary32",
       "amplitude": 0.5,
       "frames": 1000,
       "bound": 1.4901860543904097e-08
     },
     {
       "description": "a negative amplitude bounds like its magnitude",
+      "format": "binary64-as-binary32",
       "amplitude": -1,
       "frames": 48000,
       "bound": 2.986929301557076e-08
     },
     {
       "description": "silence allows no error",
+      "format": "binary64-as-binary32",
       "amplitude": 0,
       "frames": 1000,
       "bound": 0.0
     },
     {
       "description": "a subnormal amplitude: the rounding of subnormal samples, 2^-150, dominates",
+      "format": "binary64-as-binary32",
       "amplitude": 7.174648137343064e-43,
       "frames": 8000,
       "bound": 7.006492401727108e-46
     },
     {
       "description": "above full scale: an ulp of 2^-23",
+      "format": "binary64-as-binary32",
       "amplitude": 1.5,
       "frames": 0,
       "bound": 5.960465010446114e-08
+    },
+    {
+      "description": "full scale, no accumulation: half an ulp of binary64 below 1",
+      "format": "binary64",
+      "amplitude": 1,
+      "frames": 0,
+      "bound": 3.608224830031759e-15
+    },
+    {
+      "description": "full scale over 8192 frames",
+      "format": "binary64",
+      "amplitude": 1,
+      "frames": 8192,
+      "bound": 1.1432655719104716e-11
+    },
+    {
+      "description": "full scale over the longest case (2^29 frames)",
+      "format": "binary64",
+      "amplitude": 1,
+      "frames": 536870912,
+      "bound": 7.490140601930106e-07
+    },
+    {
+      "description": "a tiny amplitude: values below 2^-1022 flushed to zero, an error up to 2^-1022",
+      "format": "binary64",
+      "amplitude": 1e-300,
+      "frames": 1000,
+      "bound": 2.22521372851849e-308
+    },
+    {
+      "description": "a negative amplitude bounds like its magnitude",
+      "format": "binary64",
+      "amplitude": -0.5,
+      "frames": 48000,
+      "bound": 3.348534169329788e-11
+    },
+    {
+      "description": "full scale, no accumulation: the angle and the sine rounded to binary32",
+      "format": "binary32",
+      "amplitude": 1,
+      "frames": 0,
+      "bound": 2.683373203637984e-07
+    },
+    {
+      "description": "full scale over 8192 frames",
+      "format": "binary32",
+      "amplitude": 1,
+      "frames": 8192,
+      "bound": 2.683487494112927e-07
+    },
+    {
+      "description": "full scale over the longest case (2^29 frames)",
+      "format": "binary32",
+      "amplitude": 1,
+      "frames": 536870912,
+      "bound": 1.0173513769485842e-06
+    },
+    {
+      "description": "a tiny amplitude: values below 2^-126 flushed to zero, an error up to 2^-126",
+      "format": "binary32",
+      "amplitude": 1e-35,
+      "frames": 1000,
+      "bound": 1.175732887215411e-38
+    },
+    {
+      "description": "half scale",
+      "format": "binary32",
+      "amplitude": 0.5,
+      "frames": 1000,
+      "bound": 1.3416935775559882e-07
     }
   ],
   "sine_bounds": [

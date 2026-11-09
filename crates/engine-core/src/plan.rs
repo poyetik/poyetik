@@ -13,22 +13,22 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::{
-    Block, Capability, Connection, CoreError, Node, NodeId, Object, ObjectSpec, Patch, SILENCE,
-    SampleRate, flush,
+    Block, Capability, Connection, CoreError, Node, NodeId, Object, ObjectSpec, Patch, Sample,
+    SampleRate,
 };
 
 /// One box instance in execution order, with its own input and output buffers.
 #[derive(Debug)]
-struct Instance {
+struct Instance<S: Sample> {
     /// The box this instance runs.
     node: NodeId,
     /// The box instance.
-    object: Box<dyn Object>,
+    object: Box<dyn Object<S>>,
     /// Input buffers, one per inlet: a connected inlet is rewritten before every block,
     /// an unconnected one stays silent from the build on.
-    inputs: Vec<Block>,
+    inputs: Vec<Block<S>>,
     /// Output buffers, one per outlet.
-    outputs: Vec<Block>,
+    outputs: Vec<Block<S>>,
     /// For each inlet, the bus slots summed into it, in a fixed order: the first is
     /// copied, the others added, so that a single cable passes its samples bit for bit.
     sources: Vec<Vec<usize>>,
@@ -41,18 +41,18 @@ struct Instance {
     covered: usize,
 }
 
-/// A validated, ready-to-run execution plan, advanced one block at a time by
-/// [`Plan::process`].
+/// A validated, ready-to-run execution plan computing in `S` (the precision of the render,
+/// [`Sample`]), advanced one block at a time by [`Plan::process`].
 ///
 /// To render a number of frames offline, whatever the block boundaries, hand the plan to
 /// a [`crate::Renderer`], which owns it: the two ways of advancing time can then never be
 /// mixed on one plan.
 #[derive(Debug)]
-pub struct Plan {
+pub struct Plan<S: Sample> {
     /// Box instances in execution order.
-    instances: Vec<Instance>,
+    instances: Vec<Instance<S>>,
     /// Every outlet of every box, boxes in id order: what connections read from.
-    bus: Vec<Block>,
+    bus: Vec<Block<S>>,
     /// Number of engine output channels.
     channels: usize,
 }
@@ -64,8 +64,10 @@ struct Resolved<'patch> {
     node: &'patch Node,
     /// Its box type.
     spec: &'static ObjectSpec,
-    /// Its parameter values, in spec order, none subnormal.
-    params: Vec<f32>,
+    /// Its parameter values, in spec order, none subnormal, in binary64 (decision 10 of
+    /// `spec/engine-design.md`): a parameter of format 1 is its binary32 value, exact in
+    /// binary64.
+    params: Vec<f64>,
     /// First bus slot of its outlets (outlets occupy consecutive slots, boxes in id
     /// order).
     first_slot: usize,
@@ -100,7 +102,7 @@ fn resolve<'patch>(
                 node: node.id,
                 name: name.clone(),
             })?;
-        if !param.accepts(flush(value)) {
+        if !param.accepts(value.flush()) {
             return Err(CoreError::ParamOutOfRange {
                 node: node.id,
                 name: name.clone(),
@@ -112,11 +114,12 @@ fn resolve<'patch>(
         .params
         .iter()
         .map(|param| {
-            flush(
+            f64::from(
                 node.params
                     .get(param.name)
                     .copied()
-                    .unwrap_or(param.default),
+                    .unwrap_or(param.default)
+                    .flush(),
             )
         })
         .collect();
@@ -204,8 +207,9 @@ fn execution_order(
     }
 }
 
-impl Plan {
-    /// Validates `patch` against `registry` and builds its execution plan.
+impl<S: Sample> Plan<S> {
+    /// Validates `patch` against `registry` and builds its execution plan, computing in
+    /// `S`.
     ///
     /// # Errors
     ///
@@ -238,16 +242,16 @@ impl Plan {
         let order = execution_order(&ids, &connections)?;
 
         // Every id of the order is a resolved box: `remove` always finds it.
-        let mut instances: Vec<Instance> = order
+        let mut instances: Vec<Instance<S>> = order
             .iter()
             .filter_map(|id| nodes.remove(id))
             .map(|resolved| {
                 let id = resolved.node.id;
                 Instance {
                     node: id,
-                    object: (resolved.spec.create)(rate, &resolved.params),
-                    inputs: vec![SILENCE; resolved.spec.inlets.len()],
-                    outputs: vec![SILENCE; resolved.spec.outlets.len()],
+                    object: resolved.spec.create.create(rate, &resolved.params),
+                    inputs: vec![S::SILENCE; resolved.spec.inlets.len()],
+                    outputs: vec![S::SILENCE; resolved.spec.outlets.len()],
                     sources: (0..resolved.spec.inlets.len())
                         .map(|inlet| sources.remove(&(id, inlet)).unwrap_or_default())
                         .collect(),
@@ -268,7 +272,7 @@ impl Plan {
         }
         Ok(Self {
             instances,
-            bus: vec![SILENCE; bus_len],
+            bus: vec![S::SILENCE; bus_len],
             channels,
         })
     }
@@ -295,22 +299,25 @@ impl Plan {
     /// clipped to ±1, scaled or sanitized, so that every target renders the same bits. The
     /// final output stage (limiting, clipping, handling non-finite values) belongs to the
     /// host, until the engine defines its own output policy (roadmap ticket #12).
-    pub fn process(&mut self, out: &mut [Block]) {
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "S is f32 or f64 (Sample is sealed): IEEE 754 addition, which neither overflows nor panics"
+    )]
+    pub fn process(&mut self, out: &mut [Block<S>]) {
         // Every channel below `channels` is written by an output below.
         for channel in out.iter_mut().skip(self.channels) {
-            *channel = SILENCE;
+            *channel = S::SILENCE;
         }
         for instance in &mut self.instances {
             for (input, slots) in instance.inputs.iter_mut().zip(&instance.sources) {
-                let mut sources = slots
-                    .iter()
-                    .map(|&slot| self.bus.get(slot).unwrap_or(&SILENCE));
+                // Every slot is below the bus length (`source_slot`): none is skipped.
+                let mut sources = slots.iter().filter_map(|&slot| self.bus.get(slot));
                 // An unconnected inlet has no source: it stays silent.
                 if let Some(first) = sources.next() {
                     *input = *first;
                     for source in sources {
                         for (sample, value) in input.iter_mut().zip(source) {
-                            *sample += value;
+                            *sample += *value;
                         }
                     }
                 }
@@ -330,7 +337,7 @@ impl Plan {
                 let (written, fresh) = out.split_at_mut(instance.covered.min(out.len()));
                 for (channel, input) in written.iter_mut().zip(&instance.inputs) {
                     for (sample, value) in channel.iter_mut().zip(input) {
-                        *sample += value;
+                        *sample += *value;
                     }
                 }
                 for (channel, input) in fresh

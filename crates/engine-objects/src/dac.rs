@@ -2,20 +2,23 @@
 
 use alloc::boxed::Box;
 
-use engine_core::{Block, Capability, Object, ObjectSpec, PortSpec, SampleRate};
+use engine_core::{
+    Block, Capability, Create, Factory, Object, ObjectSpec, PortSpec, Sample, SampleRate,
+};
 
 /// Audio output: the engine sums the inlets of this box into its output channels.
-/// The box itself does nothing.
+/// The box itself does nothing, in either precision.
 #[derive(Debug)]
 struct Dac;
 
-impl Object for Dac {
-    fn process(&mut self, _inputs: &[Block], _outputs: &mut [Block]) {}
+impl<S: Sample> Object<S> for Dac {
+    fn process(&mut self, _inputs: &[Block<S>], _outputs: &mut [Block<S>]) {}
 }
 
-/// Creates the output box.
-fn create(_rate: SampleRate, _params: &[f32]) -> Box<dyn Object> {
-    Box::new(Dac)
+impl Create for Dac {
+    fn create<S: Sample>(_rate: SampleRate, _params: &[f64]) -> Box<dyn Object<S>> {
+        Box::new(Self)
+    }
 }
 
 /// The `dac~` box type.
@@ -35,5 +38,5 @@ pub static DAC: ObjectSpec = ObjectSpec {
     outlets: &[],
     params: &[],
     capabilities: &[Capability::AudioOutput],
-    create,
+    create: Factory::new::<Dac>(),
 };

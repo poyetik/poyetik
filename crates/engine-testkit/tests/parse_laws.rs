@@ -18,9 +18,10 @@ static ALLOCATOR: engine_testkit::CountingAllocator = engine_testkit::CountingAl
 mod tests {
     extern crate alloc;
 
-    use engine_core::{Plan, Renderer, SampleRate};
+    use engine_core::{Plan, Precision, Renderer, Sample, SampleRate};
     use engine_objects::REGISTRY;
     use engine_testkit::heap_operations_during;
+    use engine_testkit::matrix::PRECISIONS;
     use engine_testkit::runner::runner;
     use proptest::collection::vec;
     use proptest::option::weighted;
@@ -187,22 +188,40 @@ mod tests {
             })
     }
 
-    /// Reads, builds and, when accepted, renders `text`: any failure but a refusal.
-    fn check(text: &str, rate: SampleRate) -> Result<(), String> {
-        let Ok(patch) = engine_patch::parse_patch(text) else {
-            return Ok(());
-        };
-        let Ok(plan) = Plan::build(&patch, &REGISTRY, rate) else {
+    /// Builds and, when accepted, renders `patch` (read from `text`), computing in `S`: any
+    /// failure but a refusal.
+    fn play<S: Sample>(
+        patch: &engine_core::Patch,
+        text: &str,
+        rate: SampleRate,
+    ) -> Result<(), String> {
+        let Ok(plan) = Plan::<S>::build(patch, &REGISTRY, rate) else {
             return Ok(());
         };
         let mut renderer = Renderer::new(plan);
-        let mut samples = vec![0.0_f32; FRAMES.saturating_mul(renderer.channels())];
+        let mut samples = vec![S::ZERO; FRAMES.saturating_mul(renderer.channels())];
         let ((), operations) = heap_operations_during(|| renderer.render_into(&mut samples))?;
         if operations > 0 {
             return Err(format!("{operations} heap operations rendering {text}"));
         }
-        if samples.iter().any(|sample| !sample.is_finite()) {
+        if samples.iter().any(|sample| !sample.to_f64().is_finite()) {
             return Err(format!("non-finite samples from {text}"));
+        }
+        Ok(())
+    }
+
+    /// Reads, builds and, when accepted, renders `text` in every precision: any failure but
+    /// a refusal.
+    fn check(text: &str, rate: SampleRate) -> Result<(), String> {
+        let Ok(patch) = engine_patch::parse_patch(text) else {
+            return Ok(());
+        };
+        for precision in PRECISIONS {
+            match precision {
+                Precision::Binary64 => play::<f64>(&patch, text, rate),
+                Precision::Binary32 => play::<f32>(&patch, text, rate),
+            }
+            .map_err(|problem| format!("binary{}: {problem}", precision.bits()))?;
         }
         Ok(())
     }
@@ -261,7 +280,7 @@ mod tests {
             );
             match engine_patch::parse_patch(&text) {
                 Err(_) => unread += 1,
-                Ok(patch) => match Plan::build(&patch, &REGISTRY, rate) {
+                Ok(patch) => match Plan::<f64>::build(&patch, &REGISTRY, rate) {
                     Err(_) => unbuilt += 1,
                     Ok(plan) => played += u32::from(plan.channels() > 0),
                 },
