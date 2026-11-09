@@ -135,7 +135,7 @@ pub fn check_registry(registry: &[&ObjectSpec]) -> Result<(), String> {
 /// blocks taken from `input` (then silence). Returns the outputs and the heap operations
 /// made while processing.
 ///
-/// The parameters are given as a plan gives them, in binary64 ([`Sample`]), but as written:
+/// The parameters are given as a plan gives them, in binary64 (`Binary64`), but as written:
 /// not flushed, so that a box is shown not to break on a subnormal one.
 ///
 /// # Errors

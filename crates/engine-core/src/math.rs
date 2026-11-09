@@ -55,8 +55,8 @@ impl Precision {
 pub enum RenderFormat {
     /// Computed and given in binary64.
     Binary64,
-    /// Computed in binary64, each sample then rounded to the nearest binary32
-    /// ([`to_binary32`]).
+    /// Computed in binary64, each sample then rounded to the nearest binary32 (ties to
+    /// even; a NaN by its bits).
     Binary64AsBinary32,
     /// Computed and given in binary32.
     Binary32,
@@ -437,7 +437,7 @@ pub trait Sample:
     /// A block of silence: positive zeros.
     const SILENCE: Block<Self> = [Self::ZERO; BLOCK_SIZE];
 
-    /// The nearest value of this type to `value` ([`to_binary32`] for [`Binary32`], `value`
+    /// The nearest value of this type to `value` (rounded to nearest for [`Binary32`], `value`
     /// itself for [`Binary64`]).
     fn from_binary64(value: Binary64) -> Self;
 
@@ -547,8 +547,8 @@ impl Sample for Binary32 {
 
 /// How a render of samples `S` is given to its host, as floats of this type.
 ///
-/// A binary64 render as binary64 or rounded to binary32 ([`to_binary32`]), a binary32
-/// render as binary32. A binary32 render cannot be given as binary64: no [`RenderFormat`]
+/// A binary64 render as binary64 or rounded to the nearest binary32 (ties to even; a NaN
+/// by its bits), a binary32 render as binary32. A binary32 render cannot be given as binary64: no [`RenderFormat`]
 /// is one.
 pub trait Delivered<S: Sample>: sealed::Sealed + Copy {
     /// `sample`, given as this type.
