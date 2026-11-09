@@ -858,7 +858,7 @@
         },
         {
           "title": "Deterministic strategy for denormal numbers, proven on every target: a subnormal conformance case, and a native test with flush-to-zero forced on",
-          "done": false
+          "done": true
         },
         {
           "title": "Typed, smoothed parameters (kinds such as frequency, with a declared Nyquist policy) and sample-accurate timestamped events, in the engine and the patch format",
