@@ -3204,7 +3204,10 @@ pub const DETERMINISTIC_FLOAT_METHODS: [(&str, &str); 32] = [
         "the next value toward +infinity, from the bits (IEEE 754 nextUp)",
     ),
     ("recip", "a correctly rounded division"),
-    ("rem_euclid", "an exact remainder, then an exact correction"),
+    (
+        "rem_euclid",
+        "an exact remainder, then a correctly rounded addition",
+    ),
     ("round", "exact: an integer value, ties away from zero"),
     ("round_ties_even", "exact: an integer value, ties to even"),
     ("signum", "a constant of the sign of the value"),
