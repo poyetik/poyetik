@@ -1,6 +1,8 @@
-//! WAV files: 32-bit floating-point samples, channels interleaved.
+//! WAV files: 64- or 32-bit floating-point samples, channels interleaved.
 
-use crate::Rendered;
+use engine_core::RenderFormat;
+
+use crate::{Rendered, RenderedSamples};
 
 /// Size of the header written by [`wav_header`], in bytes.
 pub const HEADER_LEN: usize = 58;
@@ -9,19 +11,30 @@ pub const HEADER_LEN: usize = 58;
 /// 8 bytes (`RIFF` and the size field itself), that is [`HEADER_LEN`] − 8.
 const RIFF_SIZE_OVERHEAD: u32 = 50;
 
-/// Builds the header of a 32-bit float WAV file (`RIFF`, `fmt `, `fact` and `data`
-/// chunk headers) for `samples` interleaved samples of `channels` channels.
+/// Builds the header of a float WAV file in the width of `format`'s samples.
+///
+/// The `RIFF`, `fmt `, `fact` and `data` chunk headers for `samples` interleaved samples
+/// of `channels` channels: 64 bits per sample for binary64, 32 for the binary32 formats.
 ///
 /// # Errors
 ///
 /// Returns a message when the sizes do not fit the WAV format (65 535 channels,
 /// 4 GiB of data).
-pub fn wav_header(rate: u32, channels: usize, samples: usize) -> Result<[u8; HEADER_LEN], String> {
+pub fn wav_header(
+    rate: u32,
+    channels: usize,
+    samples: usize,
+    format: RenderFormat,
+) -> Result<[u8; HEADER_LEN], String> {
+    let bits = format.sample_bits();
+    let width = u16::from(bits / 8);
     let channel_count =
         u16::try_from(channels).map_err(|_| format!("too many channels for WAV: {channels}"))?;
     let too_long = || format!("too long for WAV: {samples} samples");
     let sample_count = u32::try_from(samples).map_err(|_| too_long())?;
-    let data_len = sample_count.checked_mul(4).ok_or_else(too_long)?;
+    let data_len = sample_count
+        .checked_mul(u32::from(width))
+        .ok_or_else(too_long)?;
     let riff_len = data_len
         .checked_add(RIFF_SIZE_OVERHEAD)
         .ok_or_else(too_long)?;
@@ -29,7 +42,7 @@ pub fn wav_header(rate: u32, channels: usize, samples: usize) -> Result<[u8; HEA
         .checked_div(u32::from(channel_count))
         .unwrap_or(0);
     let block_align = channel_count
-        .checked_mul(4)
+        .checked_mul(width)
         .ok_or_else(|| format!("too many channels for WAV: {channels}"))?;
     let byte_rate = rate
         .checked_mul(u32::from(block_align))
@@ -46,7 +59,7 @@ pub fn wav_header(rate: u32, channels: usize, samples: usize) -> Result<[u8; HEA
         &rate.to_le_bytes(),
         &byte_rate.to_le_bytes(),
         &block_align.to_le_bytes(),
-        &32_u16.to_le_bytes(),
+        &u16::from(bits).to_le_bytes(),
         &0_u16.to_le_bytes(), // no extension
         b"fact",
         &4_u32.to_le_bytes(),
@@ -65,12 +78,9 @@ pub fn wav_header(rate: u32, channels: usize, samples: usize) -> Result<[u8; HEA
 
 /// Appends samples, little-endian, after a header from [`wav_header`].
 #[must_use]
-pub fn wav_file(header: &[u8; HEADER_LEN], samples: &[f32]) -> Vec<u8> {
-    let mut bytes = Vec::with_capacity(HEADER_LEN.saturating_add(samples.len().saturating_mul(4)));
-    bytes.extend_from_slice(header);
-    for sample in samples {
-        bytes.extend_from_slice(&sample.to_le_bytes());
-    }
+pub fn wav_file(header: &[u8; HEADER_LEN], samples: &RenderedSamples) -> Vec<u8> {
+    let mut bytes = header.to_vec();
+    samples.write_le(&mut bytes);
     bytes
 }
 
@@ -83,7 +93,8 @@ pub fn wav_bytes(rendered: &Rendered) -> Result<Vec<u8>, String> {
     let header = wav_header(
         rendered.rate.hz(),
         rendered.channels,
-        rendered.samples.len(),
+        rendered.samples.as_samples().len(),
+        rendered.format(),
     )?;
     Ok(wav_file(&header, &rendered.samples))
 }

@@ -4,13 +4,13 @@ use alloc::collections::BTreeMap;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use engine_core::SampleRate;
+use engine_core::{RenderFormat, SampleRate};
 
 use engine_fpenv::with_default_mode;
 
 use super::{
-    CaseError, CliError, Disk, Files, HEADER_LEN, Rendered, USAGE, arguments, render_case, run,
-    wav_bytes, wav_header,
+    CaseError, CliError, Disk, Files, HEADER_LEN, Rendered, RenderedSamples, USAGE, arguments,
+    render_case, run, wav_bytes, wav_header,
 };
 
 const SINE: &str = r#"{"sample_rate":48000,"frames":100}"#;
@@ -111,23 +111,65 @@ fn usage(reason: &str) -> String {
     format!("{reason} (see: engine-cli help)")
 }
 
-fn sine_hash() -> String {
-    with_default_mode(|mode| render_case(SINE, PATCH, mode))
+/// The hash of the sine case in `format`.
+fn sine_hash(format: RenderFormat) -> String {
+    with_default_mode(|mode| render_case(SINE, PATCH, format, mode))
         .expect("valid case")
         .hash()
         .to_string()
 }
 
+/// The references of the sine case, as `bless` writes them, in every format: a JSON object
+/// of the hash of each format, by name.
+fn sine_references() -> String {
+    let hashes: Vec<String> = RenderFormat::ALL
+        .iter()
+        .map(|format| format!(r#""{}":"{}""#, format.name(), sine_hash(*format)))
+        .collect();
+    format!("{{{}}}", hashes.join(","))
+}
+
+/// The samples of a render, widened to binary64 (exactly), and its format.
+fn widened(rendered: &Rendered) -> Vec<f64> {
+    match &rendered.samples {
+        RenderedSamples::Binary64(samples) => samples.clone(),
+        RenderedSamples::Binary64AsBinary32(samples) | RenderedSamples::Binary32(samples) => {
+            samples.iter().copied().map(f64::from).collect()
+        }
+    }
+}
+
 #[test]
-fn renders_a_case() {
-    let rendered = with_default_mode(|mode| render_case(SINE, PATCH, mode)).expect("valid case");
-    assert_eq!(rendered.rate, SampleRate::HZ_48000, "rate");
-    assert_eq!(rendered.channels, 2, "dac~ is stereo");
-    assert_eq!(rendered.samples.len(), 200, "100 frames x 2 channels");
-    assert_eq!(rendered.samples[0].to_bits(), 0.0_f32.to_bits(), "phase 0");
+fn renders_a_case_in_every_format() {
+    for format in RenderFormat::ALL {
+        let rendered =
+            with_default_mode(|mode| render_case(SINE, PATCH, format, mode)).expect("valid case");
+        assert_eq!(rendered.rate, SampleRate::HZ_48000, "rate");
+        assert_eq!(rendered.channels, 2, "dac~ is stereo");
+        assert_eq!(rendered.format(), format, "its format");
+        let samples = widened(&rendered);
+        assert_eq!(samples.len(), 200, "100 frames x 2 channels");
+        assert_eq!(samples[0].to_bits(), 0, "phase 0");
+        assert_eq!(samples[2], samples[3], "same signal on both channels");
+    }
+    // Each format its own samples: binary64 given as binary32 is the binary64 render
+    // rounded, and differs from the binary32 render, computed in binary32.
+    let render = |format| {
+        with_default_mode(|mode| render_case(SINE, PATCH, format, mode)).expect("valid case")
+    };
+    let given: Vec<f64> = widened(&render(RenderFormat::Binary64))
+        .into_iter()
+        .map(|sample| f64::from(engine_core::to_binary32(sample)))
+        .collect();
     assert_eq!(
-        rendered.samples[2], rendered.samples[3],
-        "same signal on both channels"
+        widened(&render(RenderFormat::Binary64AsBinary32)),
+        given,
+        "rounded"
+    );
+    assert_ne!(
+        widened(&render(RenderFormat::Binary32)),
+        given,
+        "computed in binary32"
     );
 }
 
@@ -175,11 +217,14 @@ fn rejects_invalid_cases() {
             patch("the patch has no audio output: nothing to render"),
         ),
     ] {
-        assert_eq!(
-            with_default_mode(|mode| render_case(case_text, patch_text, mode)).map(|_| ()),
-            Err(expected),
-            "{case_text} {patch_text}"
-        );
+        for format in RenderFormat::ALL {
+            assert_eq!(
+                with_default_mode(|mode| render_case(case_text, patch_text, format, mode))
+                    .map(|_| ()),
+                Err(expected.clone()),
+                "{format}: {case_text} {patch_text}"
+            );
+        }
     }
     let error = patch("p");
     assert_eq!(error.to_string(), "p", "the message alone");
@@ -200,25 +245,27 @@ fn accepts_durations_from_one_frame_to_the_limit_only() {
     let with_frames = |frames: &str| format!(r#"{{"sample_rate":48000,"frames":{frames}}}"#);
     for frames in ["0", "536870913", "18446744073709551615"] {
         assert_eq!(
-            super::prepare_case(&with_frames(frames), PATCH).map(|_| ()),
+            super::prepare_case(&with_frames(frames), PATCH, RenderFormat::Binary32).map(|_| ()),
             Err(CaseError::Case(format!(
                 "invalid case: frames must be between 1 and 536870912, got {frames}"
             ))),
             "{frames} frames"
         );
     }
-    assert!(
-        super::prepare_case(&with_frames("1"), PATCH).is_ok(),
-        "one frame"
-    );
-    // The longest case passes the duration check; in stereo, only the WAV size stops it.
-    assert_eq!(
-        super::prepare_case(&with_frames("536870912"), PATCH).map(|_| ()),
-        Err(CaseError::Case(
-            "too long for WAV: 1073741824 samples".to_owned()
-        )),
-        "2^29 frames are a valid duration"
-    );
+    for format in RenderFormat::ALL {
+        assert!(
+            super::prepare_case(&with_frames("1"), PATCH, format).is_ok(),
+            "one frame"
+        );
+        // The longest case passes the duration check; in stereo, only the WAV size stops it.
+        assert_eq!(
+            super::prepare_case(&with_frames("536870912"), PATCH, format).map(|_| ()),
+            Err(CaseError::Case(
+                "too long for WAV: 1073741824 samples".to_owned()
+            )),
+            "2^29 frames are a valid duration"
+        );
+    }
     assert_eq!(super::MAX_FRAMES, 1 << 29_u32, "2^29 frames");
 }
 
@@ -232,7 +279,12 @@ fn rejects_every_case_of_the_shared_invalid_corpus() {
         // above it.
         let refused = match Disk.read(&path, super::MAX_CASE_BYTES) {
             Err(error) => error.kind() == io::ErrorKind::FileTooLarge,
-            Ok(case) => matches!(super::prepare_case(&case, PATCH), Err(CaseError::Case(_))),
+            Ok(case) => RenderFormat::ALL.into_iter().all(|format| {
+                matches!(
+                    super::prepare_case(&case, PATCH, format),
+                    Err(CaseError::Case(_))
+                )
+            }),
         };
         assert!(refused, "{} is rejected", path.display());
         count += 1;
@@ -248,9 +300,10 @@ fn reads_the_patch_bytes_unchanged() {
         r#"{"id":1,"box":"osc~"}"#,
         r#"{"id":1,"box":"osc~","params":{"frequency":1,"frequency":2}}"#,
     );
-    let error = with_default_mode(|mode| render_case(SINE, &repeated, mode))
-        .expect_err("repeated parameter")
-        .to_string();
+    let error =
+        with_default_mode(|mode| render_case(SINE, &repeated, RenderFormat::Binary64, mode))
+            .expect_err("repeated parameter")
+            .to_string();
     assert!(
         error.contains("parameter `frequency` is given twice"),
         "{error}"
@@ -259,7 +312,7 @@ fn reads_the_patch_bytes_unchanged() {
 
 #[test]
 fn writes_a_float_wav_header() {
-    let header = wav_header(48_000, 2, 6).expect("valid sizes");
+    let header = wav_header(48_000, 2, 6, RenderFormat::Binary32).expect("valid sizes");
     let expected: Vec<u8> = [
         &b"RIFF"[..],
         &74_u32.to_le_bytes(),
@@ -281,9 +334,36 @@ fn writes_a_float_wav_header() {
     ]
     .concat();
     assert_eq!(header.to_vec(), expected, "every field");
+    assert_eq!(
+        wav_header(48_000, 2, 6, RenderFormat::Binary64AsBinary32),
+        Ok(header),
+        "binary32 samples given by a 64-bit render"
+    );
+    let wide = wav_header(48_000, 2, 6, RenderFormat::Binary64).expect("valid sizes");
+    let expected_wide: Vec<u8> = [
+        &b"RIFF"[..],
+        &98_u32.to_le_bytes(),
+        b"WAVE",
+        b"fmt ",
+        &18_u32.to_le_bytes(),
+        &3_u16.to_le_bytes(),
+        &2_u16.to_le_bytes(),
+        &48_000_u32.to_le_bytes(),
+        &768_000_u32.to_le_bytes(),
+        &16_u16.to_le_bytes(),
+        &64_u16.to_le_bytes(),
+        &0_u16.to_le_bytes(),
+        b"fact",
+        &4_u32.to_le_bytes(),
+        &3_u32.to_le_bytes(),
+        b"data",
+        &48_u32.to_le_bytes(),
+    ]
+    .concat();
+    assert_eq!(wide.to_vec(), expected_wide, "binary64: 8 bytes a sample");
     assert_eq!(HEADER_LEN, 58, "header size");
     assert_eq!(
-        wav_header(48_000, 0, 0).map(|bytes| bytes[46..50].to_vec()),
+        wav_header(48_000, 0, 0, RenderFormat::Binary64).map(|bytes| bytes[46..50].to_vec()),
         Ok(0_u32.to_le_bytes().to_vec()),
         "no channel, no frame"
     );
@@ -291,56 +371,113 @@ fn writes_a_float_wav_header() {
 
 #[test]
 fn rejects_sizes_beyond_the_wav_format() {
+    let narrow = |channels: usize, samples: usize| {
+        wav_header(48_000, channels, samples, RenderFormat::Binary32)
+    };
     assert_eq!(
-        wav_header(48_000, 70_000, 0),
+        narrow(70_000, 0),
         Err("too many channels for WAV: 70000".to_owned()),
         "u16 channels"
     );
     assert_eq!(
-        wav_header(48_000, 20_000, 0),
+        narrow(20_000, 0),
         Err("too many channels for WAV: 20000".to_owned()),
         "block align overflow"
     );
     assert_eq!(
-        wav_header(384_000, 16_000, 0),
+        wav_header(384_000, 16_000, 0, RenderFormat::Binary32),
         Err("sample rate too high for WAV: 384000".to_owned()),
         "byte rate overflow"
     );
     let too_long = |samples: usize| Err(format!("too long for WAV: {samples} samples"));
     assert_eq!(
-        wav_header(48_000, 1, 1_usize << 30_u32),
+        narrow(1, 1_usize << 30_u32),
         too_long(1_usize << 30_u32),
         "4 GiB of data"
     );
     assert_eq!(
-        wav_header(48_000, 1, 1_073_741_812),
+        narrow(1, 1_073_741_812),
         too_long(1_073_741_812),
         "RIFF size overflow"
     );
     assert_eq!(
-        wav_header(48_000, 1, 1_usize << 32_u32),
+        narrow(1, 1_usize << 32_u32),
         too_long(1_usize << 32_u32),
         "beyond u32"
     );
+    assert!(narrow(1, 1_073_741_811).is_ok(), "largest size that fits");
+    // Binary64: 8 bytes a sample, so every limit at half the count.
+    let wide = |rate: u32, channels: usize, samples: usize| {
+        wav_header(rate, channels, samples, RenderFormat::Binary64)
+    };
+    assert_eq!(
+        wide(48_000, 8_192, 0),
+        Err("too many channels for WAV: 8192".to_owned()),
+        "binary64 block align overflow"
+    );
+    assert!(wide(48_000, 8_191, 0).is_ok(), "the widest binary64 frame");
+    assert_eq!(
+        wide(384_000, 1_399, 0),
+        Err("sample rate too high for WAV: 384000".to_owned()),
+        "binary64 byte rate overflow"
+    );
     assert!(
-        wav_header(48_000, 1, 1_073_741_811).is_ok(),
-        "largest size that fits"
+        wide(384_000, 1_398, 0).is_ok(),
+        "the largest binary64 byte rate"
+    );
+    assert_eq!(
+        wide(48_000, 1, 1_usize << 29_u32),
+        too_long(1_usize << 29_u32),
+        "4 GiB of binary64 data"
+    );
+    assert_eq!(
+        wide(48_000, 1, 536_870_906),
+        too_long(536_870_906),
+        "binary64 RIFF size overflow"
+    );
+    assert!(
+        wide(48_000, 1, 536_870_905).is_ok(),
+        "the largest binary64 size that fits"
     );
 }
 
 #[test]
 fn encodes_samples_after_the_header() {
-    let rendered = Rendered {
+    let mono = |samples: RenderedSamples| Rendered {
         rate: SampleRate::HZ_48000,
         channels: 1,
-        samples: vec![0.5, -1.0],
+        samples,
     };
-    let bytes = wav_bytes(&rendered).expect("valid render");
-    assert_eq!(bytes.len(), HEADER_LEN + 8, "header and two samples");
+    let rendered = mono(RenderedSamples::Binary32(vec![0.5, -1.0]));
+    let encoded = wav_bytes(&rendered).expect("valid render");
+    assert_eq!(encoded.len(), HEADER_LEN + 8, "header and two samples");
     assert_eq!(
-        &bytes[HEADER_LEN..],
+        &encoded[HEADER_LEN..],
         [0.5_f32.to_le_bytes(), (-1.0_f32).to_le_bytes()].concat(),
         "little-endian f32"
+    );
+    let given = mono(RenderedSamples::Binary64AsBinary32(vec![0.25]));
+    assert_eq!(
+        wav_bytes(&given).map(|bytes| bytes[HEADER_LEN..].to_vec()),
+        Ok(0.25_f32.to_le_bytes().to_vec()),
+        "binary32 samples of a 64-bit render"
+    );
+    let wide = mono(RenderedSamples::Binary64(vec![0.1_f64, -0.0_f64]));
+    let wide_bytes = wav_bytes(&wide).expect("valid render");
+    assert_eq!(
+        wide_bytes.len(),
+        HEADER_LEN + 16,
+        "header and two binary64 samples"
+    );
+    assert_eq!(
+        &wide_bytes[34..36],
+        64_u16.to_le_bytes(),
+        "64 bits a sample"
+    );
+    assert_eq!(
+        &wide_bytes[HEADER_LEN..],
+        [0.1_f64.to_le_bytes(), (-0.0_f64).to_le_bytes()].concat(),
+        "little-endian f64"
     );
     let too_wide = Rendered {
         channels: 70_000,
@@ -355,8 +492,8 @@ fn render_command_prints_the_hash_and_writes_wav() {
     let (result, out) = run_with(&mut memory, &["render", "case.json", "patch.json"]);
     assert_eq!(
         (result, out),
-        (Ok(()), format!("{}\n", sine_hash())),
-        "hash only"
+        (Ok(()), format!("{}\n", sine_hash(RenderFormat::Binary64))),
+        "the hash of the default format, binary64"
     );
     let (with_wav, _) = run_with(
         &mut memory,
@@ -365,9 +502,50 @@ fn render_command_prints_the_hash_and_writes_wav() {
     assert_eq!(with_wav, Ok(()), "with a WAV file");
     assert_eq!(
         memory.files[Path::new("out.wav")].len(),
-        HEADER_LEN + 800,
-        "100 stereo frames"
+        HEADER_LEN + 1600,
+        "100 stereo frames of binary64"
     );
+    for format in RenderFormat::ALL {
+        for words in [
+            &[
+                "render",
+                "case.json",
+                "patch.json",
+                "--format",
+                format.name(),
+            ][..],
+            &[
+                "render",
+                "case.json",
+                "patch.json",
+                "--wav",
+                "f.wav",
+                "--format",
+                format.name(),
+            ],
+            &[
+                "render",
+                "case.json",
+                "patch.json",
+                "--format",
+                format.name(),
+                "--wav",
+                "f.wav",
+            ],
+        ] {
+            assert_eq!(
+                run_with(&mut memory, words),
+                (Ok(()), format!("{}\n", sine_hash(format))),
+                "{words:?}"
+            );
+        }
+        let width = usize::from(format.sample_bits() / 8);
+        assert_eq!(
+            memory.files[Path::new("f.wav")].len(),
+            HEADER_LEN + 200 * width,
+            "{format}: 100 stereo frames"
+        );
+    }
 }
 
 #[test]
@@ -377,7 +555,8 @@ fn render_command_reports_errors() {
         ("patch.json", PATCH),
         ("bad.json", "{"),
     ]);
-    let expects = usage("render expects <case.json> <patch.json> [--wav <file.wav>]");
+    let expects =
+        usage("render expects <case.json> <patch.json> [--format <format>] [--wav <file.wav>]");
     for (words, error) in [
         (&["render"][..], expects.clone()),
         (&["render", "case.json"][..], expects.clone()),
@@ -399,7 +578,41 @@ fn render_command_reports_errors() {
         ),
         (
             &["render", "case.json", "patch.json", "--wav", "a.wav", "b"][..],
+            expects.clone(),
+        ),
+        (
+            &["render", "case.json", "patch.json", "--format"][..],
+            expects.clone(),
+        ),
+        (
+            &[
+                "render",
+                "case.json",
+                "patch.json",
+                "--wav",
+                "a.wav",
+                "--wav",
+                "b.wav",
+            ][..],
+            expects.clone(),
+        ),
+        (
+            &[
+                "render",
+                "case.json",
+                "patch.json",
+                "--format",
+                "binary32",
+                "--format",
+                "binary64",
+            ][..],
             expects,
+        ),
+        (
+            &["render", "case.json", "patch.json", "--format", "binary16"][..],
+            usage(
+                "unknown render format \"binary16\" (binary64, binary64-as-binary32 or binary32)",
+            ),
         ),
         (
             &["render", "missing.json", "patch.json"][..],
@@ -445,43 +658,52 @@ fn conformance(references: &str) -> Memory {
 
 #[test]
 fn check_command_accepts_matching_references() {
-    let mut memory = conformance(&format!(r#"{{"sine":"{}"}}"#, sine_hash()));
+    let mut memory = conformance(&format!(r#"{{"sine":{}}}"#, sine_references()));
     let (result, out) = run_with(&mut memory, &["check", "conf"]);
     assert_eq!(result, Ok(()), "all match");
-    assert_eq!(
-        out,
-        format!("ok       sine {}\n", sine_hash()),
-        "one line per case"
-    );
+    let lines = RenderFormat::ALL
+        .map(|format| format!("ok       sine {format} {}\n", sine_hash(format)))
+        .concat();
+    assert_eq!(out, lines, "one line per case and format");
 }
 
 #[test]
 fn check_command_reports_every_problem() {
-    let mut memory = conformance(r#"{"sine":"0000","gone":"1111"}"#);
+    let binary32 = sine_hash(RenderFormat::Binary32);
+    let mut memory = conformance(&format!(
+        r#"{{"sine":{{"binary64":"0000","binary32":"{binary32}","binary16":"2222"}},"gone":{{"binary64":"1111"}}}}"#
+    ));
     let (result, out) = run_with(&mut memory, &["check", "conf"]);
     assert_eq!(
         result,
-        Err("conformance failed in conf: 2 problem(s)".to_owned()),
-        "two problems"
+        Err("conformance failed in conf: 4 problem(s)".to_owned()),
+        "four problems"
     );
     assert_eq!(
         out,
         format!(
-            "MISMATCH sine: expected 0000, got {}\nSTALE    gone: reference without a case\n",
-            sine_hash()
+            "MISMATCH sine binary64: expected 0000, got {}\n\
+             MISSING  sine binary64-as-binary32: no reference hash (run bless)\n\
+             ok       sine binary32 {binary32}\n\
+             STALE    sine binary16: reference of no render format\n\
+             STALE    gone: reference without a case\n",
+            sine_hash(RenderFormat::Binary64)
         ),
-        "mismatch and stale reference"
+        "mismatch, missing format, reference of no format and stale case"
     );
     let mut missing = conformance("{}");
     let (missing_result, missing_out) = run_with(&mut missing, &["check", "conf"]);
     assert_eq!(
         missing_result,
-        Err("conformance failed in conf: 1 problem(s)".to_owned()),
-        "missing reference"
+        Err("conformance failed in conf: 3 problem(s)".to_owned()),
+        "missing references"
     );
     assert_eq!(
-        missing_out, "MISSING  sine: no reference hash (run bless)\n",
-        "explained"
+        missing_out,
+        "MISSING  sine binary64: no reference hash (run bless)\n\
+         MISSING  sine binary64-as-binary32: no reference hash (run bless)\n\
+         MISSING  sine binary32: no reference hash (run bless)\n",
+        "explained, format by format"
     );
 }
 
@@ -527,24 +749,34 @@ fn check_command_reports_every_case_that_fails_to_render() {
         ("conf/patches/sine.json", PATCH),
         (
             "conf/references.json",
-            &format!(r#"{{"a":"0","b":"0","sine":"{}"}}"#, sine_hash()),
+            &format!(r#"{{"a":{{}},"b":{{}},"sine":{}}}"#, sine_references()),
         ),
     ]);
     let (result, out) = run_with(&mut memory, &["check", "conf"]);
     assert_eq!(
         result,
-        Err("conformance failed in conf: 2 problem(s)".to_owned()),
-        "both failures counted, once each"
+        Err("conformance failed in conf: 6 problem(s)".to_owned()),
+        "both failures counted, once per format each"
     );
+    let failed = |name: &str, reason: &str| -> String {
+        RenderFormat::ALL
+            .map(|format| format!("FAILED   {name} {format}: {reason}\n"))
+            .concat()
+    };
+    let ok = RenderFormat::ALL
+        .map(|format| format!("ok       sine {format} {}\n", sine_hash(format)))
+        .concat();
     assert_eq!(
         out,
         format!(
-            "FAILED   a: conf/cases/a.json: invalid case: EOF while parsing an object at line 1 column 1\n\
-             FAILED   b: conf/patches/b.json: box 1: unknown box type \"foo~\"\n\
-             ok       sine {}\n",
-            sine_hash()
+            "{}{}{ok}",
+            failed(
+                "a",
+                "conf/cases/a.json: invalid case: EOF while parsing an object at line 1 column 1"
+            ),
+            failed("b", "conf/patches/b.json: box 1: unknown box type \"foo~\""),
         ),
-        "every case reported, in order"
+        "every case reported in every format, in order"
     );
     let mut broken = Memory::with(&[
         ("conf/cases/a.json", "{"),
@@ -572,11 +804,16 @@ fn bless_command_writes_sorted_references() {
         out, "blessed 2 case(s) in conf/references.json\n",
         "summary"
     );
-    let hash = sine_hash();
+    let hashes = format!(
+        "{{\n    \"binary32\": \"{}\",\n    \"binary64\": \"{}\",\n    \"binary64-as-binary32\": \"{}\"\n  }}",
+        sine_hash(RenderFormat::Binary32),
+        sine_hash(RenderFormat::Binary64),
+        sine_hash(RenderFormat::Binary64AsBinary32)
+    );
     assert_eq!(
         memory.text("conf/references.json"),
-        format!("{{\n  \"a\": \"{hash}\",\n  \"sine\": \"{hash}\"\n}}\n"),
-        "sorted JSON"
+        format!("{{\n  \"a\": {hashes},\n  \"sine\": {hashes}\n}}\n"),
+        "sorted JSON: cases, then the names of the formats"
     );
     assert_eq!(
         run_with(&mut memory, &["check", "conf"]).0,
@@ -679,13 +916,13 @@ impl io::Write for Broken {
 
 #[test]
 fn reports_a_broken_output() {
-    let mut memory = conformance(&format!(r#"{{"sine":"{}"}}"#, sine_hash()));
+    let mut memory = conformance(&format!(r#"{{"sine":{}}}"#, sine_references()));
     assert_eq!(
         run(&args(&["check", "conf"]), &mut memory, &mut Broken).map_err(|error| error.to_string()),
         Err("cannot write to stdout: closed".to_owned()),
         "check"
     );
-    let mut bad = conformance(r#"{"sine":"0"}"#);
+    let mut bad = conformance(r#"{"sine":{"binary64":"0"}}"#);
     assert_eq!(
         run(&args(&["check", "conf"]), &mut bad, &mut Broken).map_err(|error| error.to_string()),
         Err("cannot write to stdout: closed".to_owned()),
@@ -703,14 +940,29 @@ fn reports_a_broken_output() {
         ("conf/patches/sine.json", PATCH),
         (
             "conf/references.json",
-            &format!(r#"{{"sine":"{}","z":"0"}}"#, sine_hash()),
+            &format!(r#"{{"sine":{},"z":{{}}}}"#, sine_references()),
         ),
     ]);
-    let mut once = Limited(1);
+    let mut three = Limited(3);
     assert_eq!(
-        run(&args(&["check", "conf"]), &mut stale, &mut once).map_err(|error| error.to_string()),
+        run(&args(&["check", "conf"]), &mut stale, &mut three).map_err(|error| error.to_string()),
         Err("cannot write to stdout: closed".to_owned()),
         "stale line"
+    );
+    let mut unknown_format = conformance(&format!(
+        r#"{{"sine":{}}}"#,
+        sine_references().replace("binary32\"", "binary16\"")
+    ));
+    let mut three_more = Limited(3);
+    assert_eq!(
+        run(
+            &args(&["check", "conf"]),
+            &mut unknown_format,
+            &mut three_more
+        )
+        .map_err(|error| error.to_string()),
+        Err("cannot write to stdout: closed".to_owned()),
+        "a line on a reference of no render format"
     );
 }
 
@@ -797,7 +1049,7 @@ fn refuses_files_larger_than_their_limit() {
         "{PATCH}{}",
         " ".repeat(engine_patch::MAX_PATCH_BYTES - PATCH.len())
     );
-    let hashes = format!(r#"{{"c":"{}"}}"#, sine_hash());
+    let hashes = format!(r#"{{"c":{}}}"#, sine_references());
     let references = format!(
         "{hashes}{}",
         " ".repeat(super::MAX_REFERENCES_BYTES - hashes.len())
@@ -858,14 +1110,17 @@ fn refuses_files_larger_than_their_limit() {
 
 #[test]
 fn prepares_a_case_before_rendering() {
-    let prepared = super::prepare_case(SINE, PATCH).expect("valid case");
-    assert_eq!(prepared.channels(), 2, "channels");
-    assert_eq!(prepared.sample_count(), 200, "100 frames x 2 channels");
-    assert_eq!(
-        with_default_mode(|mode| prepared.render(mode)),
-        with_default_mode(|mode| render_case(SINE, PATCH, mode)).expect("valid case"),
-        "same render"
-    );
+    for format in RenderFormat::ALL {
+        let prepared = super::prepare_case(SINE, PATCH, format).expect("valid case");
+        assert_eq!(prepared.channels(), 2, "channels");
+        assert_eq!(prepared.sample_count(), 200, "100 frames x 2 channels");
+        assert_eq!(prepared.format(), format, "its format");
+        assert_eq!(
+            with_default_mode(|mode| prepared.render(mode)),
+            with_default_mode(|mode| render_case(SINE, PATCH, format, mode)).expect("valid case"),
+            "same render"
+        );
+    }
 }
 
 #[test]
@@ -874,25 +1129,27 @@ fn refuses_a_case_too_long_for_a_wav_file_before_rendering() {
     // The longest stereo case, 2^29 frames, is 4 GiB of samples: one byte too many.
     let huge = SINE.replace(r#""frames":100"#, r#""frames":536870912"#);
     assert_ne!(huge, SINE, "the duration was replaced");
-    assert_eq!(
-        super::prepare_case(&huge, PATCH).map(|prepared| prepared.sample_count()),
-        Err(CaseError::Case(
-            "too long for WAV: 1073741824 samples".to_owned()
-        )),
-        "rejected while preparing"
-    );
-    let prepared = super::prepare_case(SINE, PATCH).expect("valid case");
-    assert_eq!(
-        prepared.wav_header(),
-        &wav_header(48_000, 2, 200).expect("valid sizes"),
-        "header kept"
-    );
+    for format in RenderFormat::ALL {
+        assert_eq!(
+            super::prepare_case(&huge, PATCH, format).map(|prepared| prepared.sample_count()),
+            Err(CaseError::Case(
+                "too long for WAV: 1073741824 samples".to_owned()
+            )),
+            "rejected while preparing"
+        );
+        let prepared = super::prepare_case(SINE, PATCH, format).expect("valid case");
+        assert_eq!(
+            prepared.wav_header(),
+            &wav_header(48_000, 2, 200, format).expect("valid sizes"),
+            "header kept"
+        );
+    }
 }
 
 #[test]
 fn writes_wav_files_from_a_header_and_samples() {
-    let header = wav_header(48_000, 1, 2).expect("valid sizes");
-    let file = super::wav_file(&header, &[0.5, -1.0]);
+    let header = wav_header(48_000, 1, 2, RenderFormat::Binary32).expect("valid sizes");
+    let file = super::wav_file(&header, &RenderedSamples::Binary32(vec![0.5, -1.0]));
     assert_eq!(&file[..HEADER_LEN], &header, "header first");
     assert_eq!(
         &file[HEADER_LEN..],
@@ -956,32 +1213,32 @@ fn export_command_writes_the_wav_of_every_case_in_order() {
         vec![PathBuf::from("out/wav")],
         "output directory"
     );
-    let rendered_a = with_default_mode(|mode| render_case(SINE, PATCH, mode)).expect("valid case");
-    let rendered_b =
-        with_default_mode(|mode| render_case(SINE, &memory.text("conf/patches/b.json"), mode))
-            .expect("valid case");
+    let mut lines = Vec::new();
+    for (name, patch) in [
+        ("a", PATCH.to_owned()),
+        ("b", memory.text("conf/patches/b.json")),
+    ] {
+        for format in RenderFormat::ALL {
+            let rendered = with_default_mode(|mode| render_case(SINE, &patch, format, mode))
+                .expect("valid case");
+            let path = format!("out/wav/{name}.{format}.wav");
+            assert_eq!(
+                memory.files[Path::new(&path)],
+                wav_bytes(&rendered).expect("fits"),
+                "{path}"
+            );
+            lines.push(format!("wrote    {path} {}\n", rendered.hash()));
+        }
+    }
     assert_ne!(
-        rendered_a.samples, rendered_b.samples,
+        memory.files[Path::new("out/wav/a.binary64.wav")],
+        memory.files[Path::new("out/wav/b.binary64.wav")],
         "two different cases"
     );
     assert_eq!(
-        memory.files[Path::new("out/wav/a.wav")],
-        wav_bytes(&rendered_a).expect("fits"),
-        "a"
-    );
-    assert_eq!(
-        memory.files[Path::new("out/wav/b.wav")],
-        wav_bytes(&rendered_b).expect("fits"),
-        "b"
-    );
-    assert_eq!(
         out,
-        format!(
-            "wrote    out/wav/a.wav {}\nwrote    out/wav/b.wav {}\n",
-            rendered_a.hash(),
-            rendered_b.hash()
-        ),
-        "sorted by name"
+        lines.concat(),
+        "sorted by name, then in the order of the formats"
     );
     assert!(
         !memory.files.contains_key(Path::new("out/wav/notes.wav")),
@@ -1002,7 +1259,7 @@ fn export_command_reports_errors() {
     read_only.read_only = true;
     assert_eq!(
         run_with(&mut read_only, &["export", "conf", "out"]).0,
-        Err("cannot write out/a.wav: read-only".to_owned()),
+        Err("cannot write out/a.binary64.wav: read-only".to_owned()),
         "write"
     );
     let mut invalid = Memory::with(&[
@@ -1247,9 +1504,10 @@ fn hostile_corpus() -> Memory {
     );
     let forged_box =
         format!(r#"{{"format":1,"nodes":[{{"id":1,"box":"{FORGED_BOX}"}}],"connections":[]}}"#);
-    let references = "{\"b\\u001b[2J\\nok       b\":\"0\",\
-         \"b\\u001b[2J\":\"0\\nok       forged\\u001b[31m\\u202e\",\
-         \"gone\\nok       gone\\u0007\":\"0\"}";
+    let references = "{\"b\\u001b[2J\\nok       b\":{},\
+         \"b\\u001b[2J\":{\"binary64\":\"0\\nok       forged\\u001b[31m\\u202e\",\
+         \"\\u001b[2Jbinary16\\nok\":\"0\"},\
+         \"gone\\nok       gone\\u0007\":{}}";
     Memory::with(&[
         ("conf/cases/a\nok       a 0.json", SINE),
         ("conf/patches/a\nok       a 0.json", &forged_box),
@@ -1269,12 +1527,12 @@ fn check_command_prints_one_safe_line_per_problem() {
     let (result, out) = run_with(&mut memory, &["check", "conf"]);
     assert_eq!(
         result,
-        Err("conformance failed in conf: 6 problem(s)".to_owned()),
-        "every problem counted"
+        Err("conformance failed in conf: 15 problem(s)".to_owned()),
+        "every problem counted, in every format"
     );
-    assert_safe_lines(&out, 6);
+    assert_safe_lines(&out, 15);
     assert!(
-        out.contains("FAILED   a\\u{a}ok       a 0: "),
+        out.contains("FAILED   a\\u{a}ok       a 0 binary64: "),
         "the case name is escaped: {out}"
     );
     assert!(
@@ -1283,10 +1541,16 @@ fn check_command_prints_one_safe_line_per_problem() {
     );
     assert!(
         out.contains(&format!(
-            "MISMATCH b\\u{{1b}}[2J: expected 0\\u{{a}}ok       forged\\u{{1b}}[31m\\u{{202e}}, got {}",
-            sine_hash()
+            "MISMATCH b\\u{{1b}}[2J binary64: expected 0\\u{{a}}ok       forged\\u{{1b}}[31m\\u{{202e}}, got {}",
+            sine_hash(RenderFormat::Binary64)
         )),
         "the reference is escaped: {out}"
+    );
+    assert!(
+        out.contains(
+            "STALE    b\\u{1b}[2J \\u{1b}[2Jbinary16\\u{a}ok: reference of no render format"
+        ),
+        "the name of a format is escaped: {out}"
     );
     assert!(
         out.contains("STALE    gone\\u{a}ok       gone\\u{7}: reference without a case"),
@@ -1308,9 +1572,13 @@ fn bless_and_export_print_safe_lines() {
     );
     let (exported, export_out) = run_with(&mut memory, &["export", "conf\u{1b}[2J", "out"]);
     assert_eq!(exported, Ok(()), "exported");
-    assert_eq!(
-        export_out,
-        format!("wrote    out/a\\u{{a}}\\u{{202e}}.wav {}\n", sine_hash()),
-        "the path is escaped"
-    );
+    let lines = RenderFormat::ALL
+        .map(|format| {
+            format!(
+                "wrote    out/a\\u{{a}}\\u{{202e}}.{format}.wav {}\n",
+                sine_hash(format)
+            )
+        })
+        .concat();
+    assert_eq!(export_out, lines, "the path is escaped");
 }

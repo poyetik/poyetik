@@ -5,6 +5,7 @@ use std::ffi::OsString;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+use engine_core::RenderFormat;
 use engine_fpenv::{DefaultMode, with_default_mode};
 use engine_patch::MAX_PATCH_BYTES;
 
@@ -13,12 +14,15 @@ use crate::{Files, Prepared, prepare_case, wav_file};
 /// Usage of the `engine-cli` command, printed on stdout by `engine-cli help`.
 pub const USAGE: &str = "\
 usage: engine-cli <command>
-  render <case.json> <patch.json> [--wav <file.wav>]
-                      render a case, print its hash, optionally write a WAV file
-  check <dir>         compare every case of <dir>/cases (patches in <dir>/patches)
-                      with <dir>/references.json
+  render <case.json> <patch.json> [--format <format>] [--wav <file.wav>]
+                      render a case in <format> (binary64, the default,
+                      binary64-as-binary32 or binary32), print its hash,
+                      optionally write a WAV file
+  check <dir>         compare every case of <dir>/cases (patches in <dir>/patches),
+                      in every format, with <dir>/references.json
   bless <dir>         rewrite <dir>/references.json from the current renders
-  export <dir> <out>  write the WAV file of every case of <dir>/cases to <out>/<case>.wav
+  export <dir> <out>  write the WAV file of every case of <dir>/cases, in every
+                      format, to <out>/<case>.<format>.wav
   help                print this help";
 
 /// Why a command did not succeed.
@@ -183,12 +187,16 @@ struct CaseFiles {
 }
 
 impl CaseFiles {
-    /// Prepares the case, naming the file at fault on failure.
-    fn prepare(&self) -> Result<Prepared, String> {
-        prepare_case(&self.case, &self.patch)
+    /// Prepares the case in `format`, naming the file at fault on failure.
+    fn prepare(&self, format: RenderFormat) -> Result<Prepared, String> {
+        prepare_case(&self.case, &self.patch, format)
             .map_err(|error| error.in_files(&self.case_path, &self.patch_path))
     }
 }
+
+/// The reference hashes of a conformance directory: for each case, the hash of each render
+/// format, by the format's name.
+type References = BTreeMap<String, BTreeMap<String, String>>;
 
 /// The names of the `.json` files of `dir`, sorted, with their paths.
 fn json_files(files: &mut dyn Files, dir: &Path) -> Result<Vec<(String, PathBuf)>, String> {
@@ -247,19 +255,32 @@ fn cases(files: &mut dyn Files, dir: &Path) -> Result<Vec<CaseFiles>, String> {
     Ok(read_cases)
 }
 
-/// Renders every case of `<dir>/cases`, sorted by name: `(name, hash)`.
-fn hashes(
-    files: &mut dyn Files,
-    dir: &Path,
-    mode: DefaultMode<'_>,
-) -> Result<BTreeMap<String, String>, String> {
+/// Renders every case of `<dir>/cases` in every render format, sorted by name: for each
+/// case, its hash in each format.
+fn hashes(files: &mut dyn Files, dir: &Path, mode: DefaultMode<'_>) -> Result<References, String> {
     let mut hashes = BTreeMap::new();
     for case in cases(files, dir)? {
-        let rendered = case.prepare()?.render(mode);
+        let mut formats = BTreeMap::new();
+        for format in RenderFormat::ALL {
+            let rendered = case.prepare(format)?.render(mode);
+            drop(formats.insert(format.name().to_owned(), rendered.hash().to_string()));
+        }
         // Case names are file names of one directory, hence unique.
-        drop(hashes.insert(case.name, rendered.hash().to_string()));
+        drop(hashes.insert(case.name, formats));
     }
     Ok(hashes)
+}
+
+/// The render format named `name`.
+fn format_named(name: &str) -> Result<RenderFormat, CliError> {
+    RenderFormat::ALL
+        .into_iter()
+        .find(|format| format.name() == name)
+        .ok_or_else(|| {
+            CliError::Usage(format!(
+                "unknown render format \"{name}\" (binary64, binary64-as-binary32 or binary32)"
+            ))
+        })
 }
 
 /// Where the reference hashes of a conformance directory live.
@@ -274,22 +295,35 @@ fn render(
     args: &[String],
     mode: DefaultMode<'_>,
 ) -> Result<(), CliError> {
-    let (case, patch, wav) = match args {
-        [case, patch] => (case, patch, None),
-        [case, patch, flag, wav] if flag == "--wav" => (case, patch, Some(wav)),
-        [_, _, option, ..] if option.starts_with('-') && option != "--wav" => {
-            return Err(CliError::Usage(format!("unknown option \"{option}\"")));
-        }
-        _ => {
-            return Err(CliError::Usage(
-                "render expects <case.json> <patch.json> [--wav <file.wav>]".to_owned(),
-            ));
-        }
+    let expects = || {
+        CliError::Usage(
+            "render expects <case.json> <patch.json> [--format <format>] [--wav <file.wav>]"
+                .to_owned(),
+        )
     };
+    let [case, patch, options @ ..] = args else {
+        return Err(expects());
+    };
+    let (mut format, mut wav) = (None, None);
+    for pair in options.chunks(2) {
+        match pair {
+            [flag, value] if flag == "--format" && format.is_none() => {
+                format = Some(format_named(value)?);
+            }
+            [flag, value] if flag == "--wav" && wav.is_none() => wav = Some(value),
+            [option, ..]
+                if option.starts_with('-') && option != "--format" && option != "--wav" =>
+            {
+                return Err(CliError::Usage(format!("unknown option \"{option}\"")));
+            }
+            _ => return Err(expects()),
+        }
+    }
     let (case_path, patch_path) = (Path::new(case), Path::new(patch));
     let prepared = prepare_case(
         &read(files, case_path, MAX_CASE_BYTES)?,
         &read(files, patch_path, MAX_PATCH_BYTES)?,
+        format.unwrap_or(RenderFormat::Binary64),
     )
     .map_err(|error| error.in_files(case_path, patch_path))?;
     let header = *prepared.wav_header();
@@ -315,42 +349,60 @@ fn check(
 ) -> Result<(), String> {
     let cases = cases(files, dir)?;
     let path = references_path(dir);
-    let expected: BTreeMap<String, String> =
-        serde_json::from_str(&read(files, &path, MAX_REFERENCES_BYTES)?)
-            .map_err(|error| format!("invalid {}: {error}", path.display()))?;
+    let expected: References = serde_json::from_str(&read(files, &path, MAX_REFERENCES_BYTES)?)
+        .map_err(|error| format!("invalid {}: {error}", path.display()))?;
     let mut failures = 0_usize;
-    for case in &cases {
-        let name = &case.name;
-        let (passed, line) = match case
-            .prepare()
-            .map(|prepared| prepared.render(mode).hash().to_string())
-        {
-            Ok(hash) => match expected.get(name) {
-                Some(reference) if *reference == hash => (true, format!("ok       {name} {hash}")),
-                Some(reference) => (
-                    false,
-                    format!("MISMATCH {name}: expected {reference}, got {hash}"),
-                ),
-                None => (
-                    false,
-                    format!("MISSING  {name}: no reference hash (run bless)"),
-                ),
-            },
-            Err(reason) => (false, format!("FAILED   {name}: {reason}")),
-        };
+    let mut report = |stdout: &mut dyn Write, passed: bool, line: String| {
         if !passed {
             failures = failures.saturating_add(1);
         }
-        say(out, &OneLine::new(&line))?;
+        say(stdout, &OneLine::new(&line))
+    };
+    for case in &cases {
+        let name = &case.name;
+        let references = expected.get(name);
+        for format in RenderFormat::ALL {
+            let (passed, line) = match case
+                .prepare(format)
+                .map(|prepared| prepared.render(mode).hash().to_string())
+            {
+                Ok(hash) => match references.and_then(|hashes| hashes.get(format.name())) {
+                    Some(reference) if *reference == hash => {
+                        (true, format!("ok       {name} {format} {hash}"))
+                    }
+                    Some(reference) => (
+                        false,
+                        format!("MISMATCH {name} {format}: expected {reference}, got {hash}"),
+                    ),
+                    None => (
+                        false,
+                        format!("MISSING  {name} {format}: no reference hash (run bless)"),
+                    ),
+                },
+                Err(reason) => (false, format!("FAILED   {name} {format}: {reason}")),
+            };
+            report(out, passed, line)?;
+        }
+        for unknown in references
+            .into_iter()
+            .flat_map(BTreeMap::keys)
+            .filter(|key| !RenderFormat::ALL.iter().any(|format| format.name() == *key))
+        {
+            report(
+                out,
+                false,
+                format!("STALE    {name} {unknown}: reference of no render format"),
+            )?;
+        }
     }
     for name in expected
         .keys()
         .filter(|name| !cases.iter().any(|case| case.name == **name))
     {
-        failures = failures.saturating_add(1);
-        say(
+        report(
             out,
-            &OneLine::new(&format!("STALE    {name}: reference without a case")),
+            false,
+            format!("STALE    {name}: reference without a case"),
         )?;
     }
     if failures == 0 {
@@ -363,7 +415,8 @@ fn check(
     }
 }
 
-/// `bless <dir>`.
+/// `bless <dir>`: the reference hash of every case in every render format, cases and the
+/// names of the formats sorted.
 fn bless(
     files: &mut dyn Files,
     out: &mut dyn Write,
@@ -372,10 +425,7 @@ fn bless(
 ) -> Result<(), String> {
     let actual = hashes(files, dir, mode)?;
     let path = references_path(dir);
-    let entries = actual
-        .iter()
-        .map(|(name, hash)| (name.clone(), serde_json::Value::from(hash.as_str())));
-    let json = format!("{:#}\n", serde_json::Value::Object(entries.collect()));
+    let json = format!("{:#}\n", serde_json::json!(actual));
     files
         .write(&path, json.as_bytes())
         .map_err(|error| format!("cannot write {}: {error}", path.display()))?;
@@ -402,17 +452,19 @@ fn export(
         .create_dir_all(target)
         .map_err(|error| format!("cannot create {}: {error}", target.display()))?;
     for case in cases(files, dir)? {
-        let prepared = case.prepare()?;
-        let header = *prepared.wav_header();
-        let rendered = prepared.render(mode);
-        let path = target.join(format!("{}.wav", case.name));
-        files
-            .write(&path, &wav_file(&header, &rendered.samples))
-            .map_err(|error| format!("cannot write {}: {error}", path.display()))?;
-        say(
-            out,
-            &OneLine::new(&format!("wrote    {} {}", path.display(), rendered.hash())),
-        )?;
+        for format in RenderFormat::ALL {
+            let prepared = case.prepare(format)?;
+            let header = *prepared.wav_header();
+            let rendered = prepared.render(mode);
+            let path = target.join(format!("{}.{format}.wav", case.name));
+            files
+                .write(&path, &wav_file(&header, &rendered.samples))
+                .map_err(|error| format!("cannot write {}: {error}", path.display()))?;
+            say(
+                out,
+                &OneLine::new(&format!("wrote    {} {}", path.display(), rendered.hash())),
+            )?;
+        }
     }
     Ok(())
 }

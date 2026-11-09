@@ -13,6 +13,9 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::hint::black_box;
 
+use engine_core::{RenderFormat, Renderer};
+use engine_hash::Samples;
+
 use super::with_default_mode;
 use super::word::{CONTROL, DEFAULT, Word, read, set_control};
 
@@ -135,13 +138,17 @@ fn conformance() -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../conformance")
 }
 
-/// Every conformance case with its patch and reference hash: `(name, case, patch, hash)`.
-fn corpus() -> Vec<(String, String, String, String)> {
+/// The reference hashes of a case, by the name of the render format.
+type Hashes = BTreeMap<String, String>;
+
+/// Every conformance case with its patch and reference hashes: `(name, case, patch,
+/// hashes)`.
+fn corpus() -> Vec<(String, String, String, Hashes)> {
     let dir = conformance();
-    let references: BTreeMap<String, String> = serde_json::from_str(
+    let references: BTreeMap<String, Hashes> = serde_json::from_str(
         &std::fs::read_to_string(dir.join("references.json")).expect("the references"),
     )
-    .expect("a map of hashes");
+    .expect("a map of hashes by format");
     let cases: Vec<_> = references
         .into_iter()
         .map(|(name, hash)| {
@@ -156,10 +163,10 @@ fn corpus() -> Vec<(String, String, String, String)> {
     cases
 }
 
-/// The render hash of a case, as `engine-cli` renders it: its patch parsed, its plan
-/// built and rendered, its samples hashed. Parsing and every float operation happen in the
-/// mode of the caller.
-fn render(case: &str, patch: &str) -> String {
+/// The render hash of a case in `format`, as `engine-cli` renders it: its patch parsed, its
+/// plan built and rendered, its samples hashed. Parsing and every float operation happen in
+/// the mode of the caller.
+fn render(case: &str, patch: &str, format: RenderFormat) -> String {
     let case: serde_json::Value = serde_json::from_str(case).expect("a case");
     let rate = engine_core::SampleRate::new(
         u32::try_from(case["sample_rate"].as_u64().expect("a rate")).expect("u32"),
@@ -167,16 +174,42 @@ fn render(case: &str, patch: &str) -> String {
     .expect("a valid rate");
     let frames = usize::try_from(case["frames"].as_u64().expect("frames")).expect("usize");
     let patch = engine_patch::parse_patch(patch).expect("a valid patch");
-    let plan = engine_core::Plan::build(&patch, &engine_objects::REGISTRY, rate).expect("a plan");
-    let channels = plan.channels();
-    let samples = engine_core::Renderer::new(plan)
-        .render(frames)
-        .expect("a render");
-    engine_hash::render_hash(rate, channels, &samples).to_string()
+    let registry = &engine_objects::REGISTRY;
+    let wide = || engine_core::Plan::<f64>::build(&patch, registry, rate).expect("a plan");
+    let hash = |channels, samples| {
+        engine_hash::render_hash(rate, channels, samples, engine_core::MODE).to_string()
+    };
+    match format {
+        RenderFormat::Binary64 => {
+            let plan = wide();
+            let channels = plan.channels();
+            let samples: Vec<f64> = Renderer::new(plan).render(frames).expect("a render");
+            hash(channels, Samples::Binary64(&samples))
+        }
+        RenderFormat::Binary64AsBinary32 => {
+            let plan = wide();
+            let channels = plan.channels();
+            let samples: Vec<f32> = Renderer::new(plan).render(frames).expect("a render");
+            hash(channels, Samples::Binary64AsBinary32(&samples))
+        }
+        RenderFormat::Binary32 => {
+            let plan = engine_core::Plan::<f32>::build(&patch, registry, rate).expect("a plan");
+            let channels = plan.channels();
+            let samples: Vec<f32> = Renderer::new(plan).render(frames).expect("a render");
+            hash(channels, Samples::Binary32(&samples))
+        }
+    }
+}
+
+/// The reference hash of `format` among `hashes`.
+fn reference(hashes: &Hashes, format: RenderFormat) -> &str {
+    hashes
+        .get(format.name())
+        .expect("a reference of every format")
 }
 
 /// The case of the corpus whose sine starts subnormal, short enough to render many times.
-fn subnormal_case() -> (String, String, String) {
+fn subnormal_case() -> (String, String, Hashes) {
     corpus()
         .into_iter()
         .find(|(name, ..)| name == "sine-1.1754944e-38-at-8k")
@@ -233,7 +266,7 @@ fn proves_each_forced_mode_in_force_before_relying_on_it() {
 
 #[test]
 fn runs_in_the_default_mode_and_restores_the_host_under_every_host_mode() {
-    let (case, patch, reference) = subnormal_case();
+    let (case, patch, references) = subnormal_case();
     let modes = every_host_mode();
     assert_eq!(
         modes.len(),
@@ -245,13 +278,22 @@ fn runs_in_the_default_mode_and_restores_the_host_under_every_host_mode() {
     );
     let mut distinct = BTreeSet::new();
     for host in modes {
-        let (set, (inside, hash, after)) = as_host(host, || {
-            let (inside, hash) = with_default_mode(|_| (control(), render(&case, &patch)));
-            (inside, hash, control())
+        let (set, (inside, hashes, after)) = as_host(host, || {
+            let (inside, hashes) = with_default_mode(|_| {
+                let hashes = RenderFormat::ALL.map(|format| render(&case, &patch, format));
+                (control(), hashes)
+            });
+            (inside, hashes, control())
         });
         let _: bool = distinct.insert(set);
         assert_eq!(inside, DEFAULT, "host {host:#x}: the default inside");
-        assert_eq!(hash, reference, "host {host:#x}: the reference hash");
+        for (format, hash) in RenderFormat::ALL.into_iter().zip(hashes) {
+            assert_eq!(
+                hash,
+                reference(&references, format),
+                "host {host:#x}: the reference hash of {format}"
+            );
+        }
         assert_eq!(after, set, "host {host:#x}: its mode restored exactly");
     }
     // The positive control of the loop: the modes it set really differed.
@@ -264,14 +306,22 @@ fn runs_in_the_default_mode_and_restores_the_host_under_every_host_mode() {
 
 #[test]
 fn renders_every_conformance_case_to_its_reference_under_a_flushing_host() {
-    for (name, case, patch, reference) in corpus() {
-        let (set, hash) = as_host(FLUSHING, || with_default_mode(|_| render(&case, &patch)));
-        assert_eq!(
-            set & FLUSH_TO_ZERO,
-            FLUSH_TO_ZERO,
-            "{name}: flush-to-zero set"
-        );
-        assert_eq!(hash, reference, "{name}: under a flushing host");
+    for (name, case, patch, references) in corpus() {
+        for format in RenderFormat::ALL {
+            let (set, hash) = as_host(FLUSHING, || {
+                with_default_mode(|_| render(&case, &patch, format))
+            });
+            assert_eq!(
+                set & FLUSH_TO_ZERO,
+                FLUSH_TO_ZERO,
+                "{name}: flush-to-zero set"
+            );
+            assert_eq!(
+                hash,
+                reference(&references, format),
+                "{name} {format}: under a flushing host"
+            );
+        }
     }
     // In force: the same mode really flushes.
     let (_, kept) = as_host(FLUSHING, subnormals_kept);
@@ -282,18 +332,27 @@ fn renders_every_conformance_case_to_its_reference_under_a_flushing_host() {
 fn needs_the_default_mode_to_give_the_references() {
     // The control of the conformance comparison: without the default mode, a host rounding
     // up changes the render of a sine; inside it, the reference comes back.
-    let (_, case, patch, reference) = corpus()
+    let (_, case, patch, references) = corpus()
         .into_iter()
         .find(|(name, ..)| name == "sine-440")
         .expect("sine-440");
-    let (_, (unguarded, guarded)) = as_host(ROUNDING_UP, || {
-        (
-            render(&case, &patch),
-            with_default_mode(|_| render(&case, &patch)),
-        )
-    });
-    assert_ne!(unguarded, reference, "rounding up changes the render");
-    assert_eq!(guarded, reference, "the default mode gives it back");
+    for format in RenderFormat::ALL {
+        let (_, (unguarded, guarded)) = as_host(ROUNDING_UP, || {
+            (
+                render(&case, &patch, format),
+                with_default_mode(|_| render(&case, &patch, format)),
+            )
+        });
+        let expected = reference(&references, format);
+        assert_ne!(
+            unguarded, expected,
+            "{format}: rounding up changes the render"
+        );
+        assert_eq!(
+            guarded, expected,
+            "{format}: the default mode gives it back"
+        );
+    }
 }
 
 #[test]

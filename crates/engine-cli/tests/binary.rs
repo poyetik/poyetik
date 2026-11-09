@@ -41,7 +41,11 @@ mod tests {
                 std::fs::copy(file, dir.join(kind).join("sine-440.json")).expect("copy the file");
             assert!(copied > 0, "the {kind} file is copied");
         }
-        std::fs::write(dir.join("references.json"), r#"{"sine-440":"0"}"#).expect("references");
+        std::fs::write(
+            dir.join("references.json"),
+            r#"{"sine-440":{"binary64":"0"}}"#,
+        )
+        .expect("references");
         let output = Command::new(env!("CARGO_BIN_EXE_engine-cli"))
             .args(["check", &dir.display().to_string()])
             .output()
@@ -54,16 +58,16 @@ mod tests {
         );
         assert!(
             String::from_utf8_lossy(&output.stdout)
-                .starts_with("MISMATCH sine-440: expected 0, got "),
+                .starts_with("MISMATCH sine-440 binary64: expected 0, got "),
             "explained"
         );
         assert_eq!(
             String::from_utf8_lossy(&output.stderr),
             format!(
-                "error: conformance failed in {}: 1 problem(s)\n",
+                "error: conformance failed in {}: 3 problem(s)\n",
                 dir.display()
             ),
-            "summary on stderr, naming the directory"
+            "summary on stderr, naming the directory: a mismatch, two references missing"
         );
     }
 
@@ -78,16 +82,28 @@ mod tests {
             ])
             .output()
             .expect("the binary runs");
-        let wav = std::fs::read(dir.join("wav/sine-440.wav")).expect("written");
+        let read = |format: &str| {
+            std::fs::read(dir.join(format!("wav/sine-440.{format}.wav"))).expect("written")
+        };
+        let (wide, given, narrow) = (
+            read("binary64"),
+            read("binary64-as-binary32"),
+            read("binary32"),
+        );
         std::fs::remove_dir_all(&dir).expect("cleanup");
         assert!(
             output.status.success(),
             "{}",
             String::from_utf8_lossy(&output.stderr)
         );
-        // 58-byte header, then 48000 frames of 2 channels of 4-byte floats.
-        assert_eq!(wav.len(), 58 + 48_000 * 2 * 4, "size");
-        assert!(wav.starts_with(b"RIFF"), "a WAV file");
+        // 58-byte header, then 48000 frames of 2 channels of 8- or 4-byte floats.
+        assert_eq!(wide.len(), 58 + 48_000 * 2 * 8, "binary64 size");
+        for wav in [&given, &narrow] {
+            assert_eq!(wav.len(), 58 + 48_000 * 2 * 4, "binary32 size");
+        }
+        for wav in [&wide, &given, &narrow] {
+            assert!(wav.starts_with(b"RIFF"), "a WAV file");
+        }
     }
 
     /// Runs the binary with `args`.
@@ -281,8 +297,8 @@ mod tests {
         }
         std::fs::write(
             dir.join("references.json"),
-            "{\"b\\u001b[2J\":\"0\\nok       forged\\u001b[31m\\u202e\",\
-             \"gone\\nok       gone\\u0007\":\"0\"}",
+            "{\"b\\u001b[2J\":{\"binary64\":\"0\\nok       forged\\u001b[31m\\u202e\"},\
+             \"gone\\nok       gone\\u0007\":{}}",
         )
         .expect("references");
         let output = engine_cli(&[std::ffi::OsStr::new("check"), dir.as_os_str()]);
@@ -291,10 +307,10 @@ mod tests {
         assert_eq!(
             String::from_utf8_lossy(&output.stderr),
             format!(
-                "error: conformance failed in {}: 4 problem(s)\n",
+                "error: conformance failed in {}: 10 problem(s)\n",
                 dir.display()
             ),
-            "four problems: two failed renders, a mismatch, a stale reference"
+            "ten problems: two cases failing in three formats each, a mismatch, two missing references, a stale reference"
         );
         let stdout = String::from_utf8(output.stdout).expect("UTF-8 output");
         let lines: Vec<&str> = stdout
@@ -302,7 +318,7 @@ mod tests {
             .expect("the last line ends")
             .split('\n')
             .collect();
-        assert_eq!(lines.len(), 4, "one line per problem: {stdout:?}");
+        assert_eq!(lines.len(), 10, "one line per problem: {stdout:?}");
         for line in lines {
             assert!(
                 !line.chars().any(unsafe_character),
