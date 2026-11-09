@@ -882,7 +882,7 @@
         },
         {
           "title": "Engine precision: 64-bit processing by default and 32-bit as a setting, boxes written once, generic over the sample type, all their arithmetic through the engine's math layer (the sample type, its operators and the math functions); a render hash version that records the precision and the arithmetic mode as a versioned set of option flags (all off, the strict default, the only one built), an unknown flag refused; every reference re-blessed for both precisions (a migration step), checked native and WebAssembly",
-          "done": false
+          "done": true
         },
         {
           "title": "Reduction order: every sum of more than two terms through one helper, 16 lanes summed in order then a fixed pairwise tree, whatever the machine's SIMD width; tested against a literal scalar reference on every target (with step 6's re-bless)",
