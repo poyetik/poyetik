@@ -40,6 +40,11 @@ group("judgeQuality", () => {
     ["Nyquist", { ...SINE, frequency: 4000 }],
     ["the rate", { ...SINE, frequency: 8000 }],
     ["silence", { ...SINE, amplitude: 0 }],
+    // At a phase of π/2 they reach full scale, far above their error bound: measured nothing
+    // for their frequency alone.
+    ["DC, at full scale", { ...SINE, frequency: 0, phase: Math.PI / 2 }],
+    ["Nyquist, at full scale", { ...SINE, frequency: 4000, phase: Math.PI / 2 }],
+    ["the rate, at full scale", { ...SINE, frequency: 8000, phase: Math.PI / 2 }],
   ])("measures nothing at %s", (_name, sine) => {
     expect(judgeQuality(new Array<number>(64).fill(0), 8000, sine)).toStrictEqual({ kind: "unmeasured" });
   });
@@ -51,6 +56,9 @@ group("judgeQuality", () => {
     // Its peak about half its error bound over 64 frames, then twice it: measured, and too
     // close to DC to be told apart.
     ["half its bound", (0.5 * 2 ** -25 * 8000) / (2 * Math.PI * 63), "unmeasured"],
+    // Its peak at its last frame (63) just below its bound, and at frame 64, which is not
+    // measured, just above it.
+    ["one frame past its last", (2 ** -25 * 8000) / (2 * Math.PI * 63.5), "unmeasured"],
     ["twice its bound", (2 * 2 ** -25 * 8000) / (2 * Math.PI * 63), "failed"],
   ])("measures nothing of a sine that stays within its error bound of silence: %s", (_name, frequency, kind) => {
     expect(judgeQuality(new Array<number>(64).fill(0), 8000, { ...SINE, frequency }).kind).toBe(kind);
