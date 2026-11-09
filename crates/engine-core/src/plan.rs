@@ -14,7 +14,7 @@ use alloc::vec::Vec;
 
 use crate::{
     Block, Capability, Connection, CoreError, Node, NodeId, Object, ObjectSpec, Patch, SILENCE,
-    SampleRate,
+    SampleRate, flush,
 };
 
 /// One box instance in execution order, with its own input and output buffers.
@@ -64,7 +64,7 @@ struct Resolved<'patch> {
     node: &'patch Node,
     /// Its box type.
     spec: &'static ObjectSpec,
-    /// Its parameter values, in spec order.
+    /// Its parameter values, in spec order, none subnormal.
     params: Vec<f32>,
     /// First bus slot of its outlets (outlets occupy consecutive slots, boxes in id
     /// order).
@@ -72,6 +72,12 @@ struct Resolved<'patch> {
 }
 
 /// Resolves the box type and parameter values of a box.
+///
+/// A subnormal parameter, written or default, is a zero of its sign (decisions 5 and 11 of
+/// `spec/engine-design.md`): flushed before its range is checked, so that a box is never
+/// given one. A parameter of format 1 is its binary32 value, exact in binary64, so this is
+/// also the rule "below 2^-126 in binary64, before any rounding to binary32" that binary64
+/// parameters will follow.
 fn resolve<'patch>(
     node: &'patch Node,
     registry: &[&'static ObjectSpec],
@@ -94,7 +100,7 @@ fn resolve<'patch>(
                 node: node.id,
                 name: name.clone(),
             })?;
-        if !param.accepts(value) {
+        if !param.accepts(flush(value)) {
             return Err(CoreError::ParamOutOfRange {
                 node: node.id,
                 name: name.clone(),
@@ -106,10 +112,12 @@ fn resolve<'patch>(
         .params
         .iter()
         .map(|param| {
-            node.params
-                .get(param.name)
-                .copied()
-                .unwrap_or(param.default)
+            flush(
+                node.params
+                    .get(param.name)
+                    .copied()
+                    .unwrap_or(param.default),
+            )
         })
         .collect();
     Ok(Resolved {

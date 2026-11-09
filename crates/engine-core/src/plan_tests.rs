@@ -164,7 +164,38 @@ static PASS: ObjectSpec = ObjectSpec {
     create: |_, _| Box::new(Pass),
 };
 
-static REGISTRY: [&ObjectSpec; 7] = [&CONST, &RAMP, &ADD, &OUT, &MONO_OUT, &RATE, &PASS];
+/// Outputs its level, which cannot be negative, with the smallest subnormal as default: a
+/// spec no real box should have, to show that defaults are flushed too.
+static LEVEL: ObjectSpec = ObjectSpec {
+    name: "level~",
+    description: "a constant level",
+    inlets: &[],
+    outlets: &[PORT],
+    params: &[ParamSpec {
+        name: "level",
+        description: "level",
+        default: 1.0e-45,
+        min: 0.0,
+        max: 1.0,
+    }],
+    capabilities: &[],
+    create: |_, params| Box::new(Const(params.first().copied().unwrap_or(1.0))),
+};
+
+/// A constant whose range excludes zero: a subnormal written for it is refused.
+static ABOVE: ObjectSpec = ObjectSpec {
+    name: "above~",
+    params: &[ParamSpec {
+        name: "value",
+        description: "value",
+        default: 1.0,
+        min: 1.0,
+        max: 2.0,
+    }],
+    ..CONST
+};
+
+static REGISTRY: [&ObjectSpec; 8] = [&CONST, &RAMP, &ADD, &OUT, &MONO_OUT, &RATE, &PASS, &LEVEL];
 
 fn rate() -> SampleRate {
     SampleRate::new(48_000).expect("valid sample rate")
@@ -469,6 +500,64 @@ fn rejects_out_of_range_parameters() {
             "{value} is within range"
         );
     }
+}
+
+#[test]
+fn treats_subnormal_parameters_as_zero() {
+    // What a box is given, by bits, for a parameter written as `value`.
+    let given = |kind: &str, name: &str, value: Option<f32>| {
+        let source = node(1, kind);
+        let source = match value {
+            Some(value) => with_param(source, name, value),
+            None => source,
+        };
+        let mut plan =
+            build(vec![source, node(2, "mono~")], vec![wire(1, 0, 2, 0)]).expect("valid patch");
+        run(&mut plan, 1)[0][0].to_bits()
+    };
+    // Subnormals of both signs, from the smallest to the largest, 1e-40 among them: a zero
+    // of their sign (decisions 5 and 11 of spec/engine-design.md).
+    for bits in [0x0000_0001_u32, 0x0001_16c2, 0x007f_ffff] {
+        for sign in [0_u32, 0x8000_0000] {
+            assert_eq!(
+                given("const~", "value", Some(f32::from_bits(sign | bits))),
+                sign,
+                "{:#010x}",
+                sign | bits
+            );
+        }
+    }
+    // From the smallest normal on, and zeros, the value is kept as written.
+    for bits in [0x0080_0000_u32, 0x8080_0000, 0x3f80_0000, 0, 0x8000_0000] {
+        assert_eq!(
+            given("const~", "value", Some(f32::from_bits(bits))),
+            bits,
+            "{bits:#010x}"
+        );
+    }
+    // A negative subnormal is a zero, within a range that starts at 0: accepted.
+    assert_eq!(
+        given("level~", "level", Some(-1.0e-40)),
+        0x8000_0000,
+        "-1e-40 is -0"
+    );
+    // A subnormal default is flushed too.
+    assert_eq!(given("level~", "level", None), 0, "the default 1e-45 is +0");
+    // A subnormal outside the range once flushed is refused, reported as written.
+    let patch = Patch::new(
+        vec![with_param(node(1, "above~"), "value", 1.0e-40)],
+        vec![],
+    )
+    .expect("a valid patch");
+    assert_eq!(
+        Plan::build(&patch, &[&ABOVE], rate()).map(|_| ()),
+        Err(CoreError::ParamOutOfRange {
+            node: NodeId(1),
+            name: String::from("value"),
+            value: 1.0e-40,
+        }),
+        "zero is below the range"
+    );
 }
 
 #[test]

@@ -44,8 +44,11 @@ impl ParamSpec {
     }
 }
 
-/// Creates a box instance from a sample rate and its parameter values, given in the
-/// order of [`ObjectSpec::params`] and already validated against their ranges.
+/// Creates a box instance from a sample rate and its parameter values.
+///
+/// The values come in the order of [`ObjectSpec::params`], already validated against their
+/// ranges, and never subnormal: a plan flushes a subnormal parameter to a zero of its sign
+/// ([`crate::flush`]).
 pub type Factory = fn(SampleRate, &[f32]) -> Box<dyn Object>;
 
 /// Static description of a box type: everything the editor, the AI assistant, the
