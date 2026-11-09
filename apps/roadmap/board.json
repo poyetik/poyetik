@@ -1143,6 +1143,10 @@
         {
           "title": "Benchmarks per operator in CI, quality tiers per device, a cost estimate warning when a patch will not keep up",
           "done": false
+        },
+        {
+          "title": "Desktop editor shell chosen by a measured prototype on macOS, Windows and Linux (Tauri and Electron at least): the native GPU render shown inside the editor window without copying, low-latency native audio, the interface on each system's web engine; show outputs in separate native windows",
+          "done": false
         }
       ]
     }
