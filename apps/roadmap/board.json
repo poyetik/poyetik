@@ -761,6 +761,26 @@
         {
           "title": "A gate refusing heavy binary files in git (audio files, files above a size limit) unless reviewed; demos store patches, never rendered sound",
           "done": false
+        },
+        {
+          "title": "Measurement floor proof: bounds_its_own_error_by_the_floor adds one coefficient's error per sample, but up to 22 fitted coefficients sum per sample and a spur reading can double it, which gives about 1.5e-11 for the spur floor against 2^-36 (1.455e-11); redo the derivation term by term and fix the floor or its proof",
+          "done": false
+        },
+        {
+          "title": "Measurement spec: say that the bound checks derived from the error per sample mainly test the measurement code, and that only the checks against a predicted level (such as the THD+N of binary32 rounding) can catch a defect of the box measured",
+          "done": false
+        },
+        {
+          "title": "Oracle measurements: measure.ts follows the Rust algorithm almost line for line, so it proves an independent implementation, not an independent algorithm; add a cross-check that computes the levels another way (for example from the windowed spectrum) and say which kind of independence each check gives",
+          "done": false
+        },
+        {
+          "title": "Browser tests on the developer's machine: the Firefox and WebKit end-to-end tests open the real sound card and disturb audio playing in other browsers; give them a silent output or a fake audio device locally, with a test that proves the emulation is in force",
+          "done": false
+        },
+        {
+          "title": "Mutation timeouts: the default check sets the mutant timeout automatically (about 40 s for xtask's main.rs), and one mutant timed out under load although more time caught it; set a timeout derived from the measured baseline with a margin, or rerun timed-out mutants once with more time",
+          "done": false
         }
       ]
     },
