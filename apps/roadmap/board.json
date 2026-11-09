@@ -1,7 +1,7 @@
 {
   "version": 1,
   "title": "Poyetik",
-  "nextId": 34,
+  "nextId": 36,
   "cards": [
     {
       "id": 3,
@@ -1032,6 +1032,116 @@
         },
         {
           "title": "The engine library's demos (#29): every box playable and checked in the browser",
+          "done": false
+        }
+      ]
+    },
+    {
+      "id": 34,
+      "title": "First image: a square moving with the sound, identical on every target",
+      "description": "The visual counterpart of #1: a white square on black, its position driven by the phase of an audio oscillator, rendered by the engine natively and in WebAssembly and shown live in the playground. Small on purpose: it builds the whole proof chain for images (exact CPU reference, canonical image hash, conformance across targets, GPU within a measured threshold, browser tests, independent oracle) on which every visual box will then be checked.",
+      "column": "later",
+      "milestone": "M3 Visuals",
+      "createdAt": "2026-11-09",
+      "updatedAt": "2026-11-09",
+      "tasks": [
+        {
+          "title": "Visual operator contract in the core and a square operator, with exact edge coverage (antialiasing)",
+          "done": false
+        },
+        {
+          "title": "Exact CPU reference renderer: no_std, no unsafe code, built for every target of the portability check",
+          "done": false
+        },
+        {
+          "title": "Canonical hash of an image sequence, specified in spec/ with known-answer vectors read by every implementation",
+          "done": false
+        },
+        {
+          "title": "Offline render in engine-cli and the first visual conformance case: the same hashes natively and in WebAssembly",
+          "done": false
+        },
+        {
+          "title": "Sound and image on one clock: the instant of each image tied to the audio frames by an exact rule, the square following the phase of an audio oscillator",
+          "done": false
+        },
+        {
+          "title": "GPU backend (wgpu, justified like every dependency): the same images within a measured threshold of the reference, checked in CI on a software GPU",
+          "done": false
+        },
+        {
+          "title": "Playground: the square moving live with the sound in WebGPU, end-to-end tests on the browsers",
+          "done": false
+        },
+        {
+          "title": "Independent oracle: rereads the images, recomputes the hashes and checks the motion",
+          "done": false
+        },
+        {
+          "title": "Wired into cargo xtask check",
+          "done": false
+        },
+        {
+          "title": "Deep review: every finding analyzed and applied, then a fresh review",
+          "done": false
+        }
+      ]
+    },
+    {
+      "id": 35,
+      "title": "Visual foundations: design and quality bar of the visual engine before more boxes",
+      "description": "The visual counterpart of #12: decide the visual engine's design against the live-show targets, then set its quality and proof bar before writing many visual boxes. One core shared with the audio engine; other uses (editing, compositing, embedded) kept possible whenever it costs nothing.",
+      "column": "later",
+      "milestone": "M3 Visuals",
+      "createdAt": "2026-11-09",
+      "updatedAt": "2026-11-09",
+      "tasks": [
+        {
+          "title": "Target matrix for the live show (node-based real-time visuals, lighting previsualization, media servers, LED pixel mapping and lasers, multi-machine shows): for each, the core concepts it needs; a target needing a new core concept is settled before any code",
+          "done": false
+        },
+        {
+          "title": "Engine design decisions, recorded before any code that depends on them: time and rates, push and pull computation, resources and GPU memory, data types (textures, buffers, geometry including vector paths, channels), colour pipeline, outputs, execution modes, random access, hot swap, latency, state",
+          "done": false
+        },
+        {
+          "title": "The hooks of the shared core (time base, open port types) checked against the audio engine's decisions",
+          "done": false
+        },
+        {
+          "title": "Proof tiers declared per operator: exact (logic, CPU reference, integer GPU operations if proven), measured (floating-point GPU within derived thresholds), not guaranteed; shown by the editor",
+          "done": false
+        },
+        {
+          "title": "Shaders written once and translated for every GPU API; a deterministic CPU interpreter of the shader representation as the exact reference of any shader, user shaders included",
+          "done": false
+        },
+        {
+          "title": "Floating-point linear-light colour, with colour metadata (primaries, transfer, range) on every image",
+          "done": false
+        },
+        {
+          "title": "Objective image measurements in the test kit and the oracle (perceptual difference, colour difference, aliasing, banding), thresholds per operator with their derivation",
+          "done": false
+        },
+        {
+          "title": "Deterministic random access: rendering image n directly equals rendering from the start, stateful operators through checkpoints",
+          "done": false
+        },
+        {
+          "title": "Video input and output in the shells: decoded images with exact timestamps, colour and access cost; decoder conformance on a corpus of reference videos",
+          "done": false
+        },
+        {
+          "title": "Output stage: gamut and non-finite guard, and a flash limiter against photosensitive seizures",
+          "done": false
+        },
+        {
+          "title": "Four vertical slices on one core with no special case: raster on screen, vector paths to a simulated laser, an image mapped to DMX pixels over Art-Net, an offline render to a file",
+          "done": false
+        },
+        {
+          "title": "Benchmarks per operator in CI, quality tiers per device, a cost estimate warning when a patch will not keep up",
           "done": false
         }
       ]
