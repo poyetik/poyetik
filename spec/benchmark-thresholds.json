@@ -4,6 +4,21 @@
     "runs": 20,
     "margin": 20,
     "measured_on": "2026-11-09, an Apple silicon Mac (the maintainer's development machine): 100 constructions per browser engine (5 end-to-end runs of 20), the sine-440 patch",
-    "measured_max_ms": { "chromium": 3, "firefox": 16, "webkit": 4 }
+    "measured_max_ms": {
+      "chromium": 3,
+      "firefox": 16,
+      "webkit": 4
+    }
+  },
+  "boxes": {
+    "blocks": 65536,
+    "runs": 5,
+    "margin": 20,
+    "measured_on": "2026-11-09, an Apple silicon Mac (the maintainer's development machine): 3 end-to-end runs, each rendering every box benchmark in both precisions 5 times per browser engine (desktop and iPhone sizes for WebKit), 65,536 blocks of 64 frames each",
+    "measured_max_ms": {
+      "chromium": 47,
+      "firefox": 57,
+      "webkit": 51
+    }
   }
 }

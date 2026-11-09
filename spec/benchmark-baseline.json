@@ -2,31 +2,73 @@
   "boxes": [
     {
       "box": "osc~",
+      "precision": "binary64",
       "setting": "440 Hz at 48 kHz",
-      "instructions": 754997
+      "instructions": 759093
     },
     {
       "box": "osc~",
+      "precision": "binary32",
+      "setting": "440 Hz at 48 kHz",
+      "instructions": 502858
+    },
+    {
+      "box": "osc~",
+      "precision": "binary64",
       "setting": "1000 Hz at 8 kHz",
-      "instructions": 800448
+      "instructions": 804544
     },
     {
       "box": "osc~",
+      "precision": "binary32",
+      "setting": "1000 Hz at 8 kHz",
+      "instructions": 493760
+    },
+    {
+      "box": "osc~",
+      "precision": "binary64",
       "setting": "19999 Hz at 384 kHz",
-      "instructions": 754683
+      "instructions": 758779
     },
     {
       "box": "osc~",
+      "precision": "binary32",
+      "setting": "19999 Hz at 384 kHz",
+      "instructions": 502922
+    },
+    {
+      "box": "osc~",
+      "precision": "binary64",
       "setting": "0 Hz at 44.1 kHz",
-      "instructions": 343232
+      "instructions": 347328
+    },
+    {
+      "box": "osc~",
+      "precision": "binary32",
+      "setting": "0 Hz at 44.1 kHz",
+      "instructions": 396480
     },
     {
       "box": "dac~",
+      "precision": "binary64",
       "setting": "two inlets fed at 48 kHz",
-      "instructions": 17856
+      "instructions": 235200
     },
     {
       "box": "dac~",
+      "precision": "binary32",
+      "setting": "two inlets fed at 48 kHz",
+      "instructions": 19392
+    },
+    {
+      "box": "dac~",
+      "precision": "binary64",
+      "setting": "unconnected at 48 kHz",
+      "instructions": 231360
+    },
+    {
+      "box": "dac~",
+      "precision": "binary32",
       "setting": "unconnected at 48 kHz",
       "instructions": 15552
     }
@@ -34,19 +76,19 @@
   "plans": [
     {
       "oscillators": 256,
-      "instructions": 3867462
+      "instructions": 3924242
     },
     {
       "oscillators": 1024,
-      "instructions": 16620755
+      "instructions": 16841557
     },
     {
       "oscillators": 4096,
-      "instructions": 71693471
+      "instructions": 72665569
     },
     {
       "oscillators": 16384,
-      "instructions": 304278307
+      "instructions": 308231663
     }
   ]
 }

@@ -11,7 +11,7 @@ What the engine's cost benchmarks measure, how their thresholds are derived, wha
 Two kinds of measurement, with opposite properties:
 
 1. **Instruction counts** of the engine's WebAssembly module, for each box at representative settings and for building plans of several sizes: deterministic, identical on every machine, compared exactly with the baseline. `pnpm benchmarks:check` in `bindings/wasm` (part of its `pnpm check`, so of `cargo xtask check`).
-2. **Wall time** of constructing the engine processor in Chromium, Firefox and WebKit: noisy, asserted only as an upper bound with a wide margin. An end-to-end test of `bindings/wasm` (`pnpm test:e2e`, part of the same check).
+2. **Wall time** of constructing the engine processor, and of rendering each box in both precisions, in Chromium, Firefox and WebKit: noisy, asserted only as upper bounds with a wide margin. End-to-end tests of `bindings/wasm` (`pnpm test:e2e`, part of the same check).
 
 ## Instruction counts
 
@@ -34,11 +34,11 @@ A WebAssembly instruction count is a proxy for cost, not a time:
 - **Vector width**: a vector instruction counts as one, however many lanes it computes (the module has no vector instructions today; the instrumenter refuses them until it is taught them).
 - **Instruction cost**: a division, a square root and an addition each count as one.
 
-So a count catches what changes the work done (an algorithm, a loop, an approximation, a copy); it does not rank two designs whose work differs in kind. Wall-time measurements on each browser engine, per box, are planned with the 32-bit precision setting (step 6), which needs them to measure the real ratio decision 10 speaks of.
+So a count catches what changes the work done (an algorithm, a loop, an approximation, a copy); it does not rank two designs whose work differs in kind. The wall time of each box in each precision on each browser engine ("Rendering each box" below) measures what counts cannot: the real binary32/binary64 ratio decision 10 speaks of.
 
 ### What is measured
 
-**Each box at representative settings** (`BOX_BENCHMARKS` in `benchmarks/suite.ts`): the instructions of `BLOCKS` blocks of a patch holding the box, minus those of the same blocks of the same patch without it, each in a fresh instance. So a count is the box's `process` plus what the plan does for it each block (gathering its inputs, copying its outputs into the bus), which is what a patch pays for it. The settings cover low and high sample rates and frequencies, a constant output, and an output fed or not; their names are in the baseline.
+**Each box at representative settings and in both precisions** (`BOX_BENCHMARKS` in `benchmarks/suite.ts`; each entry of the baseline names its `precision`): the instructions of `BLOCKS` blocks of a patch holding the box, minus those of the same blocks of the same patch without it, each in a fresh instance, computed in that precision and given as binary32, as the browser's audio thread is given it (so a binary64 count includes rounding the box's share of the output to binary32). So a count is the box's `process` plus what the plan does for it each block (gathering its inputs, copying its outputs into the bus), which is what a patch pays for it. The settings cover low and high sample rates and frequencies, a constant output, and an output fed or not; their names are in the baseline.
 
 **Building plans** (`PLAN_SIZES`, at `PLAN_RATE`): the instructions of loading a patch of n oscillators feeding the two inlets of one `dac~` in turn (n + 1 boxes, n cables), copying the patch into the module, parsing it and building its plan included: what the engine processor does when it is constructed (`engine-design.md`, decision 15).
 
@@ -61,6 +61,14 @@ Today's boxes have either no inlet (`osc~`) or no outlet (`dac~`), so the plans 
 
 Only through `cargo xtask bless-benchmarks`, which builds the module, counts every benchmark and rewrites `benchmark-baseline.json` (refusing to when the n log n law fails). The commit that changes the baseline says why the counts changed. Lowering a count by a bless is always allowed; raising one needs the reason in that commit, with what the extra cost buys.
 
+### The cost of each precision
+
+`benchmark-baseline.json` gives every box in both precisions; what its counts show, binary32 against binary64 given as binary32 (the counts themselves are in the baseline, the one source):
+
+- `osc~` computes its sine with `libm`'s binary32 sine in binary32, about a third fewer instructions than the binary64 sine; at 0 Hz both sines take their shortest path, and rounding the angle to binary32 makes binary32 the dearer.
+- `dac~`'s binary64 count is mostly the rounding of its channels to binary32 for delivery (`to_binary32`, which handles a NaN by its bits), which binary32 does not pay; a patch pays it once per output sample, not per box.
+- What the counts cannot see (above): a binary64 sample is twice the memory and bandwidth of a binary32 one, a vector holds half as many (the module has no vector instructions yet), and an instruction of the binary64 sine counts as one of the binary32 sine whatever their latencies. The wall times of "Rendering each box" measure the real ratio on each browser engine.
+
 ## Construction of the engine processor
 
 The engine processor compiles the module, instantiates it, parses the patch and builds its plan on the audio thread, once, before it renders (`engine-design.md`, decision 15; a known deviation of CLAUDE.md's real-time constraint). The end-to-end test "constructs the engine processor within its bound, every time" times it `runs` times per browser engine (Chromium, Firefox, WebKit, at desktop and iPhone sizes), each time from creating an engine node (copying the module and the patch into its options included) to its processor's `ready` message, on the bench page's "Time construction" button, with the sine-440 patch. It prints the times it measured.
@@ -72,6 +80,16 @@ The engine processor compiles the module, instantiates it, parses the patch and 
 **What CI cannot run yet.** The measured values come from the maintainer's Mac; no CI run has completed yet (CLAUDE.md, CI), so the bounds are not yet proven on the x86_64 Linux runner, whose WebKit is WebKitGTK. If the first CI runs show slower constructions, the measurement is taken again on the runner and recorded (`measured_on` names where), in a reviewed commit: never by widening the margin to pass.
 
 **Measuring again.** Run `pnpm test:e2e` in `bindings/wasm` several times on an idle machine; each run prints the times per browser engine. Record the slowest per engine in `measured_max_ms`, and where, when and how many in `measured_on`.
+
+## Rendering each box
+
+The end-to-end test "renders every box benchmark in both precisions within its bound, every time, and prints the cost ratio" times, on the bench page's own thread (the module and the browser engine compiling it are those of the worklet), for every setting of `BOX_BENCHMARKS` and both precisions given as binary32, `blocks` blocks (64 frames each, rendered in Web Audio's 128-frame quanta) `runs` times after one warm-up, each in a fresh engine, with and without the box, in Chromium, Firefox and WebKit (desktop and iPhone sizes). It prints every time and the binary32/binary64 cost ratio of the box, from the difference of the medians with and without it: the real ratio decision 10 speaks of, which the instruction counts cannot see (memory, vector width, the cost of each instruction on each browser engine's compiler).
+
+**What is asserted:** every time of the patch holding the box is at most `ceil(measured_max_ms × margin)` of its browser engine, from the `boxes` entry of `benchmark-thresholds.json`. The whole render is bounded, not the difference: a difference of two noisy times can be near zero or negative (an unconnected `dac~`), and the whole render bounds the box's cost from above.
+
+**Derivation.** As for the construction below: `measured_max_ms` is the slowest render measured as `measured_on` says, `margin` covers a slower CI runner, a loaded machine and timer granularity (whole milliseconds in Firefox and WebKit, so `blocks` makes every render last tens of milliseconds). It catches what changes a box's cost by an order of magnitude; the ratio it prints is a measurement, not a threshold, and differences of a few percent are for the instruction counts.
+
+**What CI cannot run yet** and **measuring again**: as for the construction below; the values come from the maintainer's Mac.
 
 ## Adding a benchmark
 
