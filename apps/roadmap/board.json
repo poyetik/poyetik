@@ -951,6 +951,10 @@
         {
           "title": "Silence skipping: a box declares when its output stays exactly zero, the engine skips it only then; a law that renders are identical with skipping on and off",
           "done": false
+        },
+        {
+          "title": "Clean the specification and the documentation once the engine is complete: spec/ keeps what and why (decisions, rules, laws, formats, acceptance tests), without planning (the Step and Order lines, the implementation order, what is implemented when, a section named after the ticket); the documentation describes the finished engine",
+          "done": false
         }
       ]
     },
