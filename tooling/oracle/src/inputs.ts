@@ -3,6 +3,7 @@
  * hashes and expectations arrive as `unknown` and leave typed, or are rejected.
  */
 
+import { RENDER_FORMATS, type RenderFormat } from "./format.ts";
 import { MAX_FRAMES, type Sine } from "./signal.ts";
 
 /** Thrown when a conformance file does not have the expected shape. */
@@ -193,14 +194,27 @@ export function parseCase(text: string, name: string): Case {
   return read;
 }
 
-/** Reads `references.json`: case name → hash. */
-export function parseReferences(value: unknown): Map<string, string> {
+/**
+ * Reads `references.json`: case name → render format → hash, every case with exactly the
+ * three render formats of {@link RENDER_FORMATS}.
+ */
+export function parseReferences(value: unknown): Map<string, ReadonlyMap<RenderFormat, string>> {
   return new Map(
-    entries(value, "references.json").map(([name, hash]) => {
-      if (typeof hash !== "string" || !/^[0-9a-f]{64}$/.test(hash)) {
-        throw new InputError(`references.json: ${name} is not a SHA-256 hash`);
-      }
-      return [name, hash];
+    entries(value, "references.json").map(([name, hashes]) => {
+      const where = `references.json: ${name}`;
+      const checked = onlyKeys(hashes, RENDER_FORMATS, where);
+      return [
+        name,
+        new Map(
+          RENDER_FORMATS.map((format) => {
+            const hash = field(checked, format);
+            if (typeof hash !== "string" || !/^[0-9a-f]{64}$/.test(hash)) {
+              throw new InputError(`${where}: ${format} is not a SHA-256 hash`);
+            }
+            return [format, hash];
+          }),
+        ),
+      ];
     }),
   );
 }

@@ -54,20 +54,53 @@ describe("parseCase", () => {
 });
 
 describe("parseReferences", () => {
-  test("reads case names and hashes", () => {
-    expect(parseReferences({ a: HASH, b: "0".repeat(64) })).toStrictEqual(new Map([["a", HASH], ["b", "0".repeat(64)]]));
+  /** A hash per render format. */
+  const HASHES = { binary64: "0".repeat(64), "binary64-as-binary32": HASH, binary32: "1".repeat(64) };
+
+  test("reads case names and the hash of each render format", () => {
+    expect(parseReferences({ a: HASHES, b: { binary32: HASH, binary64: HASH, "binary64-as-binary32": HASH } })).toStrictEqual(
+      new Map([
+        [
+          "a",
+          new Map([
+            ["binary64", "0".repeat(64)],
+            ["binary64-as-binary32", HASH],
+            ["binary32", "1".repeat(64)],
+          ]),
+        ],
+        [
+          "b",
+          new Map([
+            ["binary64", HASH],
+            ["binary64-as-binary32", HASH],
+            ["binary32", HASH],
+          ]),
+        ],
+      ]),
+    );
+  });
+
+  test("lists the hashes in the order of the render formats, whatever the order of the file", () => {
+    const read = parseReferences({ a: { binary32: HASH, "binary64-as-binary32": HASH, binary64: HASH } }).get("a");
+    expect([...(read?.keys() ?? [])]).toStrictEqual(["binary64", "binary64-as-binary32", "binary32"]);
   });
 
   test.each([
     [[HASH], "references.json is not an object"],
     [null, "references.json is not an object"],
     ["x", "references.json is not an object"],
-    [{ a: 1 }, "references.json: a is not a SHA-256 hash"],
-    [{ a: HASH.toUpperCase() }, "references.json: a is not a SHA-256 hash"],
-    [{ a: `${HASH}0` }, "references.json: a is not a SHA-256 hash"],
-    [{ a: `x${HASH}` }, "references.json: a is not a SHA-256 hash"],
+    [{ a: HASH }, "references.json: a is not an object"],
+    [{ a: [HASH, HASH, HASH] }, "references.json: a is not an object"],
+    [{ a: { ...HASHES, binary16: HASH } }, "references.json: a: unknown field binary16"],
+    [{ a: { "binary64-as-binary32": HASH, binary32: HASH } }, "references.json: a: binary64 is not a SHA-256 hash"],
+    [{ a: { binary64: HASH, binary32: HASH } }, "references.json: a: binary64-as-binary32 is not a SHA-256 hash"],
+    [{ a: { binary64: HASH, "binary64-as-binary32": HASH } }, "references.json: a: binary32 is not a SHA-256 hash"],
+    [{ a: { ...HASHES, binary32: 1 } }, "references.json: a: binary32 is not a SHA-256 hash"],
+    [{ a: { ...HASHES, binary32: HASH.toUpperCase() } }, "references.json: a: binary32 is not a SHA-256 hash"],
+    [{ a: { ...HASHES, binary32: `${HASH}0` } }, "references.json: a: binary32 is not a SHA-256 hash"],
+    [{ a: { ...HASHES, binary32: `x${HASH}` } }, "references.json: a: binary32 is not a SHA-256 hash"],
     // Its text is a valid hash, but it is not a string.
-    [{ a: [HASH] }, "references.json: a is not a SHA-256 hash"],
+    [{ a: { ...HASHES, binary32: [HASH] } }, "references.json: a: binary32 is not a SHA-256 hash"],
   ])("rejects %o", (value, detail) => {
     expect(() => parseReferences(value)).toThrow(new InputError(detail));
   });

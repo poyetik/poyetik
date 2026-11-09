@@ -2,9 +2,7 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { renderHash } from "../src/hash.ts";
-import { parseWav } from "../src/wav.ts";
-import { makeWav, sineSamples } from "./fixtures.ts";
+import { renders } from "./fixtures.ts";
 
 // Runs the real entry point (disk, process) on a corpus in a temporary directory.
 /** The temporary directory of the current test, created before and removed after each one. */
@@ -45,18 +43,20 @@ async function runBin(args: string[]): Promise<{ stdout: string; stderr: string 
   return { stdout, stderr };
 }
 
-/** Writes a corpus of one valid case, `tone`, in the test's directory: its case file, reference, expectations and WAV file. */
+/** Writes a corpus of one valid case, `tone`, in the test's directory: its case file, references, expectations and WAV files. */
 function writeCorpus(): void {
-  const wav = makeWav({ rate: 8000, channels: 1, samples: sineSamples(1, 32, 8000, 1000) });
+  const { wavs, hashes } = renders(1, 32, 8000, 1000);
   mkdirSync(join(dir, "conf", "cases"), { recursive: true });
   mkdirSync(join(dir, "wav"));
   writeFileSync(join(dir, "conf", "cases", "tone.json"), JSON.stringify({ sample_rate: 8000, frames: 32 }));
-  writeFileSync(join(dir, "conf", "references.json"), JSON.stringify({ tone: renderHash(parseWav(wav)) }));
+  writeFileSync(join(dir, "conf", "references.json"), JSON.stringify({ tone: hashes }));
   writeFileSync(
     join(dir, "conf", "expectations.json"),
     JSON.stringify({ tone: { sample_rate: 8000, frames: 32, channels: [{ sine: { frequency: 1000, amplitude: 1, phase: 0 } }] } }),
   );
-  writeFileSync(join(dir, "wav", "tone.wav"), wav);
+  for (const [format, bytes] of wavs) {
+    writeFileSync(join(dir, "wav", `tone.${format}.wav`), bytes);
+  }
 }
 
 /** The shared rejection corpus of case files, found by walking up: the tests also run from a copy of the package, deeper in the repository. */
@@ -73,7 +73,7 @@ function invalidCases(): string {
 test("judges a corpus on disk", async () => {
   writeCorpus();
   const { stdout, stderr } = await runBin([join(dir, "conf"), join(dir, "wav")]);
-  expect(stdout).toMatch(/^ok {7}tone [0-9a-f]{64} \(1 channel\(s\), sine error .+\)\n$/);
+  expect(stdout).toMatch(/^ok {7}tone binary64 [0-9a-f]{64} \(1 channel\(s\), sine error .+\)\nok {7}tone binary64-as-binary32 .+\nok {7}tone binary32 .+\n$/);
   expect(stderr).toBe("");
   expect(process.exitCode).toBe(0);
 });
@@ -93,7 +93,7 @@ test("refuses every case of the shared rejection corpus, read from disk as engin
     const { stdout, stderr } = await runBin([join(dir, "conf"), join(dir, "wav")]);
     expect(process.exitCode, name).toBe(1);
     expect(stdout, name).not.toMatch(/^ok /m);
-    expect(`${stdout}${stderr}`, name).toMatch(new RegExp(`^(FAIL {5}tone: invalid conformance input: tone|error: cannot read ${file}: larger than 65536 bytes$)`, "m"));
+    expect(`${stdout}${stderr}`, name).toMatch(new RegExp(`^(FAIL {5}tone binary64: invalid conformance input: tone|error: cannot read ${file}: larger than 65536 bytes$)`, "m"));
     vi.restoreAllMocks();
   }
 });

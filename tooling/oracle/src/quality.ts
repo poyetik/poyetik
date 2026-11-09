@@ -6,6 +6,7 @@
  */
 
 import { MAX_FRAMES, MeasureError, measure, sineBounds, type Bounds, type Measurements } from "./measure.ts";
+import type { RenderFormat } from "./format.ts";
 import { ideal, sineErrorBound, type Sine } from "./signal.ts";
 
 /** The levels of a channel, in dB relative to its fundamental. */
@@ -36,21 +37,22 @@ function db(value: number): string {
 }
 
 /**
- * Measures `samples`, which must hold `sine` at `rate`, over at most {@link MAX_FRAMES}
- * frames from the start, and holds every level to its bound.
+ * Measures `samples`, a render of `format` which must hold `sine` at `rate`, over at most
+ * {@link MAX_FRAMES} frames from the start, and holds every level to the bound of its
+ * format.
  *
  * Measures nothing when the sine has no fundamental strictly between DC and Nyquist, or
  * when its ideal values over those frames all stay within its error bound of zero (silence
  * included, and a sine at 2^-126 Hz over a few thousand frames): no level can then tell it
  * from silence, which its distance from the ideal sine (`sineError`) already checks.
  */
-export function judgeQuality(samples: readonly number[], rate: number, sine: Sine): Quality {
+export function judgeQuality(samples: readonly number[], rate: number, sine: Sine, format: RenderFormat): Quality {
   const fundamental = fold(sine.frequency, rate);
   if (!(fundamental > 0 && fundamental < rate / 2)) {
     return { kind: "unmeasured" };
   }
   const frames = Math.min(samples.length, MAX_FRAMES);
-  const bound = sineErrorBound(sine.amplitude, frames);
+  const bound = sineErrorBound(sine.amplitude, frames, format);
   let peak = 0;
   for (let frame = 0; frame < frames; frame += 1) {
     peak = Math.max(peak, Math.abs(ideal(sine, rate, frame)));

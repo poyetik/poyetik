@@ -1,17 +1,18 @@
 # oracle
 
-The independent conformance oracle. For every case of `conformance/`, it rereads the WAV file the native engine wrote (`target/conformance/`, from `engine-cli export`), recomputes its render hash, checks the signal against its mathematical definition and measures its quality against thresholds derived from its expectation (`spec/measurements.md`), sharing no code with the engine: a defect common to the engine and its own checks cannot hide.
+The independent conformance oracle. For every case of `conformance/` and every render format (`binary64`, `binary64-as-binary32`, `binary32`), it rereads the WAV file the native engine wrote (`target/conformance/<case>.<format>.wav`, from `engine-cli export`), recomputes its render hash (`render-hash/2`), checks the signal against its mathematical definition within the error bound of its format and measures its quality against thresholds derived from its expectation and its format (`spec/measurements.md`), sharing no code with the engine: a defect common to the engine and its own checks cannot hide.
 
 | Path | What |
 |---|---|
-| `src/wav.ts` | Reads a WAV file: format, rate, channels, samples, every field checked |
+| `src/format.ts` | The render formats: the precision of each and the width of its samples |
+| `src/wav.ts` | Reads a 32- or 64-bit float WAV file: format, rate, channels, sample width, samples, every field checked |
 | `src/hash.ts` | The render hash, written again from its specification (`spec/render-hash.md`) |
-| `src/signal.ts` | The expected signals and their error bounds |
+| `src/signal.ts` | The expected signals and their error bounds, by render format |
 | `src/measure.ts` | The measurements (spectrum, THD+N, THD, SNR, SFDR, aliasing level) and the bounds of a sine, written again from `spec/measurements.md` |
 | `src/quality.ts` | Measures a channel that must hold a sine and holds every level to its derived bound |
-| `src/inputs.ts` | Parses the cases (accepting and refusing the same files as `engine-cli`), the references and the expectations |
+| `src/inputs.ts` | Parses the cases (accepting and refusing the same files as `engine-cli`), the references (a hash per render format) and the expectations |
 | `src/files.ts` | Reads a regular file with a size limit, never more than one byte past it, and lists a directory; a failure is named by its error code |
-| `src/oracle.ts` | The verdict on the whole corpus; an empty corpus fails |
+| `src/oracle.ts` | The verdict on the whole corpus, one line per case and render format; an empty corpus fails |
 | `src/cli.ts`, `src/bin.ts` | The command-line tool (exit 0, 1 or 2; one `error:` line on failure or misuse; `help` prints the usage) |
 
 ```sh

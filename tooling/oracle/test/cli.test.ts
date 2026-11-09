@@ -3,12 +3,13 @@ import { runInNewContext } from "node:vm";
 import { firstUnsafe } from "@poyetik/config/one-line";
 import { describe, expect, test } from "vitest";
 import { USAGE, guardStreams, main, readJson, type Io } from "../src/cli.ts";
-import { renderHash } from "../src/hash.ts";
-import { parseWav } from "../src/wav.ts";
-import { makeWav, sineSamples } from "./fixtures.ts";
+import { RENDER_FORMATS } from "../src/format.ts";
+import { makeWav, renders, sineSamples } from "./fixtures.ts";
 
-/** A valid mono WAV file: 32 frames of a 1 kHz sine at 8 kHz, matching `CHANNEL`. */
-const WAV = makeWav({ rate: 8000, channels: 1, samples: sineSamples(1, 32, 8000, 1000) });
+/** Valid mono WAV files of every render format: 32 frames of a 1 kHz sine at 8 kHz, matching `CHANNEL`, and their hashes. */
+const RENDERS = renders(1, 32, 8000, 1000);
+/** The reference hashes of `RENDERS`. */
+const HASHES = RENDERS.hashes;
 /** The expected signal of the single channel of `WAV`. */
 const CHANNEL = { sine: { frequency: 1000, amplitude: 1, phase: 0 } };
 
@@ -46,55 +47,57 @@ function memory(files: Record<string, string | Uint8Array>): Io & { lines: strin
   };
 }
 
-/** A conformance directory with one case, `tone`, and its exported WAV file. */
-function corpus(references: Record<string, string>): Record<string, string | Uint8Array> {
+/** A conformance directory with one case, `tone`, and its exported WAV files, one per render format. */
+function corpus(references: Record<string, unknown>): Record<string, string | Uint8Array> {
   return {
     "conf/cases/tone.json": JSON.stringify({ sample_rate: 8000, frames: 32 }),
     "conf/cases/README.md": "not a case",
     "conf/references.json": JSON.stringify(references),
     "conf/expectations.json": JSON.stringify({ tone: { sample_rate: 8000, frames: 32, channels: [CHANNEL] } }),
-    "wav/tone.wav": WAV,
+    ...Object.fromEntries([...RENDERS.wavs].map(([format, bytes]) => [`wav/tone.${format}.wav`, bytes])),
     "wav/notes.txt": "not a WAV file",
   };
 }
 
 describe("main", () => {
   test("passes a matching corpus", () => {
-    const io = memory(corpus({ tone: renderHash(parseWav(WAV)) }));
+    const io = memory(corpus({ tone: HASHES }));
     expect(main(["conf", "wav"], io)).toBe(0);
-    expect(io.lines).toHaveLength(1);
-    expect(io.lines[0]).toMatch(/^ok {7}tone /);
+    expect(io.lines).toHaveLength(3);
+    RENDER_FORMATS.forEach((format, index) => {
+      expect(io.lines[index]).toMatch(new RegExp(`^ok {7}tone ${format} `));
+    });
     expect(io.errors).toStrictEqual([]);
   });
 
   test("fails, with the number of problems, on a mismatch", () => {
-    const io = memory(corpus({ tone: "0".repeat(64) }));
+    const io = memory(corpus({ tone: { ...HASHES, binary64: "0".repeat(64) } }));
     expect(main(["conf", "wav"], io)).toBe(1);
-    expect(io.lines[0]).toMatch(/^FAIL {5}tone: hash: /);
+    expect(io.lines[0]).toMatch(/^FAIL {5}tone binary64: hash: /);
     expect(io.errors).toStrictEqual(["error: oracle failed: 1 problem(s)"]);
   });
 
   test("reads each file with the limit of its kind, as engine-cli does", () => {
-    const io = memory(corpus({ tone: renderHash(parseWav(WAV)) }));
+    const io = memory(corpus({ tone: HASHES }));
     expect(main(["conf", "wav"], io)).toBe(0);
     expect(io.limits).toStrictEqual(
       new Map([
         ["conf/cases/tone.json", 65_536],
         ["conf/references.json", 1_048_576],
         ["conf/expectations.json", 1_048_576],
-        ["wav/tone.wav", 2 ** 32 + 7],
+        ...RENDER_FORMATS.map((format) => [`wav/tone.${format}.wav`, 2 ** 32 + 7] as const),
       ]),
     );
-    const large = memory({ ...corpus({ tone: renderHash(parseWav(WAV)) }), "conf/cases/tone.json": `{"sample_rate":8000,"frames":32}${" ".repeat(65_536)}` });
+    const large = memory({ ...corpus({ tone: HASHES }), "conf/cases/tone.json": `{"sample_rate":8000,"frames":32}${" ".repeat(65_536)}` });
     expect(main(["conf", "wav"], large)).toBe(1);
     expect(large.errors).toStrictEqual(["error: cannot read conf/cases/tone.json: larger than 65536 bytes"]);
   });
 
   test("fails on unreadable or invalid inputs", () => {
-    const io = memory({ ...corpus({ tone: renderHash(parseWav(WAV)) }), "conf/cases/tone.json": "{" });
+    const io = memory({ ...corpus({ tone: HASHES }), "conf/cases/tone.json": "{" });
     expect(main(["conf", "wav"], io)).toBe(1);
-    expect(io.lines).toHaveLength(1);
-    expect(io.lines[0]).toMatch(/^FAIL {5}tone: invalid conformance input: tone: not JSON \(SyntaxError: /);
+    expect(io.lines).toHaveLength(3);
+    expect(io.lines[0]).toMatch(/^FAIL {5}tone binary64: invalid conformance input: tone: not JSON \(SyntaxError: /);
     const unreadable = memory({ ...corpus({}), "conf/references.json": "{" });
     expect(main(["conf", "wav"], unreadable)).toBe(1);
     expect(unreadable.errors).toHaveLength(1);
@@ -152,18 +155,20 @@ describe("untrusted text in its output", () => {
   }
 
   test("escapes a references key holding a terminal sequence or a line break, one line per problem", () => {
-    const io = memory(corpus({ tone: renderHash(parseWav(WAV)), "\u001b[2J\nFAIL     forged": renderHash(parseWav(WAV)) }));
+    const io = memory(corpus({ tone: HASHES, "\u001b[2J\nFAIL     forged": HASHES }));
     expect(main(["conf", "wav"], io)).toBe(1);
     expect(io.lines).toStrictEqual([
-      "FAIL     \\u{1b}[2J\\u{a}FAIL     forged: missing case file, expectations, WAV file",
-      expect.stringMatching(/^ok {7}tone /),
+      "FAIL     \\u{1b}[2J\\u{a}FAIL     forged: missing case file, expectations",
+      expect.stringMatching(/^ok {7}tone binary64 /),
+      expect.stringMatching(/^ok {7}tone binary64-as-binary32 /),
+      expect.stringMatching(/^ok {7}tone binary32 /),
     ]);
     expect(io.errors).toStrictEqual(["error: oracle failed: 1 problem(s)"]);
   });
 
   test("escapes and bounds an invalid references key of a million characters", () => {
     const key = `${"k".repeat(1_000_000)}\u202e`;
-    const io = memory(corpus({ tone: renderHash(parseWav(WAV)), [key]: "x" }));
+    const io = memory(corpus({ tone: HASHES, [key]: "x" }));
     expect(main(["conf", "wav"], io)).toBe(1);
     expect(io.lines).toStrictEqual([]);
     // "invalid conformance input: references.json: " and the key, cut at 1,000 characters.
@@ -185,9 +190,9 @@ describe("untrusted text in its output", () => {
   test("escapes a chunk id read from a WAV file", () => {
     // A last chunk whose id is ESC [ 2 J and whose size runs past the end of the file.
     const wav = makeWav({ rate: 8000, channels: 1, samples: sineSamples(1, 32, 8000, 1000), trailer: [0x1b, 0x5b, 0x32, 0x4a, 0xff, 0xff, 0, 0] });
-    const io = memory({ ...corpus({ tone: renderHash(parseWav(WAV)) }), "wav/tone.wav": wav });
+    const io = memory({ ...corpus({ tone: HASHES }), "wav/tone.binary32.wav": wav });
     expect(main(["conf", "wav"], io)).toBe(1);
-    expect(io.lines).toStrictEqual(['FAIL     tone: invalid WAV file: chunk "\\u{1b}[2J" extends past the end of the file']);
+    expect(io.lines[2]).toBe('FAIL     tone binary32: invalid WAV file: chunk "\\u{1b}[2J" extends past the end of the file');
   });
 });
 

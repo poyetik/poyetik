@@ -26,6 +26,7 @@ import {
   type Measurements,
   type Quality,
 } from "../src/measure.ts";
+import { RENDER_FORMATS } from "../src/format.ts";
 import { sineErrorBound } from "../src/signal.ts";
 
 /**
@@ -186,7 +187,7 @@ describe("the shared known answers", () => {
     expect(list(VECTORS, "vectors")).toHaveLength(9);
     expect(list(VECTORS, "refusals")).toHaveLength(7);
     expect(list(VECTORS, "sine_bounds")).toHaveLength(7);
-    expect(list(VECTORS, "sine_error_bounds")).toHaveLength(9);
+    expect(list(VECTORS, "sine_error_bounds")).toHaveLength(19);
   });
 
   test.each(list(VECTORS, "refusals").map((vector) => [text(vector, "name"), vector] as const))("refuses %s", (_name, vector) => {
@@ -221,9 +222,20 @@ describe("the shared known answers", () => {
     }
   });
 
-  test.each(list(VECTORS, "sine_error_bounds").map((vector) => [text(vector, "description"), vector] as const))("bounds the error of a sine: %s", (_name, vector) => {
-    const wanted = num(vector, "bound");
-    expect(Math.abs(sineErrorBound(num(vector, "amplitude"), num(vector, "frames")) - wanted)).toBeLessThanOrEqual(wanted * 1e-15);
+  test.each(list(VECTORS, "sine_error_bounds").map((vector) => [`${text(vector, "format")}, ${text(vector, "description")}`, vector] as const))(
+    "bounds the error of a sine: %s",
+    (_name, vector) => {
+      const format = RENDER_FORMATS.find((candidate) => candidate === text(vector, "format"));
+      if (format === undefined) {
+        throw new Error(`unknown format ${text(vector, "format")}`);
+      }
+      const wanted = num(vector, "bound");
+      expect(Math.abs(sineErrorBound(num(vector, "amplitude"), num(vector, "frames"), format) - wanted)).toBeLessThanOrEqual(wanted * 1e-15);
+    },
+  );
+
+  test("has bound vectors of every render format", () => {
+    expect(new Set(list(VECTORS, "sine_error_bounds").map((vector) => text(vector, "format")))).toStrictEqual(new Set(RENDER_FORMATS));
   });
 });
 

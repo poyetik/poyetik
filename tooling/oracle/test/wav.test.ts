@@ -8,10 +8,18 @@ const VALID = { rate: 48_000, channels: 2, samples: [0, 0.5, -0.5, 1] };
 describe("parseWav", () => {
   test("reads the format and the raw samples", () => {
     const wav = parseWav(makeWav(VALID));
-    expect(wav).toMatchObject({ rate: 48_000, channels: 2, frames: 2 });
+    expect(wav).toMatchObject({ rate: 48_000, channels: 2, frames: 2, bits: 32 });
     const view = new DataView(wav.data.buffer, wav.data.byteOffset, wav.data.byteLength);
     expect([0, 1, 2, 3].map((index) => view.getFloat32(index * 4, true))).toStrictEqual([0, 0.5, -0.5, 1]);
     expect(wav.data.byteLength).toBe(16);
+  });
+
+  test("reads 64-bit samples", () => {
+    const wav = parseWav(makeWav({ ...VALID, samples: [0.1, -0.5, 1 / 3, 1], bits: 64 }));
+    expect(wav).toMatchObject({ rate: 48_000, channels: 2, frames: 2, bits: 64 });
+    const view = new DataView(wav.data.buffer, wav.data.byteOffset, wav.data.byteLength);
+    expect([0, 1, 2, 3].map((index) => view.getFloat64(index * 8, true))).toStrictEqual([0.1, -0.5, 1 / 3, 1]);
+    expect(wav.data.byteLength).toBe(32);
   });
 
   test("reads a file inside a larger buffer", () => {
@@ -43,13 +51,18 @@ describe("parseWav", () => {
     ["last chunk unpadded", makeWav({ ...VALID, fmtSize: 16, trailer: [0x4c, 0x49, 0x53, 0x54, 3, 0, 0, 0, 1, 2, 3] }), 'chunk "LIST" lacks its pad byte'],
     ["duplicate chunk", makeWav({ ...VALID, trailer: [0x64, 0x61, 0x74, 0x61, 0, 0, 0, 0] }), 'duplicate chunk "data"'],
     ["short fmt chunk", makeWav({ ...VALID, fmtSize: 14 }), "fmt chunk too short"],
-    ["integer samples", makeWav({ ...VALID, format: 1 }), "not 32-bit float samples (format 1, 32 bits)"],
-    ["64-bit samples", makeWav({ ...VALID, bits: 64 }), "not 32-bit float samples (format 3, 64 bits)"],
+    ["integer samples", makeWav({ ...VALID, format: 1 }), "not 32- or 64-bit float samples (format 1, 32 bits)"],
+    ["integer 64-bit samples", makeWav({ ...VALID, format: 1, bits: 64 }), "not 32- or 64-bit float samples (format 1, 64 bits)"],
+    ["16-bit samples", makeWav({ ...VALID, bits: 16, blockAlign: 4 }), "not 32- or 64-bit float samples (format 3, 16 bits)"],
+    ["48-bit samples", makeWav({ ...VALID, bits: 48 }), "not 32- or 64-bit float samples (format 3, 48 bits)"],
     ["no channel", makeWav({ rate: 48_000, channels: 0, samples: [] }), "no channel or no sample rate"],
     ["no rate", makeWav({ ...VALID, rate: 0 }), "no channel or no sample rate"],
     ["block alignment", makeWav({ ...VALID, blockAlign: 4 }), "inconsistent block alignment or byte rate"],
+    ["block alignment of 32-bit samples in a 64-bit file", makeWav({ ...VALID, bits: 64, blockAlign: 8 }), "inconsistent block alignment or byte rate"],
+    ["block alignment of 64-bit samples in a 32-bit file", makeWav({ ...VALID, blockAlign: 16 }), "inconsistent block alignment or byte rate"],
     ["byte rate", makeWav({ ...VALID, byteRate: 1 }), "inconsistent block alignment or byte rate"],
     ["partial frame", makeWav({ ...VALID, samples: [0, 0.5, 1] }), "data is not a whole number of frames"],
+    ["partial 64-bit frame", makeWav({ ...VALID, samples: [0, 0.5, 1], bits: 64, factFrames: 1 }), "data is not a whole number of frames"],
     ["fact mismatch", makeWav({ ...VALID, factFrames: 3 }), "fact chunk does not match the data"],
   ])("rejects a file with %s", (_defect, bytes, detail) => {
     expect(() => parseWav(bytes)).toThrow(new WavError(detail));

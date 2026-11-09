@@ -1,7 +1,7 @@
 import { describe as group, expect, test } from "vitest";
 import { MeasureError, type Bounds, type Measurements } from "../src/measure.ts";
 import { describe, fold, hold, judgeQuality, worst, type Levels } from "../src/quality.ts";
-import { sineSamples } from "./fixtures.ts";
+import { sineSamples, sineSamples64 } from "./fixtures.ts";
 
 /** A 1 kHz full-scale sine. */
 const SINE = { frequency: 1000, amplitude: 1, phase: 0 };
@@ -21,7 +21,7 @@ group("fold", () => {
 
 group("judgeQuality", () => {
   test("holds a binary32 sine within its derived bounds", () => {
-    const quality = judgeQuality(sineSamples(1, 8000, 8000, 1000.5), 8000, { ...SINE, frequency: 1000.5 });
+    const quality = judgeQuality(sineSamples(1, 8000, 8000, 1000.5), 8000, { ...SINE, frequency: 1000.5 }, "binary64-as-binary32");
     if (quality.kind !== "measured") {
       throw new Error(JSON.stringify(quality));
     }
@@ -30,8 +30,26 @@ group("judgeQuality", () => {
     expect(typeof quality.levels.harmonics === "string" ? null : quality.levels.harmonics.snr).toBeGreaterThan(147);
   });
 
+  test("holds each render format to its own bound", () => {
+    // A binary64 sine passes its binary64 bound; the same sine rounded to binary32 fails it,
+    // and passes the bounds of both binary32 formats; a sine whose angle was rounded to
+    // binary32 passes the binary32 bound only.
+    const wide = sineSamples64(1, 8000, 8000, 1000.5);
+    const sine = { ...SINE, frequency: 1000.5 };
+    expect(judgeQuality(wide, 8000, sine, "binary64").kind).toBe("measured");
+    const narrow = sineSamples(1, 8000, 8000, 1000.5);
+    expect(judgeQuality(narrow, 8000, sine, "binary64").kind).toBe("failed");
+    expect(judgeQuality(narrow, 8000, sine, "binary64-as-binary32").kind).toBe("measured");
+    expect(judgeQuality(narrow, 8000, sine, "binary32").kind).toBe("measured");
+    const angle = Array.from({ length: 8000 }, (_empty, frame) => Math.fround(Math.sin(Math.fround((2 * Math.PI * ((1000.5 * frame) % 8000)) / 8000))));
+    expect(judgeQuality(angle, 8000, sine, "binary64-as-binary32").kind).toBe("failed");
+    expect(judgeQuality(angle, 8000, sine, "binary32").kind).toBe("measured");
+    // Five measurements of 8000 frames: about 0.2 s in a plain run, less than a 20-fold
+    // margin under Vitest's 5 s default once Stryker instruments the measurements.
+  }, 60_000);
+
   test("measures a sine above Nyquist at the frequency its samples hold", () => {
-    const quality = judgeQuality(sineSamples(1, 8000, 8000, 10_001), 8000, { ...SINE, frequency: 10_001 });
+    const quality = judgeQuality(sineSamples(1, 8000, 8000, 10_001), 8000, { ...SINE, frequency: 10_001 }, "binary64-as-binary32");
     expect(quality.kind).toBe("measured");
   });
 
@@ -46,7 +64,7 @@ group("judgeQuality", () => {
     ["Nyquist, at full scale", { ...SINE, frequency: 4000, phase: Math.PI / 2 }],
     ["the rate, at full scale", { ...SINE, frequency: 8000, phase: Math.PI / 2 }],
   ])("measures nothing at %s", (_name, sine) => {
-    expect(judgeQuality(new Array<number>(64).fill(0), 8000, sine)).toStrictEqual({ kind: "unmeasured" });
+    expect(judgeQuality(new Array<number>(64).fill(0), 8000, sine, "binary64-as-binary32")).toStrictEqual({ kind: "unmeasured" });
   });
 
   test.each([
@@ -61,11 +79,11 @@ group("judgeQuality", () => {
     ["one frame past its last", (2 ** -25 * 8000) / (2 * Math.PI * 63.5), "unmeasured"],
     ["twice its bound", (2 * 2 ** -25 * 8000) / (2 * Math.PI * 63), "failed"],
   ])("measures nothing of a sine that stays within its error bound of silence: %s", (_name, frequency, kind) => {
-    expect(judgeQuality(new Array<number>(64).fill(0), 8000, { ...SINE, frequency }).kind).toBe(kind);
+    expect(judgeQuality(new Array<number>(64).fill(0), 8000, { ...SINE, frequency }, "binary64-as-binary32").kind).toBe(kind);
   });
 
   test("reports what cannot be measured", () => {
-    expect(judgeQuality(new Array<number>(64).fill(0), 8000, SINE)).toStrictEqual({
+    expect(judgeQuality(new Array<number>(64).fill(0), 8000, SINE, "binary64-as-binary32")).toStrictEqual({
       kind: "failed",
       problems: ["cannot be measured: the fundamental, of amplitude 0, is not above the floor of the measurement"],
     });
@@ -74,7 +92,7 @@ group("judgeQuality", () => {
   test("reports the levels out of their bounds", () => {
     // A second harmonic at -100 dB: far above the THD bound of a binary32 sine.
     const samples = sineSamples(1, 8000, 8000, 1000).map((value, frame) => value + 1e-5 * Math.sin((2 * Math.PI * 2000 * frame) / 8000));
-    const quality = judgeQuality(samples, 8000, SINE);
+    const quality = judgeQuality(samples, 8000, SINE, "binary64-as-binary32");
     expect(quality).toStrictEqual({
       kind: "failed",
       problems: [
@@ -87,7 +105,7 @@ group("judgeQuality", () => {
 
   test("measures at most the frames the measurement takes", () => {
     const samples = sineSamples(1, 2 ** 17 + 5, 8000, 1000.5);
-    expect(judgeQuality(samples, 8000, { ...SINE, frequency: 1000.5 }).kind).toBe("measured");
+    expect(judgeQuality(samples, 8000, { ...SINE, frequency: 1000.5 }, "binary64-as-binary32").kind).toBe("measured");
   }, 60_000);
 
   test("lets other errors through", () => {
@@ -98,7 +116,7 @@ group("judgeQuality", () => {
         throw new RangeError("boom");
       }
     }
-    expect(() => judgeQuality(Hostile.from([1, 2]), 8000, SINE)).toThrow(new RangeError("boom"));
+    expect(() => judgeQuality(Hostile.from([1, 2]), 8000, SINE, "binary64-as-binary32")).toThrow(new RangeError("boom"));
   });
 });
 

@@ -1,6 +1,6 @@
 /**
- * Reads 32-bit floating-point WAV files, written from the specification of the format
- * (RIFF, `fmt `, `fact`, `data` chunks), with no code shared with the engine's writer.
+ * Reads 32- and 64-bit floating-point WAV files, written from the specification of the
+ * format (RIFF, `fmt `, `fact`, `data` chunks), with no code shared with the engine's writer.
  */
 
 /** A decoded WAV file. */
@@ -11,11 +11,13 @@ export interface Wav {
   readonly channels: number;
   /** Number of frames: samples per channel, as the data chunk holds them. */
   readonly frames: number;
-  /** The samples as stored: little-endian 32-bit floats, channels interleaved. */
+  /** The width of every sample, in bits: 32 (binary32) or 64 (binary64). */
+  readonly bits: 32 | 64;
+  /** The samples as stored: little-endian floats of `bits` bits, channels interleaved. */
   readonly data: Uint8Array;
 }
 
-/** Thrown when a file is not a valid 32-bit float WAV file. */
+/** Thrown when a file is not a valid 32- or 64-bit float WAV file. */
 export class WavError extends Error {
   /**
    * Describes what is wrong with the file.
@@ -36,6 +38,13 @@ interface Format {
   readonly channels: number;
   /** Sample rate, in hertz, as declared. */
   readonly rate: number;
+  /** Bits per sample, as declared: 32 or 64. */
+  readonly bits: 32 | 64;
+}
+
+/** The sample widths read, in bits: binary32 and binary64. */
+function width(bits: number): 32 | 64 | null {
+  return bits === 32 || bits === 64 ? bits : null;
 }
 
 /** Reads four ASCII characters. */
@@ -53,17 +62,18 @@ function format(body: DataView): Format {
   const rate = body.getUint32(4, true);
   const byteRate = body.getUint32(8, true);
   const blockAlign = body.getUint16(12, true);
-  const bits = body.getUint16(14, true);
-  if (code !== IEEE_FLOAT || bits !== 32) {
-    throw new WavError(`not 32-bit float samples (format ${String(code)}, ${String(bits)} bits)`);
+  const declared = body.getUint16(14, true);
+  const bits = width(declared);
+  if (code !== IEEE_FLOAT || bits === null) {
+    throw new WavError(`not 32- or 64-bit float samples (format ${String(code)}, ${String(declared)} bits)`);
   }
   if (channels === 0 || rate === 0) {
     throw new WavError("no channel or no sample rate");
   }
-  if (blockAlign !== channels * 4 || byteRate !== rate * blockAlign) {
+  if (blockAlign !== (channels * bits) / 8 || byteRate !== rate * blockAlign) {
     throw new WavError("inconsistent block alignment or byte rate");
   }
-  return { channels, rate };
+  return { channels, rate, bits };
 }
 
 /**
@@ -96,7 +106,7 @@ function readChunks(view: DataView, start: number, chunks: Map<string, DataView>
   }
 }
 
-/** Reads a WAV file of 32-bit float samples, checking every size and field it relies on. */
+/** Reads a WAV file of 32- or 64-bit float samples, checking every size and field it relies on. */
 export function parseWav(bytes: Uint8Array): Wav {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   if (bytes.length < 12 || tag(view, 0) !== "RIFF" || tag(view, 8) !== "WAVE") {
@@ -113,13 +123,14 @@ export function parseWav(bytes: Uint8Array): Wav {
   if (fmt === undefined || fact === undefined || data === undefined) {
     throw new WavError("missing fmt, fact or data chunk");
   }
-  const { channels, rate } = format(fmt);
-  if (data.byteLength % (channels * 4) !== 0) {
+  const { channels, rate, bits } = format(fmt);
+  const frame = (channels * bits) / 8;
+  if (data.byteLength % frame !== 0) {
     throw new WavError("data is not a whole number of frames");
   }
-  const frames = data.byteLength / (channels * 4);
+  const frames = data.byteLength / frame;
   if (fact.byteLength < 4 || fact.getUint32(0, true) !== frames) {
     throw new WavError("fact chunk does not match the data");
   }
-  return { rate, channels, frames, data: new Uint8Array(data.buffer, data.byteOffset, data.byteLength) };
+  return { rate, channels, frames, bits, data: new Uint8Array(data.buffer, data.byteOffset, data.byteLength) };
 }
