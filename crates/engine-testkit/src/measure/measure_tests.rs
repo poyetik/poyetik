@@ -942,9 +942,10 @@ fn derives_the_bounds_term_by_term() {
 
 #[test]
 fn every_signal_within_the_error_meets_the_bounds() {
-    // The bounds attacked: an ideal sine plus errors of magnitude b chosen to concentrate
-    // in one place (a harmonic, an aliased harmonic, a single spur, alternating, random
-    // signs), at several rates and lengths. Every measurement must stay within the bounds.
+    // The bounds attacked: an ideal sine plus errors of magnitude b, square waves at a
+    // harmonic, at an aliased harmonic and at an unrelated frequency, alternating signs and
+    // random values, at several rates and lengths. Every measurement must stay within the
+    // bounds.
     let error = 1e-6_f64;
     let mut generator = SplitMix(7);
     for (hz, frames, cycles) in [

@@ -97,7 +97,7 @@ A signal whose samples each lie within `ε` of an ideal sine of amplitude `A` at
 | SFDR | `≥ 20 log10(a / (2·b·√ENBW))` | Cauchy-Schwarz on `d` |
 | Fundamental | `≥ a` | The same lemma on the fundamental's two unknowns, of weight 1/2 |
 
-These hold for every such signal, whatever the shape of its error: `every_signal_within_the_error_meets_the_bounds` attacks them with errors concentrated in one harmonic, an aliased harmonic, a spur, Nyquist and random signs, and checks they are reached within 4 dB.
+These hold for every such signal, whatever the shape of its error: `every_signal_within_the_error_meets_the_bounds` attacks them at three rates and lengths with errors of magnitude `ε`: square waves at the second harmonic, at the seventh (aliased at some of the rates) and at a frequency unrelated to the fundamental, alternating signs (Nyquist) and random values, and checks that every level stays within its bound. Only one check shows the bounds are not vacuous: the THD+N of the square wave at the second harmonic comes within 4 dB of its bound.
 
 ## Thresholds of `osc~`
 
