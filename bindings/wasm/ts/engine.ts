@@ -10,14 +10,71 @@ type Exported0 = () => number;
 /** A function exported by the module, with one argument. */
 type Exported1 = (value: number) => number;
 
+/** A function exported by the module, with two arguments. */
+type Exported2 = (first: number, second: number) => number;
+
+/**
+ * Every render format, in the order of the engine's codes (`engine_core::RenderFormat::ALL`):
+ * computed and given in binary64; computed in binary64 and given in binary32; computed and
+ * given in binary32.
+ */
+export const RENDER_FORMATS = ["binary64", "binary64-as-binary32", "binary32"] as const;
+
+/** What a render is: the precision that computes it and the format of its samples. */
+export type RenderFormat = (typeof RENDER_FORMATS)[number];
+
+/** The render formats whose samples are binary32: what Web Audio takes. */
+export type Binary32Format = Exclude<RenderFormat, "binary64">;
+
+/** Every precision a render computes in, the default first: a host setting. */
+export const PRECISIONS = ["binary64", "binary32"] as const;
+
+/** The precision a render computes in: binary64 by default, binary32 for performance. */
+export type Precision = (typeof PRECISIONS)[number];
+
+/**
+ * The render format of a render computed in `precision` and given to a host that takes
+ * binary32 (Web Audio): a 64-bit render is rounded to binary32, a 32-bit one given as it is.
+ */
+export function givenAsBinary32(precision: Precision): Binary32Format {
+  return precision === "binary64" ? "binary64-as-binary32" : "binary32";
+}
+
+/** The sample arrays a render format fills: `Float64Array` for binary64, `Float32Array` otherwise. */
+export type Samples = Float32Array | Float64Array;
+
+/** How the samples of a render format are laid out in the module memory. */
+interface Layout {
+  /** Bytes per sample: 8 or 4. */
+  readonly bytes: number;
+  /** A view of the whole memory as samples. */
+  readonly view: (buffer: ArrayBuffer) => Samples;
+  /** Reads the sample at a byte offset of the memory, little-endian as WebAssembly. */
+  readonly read: (data: DataView, offset: number) => number;
+}
+
+/** The layout of binary64 samples. */
+const BINARY64: Layout = {
+  bytes: Float64Array.BYTES_PER_ELEMENT,
+  view: (buffer) => new Float64Array(buffer),
+  read: (data, offset) => data.getFloat64(offset, true),
+};
+
+/** The layout of binary32 samples. */
+const BINARY32: Layout = {
+  bytes: Float32Array.BYTES_PER_ELEMENT,
+  view: (buffer) => new Float32Array(buffer),
+  read: (data, offset) => data.getFloat32(offset, true),
+};
+
 /** The exports of the engine module. */
 interface Exports {
   /** The module memory: every address the functions return points into it, and it may grow at any call. */
   readonly memory: WebAssembly.Memory;
   /** `engine_input(len)`: makes the input buffer `len` bytes long and returns its address. */
   readonly input: Exported1;
-  /** `engine_load(rate)`: loads the patch in the input buffer at `rate` hertz; 1 on success, 0 on failure. */
-  readonly load: Exported1;
+  /** `engine_load(rate, format)`: loads the patch in the input buffer at `rate` hertz, rendering in the format of code `format` (its index in {@link RENDER_FORMATS}); 1 on success, 0 on failure. */
+  readonly load: Exported2;
   /** `engine_message_ptr()`: the address of the UTF-8 explanation of the last failed load. */
   readonly messagePtr: Exported0;
   /** `engine_message_len()`: the length in bytes of that explanation; 0 after a success. */
@@ -26,7 +83,7 @@ interface Exports {
   readonly channels: Exported0;
   /** `engine_block_size()`: the number of frames of every block the engine renders. */
   readonly blockSize: Exported0;
-  /** `engine_process()`: renders the next block and returns the address of its planar samples. */
+  /** `engine_process()`: renders the next block and returns the byte address of its planar samples. */
   readonly process: Exported0;
   /** `engine_max_patch_bytes()`: the longest patch the engine reads, in bytes; a longer one is refused before it is copied in. */
   readonly maxPatchBytes: Exported0;
@@ -34,9 +91,9 @@ interface Exports {
 
 /**
  * The identity and version of the exported interface this code drives (`ABI_VERSION` in
- * `ffi.rs`): "PY" in the high 16 bits, version 2 in the low 16 bits.
+ * `ffi.rs`): "PY" in the high 16 bits, version 3 in the low 16 bits.
  */
-export const ABI_VERSION = 0x5059_0002;
+export const ABI_VERSION = 0x5059_0003;
 
 /** Thrown when the module does not have the expected interface. */
 export class ModuleError extends Error {
@@ -129,6 +186,12 @@ function exported1(exports: WebAssembly.Exports, name: string): Exported1 {
   return (argument) => call([argument]);
 }
 
+/** Reads one exported function with two arguments. */
+function exported2(exports: WebAssembly.Exports, name: string): Exported2 {
+  const call = exportedFunction(exports, name, 2);
+  return (first, second) => call([first, second]);
+}
+
 /** Reads and checks the exports of an engine module instance, version first. */
 function readExports(exports: WebAssembly.Exports): Exports {
   const memory = exports["memory"];
@@ -142,7 +205,7 @@ function readExports(exports: WebAssembly.Exports): Exports {
   return {
     memory,
     input: exported1(exports, "engine_input"),
-    load: exported1(exports, "engine_load"),
+    load: exported2(exports, "engine_load"),
     messagePtr: exported0(exports, "engine_message_ptr"),
     messageLen: exported0(exports, "engine_message_len"),
     channels: exported0(exports, "engine_channels"),
@@ -179,7 +242,9 @@ function guarded<T>(action: () => T): T {
 }
 
 /**
- * One patch loaded into its own instance of the engine module.
+ * One patch loaded into its own instance of the engine module, rendering in one render
+ * format into arrays of type `A`: `Float64Array` for binary64, `Float32Array` for the two
+ * binary32 formats.
  *
  * The engine renders fixed blocks; {@link WasmEngine.render} fills buffers of any length
  * from them, so the result never depends on how the host splits time. Rendering does
@@ -188,15 +253,17 @@ function guarded<T>(action: () => T): T {
  * and after the JavaScript engine optimizes it. Buffers of other lengths are copied
  * sample by sample, which may allocate until the code is optimized.
  */
-export class WasmEngine {
+export class WasmEngine<A extends Samples> {
   /** Number of output channels of the patch. */
   readonly channels: number;
   /** The module instance. */
   readonly #exports: Exports;
   /** Frames per block. */
   readonly #blockSize: number;
-  /** A view of the module memory, renewed when the memory grows. */
-  #memory: Float32Array;
+  /** How its samples are laid out in the module memory. */
+  readonly #layout: Layout;
+  /** A view of the module memory as samples, renewed when the memory grows. */
+  #memory: Samples;
   /** The module memory read sample by sample (little-endian, as WebAssembly), renewed with {@link WasmEngine.#memory}. */
   #data: DataView;
   /**
@@ -209,7 +276,7 @@ export class WasmEngine {
    * One view per patch channel over the current block, renewed only when the block moves
    * or the memory grows: copying a whole block through them allocates nothing.
    */
-  readonly #views: Float32Array[] = [];
+  readonly #views: Samples[] = [];
   /** Next frame of the current block to output; `#blockSize` when it is used up. */
   #position: number;
   /** Number of blocks rendered so far. */
@@ -229,7 +296,7 @@ export class WasmEngine {
    * iterator allocates until the code is optimized.
    * @throws {RangeError} when it differs from the length of the first output.
    */
-  readonly #checkLength = (output: Float32Array): void => {
+  readonly #checkLength = (output: A): void => {
     if (output.length !== this.#frames) {
       throw new RangeError(`every output must have the same length: ${String(output.length)} instead of ${String(this.#frames)}`);
     }
@@ -241,17 +308,18 @@ export class WasmEngine {
    * which reads no sample as a number and so allocates nothing; a part of a block sample
    * by sample.
    */
-  readonly #copyChunk = (output: Float32Array, channel: number): void => {
+  readonly #copyChunk = (output: A, channel: number): void => {
     const view = this.#views[channel];
     if (view === undefined) {
       output.fill(0, this.#written, this.#written + this.#count);
     } else if (this.#count === this.#blockSize) {
       output.set(view, this.#written);
     } else {
-      const offset = view.byteOffset + this.#position * Float32Array.BYTES_PER_ELEMENT;
+      const bytes = this.#layout.bytes;
+      const offset = view.byteOffset + this.#position * bytes;
       for (let frame = 0; frame !== this.#count; frame += 1) {
         const at = this.#written + frame;
-        output.fill(this.#data.getFloat32(offset + frame * Float32Array.BYTES_PER_ELEMENT, true), at, at + 1);
+        output.fill(this.#layout.read(this.#data, offset + frame * bytes), at, at + 1);
       }
     }
   };
@@ -259,22 +327,26 @@ export class WasmEngine {
   /**
    * Wraps an instance with a patch loaded.
    * @param exports The instance, with a patch loaded.
+   * @param layout How its samples are laid out.
    * @throws {ModuleError} when its blocks have no frame: rendering would never end.
    */
-  private constructor(exports: Exports) {
+  private constructor(exports: Exports, layout: Layout) {
     this.#exports = exports;
+    this.#layout = layout;
     this.channels = exports.channels();
     this.#blockSize = exports.blockSize();
     if (this.#blockSize === 0) {
       throw new ModuleError("engine_block_size returned 0: a block has at least one frame");
     }
-    this.#memory = new Float32Array(exports.memory.buffer);
+    this.#memory = layout.view(exports.memory.buffer);
     this.#data = new DataView(exports.memory.buffer);
     this.#position = this.#blockSize;
   }
 
   /**
-   * Instantiates `module` and loads `patch` (UTF-8 text in the patch format) at `rate` hertz.
+   * Instantiates `module` and loads `patch` (UTF-8 text in the patch format) at `rate`
+   * hertz, rendering in `format`: binary64 renders into `Float64Array`s, the two binary32
+   * formats into `Float32Array`s.
    * @throws {RangeError} when `rate` is not a whole number of hertz that fits 32 bits.
    * @throws {ModuleError} when `module` is not an engine module of this version, or
    * gives blocks of 0 frames.
@@ -283,7 +355,9 @@ export class WasmEngine {
    * memory never shrinks again, with the words of the engine.
    * @throws {EngineTrap} when the module traps.
    */
-  static create(module: WebAssembly.Module, patch: Uint8Array, rate: number): WasmEngine {
+  static create(module: WebAssembly.Module, patch: Uint8Array, rate: number, format: "binary64"): WasmEngine<Float64Array>;
+  static create(module: WebAssembly.Module, patch: Uint8Array, rate: number, format: Binary32Format): WasmEngine<Float32Array>;
+  static create(module: WebAssembly.Module, patch: Uint8Array, rate: number, format: RenderFormat): WasmEngine<Float64Array> | WasmEngine<Float32Array> {
     if (!Number.isInteger(rate) || rate < 0 || rate > 0xff_ff_ff_ff) {
       throw new RangeError(`the sample rate must be a whole number of hertz, not ${String(rate)}`);
     }
@@ -297,12 +371,12 @@ export class WasmEngine {
       // then read `memory.buffer`.
       const input = exports.input(patch.length);
       new Uint8Array(exports.memory.buffer, input, patch.length).set(patch);
-      if (exports.load(rate) !== 1) {
+      if (exports.load(rate, RENDER_FORMATS.indexOf(format)) !== 1) {
         const pointer = exports.messagePtr();
         const length = exports.messageLen();
         throw new PatchError(new Uint8Array(exports.memory.buffer, pointer, length).slice());
       }
-      return new WasmEngine(exports);
+      return format === "binary64" ? new WasmEngine<Float64Array>(exports, BINARY64) : new WasmEngine<Float32Array>(exports, BINARY32);
     });
   }
 
@@ -325,7 +399,7 @@ export class WasmEngine {
    * is then dead.
    * @throws {EngineTrap} when the module traps, or failed before.
    */
-  render(outputs: readonly Float32Array[]): void {
+  render(outputs: readonly A[]): void {
     if (this.#dead) {
       throw new EngineTrap();
     }
@@ -356,14 +430,15 @@ export class WasmEngine {
       throw error instanceof WebAssembly.RuntimeError ? new EngineTrap({ cause: error }) : error;
     }
     const buffer = this.#exports.memory.buffer;
-    const base = pointer / Float32Array.BYTES_PER_ELEMENT;
-    if (!Number.isInteger(base) || base + this.channels * this.#blockSize > buffer.byteLength / Float32Array.BYTES_PER_ELEMENT) {
+    const bytes = this.#layout.bytes;
+    const base = pointer / bytes;
+    if (!Number.isInteger(base) || base + this.channels * this.#blockSize > buffer.byteLength / bytes) {
       this.#dead = true;
       throw new ModuleError(`engine_process returned the block address ${String(pointer)}, unaligned or outside the memory`);
     }
     if (this.#memory.buffer !== buffer || base !== this.#base) {
       if (this.#memory.buffer !== buffer) {
-        this.#memory = new Float32Array(buffer);
+        this.#memory = this.#layout.view(buffer);
         this.#data = new DataView(buffer);
       }
       for (let channel = 0; channel !== this.channels; channel += 1) {

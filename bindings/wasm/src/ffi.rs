@@ -5,10 +5,12 @@
 //! 1. `engine_input(len)` ([`engine_input`]) returns where to write the `len` bytes of a patch;
 //!    the caller first refuses a patch longer than [`engine_max_patch_bytes`], so that the
 //!    module memory never grows for a patch the engine would refuse anyway.
-//! 2. `engine_load(rate)` ([`engine_load`]) loads it; on failure, [`engine_message_ptr`] and
-//!    [`engine_message_len`] locate a UTF-8 explanation.
+//! 2. `engine_load(rate, format)` ([`engine_load`]) loads it, to render in the render format
+//!    of code `format` (0 binary64, 1 binary64 given as binary32, 2 binary32); on failure,
+//!    [`engine_message_ptr`] and [`engine_message_len`] locate a UTF-8 explanation.
 //! 3. [`engine_process`] renders the next block and returns where it is:
-//!    [`engine_channels`] × [`engine_block_size`] `f32` samples, channel after channel.
+//!    [`engine_channels`] × [`engine_block_size`] samples, channel after channel: `f64`
+//!    samples (8 bytes) in binary64, `f32` samples (4 bytes) in the two binary32 formats.
 //!
 //! Every pointer is valid only until the next call: the caller copies what it needs
 //! and never keeps a view of the memory across calls, which may grow it.
@@ -42,7 +44,7 @@ use crate::Instance;
 /// same name by chance is not mistaken for an engine; the version in the low 16 bits,
 /// changed whenever a function is added, removed or changes meaning, so that a caller
 /// never drives a module it does not understand.
-pub const ABI_VERSION: u32 = 0x5059_0002;
+pub const ABI_VERSION: u32 = 0x5059_0003;
 
 /// The version of this interface, [`ABI_VERSION`].
 #[unsafe(no_mangle)]
@@ -89,10 +91,11 @@ pub extern "C" fn engine_input(len: usize) -> *mut u8 {
     instance().input(len).as_mut_ptr()
 }
 
-/// Loads the patch in the input buffer at `rate` hertz: 1 on success, 0 on failure.
+/// Loads the patch in the input buffer at `rate` hertz, rendering in the render format of
+/// code `format` (its index in `engine_core::RenderFormat::ALL`): 1 on success, 0 on failure.
 #[unsafe(no_mangle)]
-pub extern "C" fn engine_load(rate: u32) -> u32 {
-    u32::from(instance().load(rate))
+pub extern "C" fn engine_load(rate: u32, format: u32) -> u32 {
+    u32::from(instance().load(rate, format))
 }
 
 /// Address of the UTF-8 message explaining the last failed load.
@@ -119,10 +122,10 @@ pub const extern "C" fn engine_block_size() -> usize {
     BLOCK_SIZE
 }
 
-/// Renders the next block and returns the address of its planar samples.
+/// Renders the next block and returns the address of its planar samples, in bytes.
 #[unsafe(no_mangle)]
-pub extern "C" fn engine_process() -> *const f32 {
-    instance().process().as_ptr().cast()
+pub extern "C" fn engine_process() -> *const u8 {
+    instance().process().as_ptr()
 }
 
 #[cfg(test)]
@@ -154,15 +157,91 @@ mod tests {
         unsafe { core::slice::from_raw_parts(pointer, len) }.to_vec()
     }
 
-    /// Renders one block through the exported interface and copies it, planar.
-    fn block() -> Vec<f32> {
+    /// Renders one block through the exported interface and copies its bytes, planar:
+    /// `width` bytes per sample, as JavaScript reads them.
+    fn block_bytes(width: usize) -> Vec<u8> {
         let pointer = engine_process();
         let len = engine_channels()
             .checked_mul(engine_block_size())
+            .and_then(|samples| samples.checked_mul(width))
             .expect("small block");
-        // SAFETY: the block is `channels × block size` initialized samples at
-        // `pointer`, unchanged until the next call.
+        // SAFETY: the block is `channels × block size` initialized samples of `width` bytes
+        // at `pointer`, unchanged until the next call.
         unsafe { core::slice::from_raw_parts(pointer, len) }.to_vec()
+    }
+
+    /// Renders one block of a binary32 format through the exported interface, planar.
+    fn block() -> Vec<f32> {
+        block_bytes(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|bytes| f32::from_le_bytes(*bytes))
+            .collect()
+    }
+
+    /// Renders one block of binary64 through the exported interface, planar, as bits.
+    fn wide_block() -> Vec<u64> {
+        block_bytes(8)
+            .as_chunks::<8>()
+            .0
+            .iter()
+            .map(|bytes| u64::from_le_bytes(*bytes))
+            .collect()
+    }
+
+    /// The first channel of `patch`'s first block at `rate`, in the render format of code
+    /// `format`, through the exported interface, as bits; and the same from the renderer.
+    fn first_channels(sine: &[u8], rate: SampleRate, format: u32) -> (Vec<u64>, Vec<u64>) {
+        let patch = engine_patch::parse_patch(core::str::from_utf8(sine).expect("UTF-8"))
+            .expect("valid patch");
+        write(sine);
+        assert_eq!(
+            engine_load(rate.hz(), format),
+            1,
+            "loaded at {} Hz",
+            rate.hz()
+        );
+        let wide = || Renderer::new(Plan::<f64>::build(&patch, &REGISTRY, rate).expect("plan"));
+        let (exported, expected): (Vec<u64>, Vec<u64>) = match format {
+            0 => (
+                wide_block(),
+                wide()
+                    .render::<f64>(BLOCK_SIZE)
+                    .expect("small render")
+                    .iter()
+                    .map(|sample| sample.to_bits())
+                    .collect(),
+            ),
+            1 => (
+                block()
+                    .iter()
+                    .map(|sample| u64::from(sample.to_bits()))
+                    .collect(),
+                wide()
+                    .render::<f32>(BLOCK_SIZE)
+                    .expect("small render")
+                    .iter()
+                    .map(|sample| u64::from(sample.to_bits()))
+                    .collect(),
+            ),
+            _ => (
+                block()
+                    .iter()
+                    .map(|sample| u64::from(sample.to_bits()))
+                    .collect(),
+                Renderer::new(Plan::<f32>::build(&patch, &REGISTRY, rate).expect("plan"))
+                    .render::<f32>(BLOCK_SIZE)
+                    .expect("small render")
+                    .iter()
+                    .map(|sample| u64::from(sample.to_bits()))
+                    .collect(),
+            ),
+        };
+        (
+            exported.into_iter().take(BLOCK_SIZE).collect(),
+            expected.into_iter().step_by(2).collect(),
+        )
     }
 
     /// The whole protocol, in one test: the state is global to the module.
@@ -170,7 +249,7 @@ mod tests {
     fn follows_the_protocol() {
         assert_eq!(engine_abi_version(), ABI_VERSION, "version");
         assert_eq!(ABI_VERSION >> 16_u32, 0x5059_u32, "identity");
-        assert_eq!(ABI_VERSION & 0xFFFF_u32, 2_u32, "second version");
+        assert_eq!(ABI_VERSION & 0xFFFF_u32, 3_u32, "third version");
         assert_eq!(engine_block_size(), BLOCK_SIZE, "block size");
         assert_eq!(
             engine_max_patch_bytes(),
@@ -179,7 +258,7 @@ mod tests {
         );
 
         write(b"not a patch");
-        assert_eq!(engine_load(48_000), 0, "rejected");
+        assert_eq!(engine_load(48_000, 1), 0, "rejected");
         assert_eq!(engine_channels(), 0, "nothing loaded");
         let explanation = message();
         assert_eq!(
@@ -191,16 +270,23 @@ mod tests {
         let sine = br#"{"format":1,"nodes":[{"id":1,"box":"osc~"},{"id":2,"box":"dac~"}],
             "connections":[{"from":[1,0],"to":[2,0]},{"from":[1,0],"to":[2,1]}]}"#;
         write(sine);
-        assert_eq!(engine_load(48_000), 1, "loaded");
+        assert_eq!(engine_load(48_000, 3), 0, "an unknown render format");
+        assert_eq!(
+            message(),
+            b"unknown render format: 3 (supported: 0 binary64, 1 binary64-as-binary32, 2 binary32)",
+            "explained"
+        );
+        write(sine);
+        assert_eq!(engine_load(48_000, 1), 1, "loaded");
         assert_eq!(engine_message_len(), 0, "no error");
         assert_eq!(engine_channels(), 2, "stereo");
 
         let patch = engine_patch::parse_patch(core::str::from_utf8(sine).expect("UTF-8"))
             .expect("valid patch");
         let mut renderer = Renderer::new(
-            Plan::build(&patch, &REGISTRY, SampleRate::HZ_48000).expect("valid plan"),
+            Plan::<f64>::build(&patch, &REGISTRY, SampleRate::HZ_48000).expect("valid plan"),
         );
-        let expected = renderer.render(2 * BLOCK_SIZE).expect("small render");
+        let expected: Vec<f32> = renderer.render(2 * BLOCK_SIZE).expect("small render");
         let mut actual = Vec::new();
         for _ in 0..2_u8 {
             let planar = block();
@@ -220,7 +306,7 @@ mod tests {
         // What the audio thread calls, block after block: no heap operation.
         let operations = engine_testkit::heap_operations_during(|| {
             for _ in 0_u16..100_u16 {
-                let _: *const f32 = core::hint::black_box(engine_process());
+                let _: *const u8 = core::hint::black_box(engine_process());
                 let _: usize = core::hint::black_box(engine_channels());
             }
         });
@@ -230,20 +316,12 @@ mod tests {
             "engine_process does not use the heap"
         );
 
-        // `engine_load` hands its rate to the engine, at every rate of the matrix.
+        // `engine_load` hands its rate and format to the engine, at every rate of the matrix.
         for rate in engine_testkit::matrix::sample_rates() {
-            write(sine);
-            assert_eq!(engine_load(rate.hz()), 1, "loaded at {} Hz", rate.hz());
-            let mut at_rate =
-                Renderer::new(Plan::build(&patch, &REGISTRY, rate).expect("valid plan"));
-            let interleaved = at_rate.render(BLOCK_SIZE).expect("small render");
-            let left: Vec<f32> = interleaved.iter().step_by(2).copied().collect();
-            assert_eq!(
-                bits(block().split_at(BLOCK_SIZE).0),
-                bits(&left),
-                "first block at {} Hz",
-                rate.hz()
-            );
+            for format in 0_u32..3 {
+                let (exported, reference) = first_channels(sine, rate, format);
+                assert_eq!(exported, reference, "format {format} at {} Hz", rate.hz());
+            }
         }
     }
 }

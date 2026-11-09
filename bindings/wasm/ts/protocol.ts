@@ -1,5 +1,7 @@
 /** What the main thread and the `AudioWorklet` processors agree on. */
 
+import { PRECISIONS, type Precision } from "./engine.ts";
+
 /** Name of the processor running the engine. */
 export const ENGINE_PROCESSOR = "poyetik-engine";
 
@@ -18,6 +20,8 @@ export interface EngineOptions {
    * where rendering really started, and that no frame was lost after it.
    */
   readonly marker: boolean;
+  /** The precision the engine computes in; its render is given to Web Audio as binary32. */
+  readonly precision: Precision;
 }
 
 /**
@@ -70,7 +74,12 @@ export function parseEngineOptions(value: unknown): EngineOptions {
   if (typeof marker !== "boolean") {
     throw new OptionsError("marker is not a boolean");
   }
-  return { wasm, patch, marker };
+  const precision: unknown = Reflect.get(value, "precision");
+  const known = PRECISIONS.find((name) => name === precision);
+  if (known === undefined) {
+    throw new OptionsError(`precision is not one of ${PRECISIONS.join(", ")}`);
+  }
+  return { wasm, patch, marker, precision: known };
 }
 
 /**

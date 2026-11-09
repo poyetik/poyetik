@@ -6,7 +6,11 @@ import { wasmBytes } from "../fixtures.ts";
 import { assemble } from "./assemble.ts";
 
 /** The thresholds of the tests: a tolerance of 2%. */
-const THRESHOLDS = JSON.stringify({ tolerance_percent: 2, construction: { runs: 1, margin: 1, measured_on: "now", measured_max_ms: { chromium: 1, firefox: 1, webkit: 1 } } });
+const THRESHOLDS = JSON.stringify({
+  tolerance_percent: 2,
+  construction: { runs: 1, margin: 1, measured_on: "now", measured_max_ms: { chromium: 1, firefox: 1, webkit: 1 } },
+  boxes: { blocks: 2, runs: 1, margin: 1, measured_on: "now", measured_max_ms: { chromium: 1, firefox: 1, webkit: 1 } },
+});
 
 /** A small suite: one box benchmark, two plans. */
 const SMALL: Suite = { boxes: BOX_BENCHMARKS.slice(0, 1), sizes: [3, 5] };
@@ -98,15 +102,16 @@ describe("benchMain", () => {
   test("blesses a baseline of every count, then checks it", () => {
     const fake = blessed();
     expect(fake.errors).toStrictEqual([]);
-    expect(fake.printed).toHaveLength(4);
-    expect(fake.printed[0]).toMatch(/^osc~ 440 Hz at 48 kHz: \d+ instructions$/);
-    expect(fake.printed.slice(1, 3).map((line) => line.replace(/\d+ instructions/, "N"))).toStrictEqual(["loading a plan of 3 oscillators: N", "loading a plan of 5 oscillators: N"]);
-    expect(fake.printed[3]).toBe("wrote spec/benchmark-baseline.json");
+    expect(fake.printed).toHaveLength(5);
+    expect(fake.printed[0]).toMatch(/^osc~ 440 Hz at 48 kHz in binary64: \d+ instructions$/);
+    expect(fake.printed[1]).toMatch(/^osc~ 440 Hz at 48 kHz in binary32: \d+ instructions$/);
+    expect(fake.printed.slice(2, 4).map((line) => line.replace(/\d+ instructions/, "N"))).toStrictEqual(["loading a plan of 3 oscillators: N", "loading a plan of 5 oscillators: N"]);
+    expect(fake.printed[4]).toBe("wrote spec/benchmark-baseline.json");
     const baseline: unknown = JSON.parse(fake.text(`/repo/${BASELINE_FILE}`));
     expect(Reflect.get(Object(baseline), "plans")).toHaveLength(2);
     fake.printed.length = 0;
     expect(benchMain(fake, ["check"], SMALL)).toBe(0);
-    expect(fake.printed).toHaveLength(3);
+    expect(fake.printed).toHaveLength(4);
     expect(fake.errors).toStrictEqual([]);
   });
 
@@ -115,7 +120,7 @@ describe("benchMain", () => {
     const path = `/repo/${BASELINE_FILE}`;
     fake.files.set(path, new TextEncoder().encode(fake.text(path).replace(/"instructions": (\d+)/, (_all, count: string) => `"instructions": ${String(Math.round(Number(count) * 1.03))}`)));
     expect(benchMain(fake, ["check"], SMALL)).toBe(1);
-    expect(fake.printed.at(-1)).toMatch(/^osc~ 440 Hz at 48 kHz: \d+ instructions, baseline \d+ \(-2\.9\d%, beyond ±2%\)$/);
+    expect(fake.printed.at(-1)).toMatch(/^osc~ 440 Hz at 48 kHz in binary64: \d+ instructions, baseline \d+ \(-2\.9\d%, beyond ±2%\)$/);
     expect(fake.errors).toStrictEqual(["error: the benchmarks moved beyond their thresholds (1 problem(s); see spec/benchmarks.md)"]);
   });
 
@@ -216,7 +221,8 @@ describe("benchMain", () => {
     }
     const fake = blessed({ boxes: [{ ...first, setting: "a\nb" }], sizes: [] });
     expect(benchMain(fake, ["check"], SMALL)).toBe(1);
-    expect(fake.printed).toContain("osc~ a\\u{a}b: in the baseline, measured by no benchmark");
+    expect(fake.printed).toContain("osc~ a\\u{a}b in binary64: in the baseline, measured by no benchmark");
+    expect(fake.printed).toContain("osc~ a\\u{a}b in binary32: in the baseline, measured by no benchmark");
   });
 
   test("runs the whole suite by default, as the paths of the repository say", () => {

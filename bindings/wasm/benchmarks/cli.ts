@@ -98,7 +98,7 @@ function measured(io: BenchIo, suite: Suite): Counts {
 /** Prints every count, one per line. */
 function report(io: BenchIo, counts: Counts): void {
   for (const entry of counts.boxes) {
-    io.out(`${entry.box} ${entry.setting}: ${String(entry.instructions)} instructions`);
+    io.out(`${entry.box} ${entry.setting} in ${entry.precision}: ${String(entry.instructions)} instructions`);
   }
   for (const entry of counts.plans) {
     io.out(`loading a plan of ${String(entry.oscillators)} oscillators: ${String(entry.instructions)} instructions`);

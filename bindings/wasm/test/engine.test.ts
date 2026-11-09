@@ -1,8 +1,8 @@
 import { describe, expect, test, vi } from "vitest";
-import { ABI_VERSION, EngineTrap, ModuleError, PatchError, WasmEngine } from "../ts/engine.ts";
-import { interleave, renderHash } from "../ts/hash.ts";
+import { ABI_VERSION, EngineTrap, ModuleError, PatchError, RENDER_FORMATS, WasmEngine, givenAsBinary32, type RenderFormat } from "../ts/engine.ts";
+import { interleave, interleave64, renderHash } from "../ts/hash.ts";
 import { Counted, created } from "./counted.ts";
-import { CORPUS, engineFunctions, HOST_BUFFER_SIZES, FUNCTIONS, oscillators, PATCH_NAMES, REFERENCES, SILENT_PATCH, SINE_PATCH, UNKNOWN_BOX, handMadeModule, wasmBytes } from "./fixtures.ts";
+import { CORPUS, engineFunctions, HOST_BUFFER_SIZES, FUNCTIONS, oscillators, PATCH_NAMES, PRECISION_NAMES, REFERENCES, SILENT_PATCH, SINE_PATCH, UNKNOWN_BOX, handMadeModule, reference, wasmBytes, type CorpusCase } from "./fixtures.ts";
 
 /** The built engine module, compiled once and instantiated afresh by every test. */
 const module = new WebAssembly.Module(wasmBytes());
@@ -11,7 +11,7 @@ const RATE = 48_000;
 
 /** Renders `frames` frames of the sine case through buffers of `size` frames. */
 function renderSine(frames: number, size: number): Float32Array[] {
-  const engine = WasmEngine.create(module, SINE_PATCH, RATE);
+  const engine = WasmEngine.create(module, SINE_PATCH, RATE, "binary64-as-binary32");
   const out = [new Float32Array(frames), new Float32Array(frames)];
   for (let start = 0; start < frames; start += size) {
     const buffers = [new Float32Array(Math.min(size, frames - start)), new Float32Array(Math.min(size, frames - start))];
@@ -19,6 +19,25 @@ function renderSine(frames: number, size: number): Float32Array[] {
     buffers.forEach((buffer, channel) => out[channel]?.set(buffer, start));
   }
   return out;
+}
+
+/** The render hash of `testCase` rendered in `format` through buffers of `size` frames. */
+async function corpusHash(testCase: CorpusCase, size: number, format: RenderFormat): Promise<string> {
+  const { rate, frames, patch } = testCase;
+  if (format === "binary64") {
+    const wide = WasmEngine.create(module, patch, rate, format);
+    const outputs = Array.from({ length: wide.channels }, () => new Float64Array(frames));
+    for (let start = 0; start < frames; start += size) {
+      wide.render(outputs.map((output) => output.subarray(start, Math.min(start + size, frames))));
+    }
+    return renderHash(rate, wide.channels, interleave64(outputs), format);
+  }
+  const engine = WasmEngine.create(module, patch, rate, format);
+  const channels = Array.from({ length: engine.channels }, () => new Float32Array(frames));
+  for (let start = 0; start < frames; start += size) {
+    engine.render(channels.map((channel) => channel.subarray(start, Math.min(start + size, frames))));
+  }
+  return renderHash(rate, engine.channels, interleave(channels), format);
 }
 
 describe("WasmEngine", () => {
@@ -29,23 +48,36 @@ describe("WasmEngine", () => {
     expect([...REFERENCES.keys()].sort()).toStrictEqual(names);
   });
 
-  test.each(CORPUS.flatMap((testCase) => HOST_BUFFER_SIZES.map((size) => [testCase.name, size, testCase] as const)))(
-    "renders %s in Node bit-identical to the native engine, through buffers of %i frames",
-    async (_name, size, testCase) => {
-      const engine = WasmEngine.create(module, testCase.patch, testCase.rate);
-      const channels = Array.from({ length: engine.channels }, () => new Float32Array(testCase.frames));
-      for (let start = 0; start < testCase.frames; start += size) {
-        const buffers = channels.map((channel) => channel.subarray(start, Math.min(start + size, testCase.frames)));
-        engine.render(buffers);
-      }
-      expect(await renderHash(testCase.rate, engine.channels, interleave(channels))).toBe(REFERENCES.get(testCase.name));
+  test.each(RENDER_FORMATS.flatMap((format) => CORPUS.flatMap((testCase) => HOST_BUFFER_SIZES.map((size) => [testCase.name, format, size, testCase] as const))))(
+    "renders %s in %s in Node bit-identical to the native engine, through buffers of %i frames",
+    async (name, format, size, testCase) => {
+      expect(await corpusHash(testCase, size, format)).toBe(reference(name, format));
     },
   );
+
+  test("renders every precision of the test matrix, given as binary32 or as binary64", () => {
+    expect(PRECISION_NAMES).toStrictEqual(["binary64", "binary32"]);
+    expect(PRECISION_NAMES.map(givenAsBinary32)).toStrictEqual(["binary64-as-binary32", "binary32"]);
+    expect(RENDER_FORMATS).toStrictEqual(["binary64", "binary64-as-binary32", "binary32"]);
+  });
+
+  test("gives a 64-bit render in binary64, or rounded to binary32, and a 32-bit one in binary32", () => {
+    const frames = 300;
+    const wide = [new Float64Array(frames)];
+    WasmEngine.create(module, oscillators([1000.5]), RATE, "binary64").render(wide);
+    const given = [new Float32Array(frames)];
+    WasmEngine.create(module, oscillators([1000.5]), RATE, "binary64-as-binary32").render(given);
+    const narrow = [new Float32Array(frames)];
+    WasmEngine.create(module, oscillators([1000.5]), RATE, "binary32").render(narrow);
+    expect(Array.from(given[0] ?? [])).toStrictEqual(Array.from(wide[0] ?? [], (sample) => Math.fround(sample)));
+    expect(Array.from(wide[0] ?? []).some((sample) => Math.fround(sample) !== sample)).toBe(true);
+    expect(narrow[0]).not.toStrictEqual(given[0]);
+  });
 
   test("keeps every channel apart", () => {
     const render = (frequencies: readonly number[]): Float32Array[] => {
       const outputs = [new Float32Array(300), new Float32Array(300)];
-      WasmEngine.create(module, oscillators(frequencies), RATE).render(outputs);
+      WasmEngine.create(module, oscillators(frequencies), RATE, "binary64-as-binary32").render(outputs);
       return outputs;
     };
     const [left, right] = render([440, 880]);
@@ -55,7 +87,7 @@ describe("WasmEngine", () => {
   });
 
   test.each(HOST_BUFFER_SIZES)("never renders a block ahead (buffers of %i frames)", (size) => {
-    const engine = WasmEngine.create(module, SINE_PATCH, RATE);
+    const engine = WasmEngine.create(module, SINE_PATCH, RATE, "binary64-as-binary32");
     expect(engine.blocks).toBe(0);
     for (let output = size; output <= 1000; output += size) {
       engine.render([new Float32Array(size)]);
@@ -67,25 +99,25 @@ describe("WasmEngine", () => {
   });
 
   test("reports its channels", () => {
-    expect(WasmEngine.create(module, SINE_PATCH, RATE).channels).toBe(2);
-    expect(WasmEngine.create(module, SILENT_PATCH, RATE).channels).toBe(0);
+    expect(WasmEngine.create(module, SINE_PATCH, RATE, "binary64-as-binary32").channels).toBe(2);
+    expect(WasmEngine.create(module, SILENT_PATCH, RATE, "binary64-as-binary32").channels).toBe(0);
   });
 
   test("fills extra outputs with silence and drops extra channels", () => {
-    const engine = WasmEngine.create(module, SINE_PATCH, RATE);
+    const engine = WasmEngine.create(module, SINE_PATCH, RATE, "binary64-as-binary32");
     const outputs = [new Float32Array(200), new Float32Array(200), new Float32Array(200).fill(7)];
     engine.render(outputs);
-    const [reference] = renderSine(200, 200);
-    expect(outputs[0]).toStrictEqual(reference);
-    expect(outputs[1]).toStrictEqual(reference);
+    const [sine] = renderSine(200, 200);
+    expect(outputs[0]).toStrictEqual(sine);
+    expect(outputs[1]).toStrictEqual(sine);
     expect(outputs[2]).toStrictEqual(new Float32Array(200));
     const mono = [new Float32Array(200)];
-    WasmEngine.create(module, SINE_PATCH, RATE).render(mono);
-    expect(mono[0]).toStrictEqual(reference);
+    WasmEngine.create(module, SINE_PATCH, RATE, "binary64-as-binary32").render(mono);
+    expect(mono[0]).toStrictEqual(sine);
   });
 
   test("renders nothing into no outputs", () => {
-    const engine = WasmEngine.create(module, SINE_PATCH, RATE);
+    const engine = WasmEngine.create(module, SINE_PATCH, RATE, "binary64-as-binary32");
     engine.render([]);
     engine.render([new Float32Array(0)]);
     const next = [new Float32Array(10)];
@@ -95,14 +127,14 @@ describe("WasmEngine", () => {
 
   test("runs a patch with no output", () => {
     const outputs = [new Float32Array(100).fill(1)];
-    WasmEngine.create(module, SILENT_PATCH, RATE).render(outputs);
+    WasmEngine.create(module, SILENT_PATCH, RATE, "binary64-as-binary32").render(outputs);
     expect(outputs[0]).toStrictEqual(new Float32Array(100));
   });
 
   test("rejects a patch with the explanation of the engine", () => {
     const error = (() => {
       try {
-        WasmEngine.create(module, UNKNOWN_BOX, RATE);
+        WasmEngine.create(module, UNKNOWN_BOX, RATE, "binary64-as-binary32");
       } catch (thrown) {
         return thrown;
       }
@@ -119,7 +151,7 @@ describe("WasmEngine", () => {
   test("hands JavaScript an explanation on one escaped, bounded line", () => {
     const explanation = (patch: string): string => {
       try {
-        WasmEngine.create(module, new TextEncoder().encode(patch), RATE);
+        WasmEngine.create(module, new TextEncoder().encode(patch), RATE, "binary64-as-binary32");
       } catch (thrown) {
         return thrown instanceof PatchError ? new TextDecoder().decode(thrown.detail) : String(thrown);
       }
@@ -145,14 +177,14 @@ describe("WasmEngine", () => {
     expect(max).toBe(16 * 1024 * 1024);
     // What the engine itself says of one byte more, read through the raw interface.
     call("engine_input", max + 1);
-    expect(call("engine_load", RATE)).toBe(0);
+    expect(call("engine_load", RATE, 1)).toBe(0);
     const memory = exports["memory"];
     const said = memory instanceof WebAssembly.Memory ? new Uint8Array(memory.buffer, call("engine_message_ptr"), call("engine_message_len")) : new Uint8Array();
     const engineSays = new TextDecoder().decode(said);
     expect(engineSays).toBe(`patch too large: ${String(max + 1)} bytes (at most ${String(max)})`);
     const refusal = (patch: Uint8Array): string => {
       try {
-        WasmEngine.create(module, patch, RATE);
+        WasmEngine.create(module, patch, RATE, "binary64-as-binary32");
       } catch (thrown) {
         return thrown instanceof PatchError ? new TextDecoder().decode(thrown.detail) : String(thrown);
       }
@@ -169,64 +201,64 @@ describe("WasmEngine", () => {
       func.name === "engine_input" ? { ...func, body: "trap" as const } : func.name === "engine_max_patch_bytes" ? { ...func, body: { i32: 4 } } : func,
     );
     const small = handMadeModule({ memory: true, functions });
-    expect(() => WasmEngine.create(small, new Uint8Array(5), RATE)).toThrow(PatchError);
-    expect(() => WasmEngine.create(small, new Uint8Array(4), RATE)).toThrow(EngineTrap);
+    expect(() => WasmEngine.create(small, new Uint8Array(5), RATE, "binary64-as-binary32")).toThrow(PatchError);
+    expect(() => WasmEngine.create(small, new Uint8Array(4), RATE, "binary64-as-binary32")).toThrow(EngineTrap);
   });
 
   test("rejects an unsupported sample rate", () => {
-    expect(() => WasmEngine.create(module, SINE_PATCH, 0)).toThrow(PatchError);
+    expect(() => WasmEngine.create(module, SINE_PATCH, 0, "binary64-as-binary32")).toThrow(PatchError);
   });
 
   test("rejects a module without memory", () => {
     const empty = handMadeModule({ memory: false, functions: engineFunctions() });
-    expect(() => WasmEngine.create(empty, SINE_PATCH, RATE)).toThrow(new ModuleError("no memory"));
+    expect(() => WasmEngine.create(empty, SINE_PATCH, RATE, "binary64-as-binary32")).toThrow(new ModuleError("no memory"));
   });
 
   test.each(FUNCTIONS)("rejects a module without %s", (missing) => {
     const partial = handMadeModule({ memory: true, functions: engineFunctions().filter((func) => func.name !== missing) });
-    expect(() => WasmEngine.create(partial, SINE_PATCH, RATE)).toThrow(new ModuleError(`no function ${missing}`));
+    expect(() => WasmEngine.create(partial, SINE_PATCH, RATE, "binary64-as-binary32")).toThrow(new ModuleError(`no function ${missing}`));
   });
 
   test("rejects a function with the wrong number of arguments", () => {
     const functions = engineFunctions().map((func) => (func.name === "engine_load" ? { ...func, params: 0 } : func));
-    expect(() => WasmEngine.create(handMadeModule({ memory: true, functions }), SINE_PATCH, RATE)).toThrow(
-      new ModuleError("engine_load takes 0 argument(s), expected 1"),
+    expect(() => WasmEngine.create(handMadeModule({ memory: true, functions }), SINE_PATCH, RATE, "binary64-as-binary32")).toThrow(
+      new ModuleError("engine_load takes 0 argument(s), expected 2"),
     );
   });
 
   test("rejects a module whose functions do not return numbers", () => {
     const bigints = handMadeModule({ memory: true, functions: engineFunctions("i64") });
-    expect(() => WasmEngine.create(bigints, SINE_PATCH, RATE)).toThrow(new ModuleError("engine_abi_version did not return a number"));
+    expect(() => WasmEngine.create(bigints, SINE_PATCH, RATE, "binary64-as-binary32")).toThrow(new ModuleError("engine_abi_version did not return a number"));
   });
 
   test("checks the interface identity and version before anything else", () => {
-    expect(ABI_VERSION).toBe(0x5059_0002);
+    expect(ABI_VERSION).toBe(0x5059_0003);
     // engineFunctions gives every function the same result: here, the version answered.
     // Far from ours, then one step from ours in the version both ways, and in the identity
     // both ways.
     for (const [answer, shown] of [
       [1, "0x1"],
-      [0x5059_0001, "0x50590001"],
-      [0x5059_0003, "0x50590003"],
-      [0x505a_0002, "0x505a0002"],
-      [0x5058_0002, "0x50580002"],
+      [0x5059_0002, "0x50590002"],
+      [0x5059_0004, "0x50590004"],
+      [0x505a_0003, "0x505a0003"],
+      [0x5058_0003, "0x50580003"],
     ] as const) {
       const other = handMadeModule({ memory: true, functions: engineFunctions({ i32: answer }) });
-      expect(() => WasmEngine.create(other, SINE_PATCH, RATE)).toThrow(new ModuleError(`interface ${shown}, expected 0x50590002`));
+      expect(() => WasmEngine.create(other, SINE_PATCH, RATE, "binary64-as-binary32")).toThrow(new ModuleError(`interface ${shown}, expected 0x50590003`));
     }
   });
 
   test("reads results from 2^31 on as unsigned", () => {
     // A module reporting 2^31 channels (i32 -2^31), with every other call returning 1.
     const functions = engineFunctions().map((func) => (func.name === "engine_channels" ? { ...func, body: { i32: -(2 ** 31) } } : func));
-    expect(WasmEngine.create(handMadeModule({ memory: true, functions }), SINE_PATCH, RATE).channels).toBe(2 ** 31);
+    expect(WasmEngine.create(handMadeModule({ memory: true, functions }), SINE_PATCH, RATE, "binary64-as-binary32").channels).toBe(2 ** 31);
   });
 
   test("explains a module that cannot be instantiated", () => {
     const importing = handMadeModule({ memory: true, imports: true, functions: engineFunctions() });
     const error = (() => {
       try {
-        WasmEngine.create(importing, SINE_PATCH, RATE);
+        WasmEngine.create(importing, SINE_PATCH, RATE, "binary64-as-binary32");
       } catch (thrown) {
         return thrown;
       }
@@ -242,7 +274,7 @@ describe("WasmEngine", () => {
     const loadTraps = engineFunctions().map((func) => (func.name === "engine_load" ? { ...func, body: "trap" as const } : func));
     const loadError = (() => {
       try {
-        WasmEngine.create(handMadeModule({ memory: true, functions: loadTraps }), SINE_PATCH, RATE);
+        WasmEngine.create(handMadeModule({ memory: true, functions: loadTraps }), SINE_PATCH, RATE, "binary64-as-binary32");
       } catch (thrown) {
         return thrown;
       }
@@ -251,7 +283,7 @@ describe("WasmEngine", () => {
     expect(loadError).toBeInstanceOf(EngineTrap);
     expect(loadError instanceof Error ? loadError.cause : undefined).toBeInstanceOf(WebAssembly.RuntimeError);
     const processTraps = engineFunctions().map((func) => (func.name === "engine_process" ? { ...func, body: "trap" as const } : func));
-    const engine = WasmEngine.create(handMadeModule({ memory: true, functions: processTraps }), SINE_PATCH, RATE);
+    const engine = WasmEngine.create(handMadeModule({ memory: true, functions: processTraps }), SINE_PATCH, RATE, "binary64-as-binary32");
     const error = (() => {
       try {
         engine.render([new Float32Array(1)]);
@@ -270,7 +302,7 @@ describe("WasmEngine", () => {
 
   test("lets other errors of the module through, and stops calling it", () => {
     const functions = engineFunctions().map((func) => (func.name === "engine_process" ? { ...func, body: "i64" as const } : func));
-    const engine = WasmEngine.create(handMadeModule({ memory: true, functions }), SINE_PATCH, RATE);
+    const engine = WasmEngine.create(handMadeModule({ memory: true, functions }), SINE_PATCH, RATE, "binary64-as-binary32");
     expect(() => {
       engine.render([new Float32Array(1)]);
     }).toThrow(new ModuleError("engine_process did not return a number"));
@@ -282,20 +314,30 @@ describe("WasmEngine", () => {
   test("reads the block from the memory as it is after it grew", () => {
     // One channel of one-frame blocks; engine_process grows the memory, then writes 0.5.
     const functions = engineFunctions().map((func) => (func.name === "engine_process" ? { ...func, body: "grow" as const } : func));
-    const engine = WasmEngine.create(handMadeModule({ memory: true, functions }), SINE_PATCH, RATE);
+    const engine = WasmEngine.create(handMadeModule({ memory: true, functions }), SINE_PATCH, RATE, "binary64-as-binary32");
     const outputs = [new Float32Array(1)];
     engine.render(outputs);
     expect(outputs[0]?.[0]).toBe(0.5);
   });
 
-  /** An engine of `channels` channels of `blockSize`-frame blocks, whose `engine_process` gives `pointer`. */
-  function placing(channels: number, blockSize: number, pointer: number): WasmEngine {
+  /** A hand-made module of `channels` channels of `blockSize`-frame blocks, whose `engine_process` gives `pointer`. */
+  function placed(channels: number, blockSize: number, pointer: number): WebAssembly.Module {
     const answers: Readonly<Record<string, number>> = { engine_channels: channels, engine_block_size: blockSize, engine_process: pointer };
     const functions = engineFunctions().map((func) => {
       const answer = answers[func.name];
       return answer === undefined ? func : { ...func, body: { i32: answer } };
     });
-    return WasmEngine.create(handMadeModule({ memory: true, functions }), SINE_PATCH, RATE);
+    return handMadeModule({ memory: true, functions });
+  }
+
+  /** A binary32 engine of `channels` channels of `blockSize`-frame blocks, whose `engine_process` gives `pointer`. */
+  function placing(channels: number, blockSize: number, pointer: number): WasmEngine<Float32Array> {
+    return WasmEngine.create(placed(channels, blockSize, pointer), SINE_PATCH, RATE, "binary64-as-binary32");
+  }
+
+  /** The same, rendering binary64: 8 bytes per sample. */
+  function placing64(channels: number, blockSize: number, pointer: number): WasmEngine<Float64Array> {
+    return WasmEngine.create(placed(channels, blockSize, pointer), SINE_PATCH, RATE, "binary64");
   }
 
   test("refuses a module whose blocks have no frame, which would render forever", () => {
@@ -308,6 +350,32 @@ describe("WasmEngine", () => {
     const outputs = [new Float32Array(4).fill(9), new Float32Array(4).fill(9)];
     placing(2, 4, 65_536 - 32).render(outputs);
     expect(outputs).toStrictEqual([new Float32Array(4), new Float32Array(4)]);
+  });
+
+  test("reads a binary64 block of 8-byte samples, whole or in part, up to the end of the memory", () => {
+    // One page: 8192 binary64 samples; two channels of 4 frames from sample 8184 fill its end.
+    const outputs = [new Float64Array(4).fill(9), new Float64Array(4).fill(9)];
+    placing64(2, 4, 65_536 - 64).render(outputs);
+    expect(outputs).toStrictEqual([new Float64Array(4), new Float64Array(4)]);
+    // The patch is copied from address 1: bytes 7 to 14 are the sample at address 8, read
+    // whole (a block of one frame) and in part (one frame of a block of two).
+    const expected = new DataView(SINE_PATCH.buffer, SINE_PATCH.byteOffset).getFloat64(7, true);
+    const whole = [new Float64Array(1)];
+    placing64(1, 1, 8).render(whole);
+    expect(whole[0]).toStrictEqual(new Float64Array([expected]));
+    const part = [new Float64Array(1)];
+    placing64(1, 2, 8).render(part);
+    expect(part[0]).toStrictEqual(new Float64Array([expected]));
+    expect(expected).not.toBe(0);
+  });
+
+  test.each([
+    [65_536 - 56, "outside the memory by one sample"],
+    [65_536 - 60, "unaligned on 8 bytes"],
+  ])("refuses a binary64 block at the address %i (%s)", (pointer) => {
+    expect(() => {
+      placing64(2, 4, pointer).render([new Float64Array(4)]);
+    }).toThrow(new ModuleError(`engine_process returned the block address ${String(pointer)}, unaligned or outside the memory`));
   });
 
   test("reads a first block at the first sample index 1", () => {
@@ -337,7 +405,7 @@ describe("WasmEngine", () => {
   test("follows a block that moves without the memory growing", () => {
     // One channel of one-frame blocks, at address 4096 (silent), then 2048 (0.25), and so on.
     const functions = engineFunctions().map((func) => (func.name === "engine_process" ? { ...func, body: "alternate" as const } : func));
-    const engine = WasmEngine.create(handMadeModule({ memory: true, functions }), SINE_PATCH, RATE);
+    const engine = WasmEngine.create(handMadeModule({ memory: true, functions }), SINE_PATCH, RATE, "binary64-as-binary32");
     const outputs = [new Float32Array(3)];
     engine.render(outputs);
     expect(outputs[0]).toStrictEqual(new Float32Array([0, 0.25, 0]));
@@ -346,7 +414,7 @@ describe("WasmEngine", () => {
   test("creates its views of the memory once, not at every block", () => {
     vi.stubGlobal("Float32Array", Counted);
     try {
-      const engine = WasmEngine.create(module, SINE_PATCH, RATE);
+      const engine = WasmEngine.create(module, SINE_PATCH, RATE, "binary64-as-binary32");
       const outputs = [new Float32Array(64), new Float32Array(64)];
       // The first block: one view of each channel; then none, block after block.
       expect(created(() => { engine.render(outputs); })).toBe(2);
@@ -355,13 +423,13 @@ describe("WasmEngine", () => {
       const one = [new Float32Array(1)];
       // A block that moves: new views of the same memory.
       const moving = engineFunctions().map((func) => (func.name === "engine_process" ? { ...func, body: "alternate" as const } : func));
-      const alternating = WasmEngine.create(handMadeModule({ memory: true, functions: moving }), SINE_PATCH, RATE);
+      const alternating = WasmEngine.create(handMadeModule({ memory: true, functions: moving }), SINE_PATCH, RATE, "binary64-as-binary32");
       expect(created(() => { alternating.render(one); })).toBe(1);
       expect(created(() => { alternating.render(one); })).toBe(1);
 
       // A memory that grows: a new view of it, and of the block.
       const growing = engineFunctions().map((func) => (func.name === "engine_process" ? { ...func, body: "grow" as const } : func));
-      const grown = WasmEngine.create(handMadeModule({ memory: true, functions: growing }), SINE_PATCH, RATE);
+      const grown = WasmEngine.create(handMadeModule({ memory: true, functions: growing }), SINE_PATCH, RATE, "binary64-as-binary32");
       expect(created(() => { grown.render(one); })).toBe(2);
       expect(created(() => { grown.render(one); })).toBe(2);
     } finally {
@@ -381,7 +449,7 @@ describe("WasmEngine", () => {
         super.set(array, offset);
       }
     }
-    const engine = WasmEngine.create(module, SINE_PATCH, RATE);
+    const engine = WasmEngine.create(module, SINE_PATCH, RATE, "binary64-as-binary32");
     // 160 frames: two whole blocks, then half of one.
     const outputs = [new Recorded(160), new Recorded(160)];
     engine.render(outputs);
@@ -390,15 +458,15 @@ describe("WasmEngine", () => {
   });
 
   test.each([48_000.5, -1, 2 ** 32 + 48_000, Number.NaN, Number.POSITIVE_INFINITY])("refuses the sample rate %d", (rate) => {
-    expect(() => WasmEngine.create(module, SINE_PATCH, rate)).toThrow(new RangeError(`the sample rate must be a whole number of hertz, not ${String(rate)}`));
+    expect(() => WasmEngine.create(module, SINE_PATCH, rate, "binary64-as-binary32")).toThrow(new RangeError(`the sample rate must be a whole number of hertz, not ${String(rate)}`));
   });
 
   test("accepts the largest 32-bit sample rate, rejected by the engine", () => {
-    expect(() => WasmEngine.create(module, SINE_PATCH, 0xff_ff_ff_ff)).toThrow(PatchError);
+    expect(() => WasmEngine.create(module, SINE_PATCH, 0xff_ff_ff_ff, "binary64-as-binary32")).toThrow(PatchError);
   });
 
   test("refuses outputs of different lengths, without rendering", () => {
-    const engine = WasmEngine.create(module, SINE_PATCH, RATE);
+    const engine = WasmEngine.create(module, SINE_PATCH, RATE, "binary64-as-binary32");
     expect(() => {
       engine.render([new Float32Array(10), new Float32Array(9)]);
     }).toThrow(new RangeError("every output must have the same length: 9 instead of 10"));

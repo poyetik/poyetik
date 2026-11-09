@@ -2,11 +2,11 @@ import { describe, expect, test } from "vitest";
 import { ENGINE_PROCESSOR, MessageError, OptionsError, TAP_PROCESSOR, parseEngineMessage, parseEngineOptions, parseTapMessage, SOURCE_STOPPED } from "../ts/protocol.ts";
 
 describe("parseEngineOptions", () => {
-  test("accepts the module bytes, the patch and the marker choice", () => {
+  test("accepts the module bytes, the patch, the marker choice and the precision", () => {
     const wasm = new ArrayBuffer(8);
     const patch = new Uint8Array([1]);
-    expect(parseEngineOptions({ wasm, patch, marker: true, extra: 1 })).toStrictEqual({ wasm, patch, marker: true });
-    expect(parseEngineOptions({ wasm, patch, marker: false })).toStrictEqual({ wasm, patch, marker: false });
+    expect(parseEngineOptions({ wasm, patch, marker: true, precision: "binary32", extra: 1 })).toStrictEqual({ wasm, patch, marker: true, precision: "binary32" });
+    expect(parseEngineOptions({ wasm, patch, marker: false, precision: "binary64" })).toStrictEqual({ wasm, patch, marker: false, precision: "binary64" });
   });
 
   test.each([
@@ -19,6 +19,9 @@ describe("parseEngineOptions", () => {
     [{ wasm: new ArrayBuffer(0), patch: [1] }, "patch is not a Uint8Array"],
     [{ wasm: new ArrayBuffer(0), patch: new Uint8Array() }, "marker is not a boolean"],
     [{ wasm: new ArrayBuffer(0), patch: new Uint8Array(), marker: 1 }, "marker is not a boolean"],
+    [{ wasm: new ArrayBuffer(0), patch: new Uint8Array(), marker: false }, "precision is not one of binary64, binary32"],
+    [{ wasm: new ArrayBuffer(0), patch: new Uint8Array(), marker: false, precision: "binary16" }, "precision is not one of binary64, binary32"],
+    [{ wasm: new ArrayBuffer(0), patch: new Uint8Array(), marker: false, precision: 64 }, "precision is not one of binary64, binary32"],
   ])("rejects %o", (value, detail) => {
     expect(() => parseEngineOptions(value)).toThrow(new OptionsError(detail));
   });

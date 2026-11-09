@@ -6,7 +6,7 @@
  * it receives and sends is bytes, numbers or strings built without them.
  */
 
-import { PatchError, WasmEngine } from "../engine.ts";
+import { PatchError, WasmEngine, givenAsBinary32 } from "../engine.ts";
 import { ENGINE_PROCESSOR, MARKER_PERIOD, SOURCE_STOPPED, TAP_PROCESSOR, parseEngineOptions, type EngineMessage } from "../protocol.ts";
 
 /** The outputs of a node without output: one shared, frozen, empty list. */
@@ -39,20 +39,21 @@ class EngineProcessor extends AudioWorkletProcessor {
    * The engine, and whether to fill the marker channel (the one after the patch
    * channels); `undefined` once it failed.
    */
-  #running: { readonly engine: WasmEngine; readonly marker: boolean } | undefined;
+  #running: { readonly engine: WasmEngine<Float32Array>; readonly marker: boolean } | undefined;
   /** Frames rendered so far, modulo {@link MARKER_PERIOD}: what the marker channel counts. */
   #rendered = 0;
 
   /**
-   * Loads the patch given in the node options (`processorOptions`, see `EngineOptions`).
+   * Loads the patch given in the node options (`processorOptions`, see `EngineOptions`), to
+   * render in their precision, given to Web Audio as binary32.
    * @param options The node options.
-   * @param options.processorOptions The patch and the engine module.
+   * @param options.processorOptions The patch, the engine module and the precision.
    */
   constructor(options: { readonly processorOptions?: unknown }) {
     super();
     try {
-      const { wasm, patch, marker } = parseEngineOptions(options.processorOptions);
-      this.#running = { engine: WasmEngine.create(new WebAssembly.Module(wasm), patch, sampleRate), marker };
+      const { wasm, patch, marker, precision } = parseEngineOptions(options.processorOptions);
+      this.#running = { engine: WasmEngine.create(new WebAssembly.Module(wasm), patch, sampleRate, givenAsBinary32(precision)), marker };
       this.port.postMessage(READY);
     } catch (error) {
       this.port.postMessage(failure(error));

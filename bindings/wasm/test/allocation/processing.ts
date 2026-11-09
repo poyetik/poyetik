@@ -19,7 +19,7 @@ export const BLOCK = 64;
  */
 export async function processing(size: number, frames: number, alongside: () => void = () => undefined): Promise<number> {
   const EngineProcessor = processorClass(await loadProcessors(RATE), ENGINE_PROCESSOR);
-  const node = new EngineProcessor({ processorOptions: { wasm: wasmBytes(), patch: SINE_PATCH, marker: false } });
+  const node = new EngineProcessor({ processorOptions: { wasm: wasmBytes(), patch: SINE_PATCH, marker: false, precision: "binary64" } });
   // Made once, as a browser hands the processor the same arrays at every quantum.
   const inputs: Float32Array[][] = [];
   const outputs = [[new Float32Array(size), new Float32Array(size)]];

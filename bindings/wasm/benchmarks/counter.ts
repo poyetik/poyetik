@@ -2,7 +2,7 @@
 // ffi.rs), and reading how many WebAssembly instructions each call executed. The
 // instrumented module computes exactly what the module computes (test/benchmarks/counter.test.ts
 // renders every conformance case through both): only the counter is added.
-import { ABI_VERSION } from "../ts/engine.ts";
+import { ABI_VERSION, RENDER_FORMATS, type RenderFormat } from "../ts/engine.ts";
 import { COUNTER, instrument } from "./instrument.ts";
 
 /** Thrown when the instrumented module is not an engine module, or refuses a patch. */
@@ -34,8 +34,8 @@ export class CountedInstance {
   readonly #memory: WebAssembly.Memory;
   /** `engine_input(len)`. */
   readonly #input: (len: number) => number;
-  /** `engine_load(rate)`. */
-  readonly #load: (rate: number) => number;
+  /** `engine_load(rate, format)`. */
+  readonly #load: (rate: number, format: number) => number;
   /** `engine_message_ptr()`. */
   readonly #messagePtr: () => number;
   /** `engine_message_len()`. */
@@ -85,16 +85,17 @@ export class CountedInstance {
   }
 
   /**
-   * Loads `patch` at `rate` hertz (parsing it and building its plan) and returns the
-   * instructions the load executed, copying the patch into the module included.
+   * Loads `patch` at `rate` hertz to render in `format` (parsing it and building its plan)
+   * and returns the instructions the load executed, copying the patch into the module
+   * included.
    * @throws {CountError} with the engine's explanation when it refuses the patch.
    */
-  load(patch: Uint8Array, rate: number): bigint {
+  load(patch: Uint8Array, rate: number, format: RenderFormat): bigint {
     let loaded = 0;
     const instructions = this.#counted(() => {
       const address = this.#input(patch.length);
       new Uint8Array(this.#memory.buffer, address, patch.length).set(patch);
-      loaded = this.#load(rate);
+      loaded = this.#load(rate, RENDER_FORMATS.indexOf(format));
     });
     if (loaded !== 1) {
       const message = new Uint8Array(this.#memory.buffer, this.#messagePtr(), this.#messageLen());

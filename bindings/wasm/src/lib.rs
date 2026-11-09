@@ -13,7 +13,7 @@ mod engine;
 pub mod ffi;
 mod instance;
 
-pub use engine::Engine;
+pub use engine::{Blocks, Engine};
 pub use instance::Instance;
 
 /// The test binary counts heap operations, so that rendering can be checked not to use

@@ -1,7 +1,10 @@
 // Test bench page: drives the built package (dist/) and shows results as text, for the
-// end-to-end tests and for Claude in Chrome. The case comes from `?case=<name>`.
+// end-to-end tests and for Claude in Chrome. The case comes from `?case=<name>`, the
+// precision the engine computes in from `?precision=<binary64|binary32>` (binary64 when
+// absent); the render is given as binary32, as Web Audio takes it.
+import { WasmEngine } from "../../dist/engine.js";
 import { interleave, renderHash } from "../../dist/hash.js";
-import { addProcessors, captureEngine, createEngineNode, loadPatch, renderOffline, type LoadedPatch } from "../../dist/web.js";
+import { PRECISIONS, addProcessors, captureEngine, createEngineNode, givenAsBinary32, loadPatch, renderOffline, type LoadedPatch } from "../../dist/web.js";
 import { fetchOk } from "./fetch.ts";
 
 /** The built `AudioWorklet` module that registers the engine and tap processors. */
@@ -45,8 +48,15 @@ async function fetchCase(name: string): Promise<Case> {
 const wasm = await (await fetchOk(new URL("../../dist/engine.wasm", import.meta.url))).arrayBuffer();
 /** The case named by `?case=`, sine-440 when absent. */
 const testCase = await fetchCase(new URLSearchParams(location.search).get("case") ?? "sine-440");
+/** The precision named by `?precision=`, binary64 when absent; an unknown one fails the page load. */
+const precision = PRECISIONS.find((name) => name === (new URLSearchParams(location.search).get("precision") ?? "binary64"));
+if (precision === undefined) {
+  throw new Error(`unknown precision: ${String(new URLSearchParams(location.search).get("precision"))}`);
+}
+/** The render format of what the page captures: the precision, given as binary32. */
+const format = givenAsBinary32(precision);
 /** The case's patch, already validated by the engine at the case's sample rate: a rejected patch fails the page load. */
-const loaded: LoadedPatch = await loadPatch(wasm, testCase.patch, testCase.rate);
+const loaded: LoadedPatch = await loadPatch(wasm, testCase.patch, testCase.rate, precision);
 /** Where the last error is shown; the end-to-end tests expect it empty after a successful render. */
 const error = element("error", HTMLOutputElement);
 
@@ -63,7 +73,7 @@ function on(button: string, action: () => Promise<void>): void {
 
 on("offline", async () => {
   const channels = await renderOffline(loaded, testCase.frames, PROCESSORS);
-  element("offline-hash", HTMLOutputElement).value = await renderHash(loaded.rate, loaded.channels, interleave(channels));
+  element("offline-hash", HTMLOutputElement).value = await renderHash(loaded.rate, loaded.channels, interleave(channels), format);
 });
 
 on("live", async () => {
@@ -88,11 +98,11 @@ on("live", async () => {
   await ready;
   const channels = await captured;
   await context.close();
-  element("live-hash", HTMLOutputElement).value = await renderHash(loaded.rate, loaded.channels, interleave(channels));
+  element("live-hash", HTMLOutputElement).value = await renderHash(loaded.rate, loaded.channels, interleave(channels), format);
 });
 
 on("invalid", async () => {
-  await loadPatch(wasm, new TextEncoder().encode('{"format":1,"nodes":[{"id":1,"box":"nope~"}],"connections":[]}'), loaded.rate);
+  await loadPatch(wasm, new TextEncoder().encode('{"format":1,"nodes":[{"id":1,"box":"nope~"}],"connections":[]}'), loaded.rate, precision);
 });
 
 /**
@@ -120,3 +130,33 @@ on("construction", async () => {
   await context.close();
   element("construction-ms", HTMLOutputElement).value = times.map((time) => time.toFixed(3)).join(" ");
 });
+
+/**
+ * Times rendering `blocks` blocks of `patch` (JSON text) at `rate` hertz, computed in the
+ * precision `asked` and given as binary32 as to Web Audio, in render quanta of 128 frames
+ * (two 64-frame blocks each), on the page's own thread: a fresh
+ * engine each time, one warm-up render first (compiling the code), then `runs` times in
+ * milliseconds. What the end-to-end per-box benchmarks call through `page.evaluate`: the
+ * same module, compiled by the browser engine, as in its `AudioWorklet`.
+ */
+async function timeRendering(patch: string, rate: number, asked: string, blocks: number, runs: number): Promise<number[]> {
+  const chosen = PRECISIONS.find((name) => name === asked);
+  if (chosen === undefined) {
+    throw new Error(`unknown precision: ${asked}`);
+  }
+  const module = await WebAssembly.compile(wasm);
+  const bytes = new TextEncoder().encode(patch);
+  const once = (): number => {
+    const engine = WasmEngine.create(module, bytes, rate, givenAsBinary32(chosen));
+    const outputs = Array.from({ length: Math.max(1, engine.channels) }, () => new Float32Array(128));
+    const start = performance.now();
+    for (let quantum = 0; quantum < blocks / 2; quantum += 1) {
+      engine.render(outputs);
+    }
+    return performance.now() - start;
+  };
+  once();
+  return Array.from({ length: runs }, once);
+}
+
+Reflect.set(window, "timeRendering", timeRendering);

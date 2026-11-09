@@ -1,9 +1,9 @@
 import { describe, expect, test } from "vitest";
 import { CountedInstance, CountError, countedModule } from "../../benchmarks/counter.ts";
 import { instrument } from "../../benchmarks/instrument.ts";
-import { WasmEngine } from "../../ts/engine.ts";
-import { interleave, renderHash } from "../../ts/hash.ts";
-import { CORPUS, REFERENCES, SINE_PATCH, UNKNOWN_BOX, wasmBytes } from "../fixtures.ts";
+import { RENDER_FORMATS, WasmEngine } from "../../ts/engine.ts";
+import { interleave, interleave64, renderHash } from "../../ts/hash.ts";
+import { CORPUS, SINE_PATCH, UNKNOWN_BOX, reference, wasmBytes } from "../fixtures.ts";
 import { assemble, I32_GLOBAL } from "./assemble.ts";
 
 /** The built engine module, instrumented and compiled at the first use (a mutant that breaks it fails a test, not the file). */
@@ -19,11 +19,19 @@ function counted(): WebAssembly.Module {
 const EMPTY = new TextEncoder().encode('{"format":1,"nodes":[],"connections":[]}');
 
 describe("the instrumented engine module", () => {
-  test.each(CORPUS.map((testCase) => [testCase.name, testCase] as const))("renders %s bit-identical to the native engine, as the module does", async (_name, testCase) => {
-    const engine = WasmEngine.create(new WebAssembly.Module(instrument(new Uint8Array(wasmBytes()))), testCase.patch, testCase.rate);
-    const channels = Array.from({ length: engine.channels }, () => new Float32Array(testCase.frames));
-    engine.render(channels);
-    expect(await renderHash(testCase.rate, engine.channels, interleave(channels))).toBe(REFERENCES.get(testCase.name));
+  test.each(CORPUS.map((testCase) => [testCase.name, testCase] as const))("renders %s bit-identical to the native engine, as the module does, in every render format", async (name, testCase) => {
+    const module = new WebAssembly.Module(instrument(new Uint8Array(wasmBytes())));
+    const { patch, rate, frames } = testCase;
+    const wide = WasmEngine.create(module, patch, rate, "binary64");
+    const wideChannels = Array.from({ length: wide.channels }, () => new Float64Array(frames));
+    wide.render(wideChannels);
+    expect(await renderHash(rate, wide.channels, interleave64(wideChannels), "binary64")).toBe(reference(name, "binary64"));
+    for (const format of RENDER_FORMATS.filter((candidate) => candidate !== "binary64")) {
+      const engine = WasmEngine.create(module, patch, rate, format);
+      const channels = Array.from({ length: engine.channels }, () => new Float32Array(frames));
+      engine.render(channels);
+      expect(await renderHash(rate, engine.channels, interleave(channels), format)).toBe(reference(name, format));
+    }
   });
 });
 
@@ -31,7 +39,7 @@ describe("CountedInstance", () => {
   test("counts the same instructions for the same work, in every instance", () => {
     const counts = [0, 1].map(() => {
       const instance = new CountedInstance(counted());
-      return [instance.load(SINE_PATCH, 48_000), instance.process(3)];
+      return [instance.load(SINE_PATCH, 48_000, "binary64-as-binary32"), instance.process(3)];
     });
     expect(counts[0]).toStrictEqual(counts[1]);
     expect(counts[0]?.every((count) => count > 0n)).toBe(true);
@@ -39,30 +47,41 @@ describe("CountedInstance", () => {
 
   test("counts nothing for no block, and each block of a patch of no box alike", () => {
     const once = new CountedInstance(counted());
-    once.load(EMPTY, 48_000);
+    once.load(EMPTY, 48_000, "binary64-as-binary32");
     expect(once.process(0)).toBe(0n);
     const block = once.process(1);
     expect(block).toBeGreaterThan(0n);
     const thrice = new CountedInstance(counted());
-    thrice.load(EMPTY, 48_000);
+    thrice.load(EMPTY, 48_000, "binary64-as-binary32");
     expect(thrice.process(3)).toBe(3n * block);
   });
 
+  test("loads in the render format asked, which changes what a block costs", () => {
+    const cost = (format: "binary64" | "binary64-as-binary32" | "binary32"): bigint => {
+      const instance = new CountedInstance(counted());
+      instance.load(SINE_PATCH, 48_000, format);
+      return instance.process(2);
+    };
+    const [wide, given, narrow] = [cost("binary64"), cost("binary64-as-binary32"), cost("binary32")];
+    expect(given).toBeGreaterThan(wide);
+    expect(narrow).not.toBe(given);
+  });
+
   test("counts a load that grows with the patch", () => {
-    const small = new CountedInstance(counted()).load(EMPTY, 48_000);
-    expect(new CountedInstance(counted()).load(SINE_PATCH, 48_000)).toBeGreaterThan(small);
+    const small = new CountedInstance(counted()).load(EMPTY, 48_000, "binary64-as-binary32");
+    expect(new CountedInstance(counted()).load(SINE_PATCH, 48_000, "binary64-as-binary32")).toBeGreaterThan(small);
   });
 
   test("refuses a patch with the engine's words", () => {
     const instance = new CountedInstance(counted());
-    expect(() => instance.load(UNKNOWN_BOX, 48_000)).toThrow(CountError);
-    expect(() => instance.load(UNKNOWN_BOX, 48_000)).toThrow(/^the engine refused the patch: .*"nope~"/);
-    expect(() => instance.load(SINE_PATCH, 7)).toThrow(/^the engine refused the patch: .+/);
+    expect(() => instance.load(UNKNOWN_BOX, 48_000, "binary64-as-binary32")).toThrow(CountError);
+    expect(() => instance.load(UNKNOWN_BOX, 48_000, "binary64-as-binary32")).toThrow(/^the engine refused the patch: .*"nope~"/);
+    expect(() => instance.load(SINE_PATCH, 7, "binary64-as-binary32")).toThrow(/^the engine refused the patch: .+/);
   });
 
   test("refuses a module without its memory and counter, of another interface, without a function, or whose counter is not an i64", () => {
-    const version = { params: 0, result: true, locals: [0x00], code: [0x41, 0x82, 0x80, 0xe4, 0x82, 0x05, 0x0b], exported: "engine_abi_version" };
-    const other = { ...version, code: [0x41, 0x83, 0x80, 0xe4, 0x82, 0x05, 0x0b] };
+    const version = { params: 0, result: true, locals: [0x00], code: [0x41, 0x83, 0x80, 0xe4, 0x82, 0x05, 0x0b], exported: "engine_abi_version" };
+    const other = { ...version, code: [0x41, 0x84, 0x80, 0xe4, 0x82, 0x05, 0x0b] };
     const counter = (kind: readonly number[]): readonly (readonly [string, number, number])[] => [
       ["memory", 0x02, 0],
       ["instructions", kind[0] ?? 0, 0],
@@ -72,10 +91,10 @@ describe("CountedInstance", () => {
       new WebAssembly.Module(assemble({ functions, globals, exports }));
     expect(() => new CountedInstance(module([version], [i64], [["memory", 0x02, 0]]))).toThrow(new CountError('the module does not export its memory and its counter "instructions"'));
     expect(() => new CountedInstance(module([version], [i64], [["instructions", 0x03, 0]]))).toThrow(new CountError('the module does not export its memory and its counter "instructions"'));
-    expect(() => new CountedInstance(module([other], [i64], counter([0x03])))).toThrow(new CountError("the module has the interface 0x50590003, expected 0x50590002"));
+    expect(() => new CountedInstance(module([other], [i64], counter([0x03])))).toThrow(new CountError("the module has the interface 0x50590004, expected 0x50590003"));
     expect(() => new CountedInstance(module([version], [i64], counter([0x03])))).toThrow(new CountError("the module has no function engine_input"));
     const stubs = ["engine_input", "engine_load", "engine_message_ptr", "engine_message_len", "engine_process"].map((name) => ({
-      params: name === "engine_input" || name === "engine_load" ? 1 : 0,
+      params: name === "engine_input" ? 1 : name === "engine_load" ? 2 : 0,
       result: true,
       locals: [0x00],
       code: [0x41, 0x01, 0x0b],

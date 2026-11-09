@@ -6,12 +6,14 @@ import {
   BOX_BENCHMARKS,
   BROWSERS,
   BenchmarkFileError,
+  boxBoundMs,
   constructionBoundMs,
   formatBaseline,
   measure,
   nLogNProblems,
   parseBaseline,
   parseThresholds,
+  PLAN_PRECISION,
   PLAN_RATE,
   PLAN_SIZES,
   planPatch,
@@ -41,7 +43,7 @@ describe("the benchmarks", () => {
       ["dac~", "two inlets fed at 48 kHz", 48_000],
       ["dac~", "unconnected at 48 kHz", 48_000],
     ]);
-    expect([BLOCKS, PLAN_RATE, PLAN_SIZES]).toStrictEqual([64, 48_000, [256, 1024, 4096, 16_384]]);
+    expect([BLOCKS, PLAN_RATE, PLAN_SIZES, PLAN_PRECISION]).toStrictEqual([64, 48_000, [256, 1024, 4096, 16_384], "binary64"]);
   });
 
   test("hold each box in its patch, and not in the patch without it", () => {
@@ -68,19 +70,26 @@ describe("the benchmarks", () => {
     expect([frequencies[1000], frequencies[1001], frequencies[1999]]).toStrictEqual([1099, 100, 1098]);
   });
 
-  test("count a box as its patch minus the patch without it, and a plan as its load", () => {
-    const blocks = (patch: Uint8Array, rate: number): bigint => {
+  test("count a box as its patch minus the patch without it, in each precision given as binary32, and a plan as its load", () => {
+    const blocks = (patch: Uint8Array, rate: number, format: "binary64-as-binary32" | "binary32"): bigint => {
       const instance = new CountedInstance(counted());
-      instance.load(patch, rate);
+      instance.load(patch, rate, format);
       return instance.process(64);
     };
     const [first] = BOX_BENCHMARKS;
     if (first === undefined) {
       throw new Error("no benchmark");
     }
+    const box = (format: "binary64-as-binary32" | "binary32"): number => Number(blocks(patchBytes(first.patch), 48_000, format) - blocks(patchBytes(first.without), 48_000, format));
     const counts = measure(counted(), [first], [3, 5]);
-    expect(counts.boxes).toStrictEqual([{ box: "osc~", setting: "440 Hz at 48 kHz", instructions: Number(blocks(patchBytes(first.patch), 48_000) - blocks(patchBytes(first.without), 48_000)) }]);
-    expect(counts.plans).toStrictEqual([3, 5].map((size) => ({ oscillators: size, instructions: Number(new CountedInstance(counted()).load(patchBytes(planPatch(size)), 48_000)) })));
+    expect(counts.boxes).toStrictEqual([
+      { box: "osc~", precision: "binary64", setting: "440 Hz at 48 kHz", instructions: box("binary64-as-binary32") },
+      { box: "osc~", precision: "binary32", setting: "440 Hz at 48 kHz", instructions: box("binary32") },
+    ]);
+    expect(counts.boxes[0]?.instructions).not.toBe(counts.boxes[1]?.instructions);
+    expect(counts.plans).toStrictEqual(
+      [3, 5].map((size) => ({ oscillators: size, instructions: Number(new CountedInstance(counted()).load(patchBytes(planPatch(size)), 48_000, "binary64-as-binary32")) })),
+    );
     expect(counts.plans[0]?.instructions).toBeLessThan(counts.plans[1]?.instructions ?? 0);
   });
 
@@ -98,7 +107,7 @@ describe("the benchmarks", () => {
     if (first === undefined) {
       throw new Error("no benchmark");
     }
-    expect(measure(counted(), [{ ...first, patch: first.without }], []).boxes[0]?.instructions).toBe(0);
+    expect(measure(counted(), [{ ...first, patch: first.without }], []).boxes.map((entry) => entry.instructions)).toStrictEqual([0, 0]);
   });
 
   test("refuse a patch the engine refuses", () => {
@@ -121,7 +130,7 @@ describe("the benchmarks", () => {
 
 /** Counts of one box benchmark and one plan. */
 function countsOf(box: number, plan: number): Counts {
-  return { boxes: [{ box: "osc~", setting: "s", instructions: box }], plans: [{ oscillators: 4, instructions: plan }] };
+  return { boxes: [{ box: "osc~", precision: "binary32", setting: "s", instructions: box }], plans: [{ oscillators: 4, instructions: plan }] };
 }
 
 describe("regressions", () => {
@@ -137,19 +146,21 @@ describe("regressions", () => {
 
   test("refuse counts beyond the tolerance, either way", () => {
     expect(regressions(countsOf(1021, 4899), countsOf(1000, 5000), 2)).toStrictEqual([
-      "osc~ s: 1021 instructions, baseline 1000 (+2.10%, beyond ±2%)",
+      "osc~ s in binary32: 1021 instructions, baseline 1000 (+2.10%, beyond ±2%)",
       "loading a plan of 4 oscillators: 4899 instructions, baseline 5000 (-2.02%, beyond ±2%)",
     ]);
     expect(regressions(countsOf(1100, 5000), countsOf(1000, 5000), 15)).toStrictEqual([]);
-    expect(regressions(countsOf(1000, 5000), countsOf(1100, 5000), 0.5)).toStrictEqual(["osc~ s: 1000 instructions, baseline 1100 (-9.09%, beyond ±0.5%)"]);
+    expect(regressions(countsOf(1000, 5000), countsOf(1100, 5000), 0.5)).toStrictEqual(["osc~ s in binary32: 1000 instructions, baseline 1100 (-9.09%, beyond ±0.5%)"]);
   });
 
   test("refuse a benchmark missing from the baseline, and a baseline entry nothing measures", () => {
-    const other: Counts = { boxes: [{ box: "dac~", setting: "s", instructions: 7 }], plans: [{ oscillators: 8, instructions: 9 }] };
+    const other: Counts = { boxes: [{ box: "dac~", precision: "binary64", setting: "s", instructions: 7 }], plans: [{ oscillators: 8, instructions: 9 }] };
+    const sameBoxOtherPrecision: Counts = { boxes: [{ box: "osc~", precision: "binary64", setting: "s", instructions: 1 }], plans: [{ oscillators: 4, instructions: 2 }] };
+    expect(regressions(countsOf(1, 2), sameBoxOtherPrecision, 2)).toStrictEqual(["osc~ s in binary32: 1 instructions, not in the baseline", "osc~ s in binary64: in the baseline, measured by no benchmark"]);
     expect(regressions(countsOf(1, 2), other, 2)).toStrictEqual([
-      "osc~ s: 1 instructions, not in the baseline",
+      "osc~ s in binary32: 1 instructions, not in the baseline",
       "loading a plan of 4 oscillators: 2 instructions, not in the baseline",
-      "dac~ s: in the baseline, measured by no benchmark",
+      "dac~ s in binary64: in the baseline, measured by no benchmark",
       "loading a plan of 8 oscillators: in the baseline, measured by no benchmark",
     ]);
   });
@@ -188,12 +199,12 @@ describe("the n log n law", () => {
 });
 
 describe("the baseline file", () => {
-  const valid = { boxes: [{ box: "osc~", setting: "s", instructions: 12 }], plans: [{ oscillators: 4, instructions: 0 }] };
+  const valid: Counts = { boxes: [{ box: "osc~", precision: "binary32", setting: "s", instructions: 12 }], plans: [{ oscillators: 4, instructions: 0 }] };
 
   test("is read in its exact shape, and written as it is read", () => {
     expect(parseBaseline(JSON.stringify(valid))).toStrictEqual(valid);
     expect(formatBaseline(valid)).toBe(
-      '{\n  "boxes": [\n    {\n      "box": "osc~",\n      "setting": "s",\n      "instructions": 12\n    }\n  ],\n  "plans": [\n    {\n      "oscillators": 4,\n      "instructions": 0\n    }\n  ]\n}\n',
+      '{\n  "boxes": [\n    {\n      "box": "osc~",\n      "precision": "binary32",\n      "setting": "s",\n      "instructions": 12\n    }\n  ],\n  "plans": [\n    {\n      "oscillators": 4,\n      "instructions": 0\n    }\n  ]\n}\n',
     );
     expect(parseBaseline(formatBaseline(valid))).toStrictEqual(valid);
     const committed = readFileSync(new URL("benchmark-baseline.json", SPEC), "utf8");
@@ -210,9 +221,27 @@ describe("the baseline file", () => {
     for (const value of [null, [], 3, {}, { boxes: [] }, { ...valid, extra: 1 }, { boxes: {}, plans: [] }, { boxes: [], plans: {} }]) {
       refused(value, top);
     }
-    const box = 'boxes[0] is not {"box", "setting", "instructions"} with a whole count';
-    for (const entry of [null, {}, { box: 1, setting: "s", instructions: 1 }, { box: "b", setting: 1, instructions: 1 }, { box: "b", setting: "s", instructions: -1 }, { box: "b", setting: "s", instructions: 1.5 }, { box: "b", setting: "s", instructions: "1" }, { box: "b", setting: "s", instructions: 2 ** 53 }, { box: "b", setting: "s", instructions: 1, more: 1 }]) {
+    const box = 'boxes[0] is not {"box", "precision", "setting", "instructions"} with a whole count';
+    const entries = [
+      null,
+      {},
+      { box: 1, setting: "s", instructions: 1 },
+      { box: "b", setting: 1, instructions: 1 },
+      { box: "b", setting: "s", instructions: -1 },
+      { box: "b", setting: "s", instructions: 1.5 },
+      { box: "b", setting: "s", instructions: "1" },
+      { box: "b", setting: "s", instructions: 2 ** 53 },
+      { box: "b", setting: "s", instructions: 1, more: 1 },
+    ];
+    for (const entry of entries) {
       refused({ boxes: [entry], plans: [] }, box);
+      if (entry !== null) {
+        refused({ boxes: [{ ...entry, precision: "binary64" }], plans: [] }, box);
+      }
+    }
+    refused({ boxes: [{ box: "b", setting: "s", instructions: 1 }], plans: [] }, box);
+    for (const precision of ["binary16", 64, null]) {
+      refused({ boxes: [{ box: "b", precision, setting: "s", instructions: 1 }], plans: [] }, "boxes[0].precision is not one of binary64, binary32");
     }
     const plan = 'plans[1] is not {"oscillators", "instructions"} with whole numbers';
     for (const entry of [{}, { oscillators: -1, instructions: 1 }, { oscillators: 1, instructions: -1 }, { oscillators: 1 }, { oscillators: 1, instructions: 1, more: 1 }]) {
@@ -229,19 +258,22 @@ describe("the thresholds file", () => {
   const valid = {
     tolerance_percent: 2,
     construction: { runs: 20, margin: 2.5, measured_on: "then", measured_max_ms: { chromium: 1.2, firefox: 4, webkit: 0.5 } },
+    boxes: { blocks: 4096, runs: 5, margin: 3, measured_on: "later", measured_max_ms: { chromium: 10.1, firefox: 20, webkit: 7 } },
   };
 
   test("is read in its exact shape", () => {
     expect(parseThresholds(JSON.stringify(valid))).toStrictEqual({
       tolerancePercent: 2,
       construction: { runs: 20, margin: 2.5, measuredOn: "then", measuredMaxMs: { chromium: 1.2, firefox: 4, webkit: 0.5 } },
+      boxes: { blocks: 4096, runs: 5, margin: 3, measuredOn: "later", measuredMaxMs: { chromium: 10.1, firefox: 20, webkit: 7 } },
     });
     expect(BROWSERS).toStrictEqual(["chromium", "firefox", "webkit"]);
   });
 
-  test("gives each browser engine its bound: the slowest construction measured times the margin, rounded up", () => {
+  test("gives each browser engine its bounds: the slowest time measured times the margin, rounded up", () => {
     const thresholds = parseThresholds(JSON.stringify(valid));
     expect(BROWSERS.map((browser) => constructionBoundMs(thresholds, browser))).toStrictEqual([3, 10, 2]);
+    expect(BROWSERS.map((browser) => boxBoundMs(thresholds, browser))).toStrictEqual([31, 60, 21]);
   });
 
   test("refuses every other shape", () => {
@@ -249,10 +281,20 @@ describe("the thresholds file", () => {
       expect(() => parseThresholds(JSON.stringify(value))).toThrow(new BenchmarkFileError(message));
     };
     expect(() => parseThresholds("[")).toThrow(/^not JSON: SyntaxError/);
-    const top = 'expected {"tolerance_percent": <positive>, "construction": {...}}';
-    for (const value of [null, {}, { ...valid, tolerance_percent: 0 }, { ...valid, tolerance_percent: -1 }, { ...valid, tolerance_percent: "2" }, { ...valid, tolerance_percent: Infinity }, { ...valid, extra: 1 }]) {
+    const top = 'expected {"tolerance_percent": <positive>, "construction": {...}, "boxes": {...}}';
+    const withoutBoxes = { tolerance_percent: valid.tolerance_percent, construction: valid.construction };
+    for (const value of [null, {}, withoutBoxes, { ...valid, tolerance_percent: 0 }, { ...valid, tolerance_percent: -1 }, { ...valid, tolerance_percent: "2" }, { ...valid, tolerance_percent: Infinity }, { ...valid, extra: 1 }]) {
       refused(value, top);
     }
+    const boxes = 'expected "boxes": {"blocks": <whole, positive>, "runs": <whole, positive>, "margin": <positive>, "measured_on": <text>, "measured_max_ms": {...}}';
+    for (const change of [{ blocks: 0 }, { blocks: 1.5 }, { blocks: -1 }, { blocks: "1" }, { runs: 0 }, { margin: 0 }, { measured_on: 1 }, { extra: 1 }]) {
+      refused({ ...valid, boxes: { ...valid.boxes, ...change } }, boxes);
+    }
+    const { runs, margin, measured_on, measured_max_ms } = valid.boxes;
+    refused({ ...valid, boxes: { runs, margin, measured_on, measured_max_ms } }, boxes);
+    refused({ ...valid, boxes: null }, boxes);
+    refused({ ...valid, boxes: { ...valid.boxes, measured_max_ms: { chromium: 1, firefox: 1 } } }, 'expected "measured_max_ms" with exactly chromium, firefox, webkit');
+    refused({ ...valid, boxes: { ...valid.boxes, measured_max_ms: { ...valid.boxes.measured_max_ms, webkit: 0 } } }, '"measured_max_ms"."webkit" is not a positive number');
     const construction = 'expected "construction": {"runs": <whole, positive>, "margin": <positive>, "measured_on": <text>, "measured_max_ms": {...}}';
     for (const change of [{ runs: 0 }, { runs: 1.5 }, { runs: -1 }, { margin: 0 }, { margin: "2" }, { measured_on: 1 }, { extra: 1 }]) {
       refused({ ...valid, construction: { ...valid.construction, ...change } }, construction);

@@ -6,12 +6,14 @@
  * {@link addProcessors}, giving the URL of the compiled `worklet/processors.js`.
  */
 
-import { ModuleError, PatchError, WasmEngine } from "./engine.ts";
+import { ModuleError, PatchError, WasmEngine, givenAsBinary32, type Precision } from "./engine.ts";
+export { PRECISIONS, givenAsBinary32, type Precision } from "./engine.ts";
 import { ENGINE_PROCESSOR, MARKER_PERIOD, TAP_PROCESSOR, parseEngineMessage, parseTapMessage, type EngineOptions, type TapMessage } from "./protocol.ts";
 
 /**
  * A patch checked by the engine, ready to run in engine nodes. Only {@link loadPatch}
- * makes one: holding a `LoadedPatch` proves the engine accepted this patch at this rate.
+ * makes one: holding a `LoadedPatch` proves the engine accepted this patch at this rate,
+ * in this precision.
  * It keeps its own copies of the bytes, so changing the arrays given to `loadPatch`
  * afterwards changes nothing.
  */
@@ -20,6 +22,8 @@ export class LoadedPatch {
   readonly rate: number;
   /** Number of output channels. */
   readonly channels: number;
+  /** The precision the engine computes it in (a host setting); Web Audio is given binary32. */
+  readonly precision: Precision;
   /** The engine WebAssembly module, as bytes. */
   readonly #wasm: ArrayBuffer;
   /** The patch, as UTF-8 text in the patch format. */
@@ -30,17 +34,19 @@ export class LoadedPatch {
    * @param wasm A copy of the module bytes.
    * @param patch A copy of the patch bytes.
    * @param rate The rate it was checked at.
+   * @param precision The precision it was checked in.
    * @param channels Its number of output channels.
    */
-  private constructor(wasm: ArrayBuffer, patch: Uint8Array, rate: number, channels: number) {
+  private constructor(wasm: ArrayBuffer, patch: Uint8Array, rate: number, precision: Precision, channels: number) {
     this.#wasm = wasm;
     this.#patch = patch;
     this.rate = rate;
+    this.precision = precision;
     this.channels = channels;
   }
 
   /**
-   * Checks `patch` with the engine at `rate` hertz, on this thread: errors are thrown here
+   * Checks `patch` with the engine at `rate` hertz in `precision`, on this thread: errors are thrown here
    * with the explanation of the engine, rather than in the audio thread. What it rejects
    * with, told apart by `name` (the error classes are not exported yet, roadmap #32):
    * @throws {RangeError} when `rate` is not a whole number of hertz that fits 32 bits.
@@ -52,15 +58,15 @@ export class LoadedPatch {
    * @throws {Error} named `EngineTrap`, with the WebAssembly `RuntimeError` as `cause`, when
    * the module traps while checking the patch.
    */
-  static async load(wasm: ArrayBuffer, patch: Uint8Array, rate: number): Promise<LoadedPatch> {
+  static async load(wasm: ArrayBuffer, patch: Uint8Array, rate: number, precision: Precision): Promise<LoadedPatch> {
     const bytes = wasm.slice(0);
     const module = await WebAssembly.compile(bytes).catch((error: unknown) => {
       throw new ModuleError(`cannot be compiled: ${String(error)}`, { cause: error });
     });
     const copy = patch.slice();
     try {
-      const { channels } = WasmEngine.create(module, copy, rate);
-      return new LoadedPatch(bytes, copy, rate, channels);
+      const { channels } = WasmEngine.create(module, copy, rate, givenAsBinary32(precision));
+      return new LoadedPatch(bytes, copy, rate, precision, channels);
     } catch (error) {
       throw error instanceof PatchError ? new Error(new TextDecoder().decode(error.detail), { cause: error }) : error;
     }
@@ -71,7 +77,7 @@ export class LoadedPatch {
    * @param marker Whether the node adds a marker channel (see `EngineOptions`).
    */
   options(marker: boolean): EngineOptions {
-    return { wasm: this.#wasm.slice(0), patch: this.#patch.slice(), marker };
+    return { wasm: this.#wasm.slice(0), patch: this.#patch.slice(), marker, precision: this.precision };
   }
 }
 
@@ -83,12 +89,13 @@ export async function addProcessors(context: BaseAudioContext, url: string | URL
 }
 
 /**
- * Checks `patch` with the engine at `rate` hertz: see {@link LoadedPatch.load}, which
- * lists what it rejects with.
+ * Checks `patch` with the engine at `rate` hertz, to compute in `precision` (binary64 by
+ * default, a host setting; the render is given to Web Audio as binary32): see
+ * {@link LoadedPatch.load}, which lists what it rejects with.
  * @throws {Error} as {@link LoadedPatch.load}.
  */
-export function loadPatch(wasm: ArrayBuffer, patch: Uint8Array, rate: number): Promise<LoadedPatch> {
-  return LoadedPatch.load(wasm, patch, rate);
+export function loadPatch(wasm: ArrayBuffer, patch: Uint8Array, rate: number, precision: Precision = "binary64"): Promise<LoadedPatch> {
+  return LoadedPatch.load(wasm, patch, rate, precision);
 }
 
 /** An engine node, and when it is ready. */

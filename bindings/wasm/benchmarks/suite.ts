@@ -1,6 +1,7 @@
 // The benchmarks of the engine, counted in WebAssembly instructions (spec/benchmarks.md):
 // what each measures, the baseline they are compared with, the tolerance, and the law that
 // building a plan grows as n log n. Pure functions over a counted module, tested.
+import { PRECISIONS, givenAsBinary32, type Precision } from "../ts/engine.ts";
 import { CountedInstance } from "./counter.ts";
 
 /** A patch in the patch format, before it is written as JSON. */
@@ -96,6 +97,13 @@ export const BOX_BENCHMARKS: readonly BoxBenchmark[] = [
   },
 ];
 
+/**
+ * The precision the plans are built in: the default, given as binary32 as in the
+ * `AudioWorklet`. Building a plan does the same work in both precisions but for the size of
+ * its buffers.
+ */
+export const PLAN_PRECISION: Precision = "binary64";
+
 /** The sample rate the plans are built at, in hertz. */
 export const PLAN_RATE = 48_000;
 
@@ -121,8 +129,8 @@ export function patchBytes(patch: Patch): Uint8Array {
 
 /** What one run of the benchmarks measured, in the shape of the baseline. */
 export interface Counts {
-  /** Each box benchmark: box, setting and instructions. */
-  readonly boxes: readonly { readonly box: string; readonly setting: string; readonly instructions: number }[];
+  /** Each box benchmark in each precision: box, precision, setting and instructions. */
+  readonly boxes: readonly { readonly box: string; readonly precision: Precision; readonly setting: string; readonly instructions: number }[];
   /** Each plan built: its size in oscillators, and the instructions of loading it. */
   readonly plans: readonly { readonly oscillators: number; readonly instructions: number }[];
 }
@@ -139,32 +147,42 @@ function exact(count: bigint): number {
   return value;
 }
 
-/** The instructions of {@link BLOCKS} blocks of `patch`, in a fresh instance. */
-function blocksOf(module: WebAssembly.Module, patch: Patch, rate: number): bigint {
+/**
+ * The instructions of {@link BLOCKS} blocks of `patch` computed in `precision` and given as
+ * binary32, as the `AudioWorklet` renders it, in a fresh instance.
+ */
+function blocksOf(module: WebAssembly.Module, patch: Patch, rate: number, precision: Precision): bigint {
   const instance = new CountedInstance(module);
-  instance.load(patchBytes(patch), rate);
+  instance.load(patchBytes(patch), rate, givenAsBinary32(precision));
   return instance.process(BLOCKS);
 }
 
 /**
- * Runs the benchmarks on a counted engine module: `boxes`, then plans of `sizes`.
+ * Runs the benchmarks on a counted engine module: `boxes` in every precision (each
+ * benchmark in binary64 then in binary32), then plans of `sizes`.
  * @throws {CountError} when the engine refuses a patch.
  * @throws {RangeError} when a box costs less than nothing (the patch without it costs more).
  */
 export function measure(module: WebAssembly.Module, boxes: readonly BoxBenchmark[], sizes: readonly number[]): Counts {
   return {
-    boxes: boxes.map((benchmark) => ({
-      box: benchmark.box,
-      setting: benchmark.setting,
-      instructions: exact(blocksOf(module, benchmark.patch, benchmark.rate) - blocksOf(module, benchmark.without, benchmark.rate)),
+    boxes: boxes.flatMap((benchmark) =>
+      PRECISIONS.map((precision) => ({
+        box: benchmark.box,
+        precision,
+        setting: benchmark.setting,
+        instructions: exact(blocksOf(module, benchmark.patch, benchmark.rate, precision) - blocksOf(module, benchmark.without, benchmark.rate, precision)),
+      })),
+    ),
+    plans: sizes.map((oscillators) => ({
+      oscillators,
+      instructions: exact(new CountedInstance(module).load(patchBytes(planPatch(oscillators)), PLAN_RATE, givenAsBinary32(PLAN_PRECISION))),
     })),
-    plans: sizes.map((oscillators) => ({ oscillators, instructions: exact(new CountedInstance(module).load(patchBytes(planPatch(oscillators)), PLAN_RATE)) })),
   };
 }
 
-/** The name of a box benchmark in the reports. */
-function boxName(entry: { readonly box: string; readonly setting: string }): string {
-  return `${entry.box} ${entry.setting}`;
+/** The name of a box benchmark in the reports: `osc~ 440 Hz at 48 kHz in binary32`. */
+function boxName(entry: { readonly box: string; readonly precision: Precision; readonly setting: string }): string {
+  return `${entry.box} ${entry.setting} in ${entry.precision}`;
 }
 
 /** The name of a plan benchmark in the reports. */
@@ -274,10 +292,15 @@ export function parseBaseline(text: string): Counts {
     throw new BenchmarkFileError('expected {"boxes": [...], "plans": [...]}');
   }
   const boxes = json["boxes"].map((entry: unknown, index) => {
-    if (!hasExactly(entry, ["box", "setting", "instructions"]) || typeof entry["box"] !== "string" || typeof entry["setting"] !== "string" || !isCount(entry["instructions"])) {
-      throw new BenchmarkFileError(`boxes[${String(index)}] is not {"box", "setting", "instructions"} with a whole count`);
+    if (!hasExactly(entry, ["box", "precision", "setting", "instructions"]) || typeof entry["box"] !== "string" || typeof entry["setting"] !== "string" || !isCount(entry["instructions"])) {
+      throw new BenchmarkFileError(`boxes[${String(index)}] is not {"box", "precision", "setting", "instructions"} with a whole count`);
     }
-    return { box: entry["box"], setting: entry["setting"], instructions: entry["instructions"] };
+    const written = entry["precision"];
+    const precision = PRECISIONS.find((name) => name === written);
+    if (precision === undefined) {
+      throw new BenchmarkFileError(`boxes[${String(index)}].precision is not one of ${PRECISIONS.join(", ")}`);
+    }
+    return { box: entry["box"], precision, setting: entry["setting"], instructions: entry["instructions"] };
   });
   const plans = json["plans"].map((entry: unknown, index) => {
     if (!hasExactly(entry, ["oscillators", "instructions"]) || !isCount(entry["oscillators"]) || !isCount(entry["instructions"])) {
@@ -299,20 +322,31 @@ export const BROWSERS = ["chromium", "firefox", "webkit"] as const;
 /** A browser engine of {@link BROWSERS}. */
 export type Browser = (typeof BROWSERS)[number];
 
+/** How a wall time is bounded in each browser engine: measured, then multiplied by a margin. */
+export interface Timing {
+  /** Times taken per browser engine and run. */
+  readonly runs: number;
+  /** The factor between the slowest time measured and the bound. */
+  readonly margin: number;
+  /** Where and when the measured values were taken. */
+  readonly measuredOn: string;
+  /** The slowest of the times measured, per browser engine, in milliseconds. */
+  readonly measuredMaxMs: Readonly<Record<Browser, number>>;
+}
+
 /** The thresholds of the benchmarks (spec/benchmark-thresholds.json), derived in spec/benchmarks.md. */
 export interface Thresholds {
   /** How far, in percent of the baseline, an instruction count may move either way. */
   readonly tolerancePercent: number;
   /** How the construction of the engine processor is bounded. */
-  readonly construction: {
-    /** Constructions timed per browser engine and run. */
-    readonly runs: number;
-    /** The factor between the slowest construction measured and the bound. */
-    readonly margin: number;
-    /** Where and when the measured values were taken. */
-    readonly measuredOn: string;
-    /** The slowest of the constructions measured, per browser engine, in milliseconds. */
-    readonly measuredMaxMs: Readonly<Record<Browser, number>>;
+  readonly construction: Timing;
+  /**
+   * How the wall time of rendering each box benchmark in each precision is bounded: the
+   * time of `blocks` blocks of the patch holding the box, every time.
+   */
+  readonly boxes: Timing & {
+    /** Blocks rendered per time taken. */
+    readonly blocks: number;
   };
 }
 
@@ -320,6 +354,38 @@ export interface Thresholds {
 function isPositive(value: unknown): value is number {
   return Number.isFinite(value) && Number(value) > 0;
 }
+
+/**
+ * Reads a timing of the thresholds file: `keys` exactly, `runs` (whole, positive), `margin`
+ * (positive), `measured_on` (text) and `measured_max_ms` (positive, one per browser engine).
+ * @throws {BenchmarkFileError} with `shape` when the timing is malformed, or naming the
+ * browser engine whose time is.
+ */
+function parseTiming(value: unknown, keys: readonly string[], shape: string): Timing {
+  if (!hasExactly(value, keys) || !isCount(value["runs"]) || value["runs"] === 0 || !isPositive(value["margin"]) || typeof value["measured_on"] !== "string") {
+    throw new BenchmarkFileError(shape);
+  }
+  const measured = value["measured_max_ms"];
+  if (!hasExactly(measured, BROWSERS)) {
+    throw new BenchmarkFileError(`expected "measured_max_ms" with exactly ${BROWSERS.join(", ")}`);
+  }
+  const read = (browser: Browser): number => {
+    const time = measured[browser];
+    if (!isPositive(time)) {
+      throw new BenchmarkFileError(`"measured_max_ms"."${browser}" is not a positive number`);
+    }
+    return time;
+  };
+  return {
+    runs: value["runs"],
+    margin: value["margin"],
+    measuredOn: value["measured_on"],
+    measuredMaxMs: { chromium: read("chromium"), firefox: read("firefox"), webkit: read("webkit") },
+  };
+}
+
+/** The keys of a timing of the thresholds file. */
+const TIMING = ["runs", "margin", "measured_on", "measured_max_ms"] as const;
 
 /**
  * Reads the thresholds file, refusing anything but its exact shape.
@@ -332,42 +398,35 @@ export function parseThresholds(text: string): Thresholds {
   } catch (error) {
     throw new BenchmarkFileError(`not JSON: ${String(error)}`);
   }
-  if (!hasExactly(json, ["tolerance_percent", "construction"]) || !isPositive(json["tolerance_percent"])) {
-    throw new BenchmarkFileError('expected {"tolerance_percent": <positive>, "construction": {...}}');
+  if (!hasExactly(json, ["tolerance_percent", "construction", "boxes"]) || !isPositive(json["tolerance_percent"])) {
+    throw new BenchmarkFileError('expected {"tolerance_percent": <positive>, "construction": {...}, "boxes": {...}}');
   }
-  const construction = json["construction"];
-  if (
-    !hasExactly(construction, ["runs", "margin", "measured_on", "measured_max_ms"]) ||
-    !isCount(construction["runs"]) ||
-    construction["runs"] === 0 ||
-    !isPositive(construction["margin"]) ||
-    typeof construction["measured_on"] !== "string"
-  ) {
-    throw new BenchmarkFileError('expected "construction": {"runs": <whole, positive>, "margin": <positive>, "measured_on": <text>, "measured_max_ms": {...}}');
+  const construction = parseTiming(
+    json["construction"],
+    TIMING,
+    'expected "construction": {"runs": <whole, positive>, "margin": <positive>, "measured_on": <text>, "measured_max_ms": {...}}',
+  );
+  const boxesShape = 'expected "boxes": {"blocks": <whole, positive>, "runs": <whole, positive>, "margin": <positive>, "measured_on": <text>, "measured_max_ms": {...}}';
+  const boxes = json["boxes"];
+  const timing = parseTiming(boxes, ["blocks", ...TIMING], boxesShape);
+  const blocks: unknown = Reflect.get(Object(boxes), "blocks");
+  if (!isCount(blocks) || blocks === 0) {
+    throw new BenchmarkFileError(boxesShape);
   }
-  const measured = construction["measured_max_ms"];
-  if (!hasExactly(measured, BROWSERS)) {
-    throw new BenchmarkFileError(`expected "measured_max_ms" with exactly ${BROWSERS.join(", ")}`);
-  }
-  const read = (browser: Browser): number => {
-    const value = measured[browser];
-    if (!isPositive(value)) {
-      throw new BenchmarkFileError(`"measured_max_ms"."${browser}" is not a positive number`);
-    }
-    return value;
-  };
-  return {
-    tolerancePercent: json["tolerance_percent"],
-    construction: {
-      runs: construction["runs"],
-      margin: construction["margin"],
-      measuredOn: construction["measured_on"],
-      measuredMaxMs: { chromium: read("chromium"), firefox: read("firefox"), webkit: read("webkit") },
-    },
-  };
+  return { tolerancePercent: json["tolerance_percent"], construction, boxes: { ...timing, blocks } };
+}
+
+/** The bound of a timing in `browser`, in whole milliseconds: the slowest time measured times the margin, rounded up. */
+export function timingBoundMs(timing: Timing, browser: Browser): number {
+  return Math.ceil(timing.measuredMaxMs[browser] * timing.margin);
 }
 
 /** The bound of the construction of the engine processor in `browser`, in whole milliseconds. */
 export function constructionBoundMs(thresholds: Thresholds, browser: Browser): number {
-  return Math.ceil(thresholds.construction.measuredMaxMs[browser] * thresholds.construction.margin);
+  return timingBoundMs(thresholds.construction, browser);
+}
+
+/** The bound of rendering one box benchmark in one precision in `browser`, in whole milliseconds. */
+export function boxBoundMs(thresholds: Thresholds, browser: Browser): number {
+  return timingBoundMs(thresholds.boxes, browser);
 }

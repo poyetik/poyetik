@@ -218,6 +218,16 @@ describe("loadPatch", () => {
     expect((await loaded(0, 44_100)).channels).toBe(0);
   });
 
+  test("computes in binary64 by default, or in the precision asked, and runs its nodes in it", async () => {
+    const byDefault = await loadPatch(wasmBytes(), SINE_PATCH, RATE);
+    expect(byDefault.precision).toBe("binary64");
+    expect(byDefault.options(false).precision).toBe("binary64");
+    const narrow = await loadPatch(wasmBytes(), SINE_PATCH, RATE, "binary32");
+    expect(narrow).toMatchObject({ rate: RATE, channels: 2, precision: "binary32" });
+    expect(narrow.options(true).precision).toBe("binary32");
+    await expect(loadPatch(wasmBytes(), UNKNOWN_BOX, RATE, "binary32")).rejects.toThrow(new Error('box 1: unknown box type "nope~"'));
+  });
+
   test("keeps its own copies of the bytes", async () => {
     const wasm = wasmBytes();
     const patch = SINE_PATCH.slice();

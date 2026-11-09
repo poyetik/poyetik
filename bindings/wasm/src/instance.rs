@@ -5,7 +5,16 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use crate::Engine;
+use engine_core::RenderFormat;
+
+use crate::{Blocks, Engine};
+
+/// The render format of a code of [`Instance::load`]: its index in [`RenderFormat::ALL`].
+fn format_of(code: u32) -> Option<RenderFormat> {
+    usize::try_from(code)
+        .ok()
+        .and_then(|index| RenderFormat::ALL.get(index).copied())
+}
 
 /// What one module instance holds: the input buffer JavaScript writes into, the loaded
 /// engine and the last error message.
@@ -40,12 +49,21 @@ impl Instance {
         &mut self.input
     }
 
-    /// Loads the patch in the input buffer at `rate` hertz, replacing any loaded engine.
+    /// Loads the patch in the input buffer at `rate` hertz, rendering in the format of code
+    /// `format` (its index in [`RenderFormat::ALL`]: 0 binary64, 1 binary64 given as
+    /// binary32, 2 binary32), replacing any loaded engine.
     ///
     /// Returns whether it succeeded; on failure no engine is loaded and
     /// [`Instance::message`] explains why.
-    pub fn load(&mut self, rate: u32) -> bool {
-        match Engine::new(&self.input, rate) {
+    pub fn load(&mut self, rate: u32, format: u32) -> bool {
+        let loaded = format_of(format)
+            .ok_or_else(|| {
+                alloc::format!(
+                    "unknown render format: {format} (supported: 0 binary64, 1 binary64-as-binary32, 2 binary32)"
+                )
+            })
+            .and_then(|known| Engine::new(&self.input, rate, known));
+        match loaded {
             Ok(engine) => {
                 self.engine = Some(engine);
                 self.message.clear();
@@ -76,16 +94,42 @@ impl Instance {
         self.engine.as_ref().map_or(0, Engine::channels)
     }
 
-    /// Renders the next block: `channels()` blocks of planar samples, empty when no
-    /// engine is loaded.
-    pub fn process(&mut self) -> &[engine_core::Block] {
-        self.engine.as_mut().map_or(&[], Engine::process)
+    /// Renders the next block: `channels()` blocks of planar samples in the render format,
+    /// none when no engine is loaded.
+    pub fn process(&mut self) -> Blocks<'_> {
+        self.engine
+            .as_mut()
+            .map_or(Blocks::Binary32(&[]), Engine::process)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use engine_core::{BLOCK_SIZE, RenderFormat};
+
     use super::Instance;
+    use crate::Blocks;
+
+    /// The first channel of `blocks`, widened to 64 bits.
+    fn first(blocks: Blocks<'_>) -> Vec<u64> {
+        match blocks {
+            Blocks::Binary64(channels) => {
+                channels[0].iter().map(|sample| sample.to_bits()).collect()
+            }
+            Blocks::Binary32(channels) => channels[0]
+                .iter()
+                .map(|sample| u64::from(sample.to_bits()))
+                .collect(),
+        }
+    }
+
+    /// The blocks of a binary32 render, or `None` for binary64.
+    fn narrow(blocks: Blocks<'_>) -> Option<&[engine_core::Block<f32>]> {
+        match blocks {
+            Blocks::Binary64(_) => None,
+            Blocks::Binary32(channels) => Some(channels),
+        }
+    }
 
     /// A 440 Hz sine on one channel.
     const MONO: &[u8] =
@@ -94,7 +138,7 @@ mod tests {
     fn loaded() -> Instance {
         let mut instance = Instance::new();
         instance.input(MONO.len()).copy_from_slice(MONO);
-        assert!(instance.load(48_000), "{}", instance.message());
+        assert!(instance.load(48_000, 1), "{}", instance.message());
         instance
     }
 
@@ -104,6 +148,34 @@ mod tests {
         assert_eq!(instance.channels(), 0, "no engine");
         assert!(instance.process().is_empty(), "no blocks");
         assert_eq!(instance.message(), "", "no error");
+    }
+
+    #[test]
+    fn loads_in_the_format_of_its_code() {
+        for (code, format) in (0_u32..).zip(RenderFormat::ALL) {
+            let mut instance = Instance::new();
+            instance.input(MONO.len()).copy_from_slice(MONO);
+            assert!(instance.load(8_000, code), "{}", instance.message());
+            let mut engine = crate::Engine::new(MONO, 8_000, format).expect("valid");
+            assert_eq!(
+                first(instance.process()),
+                first(engine.process()),
+                "{format}"
+            );
+        }
+        for code in [3_u32, u32::MAX] {
+            let mut instance = Instance::new();
+            instance.input(MONO.len()).copy_from_slice(MONO);
+            assert!(!instance.load(48_000, code), "{code} is no format");
+            assert_eq!(
+                instance.message(),
+                alloc::format!(
+                    "unknown render format: {code} (supported: 0 binary64, 1 binary64-as-binary32, 2 binary32)"
+                ),
+                "explained"
+            );
+            assert_eq!(instance.channels(), 0, "nothing loaded");
+        }
     }
 
     #[test]
@@ -119,7 +191,11 @@ mod tests {
         let mut instance = loaded();
         assert_eq!(instance.channels(), 2, "dac~ has two inlets");
         assert_eq!(instance.message(), "", "no error");
-        let blocks = instance.process();
+        let mut wide = Instance::new();
+        wide.input(MONO.len()).copy_from_slice(MONO);
+        assert!(wide.load(48_000, 0), "{}", wide.message());
+        assert_eq!(narrow(wide.process()), None, "binary64 blocks");
+        let blocks = narrow(instance.process()).expect("binary32 blocks");
         assert_eq!(blocks.len(), 2, "one block per channel");
         assert!(
             blocks[0].iter().any(|&sample| sample != 0.0),
@@ -138,16 +214,20 @@ mod tests {
         for rate in engine_testkit::matrix::sample_rates() {
             let mut instance = Instance::new();
             instance.input(MONO.len()).copy_from_slice(MONO);
-            assert!(instance.load(rate.hz()), "{}", instance.message());
+            assert!(instance.load(rate.hz(), 0), "{}", instance.message());
             let expected = engine_core::Renderer::new(
-                engine_core::Plan::build(&patch, &engine_objects::REGISTRY, rate)
+                engine_core::Plan::<f64>::build(&patch, &engine_objects::REGISTRY, rate)
                     .expect("valid plan"),
             )
-            .render(engine_core::BLOCK_SIZE)
+            .render::<f64>(BLOCK_SIZE)
             .expect("one block");
-            let left: Vec<f32> = expected.iter().step_by(2).copied().collect();
+            let left: Vec<u64> = expected
+                .iter()
+                .step_by(2)
+                .map(|sample| sample.to_bits())
+                .collect();
             assert_eq!(
-                instance.process()[0].to_vec(),
+                first(instance.process()),
                 left,
                 "the first block at {} Hz",
                 rate.hz()
@@ -157,16 +237,20 @@ mod tests {
 
     #[test]
     fn renders_without_a_heap_operation() {
-        let mut instance = loaded();
-        let operations = engine_testkit::heap_operations_during(|| {
-            for _ in 0_u16..100_u16 {
-                let _: &[engine_core::Block] = instance.process();
-            }
-        });
-        assert_eq!(operations, Ok(((), 0)), "100 blocks");
+        for code in 0_u32..3 {
+            let mut instance = Instance::new();
+            instance.input(MONO.len()).copy_from_slice(MONO);
+            assert!(instance.load(48_000, code), "{}", instance.message());
+            let operations = engine_testkit::heap_operations_during(|| {
+                for _ in 0_u16..100_u16 {
+                    let _: Blocks<'_> = instance.process();
+                }
+            });
+            assert_eq!(operations, Ok(((), 0)), "format {code}: 100 blocks");
+        }
         let mut empty = Instance::new();
         let none = engine_testkit::heap_operations_during(|| {
-            let _: &[engine_core::Block] = empty.process();
+            let _: Blocks<'_> = empty.process();
         });
         assert_eq!(none, Ok(((), 0)), "nothing loaded");
     }
@@ -175,7 +259,7 @@ mod tests {
     fn a_failed_load_unloads_and_explains() {
         let mut instance = loaded();
         instance.input(1).copy_from_slice(b"x");
-        assert!(!instance.load(48_000), "invalid patch");
+        assert!(!instance.load(48_000, 1), "invalid patch");
         assert_eq!(instance.channels(), 0, "unloaded");
         assert!(instance.process().is_empty(), "no blocks");
         assert_eq!(
@@ -190,7 +274,7 @@ mod tests {
         let mut instance = Instance::new();
         let hostile = br#"{"format":1,"nodes":[{"id":1,"box":"x\u001b[31m\nsecond\u202e"}],"connections":[]}"#;
         instance.input(hostile.len()).copy_from_slice(hostile);
-        assert!(!instance.load(48_000), "unknown box");
+        assert!(!instance.load(48_000, 1), "unknown box");
         assert_eq!(
             instance.message(),
             "box 1: unknown box type \"x\\u{1b}[31m\\u{a}second\\u{202e}\"",
@@ -198,7 +282,7 @@ mod tests {
         );
         let field = br#"{"format":1,"nodes":[],"connections":[],"a\u001b\n":1}"#;
         instance.input(field.len()).copy_from_slice(field);
-        assert!(!instance.load(48_000), "unknown field");
+        assert!(!instance.load(48_000, 1), "unknown field");
         assert!(
             instance
                 .message()
@@ -211,7 +295,7 @@ mod tests {
             "y".repeat(5_000)
         );
         instance.input(long.len()).copy_from_slice(long.as_bytes());
-        assert!(!instance.load(48_000), "unknown box");
+        assert!(!instance.load(48_000, 1), "unknown box");
         assert_eq!(
             instance.message().chars().count(),
             engine_patch::MAX_MESSAGE_CHARS,
@@ -224,9 +308,9 @@ mod tests {
     #[test]
     fn a_successful_load_clears_the_previous_error() {
         let mut instance = Instance::new();
-        assert!(!instance.load(48_000), "empty input");
+        assert!(!instance.load(48_000, 1), "empty input");
         instance.input(MONO.len()).copy_from_slice(MONO);
-        assert!(instance.load(48_000), "valid");
+        assert!(instance.load(48_000, 1), "valid");
         assert_eq!(instance.message(), "", "cleared");
     }
 }

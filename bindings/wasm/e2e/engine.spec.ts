@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { readdirSync, readFileSync } from "node:fs";
-import { constructionBoundMs, parseThresholds } from "../benchmarks/suite.ts";
+import { BOX_BENCHMARKS, boxBoundMs, constructionBoundMs, parseThresholds } from "../benchmarks/suite.ts";
 import { LOCALES, TIME_ZONES } from "../test/fixtures.ts";
 
 /** The conformance corpus at the repository root, shared with the native engine tests. */
@@ -21,11 +21,21 @@ const CASES = readdirSync(new URL("cases/", CONFORMANCE))
  */
 const LIVE = ["sine-440", "sine-440-at-44k1"];
 
-/** The reference hash of a case. */
-function reference(name: string): string {
-  const hash: unknown = typeof references === "object" && references !== null ? Reflect.get(references, name) : undefined;
+/**
+ * Every precision the engine computes in, each with the render format a browser captures:
+ * the render given as binary32, as Web Audio takes it.
+ */
+const PRECISIONS = [
+  { precision: "binary64", format: "binary64-as-binary32" },
+  { precision: "binary32", format: "binary32" },
+] as const;
+
+/** The reference hash of a case in a render format. */
+function reference(name: string, format: string): string {
+  const hashes: unknown = typeof references === "object" && references !== null ? Reflect.get(references, name) : undefined;
+  const hash: unknown = typeof hashes === "object" && hashes !== null ? Reflect.get(hashes, format) : undefined;
   if (typeof hash !== "string") {
-    throw new Error(`no reference for ${name}`);
+    throw new Error(`no ${format} reference for ${name}`);
   }
   return hash;
 }
@@ -36,30 +46,48 @@ const HASH = /^[0-9a-f]{64}$/;
 test("covers the whole corpus, with a reference for every case", () => {
   expect(CASES.length).toBeGreaterThan(1);
   for (const name of [...CASES, ...LIVE]) {
-    expect(reference(name)).toMatch(HASH);
+    for (const { format } of PRECISIONS) {
+      expect(reference(name, format)).toMatch(HASH);
+    }
   }
+  expect(new Set(CASES.map((name) => reference(name, "binary32"))).size).toBe(CASES.length);
   expect(LIVE.every((name) => CASES.includes(name))).toBe(true);
 });
 
-for (const name of CASES) {
-  test(`renders ${name} offline bit-identical to the native engine`, async ({ page }) => {
-    await page.goto(`e2e/site/index.html?case=${name}`);
-    await page.getByRole("button", { name: "Render offline" }).click();
-    await expect(page.locator("#offline-hash")).toHaveText(HASH);
-    await expect(page.locator("#offline-hash")).toHaveText(reference(name));
-    await expect(page.locator("#error")).toHaveText("");
-  });
+for (const { precision, format } of PRECISIONS) {
+  for (const name of CASES) {
+    test(`renders ${name} offline in ${precision} bit-identical to the native engine`, async ({ page }) => {
+      await page.goto(`e2e/site/index.html?case=${name}&precision=${precision}`);
+      await page.getByRole("button", { name: "Render offline" }).click();
+      await expect(page.locator("#offline-hash")).toHaveText(HASH);
+      await expect(page.locator("#offline-hash")).toHaveText(reference(name, format));
+      await expect(page.locator("#error")).toHaveText("");
+    });
+  }
+
+  for (const name of LIVE) {
+    test(`plays ${name} live in ${precision} bit-identical to the native engine`, async ({ page }) => {
+      await page.goto(`e2e/site/index.html?case=${name}&precision=${precision}`);
+      await page.getByRole("button", { name: "Capture live" }).click();
+      await expect(page.locator("#live-hash")).toHaveText(HASH, { timeout: 15_000 });
+      await expect(page.locator("#live-hash")).toHaveText(reference(name, format));
+      await expect(page.locator("#error")).toHaveText("");
+    });
+  }
 }
 
-for (const name of LIVE) {
-  test(`plays ${name} live bit-identical to the native engine`, async ({ page }) => {
-    await page.goto(`e2e/site/index.html?case=${name}`);
-    await page.getByRole("button", { name: "Capture live" }).click();
-    await expect(page.locator("#live-hash")).toHaveText(HASH, { timeout: 15_000 });
-    await expect(page.locator("#live-hash")).toHaveText(reference(name));
-    await expect(page.locator("#error")).toHaveText("");
-  });
-}
+test("computes in binary64 unless asked otherwise", async ({ page }) => {
+  await page.goto("e2e/site/index.html?case=sine-440");
+  await page.getByRole("button", { name: "Render offline" }).click();
+  await expect(page.locator("#offline-hash")).toHaveText(reference("sine-440", "binary64-as-binary32"));
+});
+
+test("refuses an unknown precision", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto("e2e/site/index.html?case=sine-440&precision=binary16");
+  await expect.poll(() => errors).toStrictEqual(["unknown precision: binary16"]);
+});
 
 /**
  * The policy of a page running the engine, as the bench page declares it: the site only,
@@ -87,9 +115,9 @@ test("runs the engine offline and live under its Content Security Policy, breaki
   await page.goto("e2e/site/index.html?case=sine-440");
   await expect(page.locator('meta[http-equiv="Content-Security-Policy"]')).toHaveAttribute("content", POLICY);
   await page.getByRole("button", { name: "Render offline" }).click();
-  await expect(page.locator("#offline-hash")).toHaveText(reference("sine-440"));
+  await expect(page.locator("#offline-hash")).toHaveText(reference("sine-440", "binary64-as-binary32"));
   await page.getByRole("button", { name: "Capture live" }).click();
-  await expect(page.locator("#live-hash")).toHaveText(reference("sine-440"), { timeout: 15_000 });
+  await expect(page.locator("#live-hash")).toHaveText(reference("sine-440", "binary64-as-binary32"), { timeout: 15_000 });
   const violations = (): Promise<unknown> => page.evaluate((): unknown => Reflect.get(window, "violations"));
   expect(await violations()).toStrictEqual([]);
   expect(errors).toStrictEqual([]);
@@ -146,4 +174,50 @@ test("constructs the engine processor within its bound, every time", async ({ pa
   expect(times.every((time) => Number.isFinite(time) && time >= 0)).toBe(true);
   expect(Math.max(...times)).toBeLessThanOrEqual(bound);
   await expect(page.locator("#error")).toHaveText("");
+});
+
+/** The median of `times`, which are not empty. */
+function median(times: readonly number[]): number {
+  const sorted = [...times].sort((left, right) => left - right);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 1 ? (sorted[middle] ?? 0) : ((sorted[middle - 1] ?? 0) + (sorted[middle] ?? 0)) / 2;
+}
+
+test("renders every box benchmark in both precisions within its bound, every time, and prints the cost ratio", async ({ page, browserName }) => {
+  test.setTimeout(180_000);
+  const { blocks, runs } = THRESHOLDS.boxes;
+  const bound = boxBoundMs(THRESHOLDS, browserName);
+  await page.goto("e2e/site/index.html?case=sine-440");
+  // The page's top-level awaits are done once a button is enabled.
+  await expect(page.getByRole("button", { name: "Render offline" })).toBeEnabled();
+  const time = (patch: unknown, rate: number, precision: string): Promise<number[]> =>
+    page.evaluate(
+      async ([text, at, asked, count, times]) => {
+        const timer: unknown = Reflect.get(window, "timeRendering");
+        if (typeof timer !== "function") {
+          throw new Error("no timeRendering on the bench page");
+        }
+        const measured: unknown = await Reflect.apply(timer, undefined, [text, at, asked, count, times]);
+        return Array.isArray(measured) ? measured.map(Number) : [];
+      },
+      [JSON.stringify(patch), rate, precision, blocks, runs] as const,
+    );
+  const slowest: number[] = [];
+  for (const benchmark of BOX_BENCHMARKS) {
+    const cost: Record<string, number> = {};
+    for (const precision of ["binary64", "binary32"]) {
+      const holding = await time(benchmark.patch, benchmark.rate, precision);
+      const without = await time(benchmark.without, benchmark.rate, precision);
+      expect(holding).toHaveLength(runs);
+      expect(holding.every((value) => Number.isFinite(value) && value >= 0)).toBe(true);
+      slowest.push(Math.max(...holding));
+      cost[precision] = median(holding) - median(without);
+      // Printed, so that a new measurement of the bound can read them (spec/benchmarks.md).
+      process.stdout.write(`${benchmark.box} ${benchmark.setting} in ${precision} in ${browserName}, ${String(blocks)} blocks, milliseconds: ${holding.join(" ")} (without the box: ${without.join(" ")})\n`);
+    }
+    const [wide, narrow] = [cost["binary64"] ?? 0, cost["binary32"] ?? 0];
+    const ratio = wide > 0 && narrow > 0 ? (narrow / wide).toFixed(2) : "not measurable (a cost at or below the noise)";
+    process.stdout.write(`${benchmark.box} ${benchmark.setting} in ${browserName}: binary32 / binary64 cost ratio ${ratio}\n`);
+  }
+  expect(Math.max(...slowest)).toBeLessThanOrEqual(bound);
 });

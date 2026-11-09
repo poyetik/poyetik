@@ -17,8 +17,8 @@ test("the collection counter sees garbage: a loop allocating 64 MB collects", as
   expect(kept).toHaveLength(8);
 });
 
-test("rendering does not allocate: no garbage collection over 500 000 renders", async () => {
-  const engine = WasmEngine.create(new WebAssembly.Module(wasmBytes()), SINE_PATCH, 48_000);
+test.each(["binary64-as-binary32", "binary32"] as const)("rendering in %s does not allocate: no garbage collection over 500 000 renders", async (format) => {
+  const engine = WasmEngine.create(new WebAssembly.Module(wasmBytes()), SINE_PATCH, 48_000, format);
   const outputs = [new Float32Array(128), new Float32Array(128)];
   // Warm up first: compiling the code allocates once.
   repeat(10_000, () => {

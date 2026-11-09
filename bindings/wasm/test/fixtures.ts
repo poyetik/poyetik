@@ -4,6 +4,7 @@
 // patches, and hand-made modules that break the engine interface in one way each.
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { parseCase } from "@poyetik/oracle/inputs";
+import { RENDER_FORMATS, type RenderFormat } from "../ts/engine.ts";
 
 /**
  * The directory `name` of the repository, holding `file`, found by walking up from this
@@ -37,7 +38,7 @@ function field(json: unknown, key: string): unknown {
   return typeof json === "object" && json !== null ? Reflect.get(json, key) : undefined;
 }
 
-/** The native reference hashes of the corpus, by case name, as parsed JSON. */
+/** The native reference hashes of the corpus, by case name then render format, as parsed JSON. */
 const references: unknown = JSON.parse(readFileSync(new URL("references.json", CONFORMANCE), "utf8"));
 
 /** The patch file of the sine-440 case, byte for byte: never parsed and written again. */
@@ -76,7 +77,7 @@ export const CORPUS: readonly CorpusCase[] = jsonNames("cases/").map((name) => {
 });
 
 /** The keys of the shared test matrix, each read once below: a key added to the file fails here until it is read. */
-const MATRIX_KEYS = ["host_buffer_sizes", "locales", "sample_rates", "time_zones"] as const;
+const MATRIX_KEYS = ["host_buffer_sizes", "locales", "precisions", "sample_rates", "time_zones"] as const;
 
 /** The shared test matrix (conformance/test-matrix.json), parsed JSON. */
 const matrix: unknown = JSON.parse(readFileSync(new URL("test-matrix.json", CONFORMANCE), "utf8"));
@@ -85,7 +86,7 @@ if (typeof matrix !== "object" || matrix === null || Object.keys(matrix).sort().
 }
 
 /** One key of the shared test matrix: a list of positive whole numbers. */
-function matrixValues(key: "host_buffer_sizes" | "sample_rates"): readonly number[] {
+function matrixValues(key: "host_buffer_sizes" | "precisions" | "sample_rates"): readonly number[] {
   const values = field(matrix, key);
   if (!Array.isArray(values) || !values.every((value): value is number => Number.isSafeInteger(value) && Number(value) > 0)) {
     throw new Error(`invalid test matrix: ${key} is not a list of positive whole numbers`);
@@ -98,6 +99,20 @@ export const SAMPLE_RATES: readonly number[] = matrixValues("sample_rates");
 
 /** Every host buffer size of the shared test matrix, in frames: how hosts split time. */
 export const HOST_BUFFER_SIZES: readonly number[] = matrixValues("host_buffer_sizes");
+
+/**
+ * Every precision of the shared test matrix, by name: `precisions` gives their widths in
+ * bits, 64 for binary64 and 32 for binary32.
+ */
+export const PRECISION_NAMES: readonly ("binary64" | "binary32")[] = matrixValues("precisions").map((bits) => {
+  if (bits === 64) {
+    return "binary64";
+  }
+  if (bits === 32) {
+    return "binary32";
+  }
+  throw new Error(`invalid test matrix: no precision of ${String(bits)} bits`);
+});
 
 /** One key of the shared test matrix: a non-empty list of strings. */
 function matrixStrings(key: "locales" | "time_zones"): readonly [string, ...string[]] {
@@ -121,10 +136,28 @@ export const LOCALES = matrixStrings("locales");
 /** The names of the patch files of the corpus, sorted. */
 export const PATCH_NAMES: readonly string[] = jsonNames("patches/");
 
-/** The native reference hashes of the corpus, by case name. */
-export const REFERENCES: ReadonlyMap<string, string> = new Map(
-  typeof references === "object" && references !== null ? Object.entries(references).map(([name, hash]) => [name, String(hash)]) : [],
+/**
+ * The native reference hashes of the corpus, by case name, each with exactly one hash per
+ * render format.
+ */
+export const REFERENCES: ReadonlyMap<string, Readonly<Record<RenderFormat, string>>> = new Map(
+  Object.entries(typeof references === "object" && references !== null ? references : {}).map(([name, hashes]: [string, unknown]) => {
+    if (typeof hashes !== "object" || hashes === null || Object.keys(hashes).sort().join() !== [...RENDER_FORMATS].sort().join()) {
+      throw new Error(`references.json: ${name} has not exactly one hash per render format`);
+    }
+    const hash = (format: RenderFormat): string => String(Reflect.get(hashes, format));
+    return [name, { binary64: hash("binary64"), "binary64-as-binary32": hash("binary64-as-binary32"), binary32: hash("binary32") }];
+  }),
 );
+
+/** The reference hash of the case `name` in `format`; throws when it has none. */
+export function reference(name: string, format: RenderFormat): string {
+  const hashes = REFERENCES.get(name);
+  if (hashes === undefined) {
+    throw new Error(`no reference for ${name}`);
+  }
+  return hashes[format];
+}
 
 /** A patch the engine rejects: an unknown box. */
 export const UNKNOWN_BOX = new TextEncoder().encode('{"format":1,"nodes":[{"id":1,"box":"nope~"}],"connections":[]}');
@@ -184,11 +217,11 @@ export interface HandMadeFunction {
 }
 
 /** The arity of each engine export. */
-const ARITY: Readonly<Record<string, number>> = { engine_input: 1, engine_load: 1 };
+const ARITY: Readonly<Record<string, number>> = { engine_input: 1, engine_load: 2 };
 
 /** What each engine export returns when no `body` is given: 1, except these. */
 const ANSWERS: Readonly<Record<string, number>> = {
-  engine_abi_version: 0x5059_0002,
+  engine_abi_version: 0x5059_0003,
   // Any patch of the tests fits.
   engine_max_patch_bytes: 0x10_00_00,
 };
