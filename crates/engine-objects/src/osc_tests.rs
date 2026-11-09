@@ -37,12 +37,17 @@ use super::OSC;
 ///   sine of that angle (FreeBSD's kernels: 2^-34.1 for the cosine, 2^-37.5 relative for
 ///   the sine, after a reduction by multiples of π/2 in binary64), bounded by 2^-33, then
 ///   rounds to binary32, half an ulp below 1, 2^-25; a value below 2^-126 is flushed to
-///   zero, an error below 2^-126.
+///   zero, an error below 2^-126. The shared formula of a binary32 sine
+///   (`sine_error_bounds`, `spec/measurements.md`) also counts the rounding of a gain
+///   after the sine, half an ulp of the output, 2^-25 at full scale: `osc~` has no gain,
+///   so it meets that bound with that much to spare.
 fn output_term(format: RenderFormat) -> f64 {
     match format {
         RenderFormat::Binary64 => libm::exp2(-54.0),
         RenderFormat::Binary64AsBinary32 => libm::exp2(-25.0),
-        RenderFormat::Binary32 => libm::exp2(-22.0) + libm::exp2(-25.0) + libm::exp2(-33.0),
+        RenderFormat::Binary32 => {
+            libm::exp2(-25.0) + libm::exp2(-22.0) + libm::exp2(-25.0) + libm::exp2(-33.0)
+        }
     }
 }
 
@@ -729,9 +734,9 @@ fn has_the_thresholds_of_each_render_format() {
         ),
         (
             RenderFormat::Binary32,
-            -128.4_f64,
-            122.4_f64,
-            Some(12.5_f64),
+            -127.5_f64,
+            121.5_f64,
+            Some(13.4_f64),
         ),
     ] {
         let samples = render_at(format, 1_000.0, 8_000, 8_192);

@@ -187,7 +187,7 @@ describe("the shared known answers", () => {
     expect(list(VECTORS, "vectors")).toHaveLength(9);
     expect(list(VECTORS, "refusals")).toHaveLength(7);
     expect(list(VECTORS, "sine_bounds")).toHaveLength(7);
-    expect(list(VECTORS, "sine_error_bounds")).toHaveLength(19);
+    expect(list(VECTORS, "sine_error_bounds")).toHaveLength(20);
   });
 
   test.each(list(VECTORS, "refusals").map((vector) => [text(vector, "name"), vector] as const))("refuses %s", (_name, vector) => {

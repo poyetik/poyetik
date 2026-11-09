@@ -447,35 +447,42 @@
       "format": "binary32",
       "amplitude": 1,
       "frames": 0,
-      "bound": 2.683373203637984e-07
+      "bound": 2.9813964275149374e-07
     },
     {
       "description": "full scale over 8192 frames",
       "format": "binary32",
       "amplitude": 1,
       "frames": 8192,
-      "bound": 2.683487494112927e-07
+      "bound": 2.98151071798988e-07
     },
     {
       "description": "full scale over the longest case (2^29 frames)",
       "format": "binary32",
       "amplitude": 1,
       "frames": 536870912,
-      "bound": 1.0173513769485842e-06
+      "bound": 1.0471536993362795e-06
     },
     {
       "description": "a tiny amplitude: values below 2^-126 flushed to zero, an error up to 2^-126",
       "format": "binary32",
       "amplitude": 1e-35,
       "frames": 1000,
-      "bound": 1.175732887215411e-38
+      "bound": 1.1757626895377986e-38
     },
     {
       "description": "half scale",
       "format": "binary32",
       "amplitude": 0.5,
       "frames": 1000,
-      "bound": 1.3416935775559882e-07
+      "bound": 1.4907051894944648e-07
+    },
+    {
+      "description": "a gain of 0.75 after a binary32 sine: the sine and the product each rounded",
+      "format": "binary32",
+      "amplitude": 0.75,
+      "frames": 1000,
+      "bound": 2.3105635902109354e-07
     }
   ],
   "sine_bounds": [

@@ -66,9 +66,10 @@ export function sineError(samples: readonly number[], rate: number, sine: Sine):
  *     spaced 2^-149 however small a is;
  *   - binary32: the angle 2π · phase, below 8, rounded to binary32 within 2^-22, which moves
  *     the sine by as much; `sinf` within 2^-33 of the sine of that angle before its result
- *     is rounded to binary32, half an ulp, 2^(e − 25); values below 2^-126 are flushed to
- *     zero, an error up to 2^-126, which the exponent's floor of −101 keeps; the first two
- *     terms scale with |a|;
+ *     is rounded to binary32, half an ulp of the sine, 2^-25; these scale with |a|; then a
+ *     gain of |a| rounds the product to binary32 again, half an ulp, 2^(e − 25); values
+ *     below 2^-126 are flushed to zero, an error up to 2^-126, which the exponent's floor of
+ *     −101 keeps;
  * - phase accumulation in binary64, in every format, at c = frequency / rate cycles per
  *   sample: the increment is c rounded, less its whole cycles (an exact subtraction), and
  *   the phase below one cycle adds it once per sample. By regime of c:
@@ -103,6 +104,6 @@ export function sineErrorBound(amplitude: number, frames: number, format: Render
     case "binary64-as-binary32":
       return 2 ** (Math.max(exponent, -125) - 25) + magnitude * accumulated;
     case "binary32":
-      return 2 ** (Math.max(exponent, -101) - 25) + magnitude * (2 ** -22 + 2 ** -33 + accumulated);
+      return 2 ** (Math.max(exponent, -101) - 25) + magnitude * (2 ** -22 + 2 ** -25 + 2 ** -33 + accumulated);
   }
 }
