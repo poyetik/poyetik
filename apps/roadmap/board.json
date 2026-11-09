@@ -781,6 +781,30 @@
         {
           "title": "Mutation timeouts: the default check sets the mutant timeout automatically (about 40 s for xtask's main.rs), and one mutant timed out under load although more time caught it; set a timeout derived from the measured baseline with a margin, or rerun timed-out mutants once with more time",
           "done": false
+        },
+        {
+          "title": "Benchmark baseline: its update path (cargo xtask bless-benchmarks) is a convention, not a gate: a hand edit of spec/benchmark-baseline.json passes, as one of conformance/references.json does; require the bless or a reason in commits that touch it",
+          "done": false
+        },
+        {
+          "title": "Benchmark n log n law: it has little room at the measured sizes, since loading is dominated by linear parsing (a quadratic term must reach about 6% of the linear cost from 4096 to 16384 boxes before failing); add a size or a law that isolates plan building",
+          "done": false
+        },
+        {
+          "title": "Plan benchmarks: the measured patches are bipartite, so the depth handling of the execution-order sort is not exercised; add a deep topology once a box has both inlets and outlets",
+          "done": false
+        },
+        {
+          "title": "Wasm instrumenter: it reads the value types of locals and typed selects as one byte; refuse explicitly any type byte other than 0x7f to 0x7b, 0x70 and 0x6f, with a fixture",
+          "done": false
+        },
+        {
+          "title": "Construction timing harness: node.disconnect() leaves the 20 timed processors alive in one context; end each processor (or use a fresh context) so later runs do not share its load",
+          "done": false
+        },
+        {
+          "title": "Browser construction bounds: measured on the maintainer's Mac only, unconfirmed on the CI runner; measure on CI and record where",
+          "done": false
         }
       ]
     },
