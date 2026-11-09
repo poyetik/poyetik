@@ -10,10 +10,11 @@ The engine in browsers: a WebAssembly module (Rust crate `engine-wasm`) and its 
 | `ts/web.ts` | Main-thread API: registering the processors, loading a patch, playing it in engine nodes, tapping and capturing what a Web Audio node outputs, rendering offline |
 | `ts/hash.ts` | The canonical render hash in TypeScript, independent of the Rust one |
 | `test/` | Unit tests (Node, with the real module): every conformance case renders with its native reference hash |
+| `benchmarks/` | The cost benchmarks (`spec/benchmarks.md`): an instrumenter counting the WebAssembly instructions the module executes, the benchmarks of every box and of building plans, and their comparison with the baseline |
 | `e2e/` | End-to-end tests: a test bench page rendering conformance cases offline and live in Chromium, Firefox and Playwright's WebKit (desktop and iPhone sizes; not Safari) |
 
 ```sh
-pnpm check   # build, types, lint, unit tests at 100% coverage, no allocation while rendering, reproducible build, end-to-end tests
+pnpm check   # build, types, lint, unit tests at 100% coverage, benchmarks, no allocation while rendering, reproducible build, end-to-end tests
 ```
 
 The engine output is the patch's samples, unclipped: a level above 1.0 is kept, in the render hash and in an offline render, while a browser's audio output clips it. The final output stage belongs to the host, until the engine defines its own output policy (roadmap ticket #12).

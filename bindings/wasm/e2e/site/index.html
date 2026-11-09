@@ -17,11 +17,14 @@
       <button id="offline" type="button" disabled>Render offline</button>
       <button id="live" type="button" disabled>Capture live</button>
       <button id="invalid" type="button" disabled>Load an invalid patch</button>
+      <button id="construction" type="button" disabled>Time construction</button>
       <dl>
         <dt>Offline hash</dt>
         <dd><output id="offline-hash"></output></dd>
         <dt>Live hash</dt>
         <dd><output id="live-hash"></output></dd>
+        <dt>Construction times (milliseconds, from creating an engine node to its processor ready)</dt>
+        <dd><output id="construction-ms"></output></dd>
         <dt>Error</dt>
         <dd><output id="error"></output></dd>
       </dl>

@@ -13,10 +13,10 @@ use super::{
     Action, BestEffort, CARGO_TOML, CHANGELOG, CHANGES_DIFF, COMMIT_HEADER_MAX, Cmd,
     CommandFailure, Coverage, Dir, EQUIVALENT_REVIEWED, Exit, Extent, Failed, Failure, MUTANTS_OUT,
     Measured, Mode, OnFailure, PACKAGES, PORTABILITY_TARGETS, Runner, RustCrate, Step,
-    SystemRunner, UNSAFE_FILES, UNVIABLE_REPORT, UNVIABLE_REVIEWED, USAGE, Version, bless_step,
-    check_steps, cli, commit_msg_gate, coverage_gate, equivalent_gate, license_gate,
-    membership_gate, package_jsons, preflight_gate, release_gate, run_steps, run_steps_then,
-    ts_coverage_gate, ts_mutation_gate, unsafe_gate, unviable_gate,
+    SystemRunner, UNSAFE_FILES, UNVIABLE_REPORT, UNVIABLE_REVIEWED, USAGE, Version,
+    bless_benchmarks_step, bless_step, check_steps, cli, commit_msg_gate, coverage_gate,
+    equivalent_gate, license_gate, membership_gate, package_jsons, preflight_gate, release_gate,
+    run_steps, run_steps_then, ts_coverage_gate, ts_mutation_gate, unsafe_gate, unviable_gate,
 };
 
 /// Runs git in `dir` hermetically, and returns its stdout: no variable of an enclosing git
@@ -3804,6 +3804,39 @@ fn release_gate_runs_on_the_real_files() {
 }
 
 #[test]
+fn bless_benchmarks_counts_and_rewrites_the_baseline() {
+    let step = bless_benchmarks_step();
+    assert_eq!(step.name, "Bless the benchmark baseline", "name");
+    assert_eq!(
+        command_lines(&[step]),
+        vec!["Package(\"bindings/wasm\"): pnpm run benchmarks:bless"],
+        "runs the package's bless script"
+    );
+    let mut fake = passing();
+    let mut out = Vec::new();
+    assert_eq!(
+        run_cli(
+            &["bless-benchmarks".to_owned()],
+            &mut fake,
+            &mut out,
+            &mut Vec::new()
+        ),
+        0,
+        "bless-benchmarks succeeds"
+    );
+    assert_eq!(
+        fake.ran,
+        vec!["pnpm run benchmarks:bless"],
+        "only the benchmark bless runs"
+    );
+    assert_eq!(
+        String::from_utf8(out).expect("utf-8"),
+        "▶ [1/1] Bless the benchmark baseline\n✔ all 1 checks passed\n",
+        "progress"
+    );
+}
+
+#[test]
 fn bless_renders_and_rewrites_the_references() {
     let step = bless_step();
     assert_eq!(step.name, "Bless conformance references", "name");
@@ -5934,6 +5967,10 @@ fn refuses_usage_errors_in_one_line() {
         (vec!["list", "x", "--parts"], LIST_USAGE),
         (vec!["list", "--full", "--parts", "x"], LIST_USAGE),
         (vec!["bless", "x"], "`bless` takes no argument"),
+        (
+            vec!["bless-benchmarks", "x"],
+            "`bless-benchmarks` takes no argument",
+        ),
         (vec!["help", "x"], "`help` takes no argument"),
         (vec!["commit-msg"], "`commit-msg` takes one file"),
         (

@@ -34,6 +34,7 @@ apps/roadmap/astro.config.mjs: not measured -- Astro's options; their effect (st
 
 # Entry points and browser shells: wiring only, every decision in measured code.
 bindings/wasm/scripts/build-wasm.ts: not measured -- the entry point of pnpm build:wasm: one call of buildMain (scripts/cli.ts) with the real io (scripts/io.ts), both measured and mutated; every check builds through it
+bindings/wasm/scripts/benchmarks.ts: not measured -- the entry point of pnpm benchmarks:check and benchmarks:bless: one call of benchMain (benchmarks/cli.ts) with the real io (benchmarks/io.ts), both measured and mutated; every check runs it
 bindings/wasm/scripts/reproducible.ts: not measured -- the entry point of pnpm test:reproducible: one call of reproducibleMain (scripts/cli.ts) with the real io (scripts/io.ts), both measured and mutated; every check runs it
 bindings/wasm/e2e/serve.ts: not measured -- the bench server, wiring node:http to routes.ts (port, route and answer, measured and mutated); every end-to-end test is served by it
 bindings/wasm/e2e/site/harness.ts: not measured -- the bench page, which runs only in a browser (top-level awaits on fetched files, Web Audio); every end-to-end test drives it, and its fetching is fetch.ts (measured and mutated)

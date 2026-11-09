@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { readdirSync, readFileSync } from "node:fs";
+import { constructionBoundMs, parseThresholds } from "../benchmarks/suite.ts";
 import { LOCALES, TIME_ZONES } from "../test/fixtures.ts";
 
 /** The conformance corpus at the repository root, shared with the native engine tests. */
@@ -126,4 +127,23 @@ test("runs in a time zone and a locale of the test matrix, not the machine's", a
   const [language, formatting] = await page.evaluate(() => [navigator.language, Intl.DateTimeFormat().resolvedOptions().locale]);
   const expected = maximal(locale ?? "");
   expect([maximal(language), maximal(formatting)]).toStrictEqual([expected, expected]);
+});
+
+/** The thresholds of the benchmarks (spec/benchmarks.md), the construction bound among them. */
+const THRESHOLDS = parseThresholds(readFileSync(new URL("../../../spec/benchmark-thresholds.json", import.meta.url), "utf8"));
+
+test("constructs the engine processor within its bound, every time", async ({ page, browserName }) => {
+  const { runs } = THRESHOLDS.construction;
+  const bound = constructionBoundMs(THRESHOLDS, browserName);
+  await page.goto(`e2e/site/index.html?case=sine-440&runs=${String(runs)}`);
+  await page.getByRole("button", { name: "Time construction" }).click();
+  const output = page.locator("#construction-ms");
+  await expect(output).toHaveText(/^\d/, { timeout: 60_000 });
+  const times = ((await output.textContent()) ?? "").split(" ").map(Number);
+  // Printed, so that a new measurement of the bounds can read them (spec/benchmarks.md).
+  process.stdout.write(`construction of the engine processor in ${browserName}, milliseconds: ${times.join(" ")}\n`);
+  expect(times).toHaveLength(runs);
+  expect(times.every((time) => Number.isFinite(time) && time >= 0)).toBe(true);
+  expect(Math.max(...times)).toBeLessThanOrEqual(bound);
+  await expect(page.locator("#error")).toHaveText("");
 });

@@ -6,6 +6,7 @@
   },
   "mutate": [
     "ts/**/*.ts",
+    "benchmarks/**/*.ts",
     "e2e/routes.ts",
     "e2e/site/fetch.ts",
     "scripts/wasm.ts",

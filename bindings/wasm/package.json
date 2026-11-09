@@ -26,7 +26,9 @@
     "test:allocation": "vitest run --config vitest.allocation.config.ts",
     "bench": "tsc -p e2e/site/tsconfig.build.json && node e2e/serve.ts",
     "test:e2e": "playwright test",
-    "check": "pnpm build && pnpm typecheck && pnpm lint && pnpm test && pnpm test:allocation && pnpm test:reproducible && pnpm test:e2e"
+    "check": "pnpm build && pnpm typecheck && pnpm lint && pnpm test && pnpm benchmarks:check && pnpm test:allocation && pnpm test:reproducible && pnpm test:e2e",
+    "benchmarks:check": "node scripts/benchmarks.ts check",
+    "benchmarks:bless": "pnpm build:wasm && node scripts/benchmarks.ts bless"
   },
   "devDependencies": {
     "@poyetik/config": "workspace:*",

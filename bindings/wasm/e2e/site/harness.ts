@@ -94,3 +94,29 @@ on("live", async () => {
 on("invalid", async () => {
   await loadPatch(wasm, new TextEncoder().encode('{"format":1,"nodes":[{"id":1,"box":"nope~"}],"connections":[]}'), loaded.rate);
 });
+
+/**
+ * Times the construction of the engine processor `?runs=` times (once by default), one
+ * engine node after the other in one running context: from creating the engine node (copying
+ * the module and the patch into its options included) to the processor's `ready` (the
+ * module compiled, instantiated, the patch parsed and its plan built, on the audio
+ * thread). Shows each time in milliseconds, separated by spaces.
+ */
+on("construction", async () => {
+  const runs = Number(new URLSearchParams(location.search).get("runs") ?? "1");
+  const context = new AudioContext({ sampleRate: loaded.rate });
+  await addProcessors(context, PROCESSORS);
+  await context.resume();
+  const times: number[] = [];
+  for (let run = 0; run < runs; run += 1) {
+    const start = performance.now();
+    const { node, ready } = createEngineNode(context, loaded, (failure) => {
+      error.value = String(failure);
+    });
+    await ready;
+    times.push(performance.now() - start);
+    node.disconnect();
+  }
+  await context.close();
+  element("construction-ms", HTMLOutputElement).value = times.map((time) => time.toFixed(3)).join(" ");
+});

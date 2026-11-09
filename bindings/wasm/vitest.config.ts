@@ -17,7 +17,7 @@ export default defineConfig({
       // process or browser: the entry points scripts/build-wasm.ts and scripts/reproducible.ts,
       // the bench server e2e/serve.ts and the bench page e2e/site/harness.ts (run by pnpm
       // build, test:reproducible and test:e2e), each reviewed in proof-bypasses.txt.
-      include: ["ts/**/*.ts", "e2e/routes.ts", "e2e/site/fetch.ts", "scripts/wasm.ts", "scripts/cli.ts", "scripts/io.ts"],
+      include: ["ts/**/*.ts", "benchmarks/**/*.ts", "e2e/routes.ts", "e2e/site/fetch.ts", "scripts/wasm.ts", "scripts/cli.ts", "scripts/io.ts"],
       reporter: ["text", "json-summary", "html"],
       thresholds: { lines: 100, branches: 100, functions: 100, statements: 100 },
     },

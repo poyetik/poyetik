@@ -6204,7 +6204,7 @@ pub fn run_steps_then(
 
 /// Usage of the `xtask` command, in the order of its first line.
 pub const USAGE: &str = "\
-usage: cargo xtask <check [--full [--part <part>]]|list [--full [--parts]]|mutants <target>|bless|commit-msg <file>|pre-push [pair...]|help>
+usage: cargo xtask <check [--full [--part <part>]]|list [--full [--parts]]|mutants <target>|bless|bless-benchmarks|commit-msg <file>|pre-push [pair...]|help>
   check [--full]        run every quality check; mutation testing covers the changes: Rust
                         since the merge base with the upstream, origin/main or main,
                         TypeScript since the last local Stryker run; stops at the first
@@ -6219,6 +6219,8 @@ usage: cargo xtask <check [--full [--part <part>]]|list [--full [--parts]]|mutan
                         of a crate, a TypeScript package (its directory) or one of its
                         sources (their paths from the root)
   bless                 rewrite conformance/references.json from the current renders
+  bless-benchmarks      rewrite spec/benchmark-baseline.json from the current instruction
+                        counts of the engine module (spec/benchmarks.md)
   commit-msg <file>     check a commit message (used by the commit-msg hook)
   pre-push [pair...]    check that the tree is clean and the pushed commits are checked
                         out, then run `check`, or `check --full` if a tag is pushed;
@@ -6421,6 +6423,21 @@ pub fn bless_step() -> Step {
     )
 }
 
+/// The only way to change the benchmark baseline.
+///
+/// Builds the engine module, counts the instructions of every benchmark and rewrites
+/// `spec/benchmark-baseline.json`, refusing to when building plans grows faster than
+/// n log n. The commit must explain why the counts changed (`spec/benchmarks.md`).
+#[must_use]
+pub fn bless_benchmarks_step() -> Step {
+    run(
+        "Bless the benchmark baseline",
+        "pnpm",
+        &["run", "benchmarks:bless"],
+        Dir::Package("bindings/wasm"),
+    )
+}
+
 /// A command of `cargo xtask`, read from its arguments.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Task {
@@ -6436,6 +6453,8 @@ enum Task {
     Mutants(Target),
     /// Rewrite the reference hashes.
     Bless,
+    /// Rewrite the benchmark baseline.
+    BlessBenchmarks,
     /// Check the commit message in this file.
     CommitMsg(String),
     /// Check what is pushed (each object with the remote ref it updates), then every check:
@@ -6459,7 +6478,7 @@ fn task(args: &[OsString]) -> Result<Task, String> {
                 .ok_or_else(|| format!("argument is not valid UTF-8: {}", arg.to_string_lossy()))
         })
         .collect::<Result<Vec<String>, String>>()?;
-    let alone = ["bless", "help"];
+    let alone = ["bless", "bless-benchmarks", "help"];
     match args.as_slice() {
         [] => Err("no command given".to_owned()),
         [command] if command == "check" => Ok(Task::Check(false)),
@@ -6483,6 +6502,7 @@ fn task(args: &[OsString]) -> Result<Task, String> {
                 })
         }
         [command] if command == "bless" => Ok(Task::Bless),
+        [command] if command == "bless-benchmarks" => Ok(Task::BlessBenchmarks),
         [command] if command == "help" => Ok(Task::Help),
         [command, file] if command == "commit-msg" => Ok(Task::CommitMsg(file.clone())),
         [command, target] if command == "mutants" => mutation_target(target).map(Task::Mutants),
@@ -6572,6 +6592,7 @@ pub fn cli(
             .into_iter()
             .try_for_each(|part| say(out, &part.name())),
         Task::Bless => run_steps(&[bless_step()], runner, out),
+        Task::BlessBenchmarks => run_steps(&[bless_benchmarks_step()], runner, out),
         Task::CommitMsg(path) => {
             read_file(runner, &path).and_then(|message| commit_msg_gate(&message))
         }

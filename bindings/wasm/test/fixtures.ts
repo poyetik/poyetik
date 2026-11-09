@@ -6,21 +6,25 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { parseCase } from "@poyetik/oracle/inputs";
 
 /**
- * The conformance corpus, found by walking up from this file: the tests also run from
- * a copy of the package (mutation testing sandbox), deeper in the repository.
+ * The directory `name` of the repository, holding `file`, found by walking up from this
+ * file: the tests also run from a copy of the package (mutation testing sandbox), deeper
+ * in the repository.
  */
-function conformance(): URL {
+function repositoryDirectory(name: string, file: string): URL {
   for (let directory = new URL("../", import.meta.url); directory.pathname !== "/"; directory = new URL("../", directory)) {
-    const candidate = new URL("conformance/", directory);
-    if (existsSync(new URL("references.json", candidate))) {
+    const candidate = new URL(`${name}/`, directory);
+    if (existsSync(new URL(file, candidate))) {
       return candidate;
     }
   }
-  throw new Error("conformance corpus not found");
+  throw new Error(`${name}/${file} not found`);
 }
 
+/** The specifications directory (spec/), resolved once when the fixtures load. */
+export const SPEC = repositoryDirectory("spec", "benchmark-thresholds.json");
+
 /** The conformance corpus directory, resolved once when the fixtures load. */
-const CONFORMANCE = conformance();
+const CONFORMANCE = repositoryDirectory("conformance", "references.json");
 
 /** The built engine module (`pnpm build` writes it). */
 export function wasmBytes(): ArrayBuffer {

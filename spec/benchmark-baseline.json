@@ -1,0 +1,52 @@
+{
+  "boxes": [
+    {
+      "box": "osc~",
+      "setting": "440 Hz at 48 kHz",
+      "instructions": 709941
+    },
+    {
+      "box": "osc~",
+      "setting": "1000 Hz at 8 kHz",
+      "instructions": 755392
+    },
+    {
+      "box": "osc~",
+      "setting": "19999 Hz at 384 kHz",
+      "instructions": 709627
+    },
+    {
+      "box": "osc~",
+      "setting": "0 Hz at 44.1 kHz",
+      "instructions": 298176
+    },
+    {
+      "box": "dac~",
+      "setting": "two inlets fed at 48 kHz",
+      "instructions": 17856
+    },
+    {
+      "box": "dac~",
+      "setting": "unconnected at 48 kHz",
+      "instructions": 15552
+    }
+  ],
+  "plans": [
+    {
+      "oscillators": 256,
+      "instructions": 3867462
+    },
+    {
+      "oscillators": 1024,
+      "instructions": 16620755
+    },
+    {
+      "oscillators": 4096,
+      "instructions": 71693471
+    },
+    {
+      "oscillators": 16384,
+      "instructions": 304278307
+    }
+  ]
+}

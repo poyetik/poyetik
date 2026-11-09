@@ -54,4 +54,24 @@ mod tests {
         let names: alloc::vec::Vec<&str> = REGISTRY.iter().map(|spec| spec.name).collect();
         assert_eq!(names, ["osc~", "dac~"], "registered boxes");
     }
+
+    /// The benchmark baseline, written by `cargo xtask bless-benchmarks` (spec/benchmarks.md).
+    const BASELINE: &str = include_str!("../../../spec/benchmark-baseline.json");
+
+    #[test]
+    fn every_box_type_has_a_benchmark_and_every_benchmark_a_box_type() {
+        let baseline: serde_json::Value = serde_json::from_str(BASELINE).expect("valid JSON");
+        let measured: alloc::collections::BTreeSet<&str> = baseline["boxes"]
+            .as_array()
+            .expect("a list of box benchmarks")
+            .iter()
+            .map(|entry| entry["box"].as_str().expect("a box type"))
+            .collect();
+        let registered: alloc::collections::BTreeSet<&str> =
+            REGISTRY.iter().map(|spec| spec.name).collect();
+        assert_eq!(
+            measured, registered,
+            "the box types of spec/benchmark-baseline.json are those of the registry"
+        );
+    }
 }
