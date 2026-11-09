@@ -51,117 +51,6 @@
       ]
     },
     {
-      "id": 12,
-      "title": "DSP foundations: state-of-the-art audio quality before more boxes",
-      "description": "Set the audio quality bar before writing many boxes: objective measurements, deterministic denormals, smoothed parameters with sample-accurate events, an allocation-free audio thread in the browser, and benchmarks.",
-      "column": "next",
-      "milestone": "M1 Engine",
-      "createdAt": "2026-11-07",
-      "updatedAt": "2026-11-08",
-      "tasks": [
-        {
-          "title": "Engine design decisions, recorded before any code that depends on them: messages, event scheduling, feedback, polyphony, multichannel, rates, parallelism, hot swap, latency, state; including the Nyquist policy of oscillators, an exact integer phase accumulator, the output stage (headroom, non-finite samples), the input domain of boxes, and compiling, instantiating, parsing and building plans off the audio thread, or bounding and measuring what must stay there (the construction of the engine processor), hot swap included",
-          "done": true
-        },
-        {
-          "title": "Objective measurements in engine-testkit and the oracle: spectrum, THD, SNR, aliasing level, with thresholds per box; spur and aliasing laws across the rate matrix; the banned float methods audited against the toolchain",
-          "done": false
-        },
-        {
-          "title": "Deterministic strategy for denormal numbers, proven on every target: a subnormal conformance case, and a native test with flush-to-zero forced on",
-          "done": false
-        },
-        {
-          "title": "Typed, smoothed parameters (kinds such as frequency, with a declared Nyquist policy) and sample-accurate timestamped events, in the engine and the patch format",
-          "done": false
-        },
-        {
-          "title": "Allocation-free audio thread in the browser, without per-frame garbage: oscilloscope through an AnalyserNode; capture and metering through a SharedArrayBuffer ring when cross-origin isolated, with a tested fallback otherwise; garbage collections while rendering measured in every browser engine, not only in V8. Until then, the tap processor behind capture and the playground oscilloscope copies every render quantum on the audio thread (a known deviation, pinned by an allocation test)",
-          "done": false
-        },
-        {
-          "title": "Benchmarks in CI: instruction counts per box and for building large plans, with regression thresholds; the construction of the engine processor timed on the three browser engines",
-          "done": false
-        },
-        {
-          "title": "Real-time cost: estimate a patch's cost per block before it runs and report its load, so that a valid patch too heavy for real time is flagged (after the benchmarks); measure the copy of every outlet into the bus each block and remove it if it costs",
-          "done": false
-        },
-        {
-          "title": "Patches without audio output: time advances and every box runs with zero channels, in the native renderer as in the WebAssembly engine (today one runs no box, the other runs them all)",
-          "done": false
-        },
-        {
-          "title": "Subnormal parameters treated as zero (flushed on the f64 side before rounding, below the smallest normal), with the denormal strategy, and a 1e-40 Hz oscillator case",
-          "done": false
-        },
-        {
-          "title": "Long-run drift check of oscillators against the exact phase, skipping ahead in state to cover hours of signal",
-          "done": false
-        },
-        {
-          "title": "Engine precision: 64-bit processing by default and 32-bit as a setting, the engine generic over its sample type; a render hash version that records the precision; every reference re-blessed for both precisions (a migration step), checked native and WebAssembly",
-          "done": false
-        },
-        {
-          "title": "Output stage: raw and protected (safety limiter) modes; non-finite samples always replaced and reported; the playground protected by default",
-          "done": false
-        },
-        {
-          "title": "Host settings: sample rate, host buffer, engine block and channel counts chosen by the host, renders independent of the engine block, settings a host cannot honor reported",
-          "done": false
-        },
-        {
-          "title": "Messages and rates: every parameter driven by messages or by an audio-rate signal; a total order of messages within a frame; MIDI input as timestamped events (MIDI 2.0 packets, MPE)",
-          "done": false
-        },
-        {
-          "title": "Oscillators: an exact 64-bit integer phase accumulator; band-limited by default, with a raw variant per box",
-          "done": false
-        },
-        {
-          "title": "Multichannel cables with automatic expansion; buses (sends, groups) summed in a fixed order",
-          "done": false
-        },
-        {
-          "title": "Subpatches with their own block size, resampling and overlap, a block of 1 frame included; feedback cycles through an explicit delay, single-sample feedback included",
-          "done": false
-        },
-        {
-          "title": "Latency declared by boxes and compensated automatically, events aligned with the compensated audio",
-          "done": false
-        },
-        {
-          "title": "Serializable box state (presets, project save): a render saved and restored continues with the same bits",
-          "done": false
-        },
-        {
-          "title": "Hot swap: patch edits while playing without a dropout, state transferred by box identity, optional crossfade; plans built off the audio thread, in the browser in bounded slices",
-          "done": false
-        },
-        {
-          "title": "Polyphony: voices per subpatch with allocation and stealing policies, MPE; polyphony through multichannel cables",
-          "done": false
-        },
-        {
-          "title": "Parallel graph scheduling natively, with renders identical whatever the thread count",
-          "done": false
-        },
-        {
-          "title": "Musical time hook: per-sample transport position, tempo and time signature for boxes, tempo changes sample-accurate",
-          "done": false
-        },
-        {
-          "title": "Audio input boxes, fed by the host",
-          "done": false
-        },
-        {
-          "title": "External processor boxes for third-party plugins: declared latency, imposed block size, opaque state, marked non-deterministic and excluded from hash guarantees",
-          "done": false
-        }
-      ]
-    },
-    {
       "id": 3,
       "title": "Patch format specification",
       "description": "Versioned JSON Schema of a patch (boxes, cables, parameters): the contract shared by the engine, the SDKs, the editor, the AI assistant and MCP. Published with its reference documentation.",
@@ -1041,6 +930,117 @@
         },
         {
           "title": "Measure CPU and memory per box on each board, and warn in the editor when a patch will not fit",
+          "done": false
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "title": "DSP foundations: state-of-the-art audio quality before more boxes",
+      "description": "Set the audio quality bar before writing many boxes: objective measurements, deterministic denormals, smoothed parameters with sample-accurate events, an allocation-free audio thread in the browser, and benchmarks.",
+      "column": "doing",
+      "milestone": "M1 Engine",
+      "createdAt": "2026-11-07",
+      "updatedAt": "2026-11-09",
+      "tasks": [
+        {
+          "title": "Engine design decisions, recorded before any code that depends on them: messages, event scheduling, feedback, polyphony, multichannel, rates, parallelism, hot swap, latency, state; including the Nyquist policy of oscillators, an exact integer phase accumulator, the output stage (headroom, non-finite samples), the input domain of boxes, and compiling, instantiating, parsing and building plans off the audio thread, or bounding and measuring what must stay there (the construction of the engine processor), hot swap included",
+          "done": true
+        },
+        {
+          "title": "Objective measurements in engine-testkit and the oracle: spectrum, THD, SNR, aliasing level, with thresholds per box; spur and aliasing laws across the rate matrix; the banned float methods audited against the toolchain",
+          "done": true
+        },
+        {
+          "title": "Deterministic strategy for denormal numbers, proven on every target: a subnormal conformance case, and a native test with flush-to-zero forced on",
+          "done": false
+        },
+        {
+          "title": "Typed, smoothed parameters (kinds such as frequency, with a declared Nyquist policy) and sample-accurate timestamped events, in the engine and the patch format",
+          "done": false
+        },
+        {
+          "title": "Allocation-free audio thread in the browser, without per-frame garbage: oscilloscope through an AnalyserNode; capture and metering through a SharedArrayBuffer ring when cross-origin isolated, with a tested fallback otherwise; garbage collections while rendering measured in every browser engine, not only in V8. Until then, the tap processor behind capture and the playground oscilloscope copies every render quantum on the audio thread (a known deviation, pinned by an allocation test)",
+          "done": false
+        },
+        {
+          "title": "Benchmarks in CI: instruction counts per box and for building large plans, with regression thresholds; the construction of the engine processor timed on the three browser engines",
+          "done": true
+        },
+        {
+          "title": "Real-time cost: estimate a patch's cost per block before it runs and report its load, so that a valid patch too heavy for real time is flagged (after the benchmarks); measure the copy of every outlet into the bus each block and remove it if it costs",
+          "done": false
+        },
+        {
+          "title": "Patches without audio output: time advances and every box runs with zero channels, in the native renderer as in the WebAssembly engine (today one runs no box, the other runs them all)",
+          "done": false
+        },
+        {
+          "title": "Subnormal parameters treated as zero (flushed on the f64 side before rounding, below the smallest normal), with the denormal strategy, and a 1e-40 Hz oscillator case",
+          "done": false
+        },
+        {
+          "title": "Long-run drift check of oscillators against the exact phase, skipping ahead in state to cover hours of signal",
+          "done": false
+        },
+        {
+          "title": "Engine precision: 64-bit processing by default and 32-bit as a setting, the engine generic over its sample type; a render hash version that records the precision; every reference re-blessed for both precisions (a migration step), checked native and WebAssembly",
+          "done": false
+        },
+        {
+          "title": "Output stage: raw and protected (safety limiter) modes; non-finite samples always replaced and reported; the playground protected by default",
+          "done": false
+        },
+        {
+          "title": "Host settings: sample rate, host buffer, engine block and channel counts chosen by the host, renders independent of the engine block, settings a host cannot honor reported",
+          "done": false
+        },
+        {
+          "title": "Messages and rates: every parameter driven by messages or by an audio-rate signal; a total order of messages within a frame; MIDI input as timestamped events (MIDI 2.0 packets, MPE)",
+          "done": false
+        },
+        {
+          "title": "Oscillators: an exact 64-bit integer phase accumulator; band-limited by default, with a raw variant per box",
+          "done": false
+        },
+        {
+          "title": "Multichannel cables with automatic expansion; buses (sends, groups) summed in a fixed order",
+          "done": false
+        },
+        {
+          "title": "Subpatches with their own block size, resampling and overlap, a block of 1 frame included; feedback cycles through an explicit delay, single-sample feedback included",
+          "done": false
+        },
+        {
+          "title": "Latency declared by boxes and compensated automatically, events aligned with the compensated audio",
+          "done": false
+        },
+        {
+          "title": "Serializable box state (presets, project save): a render saved and restored continues with the same bits",
+          "done": false
+        },
+        {
+          "title": "Hot swap: patch edits while playing without a dropout, state transferred by box identity, optional crossfade; plans built off the audio thread, in the browser in bounded slices",
+          "done": false
+        },
+        {
+          "title": "Polyphony: voices per subpatch with allocation and stealing policies, MPE; polyphony through multichannel cables",
+          "done": false
+        },
+        {
+          "title": "Parallel graph scheduling natively, with renders identical whatever the thread count",
+          "done": false
+        },
+        {
+          "title": "Musical time hook: per-sample transport position, tempo and time signature for boxes, tempo changes sample-accurate",
+          "done": false
+        },
+        {
+          "title": "Audio input boxes, fed by the host",
+          "done": false
+        },
+        {
+          "title": "External processor boxes for third-party plugins: declared latency, imposed block size, opaque state, marked non-deterministic and excluded from hash guarantees",
           "done": false
         }
       ]
