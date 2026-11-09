@@ -3237,20 +3237,18 @@ fn code_words(text: &str) -> Vec<(usize, String)> {
             .take_while(|&position| at(position) == Some('#'))
             .count();
         let quote = index.saturating_add(hashes);
+        let raw_string = raw_prefix && at(quote) == Some('"');
         let end = match (character, next) {
             ('/', Some('/')) => after(index, &mut |position| at(position) == Some('\n')),
             // Closed by the first `*/` after the opening `/*`: `/*/` does not close it.
             ('/', Some('*')) => after(index.saturating_add(3), &mut |position| {
                 at(position) == Some('/') && at(position.saturating_sub(1)) == Some('*')
             }),
-            ('"' | '#', _) if raw_prefix && at(quote) == Some('"') => {
-                after(quote.saturating_add(1), &mut |position| {
-                    at(position) == Some('"')
-                        && (1..=hashes)
-                            .all(|offset| at(position.saturating_add(offset)) == Some('#'))
-                })
-                .saturating_add(hashes)
-            }
+            ('"' | '#', _) if raw_string => after(quote.saturating_add(1), &mut |position| {
+                at(position) == Some('"')
+                    && (1..=hashes).all(|offset| at(position.saturating_add(offset)) == Some('#'))
+            })
+            .saturating_add(hashes),
             ('"', _) => {
                 let mut escaped = false;
                 after(index.saturating_add(1), &mut |position| {
