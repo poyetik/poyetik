@@ -6,6 +6,8 @@ use std::path::{Path, PathBuf};
 
 use engine_core::SampleRate;
 
+use engine_fpenv::with_default_mode;
+
 use super::{
     CaseError, CliError, Disk, Files, HEADER_LEN, Rendered, USAGE, arguments, render_case, run,
     wav_bytes, wav_header,
@@ -110,7 +112,7 @@ fn usage(reason: &str) -> String {
 }
 
 fn sine_hash() -> String {
-    render_case(SINE, PATCH)
+    with_default_mode(|mode| render_case(SINE, PATCH, mode))
         .expect("valid case")
         .hash()
         .to_string()
@@ -118,7 +120,7 @@ fn sine_hash() -> String {
 
 #[test]
 fn renders_a_case() {
-    let rendered = render_case(SINE, PATCH).expect("valid case");
+    let rendered = with_default_mode(|mode| render_case(SINE, PATCH, mode)).expect("valid case");
     assert_eq!(rendered.rate, SampleRate::HZ_48000, "rate");
     assert_eq!(rendered.channels, 2, "dac~ is stereo");
     assert_eq!(rendered.samples.len(), 200, "100 frames x 2 channels");
@@ -174,7 +176,7 @@ fn rejects_invalid_cases() {
         ),
     ] {
         assert_eq!(
-            render_case(case_text, patch_text).map(|_| ()),
+            with_default_mode(|mode| render_case(case_text, patch_text, mode)).map(|_| ()),
             Err(expected),
             "{case_text} {patch_text}"
         );
@@ -246,7 +248,7 @@ fn reads_the_patch_bytes_unchanged() {
         r#"{"id":1,"box":"osc~"}"#,
         r#"{"id":1,"box":"osc~","params":{"frequency":1,"frequency":2}}"#,
     );
-    let error = render_case(SINE, &repeated)
+    let error = with_default_mode(|mode| render_case(SINE, &repeated, mode))
         .expect_err("repeated parameter")
         .to_string();
     assert!(
@@ -860,8 +862,8 @@ fn prepares_a_case_before_rendering() {
     assert_eq!(prepared.channels(), 2, "channels");
     assert_eq!(prepared.sample_count(), 200, "100 frames x 2 channels");
     assert_eq!(
-        prepared.render(),
-        render_case(SINE, PATCH).expect("valid case"),
+        with_default_mode(|mode| prepared.render(mode)),
+        with_default_mode(|mode| render_case(SINE, PATCH, mode)).expect("valid case"),
         "same render"
     );
 }
@@ -954,8 +956,10 @@ fn export_command_writes_the_wav_of_every_case_in_order() {
         vec![PathBuf::from("out/wav")],
         "output directory"
     );
-    let rendered_a = render_case(SINE, PATCH).expect("valid case");
-    let rendered_b = render_case(SINE, &memory.text("conf/patches/b.json")).expect("valid case");
+    let rendered_a = with_default_mode(|mode| render_case(SINE, PATCH, mode)).expect("valid case");
+    let rendered_b =
+        with_default_mode(|mode| render_case(SINE, &memory.text("conf/patches/b.json"), mode))
+            .expect("valid case");
     assert_ne!(
         rendered_a.samples, rendered_b.samples,
         "two different cases"

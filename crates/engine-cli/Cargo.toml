@@ -13,6 +13,7 @@ categories = ["multimedia::audio", "command-line-utilities"]
 
 [dependencies]
 engine-core = { path = "../engine-core" }
+engine-fpenv = { path = "../engine-fpenv" }
 engine-hash = { path = "../engine-hash" }
 engine-objects = { path = "../engine-objects" }
 engine-patch = { path = "../engine-patch" }

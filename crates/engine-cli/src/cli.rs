@@ -5,6 +5,7 @@ use std::ffi::OsString;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+use engine_fpenv::{DefaultMode, with_default_mode};
 use engine_patch::MAX_PATCH_BYTES;
 
 use crate::{Files, Prepared, prepare_case, wav_file};
@@ -247,10 +248,14 @@ fn cases(files: &mut dyn Files, dir: &Path) -> Result<Vec<CaseFiles>, String> {
 }
 
 /// Renders every case of `<dir>/cases`, sorted by name: `(name, hash)`.
-fn hashes(files: &mut dyn Files, dir: &Path) -> Result<BTreeMap<String, String>, String> {
+fn hashes(
+    files: &mut dyn Files,
+    dir: &Path,
+    mode: DefaultMode<'_>,
+) -> Result<BTreeMap<String, String>, String> {
     let mut hashes = BTreeMap::new();
     for case in cases(files, dir)? {
-        let rendered = case.prepare()?.render();
+        let rendered = case.prepare()?.render(mode);
         // Case names are file names of one directory, hence unique.
         drop(hashes.insert(case.name, rendered.hash().to_string()));
     }
@@ -263,7 +268,12 @@ fn references_path(dir: &Path) -> PathBuf {
 }
 
 /// `render <case> <patch> [--wav <file>]`.
-fn render(files: &mut dyn Files, out: &mut dyn Write, args: &[String]) -> Result<(), CliError> {
+fn render(
+    files: &mut dyn Files,
+    out: &mut dyn Write,
+    args: &[String],
+    mode: DefaultMode<'_>,
+) -> Result<(), CliError> {
     let (case, patch, wav) = match args {
         [case, patch] => (case, patch, None),
         [case, patch, flag, wav] if flag == "--wav" => (case, patch, Some(wav)),
@@ -283,7 +293,7 @@ fn render(files: &mut dyn Files, out: &mut dyn Write, args: &[String]) -> Result
     )
     .map_err(|error| error.in_files(case_path, patch_path))?;
     let header = *prepared.wav_header();
-    let rendered = prepared.render();
+    let rendered = prepared.render(mode);
     if let Some(path) = wav {
         files
             .write(Path::new(path), &wav_file(&header, &rendered.samples))
@@ -297,7 +307,12 @@ fn render(files: &mut dyn Files, out: &mut dyn Write, args: &[String]) -> Result
 ///
 /// `bless` and `export`, by contrast, stop at the first failing case: a partial set of
 /// references or renders would be wrong.
-fn check(files: &mut dyn Files, out: &mut dyn Write, dir: &Path) -> Result<(), String> {
+fn check(
+    files: &mut dyn Files,
+    out: &mut dyn Write,
+    dir: &Path,
+    mode: DefaultMode<'_>,
+) -> Result<(), String> {
     let cases = cases(files, dir)?;
     let path = references_path(dir);
     let expected: BTreeMap<String, String> =
@@ -308,7 +323,7 @@ fn check(files: &mut dyn Files, out: &mut dyn Write, dir: &Path) -> Result<(), S
         let name = &case.name;
         let (passed, line) = match case
             .prepare()
-            .map(|prepared| prepared.render().hash().to_string())
+            .map(|prepared| prepared.render(mode).hash().to_string())
         {
             Ok(hash) => match expected.get(name) {
                 Some(reference) if *reference == hash => (true, format!("ok       {name} {hash}")),
@@ -349,8 +364,13 @@ fn check(files: &mut dyn Files, out: &mut dyn Write, dir: &Path) -> Result<(), S
 }
 
 /// `bless <dir>`.
-fn bless(files: &mut dyn Files, out: &mut dyn Write, dir: &Path) -> Result<(), String> {
-    let actual = hashes(files, dir)?;
+fn bless(
+    files: &mut dyn Files,
+    out: &mut dyn Write,
+    dir: &Path,
+    mode: DefaultMode<'_>,
+) -> Result<(), String> {
+    let actual = hashes(files, dir, mode)?;
     let path = references_path(dir);
     let entries = actual
         .iter()
@@ -376,6 +396,7 @@ fn export(
     out: &mut dyn Write,
     dir: &Path,
     target: &Path,
+    mode: DefaultMode<'_>,
 ) -> Result<(), String> {
     files
         .create_dir_all(target)
@@ -383,7 +404,7 @@ fn export(
     for case in cases(files, dir)? {
         let prepared = case.prepare()?;
         let header = *prepared.wav_header();
-        let rendered = prepared.render();
+        let rendered = prepared.render(mode);
         let path = target.join(format!("{}.wav", case.name));
         files
             .write(&path, &wav_file(&header, &rendered.samples))
@@ -396,7 +417,11 @@ fn export(
     Ok(())
 }
 
-/// Runs the command named by `args`.
+/// Runs the command named by `args`, in the default floating-point mode of the processor.
+///
+/// The mode is set by `engine_fpenv::with_default_mode`, whatever mode the calling thread
+/// had: renders are the same bits as WebAssembly's even under a host that flushes
+/// subnormals.
 ///
 /// # Errors
 ///
@@ -404,15 +429,28 @@ fn export(
 /// and [`CliError::Failed`] for an unreadable or invalid case, a conformance failure or
 /// an output that cannot be written.
 pub fn run(args: &[String], files: &mut dyn Files, out: &mut dyn Write) -> Result<(), CliError> {
+    with_default_mode(|mode| dispatch(args, files, out, mode))
+}
+
+/// Runs the command named by `args`, rendering in the default floating-point mode `mode`
+/// proves ([`run`]).
+fn dispatch(
+    args: &[String],
+    files: &mut dyn Files,
+    out: &mut dyn Write,
+    mode: DefaultMode<'_>,
+) -> Result<(), CliError> {
     let Some((command, rest)) = args.split_first() else {
         return Err(CliError::Usage("missing command".to_owned()));
     };
     let expects = |synopsis: &str| CliError::Usage(format!("{command} expects {synopsis}"));
     match (command.as_str(), rest) {
-        ("render", _) => render(files, out, rest),
-        ("check", [dir]) => Ok(check(files, out, Path::new(dir))?),
-        ("bless", [dir]) => Ok(bless(files, out, Path::new(dir))?),
-        ("export", [dir, target]) => Ok(export(files, out, Path::new(dir), Path::new(target))?),
+        ("render", _) => render(files, out, rest, mode),
+        ("check", [dir]) => Ok(check(files, out, Path::new(dir), mode)?),
+        ("bless", [dir]) => Ok(bless(files, out, Path::new(dir), mode)?),
+        ("export", [dir, target]) => {
+            Ok(export(files, out, Path::new(dir), Path::new(target), mode)?)
+        }
         ("help", []) => Ok(say_usage(out)?),
         ("check" | "bless", _) => Err(expects("<dir>")),
         ("export", _) => Err(expects("<dir> <out>")),

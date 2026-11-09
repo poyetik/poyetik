@@ -661,7 +661,7 @@ const READMES: [(&str, &str); 10] = [
     (
         "crates/README.md",
         "`engine-core` `engine-objects` `engine-patch` `engine-hash` `engine-alloc-counter` \
-         `engine-testkit` `engine-cli` `xtask`",
+         `engine-fpenv` `engine-testkit` `engine-cli` `xtask`",
     ),
     ("apps/README.md", "| `roadmap/` | | `playground/` |"),
     ("bindings/README.md", "- [`wasm/`](wasm/)"),
@@ -1363,6 +1363,7 @@ fn lists_every_check_in_order() {
             "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-patch/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-patch.json -- --include-ignored",
             "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-hash/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-hash.json -- --include-ignored",
             "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-alloc-counter/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-alloc-counter.json -- --include-ignored",
+            "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-fpenv/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-fpenv.json -- --include-ignored",
             "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-testkit/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-testkit.json -- --include-ignored",
             "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-cli/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-cli.json -- --include-ignored",
             "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path bindings/wasm/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-wasm.json -- --include-ignored",
@@ -1454,6 +1455,7 @@ fn names_every_check_in_order() {
             "Rust coverage of engine-patch: 100% by its own unit tests",
             "Rust coverage of engine-hash: 100% by its own unit tests",
             "Rust coverage of engine-alloc-counter: 100% by its own unit tests",
+            "Rust coverage of engine-fpenv: 100% by its own unit tests",
             "Rust coverage of engine-testkit: 100% by its own unit tests",
             "Rust coverage of engine-cli: 100% by its own unit tests",
             "Rust coverage of engine-wasm: 100% by its own unit tests",
@@ -2661,24 +2663,24 @@ fn runs_every_step_and_reports_success() {
         Ok(()),
         "all green"
     );
-    let (tools, commands, emptied, listed, captured, written) = (10, 50, 14, 19, 16, 1);
-    let read = 2 + 7 + 12 + 2 + 7 + 19 + 2 + 1 + 7 + 3 + 10 + 10 + 20 + 8 + 2 + 11 + 40 + 20;
+    let (tools, commands, emptied, listed, captured, written) = (10, 52, 14, 19, 16, 1);
+    let read = 2 + 7 + 13 + 2 + 7 + 21 + 3 + 1 + 7 + 3 + 11 + 10 + 21 + 8 + 2 + 11 + 40 + 20;
     assert_eq!(
         fake.ran.len(),
         tools + commands + emptied + listed + captured + written + read,
-        "the preflight asks ten tools; 50 commands run (formatting, lints, documentation, \
-         tests, four portability builds, twelve coverage measurements each after emptying \
+        "the preflight asks ten tools; 52 commands run (formatting, lints, documentation, \
+         tests, four portability builds, thirteen coverage measurements each after emptying \
          the coverage build, the mutants of the changes, Miri, the \
          conformance check and export, deny, the JavaScript install, audit, the engine build and five package \
          checks each followed by its Stryker run); fourteen directories are emptied; git lists \
          eleven kinds of files, the TypeScript ones again for the reports and scope gates of \
          each package after the first; the licenses and the history are captured twice each, the state \
          of the tree (before and after) four times, the nightly's version and sysroot, the Cargo metadata, the merge base, the changes and the \
-         new Rust files once; the diff is written once; and the gates read .node-version and the toolchain file for the preflight, the toolchain file, the four float sources and the float macros of the nightly and clippy.toml for the float gate, twelve coverage reports, \
-         the unviable report and reviews, six TypeScript sources and their reviews, the eight \
-         sources, the ten Cargo manifests and the register of the bypass gate, the two unsafe files, the Cargo \
+         new Rust files once; the diff is written once; and the gates read .node-version and the toolchain file for the preflight, the toolchain file, the four float sources and the float macros of the nightly and clippy.toml for the float gate, thirteen coverage reports, \
+         the unviable report and reviews, six TypeScript sources and their reviews, the nine \
+         sources, the eleven Cargo manifests and the register of the bypass gate, the three unsafe files, the Cargo \
          configuration, the six package manifests and the register of the dependency gate, the three \
-         supply-chain configurations, ten crate manifests, ten READMEs, the changelog, ten READMEs, two Rust and six TypeScript sources and the vocabulary of the vocabulary gate, eight version files, the workflow and \
+         supply-chain configurations, eleven crate manifests, ten READMEs, the changelog, ten READMEs, three Rust and six TypeScript sources and the vocabulary of the vocabulary gate, eight version files, the workflow and \
          .node-version, five Stryker configurations and the six package manifests, and for each of the five \
          packages, the six TypeScript sources and two reports of its reports gate, then its \
          Stryker configuration, coverage summary, mutation report and the register of its \
@@ -2701,15 +2703,15 @@ fn runs_every_step_and_reports_success() {
     );
     let text = String::from_utf8(out).expect("utf-8 output");
     assert!(
-        text.starts_with("▶ [1/73] Tools and platform\n"),
+        text.starts_with("▶ [1/74] Tools and platform\n"),
         "numbered progress: {text}"
     );
     assert!(
-        text.contains("▶ [69/73] Roadmap checks\n"),
+        text.contains("▶ [70/74] Roadmap checks\n"),
         "last step announced: {text}"
     );
     assert!(
-        text.ends_with("✔ all 73 checks passed\n"),
+        text.ends_with("✔ all 74 checks passed\n"),
         "summary: {text}"
     );
 }
@@ -4717,6 +4719,23 @@ fn confines_unsafe_blocks_to_the_audited_files() {
         ),
         "another file lifting it"
     );
+    assert_eq!(UNSAFE_FILES.len(), 3, "three audited files");
+    let mut fourth = sources.clone();
+    fourth.push(("crates/engine-fpenv/src/other.rs".to_owned(), lifting()));
+    assert_eq!(
+        unsafe_gate(&fourth),
+        found(
+            "the lint against unsafe code",
+            &[
+                "crates/engine-fpenv/src/other.rs lifts the lint against unsafe code".to_owned(),
+                format!(
+                    "crates/engine-fpenv/src/other.rs does not hold `{}`",
+                    forbid.trim()
+                ),
+            ]
+        ),
+        "a fourth file, even in the crate of an audited one"
+    );
     let mut stale = sources;
     stale[0].1 = forbid;
     assert_eq!(
@@ -5412,7 +5431,7 @@ fn checks_a_push_then_runs_every_check() {
     assert!(
         String::from_utf8(out)
             .expect("UTF-8")
-            .ends_with("✔ all 73 checks passed\n"),
+            .ends_with("✔ all 74 checks passed\n"),
         "then every check"
     );
     assert!(
@@ -5887,12 +5906,12 @@ fn prints_the_details_of_a_failure_on_stdout_and_one_line_on_stderr() {
     );
     assert_eq!(
         String::from_utf8(err).expect("UTF-8"),
-        "error: 1 of 73 checks failed, listed above\n",
+        "error: 1 of 74 checks failed, listed above\n",
         "one line on stderr, counting the failed steps"
     );
     assert!(
         String::from_utf8(out).expect("UTF-8").ends_with(&format!(
-            "▶ [73/73] Working tree unchanged by the checks\n\
+            "▶ [74/74] Working tree unchanged by the checks\n\
              not reviewed: crates/a/src/c.rs: replace g -> U with x\n\
              stale review: crates/a/src/b.rs: replace f -> T with Default::default()\n\
              Rust unviable mutants reviewed: unviable mutants must be reviewed in \
@@ -6828,7 +6847,18 @@ fn runs_miri_on_every_crate_of_the_audited_files() {
     assert_eq!(
         super::unsafe_crates(),
         vec!["engine-alloc-counter", "engine-wasm"],
-        "the crates of the audited files, in the order of RUST_CRATES"
+        "the crates of the audited files, in the order of RUST_CRATES, but the assembly one"
+    );
+    assert_eq!(
+        super::ASSEMBLY_FILES,
+        ["crates/engine-fpenv/src/word.rs"],
+        "the one file Miri cannot run"
+    );
+    assert!(
+        super::ASSEMBLY_FILES
+            .iter()
+            .all(|file| UNSAFE_FILES.contains(file)),
+        "an audited file"
     );
     assert_eq!(
         super::miri_command().line(),
@@ -6865,7 +6895,7 @@ fn empties_the_coverage_build_before_every_measurement() {
         .collect();
     assert_eq!(
         measurements.len(),
-        11 + 1,
+        12 + 1,
         "every crate and binary measured, and the locality fixture"
     );
     for index in measurements {
@@ -8135,8 +8165,8 @@ fn the_parts_run_every_step_of_the_full_check_once() {
     }
     assert_eq!(
         steps_run,
-        18 * 3 + (73 - 3 - 7 - 2) + 8 * 2 + 1 + 2 + 6 * 3 + 1,
-        "each part's frame (three steps); every other step of the 73 once, but the seven \
+        18 * 3 + (74 - 3 - 7 - 2) + 8 * 2 + 1 + 2 + 6 * 3 + 1,
+        "each part's frame (three steps); every other step of the 74 once, but the seven \
          preparations, the mutation run and its unviable gate; in each of the eight shards, \
          the report emptied and the shard's run; the gate over the shards; the conformance \
          export (two steps) for the oracle; the JavaScript preparation (three steps) for the \

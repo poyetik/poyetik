@@ -1,0 +1,23 @@
+[package]
+name = "engine-fpenv"
+description = "Poyetik native support: runs engine calls in the default floating-point mode of the processor, whatever mode the host set"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+readme = false
+repository.workspace = true
+keywords = ["audio", "floating-point", "determinism"]
+categories = ["multimedia::audio", "no-std"]
+
+[dev-dependencies]
+engine-core = { path = "../engine-core" }
+engine-hash = { path = "../engine-hash" }
+engine-objects = { path = "../engine-objects" }
+engine-patch = { path = "../engine-patch" }
+# Reads the conformance cases and their reference hashes, rendered under every host mode.
+serde_json = "1"
+
+[lints]
+workspace = true

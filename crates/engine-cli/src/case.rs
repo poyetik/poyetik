@@ -3,6 +3,7 @@
 use std::path::Path;
 
 use engine_core::{Plan, Renderer, SampleRate};
+use engine_fpenv::DefaultMode;
 
 use crate::{HEADER_LEN, wav_header};
 use engine_hash::{RenderHash, render_hash};
@@ -104,13 +105,14 @@ impl Prepared {
         self.frames.saturating_mul(self.plan.channels())
     }
 
-    /// Renders the case with the native engine.
+    /// Renders the case with the native engine, in the default floating-point mode that
+    /// `_mode` proves (`engine_fpenv`): a render without it does not compile.
     ///
     /// The samples fit a WAV file (checked by [`prepare_case`]), at most 4 GiB. They are
     /// allocated at once: if memory cannot hold them, the process aborts, as any Rust
     /// allocation failure does.
     #[must_use]
-    pub fn render(self) -> Rendered {
+    pub fn render(self, _mode: DefaultMode<'_>) -> Rendered {
         let mut samples = vec![0.0_f32; self.sample_count()];
         let channels = self.plan.channels();
         Renderer::new(self.plan).render_into(&mut samples);
@@ -163,11 +165,12 @@ pub fn prepare_case(case: &str, patch: &str) -> Result<Prepared, CaseError> {
     })
 }
 
-/// Reads a conformance case and its patch and renders it with the native engine.
+/// Reads a conformance case and its patch and renders it with the native engine, in the
+/// default floating-point mode that `mode` proves.
 ///
 /// # Errors
 ///
 /// Returns the [`CaseError`] of [`prepare_case`].
-pub fn render_case(case: &str, patch: &str) -> Result<Rendered, CaseError> {
-    prepare_case(case, patch).map(Prepared::render)
+pub fn render_case(case: &str, patch: &str, mode: DefaultMode<'_>) -> Result<Rendered, CaseError> {
+    prepare_case(case, patch).map(|prepared| prepared.render(mode))
 }

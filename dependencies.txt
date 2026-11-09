@@ -12,6 +12,7 @@
 engine-cli: serde (normal) -- reads the conformance case files into typed values, refusing unknown fields
 engine-cli: serde_json (normal) -- parses the case files and writes the reference hashes
 engine-core: serde_json (dev) -- reads the shared test matrix, so the unit tests run at every sample rate of conformance/test-matrix.json
+engine-fpenv: serde_json (dev) -- reads the conformance cases and their reference hashes, rendered under every forced host mode
 engine-hash: serde_json (dev) -- reads the shared known-answer vectors of spec/render-hash-vectors.json
 engine-hash: sha2 (normal) -- the SHA-256 of a render, without std, the same on every target
 engine-objects: libm (normal) -- deterministic, portable math functions (sine), identical on every target where std's are not

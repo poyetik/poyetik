@@ -83,6 +83,7 @@ name = "engine-cli"
 version = "0.1.0"
 dependencies = [
  "engine-core",
+ "engine-fpenv",
  "engine-hash",
  "engine-objects",
  "engine-patch",
@@ -94,6 +95,17 @@ dependencies = [
 name = "engine-core"
 version = "0.1.0"
 dependencies = [
+ "serde_json",
+]
+
+[[package]]
+name = "engine-fpenv"
+version = "0.1.0"
+dependencies = [
+ "engine-core",
+ "engine-hash",
+ "engine-objects",
+ "engine-patch",
  "serde_json",
 ]
 

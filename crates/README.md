@@ -8,6 +8,7 @@ The **engine core** and the project tooling, as Rust crates of one Cargo workspa
 | `engine-objects` | The boxes (`osc~`, `dac~`) and their registry (`no_std`, no `unsafe`) |
 | `engine-testkit` | Test bench: the laws every registered box must respect, and the objective measurements of a signal (`spec/measurements.md`) (no `unsafe`) |
 | `engine-alloc-counter` | The global allocator counting heap operations (allocations and releases) in tests: the only `unsafe` of the test bench, audited and checked by Miri |
+| `engine-fpenv` | Runs native engine calls in the default floating-point mode of the processor (no flush-to-zero, round to nearest) whatever mode the host set, restoring the host's mode after: native only (`x86_64`, aarch64), its one `unsafe` file reads and writes the control register with inline assembly, proven by its tests and audited (Miri cannot run assembly) |
 | `engine-patch` | Reads the JSON patch format (`spec/patch-format.md`) (`no_std`, no `unsafe`) |
 | `engine-hash` | Canonical SHA-256 hash of a render (`no_std`, no `unsafe`) |
 | `engine-cli` | Offline renderer: renders conformance cases to render hashes and WAV files, and checks or rewrites the reference hashes (commands: `engine-cli help`) |

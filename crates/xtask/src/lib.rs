@@ -40,7 +40,7 @@ pub struct RustCrate {
 
 /// The crates of the Cargo workspace (checked by [`membership_gate`]): each is measured by
 /// its own unit tests, and each binary by the crate's tests.
-pub const RUST_CRATES: [RustCrate; 9] = [
+pub const RUST_CRATES: [RustCrate; 10] = [
     RustCrate {
         name: "engine-core",
         dir: "crates/engine-core",
@@ -64,6 +64,11 @@ pub const RUST_CRATES: [RustCrate; 9] = [
     RustCrate {
         name: "engine-alloc-counter",
         dir: "crates/engine-alloc-counter",
+        binary: false,
+    },
+    RustCrate {
+        name: "engine-fpenv",
+        dir: "crates/engine-fpenv",
         binary: false,
     },
     RustCrate {
@@ -915,7 +920,8 @@ fn proof_steps(mode: Mode) -> Vec<(Role, Step)> {
     steps
 }
 
-/// The crates holding a file of [`UNSAFE_FILES`], whose tests Miri runs.
+/// The crates holding a file of [`UNSAFE_FILES`] that is not in [`ASSEMBLY_FILES`], whose
+/// tests Miri runs.
 #[must_use]
 pub fn unsafe_crates() -> Vec<&'static str> {
     RUST_CRATES
@@ -923,6 +929,7 @@ pub fn unsafe_crates() -> Vec<&'static str> {
         .filter(|krate| {
             UNSAFE_FILES
                 .iter()
+                .filter(|file| !ASSEMBLY_FILES.contains(file))
                 .any(|file| file.starts_with(&format!("{}/", krate.dir)))
         })
         .map(|krate| krate.name)
@@ -2883,12 +2890,21 @@ pub fn license_gate(shipped: &str, all: &str) -> Result<(), Failure> {
     verdict("licenses not allowed", problems)
 }
 
-/// The only files allowed to lift the workspace lint against unsafe code, each audited:
-/// the C interface of the WebAssembly module, and the counting allocator of the tests.
-pub const UNSAFE_FILES: [&str; 2] = [
+/// The only files allowed to lift the workspace lint against unsafe code, each audited.
+///
+/// The C interface of the WebAssembly module, the counting allocator of the tests, and the
+/// floating-point control register of native engine calls.
+pub const UNSAFE_FILES: [&str; 3] = [
     "bindings/wasm/src/ffi.rs",
     "crates/engine-alloc-counter/src/lib.rs",
+    "crates/engine-fpenv/src/word.rs",
 ];
+
+/// The files of [`UNSAFE_FILES`] made of inline assembly, which Miri cannot run.
+///
+/// Their crates leave the Miri step ([`unsafe_crates`]), and are proven by their own tests
+/// on each architecture they support, and by the audit written in the file.
+pub const ASSEMBLY_FILES: [&str; 1] = ["crates/engine-fpenv/src/word.rs"];
 
 /// Whether `relative` (the path of a Rust file inside a crate's directory) is the root of a
 /// crate target: the library, a binary, a test, a benchmark, an example or a build script.
