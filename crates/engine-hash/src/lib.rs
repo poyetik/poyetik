@@ -36,8 +36,11 @@ impl fmt::Display for RenderHash {
     }
 }
 
-/// The samples of a render, interleaved by channel, in its render format: the type of the
-/// samples is the format's, so that a hash cannot record another format than its samples'.
+/// The samples of a render, interleaved by channel, in its render format.
+///
+/// The width the hash records is always that of the samples given (64 bits for binary64,
+/// 32 otherwise): a hash cannot claim binary64 samples for binary32 ones. The precision it
+/// records for binary32 samples is the caller's statement of which render made them.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Samples<'render> {
     /// Computed and given in binary64.
