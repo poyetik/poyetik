@@ -365,6 +365,16 @@ fn lifting() -> String {
     )
 }
 
+/// The text of the audited file `path`: [`lifting`], and inline assembly in the files of
+/// `ASSEMBLY_FILES`.
+fn audited(path: &str) -> String {
+    if super::ASSEMBLY_FILES.contains(&path) {
+        format!("{}core::arch::asm!(\"nop\");\n", lifting())
+    } else {
+        lifting()
+    }
+}
+
 /// The licenses of what the apps ship, all allowed.
 const SHIPPED: &str = r#"{"MIT":[{"name":"react"},{"name":"react-dom"}],"ISC":[{"name":"a"}]}"#;
 
@@ -438,7 +448,7 @@ fn passing() -> Fake {
         assert!(replaced.is_none(), "fresh fake");
     }
     for path in UNSAFE_FILES {
-        let previous_unsafe = fake.files.insert(path.to_owned(), lifting());
+        let previous_unsafe = fake.files.insert(path.to_owned(), audited(path));
         assert!(previous_unsafe.is_none(), "fresh fake");
     }
     float_sources(&mut fake);
@@ -4692,7 +4702,7 @@ fn confines_unsafe_blocks_to_the_audited_files() {
     let deny = format!("#[deny({}_{})]\nmod m;\n", "unsafe", "code");
     let mut sources: Vec<(String, String)> = UNSAFE_FILES
         .iter()
-        .map(|path| ((*path).to_owned(), lifting()))
+        .map(|path| ((*path).to_owned(), audited(path)))
         .collect();
     sources.push(("crates/a/src/lib.rs".to_owned(), forbid.clone()));
     sources.push(("crates/b/src/lib.rs".to_owned(), deny));
@@ -4735,6 +4745,24 @@ fn confines_unsafe_blocks_to_the_audited_files() {
             ]
         ),
         "a fourth file, even in the crate of an audited one"
+    );
+    let mut no_assembly = sources.clone();
+    for (path, text) in &mut no_assembly {
+        if super::ASSEMBLY_FILES.contains(&path.as_str()) {
+            *text = format!(
+                "{}// asm!(\"nop\") in a comment, without its parenthesis\n",
+                lifting()
+            )
+            .replace("asm!(", "asm! (");
+        }
+    }
+    assert_eq!(
+        unsafe_gate(&no_assembly),
+        failed(
+            "the lint against unsafe code: crates/engine-fpenv/src/word.rs is listed in \
+             ASSEMBLY_FILES but holds no inline assembly"
+        ),
+        "an assembly file without assembly"
     );
     let mut stale = sources;
     stale[0].1 = forbid;
@@ -6422,7 +6450,7 @@ fn makes_the_compiler_refuse_unsafe_outside_the_audited_files() {
     let forbid = format!("#![forbid({lint})]\n");
     let mut sources: Vec<(String, String)> = UNSAFE_FILES
         .iter()
-        .map(|path| ((*path).to_owned(), lifting()))
+        .map(|path| ((*path).to_owned(), audited(path)))
         .collect();
     for path in [
         "crates/engine-core/src/lib.rs",

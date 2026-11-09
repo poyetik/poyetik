@@ -2930,10 +2930,14 @@ fn crate_root(relative: &str) -> bool {
 /// whose library root cannot forbid it, every other module and every root outside `src/`
 /// does. The lint name is built at run time, so that this file does not name it.
 ///
+/// Every file of [`ASSEMBLY_FILES`], which leaves the Miri step, must still hold inline
+/// assembly (`asm!(`): a file that no longer does would be unsafe code Miri could check.
+///
 /// # Errors
 ///
 /// Returns every other file that lifts the lint, every listed file that no longer does,
-/// and every file that should forbid it and does not.
+/// every file that should forbid it and does not, and every assembly file without
+/// assembly.
 pub fn unsafe_gate(sources: &[(String, String)]) -> Result<(), Failure> {
     let lint = format!("{}_{}", "unsafe", "code");
     let forbid = format!("#![forbid({lint})]");
@@ -2961,6 +2965,16 @@ pub fn unsafe_gate(sources: &[(String, String)]) -> Result<(), Failure> {
                 format!("{path} is listed in UNSAFE_FILES but no longer lifts the lint")
             }))
             .collect();
+    problems.extend(
+        ASSEMBLY_FILES
+            .iter()
+            .filter(|file| {
+                !sources
+                    .iter()
+                    .any(|(path, text)| path == *file && text.contains("asm!("))
+            })
+            .map(|file| format!("{file} is listed in ASSEMBLY_FILES but holds no inline assembly")),
+    );
     for (path, text) in sources {
         let Some((krate, relative)) = RUST_CRATES.iter().find_map(|krate| {
             path.strip_prefix(&format!("{}/", krate.dir))

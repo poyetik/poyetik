@@ -18,8 +18,9 @@
 //!
 //! nor kept after its call:
 //!
-//! ```compile_fail
-//! let kept = engine_fpenv::with_default_mode(|mode| mode);
+//! ```compile_fail,E0521
+//! let mut kept = None;
+//! engine_fpenv::with_default_mode(|mode| kept = Some(mode));
 //! ```
 //!
 //! nor sent to another thread, whose mode is its own:
@@ -87,17 +88,26 @@ impl Drop for Restore {
 ///
 /// Only the mode fields change: on `x86_64` the exception flags keep accumulating, as IEEE
 /// 754 defines them. When the host's mode already is the default, the register is not
-/// written at all; so a nested call costs one read.
+/// written at all; so a nested call costs one read, and a mode that foreign code sets
+/// inside `body` is then not undone: `body` must not change the mode.
+///
+/// Rust has no strict floating-point mode: the compiler orders the register's writes with
+/// memory and `core::hint::black_box`, not with float arithmetic on values in registers.
+/// So `body` passes through `black_box` after the entry write (its captures are read after
+/// it) and its result through `black_box` before the restore (it is computed before): float
+/// work inside `body` that reads its inputs from its captures or from memory, and returns
+/// or stores its results, runs in the default mode.
 pub fn with_default_mode<R>(body: impl for<'scope> FnOnce(DefaultMode<'scope>) -> R) -> R {
     let host = word::read() & word::CONTROL;
     let _restore = (host != word::DEFAULT).then(|| {
         word::set_control(word::DEFAULT);
         Restore { host }
     });
-    body(DefaultMode {
+    let body = core::hint::black_box(body);
+    core::hint::black_box(body(DefaultMode {
         scope: PhantomData,
         thread: PhantomData,
-    })
+    }))
 }
 
 #[cfg(test)]

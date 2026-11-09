@@ -13,8 +13,17 @@
 //!   no reserved bit is ever changed.
 //! - **Ordering.** No `asm!` here is `pure` or `nomem`: the compiler treats each one as
 //!   reading and writing memory, so it keeps them in program order with the loads and stores
-//!   around them. A float computation whose operands come from memory, or pass through
-//!   `core::hint::black_box`, cannot move across them.
+//!   around them, and with `core::hint::black_box`. It does **not** order float arithmetic:
+//!   Rust has no strict floating-point mode, and the compiler assumes the default mode
+//!   everywhere, so it may move a computation on values held in registers across the
+//!   register's write. A float computation runs in the mode set here only if its inputs are
+//!   loaded after the write and its results stored before the restoring one (or pass
+//!   through `black_box`). `with_default_mode` does that for its body: the closure passes
+//!   through `black_box` after the entry write, so its captures are read after it, and the
+//!   result through `black_box` before the restore. `black_box` is a best-effort barrier of
+//!   the compiler, documented as such, which this ordering relies on.
+//! - **AMD's MM bit.** Some AMD processors define MXCSR bit 17 (misaligned exception mask);
+//!   it is outside [`CONTROL`], so it is kept as the host set it.
 //! - **The fields.** [`CONTROL`] and [`DEFAULT`] follow the architecture manuals: on
 //!   `x86_64`, DAZ (bit 6), the exception masks (7 to 12), the rounding control (13, 14) and
 //!   FTZ (15); on aarch64, FIZ (0), AH (1), NEP (2), the trap enables (8 to 12, 15), EBF

@@ -298,13 +298,21 @@ fn needs_the_default_mode_to_give_the_references() {
 
 #[test]
 fn keeps_the_bits_outside_the_mode_fields() {
-    // Every bit outside the mode fields is kept by a write of the mode fields: aarch64 has
-    // only reserved bits there (zero); x86_64 has its sticky exception flags, raised here
-    // by an inexact division before the guard and kept through it.
-    let before = black_box(1.0_f64) / black_box(3.0_f64);
+    // Every bit outside the mode fields is kept by a write of the mode fields: x86_64 has its
+    // sticky exception flags there, the inexact one (bit 5) raised here by a division before
+    // the guard and kept through it; aarch64 has only reserved bits there, all zero.
+    let before = black_box(black_box(1.0_f64) / black_box(3.0_f64));
     let outside = read() & !CONTROL;
+    #[cfg(target_arch = "x86_64")]
+    assert_eq!(
+        outside & 0x20,
+        0x20,
+        "the inexact flag raised: {outside:#x}"
+    );
+    #[cfg(target_arch = "aarch64")]
+    assert_eq!(outside, 0, "only reserved bits, zero");
     let (_, inside) = as_host(ROUNDING_UP, || with_default_mode(|_| read() & !CONTROL));
-    assert_ne!(black_box(before).to_bits(), 0, "an inexact division");
+    assert_ne!(before.to_bits(), 0, "an inexact division");
     assert_eq!(
         inside & outside,
         outside,
