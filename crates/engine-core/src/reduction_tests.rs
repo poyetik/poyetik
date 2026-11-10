@@ -99,6 +99,29 @@ fn is_nan<F: Float>(bits: u64) -> bool {
     bits & exponent == exponent && bits & fraction != 0
 }
 
+/// Whether `summed`, the bits of a sum of `terms`, follows the rule: the bits of the
+/// reference whenever it is not a NaN, else the payload rule of [`check`].
+fn follows<F: Float>(terms: &[F], summed: u64) -> bool {
+    let expected = reference(terms).bits();
+    let sign = F::NEGATIVE_ZERO.bits();
+    let (exponent, quiet) = fields::<F>();
+    if !is_nan::<F>(expected) {
+        summed == expected
+    } else if let [only] = terms {
+        summed == only.bits()
+    } else {
+        let default = exponent | quiet;
+        let mut allowed: Vec<u64> = terms
+            .iter()
+            .map(|term| term.bits())
+            .filter(|&bits| is_nan::<F>(bits))
+            .map(|bits| (bits | quiet) & !sign)
+            .collect();
+        allowed.push(default);
+        is_nan::<F>(summed) && allowed.contains(&(summed & !sign))
+    }
+}
+
 /// Checks the helper against the reference on `terms`: the same bits whenever the reference
 /// is not a NaN. A NaN result follows the payload rule: it is a NaN; of one term, that term
 /// bit for bit; of more, quiet, with the payload (and quiet bit) of one of the NaN terms, or
@@ -111,24 +134,7 @@ where
     let samples: Vec<S> = terms.iter().map(|&term| S::from_raw(term)).collect();
     let summed = sum_of(&samples).bits();
     let expected = reference(terms).bits();
-    let sign = <S::Float as Float>::NEGATIVE_ZERO.bits();
-    let (exponent, quiet) = fields::<S::Float>();
-    let follows = if !is_nan::<S::Float>(expected) {
-        summed == expected
-    } else if let [only] = terms {
-        summed == only.bits()
-    } else {
-        let default = exponent | quiet;
-        let mut allowed: Vec<u64> = terms
-            .iter()
-            .map(|term| term.bits())
-            .filter(|&bits| is_nan::<S::Float>(bits))
-            .map(|bits| (bits | quiet) & !sign)
-            .collect();
-        allowed.push(default);
-        is_nan::<S::Float>(summed) && allowed.contains(&(summed & !sign))
-    };
-    if follows {
+    if follows(terms, summed) {
         Ok(())
     } else {
         Err(format!(
@@ -204,8 +210,32 @@ fn sums_special_values_in_the_specified_order<S: Raw>()
 where
     S::Float: Float,
 {
-    let wide = S::Float::NEGATIVE_ZERO.bits() == 1_u64 << 63_u32;
-    let specials: [u64; 12] = if wide {
+    let specials = specials::<S::Float>();
+    let mut draws = Draws(0x5059_0028);
+    let pick = |source: &mut Draws| {
+        let index = usize::try_from(source.next().wrapping_rem(12)).expect("below 12");
+        S::Float::from_bits(*specials.get(index).expect("below 12"))
+    };
+    for count in COUNTS {
+        for _ in 0_u32..64 {
+            let terms: Vec<S::Float> = (0..count).map(|_| pick(&mut draws)).collect();
+            assert_eq!(check::<S>(&terms), Ok(()), "{count} special terms");
+            // A few specials among finite terms, as a mix meets them.
+            let mut mixed: Vec<S::Float> = (0..count).map(|_| draws.finite()).collect();
+            for term in mixed.iter_mut().take(2) {
+                *term = pick(&mut draws);
+            }
+            assert_eq!(check::<S>(&mixed), Ok(()), "{count} mixed terms");
+        }
+    }
+}
+
+/// The special values of the width of `F`: zeros of both signs, the smallest subnormals of
+/// both signs, the largest finite values, infinities, a quiet and a signaling NaN with
+/// payloads, and 1 and -1.
+fn specials<F: Float>() -> [u64; 12] {
+    let wide = F::NEGATIVE_ZERO.bits() == 1_u64 << 63_u32;
+    if wide {
         [
             0,
             0x8000_0000_0000_0000,
@@ -235,23 +265,6 @@ where
             0x3f80_0000,
             0xbf80_0000,
         ]
-    };
-    let mut draws = Draws(0x5059_0028);
-    let pick = |source: &mut Draws| {
-        let index = usize::try_from(source.next().wrapping_rem(12)).expect("below 12");
-        S::Float::from_bits(*specials.get(index).expect("below 12"))
-    };
-    for count in COUNTS {
-        for _ in 0_u32..64 {
-            let terms: Vec<S::Float> = (0..count).map(|_| pick(&mut draws)).collect();
-            assert_eq!(check::<S>(&terms), Ok(()), "{count} special terms");
-            // A few specials among finite terms, as a mix meets them.
-            let mut mixed: Vec<S::Float> = (0..count).map(|_| draws.finite()).collect();
-            for term in mixed.iter_mut().take(2) {
-                *term = pick(&mut draws);
-            }
-            assert_eq!(check::<S>(&mixed), Ok(()), "{count} mixed terms");
-        }
     }
 }
 
@@ -321,15 +334,27 @@ where
 }
 
 /// The block form: silence for no block, the block itself for one (a NaN payload and -0
-/// kept), and the helper frame by frame for more.
+/// kept), and the rule frame by frame for more, at every count, each frame of each block
+/// drawn on its own (a finite value, or one of the special values one time in four), each
+/// frame checked against the reference as the helper is.
 fn sums_blocks_frame_by_frame<S: Raw>()
 where
     S::Float: Float,
 {
+    let specials = specials::<S::Float>();
     let mut draws = Draws(0x5059_0064);
-    for count in COUNTS.into_iter().take(15) {
+    let draw = |source: &mut Draws| {
+        let pick = source.next();
+        if pick.trailing_zeros() >= 2 {
+            let index = usize::try_from((pick >> 2_u32).wrapping_rem(12)).expect("below 12");
+            S::from_raw(S::Float::from_bits(*specials.get(index).expect("below 12")))
+        } else {
+            S::from_raw(source.finite())
+        }
+    };
+    for count in COUNTS {
         let blocks: Vec<Block<S>> = (0..count)
-            .map(|_| core::array::from_fn(|_| S::from_raw(draws.finite())))
+            .map(|_| core::array::from_fn(|_| draw(&mut draws)))
             .collect();
         let mut out = [S::from_raw(draws.finite()); BLOCK_SIZE];
         sum_blocks(&mut out, &blocks.iter());
@@ -338,10 +363,11 @@ where
                 .iter()
                 .map(|block| block.get(frame).expect("a frame").raw())
                 .collect();
-            assert_eq!(
+            assert!(
+                follows(&terms, sample.bits()),
+                "{count} blocks, frame {frame}: {:#x}, expected {:#x}",
                 sample.bits(),
-                reference(&terms).bits(),
-                "{count} blocks, frame {frame}"
+                reference(&terms).bits()
             );
         }
     }
