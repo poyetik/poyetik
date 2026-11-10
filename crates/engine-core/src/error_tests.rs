@@ -81,7 +81,7 @@ fn describes_every_error() {
         ),
         (
             CoreError::Cycle(vec![NodeId(1), NodeId(9)]),
-            "cycle without delay involving box 1, box 9",
+            "cycle without delay: boxes in it or after it: box 1, box 9",
         ),
     ];
     for (error, message) in cases {

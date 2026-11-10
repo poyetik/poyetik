@@ -78,6 +78,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A patch refused for a cycle without delay names its boxes as "boxes in it or after it" (`CoreError::Cycle`), where it said "involving": the list holds every box the order could not place, those that only depend on the cycle included.
 - The default `cargo xtask check` refuses a tree in which git hides files (`assume-unchanged` or `skip-worktree`), naming the first and how to clear it: no diff of git shows their changes, so they were silently left unmutated.
 - The default `cargo xtask check` could give cargo-mutants two sections of one file (its changes, then the whole file of a crate tested whole), which cargo-mutants reads as one unsorted list of changed lines and searches as sorted, so that it silently skipped mutants near the top of the file; a proof record then kept the gap. Git now leaves every crate tested whole or proven out of the diff (`:(exclude)` pathspecs), so each file has at most one section, and the step refuses a diff that holds one twice before cargo-mutants reads it. The changed paths are read NUL-separated (`git diff --name-only -z`), so a path git quotes (a character out of ASCII) or one holding ` b/` is no longer missed or misread. Records written before (format 3) are ignored.
 - A change of a manifest among xtask's test fixtures (`crates/xtask/tests/fixtures/**/Cargo.toml`) made the default check mutate every crate; it now widens xtask only, as the test code it is.

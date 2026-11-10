@@ -102,7 +102,7 @@ impl fmt::Display for CoreError {
             Self::InvalidOutlet { node, outlet } => write!(f, "{node}: no outlet {outlet}"),
             Self::InvalidInlet { node, inlet } => write!(f, "{node}: no inlet {inlet}"),
             Self::Cycle(nodes) => {
-                write!(f, "cycle without delay involving ")?;
+                write!(f, "cycle without delay: boxes in it or after it: ")?;
                 for (index, node) in nodes.iter().enumerate() {
                     if index > 0 {
                         write!(f, ", ")?;
