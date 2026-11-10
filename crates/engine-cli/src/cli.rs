@@ -15,7 +15,7 @@ use crate::record::{
     Record, References, Versions, bless_problems, blessed, current_fingerprints, record_problems,
     same_rules,
 };
-use crate::{Files, Prepared, Rendered, prepare_case, wav_file};
+use crate::{Files, Prepared, Rendered, prepare_case};
 use engine_hash::RenderHash;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -389,11 +389,10 @@ fn render(
         mode,
     )
     .map_err(|error| error.in_files(case_path, patch_path))?;
-    let header = *prepared.wav_header();
     let rendered = prepared.render(mode);
     if let Some(path) = wav {
         files
-            .write(Path::new(path), &wav_file(&header, &rendered.samples))
+            .write(Path::new(path), &rendered.wav())
             .map_err(|error| format!("cannot write {path}: {error}"))?;
     }
     Ok(say(out, &OneLine::new(&hash_of(&rendered)?.to_string()))?)
@@ -692,12 +691,10 @@ fn export(
         .map_err(|error| format!("cannot create {}: {error}", target.display()))?;
     for case in cases(files, dir)? {
         for format in RenderFormat::ALL {
-            let prepared = case.prepare(format, mode)?;
-            let header = *prepared.wav_header();
-            let rendered = prepared.render(mode);
+            let rendered = case.prepare(format, mode)?.render(mode);
             let path = target.join(format!("{}.{format}.wav", case.name));
             files
-                .write(&path, &wav_file(&header, &rendered.samples))
+                .write(&path, &rendered.wav())
                 .map_err(|error| format!("cannot write {}: {error}", path.display()))?;
             let hash = hash_of(&rendered)?;
             say(

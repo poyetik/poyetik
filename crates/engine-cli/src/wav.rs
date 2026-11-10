@@ -2,8 +2,6 @@
 
 use engine_core::RenderFormat;
 
-use crate::{Rendered, RenderedSamples};
-
 /// Size of the header written by [`wav_header`], in bytes.
 pub const HEADER_LEN: usize = 58;
 
@@ -74,27 +72,4 @@ pub fn wav_header(
         *byte = *value;
     }
     Ok(header)
-}
-
-/// Appends samples, little-endian, after a header from [`wav_header`].
-#[must_use]
-pub fn wav_file(header: &[u8; HEADER_LEN], samples: &RenderedSamples) -> Vec<u8> {
-    let mut bytes = header.to_vec();
-    samples.write_le(&mut bytes);
-    bytes
-}
-
-/// Encodes a render as a complete WAV file.
-///
-/// # Errors
-///
-/// Returns a message when the render does not fit the WAV format.
-pub fn wav_bytes(rendered: &Rendered) -> Result<Vec<u8>, String> {
-    let header = wav_header(
-        rendered.rate.hz(),
-        rendered.channels,
-        rendered.samples.as_samples().len(),
-        rendered.format(),
-    )?;
-    Ok(wav_file(&header, &rendered.samples))
 }

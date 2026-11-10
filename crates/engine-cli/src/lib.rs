@@ -19,12 +19,10 @@ mod files;
 mod record;
 mod wav;
 
-pub use case::{
-    CaseError, MAX_FRAMES, Prepared, Rendered, RenderedSamples, prepare_case, render_case,
-};
+pub use case::{CaseError, MAX_FRAMES, Prepared, Rendered, RenderedSamples, prepare_case};
 pub use cli::{BestEffort, CliError, MAX_CASE_BYTES, MAX_REFERENCES_BYTES, USAGE, arguments, run};
 pub use files::{Disk, Files};
-pub use wav::{HEADER_LEN, wav_bytes, wav_file, wav_header};
+pub use wav::{HEADER_LEN, wav_header};
 
 #[cfg(test)]
 #[path = "lib_tests.rs"]

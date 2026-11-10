@@ -9,8 +9,8 @@ use engine_core::{RenderFormat, SampleRate};
 use engine_fpenv::with_default_mode;
 
 use super::{
-    CaseError, CliError, Disk, Files, HEADER_LEN, Rendered, RenderedSamples, USAGE, arguments,
-    render_case, run, wav_bytes, wav_header,
+    CaseError, CliError, Disk, Files, HEADER_LEN, Rendered, RenderedSamples, USAGE, arguments, run,
+    wav_header,
 };
 
 const SINE: &str = r#"{"sample_rate":48000,"frames":100}"#;
@@ -117,9 +117,21 @@ fn prepare(case: &str, patch: &str, format: RenderFormat) -> Result<super::Prepa
     with_default_mode(|mode| super::prepare_case(case, patch, format, mode))
 }
 
+/// Prepares and renders a case in the default floating-point mode, as the commands do.
+fn render_case(case: &str, patch: &str, format: RenderFormat) -> Result<Rendered, CaseError> {
+    with_default_mode(|mode| {
+        super::prepare_case(case, patch, format, mode).map(|prepared| prepared.render(mode))
+    })
+}
+
+/// The render format of `rendered`'s samples.
+fn format_of(rendered: &Rendered) -> RenderFormat {
+    rendered.samples.as_samples().format()
+}
+
 /// The hash of the sine case in `format`.
 fn sine_hash(format: RenderFormat) -> String {
-    with_default_mode(|mode| render_case(SINE, PATCH, format, mode))
+    render_case(SINE, PATCH, format)
         .expect("valid case")
         .hash()
         .expect("whole frames")
@@ -134,6 +146,7 @@ fn refuses_to_hash_samples_that_are_not_whole_frames() {
         rate: SampleRate::HZ_48000,
         channels: 2,
         samples: RenderedSamples::Binary32(vec![0.0; 3]),
+        wav_header: [0; HEADER_LEN],
     };
     let error = rendered.hash().expect_err("a cut frame");
     assert_eq!(
@@ -180,11 +193,10 @@ fn widened(rendered: &Rendered) -> Vec<f64> {
 #[test]
 fn renders_a_case_in_every_format() {
     for format in RenderFormat::ALL {
-        let rendered =
-            with_default_mode(|mode| render_case(SINE, PATCH, format, mode)).expect("valid case");
+        let rendered = render_case(SINE, PATCH, format).expect("valid case");
         assert_eq!(rendered.rate, SampleRate::HZ_48000, "rate");
         assert_eq!(rendered.channels, 2, "dac~ is stereo");
-        assert_eq!(rendered.format(), format, "its format");
+        assert_eq!(format_of(&rendered), format, "its format");
         let samples = widened(&rendered);
         assert_eq!(samples.len(), 200, "100 frames x 2 channels");
         assert_eq!(samples[0].to_bits(), 0, "phase 0");
@@ -192,9 +204,7 @@ fn renders_a_case_in_every_format() {
     }
     // Each format its own samples: binary64 given as binary32 is the binary64 render
     // rounded, and differs from the binary32 render, computed in binary32.
-    let render = |format| {
-        with_default_mode(|mode| render_case(SINE, PATCH, format, mode)).expect("valid case")
-    };
+    let render = |format| render_case(SINE, PATCH, format).expect("valid case");
     let given: Vec<f64> = widened(&render(RenderFormat::Binary64))
         .into_iter()
         .map(|sample| {
@@ -263,8 +273,7 @@ fn rejects_invalid_cases() {
     ] {
         for format in RenderFormat::ALL {
             assert_eq!(
-                with_default_mode(|mode| render_case(case_text, patch_text, format, mode))
-                    .map(|_| ()),
+                render_case(case_text, patch_text, format).map(|_| ()),
                 Err(expected.clone()),
                 "{format}: {case_text} {patch_text}"
             );
@@ -341,10 +350,9 @@ fn reads_the_patch_bytes_unchanged() {
         r#"{"id":1,"box":"osc~"}"#,
         r#"{"id":1,"box":"osc~","params":{"frequency":1,"frequency":2}}"#,
     );
-    let error =
-        with_default_mode(|mode| render_case(SINE, &repeated, RenderFormat::Binary64, mode))
-            .expect_err("repeated parameter")
-            .to_string();
+    let error = render_case(SINE, &repeated, RenderFormat::Binary64)
+        .expect_err("repeated parameter")
+        .to_string();
     assert!(
         error.contains("parameter `frequency` is given twice"),
         "{error}"
@@ -483,15 +491,21 @@ fn rejects_sizes_beyond_the_wav_format() {
 }
 
 #[test]
-fn encodes_samples_after_the_header() {
-    let mono = |samples: RenderedSamples| Rendered {
-        rate: SampleRate::HZ_48000,
-        channels: 1,
-        samples,
+fn encodes_samples_after_their_header() {
+    let mono = |samples: RenderedSamples| {
+        let count = samples.as_samples().len();
+        let format = samples.as_samples().format();
+        Rendered {
+            rate: SampleRate::HZ_48000,
+            channels: 1,
+            samples,
+            wav_header: wav_header(48_000, 1, count, format).expect("valid sizes"),
+        }
     };
     let rendered = mono(RenderedSamples::Binary32(vec![0.5, -1.0]));
-    let encoded = wav_bytes(&rendered).expect("valid render");
+    let encoded = rendered.wav();
     assert_eq!(encoded.len(), HEADER_LEN + 8, "header and two samples");
+    assert_eq!(&encoded[..HEADER_LEN], &rendered.wav_header, "header first");
     assert_eq!(
         &encoded[HEADER_LEN..],
         [0.5_f32.to_le_bytes(), (-1.0_f32).to_le_bytes()].concat(),
@@ -499,12 +513,12 @@ fn encodes_samples_after_the_header() {
     );
     let given = mono(RenderedSamples::Binary64AsBinary32(vec![0.25]));
     assert_eq!(
-        wav_bytes(&given).map(|bytes| bytes[HEADER_LEN..].to_vec()),
-        Ok(0.25_f32.to_le_bytes().to_vec()),
+        given.wav()[HEADER_LEN..].to_vec(),
+        0.25_f32.to_le_bytes().to_vec(),
         "binary32 samples of a 64-bit render"
     );
     let wide = mono(RenderedSamples::Binary64(vec![0.1_f64, -0.0_f64]));
-    let wide_bytes = wav_bytes(&wide).expect("valid render");
+    let wide_bytes = wide.wav();
     assert_eq!(
         wide_bytes.len(),
         HEADER_LEN + 16,
@@ -520,11 +534,6 @@ fn encodes_samples_after_the_header() {
         [0.1_f64.to_le_bytes(), (-0.0_f64).to_le_bytes()].concat(),
         "little-endian f64"
     );
-    let too_wide = Rendered {
-        channels: 70_000,
-        ..rendered
-    };
-    assert!(wav_bytes(&too_wide).is_err(), "header errors are reported");
 }
 
 #[test]
@@ -1679,13 +1688,12 @@ fn refuses_files_larger_than_their_limit() {
 fn prepares_a_case_before_rendering() {
     for format in RenderFormat::ALL {
         let prepared = prepare(SINE, PATCH, format).expect("valid case");
-        assert_eq!(prepared.channels(), 2, "channels");
         assert_eq!(prepared.sample_count(), 200, "100 frames x 2 channels");
-        assert_eq!(prepared.format(), format, "its format");
+        let rendered = with_default_mode(|mode| prepared.render(mode));
         assert_eq!(
-            with_default_mode(|mode| prepared.render(mode)),
-            with_default_mode(|mode| render_case(SINE, PATCH, format, mode)).expect("valid case"),
-            "same render"
+            (rendered.channels, format_of(&rendered)),
+            (2, format),
+            "its channels and format"
         );
     }
 }
@@ -1706,23 +1714,11 @@ fn refuses_a_case_too_long_for_a_wav_file_before_rendering() {
         );
         let prepared = prepare(SINE, PATCH, format).expect("valid case");
         assert_eq!(
-            prepared.wav_header(),
-            &wav_header(48_000, 2, 200, format).expect("valid sizes"),
+            with_default_mode(|mode| prepared.render(mode)).wav()[..HEADER_LEN],
+            wav_header(48_000, 2, 200, format).expect("valid sizes"),
             "header kept"
         );
     }
-}
-
-#[test]
-fn writes_wav_files_from_a_header_and_samples() {
-    let header = wav_header(48_000, 1, 2, RenderFormat::Binary32).expect("valid sizes");
-    let file = super::wav_file(&header, &RenderedSamples::Binary32(vec![0.5, -1.0]));
-    assert_eq!(&file[..HEADER_LEN], &header, "header first");
-    assert_eq!(
-        &file[HEADER_LEN..],
-        [0.5_f32.to_le_bytes(), (-1.0_f32).to_le_bytes()].concat(),
-        "then samples"
-    );
 }
 
 #[test]
@@ -1786,14 +1782,9 @@ fn export_command_writes_the_wav_of_every_case_in_order() {
         ("b", memory.text("conf/patches/b.json")),
     ] {
         for format in RenderFormat::ALL {
-            let rendered = with_default_mode(|mode| render_case(SINE, &patch, format, mode))
-                .expect("valid case");
+            let rendered = render_case(SINE, &patch, format).expect("valid case");
             let path = format!("out/wav/{name}.{format}.wav");
-            assert_eq!(
-                memory.files[Path::new(&path)],
-                wav_bytes(&rendered).expect("fits"),
-                "{path}"
-            );
+            assert_eq!(memory.files[Path::new(&path)], rendered.wav(), "{path}");
             lines.push(format!(
                 "wrote    {path} {}\n",
                 rendered.hash().expect("whole frames")

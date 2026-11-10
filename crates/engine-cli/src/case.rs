@@ -93,7 +93,10 @@ impl RenderedSamples {
     }
 }
 
-/// The result of rendering a case.
+/// The result of rendering a case, with the header of its WAV file.
+///
+/// The two come from one prepared case, so a WAV file never pairs a header with other
+/// samples. Only [`Prepared::render`] builds one outside this crate's tests.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Rendered {
     /// Sample rate.
@@ -102,6 +105,8 @@ pub struct Rendered {
     pub channels: usize,
     /// The samples, channels interleaved, in their render format.
     pub samples: RenderedSamples,
+    /// Header of the WAV file of these samples, computed when the case was prepared.
+    pub(crate) wav_header: [u8; HEADER_LEN],
 }
 
 impl Rendered {
@@ -111,16 +116,18 @@ impl Rendered {
     /// # Errors
     ///
     /// Returns [`NotWholeFrames`] when its samples are not whole frames of its channels:
-    /// never for a render of [`Prepared::render`], possibly for one built by hand (its
-    /// fields are public).
+    /// never for a render of [`Prepared::render`], possibly for one built by hand in this
+    /// crate's tests.
     pub fn hash(&self) -> Result<RenderHash, NotWholeFrames> {
         render_hash(self.rate, self.channels, self.samples.as_samples(), MODE)
     }
 
-    /// Its render format.
+    /// The WAV file of the render: its header, then its samples, little-endian.
     #[must_use]
-    pub fn format(&self) -> RenderFormat {
-        self.samples.as_samples().format()
+    pub fn wav(&self) -> Vec<u8> {
+        let mut bytes = self.wav_header.to_vec();
+        self.samples.write_le(&mut bytes);
+        bytes
     }
 }
 
@@ -159,32 +166,10 @@ pub struct Prepared {
 }
 
 impl Prepared {
-    /// Header of the WAV file of this render.
-    #[must_use]
-    pub const fn wav_header(&self) -> &[u8; HEADER_LEN] {
-        &self.wav_header
-    }
-
-    /// Number of output channels.
-    #[must_use]
-    pub const fn channels(&self) -> usize {
-        self.plan.channels()
-    }
-
     /// Number of interleaved samples the render will produce.
     #[must_use]
     pub const fn sample_count(&self) -> usize {
         self.frames.saturating_mul(self.plan.channels())
-    }
-
-    /// The render format the case is prepared in.
-    #[must_use]
-    pub const fn format(&self) -> RenderFormat {
-        match self.plan {
-            Built::Binary64(_) => RenderFormat::Binary64,
-            Built::Binary64AsBinary32(_) => RenderFormat::Binary64AsBinary32,
-            Built::Binary32(_) => RenderFormat::Binary32,
-        }
     }
 
     /// Renders the case with the native engine, in the default floating-point mode that
@@ -218,6 +203,7 @@ impl Prepared {
             rate: self.rate,
             channels,
             samples,
+            wav_header: self.wav_header,
         }
     }
 }
@@ -246,7 +232,7 @@ impl Prepared {
 /// let prepared = engine_fpenv::with_default_mode(|mode| {
 ///     engine_cli::prepare_case(case, patch, format, mode)
 /// });
-/// assert_eq!(prepared.map(|prepared| prepared.format()), Ok(format));
+/// assert_eq!(prepared.map(|prepared| prepared.sample_count()), Ok(200));
 /// ```
 ///
 /// Also checks, before any rendering, that the render fits a WAV file.
@@ -301,19 +287,4 @@ pub fn prepare_case(
         frames: case.frames,
         wav_header,
     })
-}
-
-/// Reads a conformance case and its patch, builds its plan and renders it in `format` with
-/// the native engine, all in the default floating-point mode that `mode` proves.
-///
-/// # Errors
-///
-/// Returns the [`CaseError`] of [`prepare_case`].
-pub fn render_case(
-    case: &str,
-    patch: &str,
-    format: RenderFormat,
-    mode: DefaultMode<'_>,
-) -> Result<Rendered, CaseError> {
-    prepare_case(case, patch, format, mode).map(|prepared| prepared.render(mode))
 }
