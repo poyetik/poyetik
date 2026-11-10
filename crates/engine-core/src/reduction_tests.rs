@@ -174,8 +174,9 @@ impl Draws {
         mixed ^ (mixed >> 31_u32)
     }
 
-    /// A finite value of either sign whose magnitude lies between 2^-20 and 2^20, so that
-    /// sums of thousands of terms round at every step and never overflow.
+    /// A finite value of either sign whose magnitude lies in [2^-20, 2^21) (2^21 itself
+    /// possible once rounded to binary32), so that sums of thousands of terms round at every
+    /// step and never overflow.
     fn finite<F: Float>(&mut self) -> F {
         let bits = self.next();
         let wide = f64::from_bits(
@@ -270,6 +271,116 @@ fn specials<F: Float>() -> [u64; 12] {
             0xbf80_0000,
         ]
     }
+}
+
+/// The most roundings any term goes through in a sum of `count` terms in the reduction
+/// order: the additions of its lane after its first term, at most `⌈count / 16⌉ - 1`, then one
+/// per round of the tree that adds a lane to it, `⌈log2 min(count, 16)⌉`.
+fn roundings(count: usize) -> u32 {
+    let per_lane = count.div_ceil(16).saturating_sub(1);
+    let lanes = count.clamp(1, 16);
+    u32::try_from(per_lane)
+        .expect("small")
+        .saturating_add(lanes.next_power_of_two().trailing_zeros())
+}
+
+/// `value`, a finite float whose bits are multiples of 2^-72 (every value of [`Draws::finite`]
+/// and every sum of them is: binary64 values from 2^-20 have an ulp of at least 2^-72,
+/// binary32 ones of 2^-43), as a whole number of 2^-72: exact.
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "fields of one float: the exponent and shift stay far from overflow"
+)]
+fn fixed<F: Float>(value: F) -> i128 {
+    let bits = value.bits();
+    let wide = F::NEGATIVE_ZERO.bits() == 1_u64 << 63_u32;
+    let (fraction_bits, offset, exponent_mask, sign_bit) = if wide {
+        (52_u32, 1075_i64, 0x7ff_u64, 63_u32)
+    } else {
+        (23_u32, 150_i64, 0xff_u64, 31_u32)
+    };
+    let exponent = i64::try_from((bits >> fraction_bits) & exponent_mask).expect("small");
+    let fraction = bits & ((1_u64 << fraction_bits) - 1);
+    if exponent == 0 && fraction == 0 {
+        return 0;
+    }
+    assert_ne!(exponent, 0, "no subnormal among these sums");
+    let mantissa = i128::from(fraction | 1_u64 << fraction_bits);
+    // value = mantissa · 2^(exponent - offset); in units of 2^-72: shift by
+    // exponent - offset + 72.
+    let shift = exponent - offset + 72;
+    assert!(shift >= 0, "a multiple of 2^-72: {bits:#x}");
+    let magnitude = mantissa << u32::try_from(shift).expect("non-negative");
+    if bits >> sign_bit == 1 {
+        -magnitude
+    } else {
+        magnitude
+    }
+}
+
+/// The accuracy of the reduction order (decision 28), against the exact sum: at every count,
+/// on finite terms between 2^-20 and 2^21, `|sum - exact| ≤ γ_h · Σ|x_k|`, where `h` is
+/// [`roundings`] and `γ_h = h·u / (1 - h·u)` with `u` the unit roundoff of the precision
+/// (2^-53, 2^-24): the standard bound of a sum in which each term goes through at most `h`
+/// roundings (Higham, *Accuracy and Stability of Numerical Algorithms*, 4.2). The exact sum
+/// and the error are whole numbers of 2^-72 in `i128` (4099 terms below 2^21 need 105 bits);
+/// the bound is evaluated in binary64, five operations each within 2^-53 of its value, so it
+/// is compared with a margin of 2^-49 of itself. It guards the accuracy of the rule (a
+/// change of the rule toward a numerically poorer one, decision 28 and the reference
+/// together), which the comparison with the literal reference cannot see; on these draws of
+/// both signs the errors stay far inside the worst case, so its positive control is that
+/// they are not zero: the test does see rounding.
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "binary64 arithmetic of the bound and i128 sums of at most 4099 terms below 2^93"
+)]
+fn sums_within_the_accuracy_bound_of_the_order<S: Raw>()
+where
+    S::Float: Float,
+{
+    let wide = S::Float::NEGATIVE_ZERO.bits() == 1_u64 << 63_u32;
+    let unit = libm::exp2(if wide { -53.0_f64 } else { -24.0_f64 });
+    let margin = 1.0_f64 + libm::exp2(-49.0_f64);
+    #[expect(
+        clippy::cast_precision_loss,
+        clippy::as_conversions,
+        reason = "an i128 below 2^106, within 2^-53 of itself"
+    )]
+    let float = |value: i128| value as f64;
+    let bound = |count: usize, magnitudes: i128| {
+        let roundings_of = f64::from(roundings(count));
+        roundings_of * unit / (1.0_f64 - roundings_of * unit) * float(magnitudes) * margin
+    };
+    let error = |summed: S::Float, exact: i128| float((fixed(summed) - exact).abs());
+    let mut draws = Draws(0x5059_0031);
+    let mut rounded = false;
+    for count in COUNTS {
+        for _ in 0_u32..16 {
+            let terms: Vec<S::Float> = (0..count).map(|_| draws.finite()).collect();
+            let exact: i128 = terms.iter().map(|&term| fixed(term)).sum();
+            let magnitudes: i128 = terms.iter().map(|&term| fixed(term).abs()).sum();
+            let samples: Vec<S> = terms.iter().map(|&term| S::from_raw(term)).collect();
+            let summed = sum_of(&samples).raw();
+            assert!(
+                error(summed, exact) <= bound(count, magnitudes),
+                "{count} terms: error {} beyond {}",
+                error(summed, exact),
+                bound(count, magnitudes)
+            );
+            rounded |= error(summed, exact) > 0.0_f64;
+        }
+    }
+    assert!(rounded, "some sum rounds");
+}
+
+#[test]
+fn counts_the_roundings_of_each_regime() {
+    // The counts decision 28 states with its bound: 2, 16, 64 and 4099 terms.
+    assert_eq!(
+        [0, 1, 2, 3, 16, 17, 64, 4099].map(roundings),
+        [0, 0, 1, 2, 4, 5, 7, 260],
+        "per lane, then the tree"
+    );
 }
 
 /// The edges written out: no term is +0, one term is itself bit for bit (a signaling NaN
@@ -484,4 +595,5 @@ in_both_precisions!(
     sums_special_values_in_the_specified_order,
     sums_the_edges_as_written,
     sums_blocks_frame_by_frame,
+    sums_within_the_accuracy_bound_of_the_order,
 );
