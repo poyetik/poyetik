@@ -19,8 +19,20 @@ use crate::{BLOCK_SIZE, Block, CoreError, Plan, Sample};
 /// the rest of the current one). That mix does not compile:
 ///
 /// ```compile_fail,E0599
-/// fn mix(renderer: &mut engine_core::Renderer<f64>, out: &mut [engine_core::Block<f64>]) {
+/// use engine_core::{Binary64, Block, Renderer};
+///
+/// fn mix(renderer: &mut Renderer<Binary64>, out: &mut [Block<Binary64>]) {
 ///     renderer.process(out);
+/// }
+/// ```
+///
+/// The same function without that call compiles, so the call is the only error above:
+///
+/// ```
+/// use engine_core::{Binary64, Block, Renderer};
+///
+/// fn mix(renderer: &mut Renderer<Binary64>, out: &mut [Block<Binary64>]) {
+///     let _ = (renderer.channels(), out);
 /// }
 /// ```
 #[derive(Debug)]
