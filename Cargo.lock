@@ -87,6 +87,7 @@ dependencies = [
  "engine-hash",
  "engine-objects",
  "engine-patch",
+ "engine-testkit",
  "serde",
  "serde_json",
 ]
@@ -149,6 +150,7 @@ dependencies = [
  "libm",
  "proptest",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]

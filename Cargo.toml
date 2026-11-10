@@ -11,7 +11,10 @@ license = "UNLICENSED"
 repository = "https://github.com/cgXai/poyetik"
 
 [workspace.dependencies]
-libm = { version = "0.2", default-features = false }
+# Exactly pinned: its functions decide the bits of every box that calls them, so an update
+# follows spec/engine-design.md decisions 10 and 29 (a new algorithm version for every box
+# type whose bits move, the old functions kept while an older version is supported).
+libm = { version = "=0.2.16", default-features = false }
 
 # Strict linting, inherited by every crate (`[lints] workspace = true`). See CLAUDE.md.
 [workspace.lints.rust]

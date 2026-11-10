@@ -40,6 +40,7 @@ pub use math::{
 };
 pub use object::{
     AlgorithmVersion, Capability, Create, Factory, Object, ObjectSpec, ParamSpec, PortSpec,
+    RENDER_RULES_VERSION,
 };
 pub use patch::{Connection, Node, NodeId, Patch};
 pub use plan::Plan;

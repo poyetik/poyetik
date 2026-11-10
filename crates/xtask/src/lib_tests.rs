@@ -4228,7 +4228,7 @@ fn bless_benchmarks_counts_and_rewrites_the_baseline() {
 
 #[test]
 fn bless_renders_and_rewrites_the_references() {
-    let step = bless_step();
+    let step = bless_step(&[]);
     assert_eq!(step.name, "Bless conformance references", "name");
     assert_eq!(
         command_lines(&[step]),
@@ -4256,6 +4256,25 @@ fn bless_renders_and_rewrites_the_references() {
         "▶ [1/2] Tools and platform\n▶ [2/2] Bless conformance references\n✔ all 2 checks \
          passed\n",
         "progress"
+    );
+    let mut named = passing();
+    assert_eq!(
+        run_cli(
+            &["bless", "--case-changed", "a", "--case-changed", "b c"].map(str::to_owned),
+            &mut named,
+            &mut Vec::new(),
+            &mut Vec::new()
+        ),
+        0,
+        "bless with changed cases succeeds"
+    );
+    assert_eq!(
+        named.ran.last().map(String::as_str),
+        Some(
+            "cargo run --package engine-cli --locked --quiet -- bless conformance \
+             --case-changed a --case-changed b c"
+        ),
+        "every case named is forwarded, in order"
     );
 }
 
@@ -6500,7 +6519,22 @@ fn refuses_usage_errors_in_one_line() {
         (vec!["list", "--parts"], LIST_USAGE),
         (vec!["list", "x", "--parts"], LIST_USAGE),
         (vec!["list", "--full", "--parts", "x"], LIST_USAGE),
-        (vec!["bless", "x"], "`bless` takes no argument"),
+        (
+            vec!["bless", "x"],
+            "`bless` takes only `--case-changed <name>`, repeatable",
+        ),
+        (
+            vec!["bless", "--case-changed"],
+            "`bless` takes only `--case-changed <name>`, repeatable",
+        ),
+        (
+            vec!["bless", "--case-changed", "a", "--other", "b"],
+            "`bless` takes only `--case-changed <name>`, repeatable",
+        ),
+        (
+            vec!["bless", "--case-changed", "a", "--case-changed"],
+            "`bless` takes only `--case-changed <name>`, repeatable",
+        ),
         (
             vec!["bless-benchmarks", "x"],
             "`bless-benchmarks` takes no argument",

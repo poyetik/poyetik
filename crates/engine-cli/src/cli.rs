@@ -11,8 +11,14 @@ use engine_patch::MAX_PATCH_BYTES;
 
 use engine_objects::REGISTRY;
 
+use crate::record::{
+    Record, References, Versions, bless_problems, blessed, current_fingerprints, record_problems,
+    same_rules,
+};
 use crate::{Files, Prepared, Rendered, prepare_case, wav_file};
 use engine_hash::RenderHash;
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 
 /// Usage of the `engine-cli` command, printed on stdout by `engine-cli help`.
 pub const USAGE: &str = "\
@@ -25,8 +31,12 @@ usage: engine-cli <command>
                       in every format, with <dir>/references.json, and
                       the algorithm versions of its box types, with
                       <dir>/algorithms.json
-  bless <dir>         rewrite <dir>/references.json from the current renders,
-                      and <dir>/algorithms.json from the current box types
+  bless <dir> [--case-changed <name>]...
+                      rewrite <dir>/references.json from the current renders,
+                      and <dir>/algorithms.json from the current box types and
+                      engine; refuses a reference changed under the same
+                      versions but for each case named, a lower version, and
+                      a box type's outputs changed at the same version
   export <dir> <out>  write the WAV file of every case of <dir>/cases, in every
                       format, to <out>/<case>.<format>.wav
   help                print this help";
@@ -201,15 +211,6 @@ impl CaseFiles {
     }
 }
 
-/// The reference hashes of a conformance directory: for each case, the hash of each render
-/// format, by the format's name.
-type References = BTreeMap<String, BTreeMap<String, String>>;
-
-/// The algorithm versions a conformance directory's references were blessed with
-/// (`spec/engine-design.md`, decision 29): for each case, the version of each box type its
-/// patch uses, by the box type's name.
-type Algorithms = BTreeMap<String, BTreeMap<String, u32>>;
-
 /// Where the algorithm versions of a conformance directory live, beside its references.
 fn algorithms_path(dir: &Path) -> PathBuf {
     dir.join("algorithms.json")
@@ -221,7 +222,7 @@ fn algorithms_path(dir: &Path) -> PathBuf {
 ///
 /// Returns why the patch cannot be read, or the box type no registered box type is: the
 /// render of such a case fails too.
-fn algorithms(case: &CaseFiles) -> Result<BTreeMap<String, u32>, String> {
+fn algorithms(case: &CaseFiles) -> Result<Versions, String> {
     let patch = engine_patch::parse_patch(&case.patch)
         .map_err(|error| format!("{}: {error}", case.patch_path.display()))?;
     patch
@@ -395,8 +396,8 @@ fn render(
 /// a box type the patch does not use.
 fn version_problems(
     name: &str,
-    current: Option<&BTreeMap<String, u32>>,
-    recorded: Option<&BTreeMap<String, u32>>,
+    current: Option<&Versions>,
+    recorded: Option<&Versions>,
 ) -> Vec<String> {
     let Some(current) = current else {
         return Vec::new();
@@ -439,13 +440,10 @@ fn check(
     mode: DefaultMode<'_>,
 ) -> Result<(), String> {
     let cases = cases(files, dir)?;
-    let path = references_path(dir);
-    let expected: References = serde_json::from_str(&read(files, &path, MAX_REFERENCES_BYTES)?)
-        .map_err(|error| format!("invalid {}: {error}", path.display()))?;
-    let versions_path = algorithms_path(dir);
-    let blessed: Algorithms =
-        serde_json::from_str(&read(files, &versions_path, MAX_REFERENCES_BYTES)?)
-            .map_err(|error| format!("invalid {}: {error}", versions_path.display()))?;
+    let expected: References = read_blessed(files, &references_path(dir))?;
+    let record: Record = read_blessed(files, &algorithms_path(dir))?;
+    let blessed = &record.cases;
+    let rules = same_rules(&record);
     let mut failures = 0_usize;
     let mut report = |stdout: &mut dyn Write, passed: bool, line: String| {
         if !passed {
@@ -460,7 +458,7 @@ fn check(
         // now, and its render reports why.
         let current = algorithms(case).ok();
         let recorded = blessed.get(name);
-        let same_versions = current.is_some() && current.as_ref() == recorded;
+        let same_versions = rules && current.is_some() && current.as_ref() == recorded;
         for format in RenderFormat::ALL {
             let (passed, line) = match case
                 .prepare(format, mode)
@@ -507,6 +505,9 @@ fn check(
             report(out, false, line)?;
         }
     }
+    for line in record_problems(&record, &current_fingerprints()) {
+        report(out, false, line)?;
+    }
     for name in expected
         .keys()
         .filter(|name| !cases.iter().any(|case| case.name == **name))
@@ -537,30 +538,65 @@ fn check(
     }
 }
 
-/// `bless <dir>`: the reference hash of every case in every render format, cases and the
-/// names of the formats sorted.
+/// `bless <dir> [--case-changed <name>]...`: the reference hash of every case in every
+/// render format, cases and the names of the formats sorted, and the record of what they
+/// were blessed under (`spec/engine-design.md`, decision 29).
+///
+/// Refuses, writing nothing and naming each problem on `out`, what [`bless_problems`]
+/// refuses against the files it replaces; a directory without them is blessed whole.
 fn bless(
     files: &mut dyn Files,
     out: &mut dyn Write,
     dir: &Path,
+    changed: &[String],
     mode: DefaultMode<'_>,
 ) -> Result<(), String> {
     // The versions first: a patch that cannot be read stops the bless before any render.
-    let versions: Algorithms = cases(files, dir)?
+    let versions: BTreeMap<String, Versions> = cases(files, dir)?
         .iter()
         .map(|case| algorithms(case).map(|current| (case.name.clone(), current)))
         .collect::<Result<_, _>>()?;
     let actual = hashes(files, dir, mode)?;
     let path = references_path(dir);
-    let json = format!("{:#}\n", serde_json::json!(actual));
-    files
-        .write(&path, json.as_bytes())
-        .map_err(|error| format!("cannot write {}: {error}", path.display()))?;
     let versions_path = algorithms_path(dir);
-    let versions_json = format!("{:#}\n", serde_json::json!(versions));
+    let earlier: Option<References> = read_earlier(files, &path)?;
+    let old: Option<Record> = read_earlier(files, &versions_path)?;
+    let now = current_fingerprints();
+    let problems = old.as_ref().map_or_else(Vec::new, |old| {
+        bless_problems(
+            old,
+            &earlier.unwrap_or_default(),
+            &now,
+            &versions,
+            &actual,
+            changed,
+        )
+    });
+    if !problems.is_empty() {
+        for problem in &problems {
+            say(out, &OneLine::new(problem))?;
+        }
+        return Err(format!(
+            "bless refused in {}: {} problem(s), nothing written",
+            dir.display(),
+            problems.len()
+        ));
+    }
+    let record = blessed(versions, &now, old.as_ref());
     files
-        .write(&versions_path, versions_json.as_bytes())
-        .map_err(|error| format!("cannot write {}: {error}", versions_path.display()))?;
+        .write(&path, blessed_text(&actual).as_bytes())
+        .map_err(|error| format!("cannot write {}: {error}", path.display()))?;
+    // References first: if the record cannot be written after them, `check` names the
+    // versions to bless again, never a reference changed without a new version.
+    files
+        .write(&versions_path, blessed_text(&record).as_bytes())
+        .map_err(|error| {
+            format!(
+                "cannot write {}: {error} ({} was written: bless again)",
+                versions_path.display(),
+                path.display()
+            )
+        })?;
     say(
         out,
         &OneLine::new(&format!(
@@ -569,6 +605,67 @@ fn bless(
             path.display()
         )),
     )
+}
+
+/// The text `bless` writes for `value`: JSON indented by two spaces, keys sorted, and a
+/// final newline. The files it writes are read back only in exactly this form.
+fn blessed_text<T: Serialize>(value: &T) -> String {
+    format!("{:#}\n", serde_json::json!(value))
+}
+
+/// Reads `path`, a file only `bless` writes, refusing it unless it is exactly as `bless`
+/// writes it (a repeated key or a hand edit included): its contents decide what `check`
+/// accepts.
+///
+/// # Errors
+///
+/// Returns why it cannot be read or is not as `bless` writes it, saying to run bless when
+/// that rewrites it: when it is missing, invalid or not in its written form.
+fn read_blessed<T: Serialize + DeserializeOwned>(
+    files: &mut dyn Files,
+    path: &Path,
+) -> Result<T, String> {
+    let text = files.read(path, MAX_REFERENCES_BYTES).map_err(|error| {
+        let hint = if error.kind() == std::io::ErrorKind::NotFound {
+            " (run bless)"
+        } else {
+            ""
+        };
+        format!("cannot read {}: {error}{hint}", path.display())
+    })?;
+    let value: T = serde_json::from_str(&text)
+        .map_err(|error| format!("invalid {}: {error} (run bless)", path.display()))?;
+    if blessed_text(&value) == text {
+        Ok(value)
+    } else {
+        Err(format!(
+            "{} is not as bless writes it (run bless)",
+            path.display()
+        ))
+    }
+}
+
+/// Reads `path`, a file `bless` is about to replace: none when it is missing (a first
+/// bless), else its contents, in any JSON form.
+///
+/// # Errors
+///
+/// Returns why it cannot be read, or is not valid: what it holds could not be compared.
+fn read_earlier<T: DeserializeOwned>(
+    files: &mut dyn Files,
+    path: &Path,
+) -> Result<Option<T>, String> {
+    match files.read(path, MAX_REFERENCES_BYTES) {
+        Ok(text) => serde_json::from_str(&text).map(Some).map_err(|error| {
+            format!(
+                "invalid {}: {error} (bless compares with it: fix it, or remove it to bless \
+                 from nothing)",
+                path.display()
+            )
+        }),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(format!("cannot read {}: {error}", path.display())),
+    }
 }
 
 /// `export <dir> <out>`: the WAV file of every case, for tools that check renders
@@ -632,12 +729,25 @@ fn dispatch(
     match (command.as_str(), rest) {
         ("render", _) => render(files, out, rest, mode),
         ("check", [dir]) => Ok(check(files, out, Path::new(dir), mode)?),
-        ("bless", [dir]) => Ok(bless(files, out, Path::new(dir), mode)?),
+        ("bless", [dir, options @ ..]) => {
+            let mut changed = Vec::new();
+            for pair in options.chunks(2) {
+                match pair {
+                    [flag, name] if flag == "--case-changed" => changed.push(name.clone()),
+                    [flag, _] => {
+                        return Err(CliError::Usage(format!("unknown option \"{flag}\"")));
+                    }
+                    _ => return Err(expects("<dir> [--case-changed <name>]...")),
+                }
+            }
+            Ok(bless(files, out, Path::new(dir), &changed, mode)?)
+        }
         ("export", [dir, target]) => {
             Ok(export(files, out, Path::new(dir), Path::new(target), mode)?)
         }
         ("help", []) => Ok(say_usage(out)?),
-        ("check" | "bless", _) => Err(expects("<dir>")),
+        ("check", _) => Err(expects("<dir>")),
+        ("bless", _) => Err(expects("<dir> [--case-changed <name>]...")),
         ("export", _) => Err(expects("<dir> <out>")),
         ("help", _) => Err(expects("no argument")),
         _ => Err(CliError::Usage(format!("unknown command \"{command}\""))),

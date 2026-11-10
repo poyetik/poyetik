@@ -13,7 +13,7 @@ use crate::heap_operations_during;
 use crate::matrix::{PRECISIONS, SPECIAL_INPUTS, SPECIAL_INPUTS_BINARY64, sample_rates};
 
 /// What the laws read of a sample, in either precision.
-trait LawSample: Raw {
+pub(crate) trait LawSample: Raw {
     /// The special inputs of the matrix in this precision.
     fn special_inputs() -> [Self; 8];
 
@@ -53,7 +53,7 @@ impl LawSample for Binary32 {
 }
 
 /// Blocks rendered per run.
-const BLOCKS: usize = 8;
+pub(crate) const BLOCKS: usize = 8;
 
 /// Blocks rendered by the long run of each sample rate and parameter set: 65,536 frames,
 /// 1.4 s at 48 kHz and 0.17 s at 384 kHz. Enough to reveal state that overflows, becomes
@@ -211,7 +211,7 @@ fn within(param: &ParamSpec, value: f32) -> f32 {
 /// `-0.0`, the smallest subnormal, `1e-45` (a plan flushes it to zero, but a box must not
 /// break on it), and the smallest normal, `2^-126` (the smallest magnitude above zero a
 /// plan passes on).
-fn param_sets(spec: &ObjectSpec) -> [Vec<f32>; 7] {
+pub(crate) fn param_sets(spec: &ObjectSpec) -> [Vec<f32>; 7] {
     let special = |value: f32| {
         spec.params
             .iter()
@@ -280,7 +280,7 @@ fn check_long_run<S: LawSample>(spec: &ObjectSpec, rate: SampleRate) -> Result<(
 
 /// The special inputs of the matrix in the precision `S`, repeated to fill every inlet for
 /// every block.
-fn special_input<S: LawSample>(length: usize) -> Vec<S> {
+pub(crate) fn special_input<S: LawSample>(length: usize) -> Vec<S> {
     S::special_inputs()
         .iter()
         .copied()

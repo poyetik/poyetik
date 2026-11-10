@@ -10,7 +10,7 @@
       "column": "next",
       "milestone": "M1 Engine",
       "createdAt": "2026-11-07",
-      "updatedAt": "2026-11-09",
+      "updatedAt": "2026-11-10",
       "tasks": [
         {
           "title": "Version 1: boxes, parameters and cables (spec/patch-format.md, read by engine-patch)",
@@ -34,6 +34,10 @@
         },
         {
           "title": "Merge-friendly ordered lists: the explicit order of an outlet's cables (and any other ordered list) stored as sortable position keys (fractional indexing, ties broken by identifier), so concurrent insertions by two people merge without conflict; a document stays valid after any merge, and what it means (a cycle, a layout mismatch) is checked when the plan is built, like any patch",
+          "done": false
+        },
+        {
+          "title": "Patch format version 2: parameter values in binary64 (the nearest binary64 to the JSON number), the algorithm version of every box and the render rules version of the patch (spec/engine-design.md decision 29); the engine plays the versions a patch names, a box type providing every version it still supports, and refuses a version it does not support with its reason; a documented, tested migration from version 1 (binary32 values kept exactly, the current versions recorded), version 1 test files kept and migrated in CI",
           "done": false
         }
       ]
@@ -925,7 +929,7 @@
           "done": true
         },
         {
-          "title": "Box algorithm versions: every box carries its algorithm version in the patch, any change of bits takes a new one, old versions keep playing or migrate explicitly (with step 6 and format version 2); then a deep review of this block (steps 6 to 8) on its pull request, with a green full check",
+          "title": "Box algorithm versions, engine side: every box type declares its algorithm version, any change of bits takes a new one, the conformance references record the versions, the render rules version and the box fingerprints they were blessed with, and check and bless refuse bits changed without a new version (the versions in the patch, playing older versions and migrating them: #3 step 7); then a deep review of this block (steps 6 to 8) on its pull request, with a green full check",
           "done": true
         },
         {

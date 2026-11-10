@@ -14,6 +14,26 @@ mod tests {
             .to_string()
     }
 
+    /// `json`, a JSON document, as bless writes it.
+    fn canonical(json: &str) -> String {
+        format!(
+            "{:#}\n",
+            serde_json::from_str::<serde_json::Value>(json).expect("JSON")
+        )
+    }
+
+    /// The repository's record of what its references were blessed under, with `cases`
+    /// (the versions of each case's box types) in place of its own.
+    fn record(cases: &str) -> String {
+        let mut recorded: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(Path::new(&conformance()).join("algorithms.json"))
+                .expect("the repository's record"),
+        )
+        .expect("JSON");
+        recorded["cases"] = serde_json::from_str(cases).expect("JSON");
+        format!("{recorded:#}\n")
+    }
+
     #[test]
     fn checks_the_repository_corpus() {
         let output = Command::new(env!("CARGO_BIN_EXE_engine-cli"))
@@ -43,12 +63,12 @@ mod tests {
         }
         std::fs::write(
             dir.join("references.json"),
-            r#"{"sine-440":{"binary64":"0"}}"#,
+            canonical(r#"{"sine-440":{"binary64":"0"}}"#),
         )
         .expect("references");
         std::fs::write(
             dir.join("algorithms.json"),
-            r#"{"sine-440":{"dac~":1,"osc~":1}}"#,
+            record(r#"{"sine-440":{"dac~":1,"osc~":1}}"#),
         )
         .expect("algorithm versions");
         let output = Command::new(env!("CARGO_BIN_EXE_engine-cli"))
@@ -302,13 +322,15 @@ mod tests {
         }
         std::fs::write(
             dir.join("references.json"),
-            "{\"b\\u001b[2J\":{\"binary64\":\"0\\nok       forged\\u001b[31m\\u202e\"},\
-             \"gone\\nok       gone\\u0007\":{}}",
+            canonical(
+                "{\"b\\u001b[2J\":{\"binary64\":\"0\\nok       forged\\u001b[31m\\u202e\"},\
+                 \"gone\\nok       gone\\u0007\":{}}",
+            ),
         )
         .expect("references");
         std::fs::write(
             dir.join("algorithms.json"),
-            r#"{"b\u001b[2J":{"dac~":1,"osc~":1}}"#,
+            record(r#"{"b\u001b[2J":{"dac~":1,"osc~":1}}"#),
         )
         .expect("algorithm versions");
         let output = engine_cli(&[std::ffi::OsStr::new("check"), dir.as_os_str()]);

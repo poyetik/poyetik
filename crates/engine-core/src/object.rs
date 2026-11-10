@@ -120,12 +120,22 @@ impl Factory {
     }
 }
 
+/// The version of the engine's render rules (`spec/engine-design.md`, decision 29).
+///
+/// The render rules are the bits of a render that no box type owns (the plan's sums and their order, when events
+/// take effect, flush points, the output stage, delivery). Any change of them that can
+/// change a bit of a render takes a new one; version 1 is the rules of the reduction order
+/// (decision 28). The conformance references record it, and bless refuses a changed
+/// reference under the same one.
+pub const RENDER_RULES_VERSION: u32 = 1;
+
 /// The version of a box type's algorithm (`spec/engine-design.md`, decision 29).
 ///
 /// Any change of a box type that can change a bit of its output takes a new one, and the
-/// conformance
-/// references record the version of every box type they were blessed with, so that bits
-/// changed without a new version, or a new version without new references, are refused.
+/// conformance references record the version of every box type they were blessed with,
+/// with its fingerprint: `engine-cli check` refuses a new version without new references,
+/// and bits changed at a recorded version where its fingerprint or a reference sees them;
+/// `engine-cli bless` refuses to record either.
 ///
 /// Versions count from 1 ([`AlgorithmVersion::FIRST`]); a box type declares its version in
 /// its [`ObjectSpec`], so a box type without one does not compile.

@@ -7796,7 +7796,7 @@ pub fn run_steps_then(
 
 /// Usage of the `xtask` command, in the order of its first line.
 pub const USAGE: &str = "\
-usage: cargo xtask <check [--full [--part <part>]]|list [--full [--parts]]|mutants <target>|bless|bless-benchmarks|commit-msg <file>|pre-push [pair...]|help>
+usage: cargo xtask <check [--full [--part <part>]]|list [--full [--parts]]|mutants <target>|bless [--case-changed <name>]...|bless-benchmarks|commit-msg <file>|pre-push [pair...]|help>
   check [--full]        run every quality check; mutation testing covers the changes: Rust
                         since the merge base with the upstream, origin/main or main,
                         TypeScript since the last local Stryker run; stops at the first
@@ -7810,8 +7810,11 @@ usage: cargo xtask <check [--full [--part <part>]]|list [--full [--parts]]|mutan
   mutants <target>      run every mutant of one target: a crate (its name), a Rust file
                         of a crate, a TypeScript package (its directory) or one of its
                         sources (their paths from the root)
-  bless                 rewrite conformance/references.json from the current renders,
-                        and conformance/algorithms.json from the current box types
+  bless [options]       rewrite conformance/references.json from the current renders,
+                        and conformance/algorithms.json from the current box types and
+                        engine, refusing a reference changed under the same versions
+                        (decision 29) but for each case named by --case-changed <name>
+                        (repeatable)
   bless-benchmarks      rewrite spec/benchmark-baseline.json from the current instruction
                         counts of the engine module (spec/benchmarks.md)
   commit-msg <file>     check a commit message (used by the commit-msg hook)
@@ -7994,25 +7997,27 @@ pub fn mutants_steps(target: &Target, jobs: NonZeroUsize) -> Vec<Step> {
 
 /// The only way to change the reference hashes: renders every conformance case.
 ///
-/// It rewrites `conformance/references.json`, and the algorithm versions they were blessed
-/// with, `conformance/algorithms.json`. The commit must explain why they changed.
+/// It rewrites `conformance/references.json`, and what they were blessed under,
+/// `conformance/algorithms.json`; `engine-cli bless` refuses a reference changed under the
+/// same versions but for the cases of `changed` (each given as `--case-changed <name>`), a
+/// lower version, and a box type's outputs changed at the same version
+/// (`spec/engine-design.md`, decision 29). The commit must explain why they changed.
 #[must_use]
-pub fn bless_step() -> Step {
-    run(
-        "Bless conformance references",
-        "cargo",
-        &[
-            "run",
-            "--package",
-            "engine-cli",
-            "--locked",
-            "--quiet",
-            "--",
-            "bless",
-            "conformance",
-        ],
-        Dir::Root,
-    )
+pub fn bless_step(changed: &[String]) -> Step {
+    let mut args = vec![
+        "run",
+        "--package",
+        "engine-cli",
+        "--locked",
+        "--quiet",
+        "--",
+        "bless",
+        "conformance",
+    ];
+    for name in changed {
+        args.extend(["--case-changed", name]);
+    }
+    run("Bless conformance references", "cargo", &args, Dir::Root)
 }
 
 /// The only way to change the benchmark baseline.
@@ -8043,8 +8048,8 @@ enum Task {
     ListParts,
     /// Every mutant of one target.
     Mutants(Target),
-    /// Rewrite the reference hashes.
-    Bless,
+    /// Rewrite the reference hashes, accepting a changed reference of the cases named.
+    Bless(Vec<String>),
     /// Rewrite the benchmark baseline.
     BlessBenchmarks,
     /// Check the commit message in this file.
@@ -8070,7 +8075,7 @@ fn task(args: &[OsString]) -> Result<Task, String> {
                 .ok_or_else(|| format!("argument is not valid UTF-8: {}", arg.to_string_lossy()))
         })
         .collect::<Result<Vec<String>, String>>()?;
-    let alone = ["bless", "bless-benchmarks", "help"];
+    let alone = ["bless-benchmarks", "help"];
     match args.as_slice() {
         [] => Err("no command given".to_owned()),
         [command] if command == "check" => Ok(Task::Check(false)),
@@ -8093,7 +8098,17 @@ fn task(args: &[OsString]) -> Result<Task, String> {
                     )
                 })
         }
-        [command] if command == "bless" => Ok(Task::Bless),
+        [command, options @ ..] if command == "bless" => {
+            let (pairs, rest) = options.as_chunks::<2>();
+            let changed: Option<Vec<String>> = pairs
+                .iter()
+                .map(|[flag, name]| (flag == "--case-changed").then(|| name.clone()))
+                .collect();
+            match changed {
+                Some(changed) if rest.is_empty() => Ok(Task::Bless(changed)),
+                _ => Err("`bless` takes only `--case-changed <name>`, repeatable".to_owned()),
+            }
+        }
         [command] if command == "bless-benchmarks" => Ok(Task::BlessBenchmarks),
         [command] if command == "help" => Ok(Task::Help),
         [command, file] if command == "commit-msg" => Ok(Task::CommitMsg(file.clone())),
@@ -8183,7 +8198,7 @@ pub fn cli(
         Task::ListParts => full_parts()
             .into_iter()
             .try_for_each(|part| say(out, &part.name())),
-        Task::Bless => run_steps(&[preflight_step(), bless_step()], runner, out),
+        Task::Bless(changed) => run_steps(&[preflight_step(), bless_step(&changed)], runner, out),
         Task::BlessBenchmarks => {
             run_steps(&[preflight_step(), bless_benchmarks_step()], runner, out)
         }

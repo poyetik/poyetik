@@ -16,6 +16,7 @@ extern crate alloc;
 mod case;
 mod cli;
 mod files;
+mod record;
 mod wav;
 
 pub use case::{

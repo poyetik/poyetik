@@ -4,6 +4,8 @@
 //! [`check_registry`] checks a whole registry. Box crates call them on every registered
 //! box type, so a new box cannot escape them. [`measure`] gives the objective measurements
 //! of a signal (`spec/measurements.md`), by which every box proves its audio quality.
+//! [`fingerprint()`] hashes a box type's outputs over a fixed battery, so that a change of
+//! its bits is seen beyond the conformance cases (`spec/engine-design.md`, decision 29).
 //!
 //! Every law is checked in both precisions (binary64 and binary32, [`matrix::PRECISIONS`])
 //! and at every sample rate of the shared [`matrix`], with the
@@ -32,12 +34,14 @@
 
 extern crate alloc;
 
+mod fingerprint;
 mod laws;
 pub mod matrix;
 pub mod measure;
 pub mod runner;
 
 pub use engine_alloc_counter::{CountingAllocator, NotCounting, heap_operations_during};
+pub use fingerprint::{FINGERPRINT_BATTERY, fingerprint};
 pub use laws::{check_laws, check_metadata, check_registry};
 
 #[cfg(test)]
