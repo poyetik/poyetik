@@ -8226,9 +8226,12 @@ pub const USAGE: &str = "\
 usage: cargo xtask <check [--full [--part <part>]]|list [--full [--parts]]|mutants <target>|bless [--case-changed <name>]...|bless-benchmarks|commit-msg <file>|pre-push [pair...]|help>
   check [--full]        run every quality check; mutation testing covers the changes: Rust
                         since the merge base with the upstream, origin/main or main,
-                        TypeScript since the last local Stryker run; stops at the first
-                        failure; with --full every mutant, as CI does, and every check
-                        runs whatever fails, then every failure is reported; with
+                        but the crates an earlier default check of that base proved
+                        and left unchanged (its mutation proof record, which --full
+                        never reads), TypeScript since the last local Stryker run;
+                        stops at the first failure; with --full every mutant, as CI
+                        does, and every check runs whatever fails, then every failure
+                        is reported; with
                         --full --part <part>, only that part, as one CI job runs it
                         (the parts together run every check once; the final part
                         reads the unviable mutants of every mutation shard)
