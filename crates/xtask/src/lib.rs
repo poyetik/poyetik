@@ -3626,18 +3626,8 @@ pub fn dependency_gate(
     packages: &[(String, String)],
     reviewed: &str,
 ) -> Result<(), Failure> {
-    let json: serde_json::Value = serde_json::from_str(metadata)
-        .map_err(|error| Failure::from(format!("invalid cargo metadata: {error}")))?;
-    let crates = json
-        .get("packages")
-        .and_then(serde_json::Value::as_array)
-        .ok_or_else(|| Failure::from("cargo metadata lists no packages".to_owned()))?;
     let mut keys = Vec::new();
-    for krate in crates {
-        let name = krate
-            .get("name")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or_default();
+    for (name, krate) in cargo_packages(metadata)? {
         let dependencies = krate
             .get("dependencies")
             .and_then(serde_json::Value::as_array)
@@ -3692,18 +3682,34 @@ pub fn dependency_gate(
 /// under test.
 pub const LIBM_CRATES: [&str; 2] = ["engine-core", "engine-testkit"];
 
+/// The directory of box code, as a literal: [`BOX_CODE`], and the start of its pathspec.
+macro_rules! box_code {
+    () => {
+        "crates/engine-objects/src/"
+    };
+}
+
+/// The directory of the engine core's code, as a literal: [`ENGINE_CODE`], and the start of
+/// its pathspec.
+macro_rules! engine_code {
+    () => {
+        "crates/engine-core/src/"
+    };
+}
+
 /// The sources the math layer gate reads, as git pathspecs, their `*_tests.rs` files apart:
-/// box code ([`BOX_CODE`]) and the engine core's ([`ENGINE_CODE`]).
+/// box code ([`BOX_CODE`]) and the engine core's ([`ENGINE_CODE`]), built from the same
+/// literals.
 pub const MATH_LAYER_SOURCES: [&str; 2] = [
-    "crates/engine-objects/src/*.rs",
-    "crates/engine-core/src/*.rs",
+    concat!(box_code!(), "*.rs"),
+    concat!(engine_code!(), "*.rs"),
 ];
 
 /// The directory of box code: the sources of the box crate, `engine-objects`.
-pub const BOX_CODE: &str = "crates/engine-objects/src/";
+pub const BOX_CODE: &str = box_code!();
 
 /// The directory of the engine core's code, `engine-core`.
-pub const ENGINE_CODE: &str = "crates/engine-core/src/";
+pub const ENGINE_CODE: &str = engine_code!();
 
 /// The math layer itself (`spec/engine-design.md`, decisions 10 and 28): the one file of
 /// the engine core where samples are summed and computed on, which the gate does not read.
@@ -3858,6 +3864,31 @@ fn code_words(text: &str) -> Vec<(usize, String, usize)> {
     words
 }
 
+/// The packages of `metadata` (the output of [`metadata_command`]), each with its name.
+///
+/// # Errors
+///
+/// Returns why the metadata cannot be read, and refuses a package without a name instead
+/// of reading it as `""`.
+fn cargo_packages(metadata: &str) -> Result<Vec<(String, serde_json::Value)>, Failure> {
+    let json: serde_json::Value = serde_json::from_str(metadata)
+        .map_err(|error| Failure::from(format!("invalid cargo metadata: {error}")))?;
+    json.get("packages")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| Failure::from("cargo metadata lists no packages".to_owned()))?
+        .iter()
+        .map(|package| {
+            package
+                .get("name")
+                .and_then(serde_json::Value::as_str)
+                .map(|name| (name.to_owned(), package.clone()))
+                .ok_or_else(|| {
+                    Failure::from("cargo metadata lists a package without a name".to_owned())
+                })
+        })
+        .collect()
+}
+
 /// What the math layer gate finds in the crates (`metadata`, the output of
 /// [`metadata_command`]): a dependency on `libm` outside [`LIBM_CRATES`], a build script in
 /// [`MATH_LAYER_CRATES`].
@@ -3866,18 +3897,9 @@ fn code_words(text: &str) -> Vec<(usize, String, usize)> {
 ///
 /// Returns why the metadata cannot be read.
 fn math_layer_crates(metadata: &str) -> Result<Vec<String>, Failure> {
-    let json: serde_json::Value = serde_json::from_str(metadata)
-        .map_err(|error| Failure::from(format!("invalid cargo metadata: {error}")))?;
-    let crates = json
-        .get("packages")
-        .and_then(serde_json::Value::as_array)
-        .ok_or_else(|| Failure::from("cargo metadata lists no packages".to_owned()))?;
     let mut problems = Vec::new();
-    for krate in crates {
-        let name = krate
-            .get("name")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or_default();
+    for (name, krate) in cargo_packages(metadata)? {
+        let name = name.as_str();
         let reaches_libm = krate
             .get("dependencies")
             .and_then(serde_json::Value::as_array)
@@ -7252,20 +7274,10 @@ fn changes_since(runner: &mut dyn Runner, since: &str) -> Result<String, Failure
 fn crate_closures(
     metadata: &str,
 ) -> Result<BTreeMap<&'static str, BTreeSet<&'static str>>, Failure> {
-    let json: serde_json::Value = serde_json::from_str(metadata)
-        .map_err(|error| Failure::from(format!("invalid cargo metadata: {error}")))?;
-    let packages = json
-        .get("packages")
-        .and_then(serde_json::Value::as_array)
-        .ok_or_else(|| Failure::from("cargo metadata lists no packages".to_owned()))?;
     let workspace = |name: &str| RUST_CRATES.iter().find(|krate| krate.name == name);
     let mut direct: BTreeMap<&'static str, BTreeSet<&'static str>> = BTreeMap::new();
-    for package in packages {
-        let Some(krate) = package
-            .get("name")
-            .and_then(serde_json::Value::as_str)
-            .and_then(workspace)
-        else {
+    for (name, package) in cargo_packages(metadata)? {
+        let Some(krate) = workspace(&name) else {
             continue;
         };
         let dependencies = package

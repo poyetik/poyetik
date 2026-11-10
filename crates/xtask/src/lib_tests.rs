@@ -7493,6 +7493,11 @@ fn requires_every_direct_dependency_to_be_reviewed() {
         failed("cargo metadata lists no packages"),
         "metadata without packages"
     );
+    assert_eq!(
+        super::dependency_gate(r#"{"packages":[{"dependencies":[]}]}"#, &[], ""),
+        failed("cargo metadata lists a package without a name"),
+        "a package without a name is refused, never read as \"\""
+    );
     assert!(
         super::dependency_gate(
             METADATA,
@@ -7571,6 +7576,19 @@ fn refuses_libm_outside_the_math_layer_and_the_measurements() {
         super::math_layer_gate("{}", &[]),
         failed("cargo metadata lists no packages"),
         "metadata without packages"
+    );
+    assert_eq!(
+        super::math_layer_gate(r#"{"packages":[{"dependencies":[{"name":"libm"}]}]}"#, &[]),
+        failed("cargo metadata lists a package without a name"),
+        "a package without a name is refused, never read as \"\""
+    );
+    assert_eq!(
+        super::MATH_LAYER_SOURCES,
+        [
+            format!("{}*.rs", super::BOX_CODE),
+            format!("{}*.rs", super::ENGINE_CODE)
+        ],
+        "the pathspecs of the box and engine directories"
     );
 }
 

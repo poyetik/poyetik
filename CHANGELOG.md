@@ -62,6 +62,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The dependency gate and the math layer gate refuse a package of `cargo metadata` without a name, which they read as `""`; one reader of the metadata serves both and the crate closures of the mutation proof record.
 - `engine-cli bless` reads each case and its patch once, and records the algorithm versions and the reference hashes of that one reading: it read them twice, so a file edited while it ran could give versions of one text and hashes of another.
 - `engine-cli render` reads each option at most once, with a value that is not an option: `render <case> <patch> --wav --format` wrote the render to a file named `--format`; it now says `option "--wav" needs a value`, and an option given twice or without a value is named instead of the generic usage line.
 - The bench page's timing is under the proofs (`bindings/wasm/e2e/site/timing.ts`, 100% coverage and no surviving mutant): what each wall-time benchmark renders (the quanta of two blocks, one output per channel and at least one), the warm-up run left out, the runs and the clock, which `harness.ts` only wires. `?runs=` that is not a positive whole number is refused instead of timing nothing, the audio context of the construction timing is closed when a construction fails, and the end-to-end test refuses a missing or short list of times for the patch without the box as for the patch holding it.
