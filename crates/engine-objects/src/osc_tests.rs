@@ -642,6 +642,21 @@ fn predicted_thd_plus_n(format: RenderFormat) -> Option<f64> {
     Some(10.0_f64 * libm::log10(power / 0.5_f64))
 }
 
+/// How far, in dB, a measured THD+N may lie from [`predicted_thd_plus_n`], by format: the
+/// measured distribution over the deterministic domain of
+/// `measures_within_its_derived_thresholds_at_every_rate` (the 8 rates of the matrix, the 4
+/// spread frequencies, 8192 frames), rounded outward to 0.05 dB. Measured: binary64 given as
+/// binary32 from -0.055 to +0.057 dB; binary32 from -0.251 to +0.124 dB, biased low at 0.0007
+/// cycle per sample, whose 5.7 periods leave the angles not uniform (the prediction assumes
+/// they are; roadmap #12 step 19 computes it from the actual angles). A change of the rounding
+/// or of the sine kernel moving a level by more than that shows.
+fn prediction_band(format: RenderFormat) -> (f64, f64) {
+    match format {
+        RenderFormat::Binary32 => (-0.30_f64, 0.15_f64),
+        RenderFormat::Binary64 | RenderFormat::Binary64AsBinary32 => (-0.10_f64, 0.10_f64),
+    }
+}
+
 #[test]
 fn measures_within_its_derived_thresholds_at_every_rate() {
     // The thresholds of `osc~` (`spec/measurements.md`, "Thresholds of `osc~`"): the
@@ -717,12 +732,15 @@ fn measures_within_its_thresholds(
         );
     }
     match predicted_thd_plus_n(format) {
-        // The gap to the bound explained: uniform rounding.
-        Some(predicted) if spread => assert!(
-            (measured.thd_plus_n - predicted).abs() < 0.5_f64,
-            "{what}: THD+N {} instead of about {predicted}",
-            measured.thd_plus_n
-        ),
+        // The gap to the bound explained: uniform rounding, within the band of the format.
+        Some(predicted) if spread => {
+            let (low, high) = prediction_band(format);
+            assert!(
+                (low..=high).contains(&(measured.thd_plus_n - predicted)),
+                "{what}: THD+N {} instead of {predicted} within [{low}, {high}] dB",
+                measured.thd_plus_n
+            );
+        }
         Some(_) => {}
         // In binary64, the error of the sine is far below what the measurements can
         // resolve: its levels are those of the floor of the measurements alone.
