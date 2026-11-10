@@ -96,11 +96,34 @@ fn as_host<R>(host: Word, body: impl FnOnce() -> R) -> (Word, R) {
     (set, result)
 }
 
+/// Each flush field alone, with what [`subnormals_kept`] observes under it, and whether a
+/// processor of the target may lack it (it then reads back as zero). On `x86_64`, FTZ
+/// flushes results only and DAZ operands only; on aarch64 (AH clear), FZ flushes both and
+/// FIZ operands only.
+#[cfg(target_arch = "x86_64")]
+const FLUSH_FIELDS: [(&str, Word, (bool, bool), bool); 3] = [
+    ("flush-to-zero alone", 0x8000, (true, false), false),
+    ("denormals-are-zero alone", 0x0040, (false, true), false),
+    ("both", 0x8000 | 0x0040, (false, false), false),
+];
+
+/// Each flush field alone, with what [`subnormals_kept`] observes under it, and whether a
+/// processor of the target may lack it (it then reads back as zero). On `x86_64`, FTZ
+/// flushes results only and DAZ operands only; on aarch64 (AH clear), FZ flushes both and
+/// FIZ operands only (FIZ is optional: an Apple M2 reads it back as zero).
+#[cfg(target_arch = "aarch64")]
+const FLUSH_FIELDS: [(&str, Word, (bool, bool), bool); 2] = [
+    ("FZ alone", 0x0100_0000, (false, false), false),
+    ("FIZ alone", 0x1, (false, true), true),
+];
+
 /// Whether the smallest subnormal binary32 value survives as an operand and as a result:
-/// `(input kept, result kept)`. Operands pass through `black_box`, so that nothing is
-/// computed at compile time.
+/// `(input kept, result kept)`. The operand probe's result, `2^-149 · 2^24 = 2^-125`, is
+/// normal, so only a flush of operands zeroes it; the result probe's operands are normal,
+/// so only a flush of results zeroes it. Operands pass through `black_box`, so that nothing
+/// is computed at compile time.
 fn subnormals_kept() -> (bool, bool) {
-    let input = black_box(f32::from_bits(1)) * black_box(1.0_f32);
+    let input = black_box(f32::from_bits(1)) * black_box(16_777_216.0_f32);
     let result = black_box(f32::MIN_POSITIVE) / black_box(4.0_f32);
     (
         black_box(input).to_bits() != 0,
@@ -257,6 +280,20 @@ fn proves_each_forced_mode_in_force_before_relying_on_it() {
     );
     let (_, up) = as_host(ROUNDING_UP, rounding);
     assert_eq!(up, "up", "rounding up in force");
+    // Each flush field in force on its own, flushing exactly what it defines.
+    for (name, field, expected, optional) in FLUSH_FIELDS {
+        let (set, kept) = as_host(DEFAULT | field, subnormals_kept);
+        if set & field == field {
+            assert_eq!(kept, expected, "{name} in force");
+        } else {
+            assert!(
+                optional,
+                "{name} supported by every processor of the target"
+            );
+            assert_eq!(set & field, 0, "{name} unsupported: none of its bits");
+            assert_eq!(kept, (true, true), "{name} unsupported: nothing flushed");
+        }
+    }
     // Every rounding mode of the fields is observed as itself.
     let (_, modes) = FIELDS[0];
     let observed: Vec<&str> = modes
@@ -302,12 +339,22 @@ fn runs_in_the_default_mode_and_restores_the_host_under_every_host_mode() {
         }
         assert_eq!(after, set, "host {host:#x}: its mode restored exactly");
     }
-    // The positive control of the loop: the modes it set really differed.
-    assert!(
-        distinct.len() >= 16,
-        "{} distinct host modes",
-        distinct.len()
-    );
+    // The positive control of the loop: the modes it set really differed, every field
+    // combining with the others as each reads back alone (a field the processor lacks reads
+    // back as zero, and counts once).
+    let settable: usize = FIELDS
+        .iter()
+        .map(|(_, values)| {
+            values
+                .iter()
+                .map(|&value| as_host(value, || ()).0)
+                .collect::<BTreeSet<_>>()
+                .len()
+        })
+        .product();
+    #[cfg(target_arch = "x86_64")]
+    assert_eq!(settable, 32, "every field of MXCSR is supported");
+    assert_eq!(distinct.len(), settable, "distinct host modes");
 }
 
 #[test]
@@ -359,6 +406,26 @@ fn needs_the_default_mode_to_give_the_references() {
             "{format}: the default mode gives it back"
         );
     }
+}
+
+#[test]
+fn needs_the_default_mode_to_give_the_references_under_a_flushing_host() {
+    // The control of the flushing comparison: without the default mode, a flushing host
+    // changes the render of the subnormal case given as binary32 (the rounding of its
+    // binary64 samples to binary32 gives subnormals, which the hardware flushes); inside it,
+    // the reference comes back.
+    let (case, patch, references) = subnormal_case();
+    let format = RenderFormat::Binary64AsBinary32;
+    let (set, (unguarded, guarded)) = as_host(FLUSHING, || {
+        (
+            render(&case, &patch, format),
+            with_default_mode(|_| render(&case, &patch, format)),
+        )
+    });
+    assert_eq!(set & FLUSH_TO_ZERO, FLUSH_TO_ZERO, "flush-to-zero set");
+    let expected = reference(&references, format);
+    assert_ne!(unguarded, expected, "flushing changes the render");
+    assert_eq!(guarded, expected, "the default mode gives it back");
 }
 
 #[test]
