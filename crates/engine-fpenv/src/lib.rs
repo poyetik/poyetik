@@ -86,9 +86,14 @@ impl Drop for Restore {
 /// host's mode.
 ///
 /// Only the mode fields change: on `x86_64` the exception flags keep accumulating, as IEEE
-/// 754 defines them. When the host's mode already is the default, the register is not
-/// written at all; so a nested call costs one read, and a mode that foreign code sets
-/// inside `body` is then not undone: `body` must not change the mode.
+/// 754 defines them. The host's mode fields are always written back on exit, so a mode that
+/// foreign code sets inside `body` is undone too; when the host's mode already is the
+/// default, the entry write is skipped, so a nested call costs one read and one write.
+///
+/// Review only: foreign code called inside `body` (assembly, a C function) must not change
+/// the mode, since the proof `body` holds would be false from then on; safe Rust cannot
+/// change it. Detecting such a change and reporting it is roadmap #24's, with the first
+/// plugin shell.
 ///
 /// Rust has no strict floating-point mode: the compiler orders the register's writes with
 /// memory and `core::hint::black_box`, not with float arithmetic on values in registers.
@@ -98,10 +103,10 @@ impl Drop for Restore {
 /// or stores its results, runs in the default mode.
 pub fn with_default_mode<R>(body: impl for<'scope> FnOnce(DefaultMode<'scope>) -> R) -> R {
     let host = word::read() & word::CONTROL;
-    let _restore = (host != word::DEFAULT).then(|| {
+    if host != word::DEFAULT {
         word::set_control(word::DEFAULT);
-        Restore { host }
-    });
+    }
+    let _restore = Restore { host };
     let body = core::hint::black_box(body);
     core::hint::black_box(body(DefaultMode {
         scope: PhantomData,

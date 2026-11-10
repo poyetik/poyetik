@@ -387,8 +387,8 @@ fn keeps_the_bits_outside_the_mode_fields() {
 
 #[test]
 fn skips_the_write_when_the_host_is_already_in_the_default_mode() {
-    // Nested calls: the inner one finds the default and leaves it; only the outer one
-    // restores the host.
+    // Nested calls: the inner one finds the default and leaves it on entry, and writes the
+    // default back on exit; only the outer one restores the host.
     let (set, (outer, inner, between)) = as_host(ROUNDING_UP, || {
         with_default_mode(|_| {
             let outer = control();
@@ -408,6 +408,25 @@ fn skips_the_write_when_the_host_is_already_in_the_default_mode() {
         (DEFAULT, DEFAULT),
         "a default host stays so"
     );
+}
+
+#[test]
+fn restores_a_mode_changed_inside_its_body_whatever_the_host() {
+    // Foreign code inside the body changes the mode (flush-to-zero here): the host's mode
+    // comes back after, also when the host was already in the default mode, the one case
+    // where the entry write is skipped.
+    for host in [DEFAULT, ROUNDING_UP] {
+        let (set, (inside, after)) = as_host(host, || {
+            let inside = with_default_mode(|_| {
+                let inside = control();
+                set_control(FLUSH_TO_ZERO);
+                inside
+            });
+            (inside, control())
+        });
+        assert_eq!(inside, DEFAULT, "host {host:#x}: the default on entry");
+        assert_eq!(after, set, "host {host:#x}: its mode restored exactly");
+    }
 }
 
 #[test]
