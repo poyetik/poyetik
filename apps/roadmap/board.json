@@ -515,7 +515,7 @@
           "done": false
         },
         {
-          "title": "Non-finite samples: cable and output sums keep NaN bits that depend on the target; canonicalize NaN or refuse non-finite output, with a NaN-emitting test box, and reword the render-hash and patch-format specs to match",
+          "title": "Non-finite samples: cable and output sums keep NaN bits that depend on the target and on the build (the compiler may swap the operands of an addition); canonicalize NaN or refuse non-finite output, with a NaN-emitting test box, and reword the render-hash and patch-format specs to match. If sums keep NaN, the reduction tests that run in WebAssembly accept any quiet NaN there (its specification), never natively",
           "done": false
         },
         {

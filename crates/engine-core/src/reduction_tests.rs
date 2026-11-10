@@ -125,8 +125,12 @@ fn follows<F: Float>(terms: &[F], summed: u64) -> bool {
 /// Checks the helper against the reference on `terms`: the same bits whenever the reference
 /// is not a NaN. A NaN result follows the payload rule: it is a NaN; of one term, that term
 /// bit for bit; of more, quiet, with the payload (and quiet bit) of one of the NaN terms, or
-/// the default NaN when no term is a NaN (an infinity minus an infinity). Its sign is not
-/// compared: WebAssembly leaves it open (roadmap #24).
+/// the default NaN when no term is a NaN (an infinity minus an infinity): what Rust gives
+/// natively, whichever operand of an addition the compiler puts first (the payload chosen
+/// may change between a debug and a release build). Its sign is not compared: it may change
+/// in the same way, and WebAssembly leaves it open, where any quiet NaN may come from a NaN
+/// term that is not canonical: a run of these tests in WebAssembly would accept any quiet
+/// NaN there (roadmap #24).
 fn check<S: Raw>(terms: &[S::Float]) -> Result<(), alloc::string::String>
 where
     S::Float: Float,

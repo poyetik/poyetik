@@ -666,9 +666,11 @@ fn reduce<L: Summand, T: Borrow<L>>(
 /// Adding -0 changes no value (`x + -0` is `x`, -0 included), so a lane starts from its
 /// first term and an empty lane is left out of the tree: the same bits as the rule for
 /// every result but a NaN, which stays a NaN. So one term is returned bit for bit (a NaN
-/// payload included), and two give their sum. A NaN result has the payload of one of the
-/// NaN terms, or the target's default NaN; which one, and its sign, may differ between
-/// targets (WebAssembly leaves them open).
+/// payload included), and two give their sum. The payload and sign of a NaN result are not
+/// reproducible: natively the payload of one of the NaN terms (quieted) or the default NaN,
+/// in WebAssembly any quiet NaN when a NaN term is not canonical, and either may change
+/// with the build (the compiler may swap the operands of an addition); roadmap #24 decides
+/// how sums treat NaN.
 ///
 /// No other sum of samples is offered: the sample types implement neither `Sum` nor
 /// `Product`, so an iterator of samples cannot be summed otherwise.
