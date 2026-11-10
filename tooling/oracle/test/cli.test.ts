@@ -74,7 +74,16 @@ describe("main", () => {
     const io = memory(corpus({ tone: { ...HASHES, binary64: "0".repeat(64) } }));
     expect(main(["conf", "wav"], io)).toBe(1);
     expect(io.lines[0]).toMatch(/^FAIL {5}tone binary64: hash: /);
-    expect(io.errors).toStrictEqual(["error: oracle failed: 1 problem(s)"]);
+    expect(io.errors).toStrictEqual(["error: oracle failed on conf against wav: 1 problem(s)"]);
+  });
+
+  test("names both directories in its summary, escaped", () => {
+    const moved = Object.fromEntries(
+      Object.entries(corpus({ tone: { ...HASHES, binary32: "0".repeat(64) } })).map(([path, file]) => [path.replace(/^conf\//, "con\u001b[2Jf/").replace(/^wav\//, "wa\nv/"), file]),
+    );
+    const io = memory(moved);
+    expect(main(["con\u001b[2Jf", "wa\nv"], io)).toBe(1);
+    expect(io.errors).toStrictEqual(["error: oracle failed on con\\u{1b}[2Jf against wa\\u{a}v: 1 problem(s)"]);
   });
 
   test("reads each file with the limit of its kind, as engine-cli does", () => {
@@ -163,7 +172,7 @@ describe("untrusted text in its output", () => {
       expect.stringMatching(/^ok {7}tone binary64-as-binary32 /),
       expect.stringMatching(/^ok {7}tone binary32 /),
     ]);
-    expect(io.errors).toStrictEqual(["error: oracle failed: 1 problem(s)"]);
+    expect(io.errors).toStrictEqual(["error: oracle failed on conf against wav: 1 problem(s)"]);
   });
 
   test("escapes and bounds an invalid references key of a million characters", () => {

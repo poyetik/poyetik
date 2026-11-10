@@ -112,7 +112,7 @@ export function main(args: readonly string[], io: Io): number {
       io.out(oneLine(line));
     }
     if (verdict.failures > 0) {
-      io.err(`error: oracle failed: ${String(verdict.failures)} problem(s)`);
+      io.err(`error: ${oneLine(`oracle failed on ${conformance} against ${wavs}: ${String(verdict.failures)} problem(s)`)}`);
       return 1;
     }
     return 0;
