@@ -99,7 +99,7 @@ class EngineProcessor extends AudioWorkletProcessor {
 /**
  * Posts a copy of every render quantum of its input to the main thread, until told to
  * stop. It allocates a copy per render quantum, on the audio thread: a known deviation,
- * run by capture and by the playground's oscilloscope until roadmap #12 (step 21) replaces
+ * run by capture and by the playground's oscilloscope until roadmap #12 step 21 replaces
  * it, with a ring in shared memory for capture and an `AnalyserNode` for the oscilloscope.
  */
 class TapProcessor extends AudioWorkletProcessor {

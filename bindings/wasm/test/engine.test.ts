@@ -42,9 +42,9 @@ async function corpusHash(testCase: CorpusCase, size: number, format: RenderForm
 
 /**
  * The sum of `terms` in the reduction order of `spec/engine-design.md`, decision 28, written
- * literally from the rule, apart from the engine: no term is +0; term `k` goes to lane
- * `k mod 16`, each lane summing its terms in increasing `k` from -0; then lane `i` with lane
- * `i + 8`, then `i + 4`, `i + 2`, `i + 1`. `add` is the addition of the precision.
+ * literally from the rule, apart from the engine: a sum of no terms is +0; term `k` goes to
+ * lane `k mod 16`, each lane summing its terms in increasing `k` from -0; then lane `i` with
+ * lane `i + 8`, then `i + 4`, `i + 2`, `i + 1`. `add` is the addition of the precision.
  */
 function reductionOrder(terms: readonly number[], add: (left: number, right: number) => number): number {
   if (terms.length === 0) {

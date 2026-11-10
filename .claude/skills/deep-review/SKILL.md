@@ -26,7 +26,7 @@ Resolve the scope from the argument, then **state it in one line before starting
 Build the **review packet** once, and give it to every reviewer:
 - the list of files in scope, and the diff when the scope is a change;
 - `CLAUDE.md` (the rules every finding is judged against);
-- `spec/` (`engine-design.md`, `measurements.md`, `patch-format.md`, `render-hash.md`): the engine's decisions and the step implementing each, the measurement definitions and how thresholds are derived, and the formats;
+- `spec/`, the documents `spec/README.md` lists: the engine's decisions and the step implementing each, the measurement definitions and how thresholds are derived, the benchmarks, and the formats;
 - the local design notes listed in `CLAUDE.md` (section "Documentation"), when present, that are relevant to the scope; they are unversioned: never quote their strategy content in a versioned file;
 - the result of the last `cargo xtask check --full` or green CI run if available (do not rerun it just for the review; a default `cargo xtask check` proves only the mutants of its changes).
 

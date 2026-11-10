@@ -61,8 +61,8 @@ export class CountedInstance {
 
   /**
    * Loads `patch` at `rate` hertz to render in `format` (parsing it and building its plan)
-   * and returns the instructions the load executed, copying the patch into the module
-   * included.
+   * and returns the WebAssembly instructions `engine_input` and `engine_load` executed (the
+   * copy of the patch into the module memory is JavaScript, not counted).
    * @throws {CountError} with the engine's explanation when it refuses the patch.
    */
   load(patch: Uint8Array, rate: number, format: RenderFormat): bigint {

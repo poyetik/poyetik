@@ -7,7 +7,8 @@
 //! and what boxes derive from them (increments, coefficients) are binary64 in both.
 //!
 //! The math functions are the pinned pure-Rust `libm`, the same bits on every target; no box
-//! crate depends on `libm` itself (xtask's dependency gate refuses it), and the methods of
+//! crate depends on `libm` outside its tests (xtask's math layer gate refuses it as a normal
+//! or build dependency), and the methods of
 //! `f32` and `f64` that compute them do not exist in the `no_std` crates boxes live in. So
 //! a box reaches a math function only through this layer.
 //!
@@ -752,9 +753,9 @@ pub mod host {
     ///
     /// A binary64 render as binary64 or rounded to the nearest binary32 (ties to even; a NaN
     /// by its bits), a binary32 render as binary32. A binary32 render cannot be given as
-    /// binary64: no [`RenderFormat`](super::RenderFormat) is one. A host concern, here so that box code, which
-    /// may not name this module, cannot take a sample's float out through it.
-    /// It is not reachable from the crate root:
+    /// binary64: no [`RenderFormat`](super::RenderFormat) is one. A host concern, here so
+    /// that box code, which may not name this module, cannot take a sample's float out
+    /// through it. It is not reachable from the crate root:
     ///
     /// ```compile_fail,E0432
     /// use engine_core::Delivered;

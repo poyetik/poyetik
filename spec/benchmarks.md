@@ -1,6 +1,6 @@
 # Benchmarks
 
-What the engine's cost benchmarks measure, how their thresholds are derived, what they cannot see, and how to add one (roadmap ticket #12, step 3). They exist so that the cost of the engine's later decisions (`engine-design.md`, implementation order) is measured, not guessed.
+What the engine's cost benchmarks measure, how their thresholds are derived, what they cannot see, and how to add one (roadmap #12 step 3). They exist so that the cost of the engine's later decisions (`engine-design.md`, implementation order) is measured, not guessed.
 
 | File | Contents | Changed by |
 |---|---|---|
@@ -83,7 +83,7 @@ The engine processor compiles the module, instantiates it, parses the patch and 
 
 **Derivation.** Wall time on a shared machine is noisy, and browsers coarsen their timers (the bench page reads tenths of a millisecond in Chromium and whole milliseconds in Firefox and WebKit). `measured_max_ms` is the slowest of the constructions measured as `measured_on` says; `margin` covers a slower CI runner, a loaded machine and timer granularity. Such a bound catches what changes the construction by an order of magnitude (an eager compilation of a much larger module, a plan built in quadratic time, a copy of the module per block); it cannot catch a regression of a few percent, which is what the instruction counts of plan building are for.
 
-**What CI cannot run yet.** The measured values come from the maintainer's Mac; no CI run has completed yet (CLAUDE.md, CI), so the bounds are not yet proven on the x86_64 Linux runner, whose WebKit is WebKitGTK. If the first CI runs show slower constructions, the measurement is taken again on the runner and recorded (`measured_on` names where), in a reviewed commit: never by widening the margin to pass.
+**What CI cannot run yet.** The measured values come from the maintainer's Mac; the margin is what must cover the x86_64 Linux runner, whose WebKit is WebKitGTK. A bound a CI run fails is measured again on the runner and recorded (`measured_on` names where), in a reviewed commit: never by widening the margin to pass.
 
 **Measuring again.** Run `pnpm test:e2e` in `bindings/wasm` several times on an idle machine; each run prints the times per browser engine. Record the slowest per engine in `measured_max_ms`, and where, when and how many in `measured_on`.
 
@@ -93,9 +93,9 @@ The end-to-end test "renders every box benchmark in both precisions within its b
 
 **What is asserted:** every time of the patch holding the box is at most `ceil(measured_max_ms × margin)` of its browser engine, from the `boxes` entry of `benchmark-thresholds.json`. The whole render is bounded, not the difference: a difference of two noisy times can be near zero or negative (an unconnected `dac~`), and the whole render bounds the box's cost from above.
 
-**Derivation.** As for the construction below: `measured_max_ms` is the slowest render measured as `measured_on` says, `margin` covers a slower CI runner, a loaded machine and timer granularity (whole milliseconds in Firefox and WebKit, so `blocks` makes every render last tens of milliseconds). It catches what changes a box's cost by an order of magnitude; the ratio it prints is a measurement, not a threshold, and differences of a few percent are for the instruction counts.
+**Derivation.** As for the construction above: `measured_max_ms` is the slowest render measured as `measured_on` says, `margin` covers a slower CI runner, a loaded machine and timer granularity (whole milliseconds in Firefox and WebKit, so `blocks` makes every render last tens of milliseconds). It catches what changes a box's cost by an order of magnitude; the ratio it prints is a measurement, not a threshold, and differences of a few percent are for the instruction counts.
 
-**What CI cannot run yet** and **measuring again**: as for the construction below; the values come from the maintainer's Mac.
+**What CI cannot run yet** and **measuring again**: as for the construction above; the values come from the maintainer's Mac.
 
 ## Adding a benchmark
 

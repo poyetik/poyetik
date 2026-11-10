@@ -74,9 +74,9 @@ impl<S: Sample> Renderer<S> {
     }
 
     /// Renders the next frames into `out`, interleaved by channel and given as `D`
-    /// ([`host::Delivered`](Delivered)): as many whole frames as `out` holds ([`Renderer::channels`] samples
-    /// each). Samples after the last whole
-    /// frame are left untouched; a plan without output writes nothing.
+    /// ([`host::Delivered`](Delivered)): as many whole frames as `out` holds
+    /// ([`Renderer::channels`] samples each). Samples after the last whole frame are left
+    /// untouched; a plan without output writes nothing.
     ///
     /// Continues exactly where the previous render stopped, like [`Renderer::render`].
     /// Does not use the heap. Copies one channel at a time, as many frames as both the

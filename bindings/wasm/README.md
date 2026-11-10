@@ -4,7 +4,7 @@ The engine in browsers: a WebAssembly module (Rust crate `engine-wasm`) and its 
 
 | Path | What |
 |---|---|
-| `src/` | The Rust crate: safe `Engine` and `Instance`, and `ffi`, the exported C interface (the only `unsafe` of the engine, checked with Miri) |
+| `src/` | The Rust crate: safe `Engine` and `Instance`, and `ffi`, the exported C interface (the only `unsafe` of this package, checked with Miri) |
 | `ts/engine.ts` | `WasmEngine`: one module instance, renders into buffers of any length, never ahead, in one render format: binary64 into `Float64Array`s, binary64 given as binary32 or binary32 into `Float32Array`s |
 | `ts/abi.ts` | The one reader of the module's exported interface (its memory, its version, each function with its arity), shared by `WasmEngine` and the benchmarks' counted instance |
 | `ts/worklet/processors.ts` | The `AudioWorklet` processors: the engine, and a tap that posts its input to the main thread |

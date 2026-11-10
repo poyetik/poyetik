@@ -437,7 +437,7 @@ interface Section {
 /** The magic number and version 1 that every module starts with. */
 const PREAMBLE = [0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00] as const;
 
-/** Section ids. */
+/** The import section id. */
 const IMPORT = 2;
 /** The global section id. */
 const GLOBAL = 6;
