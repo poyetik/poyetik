@@ -7455,9 +7455,11 @@ pub const PROOF_RECORDS: &str = "poyetik/rust-mutants-proven";
 /// against, for [`Action::MutationProofRecorded`].
 pub const MEASURED_BASE: &str = "target/xtask/mutants-base";
 
-/// The first line of a mutation proof record: its format, version 2 (version 1, which
-/// reused lines rather than crates, is never read).
-pub const PROOF_RECORD_TAG: &str = "poyetik rust-mutants-proven 2";
+/// The first line of a mutation proof record: its format, version 3.
+///
+/// Version 1, which reused lines rather than crates, and version 2, which named neither the
+/// compiler's build nor the linker, are never read.
+pub const PROOF_RECORD_TAG: &str = "poyetik rust-mutants-proven 3";
 
 /// What decides how the default check scopes its mutation testing, beside the tools.
 ///
@@ -7479,7 +7481,7 @@ fn mutation_rule(path: &str) -> bool {
 ///
 /// The Rust mutation step of a default check passed, with its unviable gate, on the clean
 /// commit `commit` (of tree `tree`), measured against the merge base `base`, on the host
-/// `host`, with these tool versions: every mutant of the changes since `base`, widened as
+/// `host`, with these tools, compiler and linker: every mutant of the changes since `base`, widened as
 /// the default check widens, was killed in that state.
 ///
 /// A later default check of the same base and host skips a crate whose inputs are all
@@ -7506,6 +7508,13 @@ pub struct ProofRecord {
     /// The host the run compiled and tested on, as `rustc -vV` names it: what a run proves
     /// depends on the architecture (`cfg(target_arch)`).
     pub host: String,
+    /// The build of the compiler, as `rustc -vV` names it: its commit, then its LLVM
+    /// version (`<commit-hash> LLVM <version>`).
+    pub compiler: String,
+    /// The linker driver every build of the host links through, as the first line of
+    /// `cc --version` names it ([`LINKER_DRIVER`]): an input of every test binary that the
+    /// pinned toolchain does not pin (a system update replaces it).
+    pub linker: String,
 }
 
 /// Whether `text` is a full object name of git: 40 or 64 lowercase hexadecimal digits.
@@ -7522,8 +7531,15 @@ impl ProofRecord {
     #[must_use]
     pub fn text(&self) -> String {
         format!(
-            "{PROOF_RECORD_TAG}\ncommit {}\ntree {}\nbase {}\ncargo-mutants {}\ntoolchain {}\nhost {}\n",
-            self.commit, self.tree, self.base, self.mutants, self.toolchain, self.host
+            "{PROOF_RECORD_TAG}\ncommit {}\ntree {}\nbase {}\ncargo-mutants {}\ntoolchain {}\nhost {}\ncompiler {}\nlinker {}\n",
+            self.commit,
+            self.tree,
+            self.base,
+            self.mutants,
+            self.toolchain,
+            self.host,
+            self.compiler,
+            self.linker
         )
     }
 
@@ -7557,6 +7573,8 @@ impl ProofRecord {
             mutants: field("cargo-mutants")?,
             toolchain: field("toolchain")?,
             host: field("host")?,
+            compiler: field("compiler")?,
+            linker: field("linker")?,
         };
         if lines.next().is_some() {
             return Err("it has a line more".to_owned());
@@ -7589,7 +7607,7 @@ fn proof_record_path(runner: &mut dyn Runner, base: &str) -> Result<String, Fail
 }
 
 /// What a record holds of the tools and the host: `cargo mutants --version`, the pinned
-/// release and the host of `rustc -vV`.
+/// release, the host and the compiler's build of `rustc -vV`, and the linker driver.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ProofTools {
     /// `cargo mutants --version`.
@@ -7598,7 +7616,15 @@ struct ProofTools {
     toolchain: String,
     /// The host `rustc -vV` names.
     host: String,
+    /// The compiler's commit and LLVM version, as `rustc -vV` names them.
+    compiler: String,
+    /// The first line of `cc --version`.
+    linker: String,
 }
+
+/// The program the Rust toolchain links through on every platform the checks run on
+/// (macOS and Linux): `cc`, which runs the system's linker, or the toolchain's own.
+pub const LINKER_DRIVER: &str = "cc";
 
 /// The tools and the host a record holds ([`ProofTools`]).
 ///
@@ -7620,16 +7646,35 @@ fn proof_tools(runner: &mut dyn Runner) -> Result<ProofTools, Failure> {
     let verbose = runner
         .capture(&Cmd::new("rustc", &["-vV"], Dir::Root))
         .map_err(|failure| Failure::from(format!("cannot read the host of rustc: {failure}")))?;
-    let host = verbose
+    let named = |key: &str| {
+        verbose
+            .lines()
+            .find_map(|line| line.strip_prefix(key)?.strip_prefix(": "))
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| Failure::from(format!("`rustc -vV` names no {key}")))
+    };
+    let host = named("host")?;
+    let compiler = format!("{} LLVM {}", named("commit-hash")?, named("LLVM version")?);
+    let linker = runner
+        .capture(&Cmd::new(LINKER_DRIVER, &["--version"], Dir::Root))
+        .map_err(|failure| {
+            Failure::from(format!(
+                "cannot read the version of the linker driver: {failure}"
+            ))
+        })?;
+    let linker = linker
         .lines()
-        .find_map(|line| line.strip_prefix("host: "))
+        .next()
         .map(str::trim)
-        .filter(|host| !host.is_empty())
-        .ok_or_else(|| Failure::from("`rustc -vV` names no host".to_owned()))?;
+        .filter(|line| !line.is_empty())
+        .ok_or_else(|| Failure::from(format!("`{LINKER_DRIVER} --version` names no version")))?;
     Ok(ProofTools {
         mutants: mutants.trim().to_owned(),
         toolchain: release,
         host: host.to_owned(),
+        compiler,
+        linker: linker.to_owned(),
     })
 }
 
@@ -7696,6 +7741,13 @@ fn usable_proof(
                 Err(format!(
                     "it was made with {} and {}, not {} and {}",
                     record.mutants, record.toolchain, tools.mutants, tools.toolchain
+                ))
+            } else if (record.compiler.as_str(), record.linker.as_str())
+                != (tools.compiler.as_str(), tools.linker.as_str())
+            {
+                Err(format!(
+                    "it was built by the compiler {} and the linker {}, not {} and {}",
+                    record.compiler, record.linker, tools.compiler, tools.linker
                 ))
             } else if tree != record.tree {
                 Err(format!(
@@ -7817,6 +7869,8 @@ fn record_mutation_proof(
         mutants: tools.mutants,
         toolchain: tools.toolchain,
         host: tools.host,
+        compiler: tools.compiler,
+        linker: tools.linker,
     };
     // Written only as the reader reads it: an empty or malformed field fails here.
     let record = ProofRecord::parse(&record.text())

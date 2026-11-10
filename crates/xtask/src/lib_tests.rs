@@ -160,12 +160,14 @@ const FAKE_JOBS: NonZeroUsize = NonZeroUsize::new(3).expect("three is not zero")
 /// The default check on the fake's machine.
 const CHANGES_MODE: Mode = Mode::Changes { jobs: FAKE_JOBS };
 
-/// What the fake's git answers about its tree and its changes.
-const GIT_ANSWERS: [(&str, &str); 11] = [
+/// What the fake's git answers about its tree and its changes, and its compiler and linker
+/// driver about themselves.
+const GIT_ANSWERS: [(&str, &str); 12] = [
     TREE_STATUS,
     PUSH_STATUS,
     HIDDEN,
     HOST,
+    LINKER,
     TREE_DIFF,
     TREE_HEAD,
     MERGE_BASE,
@@ -195,8 +197,19 @@ const HOST: (&str, &str) = (
     "rustc -vV",
     "rustc 1.99.1 (58cf8f9c3 2026-10-13)
 binary: rustc
+commit-hash: 58cf8f9c35b355199727627d07ae34a4e2846d67
+commit-date: 2026-10-13
 host: aarch64-apple-darwin
 release: 1.99.1
+LLVM version: 23.1.1
+",
+);
+
+/// How the fake's linker driver names its version, and what it answers.
+const LINKER: (&str, &str) = (
+    "cc --version",
+    "Apple clang version 14.0.3 (clang-1403.0.22.14.1)
+Target: arm64-apple-darwin22.6.0
 ",
 );
 
@@ -3031,7 +3044,7 @@ fn runs_every_step_and_reports_success() {
         Ok(()),
         "all green"
     );
-    let (tools, commands, emptied, listed, captured, written) = (10, 54, 14, 24, 32, 3);
+    let (tools, commands, emptied, listed, captured, written) = (10, 54, 14, 24, 33, 3);
     let read = 2
         + 7
         + 13
@@ -3067,7 +3080,7 @@ fn runs_every_step_and_reports_success() {
          each package after the first; the licenses and the history are captured twice each, the state \
          of the tree (before, for the proof record and after) six times, the nightly's version and sysroot, the Cargo metadata (for the untested targets, dependency, pin, library and math layer gates), the output of the fused test build, the merge base, the changes, the \
          new Rust files and the list of every mutant once, git's common directory twice, the tree checked out, \
-         cargo-mutants' version, rustc's host, the status for a push and the hidden files for the proof record; the measured base, the diff and the \
+         cargo-mutants' version, rustc's host and build, the linker driver's version, the status for a push and the hidden files for the proof record; the measured base, the diff and the \
          proof record are written once each; the proof record, the measured base and the \
          toolchain file are read for it; and the gates read the eight fake test data readers for the unsafe, bypass and vocabulary gates, every Rust file (eleven) for the test code, test data and untested targets gates, .node-version and the toolchain file for the preflight, the toolchain file, the four float sources and the float macros of the nightly and clippy.toml for the float gate, thirteen coverage reports, \
          the unviable report and reviews, the register of the pin gate, the 87 text files of the citation gate (the board among them), the reviews again against the list of every mutant, six TypeScript sources and their reviews, the nine \
@@ -10911,6 +10924,8 @@ fn proof_record(base: &str) -> super::ProofRecord {
         mutants: "cargo-mutants 27.1.0".to_owned(),
         toolchain: "1.99.1".to_owned(),
         host: "aarch64-apple-darwin".to_owned(),
+        compiler: "58cf8f9c35b355199727627d07ae34a4e2846d67 LLVM 23.1.1".to_owned(),
+        linker: "Apple clang version 14.0.3 (clang-1403.0.22.14.1)".to_owned(),
     }
 }
 
@@ -10921,7 +10936,7 @@ fn reads_exactly_the_proof_records_it_writes() {
     assert_eq!(
         text,
         format!(
-            "poyetik rust-mutants-proven 2\ncommit {}\ntree {}\nbase {}\ncargo-mutants cargo-mutants 27.1.0\ntoolchain 1.99.1\nhost aarch64-apple-darwin\n",
+            "poyetik rust-mutants-proven 3\ncommit {}\ntree {}\nbase {}\ncargo-mutants cargo-mutants 27.1.0\ntoolchain 1.99.1\nhost aarch64-apple-darwin\ncompiler 58cf8f9c35b355199727627d07ae34a4e2846d67 LLVM 23.1.1\nlinker Apple clang version 14.0.3 (clang-1403.0.22.14.1)\n",
             PROVEN[0], PROVEN[1], PROVEN[2]
         ),
         "one field per line, after the tag"
@@ -10947,8 +10962,8 @@ fn reads_exactly_the_proof_records_it_writes() {
             "it does not end with a line break",
         ),
         (
-            text.replacen("proven 2", "proven 1", 1),
-            "its first line is not `poyetik rust-mutants-proven 2`",
+            text.replacen("proven 3", "proven 2", 1),
+            "its first line is not `poyetik rust-mutants-proven 3`",
         ),
         (
             text.replacen("commit ", "comit ", 1),
@@ -10965,6 +10980,18 @@ fn reads_exactly_the_proof_records_it_writes() {
         (
             text.replacen("host aarch64-apple-darwin\n", "", 1),
             "it has no `host` line where expected",
+        ),
+        (
+            text.replacen("compiler 58cf", "compile 58cf", 1),
+            "it has no `compiler` line where expected",
+        ),
+        (
+            text.replacen(
+                "linker Apple clang version 14.0.3 (clang-1403.0.22.14.1)",
+                "linker ",
+                1,
+            ),
+            "it has no `linker` line where expected",
         ),
         (
             text.replacen("tree ", "treex", 1),
@@ -10988,7 +11015,7 @@ fn reads_exactly_the_proof_records_it_writes() {
             "its base is not an object name",
         ),
         (
-            "poyetik rust-mutants-proven 2\ncommit x\n".to_owned(),
+            "poyetik rust-mutants-proven 3\ncommit x\n".to_owned(),
             "it has no `tree` line where expected",
         ),
     ] {
@@ -11346,7 +11373,7 @@ fn ignores_a_proof_record_it_cannot_trust() {
     );
     ignored(
         &mut malformed,
-        "its first line is not `poyetik rust-mutants-proven 2`",
+        "its first line is not `poyetik rust-mutants-proven 3`",
     );
     let mut unreadable = proven_fake(&proof_record(PROVEN[2]), "");
     unreadable.broken = Some(format!("read {}", record_path(PROVEN[2])));
@@ -11533,11 +11560,13 @@ fn records_the_proof_of_a_clean_tree() {
         mutants: "cargo-mutants 27.1.0".to_owned(),
         toolchain: "1.99.1".to_owned(),
         host: "aarch64-apple-darwin".to_owned(),
+        compiler: "58cf8f9c35b355199727627d07ae34a4e2846d67 LLVM 23.1.1".to_owned(),
+        linker: "Apple clang version 14.0.3 (clang-1403.0.22.14.1)".to_owned(),
     };
     assert_eq!(
         fake.files.get(&record_path(PROVEN[2])).cloned(),
         Some(format!(
-            "poyetik rust-mutants-proven 2\ncommit {}\ntree {}\nbase {}\ncargo-mutants cargo-mutants 27.1.0\ntoolchain 1.99.1\nhost aarch64-apple-darwin\n",
+            "poyetik rust-mutants-proven 3\ncommit {}\ntree {}\nbase {}\ncargo-mutants cargo-mutants 27.1.0\ntoolchain 1.99.1\nhost aarch64-apple-darwin\ncompiler 58cf8f9c35b355199727627d07ae34a4e2846d67 LLVM 23.1.1\nlinker Apple clang version 14.0.3 (clang-1403.0.22.14.1)\n",
             CHECKED_OUT[0], CHECKED_OUT[1], PROVEN[2]
         )),
         "the commit and tree checked out, the base measured, the tools, the host"
@@ -11769,7 +11798,7 @@ fn fails_to_record_what_it_cannot_read_or_write() {
     let mut spaced = measured();
     drop(spaced.files.insert(
         format!("capture {}", HOST.0),
-        "host: a b\nhost: c\n".to_owned(),
+        "commit-hash: 1\nhost: a b\nhost: c\nLLVM version: 2\n".to_owned(),
     ));
     let mut spaced_host = measured();
     drop(
@@ -11917,6 +11946,8 @@ fn shares_proof_records_between_the_worktrees_of_real_git() {
         mutants: "cargo-mutants 27.1.0".to_owned(),
         toolchain: "1.99.1".to_owned(),
         host: "aarch64-apple-darwin".to_owned(),
+        compiler: "58cf8f9c35b355199727627d07ae34a4e2846d67 LLVM 23.1.1".to_owned(),
+        linker: "Apple clang version 14.0.3 (clang-1403.0.22.14.1)".to_owned(),
     };
     // Written from the linked worktree, read from the main one: one common directory.
     let mut from_linked = SystemRunner { root: linked };
@@ -12137,4 +12168,54 @@ fn reads_the_targets_of_real_cargo_metadata() {
         ]),
         "both settings as cargo reports them"
     );
+}
+
+#[test]
+fn ignores_a_proof_record_of_another_compiler_or_linker() {
+    let other = |edit: &dyn Fn(&mut super::ProofRecord)| {
+        let mut record = proof_record(PROVEN[2]);
+        edit(&mut record);
+        proven_fake(&record, "")
+    };
+    ignored(
+        &mut other(&|record| record.compiler = "0000 LLVM 23.1.1".to_owned()),
+        "it was built by the compiler 0000 LLVM 23.1.1 and the linker Apple clang version 14.0.3 \
+         (clang-1403.0.22.14.1), not 58cf8f9c35b355199727627d07ae34a4e2846d67 LLVM 23.1.1 and \
+         Apple clang version 14.0.3 (clang-1403.0.22.14.1)",
+    );
+    ignored(
+        &mut other(&|record| record.linker = "Apple clang version 17.0.0".to_owned()),
+        "it was built by the compiler 58cf8f9c35b355199727627d07ae34a4e2846d67 LLVM 23.1.1 and \
+         the linker Apple clang version 17.0.0, not 58cf8f9c35b355199727627d07ae34a4e2846d67 \
+         LLVM 23.1.1 and Apple clang version 14.0.3 (clang-1403.0.22.14.1)",
+    );
+    for (missing, key) in [
+        (
+            "commit-hash: 58cf8f9c35b355199727627d07ae34a4e2846d67\n",
+            "commit-hash",
+        ),
+        ("LLVM version: 23.1.1\n", "LLVM version"),
+    ] {
+        let mut unbuilt = proven_fake(&proof_record(PROVEN[2]), "");
+        drop(unbuilt.files.insert(
+            format!("capture {}", HOST.0),
+            HOST.1.replacen(missing, "", 1),
+        ));
+        ignored(&mut unbuilt, &format!("`rustc -vV` names no {key}"));
+    }
+    let mut no_linker = proven_fake(&proof_record(PROVEN[2]), "");
+    no_linker.broken = Some(LINKER.0.to_owned());
+    ignored(
+        &mut no_linker,
+        "cannot read the version of the linker driver: cannot run `cc --version`: not found",
+    );
+    for silent in ["", "\nclang\n", "  \n"] {
+        let mut unnamed = proven_fake(&proof_record(PROVEN[2]), "");
+        drop(
+            unnamed
+                .files
+                .insert(format!("capture {}", LINKER.0), silent.to_owned()),
+        );
+        ignored(&mut unnamed, "`cc --version` names no version");
+    }
 }

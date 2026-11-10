@@ -41,6 +41,16 @@ cargo xtask mutants <target>  # every mutant of a crate, a Rust file, a TypeScri
 
 The pre-push hook runs `cargo xtask pre-push`, which refuses uncommitted changes and a pushed commit other than the one checked out, then runs `cargo xtask check` (`--full` when a tag is pushed); CI runs `cargo xtask check --full`, split into parallel jobs, one per part of `cargo xtask list --full --parts` (`cargo xtask check --full --part <part>` runs one). The default check mutation tests only what changed: Rust since the merge base with the branch's upstream (else `origin/main`, else `main`), but the crates an earlier default check of the same base proved and left unchanged (its mutation proof record, which `--full` never reads), TypeScript since the last local Stryker run (its incremental file), so a green default check does not prove a green full check; `CLAUDE.md` (CI) says what each proves and when the full check is required.
 
+### Optional machine settings
+
+The checks build, link and start many test programs (mutation testing builds the workspace again for each mutant), so the machine's linker, file indexer and malware scanner weigh on how long they take. None of these settings is required, and the checks never depend on one; each may save time on its platform:
+
+- macOS: keep the Command Line Tools up to date (their recent releases link with Apple's faster linker), and exclude the repository's `target/` folder from Spotlight (System Settings, Spotlight, Search Privacy).
+- Linux: the pinned toolchain already links with its own fast linker on x86_64; exclude `target/` from any file indexer that runs.
+- Windows (WSL2): keep the repository in the WSL2 file system rather than below `/mnt/c`, and exclude the distribution's virtual disk from Microsoft Defender's real-time protection.
+
+A new linker or compiler build is an input of every test program: the mutation proof record of the default check names both, so the first default check after an update mutates as if there were no record.
+
 ## License
 
 Not decided yet.
