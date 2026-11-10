@@ -8247,6 +8247,7 @@ fn accepts_the_steps_a_board_has() {
         "\u{23}12 steps 2 or 3; \u{23}3 step 1",
         "**Step.** \u{23}12 step 1 (with step 3). **Order:** 3, before step 2.",
         "  **Step.** Engine: \u{23}12 step 3; format: \u{23}3 step 1, the port at step 1.",
+        "**Step.** \u{23}12 step 1; substep 9, x-step 9.",
         "card \u{23}1 (entry 1) step 9",
         "C\u{23}12 step 9, &\u{23}12 step 9, x\u{23}12 step 9",
         "step 9 of the plan, steps 9 and 10",
@@ -8287,6 +8288,7 @@ fn refuses_a_step_the_board_does_not_have() {
             vec!["x.md:1: cites \u{23}7 step 1, but the board has no card \u{23}7".to_owned()],
         ),
         ("**Step.** \u{23}12 step 1 (with step 4).", vec![past(4)]),
+        ("**Step.** \u{23}12 step 1 (step 4).", vec![past(4)]),
         (
             "**Step.** \u{23}3 step 1, then \u{23}12: at step 4.",
             vec![past(4)],
