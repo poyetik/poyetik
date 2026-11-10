@@ -1,6 +1,6 @@
 /** What the main thread and the `AudioWorklet` processors agree on. */
 
-import { PRECISIONS, type Precision } from "./engine.ts";
+import { PRECISIONS, parsePrecision, type Precision } from "./engine.ts";
 
 /** Name of the processor running the engine. */
 export const ENGINE_PROCESSOR = "poyetik-engine";
@@ -74,8 +74,7 @@ export function parseEngineOptions(value: unknown): EngineOptions {
   if (typeof marker !== "boolean") {
     throw new OptionsError("marker is not a boolean");
   }
-  const precision: unknown = Reflect.get(value, "precision");
-  const known = PRECISIONS.find((name) => name === precision);
+  const known = parsePrecision(Reflect.get(value, "precision"));
   if (known === undefined) {
     throw new OptionsError(`precision is not one of ${PRECISIONS.join(", ")}`);
   }

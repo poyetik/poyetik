@@ -7,13 +7,14 @@
  */
 
 import { ModuleError, PatchError, WasmEngine, givenAsBinary32, type Precision } from "./engine.ts";
-export { PRECISIONS, givenAsBinary32, type Precision } from "./engine.ts";
+export { PRECISIONS, givenAsBinary32, parsePrecision, type Precision } from "./engine.ts";
 import { ENGINE_PROCESSOR, MARKER_PERIOD, TAP_PROCESSOR, parseEngineMessage, parseTapMessage, type EngineOptions, type TapMessage } from "./protocol.ts";
 
 /**
  * A patch checked by the engine, ready to run in engine nodes. Only {@link loadPatch}
  * makes one: holding a `LoadedPatch` proves the engine accepted this patch at this rate,
- * in this precision.
+ * in this precision, for a precision of the type (a plain-JavaScript caller passing another
+ * value is not checked here: roadmap #32 decides those checks for every exported function).
  * It keeps its own copies of the bytes, so changing the arrays given to `loadPatch`
  * afterwards changes nothing.
  */

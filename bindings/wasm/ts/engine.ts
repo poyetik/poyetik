@@ -31,7 +31,19 @@ export type Precision = (typeof PRECISIONS)[number];
  * binary32 (Web Audio): a 64-bit render is rounded to binary32, a 32-bit one given as it is.
  */
 export function givenAsBinary32(precision: Precision): Binary32Format {
-  return precision === "binary64" ? "binary64-as-binary32" : "binary32";
+  return GIVEN_AS_BINARY32[precision];
+}
+
+/** The render format of each precision given as binary32: a record, so that a new precision does not compile without one. */
+const GIVEN_AS_BINARY32: Readonly<Record<Precision, Binary32Format>> = { binary64: "binary64-as-binary32", binary32: "binary32" };
+
+/**
+ * The precision `value` names, read at a boundary (a message, a file): `undefined` when it
+ * names none. The one reader of a precision from outside the type system; each caller
+ * refuses `undefined` with its own error.
+ */
+export function parsePrecision(value: unknown): Precision | undefined {
+  return PRECISIONS.find((name) => name === value);
 }
 
 /** The sample arrays a render format fills: `Float64Array` for binary64, `Float32Array` otherwise. */

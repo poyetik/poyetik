@@ -1,7 +1,7 @@
 // The benchmarks of the engine, counted in WebAssembly instructions (spec/benchmarks.md):
 // what each measures, the baseline they are compared with, the tolerance, and the law that
 // building a plan grows as n log n. Pure functions over a counted module, tested.
-import { PRECISIONS, givenAsBinary32, type Precision } from "../ts/engine.ts";
+import { PRECISIONS, givenAsBinary32, parsePrecision, type Precision } from "../ts/engine.ts";
 import { CountedInstance, CountError, type CountedEngine } from "./counter.ts";
 
 /** A patch in the patch format, before it is written as JSON. */
@@ -484,7 +484,7 @@ export function parseBaseline(text: string): Counts {
  * @throws {BenchmarkFileError} when it names none.
  */
 function precisionOf(written: unknown, where: string): Precision {
-  const precision = PRECISIONS.find((name) => name === written);
+  const precision = parsePrecision(written);
   if (precision === undefined) {
     throw new BenchmarkFileError(`${where}.precision is not one of ${PRECISIONS.join(", ")}`);
   }

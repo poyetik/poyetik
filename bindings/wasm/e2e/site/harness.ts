@@ -4,7 +4,7 @@
 // absent); the render is given as binary32, as Web Audio takes it.
 import { WasmEngine } from "../../dist/engine.js";
 import { interleave, renderHash, STRICT } from "../../dist/hash.js";
-import { PRECISIONS, addProcessors, captureEngine, createEngineNode, givenAsBinary32, loadPatch, renderOffline, type LoadedPatch } from "../../dist/web.js";
+import { addProcessors, captureEngine, createEngineNode, givenAsBinary32, loadPatch, parsePrecision, renderOffline, type LoadedPatch } from "../../dist/web.js";
 import { fetchOk } from "./fetch.ts";
 import { PAGE_CLOCK, renderBlocks, runsOf, timeEach, timeRuns, timed } from "./timing.ts";
 
@@ -50,7 +50,7 @@ const wasm = await (await fetchOk(new URL("../../dist/engine.wasm", import.meta.
 /** The case named by `?case=`, sine-440 when absent. */
 const testCase = await fetchCase(new URLSearchParams(location.search).get("case") ?? "sine-440");
 /** The precision named by `?precision=`, binary64 when absent; an unknown one fails the page load. */
-const precision = PRECISIONS.find((name) => name === (new URLSearchParams(location.search).get("precision") ?? "binary64"));
+const precision = parsePrecision(new URLSearchParams(location.search).get("precision") ?? "binary64");
 if (precision === undefined) {
   throw new Error(`unknown precision: ${String(new URLSearchParams(location.search).get("precision"))}`);
 }
@@ -148,7 +148,7 @@ on("construction", async () => {
  * same module, compiled by the browser engine, as in its `AudioWorklet`.
  */
 async function timeRendering(patch: string, rate: number, asked: string, blocks: number, runs: number): Promise<number[]> {
-  const chosen = PRECISIONS.find((name) => name === asked);
+  const chosen = parsePrecision(asked);
   if (chosen === undefined) {
     throw new Error(`unknown precision: ${asked}`);
   }

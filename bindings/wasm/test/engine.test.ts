@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from "vitest";
-import { ABI_VERSION, EngineTrap, ModuleError, PatchError, RENDER_FORMATS, WasmEngine, givenAsBinary32, type RenderFormat } from "../ts/engine.ts";
+import { ABI_VERSION, EngineTrap, ModuleError, PatchError, RENDER_FORMATS, WasmEngine, givenAsBinary32, parsePrecision, type RenderFormat } from "../ts/engine.ts";
 import { interleave, interleave64, renderHash, STRICT } from "../ts/hash.ts";
 import { Counted, created } from "./counted.ts";
 import { CORPUS, engineFunctions, HOST_BUFFER_SIZES, FUNCTIONS, oscillators, PATCH_NAMES, PRECISION_NAMES, REFERENCES, SILENT_PATCH, SINE_PATCH, UNKNOWN_BOX, handMadeModule, NAN_BITS, reference, wasmBytes, type CorpusCase } from "./fixtures.ts";
@@ -567,4 +567,12 @@ describe("WasmEngine", () => {
   test("names its errors", () => {
     expect(new ModuleError("x")).toMatchObject({ name: "ModuleError", message: "not an engine module: x" });
   });
+});
+
+test("reads a precision only in its exact name, at a boundary", () => {
+  expect(["binary64", "binary32"].map(parsePrecision)).toStrictEqual(["binary64", "binary32"]);
+  for (const value of ["binary-64", "Binary64", "binary16", "", undefined, null, 64, ["binary64"]]) {
+    expect(parsePrecision(value), String(value)).toBeUndefined();
+  }
+  expect([givenAsBinary32("binary64"), givenAsBinary32("binary32")]).toStrictEqual(["binary64-as-binary32", "binary32"]);
 });

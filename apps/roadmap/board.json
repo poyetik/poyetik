@@ -76,7 +76,7 @@
           "done": false
         },
         {
-          "title": "TypeScript over the WebAssembly module, the same functions as the C interface",
+          "title": "TypeScript over the WebAssembly module, the same functions as the C interface; decide once, for every exported function, whether parameters typed as a union of literals (a precision, a render format) are also checked at run time for plain-JavaScript callers, or the type is the proof",
           "done": false
         },
         {
@@ -100,7 +100,7 @@
           "done": false
         },
         {
-          "title": "One patch loader shared by native and WebAssembly, with a differential test",
+          "title": "One patch loader shared by native and WebAssembly, with a differential test, and one render-format dispatch shared by engine-cli and engine-wasm",
           "done": false
         },
         {
