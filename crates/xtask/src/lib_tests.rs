@@ -1627,6 +1627,8 @@ fn lists_every_check_in_order() {
             "Root: cargo build --package engine-core --package engine-objects --package engine-patch --package engine-hash --locked --target thumbv7em-none-eabihf",
             "Root: cargo clippy --package engine-fpenv --package engine-cli --all-targets --locked --target aarch64-apple-darwin",
             "Root: cargo clippy --package engine-fpenv --package engine-cli --all-targets --locked --target x86_64-unknown-linux-gnu",
+            "Root: cargo build --lib --package engine-fpenv --package engine-cli --locked --target aarch64-apple-darwin",
+            "Root: cargo build --lib --package engine-fpenv --package engine-cli --locked --target x86_64-unknown-linux-gnu",
             "fresh target/coverage",
             "coverage locality",
             "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-core/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-core.json -- --include-ignored",
@@ -1740,6 +1742,8 @@ fn names_every_check_in_order() {
             "Engine portability (thumbv7em-none-eabihf)",
             "Native shell lints (aarch64-apple-darwin)",
             "Native shell lints (x86_64-unknown-linux-gnu)",
+            "Native code of engine-cli and engine-fpenv built, inline assembly included (aarch64-apple-darwin)",
+            "Native code of engine-cli and engine-fpenv built, inline assembly included (x86_64-unknown-linux-gnu)",
             "Fresh Rust coverage reports",
             "Rust coverage counts a crate's own unit tests only",
             "Rust coverage of engine-core: 100% by its own unit tests",
@@ -3333,7 +3337,7 @@ fn runs_every_step_and_reports_success() {
         Ok(()),
         "all green"
     );
-    let (tools, commands, emptied, listed, captured, written) = (10, 54, 14, 24, 36, 3);
+    let (tools, commands, emptied, listed, captured, written) = (10, 56, 14, 24, 36, 3);
     let read = 2
         + 7
         + 13
@@ -3360,8 +3364,8 @@ fn runs_every_step_and_reports_success() {
     assert_eq!(
         fake.ran.len(),
         tools + commands + emptied + listed + captured + written + read,
-        "the preflight asks ten tools; 54 commands run (formatting, lints, documentation, \
-         tests, four portability builds, the native shell's lints for its two architectures, thirteen coverage measurements each after emptying \
+        "the preflight asks ten tools; 56 commands run (formatting, lints, documentation, \
+         tests, four portability builds, the native shell's lints and the build of its libraries for its two architectures, thirteen coverage measurements each after emptying \
          the coverage build, the mutants of the changes, Miri, the \
          conformance check and export, deny, the JavaScript install, audit, the engine build and five package \
          checks each followed by its Stryker run); fourteen directories are emptied; git lists \
@@ -3398,15 +3402,15 @@ fn runs_every_step_and_reports_success() {
     );
     let text = String::from_utf8(out).expect("utf-8 output");
     assert!(
-        text.starts_with("▶ [1/86] Tools and platform\n"),
+        text.starts_with("▶ [1/88] Tools and platform\n"),
         "numbered progress: {text}"
     );
     assert!(
-        text.contains("▶ [77/86] Roadmap checks\n  done in 1.5 s\n"),
+        text.contains("▶ [79/88] Roadmap checks\n  done in 1.5 s\n"),
         "last step announced: {text}"
     );
     assert!(
-        text.ends_with("  done in 1.5 s\n✔ all 86 checks passed in 2 min 09 s\n"),
+        text.ends_with("  done in 1.5 s\n✔ all 88 checks passed in 2 min 12 s\n"),
         "summary: {text}"
     );
 }
@@ -6528,7 +6532,7 @@ fn checks_a_push_then_runs_every_check() {
     assert!(
         String::from_utf8(out)
             .expect("UTF-8")
-            .ends_with("✔ all 86 checks passed in 2 min 09 s\n"),
+            .ends_with("✔ all 88 checks passed in 2 min 12 s\n"),
         "then every check"
     );
     assert!(
@@ -6984,12 +6988,12 @@ fn prints_the_details_of_a_failure_on_stdout_and_one_line_on_stderr() {
     );
     assert_eq!(
         String::from_utf8(err).expect("UTF-8"),
-        "error: 1 of 84 checks failed, listed above\n",
+        "error: 1 of 86 checks failed, listed above\n",
         "one line on stderr, counting the failed steps"
     );
     assert!(
         String::from_utf8(out).expect("UTF-8").ends_with(&format!(
-            "▶ [84/84] Working tree unchanged by the checks\n  done in 1.5 s\n\
+            "▶ [86/86] Working tree unchanged by the checks\n  done in 1.5 s\n\
              not reviewed: crates/a/src/c.rs: replace g -> U with x\n\
              stale review: crates/a/src/b.rs: replace f -> T with Default::default()\n\
              Rust unviable mutants reviewed: unviable mutants must be reviewed in \
@@ -10749,8 +10753,8 @@ fn the_parts_run_every_step_of_the_full_check_once() {
     }
     assert_eq!(
         steps_run,
-        18 * 3 + (84 - 3 - 7 - 2) + 8 * 2 + 1 + 2 + 6 * 3 + 1,
-        "each part's frame (three steps); every other step of the 84 once, but the seven \
+        18 * 3 + (86 - 3 - 7 - 2) + 8 * 2 + 1 + 2 + 6 * 3 + 1,
+        "each part's frame (three steps); every other step of the 86 once, but the seven \
          preparations, the mutation run and its unviable gate; in each of the eight shards, \
          the report emptied and the shard's run; the gate over the shards; the conformance \
          export (two steps) for the oracle; the JavaScript preparation (three steps) for the \

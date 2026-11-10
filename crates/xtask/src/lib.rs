@@ -957,30 +957,52 @@ fn portability_steps() -> Vec<Step> {
         .collect()
 }
 
-/// The native shell and its floating-point mode linted for each of [`NATIVE_TARGETS`]
-/// (Clippy type-checks without linking, so no linker of the other target is needed).
+/// The native shell (`engine-cli`) and the library's floating-point mode it uses
+/// (`engine-fpenv`), whose code differs by architecture, linted then built for each of
+/// [`NATIVE_TARGETS`].
+///
+/// Clippy type-checks every target of theirs, tests included, without generating code, so
+/// it never assembles inline assembly; the build of their libraries generates and assembles
+/// it (an invalid instruction or register of the other architecture fails there), and
+/// needs no linker of the other target, since a library is not linked.
 fn native_lint_steps() -> Vec<Step> {
-    NATIVE_TARGETS
-        .iter()
-        .map(|&target| {
-            run(
-                &format!("Native shell lints ({target})"),
-                "cargo",
-                &[
-                    "clippy",
-                    "--package",
-                    "engine-fpenv",
-                    "--package",
-                    "engine-cli",
-                    "--all-targets",
-                    "--locked",
-                    "--target",
-                    target,
-                ],
-                Dir::Root,
-            )
-        })
-        .collect()
+    let lints = NATIVE_TARGETS.iter().map(|&target| {
+        run(
+            &format!("Native shell lints ({target})"),
+            "cargo",
+            &[
+                "clippy",
+                "--package",
+                "engine-fpenv",
+                "--package",
+                "engine-cli",
+                "--all-targets",
+                "--locked",
+                "--target",
+                target,
+            ],
+            Dir::Root,
+        )
+    });
+    let builds = NATIVE_TARGETS.iter().map(|&target| {
+        run(
+            &format!("Native code of engine-cli and engine-fpenv built, inline assembly included ({target})"),
+            "cargo",
+            &[
+                "build",
+                "--lib",
+                "--package",
+                "engine-fpenv",
+                "--package",
+                "engine-cli",
+                "--locked",
+                "--target",
+                target,
+            ],
+            Dir::Root,
+        )
+    });
+    lints.chain(builds).collect()
 }
 
 /// The test harness argument that runs the ignored tests too.
