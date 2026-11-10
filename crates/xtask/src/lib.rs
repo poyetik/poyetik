@@ -933,17 +933,57 @@ fn mutants_command(args: &[&str]) -> Cmd {
     )
 }
 
+/// How many times longer than the unmutated tests a mutant's tests may run alone.
+///
+/// Past it they count as hung. It is cargo-mutants' own default margin, for the work a
+/// mutant may legitimately add (a proptest configuration mutated back to its default runs every
+/// property test at proptest's default count of cases).
+pub const MUTANT_TIMEOUT_MARGIN: usize = 5;
+
+/// The least time, in seconds, a mutant's tests may run alone before they count as hung:
+/// cargo-mutants' own default floor, for tests too short for a margin to mean anything.
+pub const MUTANT_TIMEOUT_FLOOR: usize = 20;
+
+/// The timeout arguments of a cargo-mutants run in `jobs` jobs.
+///
+/// They are `--jobs`, then the test timeout derived from the unmutated tests' time that
+/// cargo-mutants measures first (its baseline, run alone), `max(floor, baseline × margin)`,
+/// both scaled by `jobs`.
+///
+/// Why scaled: the baseline runs alone, a mutant's tests share the processors with the
+/// other jobs. A job is either building, its builds sharing the processors' tokens of
+/// cargo-mutants' jobserver with every other build, or testing, each test binary running
+/// as many threads as there are processors; so at most `jobs` binaries' worth of work wants
+/// the processors at once, and a test runs at most `jobs` times slower than alone. Without
+/// it, a mutant caught by a fast test but whose binary still runs its slow tests to the end
+/// was reported as a timeout under load (engine-testkit's `config` mutants). A mutant that really hangs is still stopped and reported as a timeout,
+/// which fails the check: the timeout only bounds how long that failing run takes.
+#[must_use]
+pub fn mutant_timeout_args(jobs: NonZeroUsize) -> [String; 6] {
+    [
+        "--jobs".to_owned(),
+        jobs.to_string(),
+        "--timeout-multiplier".to_owned(),
+        MUTANT_TIMEOUT_MARGIN.saturating_mul(jobs.get()).to_string(),
+        "--minimum-test-timeout".to_owned(),
+        MUTANT_TIMEOUT_FLOOR.saturating_mul(jobs.get()).to_string(),
+    ]
+}
+
+/// A cargo-mutants command that tests mutants: [`mutants_command`] of `args` then the
+/// arguments of [`mutant_timeout_args`] in `jobs` jobs.
+fn tested_mutants_command(args: &[&str], jobs: NonZeroUsize) -> Cmd {
+    let timeouts = mutant_timeout_args(jobs);
+    let mut all = args.to_vec();
+    all.extend(timeouts.iter().map(String::as_str));
+    mutants_command(&all)
+}
+
 /// The cargo-mutants command of [`Mode::Changes`]: the workspace in `jobs` jobs, filtered
 /// by [`CHANGES_DIFF`].
 #[must_use]
 pub fn changes_mutants_command(jobs: NonZeroUsize) -> Cmd {
-    mutants_command(&[
-        "--workspace",
-        "--jobs",
-        &jobs.to_string(),
-        "--in-diff",
-        CHANGES_DIFF,
-    ])
+    tested_mutants_command(&["--workspace", "--in-diff", CHANGES_DIFF], jobs)
 }
 
 /// The cargo-mutants command of [`Mode::Full`]: every mutant of the workspace in `jobs` jobs.
@@ -952,13 +992,12 @@ pub fn changes_mutants_command(jobs: NonZeroUsize) -> Cmd {
 /// shard `i % count`: round-robin, so that each shard takes its share of every file).
 #[must_use]
 pub fn workspace_mutants_command(jobs: NonZeroUsize, shard: Option<Shard>) -> Cmd {
-    let jobs = jobs.to_string();
-    let mut args = vec!["--workspace", "--jobs", &jobs];
+    let mut args = vec!["--workspace"];
     let sharded = shard.map(|shard| format!("{}/{MUTATION_SHARDS}", shard.index()));
     if let Some(sharded) = &sharded {
         args.extend(["--shard", sharded, "--sharding=round-robin"]);
     }
-    mutants_command(&args)
+    tested_mutants_command(&args, jobs)
 }
 
 /// Rust mutation testing in `mode`, after emptying [`MUTANTS_OUT`], then its gate.
@@ -7436,11 +7475,7 @@ fn rust_mutants_of_changes(
         say(out, &format!("  {path} changed: every Rust mutant"))?;
         if proven.is_empty() {
             return runner
-                .run(&mutants_command(&[
-                    "--workspace",
-                    "--jobs",
-                    &jobs.to_string(),
-                ]))
+                .run(&tested_mutants_command(&["--workspace"], jobs))
                 .map_err(|failure| Failure::from(failure.to_string()));
         }
     }
@@ -7897,10 +7932,7 @@ pub fn mutation_target(text: &str) -> Result<Target, String> {
 /// partial run unless the target is a whole TypeScript package.
 #[must_use]
 pub fn mutants_steps(target: &Target, jobs: NonZeroUsize) -> Vec<Step> {
-    let jobs = jobs.to_string();
     let rust = |what: &str, args: &[&str]| {
-        let mut all = args.to_vec();
-        all.extend(["--jobs", &jobs]);
         vec![
             Step {
                 name: "Fresh Rust mutation report".to_owned(),
@@ -7908,7 +7940,7 @@ pub fn mutants_steps(target: &Target, jobs: NonZeroUsize) -> Vec<Step> {
             },
             Step {
                 name: format!("Rust mutation testing of {what}"),
-                action: Action::Run(mutants_command(&all)),
+                action: Action::Run(tested_mutants_command(args, jobs)),
             },
             Step {
                 name: "Rust unviable mutants reviewed".to_owned(),

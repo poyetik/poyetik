@@ -784,7 +784,7 @@
         },
         {
           "title": "Mutation timeouts: the default check sets the mutant timeout automatically (about 40 s for xtask's main.rs), and one mutant timed out under load although more time caught it; set a timeout derived from the measured baseline with a margin, or rerun timed-out mutants once with more time",
-          "done": false
+          "done": true
         },
         {
           "title": "Benchmark baseline: its update path (cargo xtask bless-benchmarks) is a convention, not a gate: a hand edit of spec/benchmark-baseline.json passes, as one of conformance/references.json does; require the bless or a reason in commits that touch it",
