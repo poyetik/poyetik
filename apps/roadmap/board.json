@@ -898,7 +898,7 @@
     {
       "id": 12,
       "title": "DSP foundations: state-of-the-art audio quality before more boxes",
-      "description": "Set the audio quality bar before writing many boxes: objective measurements, deterministic denormals, smoothed parameters with sample-accurate events, an allocation-free audio thread in the browser, and benchmarks.",
+      "description": "Set the audio quality bar before writing many boxes: objective measurements, deterministic subnormals, smoothed parameters with sample-accurate events, an allocation-free audio thread in the browser, and benchmarks.",
       "column": "doing",
       "milestone": "M1 Engine",
       "createdAt": "2026-11-07",
@@ -917,15 +917,15 @@
           "done": true
         },
         {
-          "title": "Deterministic strategy for denormal numbers, proven on every target: a subnormal conformance case, and a native test with flush-to-zero forced on",
+          "title": "Deterministic strategy for subnormal numbers, proven on every target: a subnormal conformance case, and a native test with flush-to-zero forced on",
           "done": true
         },
         {
-          "title": "Subnormal parameters treated as zero (flushed on the f64 side before rounding, below the smallest normal), with the denormal strategy, and a 1e-40 Hz oscillator case",
+          "title": "Subnormal parameters treated as zero (flushed after rounding to binary32, below its smallest normal 2^-126), with the subnormal strategy, and a 1e-40 Hz oscillator case",
           "done": true
         },
         {
-          "title": "Engine precision: 64-bit processing by default and 32-bit as a setting, boxes written once, generic over the sample type, all their arithmetic through the engine's math layer (the sample type, its operators and the math functions); a render hash version that records the precision and the arithmetic mode as a versioned set of option flags (all off, the strict default, the only one built), an unknown flag refused; every reference re-blessed for both precisions (a migration step), checked native and WebAssembly",
+          "title": "Engine precision: binary64 processing by default and binary32 as a setting, boxes written once, generic over the sample type, all their arithmetic through the engine's math layer (the sample type, its operators and the math functions); a render hash version that records the precision and the arithmetic mode as a versioned set of option flags (all off, the strict default, the only one built), an unknown flag refused; every reference re-blessed for both precisions (a migration step), checked native and WebAssembly",
           "done": true
         },
         {
