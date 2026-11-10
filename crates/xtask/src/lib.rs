@@ -3359,6 +3359,11 @@ fn crate_root(relative: &str) -> bool {
 /// The first line of the one form that declares a unit test module ([`test_declarations`]).
 pub const TEST_DECLARATION: &str = "#[cfg(test)]";
 
+/// The one form that declares a unit test module ([`test_declarations`]), as the gates
+/// say it: any identifier names the module.
+pub const TEST_DECLARATION_FORM: &str =
+    "`#[cfg(test)] #[path = \"<name>_tests.rs\"] mod <module>;`";
+
 /// The unit test files that `text`, the Rust file `path`, declares, each with the line of
 /// its declaration: the one form, three whole lines,
 ///
@@ -3532,12 +3537,14 @@ fn in_crate(path: &str) -> Option<(&'static RustCrate, &str)> {
 /// `tests/` and the `*_tests.rs` files, the code word `test` (`#[cfg(test)]`, `#[test]`,
 /// `cfg_attr(test, …)`, `cfg!(test)`, `mod test`…) appears only on the first line of a
 /// declaration or on a line of [`NOT_TEST_LINES`], and `include` (`include!`, which brings
-/// in code no gate reads by its path) nowhere.
+/// in code no gate reads by its path) nowhere. A `*_tests.rs` file brings in no other file
+/// (a module without a body, `#[path]`, `include!`), which no rule would tell as test code:
+/// its modules are written inline.
 ///
 /// # Errors
 ///
-/// Returns every other `test` or `include` with its file and line, and every `*_tests.rs`
-/// file declared other than once.
+/// Returns every other `test` or `include` with its file and line, every file a
+/// `*_tests.rs` file would load, and every `*_tests.rs` file declared other than once.
 pub fn test_code_gate(sources: &[(String, String)]) -> Result<(), Failure> {
     let mut problems = Vec::new();
     let mut declared: BTreeMap<String, usize> = BTreeMap::new();
@@ -3546,6 +3553,7 @@ pub fn test_code_gate(sources: &[(String, String)]) -> Result<(), Failure> {
     });
     for (path, text) in crate_sources.clone() {
         if path.ends_with("_tests.rs") {
+            problems.extend(loaded_by_tests(path, text));
             continue;
         }
         let declarations = test_declarations(path, text);
@@ -3563,7 +3571,7 @@ pub fn test_code_gate(sources: &[(String, String)]) -> Result<(), Failure> {
             if word == "test" && !firsts.contains(&line) && !NOT_TEST_LINES.contains(&whole) {
                 problems.push(format!(
                     "{path}:{line}: names `test` outside test code: tests live in tests/ or in a \
-                     *_tests.rs file declared `#[cfg(test)] #[path = \"<name>_tests.rs\"] mod <name>;`"
+                     *_tests.rs file declared {TEST_DECLARATION_FORM}"
                 ));
             }
             if word == "include" {
@@ -3587,6 +3595,52 @@ pub fn test_code_gate(sources: &[(String, String)]) -> Result<(), Failure> {
         "test code only in tests/ and in declared *_tests.rs files",
         problems,
     )
+}
+
+/// The problems of `text`, the `*_tests.rs` file `path`, that would load another file: a
+/// module declared without a body (`mod <identifier>;`, which rustc reads from a file
+/// beside it), a `#[path]` attribute, or the code word `include` (`include_str` and
+/// `include_bytes` are other words, read as test data by [`test_data_gate`]).
+fn loaded_by_tests(path: &str, text: &str) -> Vec<String> {
+    let chars: Vec<char> = text.chars().collect();
+    let words = code_words(text);
+    let mut problems = Vec::new();
+    for (index, (line, word, end)) in words.iter().enumerate() {
+        let start = end.saturating_sub(word.chars().count());
+        let before: String = chars
+            .get(..start)
+            .unwrap_or_default()
+            .iter()
+            .rev()
+            .filter(|character| !character.is_whitespace())
+            .take(2)
+            .collect();
+        let bodyless = word == "mod"
+            && words
+                .get(index.saturating_add(1))
+                .is_some_and(|(_, _, after)| {
+                    chars
+                        .get(*after..)
+                        .unwrap_or_default()
+                        .iter()
+                        .find(|character| !character.is_whitespace())
+                        == Some(&';')
+                });
+        let what = if bodyless {
+            "declares a module without a body, loaded from another file"
+        } else if word == "path" && (before == "[#" || before == "[!") {
+            "holds a `#[path]` attribute, which loads another file"
+        } else if word == "include" {
+            "names `include`, which loads another file"
+        } else {
+            continue;
+        };
+        problems.push(format!(
+            "{path}:{line}: {what}, which no rule tells as test code: a *_tests.rs file writes \
+             its modules inline"
+        ));
+    }
+    problems
 }
 
 /// The kinds of target whose documentation rustdoc tests.
@@ -3794,6 +3848,91 @@ fn literal_argument(rest: &str) -> Option<&str> {
         .then_some(literal)
 }
 
+/// The code words [`test_data_gate`] follows: the forms that read a file or name a
+/// directory of the repository.
+const TEST_DATA_WORDS: [&str; 6] = [
+    "include_str",
+    "include_bytes",
+    "env",
+    "option_env",
+    "var",
+    "var_os",
+];
+
+/// The variables a crate may read with `env!` that name no file of the repository: those
+/// Cargo sets for the crate itself, by their prefix.
+const CRATE_VARIABLES: [&str; 2] = ["CARGO_BIN_EXE_", "CARGO_PKG_"];
+
+/// What a word of [`TEST_DATA_WORDS`] reads, by the text that follows it ([`test_data_read`]).
+enum Read<'text> {
+    /// A file relative to the file that reads it, by its literal if it has one.
+    Literal(Option<&'text str>),
+    /// A file relative to the crate's directory, by its literal if it has one.
+    Joined(Option<&'text str>),
+    /// No file of the repository.
+    Other,
+    /// A form the gate cannot follow, and why.
+    Refused(String),
+}
+
+/// What `word`, a word of [`TEST_DATA_WORDS`], reads, `rest` being the text after it.
+fn test_data_read<'text>(word: &str, rest: &'text str) -> Read<'text> {
+    let manifest_dir = "!(\"CARGO_MANIFEST_DIR\")";
+    let compact: String = rest
+        .chars()
+        .filter(|character| !character.is_whitespace())
+        .take(40)
+        .collect();
+    match word {
+        "include_str" | "include_bytes" => {
+            Read::Literal(rest.strip_prefix('!').and_then(literal_argument))
+        }
+        "env" => match rest.strip_prefix(manifest_dir) {
+            Some(after) => {
+                // In a path's constructor: `Path::new(env!(…))`, then the one join.
+                let joined = after
+                    .strip_prefix(')')
+                    .map(str::trim_start)
+                    .and_then(|joined| joined.strip_prefix(".join"));
+                let literal = joined.and_then(literal_argument);
+                let further = joined
+                    .zip(literal)
+                    .and_then(|(joined, literal)| joined.get(literal.len().saturating_add(4)..))
+                    .map(str::trim_start)
+                    .is_some_and(|next| next.starts_with(".join") || next.starts_with(".parent"));
+                if further {
+                    Read::Refused(
+                        "a path joined or left again after the one `.join(\"<literal>\")` the \
+                         gate follows"
+                            .to_owned(),
+                    )
+                } else {
+                    Read::Joined(literal)
+                }
+            }
+            None if !rest.starts_with('!') => Read::Other,
+            None if CRATE_VARIABLES.iter().any(|prefix| {
+                rest.strip_prefix("!(\"")
+                    .is_some_and(|name| name.starts_with(prefix))
+            }) =>
+            {
+                Read::Other
+            }
+            None => Read::Refused(
+                "`env!` of a variable that may name a directory of the repository".to_owned(),
+            ),
+        },
+        "option_env" => {
+            Read::Refused("`option_env!`, which may name a directory of the repository".to_owned())
+        }
+        _ if compact.starts_with("(\"CARGO_MANIFEST_DIR\"") => Read::Refused(format!(
+            "`{word}(\"CARGO_MANIFEST_DIR\")`, a directory read at run time the gate cannot \
+             follow"
+        )),
+        _ => Read::Other,
+    }
+}
+
 /// Checks that the tests of every crate read nothing of the repository outside the crate's
 /// directory but its declared test data ([`RustCrate::test_data`]).
 ///
@@ -3801,18 +3940,25 @@ fn literal_argument(rest: &str) -> Option<&str> {
 ///
 /// In every Rust file of a crate (`sources`, path and text), each `include_str!` and
 /// `include_bytes!` takes a literal path, relative to its file, and each
-/// `env!("CARGO_MANIFEST_DIR")` is the argument of a path's constructor followed by
-/// `.join("<literal>")`, relative to the crate (the forms that name a file of the repository); each must lie in the crate or
-/// under one of its roots, and each root must be read so. A file read through another
-/// form (a path computed at run time) is not seen: the forms above are the ones the tests
-/// use, and review keeps it so. A binary's entry point (`src/main.rs` of a crate with
-/// [`RustCrate::binary`]) is not read: it only wires the real process, finding the
-/// repository it runs in, and its tests give it their own files.
+/// `env!("CARGO_MANIFEST_DIR")` is the argument of a path's constructor followed by one
+/// `.join("<literal>")`, relative to the crate, and by no other `.join` or `.parent` (the
+/// forms that name a file of the repository); each must lie in the crate or under one of
+/// its roots, and each root must be read so. Only test code (`tests/`, `*_tests.rs`) reads
+/// outside its crate: a library's read would be an input of every crate whose tests build
+/// it, which no crate declares. The other ways to name the crate's directory are refused:
+/// `option_env!`, `env!` of any variable but `CARGO_MANIFEST_DIR` and those Cargo sets for
+/// a crate (`CARGO_BIN_EXE_<name>`, `CARGO_PKG_<field>`), and `var` or `var_os` of the
+/// literal `"CARGO_MANIFEST_DIR"`. **Review only**: a relative path given to a file API at
+/// run time, which cargo resolves against the crate's directory when it runs the tests (no
+/// text gate tells it from any other string), and a path held in a variable, then joined
+/// again (xtask's fixtures, below its `tests/fixtures/`). A binary's entry point (`src/main.rs` of a
+/// crate with [`RustCrate::binary`]) is not read: it only wires the real process, finding
+/// the repository it runs in, and its tests give it their own files.
 ///
 /// # Errors
 ///
-/// Returns every read outside the declared data, every form without its literal, and
-/// every root no test reads.
+/// Returns every read outside the declared data or from code other than tests, every form
+/// without its literal or that the gate cannot follow, and every root no test reads.
 pub fn test_data_gate(sources: &[(String, String)]) -> Result<(), Failure> {
     let mut problems = Vec::new();
     let mut read: BTreeSet<(&str, &str)> = BTreeSet::new();
@@ -3826,34 +3972,25 @@ pub fn test_data_gate(sources: &[(String, String)]) -> Result<(), Failure> {
         let file_dir = path.rsplit_once('/').map_or("", |(dir, _)| dir);
         let chars: Vec<char> = text.chars().collect();
         for (line, word, end) in code_words(text) {
-            if !["include_str", "include_bytes", "env"].contains(&word.as_str()) {
+            if !TEST_DATA_WORDS.contains(&word.as_str()) {
                 continue;
             }
             // Enough of what follows for the longest form: `env!("CARGO_MANIFEST_DIR"))`, a
-            // line break and its indentation, then `.join("<literal>")`.
+            // line break and its indentation, then `.join("<literal>")` and what follows.
             let rest: String = chars
                 .get(end..)
                 .unwrap_or_default()
                 .iter()
                 .take(FOLLOWING_CHARS)
                 .collect();
-            let (from, literal) = match word.as_str() {
-                "include_str" | "include_bytes" => {
-                    (file_dir, rest.strip_prefix('!').and_then(literal_argument))
+            let (from, literal) = match test_data_read(&word, &rest) {
+                Read::Literal(literal) => (file_dir, literal),
+                Read::Joined(literal) => (krate.dir, literal),
+                Read::Other => continue,
+                Read::Refused(why) => {
+                    problems.push(format!("{path}:{line}: {why}"));
+                    continue;
                 }
-                "env" if rest.starts_with("!(\"CARGO_MANIFEST_DIR\")") => {
-                    let after = rest
-                        .get("!(\"CARGO_MANIFEST_DIR\")".len()..)
-                        .unwrap_or_default();
-                    // In a path's constructor: `Path::new(env!(…))`, then the join.
-                    let joined = after
-                        .strip_prefix(')')
-                        .map(str::trim_start)
-                        .and_then(|joined| joined.strip_prefix(".join"))
-                        .and_then(literal_argument);
-                    (krate.dir, joined)
-                }
-                _ => continue,
             };
             let Some(literal) = literal else {
                 problems.push(format!(
@@ -3866,6 +4003,13 @@ pub fn test_data_gate(sources: &[(String, String)]) -> Result<(), Failure> {
                 continue;
             };
             if krate.holds(&target).is_some() {
+                continue;
+            }
+            if !rust_test_code(relative) {
+                problems.push(format!(
+                    "{path}:{line}: code that is not a test reads `{target}`, outside its \
+                     crate: only tests read test data"
+                ));
                 continue;
             }
             match krate
@@ -4668,7 +4812,7 @@ pub fn math_layer_gate(metadata: &str, sources: &[(String, String)]) -> Result<(
             if declared.get(path.as_str()) != Some(&1) {
                 problems.push(format!(
                     "{path}: a *_tests.rs file not declared once as test code beside it, \
-                     `#[cfg(test)] #[path = \"<name>_tests.rs\"] mod <name>;`"
+                     {TEST_DECLARATION_FORM}"
                 ));
             }
             continue;

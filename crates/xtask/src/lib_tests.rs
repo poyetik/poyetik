@@ -55,9 +55,8 @@ fn scratch(name: &str) -> std::path::PathBuf {
 
 /// A fixture of xtask's tests (`tests/fixtures/<name>`), the directory its commands run in.
 fn fixture(name: &str) -> std::path::PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures")
-        .join(name)
+    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    fixtures.join(name)
 }
 
 /// What the real `cargo metadata` ([`super::metadata_command`]) says of the fixture
@@ -7627,9 +7626,81 @@ fn reads_the_lint_forbids_as_no_test_code() {
         failed(format!(
             "{context}: crates/engine-core/src/a.rs:1: names `test` outside test code: tests \
              live in tests/ or in a *_tests.rs file declared `#[cfg(test)] #[path = \
-             \"<name>_tests.rs\"] mod <name>;`"
+             \"<name>_tests.rs\"] mod <module>;`"
         )),
         "another line"
+    );
+}
+
+#[test]
+fn refuses_a_test_file_that_loads_another() {
+    let gate = |sources: &[(&str, &str)]| {
+        let owned: Vec<(String, String)> = sources
+            .iter()
+            .map(|(path, text)| ((*path).to_owned(), (*text).to_owned()))
+            .collect();
+        super::test_code_gate(&owned)
+    };
+    let context = "test code only in tests/ and in declared *_tests.rs files";
+    let declared = "#[cfg(test)]\n#[path = \"plan_tests.rs\"]\nmod tests;\n";
+    let inline = "the modules of a *_tests.rs file are inline";
+    let loads = |what: &str, line: usize| {
+        format!(
+            "{context}: crates/engine-core/src/plan_tests.rs:{line}: {what}, which no rule tells \
+             as test code: a *_tests.rs file writes its modules inline"
+        )
+    };
+    for (text, expected) in [
+        (
+            "#[test]\nfn t() {}\nmod helper;\n",
+            loads(
+                "declares a module without a body, loaded from another file",
+                3,
+            ),
+        ),
+        (
+            "pub(crate) mod  helper ;\n",
+            loads(
+                "declares a module without a body, loaded from another file",
+                1,
+            ),
+        ),
+        (
+            "#[path = \"h.rs\"]\nmod h {}\n",
+            loads("holds a `#[path]` attribute, which loads another file", 1),
+        ),
+        (
+            "# [\n  path = \"h.rs\"]\nmod h {}\n",
+            loads("holds a `#[path]` attribute, which loads another file", 2),
+        ),
+        (
+            "#![path = \"h.rs\"]\n",
+            loads("holds a `#[path]` attribute, which loads another file", 1),
+        ),
+        (
+            "include!(\"h.rs\");\n",
+            loads("names `include`, which loads another file", 1),
+        ),
+    ] {
+        assert_eq!(
+            gate(&[
+                ("crates/engine-core/src/plan.rs", declared),
+                ("crates/engine-core/src/plan_tests.rs", text),
+            ]),
+            failed(expected),
+            "{text}"
+        );
+    }
+    assert_eq!(
+        gate(&[
+            ("crates/engine-core/src/plan.rs", declared),
+            (
+                "crates/engine-core/src/plan_tests.rs",
+                "mod inner {\n    #[test]\n    fn t() { let path = include_str!(\"x.json\"); }\n}\n// mod helper;\nconst M: &str = \"mod helper;\";\nfn f(path: &str) -> &str { path }\n#[derive(Debug)] struct S;\n",
+            ),
+        ]),
+        Ok(()),
+        "{inline}; a word `path`, a module in prose and test data are no loading"
     );
 }
 
@@ -7658,7 +7729,7 @@ fn refuses_test_code_outside_test_files() {
     ];
     assert_eq!(gate(&fine), Ok(()), "test code where it belongs");
     let names = "names `test` outside test code: tests live in tests/ or in a *_tests.rs file \
-                 declared `#[cfg(test)] #[path = \"<name>_tests.rs\"] mod <name>;`";
+                 declared `#[cfg(test)] #[path = \"<name>_tests.rs\"] mod <module>;`";
     for (text, line) in [
         ("#[cfg(test)]\nmod tests {\n    fn f() {}\n}\n", 1_usize),
         ("fn g() {}\n#[cfg(test)]\nfn f() {}\n", 2),
@@ -7829,6 +7900,78 @@ fn refuses_test_data_a_crate_does_not_declare() {
 }
 
 #[test]
+fn refuses_the_reads_of_test_data_it_cannot_follow() {
+    let context = "the tests of each crate read only its declared test data";
+    let with = |path: &str, text: &str| {
+        let mut sources = test_data_reader_sources();
+        sources.push((path.to_owned(), text.to_owned()));
+        super::test_data_gate(&sources)
+    };
+    let file = "crates/engine-hash/src/more_tests.rs";
+    let manifest = format!("\"{}_{}_{}\"", "CARGO", "MANIFEST", "DIR");
+    for (text, why) in [
+        (
+            format!("fn f() {{ let _ = std::env::var_os({manifest}); }}\n"),
+            format!("`var_os({manifest})`, a directory read at run time the gate cannot follow"),
+        ),
+        (
+            format!("fn f() {{ let _ = var ( {manifest} ); }}\n"),
+            format!("`var({manifest})`, a directory read at run time the gate cannot follow"),
+        ),
+        (
+            "fn f() { let _ = option_env!(\"X\"); }\n".to_owned(),
+            "`option_env!`, which may name a directory of the repository".to_owned(),
+        ),
+        (
+            "fn f() { let _ = env!(\"OUT_DIR\"); }\n".to_owned(),
+            "`env!` of a variable that may name a directory of the repository".to_owned(),
+        ),
+        (
+            format!(
+                "fn f() {{ let _ = Path::new(env!({manifest})).join(\"tests\").join(\"../../../spec/x\"); }}\n"
+            ),
+            "a path joined or left again after the one `.join(\"<literal>\")` the gate follows"
+                .to_owned(),
+        ),
+        (
+            format!(
+                "fn f() {{ let _ = Path::new(env!({manifest})).join(\"tests\")\n    .parent(); }}\n"
+            ),
+            "a path joined or left again after the one `.join(\"<literal>\")` the gate follows"
+                .to_owned(),
+        ),
+    ] {
+        assert_eq!(
+            with(file, &text),
+            failed(format!("{context}: {file}:1: {why}")),
+            "{text}"
+        );
+    }
+    for text in [
+        "fn f() { let _ = std::env::var_os(CHILD); let _ = var(\"HOME\"); }\n".to_owned(),
+        "fn f() { let _ = env!(\"CARGO_BIN_EXE_engine-cli\"); let _ = env!(\"CARGO_PKG_VERSION\"); }\n"
+            .to_owned(),
+        format!(
+            "fn f() {{ let _ = Path::new(env!({manifest})).join(\"src\").display(); let var = 1; }}\n"
+        ),
+    ] {
+        assert_eq!(with(file, &text), Ok(()), "{text}");
+    }
+    // Data read outside the crate by code that is not a test.
+    assert_eq!(
+        with(
+            "crates/engine-testkit/src/measure/mod.rs",
+            "const V: &str = include_str!(\"../../../../spec/measurement-vectors.json\");\n"
+        ),
+        failed(format!(
+            "{context}: crates/engine-testkit/src/measure/mod.rs:1: code that is not a test \
+             reads `spec/measurement-vectors.json`, outside its crate: only tests read test data"
+        )),
+        "a library's read is no input any crate declares"
+    );
+}
+
+#[test]
 fn leaves_a_binary_entry_point_to_find_its_repository() {
     let context = "the tests of each crate read only its declared test data";
     let with = |path: &str, text: &str| {
@@ -7843,19 +7986,27 @@ fn leaves_a_binary_entry_point_to_find_its_repository() {
         Ok(()),
         "a binary's entry point, which finds the repository it runs in"
     );
-    for (path, krate) in [
-        ("crates/engine-hash/src/main.rs", "engine-hash"),
-        ("crates/xtask/src/bin/main.rs", "xtask"),
-        ("crates/xtask/tests/main.rs", "xtask"),
+    for path in [
+        "crates/engine-hash/src/main.rs",
+        "crates/xtask/src/bin/main.rs",
     ] {
         assert_eq!(
             with(path, root),
             failed(format!(
-                "{context}: {path}:1: the tests of {krate} read ``, which is not in its test_data"
+                "{context}: {path}:1: code that is not a test reads ``, outside its crate: only \
+                 tests read test data"
             )),
             "{path}: not a binary's entry point"
         );
     }
+    assert_eq!(
+        with("crates/xtask/tests/main.rs", root),
+        failed(format!(
+            "{context}: crates/xtask/tests/main.rs:1: the tests of xtask read ``, which is not in \
+             its test_data"
+        )),
+        "a test's main"
+    );
 }
 
 #[test]
@@ -8467,7 +8618,7 @@ fn reads_every_source_of_box_and_engine_code() {
     );
     let undeclared = "crates/engine-objects/src/a_tests.rs: a *_tests.rs file not declared \
                       once as test code beside it, `#[cfg(test)] #[path = \"<name>_tests.rs\"] \
-                      mod <name>;`";
+                      mod <module>;`";
     assert_eq!(
         gate(
             none,
