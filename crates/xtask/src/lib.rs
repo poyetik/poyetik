@@ -8174,28 +8174,32 @@ fn usable_proof(
 ///
 /// `status` is `git status --porcelain --untracked-files=all --ignore-submodules=none` and
 /// `listed` is `git ls-files -v`: the reason names the first change or untracked file, or
-/// the first file git hides from the status (`assume-unchanged`, a lowercase tag, or
-/// `skip-worktree`, `S`).
+/// the first file git hides from the status ([`hidden`]).
 #[must_use]
 pub fn unclean(status: &str, listed: &str) -> Option<String> {
     status
         .lines()
         .find(|line| !line.trim().is_empty())
         .map(|line| format!("`{}` is not committed", line.trim_end()))
-        .or_else(|| {
-            listed
-                .lines()
-                .find(|line| {
-                    line.chars()
-                        .next()
-                        .is_some_and(|tag| tag.is_ascii_lowercase() || tag == 'S')
-                })
-                .map(|line| {
-                    format!(
-                        "`{}` is hidden from git status (assume-unchanged or skip-worktree)",
-                        line.get(2..).unwrap_or_default()
-                    )
-                })
+        .or_else(|| hidden(listed))
+}
+
+/// The first file `listed` (`git ls-files -v`) shows git hiding from its status and its
+/// diffs (`assume-unchanged`, a lowercase tag, or `skip-worktree`, `S`), said as a reason.
+#[must_use]
+pub fn hidden(listed: &str) -> Option<String> {
+    listed
+        .lines()
+        .find(|line| {
+            line.chars()
+                .next()
+                .is_some_and(|tag| tag.is_ascii_lowercase() || tag == 'S')
+        })
+        .map(|line| {
+            format!(
+                "`{}` is hidden from git status (assume-unchanged or skip-worktree)",
+                line.get(2..).unwrap_or_default()
+            )
         })
 }
 
@@ -8596,6 +8600,14 @@ fn rust_mutants_of_changes(
     out: &mut dyn Write,
     jobs: NonZeroUsize,
 ) -> Result<(), Failure> {
+    // A file git hides is in no diff git gives: its changes would go unmutated.
+    let listed = git_output(runner, &["ls-files", "-v"], "read the work tree")?;
+    if let Some(reason) = hidden(&listed) {
+        return Err(Failure::from(format!(
+            "{reason}: its changes would not be mutated (clear it with `git update-index \
+             --no-assume-unchanged --no-skip-worktree <file>`)"
+        )));
+    }
     let (base, against) = mutation_base(runner)?;
     runner
         .write(MEASURED_BASE, &format!("{base}\n"))

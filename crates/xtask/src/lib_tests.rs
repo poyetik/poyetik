@@ -1997,6 +1997,7 @@ fn mutates_the_changes_since_the_merge_base_with_the_upstream() {
     assert_eq!(
         fake.ran,
         vec![
+            "capture git ls-files -v",
             "capture git merge-base HEAD @{upstream}",
             "write target/xtask/mutants-base",
             "capture git rev-parse --git-common-dir",
@@ -2440,6 +2441,50 @@ fn reads_the_paths_real_git_changes_whatever_they_hold() {
         "git leaves out the crate excluded"
     );
     std::fs::remove_dir_all(&dir).expect("cleanup");
+}
+
+#[test]
+fn refuses_to_mutate_a_tree_where_git_hides_files() {
+    for (listed, file) in [
+        (
+            "H Cargo.toml\nh crates/engine-core/src/plan.rs\n",
+            "crates/engine-core/src/plan.rs",
+        ),
+        ("S crates/a/src/b.rs\n", "crates/a/src/b.rs"),
+    ] {
+        let mut fake = passing();
+        drop(
+            fake.files
+                .insert(format!("capture {}", HIDDEN.0), listed.to_owned()),
+        );
+        assert_eq!(
+            run_steps(&rust_mutation_of_changes(), &mut fake, &mut Vec::new()),
+            failed(format!(
+                "Rust mutation testing of the changes: `{file}` is hidden from git status \
+                 (assume-unchanged or skip-worktree): its changes would not be mutated (clear it \
+                 with `git update-index --no-assume-unchanged --no-skip-worktree <file>`)"
+            )),
+            "{listed}"
+        );
+        assert!(
+            !fake
+                .ran
+                .iter()
+                .any(|line| line.starts_with("cargo mutants")),
+            "{listed}: nothing mutated"
+        );
+    }
+    let mut unlisted = passing();
+    unlisted.broken = Some(HIDDEN.0.to_owned());
+    assert_eq!(
+        run_steps(&rust_mutation_of_changes(), &mut unlisted, &mut Vec::new()),
+        failed(format!(
+            "Rust mutation testing of the changes: cannot read the work tree: cannot run `{}`: \
+             not found",
+            HIDDEN.0
+        )),
+        "the hidden files cannot be listed"
+    );
 }
 
 #[test]
@@ -3293,7 +3338,7 @@ fn runs_every_step_and_reports_success() {
         Ok(()),
         "all green"
     );
-    let (tools, commands, emptied, listed, captured, written) = (10, 54, 14, 24, 35, 3);
+    let (tools, commands, emptied, listed, captured, written) = (10, 54, 14, 24, 36, 3);
     let read = 2
         + 7
         + 13
@@ -3329,7 +3374,7 @@ fn runs_every_step_and_reports_success() {
          each package after the first; the licenses and the history are captured twice each, the state \
          of the tree (before, for the proof record and after) six times, the nightly's version and sysroot, the Cargo metadata (for the untested targets, dependency, pin, library and math layer gates), the output of the fused test build, the merge base, the changed paths, the changes, the \
          new Rust files and the list of every mutant once, git's common directory twice, the tree checked out, \
-         cargo-mutants' version, rustc's host and build, the linker driver's and git's versions, the status for a push and the hidden files for the proof record; the measured base, the diff and the \
+         cargo-mutants' version, rustc's host and build, the linker driver's and git's versions, the status for a push and the hidden files for the mutation step and the proof record; the measured base, the diff and the \
          proof record are written once each; the proof record, the measured base and the \
          toolchain file are read for it; and the gates read the eight fake test data readers for the unsafe, bypass and vocabulary gates, every Rust file (eleven) for the test code, test data and untested targets gates, .node-version and the toolchain file for the preflight, the toolchain file, the four float sources and the float macros of the nightly and clippy.toml for the float gate, thirteen coverage reports, \
          the unviable report and reviews, the register of the pin gate, the 87 text files of the citation gate (the board among them), the reviews again against the list of every mutant, six TypeScript sources and their reviews, the nine \
