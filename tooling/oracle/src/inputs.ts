@@ -4,6 +4,7 @@
  */
 
 import { RENDER_FORMATS, type RenderFormat } from "./format.ts";
+import { unmeasurable } from "./quality.ts";
 import { MAX_FRAMES, type Sine } from "./signal.ts";
 
 /** Thrown when a conformance file does not have the expected shape. */
@@ -242,7 +243,11 @@ function parseChannel(value: unknown, rate: number, where: string): ChannelExpec
   };
 }
 
-/** Reads `expectations.json`: case name → what its render must be, each with exactly a `sample_rate`, `frames` and `channels`. */
+/**
+ * Reads `expectations.json`: case name → what its render must be, each with exactly a
+ * `sample_rate`, `frames` and `channels`, every channel the oracle measures measurable over
+ * the frames measured (refused here rather than failed as a correct render, `unmeasurable`).
+ */
 export function parseExpectations(value: unknown): Map<string, Expectation> {
   return new Map(
     entries(value, "expectations.json").map(([name, expectation]) => {
@@ -253,12 +258,20 @@ export function parseExpectations(value: unknown): Map<string, Expectation> {
         throw new InputError(`${where}: channels is not a non-empty list`);
       }
       const rate = sampleRate(field(checked, "sample_rate"), `${where}: sample_rate`);
+      const length = frames(field(checked, "frames"), `${where}: frames`);
       return [
         name,
         {
           rate,
-          frames: frames(field(checked, "frames"), `${where}: frames`),
-          channels: channels.map((channel: unknown, index) => parseChannel(channel, rate, `${where}: channel ${String(index)}`)),
+          frames: length,
+          channels: channels.map((channel: unknown, index) => {
+            const parsed = parseChannel(channel, rate, `${where}: channel ${String(index)}`);
+            const refusal = unmeasurable(parsed.sine, rate, length);
+            if (refusal !== null) {
+              throw new InputError(`${where}: channel ${String(index)}: sine.frequency cannot be measured over ${String(length)} frames (${refusal}): lengthen the case`);
+            }
+            return parsed;
+          }),
         },
       ];
     }),

@@ -16,6 +16,7 @@ import {
   MeasureError,
   PADDING,
   sineBounds,
+  sineFitRefusal,
   solve,
   spectrum,
   split,
@@ -688,4 +689,29 @@ test("bounds nothing without a margin above zero", () => {
   expect(sineBounds(0.5 * Math.sqrt(2), 0.5, measured)).toBeNull();
   expect(sineBounds(0.5 * Math.sqrt(2), 0.499, measured)).not.toBeNull();
   expect(sineBounds(1, 0.4, { ...measured, harmonics: { ...measured.harmonics, quality: { conditioning: 0.5, floor: 0 } } })?.harmonics).toBeNull();
+});
+
+describe("sineFitRefusal", () => {
+  test("refuses as measure does, before any sample: too few frames, then components too close", () => {
+    // Three unknowns (DC, and the fundamental's cosine and sine): two frames are too few,
+    // three are not.
+    expect(sineFitRefusal(1000, 8000, 2)).toStrictEqual(new MeasureError("TooShort", "the signal has 2 frames, fewer than the 3 unknowns of the fit"));
+    expect(sineFitRefusal(1000, 8000, 2)?.kind).toBe("TooShort");
+    expect(sineFitRefusal(1000, 8000, 3)?.kind).not.toBe("TooShort");
+    // The same refusal, conditioning included, as measuring a signal of those frames: the
+    // Gram matrix is summed over exactly these frames.
+    for (const frames of [3, 5, 100]) {
+      const refused = (() => {
+        try {
+          measure(sine(frames, 1 / 48_000, 1, 0.3), 48_000, 1);
+        } catch (error) {
+          return error;
+        }
+        return null;
+      })();
+      expect(sineFitRefusal(1, 48_000, frames)).toStrictEqual(refused);
+    }
+    // Two whole cycles over 1000 frames: orthogonal, no refusal.
+    expect(sineFitRefusal(96, 48_000, 1000)).toBeNull();
+  });
 });

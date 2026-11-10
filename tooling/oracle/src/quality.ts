@@ -5,8 +5,8 @@
  * from the expectation alone, never declared.
  */
 
-import { MAX_FRAMES, MeasureError, measure, sineBounds, type Bounds, type Measurements } from "./measure.ts";
-import type { RenderFormat } from "./format.ts";
+import { MAX_FRAMES, MeasureError, measure, sineBounds, sineFitRefusal, type Bounds, type Measurements } from "./measure.ts";
+import { RENDER_FORMATS, type RenderFormat } from "./format.ts";
 import { ideal, sineErrorBound, type Sine } from "./signal.ts";
 
 /** The levels of a channel, in dB relative to its fundamental. */
@@ -48,16 +48,9 @@ function db(value: number): string {
  */
 export function judgeQuality(samples: readonly number[], rate: number, sine: Sine, format: RenderFormat): Quality {
   const fundamental = fold(sine.frequency, rate);
-  if (!(fundamental > 0 && fundamental < rate / 2)) {
-    return { kind: "unmeasured" };
-  }
   const frames = Math.min(samples.length, MAX_FRAMES);
   const bound = sineErrorBound(sine.amplitude, frames, format);
-  let peak = 0;
-  for (let frame = 0; frame < frames; frame += 1) {
-    peak = Math.max(peak, Math.abs(ideal(sine, rate, frame)));
-  }
-  if (peak <= bound) {
+  if (!isMeasured(sine, rate, frames, [bound])) {
     return { kind: "unmeasured" };
   }
   let measured;
@@ -72,6 +65,39 @@ export function judgeQuality(samples: readonly number[], rate: number, sine: Sin
     throw error;
   }
   return hold(levels, sineBounds(sine.amplitude, bound, levels));
+}
+
+/**
+ * Whether {@link judgeQuality} measures `sine` over its first `frames` frames at `rate`,
+ * under one of `bounds` (the error bounds of the formats concerned): its fundamental lies
+ * strictly between DC and Nyquist, and its ideal values rise above that bound somewhere.
+ */
+function isMeasured(sine: Sine, rate: number, frames: number, bounds: readonly number[]): boolean {
+  const fundamental = fold(sine.frequency, rate);
+  if (!(fundamental > 0 && fundamental < rate / 2)) {
+    return false;
+  }
+  let peak = 0;
+  for (let frame = 0; frame < frames; frame += 1) {
+    peak = Math.max(peak, Math.abs(ideal(sine, rate, frame)));
+  }
+  return bounds.some((bound) => peak > bound);
+}
+
+/**
+ * Why a channel expected to hold `sine` over `frames` frames at `rate` would fail as a
+ * render no correct engine can pass: {@link judgeQuality} measures it in some render format,
+ * but its sine fit over the frames measured is refused whatever the samples (too few
+ * frames, or a fundamental too close to DC or Nyquist to be told apart from it). Null when
+ * it can be measured, or is not measured at all.
+ */
+export function unmeasurable(sine: Sine, rate: number, frames: number): string | null {
+  const counted = Math.min(frames, MAX_FRAMES);
+  const bounds = RENDER_FORMATS.map((format) => sineErrorBound(sine.amplitude, counted, format));
+  if (!isMeasured(sine, rate, counted, bounds)) {
+    return null;
+  }
+  return sineFitRefusal(fold(sine.frequency, rate), rate, counted)?.message ?? null;
 }
 
 /**

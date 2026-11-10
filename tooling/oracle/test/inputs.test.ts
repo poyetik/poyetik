@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { InputError, MAX_RATE, MIN_RATE, parseCase, parseExpectations, parseReferences } from "../src/inputs.ts";
+import { sineErrorBound } from "../src/signal.ts";
 
 /** A well-formed SHA-256 hash: 64 lowercase hexadecimal digits. */
 const HASH = "a".repeat(64);
@@ -108,46 +109,51 @@ describe("parseReferences", () => {
 
 describe("parseExpectations", () => {
   test("reads every case's rate, duration and channels", () => {
-    expect(parseExpectations({ a: { sample_rate: 8000, frames: 4, channels: [CHANNEL] } })).toStrictEqual(
-      new Map([["a", { rate: 8000, frames: 4, channels: [{ sine: { frequency: 440, amplitude: 1, phase: 0.5 } }] }]]),
+    expect(parseExpectations({ a: { sample_rate: 8000, frames: 4000, channels: [CHANNEL] } })).toStrictEqual(
+      new Map([["a", { rate: 8000, frames: 4000, channels: [{ sine: { frequency: 440, amplitude: 1, phase: 0.5 } }] }]]),
     );
   });
 
   test.each([
     [[], "expectations.json is not an object"],
     [{ a: null }, "expectations.json: a is not an object"],
-    [{ a: { sample_rate: 8000, frames: 4, channels: [{ sine: null }] } }, "expectations.json: a: channel 0: sine is not an object"],
+    [{ a: { sample_rate: 8000, frames: 4000, channels: [{ sine: null }] } }, "expectations.json: a: channel 0: sine is not an object"],
     // Exactly the documented fields, at every level.
-    [{ a: { sample_rate: 8000, frames: 4, channels: [CHANNEL], max_error: 1e-6 } }, "expectations.json: a: unknown field max_error"],
-    [{ a: { sample_rate: 8000, frames: 4, channels: [{ sine: { ...CHANNEL.sine, offset: 0 } }] } }, "expectations.json: a: channel 0: sine: unknown field offset"],
+    [{ a: { sample_rate: 8000, frames: 4000, channels: [CHANNEL], max_error: 1e-6 } }, "expectations.json: a: unknown field max_error"],
+    [{ a: { sample_rate: 8000, frames: 4000, channels: [{ sine: { ...CHANNEL.sine, offset: 0 } }] } }, "expectations.json: a: channel 0: sine: unknown field offset"],
     [{ a: { sample_rate: 8000, frames: 4 } }, "expectations.json: a: channels is not a non-empty list"],
-    [{ a: { sample_rate: 8000, frames: 4, channels: [] } }, "expectations.json: a: channels is not a non-empty list"],
+    [{ a: { sample_rate: 8000, frames: 4000, channels: [] } }, "expectations.json: a: channels is not a non-empty list"],
     [{ a: { frames: 4, channels: [CHANNEL] } }, "expectations.json: a: sample_rate is not a finite number"],
     [{ a: { sample_rate: 8000, channels: [CHANNEL] } }, "expectations.json: a: frames is not a finite number"],
-    [{ a: { sample_rate: 8000, frames: 4, channels: [{}] } }, "expectations.json: a: channel 0: sine is not an object"],
-    [{ a: { sample_rate: 8000, frames: 4, channels: [3] } }, "expectations.json: a: channel 0 is not an object"],
+    [{ a: { sample_rate: 8000, frames: 4000, channels: [{}] } }, "expectations.json: a: channel 0: sine is not an object"],
+    [{ a: { sample_rate: 8000, frames: 4000, channels: [3] } }, "expectations.json: a: channel 0 is not an object"],
     [{ a: { sample_rate: 8000, frames: 2 ** 29 + 1, channels: [CHANNEL] } }, "expectations.json: a: frames is above 536870912, the longest case with an exact reference"],
-    [{ a: { sample_rate: 8000, frames: 4, channels: [CHANNEL, { ...CHANNEL, sine: { frequency: 1, phase: 0 } }] } }, "expectations.json: a: channel 1: sine.amplitude is not a finite number"],
-    [{ a: { sample_rate: 8000, frames: 4, channels: [{ ...CHANNEL, sine: { frequency: 1, amplitude: 1 } }] } }, "expectations.json: a: channel 0: sine.phase is not a finite number"],
+    [{ a: { sample_rate: 8000, frames: 4000, channels: [CHANNEL, { ...CHANNEL, sine: { frequency: 1, phase: 0 } }] } }, "expectations.json: a: channel 1: sine.amplitude is not a finite number"],
+    [{ a: { sample_rate: 8000, frames: 4000, channels: [{ sine: { ...CHANNEL.sine, amplitude: 1e300 } }] } }, "expectations.json: a: channel 0: sine.amplitude is not a binary32 value (the error bound of a binary32 render counts a gain only when it is exact in binary32)"],
+    [{ a: { sample_rate: 8000, frames: 4000, channels: [{ ...CHANNEL, sine: { frequency: 1, amplitude: 1 } }] } }, "expectations.json: a: channel 0: sine.phase is not a finite number"],
     // The bound is derived below 4 cycles per sample.
-    [{ a: { sample_rate: 8000, frames: 4, channels: [{ sine: { ...CHANNEL.sine, frequency: 32_000 } }] } }, "expectations.json: a: channel 0: sine.frequency is not in [0, 4 × sample_rate)"],
-    [{ a: { sample_rate: 8000, frames: 4, channels: [{ sine: { ...CHANNEL.sine, frequency: -(2 ** -149) } }] } }, "expectations.json: a: channel 0: sine.frequency is not in [0, 4 × sample_rate)"],
+    [{ a: { sample_rate: 8000, frames: 4000, channels: [{ sine: { ...CHANNEL.sine, frequency: 32_000 } }] } }, "expectations.json: a: channel 0: sine.frequency is not in [0, 4 × sample_rate)"],
+    [{ a: { sample_rate: 8000, frames: 4000, channels: [{ sine: { ...CHANNEL.sine, frequency: -(2 ** -149) } }] } }, "expectations.json: a: channel 0: sine.frequency is not in [0, 4 × sample_rate)"],
     // The binary32 bound counts a gain only when it is exact in binary32.
     [
-      { a: { sample_rate: 8000, frames: 4, channels: [{ sine: { ...CHANNEL.sine, amplitude: 0.1 } }] } },
+      { a: { sample_rate: 8000, frames: 4000, channels: [{ sine: { ...CHANNEL.sine, amplitude: 0.1 } }] } },
       "expectations.json: a: channel 0: sine.amplitude is not a binary32 value (the error bound of a binary32 render counts a gain only when it is exact in binary32)",
     ],
     [
-      { a: { sample_rate: 8000, frames: 4, channels: [{ sine: { ...CHANNEL.sine, amplitude: 1e-35 } }] } },
+      { a: { sample_rate: 8000, frames: 4000, channels: [{ sine: { ...CHANNEL.sine, amplitude: 1e-35 } }] } },
       "expectations.json: a: channel 0: sine.amplitude is not a binary32 value (the error bound of a binary32 render counts a gain only when it is exact in binary32)",
     ],
-    [{ a: { sample_rate: 8000, frames: 4, channels: [{ sine: { ...CHANNEL.sine, amplitude: 1e300 } }] } }, "expectations.json: a: channel 0: sine.amplitude is not a binary32 value (the error bound of a binary32 render counts a gain only when it is exact in binary32)"],
+    // A sine the oracle would measure must have enough frames for its fit.
+    [
+      { a: { sample_rate: 8000, frames: 2, channels: [CHANNEL] } },
+      "expectations.json: a: channel 0: sine.frequency cannot be measured over 2 frames (the signal has 2 frames, fewer than the 3 unknowns of the fit): lengthen the case",
+    ],
     // The bound covers a start phase in [0, 2π) only: a larger one cannot be reduced exactly.
-    [{ a: { sample_rate: 8000, frames: 4, channels: [{ sine: { ...CHANNEL.sine, phase: 1e6 } }] } }, "expectations.json: a: channel 0: sine.phase is not in [0, 2π)"],
-    [{ a: { sample_rate: 8000, frames: 4, channels: [{ sine: { ...CHANNEL.sine, phase: 2 * Math.PI } }] } }, "expectations.json: a: channel 0: sine.phase is not in [0, 2π)"],
-    [{ a: { sample_rate: 8000, frames: 4, channels: [{ sine: { ...CHANNEL.sine, phase: -Number.MIN_VALUE } }] } }, "expectations.json: a: channel 0: sine.phase is not in [0, 2π)"],
+    [{ a: { sample_rate: 8000, frames: 4000, channels: [{ sine: { ...CHANNEL.sine, phase: 1e6 } }] } }, "expectations.json: a: channel 0: sine.phase is not in [0, 2π)"],
+    [{ a: { sample_rate: 8000, frames: 4000, channels: [{ sine: { ...CHANNEL.sine, phase: 2 * Math.PI } }] } }, "expectations.json: a: channel 0: sine.phase is not in [0, 2π)"],
+    [{ a: { sample_rate: 8000, frames: 4000, channels: [{ sine: { ...CHANNEL.sine, phase: -Number.MIN_VALUE } }] } }, "expectations.json: a: channel 0: sine.phase is not in [0, 2π)"],
     [
-      { a: { sample_rate: 8000, frames: 4, channels: [{ sine: CHANNEL.sine, max_error: 1e-6 }] } },
+      { a: { sample_rate: 8000, frames: 4000, channels: [{ sine: CHANNEL.sine, max_error: 1e-6 }] } },
       "expectations.json: a: channel 0: unknown field max_error (tolerances are derived, not declared)",
     ],
   ])("rejects %o", (value, detail) => {
@@ -159,9 +165,32 @@ describe("parseExpectations", () => {
   });
 });
 
+test("refuses a sine the oracle would measure but cannot tell from DC over its frames, and accepts one it can", () => {
+  const at = (frequency: number): unknown => ({ a: { sample_rate: 48_000, frames: 1000, channels: [CHANNEL, { sine: { ...CHANNEL.sine, frequency } }] } });
+  expect(() => parseExpectations(at(1))).toThrow(
+    /^invalid conformance input: expectations\.json: a: channel 1: sine\.frequency cannot be measured over 1000 frames \(the components are too close to be told apart \(conditioning \d+\.\d+, at most 0\.5\)\): lengthen the case$/,
+  );
+  // Two whole cycles over the 1000 frames: the sine and DC are orthogonal there.
+  expect(parseExpectations(at(96)).get("a")?.channels[1]?.sine.frequency).toBe(96);
+});
+
+test("refuses a sine measured in one render format only when it cannot be told from DC", () => {
+  // At 2^-30 of full scale and about 7.6e-9 Hz, the sine rises above the error bound of
+  // binary64 over 1000 frames, never above that of binary32: measured in binary64 only, where
+  // it cannot be told from DC.
+  const amplitude = 2 ** -30;
+  const frequency = Math.fround(7.6e-9);
+  const peak = amplitude * Math.sin((2 * Math.PI * frequency * 999) / 48_000);
+  expect(peak).toBeGreaterThan(sineErrorBound(amplitude, 1000, "binary64"));
+  expect(peak).toBeLessThan(sineErrorBound(amplitude, 1000, "binary32"));
+  expect(() => parseExpectations({ a: { sample_rate: 48_000, frames: 1000, channels: [{ sine: { frequency, amplitude, phase: 0 } }] } })).toThrow(
+    /^invalid conformance input: expectations\.json: a: channel 0: sine\.frequency cannot be measured over 1000 frames/,
+  );
+});
+
 test("reads frequencies that are exact binary32 values, as the engine plays them", () => {
   const channel = { sine: { frequency: 440.100006103515625, amplitude: 1, phase: 0 } };
-  const parsed = parseExpectations({ a: { sample_rate: 8000, frames: 4, channels: [channel] } });
+  const parsed = parseExpectations({ a: { sample_rate: 8000, frames: 4000, channels: [channel] } });
   expect(parsed.get("a")?.channels[0]?.sine.frequency).toBe(Math.fround(440.1));
 });
 
@@ -185,14 +214,15 @@ test("accepts the longest case with an exact reference", () => {
 
 test("accepts a start phase from 0 to just below 2π", () => {
   for (const phase of [0, -0, 2 * Math.PI - 2 ** -50]) {
-    const parsed = parseExpectations({ a: { sample_rate: 8000, frames: 4, channels: [{ sine: { ...CHANNEL.sine, phase } }] } });
+    const parsed = parseExpectations({ a: { sample_rate: 8000, frames: 4000, channels: [{ sine: { ...CHANNEL.sine, phase } }] } });
     expect(parsed.get("a")?.channels[0]?.sine.phase).toBe(phase);
   }
 });
 
 test("accepts a frequency from 0 to just below 4 cycles per sample", () => {
+  // One frame from phase 0: no level measured, so the domain check alone decides.
   for (const frequency of [0, Math.fround(32_000 - 2 ** -9)]) {
-    const parsed = parseExpectations({ a: { sample_rate: 8000, frames: 4, channels: [{ sine: { ...CHANNEL.sine, frequency } }] } });
+    const parsed = parseExpectations({ a: { sample_rate: 8000, frames: 1, channels: [{ sine: { ...CHANNEL.sine, frequency, phase: 0 } }] } });
     expect(parsed.get("a")?.channels[0]?.sine.frequency).toBe(frequency);
   }
 });

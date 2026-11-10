@@ -181,15 +181,31 @@ export interface Quality {
 }
 
 /**
+ * The scaled normal matrix less the identity (`gram` holds `Σ φᵢφⱼ`, `scales` the inverse
+ * nominal norms), and its conditioning: the largest sum of the absolute values of a row.
+ */
+function deviationOf(gram: readonly (readonly number[])[], scales: readonly number[]): { deviation: number[][]; conditioning: number } {
+  const deviation = gram.map((row, i) => row.map((value, j) => value * at(scales, i) * at(scales, j) - (i === j ? 1 : 0)));
+  return { deviation, conditioning: Math.max(...deviation.map((row) => row.reduce((total, value) => total + Math.abs(value), 0))) };
+}
+
+/** The `Unresolvable` refusal of a fit whose conditioning exceeds {@link CONDITIONING_MAX}, or null. */
+function unresolvable(conditioning: number): MeasureError | null {
+  return conditioning > CONDITIONING_MAX
+    ? new MeasureError("Unresolvable", `the components are too close to be told apart (conditioning ${String(conditioning)}, at most ${String(CONDITIONING_MAX)})`)
+    : null;
+}
+
+/**
  * Solves the scaled normal equations: `gram` holds `Σ φᵢφⱼ` row by row, `projections`
  * `Σ φᵢx`, `scales` the inverse nominal norms. Returns the coefficients and the conditioning.
  * @throws {MeasureError} `Unresolvable` when the conditioning exceeds {@link CONDITIONING_MAX}.
  */
 export function solve(gram: readonly (readonly number[])[], projections: readonly number[], scales: readonly number[]): { coefficients: number[]; conditioning: number } {
-  const deviation = gram.map((row, i) => row.map((value, j) => value * at(scales, i) * at(scales, j) - (i === j ? 1 : 0)));
-  const conditioning = Math.max(...deviation.map((row) => row.reduce((total, value) => total + Math.abs(value), 0)));
-  if (conditioning > CONDITIONING_MAX) {
-    throw new MeasureError("Unresolvable", `the components are too close to be told apart (conditioning ${String(conditioning)}, at most ${String(CONDITIONING_MAX)})`);
+  const { deviation, conditioning } = deviationOf(gram, scales);
+  const refusal = unresolvable(conditioning);
+  if (refusal !== null) {
+    throw refusal;
   }
   const right = projections.map((value, i) => value * at(scales, i));
   const solution = Array.from({ length: JACOBI_ITERATIONS }).reduce<number[]>(
@@ -197,6 +213,31 @@ export function solve(gram: readonly (readonly number[])[], projections: readonl
     right,
   );
   return { coefficients: solution.map((value, i) => value * at(scales, i)), conditioning };
+}
+
+/**
+ * Why the sine fit of `fundamental` over `frames` frames at `rate` would be refused, as
+ * {@link measure} refuses it (`TooShort` or `Unresolvable`), or null when it would not:
+ * neither depends on the samples, only on the frequencies fitted and the frames.
+ */
+export function sineFitRefusal(fundamental: number, rate: number, frames: number): MeasureError | null {
+  const found = components(fundamental, rate, 1);
+  const list = unknowns(found);
+  const size = list.length;
+  if (frames < size) {
+    return new MeasureError("TooShort", `the signal has ${String(frames)} frames, fewer than the ${String(size)} unknowns of the fit`);
+  }
+  const gram = list.map(() => list.map(() => new Sum()));
+  for (let frame = 0; frame < frames; frame++) {
+    const row = basis(found, cycles(fundamental, frame, rate), size);
+    gram.forEach((sums, i) => {
+      sums.forEach((sum, j) => {
+        sum.add(at(row, i) * at(row, j));
+      });
+    });
+  }
+  const scales = list.map((unknown) => 1 / Math.sqrt(unknown.weight * frames));
+  return unresolvable(deviationOf(gram.map((sums) => sums.map((sum) => sum.value())), scales).conditioning);
 }
 
 /** What a fit found. */
