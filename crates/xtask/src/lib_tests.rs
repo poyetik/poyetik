@@ -411,7 +411,10 @@ fn lifting() -> String {
 /// `ASSEMBLY_FILES`.
 fn audited(path: &str) -> String {
     if super::ASSEMBLY_FILES.contains(&path) {
-        format!("{}core::arch::asm!(\"nop\");\n", lifting())
+        format!(
+            "{}fn f() {{\n    unsafe {{\n        core::arch::asm!(\"nop\");\n    }}\n}}\n",
+            lifting()
+        )
     } else {
         lifting()
     }
@@ -5037,10 +5040,9 @@ fn confines_unsafe_blocks_to_the_audited_files() {
     for (path, text) in &mut no_assembly {
         if super::ASSEMBLY_FILES.contains(&path.as_str()) {
             *text = format!(
-                "{}// asm!(\"nop\") in a comment, without its parenthesis\n",
+                "{}// unsafe {{ core::arch::asm!(\"nop\") }} in a comment\nconst A: &str = \"unsafe {{ core::arch::asm!() }}\";\n",
                 lifting()
-            )
-            .replace("asm!(", "asm! (");
+            );
         }
     }
     assert_eq!(
@@ -5051,6 +5053,31 @@ fn confines_unsafe_blocks_to_the_audited_files() {
         ),
         "an assembly file without assembly"
     );
+    for (code, line) in [
+        ("fn f(p: *const u8) -> u8 {\n    unsafe { *p }\n}\n", 2),
+        ("unsafe fn f() {\n    core::arch::asm!(\"nop\");\n}\n", 1),
+        ("unsafe impl Send for S {}\n", 1),
+        ("fn f() {\n    unsafe { core::ptr::read(p) }\n}\n", 2),
+    ] {
+        let mut other = sources.clone();
+        for (path, text) in &mut other {
+            if super::ASSEMBLY_FILES.contains(&path.as_str()) {
+                *text = format!("{}{code}", audited(path));
+            }
+        }
+        let offset = audited(super::ASSEMBLY_FILES[0]).lines().count();
+        assert_eq!(
+            unsafe_gate(&other),
+            failed(format!(
+                "the lint against unsafe code: {}:{}: `unsafe` not followed by \
+                 `core::arch::asm!`: an assembly file holds no other unsafe code, which Miri \
+                 would not check",
+                super::ASSEMBLY_FILES[0],
+                offset + line
+            )),
+            "other unsafe code beside the assembly: {code}"
+        );
+    }
     let mut stale = sources;
     stale[0].1 = forbid;
     assert_eq!(

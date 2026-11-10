@@ -3183,13 +3183,17 @@ pub fn test_declarations(path: &str, text: &str) -> Vec<(usize, String)> {
 /// The lint name is built at run time, so that this file does not name it.
 ///
 /// Every file of [`ASSEMBLY_FILES`], which leaves the Miri step, must still hold inline
-/// assembly (`asm!(`): a file that no longer does would be unsafe code Miri could check.
+/// assembly, and nothing else unsafe: in its code words (comments and strings apart), it
+/// names `unsafe` at least once, each time followed by `core::arch::asm`. With Clippy's
+/// `multiple_unsafe_ops_per_block`, each unsafe block then holds one assembly call and no
+/// other unsafe operation, and neither an `unsafe fn` nor an `unsafe impl` can hide there:
+/// any other unsafe code would escape Miri with its crate.
 ///
 /// # Errors
 ///
 /// Returns every other file that lifts the lint, every listed file that no longer does,
-/// every file that should forbid it and does not, and every assembly file without
-/// assembly.
+/// every file that should forbid it and does not, every assembly file without assembly, and
+/// every `unsafe` of an assembly file that is not inline assembly.
 pub fn unsafe_gate(sources: &[(String, String)]) -> Result<(), Failure> {
     let lint = format!("{}_{}", "unsafe", "code");
     let forbid = format!("#![forbid({lint})]");
@@ -3217,16 +3221,37 @@ pub fn unsafe_gate(sources: &[(String, String)]) -> Result<(), Failure> {
                 format!("{path} is listed in UNSAFE_FILES but no longer lifts the lint")
             }))
             .collect();
-    problems.extend(
-        ASSEMBLY_FILES
+    for file in ASSEMBLY_FILES {
+        let text = sources
             .iter()
-            .filter(|file| {
-                !sources
-                    .iter()
-                    .any(|(path, text)| path == *file && text.contains("asm!("))
-            })
-            .map(|file| format!("{file} is listed in ASSEMBLY_FILES but holds no inline assembly")),
-    );
+            .find(|(path, _)| path == file)
+            .map_or("", |(_, text)| text.as_str());
+        let words = code_words(text);
+        let mut unsafe_at = 0_usize;
+        for (index, (line, word, _)) in words.iter().enumerate() {
+            if word != "unsafe" {
+                continue;
+            }
+            unsafe_at = unsafe_at.saturating_add(1);
+            let next: Vec<&str> = words
+                .iter()
+                .skip(index.saturating_add(1))
+                .take(3)
+                .map(|(_, following, _)| following.as_str())
+                .collect();
+            if next != ["core", "arch", "asm"] {
+                problems.push(format!(
+                    "{file}:{line}: `unsafe` not followed by `core::arch::asm!`: an assembly \
+                     file holds no other unsafe code, which Miri would not check"
+                ));
+            }
+        }
+        if unsafe_at == 0 {
+            problems.push(format!(
+                "{file} is listed in ASSEMBLY_FILES but holds no inline assembly"
+            ));
+        }
+    }
     let unsafe_tests: BTreeSet<String> = sources
         .iter()
         .filter(|(path, _)| UNSAFE_FILES.contains(&path.as_str()))
