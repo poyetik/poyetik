@@ -3483,14 +3483,18 @@ pub fn test_declarations(path: &str, text: &str) -> Vec<(usize, String)> {
 /// assembly, and nothing else unsafe: in its code words (comments and strings apart), it
 /// names `unsafe` at least once, each time followed by `core::arch::asm`. With Clippy's
 /// `multiple_unsafe_ops_per_block`, each unsafe block then holds one assembly call and no
-/// other unsafe operation, and neither an `unsafe fn` nor an `unsafe impl` can hide there:
-/// any other unsafe code would escape Miri with its crate.
+/// other unsafe operation, and neither an `unsafe fn` nor an `unsafe impl` can hide there.
+/// No other file of its crate names `unsafe` in its code words: a macro or a function of
+/// another file could otherwise bring unsafe code under the assembly file's lifting, and
+/// any unsafe operation of the crate is written `unsafe` somewhere in it. Any other unsafe
+/// code would escape Miri with its crate.
 ///
 /// # Errors
 ///
 /// Returns every other file that lifts the lint, every listed file that no longer does,
-/// every file that should forbid it and does not, every assembly file without assembly, and
-/// every `unsafe` of an assembly file that is not inline assembly.
+/// every file that should forbid it and does not, every assembly file without assembly,
+/// every `unsafe` of an assembly file that is not inline assembly, and every `unsafe` of
+/// another file of its crate.
 pub fn unsafe_gate(sources: &[(String, String)]) -> Result<(), Failure> {
     let lint = format!("{}_{}", "unsafe", "code");
     let forbid = format!("#![forbid({lint})]");
@@ -3547,6 +3551,24 @@ pub fn unsafe_gate(sources: &[(String, String)]) -> Result<(), Failure> {
             problems.push(format!(
                 "{file} is listed in ASSEMBLY_FILES but holds no inline assembly"
             ));
+        }
+        // Code of another file of its crate can run under its lifting (a macro, a function
+        // it calls), so no other file of the crate names `unsafe` at all.
+        let Some((krate, _)) = in_crate(file) else {
+            continue;
+        };
+        for (path, other) in sources {
+            if path == file || krate.holds(path).is_none() {
+                continue;
+            }
+            for (line, word, _) in code_words(other) {
+                if word == "unsafe" {
+                    problems.push(format!(
+                        "{path}:{line}: `unsafe` in the crate of the assembly file {file}: its \
+                         code could run under that file's lifting, where Miri never checks it"
+                    ));
+                }
+            }
         }
     }
     let unsafe_tests: BTreeSet<String> = sources

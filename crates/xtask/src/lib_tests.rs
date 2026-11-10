@@ -5755,6 +5755,61 @@ fn confines_unsafe_blocks_to_the_audited_files() {
 }
 
 #[test]
+fn refuses_unsafe_operations_another_file_could_bring_under_the_assembly_file() {
+    let forbid = format!("#![forbid({}_{})]\n", "unsafe", "code");
+    let sources: Vec<(String, String)> = UNSAFE_FILES
+        .iter()
+        .map(|path| ((*path).to_owned(), audited(path)))
+        .collect();
+    let with = |path: &str, text: &str| {
+        let mut all = sources.clone();
+        all.push((path.to_owned(), text.to_owned()));
+        unsafe_gate(&all)
+    };
+    let word = "unsafe";
+    let peek = format!(
+        "//! The crate.\nmacro_rules! peek {{\n    ($p:expr) => {{\n        // SAFETY: read.\n        {word} {{ core::ptr::read($p) }}\n    }};\n}}\n"
+    );
+    let assembly = super::ASSEMBLY_FILES[0];
+    let refused = |path: &str, line: usize| {
+        failed(format!(
+            "the lint against unsafe code: {path}:{line}: `unsafe` in the crate of the assembly \
+             file {assembly}: its code could run under that file's lifting, where Miri never \
+             checks it"
+        ))
+    };
+    assert_eq!(
+        with("crates/engine-fpenv/src/lib.rs", &peek),
+        refused("crates/engine-fpenv/src/lib.rs", 5),
+        "a macro of the library root, used in the assembly file"
+    );
+    assert_eq!(
+        with(
+            "crates/engine-fpenv/src/lib_tests.rs",
+            &format!("{forbid}{word} fn f() {{}}\n")
+        ),
+        refused("crates/engine-fpenv/src/lib_tests.rs", 2),
+        "an unsafe function of another module"
+    );
+    assert_eq!(
+        with(
+            "crates/engine-fpenv/src/lib.rs",
+            &format!("//! Not {word} but the assembly.\nconst A: &str = \"{word}\";\n")
+        ),
+        Ok(()),
+        "the word in prose and strings"
+    );
+    assert_eq!(
+        with(
+            "crates/engine-core/src/lib.rs",
+            &format!("{forbid}fn f(p: *const u8) -> u8 {{\n    {word} {{ *p }}\n}}\n")
+        ),
+        Ok(()),
+        "another crate, whose forbid the compiler holds"
+    );
+}
+
+#[test]
 fn reports_rust_files_it_cannot_list() {
     for (name, action) in [
         (
