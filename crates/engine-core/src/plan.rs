@@ -35,7 +35,7 @@ struct Instance<S: Sample> {
     outputs: Vec<Block<S>>,
     /// For each inlet, how it is fed from the bus slots of its cables (in the canonical cable
     /// order), or `None` for an unconnected inlet, which stays silent.
-    feeds: Vec<Option<Feed<usize>>>,
+    feeds: Vec<Option<Feed<usize, S>>>,
     /// First bus slot holding this instance's outputs.
     first_slot: usize,
     /// Whether the inputs of this instance go to the engine output.
@@ -46,32 +46,32 @@ struct Instance<S: Sample> {
 /// when the plan is built so that processing takes no decision: the reduction order of
 /// decision 28 of `spec/engine-design.md` returns one term bit for bit, so one source is a
 /// plain copy, and only two or more pay for the sum.
-#[derive(Debug, PartialEq, Eq)]
-enum Feed<K> {
+#[derive(Debug)]
+enum Feed<K, S: Sample> {
     /// A single source, copied bit for bit (`-0.0` and NaN payloads included).
     Single(K),
-    /// Two or more sources, summed in the reduction order, in this order.
-    Several(Vec<K>),
+    /// Two or more sources, summed in the reduction order, in this order, with the scratch
+    /// lanes of this sum: reserved with it, so that summing never allocates, and reached only
+    /// by a sum, so that a plan without one never touches them while processing.
+    Several(Vec<K>, Lanes<S>),
 }
 
-impl<K: Copy> Feed<K> {
+impl<K: Copy, S: Sample> Feed<K, S> {
     /// How `sources`, in their summing order, feed a block: `None` when there is none.
     fn of(sources: Vec<K>) -> Option<Self> {
         match *sources.as_slice() {
             [] => None,
             [only] => Some(Self::Single(only)),
-            [..] => Some(Self::Several(sources)),
+            [..] => Some(Self::Several(sources, Lanes::new())),
         }
     }
 
     /// Writes into `out` the block this feed gives, reading each source through `read`
-    /// (which finds every source the plan built), with `lanes` as the scratch of a sum.
-    fn write<'source, S: Sample>(
-        &self,
-        out: &mut Block<S>,
-        lanes: &mut Lanes<S>,
-        read: impl Fn(K) -> Option<&'source Block<S>>,
-    ) {
+    /// (which finds every source the plan built).
+    fn write<'source>(&mut self, out: &mut Block<S>, read: impl Fn(K) -> Option<&'source Block<S>>)
+    where
+        S: 'source,
+    {
         match self {
             Self::Single(source) => {
                 // `read` finds every source the plan built: the block is always copied.
@@ -79,7 +79,7 @@ impl<K: Copy> Feed<K> {
                     *copy = *block;
                 }
             }
-            Self::Several(sources) => {
+            Self::Several(sources, lanes) => {
                 sum_blocks(
                     out,
                     lanes,
@@ -105,12 +105,9 @@ pub struct Plan<S: Sample> {
     /// How each engine output channel is fed, from the instances whose inputs go to the
     /// engine output (boxes with [`Capability::AudioOutput`]): channel `c` reads the inlets
     /// `c` of those that have one, by box id, as `(instance index, inlet)`.
-    channel_feeds: Vec<Feed<(usize, usize)>>,
+    channel_feeds: Vec<Feed<(usize, usize), S>>,
     /// Number of engine output channels.
     channels: usize,
-    /// The scratch lanes of every sum of blocks, reserved here so that summing never
-    /// allocates.
-    lanes: Lanes<S>,
 }
 
 /// A box resolved against the registry.
@@ -297,27 +294,29 @@ impl<S: Sample> Plan<S> {
         let order = execution_order(&ids, &connections)?;
 
         // Every id of the order is a resolved box: `remove` always finds it.
-        let instances: Vec<Instance<S>> = order
-            .iter()
-            .filter_map(|id| nodes.remove(id))
-            .map(|resolved| {
-                let id = resolved.node.id;
-                Instance {
-                    node: id,
-                    object: resolved.spec.create.create(rate, &resolved.params),
-                    inputs: vec![S::SILENCE; resolved.spec.inlets.len()],
-                    outputs: vec![S::SILENCE; resolved.spec.outlets.len()],
-                    feeds: (0..resolved.spec.inlets.len())
-                        .map(|inlet| Feed::of(sources.remove(&(id, inlet)).unwrap_or_default()))
-                        .collect(),
-                    first_slot: resolved.first_slot,
-                    is_output: resolved
-                        .spec
-                        .capabilities
-                        .contains(&Capability::AudioOutput),
-                }
-            })
-            .collect();
+        let mut instances: Vec<Instance<S>> = Vec::with_capacity(order.len());
+        instances.extend(
+            order
+                .iter()
+                .filter_map(|id| nodes.remove(id))
+                .map(|resolved| {
+                    let id = resolved.node.id;
+                    Instance {
+                        node: id,
+                        object: resolved.spec.create.create(rate, &resolved.params),
+                        inputs: vec![S::SILENCE; resolved.spec.inlets.len()],
+                        outputs: vec![S::SILENCE; resolved.spec.outlets.len()],
+                        feeds: (0..resolved.spec.inlets.len())
+                            .map(|inlet| Feed::of(sources.remove(&(id, inlet)).unwrap_or_default()))
+                            .collect(),
+                        first_slot: resolved.first_slot,
+                        is_output: resolved
+                            .spec
+                            .capabilities
+                            .contains(&Capability::AudioOutput),
+                    }
+                }),
+        );
         // The output boxes, by box id (like buses, decision 6): the order a channel sums
         // them in, whatever the cables that set the execution order.
         let mut outputs: Vec<usize> = instances
@@ -356,7 +355,6 @@ impl<S: Sample> Plan<S> {
             bus: vec![S::SILENCE; bus_len],
             channel_feeds,
             channels,
-            lanes: Lanes::new(),
         })
     }
 
@@ -389,11 +387,11 @@ impl<S: Sample> Plan<S> {
             for (input, feed) in instance
                 .inputs
                 .iter_mut()
-                .zip(&instance.feeds)
-                .filter_map(|(input, feed)| feed.as_ref().map(|feed| (input, feed)))
+                .zip(&mut instance.feeds)
+                .filter_map(|(input, feed)| feed.as_mut().map(|feed| (input, feed)))
             {
                 // Every slot is below the bus length (`source_slot`): each is read.
-                feed.write(input, &mut self.lanes, |slot| self.bus.get(slot));
+                feed.write(input, |slot| self.bus.get(slot));
             }
             instance
                 .object
@@ -407,11 +405,11 @@ impl<S: Sample> Plan<S> {
                 *slot = *output;
             }
         }
-        let mut feeds = self.channel_feeds.iter();
+        let mut feeds = self.channel_feeds.iter_mut();
         for channel in out.iter_mut() {
             match feeds.next() {
                 // Every source is an instance and one of its inlets (`build`): each is read.
-                Some(feed) => feed.write(channel, &mut self.lanes, |(index, inlet)| {
+                Some(feed) => feed.write(channel, |(index, inlet)| {
                     self.instances
                         .get(index)
                         .and_then(|instance| instance.inputs.get(inlet))

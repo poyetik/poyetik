@@ -4,144 +4,144 @@
       "box": "osc~",
       "precision": "binary64",
       "setting": "440 Hz at 48 kHz",
-      "instructions": 758965
+      "instructions": 758773
     },
     {
       "box": "osc~",
       "precision": "binary32",
       "setting": "440 Hz at 48 kHz",
-      "instructions": 502794
+      "instructions": 502602
     },
     {
       "box": "osc~",
       "precision": "binary64",
       "setting": "1000 Hz at 8 kHz",
-      "instructions": 804416
+      "instructions": 804224
     },
     {
       "box": "osc~",
       "precision": "binary32",
       "setting": "1000 Hz at 8 kHz",
-      "instructions": 493696
+      "instructions": 493504
     },
     {
       "box": "osc~",
       "precision": "binary64",
       "setting": "19999 Hz at 384 kHz",
-      "instructions": 758651
+      "instructions": 758459
     },
     {
       "box": "osc~",
       "precision": "binary32",
       "setting": "19999 Hz at 384 kHz",
-      "instructions": 502858
+      "instructions": 502666
     },
     {
       "box": "osc~",
       "precision": "binary64",
       "setting": "0 Hz at 44.1 kHz",
-      "instructions": 347200
+      "instructions": 347008
     },
     {
       "box": "osc~",
       "precision": "binary32",
       "setting": "0 Hz at 44.1 kHz",
-      "instructions": 396416
+      "instructions": 396224
     },
     {
       "box": "dac~",
       "precision": "binary64",
       "setting": "two inlets fed at 48 kHz",
-      "instructions": 235392
+      "instructions": 235200
     },
     {
       "box": "dac~",
       "precision": "binary32",
       "setting": "two inlets fed at 48 kHz",
-      "instructions": 19584
+      "instructions": 19392
     },
     {
       "box": "dac~",
       "precision": "binary64",
       "setting": "unconnected at 48 kHz",
-      "instructions": 232704
+      "instructions": 232320
     },
     {
       "box": "dac~",
       "precision": "binary32",
       "setting": "unconnected at 48 kHz",
-      "instructions": 16960
+      "instructions": 16576
     }
   ],
   "mixes": [
     {
       "precision": "binary64",
       "setting": "2 cables into one inlet at 48 kHz",
-      "instructions": 78464
+      "instructions": 78656
     },
     {
       "precision": "binary32",
       "setting": "2 cables into one inlet at 48 kHz",
-      "instructions": 78464
+      "instructions": 78656
     },
     {
       "precision": "binary64",
       "setting": "3 cables into one inlet at 48 kHz",
-      "instructions": 145408
+      "instructions": 145600
     },
     {
       "precision": "binary32",
       "setting": "3 cables into one inlet at 48 kHz",
-      "instructions": 145408
+      "instructions": 145600
     },
     {
       "precision": "binary64",
       "setting": "16 cables into one inlet at 48 kHz",
-      "instructions": 967552
+      "instructions": 967744
     },
     {
       "precision": "binary32",
       "setting": "16 cables into one inlet at 48 kHz",
-      "instructions": 967552
+      "instructions": 967744
     },
     {
       "precision": "binary64",
       "setting": "17 cables into one inlet at 48 kHz",
-      "instructions": 1033920
+      "instructions": 1034112
     },
     {
       "precision": "binary32",
       "setting": "17 cables into one inlet at 48 kHz",
-      "instructions": 1033920
+      "instructions": 1034112
     },
     {
       "precision": "binary64",
       "setting": "two output boxes fed by one oscillator at 48 kHz",
-      "instructions": 169600
+      "instructions": 169984
     },
     {
       "precision": "binary32",
       "setting": "two output boxes fed by one oscillator at 48 kHz",
-      "instructions": 169600
+      "instructions": 169984
     }
   ],
   "plans": [
     {
       "oscillators": 256,
-      "instructions": 3923422
+      "instructions": 3889639
     },
     {
       "oscillators": 1024,
-      "instructions": 16838969
+      "instructions": 16724964
     },
     {
       "oscillators": 4096,
-      "instructions": 72636673
+      "instructions": 72198872
     },
     {
       "oscillators": 16384,
-      "instructions": 308138425
+      "instructions": 306475189
     }
   ],
-  "module_bytes": 346851
+  "module_bytes": 345450
 }

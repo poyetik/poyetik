@@ -1306,26 +1306,41 @@ fn decides_how_each_block_is_fed_when_built<S: Bits>() {
         vec![wire(1, 0, 3, 0), wire(2, 0, 3, 0), wire(2, 0, 3, 1)],
     )
     .expect("valid patch");
-    let feeds: Vec<&[Option<Feed<usize>>]> = plan
+    let feeds: Vec<Vec<Option<String>>> = plan
         .instances
         .iter()
-        .map(|instance| instance.feeds.as_slice())
+        .map(|instance| {
+            instance
+                .feeds
+                .iter()
+                .map(|feed| feed.as_ref().map(shape))
+                .collect()
+        })
         .collect();
+    let some = |text: &str| Some(String::from(text));
     assert_eq!(
         feeds,
         vec![
-            &[][..],
-            &[][..],
-            &[Some(Feed::Several(vec![0, 1])), Some(Feed::Single(1))][..],
-            &[None][..],
+            vec![],
+            vec![],
+            vec![some("sum [0, 1]"), some("copy 1")],
+            vec![None],
         ],
         "out~ sums two cables and copies one; mono~ is unconnected"
     );
     assert_eq!(
-        plan.channel_feeds,
-        vec![Feed::Several(vec![(2, 0), (3, 0)]), Feed::Single((2, 1))],
+        plan.channel_feeds.iter().map(shape).collect::<Vec<_>>(),
+        ["sum [(2, 0), (3, 0)]", "copy (2, 1)"],
         "channel 0 sums out~ and mono~; channel 1 copies out~ alone"
     );
+}
+
+/// How `feed` is fed, in words: `copy <source>` or `sum [<sources>]`.
+fn shape<K: core::fmt::Debug, S: Sample>(feed: &Feed<K, S>) -> String {
+    match feed {
+        Feed::Single(source) => alloc::format!("copy {source:?}"),
+        Feed::Several(sources, _) => alloc::format!("sum {sources:?}"),
+    }
 }
 
 /// Runs each generic test in both precisions, each instantiation a test of its own.
