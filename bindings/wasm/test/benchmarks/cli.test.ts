@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 import { BASELINE_FILE, benchMain, MODULE_FILE, SUITE, THRESHOLDS_FILE, USAGE, type BenchIo, type Suite } from "../../benchmarks/cli.ts";
-import { BOX_BENCHMARKS, PLAN_SIZES } from "../../benchmarks/suite.ts";
+import { BOX_BENCHMARKS, MIX_BENCHMARKS, PLAN_SIZES } from "../../benchmarks/suite.ts";
 import { wasmBytes } from "../fixtures.ts";
 import { assemble } from "./assemble.ts";
 
@@ -12,8 +12,8 @@ const THRESHOLDS = JSON.stringify({
   boxes: { blocks: 2, runs: 1, margin: 1, measured_on: "now", measured_max_ms: { chromium: 1, firefox: 1, webkit: 1 } },
 });
 
-/** A small suite: one box benchmark, two plans. */
-const SMALL: Suite = { boxes: BOX_BENCHMARKS.slice(0, 1), sizes: [3, 5] };
+/** A small suite: one box benchmark, one mixing benchmark, two plans. */
+const SMALL: Suite = { boxes: BOX_BENCHMARKS.slice(0, 1), mixes: MIX_BENCHMARKS.slice(0, 1), sizes: [3, 5] };
 
 /** Throws `value` as it is, an error or not, as a callee may: through a generator, which can throw anything. */
 function rethrow(value: unknown): never {
@@ -102,16 +102,22 @@ describe("benchMain", () => {
   test("blesses a baseline of every count, then checks it", () => {
     const fake = blessed();
     expect(fake.errors).toStrictEqual([]);
-    expect(fake.printed).toHaveLength(5);
+    expect(fake.printed).toHaveLength(7);
     expect(fake.printed[0]).toMatch(/^osc~ 440 Hz at 48 kHz in binary64: \d+ instructions$/);
     expect(fake.printed[1]).toMatch(/^osc~ 440 Hz at 48 kHz in binary32: \d+ instructions$/);
-    expect(fake.printed.slice(2, 4).map((line) => line.replace(/\d+ instructions/, "N"))).toStrictEqual(["loading a plan of 3 oscillators: N", "loading a plan of 5 oscillators: N"]);
-    expect(fake.printed[4]).toBe("wrote spec/benchmark-baseline.json");
+    expect(fake.printed.slice(2, 6).map((line) => line.replace(/\d+ instructions/, "N"))).toStrictEqual([
+      "mixing 2 cables into one inlet at 48 kHz in binary64: N",
+      "mixing 2 cables into one inlet at 48 kHz in binary32: N",
+      "loading a plan of 3 oscillators: N",
+      "loading a plan of 5 oscillators: N",
+    ]);
+    expect(fake.printed[6]).toBe("wrote spec/benchmark-baseline.json");
     const baseline: unknown = JSON.parse(fake.text(`/repo/${BASELINE_FILE}`));
+    expect(Reflect.get(Object(baseline), "mixes")).toHaveLength(2);
     expect(Reflect.get(Object(baseline), "plans")).toHaveLength(2);
     fake.printed.length = 0;
     expect(benchMain(fake, ["check"], SMALL)).toBe(0);
-    expect(fake.printed).toHaveLength(4);
+    expect(fake.printed).toHaveLength(6);
     expect(fake.errors).toStrictEqual([]);
   });
 
@@ -125,8 +131,8 @@ describe("benchMain", () => {
   });
 
   test("fails a check, and refuses to bless, when plans grow faster than n log n", () => {
-    const decreasing: Suite = { boxes: [], sizes: [5, 3] };
-    const fake = blessed({ boxes: [], sizes: [3] });
+    const decreasing: Suite = { boxes: [], mixes: [], sizes: [5, 3] };
+    const fake = blessed({ boxes: [], mixes: [], sizes: [3] });
     expect(benchMain(fake, ["check"], decreasing)).toBe(1);
     expect(fake.printed.filter((line) => line.startsWith("building plans grows faster than n log n: 5 to 3 oscillators"))).toHaveLength(1);
     expect(fake.errors).toStrictEqual(["error: the benchmarks moved beyond their thresholds (2 problem(s); see spec/benchmarks.md)"]);
@@ -143,7 +149,7 @@ describe("benchMain", () => {
     expect(missing.errors).toStrictEqual(["error: cannot read spec/benchmark-baseline.json: ENOENT: /repo/spec/benchmark-baseline.json"]);
     const malformed = new Fake("{}");
     expect(benchMain(malformed, ["check"], SMALL)).toBe(1);
-    expect(malformed.errors).toStrictEqual(['error: spec/benchmark-baseline.json: expected {"boxes": [...], "plans": [...]}']);
+    expect(malformed.errors).toStrictEqual(['error: spec/benchmark-baseline.json: expected {"boxes": [...], "mixes": [...], "plans": [...]}']);
     const thresholds = new Fake("{}");
     thresholds.files.set(`/repo/${THRESHOLDS_FILE}`, Uint8Array.of(0xff));
     expect(benchMain(thresholds, ["check"], SMALL)).toBe(1);
@@ -170,7 +176,7 @@ describe("benchMain", () => {
     if (first === undefined) {
       throw new Error("no benchmark");
     }
-    expect(run(new Uint8Array(wasmBytes()), { boxes: [{ ...first, patch: first.without, without: first.patch }], sizes: [] })[0]).toMatch(
+    expect(run(new Uint8Array(wasmBytes()), { boxes: [{ ...first, patch: first.without, without: first.patch }], mixes: [], sizes: [] })[0]).toMatch(
       /^error: bindings\/wasm\/dist\/engine\.wasm: a count of -\d+ instructions cannot be stored exactly$/,
     );
   });
@@ -219,14 +225,14 @@ describe("benchMain", () => {
     if (first === undefined) {
       throw new Error("no benchmark");
     }
-    const fake = blessed({ boxes: [{ ...first, setting: "a\nb" }], sizes: [] });
+    const fake = blessed({ boxes: [{ ...first, setting: "a\nb" }], mixes: [], sizes: [] });
     expect(benchMain(fake, ["check"], SMALL)).toBe(1);
     expect(fake.printed).toContain("osc~ a\\u{a}b in binary64: in the baseline, measured by no benchmark");
     expect(fake.printed).toContain("osc~ a\\u{a}b in binary32: in the baseline, measured by no benchmark");
   });
 
   test("runs the whole suite by default, as the paths of the repository say", () => {
-    expect(SUITE).toStrictEqual({ boxes: BOX_BENCHMARKS, sizes: PLAN_SIZES });
+    expect(SUITE).toStrictEqual({ boxes: BOX_BENCHMARKS, mixes: MIX_BENCHMARKS, sizes: PLAN_SIZES });
     expect([BASELINE_FILE, THRESHOLDS_FILE, MODULE_FILE]).toStrictEqual(["spec/benchmark-baseline.json", "spec/benchmark-thresholds.json", "bindings/wasm/dist/engine.wasm"]);
     expect(readFileSync(new URL("../../package.json", import.meta.url), "utf8")).toMatch(/"benchmarks:check": "[a-z]+ scripts\/benchmarks\.ts check"/);
   });

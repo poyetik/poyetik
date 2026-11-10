@@ -4,7 +4,7 @@
 // it touches is injected, so that it is tested; the entry point wires the real process.
 import { oneLine } from "@poyetik/config/one-line";
 import { countedModule } from "./counter.ts";
-import { BOX_BENCHMARKS, formatBaseline, measure, nLogNProblems, parseBaseline, parseThresholds, PLAN_SIZES, regressions, type BoxBenchmark, type Counts } from "./suite.ts";
+import { BOX_BENCHMARKS, formatBaseline, measure, MIX_BENCHMARKS, mixName, nLogNProblems, parseBaseline, parseThresholds, PLAN_SIZES, regressions, type BoxBenchmark, type Counts, type MixBenchmark } from "./suite.ts";
 
 /** What the command needs from the outside world. */
 export interface BenchIo {
@@ -20,16 +20,18 @@ export interface BenchIo {
   readonly err: (line: string) => void;
 }
 
-/** What is measured: the box benchmarks, and the sizes of the plans built. */
+/** What is measured: the box benchmarks, the mixing benchmarks, and the sizes of the plans built. */
 export interface Suite {
   /** The box benchmarks. */
   readonly boxes: readonly BoxBenchmark[];
+  /** The mixing benchmarks. */
+  readonly mixes: readonly MixBenchmark[];
   /** The plan sizes, in oscillators, increasing. */
   readonly sizes: readonly number[];
 }
 
 /** The benchmarks `check` and `bless` run. */
-export const SUITE: Suite = { boxes: BOX_BENCHMARKS, sizes: PLAN_SIZES };
+export const SUITE: Suite = { boxes: BOX_BENCHMARKS, mixes: MIX_BENCHMARKS, sizes: PLAN_SIZES };
 
 /** The baseline, from the repository root. */
 export const BASELINE_FILE = "spec/benchmark-baseline.json";
@@ -89,7 +91,7 @@ function measured(io: BenchIo, suite: Suite): Counts {
     failed(`cannot read ${MODULE_FILE}`, error);
   }
   try {
-    return measure(countedModule(wasm), suite.boxes, suite.sizes);
+    return measure(countedModule(wasm), suite.boxes, suite.mixes, suite.sizes);
   } catch (error) {
     failed(MODULE_FILE, error);
   }
@@ -99,6 +101,9 @@ function measured(io: BenchIo, suite: Suite): Counts {
 function report(io: BenchIo, counts: Counts): void {
   for (const entry of counts.boxes) {
     io.out(`${entry.box} ${entry.setting} in ${entry.precision}: ${String(entry.instructions)} instructions`);
+  }
+  for (const entry of counts.mixes) {
+    io.out(`${mixName(entry)}: ${String(entry.instructions)} instructions`);
   }
   for (const entry of counts.plans) {
     io.out(`loading a plan of ${String(entry.oscillators)} oscillators: ${String(entry.instructions)} instructions`);

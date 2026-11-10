@@ -98,6 +98,77 @@ export const BOX_BENCHMARKS: readonly BoxBenchmark[] = [
 ];
 
 /**
+ * The cost of the plan's own sums at one setting: the instructions of {@link BLOCKS} blocks
+ * of a patch summing several terms into one place, minus those of the same boxes summing
+ * one. So it counts what the plan does per block to add the terms up (the reduction order of
+ * spec/engine-design.md, decision 28), which no box benchmark measures.
+ */
+export interface MixBenchmark {
+  /** The setting, in words: what is summed, and the rate. */
+  readonly setting: string;
+  /** The sample rate, in hertz. */
+  readonly rate: number;
+  /** A patch summing several terms. */
+  readonly patch: Patch;
+  /** The same boxes, summing one term where the patch sums several. */
+  readonly without: Patch;
+}
+
+/**
+ * A patch of `oscillators` oscillators (ids 1 to `oscillators`, at different frequencies)
+ * whose first `connected` feed the left inlet of one `dac~` (id 0).
+ */
+export function mixPatch(oscillators: number, connected: number): Patch {
+  return {
+    format: 1,
+    nodes: [{ id: 0, box: "dac~" }, ...Array.from({ length: oscillators }, (_entry, index) => ({ id: index + 1, box: "osc~", params: { frequency: 100 + 37 * (index + 1) } }))],
+    connections: Array.from({ length: connected }, (_entry, index) => ({ from: [index + 1, 0] as const, to: [0, 0] as const })),
+  };
+}
+
+/** The mixing benchmark of `cables` cables into one inlet, minus one cable there. */
+function cablesIntoOneInlet(cables: number): MixBenchmark {
+  return { setting: `${String(cables)} cables into one inlet at 48 kHz`, rate: 48_000, patch: mixPatch(cables, cables), without: mixPatch(cables, 1) };
+}
+
+/**
+ * Every mixing benchmark: cables into one inlet in each regime of the reduction order (2:
+ * one addition; 3: a partial tree; 16: the full tree; 17: a lane of two terms), and two
+ * output boxes on the same channels (whose difference also holds the second box's own
+ * work, which `dac~`'s box benchmark measures).
+ */
+export const MIX_BENCHMARKS: readonly MixBenchmark[] = [
+  cablesIntoOneInlet(2),
+  cablesIntoOneInlet(3),
+  cablesIntoOneInlet(16),
+  cablesIntoOneInlet(17),
+  {
+    setting: "two output boxes fed by one oscillator at 48 kHz",
+    rate: 48_000,
+    patch: {
+      format: 1,
+      nodes: [
+        { id: 1, box: "osc~", params: { frequency: 440 } },
+        { id: 2, box: "dac~" },
+        { id: 3, box: "dac~" },
+      ],
+      connections: [
+        { from: [1, 0], to: [2, 0] },
+        { from: [1, 0], to: [3, 0] },
+      ],
+    },
+    without: {
+      format: 1,
+      nodes: [
+        { id: 1, box: "osc~", params: { frequency: 440 } },
+        { id: 2, box: "dac~" },
+      ],
+      connections: [{ from: [1, 0], to: [2, 0] }],
+    },
+  },
+];
+
+/**
  * The precision the plans are built in: the default, given as binary32 as in the
  * `AudioWorklet`. Building a plan does the same work in both precisions but for the size of
  * its buffers.
@@ -131,6 +202,8 @@ export function patchBytes(patch: Patch): Uint8Array {
 export interface Counts {
   /** Each box benchmark in each precision: box, precision, setting and instructions. */
   readonly boxes: readonly { readonly box: string; readonly precision: Precision; readonly setting: string; readonly instructions: number }[];
+  /** Each mixing benchmark in each precision: precision, setting and instructions. */
+  readonly mixes: readonly { readonly precision: Precision; readonly setting: string; readonly instructions: number }[];
   /** Each plan built: its size in oscillators, and the instructions of loading it. */
   readonly plans: readonly { readonly oscillators: number; readonly instructions: number }[];
 }
@@ -157,22 +230,28 @@ function blocksOf(module: WebAssembly.Module, patch: Patch, rate: number, precis
   return instance.process(BLOCKS);
 }
 
+/** The instructions of `patch` minus those of `without`, both at `rate` in `precision`. */
+function difference(module: WebAssembly.Module, benchmark: { readonly patch: Patch; readonly without: Patch; readonly rate: number }, precision: Precision): number {
+  return exact(blocksOf(module, benchmark.patch, benchmark.rate, precision) - blocksOf(module, benchmark.without, benchmark.rate, precision));
+}
+
 /**
- * Runs the benchmarks on a counted engine module: `boxes` in every precision (each
- * benchmark in binary64 then in binary32), then plans of `sizes`.
+ * Runs the benchmarks on a counted engine module: `boxes` then `mixes` in every precision
+ * (each benchmark in binary64 then in binary32), then plans of `sizes`.
  * @throws {CountError} when the engine refuses a patch.
- * @throws {RangeError} when a box costs less than nothing (the patch without it costs more).
+ * @throws {RangeError} when a box or a mix costs less than nothing (the patch without it costs more).
  */
-export function measure(module: WebAssembly.Module, boxes: readonly BoxBenchmark[], sizes: readonly number[]): Counts {
+export function measure(module: WebAssembly.Module, boxes: readonly BoxBenchmark[], mixes: readonly MixBenchmark[], sizes: readonly number[]): Counts {
   return {
     boxes: boxes.flatMap((benchmark) =>
       PRECISIONS.map((precision) => ({
         box: benchmark.box,
         precision,
         setting: benchmark.setting,
-        instructions: exact(blocksOf(module, benchmark.patch, benchmark.rate, precision) - blocksOf(module, benchmark.without, benchmark.rate, precision)),
+        instructions: difference(module, benchmark, precision),
       })),
     ),
+    mixes: mixes.flatMap((benchmark) => PRECISIONS.map((precision) => ({ precision, setting: benchmark.setting, instructions: difference(module, benchmark, precision) }))),
     plans: sizes.map((oscillators) => ({
       oscillators,
       instructions: exact(new CountedInstance(module).load(patchBytes(planPatch(oscillators)), PLAN_RATE, givenAsBinary32(PLAN_PRECISION))),
@@ -185,6 +264,11 @@ function boxName(entry: { readonly box: string; readonly precision: Precision; r
   return `${entry.box} ${entry.setting} in ${entry.precision}`;
 }
 
+/** The name of a mixing benchmark in the reports: `mixing 2 cables into one inlet at 48 kHz in binary32`. */
+export function mixName(entry: { readonly precision: Precision; readonly setting: string }): string {
+  return `mixing ${entry.setting} in ${entry.precision}`;
+}
+
 /** The name of a plan benchmark in the reports. */
 function planName(oscillators: number): string {
   return `loading a plan of ${String(oscillators)} oscillators`;
@@ -194,6 +278,7 @@ function planName(oscillators: number): string {
 function named(counts: Counts): Map<string, number> {
   return new Map([
     ...counts.boxes.map((entry): [string, number] => [boxName(entry), entry.instructions]),
+    ...counts.mixes.map((entry): [string, number] => [mixName(entry), entry.instructions]),
     ...counts.plans.map((entry): [string, number] => [planName(entry.oscillators), entry.instructions]),
   ]);
 }
@@ -288,19 +373,20 @@ export function parseBaseline(text: string): Counts {
   } catch (error) {
     throw new BenchmarkFileError(`not JSON: ${String(error)}`);
   }
-  if (!hasExactly(json, ["boxes", "plans"]) || !Array.isArray(json["boxes"]) || !Array.isArray(json["plans"])) {
-    throw new BenchmarkFileError('expected {"boxes": [...], "plans": [...]}');
+  if (!hasExactly(json, ["boxes", "mixes", "plans"]) || !Array.isArray(json["boxes"]) || !Array.isArray(json["mixes"]) || !Array.isArray(json["plans"])) {
+    throw new BenchmarkFileError('expected {"boxes": [...], "mixes": [...], "plans": [...]}');
   }
   const boxes = json["boxes"].map((entry: unknown, index) => {
     if (!hasExactly(entry, ["box", "precision", "setting", "instructions"]) || typeof entry["box"] !== "string" || typeof entry["setting"] !== "string" || !isCount(entry["instructions"])) {
       throw new BenchmarkFileError(`boxes[${String(index)}] is not {"box", "precision", "setting", "instructions"} with a whole count`);
     }
-    const written = entry["precision"];
-    const precision = PRECISIONS.find((name) => name === written);
-    if (precision === undefined) {
-      throw new BenchmarkFileError(`boxes[${String(index)}].precision is not one of ${PRECISIONS.join(", ")}`);
+    return { box: entry["box"], precision: precisionOf(entry["precision"], `boxes[${String(index)}]`), setting: entry["setting"], instructions: entry["instructions"] };
+  });
+  const mixes = json["mixes"].map((entry: unknown, index) => {
+    if (!hasExactly(entry, ["precision", "setting", "instructions"]) || typeof entry["setting"] !== "string" || !isCount(entry["instructions"])) {
+      throw new BenchmarkFileError(`mixes[${String(index)}] is not {"precision", "setting", "instructions"} with a whole count`);
     }
-    return { box: entry["box"], precision, setting: entry["setting"], instructions: entry["instructions"] };
+    return { precision: precisionOf(entry["precision"], `mixes[${String(index)}]`), setting: entry["setting"], instructions: entry["instructions"] };
   });
   const plans = json["plans"].map((entry: unknown, index) => {
     if (!hasExactly(entry, ["oscillators", "instructions"]) || !isCount(entry["oscillators"]) || !isCount(entry["instructions"])) {
@@ -308,12 +394,24 @@ export function parseBaseline(text: string): Counts {
     }
     return { oscillators: entry["oscillators"], instructions: entry["instructions"] };
   });
-  return { boxes, plans };
+  return { boxes, mixes, plans };
+}
+
+/**
+ * The precision `written` names, for the entry at `where`.
+ * @throws {BenchmarkFileError} when it names none.
+ */
+function precisionOf(written: unknown, where: string): Precision {
+  const precision = PRECISIONS.find((name) => name === written);
+  if (precision === undefined) {
+    throw new BenchmarkFileError(`${where}.precision is not one of ${PRECISIONS.join(", ")}`);
+  }
+  return precision;
 }
 
 /** Writes a baseline as its file holds it: two-space indents, a final line break. */
 export function formatBaseline(counts: Counts): string {
-  return `${JSON.stringify({ boxes: counts.boxes, plans: counts.plans }, null, 2)}\n`;
+  return `${JSON.stringify({ boxes: counts.boxes, mixes: counts.mixes, plans: counts.plans }, null, 2)}\n`;
 }
 
 /** The browser engines the construction of the engine processor is timed on, as Playwright names them. */
