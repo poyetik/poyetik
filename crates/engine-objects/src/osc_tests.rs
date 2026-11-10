@@ -632,7 +632,8 @@ fn angle_rounding_power() -> f64 {
 /// The THD+N a non-periodic full-scale sine of `format` is predicted to measure, from
 /// its rounding spread uniformly (`spec/measurements.md`, "Thresholds of `osc~`"): the
 /// binary32 rounding of its value, and in binary32 that of its angle too; `None` in
-/// binary64, whose error is far below the floor of the measurements.
+/// binary64, whose error is below the floor of the measurements (by a factor of about 2.5,
+/// `bounds_its_binary64_error_below_the_floor`).
 fn predicted_thd_plus_n(format: RenderFormat) -> Option<f64> {
     let power = match format {
         RenderFormat::Binary64 => return None,
@@ -742,7 +743,7 @@ fn measures_within_its_thresholds(
             );
         }
         Some(_) => {}
-        // In binary64, the error of the sine is far below what the measurements can
+        // In binary64, the error of the sine is below what the measurements can
         // resolve: its levels are those of the floor of the measurements alone.
         None => {
             let floor =
@@ -755,6 +756,23 @@ fn measures_within_its_thresholds(
             );
         }
     }
+}
+
+#[test]
+fn bounds_its_binary64_error_below_the_floor() {
+    // The numbers of `spec/measurements.md` for binary64 over the measured frames: the
+    // error bound of a full-scale sine, about 1.14e-11 (above 10^-11), lies below the floor
+    // of the measurements of a full-scale sine, `FLOOR · (peak + Σ|c|)` with a peak of 1 and
+    // one coefficient of 1, about 2.9e-11, by a factor of about 2.5 only.
+    let error = bound(RenderFormat::Binary64, MEASURED_FRAMES);
+    let floor = engine_testkit::measure::FLOOR * 2.0_f64;
+    assert!((1.135e-11_f64..1.145e-11_f64).contains(&error), "{error}");
+    assert!((2.905e-11_f64..2.915e-11_f64).contains(&floor), "{floor}");
+    assert!(
+        (2.5_f64..2.6_f64).contains(&(floor / error)),
+        "{}",
+        floor / error
+    );
 }
 
 #[test]
