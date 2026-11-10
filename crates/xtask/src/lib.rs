@@ -7418,23 +7418,262 @@ fn rust_test_code(rel: &str) -> bool {
     rel.starts_with("tests/") || rel.ends_with("_tests.rs")
 }
 
-/// What every Rust test depends on: a change to a file of one of these names, or below the
-/// shared test crate, can let any mutant survive, so the default check then mutates
-/// everything.
-pub const MUTATE_EVERYTHING_WHEN: [&str; 4] = [
-    "Cargo.toml",
-    "Cargo.lock",
-    RUST_TOOLCHAIN_FILE,
-    "crates/engine-testkit/",
-];
+/// What every Rust test depends on, at the root: the default check mutates everything when
+/// one changes.
+///
+/// The workspace's manifest (its lints, profiles and shared dependencies) and the pinned
+/// toolchain: a change to either can let any mutant survive.
+pub const MUTATE_EVERYTHING_WHEN: [&str; 2] = [CARGO_TOML, RUST_TOOLCHAIN_FILE];
 
-/// Whether a change to `path` can let any mutant survive ([`MUTATE_EVERYTHING_WHEN`]): a
-/// file of one of its names, anywhere, or a path below one of its directories.
-fn everything_depends_on(path: &str) -> bool {
+/// The resolved dependencies of the workspace: a change mutates every crate whose build
+/// reaches a changed entry (`lock_widened`).
+pub const LOCK_FILE: &str = "Cargo.lock";
+
+/// The names of the files that configure a Cargo build, wherever they are.
+const CARGO_FILES: [&str; 3] = [CARGO_TOML, LOCK_FILE, RUST_TOOLCHAIN_FILE];
+
+/// The crate of the workspace whose code only tests use: a change below its directory can
+/// let a mutant of any crate whose tests use it survive.
+pub const SHARED_TEST_CRATE: &str = "engine-testkit";
+
+/// What a change to one file widens the default check's mutation testing to, beyond the
+/// lines it changes ([`widening`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Widening {
+    /// Every crate: a file of [`MUTATE_EVERYTHING_WHEN`], or a Cargo file ([`CARGO_FILES`])
+    /// of no crate of [`RUST_CRATES`].
+    Everything,
+    /// The crates whose build reaches a changed entry of [`LOCK_FILE`].
+    Lock,
+    /// The crate whose manifest it is, and every crate whose build includes it.
+    Manifest(&'static str),
+    /// Every crate whose tests use [`SHARED_TEST_CRATE`].
+    SharedTests,
+}
+
+/// What a change to `path` widens the mutation testing to, if anything: [`Widening`].
+///
+/// A Cargo file below a crate's directory but its manifest (a fixture of its tests) is a
+/// file of that crate, widened as its test code or as nothing.
+fn widening(path: &str) -> Option<Widening> {
+    if MUTATE_EVERYTHING_WHEN.contains(&path) {
+        return Some(Widening::Everything);
+    }
+    if path == LOCK_FILE {
+        return Some(Widening::Lock);
+    }
     let name = path.rsplit_once('/').map_or(path, |(_, name)| name);
-    MUTATE_EVERYTHING_WHEN
+    match in_crate(path) {
+        Some((krate, CARGO_TOML)) => Some(Widening::Manifest(krate.name)),
+        Some((krate, _)) => (krate.name == SHARED_TEST_CRATE).then_some(Widening::SharedTests),
+        None => CARGO_FILES.contains(&name).then_some(Widening::Everything),
+    }
+}
+
+/// One package of a lock file, by its name, version and source (empty for a crate of the
+/// workspace): its whole entry as written, and the packages its `dependencies` name.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct LockEntry {
+    /// The lines of its entry, after its name, version and source.
+    lines: Vec<String>,
+    /// Its dependencies as the lock names them: a name, then a version and a source only
+    /// when the name alone is ambiguous.
+    dependencies: Vec<String>,
+}
+
+/// The key of a lock entry: name, version, source.
+type LockKey = (String, String, String);
+
+/// The value of a line `<key> = "<value>"`, as Cargo writes it.
+fn lock_value<'line>(line: &'line str, key: &str) -> Option<&'line str> {
+    line.strip_prefix(key)?
+        .strip_prefix(" = \"")?
+        .strip_suffix('"')
+}
+
+/// The entries of `lock`, a lock file as Cargo writes it (`version = 4` and its header,
+/// then `[[package]]` tables of `name`, `version`, an optional `source` and `checksum`, and
+/// optional `dependencies`, one quoted name per line, indented by one space), or `None` for
+/// anything else.
+fn lock_entries(lock: &str) -> Option<BTreeMap<LockKey, LockEntry>> {
+    let mut entries = BTreeMap::new();
+    let mut lines = lock.lines().peekable();
+    while lines
+        .next_if(|header| header.starts_with('#') || header.is_empty())
+        .is_some()
+    {}
+    if lines.next() != Some("version = 4") {
+        return None;
+    }
+    while let Some(table) = lines.next() {
+        if table.is_empty() {
+            continue;
+        }
+        if table != "[[package]]" {
+            return None;
+        }
+        let name = lock_value(lines.next()?, "name")?;
+        let version = lock_value(lines.next()?, "version")?;
+        let source = match lines.next_if(|field| field.starts_with("source = ")) {
+            Some(field) => lock_value(field, "source")?,
+            None => "",
+        };
+        let mut entry = LockEntry {
+            lines: Vec::new(),
+            dependencies: Vec::new(),
+        };
+        if let Some(field) = lines.next_if(|field| field.starts_with("checksum = ")) {
+            entry.lines.push(lock_value(field, "checksum")?.to_owned());
+        }
+        if lines.next_if_eq(&"dependencies = [").is_some() {
+            loop {
+                let item = lines.next()?;
+                if item == "]" {
+                    break;
+                }
+                let dependency = item.strip_prefix(" \"")?.strip_suffix("\",")?;
+                entry.dependencies.push(dependency.to_owned());
+                entry.lines.push(item.to_owned());
+            }
+        }
+        if lines.peek().is_some_and(|next| !next.is_empty()) {
+            return None;
+        }
+        let key = (name.to_owned(), version.to_owned(), source.to_owned());
+        if entries.insert(key, entry).is_some() {
+            return None;
+        }
+    }
+    Some(entries)
+}
+
+/// The one entry of `entries` that `dependency` (`name`, `name version` or `name version
+/// (source)`) names, or `None` if it names none or several.
+fn lock_dependency<'entries>(
+    entries: &'entries BTreeMap<LockKey, LockEntry>,
+    dependency: &str,
+) -> Option<&'entries LockKey> {
+    let (name, rest) = dependency.split_once(' ').unwrap_or((dependency, ""));
+    let (version, source) = rest.split_once(' ').unwrap_or((rest, ""));
+    let source = match source {
+        "" => None,
+        quoted => Some(quoted.strip_prefix('(')?.strip_suffix(')')?),
+    };
+    let mut named = entries.keys().filter(|(entry, at, from)| {
+        entry == name
+            && (version.is_empty() || at == version)
+            && source.is_none_or(|source| from == source)
+    });
+    let found = named.next()?;
+    named.next().is_none().then_some(found)
+}
+
+/// The crates of [`RUST_CRATES`] whose build reaches an entry of `lock` (a lock file) that
+/// differs from `before` (the same file at an earlier commit), themselves included: an
+/// entry added, removed or changed (its version, source, checksum or dependencies), found by
+/// following the dependencies `lock` records. `None` when either file is not as Cargo
+/// writes it, or names a dependency that is not one of its entries.
+///
+/// A crate that reaches no changed entry builds with the same packages as before: an entry
+/// that reached a removed one changed its dependencies, so it is reached first.
+fn lock_widened(before: &str, lock: &str) -> Option<BTreeSet<&'static str>> {
+    let (old, new) = (lock_entries(before)?, lock_entries(lock)?);
+    let changed: BTreeSet<&LockKey> = old
+        .keys()
+        .chain(new.keys())
+        .filter(|key| old.get(*key) != new.get(*key))
+        .collect();
+    let mut widened = BTreeSet::new();
+    for krate in RUST_CRATES {
+        let mut pending: Vec<&LockKey> = new
+            .keys()
+            .filter(|(name, _, source)| name == krate.name && source.is_empty())
+            .collect();
+        if pending.len() != 1 {
+            return None;
+        }
+        let mut seen: BTreeSet<&LockKey> = BTreeSet::new();
+        while let Some(key) = pending.pop() {
+            if !seen.insert(key) {
+                continue;
+            }
+            if changed.contains(key) {
+                let _new = widened.insert(krate.name);
+            }
+            for dependency in &new.get(key)?.dependencies {
+                pending.push(lock_dependency(&new, dependency)?);
+            }
+        }
+    }
+    Some(widened)
+}
+
+/// The crates whose build reaches an entry of [`LOCK_FILE`] changed since `since`
+/// ([`lock_widened`]), or `None` when the file cannot be read there or here, or is not as
+/// Cargo writes it: then every crate may build differently.
+fn lock_changes(runner: &mut dyn Runner, since: &str) -> Option<BTreeSet<&'static str>> {
+    let before = runner
+        .capture(&Cmd::new(
+            "git",
+            &["show", &format!("{since}:{LOCK_FILE}")],
+            Dir::Root,
+        ))
+        .ok()?;
+    lock_widened(&before, &runner.read(LOCK_FILE).ok()?)
+}
+
+/// The crates of [`RUST_CRATES`] whose closure ([`crate_closures`]) holds `name`.
+fn crates_building(
+    closures: &BTreeMap<&'static str, BTreeSet<&'static str>>,
+    name: &str,
+) -> BTreeSet<&'static str> {
+    closures
         .iter()
-        .any(|shared| *shared == name || (shared.ends_with('/') && path.starts_with(shared)))
+        .filter(|(_, closure)| closure.contains(name))
+        .map(|(krate, _)| *krate)
+        .collect()
+}
+
+/// What the paths of `changed`, changed since `since`, widen the default check's mutation
+/// testing to ([`widening`]): `Err` with the first path that widens it to every crate, else
+/// each crate widened to every mutant with the first path that widens it.
+///
+/// # Errors
+///
+/// Returns why the crates or the lock files cannot be read.
+fn widened_crates(
+    runner: &mut dyn Runner,
+    since: &str,
+    changed: &[String],
+) -> Result<Result<BTreeMap<&'static str, String>, String>, Failure> {
+    let mut widened: BTreeMap<&'static str, String> = BTreeMap::new();
+    let builds = changed.iter().any(|path| {
+        matches!(
+            widening(path),
+            Some(Widening::Manifest(_) | Widening::SharedTests)
+        )
+    });
+    let closures = if builds {
+        crate_closures(&crates_metadata(runner)?)?
+    } else {
+        BTreeMap::new()
+    };
+    for path in changed {
+        let crates = match widening(path) {
+            None => continue,
+            Some(Widening::Everything) => return Ok(Err(path.clone())),
+            Some(Widening::Lock) => match lock_changes(runner, since) {
+                None => return Ok(Err(path.clone())),
+                Some(crates) => crates,
+            },
+            Some(Widening::Manifest(name)) => crates_building(&closures, name),
+            Some(Widening::SharedTests) => crates_building(&closures, SHARED_TEST_CRATE),
+        };
+        for krate in crates {
+            let _first = widened.entry(krate).or_insert_with(|| path.clone());
+        }
+    }
+    Ok(Ok(widened))
 }
 
 /// The paths a diff written with the `a/` and `b/` prefixes changes.
@@ -7994,15 +8233,28 @@ fn proven_crates(
         .into_iter()
         .chain(untracked.split('\0').filter(|path| !path.is_empty()))
         .collect();
-    let voiding = changed.iter().find_map(|path| {
-        if everything_depends_on(path) {
-            Some((path, "what every test depends on"))
-        } else if mutation_rule(path) {
-            Some((path, "the mutation rules"))
-        } else {
-            None
+    let mut locked = BTreeSet::new();
+    let mut voiding = None;
+    for path in &changed {
+        if mutation_rule(path) {
+            voiding = Some((*path, "the mutation rules"));
+            break;
         }
-    });
+        match widening(path) {
+            Some(Widening::Everything) => {
+                voiding = Some((*path, "what every test depends on"));
+                break;
+            }
+            Some(Widening::Lock) => match lock_changes(runner, &record.commit) {
+                None => {
+                    voiding = Some((*path, "what every test depends on"));
+                    break;
+                }
+                Some(crates) => locked = crates,
+            },
+            Some(Widening::Manifest(_) | Widening::SharedTests) | None => {}
+        }
+    }
     if let Some((path, what)) = voiding {
         say(
             out,
@@ -8029,10 +8281,11 @@ fn proven_crates(
                 .flatten()
                 .map(|name| dir_of(name))
                 .collect();
-            !changed.iter().any(|path| {
-                dirs.iter().any(|dir| path.starts_with(dir.as_str()))
-                    || krate.test_data.iter().any(|root| under_root(path, root))
-            })
+            !locked.contains(krate.name)
+                && !changed.iter().any(|path| {
+                    dirs.iter().any(|dir| path.starts_with(dir.as_str()))
+                        || krate.test_data.iter().any(|root| under_root(path, root))
+                })
         })
         .collect())
 }
@@ -8090,7 +8343,8 @@ fn say_proven(
 ///
 /// A change to the test code of a crate, or to the test data it declares
 /// ([`RustCrate::test_data`]), can weaken the tests of any of its code, so every source of
-/// that crate is then added whole; a change to what every test depends on
+/// that crate is then added whole, and so is every crate a change of a shared input
+/// reaches ([`widened_crates`]); a change to what every test depends on
 /// ([`MUTATE_EVERYTHING_WHEN`]) mutates the whole workspace. A valid proof record of the
 /// base ([`usable_proof`]) then leaves out the crates it still proves ([`proven_crates`]),
 /// each said: every other crate is mutated exactly as without it.
@@ -8125,25 +8379,32 @@ fn rust_mutants_of_changes(
         say_proven(out, &proven, &changed, record)?;
     }
     let unproven = |krate: &RustCrate| !proven.contains(krate);
-    let everything = changed.iter().find(|path| everything_depends_on(path));
-    let tested: Vec<(RustCrate, &str)> = RUST_CRATES
+    let widened = widened_crates(runner, &base, &changed)?;
+    let everything = widened.as_ref().err();
+    // Each crate tested whole, with what to say of it (nothing when every crate is).
+    let tested: Vec<(RustCrate, Option<String>)> = RUST_CRATES
         .into_iter()
         .filter(unproven)
         .filter_map(|krate| {
             let prefix = format!("{}/", krate.dir);
+            let every = format!("every mutant of {}", krate.name);
             let code = changed
                 .iter()
                 .find(|path| path.strip_prefix(&prefix).is_some_and(rust_test_code))
-                .map(|_| "test code");
+                .map(|_| format!("the test code of {} changed: {every}", krate.name));
             let data = changed
                 .iter()
                 .find(|path| krate.test_data.iter().any(|root| under_root(path, root)))
-                .map(|_| "test data");
-            everything
-                .map(|_| "dependencies")
-                .or(code)
-                .or(data)
-                .map(|what| (krate, what))
+                .map(|_| format!("the test data of {} changed: {every}", krate.name));
+            let built = widened
+                .as_ref()
+                .ok()
+                .and_then(|crates| crates.get(krate.name))
+                .map(|path| format!("{path} changed: {every}"));
+            match everything {
+                Some(_) => Some((krate, None)),
+                None => code.or(data).or(built).map(|said| (krate, Some(said))),
+            }
         })
         .collect();
     if let Some(path) = everything {
@@ -8156,15 +8417,9 @@ fn rust_mutants_of_changes(
     }
     if !tested.is_empty() {
         let sources = list_tracked(runner, &["*.rs"], "the Rust files")?;
-        for (krate, what) in tested {
-            if what != "dependencies" {
-                say(
-                    out,
-                    &format!(
-                        "  the {what} of {} changed: every mutant of {}",
-                        krate.name, krate.name
-                    ),
-                )?;
+        for (krate, said) in tested {
+            if let Some(said) = said {
+                say(out, &format!("  {said}"))?;
             }
             let prefix = format!("{}/", krate.dir);
             for path in &sources {
