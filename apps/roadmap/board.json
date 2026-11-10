@@ -857,6 +857,10 @@
         {
           "title": "Decision 10's cost claim: the newtypes' instruction counts are held only within the benchmark tolerance; prove them identical to plain floats (an exact comparison of the counts) or keep the weaker wording",
           "done": false
+        },
+        {
+          "title": "Coverage per instantiation: the coverage gate reads llvm-cov's summary, which merges the instantiations of a generic function, so a branch one instantiation never takes passes (found on 2026-11-10: in engine-core, Renderer<Binary64>::render_into never run on a plan without output and its render never refused, and reduce over blocks never given no term; engine-cli's read_earlier on one map type; engine-testkit's check_rendered and two closures of the laws in one precision). Reading every function record instead is not enough as is: an instantiation by a test's closure type (with_default_mode in engine-fpenv's tests) cannot take both sides of a branch, and a test-only path in hot code costs instructions. Decide which instantiations must be covered whole (those differing in the sample type, at least), how the gate tells them apart without parsing mangled names loosely, and prove it refuses with a fixture crate",
+          "done": false
         }
       ]
     },
