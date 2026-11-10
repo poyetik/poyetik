@@ -648,24 +648,23 @@ fn reduce<L: Summand, T: Borrow<L>>(
     rest: &mut [L; LANES - 1],
     terms: impl IntoIterator<Item = T>,
 ) {
-    let mut terms = terms.into_iter().peekable();
-    let mut used = 0_usize;
+    let mut terms = terms.into_iter();
+    let Some(first) = terms.next() else {
+        *out = L::NOTHING;
+        return;
+    };
+    *out = *first.borrow();
+    let mut used = 1_usize;
     // `zip` asks the lanes first, so a term is never taken without a lane for it.
-    for (lane, term) in iter::once(&mut *out)
-        .chain(rest.iter_mut())
-        .zip(terms.by_ref())
-    {
+    for (lane, term) in rest.iter_mut().zip(terms.by_ref()) {
         *lane = *term.borrow();
         used = used.saturating_add(1);
     }
-    if used == 0 {
-        *out = L::NOTHING;
-    }
-    while terms.peek().is_some() {
-        for (lane, term) in iter::once(&mut *out)
-            .chain(rest.iter_mut())
-            .zip(terms.by_ref())
-        {
+    // Every lane holds a term: each next term adds to lane 0, the ones after it to lanes 1
+    // to 15, in turn.
+    while let Some(next) = terms.next() {
+        out.add(next.borrow());
+        for (lane, term) in rest.iter_mut().zip(terms.by_ref()) {
             lane.add(term.borrow());
         }
     }
