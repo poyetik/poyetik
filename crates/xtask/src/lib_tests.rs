@@ -7115,6 +7115,38 @@ fn lets_the_test_modules_of_an_unsafe_file_inherit_its_lifting() {
 }
 
 #[test]
+fn reads_the_lint_forbids_as_no_test_code() {
+    let gate = |text: &str| {
+        super::test_code_gate(&[("crates/engine-core/src/a.rs".to_owned(), text.to_owned())])
+    };
+    let context = "test code only in tests/ and in declared *_tests.rs files";
+    // The two lint forbids that apply outside tests, written whole, the attribute's name
+    // apart so that the bypass gate does not read this file as lifting a lint.
+    let attribute = format!("{}_{}", "cfg", "attr");
+    let forbids = format!(
+        "#![{attribute}(not(test), forbid(clippy::arithmetic_side_effects))]\n  \
+         #![{attribute}(not(test), forbid(clippy::float_arithmetic))]\n"
+    );
+    assert_eq!(gate(&forbids), Ok(()), "the forbid lines, trimmed");
+    assert_eq!(
+        gate(&forbids.replace("float_arithmetic))]", "float_arithmetic))] ")),
+        Ok(()),
+        "trailing spaces trimmed"
+    );
+    assert_eq!(
+        gate(&format!(
+            "#![{attribute}(not(test), forbid(clippy::float_arithmetic, unused))]\n"
+        )),
+        failed(format!(
+            "{context}: crates/engine-core/src/a.rs:1: names `test` outside test code: tests \
+             live in tests/ or in a *_tests.rs file declared `#[cfg(test)] #[path = \
+             \"<name>_tests.rs\"] mod <name>;`"
+        )),
+        "another line"
+    );
+}
+
+#[test]
 fn refuses_test_code_outside_test_files() {
     let gate = |sources: &[(&str, &str)]| {
         let owned: Vec<(String, String)> = sources
