@@ -2227,11 +2227,17 @@ fn mutates_everything_when_what_every_test_uses_changed() {
             "{path}: every mutant of the workspace, no diff: {:?}",
             fake.ran
         );
+        let unnarrowed = if path == "Cargo.lock" {
+            " and cannot be narrowed (`git show abc1230000000000000000000000000000000000:Cargo.lock` \
+             exited with code 1: failed)"
+        } else {
+            ""
+        };
         assert!(
-            String::from_utf8(out)
-                .expect("UTF-8")
-                .contains(&format!("  {path} changed: every Rust mutant\n")),
-            "{path}: said"
+            String::from_utf8(out).expect("UTF-8").contains(&format!(
+                "  {path} changed{unnarrowed}: every Rust mutant\n"
+            )),
+            "{path}: said, with why a lock file is not narrowed"
         );
     }
     for path in [
@@ -11624,10 +11630,10 @@ fn mutates_every_crate_not_proven_whole_when_what_every_test_uses_changed() {
         everything_said,
         format!(
             "▶ [1/2] Rust mutation testing of the changes\n  the changes since {} (merge base \
-             with @{{upstream}})\n  Cargo.lock changed: every Rust mutant but the crates proven \
-             below\n{proven}  done in 1.5 s\n▶ [2/2] Rust unviable mutants reviewed\n  done in \
+             with @{{upstream}})\n  Cargo.lock changed and cannot be narrowed (`git show {}:Cargo.lock` \
+             exited with code 1: failed): every Rust mutant but the crates proven below\n{proven}  done in 1.5 s\n▶ [2/2] Rust unviable mutants reviewed\n  done in \
              1.5 s\n✔ all 2 checks passed in 3.0 s\n",
-            PROVEN[2]
+            PROVEN[2], PROVEN[2]
         ),
         "every crate proven named, the render hash mutated whole"
     );
@@ -11790,15 +11796,20 @@ fn ignores_a_proof_record_when_its_rules_or_shared_inputs_changed() {
         ("crates/xtask/src/lib.rs", "the mutation rules"),
         ("mutants-unviable.txt", "the mutation rules"),
         (".cargo/config.toml", "the mutation rules"),
-        ("Cargo.lock", "what every test depends on"),
+        (
+            "Cargo.lock",
+            "and cannot be narrowed (`git show 1111111111111111111111111111111111111111:Cargo.lock` \
+             exited with code 1: failed), what every test depends on",
+        ),
         ("rust-toolchain.toml", "what every test depends on"),
         ("Cargo.toml", "what every test depends on"),
     ] {
         let mut fake = proven_fake(&proof_record(PROVEN[2]), &one_line_change(path));
         let said = mutate_changes(&mut fake);
+        let comma = if what.starts_with("and ") { " " } else { ", " };
         assert!(
             said.contains(&format!(
-                "  ignored the mutation proof record of {}: {path} changed since, {what}\n",
+                "  ignored the mutation proof record of {}: {path} changed since{comma}{what}\n",
                 PROVEN[0]
             )) && !said.contains("proven by an earlier check"),
             "{path}: said: {said}"
@@ -12664,7 +12675,7 @@ const LOCKED_REGISTRY: [Registered<'static>; 5] = [
 
 /// The crates [`super::lock_widened`] finds between the lock of the tests and the one with
 /// `registry` instead.
-fn widened_by(registry: &[Registered<'_>]) -> Option<Vec<&'static str>> {
+fn widened_by(registry: &[Registered<'_>]) -> Result<Vec<&'static str>, String> {
     super::lock_widened(
         &lock_text(&LOCKED_WORKSPACE, &LOCKED_REGISTRY),
         &lock_text(&LOCKED_WORKSPACE, registry),
@@ -12675,18 +12686,18 @@ fn widened_by(registry: &[Registered<'_>]) -> Option<Vec<&'static str>> {
 #[test]
 fn widens_to_the_crates_whose_build_reaches_a_changed_lock_entry() {
     let mut registry = LOCKED_REGISTRY.to_vec();
-    assert_eq!(widened_by(&registry), Some(Vec::new()), "nothing changed");
+    assert_eq!(widened_by(&registry), Ok(Vec::new()), "nothing changed");
     registry[0] = ("libm", "0.2.16", "c9", &[]);
     assert_eq!(
         widened_by(&registry),
-        Some(vec!["engine-core", "engine-objects", "engine-testkit"]),
+        Ok(vec!["engine-core", "engine-objects", "engine-testkit"]),
         "a checksum: every crate reaching it, however deep"
     );
     let mut registry2 = LOCKED_REGISTRY.to_vec();
     registry2[4] = ("itoa", "1.0.1", "c5", &[]);
     assert_eq!(
         widened_by(&registry2),
-        Some(vec!["xtask"]),
+        Ok(vec!["xtask"]),
         "a version, reached through another package"
     );
     let mut registry3 = LOCKED_REGISTRY.to_vec();
@@ -12694,14 +12705,14 @@ fn widens_to_the_crates_whose_build_reaches_a_changed_lock_entry() {
     let _removed = registry3.remove(2);
     assert_eq!(
         widened_by(&registry3),
-        Some(vec!["engine-testkit"]),
+        Ok(vec!["engine-testkit"]),
         "a package removed: the one that reached it changed"
     );
     let mut registry4 = LOCKED_REGISTRY.to_vec();
     registry4.push(("unused", "1.0.0", "c6", &[]));
     assert_eq!(
         widened_by(&registry4),
-        Some(Vec::new()),
+        Ok(Vec::new()),
         "a package no crate reaches"
     );
     let workspace = [
@@ -12716,7 +12727,7 @@ fn widens_to_the_crates_whose_build_reaches_a_changed_lock_entry() {
             &lock_text(&workspace, &LOCKED_REGISTRY)
         )
         .map(|crates| crates.into_iter().collect::<Vec<_>>()),
-        Some(vec!["xtask"]),
+        Ok(vec!["xtask"]),
         "a crate's own dependencies"
     );
 }
@@ -12734,14 +12745,14 @@ fn follows_a_lock_dependency_by_name_version_and_source() {
     assert_eq!(
         super::lock_widened(&before, &lock_text(&[("xtask", &["serde_json"])], &changed))
             .map(|crates| crates.into_iter().collect::<Vec<_>>()),
-        Some(Vec::new()),
+        Ok(Vec::new()),
         "the version named, not the other"
     );
     changed[1] = ("itoa", "1.0.0", "c9", &[]);
     assert_eq!(
         super::lock_widened(&before, &lock_text(&[("xtask", &["serde_json"])], &changed))
             .map(|crates| crates.into_iter().collect::<Vec<_>>()),
-        Some(vec!["xtask"]),
+        Ok(vec!["xtask"]),
         "the version named"
     );
     let sourced = [
@@ -12756,7 +12767,7 @@ fn follows_a_lock_dependency_by_name_version_and_source() {
     let lock = lock_text(&[("xtask", &["serde_json"])], &sourced);
     assert_eq!(
         super::lock_widened(&lock, &lock).map(|crates| crates.len()),
-        Some(0),
+        Ok(0),
         "a source named"
     );
     for dependencies in [
@@ -12776,7 +12787,10 @@ fn follows_a_lock_dependency_by_name_version_and_source() {
         );
         assert_eq!(
             super::lock_widened(&unresolved, &unresolved),
-            None,
+            Err(format!(
+                "a dependency, `{}`, names no one entry",
+                dependencies.join("")
+            )),
             "{dependencies:?}: ambiguous, missing or malformed"
         );
     }
@@ -12785,42 +12799,53 @@ fn follows_a_lock_dependency_by_name_version_and_source() {
 #[test]
 fn reads_a_lock_file_only_as_cargo_writes_it() {
     let lock = lock_text(&LOCKED_WORKSPACE, &LOCKED_REGISTRY);
-    assert!(super::lock_entries(&lock).is_some(), "as written");
+    assert!(super::lock_entries(&lock).is_ok(), "as written");
     assert_eq!(
         super::lock_entries(&lock).map(|entries| entries.len()),
-        Some(15),
+        Ok(15),
         "every crate of the workspace and every package"
     );
-    for (malformed, why) in [
-        (
-            lock.replacen("version = 4", "version = 3", 1),
-            "another format",
-        ),
-        (lock.replacen("version = 4\n", "", 1), "no format"),
+    let first = "it does not start with `version = 4` after its comments";
+    for (malformed, reason) in [
+        (lock.replacen("version = 4", "version = 3", 1), first),
+        (lock.replacen("version = 4\n", "", 1), first),
         (
             lock.replacen(
                 "\n[[package]]\nname = \"libm\"",
                 "\n[[package]]\nnamee = \"libm\"",
                 1,
             ),
-            "a field misnamed",
+            "line 59 is not `name = \"…\"`",
         ),
         (
             lock.replacen("version = \"0.2.16\"", "version = 0.2.16", 1),
-            "a value unquoted",
+            "line 60 is not `version = \"…\"`",
+        ),
+        (
+            lock.replacen("checksum = \"c1\"", "checksum = c1", 1),
+            "line 62 is not `checksum = \"…\"`",
         ),
         (
             lock.replacen("checksum = \"c1\"", "checksum = \"c1\"\nyanked = true", 1),
-            "a field more",
+            "line 63 is not the blank line ending an entry",
         ),
         (
             lock.replacen(" \"libm\",", "  \"libm\",", 1),
-            "indented otherwise",
+            "line 9 is not ` \"<dependency>\",`",
         ),
-        (lock.replacen(" \"libm\",", " \"libm\"", 1), "no comma"),
+        (
+            lock.replacen(" \"libm\",", " \"libm\"", 1),
+            "line 9 is not ` \"<dependency>\",`",
+        ),
         (
             lock.replacen(" \"libm\",\n]", " \"libm\",", 1),
-            "a list never closed",
+            "line 10 is not ` \"<dependency>\",`",
+        ),
+        (
+            format!(
+                "{lock}\n[[package]]\nname = \"a\"\nversion = \"1\"\ndependencies = [\n \"b\",\n"
+            ),
+            "it ends in a list of dependencies",
         ),
         (
             lock.replacen(
@@ -12828,46 +12853,65 @@ fn reads_a_lock_file_only_as_cargo_writes_it() {
                 "\n[[package]]\nname = \"libm\"",
                 1,
             ),
-            "no blank line between entries",
+            "line 57 is not the blank line ending an entry",
         ),
-        (format!("{lock}\n[metadata]\n"), "another table"),
+        (
+            format!("{lock}\n[metadata]\n"),
+            "line 94 is not `[[package]]`",
+        ),
         (
             format!(
                 "{lock}\n[[package]]\nname = \"libm\"\nversion = \"0.2.16\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"c1\"\n"
             ),
-            "an entry twice",
+            "the entry of line 94 repeats an earlier one",
         ),
         (
             format!("{lock}\n[[package]]\nname = \"a\"\n"),
-            "an entry cut",
+            "it ends where `version = \"…\"` is expected",
         ),
-        (format!("{lock}\n[[package]]\n"), "an empty entry"),
+        (
+            format!("{lock}\n[[package]]\n"),
+            "it ends where `name = \"…\"` is expected",
+        ),
         (
             lock.replacen(
                 "source = \"registry+https://github.com/rust-lang/crates.io-index\"",
                 "source = registry",
                 1,
             ),
-            "a source unquoted",
+            "line 61 is not `source = \"…\"`",
         ),
     ] {
-        assert_eq!(super::lock_entries(&malformed), None, "{why}");
-        assert_eq!(super::lock_widened(&lock, &malformed), None, "{why}: after");
+        assert_eq!(
+            super::lock_entries(&malformed).err(),
+            Some(reason.to_owned()),
+            "{reason}"
+        );
+        assert_eq!(
+            super::lock_widened(&lock, &malformed),
+            Err(reason.to_owned()),
+            "{reason}: after"
+        );
         assert_eq!(
             super::lock_widened(&malformed, &lock),
-            None,
-            "{why}: before"
+            Err(format!("its earlier version: {reason}")),
+            "{reason}: before"
         );
     }
+}
+
+#[test]
+fn needs_one_entry_of_each_crate_of_the_workspace() {
+    let lock = lock_text(&LOCKED_WORKSPACE, &LOCKED_REGISTRY);
     let without = lock.replacen(
         "\n[[package]]\nname = \"engine-cli\"\nversion = \"0.1.0\"\n",
         "",
         1,
     );
-    assert!(super::lock_entries(&without).is_some(), "still a lock file");
+    assert!(super::lock_entries(&without).is_ok(), "still a lock file");
     assert_eq!(
         super::lock_widened(&lock, &without),
-        None,
+        Err("it does not hold exactly one entry of engine-cli".to_owned()),
         "a crate of the workspace missing"
     );
 }
@@ -12952,8 +12996,24 @@ fn mutates_the_crates_a_change_of_the_lock_file_reaches() {
     let mut unreadable = locked_fake(&registry, &change);
     drop(unreadable.files.remove("Cargo.lock"));
     assert!(
-        mutate_changes(&mut unreadable).contains("  Cargo.lock changed: every Rust mutant\n"),
-        "a lock file that cannot be read here widens to everything"
+        mutate_changes(&mut unreadable).contains(
+            "  Cargo.lock changed and cannot be narrowed (cannot read it: missing): every Rust \
+             mutant\n"
+        ),
+        "a lock file that cannot be read here widens to everything, saying why"
+    );
+    let mut malformed = locked_fake(&registry, &change);
+    drop(
+        malformed
+            .files
+            .insert("Cargo.lock".to_owned(), "nonsense\n".to_owned()),
+    );
+    assert!(
+        mutate_changes(&mut malformed).contains(
+            "  Cargo.lock changed and cannot be narrowed (it does not start with `version = 4` \
+             after its comments): every Rust mutant\n"
+        ),
+        "a lock file not as Cargo writes it widens to everything, saying where"
     );
 }
 

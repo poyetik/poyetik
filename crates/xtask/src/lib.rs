@@ -7495,93 +7495,155 @@ fn lock_value<'line>(line: &'line str, key: &str) -> Option<&'line str> {
         .strip_suffix('"')
 }
 
+/// The lines of a lock file, each with its number from 1.
+type LockLines<'text> =
+    core::iter::Peekable<core::iter::Zip<core::str::Lines<'text>, core::ops::RangeFrom<usize>>>;
+
+/// The value of the next line of `lines`, `<key> = "<value>"`.
+///
+/// # Errors
+///
+/// Returns the line that is not, or that the file ends there.
+fn lock_field<'text>(lines: &mut LockLines<'text>, key: &str) -> Result<&'text str, String> {
+    let (line, number) = lines
+        .next()
+        .ok_or_else(|| format!("it ends where `{key} = \"…\"` is expected"))?;
+    lock_value(line, key).ok_or_else(|| format!("line {number} is not `{key} = \"…\"`"))
+}
+
 /// The entries of `lock`, a lock file as Cargo writes it (`version = 4` and its header,
 /// then `[[package]]` tables of `name`, `version`, an optional `source` and `checksum`, and
-/// optional `dependencies`, one quoted name per line, indented by one space), or `None` for
-/// anything else.
-fn lock_entries(lock: &str) -> Option<BTreeMap<LockKey, LockEntry>> {
+/// optional `dependencies`, one quoted name per line, indented by one space).
+///
+/// # Errors
+///
+/// Returns where it is written otherwise: the line, or the end of the file.
+fn lock_entries(lock: &str) -> Result<BTreeMap<LockKey, LockEntry>, String> {
     let mut entries = BTreeMap::new();
-    let mut lines = lock.lines().peekable();
+    let mut lines: LockLines<'_> = lock.lines().zip(1..).peekable();
     while lines
-        .next_if(|header| header.starts_with('#') || header.is_empty())
+        .next_if(|(header, _)| header.starts_with('#') || header.is_empty())
         .is_some()
     {}
-    if lines.next() != Some("version = 4") {
-        return None;
+    if lines.next().map(|(line, _)| line) != Some("version = 4") {
+        return Err("it does not start with `version = 4` after its comments".to_owned());
     }
-    while let Some(table) = lines.next() {
+    while let Some((table, at)) = lines.next() {
         if table.is_empty() {
             continue;
         }
         if table != "[[package]]" {
-            return None;
+            return Err(format!("line {at} is not `[[package]]`"));
         }
-        let name = lock_value(lines.next()?, "name")?;
-        let version = lock_value(lines.next()?, "version")?;
-        let source = match lines.next_if(|field| field.starts_with("source = ")) {
-            Some(field) => lock_value(field, "source")?,
-            None => "",
+        let name = lock_field(&mut lines, "name")?;
+        let version = lock_field(&mut lines, "version")?;
+        let source = if lines
+            .peek()
+            .is_some_and(|(field, _)| field.starts_with("source = "))
+        {
+            lock_field(&mut lines, "source")?
+        } else {
+            ""
         };
         let mut entry = LockEntry {
             lines: Vec::new(),
             dependencies: Vec::new(),
         };
-        if let Some(field) = lines.next_if(|field| field.starts_with("checksum = ")) {
-            entry.lines.push(lock_value(field, "checksum")?.to_owned());
+        if lines
+            .peek()
+            .is_some_and(|(field, _)| field.starts_with("checksum = "))
+        {
+            entry
+                .lines
+                .push(lock_field(&mut lines, "checksum")?.to_owned());
         }
-        if lines.next_if_eq(&"dependencies = [").is_some() {
+        if lines
+            .next_if(|(field, _)| *field == "dependencies = [")
+            .is_some()
+        {
             loop {
-                let item = lines.next()?;
+                let (item, number) = lines
+                    .next()
+                    .ok_or_else(|| "it ends in a list of dependencies".to_owned())?;
                 if item == "]" {
                     break;
                 }
-                let dependency = item.strip_prefix(" \"")?.strip_suffix("\",")?;
+                let dependency = item
+                    .strip_prefix(" \"")
+                    .and_then(|rest| rest.strip_suffix("\","))
+                    .ok_or_else(|| format!("line {number} is not ` \"<dependency>\",`"))?;
                 entry.dependencies.push(dependency.to_owned());
                 entry.lines.push(item.to_owned());
             }
         }
-        if lines.peek().is_some_and(|next| !next.is_empty()) {
-            return None;
+        if let Some((_, number)) = lines.peek().filter(|(next, _)| !next.is_empty()) {
+            return Err(format!(
+                "line {number} is not the blank line ending an entry"
+            ));
         }
         let key = (name.to_owned(), version.to_owned(), source.to_owned());
         if entries.insert(key, entry).is_some() {
-            return None;
+            return Err(format!("the entry of line {at} repeats an earlier one"));
         }
     }
-    Some(entries)
+    Ok(entries)
 }
 
 /// The one entry of `entries` that `dependency` (`name`, `name version` or `name version
-/// (source)`) names, or `None` if it names none or several.
+/// (source)`) names.
+///
+/// # Errors
+///
+/// Returns that it names none or several, or is written otherwise.
 fn lock_dependency<'entries>(
     entries: &'entries BTreeMap<LockKey, LockEntry>,
     dependency: &str,
-) -> Option<&'entries LockKey> {
+) -> Result<(&'entries LockKey, &'entries LockEntry), String> {
+    let unresolved = || {
+        format!(
+            "a dependency, `{}`, names no one entry",
+            dependency.escape_debug()
+        )
+    };
     let (name, rest) = dependency.split_once(' ').unwrap_or((dependency, ""));
     let (version, source) = rest.split_once(' ').unwrap_or((rest, ""));
     let source = match source {
         "" => None,
-        quoted => Some(quoted.strip_prefix('(')?.strip_suffix(')')?),
+        quoted => Some(
+            quoted
+                .strip_prefix('(')
+                .and_then(|inner| inner.strip_suffix(')'))
+                .ok_or_else(unresolved)?,
+        ),
     };
-    let mut named = entries.keys().filter(|(entry, at, from)| {
+    let mut named = entries.iter().filter(|((entry, at, from), _)| {
         entry == name
             && (version.is_empty() || at == version)
             && source.is_none_or(|source| from == source)
     });
-    let found = named.next()?;
-    named.next().is_none().then_some(found)
+    let found = named.next().ok_or_else(unresolved)?;
+    named
+        .next()
+        .is_none()
+        .then_some(found)
+        .ok_or_else(unresolved)
 }
 
 /// The crates of [`RUST_CRATES`] whose build reaches an entry of `lock` (a lock file) that
 /// differs from `before` (the same file at an earlier commit), themselves included: an
 /// entry added, removed or changed (its version, source, checksum or dependencies), found by
-/// following the dependencies `lock` records. `None` when either file is not as Cargo
-/// writes it, or names a dependency that is not one of its entries.
+/// following the dependencies `lock` records.
 ///
 /// A crate that reaches no changed entry builds with the same packages as before: an entry
 /// that reached a removed one changed its dependencies, so it is reached first.
-fn lock_widened(before: &str, lock: &str) -> Option<BTreeSet<&'static str>> {
-    let (old, new) = (lock_entries(before)?, lock_entries(lock)?);
+///
+/// # Errors
+///
+/// Returns why the crates cannot be found: either file is not as Cargo writes it, a crate
+/// of the workspace has not exactly one entry, or a dependency names no one entry.
+fn lock_widened(before: &str, lock: &str) -> Result<BTreeSet<&'static str>, String> {
+    let old = lock_entries(before).map_err(|reason| format!("its earlier version: {reason}"))?;
+    let new = lock_entries(lock)?;
     let changed: BTreeSet<&LockKey> = old
         .keys()
         .chain(new.keys())
@@ -7589,41 +7651,51 @@ fn lock_widened(before: &str, lock: &str) -> Option<BTreeSet<&'static str>> {
         .collect();
     let mut widened = BTreeSet::new();
     for krate in RUST_CRATES {
-        let mut pending: Vec<&LockKey> = new
-            .keys()
-            .filter(|(name, _, source)| name == krate.name && source.is_empty())
+        let mut pending: Vec<(&LockKey, &LockEntry)> = new
+            .iter()
+            .filter(|((name, _, source), _)| name == krate.name && source.is_empty())
             .collect();
         if pending.len() != 1 {
-            return None;
+            return Err(format!(
+                "it does not hold exactly one entry of {}",
+                krate.name
+            ));
         }
         let mut seen: BTreeSet<&LockKey> = BTreeSet::new();
-        while let Some(key) = pending.pop() {
+        while let Some((key, entry)) = pending.pop() {
             if !seen.insert(key) {
                 continue;
             }
             if changed.contains(key) {
                 let _new = widened.insert(krate.name);
             }
-            for dependency in &new.get(key)?.dependencies {
+            for dependency in &entry.dependencies {
                 pending.push(lock_dependency(&new, dependency)?);
             }
         }
     }
-    Some(widened)
+    Ok(widened)
 }
 
 /// The crates whose build reaches an entry of [`LOCK_FILE`] changed since `since`
-/// ([`lock_widened`]), or `None` when the file cannot be read there or here, or is not as
-/// Cargo writes it: then every crate may build differently.
-fn lock_changes(runner: &mut dyn Runner, since: &str) -> Option<BTreeSet<&'static str>> {
+/// ([`lock_widened`]).
+///
+/// # Errors
+///
+/// Returns why every crate may build differently: the file cannot be read there or here,
+/// or the crates cannot be found from it.
+fn lock_changes(runner: &mut dyn Runner, since: &str) -> Result<BTreeSet<&'static str>, String> {
     let before = runner
         .capture(&Cmd::new(
             "git",
             &["show", &format!("{since}:{LOCK_FILE}")],
             Dir::Root,
         ))
-        .ok()?;
-    lock_widened(&before, &runner.read(LOCK_FILE).ok()?)
+        .map_err(|failure| failure.to_string())?;
+    let lock = runner
+        .read(LOCK_FILE)
+        .map_err(|error| format!("cannot read it: {error}"))?;
+    lock_widened(&before, &lock)
 }
 
 /// The crates of [`RUST_CRATES`] whose closure ([`crate_closures`]) holds `name`.
@@ -7646,10 +7718,24 @@ type Closures = BTreeMap<&'static str, BTreeSet<&'static str>>;
 /// their lines ([`reach`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Reach {
-    /// Every crate, by the first path that widens to it.
-    Everything(String),
+    /// Every crate, by the first path that widens to it, and why it could not be narrowed
+    /// to some crates, if it could have been ([`LOCK_FILE`]).
+    Everything {
+        /// The path.
+        path: String,
+        /// Why its change could not be narrowed.
+        unnarrowed: Option<String>,
+    },
     /// Each crate widened to every mutant, with the first path that widens it.
     Crates(BTreeMap<&'static str, String>),
+}
+
+/// What the default check says of a change it could not narrow to some crates (`why`), if
+/// any: ` and cannot be narrowed (<why>)`.
+fn unnarrowed_text(why: Option<&str>) -> String {
+    why.map_or_else(String::new, |why| {
+        format!(" and cannot be narrowed ({why})")
+    })
 }
 
 /// Whether one of `changed` widens through the builds of crates (a manifest, the shared
@@ -7678,10 +7764,20 @@ fn reach<'path>(
     for path in changed {
         let crates = match widening(path) {
             None => continue,
-            Some(Widening::Everything) => return Reach::Everything(path.to_owned()),
+            Some(Widening::Everything) => {
+                return Reach::Everything {
+                    path: path.to_owned(),
+                    unnarrowed: None,
+                };
+            }
             Some(Widening::Lock) => match lock_changes(runner, since) {
-                None => return Reach::Everything(path.to_owned()),
-                Some(crates) => crates,
+                Err(why) => {
+                    return Reach::Everything {
+                        path: path.to_owned(),
+                        unnarrowed: Some(why),
+                    };
+                }
+                Ok(crates) => crates,
             },
             Some(Widening::Manifest(name)) => crates_building(closures, name),
             Some(Widening::SharedTests) => crates_building(closures, SHARED_TEST_CRATE),
@@ -8358,9 +8454,10 @@ fn proven_crates(
     let voiding = match changed.iter().find(|path| mutation_rule(path)) {
         Some(path) => Some(format!("{path} changed since, the mutation rules")),
         None => match reach(runner, &record.commit, changed.iter().copied(), closures) {
-            Reach::Everything(path) => {
-                Some(format!("{path} changed since, what every test depends on"))
-            }
+            Reach::Everything { path, unnarrowed } => Some(format!(
+                "{path} changed since{}, what every test depends on",
+                unnarrowed_text(unnarrowed.as_deref())
+            )),
             Reach::Crates(reached) => {
                 return Ok(RUST_CRATES
                     .into_iter()
@@ -8415,7 +8512,7 @@ fn in_scope(changed: &[String], reach: &Reach) -> Vec<(RustCrate, MutatedPart)> 
                 .find(|path| krate.test_data.iter().any(|root| under_root(path, root)))
                 .map(|_| format!("the test data of {} changed: {every}", krate.name));
             let whole = match reach {
-                Reach::Everything(_) => Some(MutatedPart::Whole(None)),
+                Reach::Everything { .. } => Some(MutatedPart::Whole(None)),
                 Reach::Crates(crates) => code
                     .or(data)
                     .or_else(|| {
@@ -8535,13 +8632,17 @@ fn rust_mutants_of_changes(
         .map(|(krate, _)| krate)
         .filter(|krate| proven.contains(krate))
         .collect();
-    if let Reach::Everything(path) = &reach {
+    if let Reach::Everything { path, unnarrowed } = &reach {
         let but = if skipped.is_empty() {
             ""
         } else {
             " but the crates proven below"
         };
-        say(out, &format!("  {path} changed: every Rust mutant{but}"))?;
+        let why = unnarrowed_text(unnarrowed.as_deref());
+        say(
+            out,
+            &format!("  {path} changed{why}: every Rust mutant{but}"),
+        )?;
     }
     if let Some(record) = &proof {
         for krate in skipped {
@@ -8554,7 +8655,7 @@ fn rust_mutants_of_changes(
             )?;
         }
     }
-    if matches!(reach, Reach::Everything(_)) && proven.is_empty() {
+    if matches!(reach, Reach::Everything { .. }) && proven.is_empty() {
         return runner
             .run(&tested_mutants_command(&["--workspace"], jobs))
             .map_err(|failure| Failure::from(failure.to_string()));
