@@ -3,7 +3,7 @@
 
 use alloc::vec::Vec;
 
-use engine_core::{BLOCK_SIZE, Binary32, Binary64, Plan, Renderer, SampleRate};
+use engine_core::{BLOCK_SIZE, Binary32, Binary64, Plan, RenderFormat, Renderer, SampleRate};
 use engine_objects::REGISTRY;
 
 use super::{
@@ -60,21 +60,35 @@ fn wide_block() -> Vec<u64> {
         .collect()
 }
 
-/// The first channel of `patch`'s first block at `rate`, in the render format of code
-/// `format`, through the exported interface, as bits; and the same from the renderer.
-fn first_channels(sine: &[u8], rate: SampleRate, format: u32) -> (Vec<u64>, Vec<u64>) {
+/// The codes of the render formats of the C interface, written here as facts: compared with
+/// `RenderFormat::ALL` (whose order is the codes) by `follows_the_protocol`, so that a
+/// format added there fails until it is listed here.
+const FORMAT_CODES: [(u32, RenderFormat); 3] = [
+    (0, RenderFormat::Binary64),
+    (1, RenderFormat::Binary64AsBinary32),
+    (2, RenderFormat::Binary32),
+];
+
+/// The first channel of `patch`'s first block at `rate`, in `format`, loaded by its `code`
+/// through the exported interface, as bits; and the same from the renderer.
+fn first_channels(
+    sine: &[u8],
+    rate: SampleRate,
+    code: u32,
+    format: RenderFormat,
+) -> (Vec<u64>, Vec<u64>) {
     let patch =
         engine_patch::parse_patch(core::str::from_utf8(sine).expect("UTF-8")).expect("valid patch");
     write(sine);
     assert_eq!(
-        engine_load(rate.hz(), format),
+        engine_load(rate.hz(), code),
         1,
         "loaded at {} Hz",
         rate.hz()
     );
     let wide = || Renderer::new(Plan::<Binary64>::build(&patch, &REGISTRY, rate).expect("plan"));
     let (exported, expected): (Vec<u64>, Vec<u64>) = match format {
-        0 => (
+        RenderFormat::Binary64 => (
             wide_block(),
             wide()
                 .render::<f64>(BLOCK_SIZE)
@@ -83,7 +97,7 @@ fn first_channels(sine: &[u8], rate: SampleRate, format: u32) -> (Vec<u64>, Vec<
                 .map(|sample| sample.to_bits())
                 .collect(),
         ),
-        1 => (
+        RenderFormat::Binary64AsBinary32 => (
             block()
                 .iter()
                 .map(|sample| u64::from(sample.to_bits()))
@@ -95,7 +109,7 @@ fn first_channels(sine: &[u8], rate: SampleRate, format: u32) -> (Vec<u64>, Vec<
                 .map(|sample| u64::from(sample.to_bits()))
                 .collect(),
         ),
-        _ => (
+        RenderFormat::Binary32 => (
             block()
                 .iter()
                 .map(|sample| u64::from(sample.to_bits()))
@@ -186,10 +200,16 @@ fn follows_the_protocol() {
         "engine_process does not use the heap"
     );
 
+    // The codes are those of `RenderFormat::ALL`, every one of them.
+    assert_eq!(
+        FORMAT_CODES.map(|(_, format)| format),
+        RenderFormat::ALL,
+        "every render format, in the order of its code"
+    );
     // `engine_load` hands its rate and format to the engine, at every rate of the matrix.
     for rate in engine_testkit::matrix::sample_rates() {
-        for format in 0_u32..3 {
-            let (exported, reference) = first_channels(sine, rate, format);
+        for (code, format) in FORMAT_CODES {
+            let (exported, reference) = first_channels(sine, rate, code, format);
             assert_eq!(exported, reference, "format {format} at {} Hz", rate.hz());
         }
     }
