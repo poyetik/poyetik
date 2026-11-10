@@ -2041,6 +2041,11 @@ fn ignores_a_closed_reader_but_not_other_output_errors() {
         "passes through"
     );
     assert_eq!(fine.0, b"ab", "written");
+    assert_eq!(
+        fine.flush().map_err(|error| error.kind()),
+        Ok(()),
+        "flush passes through"
+    );
 }
 
 #[test]

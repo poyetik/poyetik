@@ -119,17 +119,23 @@ pub struct BestEffort<W>(pub W);
 
 impl<W: Write> Write for BestEffort<W> {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        match self.0.write(buf) {
-            Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => Ok(buf.len()),
-            other => other,
-        }
+        unless_closed(self.0.write(buf), buf.len())
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
-        match self.0.flush() {
-            Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => Ok(()),
-            other => other,
-        }
+        unless_closed(self.0.flush(), ())
+    }
+}
+
+/// `result`, or `done` when it failed only because the reader is gone (a broken pipe).
+///
+/// Apart from [`BestEffort`], which is generic over its writer, so that the decision is
+/// compiled once per result type whatever the writer, and every branch of it is reached
+/// by the tests (the coverage gate counts each instantiation of a generic function).
+fn unless_closed<T>(result: std::io::Result<T>, done: T) -> std::io::Result<T> {
+    match result {
+        Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => Ok(done),
+        other => other,
     }
 }
 
