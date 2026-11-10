@@ -7,6 +7,8 @@
 //! reserved here). Running the plan then only reads and writes buffers that already
 //! exist.
 
+#![cfg_attr(not(test), forbid(clippy::arithmetic_side_effects))]
+
 use alloc::boxed::Box;
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec;

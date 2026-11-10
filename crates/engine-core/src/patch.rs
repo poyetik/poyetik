@@ -1,5 +1,7 @@
 //! A patch: boxes and the cables between them, as data.
 
+#![cfg_attr(not(test), forbid(clippy::arithmetic_side_effects))]
+
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::string::String;
 use alloc::vec::Vec;

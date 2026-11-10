@@ -1,6 +1,8 @@
 //! Errors raised while validating a sample rate or a patch, building a plan, or
 //! rendering offline.
 
+#![cfg_attr(not(test), forbid(clippy::arithmetic_side_effects))]
+
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt;

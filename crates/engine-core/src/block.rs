@@ -1,5 +1,7 @@
 //! Fixed-size processing blocks.
 
+#![cfg_attr(not(test), forbid(clippy::arithmetic_side_effects))]
+
 /// Number of frames processed per block.
 ///
 /// Fixed and independent of the host buffer size (128 frames in a browser, variable in

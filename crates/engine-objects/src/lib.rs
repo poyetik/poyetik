@@ -5,10 +5,13 @@
 //! arithmetic through the engine's math layer (this crate does not depend on `libm`). [`REGISTRY`] lists every box type; being in the registry is enough for a
 //! box to be checked against the generic laws of `engine-testkit`.
 //!
-//! Like the core, this crate is `no_std` and forbids `unsafe`.
+//! Like the core, this crate is `no_std` and forbids `unsafe`; outside its tests it also
+//! forbids float arithmetic (Clippy's `float_arithmetic`): a box computes with the sample
+//! types, whose operators are the math layer's, and the compiler refuses any lifting.
 
 #![no_std]
 #![forbid(unsafe_code)]
+#![cfg_attr(not(test), forbid(clippy::float_arithmetic))]
 
 extern crate alloc;
 

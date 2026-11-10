@@ -1575,7 +1575,7 @@ fn names_every_check_in_order() {
             "Conformance export (native WAV files)",
             "Rust supply chain",
             "Every direct dependency reviewed",
-            "Box arithmetic only through the math layer: libm in engine-core and engine-testkit only, no raw float in box code, sums only in the reduction order",
+            "Box arithmetic only through the math layer: libm in engine-core and engine-testkit only, no raw float in box code, no iterator reduction outside the math layer",
             "Supply-chain settings: a week before a release, libm without features",
             "Packages and crates known to the checks",
             "Every part described in a README",
@@ -7294,8 +7294,8 @@ fn requires_every_direct_dependency_to_be_reviewed() {
 /// The summary of the math layer gate's failures.
 const MATH_LAYER: &str = "box arithmetic only through the math layer (engine-core, \
                           engine-testkit only may depend on libm; box code names no raw float, \
-                          libm, host or delivery; sums of more than two terms only through \
-                          ordered_sum)";
+                          libm, host or delivery, and computes no float; no iterator reduction \
+                          outside the math layer; code comes in by `mod` alone)";
 
 #[test]
 fn refuses_libm_outside_the_math_layer_and_the_measurements() {
@@ -7437,10 +7437,16 @@ fn refuses_raw_floats_libm_and_host_in_box_code() {
     assert_eq!(
         super::math_layer_gate(
             r#"{"packages":[]}"#,
-            &[(
-                "crates/engine-objects/src/osc_tests.rs".to_owned(),
-                "let x: f64 = libm::sin(1.0);".to_owned()
-            )],
+            &[
+                (
+                    "crates/engine-objects/src/osc.rs".to_owned(),
+                    "#[cfg(test)]\n#[path = \"osc_tests.rs\"]\nmod tests;\n".to_owned()
+                ),
+                (
+                    "crates/engine-objects/src/osc_tests.rs".to_owned(),
+                    "let x: f64 = libm::sin(1.0);".to_owned()
+                )
+            ],
         ),
         Ok(()),
         "test files are not box code"
@@ -7506,14 +7512,11 @@ fn refuses_sums_outside_the_math_layer() {
     };
     let refused = |path: &str, line: usize, word: &str| {
         Err(Failure::from(format!(
-            "{MATH_LAYER}: {path}:{line}: `{word}` reduces outside the math layer: every sum \
-             of more than two terms goes through ordered_sum, in the reduction order"
+            "{MATH_LAYER}: {path}:{line}: `{word}` is an iterator reduction outside the math \
+             layer: an iterator sums samples only through ordered_sum, in the reduction order"
         )))
     };
-    let (boxes, engine) = (
-        "crates/engine-objects/src/a.rs",
-        "crates/engine-core/src/plan.rs",
-    );
+    let (boxes, engine) = ("crates/engine-objects/src/a.rs", super::ENGINE_ROOT);
     for path in [boxes, engine] {
         for word in super::REDUCTION_NAMES {
             assert_eq!(
@@ -7555,18 +7558,38 @@ fn refuses_sums_outside_the_math_layer() {
         Ok(()),
         "the engine core names floats and its host module"
     );
-    for exempt in [
-        "crates/engine-core/src/math.rs",
-        "crates/engine-core/src/plan_tests.rs",
-        "crates/engine-objects/src/osc_tests.rs",
+    let anything = "let t = x.iter().fold(0, f).sum(); arithmetic_side_effects; f64";
+    assert_eq!(
+        gate("crates/engine-core/src/math.rs", anything),
+        Ok(()),
+        "the math layer"
+    );
+    for (declaring, exempt, name) in [
+        (
+            "crates/engine-core/src/plan.rs",
+            "crates/engine-core/src/plan_tests.rs",
+            "plan",
+        ),
+        (
+            "crates/engine-objects/src/osc.rs",
+            "crates/engine-objects/src/osc_tests.rs",
+            "osc",
+        ),
     ] {
+        let declaration = format!(
+            "{}\n#[cfg(test)]\n#[path = \"{name}_tests.rs\"]\nmod tests;\n",
+            super::ENGINE_ARITHMETIC_FORBID
+        );
         assert_eq!(
-            gate(
-                exempt,
-                "let t = x.iter().fold(0, f).sum(); arithmetic_side_effects"
+            super::math_layer_gate(
+                r#"{"packages":[]}"#,
+                &[
+                    (declaring.to_owned(), declaration),
+                    (exempt.to_owned(), anything.to_owned())
+                ]
             ),
             Ok(()),
-            "{exempt}"
+            "{exempt}: declared test code"
         );
     }
     assert_eq!(
@@ -7576,6 +7599,172 @@ fn refuses_sums_outside_the_math_layer() {
              reads"
         ))),
         "a source of another crate"
+    );
+}
+
+#[test]
+fn requires_the_compiler_to_refuse_float_and_generic_arithmetic() {
+    let none = r#"{"packages":[]}"#;
+    let gate = |sources: &[(&str, &str)]| {
+        let owned: Vec<(String, String)> = sources
+            .iter()
+            .map(|(path, text)| ((*path).to_owned(), (*text).to_owned()))
+            .collect();
+        super::math_layer_gate(none, &owned)
+    };
+    let (float, arithmetic) = (super::BOX_FLOAT_FORBID, super::ENGINE_ARITHMETIC_FORBID);
+    assert_eq!(
+        gate(&[
+            (super::BOX_ROOT, &format!("#![no_std]\n{float}\n")),
+            ("crates/engine-objects/src/osc.rs", "fn f() {}\n"),
+            (
+                "crates/engine-core/src/plan.rs",
+                &format!("//! Plans.\n\n{arithmetic}\n")
+            ),
+            (super::ENGINE_ROOT, "mod plan;\n"),
+            (
+                super::MATH_LAYER_FILE,
+                "#[expect(clippy::arithmetic_side_effects)]\n"
+            ),
+        ]),
+        Ok(()),
+        "each forbid where it belongs, the root and the math layer apart"
+    );
+    assert_eq!(
+        gate(&[(
+            super::BOX_ROOT,
+            "#![no_std]\n#![forbid(clippy::float_arithmetic)]\n"
+        )]),
+        failed(format!(
+            "{MATH_LAYER}: {} does not hold `{float}`",
+            super::BOX_ROOT
+        )),
+        "the box root without its exact line"
+    );
+    assert_eq!(
+        gate(&[("crates/engine-core/src/render.rs", "fn f() {}\n")]),
+        failed(format!(
+            "{MATH_LAYER}: crates/engine-core/src/render.rs does not hold `{arithmetic}`"
+        )),
+        "an engine module without its line"
+    );
+    for word in super::ENGINE_FORBIDDEN_NAMES {
+        assert_eq!(
+            gate(&[(
+                super::ENGINE_ROOT,
+                &format!("#![expect(clippy::{word}, reason = \"r\")]\n")
+            )]),
+            failed(format!(
+                "{MATH_LAYER}: {}:1: engine code names `{word}`: it does no arithmetic on a \
+                 sample type outside the math layer",
+                super::ENGINE_ROOT
+            )),
+            "{word} in the root, which cannot forbid it"
+        );
+    }
+}
+
+#[test]
+fn reads_every_source_of_box_and_engine_code() {
+    let gate = |metadata: &str, sources: &[(&str, &str)]| {
+        let owned: Vec<(String, String)> = sources
+            .iter()
+            .map(|(path, text)| ((*path).to_owned(), (*text).to_owned()))
+            .collect();
+        super::math_layer_gate(metadata, &owned)
+    };
+    let none = r#"{"packages":[]}"#;
+    let declared = "#[cfg(test)]\n#[path = \"a_tests.rs\"]\nmod tests;\n";
+    let words = |path: &str, line: usize, word: &str| {
+        format!(
+            "{path}:{line}: names `{word}` outside a test declaration: code comes into these \
+             crates by `mod` alone, from files the gate reads"
+        )
+    };
+    let boxes = "crates/engine-objects/src/a.rs";
+    for (text, line, word) in [
+        ("fn f() {}\ninclude!(\"../../x.rs\");\n", 2, "include"),
+        ("#[path = \"other.rs\"]\nmod other;\n", 1, "path"),
+        (
+            "#[cfg_attr(test, path = \"a_tests.rs\")]\nmod tests;\n",
+            1,
+            "path",
+        ),
+        (
+            "#[cfg(not(test))]\n#[path = \"a_tests.rs\"]\nmod tests;\n",
+            2,
+            "path",
+        ),
+        (
+            "#[cfg(test)]\n#[path = \"../x/a_tests.rs\"]\nmod tests;\n",
+            2,
+            "path",
+        ),
+    ] {
+        assert_eq!(
+            gate(none, &[(boxes, text)]),
+            failed(format!("{MATH_LAYER}: {}", words(boxes, line, word))),
+            "{text}"
+        );
+    }
+    assert_eq!(
+        gate(none, &[(super::MATH_LAYER_FILE, "include!(\"x.rs\");\n")]),
+        failed(format!(
+            "{MATH_LAYER}: {}",
+            words(super::MATH_LAYER_FILE, 1, "include")
+        )),
+        "the math layer brings no code in either"
+    );
+    let undeclared = "crates/engine-objects/src/a_tests.rs: a *_tests.rs file not declared \
+                      once as test code beside it, `#[cfg(test)] #[path = \"<name>_tests.rs\"] \
+                      mod <name>;`";
+    assert_eq!(
+        gate(
+            none,
+            &[
+                (boxes, declared),
+                ("crates/engine-objects/src/a_tests.rs", "f64")
+            ]
+        ),
+        Ok(()),
+        "a declared test file"
+    );
+    for sources in [
+        vec![("crates/engine-objects/src/a_tests.rs", "f64")],
+        vec![
+            (boxes, declared),
+            ("crates/engine-objects/src/b.rs", declared),
+            ("crates/engine-objects/src/a_tests.rs", "f64"),
+        ],
+        vec![
+            ("crates/engine-objects/src/sub/a.rs", declared),
+            ("crates/engine-objects/src/a_tests.rs", "f64"),
+        ],
+    ] {
+        assert_eq!(
+            gate(none, &sources),
+            failed(format!("{MATH_LAYER}: {undeclared}")),
+            "not declared once beside it: {sources:?}"
+        );
+    }
+    let build = |name: &str| {
+        format!(
+            r#"{{"packages":[{{"name":"{name}","dependencies":[],"targets":[{{"kind":["lib"]}},{{"kind":["custom-build"]}}]}}]}}"#
+        )
+    };
+    for name in super::MATH_LAYER_CRATES {
+        assert_eq!(
+            gate(&build(name), &[]),
+            failed(format!(
+                "{MATH_LAYER}: {name} has a build script: code the math layer gate does not read"
+            )),
+            "{name}"
+        );
+    }
+    assert_eq!(
+        gate(&build("engine-cli"), &[]),
+        Ok(()),
+        "another crate may build"
     );
 }
 

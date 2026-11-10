@@ -1140,8 +1140,8 @@ fn consistency_steps() -> Vec<(Role, Step)> {
         },
         Step {
             name: "Box arithmetic only through the math layer: libm in engine-core and \
-                   engine-testkit only, no raw float in box code, sums only in the reduction \
-                   order"
+                   engine-testkit only, no raw float in box code, no iterator reduction \
+                   outside the math layer"
                 .to_owned(),
             action: Action::MathLayerGate,
         },
@@ -3258,9 +3258,9 @@ pub fn unsafe_gate(sources: &[(String, String)]) -> Result<(), Failure> {
     verdict("the lint against unsafe code", problems)
 }
 
-/// The lines outside test code that may name `test`, each whole: none yet but the first
-/// line of a test declaration ([`test_declarations`]).
-pub const NOT_TEST_LINES: [&str; 0] = [];
+/// The lines outside test code that may name `test`, each whole, besides the first line of
+/// a test declaration ([`test_declarations`]): the lint forbids that apply outside tests.
+pub const NOT_TEST_LINES: [&str; 2] = [ENGINE_ARITHMETIC_FORBID, BOX_FLOAT_FORBID];
 
 /// The crate of [`RUST_CRATES`] holding `path`, and the path relative to its directory.
 fn in_crate(path: &str) -> Option<(&'static RustCrate, &str)> {
@@ -3608,14 +3608,15 @@ pub const ENGINE_CODE: &str = "crates/engine-core/src/";
 /// the engine core where samples are summed and computed on, which the gate does not read.
 pub const MATH_LAYER_FILE: &str = "crates/engine-core/src/math.rs";
 
-/// The names of reductions written only in the math layer (`spec/engine-design.md`,
-/// decision 28).
+/// The names of the iterator reductions written only in the math layer
+/// (`spec/engine-design.md`, decision 28).
 ///
 /// Neither box code nor the engine core may write them outside it: the iterator methods
-/// that accumulate, and the traits of `sum` and `product`. A sum of more than two terms goes through
-/// `ordered_sum`, in the reduction order. (The sample types implement neither trait, so
-/// `sum` and `product` of samples do not compile anyway.)
-pub const REDUCTION_NAMES: [&str; 9] = [
+/// that accumulate, and the traits of `sum` and `product`, so that no iterator sums samples
+/// but `ordered_sum`, in the reduction order. (The sample types implement neither trait, so
+/// `sum` and `product` of samples do not compile anyway.) A loop or a chain of `+` is not a
+/// name: those are reviewed.
+pub const REDUCTION_NAMES: [&str; 10] = [
     "sum",
     "product",
     "fold",
@@ -3623,16 +3624,47 @@ pub const REDUCTION_NAMES: [&str; 9] = [
     "try_fold",
     "try_rfold",
     "reduce",
+    "scan",
     "Sum",
     "Product",
 ];
 
-/// The name the engine core may not write outside the math layer.
+/// The names the engine core may not write outside the math layer, but on the line
+/// [`ENGINE_ARITHMETIC_FORBID`].
 ///
-/// The exception to Clippy's `arithmetic_side_effects`, without which Clippy refuses
-/// arithmetic on a generic sample type there (`Binary64` and `Binary32` are allowed by
-/// `clippy.toml`).
-pub const ENGINE_FORBIDDEN_NAME: &str = "arithmetic_side_effects";
+/// Clippy's `arithmetic_side_effects`, without whose exception Clippy refuses arithmetic on
+/// a generic sample type there (`Binary64` and `Binary32` are allowed by `clippy.toml`),
+/// its former name, and the group and lint that would lift it unnamed. The compiler
+/// refuses any lifting in a module forbidding it (E0453), whatever name it uses; these
+/// names are refused for the crate root, which cannot forbid it.
+pub const ENGINE_FORBIDDEN_NAMES: [&str; 4] = [
+    "arithmetic_side_effects",
+    "integer_arithmetic",
+    "restriction",
+    "blanket_clippy_restriction_lints",
+];
+
+/// The line every module of the engine core but its root and the math layer holds, outside
+/// tests: the compiler then refuses any lifting of `arithmetic_side_effects` there, by any
+/// name (E0453).
+pub const ENGINE_ARITHMETIC_FORBID: &str =
+    "#![cfg_attr(not(test), forbid(clippy::arithmetic_side_effects))]";
+
+/// The line the root of the box crate holds: outside tests, box code computes no float.
+///
+/// Clippy's `float_arithmetic`, which the compiler then refuses to lift by any name
+/// (E0453). The box tests compute their references in raw floats.
+pub const BOX_FLOAT_FORBID: &str = "#![cfg_attr(not(test), forbid(clippy::float_arithmetic))]";
+
+/// The root of the box crate, which holds [`BOX_FLOAT_FORBID`].
+pub const BOX_ROOT: &str = "crates/engine-objects/src/lib.rs";
+
+/// The root of the engine core, which names none of [`ENGINE_FORBIDDEN_NAMES`] instead of
+/// forbidding the lint, so that the math layer may lift it.
+pub const ENGINE_ROOT: &str = "crates/engine-core/src/lib.rs";
+
+/// The crates whose sources the math layer gate reads, which may have no build script.
+pub const MATH_LAYER_CRATES: [&str; 2] = ["engine-objects", "engine-core"];
 
 /// The names box code may not write (`spec/engine-design.md`, decision 10).
 ///
@@ -3711,27 +3743,14 @@ fn code_words(text: &str) -> Vec<(usize, String, usize)> {
     words
 }
 
-/// Checks that box arithmetic, and every sum of more than two terms, can only go through
-/// the math layer.
-///
-/// No crate but those of [`LIBM_CRATES`] depends on `libm`, as a normal or a build
-/// dependency, under any name it is renamed to; box code names none of
-/// [`BOX_FORBIDDEN_NAMES`], nor a float literal suffixed `f32` or `f64`; box code and the
-/// engine core outside [`MATH_LAYER_FILE`] name none of [`REDUCTION_NAMES`]; and the engine
-/// core outside it does not name [`ENGINE_FORBIDDEN_NAME`].
-///
-/// `metadata` is the output of [`metadata_command`]; `sources` the files of
-/// [`MATH_LAYER_SOURCES`] (path and text), of which the `*_tests.rs` files are test code, not
-/// read, and [`MATH_LAYER_FILE`] is the math layer, not read either; any other file is
-/// refused. So a box crate, `no_std` and without `libm`, computes with the engine's sample
-/// types alone, whose operators and math functions are the math layer's, and no code but
-/// the math layer's accumulates through an iterator.
+/// What the math layer gate finds in the crates (`metadata`, the output of
+/// [`metadata_command`]): a dependency on `libm` outside [`LIBM_CRATES`], a build script in
+/// [`MATH_LAYER_CRATES`].
 ///
 /// # Errors
 ///
-/// Returns every other crate that depends on `libm`, every forbidden name with its file and
-/// line, every file it does not read, or why the metadata cannot be read.
-pub fn math_layer_gate(metadata: &str, sources: &[(String, String)]) -> Result<(), Failure> {
+/// Returns why the metadata cannot be read.
+fn math_layer_crates(metadata: &str) -> Result<Vec<String>, Failure> {
     let json: serde_json::Value = serde_json::from_str(metadata)
         .map_err(|error| Failure::from(format!("invalid cargo metadata: {error}")))?;
     let crates = json
@@ -3759,17 +3778,108 @@ pub fn math_layer_gate(metadata: &str, sources: &[(String, String)]) -> Result<(
                  engine-core"
             ));
         }
+        let builds = krate
+            .get("targets")
+            .and_then(serde_json::Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|target| target.get("kind").and_then(serde_json::Value::as_array))
+            .flatten()
+            .any(|kind| kind.as_str() == Some("custom-build"));
+        if builds && MATH_LAYER_CRATES.contains(&name) {
+            problems.push(format!(
+                "{name} has a build script: code the math layer gate does not read"
+            ));
+        }
     }
-    for (path, text) in sources
+    Ok(problems)
+}
+
+/// Checks that box arithmetic can only go through the math layer, and that no code but the
+/// math layer's reduces through an iterator.
+///
+/// No crate but those of [`LIBM_CRATES`] depends on `libm`, as a normal or a build
+/// dependency, under any name it is renamed to, and no crate of [`MATH_LAYER_CRATES`] has a
+/// build script; box code names none of [`BOX_FORBIDDEN_NAMES`], nor a float literal
+/// suffixed `f32` or `f64`, and its root holds [`BOX_FLOAT_FORBID`]; box code and the
+/// engine core outside [`MATH_LAYER_FILE`] name none of [`REDUCTION_NAMES`]; the engine core
+/// outside it names none of [`ENGINE_FORBIDDEN_NAMES`] but on the line
+/// [`ENGINE_ARITHMETIC_FORBID`], which every module of it but [`ENGINE_ROOT`] holds; and no
+/// source names `include` (`include!`), nor `path` but in a test declaration.
+///
+/// `metadata` is the output of [`metadata_command`]; `sources` the files of
+/// [`MATH_LAYER_SOURCES`] (path and text), of which the `*_tests.rs` files declared once
+/// beside them ([`test_declarations`]) are test code, not read, and [`MATH_LAYER_FILE`] is
+/// the math layer, read only for `include` and `path`; any other file is refused. So code
+/// reaches these crates only through `mod`, from files the gate reads; a box crate,
+/// `no_std` and without `libm`, computes with the engine's sample types alone, whose
+/// operators and math functions are the math layer's; and no iterator sums samples but the
+/// math layer's `ordered_sum`. A loop or a chain of `+` that sums is reviewed.
+///
+/// # Errors
+///
+/// Returns every other crate that depends on `libm`, every build script, every forbidden
+/// name with its file and line, every missing forbid line, every test file not declared
+/// once, every file it does not read, or why the metadata cannot be read.
+pub fn math_layer_gate(metadata: &str, sources: &[(String, String)]) -> Result<(), Failure> {
+    let mut problems = math_layer_crates(metadata)?;
+    let mut declared: BTreeMap<&str, usize> = BTreeMap::new();
+    let mut path_lines: BTreeSet<(&str, usize)> = BTreeSet::new();
+    let declarations: Vec<(&str, Vec<(usize, String)>)> = sources
         .iter()
-        .filter(|(path, _)| !path.ends_with("_tests.rs") && path != MATH_LAYER_FILE)
-    {
+        .filter(|(path, _)| !path.ends_with("_tests.rs"))
+        .map(|(path, text)| (path.as_str(), test_declarations(path, text)))
+        .collect();
+    for (path, found) in &declarations {
+        for (line, file) in found {
+            let times = declared.entry(file.as_str()).or_default();
+            *times = times.saturating_add(1);
+            let _new = path_lines.insert((path, line.saturating_add(1)));
+        }
+    }
+    for (path, text) in sources {
+        if path.ends_with("_tests.rs") {
+            if declared.get(path.as_str()) != Some(&1) {
+                problems.push(format!(
+                    "{path}: a *_tests.rs file not declared once as test code beside it, \
+                     `#[cfg(test)] #[path = \"<name>_tests.rs\"] mod <name>;`"
+                ));
+            }
+            continue;
+        }
         let is_box = path.starts_with(BOX_CODE);
         if !is_box && !path.starts_with(ENGINE_CODE) {
             problems.push(format!("{path}: not a source the math layer gate reads"));
             continue;
         }
+        let layer = path == MATH_LAYER_FILE;
+        let lines: Vec<&str> = text.lines().map(str::trim).collect();
+        let required = if path == BOX_ROOT {
+            Some(BOX_FLOAT_FORBID)
+        } else if is_box || layer || path == ENGINE_ROOT {
+            None
+        } else {
+            Some(ENGINE_ARITHMETIC_FORBID)
+        };
+        if let Some(forbid) = required
+            && !lines.contains(&forbid)
+        {
+            problems.push(format!("{path} does not hold `{forbid}`"));
+        }
         for (line, word, _) in code_words(text) {
+            if word == "include" || (word == "path" && !path_lines.contains(&(path, line))) {
+                problems.push(format!(
+                    "{path}:{line}: names `{word}` outside a test declaration: code comes \
+                     into these crates by `mod` alone, from files the gate reads"
+                ));
+            }
+            if layer {
+                continue;
+            }
+            let whole = lines
+                .get(line.saturating_sub(1))
+                .copied()
+                .unwrap_or_default();
             let suffixed = word.starts_with(|first: char| first.is_ascii_digit())
                 && (word.ends_with("f32") || word.ends_with("f64"));
             if is_box && (suffixed || BOX_FORBIDDEN_NAMES.contains(&word.as_str())) {
@@ -3780,11 +3890,14 @@ pub fn math_layer_gate(metadata: &str, sources: &[(String, String)]) -> Result<(
             }
             if REDUCTION_NAMES.contains(&word.as_str()) {
                 problems.push(format!(
-                    "{path}:{line}: `{word}` reduces outside the math layer: every sum of \
-                     more than two terms goes through ordered_sum, in the reduction order"
+                    "{path}:{line}: `{word}` is an iterator reduction outside the math layer: \
+                     an iterator sums samples only through ordered_sum, in the reduction order"
                 ));
             }
-            if !is_box && word == ENGINE_FORBIDDEN_NAME {
+            if !is_box
+                && ENGINE_FORBIDDEN_NAMES.contains(&word.as_str())
+                && whole != ENGINE_ARITHMETIC_FORBID
+            {
                 problems.push(format!(
                     "{path}:{line}: engine code names `{word}`: it does no arithmetic on a \
                      sample type outside the math layer"
@@ -3795,8 +3908,8 @@ pub fn math_layer_gate(metadata: &str, sources: &[(String, String)]) -> Result<(
     verdict(
         &format!(
             "box arithmetic only through the math layer ({} only may depend on libm; box code \
-             names no raw float, libm, host or delivery; sums of more than two terms only \
-             through ordered_sum)",
+             names no raw float, libm, host or delivery, and computes no float; no iterator \
+             reduction outside the math layer; code comes in by `mod` alone)",
             LIBM_CRATES.join(", ")
         ),
         problems,

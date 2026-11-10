@@ -1,5 +1,7 @@
 //! Sample rate.
 
+#![cfg_attr(not(test), forbid(clippy::arithmetic_side_effects))]
+
 use crate::CoreError;
 
 /// A sample rate in hertz, guaranteed to be within the supported range.

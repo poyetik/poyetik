@@ -5,6 +5,8 @@
 //! each frame; every parameter when a plan is built), so that every target computes the
 //! same bits, and recursive tails never slow down on subnormal arithmetic.
 
+#![cfg_attr(not(test), forbid(clippy::arithmetic_side_effects))]
+
 /// The sign bit of a binary32 value.
 const SIGN: u32 = 0x8000_0000;
 

@@ -1,5 +1,7 @@
 //! Offline rendering: any number of frames, whatever the block boundaries.
 
+#![cfg_attr(not(test), forbid(clippy::arithmetic_side_effects))]
+
 use alloc::vec;
 use alloc::vec::Vec;
 

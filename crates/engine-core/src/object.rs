@@ -1,5 +1,7 @@
 //! The contract every box implements.
 
+#![cfg_attr(not(test), forbid(clippy::arithmetic_side_effects))]
+
 use alloc::boxed::Box;
 use core::fmt;
 use core::num::NonZeroU32;

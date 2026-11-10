@@ -251,7 +251,10 @@ impl Binary64 {
     pub const ONE: Self = Self(1.0);
 
     /// The value `value`, which a box writes as a literal: a constant, never a computed
-    /// float (a box has none to give).
+    /// float. Box code computes no float outside its tests (`float_arithmetic` is forbidden
+    /// at the box crate's root, a line xtask's math layer gate requires), so only a `const`
+    /// item can give it a value computed by the compiler (`spec/engine-design.md`,
+    /// decision 10).
     #[must_use]
     pub const fn new(value: f64) -> Self {
         Self(value)
