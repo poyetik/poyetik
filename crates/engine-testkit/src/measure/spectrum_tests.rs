@@ -265,6 +265,46 @@ fn measures_a_sine_on_a_point_exactly() {
     );
 }
 
+/// The scalloping bound stays below 0.6 % at every length from 2: the window's second
+/// moment is at most about 0.0192 N² and M ≥ 4N, so `L ≤ π² · 0.0192 / 32 ≈ 0.592 %`,
+/// checked here at every N from 2 to 4096 and at every power of two to 2^20. One sample is
+/// the exception: its moment is `(0 - 1/2)² = 1/4` whatever its
+/// weight, and M = 4, so `L = π²/128`, about 7.7 %.
+#[test]
+fn bounds_the_scalloping_below_six_thousandths_from_two_samples() {
+    let single = spectrum(&[0.25_f64], rate()).expect("one sample is measurable");
+    assert_eq!(single.points(), 4, "M for one sample");
+    // π²/128 from a few roundings of 2^-53 on values below 0.1: within 1e-16.
+    assert!(
+        (single.scalloping() - PI * PI / 128.0_f64).abs() <= 1e-16_f64,
+        "{}",
+        single.scalloping()
+    );
+    assert!(single.scalloping() > 0.077_f64, "one sample: about 7.7 %");
+    let mut worst = 0.0_f64;
+    for frames in (2_u32..=4_096).chain((13_u32..=20).map(|power| 1_u32 << power)) {
+        let weights = reference_window(frames);
+        let total: f64 = weights.iter().sum();
+        let centre = f64::from(frames) / 2.0_f64;
+        let moment: f64 = (0_u32..)
+            .zip(&weights)
+            .map(|(frame, weight)| {
+                weight * (f64::from(frame) - centre) * (f64::from(frame) - centre)
+            })
+            .sum::<f64>()
+            / total;
+        // M, the smallest power of two at least 4N (`spec/measurements.md`, "Spectrum").
+        let points = f64::from((4 * frames).next_power_of_two());
+        let bound = PI * PI * moment / (2.0_f64 * points * points);
+        assert!(bound < 0.006_f64, "{frames} samples: {bound}");
+        if bound > worst {
+            worst = bound;
+        }
+    }
+    // The worst, at the large powers of two, is close to the limit: the bound is not loose.
+    assert!(worst > 0.0059_f64, "{worst}");
+}
+
 #[test]
 fn loses_at_most_the_scalloping_bound_between_points() {
     for frames in [64_u32, 1_000, 4_096] {
@@ -289,8 +329,7 @@ fn loses_at_most_the_scalloping_bound_between_points() {
             "{frames}: {} instead of {bound}",
             measured.scalloping()
         );
-        // Below 0.6 % (0.052 dB) at every length: the window's second moment is about
-        // 0.0192 N², and M ≥ 4N.
+        // Below 0.6 % (0.052 dB) at every length from 2 (checked over every length below).
         assert!(bound < 0.006_f64, "{bound}");
         assert!(
             20.0_f64 * libm::log10(1.0_f64 - bound) > -0.052_f64,
