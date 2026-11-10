@@ -285,9 +285,10 @@ fn roundings(count: usize) -> u32 {
         .saturating_add(lanes.next_power_of_two().trailing_zeros())
 }
 
-/// `value`, a finite float whose bits are multiples of 2^-72 (every value of [`Draws::finite`]
+/// `value`, a finite float that is a multiple of 2^-72 (every value of [`Draws::finite`]
 /// and every sum of them is: binary64 values from 2^-20 have an ulp of at least 2^-72,
-/// binary32 ones of 2^-43), as a whole number of 2^-72: exact.
+/// binary32 ones of 2^-43; so is `3·2^-55`, whose ulp is smaller but whose lowest set bit is
+/// 2^-55), as a whole number of 2^-72: exact.
 #[expect(
     clippy::arithmetic_side_effects,
     reason = "fields of one float: the exponent and shift stay far from overflow"
@@ -310,8 +311,17 @@ fn fixed<F: Float>(value: F) -> i128 {
     // value = mantissa · 2^(exponent - offset); in units of 2^-72: shift by
     // exponent - offset + 72.
     let shift = exponent - offset + 72;
-    assert!(shift >= 0, "a multiple of 2^-72: {bits:#x}");
-    let magnitude = mantissa << u32::try_from(shift).expect("non-negative");
+    let magnitude = if shift >= 0 {
+        mantissa << u32::try_from(shift).expect("non-negative")
+    } else {
+        let dropped = u32::try_from(-shift).expect("positive");
+        assert_eq!(
+            mantissa & ((1_i128 << dropped) - 1),
+            0,
+            "a multiple of 2^-72: {bits:#x}"
+        );
+        mantissa >> dropped
+    };
     if bits >> sign_bit == 1 {
         -magnitude
     } else {
@@ -320,7 +330,8 @@ fn fixed<F: Float>(value: F) -> i128 {
 }
 
 /// The accuracy of the reduction order (decision 28), against the exact sum: at every count,
-/// on finite terms between 2^-20 and 2^21, `|sum - exact| ≤ γ_h · Σ|x_k|`, where `h` is
+/// on finite terms between 2^-20 and 2^21 (a finite sum: the bound does not hold when it
+/// overflows), `|sum - exact| ≤ γ_h · Σ|x_k|`, where `h` is
 /// [`roundings`] and `γ_h = h·u / (1 - h·u)` with `u` the unit roundoff of the precision
 /// (2^-53, 2^-24): the standard bound of a sum in which each term goes through at most `h`
 /// roundings (Higham, *Accuracy and Stability of Numerical Algorithms*, 4.2). The exact sum
@@ -328,9 +339,13 @@ fn fixed<F: Float>(value: F) -> i128 {
 /// the bound is evaluated in binary64, five operations each within 2^-53 of its value, so it
 /// is compared with a margin of 2^-49 of itself. It guards the accuracy of the rule (a
 /// change of the rule toward a numerically poorer one, decision 28 and the reference
-/// together), which the comparison with the literal reference cannot see; on these draws of
-/// both signs the errors stay far inside the worst case, so its positive control is that
-/// they are not zero: the test does see rounding.
+/// together), which the comparison with the literal reference cannot see. Random draws of
+/// both signs stay far inside the worst case (a sequential sum of them passes too), so the
+/// guard is an adversarial sum: 4099 terms, 1 then 4098 times `3u/4`, each of which a
+/// running sum near 1 rounds away. The rule keeps it within its bound, and the sequential
+/// sum, whose `n - 1` roundings each lose almost a whole term, is shown to break it: a
+/// rule as poor as the sequential one would fail here. The draws' errors are also shown not
+/// to be zero: the test does see rounding.
 #[expect(
     clippy::arithmetic_side_effects,
     reason = "binary64 arithmetic of the bound and i128 sums of at most 4099 terms below 2^93"
@@ -372,6 +387,38 @@ where
         }
     }
     assert!(rounded, "some sum rounds");
+    // 1, then 4098 times 3u/4 (3·2^-55 in binary64, 3·2^-26 in binary32): multiples of 2^-72.
+    let (one, three_quarters_of_u) = if wide {
+        (0x3ff0_0000_0000_0000_u64, 0x3c98_0000_0000_0000_u64)
+    } else {
+        (0x3f80_0000_u64, 0x3340_0000_u64)
+    };
+    let adversarial: Vec<S::Float> = core::iter::once(one)
+        .chain(core::iter::repeat_n(three_quarters_of_u, 4098))
+        .map(S::Float::from_bits)
+        .collect();
+    let exact: i128 = adversarial.iter().map(|&term| fixed(term)).sum();
+    let magnitudes: i128 = adversarial.iter().map(|&term| fixed(term).abs()).sum();
+    assert_eq!(
+        exact,
+        fixed(S::Float::from_bits(one)) + 4098 * fixed(S::Float::from_bits(three_quarters_of_u)),
+        "the terms are exact in units of 2^-72"
+    );
+    let samples: Vec<S> = adversarial.iter().map(|&term| S::from_raw(term)).collect();
+    let summed = sum_of(&samples).raw();
+    assert!(
+        error(summed, exact) <= bound(4099, magnitudes),
+        "the adversarial sum: error {} beyond {}",
+        error(summed, exact),
+        bound(4099, magnitudes)
+    );
+    let poorer = sequential(&adversarial);
+    assert!(
+        error(poorer, exact) > 4.0_f64 * bound(4099, magnitudes),
+        "the sequential sum breaks the bound: error {} within 4 times {}",
+        error(poorer, exact),
+        bound(4099, magnitudes)
+    );
 }
 
 #[test]
