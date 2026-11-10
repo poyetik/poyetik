@@ -12,10 +12,13 @@ extern crate alloc;
 
 use alloc::collections::{BTreeMap, BTreeSet};
 use core::num::NonZeroUsize;
+use core::time::Duration;
 use std::ffi::OsString;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::OnceLock;
+use std::time::Instant;
 
 /// Pinned nightly toolchain, used only to measure branch coverage and to run Miri.
 pub const NIGHTLY_TOOLCHAIN: &str = "+nightly-2026-11-01";
@@ -6258,7 +6261,15 @@ pub trait Runner {
 
     /// What the environment holds that could change cargo from outside the repository.
     fn environment(&mut self) -> Environment;
+
+    /// A reading of a monotonic clock, from an origin fixed for the life of the process:
+    /// only the difference of two readings means anything, the time between them. The
+    /// checks print it, and never decide anything on it.
+    fn clock(&mut self) -> Duration;
 }
+
+/// The origin of [`SystemRunner`]'s clock: its first reading in the process.
+static CLOCK_ORIGIN: OnceLock<Instant> = OnceLock::new();
 
 /// Runs real commands below a repository root.
 #[derive(Debug, Clone)]
@@ -6383,6 +6394,15 @@ impl Runner for SystemRunner {
 
     fn parallelism(&mut self) -> NonZeroUsize {
         std::thread::available_parallelism().unwrap_or(NonZeroUsize::MIN)
+    }
+
+    /// The time since the first reading of the process (`CLOCK_ORIGIN`).
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the one reading of the system clock of the checks: the elapsed time they print, which decides nothing (the ban keeps the engine counting time in samples)"
+    )]
+    fn clock(&mut self) -> Duration {
+        CLOCK_ORIGIN.get_or_init(Instant::now).elapsed()
     }
 
     /// The names of xtask's own variables, which every command inherits, and the Cargo
@@ -8192,7 +8212,32 @@ pub fn run_steps(
     run_steps_then(steps, runner, out, OnFailure::Stop)
 }
 
+/// A duration as the progress of the checks shows it: tenths of a second below a minute
+/// (`12.3 s`, cut, never rounded up to the next unit), then whole seconds (`4 min 05 s`,
+/// `1 h 02 min 03 s`).
+#[must_use]
+pub fn duration_text(duration: Duration) -> String {
+    let tenths = duration.as_millis() / 100;
+    let seconds = duration.as_secs();
+    if tenths < 600 {
+        format!("{}.{} s", tenths / 10, tenths % 10)
+    } else if seconds < 3_600 {
+        format!("{} min {:02} s", seconds / 60, seconds % 60)
+    } else {
+        format!(
+            "{} h {:02} min {:02} s",
+            seconds / 3_600,
+            seconds % 3_600 / 60,
+            seconds % 60
+        )
+    }
+}
+
 /// Runs `steps` in order; at a failure, does what `on_failure` says.
+///
+/// Each step is announced (`▶ [n/total] name`), then, once it ends, its elapsed time is
+/// said (`done in …` or `failed after …`, [`duration_text`] of [`Runner::clock`]), and a
+/// passing run ends with the total time.
 ///
 /// # Errors
 ///
@@ -8209,22 +8254,35 @@ pub fn run_steps_then(
     let total_steps = steps.len();
     let mut tree = None;
     let mut failures = Vec::new();
+    let started = runner.clock();
+    let mut step_started = started;
     for (index, step) in steps.iter().enumerate() {
         let number = index.saturating_add(1);
         say(out, &format!("▶ [{number}/{total_steps}] {}", step.name))?;
-        if let Err(failure) = run_action(&step.action, runner, out, &mut tree) {
-            let failure = Failure {
-                summary: format!("{}: {}", step.name, failure.summary),
-                details: failure.details,
-            };
-            if on_failure == OnFailure::Stop {
-                return Err(failure);
-            }
-            failures.push(failure);
+        let outcome = run_action(&step.action, runner, out, &mut tree);
+        let ended = runner.clock();
+        let took = duration_text(ended.saturating_sub(step_started));
+        step_started = ended;
+        let Err(failure) = outcome else {
+            say(out, &format!("  done in {took}"))?;
+            continue;
+        };
+        say(out, &format!("  failed after {took}"))?;
+        let failure = Failure {
+            summary: format!("{}: {}", step.name, failure.summary),
+            details: failure.details,
+        };
+        if on_failure == OnFailure::Stop {
+            return Err(failure);
         }
+        failures.push(failure);
     }
     if failures.is_empty() {
-        return say(out, &format!("✔ all {total_steps} checks passed"));
+        let total = duration_text(step_started.saturating_sub(started));
+        return say(
+            out,
+            &format!("✔ all {total_steps} checks passed in {total}"),
+        );
     }
     Err(Failure {
         summary: format!(

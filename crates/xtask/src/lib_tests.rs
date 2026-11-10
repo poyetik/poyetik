@@ -4,6 +4,7 @@ extern crate alloc;
 
 use alloc::collections::BTreeMap;
 use core::num::NonZeroUsize;
+use core::time::Duration;
 use std::ffi::OsString;
 use std::io;
 use std::path::Path;
@@ -236,7 +237,13 @@ struct Fake {
     files: BTreeMap<String, String>,
     /// What [`Runner::environment`] answers.
     environment: super::Environment,
+    /// Its clock: [`FAKE_TICK`] more at each reading.
+    clock: Duration,
 }
+
+/// How much the fake's clock advances at each reading: every step of its checks takes that
+/// long, and a run of `n` steps `n` times as long.
+const FAKE_TICK: Duration = Duration::from_millis(1_500);
 
 impl Runner for Fake {
     fn run(&mut self, cmd: &Cmd) -> Result<(), CommandFailure> {
@@ -298,6 +305,11 @@ impl Runner for Fake {
 
     fn environment(&mut self) -> super::Environment {
         self.environment.clone()
+    }
+
+    fn clock(&mut self) -> Duration {
+        self.clock = self.clock.saturating_add(FAKE_TICK);
+        self.clock
     }
 
     fn fresh_dir(&mut self, path: &str) -> io::Result<()> {
@@ -1854,7 +1866,7 @@ fn mutates_the_changes_since_the_merge_base_with_the_upstream() {
     );
     assert_eq!(
         String::from_utf8(out).expect("UTF-8"),
-        "▶ [1/2] Rust mutation testing of the changes\n  the changes since abc1230000000000000000000000000000000000 (merge base with @{upstream})\n▶ [2/2] Rust unviable mutants reviewed\n✔ all 2 checks passed\n",
+        "▶ [1/2] Rust mutation testing of the changes\n  the changes since abc1230000000000000000000000000000000000 (merge base with @{upstream})\n  done in 1.5 s\n▶ [2/2] Rust unviable mutants reviewed\n  done in 1.5 s\n✔ all 2 checks passed in 3.0 s\n",
         "the base is said"
     );
 }
@@ -2335,6 +2347,9 @@ impl Runner for Unreadable {
     fn environment(&mut self) -> super::Environment {
         self.0.environment()
     }
+    fn clock(&mut self) -> Duration {
+        self.0.clock()
+    }
 }
 
 #[test]
@@ -2600,7 +2615,7 @@ fn cli_mutates_one_target() {
     assert!(
         String::from_utf8(out)
             .expect("UTF-8")
-            .ends_with("✔ all 3 checks passed\n"),
+            .ends_with("  done in 1.5 s\n✔ all 3 checks passed in 4.5 s\n"),
         "said"
     );
     let mut source = passing();
@@ -3019,11 +3034,11 @@ fn runs_every_step_and_reports_success() {
         "numbered progress: {text}"
     );
     assert!(
-        text.contains("▶ [81/85] Roadmap checks\n"),
+        text.contains("▶ [81/85] Roadmap checks\n  done in 1.5 s\n"),
         "last step announced: {text}"
     );
     assert!(
-        text.ends_with("✔ all 85 checks passed\n"),
+        text.ends_with("  done in 1.5 s\n✔ all 85 checks passed in 2 min 07 s\n"),
         "summary: {text}"
     );
 }
@@ -3088,7 +3103,8 @@ fn runs_every_step_then_reports_every_failure_when_asked() {
     );
     assert_eq!(
         String::from_utf8(out).expect("UTF-8"),
-        "▶ [1/5] ONE\n▶ [2/5] TWO\n▶ [3/5] THREE\n▶ [4/5] FOUR\n▶ [5/5] FIVE\n",
+        "▶ [1/5] ONE\n  done in 1.5 s\n▶ [2/5] TWO\n  failed after 1.5 s\n▶ [3/5] THREE\n  done in \
+         1.5 s\n▶ [4/5] FOUR\n  failed after 1.5 s\n▶ [5/5] FIVE\n  done in 1.5 s\n",
         "no claim that the checks passed"
     );
     let mut passing = Fake::default();
@@ -3106,20 +3122,67 @@ fn runs_every_step_then_reports_every_failure_when_asked() {
     assert!(
         String::from_utf8(progress)
             .expect("UTF-8")
-            .ends_with("▶ [5/5] FIVE\n✔ all 5 checks passed\n"),
+            .ends_with("▶ [5/5] FIVE\n  done in 1.5 s\n✔ all 5 checks passed in 7.5 s\n"),
         "passed"
+    );
+}
+
+#[test]
+fn shows_tenths_below_a_minute_then_whole_seconds() {
+    let cases = [
+        (0_u64, "0.0 s"),
+        (99, "0.0 s"),
+        (100, "0.1 s"),
+        (1_250, "1.2 s"),
+        (59_999, "59.9 s"),
+        (60_000, "1 min 00 s"),
+        (61_999, "1 min 01 s"),
+        (754_000, "12 min 34 s"),
+        (3_599_999, "59 min 59 s"),
+        (3_600_000, "1 h 00 min 00 s"),
+        (3_725_000, "1 h 02 min 05 s"),
+        (45_296_000, "12 h 34 min 56 s"),
+    ];
+    for (millis, text) in cases {
+        assert_eq!(
+            super::duration_text(Duration::from_millis(millis)),
+            text,
+            "{millis} ms"
+        );
+    }
+}
+
+#[test]
+fn the_system_clock_advances_across_a_command() {
+    let mut runner = SystemRunner {
+        root: scratch("clock"),
+    };
+    let before = runner.clock();
+    let _version = runner
+        .capture(&Cmd::new("git", &["--version"], Dir::Root))
+        .expect("git answers");
+    let after = runner.clock();
+    assert!(
+        after > before,
+        "starting a process takes time: {before:?}, then {after:?}"
     );
 }
 
 #[test]
 fn stops_at_the_first_failure_unless_asked_to_run_the_rest() {
     let mut fake = failing_twice();
+    let mut out = Vec::new();
     assert_eq!(
-        run_steps_then(&five_steps(), &mut fake, &mut Vec::new(), OnFailure::Stop),
+        run_steps_then(&five_steps(), &mut fake, &mut out, OnFailure::Stop),
         failed("TWO: `x two` exited with code 3"),
         "the first failure alone"
     );
     assert_eq!(fake.ran, ["x one", "x two"], "nothing after it");
+    assert_eq!(
+        String::from_utf8(out).expect("UTF-8"),
+        "▶ [1/5] ONE\n  done in 1.5 s\n▶ [2/5] TWO\n  failed after 1.5 s\n",
+        "the time of the failed step said too"
+    );
     let mut stopped = failing_twice();
     assert_eq!(
         run_steps(&five_steps(), &mut stopped, &mut Vec::new()),
@@ -4246,8 +4309,8 @@ fn bless_benchmarks_counts_and_rewrites_the_baseline() {
     );
     assert_eq!(
         String::from_utf8(out).expect("utf-8"),
-        "▶ [1/2] Tools and platform\n▶ [2/2] Bless the benchmark baseline\n✔ all 2 checks \
-         passed\n",
+        "▶ [1/2] Tools and platform\n  done in 1.5 s\n▶ [2/2] Bless the benchmark baseline\n  \
+         done in 1.5 s\n✔ all 2 checks passed in 3.0 s\n",
         "progress"
     );
 }
@@ -4279,8 +4342,8 @@ fn bless_renders_and_rewrites_the_references() {
     );
     assert_eq!(
         String::from_utf8(out).expect("utf-8"),
-        "▶ [1/2] Tools and platform\n▶ [2/2] Bless conformance references\n✔ all 2 checks \
-         passed\n",
+        "▶ [1/2] Tools and platform\n  done in 1.5 s\n▶ [2/2] Bless conformance references\n  \
+         done in 1.5 s\n✔ all 2 checks passed in 3.0 s\n",
         "progress"
     );
     let mut named = passing();
@@ -5992,7 +6055,7 @@ fn checks_a_push_then_runs_every_check() {
     assert!(
         String::from_utf8(out)
             .expect("UTF-8")
-            .ends_with("✔ all 85 checks passed\n"),
+            .ends_with("✔ all 85 checks passed in 2 min 07 s\n"),
         "then every check"
     );
     assert!(
@@ -6453,7 +6516,7 @@ fn prints_the_details_of_a_failure_on_stdout_and_one_line_on_stderr() {
     );
     assert!(
         String::from_utf8(out).expect("UTF-8").ends_with(&format!(
-            "▶ [83/83] Working tree unchanged by the checks\n\
+            "▶ [83/83] Working tree unchanged by the checks\n  done in 1.5 s\n\
              not reviewed: crates/a/src/c.rs: replace g -> U with x\n\
              stale review: crates/a/src/b.rs: replace f -> T with Default::default()\n\
              Rust unviable mutants reviewed: unviable mutants must be reviewed in \
@@ -10549,9 +10612,10 @@ fn lists_and_runs_the_parts_of_the_full_check() {
         "the part passes"
     );
     assert!(
-        String::from_utf8(progress)
-            .expect("UTF-8")
-            .ends_with("▶ [4/4] Working tree unchanged by the checks\n✔ all 4 checks passed\n"),
+        String::from_utf8(progress).expect("UTF-8").ends_with(
+            "▶ [4/4] Working tree unchanged by the checks\n  done in 1.5 s\n✔ all 4 checks \
+                 passed in 6.0 s\n"
+        ),
         "its own steps only"
     );
     let mut failing = passing();
@@ -11504,7 +11568,7 @@ fn records_no_proof_of_a_tree_not_clean() {
         assert_eq!(
             String::from_utf8(out).expect("UTF-8"),
             format!(
-                "▶ [1/2] Working tree recorded\n▶ [2/2] Rust mutation proof recorded for the next default check\n  not recorded: the tree is not clean: {reason}\n✔ all 2 checks passed\n"
+                "▶ [1/2] Working tree recorded\n  done in 1.5 s\n▶ [2/2] Rust mutation proof recorded for the next default check\n  not recorded: the tree is not clean: {reason}\n  done in 1.5 s\n✔ all 2 checks passed in 3.0 s\n"
             ),
             "{status}{hidden}: said"
         );

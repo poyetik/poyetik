@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `cargo xtask` says how long each step took (`done in 12.3 s`, `failed after 4 min 05 s`) and a passing run its total, read from a monotonic clock (`Runner::clock`, the one reading of the system clock in xtask, reviewed), so that the time of a check is measured where it is spent; nothing is decided on it.
 - `parsePrecision` (`@poyetik/engine-wasm`, `./web`): the one reader of a precision from an unknown value, `undefined` when it names none, used by the engine processor's options, the benchmark baseline and the bench page.
 - The shared ESLint policy refuses every clock read (`performance.now`, `Date.now`, `process.hrtime`, `new Date()` and `Date()` without a timestamp) outside its reviewed `CLOCK_READERS`: the bench page's timing module, for the wall-time benchmarks asserted only as upper bounds, and the roadmap command's entry point, which stamps today's date. CLAUDE.md's "no system clock" rule names that one exception, so the rule holds everywhere else by tooling (Clippy already refuses `Instant::now` and `SystemTime::now`).
 - The benchmarks track the size of the engine module (`module_bytes` in `spec/benchmark-baseline.json`, `spec/benchmarks.md`): the bytes of `bindings/wasm/dist/engine.wasm` as built, the deterministic proxy of load time, compared with the instruction counts' tolerance either way, so that its growth is measured at every block (roadmap #11 keeps the absolute budget and a digest).
