@@ -487,6 +487,9 @@ pub enum Action {
     /// Require every unviable mutant of the last run to be reviewed; after a
     /// [`Extent::Complete`] run, also every review to be current.
     UnviableGate(Extent),
+    /// Require every review of unviable mutants to name a mutant of the workspace
+    /// ([`unviable_reviews_gate`]): the stale reviews a partial run cannot see.
+    UnviableReviewsCurrent,
     /// Require every mutant of the mutation report of `package` to be killed
     /// ([`ts_mutation_gate`]), after a run of `extent`.
     TypeScriptMutationGate {
@@ -928,6 +931,13 @@ fn rust_mutation_steps(mode: Mode) -> Vec<(Role, Step)> {
         ),
     ];
     if matches!(mode, Mode::Changes { .. }) {
+        steps.push((
+            Role::AcrossShards,
+            Step {
+                name: "Rust unviable mutant reviews all current".to_owned(),
+                action: Action::UnviableReviewsCurrent,
+            },
+        ));
         steps.push((
             Role::AcrossShards,
             Step {
@@ -2688,6 +2698,21 @@ fn compare_reviews(
     reviewed: &str,
     problems: &mut Vec<String>,
 ) {
+    let known = reviewed_keys(reviewed, problems);
+    for (key, &seen) in found {
+        let listed = known.get(key).copied().unwrap_or_default();
+        if seen > listed {
+            problems.push(format!("not reviewed: {}", counted(key, seen, listed)));
+        }
+    }
+    if extent == Extent::Complete {
+        stale_reviews(found, &known, problems);
+    }
+}
+
+/// The keys of a review file, each with how many times it is reviewed, adding to `problems`
+/// every line without a reason (see [`compare_reviews`] for the format).
+fn reviewed_keys(reviewed: &str, problems: &mut Vec<String>) -> BTreeMap<String, usize> {
     let mut keys = Vec::new();
     for line in reviewed
         .lines()
@@ -2700,21 +2725,25 @@ fn compare_reviews(
             None => problems.push(format!("review without a reason: {line}")),
         }
     }
-    let known = count(keys);
-    let counted = |key: &str, seen: usize, listed: usize| match (seen, listed) {
+    count(keys)
+}
+
+/// A key with its counts, when both are nonzero: `<key> (<seen> found, <listed> reviewed)`.
+fn counted(key: &str, seen: usize, listed: usize) -> String {
+    match (seen, listed) {
         (_, 0) | (0, _) => key.to_owned(),
         _ => format!("{key} ({seen} found, {listed} reviewed)"),
-    };
-    for (key, &seen) in found {
-        let listed = known.get(key).copied().unwrap_or_default();
-        if seen > listed {
-            problems.push(format!("not reviewed: {}", counted(key, seen, listed)));
-        }
     }
-    if extent == Extent::Partial {
-        return;
-    }
-    for (key, &listed) in &known {
+}
+
+/// Adds to `problems` every review of `known` (each key with how many times it is
+/// reviewed) that is stale: reviewed more often than `found` holds it.
+fn stale_reviews(
+    found: &BTreeMap<String, usize>,
+    known: &BTreeMap<String, usize>,
+    problems: &mut Vec<String>,
+) {
+    for (key, &listed) in known {
         let seen = found.get(key).copied().unwrap_or_default();
         if listed > seen {
             problems.push(format!("stale review: {}", counted(key, seen, listed)));
@@ -2748,6 +2777,46 @@ pub fn unviable_gate(report: &str, extent: Extent, reviewed: &str) -> Result<(),
     compare_reviews(&found, extent, reviewed, &mut problems);
     verdict(
         &format!("unviable mutants must be reviewed in {UNVIABLE_REVIEWED}"),
+        problems,
+    )
+}
+
+/// The command listing every mutant of the workspace without building or testing any
+/// (`cargo mutants --list`), with the file selection of every run (the arguments of every cargo-mutants command).
+#[must_use]
+pub fn mutants_list_command() -> Cmd {
+    Cmd::new(
+        "cargo",
+        &[&MUTANTS_ARGS[..], &["--list", "--workspace"]].concat(),
+        Dir::Root,
+    )
+}
+
+/// Checks that every review of [`UNVIABLE_REVIEWED`] names a mutant cargo-mutants can still
+/// generate.
+///
+/// `listed` is every mutant of the workspace ([`mutants_list_command`]), so a
+/// review of a mutant it no longer holds, or reviewed more often than it holds it, is stale.
+/// The default check, which mutates only the changes, refuses stale reviews this way, as
+/// the full check does after its complete run.
+///
+/// # Errors
+///
+/// Returns every stale review, every review without a reason and every line of `listed`
+/// that is not a mutant.
+pub fn unviable_reviews_gate(listed: &str, reviewed: &str) -> Result<(), Failure> {
+    let mut problems = Vec::new();
+    let mut keys = Vec::new();
+    for line in listed.lines().filter(|line| !line.trim().is_empty()) {
+        match mutant_key(line) {
+            Some(key) => keys.push(key),
+            None => problems.push(format!("unrecognized mutant: {line}")),
+        }
+    }
+    let known = reviewed_keys(reviewed, &mut problems);
+    stale_reviews(&count(keys), &known, &mut problems);
+    verdict(
+        &format!("every review of {UNVIABLE_REVIEWED} must name a mutant that exists"),
         problems,
     )
 }
@@ -6691,6 +6760,15 @@ fn unviable_report(runner: &mut dyn Runner, extent: Extent) -> Result<String, Fa
     }
 }
 
+/// Lists every mutant of the workspace and checks the reviews against them
+/// ([`unviable_reviews_gate`]).
+fn unviable_reviews(runner: &mut dyn Runner) -> Result<(), Failure> {
+    let listed = runner
+        .capture(&mutants_list_command())
+        .map_err(|failure| Failure::from(format!("cannot list the Rust mutants: {failure}")))?;
+    unviable_reviews_gate(&listed, &read_file(runner, UNVIABLE_REVIEWED)?)
+}
+
 /// Reads the unviable mutants of every shard (`reports`) and checks them together, as after
 /// a complete run.
 fn shards_unviable(runner: &mut dyn Runner, reports: &[String]) -> Result<(), Failure> {
@@ -6845,6 +6923,7 @@ fn run_action(
             let report = unviable_report(runner, *extent)?;
             unviable_gate(&report, *extent, &read_file(runner, UNVIABLE_REVIEWED)?)
         }
+        Action::UnviableReviewsCurrent => unviable_reviews(runner),
         Action::ShardsUnviableGate(reports) => shards_unviable(runner, reports),
         Action::PartsGate => parts_of_the_full_check(full_parts()),
     }

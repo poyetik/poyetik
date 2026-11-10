@@ -461,6 +461,23 @@ fn float_sources(fake: &mut Fake) {
     }
 }
 
+/// The unviable mutants of a passing run, their reviews, and the list of every mutant.
+fn unviable_answers(fake: &mut Fake) {
+    let report = "crates/a/src/b.rs:3:5: replace f -> T with Default::default()\n";
+    let reviewed =
+        "crates/a/src/b.rs: replace f -> T with Default::default() -- T has no Default\n";
+    for (path, text) in [
+        (UNVIABLE_REPORT.to_owned(), report.to_owned()),
+        (UNVIABLE_REVIEWED.to_owned(), reviewed.to_owned()),
+        (
+            format!("capture {}", super::mutants_list_command().line()),
+            format!("{report}crates/a/src/b.rs:9:1: replace g with ()\n"),
+        ),
+    ] {
+        assert!(fake.files.insert(path, text).is_none(), "fresh fake");
+    }
+}
+
 fn passing() -> Fake {
     let mut fake = Fake::default();
     let fused = fake.files.insert(
@@ -469,16 +486,7 @@ fn passing() -> Fake {
     );
     assert!(fused.is_none(), "fresh fake");
     coverage_reports(&mut fake);
-    let report = "crates/a/src/b.rs:3:5: replace f -> T with Default::default()\n";
-    let reviewed =
-        "crates/a/src/b.rs: replace f -> T with Default::default() -- T has no Default\n";
-    let first = fake
-        .files
-        .insert(UNVIABLE_REPORT.to_owned(), report.to_owned());
-    let second = fake
-        .files
-        .insert(UNVIABLE_REVIEWED.to_owned(), reviewed.to_owned());
-    assert!(first.is_none() && second.is_none(), "fresh fake");
+    unviable_answers(&mut fake);
     let equivalent = "tooling/config/x.ts: EqualityOperator at while (a < 2) {} -- same result\n";
     typescript_reports(&mut fake);
     for (command, answer) in GIT_ANSWERS {
@@ -773,6 +781,7 @@ fn command_lines(steps: &[Step]) -> Vec<String> {
             }
             Action::UnviableGate(extent) => format!("unviable gate ({extent:?})"),
             Action::MutationProofRecorded => "mutation proof recorded".to_owned(),
+            Action::UnviableReviewsCurrent => "unviable reviews current".to_owned(),
             Action::EquivalentGate => "equivalent gate".to_owned(),
             Action::VersionGate => "version gate".to_owned(),
             Action::ReadmeGate => "readme gate".to_owned(),
@@ -1433,6 +1442,7 @@ fn lists_every_check_in_order() {
             "fresh mutants.out",
             "rust mutants of the changes (3 jobs)",
             "unviable gate (Partial)",
+            "unviable reviews current",
             "mutation proof recorded",
             "equivalent gate",
             "bypass gate",
@@ -1528,6 +1538,7 @@ fn names_every_check_in_order() {
             "Fresh Rust mutation report",
             "Rust mutation testing of the changes",
             "Rust unviable mutants reviewed",
+            "Rust unviable mutant reviews all current",
             "Rust mutation proof recorded for the next default check",
             "TypeScript equivalent mutants reviewed",
             "Every bypass of coverage or mutation testing reviewed",
@@ -1581,28 +1592,50 @@ fn names_every_check_in_order() {
     );
 }
 
+/// The steps of the default check without the two it adds after its unviable gate.
+fn default_steps_as_full() -> Vec<Step> {
+    let mut changes = check_steps(CHANGES_MODE);
+    let current = changes
+        .iter()
+        .position(|step| step.action == Action::UnviableReviewsCurrent)
+        .expect("the default check refuses stale reviews");
+    let before = changes
+        .get(current.saturating_sub(1))
+        .map(|step| step.action.clone());
+    let added: Vec<Action> = before
+        .into_iter()
+        .chain(
+            changes
+                .drain(current..=current.saturating_add(1))
+                .map(|step| step.action),
+        )
+        .collect();
+    assert_eq!(
+        added,
+        [
+            Action::UnviableGate(Extent::Partial),
+            Action::UnviableReviewsCurrent,
+            Action::MutationProofRecorded
+        ],
+        "after the unviable gate"
+    );
+    changes
+}
+
 #[test]
 fn the_full_check_differs_only_by_its_mutation_testing() {
     let jobs = NonZeroUsize::new(3).expect("three is not zero");
-    // The default check records the proof of its mutation testing, which the full check
-    // never reads nor writes: one step more, after the unviable gate.
-    let mut changes = check_steps(CHANGES_MODE);
-    let recorded = changes
-        .iter()
-        .position(|step| step.action == Action::MutationProofRecorded)
-        .expect("the default check records its proof");
-    assert_eq!(
-        changes.get(recorded - 1).map(|step| &step.action),
-        Some(&Action::UnviableGate(Extent::Partial)),
-        "after the unviable gate"
-    );
-    let _record = changes.remove(recorded);
+    // The default check refuses the stale reviews its partial run cannot see, then
+    // records the proof of its mutation testing, which the full check never reads nor
+    // writes: two steps more, after the unviable gate.
+    let changes = default_steps_as_full();
     let full = check_steps(Mode::Full { jobs });
     assert!(
-        !full
-            .iter()
-            .any(|step| step.action == Action::MutationProofRecorded),
-        "the full check records nothing"
+        !full.iter().any(|step| matches!(
+            step.action,
+            Action::MutationProofRecorded | Action::UnviableReviewsCurrent
+        )),
+        "the full check records nothing, and its complete run sees stale reviews"
     );
     assert_eq!(changes.len(), full.len(), "the same number of steps");
     let differences: Vec<(String, String)> = command_lines(&changes)
@@ -2747,8 +2780,8 @@ fn runs_every_step_and_reports_success() {
         Ok(()),
         "all green"
     );
-    let (tools, commands, emptied, listed, captured, written) = (10, 52, 14, 20, 25, 3);
-    let read = 2 + 7 + 13 + 2 + 7 + 21 + 3 + 1 + 7 + 3 + 11 + 10 + 21 + 8 + 2 + 11 + 40 + 20 + 3;
+    let (tools, commands, emptied, listed, captured, written) = (10, 52, 14, 20, 26, 3);
+    let read = 2 + 7 + 13 + 3 + 7 + 21 + 3 + 1 + 7 + 3 + 11 + 10 + 21 + 8 + 2 + 11 + 40 + 20 + 3;
     assert_eq!(
         fake.ran.len(),
         tools + commands + emptied + listed + captured + written + read,
@@ -2759,12 +2792,12 @@ fn runs_every_step_and_reports_success() {
          checks each followed by its Stryker run); fourteen directories are emptied; git lists \
          twelve kinds of files (the box sources among them), the TypeScript ones again for the reports and scope gates of \
          each package after the first; the licenses and the history are captured twice each, the state \
-         of the tree (before, for the proof record and after) six times, the nightly's version and sysroot, the Cargo metadata (for the dependency and the math layer gates), the output of the fused test build, the merge base, the changes and the \
-         new Rust files once, git's common directory twice, the tree checked out and \
+         of the tree (before, for the proof record and after) six times, the nightly's version and sysroot, the Cargo metadata (for the dependency and the math layer gates), the output of the fused test build, the merge base, the changes, the \
+         new Rust files and the list of every mutant once, git's common directory twice, the tree checked out and \
          cargo-mutants' version for the proof record; the measured base, the diff and the \
          proof record are written once each; the proof record, the measured base and the \
          toolchain file are read for it; and the gates read .node-version and the toolchain file for the preflight, the toolchain file, the four float sources and the float macros of the nightly and clippy.toml for the float gate, thirteen coverage reports, \
-         the unviable report and reviews, six TypeScript sources and their reviews, the nine \
+         the unviable report and reviews, the reviews again against the list of every mutant, six TypeScript sources and their reviews, the nine \
          sources, the eleven Cargo manifests and the register of the bypass gate, the three unsafe files, the Cargo \
          configuration, the six package manifests and the register of the dependency gate, the three \
          supply-chain configurations, eleven crate manifests, ten READMEs, the changelog, ten READMEs, three Rust and six TypeScript sources and the vocabulary of the vocabulary gate, eight version files, the workflow and \
@@ -2790,15 +2823,15 @@ fn runs_every_step_and_reports_success() {
     );
     let text = String::from_utf8(out).expect("utf-8 output");
     assert!(
-        text.starts_with("▶ [1/77] Tools and platform\n"),
+        text.starts_with("▶ [1/78] Tools and platform\n"),
         "numbered progress: {text}"
     );
     assert!(
-        text.contains("▶ [73/77] Roadmap checks\n"),
+        text.contains("▶ [74/78] Roadmap checks\n"),
         "last step announced: {text}"
     );
     assert!(
-        text.ends_with("✔ all 77 checks passed\n"),
+        text.ends_with("✔ all 78 checks passed\n"),
         "summary: {text}"
     );
 }
@@ -3286,6 +3319,89 @@ fn reports_a_directory_that_cannot_be_emptied() {
         run_steps(&check_steps(CHANGES_MODE), &mut fake, &mut Vec::new()),
         failed("Fresh conformance export directory: cannot empty target/conformance: busy"),
         "named and explained"
+    );
+}
+
+#[test]
+fn refuses_reviews_of_mutants_that_no_longer_exist() {
+    let gate = super::unviable_reviews_gate;
+    let context = "every review of mutants-unviable.txt must name a mutant that exists";
+    let listed = "crates/a/src/b.rs:3:5: replace f -> T with Default::default()\n\
+                  crates/a/src/b.rs:9:5: replace += with *= in g\n\
+                  crates/a/src/b.rs:12:5: replace += with *= in g\n\n";
+    let reviewed = "# a comment\n\ncrates/a/src/b.rs: replace += with *= in g -- one\n\
+                    crates/a/src/b.rs: replace += with *= in g -- two\n";
+    assert_eq!(
+        gate(listed, reviewed),
+        Ok(()),
+        "every review names a mutant, as often as it exists; unreviewed mutants are another gate's"
+    );
+    assert_eq!(gate(listed, ""), Ok(()), "no review at all");
+    assert_eq!(
+        gate(
+            listed,
+            &format!("{reviewed}crates/a/src/b.rs: replace += with *= in g -- three\n")
+        ),
+        found(
+            context,
+            &[
+                "stale review: crates/a/src/b.rs: replace += with *= in g (2 found, 3 reviewed)"
+                    .to_owned()
+            ]
+        ),
+        "reviewed more often than it exists"
+    );
+    assert_eq!(
+        gate(
+            listed,
+            "crates/a/src/b.rs: replace += with -= in g -- gone\nno reason here\n"
+        ),
+        found(
+            context,
+            &[
+                "review without a reason: no reason here".to_owned(),
+                "stale review: crates/a/src/b.rs: replace += with -= in g".to_owned(),
+            ]
+        ),
+        "a mutant that no longer exists, and a malformed review"
+    );
+    assert_eq!(
+        gate("not a mutant\n", ""),
+        found(context, &["unrecognized mutant: not a mutant".to_owned()]),
+        "a listed line that is not a mutant is refused, never skipped"
+    );
+}
+
+#[test]
+fn the_default_check_refuses_stale_reviews_of_unviable_mutants() {
+    let steps = check_steps(CHANGES_MODE);
+    let mut fake = passing();
+    let _stale = fake.files.insert(
+        UNVIABLE_REVIEWED.to_owned(),
+        "crates/a/src/b.rs: replace f -> T with Default::default() -- T has no Default\n\
+         crates/a/src/c.rs: replace h with () -- gone\n"
+            .to_owned(),
+    );
+    assert_eq!(
+        run_steps(&steps, &mut fake, &mut Vec::new()),
+        failed(
+            "Rust unviable mutant reviews all current: every review of mutants-unviable.txt \
+             must name a mutant that exists: stale review: crates/a/src/c.rs: replace h with ()"
+        ),
+        "a review of a mutant cargo-mutants no longer lists"
+    );
+    let mut unlisted = passing();
+    let _gone = unlisted
+        .files
+        .remove(&format!("capture {}", super::mutants_list_command().line()));
+    assert_eq!(
+        run_steps(&steps, &mut unlisted, &mut Vec::new()),
+        failed(
+            "Rust unviable mutant reviews all current: cannot list the Rust mutants: \
+             `cargo mutants --cap-lints=true --gitignore=true --cargo-arg=--locked --list \
+             --workspace` exited with code 1: failed"
+        ),
+        "the list cannot be made"
     );
 }
 
@@ -5536,7 +5652,7 @@ fn checks_a_push_then_runs_every_check() {
     assert!(
         String::from_utf8(out)
             .expect("UTF-8")
-            .ends_with("✔ all 77 checks passed\n"),
+            .ends_with("✔ all 78 checks passed\n"),
         "then every check"
     );
     assert!(
