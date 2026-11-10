@@ -45,7 +45,7 @@
       "column": "next",
       "milestone": "M1 Engine",
       "createdAt": "2026-11-09",
-      "updatedAt": "2026-11-09",
+      "updatedAt": "2026-11-10",
       "tasks": [
         {
           "title": "An API specification in spec/, completed at each step of #12 that adds a piece (host settings, events, the return path, state, hot swap, the box contract)",
@@ -109,6 +109,10 @@
         },
         {
           "title": "Box registries valid by construction: a registry from outside the engine is checked (unique names, complete metadata, finite ranges) before any plan uses it",
+          "done": false
+        },
+        {
+          "title": "Every native entry point that does float work (building, processing, rendering, the C functions) takes the DefaultMode proof of engine-fpenv or opens its scope itself, so that a native call outside the processor's default floating-point mode does not compile: a proof engine-core's entry points take, or a native layer over them as the one boundary a native host uses, decided here",
           "done": false
         }
       ]

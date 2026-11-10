@@ -8,9 +8,13 @@
 //! the IEEE default (round to nearest, no flush, no trap, IEEE NaN propagation) and restores
 //! the host's fields when it returns, whether the call returns, exits early or unwinds.
 //!
-//! Engine calls that need the default mode take a [`DefaultMode`], a proof that only
-//! [`with_default_mode`] creates and that lives no longer than its call: a call made without
-//! it does not compile. The proof cannot be built anywhere else:
+//! A function that takes a [`DefaultMode`], a proof that only [`with_default_mode`] creates
+//! and that lives no longer than its call, does not compile outside it: `engine-cli`'s
+//! preparation of a case (parsing and building its plan) and its render take one.
+//! `engine-core`'s entry points (`Plan::build`, `Plan::process`, `Renderer`) take none,
+//! since `engine-core` also builds for WebAssembly, whose floats have no mode: a native
+//! caller calls them inside [`with_default_mode`], a precondition stated in prose until the
+//! native host API makes it a type (roadmap #32). The proof cannot be built anywhere else:
 //!
 //! ```compile_fail,E0451
 //! let forged = engine_fpenv::DefaultMode { scope: core::marker::PhantomData, thread: core::marker::PhantomData };

@@ -8,6 +8,14 @@
 //! This crate contains no concrete box. It is `no_std` and forbids `unsafe`, so it
 //! cannot reach the OS, the clock, threads or the network: the engine is
 //! deterministic by construction.
+//!
+//! Natively, every call that builds, processes or renders (`Plan::build`, `Plan::process`,
+//! `Renderer`) runs in the processor's default floating-point mode, which the host may have
+//! changed (flush-to-zero, another rounding): a native caller makes it inside
+//! `engine_fpenv::with_default_mode` (`spec/engine-design.md`, decision 11). These entry
+//! points take no proof of it, since this crate also builds for WebAssembly, whose floats
+//! have no mode: the precondition is prose here until the native host API makes it a type
+//! (roadmap #32).
 
 #![no_std]
 #![forbid(unsafe_code)]
