@@ -180,6 +180,35 @@ fn sfdr_slack(vector: &Value, frames: u32, hz: u32, expected: f64, fundamental: 
     -amplitude_db(1.0_f64 - loss - leak)
 }
 
+/// How far the measured fundamental of `vector` over `frames` frames may be from its
+/// expectation, for a measurement of floor `floor`.
+///
+/// Without noise, the fundamental is within the floor. With white noise of step `s`
+/// (variance σ² = s²/12), the fitted amplitude is the norm of the two fitted coefficients,
+/// so it deviates by at most the norm of their error, whose mean square is 4σ²/N: by
+/// Chebyshev, ten times σ·√(2/N) holds it with probability at least 98%, plus the floor.
+fn fundamental_tolerance(vector: &Value, frames: u32, floor: f64) -> f64 {
+    vector.get("noise").map_or(floor, |noise| {
+        let step = noise["step"].as_f64().expect("a step");
+        10.0_f64 * step / 12.0_f64.sqrt() * (2.0_f64 / f64::from(frames)).sqrt() + floor
+    })
+}
+
+/// The fundamental measured in `vector` with every tone scaled by `scale`, its noise
+/// unchanged: the fundamental, a folded harmonic included, scales by `scale`.
+fn scaled_fundamental(vector: &Value, scale: f64) -> f64 {
+    let mut moved = vector.clone();
+    for tone in moved["tones"].as_array_mut().expect("tones") {
+        let scaled = tone["amplitude"].as_f64().expect("an amplitude") * scale;
+        tone["amplitude"] = Value::from(scaled);
+    }
+    let hz = u32::try_from(vector["rate"].as_u64().expect("a rate")).expect("u32");
+    let fundamental = vector["fundamental"].as_f64().expect("a fundamental");
+    measure(&synthesize(&moved), rate(hz), fundamental)
+        .expect("measurable")
+        .fundamental
+}
+
 #[test]
 fn meets_the_shared_known_answers() {
     let vectors: Value = serde_json::from_str(VECTORS).expect("valid JSON");
@@ -199,25 +228,19 @@ fn meets_the_shared_known_answers() {
         // (checked below), not the floor.
         let noisy = vector.get("noise").is_some();
         let wanted_floor = if noisy { 0.0_f64 } else { floor };
-        // Without noise, the fundamental is within the floor. With white noise of step `s`
-        // (variance σ² = s²/12), the least-squares amplitude of a sine over N frames deviates
-        // by σ·√(2/N), one standard deviation: ten of them hold it with at least 99%
-        // (Chebyshev), as the noise interval below does, plus the floor.
-        let tolerance = if noisy {
-            let step = vector["noise"]["step"].as_f64().expect("a step");
-            10.0_f64 * step / 12.0_f64.sqrt() * (2.0_f64 / f64::from(frames)).sqrt() + floor
-        } else {
-            floor
-        };
+        let tolerance = fundamental_tolerance(vector, frames, floor);
         let within = |level: f64| (level - amplitude).abs() <= tolerance;
         assert!(
             within(measured.fundamental),
             "{name}: fundamental {} instead of {amplitude}, beyond {tolerance}",
             measured.fundamental
         );
+        // The positive control: the fundamental moved by twice the tolerance, measured, is
+        // refused.
+        let off = scaled_fundamental(vector, (amplitude + 2.0_f64 * tolerance) / amplitude);
         assert!(
-            !within(amplitude + 2.0_f64 * tolerance),
-            "{name}: the tolerance refuses a fundamental twice as far"
+            !within(off),
+            "{name}: the tolerance accepts a fundamental of {off} measured twice as far"
         );
         if noisy {
             noise_within_its_interval(vector, &measured);
