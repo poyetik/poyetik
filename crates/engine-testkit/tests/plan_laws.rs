@@ -31,7 +31,7 @@ mod tests {
     };
     use engine_testkit::matrix::{HOST_BUFFER_SIZES, PRECISIONS, sample_rates};
     use engine_testkit::runner::runner;
-    use engine_testkit::{heap_operations_during, sample_of as of};
+    use engine_testkit::{heap_bytes_during, heap_operations_during, sample_of as of};
     use proptest::collection::vec;
     use proptest::strategy::{Strategy, ValueTree};
     use proptest::test_runner::{TestCaseError, TestRunner};
@@ -634,7 +634,7 @@ mod tests {
         }
         for precision in PRECISIONS {
             let mut revealed = false;
-            for count in [3, 15, 16, 17, 31, 32, 33, 48, 49] {
+            for count in [2, 3, 15, 16, 17, 31, 32, 33, 48, 49] {
                 revealed |= match precision {
                     Precision::Binary64 => sums::<Binary64>(count),
                     Precision::Binary32 => sums::<Binary32>(count),
@@ -643,6 +643,85 @@ mod tests {
             }
             assert!(revealed, "the order shows in {precision:?}");
         }
+    }
+
+    /// Building a plan reserves one set of scratch lanes (the reduction order's 16 lanes but
+    /// the result's, decision 28 of `spec/engine-design.md`) for all its sums, however many:
+    /// compared with the same boxes fed by one cable per inlet, a plan whose every inlet sums
+    /// `sources` cables keeps at most those lanes and one word per cable more. Checked for
+    /// two terms (summed without lanes), three and seventeen, at a small size and at the
+    /// patch limits, where one set of lanes per sum would reserve about a gigabyte.
+    #[test]
+    fn reserves_one_set_of_lanes_for_every_sum() {
+        fn extra<S: Sample>(outputs: u32, sources: u32) -> Result<(), String> {
+            let node = |id: u32, kind: &str| Node {
+                id: NodeId(id),
+                kind: String::from(kind),
+                params: BTreeMap::new(),
+            };
+            let nodes: Vec<Node> = (1..=sources)
+                .map(|id| node(id, "const~"))
+                .chain((1..=outputs).map(|output| node(sources + output, "out~")))
+                .collect();
+            let wires = |fed_by: u32| -> Vec<Connection> {
+                (1..=outputs)
+                    .flat_map(|output| {
+                        (0..2).flat_map(move |inlet| {
+                            (1..=fed_by).map(move |from| Connection {
+                                from: NodeId(from),
+                                outlet: 0,
+                                to: NodeId(sources + output),
+                                inlet,
+                            })
+                        })
+                    })
+                    .collect()
+            };
+            let rate = SampleRate::new(44_100).map_err(|error| error.to_string())?;
+            let kept = |fed_by: u32| -> Result<usize, String> {
+                let patch =
+                    Patch::new(nodes.clone(), wires(fed_by)).map_err(|error| error.to_string())?;
+                let (plan, bytes) =
+                    heap_bytes_during(|| Plan::<S>::build(&patch, &REGISTRY, rate))?;
+                plan.map(|_| bytes).map_err(|error| error.to_string())
+            };
+            let (summed, single) = (kept(sources)?, kept(1)?);
+            let cables =
+                usize::try_from(outputs * 2 * sources).map_err(|error| error.to_string())?;
+            let lanes = (16 - 1) * size_of::<Block<S>>();
+            let bound = lanes + cables * size_of::<usize>();
+            if summed > single + bound {
+                return Err(format!(
+                    "{outputs} output boxes summing {sources} cables per inlet keep {} bytes \
+                     more than fed by one, beyond one set of lanes and a word per cable \
+                     ({bound} bytes)",
+                    summed - single
+                ));
+            }
+            Ok(())
+        }
+        // The largest patches of each kind: 65,536 boxes, or 262,140 cables.
+        let sizes = [(64, 2), (64, 3), (64, 17), (65_534, 2), (43_690, 3)];
+        for precision in PRECISIONS {
+            for (outputs, sources) in sizes {
+                match precision {
+                    Precision::Binary64 => extra::<Binary64>(outputs, sources),
+                    Precision::Binary32 => extra::<Binary32>(outputs, sources),
+                }
+                .expect("one set of lanes per plan");
+            }
+        }
+        assert_eq!(
+            sizes.map(|(outputs, sources)| (outputs + sources, outputs * 2 * sources)),
+            [
+                (66, 256),
+                (67, 384),
+                (81, 2_176),
+                (65_536, 262_136),
+                (43_693, 262_140)
+            ],
+            "within the limits, the largest at them"
+        );
     }
 
     #[test]

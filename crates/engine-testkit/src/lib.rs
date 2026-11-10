@@ -40,7 +40,9 @@ pub mod matrix;
 pub mod measure;
 pub mod runner;
 
-pub use engine_alloc_counter::{CountingAllocator, NotCounting, heap_operations_during};
+pub use engine_alloc_counter::{
+    CountingAllocator, NotCounting, heap_bytes_during, heap_operations_during,
+};
 pub use fingerprint::{FINGERPRINT_BATTERY, fingerprint};
 pub use laws::{check_laws, check_metadata, check_registry};
 

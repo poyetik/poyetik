@@ -5,7 +5,9 @@
 use core::hint::black_box;
 use std::sync::{Barrier, BarrierWaitResult};
 
-use super::{CountingAllocator, NotCounting, heap_operations_during, require_counted};
+use super::{
+    CountingAllocator, NotCounting, heap_bytes_during, heap_operations_during, require_counted,
+};
 
 /// The test binary counts heap operations with the allocator under test.
 #[global_allocator]
@@ -38,6 +40,62 @@ fn counts_every_heap_operation_releases_included() {
         Ok((42_i32, 0_usize)),
         "returns the result, and the probe is not counted"
     );
+}
+
+/// The bytes `action` left reserved, which the installed counter always measures.
+fn kept<R>(action: impl FnOnce() -> R) -> (R, usize) {
+    heap_bytes_during(action).expect("the counter is installed")
+}
+
+#[test]
+fn counts_the_bytes_an_action_leaves_reserved() {
+    let (held, allocated) = kept(|| Box::new([7_u8; 24]));
+    assert_eq!(allocated, 24, "an allocation the result holds");
+    assert_eq!(*held, [7; 24], "the result is returned");
+    let ((), zeroed) = kept(|| drop(black_box(vec![0_u8; 40])));
+    assert_eq!(zeroed, 0, "alloc_zeroed, then its release");
+    let mut grown = Vec::<u8>::with_capacity(3);
+    grown.push(1);
+    let ((), resized) = kept(|| {
+        grown.reserve_exact(97);
+        let _: &Vec<u8> = black_box(&grown);
+    });
+    assert_eq!(grown.capacity(), 98, "reallocated to the size asked");
+    assert_eq!(
+        resized, 95,
+        "a reallocation keeps its new size less its old one"
+    );
+    let freed_first = Box::new([1_u8; 16]);
+    let (smaller, released) = kept(|| {
+        drop(black_box(freed_first));
+        Box::new([2_u8; 4])
+    });
+    assert_eq!(released, 0, "released more than it reserved: nothing kept");
+    assert_eq!(*smaller, [2; 4], "the smaller result");
+    let freed_then = Box::new([1_u8; 16]);
+    let (larger, net) = kept(|| {
+        drop(black_box(freed_then));
+        Box::new([3_u8; 56])
+    });
+    assert_eq!(net, 40, "56 reserved, 16 released");
+    assert_eq!(*larger, [3; 56], "the larger result");
+}
+
+#[test]
+fn counts_the_bytes_of_this_thread_only() {
+    // As for the operations: the other thread keeps 4000 bytes inside this thread's
+    // window, which a process-wide count would see every time.
+    static START: Barrier = Barrier::new(2);
+    let other = std::thread::spawn(|| {
+        let _: BarrierWaitResult = START.wait();
+        kept(|| black_box(vec![5_u8; 4_000])).1
+    });
+    let (joined, here) = kept(|| {
+        let _: BarrierWaitResult = START.wait();
+        other.join().ok()
+    });
+    assert_eq!(joined, Some(4_000), "the other thread counts its own");
+    assert!(here < 4_000, "this thread's bytes: {here}");
 }
 
 #[test]

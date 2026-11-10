@@ -740,6 +740,21 @@ pub(crate) fn sum_blocks<'terms, S: Sample>(
     reduce(out, &mut lanes.0, terms);
 }
 
+/// The sum of the blocks `first` and `second` frame by frame, `first + second`: the
+/// reduction order of [`ordered_sum`] for two terms (lane 0 holds `first`, lane 1 `second`,
+/// and only the last step of the tree joins them), computed without scratch lanes. The plan
+/// sums two cables into an inlet, or two output boxes on a channel, with it.
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "IEEE 754 addition of the sample type, which neither overflows nor panics"
+)]
+pub(crate) fn add_two<S: Sample>(out: &mut Block<S>, first: &Block<S>, second: &Block<S>) {
+    *out = *first;
+    for (sum, term) in out.iter_mut().zip(second) {
+        *sum += *term;
+    }
+}
+
 /// What a host, never a box, needs of the engine's samples: their floats and their bits,
 /// to give them to the platform, hash them, read them back and test them.
 ///

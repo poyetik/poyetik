@@ -1293,54 +1293,98 @@ fn sums_seventeen_cables_and_seventeen_outputs_in_the_reduction_order<S: Bits>()
 }
 
 /// The plan decides when it is built how each inlet and each output channel is fed: no
-/// source leaves it silent, one source is a copy (the reduction order of one term, bit for
-/// bit), two or more go through the sum of decision 28. The choice is the plan's structure,
-/// read here, not a branch taken while processing.
+/// source leaves it silent (no feed), one source is a copy (the reduction order of one term,
+/// bit for bit), two are a pair added frame by frame (the order of two terms, without
+/// lanes), three or more go through the sum of decision 28. The choice is the plan's
+/// structure, read here, not a branch taken while processing.
 fn decides_how_each_block_is_fed_when_built<S: Bits>() {
+    // Seventeen const~ (ids 1 to 17, bus slots 0 to 16), then out~ 20, out~ 21 and mono~ 22
+    // (instances 17, 18 and 19).
+    let consts: Vec<Node> = (1..=17).map(|id| node(id, "const~")).collect();
     let plan = build::<S>(
-        vec![
-            node(1, "const~"),
-            node(2, "ramp~"),
-            node(3, "out~"),
-            node(4, "mono~"),
-        ],
-        vec![wire(1, 0, 3, 0), wire(2, 0, 3, 0), wire(2, 0, 3, 1)],
+        [
+            consts.clone(),
+            vec![node(20, "out~"), node(21, "out~"), node(22, "mono~")],
+        ]
+        .concat(),
+        [
+            vec![
+                wire(1, 0, 20, 0),
+                wire(1, 0, 20, 1),
+                wire(2, 0, 20, 1),
+                wire(1, 0, 21, 0),
+                wire(2, 0, 21, 0),
+                wire(3, 0, 21, 0),
+            ],
+            (1..=17).map(|id| wire(id, 0, 21, 1)).collect(),
+        ]
+        .concat(),
     )
     .expect("valid patch");
-    let feeds: Vec<Vec<Option<String>>> = plan
+    let feeds: Vec<Vec<(usize, String)>> = plan
         .instances
         .iter()
         .map(|instance| {
             instance
                 .feeds
                 .iter()
-                .map(|feed| feed.as_ref().map(shape))
+                .map(|(inlet, feed)| (*inlet, shape(feed)))
                 .collect()
         })
         .collect();
-    let some = |text: &str| Some(String::from(text));
+    let fed = |inlet: usize, text: &str| (inlet, String::from(text));
     assert_eq!(
         feeds,
-        vec![
-            vec![],
-            vec![],
-            vec![some("sum [0, 1]"), some("copy 1")],
-            vec![None],
-        ],
-        "out~ sums two cables and copies one; mono~ is unconnected"
+        [
+            vec![vec![]; 17],
+            vec![
+                vec![fed(0, "copy 0"), fed(1, "pair 0 1")],
+                vec![
+                    fed(0, "sum [0, 1, 2]"),
+                    fed(
+                        1,
+                        "sum [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]"
+                    ),
+                ],
+                vec![],
+            ],
+        ]
+        .concat(),
+        "out~ 20 copies one cable and adds two; out~ 21 sums three and seventeen; mono~ is \
+         unconnected"
     );
     assert_eq!(
         plan.channel_feeds.iter().map(shape).collect::<Vec<_>>(),
-        ["sum [(2, 0), (3, 0)]", "copy (2, 1)"],
-        "channel 0 sums out~ and mono~; channel 1 copies out~ alone"
+        ["sum [(17, 0), (18, 0), (19, 0)]", "pair (17, 1) (18, 1)"],
+        "channel 0 sums out~ 20, out~ 21 and mono~; channel 1 adds the two out~"
+    );
+    let single = build::<S>(
+        vec![node(1, "const~"), node(2, "out~")],
+        vec![wire(1, 0, 2, 0)],
+    )
+    .expect("valid patch");
+    assert_eq!(
+        single.channel_feeds.iter().map(shape).collect::<Vec<_>>(),
+        ["copy (1, 0)", "copy (1, 1)"],
+        "one output box: each channel copies its inlet"
+    );
+    assert_eq!(
+        build::<S>(consts, vec![])
+            .expect("valid patch")
+            .channel_feeds
+            .len(),
+        0,
+        "no output box, no channel"
     );
 }
 
-/// How `feed` is fed, in words: `copy <source>` or `sum [<sources>]`.
-fn shape<K: core::fmt::Debug, S: Sample>(feed: &Feed<K, S>) -> String {
+/// How `feed` is fed, in words: `copy <source>`, `pair <source> <source>` or
+/// `sum [<sources>]`.
+fn shape<K: core::fmt::Debug>(feed: &Feed<K>) -> String {
     match feed {
         Feed::Single(source) => alloc::format!("copy {source:?}"),
-        Feed::Several(sources, _) => alloc::format!("sum {sources:?}"),
+        Feed::Two(first, second) => alloc::format!("pair {first:?} {second:?}"),
+        Feed::Several(sources) => alloc::format!("sum {sources:?}"),
     }
 }
 

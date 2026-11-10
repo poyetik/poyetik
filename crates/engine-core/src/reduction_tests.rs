@@ -7,7 +7,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::ops::Add;
 
-use super::{Lanes, ordered_sum, sum_blocks};
+use super::{Lanes, add_two, ordered_sum, sum_blocks};
 
 use crate::host::Raw;
 use crate::{BLOCK_SIZE, Binary64, Block, Sample};
@@ -515,6 +515,64 @@ where
     assert_eq!(out.map(Raw::bits), [0; BLOCK_SIZE], "no block: +0");
 }
 
+/// The two-term form, which the plan uses without lanes: frame by frame the rule for two
+/// terms (the first plus the second), every pair of special values included (each of the
+/// twelve against each, in both orders), then drawn pairs, against the reference and against
+/// the block form of the rule.
+fn adds_two_blocks_by_the_rule_of_two_terms<S: Raw>()
+where
+    S::Float: Float,
+{
+    let specials = specials::<S::Float>().map(|bits| S::from_raw(S::Float::from_bits(bits)));
+    let mut pairs: Vec<(S, S)> = specials
+        .iter()
+        .flat_map(|&first| specials.iter().map(move |&second| (first, second)))
+        .collect();
+    let mut draws = Draws(0x5059_0002);
+    pairs.extend(
+        (0..2 * BLOCK_SIZE).map(|_| (S::from_raw(draws.finite()), S::from_raw(draws.finite()))),
+    );
+    let mut lanes = Lanes::new();
+    for chunk in pairs.chunks(BLOCK_SIZE) {
+        let mut first = [S::ZERO; BLOCK_SIZE];
+        let mut second = [S::ZERO; BLOCK_SIZE];
+        for ((one, other), &(left, right)) in first.iter_mut().zip(second.iter_mut()).zip(chunk) {
+            *one = left;
+            *other = right;
+        }
+        let mut out = [S::from_raw(draws.finite()); BLOCK_SIZE];
+        add_two(&mut out, &first, &second);
+        let mut summed = [S::ZERO; BLOCK_SIZE];
+        sum_blocks(&mut summed, &mut lanes, [&first, &second].into_iter());
+        for (frame, ((sample, sum), (one, other))) in out
+            .iter()
+            .zip(&summed)
+            .zip(first.iter().zip(&second))
+            .enumerate()
+        {
+            assert!(
+                follows(&[one.raw(), other.raw()], sample.bits()),
+                "frame {frame}: {:#x} + {:#x} gave {:#x}",
+                one.bits(),
+                other.bits(),
+                sample.bits()
+            );
+            assert!(
+                sample.bits() == sum.bits()
+                    || (is_nan::<S::Float>(sample.bits()) && is_nan::<S::Float>(sum.bits())),
+                "frame {frame}: {:#x}, the block form {:#x}",
+                sample.bits(),
+                sum.bits()
+            );
+        }
+    }
+    assert_eq!(
+        pairs.len(),
+        12 * 12 + 2 * BLOCK_SIZE,
+        "every pair of specials, and draws"
+    );
+}
+
 /// The reference itself, checked by hand: exact sums, the sum of no term and of -0 alone,
 /// three terms where the order shows, and seventeen where term 16 must join lane 0 before
 /// the tree.
@@ -572,5 +630,6 @@ in_both_precisions!(
     sums_special_values_in_the_specified_order,
     sums_the_edges_as_written,
     sums_blocks_frame_by_frame,
+    adds_two_blocks_by_the_rule_of_two_terms,
     sums_within_the_accuracy_bound_of_the_order,
 );
