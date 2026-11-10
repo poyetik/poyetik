@@ -1436,8 +1436,89 @@ fn typescript_steps(mode: Mode) -> Vec<(Role, Step)> {
 }
 
 /// Every check of the repository in `mode`, in the order they run, each with its role
-/// in the parts of the full check.
+/// in the parts of the full check: the order of the full check ([`full_order`]), which the
+/// default check runs cheapest first ([`cheapest_first`]).
 fn roles(mode: Mode) -> Vec<(Role, Step)> {
+    match mode {
+        Mode::Full { .. } => full_order(mode),
+        Mode::Changes { .. } => cheapest_first(full_order(mode)),
+    }
+}
+
+/// Where the steps of a part come in the default check ([`cheapest_first`]): the gates on
+/// the repository, then the Rust checks, coverage, Miri, the TypeScript packages, and the
+/// Rust mutation testing, by far the longest, last. `None` for the steps every part frames
+/// itself with and for the preparation, which come where they are needed.
+const fn default_rank(role: Role) -> Option<u8> {
+    match role {
+        Role::Frame | Role::Setup(_) => None,
+        Role::Proof(Part::Gates) => Some(0),
+        Role::Proof(Part::Rust) => Some(1),
+        Role::Proof(Part::Coverage) => Some(2),
+        Role::Proof(Part::Miri) => Some(3),
+        Role::Proof(Part::Package(_)) => Some(4),
+        Role::Proof(Part::Mutation(_) | Part::Final)
+        | Role::EveryShard
+        | Role::Sharded
+        | Role::AcrossShards => Some(5),
+    }
+}
+
+/// The part a step of `role` belongs to, whose needs ([`Part::needs`]) come before it.
+const fn owner(role: Role) -> Option<Part> {
+    match role {
+        Role::Proof(part) => Some(part),
+        Role::Frame | Role::Setup(_) | Role::EveryShard | Role::Sharded | Role::AcrossShards => {
+            None
+        }
+    }
+}
+
+/// `steps`, in the order of the full check, reordered so that the default check, which
+/// stops at the first failure, fails as early as it can: the steps that open every part
+/// first and the ones that close it last, as they were; between them, the steps of each
+/// part in the order of [`default_rank`] (each part's own steps in their order), each
+/// preparation ([`Setup`]) just before the first step of a part that needs it.
+///
+/// The order changes no outcome: the parts of the full check run alone in CI, each after
+/// its preparation only ([`part_steps`]), so no step of a part depends on a step of another
+/// part; only the Rust mutation report's steps depend on each other, and they keep their
+/// order.
+fn cheapest_first(steps: Vec<(Role, Step)>) -> Vec<(Role, Step)> {
+    let opening = steps
+        .iter()
+        .take_while(|(role, _)| *role == Role::Frame)
+        .count();
+    let mut rest = steps;
+    let mut ordered: Vec<(Role, Step)> = rest.drain(..opening).collect();
+    let (closing, middle): (Vec<_>, Vec<_>) =
+        rest.into_iter().partition(|(role, _)| *role == Role::Frame);
+    let (setups, mut proofs): (Vec<_>, Vec<_>) = middle
+        .into_iter()
+        .partition(|(role, _)| default_rank(*role).is_none());
+    proofs.sort_by_key(|(role, _)| default_rank(*role));
+    let mut prepared: Vec<Setup> = Vec::new();
+    for (role, step) in proofs {
+        for setup in owner(role).map(Part::needs).unwrap_or_default() {
+            if !prepared.contains(&setup) {
+                prepared.push(setup);
+                ordered.extend(
+                    setups
+                        .iter()
+                        .filter(|(of, _)| *of == Role::Setup(setup))
+                        .cloned(),
+                );
+            }
+        }
+        ordered.push((role, step));
+    }
+    ordered.extend(closing);
+    ordered
+}
+
+/// Every check of the repository in `mode`, in the order of the full check, each with its
+/// role in the parts of the full check.
+fn full_order(mode: Mode) -> Vec<(Role, Step)> {
     let rust = Role::Proof(Part::Rust);
     [
         opening_steps(),

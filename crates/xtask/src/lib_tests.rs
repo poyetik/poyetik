@@ -1496,6 +1496,34 @@ fn lists_every_check_in_order() {
         vec![
             "preflight",
             "tree recorded",
+            "Root: pnpm install --frozen-lockfile",
+            "fresh tooling/config/coverage tooling/config/reports/mutation tooling/oracle/coverage tooling/oracle/reports/mutation bindings/wasm/coverage bindings/wasm/reports/mutation apps/playground/coverage apps/playground/reports/mutation apps/roadmap/coverage apps/roadmap/reports/mutation",
+            "fresh bindings/wasm/dist",
+            "equivalent gate",
+            "bypass gate",
+            "unsafe gate",
+            "cargo config gate",
+            "test code gate",
+            "test data gate",
+            "untested targets gate",
+            "Root: cargo run --package engine-cli --locked --quiet -- check conformance",
+            "Root: cargo deny --locked check",
+            "dependency gate",
+            "pin gate",
+            "library gate",
+            "math layer gate",
+            "supply chain gate",
+            "membership gate",
+            "readme gate",
+            "citation gate",
+            "vocabulary gate",
+            "version gate",
+            "history gate",
+            "workflow gate",
+            "parts gate",
+            "Root: pnpm audit",
+            "license gate",
+            "stryker config gate",
             "Root: cargo fmt --all --check",
             "Root: cargo clippy --workspace --all-targets --locked",
             "float method gate",
@@ -1522,50 +1550,16 @@ fn lists_every_check_in_order() {
             "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/xtask/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/xtask.json -- --include-ignored",
             "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-cli/Cargo.toml --locked --branch --json --summary-only --output-path target/coverage/engine-cli-main.json -- --include-ignored",
             "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/xtask/Cargo.toml --locked --branch --json --summary-only --output-path target/coverage/xtask-main.json -- --include-ignored",
-            "fresh mutants.out",
-            "rust mutants of the changes (3 jobs)",
-            "unviable gate (Partial)",
-            "unviable reviews current",
-            "mutation proof recorded",
-            "equivalent gate",
-            "bypass gate",
-            "unsafe gate",
-            "cargo config gate",
-            "test code gate",
-            "test data gate",
-            "untested targets gate",
             &format!(
                 "Root: cargo +nightly-2026-11-01 {} test --package engine-alloc-counter --package engine-wasm --locked -- --include-ignored",
                 "miri"
             ),
-            "Root: cargo run --package engine-cli --locked --quiet -- check conformance",
-            "fresh target/conformance",
-            "Root: cargo run --package engine-cli --locked --quiet -- export conformance target/conformance",
-            "Root: cargo deny --locked check",
-            "dependency gate",
-            "pin gate",
-            "library gate",
-            "math layer gate",
-            "supply chain gate",
-            "membership gate",
-            "readme gate",
-            "citation gate",
-            "vocabulary gate",
-            "version gate",
-            "history gate",
-            "workflow gate",
-            "parts gate",
-            "Root: pnpm install --frozen-lockfile",
-            "Root: pnpm audit",
-            "license gate",
-            "stryker config gate",
-            "fresh tooling/config/coverage tooling/config/reports/mutation tooling/oracle/coverage tooling/oracle/reports/mutation bindings/wasm/coverage bindings/wasm/reports/mutation apps/playground/coverage apps/playground/reports/mutation apps/roadmap/coverage apps/roadmap/reports/mutation",
-            "fresh bindings/wasm/dist",
-            "Package(\"bindings/wasm\"): pnpm run build",
             "Package(\"tooling/config\"): pnpm run check",
             "Package(\"tooling/config\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json",
             "typescript reports gate of tooling/config",
             "typescript scope gate of tooling/config",
+            "fresh target/conformance",
+            "Root: cargo run --package engine-cli --locked --quiet -- export conformance target/conformance",
             "Package(\"tooling/oracle\"): pnpm run check",
             "Package(\"tooling/oracle\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json",
             "typescript reports gate of tooling/oracle",
@@ -1574,6 +1568,7 @@ fn lists_every_check_in_order() {
             "Package(\"bindings/wasm\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json",
             "typescript reports gate of bindings/wasm",
             "typescript scope gate of bindings/wasm",
+            "Package(\"bindings/wasm\"): pnpm run build",
             "Package(\"apps/playground\"): pnpm run check",
             "Package(\"apps/playground\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json",
             "typescript reports gate of apps/playground",
@@ -1582,6 +1577,11 @@ fn lists_every_check_in_order() {
             "Package(\"apps/roadmap\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json",
             "typescript reports gate of apps/roadmap",
             "typescript scope gate of apps/roadmap",
+            "fresh mutants.out",
+            "rust mutants of the changes (3 jobs)",
+            "unviable gate (Partial)",
+            "unviable reviews current",
+            "mutation proof recorded",
             "tree unchanged",
         ],
         "the default check pipeline"
@@ -1609,6 +1609,34 @@ fn names_every_check_in_order() {
         vec![
             "Tools and platform",
             "Working tree recorded",
+            "JavaScript dependencies",
+            "Fresh TypeScript report directories",
+            "Fresh TypeScript build outputs",
+            "TypeScript equivalent mutants reviewed",
+            "Every bypass of coverage or mutation testing reviewed",
+            "Unsafe code confined to the audited files",
+            "Cargo configuration: no build flag, a locked alias",
+            "Test code only in tests/ and declared *_tests.rs files",
+            "The tests of each crate read only its declared test data",
+            "Tests turned off only where no test can hide, doc tests kept",
+            "Conformance (native)",
+            "Rust supply chain",
+            "Every direct dependency reviewed",
+            "Bit-defining dependencies pinned to one exact version",
+            "The audio library depends on no other part of the project",
+            "Box arithmetic only through the math layer: libm in engine-core and engine-testkit only, no raw float in box code, no iterator reduction outside the math layer",
+            "Supply-chain settings: a week before a release, libm without features",
+            "Packages and crates known to the checks",
+            "Every part described in a README",
+            "Every roadmap step cited exists on the board",
+            "The words of the glossary, not their synonyms",
+            "One version everywhere, changelog well formed",
+            "Commit messages, and a changelog entry for each change of behavior",
+            "CI workflow pinned",
+            "The parts of CI run every check of the full check once",
+            "JavaScript vulnerabilities",
+            "JavaScript licenses",
+            "Stryker configurations hide no mutant",
             "Rust formatting",
             "Rust lints",
             "Float methods of the pinned toolchain banned or reviewed as deterministic",
@@ -1635,47 +1663,13 @@ fn names_every_check_in_order() {
             "Rust coverage of xtask: 100% by its own unit tests",
             "Rust coverage of the engine-cli binary: 100% by its tests",
             "Rust coverage of the xtask binary: 100% by its tests",
-            "Fresh Rust mutation report",
-            "Rust mutation testing of the changes",
-            "Rust unviable mutants reviewed",
-            "Rust unviable mutant reviews all current",
-            "Rust mutation proof recorded for the next default check",
-            "TypeScript equivalent mutants reviewed",
-            "Every bypass of coverage or mutation testing reviewed",
-            "Unsafe code confined to the audited files",
-            "Cargo configuration: no build flag, a locked alias",
-            "Test code only in tests/ and declared *_tests.rs files",
-            "The tests of each crate read only its declared test data",
-            "Tests turned off only where no test can hide, doc tests kept",
             "Unsafe code under Miri",
-            "Conformance (native)",
-            "Fresh conformance export directory",
-            "Conformance export (native WAV files)",
-            "Rust supply chain",
-            "Every direct dependency reviewed",
-            "Bit-defining dependencies pinned to one exact version",
-            "The audio library depends on no other part of the project",
-            "Box arithmetic only through the math layer: libm in engine-core and engine-testkit only, no raw float in box code, no iterator reduction outside the math layer",
-            "Supply-chain settings: a week before a release, libm without features",
-            "Packages and crates known to the checks",
-            "Every part described in a README",
-            "Every roadmap step cited exists on the board",
-            "The words of the glossary, not their synonyms",
-            "One version everywhere, changelog well formed",
-            "Commit messages, and a changelog entry for each change of behavior",
-            "CI workflow pinned",
-            "The parts of CI run every check of the full check once",
-            "JavaScript dependencies",
-            "JavaScript vulnerabilities",
-            "JavaScript licenses",
-            "Stryker configurations hide no mutant",
-            "Fresh TypeScript report directories",
-            "Fresh TypeScript build outputs",
-            "Engine WASM build, for the packages that use it",
             "Shared TypeScript policy (each rule proven to reject what it forbids)",
             "Mutation testing of tooling/config (what changed since the last run)",
             "TypeScript coverage and mutation reports of tooling/config",
             "Every TypeScript source of tooling/config measured and mutated, or reviewed",
+            "Fresh conformance export directory",
+            "Conformance export (native WAV files)",
             "Conformance oracle (independent, TypeScript)",
             "Mutation testing of tooling/oracle (what changed since the last run)",
             "TypeScript coverage and mutation reports of tooling/oracle",
@@ -1684,6 +1678,7 @@ fn names_every_check_in_order() {
             "Mutation testing of bindings/wasm (what changed since the last run)",
             "TypeScript coverage and mutation reports of bindings/wasm",
             "Every TypeScript source of bindings/wasm measured and mutated, or reviewed",
+            "Engine WASM build, for the packages that use it",
             "Playground checks",
             "Mutation testing of apps/playground (what changed since the last run)",
             "TypeScript coverage and mutation reports of apps/playground",
@@ -1692,15 +1687,24 @@ fn names_every_check_in_order() {
             "Mutation testing of apps/roadmap (what changed since the last run)",
             "TypeScript coverage and mutation reports of apps/roadmap",
             "Every TypeScript source of apps/roadmap measured and mutated, or reviewed",
+            "Fresh Rust mutation report",
+            "Rust mutation testing of the changes",
+            "Rust unviable mutants reviewed",
+            "Rust unviable mutant reviews all current",
+            "Rust mutation proof recorded for the next default check",
             "Working tree unchanged by the checks",
         ],
         "step names"
     );
 }
 
-/// The steps of the default check without the two it adds after its unviable gate.
+/// The steps of the default check in the order of the full check, without the two it adds
+/// after its unviable gate.
 fn default_steps_as_full() -> Vec<Step> {
-    let mut changes = check_steps(CHANGES_MODE);
+    let mut changes: Vec<Step> = super::full_order(CHANGES_MODE)
+        .into_iter()
+        .map(|(_, step)| step)
+        .collect();
     let current = changes
         .iter()
         .position(|step| step.action == Action::UnviableReviewsCurrent)
@@ -1726,6 +1730,66 @@ fn default_steps_as_full() -> Vec<Step> {
         "after the unviable gate"
     );
     changes
+}
+
+#[test]
+fn the_default_check_runs_the_steps_of_its_full_order_cheapest_first() {
+    let sorted = |steps: &[Step]| {
+        let mut lines = command_lines(steps);
+        lines.sort();
+        lines
+    };
+    let unordered: Vec<Step> = super::full_order(CHANGES_MODE)
+        .into_iter()
+        .map(|(_, step)| step)
+        .collect();
+    let default = check_steps(CHANGES_MODE);
+    assert_ne!(
+        command_lines(&default),
+        command_lines(&unordered),
+        "reordered"
+    );
+    assert_eq!(
+        sorted(&default),
+        sorted(&unordered),
+        "the same steps, each once"
+    );
+    let jobs = NonZeroUsize::new(3).expect("three is not zero");
+    let full: Vec<Step> = super::full_order(Mode::Full { jobs })
+        .into_iter()
+        .map(|(_, step)| step)
+        .collect();
+    assert_eq!(
+        check_steps(Mode::Full { jobs }),
+        full,
+        "the full check keeps its order"
+    );
+}
+
+#[test]
+fn prepares_what_a_part_needs_before_its_first_step_in_the_default_check() {
+    let roles = super::roles(CHANGES_MODE);
+    let mut checked = 0_usize;
+    for (at, (role, step)) in roles.iter().enumerate() {
+        let super::Role::Proof(part) = role else {
+            continue;
+        };
+        for setup in part.needs() {
+            let preparing: Vec<usize> = roles
+                .iter()
+                .enumerate()
+                .filter(|(_, (other, _))| *other == super::Role::Setup(setup))
+                .map(|(index, _)| index)
+                .collect();
+            assert!(
+                !preparing.is_empty() && preparing.iter().all(|index| *index < at),
+                "{setup:?} prepared before {}",
+                step.name
+            );
+            checked = checked.saturating_add(1);
+        }
+    }
+    assert!(checked > 0, "some part needs a preparation");
 }
 
 #[test]
@@ -3036,7 +3100,7 @@ fn runs_every_step_and_reports_success() {
         "numbered progress: {text}"
     );
     assert!(
-        text.contains("▶ [82/86] Roadmap checks\n  done in 1.5 s\n"),
+        text.contains("▶ [77/86] Roadmap checks\n  done in 1.5 s\n"),
         "last step announced: {text}"
     );
     assert!(
@@ -3058,10 +3122,14 @@ fn stops_at_the_first_failing_command() {
         "failure is named"
     );
     assert_eq!(
-        fake.ran.len(),
-        10 + 2 + 3 + 8 + 5,
-        "the preflight asks ten tools and reads .node-version and the toolchain file, the tree is recorded by three \
-         captures, the float gate reads the toolchain file, captures the nightly's version and sysroot and reads six files; nothing runs after the failure"
+        fake.ran.last().map(String::as_str),
+        Some("cargo test --workspace --locked -- --include-ignored"),
+        "nothing runs after the failure"
+    );
+    assert!(
+        !fake.ran.iter().any(|line| line.starts_with("cargo mutants")
+            || line.starts_with("cargo +nightly-2026-11-01 llvm-cov")),
+        "the longer steps never start"
     );
 }
 
@@ -5725,7 +5793,7 @@ fn lists_the_checks_in_order() {
     let text = String::from_utf8(out).expect("UTF-8");
     assert!(
         text.starts_with(
-            " 1. Tools and platform\n 2. Working tree recorded\n 3. Rust formatting\n"
+            " 1. Tools and platform\n 2. Working tree recorded\n 3. JavaScript dependencies\n"
         ),
         "{text}"
     );
@@ -5754,6 +5822,12 @@ fn lists_the_checks_in_order() {
     assert!(
         full.contains(". Rust mutation testing\n") && !full.contains("of the changes"),
         "of the full check: {full}"
+    );
+    assert!(
+        full.starts_with(
+            " 1. Tools and platform\n 2. Working tree recorded\n 3. Rust formatting\n"
+        ),
+        "in the order of the full check: {full}"
     );
     assert!(fake.ran.is_empty(), "listing runs nothing");
     assert_eq!(
@@ -9887,22 +9961,32 @@ fn builds_the_engine_package_before_every_package() {
         super::WASM_MODULE.starts_with("bindings/wasm/dist/"),
         "its build writes the module"
     );
-    let steps = check_steps(CHANGES_MODE);
-    let built = steps.iter().position(|step| {
-        step.action
-            == Action::Run(Cmd::new(
-                "pnpm",
-                &["run", "build"],
-                Dir::Package("bindings/wasm"),
-            ))
-    });
-    let emptied = steps
-        .iter()
-        .position(|step| step.action == Action::FreshDirs(super::build_outputs()));
-    let first_package = steps.iter().position(|step| step.name == PACKAGES[0].step);
-    assert!(
-        emptied < built && built < first_package && emptied.is_some(),
-        "built after its outputs are emptied, before any package is checked"
+    for (mode, first_user) in [
+        (Mode::Full { jobs: FAKE_JOBS }, PACKAGES[0].step),
+        (CHANGES_MODE, "Playground checks"),
+    ] {
+        let steps = check_steps(mode);
+        let built = steps.iter().position(|step| {
+            step.action
+                == Action::Run(Cmd::new(
+                    "pnpm",
+                    &["run", "build"],
+                    Dir::Package("bindings/wasm"),
+                ))
+        });
+        let emptied = steps
+            .iter()
+            .position(|step| step.action == Action::FreshDirs(super::build_outputs()));
+        let first = steps.iter().position(|step| step.name == first_user);
+        assert!(
+            emptied < built && built < first && emptied.is_some(),
+            "{mode:?}: built after its outputs are emptied, before {first_user}"
+        );
+    }
+    assert_eq!(
+        PACKAGES[3].needs,
+        [super::Setup::EngineBuild],
+        "the playground uses it"
     );
 }
 
