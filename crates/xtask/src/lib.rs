@@ -3577,25 +3577,8 @@ pub fn unsafe_gate(sources: &[(String, String)]) -> Result<(), Failure> {
                 "{file} is listed in ASSEMBLY_FILES but holds no inline assembly"
             ));
         }
-        // Code of another file of its crate can run under its lifting (a macro, a function
-        // it calls), so no other file of the crate names `unsafe` at all.
-        let Some((krate, _)) = in_crate(file) else {
-            continue;
-        };
-        for (path, other) in sources {
-            if path == file || krate.holds(path).is_none() {
-                continue;
-            }
-            for (line, word, _) in code_words(other) {
-                if word == "unsafe" {
-                    problems.push(format!(
-                        "{path}:{line}: `unsafe` in the crate of the assembly file {file}: its \
-                         code could run under that file's lifting, where Miri never checks it"
-                    ));
-                }
-            }
-        }
     }
+    unsafe_beside_assembly(sources, &mut problems);
     let unsafe_tests: BTreeSet<String> = sources
         .iter()
         .filter(|(path, _)| UNSAFE_FILES.contains(&path.as_str()))
@@ -3620,6 +3603,33 @@ pub fn unsafe_gate(sources: &[(String, String)]) -> Result<(), Failure> {
         }
     }
     verdict("the lint against unsafe code", problems)
+}
+
+/// The problems of every file but an assembly file ([`ASSEMBLY_FILES`]) in the crate of one
+/// that names `unsafe` in its code ([`unsafe_gate`]).
+fn unsafe_beside_assembly(sources: &[(String, String)], problems: &mut Vec<String>) {
+    // Code of another file of an assembly file's crate can run under its lifting (a macro,
+    // a function it calls), so no other file of that crate names `unsafe` at all.
+    for (path, other) in sources {
+        if ASSEMBLY_FILES.contains(&path.as_str()) {
+            continue;
+        }
+        let Some(file) = in_crate(path).and_then(|(krate, _)| {
+            ASSEMBLY_FILES
+                .into_iter()
+                .find(|file| krate.holds(file).is_some())
+        }) else {
+            continue;
+        };
+        for (line, word, _) in code_words(other) {
+            if word == "unsafe" {
+                problems.push(format!(
+                    "{path}:{line}: `unsafe` in the crate of the assembly file {file}: its \
+                     code could run under that file's lifting, where Miri never checks it"
+                ));
+            }
+        }
+    }
 }
 
 /// The lines outside test code that may name `test`, each whole, besides the first line of
@@ -4419,14 +4429,24 @@ pub fn shared_tests_gate(metadata: &str) -> Result<(), Failure> {
         }
     }
     let mut shared: BTreeSet<&'static str> = edges.iter().map(|(_, krate, _)| *krate).collect();
-    while let Some(used) = edges
-        .iter()
-        .find(|(user, krate, kind)| {
-            shared.contains(krate) && kind != "dev" && !shared.contains(user.as_str())
-        })
-        .map(|(_, krate, _)| *krate)
-    {
-        let _removed = shared.remove(used);
+    // Each round drops the crates code outside the set depends on, until none is left to
+    // drop: at most one round per crate.
+    loop {
+        let leaving: Vec<&'static str> = shared
+            .iter()
+            .copied()
+            .filter(|krate| {
+                edges.iter().any(|(user, used, kind)| {
+                    used == krate && kind != "dev" && !shared.contains(user.as_str())
+                })
+            })
+            .collect();
+        if leaving.is_empty() {
+            break;
+        }
+        for krate in leaving {
+            let _removed = shared.remove(krate);
+        }
     }
     let flagged = crates_in(CrateRole::SharedTests);
     let problems = shared
@@ -8864,12 +8884,12 @@ fn proven_crates(
         .map(String::as_str)
         .collect();
     let voiding = match changed.iter().find(|path| mutation_rule(path)) {
-        Some(path) => Some(format!("{path} changed since, the mutation rules")),
+        Some(path) => format!("{path} changed since, the mutation rules"),
         None => match reach(runner, &record.commit, changed.iter().copied(), closures) {
-            Reach::Everything { path, unnarrowed } => Some(format!(
+            Reach::Everything { path, unnarrowed } => format!(
                 "{path} changed since{}, what every test depends on",
                 unnarrowed_text(unnarrowed.as_deref())
-            )),
+            ),
             Reach::Crates(reached) => {
                 return Ok(RUST_CRATES
                     .into_iter()
@@ -8887,15 +8907,13 @@ fn proven_crates(
             }
         },
     };
-    if let Some(why) = voiding {
-        say(
-            out,
-            &format!(
-                "  ignored the mutation proof record of {}: {why}",
-                record.commit
-            ),
-        )?;
-    }
+    say(
+        out,
+        &format!(
+            "  ignored the mutation proof record of {}: {voiding}",
+            record.commit
+        ),
+    )?;
     Ok(Vec::new())
 }
 

@@ -13053,6 +13053,28 @@ fn takes_for_shared_test_code_every_crate_only_tests_use() {
         "reached through a crate only tests use, at any depth"
     );
     assert_eq!(
+        super::shared_tests_gate(
+            r#"{"packages":[{"name":"engine-objects","dependencies":[{"name":"engine-hash","kind":"dev","path":"/elsewhere/engine-hash"},{"name":"other","kind":"dev","path":"/r/crates/engine-patch"},{"name":"engine-testkit","kind":"dev","path":"/r/crates/engine-testkit"}]},{"name":"engine-testkit","dependencies":[{"name":"engine-alloc-counter","kind":null,"path":"/r/crates/engine-alloc-counter"}]}]}"#
+        ),
+        Ok(()),
+        "a dependency is a crate of the workspace by its name and its directory both"
+    );
+    assert_eq!(
+        super::shared_tests_gate(&metadata(&[
+            package("engine-objects", &[("engine-hash", "\"dev\"")]),
+            package("engine-core", &[("engine-patch", "null")]),
+        ])),
+        failed(format!(
+            "{context}: engine-hash: only tests reach it, so a change to it can weaken the \
+             tests of every crate using it: give it CrateRole::SharedTests"
+        )),
+        "code depending on one crate takes no other out of the set"
+    );
+}
+
+#[test]
+fn derives_each_list_of_crates_from_their_roles() {
+    assert_eq!(
         super::crates_in(super::CrateRole::SharedTests),
         ["engine-alloc-counter", "engine-testkit"],
         "the counting allocator and the test kit"
