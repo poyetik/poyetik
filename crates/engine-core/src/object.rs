@@ -35,7 +35,18 @@ pub struct PortSpec {
 ///
 /// ```compile_fail,E0616
 /// fn default(param: &engine_core::ParamSpec) -> f32 {
-///     param.default
+///     param.default_value
+/// }
+/// ```
+///
+/// The same function through `host` compiles, so the field's privacy is the only error
+/// above:
+///
+/// ```
+/// use engine_core::host::ParamBounds;
+///
+/// fn default(param: &engine_core::ParamSpec) -> f32 {
+///     param.default_value()
 /// }
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -45,11 +56,11 @@ pub struct ParamSpec {
     /// What the parameter controls.
     pub description: &'static str,
     /// Value used when the patch does not set it.
-    pub(crate) default: f32,
+    pub(crate) default_value: f32,
     /// Lowest accepted value.
-    pub(crate) min: f32,
+    pub(crate) minimum: f32,
     /// Highest accepted value.
-    pub(crate) max: f32,
+    pub(crate) maximum: f32,
 }
 
 impl ParamSpec {
@@ -66,16 +77,16 @@ impl ParamSpec {
         Self {
             name,
             description,
-            default,
-            min,
-            max,
+            default_value: default,
+            minimum: min,
+            maximum: max,
         }
     }
 
     /// Whether `value` is within range. Always `false` for NaN.
     #[must_use]
     pub fn accepts(&self, value: f32) -> bool {
-        self.min <= value && value <= self.max
+        self.minimum <= value && value <= self.maximum
     }
 }
 

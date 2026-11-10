@@ -171,7 +171,7 @@ fn resolve<'patch>(
                 node.params
                     .get(param.name)
                     .copied()
-                    .unwrap_or(param.default),
+                    .unwrap_or(param.default_value),
             )))
         })
         .collect();

@@ -796,15 +796,15 @@ pub mod host {
 
     impl ParamBounds for crate::ParamSpec {
         fn default_value(&self) -> f32 {
-            self.default
+            self.default_value
         }
 
         fn minimum(&self) -> f32 {
-            self.min
+            self.minimum
         }
 
         fn maximum(&self) -> f32 {
-            self.max
+            self.maximum
         }
     }
 

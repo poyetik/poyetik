@@ -8,10 +8,10 @@
 #![cfg_attr(not(test), forbid(clippy::arithmetic_side_effects))]
 
 /// The sign bit of a binary32 value.
-const SIGN: u32 = 0x8000_0000;
+const SIGN_32: u32 = 0x8000_0000;
 
 /// The exponent bits of a binary32 value: all zero for a zero or a subnormal.
-const EXPONENT: u32 = 0x7f80_0000;
+const EXPONENT_32: u32 = 0x7f80_0000;
 
 /// The sign bit of a binary64 value.
 const SIGN_64: u64 = 0x8000_0000_0000_0000;
@@ -32,8 +32,8 @@ const EXPONENT_64: u64 = 0x7ff0_0000_0000_0000;
 #[inline]
 pub(crate) const fn binary32(value: f32) -> f32 {
     let bits = value.to_bits();
-    if bits & EXPONENT == 0 {
-        f32::from_bits(bits & SIGN)
+    if bits & EXPONENT_32 == 0 {
+        f32::from_bits(bits & SIGN_32)
     } else {
         value
     }
