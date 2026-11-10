@@ -1,10 +1,10 @@
-# Direct dependencies: every third-party crate and npm package a part of the repository
-# depends on directly, with the reason it is needed. Parts of the repository that depend on
+# The dependency register: every third-party crate and npm package a part of the
+# repository depends on directly, with the reason it is needed. Parts of the repository that depend on
 # each other (path and `workspace:` dependencies) are not listed.
 #
-# Adding a dependency means adding its line here, with its reason, after its entry in the
-# dependency register of the local design notes (see CLAUDE.md, "Technologies and
-# dependencies"): as few as possible, mainstream and well maintained.
+# Adding a dependency means adding its line here first, with its reason (see CLAUDE.md,
+# "Technologies and dependencies"): as few as possible, mainstream and well maintained; the
+# local design notes keep only the strategic reasons.
 # Format: `<crate or package directory>: <dependency> (<kind>) -- <reason>`, the kind being
 # Cargo's (`normal`, `dev`, `build`) or the package.json field.
 # A reason starting `bit-defining: ` marks a crate whose code computes output samples or hashes,
