@@ -843,9 +843,17 @@ fn bless_command_reads_each_case_once() {
     let mut memory = conformance("{}");
     drop(memory.files.remove(Path::new("conf/references.json")));
     drop(memory.files.remove(Path::new("conf/algorithms.json")));
-    assert_eq!(run_with(&mut memory, &["bless", "conf"]).0, Ok(()), "blessed");
+    assert_eq!(
+        run_with(&mut memory, &["bless", "conf"]).0,
+        Ok(()),
+        "blessed"
+    );
     for path in ["conf/cases/sine.json", "conf/patches/sine.json"] {
-        assert_eq!(memory.reads.get(Path::new(path)), Some(&1), "{path} read once");
+        assert_eq!(
+            memory.reads.get(Path::new(path)),
+            Some(&1),
+            "{path} read once"
+        );
     }
 }
 
@@ -1443,6 +1451,25 @@ fn help_prints_the_usage_on_the_output() {
             "{command} is described"
         );
     }
+}
+
+/// The usage is a constant, so it cannot be built from `RenderFormat::ALL`: this test
+/// compares the two copies, and the default.
+#[test]
+fn the_usage_names_every_render_format_and_the_default() {
+    let usage = USAGE.split_whitespace().collect::<Vec<_>>().join(" ");
+    for format in RenderFormat::ALL {
+        assert!(
+            usage.contains(&format!("{} ", format.name()))
+                || usage.contains(&format!("{},", format.name()))
+                || usage.contains(&format!("{})", format.name())),
+            "{format} is named"
+        );
+    }
+    assert!(
+        usage.contains("(binary64, the default,"),
+        "binary64 is the default"
+    );
 }
 
 #[test]

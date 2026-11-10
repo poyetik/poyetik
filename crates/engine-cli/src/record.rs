@@ -4,6 +4,7 @@
 //! algorithm version of every box type each case uses. From it, what `check` and `bless`
 //! refuse.
 
+use crate::status::Status;
 use alloc::collections::BTreeMap;
 
 use engine_core::RENDER_RULES_VERSION;
@@ -100,15 +101,17 @@ pub(crate) fn record_problems(record: &Record, now: &Fingerprints) -> Vec<String
     let mut problems = Vec::new();
     if record.render_hash != SCHEME {
         problems.push(format!(
-            "HASH     the references were hashed with {}, the engine with {SCHEME} (bless again)",
-            record.render_hash
+            "{status} the references were hashed with {}, the engine with {SCHEME} (bless again)",
+            record.render_hash,
+            status = Status::Hash
         ));
     }
     if record.render_rules != RENDER_RULES_VERSION {
         problems.push(format!(
-            "RULES    the references were rendered under render rules version {}, the \
+            "{status} the references were rendered under render rules version {}, the \
              engine's is {RENDER_RULES_VERSION} (bless again)",
-            record.render_rules
+            record.render_rules,
+            status = Status::Rules
         ));
     }
     if record.fingerprint_battery == FINGERPRINT_BATTERY {
@@ -121,15 +124,17 @@ pub(crate) fn record_problems(record: &Record, now: &Fingerprints) -> Vec<String
                 Some(recorded) if recorded == print => {}
                 Some(_) => problems.push(changed_bits(name, *version)),
                 None => problems.push(format!(
-                    "MISSING  {name}: no fingerprint at algorithm version {version} (run bless)"
+                    "{status} {name}: no fingerprint at algorithm version {version} (run bless)",
+                    status = Status::Missing
                 )),
             }
         }
     } else {
         problems.push(format!(
-            "BATTERY  the fingerprints were computed with battery {}, the engine's is \
+            "{status} the fingerprints were computed with battery {}, the engine's is \
              {FINGERPRINT_BATTERY} (bless again)",
-            record.fingerprint_battery
+            record.fingerprint_battery,
+            status = Status::Battery
         ));
     }
     problems.extend(
@@ -137,7 +142,12 @@ pub(crate) fn record_problems(record: &Record, now: &Fingerprints) -> Vec<String
             .fingerprints
             .keys()
             .filter(|name| !now.contains_key(*name))
-            .map(|name| format!("STALE    {name}: fingerprint of no box type")),
+            .map(|name| {
+                format!(
+                    "{status} {name}: fingerprint of no box type",
+                    status = Status::Stale
+                )
+            }),
     );
     problems
 }
@@ -145,8 +155,9 @@ pub(crate) fn record_problems(record: &Record, now: &Fingerprints) -> Vec<String
 /// The line of a box type whose outputs changed at algorithm version `version`.
 fn changed_bits(name: &str, version: u32) -> String {
     format!(
-        "BITS     {name} {version}: its outputs changed at the same algorithm version (a new \
-         version needed)"
+        "{status} {name} {version}: its outputs changed at the same algorithm version (a new \
+         version needed)",
+        status = Status::Bits
     )
 }
 
@@ -168,13 +179,19 @@ pub(crate) fn bless_problems(
     let mut problems: Vec<String> = changed
         .iter()
         .filter(|name| !references.contains_key(*name))
-        .map(|name| format!("UNKNOWN  --case-changed {name}: no such case"))
+        .map(|name| {
+            format!(
+                "{status} --case-changed {name}: no such case",
+                status = Status::Unknown
+            )
+        })
         .collect();
     if RENDER_RULES_VERSION < old.render_rules {
         problems.push(format!(
-            "LOWER    render rules version {RENDER_RULES_VERSION}: below version {} already \
+            "{status} render rules version {RENDER_RULES_VERSION}: below version {} already \
              recorded",
-            old.render_rules
+            old.render_rules,
+            status = Status::Lower
         ));
     }
     for (name, (version, print)) in now {
@@ -190,8 +207,9 @@ pub(crate) fn bless_problems(
             .max();
         if let Some(highest) = highest.filter(|highest| highest > version) {
             problems.push(format!(
-                "LOWER    {name}: at algorithm version {version}, below version {highest} \
-                 already recorded"
+                "{status} {name}: at algorithm version {version}, below version {highest} \
+                 already recorded",
+                status = Status::Lower
             ));
         }
         if old.fingerprint_battery == FINGERPRINT_BATTERY
@@ -214,8 +232,9 @@ pub(crate) fn bless_problems(
                     .is_some_and(|before| before != hash)
                 {
                     problems.push(format!(
-                        "CHANGED  {case} {format}: its reference changed under the same \
-                         algorithm versions (a new version, or --case-changed {case})"
+                        "{status} {case} {format}: its reference changed under the same \
+                         algorithm versions (a new version, or --case-changed {case})",
+                        status = Status::Changed
                     ));
                 }
             }

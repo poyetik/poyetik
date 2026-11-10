@@ -17,6 +17,7 @@ mod case;
 mod cli;
 mod files;
 mod record;
+mod status;
 mod wav;
 
 pub use case::{CaseError, MAX_FRAMES, Prepared, Rendered, RenderedSamples, prepare_case};

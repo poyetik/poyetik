@@ -60,8 +60,11 @@ impl Instance {
     pub fn load(&mut self, rate: u32, format: u32) -> bool {
         let loaded = format_of(format)
             .ok_or_else(|| {
+                // From `RenderFormat::ALL`, whose order is the codes: a fourth format does not
+                // compile until it is named here.
+                let [first, second, third] = RenderFormat::ALL.map(RenderFormat::name);
                 alloc::format!(
-                    "unknown render format: {format} (supported: 0 binary64, 1 binary64-as-binary32, 2 binary32)"
+                    "unknown render format: {format} (supported: 0 {first}, 1 {second}, 2 {third})"
                 )
             })
             .and_then(|known| Engine::new(&self.input, rate, known));

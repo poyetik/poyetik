@@ -1,5 +1,6 @@
 //! The `engine-cli` commands.
 
+use crate::status::Status;
 use alloc::collections::BTreeMap;
 use std::ffi::OsString;
 use std::io::Write;
@@ -329,8 +330,10 @@ fn format_named(name: &str) -> Result<RenderFormat, CliError> {
         .into_iter()
         .find(|format| format.name() == name)
         .ok_or_else(|| {
+            // From `RenderFormat::ALL`: a fourth format does not compile until it is named here.
+            let [first, second, third] = RenderFormat::ALL.map(RenderFormat::name);
             CliError::Usage(format!(
-                "unknown render format \"{name}\" (binary64, binary64-as-binary32 or binary32)"
+                "unknown render format \"{name}\" ({first}, {second} or {third})"
             ))
         })
 }
@@ -413,7 +416,8 @@ fn version_problems(
     };
     let Some(recorded) = recorded else {
         return vec![format!(
-            "MISSING  {name}: no algorithm versions (run bless)"
+            "{status} {name}: no algorithm versions (run bless)",
+            status = Status::Missing
         )];
     };
     let changed = current
@@ -421,20 +425,77 @@ fn version_problems(
         .filter_map(|(kind, version)| match recorded.get(kind) {
             Some(blessed) if blessed == version => None,
             Some(blessed) => Some(format!(
-                "VERSION  {name} {kind}: at algorithm version {version}, the references were \
-             blessed with version {blessed} (bless again)"
+                "{status} {name} {kind}: at algorithm version {version}, the references were \
+             blessed with version {blessed} (bless again)",
+                status = Status::Version
             )),
             None => Some(format!(
-                "MISSING  {name} {kind}: no algorithm version (run bless)"
+                "{status} {name} {kind}: no algorithm version (run bless)",
+                status = Status::Missing
             )),
         });
     let stale = recorded
         .keys()
         .filter(|kind| !current.contains_key(*kind))
         .map(|kind| {
-            format!("STALE    {name} {kind}: algorithm version of a box type the case does not use")
+            format!(
+                "{status} {name} {kind}: algorithm version of a box type the case does not use",
+                status = Status::Stale
+            )
         });
     changed.chain(stale).collect()
+}
+
+/// The line `check` prints for `case` in `format`, and whether it passed: its render
+/// against its reference among `references`, `same_versions` saying whether the case's
+/// algorithm versions and render rules are those its references were blessed with.
+fn format_line(
+    case: &CaseFiles,
+    format: RenderFormat,
+    references: Option<&BTreeMap<String, String>>,
+    same_versions: bool,
+    mode: DefaultMode<'_>,
+) -> (bool, String) {
+    let name = &case.name;
+    match case
+        .prepare(format, mode)
+        .and_then(|prepared| hash_of(&prepared.render(mode)))
+        .map(|hash| hash.to_string())
+    {
+        Ok(hash) => match references.and_then(|hashes| hashes.get(format.name())) {
+            Some(reference) if *reference == hash => (
+                true,
+                format!("{status} {name} {format} {hash}", status = Status::Ok),
+            ),
+            Some(reference) => (
+                false,
+                format!(
+                    "{status} {name} {format}: expected {reference}, got {hash}{}",
+                    if same_versions {
+                        " (the same algorithm versions: its bits changed without a \
+                         new version)"
+                    } else {
+                        ""
+                    },
+                    status = Status::Mismatch
+                ),
+            ),
+            None => (
+                false,
+                format!(
+                    "{status} {name} {format}: no reference hash (run bless)",
+                    status = Status::Missing
+                ),
+            ),
+        },
+        Err(reason) => (
+            false,
+            format!(
+                "{status} {name} {format}: {reason}",
+                status = Status::Failed
+            ),
+        ),
+    }
 }
 
 /// `check <dir>`: renders every case and reports each one on `out`, a case that fails
@@ -469,34 +530,7 @@ fn check(
         let recorded = blessed.get(name);
         let same_versions = rules && current.is_some() && current.as_ref() == recorded;
         for format in RenderFormat::ALL {
-            let (passed, line) = match case
-                .prepare(format, mode)
-                .and_then(|prepared| hash_of(&prepared.render(mode)))
-                .map(|hash| hash.to_string())
-            {
-                Ok(hash) => match references.and_then(|hashes| hashes.get(format.name())) {
-                    Some(reference) if *reference == hash => {
-                        (true, format!("ok       {name} {format} {hash}"))
-                    }
-                    Some(reference) => (
-                        false,
-                        format!(
-                            "MISMATCH {name} {format}: expected {reference}, got {hash}{}",
-                            if same_versions {
-                                " (the same algorithm versions: its bits changed without a \
-                                 new version)"
-                            } else {
-                                ""
-                            }
-                        ),
-                    ),
-                    None => (
-                        false,
-                        format!("MISSING  {name} {format}: no reference hash (run bless)"),
-                    ),
-                },
-                Err(reason) => (false, format!("FAILED   {name} {format}: {reason}")),
-            };
+            let (passed, line) = format_line(case, format, references, same_versions, mode);
             report(out, passed, line)?;
         }
         for unknown in references
@@ -507,7 +541,10 @@ fn check(
             report(
                 out,
                 false,
-                format!("STALE    {name} {unknown}: reference of no render format"),
+                format!(
+                    "{status} {name} {unknown}: reference of no render format",
+                    status = Status::Stale
+                ),
             )?;
         }
         for line in version_problems(name, current.as_ref(), recorded) {
@@ -524,7 +561,10 @@ fn check(
         report(
             out,
             false,
-            format!("STALE    {name}: reference without a case"),
+            format!(
+                "{status} {name}: reference without a case",
+                status = Status::Stale
+            ),
         )?;
     }
     for name in blessed
@@ -534,7 +574,10 @@ fn check(
         report(
             out,
             false,
-            format!("STALE    {name}: algorithm versions without a case"),
+            format!(
+                "{status} {name}: algorithm versions without a case",
+                status = Status::Stale
+            ),
         )?;
     }
     if failures == 0 {
@@ -701,7 +744,11 @@ fn export(
             let hash = hash_of(&rendered)?;
             say(
                 out,
-                &OneLine::new(&format!("wrote    {} {hash}", path.display())),
+                &OneLine::new(&format!(
+                    "{status} {} {hash}",
+                    path.display(),
+                    status = Status::Wrote
+                )),
             )?;
         }
     }
