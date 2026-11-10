@@ -28,6 +28,8 @@ struct Memory {
     unreadable: Option<PathBuf>,
     unwritable: Option<PathBuf>,
     dirs: Vec<PathBuf>,
+    /// How many times each path was read.
+    reads: BTreeMap<PathBuf, usize>,
 }
 
 impl Memory {
@@ -51,6 +53,8 @@ impl Memory {
 impl Files for Memory {
     /// Refuses a file larger than `limit` like [`Disk`], with a message naming the limit.
     fn read(&mut self, path: &Path, limit: usize) -> io::Result<String> {
+        let count = self.reads.entry(path.to_path_buf()).or_default();
+        *count = count.saturating_add(1);
         if self.unreadable.as_deref() == Some(path) {
             return Err(io::Error::other("permission denied"));
         }
@@ -830,6 +834,19 @@ fn conformance(references: &str) -> Memory {
             &record(&format!("{{{}}}", sine_algorithms("sine"))),
         ),
     ])
+}
+
+/// `bless` records the versions and the hashes of one reading of each case: a file edited
+/// while it runs cannot give versions of one text and hashes of another.
+#[test]
+fn bless_command_reads_each_case_once() {
+    let mut memory = conformance("{}");
+    drop(memory.files.remove(Path::new("conf/references.json")));
+    drop(memory.files.remove(Path::new("conf/algorithms.json")));
+    assert_eq!(run_with(&mut memory, &["bless", "conf"]).0, Ok(()), "blessed");
+    for path in ["conf/cases/sine.json", "conf/patches/sine.json"] {
+        assert_eq!(memory.reads.get(Path::new(path)), Some(&1), "{path} read once");
+    }
 }
 
 #[test]

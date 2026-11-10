@@ -307,18 +307,18 @@ pub(crate) fn hash_of(rendered: &Rendered) -> Result<RenderHash, String> {
         .map_err(|error| format!("cannot hash the render: {error}"))
 }
 
-/// Renders every case of `<dir>/cases` in every render format, sorted by name: for each
-/// case, its hash in each format.
-fn hashes(files: &mut dyn Files, dir: &Path, mode: DefaultMode<'_>) -> Result<References, String> {
+/// Renders every case of `cases` in every render format: for each case, by name, its hash
+/// in each format.
+fn hashes(cases: &[CaseFiles], mode: DefaultMode<'_>) -> Result<References, String> {
     let mut hashes = BTreeMap::new();
-    for case in cases(files, dir)? {
+    for case in cases {
         let mut formats = BTreeMap::new();
         for format in RenderFormat::ALL {
             let rendered = case.prepare(format, mode)?.render(mode);
             drop(formats.insert(format.name().to_owned(), hash_of(&rendered)?.to_string()));
         }
         // Case names are file names of one directory, hence unique.
-        drop(hashes.insert(case.name, formats));
+        drop(hashes.insert(case.name.clone(), formats));
     }
     Ok(hashes)
 }
@@ -560,12 +560,14 @@ fn bless(
     changed: &[String],
     mode: DefaultMode<'_>,
 ) -> Result<(), String> {
-    // The versions first: a patch that cannot be read stops the bless before any render.
-    let versions: BTreeMap<String, Versions> = cases(files, dir)?
+    // One reading of the cases gives both the versions and the hashes. The versions first:
+    // a patch that cannot be read stops the bless before any render.
+    let cases = cases(files, dir)?;
+    let versions: BTreeMap<String, Versions> = cases
         .iter()
         .map(|case| algorithms(case).map(|current| (case.name.clone(), current)))
         .collect::<Result<_, _>>()?;
-    let actual = hashes(files, dir, mode)?;
+    let actual = hashes(&cases, mode)?;
     let path = references_path(dir);
     let versions_path = algorithms_path(dir);
     let earlier: Option<References> = read_earlier(files, &path)?;
