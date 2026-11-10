@@ -104,8 +104,9 @@ describe("the bench page's timing", () => {
   });
 
   test("reads the page's clock by default", () => {
-    vi.stubGlobal("performance", { now: () => 42.5 });
-    expect(performance.now()).toBe(42.5);
+    const fake = { now: () => 42.5 };
+    vi.stubGlobal("performance", fake);
+    expect(globalThis.performance).toBe(fake);
     expect(PAGE_CLOCK()).toBe(42.5);
   });
 });

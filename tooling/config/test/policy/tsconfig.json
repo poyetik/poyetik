@@ -1,5 +1,5 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": { "lib": ["ES2024", "DOM"], "types": [] },
-  "include": ["*.ts"]
+  "include": ["*.ts", "e2e/site/*.ts", "src/cli/*.ts"]
 }

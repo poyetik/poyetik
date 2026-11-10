@@ -167,7 +167,7 @@ Non-negotiable. A change that does not meet these rules is not done.
 ### Principles
 - **No code without tests.** For the engine, the test is written first and must fail before the implementation.
 - **Every bug fix starts with a regression test** that reproduces the bug and fails.
-- **Tests are deterministic**: no system clock, no `sleep`, no network, no unseeded randomness, no dependency on execution order. A flaky test is a bug to fix, never something to re-run until it passes.
+- **Tests are deterministic**: no system clock, no `sleep`, no network, no unseeded randomness, no dependency on execution order. A flaky test is a bug to fix, never something to re-run until it passes. The one exception to the clock: the wall-time benchmarks of `spec/benchmarks.md`, asserted only as upper bounds with a derived margin, in the end-to-end tests, read through the bench page's timing module. Enforced by tooling: the shared ESLint policy refuses every clock read (`performance.now`, `Date.now`, `process.hrtime`, `new Date()`, `Date()`) outside its reviewed `CLOCK_READERS` (that module, and the roadmap command's entry point, which stamps today's date), and Clippy's `disallowed-methods` refuses `Instant::now` and `SystemTime::now`.
 - **Never work around a test**:
   - do not delete it, disable it (`#[ignore]`, `.skip`) or weaken it;
   - do not lower a threshold or widen a tolerance;

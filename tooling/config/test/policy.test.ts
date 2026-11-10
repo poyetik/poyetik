@@ -24,7 +24,7 @@ function isOff(entry: Linter.RuleEntry | undefined): boolean {
 
 test("each rule of the policy rejects what it forbids, and only that", async () => {
   const eslint = new ESLint({ cwd: POLICY, overrideConfigFile: true, overrideConfig: strict(POLICY, ["ignored.ts"]) });
-  const results = await eslint.lintFiles(["*.ts"]);
+  const results = await eslint.lintFiles(["*.ts", "e2e/site/*.ts", "src/cli/*.ts"]);
   const reported = Object.fromEntries(
     results.map((result) => [
       path.basename(result.filePath, ".ts"),
@@ -89,6 +89,12 @@ test("each rule of the policy rejects what it forbids, and only that", async () 
     // The global, then through globalThis, window and self; the checked helper (fetch.ts) may call it.
     "bare-fetch": ["no-restricted-globals", ...Array<string>(3).fill("no-restricted-properties")],
     fetch: [],
+    // performance.now, Date.now and process.hrtime, then new Date() and Date(); not new Date(0).
+    clock: [...Array<string>(3).fill("no-restricted-properties"), ...Array<string>(2).fill("no-restricted-syntax")].sort(),
+    // The clock readers (CLOCK_READERS) read a clock; the bench page's timing module still
+    // may not use what the other restrictions refuse.
+    timing: ["no-restricted-properties"],
+    bin: [],
     // Vitest and Playwright: every focus or skip, at every level.
     "focused-test": ["no-restricted-syntax", "no-restricted-syntax"],
     "skipped-test": Array<string>(5).fill("no-restricted-syntax"),
@@ -106,6 +112,10 @@ test("each rule of the policy rejects what it forbids, and only that", async () 
   const fetchMessage = "Fetch through the package's checked helper (its fetch.ts), which refuses a response that is not 2xx and names the URL.";
   expect(messages).toContain(`Unexpected use of 'fetch'. ${fetchMessage}`);
   expect(messages).toContain(`'globalThis.fetch' is restricted from being used. ${fetchMessage}`);
+  const clockMessage = "Read no clock (CLAUDE.md: tests are deterministic): only the files of CLOCK_READERS read one.";
+  expect(messages).toContain(`'performance.now' is restricted from being used. ${clockMessage}`);
+  expect(messages).toContain(`'process.hrtime' is restricted from being used. ${clockMessage}`);
+  expect(messages).toContain(clockMessage);
   // The package's own ignores, then the outputs every package ignores.
   for (const ignored of ["ignored.ts", "coverage/x.ts", "reports/x.ts", ".stryker-tmp/x.ts", "playwright-report/x.ts", "test-results/x.ts"]) {
     expect(await eslint.isPathIgnored(path.join(POLICY, ignored)), ignored).toBe(true);

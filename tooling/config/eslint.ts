@@ -30,6 +30,36 @@ export const JSDOC_CONTEXTS: readonly string[] = [
 const FETCH_MESSAGE = "Fetch through the package's checked helper (its fetch.ts), which refuses a response that is not 2xx and names the URL.";
 
 /**
+ * Why reading a clock is refused outside {@link CLOCK_READERS}: tests are deterministic, and
+ * the engine counts time in samples.
+ */
+const CLOCK_MESSAGE = "Read no clock (CLAUDE.md: tests are deterministic): only the files of CLOCK_READERS read one.";
+
+/** The restricted syntax that is not a clock read: what a clock reader keeps refusing. */
+const SYNTAX: readonly { readonly selector: string; readonly message: string }[] = [
+  { selector: "TSEnumDeclaration", message: "Use a union of string literals or an `as const` object." },
+  { selector: "TSNamespaceExportDeclaration, TSModuleDeclaration[global=true]", message: "No global augmentation." },
+  // A focused or skipped test drops the others or itself silently (Vitest and
+  // Playwright: `test.only`, `describe.skip`, `test.describe.fixme`, `it.todo`…).
+  {
+    selector:
+      "MemberExpression[property.name=/^(only|skip|todo|fixme|skipIf|runIf)$/]:matches([object.name=/^(describe|it|test|suite)$/], [object.object.name=/^(describe|it|test|suite)$/])",
+    message: "Never focus or skip a test: run it, fix it, or discuss it (CLAUDE.md, testing policy).",
+  },
+];
+
+/** The restricted properties that are not a clock read: what a clock reader keeps refusing. */
+const PROPERTIES: readonly { readonly object: string; readonly property: string; readonly message: string }[] = [
+  // The global `fetch` reached through its object, for the reason given at `no-restricted-globals`.
+  ...["globalThis", "window", "self"].map((object) => ({ object, property: "fetch", message: FETCH_MESSAGE })),
+  {
+    object: "Promise",
+    property: "withResolvers",
+    message: "It is missing from browsers the friendly checks still explain (Safari before 17.4, Firefox before 121): use `new Promise`.",
+  },
+];
+
+/**
  * The rules the policy sets itself, on top of the recommended and strict configurations
  * it starts from. Every rule set here, unless it is turned off, is proven by a policy
  * fixture that breaks it (`test/policy.test.ts` fails on a rule no fixture breaks).
@@ -51,15 +81,9 @@ export const RULES: Linter.RulesRecord = {
   "@typescript-eslint/no-import-type-side-effects": "error",
   "no-restricted-syntax": [
     "error",
-    { selector: "TSEnumDeclaration", message: "Use a union of string literals or an `as const` object." },
-    { selector: "TSNamespaceExportDeclaration, TSModuleDeclaration[global=true]", message: "No global augmentation." },
-    // A focused or skipped test drops the others or itself silently (Vitest and
-    // Playwright: `test.only`, `describe.skip`, `test.describe.fixme`, `it.todo`…).
-    {
-      selector:
-        "MemberExpression[property.name=/^(only|skip|todo|fixme|skipIf|runIf)$/]:matches([object.name=/^(describe|it|test|suite)$/], [object.object.name=/^(describe|it|test|suite)$/])",
-      message: "Never focus or skip a test: run it, fix it, or discuss it (CLAUDE.md, testing policy).",
-    },
+    ...SYNTAX,
+    // The current date and time, read without a timestamp (`new Date()`, `Date()`): a clock.
+    { selector: "NewExpression[callee.name='Date'][arguments.length=0], CallExpression[callee.name='Date']", message: CLOCK_MESSAGE },
   ],
   // Every named item is documented, exported or not, as in Rust (missing_docs and
   // missing_docs_in_private_items): functions, classes, interfaces and their members,
@@ -93,13 +117,11 @@ export const RULES: Linter.RulesRecord = {
   // than that baseline are banned here, one by one, until a baseline is declared.
   "no-restricted-properties": [
     "error",
-    // The global `fetch` reached through its object, for the reason given at `no-restricted-globals`.
-    ...["globalThis", "window", "self"].map((object) => ({ object, property: "fetch", message: FETCH_MESSAGE })),
-    {
-      object: "Promise",
-      property: "withResolvers",
-      message: "It is missing from browsers the friendly checks still explain (Safari before 17.4, Firefox before 121): use `new Promise`.",
-    },
+    ...PROPERTIES,
+    // The clocks.
+    { object: "performance", property: "now", message: CLOCK_MESSAGE },
+    { object: "Date", property: "now", message: CLOCK_MESSAGE },
+    { object: "process", property: "hrtime", message: CLOCK_MESSAGE },
   ],
   // A response is read only once its status is checked: `fetch` resolves on a 404 too,
   // whose empty body would then be parsed as JSON or compiled as WebAssembly, an error
@@ -115,6 +137,16 @@ export const RULES: Linter.RulesRecord = {
  * of every response before returning it (and is tested to). Nowhere else.
  */
 export const FETCH_HELPERS: readonly string[] = ["**/fetch.ts"];
+
+/**
+ * The files allowed to read a clock, each for its reason; nowhere else (tests are
+ * deterministic, CLAUDE.md):
+ * - the bench page's timing module, for the wall-time benchmarks of spec/benchmarks.md,
+ *   asserted only as upper bounds with a derived margin, in the end-to-end tests;
+ * - the roadmap command's entry point, which stamps today's date on what it changes (its
+ *   tests give it a fixed date).
+ */
+export const CLOCK_READERS: readonly string[] = ["**/e2e/site/timing.ts", "**/src/cli/bin.ts"];
 
 /**
  * The shared configuration, for the package in `directory` (its `import.meta.dirname`),
@@ -138,6 +170,8 @@ export function strict(directory: string, ignores: readonly string[], ...extra: 
     },
     // The checked helper itself calls `fetch`: the only rule of `no-restricted-globals` is that one.
     { files: [...FETCH_HELPERS], rules: { "no-restricted-globals": "off" } },
+    // A clock reader may read a clock: every other restriction of the two rules stays.
+    { files: [...CLOCK_READERS], rules: { "no-restricted-syntax": ["error", ...SYNTAX], "no-restricted-properties": ["error", ...PROPERTIES] } },
     ...extra,
   );
 }
