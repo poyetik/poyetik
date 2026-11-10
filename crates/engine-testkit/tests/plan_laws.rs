@@ -29,9 +29,9 @@ mod tests {
         Create, Factory, Node, NodeId, Object, ObjectSpec, ParamSpec, Patch, Plan, PortSpec,
         Precision, Renderer, Sample, SampleRate,
     };
-    use engine_testkit::heap_operations_during;
     use engine_testkit::matrix::{HOST_BUFFER_SIZES, PRECISIONS, sample_rates};
     use engine_testkit::runner::runner;
+    use engine_testkit::{heap_operations_during, sample_of as of};
     use proptest::collection::vec;
     use proptest::strategy::{Strategy, ValueTree};
     use proptest::test_runner::{TestCaseError, TestRunner};
@@ -46,11 +46,6 @@ mod tests {
     trait Bits: Raw<Float: Delivered<Self>> {}
     impl Bits for Binary64 {}
     impl Bits for Binary32 {}
-
-    /// `value`, a literal, in the precision `S`.
-    fn of<S: Sample>(value: f64) -> S {
-        S::from_binary64(Binary64::from_raw(value))
-    }
 
     /// A rendered buffer of `S`'s floats, read back as samples.
     fn read_back<S: Bits>(floats: &[S::Float]) -> Vec<S> {

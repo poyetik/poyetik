@@ -10,6 +10,7 @@ use engine_core::{
 };
 
 use super::{check_laws, check_metadata, check_registry};
+use crate::sample_of as of;
 
 const PORT: PortSpec = PortSpec {
     name: "in",
@@ -133,11 +134,6 @@ fn fill<S: Sample>(outputs: &mut [Block<S>], value: S) {
 /// `sample` in binary64, exactly.
 fn widen<S: Sample>(sample: S) -> f64 {
     sample.to_binary64().raw()
-}
-
-/// `value` in the precision `S`.
-fn of<S: Sample>(value: f64) -> S {
-    S::from_binary64(Binary64::from_raw(value))
 }
 
 /// Whether `value`, a sample of `S` in binary64, is subnormal in `S`.

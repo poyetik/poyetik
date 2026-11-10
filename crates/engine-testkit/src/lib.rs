@@ -44,6 +44,17 @@ pub use engine_alloc_counter::{CountingAllocator, NotCounting, heap_operations_d
 pub use fingerprint::{FINGERPRINT_BATTERY, fingerprint};
 pub use laws::{check_laws, check_metadata, check_registry};
 
+use engine_core::host::Raw;
+use engine_core::{Binary64, Sample};
+
+/// `value`, a literal of a test written in binary64, as a sample of the precision `S`
+/// (rounded to it when `S` is binary32): the one conversion the unit tests of the laws and
+/// the plan laws share.
+#[must_use]
+pub fn sample_of<S: Sample>(value: f64) -> S {
+    S::from_binary64(Binary64::from_raw(value))
+}
+
 #[cfg(test)]
 #[path = "lib_tests.rs"]
 mod tests;

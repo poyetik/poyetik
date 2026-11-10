@@ -46,3 +46,7 @@ pub use patch::{Connection, Node, NodeId, Patch};
 pub use plan::Plan;
 pub use rate::SampleRate;
 pub use render::Renderer;
+
+#[cfg(test)]
+#[path = "lib_tests.rs"]
+mod tests;

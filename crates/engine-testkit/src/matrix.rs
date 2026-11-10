@@ -7,8 +7,12 @@
 use engine_core::{Precision, SampleRate};
 
 /// The precisions a render computes in (`spec/engine-design.md`, decision 10): every one,
-/// the default first. Everything a box or a plan computes is tested in each.
-pub const PRECISIONS: [Precision; 2] = [Precision::Binary64, Precision::Binary32];
+/// the default first.
+///
+/// From the engine's own closed list, so that a precision added there is tested at once
+/// (the matrix test still pins the two, so that it is reviewed). Everything a box or a plan
+/// computes is tested in each.
+pub const PRECISIONS: [Precision; 2] = Precision::ALL;
 
 /// Sample rates, in hertz: the limits of [`SampleRate`], common device rates and the
 /// low rates of telephony headsets. Deliberately more than the default 48 kHz.

@@ -1,6 +1,7 @@
 //! Tests of the reduction order (`spec/engine-design.md`, decision 28): the helper against a
 //! reference written literally from the rule, on raw floats, apart from the helper.
 
+use crate::tests::in_both_precisions;
 use alloc::format;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -564,30 +565,6 @@ fn the_reference_follows_the_rule_on_worked_sums() {
         !is_nan::<f32>(u64::from(f32::INFINITY.to_bits())),
         "not a binary32 infinity"
     );
-}
-
-/// Runs each generic test in both precisions, each instantiation a test of its own.
-macro_rules! in_both_precisions {
-    ($($test:ident),* $(,)?) => {
-        /// The tests in binary64.
-        mod binary64 {
-            $(
-                #[test]
-                fn $test() {
-                    super::$test::<crate::Binary64>();
-                }
-            )*
-        }
-        /// The tests in binary32.
-        mod binary32 {
-            $(
-                #[test]
-                fn $test() {
-                    super::$test::<crate::Binary32>();
-                }
-            )*
-        }
-    };
 }
 
 in_both_precisions!(

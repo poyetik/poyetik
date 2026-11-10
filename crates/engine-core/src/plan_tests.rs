@@ -1,6 +1,7 @@
 //! Tests of plan building and execution, using test-only boxes, each run in both precisions
 //! (`in_both_precisions!`): every instantiation of the generic plan is covered on its own.
 
+use crate::tests::in_both_precisions;
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 use alloc::string::String;
@@ -1341,30 +1342,6 @@ fn shape<K: core::fmt::Debug, S: Sample>(feed: &Feed<K, S>) -> String {
         Feed::Single(source) => alloc::format!("copy {source:?}"),
         Feed::Several(sources, _) => alloc::format!("sum {sources:?}"),
     }
-}
-
-/// Runs each generic test in both precisions, each instantiation a test of its own.
-macro_rules! in_both_precisions {
-    ($($test:ident),* $(,)?) => {
-        /// The tests in binary64, the default precision.
-        mod binary64 {
-            $(
-                #[test]
-                fn $test() {
-                    super::$test::<crate::Binary64>();
-                }
-            )*
-        }
-        /// The tests in binary32.
-        mod binary32 {
-            $(
-                #[test]
-                fn $test() {
-                    super::$test::<crate::Binary32>();
-                }
-            )*
-        }
-    };
 }
 
 in_both_precisions!(
