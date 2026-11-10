@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
-import { CountedInstance, CountError, countedModule } from "../../benchmarks/counter.ts";
+import { CountedInstance, CountError, countedEngine, type CountedEngine } from "../../benchmarks/counter.ts";
 import {
   BLOCKS,
   BOX_BENCHMARKS,
@@ -31,11 +31,11 @@ import {
 import { rethrow, SPEC, wasmBytes } from "../fixtures.ts";
 
 /** The built engine module, instrumented and compiled at the first use (a mutant that breaks it fails a test, not the file). */
-let compiled: WebAssembly.Module | undefined;
+let compiled: CountedEngine | undefined;
 
 /** {@link compiled}, compiled if needed. */
-function counted(): WebAssembly.Module {
-  compiled ??= countedModule(new Uint8Array(wasmBytes()));
+function counted(): CountedEngine {
+  compiled ??= countedEngine(new Uint8Array(wasmBytes()));
   return compiled;
 }
 
@@ -105,7 +105,7 @@ describe("the benchmarks", () => {
 
   test("count a box as its patch minus the patch without it, in each precision given as binary32, and a plan as its load", () => {
     const blocks = (patch: Uint8Array, rate: number, format: "binary64-as-binary32" | "binary32"): bigint => {
-      const instance = new CountedInstance(counted());
+      const instance = new CountedInstance(counted().module);
       instance.load(patch, rate, format);
       return instance.process(64);
     };
@@ -131,9 +131,10 @@ describe("the benchmarks", () => {
     ]);
     expect(counts.boxes[0]?.instructions).not.toBe(counts.boxes[1]?.instructions);
     expect(counts.plans).toStrictEqual(
-      [3, 5].map((size) => ({ oscillators: size, instructions: Number(new CountedInstance(counted()).load(patchBytes(planPatch(size)), 48_000, "binary64-as-binary32")) })),
+      [3, 5].map((size) => ({ oscillators: size, instructions: Number(new CountedInstance(counted().module).load(patchBytes(planPatch(size)), 48_000, "binary64-as-binary32")) })),
     );
     expect(counts.plans[0]?.instructions).toBeLessThan(counts.plans[1]?.instructions ?? 0);
+    expect(counts.moduleBytes).toBe(wasmBytes().byteLength);
   });
 
   test("refuse a mix that costs less than nothing, and a mixing patch the engine refuses", () => {
@@ -227,8 +228,8 @@ describe("the benchmarks", () => {
 });
 
 /** Counts of one box benchmark and one plan. */
-function countsOf(box: number, plan: number, mix = 100): Counts {
-  return { boxes: [{ box: "osc~", precision: "binary32", setting: "s", instructions: box }], mixes: [{ precision: "binary64", setting: "m", instructions: mix }], plans: [{ oscillators: 4, instructions: plan }] };
+function countsOf(box: number, plan: number, mix = 100, moduleBytes = 300_000): Counts {
+  return { boxes: [{ box: "osc~", precision: "binary32", setting: "s", instructions: box }], mixes: [{ precision: "binary64", setting: "m", instructions: mix }], plans: [{ oscillators: 4, instructions: plan }], moduleBytes };
 }
 
 describe("regressions", () => {
@@ -252,9 +253,22 @@ describe("regressions", () => {
     expect(regressions(countsOf(1000, 5000), countsOf(1100, 5000), 0.5)).toStrictEqual(["osc~ s in binary32: 1000 instructions, baseline 1100 (-9.09%, beyond ±0.5%)"]);
   });
 
+  test("compare the size of the engine module the same way, its edges included", () => {
+    for (const size of [300_000, 306_000, 294_000]) {
+      expect(regressions(countsOf(1000, 5000, 100, size), countsOf(1000, 5000), 2)).toStrictEqual([]);
+    }
+    expect(regressions(countsOf(1000, 5000, 100, 309_000), countsOf(1000, 5000), 2)).toStrictEqual(["engine module: 309000 bytes, baseline 300000 (+3.00%, beyond ±2%)"]);
+    expect(regressions(countsOf(1000, 5000, 100, 293_999), countsOf(1000, 5000), 2)).toStrictEqual(["engine module: 293999 bytes, baseline 300000 (-2.00%, beyond ±2%)"]);
+  });
+
   test("refuse a benchmark missing from the baseline, and a baseline entry nothing measures", () => {
-    const other: Counts = { boxes: [{ box: "dac~", precision: "binary64", setting: "s", instructions: 7 }], mixes: [{ precision: "binary32", setting: "m", instructions: 100 }], plans: [{ oscillators: 8, instructions: 9 }] };
-    const sameBoxOtherPrecision: Counts = { boxes: [{ box: "osc~", precision: "binary64", setting: "s", instructions: 1 }], mixes: [{ precision: "binary64", setting: "m", instructions: 100 }], plans: [{ oscillators: 4, instructions: 2 }] };
+    const other: Counts = { boxes: [{ box: "dac~", precision: "binary64", setting: "s", instructions: 7 }], mixes: [{ precision: "binary32", setting: "m", instructions: 100 }], plans: [{ oscillators: 8, instructions: 9 }], moduleBytes: 300_000 };
+    const sameBoxOtherPrecision: Counts = {
+      boxes: [{ box: "osc~", precision: "binary64", setting: "s", instructions: 1 }],
+      mixes: [{ precision: "binary64", setting: "m", instructions: 100 }],
+      plans: [{ oscillators: 4, instructions: 2 }],
+      moduleBytes: 300_000,
+    };
     expect(regressions(countsOf(1, 2), sameBoxOtherPrecision, 2)).toStrictEqual(["osc~ s in binary32: 1 instructions, not in the baseline", "osc~ s in binary64: in the baseline, measured by no benchmark"]);
     expect(regressions(countsOf(1, 2), other, 2)).toStrictEqual([
       "osc~ s in binary32: 1 instructions, not in the baseline",
@@ -342,18 +356,19 @@ describe("the baseline file", () => {
     boxes: [{ box: "osc~", precision: "binary32", setting: "s", instructions: 12 }],
     mixes: [{ precision: "binary64", setting: "m", instructions: 3 }],
     plans: [{ oscillators: 4, instructions: 0 }],
+    moduleBytes: 327_000,
   };
 
   test("is read in its exact shape, and written as it is read", () => {
-    expect(parseBaseline(JSON.stringify(valid))).toStrictEqual(valid);
+    expect(parseBaseline('{"boxes":[{"box":"osc~","precision":"binary32","setting":"s","instructions":12}],"mixes":[{"precision":"binary64","setting":"m","instructions":3}],"plans":[{"oscillators":4,"instructions":0}],"module_bytes":327000}')).toStrictEqual(valid);
     expect(formatBaseline(valid)).toBe(
-      '{\n  "boxes": [\n    {\n      "box": "osc~",\n      "precision": "binary32",\n      "setting": "s",\n      "instructions": 12\n    }\n  ],\n  "mixes": [\n    {\n      "precision": "binary64",\n      "setting": "m",\n      "instructions": 3\n    }\n  ],\n  "plans": [\n    {\n      "oscillators": 4,\n      "instructions": 0\n    }\n  ]\n}\n',
+      '{\n  "boxes": [\n    {\n      "box": "osc~",\n      "precision": "binary32",\n      "setting": "s",\n      "instructions": 12\n    }\n  ],\n  "mixes": [\n    {\n      "precision": "binary64",\n      "setting": "m",\n      "instructions": 3\n    }\n  ],\n  "plans": [\n    {\n      "oscillators": 4,\n      "instructions": 0\n    }\n  ],\n  "module_bytes": 327000\n}\n',
     );
     expect(parseBaseline(formatBaseline(valid))).toStrictEqual(valid);
     const committed = readFileSync(new URL("benchmark-baseline.json", SPEC), "utf8");
     expect(formatBaseline(parseBaseline(committed))).toBe(committed);
     const otherPrecision: Counts = { ...valid, boxes: [...valid.boxes, { ...valid.boxes[0], box: "osc~", setting: "s", instructions: 1, precision: "binary64" }] };
-    expect(parseBaseline(JSON.stringify(otherPrecision))).toStrictEqual(otherPrecision);
+    expect(parseBaseline(formatBaseline(otherPrecision))).toStrictEqual(otherPrecision);
   });
 
   test("refuses an entry repeated, which would hide the first", () => {
@@ -363,14 +378,14 @@ describe("the baseline file", () => {
     if (box === undefined || mix === undefined || plan === undefined) {
       throw new Error("no entry");
     }
-    expect(() => parseBaseline(JSON.stringify({ ...valid, boxes: [box, { ...box, instructions: 1 }] }))).toThrow(new BenchmarkFileError('boxes[1] repeats "osc~ s in binary32"'));
-    expect(() => parseBaseline(JSON.stringify({ ...valid, mixes: [mix, mix] }))).toThrow(new BenchmarkFileError('mixes[1] repeats "mixing m in binary64"'));
-    expect(() => parseBaseline(JSON.stringify({ ...valid, plans: [plan, { oscillators: 8, instructions: 1 }, plan] }))).toThrow(new BenchmarkFileError('plans[2] repeats "loading a plan of 4 oscillators"'));
+    expect(() => parseBaseline(formatBaseline({ ...valid, boxes: [box, { ...box, instructions: 1 }] }))).toThrow(new BenchmarkFileError('boxes[1] repeats "osc~ s in binary32"'));
+    expect(() => parseBaseline(formatBaseline({ ...valid, mixes: [mix, mix] }))).toThrow(new BenchmarkFileError('mixes[1] repeats "mixing m in binary64"'));
+    expect(() => parseBaseline(formatBaseline({ ...valid, plans: [plan, { oscillators: 8, instructions: 1 }, plan] }))).toThrow(new BenchmarkFileError('plans[2] repeats "loading a plan of 4 oscillators"'));
   });
 
   test("refuses a key named __proto__, which JSON.parse keeps as its own", () => {
-    expect(() => parseBaseline('{"boxes":[],"mixes":[],"plans":[],"__proto__":{"x":1}}')).toThrow(new BenchmarkFileError('expected {"boxes": [...], "mixes": [...], "plans": [...]}'));
-    expect(() => parseBaseline('{"boxes":[],"mixes":[],"plans":[{"oscillators":4,"instructions":1,"__proto__":1}]}')).toThrow(
+    expect(() => parseBaseline('{"boxes":[],"mixes":[],"plans":[],"module_bytes":1,"__proto__":{"x":1}}')).toThrow(new BenchmarkFileError('expected {"boxes": [...], "mixes": [...], "plans": [...], "module_bytes": <whole>}'));
+    expect(() => parseBaseline('{"boxes":[],"mixes":[],"plans":[{"oscillators":4,"instructions":1,"__proto__":1}],"module_bytes":1}')).toThrow(
       new BenchmarkFileError('plans[0] is not {"oscillators", "instructions"} with whole numbers'),
     );
   });
@@ -381,19 +396,34 @@ describe("the baseline file", () => {
     };
     expect(() => parseBaseline("{")).toThrow(BenchmarkFileError);
     expect(() => parseBaseline("{")).toThrow(/^not JSON: SyntaxError/);
-    const top = 'expected {"boxes": [...], "mixes": [...], "plans": [...]}';
-    for (const value of [null, [], 3, {}, { boxes: [] }, { boxes: [], plans: [] }, { ...valid, extra: 1 }, { boxes: {}, mixes: [], plans: [] }, { boxes: [], mixes: {}, plans: [] }, { boxes: [], mixes: [], plans: {} }]) {
+    const top = 'expected {"boxes": [...], "mixes": [...], "plans": [...], "module_bytes": <whole>}';
+    const empty = { boxes: [], mixes: [], plans: [], module_bytes: 1 };
+    for (const value of [
+      null,
+      [],
+      3,
+      {},
+      { boxes: [] },
+      { boxes: [], mixes: [], plans: [] },
+      { ...empty, extra: 1 },
+      { ...empty, boxes: {} },
+      { ...empty, mixes: {} },
+      { ...empty, plans: {} },
+      { ...empty, module_bytes: -1 },
+      { ...empty, module_bytes: 1.5 },
+      { ...empty, module_bytes: "1" },
+    ]) {
       refused(value, top);
     }
     const mix = 'mixes[0] is not {"precision", "setting", "instructions"} with a whole count';
     for (const entry of [null, {}, { setting: 1, instructions: 1 }, { setting: "m", instructions: -1 }, { setting: "m", instructions: 1.5 }, { setting: "m", instructions: 1, more: 1 }, { setting: "m" }]) {
-      refused({ boxes: [], mixes: [entry], plans: [] }, mix);
+      refused({ boxes: [], mixes: [entry], plans: [], module_bytes: 1 }, mix);
       if (entry !== null) {
-        refused({ boxes: [], mixes: [{ ...entry, precision: "binary32" }], plans: [] }, mix);
+        refused({ boxes: [], mixes: [{ ...entry, precision: "binary32" }], plans: [], module_bytes: 1 }, mix);
       }
     }
     for (const precision of ["binary16", 64, null]) {
-      refused({ boxes: [], mixes: [{ precision, setting: "m", instructions: 1 }], plans: [] }, "mixes[0].precision is not one of binary64, binary32");
+      refused({ boxes: [], mixes: [{ precision, setting: "m", instructions: 1 }], plans: [], module_bytes: 1 }, "mixes[0].precision is not one of binary64, binary32");
     }
     const box = 'boxes[0] is not {"box", "precision", "setting", "instructions"} with a whole count';
     const entries = [
@@ -408,18 +438,18 @@ describe("the baseline file", () => {
       { box: "b", setting: "s", instructions: 1, more: 1 },
     ];
     for (const entry of entries) {
-      refused({ boxes: [entry], mixes: [], plans: [] }, box);
+      refused({ boxes: [entry], mixes: [], plans: [], module_bytes: 1 }, box);
       if (entry !== null) {
-        refused({ boxes: [{ ...entry, precision: "binary64" }], mixes: [], plans: [] }, box);
+        refused({ boxes: [{ ...entry, precision: "binary64" }], mixes: [], plans: [], module_bytes: 1 }, box);
       }
     }
-    refused({ boxes: [{ box: "b", setting: "s", instructions: 1 }], mixes: [], plans: [] }, box);
+    refused({ boxes: [{ box: "b", setting: "s", instructions: 1 }], mixes: [], plans: [], module_bytes: 1 }, box);
     for (const precision of ["binary16", 64, null]) {
-      refused({ boxes: [{ box: "b", precision, setting: "s", instructions: 1 }], mixes: [], plans: [] }, "boxes[0].precision is not one of binary64, binary32");
+      refused({ boxes: [{ box: "b", precision, setting: "s", instructions: 1 }], mixes: [], plans: [], module_bytes: 1 }, "boxes[0].precision is not one of binary64, binary32");
     }
     const plan = 'plans[1] is not {"oscillators", "instructions"} with whole numbers';
     for (const entry of [{}, { oscillators: -1, instructions: 1 }, { oscillators: 1, instructions: -1 }, { oscillators: 1 }, { oscillators: 1, instructions: 1, more: 1 }]) {
-      refused({ boxes: [], mixes: [], plans: [{ oscillators: 1, instructions: 1 }, entry] }, plan);
+      refused({ boxes: [], mixes: [], plans: [{ oscillators: 1, instructions: 1 }, entry], module_bytes: 1 }, plan);
     }
   });
 

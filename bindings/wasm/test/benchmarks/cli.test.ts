@@ -91,7 +91,7 @@ describe("benchMain", () => {
   test("blesses a baseline of every count, then checks it", () => {
     const fake = blessed();
     expect(fake.errors).toStrictEqual([]);
-    expect(fake.printed).toHaveLength(7);
+    expect(fake.printed).toHaveLength(8);
     expect(fake.printed[0]).toMatch(/^osc~ 440 Hz at 48 kHz in binary64: \d+ instructions$/);
     expect(fake.printed[1]).toMatch(/^osc~ 440 Hz at 48 kHz in binary32: \d+ instructions$/);
     expect(fake.printed.slice(2, 6).map((line) => line.replace(/\d+ instructions/, "N"))).toStrictEqual([
@@ -100,13 +100,14 @@ describe("benchMain", () => {
       "loading a plan of 3 oscillators: N",
       "loading a plan of 5 oscillators: N",
     ]);
-    expect(fake.printed[6]).toBe("wrote spec/benchmark-baseline.json");
+    expect(fake.printed[6]).toBe(`engine module: ${String(wasmBytes().byteLength)} bytes`);
+    expect(fake.printed[7]).toBe("wrote spec/benchmark-baseline.json");
     const baseline: unknown = JSON.parse(fake.text(`/repo/${BASELINE_FILE}`));
     expect(Reflect.get(Object(baseline), "mixes")).toHaveLength(2);
     expect(Reflect.get(Object(baseline), "plans")).toHaveLength(2);
     fake.printed.length = 0;
     expect(benchMain(fake, ["check"], SMALL)).toBe(0);
-    expect(fake.printed).toHaveLength(6);
+    expect(fake.printed).toHaveLength(7);
     expect(fake.errors).toStrictEqual([]);
   });
 
@@ -117,6 +118,15 @@ describe("benchMain", () => {
     expect(benchMain(fake, ["check"], SMALL)).toBe(1);
     expect(fake.printed.at(-1)).toMatch(/^osc~ 440 Hz at 48 kHz in binary64: \d+ instructions, baseline \d+ \(-2\.9\d%, beyond ±2%\)$/);
     expect(fake.errors).toStrictEqual(["error: the benchmarks moved beyond their thresholds (1 problem(s); see spec/benchmarks.md)"]);
+  });
+
+  test("fails a check when the engine module's size moved beyond the tolerance", () => {
+    const fake = blessed();
+    const path = `/repo/${BASELINE_FILE}`;
+    const size = wasmBytes().byteLength;
+    fake.files.set(path, new TextEncoder().encode(fake.text(path).replace(`"module_bytes": ${String(size)}`, `"module_bytes": ${String(Math.round(size / 1.03))}`)));
+    expect(benchMain(fake, ["check"], SMALL)).toBe(1);
+    expect(fake.printed.at(-1)).toMatch(new RegExp(`^engine module: ${String(size)} bytes, baseline \\d+ \\(\\+3\\.0\\d%, beyond ±2%\\)$`));
   });
 
   test("fails a check, and refuses to bless, when plans break the n log n law", () => {
@@ -138,7 +148,7 @@ describe("benchMain", () => {
     expect(missing.errors).toStrictEqual(["error: cannot read spec/benchmark-baseline.json: ENOENT: /repo/spec/benchmark-baseline.json"]);
     const malformed = new Fake("{}");
     expect(benchMain(malformed, ["check"], SMALL)).toBe(1);
-    expect(malformed.errors).toStrictEqual(['error: spec/benchmark-baseline.json: expected {"boxes": [...], "mixes": [...], "plans": [...]}']);
+    expect(malformed.errors).toStrictEqual(['error: spec/benchmark-baseline.json: expected {"boxes": [...], "mixes": [...], "plans": [...], "module_bytes": <whole>}']);
     const thresholds = new Fake("{}");
     thresholds.files.set(`/repo/${THRESHOLDS_FILE}`, Uint8Array.of(0xff));
     expect(benchMain(thresholds, ["check"], SMALL)).toBe(1);

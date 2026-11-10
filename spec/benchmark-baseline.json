@@ -142,5 +142,6 @@
       "oscillators": 16384,
       "instructions": 308138425
     }
-  ]
+  ],
+  "module_bytes": 346851
 }

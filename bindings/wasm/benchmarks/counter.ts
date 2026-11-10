@@ -122,3 +122,19 @@ export class CountedInstance {
 export function countedModule(wasm: Uint8Array): WebAssembly.Module {
   return new WebAssembly.Module(instrument(wasm));
 }
+
+/** An engine module as the benchmarks measure it: instrumented, and the size of its bytes. */
+export interface CountedEngine {
+  /** The engine module, instrumented and compiled. */
+  readonly module: WebAssembly.Module;
+  /** The size of the engine module as built (before instrumentation), in bytes. */
+  readonly bytes: number;
+}
+
+/**
+ * The engine module `wasm`, instrumented, with its size: both from the same bytes.
+ * @throws {InstrumentError} when it cannot be instrumented.
+ */
+export function countedEngine(wasm: Uint8Array): CountedEngine {
+  return { module: countedModule(wasm), bytes: wasm.length };
+}

@@ -2,7 +2,7 @@
 // what each measures, the baseline they are compared with, the tolerance, and the law that
 // building a plan grows as n log n. Pure functions over a counted module, tested.
 import { PRECISIONS, givenAsBinary32, type Precision } from "../ts/engine.ts";
-import { CountedInstance, CountError } from "./counter.ts";
+import { CountedInstance, CountError, type CountedEngine } from "./counter.ts";
 
 /** A patch in the patch format, before it is written as JSON. */
 interface Patch {
@@ -206,6 +206,8 @@ export interface Counts {
   readonly mixes: readonly { readonly precision: Precision; readonly setting: string; readonly instructions: number }[];
   /** Each plan built: its size in oscillators, and the instructions of loading it. */
   readonly plans: readonly { readonly oscillators: number; readonly instructions: number }[];
+  /** The size of the engine module, in bytes: what a page downloads and compiles before it plays. */
+  readonly moduleBytes: number;
 }
 
 /**
@@ -268,13 +270,15 @@ function firstRepeat(names: readonly string[]): number {
 
 /**
  * Runs the benchmarks on a counted engine module: `boxes` then `mixes` in every precision
- * (each benchmark in binary64 then in binary32), then plans of `sizes`.
+ * (each benchmark in binary64 then in binary32), then plans of `sizes`, and takes the size
+ * of the module.
  * @throws {RangeError} when two benchmarks have one name (box and setting, mixing setting,
  * plan size), or when a box or a mix costs less than nothing (the patch without it costs
  * more), naming it.
  * @throws {CountError} naming the benchmark when the engine refuses a patch.
  */
-export function measure(module: WebAssembly.Module, boxes: readonly BoxBenchmark[], mixes: readonly MixBenchmark[], sizes: readonly number[]): Counts {
+export function measure(engine: CountedEngine, boxes: readonly BoxBenchmark[], mixes: readonly MixBenchmark[], sizes: readonly number[]): Counts {
+  const { module } = engine;
   const names = [...boxes.map((benchmark) => `${benchmark.box} ${benchmark.setting}`), ...mixes.map((benchmark) => `mixing ${benchmark.setting}`), ...sizes.map(planName)];
   const repeated = names[firstRepeat(names)];
   if (repeated !== undefined) {
@@ -297,6 +301,7 @@ export function measure(module: WebAssembly.Module, boxes: readonly BoxBenchmark
       oscillators,
       instructions: exact(forBenchmark(planName(oscillators), () => new CountedInstance(module).load(patchBytes(planPatch(oscillators)), PLAN_RATE, givenAsBinary32(PLAN_PRECISION)))),
     })),
+    moduleBytes: engine.bytes,
   };
 }
 
@@ -330,9 +335,22 @@ export function signedPercent(change: number): string {
 }
 
 /**
+ * The problem of `name` measuring `value` `unit` against `reference`, beyond `tolerance`
+ * percent of it either way; none within it.
+ */
+function moved(name: string, value: number, reference: number, unit: string, tolerance: number): string[] {
+  if (Math.abs(value - reference) * 100 <= reference * tolerance) {
+    return [];
+  }
+  const change = signedPercent(((value - reference) * 100) / reference);
+  return [`${name}: ${String(value)} ${unit}, baseline ${String(reference)} (${change}%, beyond ±${String(tolerance)}%)`];
+}
+
+/**
  * What differs between `measured` and `baseline` beyond `tolerance` percent of the
  * baseline, in either direction (a cost that fell is a baseline to bless, so that it
- * stays tight), and every benchmark found in only one of them. Empty when they agree.
+ * stays tight), the size of the engine module included, and every benchmark found in only
+ * one of them. Empty when they agree.
  */
 export function regressions(measured: Counts, baseline: Counts, tolerance: number): string[] {
   const now = named(measured);
@@ -342,9 +360,8 @@ export function regressions(measured: Counts, baseline: Counts, tolerance: numbe
     const reference = before.get(name);
     if (reference === undefined) {
       problems.push(`${name}: ${String(instructions)} instructions, not in the baseline`);
-    } else if (Math.abs(instructions - reference) * 100 > reference * tolerance) {
-      const change = signedPercent(((instructions - reference) * 100) / reference);
-      problems.push(`${name}: ${String(instructions)} instructions, baseline ${String(reference)} (${change}%, beyond ±${String(tolerance)}%)`);
+    } else {
+      problems.push(...moved(name, instructions, reference, "instructions", tolerance));
     }
   }
   for (const name of before.keys()) {
@@ -352,8 +369,11 @@ export function regressions(measured: Counts, baseline: Counts, tolerance: numbe
       problems.push(`${name}: in the baseline, measured by no benchmark`);
     }
   }
-  return problems;
+  return [...problems, ...moved(MODULE_NAME, measured.moduleBytes, baseline.moduleBytes, "bytes", tolerance)];
 }
+
+/** The name of the engine module's size in the reports. */
+export const MODULE_NAME = "engine module";
 
 /**
  * Where the cost of building plans grows faster than n log n: for each plan and the next
@@ -423,9 +443,10 @@ export function parseBaseline(text: string): Counts {
   } catch (error) {
     throw new BenchmarkFileError(`not JSON: ${String(error)}`);
   }
-  if (!hasExactly(json, ["boxes", "mixes", "plans"]) || !Array.isArray(json["boxes"]) || !Array.isArray(json["mixes"]) || !Array.isArray(json["plans"])) {
-    throw new BenchmarkFileError('expected {"boxes": [...], "mixes": [...], "plans": [...]}');
+  if (!hasExactly(json, ["boxes", "mixes", "plans", "module_bytes"]) || !Array.isArray(json["boxes"]) || !Array.isArray(json["mixes"]) || !Array.isArray(json["plans"]) || !isCount(json["module_bytes"])) {
+    throw new BenchmarkFileError('expected {"boxes": [...], "mixes": [...], "plans": [...], "module_bytes": <whole>}');
   }
+  const moduleBytes = json["module_bytes"];
   const boxes = json["boxes"].map((entry: unknown, index) => {
     if (!hasExactly(entry, ["box", "precision", "setting", "instructions"]) || typeof entry["box"] !== "string" || typeof entry["setting"] !== "string" || !isCount(entry["instructions"])) {
       throw new BenchmarkFileError(`boxes[${String(index)}] is not {"box", "precision", "setting", "instructions"} with a whole count`);
@@ -455,7 +476,7 @@ export function parseBaseline(text: string): Counts {
       throw new BenchmarkFileError(`${section}[${String(index)}] repeats "${repeated}"`);
     }
   }
-  return { boxes, mixes, plans };
+  return { boxes, mixes, plans, moduleBytes };
 }
 
 /**
@@ -472,7 +493,7 @@ function precisionOf(written: unknown, where: string): Precision {
 
 /** Writes a baseline as its file holds it: two-space indents, a final line break. */
 export function formatBaseline(counts: Counts): string {
-  return `${JSON.stringify({ boxes: counts.boxes, mixes: counts.mixes, plans: counts.plans }, null, 2)}\n`;
+  return `${JSON.stringify({ boxes: counts.boxes, mixes: counts.mixes, plans: counts.plans, module_bytes: counts.moduleBytes }, null, 2)}\n`;
 }
 
 /** The browser engines the construction of the engine processor is timed on, as Playwright names them. */

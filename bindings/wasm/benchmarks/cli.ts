@@ -3,8 +3,8 @@
 // (run only through `cargo xtask bless-benchmarks`, in a commit that says why). Everything
 // it touches is injected, so that it is tested; the entry point wires the real process.
 import { oneLine } from "@poyetik/config/one-line";
-import { countedModule } from "./counter.ts";
-import { BOX_BENCHMARKS, boxName, formatBaseline, measure, MIX_BENCHMARKS, mixName, nLogNProblems, parseBaseline, parseThresholds, planName, PLAN_SIZES, regressions, type BoxBenchmark, type Counts, type MixBenchmark } from "./suite.ts";
+import { countedEngine } from "./counter.ts";
+import { BOX_BENCHMARKS, boxName, formatBaseline, measure, MIX_BENCHMARKS, mixName, MODULE_NAME, nLogNProblems, parseBaseline, parseThresholds, planName, PLAN_SIZES, regressions, type BoxBenchmark, type Counts, type MixBenchmark } from "./suite.ts";
 
 /** What the command needs from the outside world. */
 export interface BenchIo {
@@ -44,7 +44,7 @@ export const MODULE_FILE = "bindings/wasm/dist/engine.wasm";
 
 /** The usage, printed by `help` only. */
 export const USAGE = `usage: benchmarks <check|bless|help>
-  check   count the instructions of every benchmark on ${MODULE_FILE}: fails on a count
+  check   count the instructions of every benchmark on ${MODULE_FILE}, and its size: fails on a count
           beyond the tolerance of ${THRESHOLDS_FILE} from ${BASELINE_FILE},
           either way, on a benchmark missing from either, or on plans growing faster than n log n
   bless   rewrite ${BASELINE_FILE} from the counts (through cargo xtask bless-benchmarks)
@@ -91,7 +91,7 @@ function measured(io: BenchIo, suite: Suite): Counts {
     failed(`cannot read ${MODULE_FILE}`, error);
   }
   try {
-    return measure(countedModule(wasm), suite.boxes, suite.mixes, suite.sizes);
+    return measure(countedEngine(wasm), suite.boxes, suite.mixes, suite.sizes);
   } catch (error) {
     failed(MODULE_FILE, error);
   }
@@ -108,6 +108,7 @@ function report(io: BenchIo, counts: Counts): void {
   for (const entry of counts.plans) {
     io.out(`${planName(entry.oscillators)}: ${String(entry.instructions)} instructions`);
   }
+  io.out(`${MODULE_NAME}: ${String(counts.moduleBytes)} bytes`);
 }
 
 /** Prints `problems` on stdout and one `error:` line about `what`; returns the exit code. */

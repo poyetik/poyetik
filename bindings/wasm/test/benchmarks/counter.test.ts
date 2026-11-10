@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { CountedInstance, CountError, countedModule } from "../../benchmarks/counter.ts";
+import { CountedInstance, CountError, countedEngine, countedModule } from "../../benchmarks/counter.ts";
 import { instrument } from "../../benchmarks/instrument.ts";
 import { RENDER_FORMATS, WasmEngine } from "../../ts/engine.ts";
 import { interleave, interleave64, renderHash, STRICT } from "../../ts/hash.ts";
@@ -33,6 +33,13 @@ describe("the instrumented engine module", () => {
       expect(await renderHash(rate, engine.channels, interleave(channels), format, STRICT)).toBe(reference(name, format));
     }
   });
+});
+
+test("measures the engine as the bytes it was given, instrumented", () => {
+  const bytes = new Uint8Array(wasmBytes());
+  const engine = countedEngine(bytes);
+  expect(engine.bytes).toBe(bytes.length);
+  expect(() => new CountedInstance(engine.module)).not.toThrow();
 });
 
 describe("CountedInstance", () => {

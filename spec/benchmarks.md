@@ -10,7 +10,7 @@ What the engine's cost benchmarks measure, how their thresholds are derived, wha
 
 Two kinds of measurement, with opposite properties:
 
-1. **Instruction counts** of the engine's WebAssembly module, for each box at representative settings, for the plan's own sums, and for building plans of several sizes: deterministic, identical on every machine, compared exactly with the baseline. `pnpm benchmarks:check` in `bindings/wasm` (part of its `pnpm check`, so of `cargo xtask check`).
+1. **Instruction counts** of the engine's WebAssembly module, for each box at representative settings, for the plan's own sums, and for building plans of several sizes, with the size of the module itself: deterministic, identical on every machine, compared exactly with the baseline. `pnpm benchmarks:check` in `bindings/wasm` (part of its `pnpm check`, so of `cargo xtask check`).
 2. **Wall time** of constructing the engine processor, and of rendering each box in both precisions, in Chromium, Firefox and WebKit: noisy, asserted only as upper bounds with a wide margin. End-to-end tests of `bindings/wasm` (`pnpm test:e2e`, part of the same check).
 
 ## Instruction counts
@@ -44,6 +44,8 @@ So a count catches what changes the work done (an algorithm, a loop, an approxim
 
 **Building plans** (`PLAN_SIZES`, at `PLAN_RATE`): the instructions of loading a patch of n oscillators feeding the two inlets of one `dac~` in turn (n + 1 boxes, n cables), copying the patch into the module, parsing it and building its plan included: what the engine processor does when it is constructed (`engine-design.md`, decision 15).
 
+**The size of the engine module** (`module_bytes` in the baseline, reported as `engine module: <n> bytes`): the bytes of `bindings/wasm/dist/engine.wasm` as built, before instrumentation. What a page downloads and compiles before it plays, and what the engine processor compiles on the audio thread (decision 15): the deterministic proxy of load time, as instruction counts are of CPU time, deterministic for the same reason (the build is reproducible). It is compared with the same tolerance, either way; the absolute budget of the module and a committed digest of its bytes are roadmap #11's.
+
 ### The n log n law
 
 `Plan::build` sorts the boxes in O((N + E) log N) (`engine-core`, `plan.rs`). The check asserts it on the counts: for each plan size and the next, the ratio of their counts must not exceed the ratio of n log2 n. A cost a·n log n + b·n + c with non-negative terms always passes (its ratio is at most that of n log n), so the law holds whatever the constant parts; a quadratic term fails as soon as it dominates, since a quadratic cost grows as the square of the ratio of sizes, more than n log n allows for any sizes above 2. The law holds only for plans of 2 oscillators or more (n log n is 0 at 1), each costing something, in increasing size: it reports a plan outside that as a problem, never passes it. Unit tests prove the law accepts n log n, linear and constant costs at its edge and refuses a quadratic cost and every plan outside its domain; `bless` refuses to write a baseline that breaks it.
@@ -56,7 +58,7 @@ Today's boxes have either no inlet (`osc~`) or no outlet (`dac~`), so the plans 
 
 **Derivation.** The counts have no noise: a count differs from the baseline only when the code, the compiler or a benchmark changed. So the tolerance does not absorb noise; it decides which change needs a reviewed new baseline:
 
-- **above**: a regression of a box, of the plan's sums or of plan building by more than the tolerance fails the check. A smaller drift (a refactoring of the plan's per-block work, a compiler upgrade reordering code) passes, so that unrelated work does not force a re-bless at every commit; drifts do not accumulate unseen, since the baseline only moves through a reviewed bless and each change is compared with it.
+- **above**: a regression of a box, of the plan's sums, of plan building or of the module's size by more than the tolerance fails the check. A smaller drift (a refactoring of the plan's per-block work, a compiler upgrade reordering code) passes, so that unrelated work does not force a re-bless at every commit; drifts do not accumulate unseen, since the baseline only moves through a reviewed bless and each change is compared with it.
 - **below**: a count that fell by more than the tolerance also fails, so that the baseline stays tight: an improvement is recorded by a bless, and a later regression is measured from it, not from the old count.
 
 So the tolerance is positive and below 100 (the reader refuses any other): a count cannot fall by 100% or more, so a wider tolerance could never refuse a fall. The baseline's reader also refuses any key it does not name and an entry repeated (the comparison is by name, so a second entry would hide the first), and `measure` refuses two benchmarks of one name.

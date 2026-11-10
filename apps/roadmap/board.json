@@ -315,11 +315,11 @@
     {
       "id": 11,
       "title": "Reduce the size of the WebAssembly engine",
-      "description": "The proof of concept weighs 290 KB, largely the JSON reader (serde_json). Measure what each part costs, then shrink it (a lighter patch reader, wasm-opt, size-oriented build profile) without changing a single output sample: the conformance hashes must stay identical.",
+      "description": "The engine module's size (module_bytes in spec/benchmark-baseline.json, tracked by the benchmarks within their tolerance since #12) is largely the JSON reader (serde_json). Measure what each part costs, then shrink it (a lighter patch reader, wasm-opt, size-oriented build profile) without changing a single output sample: the conformance hashes must stay identical.",
       "column": "later",
       "milestone": "M1 Engine",
       "createdAt": "2026-11-07",
-      "updatedAt": "2026-11-08",
+      "updatedAt": "2026-11-10",
       "tasks": [
         {
           "title": "Measure the size of each part of the module",
@@ -330,7 +330,7 @@
           "done": false
         },
         {
-          "title": "A size budget, and a committed digest of the module with a command to update it, both checked by cargo xtask check on every machine",
+          "title": "An absolute size budget, and a committed digest of the module with a command to update it, both checked by cargo xtask check on every machine (its size relative to the last bless is already tracked by the benchmarks)",
           "done": false
         },
         {
