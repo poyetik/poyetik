@@ -25,6 +25,8 @@ crates/engine-cli/src/case.rs: replace render_case -> Result<Rendered, CaseError
 crates/xtask/src/lib.rs: replace bless_benchmarks_step -> Step with Default::default() -- Step has no Default; a wrong step is killed by bless_benchmarks_counts_and_rewrites_the_baseline
 crates/xtask/src/lib.rs: replace bless_step -> Step with Default::default() -- Step has no Default; a wrong step is killed by bless_renders_and_rewrites_the_references
 crates/xtask/src/lib.rs: replace portability_steps -> Vec<Step> with vec![Default::default()] -- Step has no Default; the vec![] variant is viable and killed by lists_every_check_in_order
+crates/xtask/src/lib.rs: replace native_lint_steps -> Vec<Step> with vec![Default::default()] -- Step has no Default; the vec![] variant is viable and killed by names_every_check_in_order
+crates/xtask/src/lib.rs: replace preflight_step -> Step with Default::default() -- Step has no Default; a wrong step is killed by names_every_check_in_order and blesses_only_where_the_checks_could_run
 crates/xtask/src/lib.rs: replace proof_steps -> Vec<(Role, Step)> with vec![(Default::default(), Default::default())] -- neither Role nor Step has a Default (every step has an explicit name, action and role); the vec![] variant is viable and killed by lists_every_check_in_order
 crates/xtask/src/lib.rs: replace consistency_steps -> Vec<(Role, Step)> with vec![(Default::default(), Default::default())] -- neither Role nor Step has a Default (every step has an explicit name, action and role); the vec![] variant is viable and killed by lists_every_check_in_order
 crates/xtask/src/lib.rs: replace static_steps -> Vec<Step> with vec![Default::default()] -- Step has no Default; the vec![] variant is viable and killed by lists_every_check_in_order
