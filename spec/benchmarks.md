@@ -4,7 +4,7 @@ What the engine's cost benchmarks measure, how their thresholds are derived, wha
 
 | File | Contents | Changed by |
 |---|---|---|
-| [`benchmark-baseline.json`](benchmark-baseline.json) | The instruction count of every benchmark | `cargo xtask bless-benchmarks` only, in a commit that says why |
+| [`benchmark-baseline.json`](benchmark-baseline.json) | The instruction count of every benchmark | `cargo xtask bless-benchmarks` (which runs `pnpm benchmarks:bless`), in a commit that says why: a process rule; `check` refuses a count beyond the tolerance, an entry nothing measures and a benchmark missing, so only a hand edit within the tolerance would pass it |
 | [`benchmark-thresholds.json`](benchmark-thresholds.json) | The tolerance of the counts, and the measured times the construction bound derives from | By hand, in a reviewed commit, with the derivation below |
 | `bindings/wasm/benchmarks/` | The instrumenter, the benchmarks, the comparison and the law | Code, under the package's proofs (100% coverage, no surviving mutant) |
 
@@ -46,7 +46,7 @@ So a count catches what changes the work done (an algorithm, a loop, an approxim
 
 ### The n log n law
 
-`Plan::build` sorts the boxes in O((N + E) log N) (`engine-core`, `plan.rs`). The check asserts it on the counts: for each plan size and the next, the ratio of their counts must not exceed the ratio of n log2 n. A cost a·n log n + b·n + c with non-negative terms always passes (its ratio is at most that of n log n), so the law holds whatever the constant parts; a quadratic term fails as soon as it dominates, since a quadratic cost grows as the square of the ratio of sizes, more than n log n allows for any sizes above 2. Unit tests prove the law accepts n log n, linear and constant costs at its edge and refuses a quadratic cost; `bless` refuses to write a baseline that breaks it.
+`Plan::build` sorts the boxes in O((N + E) log N) (`engine-core`, `plan.rs`). The check asserts it on the counts: for each plan size and the next, the ratio of their counts must not exceed the ratio of n log2 n. A cost a·n log n + b·n + c with non-negative terms always passes (its ratio is at most that of n log n), so the law holds whatever the constant parts; a quadratic term fails as soon as it dominates, since a quadratic cost grows as the square of the ratio of sizes, more than n log n allows for any sizes above 2. The law holds only for plans of 2 oscillators or more (n log n is 0 at 1), each costing something, in increasing size: it reports a plan outside that as a problem, never passes it. Unit tests prove the law accepts n log n, linear and constant costs at its edge and refuses a quadratic cost and every plan outside its domain; `bless` refuses to write a baseline that breaks it.
 
 Today's boxes have either no inlet (`osc~`) or no outlet (`dac~`), so the plans are bipartite; deeper topologies join the plan benchmarks with the first box that has both. The plan's per-block work on fan-in (several cables into one inlet, several output boxes on one channel) is measured by the mixing benchmarks above.
 
@@ -59,16 +59,18 @@ Today's boxes have either no inlet (`osc~`) or no outlet (`dac~`), so the plans 
 - **above**: a regression of a box, of the plan's sums or of plan building by more than the tolerance fails the check. A smaller drift (a refactoring of the plan's per-block work, a compiler upgrade reordering code) passes, so that unrelated work does not force a re-bless at every commit; drifts do not accumulate unseen, since the baseline only moves through a reviewed bless and each change is compared with it.
 - **below**: a count that fell by more than the tolerance also fails, so that the baseline stays tight: an improvement is recorded by a bless, and a later regression is measured from it, not from the old count.
 
+So the tolerance is positive and below 100 (the reader refuses any other): a count cannot fall by 100% or more, so a wider tolerance could never refuse a fall. The baseline's reader also refuses any key it does not name and an entry repeated (the comparison is by name, so a second entry would hide the first), and `measure` refuses two benchmarks of one name.
+
 ### Changing the baseline
 
-Only through `cargo xtask bless-benchmarks`, which builds the module, counts every benchmark and rewrites `benchmark-baseline.json` (refusing to when the n log n law fails). The commit that changes the baseline says why the counts changed. Lowering a count by a bless is always allowed; raising one needs the reason in that commit, with what the extra cost buys.
+Through `cargo xtask bless-benchmarks` (the process rule above), which builds the module, counts every benchmark and rewrites `benchmark-baseline.json` (refusing to when the n log n law fails). The commit that changes the baseline says why the counts changed. Lowering a count by a bless is always allowed; raising one needs the reason in that commit, with what the extra cost buys.
 
 ### The cost of each precision
 
 `benchmark-baseline.json` gives every box in both precisions; what its counts show, binary32 against binary64 given as binary32 (the counts themselves are in the baseline, the one source):
 
 - `osc~` computes its sine with `libm`'s binary32 sine in binary32, about a third fewer instructions than the binary64 sine; at 0 Hz both sines take their shortest path, and rounding the angle to binary32 makes binary32 the dearer.
-- `dac~`'s binary64 count is mostly the rounding of its channels to binary32 for delivery (`to_binary32`, which handles a NaN by its bits), which binary32 does not pay; a patch pays it once per output sample, not per box.
+- `dac~`'s binary64 count holds the per-sample rounding of its channels to binary32 for delivery, which binary32 does not pay (binary32 is delivered as it is); a patch pays it once per output sample, not per box. Which part of that rounding costs most is not measured yet: roadmap #12 step 22 breaks it down.
 - What the counts cannot see (above): a binary64 sample is twice the memory and bandwidth of a binary32 one, a vector holds half as many (the module has no vector instructions yet), and an instruction of the binary64 sine counts as one of the binary32 sine whatever their latencies. The wall times of "Rendering each box" measure the real ratio on each browser engine.
 
 ## Construction of the engine processor

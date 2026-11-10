@@ -10,9 +10,10 @@ export class CountError extends Error {
   /**
    * Describes what failed.
    * @param message What failed.
+   * @param options The cause, when the failure comes from another error.
    */
-  constructor(message: string) {
-    super(message);
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
     this.name = "CountError";
   }
 }

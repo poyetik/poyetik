@@ -4,7 +4,7 @@
 // it touches is injected, so that it is tested; the entry point wires the real process.
 import { oneLine } from "@poyetik/config/one-line";
 import { countedModule } from "./counter.ts";
-import { BOX_BENCHMARKS, formatBaseline, measure, MIX_BENCHMARKS, mixName, nLogNProblems, parseBaseline, parseThresholds, PLAN_SIZES, regressions, type BoxBenchmark, type Counts, type MixBenchmark } from "./suite.ts";
+import { BOX_BENCHMARKS, boxName, formatBaseline, measure, MIX_BENCHMARKS, mixName, nLogNProblems, parseBaseline, parseThresholds, planName, PLAN_SIZES, regressions, type BoxBenchmark, type Counts, type MixBenchmark } from "./suite.ts";
 
 /** What the command needs from the outside world. */
 export interface BenchIo {
@@ -100,13 +100,13 @@ function measured(io: BenchIo, suite: Suite): Counts {
 /** Prints every count, one per line. */
 function report(io: BenchIo, counts: Counts): void {
   for (const entry of counts.boxes) {
-    io.out(`${entry.box} ${entry.setting} in ${entry.precision}: ${String(entry.instructions)} instructions`);
+    io.out(`${boxName(entry)}: ${String(entry.instructions)} instructions`);
   }
   for (const entry of counts.mixes) {
     io.out(`${mixName(entry)}: ${String(entry.instructions)} instructions`);
   }
   for (const entry of counts.plans) {
-    io.out(`loading a plan of ${String(entry.oscillators)} oscillators: ${String(entry.instructions)} instructions`);
+    io.out(`${planName(entry.oscillators)}: ${String(entry.instructions)} instructions`);
   }
 }
 

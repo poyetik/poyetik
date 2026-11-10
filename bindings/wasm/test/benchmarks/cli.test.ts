@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 import { BASELINE_FILE, benchMain, MODULE_FILE, SUITE, THRESHOLDS_FILE, USAGE, type BenchIo, type Suite } from "../../benchmarks/cli.ts";
 import { BOX_BENCHMARKS, MIX_BENCHMARKS, PLAN_SIZES } from "../../benchmarks/suite.ts";
-import { wasmBytes } from "../fixtures.ts";
+import { rethrow, wasmBytes } from "../fixtures.ts";
 import { assemble } from "./assemble.ts";
 
 /** The thresholds of the tests: a tolerance of 2%. */
@@ -14,17 +14,6 @@ const THRESHOLDS = JSON.stringify({
 
 /** A small suite: one box benchmark, one mixing benchmark, two plans. */
 const SMALL: Suite = { boxes: BOX_BENCHMARKS.slice(0, 1), mixes: MIX_BENCHMARKS.slice(0, 1), sizes: [3, 5] };
-
-/** Throws `value` as it is, an error or not, as a callee may: through a generator, which can throw anything. */
-function rethrow(value: unknown): never {
-  const generator = (function* paused(): Generator<undefined, never> {
-    yield undefined;
-    throw new Error("resumed");
-  })();
-  generator.next();
-  generator.throw(value);
-  throw new Error("not thrown");
-}
 
 /** A fake outside world over files in memory, recording what is printed and written. */
 class Fake implements BenchIo {
@@ -130,11 +119,11 @@ describe("benchMain", () => {
     expect(fake.errors).toStrictEqual(["error: the benchmarks moved beyond their thresholds (1 problem(s); see spec/benchmarks.md)"]);
   });
 
-  test("fails a check, and refuses to bless, when plans grow faster than n log n", () => {
+  test("fails a check, and refuses to bless, when plans break the n log n law", () => {
     const decreasing: Suite = { boxes: [], mixes: [], sizes: [5, 3] };
     const fake = blessed({ boxes: [], mixes: [], sizes: [3] });
     expect(benchMain(fake, ["check"], decreasing)).toBe(1);
-    expect(fake.printed.filter((line) => line.startsWith("building plans grows faster than n log n: 5 to 3 oscillators"))).toHaveLength(1);
+    expect(fake.printed.filter((line) => line === "the n log n law needs plans in increasing size: 3 oscillators after 5")).toHaveLength(1);
     expect(fake.errors).toStrictEqual(["error: the benchmarks moved beyond their thresholds (2 problem(s); see spec/benchmarks.md)"]);
     const before = fake.text(`/repo/${BASELINE_FILE}`);
     fake.errors.length = 0;
@@ -171,13 +160,13 @@ describe("benchMain", () => {
     const invalid = assemble({ functions: [{ params: 0, result: false, locals: [0x00], code: [0x6a, 0x0b], exported: "f" }] });
     expect(run(invalid)[0]).toMatch(/^error: bindings\/wasm\/dist\/engine\.wasm: WebAssembly\.Module\(\): .+/);
     const empty = assemble({ functions: [{ params: 0, result: false, locals: [0x00], code: [0x0b], exported: "f" }] });
-    expect(run(empty)).toStrictEqual(['error: bindings/wasm/dist/engine.wasm: the module does not export its memory and its counter "instructions"']);
+    expect(run(empty)).toStrictEqual(['error: bindings/wasm/dist/engine.wasm: osc~ 440 Hz at 48 kHz in binary64: the module does not export its memory and its counter "instructions"']);
     const [first] = BOX_BENCHMARKS;
     if (first === undefined) {
       throw new Error("no benchmark");
     }
     expect(run(new Uint8Array(wasmBytes()), { boxes: [{ ...first, patch: first.without, without: first.patch }], mixes: [], sizes: [] })[0]).toMatch(
-      /^error: bindings\/wasm\/dist\/engine\.wasm: a count of -\d+ instructions cannot be stored exactly$/,
+      /^error: bindings\/wasm\/dist\/engine\.wasm: osc~ 440 Hz at 48 kHz in binary64: the patch without it costs \d+ instructions more than the patch holding it$/,
     );
   });
 

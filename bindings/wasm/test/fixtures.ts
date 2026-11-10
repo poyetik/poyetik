@@ -332,3 +332,14 @@ export function oscillators(frequencies: readonly number[]): Uint8Array {
   const connections = frequencies.map((_frequency, index) => ({ from: [index + 1, 0], to: [0, index] }));
   return new TextEncoder().encode(JSON.stringify({ format: 1, nodes, connections }));
 }
+
+/** Throws `value` as it is, an error or not, as a callee may: through a generator, which can throw anything. */
+export function rethrow(value: unknown): never {
+  const generator = (function* paused(): Generator<undefined, never> {
+    yield undefined;
+    throw new Error("resumed");
+  })();
+  generator.next();
+  generator.throw(value);
+  throw new Error("not thrown");
+}

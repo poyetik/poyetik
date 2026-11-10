@@ -2,7 +2,7 @@
 // what each measures, the baseline they are compared with, the tolerance, and the law that
 // building a plan grows as n log n. Pure functions over a counted module, tested.
 import { PRECISIONS, givenAsBinary32, type Precision } from "../ts/engine.ts";
-import { CountedInstance } from "./counter.ts";
+import { CountedInstance, CountError } from "./counter.ts";
 
 /** A patch in the patch format, before it is written as JSON. */
 interface Patch {
@@ -210,14 +210,27 @@ export interface Counts {
 
 /**
  * A count as a number, which JSON can hold exactly.
- * @throws {RangeError} when it is negative or beyond 2^53.
+ * @throws {RangeError} when it is beyond 2^53 (or below -2^53, which no count reaches).
  */
-function exact(count: bigint): number {
+export function exact(count: bigint): number {
   const value = Number(count);
-  if (count < 0n || !Number.isSafeInteger(value)) {
+  if (!Number.isSafeInteger(value)) {
     throw new RangeError(`a count of ${String(count)} instructions cannot be stored exactly`);
   }
   return value;
+}
+
+/**
+ * Runs `work`, the measurement of the benchmark `name`, so that a failure names it.
+ * @throws {CountError} naming the benchmark, with the words of what `work` threw (kept as
+ * its cause).
+ */
+export function forBenchmark<T>(name: string, work: () => T): T {
+  try {
+    return work();
+  } catch (error) {
+    throw new CountError(`${name}: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
+  }
 }
 
 /**
@@ -230,37 +243,65 @@ function blocksOf(module: WebAssembly.Module, patch: Patch, rate: number, precis
   return instance.process(BLOCKS);
 }
 
-/** The instructions of `patch` minus those of `without`, both at `rate` in `precision`. */
-function difference(module: WebAssembly.Module, benchmark: { readonly patch: Patch; readonly without: Patch; readonly rate: number }, precision: Precision): number {
-  return exact(blocksOf(module, benchmark.patch, benchmark.rate, precision) - blocksOf(module, benchmark.without, benchmark.rate, precision));
+/**
+ * The instructions of `patch` minus those of `without`, both at `rate` in `precision`: the
+ * cost of the benchmark `name`.
+ * @throws {CountError} naming it when the engine refuses a patch.
+ * @throws {RangeError} naming it when the patch without it costs more than the patch holding it.
+ */
+function difference(module: WebAssembly.Module, benchmark: { readonly patch: Patch; readonly without: Patch; readonly rate: number }, precision: Precision, name: string): number {
+  const [holding, without] = forBenchmark(name, () => [blocksOf(module, benchmark.patch, benchmark.rate, precision), blocksOf(module, benchmark.without, benchmark.rate, precision)]);
+  const cost = holding - without;
+  if (cost < 0n) {
+    throw new RangeError(`${name}: the patch without it costs ${String(-cost)} instructions more than the patch holding it`);
+  }
+  return exact(cost);
+}
+
+/**
+ * Where `names` first repeats a name, -1 when it does not: the comparison with the baseline
+ * is by name, so a second benchmark of one name would hide the first.
+ */
+function firstRepeat(names: readonly string[]): number {
+  return names.findIndex((name, index) => names.indexOf(name) !== index);
 }
 
 /**
  * Runs the benchmarks on a counted engine module: `boxes` then `mixes` in every precision
  * (each benchmark in binary64 then in binary32), then plans of `sizes`.
- * @throws {CountError} when the engine refuses a patch.
- * @throws {RangeError} when a box or a mix costs less than nothing (the patch without it costs more).
+ * @throws {RangeError} when two benchmarks have one name (box and setting, mixing setting,
+ * plan size), or when a box or a mix costs less than nothing (the patch without it costs
+ * more), naming it.
+ * @throws {CountError} naming the benchmark when the engine refuses a patch.
  */
 export function measure(module: WebAssembly.Module, boxes: readonly BoxBenchmark[], mixes: readonly MixBenchmark[], sizes: readonly number[]): Counts {
+  const names = [...boxes.map((benchmark) => `${benchmark.box} ${benchmark.setting}`), ...mixes.map((benchmark) => `mixing ${benchmark.setting}`), ...sizes.map(planName)];
+  const repeated = names[firstRepeat(names)];
+  if (repeated !== undefined) {
+    throw new RangeError(`${repeated} is measured twice`);
+  }
   return {
     boxes: boxes.flatMap((benchmark) =>
-      PRECISIONS.map((precision) => ({
-        box: benchmark.box,
-        precision,
-        setting: benchmark.setting,
-        instructions: difference(module, benchmark, precision),
-      })),
+      PRECISIONS.map((precision) => {
+        const entry = { box: benchmark.box, precision, setting: benchmark.setting };
+        return { ...entry, instructions: difference(module, benchmark, precision, boxName(entry)) };
+      }),
     ),
-    mixes: mixes.flatMap((benchmark) => PRECISIONS.map((precision) => ({ precision, setting: benchmark.setting, instructions: difference(module, benchmark, precision) }))),
+    mixes: mixes.flatMap((benchmark) =>
+      PRECISIONS.map((precision) => {
+        const entry = { precision, setting: benchmark.setting };
+        return { ...entry, instructions: difference(module, benchmark, precision, mixName(entry)) };
+      }),
+    ),
     plans: sizes.map((oscillators) => ({
       oscillators,
-      instructions: exact(new CountedInstance(module).load(patchBytes(planPatch(oscillators)), PLAN_RATE, givenAsBinary32(PLAN_PRECISION))),
+      instructions: exact(forBenchmark(planName(oscillators), () => new CountedInstance(module).load(patchBytes(planPatch(oscillators)), PLAN_RATE, givenAsBinary32(PLAN_PRECISION)))),
     })),
   };
 }
 
 /** The name of a box benchmark in the reports: `osc~ 440 Hz at 48 kHz in binary32`. */
-function boxName(entry: { readonly box: string; readonly precision: Precision; readonly setting: string }): string {
+export function boxName(entry: { readonly box: string; readonly precision: Precision; readonly setting: string }): string {
   return `${entry.box} ${entry.setting} in ${entry.precision}`;
 }
 
@@ -269,8 +310,8 @@ export function mixName(entry: { readonly precision: Precision; readonly setting
   return `mixing ${entry.setting} in ${entry.precision}`;
 }
 
-/** The name of a plan benchmark in the reports. */
-function planName(oscillators: number): string {
+/** The name of a plan benchmark in the reports: `loading a plan of 256 oscillators`. */
+export function planName(oscillators: number): string {
   return `loading a plan of ${String(oscillators)} oscillators`;
 }
 
@@ -318,14 +359,20 @@ export function regressions(measured: Counts, baseline: Counts, tolerance: numbe
  * Where the cost of building plans grows faster than n log n: for each plan and the next
  * larger one, the ratio of their costs must not exceed the ratio of n log2 n. A cost
  * a·n log n + b·n + c with non-negative terms always passes; a quadratic term fails as
- * soon as it dominates. Plans must be sorted by size, each larger than 1.
+ * soon as it dominates. The law holds only for plans of 2 oscillators or more (n log n is 0
+ * at 1), each costing something, in increasing size: a plan outside that is a problem too,
+ * never a vacuous pass.
  */
 export function nLogNProblems(plans: Counts["plans"]): string[] {
   const problems: string[] = [];
   const growth = (size: number): number => size * Math.log2(size);
   let smaller: Counts["plans"][number] | undefined;
   for (const larger of plans) {
-    if (smaller !== undefined) {
+    if (larger.oscillators < 2 || larger.instructions === 0) {
+      problems.push(`the n log n law needs plans of 2 oscillators or more that cost something: ${planName(larger.oscillators)} costs ${String(larger.instructions)} instructions`);
+    } else if (smaller !== undefined && larger.oscillators <= smaller.oscillators) {
+      problems.push(`the n log n law needs plans in increasing size: ${String(larger.oscillators)} oscillators after ${String(smaller.oscillators)}`);
+    } else if (smaller !== undefined) {
       const allowed = growth(larger.oscillators) / growth(smaller.oscillators);
       const ratio = larger.instructions / smaller.instructions;
       if (ratio > allowed) {
@@ -351,10 +398,13 @@ export class BenchmarkFileError extends Error {
   }
 }
 
-/** Whether `value` is a plain JSON object with exactly the keys `keys`, in any order. */
+/**
+ * Whether `value` is a JSON object with exactly the own keys `keys`, in any order: any other
+ * key is refused, `__proto__` included (which `JSON.parse` makes an own key). A list has
+ * only indices, never `keys`, which are names.
+ */
 function hasExactly(value: unknown, keys: readonly string[]): value is Record<string, unknown> {
-  // A copy of a primitive or a list has no key or only indices: never `keys`, which are names.
-  return Object.keys(Object.assign({}, value)).sort().join() === [...keys].sort().join();
+  return value instanceof Object && Object.keys(value).sort().join() === [...keys].sort().join();
 }
 
 /** Whether `value` is a whole number of instructions JSON holds exactly. */
@@ -394,6 +444,17 @@ export function parseBaseline(text: string): Counts {
     }
     return { oscillators: entry["oscillators"], instructions: entry["instructions"] };
   });
+  for (const [section, names] of [
+    ["boxes", boxes.map(boxName)],
+    ["mixes", mixes.map(mixName)],
+    ["plans", plans.map((entry) => planName(entry.oscillators))],
+  ] as const) {
+    const index = firstRepeat(names);
+    const repeated = names[index];
+    if (repeated !== undefined) {
+      throw new BenchmarkFileError(`${section}[${String(index)}] repeats "${repeated}"`);
+    }
+  }
   return { boxes, mixes, plans };
 }
 
@@ -434,7 +495,7 @@ export interface Timing {
 
 /** The thresholds of the benchmarks (spec/benchmark-thresholds.json), derived in spec/benchmarks.md. */
 export interface Thresholds {
-  /** How far, in percent of the baseline, an instruction count may move either way. */
+  /** How far, in percent of the baseline, an instruction count may move either way: positive, below 100. */
   readonly tolerancePercent: number;
   /** How the construction of the engine processor is bounded. */
   readonly construction: Timing;
@@ -496,8 +557,10 @@ export function parseThresholds(text: string): Thresholds {
   } catch (error) {
     throw new BenchmarkFileError(`not JSON: ${String(error)}`);
   }
-  if (!hasExactly(json, ["tolerance_percent", "construction", "boxes"]) || !isPositive(json["tolerance_percent"])) {
-    throw new BenchmarkFileError('expected {"tolerance_percent": <positive>, "construction": {...}, "boxes": {...}}');
+  // Below 100: a count cannot fall by 100% or more, so a wider tolerance could never refuse
+  // a fall (spec/benchmarks.md, "Derivation").
+  if (!hasExactly(json, ["tolerance_percent", "construction", "boxes"]) || !isPositive(json["tolerance_percent"]) || json["tolerance_percent"] >= 100) {
+    throw new BenchmarkFileError('expected {"tolerance_percent": <positive, below 100>, "construction": {...}, "boxes": {...}}');
   }
   const construction = parseTiming(
     json["construction"],

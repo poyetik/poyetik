@@ -7,7 +7,10 @@ import {
   BROWSERS,
   BenchmarkFileError,
   boxBoundMs,
+  boxName,
   constructionBoundMs,
+  exact,
+  forBenchmark,
   formatBaseline,
   measure,
   MIX_BENCHMARKS,
@@ -18,13 +21,14 @@ import {
   PLAN_PRECISION,
   PLAN_RATE,
   PLAN_SIZES,
+  planName,
   planPatch,
   patchBytes,
   regressions,
   signedPercent,
   type Counts,
 } from "../../benchmarks/suite.ts";
-import { SPEC, wasmBytes } from "../fixtures.ts";
+import { rethrow, SPEC, wasmBytes } from "../fixtures.ts";
 
 /** The built engine module, instrumented and compiled at the first use (a mutant that breaks it fails a test, not the file). */
 let compiled: WebAssembly.Module | undefined;
@@ -137,8 +141,11 @@ describe("the benchmarks", () => {
     if (mix === undefined) {
       throw new Error("no mixing benchmark");
     }
-    expect(() => measure(counted(), [], [{ ...mix, patch: mix.without, without: mix.patch }], [])).toThrow(/^a count of -\d+ instructions cannot be stored exactly$/);
+    expect(() => measure(counted(), [], [{ ...mix, patch: mix.without, without: mix.patch }], [])).toThrow(
+      /^mixing 2 cables into one inlet at 48 kHz in binary64: the patch without it costs \d+ instructions more than the patch holding it$/,
+    );
     expect(() => measure(counted(), [], [{ ...mix, rate: 7 }], [])).toThrow(CountError);
+    expect(() => measure(counted(), [], [{ ...mix, rate: 7 }], [])).toThrow(/^mixing 2 cables into one inlet at 48 kHz in binary64: the engine refused the patch: ./);
   });
 
   test("refuse a box that costs less than nothing", () => {
@@ -147,7 +154,50 @@ describe("the benchmarks", () => {
       throw new Error("no benchmark");
     }
     expect(() => measure(counted(), [{ ...first, patch: first.without, without: first.patch }], [], [])).toThrow(RangeError);
-    expect(() => measure(counted(), [{ ...first, patch: first.without, without: first.patch }], [], [])).toThrow(/^a count of -\d+ instructions cannot be stored exactly$/);
+    expect(() => measure(counted(), [{ ...first, patch: first.without, without: first.patch }], [], [])).toThrow(
+      /^osc~ 440 Hz at 48 kHz in binary64: the patch without it costs \d+ instructions more than the patch holding it$/,
+    );
+  });
+
+  test("refuse two benchmarks of one name, which the baseline could not tell apart", () => {
+    const [first] = BOX_BENCHMARKS;
+    const [mix] = MIX_BENCHMARKS;
+    if (first === undefined || mix === undefined) {
+      throw new Error("no benchmark");
+    }
+    expect(() => measure(counted(), [first, { ...first, rate: 8000 }], [], [])).toThrow(new RangeError("osc~ 440 Hz at 48 kHz is measured twice"));
+    expect(() => measure(counted(), [], [mix, mix], [])).toThrow(new RangeError("mixing 2 cables into one inlet at 48 kHz is measured twice"));
+    expect(() => measure(counted(), [], [], [3, 5, 3])).toThrow(new RangeError("loading a plan of 3 oscillators is measured twice"));
+    expect(measure(counted(), [first, { ...first, setting: "other" }], [], [3, 5]).boxes).toHaveLength(4);
+  });
+
+  test("name the benchmark whose measurement fails, keeping the cause", () => {
+    const cause = new Error("inner");
+    const failure = ((): unknown => {
+      try {
+        return forBenchmark("loading a plan of 2 oscillators", () => {
+          throw cause;
+        });
+      } catch (error) {
+        return error;
+      }
+    })();
+    expect(failure).toStrictEqual(new CountError("loading a plan of 2 oscillators: inner"));
+    expect(failure instanceof CountError && failure.cause).toBe(cause);
+    expect(() => forBenchmark("b", () => rethrow("busy"))).toThrow(new CountError("b: busy"));
+    expect(forBenchmark("b", () => 3)).toBe(3);
+    expect(() => measure(counted(), [], [], [2 ** 32])).toThrow(new CountError("loading a plan of 4294967296 oscillators: Invalid array length"));
+  });
+
+  test("hold a count JSON keeps exactly, and refuse a larger one", () => {
+    expect(exact(2n ** 53n - 1n)).toBe(9_007_199_254_740_991);
+    expect(exact(0n)).toBe(0);
+    expect(() => exact(2n ** 53n)).toThrow(new RangeError("a count of 9007199254740992 instructions cannot be stored exactly"));
+  });
+
+  test("name each benchmark as the reports do", () => {
+    expect(boxName({ box: "osc~", precision: "binary32", setting: "s" })).toBe("osc~ s in binary32");
+    expect(planName(256)).toBe("loading a plan of 256 oscillators");
   });
 
   test("accept a box that costs nothing", () => {
@@ -231,6 +281,44 @@ describe("the n log n law", () => {
     }
     expect(nLogNProblems([])).toStrictEqual([]);
     expect(nLogNProblems([{ oscillators: 4, instructions: 8 }])).toStrictEqual([]);
+    expect(
+      nLogNProblems([
+        { oscillators: 2, instructions: 2 },
+        { oscillators: 4, instructions: 8 },
+      ]),
+    ).toStrictEqual([]);
+  });
+
+  test("refuses plans outside its domain instead of passing them", () => {
+    expect(
+      nLogNProblems([
+        { oscillators: 1, instructions: 10 },
+        { oscillators: 4, instructions: 1000 },
+      ]),
+    ).toStrictEqual(["the n log n law needs plans of 2 oscillators or more that cost something: loading a plan of 1 oscillators costs 10 instructions"]);
+    expect(
+      nLogNProblems([
+        { oscillators: 0, instructions: 0 },
+        { oscillators: 4, instructions: 1 },
+      ]),
+    ).toStrictEqual(["the n log n law needs plans of 2 oscillators or more that cost something: loading a plan of 0 oscillators costs 0 instructions"]);
+    expect(
+      nLogNProblems([
+        { oscillators: 4, instructions: 0 },
+        { oscillators: 16, instructions: 0 },
+      ]),
+    ).toStrictEqual([
+      "the n log n law needs plans of 2 oscillators or more that cost something: loading a plan of 4 oscillators costs 0 instructions",
+      "the n log n law needs plans of 2 oscillators or more that cost something: loading a plan of 16 oscillators costs 0 instructions",
+    ]);
+    for (const second of [4, 2]) {
+      expect(
+        nLogNProblems([
+          { oscillators: 4, instructions: 8 },
+          { oscillators: second, instructions: 8 },
+        ]),
+      ).toStrictEqual([`the n log n law needs plans in increasing size: ${String(second)} oscillators after 4`]);
+    }
   });
 
   test("refuses a quadratic cost, and a cost growing faster than n log n anywhere", () => {
@@ -264,6 +352,27 @@ describe("the baseline file", () => {
     expect(parseBaseline(formatBaseline(valid))).toStrictEqual(valid);
     const committed = readFileSync(new URL("benchmark-baseline.json", SPEC), "utf8");
     expect(formatBaseline(parseBaseline(committed))).toBe(committed);
+    const otherPrecision: Counts = { ...valid, boxes: [...valid.boxes, { ...valid.boxes[0], box: "osc~", setting: "s", instructions: 1, precision: "binary64" }] };
+    expect(parseBaseline(JSON.stringify(otherPrecision))).toStrictEqual(otherPrecision);
+  });
+
+  test("refuses an entry repeated, which would hide the first", () => {
+    const [box] = valid.boxes;
+    const [mix] = valid.mixes;
+    const [plan] = valid.plans;
+    if (box === undefined || mix === undefined || plan === undefined) {
+      throw new Error("no entry");
+    }
+    expect(() => parseBaseline(JSON.stringify({ ...valid, boxes: [box, { ...box, instructions: 1 }] }))).toThrow(new BenchmarkFileError('boxes[1] repeats "osc~ s in binary32"'));
+    expect(() => parseBaseline(JSON.stringify({ ...valid, mixes: [mix, mix] }))).toThrow(new BenchmarkFileError('mixes[1] repeats "mixing m in binary64"'));
+    expect(() => parseBaseline(JSON.stringify({ ...valid, plans: [plan, { oscillators: 8, instructions: 1 }, plan] }))).toThrow(new BenchmarkFileError('plans[2] repeats "loading a plan of 4 oscillators"'));
+  });
+
+  test("refuses a key named __proto__, which JSON.parse keeps as its own", () => {
+    expect(() => parseBaseline('{"boxes":[],"mixes":[],"plans":[],"__proto__":{"x":1}}')).toThrow(new BenchmarkFileError('expected {"boxes": [...], "mixes": [...], "plans": [...]}'));
+    expect(() => parseBaseline('{"boxes":[],"mixes":[],"plans":[{"oscillators":4,"instructions":1,"__proto__":1}]}')).toThrow(
+      new BenchmarkFileError('plans[0] is not {"oscillators", "instructions"} with whole numbers'),
+    );
   });
 
   test("refuses every other shape", () => {
@@ -346,11 +455,25 @@ describe("the thresholds file", () => {
       expect(() => parseThresholds(JSON.stringify(value))).toThrow(new BenchmarkFileError(message));
     };
     expect(() => parseThresholds("[")).toThrow(/^not JSON: SyntaxError/);
-    const top = 'expected {"tolerance_percent": <positive>, "construction": {...}, "boxes": {...}}';
+    const top = 'expected {"tolerance_percent": <positive, below 100>, "construction": {...}, "boxes": {...}}';
     const withoutBoxes = { tolerance_percent: valid.tolerance_percent, construction: valid.construction };
-    for (const value of [null, {}, withoutBoxes, { ...valid, tolerance_percent: 0 }, { ...valid, tolerance_percent: -1 }, { ...valid, tolerance_percent: "2" }, { ...valid, tolerance_percent: Infinity }, { ...valid, extra: 1 }]) {
+    for (const value of [
+      null,
+      {},
+      withoutBoxes,
+      { ...valid, tolerance_percent: 0 },
+      { ...valid, tolerance_percent: -1 },
+      { ...valid, tolerance_percent: "2" },
+      { ...valid, tolerance_percent: Infinity },
+      { ...valid, tolerance_percent: 100 },
+      { ...valid, extra: 1 },
+    ]) {
       refused(value, top);
     }
+    expect(parseThresholds(JSON.stringify({ ...valid, tolerance_percent: 99.99 })).tolerancePercent).toBe(99.99);
+    const text = JSON.stringify(valid);
+    expect(() => parseThresholds(`${text.slice(0, -1)},"__proto__":{}}`)).toThrow(new BenchmarkFileError(top));
+    expect(() => parseThresholds(text.replace('"webkit":0.5}', '"webkit":0.5,"__proto__":1}'))).toThrow(new BenchmarkFileError('expected "measured_max_ms" with exactly chromium, firefox, webkit'));
     const boxes = 'expected "boxes": {"blocks": <whole, positive>, "runs": <whole, positive>, "margin": <positive>, "measured_on": <text>, "measured_max_ms": {...}}';
     for (const change of [{ blocks: 0 }, { blocks: 1.5 }, { blocks: -1 }, { blocks: "1" }, { runs: 0 }, { margin: 0 }, { measured_on: 1 }, { extra: 1 }]) {
       refused({ ...valid, boxes: { ...valid.boxes, ...change } }, boxes);

@@ -985,7 +985,7 @@
           "done": false
         },
         {
-          "title": "Real-time cost: estimate a patch's cost per block before it runs and report its load, so that a valid patch too heavy for real time is flagged (after the benchmarks); measure the copy of every outlet into the bus each block and remove it if it costs",
+          "title": "Real-time cost: estimate a patch's cost per block before it runs and report its load, so that a valid patch too heavy for real time is flagged (after the benchmarks); measure the copy of every outlet into the bus each block and remove it if it costs; break down the per-sample rounding of a binary64 render to binary32 for delivery (dac~'s binary64 count over its binary32 one) and make it cheaper if a form with the same bits costs less",
           "done": false
         },
         {
