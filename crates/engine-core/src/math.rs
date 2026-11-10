@@ -446,7 +446,9 @@ pub trait Sample:
     /// itself for [`Binary64`]).
     fn from_binary64(value: Binary64) -> Self;
 
-    /// Itself in binary64, exactly.
+    /// Itself in binary64: exactly for every number; a NaN from its bits, the same on every
+    /// target (its sign, the quiet bit set, its payload), since IEEE 754 and WebAssembly leave
+    /// the payload of a converted NaN open.
     fn to_binary64(self) -> Binary64;
 
     /// Itself, or a zero of its sign when it is subnormal (`spec/engine-design.md`,
@@ -520,7 +522,18 @@ impl Sample for Binary32 {
     }
 
     fn to_binary64(self) -> Binary64 {
-        Binary64(f64::from(self.0))
+        if self.0.is_nan() {
+            let bits = u64::from(self.0.to_bits());
+            let sign = (bits >> 31_u32) << 63_u32;
+            let payload = (bits & 0x003f_ffff) << 29_u32;
+            // Disjoint fields (the sign, the exponent and quiet bit, the payload), joined by
+            // the trait's function: an operator here would read the same as `^` or `+`.
+            Binary64(f64::from_bits(
+                sign.bitor(0x7ff8_0000_0000_0000).bitor(payload),
+            ))
+        } else {
+            Binary64(f64::from(self.0))
+        }
     }
 
     fn flush(self) -> Self {

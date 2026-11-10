@@ -484,6 +484,31 @@ fn converts_and_flushes_in_each_precision() {
         (-0.5_f64).to_bits(),
         "itself"
     );
+    // A binary32 NaN widened from its bits, the same on every target: its sign, the quiet
+    // bit set, its 22 payload bits moved up by 29.
+    for (narrow_bits, wide_bits, what) in [
+        (
+            0x7f80_0001_u32,
+            0x7ff8_0000_2000_0000_u64,
+            "a signaling NaN, quieted",
+        ),
+        (0xffc0_0005, 0xfff8_0000_a000_0000, "a negative quiet NaN"),
+        (0x7fff_ffff, 0x7fff_ffff_e000_0000, "the largest payload"),
+        (0x7fc0_0000, 0x7ff8_0000_0000_0000, "the default NaN"),
+    ] {
+        let widened = narrow(f32::from_bits(narrow_bits)).to_binary64();
+        assert_eq!(widened.bits(), wide_bits, "{what}");
+        assert_eq!(
+            Binary32::from_binary64(widened).bits(),
+            u64::from(narrow_bits | 0x0040_0000),
+            "{what}: back to binary32, quieted"
+        );
+    }
+    assert_eq!(
+        narrow(f32::NEG_INFINITY).to_binary64().bits(),
+        0xfff0_0000_0000_0000,
+        "an infinity is a number"
+    );
     assert_eq!(
         wide(f64::from_bits(1)).flush().bits(),
         0,

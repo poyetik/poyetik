@@ -56,6 +56,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `Sample::to_binary64` widens a binary32 NaN from its bits (its sign, the quiet bit set, its 22 payload bits), as `to_binary32` narrows one: IEEE 754 and WebAssembly leave the payload of a converted NaN open, so the hardware conversion could give other bits on another target, against its promise of exactness. Every number still converts exactly.
 - `cargo xtask bless` and `cargo xtask bless-benchmarks` first run the preflight of the check (the pinned tools, and no variable or outside Cargo configuration that changes a build, such as `CARGO_PROFILE_*` or `RUSTC_WRAPPER`): they write what every later check compares with, and a drifted build could bless benchmark counts within their tolerance that no later check would see.
 - The unsafe gate checks an assembly file by its code, not its text: `asm!(` in a comment or a string no longer counts as assembly, and every `unsafe` of the file must open a `core::arch::asm!` call, so that no other unsafe code (a raw pointer read, an `unsafe fn`, an `unsafe impl`) can hide in the one file Miri does not run.
 - `WasmEngine.render` copies a part of a block bit for bit, in one copy from a view of that part, instead of sample by sample through JavaScript numbers, which may change a NaN payload.
