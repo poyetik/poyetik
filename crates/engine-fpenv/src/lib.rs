@@ -88,11 +88,12 @@ impl Drop for Restore {
 /// Only the mode fields change: on `x86_64` the exception flags keep accumulating, as IEEE
 /// 754 defines them. The host's mode fields are always written back on exit, so a mode that
 /// foreign code sets inside `body` is undone too; when the host's mode already is the
-/// default, the entry write is skipped, so a nested call costs one read and one write.
+/// default, the entry write is skipped, so a nested call costs one write, on exit.
 ///
 /// Review only: foreign code called inside `body` (assembly, a C function) must not change
 /// the mode, since the proof `body` holds would be false from then on; safe Rust cannot
-/// change it. Detecting such a change and reporting it is roadmap #24's, with the first
+/// change it. The two writes break the letter of Rust's floating-point rule (RFC 3514), on
+/// purpose and for the reasons the audit of the control-register file gives. Detecting such a change and reporting it is roadmap #24's, with the first
 /// plugin shell.
 ///
 /// Rust has no strict floating-point mode: the compiler orders the register's writes with

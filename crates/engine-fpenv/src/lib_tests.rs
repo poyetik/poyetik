@@ -87,11 +87,17 @@ fn control() -> Word {
 /// the mode fields read back right after setting them (a field the processor does not
 /// support reads back as zero). Restores the mode found on entry afterwards, before any
 /// assertion: the caller's floating point runs in the mode it had.
+///
+/// Rust code under a forced mode is outside Rust's floating-point rule (RFC 3514; see the
+/// audit of the control-register file): `body` passes through `black_box` after the write
+/// and its result before the restore, as in `with_default_mode`, so that its float work
+/// reading its captures or memory runs in the forced mode.
 fn as_host<R>(host: Word, body: impl FnOnce() -> R) -> (Word, R) {
     let entry = control();
     set_control(host);
     let set = control();
-    let result = body();
+    let body = black_box(body);
+    let result = black_box(body());
     set_control(entry);
     (set, result)
 }

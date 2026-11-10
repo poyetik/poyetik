@@ -22,6 +22,22 @@
 //!   through `black_box` after the entry write, so its captures are read after it, and the
 //!   result through `black_box` before the restore. `black_box` is a best-effort barrier of
 //!   the compiler, documented as such, which this ordering relies on.
+//! - **The language rule this file breaks, on purpose.** Rust's floating-point semantics
+//!   (RFC 3514) make it undefined behavior for inline assembly to alter the behavior of
+//!   floating-point operations, and require the control bits to be, on leaving an `asm!`
+//!   block, exactly as they were on entering it. Both writes break that letter, which
+//!   decision 11 of `spec/engine-design.md` requires: the entry write moves the thread to
+//!   the environment Rust assumes (it repairs a host already outside the rule), and the
+//!   restoring write gives the host its own mode back, in which the rest of
+//!   `with_default_mode`'s return path runs (dropping the guard, returning the result: no
+//!   float work of the engine) before the host's code, outside Rust's assumption by the
+//!   host's choice. The crate's tests go further: their `as_host` runs Rust code (renders,
+//!   parsing) under forced modes on purpose, to show what the default mode protects, which
+//!   the rule calls unsupported; their bodies pass through `black_box` as
+//!   `with_default_mode`'s do, and each forced mode is first shown in force, so a body the
+//!   compiler moved into the default mode would fail loudly, never pass. Accepted, review
+//!   only: no other way gives a native engine call the default mode a host may have
+//!   changed.
 //! - **AMD's MM bit.** Some AMD processors define MXCSR bit 17 (misaligned exception mask);
 //!   it is outside [`CONTROL`], so it is kept as the host set it.
 //! - **The fields.** [`CONTROL`] and [`DEFAULT`] follow the architecture manuals: on
