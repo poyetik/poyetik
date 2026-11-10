@@ -1079,6 +1079,47 @@ where
     );
 }
 
+fn keeps_the_subnormals_of_sums_and_of_delivery<S: Bits>()
+where
+    f32: Delivered<S>,
+{
+    // Neither the plan's sums nor delivery flush (decision 11): 1.5 · 2^-126 and -2^-126,
+    // both normal, sum exactly to 2^-127, a binary32 subnormal, summed into one inlet or
+    // onto one channel from two output boxes, and given to a binary32 host as it is, in
+    // both precisions.
+    let (high, low) = (f32::from_bits(0x00c0_0000), f32::from_bits(0x8080_0000));
+    let consts = || {
+        vec![
+            with_param(node(1, "const~"), "value", high),
+            with_param(node(2, "const~"), "value", low),
+        ]
+    };
+    let into_one_inlet = build::<S>(
+        [consts(), vec![node(3, "mono~")]].concat(),
+        vec![wire(1, 0, 3, 0), wire(2, 0, 3, 0)],
+    )
+    .expect("valid patch");
+    let onto_one_channel = build::<S>(
+        [consts(), vec![node(3, "mono~"), node(4, "mono~")]].concat(),
+        vec![wire(1, 0, 3, 0), wire(2, 0, 4, 0)],
+    )
+    .expect("valid patch");
+    for (plan, place) in [
+        (into_one_inlet, "into one inlet"),
+        (onto_one_channel, "onto one channel"),
+    ] {
+        let delivered: Vec<f32> = Renderer::new(plan).render(2).expect("small render");
+        assert_eq!(
+            delivered
+                .iter()
+                .map(|sample| sample.to_bits())
+                .collect::<Vec<_>>(),
+            [0x0040_0000; 2],
+            "2^-127 summed {place}, delivered as it is"
+        );
+    }
+}
+
 /// Outputs `a × a - 1` through the math layer's `mul_then_add`, with `a` chosen per
 /// precision where one rounding and two differ (`1 + 2^-27`, `1 + 2^-12`): what the
 /// arithmetic mode of the build makes of a box's product then sum.
@@ -1302,6 +1343,7 @@ in_both_precisions!(
     several_output_boxes_are_summed_starting_from_the_first,
     sums_output_boxes_in_box_id_order_whatever_the_execution_order,
     delivers_a_binary64_render_rounded_to_binary32,
+    keeps_the_subnormals_of_sums_and_of_delivery,
     renders_a_product_then_a_sum_in_the_mode_of_the_build,
     sums_three_cables_and_three_outputs_in_the_reduction_order,
     sums_seventeen_cables_and_seventeen_outputs_in_the_reduction_order,
