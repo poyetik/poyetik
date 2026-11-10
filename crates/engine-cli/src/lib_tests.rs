@@ -934,7 +934,7 @@ fn check_command_refuses_algorithm_versions_other_than_blessed() {
         bumped_out,
         format!(
             "{ok}VERSION  sine osc~: at algorithm version 1, the references were blessed with \
-             version 2 (bless again)\n"
+             version 2 (check the renders of the new version, then run bless)\n"
         ),
         "explained"
     );
@@ -1150,7 +1150,7 @@ fn bless_command_writes_sorted_references() {
     let (result, out) = run_with(&mut memory, &["bless", "conf"]);
     assert_eq!(result, Ok(()), "blessed");
     assert_eq!(
-        out, "blessed 2 case(s) in conf/references.json\n",
+        out, "blessed 2 case(s) in conf/references.json and conf/algorithms.json\n",
         "summary"
     );
     let hashes = format!(
@@ -1188,7 +1188,7 @@ fn bless_command_writes_sorted_references() {
         run_with(&mut memory, &["bless", "conf"]).0,
         Err(
             "cannot write conf/algorithms.json: read-only (conf/references.json was written: \
-             bless again)"
+             run bless)"
                 .to_owned()
         ),
         "unwritable algorithm versions, the references written"
@@ -1354,7 +1354,7 @@ fn check_command_names_a_mismatch_under_other_render_rules_as_such() {
     assert!(
         out.ends_with(
             "RULES    the references were rendered under render rules version 0, the engine's is \
-             1 (bless again)\n"
+             1 (run bless)\n"
         ),
         "{out}"
     );
@@ -2185,7 +2185,8 @@ fn bless_and_export_print_safe_lines() {
     let (blessed, bless_out) = run_with(&mut memory, &["bless", "conf\u{1b}[2J"]);
     assert_eq!(blessed, Ok(()), "blessed");
     assert_eq!(
-        bless_out, "blessed 1 case(s) in conf\\u{1b}[2J/references.json\n",
+        bless_out,
+        "blessed 1 case(s) in conf\\u{1b}[2J/references.json and conf\\u{1b}[2J/algorithms.json\n",
         "the directory is escaped"
     );
     let (exported, export_out) = run_with(&mut memory, &["export", "conf\u{1b}[2J", "out"]);

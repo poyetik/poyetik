@@ -101,7 +101,7 @@ pub(crate) fn record_problems(record: &Record, now: &Fingerprints) -> Vec<String
     let mut problems = Vec::new();
     if record.render_hash != SCHEME {
         problems.push(format!(
-            "{status} the references were hashed with {}, the engine with {SCHEME} (bless again)",
+            "{status} the references were hashed with {}, the engine with {SCHEME} (run bless)",
             record.render_hash,
             status = Status::Hash
         ));
@@ -109,7 +109,7 @@ pub(crate) fn record_problems(record: &Record, now: &Fingerprints) -> Vec<String
     if record.render_rules != RENDER_RULES_VERSION {
         problems.push(format!(
             "{status} the references were rendered under render rules version {}, the \
-             engine's is {RENDER_RULES_VERSION} (bless again)",
+             engine's is {RENDER_RULES_VERSION} (run bless)",
             record.render_rules,
             status = Status::Rules
         ));
@@ -132,7 +132,7 @@ pub(crate) fn record_problems(record: &Record, now: &Fingerprints) -> Vec<String
     } else {
         problems.push(format!(
             "{status} the fingerprints were computed with battery {}, the engine's is \
-             {FINGERPRINT_BATTERY} (bless again)",
+             {FINGERPRINT_BATTERY} (run bless)",
             record.fingerprint_battery,
             status = Status::Battery
         ));

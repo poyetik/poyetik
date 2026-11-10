@@ -142,7 +142,7 @@ fn unless_closed<T>(result: std::io::Result<T>, done: T) -> std::io::Result<T> {
 /// Largest case file read, in bytes (64 KiB): a case holds two numbers.
 pub const MAX_CASE_BYTES: usize = 64 * 1024;
 
-/// Largest `references.json` read, in bytes (1 MiB): about 13,000 cases.
+/// Largest `references.json` or `algorithms.json` read, in bytes (1 MiB).
 pub const MAX_REFERENCES_BYTES: usize = 1024 * 1024;
 
 /// Reads a file of at most `limit` bytes, naming it on failure.
@@ -432,7 +432,8 @@ fn version_problems(
             Some(blessed) if blessed == version => None,
             Some(blessed) => Some(format!(
                 "{status} {name} {kind}: at algorithm version {version}, the references were \
-             blessed with version {blessed} (bless again)",
+             blessed with version {blessed} (check the renders of the new version, then \
+             run bless)",
                 status = Status::Version
             )),
             None => Some(format!(
@@ -652,7 +653,7 @@ fn bless(
         .write(&versions_path, blessed_text(&record).as_bytes())
         .map_err(|error| {
             format!(
-                "cannot write {}: {error} ({} was written: bless again)",
+                "cannot write {}: {error} ({} was written: run bless)",
                 versions_path.display(),
                 path.display()
             )
@@ -660,9 +661,10 @@ fn bless(
     say(
         out,
         &OneLine::new(&format!(
-            "blessed {} case(s) in {}",
+            "blessed {} case(s) in {} and {}",
             actual.len(),
-            path.display()
+            path.display(),
+            versions_path.display()
         )),
     )
 }

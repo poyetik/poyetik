@@ -1,9 +1,11 @@
 //! Offline renderer and conformance checker.
 //!
 //! A **conformance case** is a JSON file holding a sample rate and a duration in frames,
-//! with its patch in a file of its own. `engine-cli` renders cases offline with the native engine, writes WAV
-//! files, and compares render hashes with the reference hashes of
-//! `conformance/references.json`, which only `bless` may change.
+//! with its patch in a file of its own. `engine-cli` renders cases offline with the native
+//! engine, in every render format (`render --format` chooses one), writes WAV files, and
+//! compares render hashes with the reference hashes of `conformance/references.json` and
+//! the algorithm versions of their box types with `conformance/algorithms.json`, which
+//! only `bless` may change.
 //!
 //! It runs on `x86_64` and aarch64 only: it renders in the processor's default
 //! floating-point mode (`engine-fpenv`, `spec/engine-design.md` decision 11), and another

@@ -161,11 +161,11 @@ fn check_refuses_every_difference_from_the_current_engine() {
         record_problems(&other, &now),
         [
             "HASH     the references were hashed with render-hash/1, the engine with \
-             render-hash/2 (bless again)",
+             render-hash/2 (run bless)",
             "RULES    the references were rendered under render rules version 0, the engine's \
-             is 1 (bless again)",
-            "BATTERY  the fingerprints were computed with battery 0, the engine's is 1 (bless \
-             again)",
+             is 1 (run bless)",
+            "BATTERY  the fingerprints were computed with battery 0, the engine's is 1 (run \
+             bless)",
         ],
         "every version named, no fingerprint compared across batteries"
     );
