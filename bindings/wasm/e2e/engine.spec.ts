@@ -178,8 +178,14 @@ test("constructs the engine processor within its bound, every time", async ({ pa
   await expect(page.locator("#error")).toHaveText("");
 });
 
-/** The median of `times`, which are not empty. */
+/**
+ * The median of `times`.
+ * @throws {Error} when there is none: no median, rather than a silent 0.
+ */
 function median(times: readonly number[]): number {
+  if (times.length === 0) {
+    throw new Error("no time to take the median of");
+  }
   const sorted = [...times].sort((left, right) => left - right);
   const middle = Math.floor(sorted.length / 2);
   return sorted.length % 2 === 1 ? (sorted[middle] ?? 0) : ((sorted[middle - 1] ?? 0) + (sorted[middle] ?? 0)) / 2;
@@ -200,7 +206,10 @@ test("renders every box benchmark in both precisions within its bound, every tim
           throw new Error("no timeRendering on the bench page");
         }
         const measured: unknown = await Reflect.apply(timer, undefined, [text, at, asked, count, times]);
-        return Array.isArray(measured) ? measured.map(Number) : [];
+        if (!Array.isArray(measured)) {
+          throw new Error(`timeRendering gave ${String(measured)}, not a list of times`);
+        }
+        return measured.map(Number);
       },
       [JSON.stringify(patch), rate, precision, blocks, runs] as const,
     );
@@ -210,8 +219,10 @@ test("renders every box benchmark in both precisions within its bound, every tim
     for (const precision of ["binary64", "binary32"]) {
       const holding = await time(benchmark.patch, benchmark.rate, precision);
       const without = await time(benchmark.without, benchmark.rate, precision);
-      expect(holding).toHaveLength(runs);
-      expect(holding.every((value) => Number.isFinite(value) && value >= 0)).toBe(true);
+      for (const times of [holding, without]) {
+        expect(times).toHaveLength(runs);
+        expect(times.every((value) => Number.isFinite(value) && value >= 0)).toBe(true);
+      }
       slowest.push(Math.max(...holding));
       cost[precision] = median(holding) - median(without);
       // Printed, so that a new measurement of the bound can read them (spec/benchmarks.md).

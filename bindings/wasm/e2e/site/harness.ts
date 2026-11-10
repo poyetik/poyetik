@@ -6,6 +6,7 @@ import { WasmEngine } from "../../dist/engine.js";
 import { interleave, renderHash, STRICT } from "../../dist/hash.js";
 import { PRECISIONS, addProcessors, captureEngine, createEngineNode, givenAsBinary32, loadPatch, renderOffline, type LoadedPatch } from "../../dist/web.js";
 import { fetchOk } from "./fetch.ts";
+import { PAGE_CLOCK, renderBlocks, runsOf, timeEach, timeRuns, timed } from "./timing.ts";
 
 /** The built `AudioWorklet` module that registers the engine and tap processors. */
 const PROCESSORS = new URL("../../dist/worklet/processors.js", import.meta.url);
@@ -113,22 +114,29 @@ on("invalid", async () => {
  * thread). Shows each time in milliseconds, separated by spaces.
  */
 on("construction", async () => {
-  const runs = Number(new URLSearchParams(location.search).get("runs") ?? "1");
+  const runs = runsOf(location.search);
   const context = new AudioContext({ sampleRate: loaded.rate });
-  await addProcessors(context, PROCESSORS);
-  await context.resume();
-  const times: number[] = [];
-  for (let run = 0; run < runs; run += 1) {
-    const start = performance.now();
-    const { node, ready } = createEngineNode(context, loaded, (failure) => {
-      error.value = String(failure);
-    });
-    await ready;
-    times.push(performance.now() - start);
-    node.disconnect();
+  try {
+    await addProcessors(context, PROCESSORS);
+    await context.resume();
+    const times = await timeEach(
+      runs,
+      PAGE_CLOCK,
+      async () => {
+        const { node, ready } = createEngineNode(context, loaded, (failure) => {
+          error.value = String(failure);
+        });
+        await ready;
+        return node;
+      },
+      (node) => {
+        node.disconnect();
+      },
+    );
+    element("construction-ms", HTMLOutputElement).value = times.map((time) => time.toFixed(3)).join(" ");
+  } finally {
+    await context.close();
   }
-  await context.close();
-  element("construction-ms", HTMLOutputElement).value = times.map((time) => time.toFixed(3)).join(" ");
 });
 
 /**
@@ -148,15 +156,11 @@ async function timeRendering(patch: string, rate: number, asked: string, blocks:
   const bytes = new TextEncoder().encode(patch);
   const once = (): number => {
     const engine = WasmEngine.create(module, bytes, rate, givenAsBinary32(chosen));
-    const outputs = Array.from({ length: Math.max(1, engine.channels) }, () => new Float32Array(128));
-    const start = performance.now();
-    for (let quantum = 0; quantum < blocks / 2; quantum += 1) {
-      engine.render(outputs);
-    }
-    return performance.now() - start;
+    return timed(PAGE_CLOCK, () => {
+      renderBlocks(engine, blocks);
+    });
   };
-  once();
-  return Array.from({ length: runs }, once);
+  return timeRuns(runs, once);
 }
 
 Reflect.set(window, "timeRendering", timeRendering);
