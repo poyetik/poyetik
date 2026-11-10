@@ -45,7 +45,7 @@
     {
       "id": 32,
       "title": "Public API of the engine library, in Rust, C and TypeScript",
-      "description": "The engine's public interface, designed in one place and grown with each step of #12 that adds a piece of it: a low-level host API, the box contract, a toolkit of proven DSP building blocks, and a patch builder; exposed in Rust, through a C interface (functions written in Rust with the C calling convention, the bridge every other language can call), and in TypeScript over the WebAssembly module. Other languages come with the work that needs them. Stabilized and versioned by #29.",
+      "description": "The engine's public interface, designed in one place and grown with each step of #12 that adds a piece of it: a low-level host API, the box contract, a toolkit of proven DSP building blocks, and a patch builder; exposed in Rust, through a C interface (functions written in Rust with the C calling convention, the bridge every other language can call), and in TypeScript over the WebAssembly module. The audio library stands alone behind it: the layer above uses it only through this interface, which costs nothing against calling the engine directly, proven by the benchmarks (spec/engine-design.md decisions 32 and 33). Other languages come with the work that needs them. Stabilized and versioned by #29.",
       "column": "next",
       "milestone": "M1 Engine",
       "createdAt": "2026-11-09",
@@ -80,7 +80,7 @@
           "done": false
         },
         {
-          "title": "Every interface checked against the same test vectors and conformance hashes, a gate proving the Rust, C and TypeScript surfaces expose the same functions",
+          "title": "Every interface checked against the same test vectors and conformance hashes, a gate proving the Rust, C and TypeScript surfaces expose the same functions; and the same cost: the engine driven through each public interface counted by the instruction-count benchmarks against the same patches driven directly, within their regression thresholds (block calls, borrowed slices, no call per sample, no dynamic dispatch on hot paths)",
           "done": false
         },
         {
@@ -527,7 +527,7 @@
           "done": false
         },
         {
-          "title": "Render hash: the three implementations accept different domains (rates, half frames) and Rendered has public fields; align the domains, add invalid vectors, make the fields private",
+          "title": "Render hash: the three implementations accept different sample rates (whole frames are now refused alike), and engine-cli's Rendered has public fields; align the rate domains, with a refused vector per bound, and make the fields private",
           "done": false
         },
         {
@@ -547,7 +547,7 @@
           "done": false
         },
         {
-          "title": "references.json: a duplicate key is accepted (the last wins) and hash shapes are not validated; refuse both. Reference hashes change \"only through cargo xtask bless\" is prose: require a reason in commits that touch the file, and drop \"only\"",
+          "title": "References and records: a change of conformance/references.json or algorithms.json goes through bless, which refuses a hand edit or a repeated key and bits changed without a new version, but the commit's reason is prose: require a reason in the commits that touch either file",
           "done": false
         },
         {
@@ -559,7 +559,7 @@
           "done": false
         },
         {
-          "title": "Wasm block copies: whole blocks are copied in host byte order and partial ones little-endian through a JS number, which canonicalizes NaN; assert little-endian at create and copy bits through a Uint32Array",
+          "title": "Wasm sample views: the Float64Array and Float32Array views over WebAssembly memory read it in host byte order, while WebAssembly memory is little-endian; assert a little-endian host at create, refused with its reason (partial blocks are already copied bit for bit through a typed subarray)",
           "done": false
         },
         {
@@ -861,6 +861,10 @@
         {
           "title": "Coverage per instantiation: the coverage gate reads llvm-cov's summary, which merges the instantiations of a generic function, so a branch one instantiation never takes passes (found on 2026-11-10: in engine-core, Renderer<Binary64>::render_into never run on a plan without output and its render never refused, and reduce over blocks never given no term; engine-cli's read_earlier on one map type; engine-testkit's check_rendered and two closures of the laws in one precision). Reading every function record instead is not enough as is: an instantiation by a test's closure type (with_default_mode in engine-fpenv's tests) cannot take both sides of a branch, and a test-only path in hot code costs instructions. Decide which instantiations must be covered whole (those differing in the sample type, at least), how the gate tells them apart without parsing mangled names loosely, and prove it refuses with a fixture crate",
           "done": false
+        },
+        {
+          "title": "SemVer check: a breaking change of a published Rust interface (a removed item, a public field made private, a new required field) went without a ! in its commit six times on one branch; check the public API against the last version tag in the default check (cargo-semver-checks, a new tool to review, or a commit-msg rule requiring ! when ABI_VERSION, a vectors file, the render hash version or a pub use line changes), with a fixture it refuses",
+          "done": false
         }
       ]
     },
@@ -933,8 +937,8 @@
           "done": true
         },
         {
-          "title": "Box algorithm versions, engine side: every box type declares its algorithm version, any change of bits takes a new one, the conformance references record the versions, the render rules version and the box fingerprints they were blessed with, and check and bless refuse bits changed without a new version (the versions in the patch, playing older versions and migrating them: #3 step 7); then a deep review of this block (steps 6 to 8) on its pull request, with a green full check",
-          "done": true
+          "title": "Box algorithm versions, engine side: every box type declares its algorithm version, any change of bits takes a new one, the conformance references record the versions, the render rules version and the box fingerprints they were blessed with, and check and bless refuse bits changed without a new version (the versions in the patch, playing older versions and migrating them: #3 step 7); then the end of this block (steps 6 to 8): a deep review, its decided fixes, and a pull request whose full check is green",
+          "done": false
         },
         {
           "title": "Output stage: raw and protected (safety limiter) modes; non-finite samples always replaced and reported; the playground protected by default",
@@ -953,7 +957,7 @@
           "done": false
         },
         {
-          "title": "Box contract as a public, versioned ABI shared by built-in boxes and third-party externals: explicit state, compile-friendly processing, buffers aligned to 64 bytes and padded, routing resolved when the plan is built; every built-in box giving the same bits directly and through the ABI; instantaneous responses and sub-sample discontinuity ports declared",
+          "title": "Box contract as a public, versioned ABI shared by built-in boxes and third-party externals: explicit state, compile-friendly processing, buffers aligned to 64 bytes and padded, routing resolved when the plan is built; every built-in box giving the same bits and the same cost directly and through the ABI, the cost measured by the instruction-count benchmarks of step 3 with their regression thresholds (spec/engine-design.md decision 33); instantaneous responses and sub-sample discontinuity ports declared",
           "done": false
         },
         {
@@ -973,7 +977,7 @@
           "done": false
         },
         {
-          "title": "Seeded randomness: the seed in the patch, per-box streams from stable box paths, a counter-based generator addressed by frame, exact conversion to floats, a live new-seed mode that logs its seed; its laws; then a deep review of this block (steps 9 to 18) on its pull request, with a green full check",
+          "title": "Seeded randomness: the seed in the patch, per-box streams from stable box paths, a counter-based generator addressed by frame, exact conversion to floats, a live new-seed mode that logs its seed; its laws; then the end of this block (steps 9 to 18): a deep review, its decided fixes, and a pull request whose full check is green",
           "done": false
         },
         {
@@ -989,7 +993,7 @@
           "done": false
         },
         {
-          "title": "Real-time cost: estimate a patch's cost per block before it runs and report its load, so that a valid patch too heavy for real time is flagged (after the benchmarks); measure the copy of every outlet into the bus each block and remove it if it costs; break down the per-sample rounding of a binary64 render to binary32 for delivery (dac~'s binary64 count over its binary32 one) and make it cheaper if a form with the same bits costs less",
+          "title": "Real-time cost: estimate a patch's cost per block before it runs and report its load, so that a valid patch too heavy for real time is flagged (after the benchmarks); measure the real CPU load during playback too: the time per block in the AudioWorklet on the three browser engines and natively, on realistic patches, against the block's time budget, reported as a percentage; measure the copy of every outlet into the bus each block and remove it if it costs; break down the per-sample rounding of a binary64 render to binary32 for delivery (dac~'s binary64 count over its binary32 one) and make it cheaper if a form with the same bits costs less",
           "done": false
         },
         {
@@ -1025,7 +1029,7 @@
           "done": false
         },
         {
-          "title": "Resources: content-addressed by SHA-256, immutable, decoded and resampled off the audio thread with the same code on every target, swapped at a frame, read through handles whether in memory or streamed, underruns logged; then a deep review of this block (steps 19 to 31) on its pull request, with a green full check",
+          "title": "Resources: content-addressed by SHA-256, immutable, decoded and resampled off the audio thread with the same code on every target, swapped at a frame, read through handles whether in memory or streamed, underruns logged; then the end of this block (steps 19 to 31): a deep review, its decided fixes, and a pull request whose full check is green",
           "done": false
         },
         {
@@ -1053,7 +1057,7 @@
           "done": false
         },
         {
-          "title": "Clean the specification and the documentation once the engine is complete: spec/ keeps what and why (decisions, rules, laws, formats, acceptance tests), without planning (the Step and Order lines, the implementation order, what is implemented when, a section named after the ticket); the documentation describes the finished engine; then a deep review of this block (steps 32 to 38) on its pull request, with a green full check",
+          "title": "Clean the specification and the documentation once the engine is complete: spec/ keeps what and why (decisions, rules, laws, formats, acceptance tests), without planning (the Step and Order lines, the implementation order, what is implemented when, a section named after the ticket); the documentation describes the finished engine; then the end of this block (steps 32 to 38): a deep review, its decided fixes, and a pull request whose full check is green",
           "done": false
         }
       ]
