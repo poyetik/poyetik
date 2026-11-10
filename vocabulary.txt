@@ -47,3 +47,11 @@ forbid tap blocks -> render quanta -- GLOSSARY.md: a tap delivers render quanta;
 allow tap block in crates/xtask/src/lib_tests.rs -- the tests of this gate, whose fixtures hold the refused words on purpose
 forbid block -> render quantum in apps/playground/ -- GLOSSARY.md: the playground only receives render quanta from the tap; a block is the engine's
 forbid blocks -> render quanta in apps/playground/ -- GLOSSARY.md: the playground only receives render quanta from the tap
+
+forbid denormal -> subnormal -- GLOSSARY.md: a nonzero float below the smallest normal is subnormal (IEEE 754's word)
+forbid denormals -> subnormals -- GLOSSARY.md: a nonzero float below the smallest normal is subnormal (IEEE 754's word)
+forbid Denormal -> Subnormal -- GLOSSARY.md: a nonzero float below the smallest normal is subnormal (IEEE 754's word)
+forbid Denormals -> Subnormals -- GLOSSARY.md: a nonzero float below the smallest normal is subnormal (IEEE 754's word)
+
+forbid 64-bit render -> binary64 render -- GLOSSARY.md: a render's precision is binary64 or binary32
+forbid 32-bit render -> binary32 render -- GLOSSARY.md: a render's precision is binary64 or binary32

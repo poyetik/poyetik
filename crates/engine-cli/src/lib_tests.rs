@@ -390,7 +390,7 @@ fn writes_a_float_wav_header() {
     assert_eq!(
         wav_header(48_000, 2, 6, RenderFormat::Binary64AsBinary32),
         Ok(header),
-        "binary32 samples given by a 64-bit render"
+        "binary32 samples given by a binary64 render"
     );
     let wide = wav_header(48_000, 2, 6, RenderFormat::Binary64).expect("valid sizes");
     let expected_wide: Vec<u8> = [
@@ -519,7 +519,7 @@ fn encodes_samples_after_their_header() {
     assert_eq!(
         given.wav()[HEADER_LEN..].to_vec(),
         0.25_f32.to_le_bytes().to_vec(),
-        "binary32 samples of a 64-bit render"
+        "binary32 samples of a binary64 render"
     );
     let wide = mono(RenderedSamples::Binary64(vec![0.1_f64, -0.0_f64]));
     let wide_bytes = wide.wav();

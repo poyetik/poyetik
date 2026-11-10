@@ -51,9 +51,9 @@ impl Precision {
 
 /// What a render is: the precision that computed it and the format of its samples.
 ///
-/// A 64-bit render is given as binary64, or rounded to binary32 for a host that takes
-/// binary32 (the browser's audio thread, most device backends); a 32-bit render is given as
-/// binary32. A case has one reference hash per render format.
+/// A binary64 render is given as binary64, or rounded to binary32 for a host that takes
+/// binary32 (the browser's audio thread, most device backends); a binary32 render is given
+/// as binary32. A case has one reference hash per render format.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum RenderFormat {
     /// Computed and given in binary64.
@@ -244,7 +244,7 @@ pub(crate) fn to_binary32(value: f64) -> f32 {
 /// A constructor of box instances computing in `S`.
 pub type Constructor<S> = fn(SampleRate, &[Binary64]) -> Box<dyn Object<S>>;
 
-/// A binary64 value of the engine: a signal sample of a 64-bit render, and in both
+/// A binary64 value of the engine: a signal sample of a binary64 render, and in both
 /// precisions a parameter value and what boxes derive from it (increments, coefficients,
 /// phases).
 ///
@@ -256,7 +256,7 @@ pub type Constructor<S> = fn(SampleRate, &[Binary64]) -> Box<dyn Object<S>>;
 #[repr(transparent)]
 pub struct Binary64(f64);
 
-/// A binary32 value of the engine: a signal sample of a 32-bit render. As [`Binary64`], its
+/// A binary32 value of the engine: a signal sample of a binary32 render. As [`Binary64`], its
 /// operators and comparisons are the math layer's.
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 #[repr(transparent)]

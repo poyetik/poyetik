@@ -28,7 +28,8 @@ export type Precision = (typeof PRECISIONS)[number];
 
 /**
  * The render format of a render computed in `precision` and given to a host that takes
- * binary32 (Web Audio): a 64-bit render is rounded to binary32, a 32-bit one given as it is.
+ * binary32 (Web Audio): a binary64 render is rounded to binary32, a binary32 one given as it
+ * is.
  */
 export function givenAsBinary32(precision: Precision): Binary32Format {
   return GIVEN_AS_BINARY32[precision];

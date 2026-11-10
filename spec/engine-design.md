@@ -230,7 +230,7 @@ Sub-decisions:
 
 ## 10. Precision
 
-**Decision.** **64-bit floating point processing by default on every target**, 32-bit available as a host setting for performance. The engine is generic over its sample type; each precision has **its own reference hashes**, and both are checked natively and in WebAssembly.
+**Decision.** **Binary64 floating-point processing by default on every target**, binary32 available as a host setting for performance. The engine is generic over its sample type; each precision has **its own reference hashes**, and both are checked natively and in WebAssembly.
 
 Sub-decisions:
 
@@ -241,7 +241,7 @@ Sub-decisions:
 - **The hook is proven real**: a test build of the engine core and the boxes with the fused multiply-add option (`poyetik_math = "fused"`, a build-time choice given to that build only) compiles every box unchanged and passes its tests, and shows `mul_then_add` fused, in a render too; xtask runs it and checks the option was in force. The option is built nowhere else, and no engine ships it.
 - The precision setting governs signal buffers and per-frame arithmetic. **Parameter values and values derived from them** (coefficients, increments) are always computed in 64 bits; phase and musical-time accumulators are integers in both precisions.
 - **Parameter values become IEEE 754 binary64** in the patch format (version 2): the nearest binary64 to the JSON number, which is what every JSON reader and JavaScript already produce. Today's binary32 rule stays for version 1 documents, read as their binary32 values.
-- **Delivery to a 32-bit host** (the AudioWorklet, most device backends): the 64-bit output is rounded to binary32, correctly and identically on every target, after the output stage.
+- **Delivery to a host that takes binary32** (the AudioWorklet, most device backends): the binary64 output is rounded to binary32, correctly and identically on every target, after the output stage.
 - **The render hash records the precision**: a new version, `render-hash/2`, adds the sample format of the hashed samples (binary32 or binary64, 4 or 8 bytes each) and the processing precision that produced them. A case therefore has up to three references: 64-bit, 64-bit delivered as binary32 (what a browser captures), and 32-bit.
 - **The render hash also records the arithmetic mode**, so that a later option never forces another re-bless of every reference. `render-hash/2` reserves it now: its header carries the **arithmetic mode** as a versioned set of **arithmetic options**, one flag each; a reader refuses a flag it does not know. With every flag off, the mode is the strict default, the only one built in ticket #12: IEEE 754 operations each correctly rounded, no fused multiply-add, transcendental functions from the pinned pure-Rust `libm`. The flags defined now, each chosen separately when building or exporting, each a build-time choice inside the math layer, never a test at run time:
   1. **fused multiply-add**: deterministic and provable. A fused multiply-add is correctly rounded once (IEEE 754), so it gives the same bits on every target; WebAssembly has no such instruction (only relaxed SIMD's `relaxed_madd`, which may or may not fuse, so it is non-deterministic and banned), so it is emulated there in software, slowly. Its native gain is real but moderate, largest on FIR filters, convolution and matrix kernels, measured with the benchmarks of step 3 before it is offered;
@@ -259,15 +259,15 @@ Sub-decisions:
 
 **Conformance consequence.** Every reference hash changes: the existing `render-hash/1` references are **re-blessed** under `render-hash/2`, for both precisions, through `cargo xtask bless` in a commit that says why. This is a migration step of its own, done before more references accumulate.
 
-**Why.** 64-bit processing removes rounding noise from recursive filters, long mixes and slow modulations, and keeps every box far inside its thresholds; it is what the most demanding professional tools offer.
+**Why.** Binary64 processing removes rounding noise from recursive filters, long mixes and slow modulations, and keeps every box far inside its thresholds; it is what the most demanding professional tools offer.
 
-**Rejected.** 32-bit only (rounding noise in low-frequency recursive filters). 64-bit only (no way to trade precision for CPU on a phone or a heavy browser patch). A precision per subpatch: conversions at every boundary and a hash that no longer names one precision. Fused multiply-add natively and not in WebAssembly for the same render: the bits would differ between targets. Letting a compiler contract `a * b + c` into a fused operation: Rust never does it, and the lint configuration bans `mul_add`. A hash that records the precision only: a later arithmetic mode would force another re-bless of every reference.
+**Rejected.** Binary32 only (rounding noise in low-frequency recursive filters). Binary64 only (no way to trade precision for CPU on a phone or a heavy browser patch). A precision per subpatch: conversions at every boundary and a hash that no longer names one precision. Fused multiply-add natively and not in WebAssembly for the same render: the bits would differ between targets. Letting a compiler contract `a * b + c` into a fused operation: Rust never does it, and the lint configuration bans `mul_add`. A hash that records the precision only: a later arithmetic mode would force another re-bless of every reference.
 
 **Consequences.** Engine: a `Sample` trait for the engine-owned `Binary64` and `Binary32`; every box generic over it, its arithmetic the math layer's; the hash crates and the oracle read both formats. Patch format: version 2, binary64 parameters, with a migration from version 1 (#3 step 7). Hash: `render-hash/2`, with the precision and the arithmetic mode in its header. Tests: every conformance case and every law in both precisions, native and WebAssembly; the measurements of step 2 in both; an unknown arithmetic mode value refused by every reader of the hash; the mode changes the hash (two headers differing only by mode hash differently, in the known-answer vectors).
 
 **Step.** #12 step 6; format version 2: #3 step 7. **Order:** 3.
 
-## 11. Denormal numbers
+## 11. Subnormal numbers
 
 **Decision.** **Flushed to zero deterministically on every target**, in software, at defined points: every box's outputs and every recursive state, each frame; subnormal parameters are zero (decision 5). The native shells **set the floating-point environment to the IEEE default** (no hardware flush-to-zero or denormals-are-zero) for the duration of every engine call, and restore the host's mode after it, so that a plugin host that turned those modes on cannot change a bit; the shells also detect the mode in safe code (a subnormal computed and observed) and report a host whose mode could not be set.
 
@@ -665,7 +665,7 @@ Each step lands with its tests, its format or hash version, and its conformance 
 
 1. **Step 2**, measurements: every later quality claim needs them.
 2. **Step 3**, benchmarks: the cost of the decisions below is measured, not guessed.
-3. **Steps 4 and 5**, denormals and subnormal parameters, then **step 6**, precision and `render-hash/2`, with **step 7**, the reduction order, and **step 8**, box algorithm versions: one re-bless of every reference, in both precisions.
+3. **Steps 4 and 5**, subnormal numbers and subnormal parameters, then **step 6**, precision and `render-hash/2`, with **step 7**, the reduction order, and **step 8**, box algorithm versions: one re-bless of every reference, in both precisions.
 4. **Step 9**, output stage: fixes what a render ends with.
 5. **Steps 10 and 11**, host settings and the engine-block law, then outputs without channels, then **step 12**, execution modes (the mode is a host setting and the box contract's first new field).
 6. **Step 13**, the box contract as a versioned ABI, first (every box is written against it); then **steps 14 and 15**, parameters, events, messages and rates, with **step 16**, message payloads, **step 17**, the control boundary (quotas, return path, the event log's hook) and **step 18**, seeded randomness (draws are addressed by frame and message order): everything after relies on events.

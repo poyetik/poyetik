@@ -170,7 +170,7 @@ fn names_the_precisions_and_the_render_formats() {
     assert_eq!(
         Precision::default(),
         Precision::Binary64,
-        "64-bit by default"
+        "binary64 by default"
     );
     assert_eq!(
         Precision::ALL,

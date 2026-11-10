@@ -76,7 +76,7 @@ fn special_inputs_are_the_same_classes_in_binary64() {
 
 #[test]
 fn every_precision_once_the_default_first() {
-    assert_eq!(PRECISIONS[0], Precision::default(), "64-bit first");
+    assert_eq!(PRECISIONS[0], Precision::default(), "binary64 first");
     assert_eq!(
         PRECISIONS.map(Precision::bits),
         [64, 32],

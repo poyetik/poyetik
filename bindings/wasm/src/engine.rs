@@ -134,7 +134,7 @@ impl Engine {
     }
 
     /// Renders the next block and returns it, one block per output channel, in the render
-    /// format: a 64-bit render given as binary32 is rounded sample by sample
+    /// format: a binary64 render given as binary32 is rounded sample by sample
     /// ([`Sample::from_binary64`]).
     ///
     /// Does not use the heap (no allocation or release).

@@ -112,7 +112,7 @@ describe("WasmEngine", () => {
     expect(RENDER_FORMATS).toStrictEqual(["binary64", "binary64-as-binary32", "binary32"]);
   });
 
-  test("gives a 64-bit render in binary64, or rounded to binary32, and a 32-bit one in binary32", () => {
+  test("gives a binary64 render in binary64, or rounded to binary32, and a binary32 one in binary32", () => {
     const frames = 300;
     const wide = [new Float64Array(frames)];
     WasmEngine.create(module, oscillators([1000.5]), RATE, "binary64").render(wide);
