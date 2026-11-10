@@ -8220,8 +8220,10 @@ fn mutation_rule(path: &str) -> bool {
 /// depends on (from `cargo metadata`, normal, build and development dependencies, at any
 /// depth) and its declared test data ([`RustCrate::test_data`]); a crate's mutants are
 /// tested by its own tests (cargo-mutants' default), so their outcome depends on nothing
-/// else but what every test depends on, the mutation rules and the tools, a change to which
-/// voids the record. Every other crate is mutated exactly as without a record, so the
+/// else but what every test depends on, the mutation rules and the tools it names, a change
+/// to which voids the record. The shell xtask's tests run (`sh`), which has no portable
+/// version to name, is not: an update of it that changed a test's outcome would fail that
+/// test unmutated too (reviewed). Every other crate is mutated exactly as without a record, so the
 /// record never changes what the default check proves. `cargo xtask check --full` and CI
 /// never read a record.
 #[derive(Debug, Clone, PartialEq, Eq)]
