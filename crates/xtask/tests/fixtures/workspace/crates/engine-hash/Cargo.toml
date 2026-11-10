@@ -7,6 +7,8 @@ publish = false
 [lib]
 path = "lib.rs"
 
+# Refused: serde_json, a dependency of the library, is neither reviewed as bit-defining nor
+# pinned.
 [dependencies]
 engine-core = { path = "../engine-core" }
 serde_json = "1"

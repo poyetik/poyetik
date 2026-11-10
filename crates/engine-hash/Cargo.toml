@@ -13,7 +13,7 @@ categories = ["multimedia::audio", "no-std"]
 
 [dependencies]
 engine-core = { path = "../engine-core" }
-sha2 = { version = "0.11", default-features = false }
+sha2 = { workspace = true }
 
 [dev-dependencies]
 serde_json = "1"

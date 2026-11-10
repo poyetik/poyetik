@@ -13,8 +13,10 @@ categories = ["multimedia::audio", "no-std", "parser-implementations"]
 
 [dependencies]
 engine-core = { path = "../engine-core" }
-serde = { version = "1", default-features = false, features = ["alloc", "derive"] }
-serde_json = { version = "1", default-features = false, features = ["alloc", "float_roundtrip"] }
+# Exactly pinned: they read the parameter values a render computes from, so an update follows
+# spec/engine-design.md decision 29 (bit-defining dependencies, dependencies.txt).
+serde = { version = "=1.0.229", default-features = false, features = ["alloc", "derive"] }
+serde_json = { version = "=1.0.154", default-features = false, features = ["alloc", "float_roundtrip"] }
 
 [lints]
 workspace = true

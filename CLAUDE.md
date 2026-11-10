@@ -56,6 +56,7 @@ Public project kanban. The data lives in `apps/roadmap/board.json`, versioned in
 
 - Roadmap changes are made by running the CLI (Claude runs it on the maintainer's request).
 - **Never edit `board.json` by hand**: always use `pnpm roadmap <command>` from `apps/roadmap/` (`list`, `show`, `add`, `move`, `edit`, `rm`, `title`, `step …`, `validate`). Run `pnpm roadmap help` for usage.
+- Every roadmap step a versioned file cites (`#N step M`, `#N steps M and M`, a spec's `**Step.**` line) must exist on the board (checked).
 - **The roadmap is public: never reference `doc/`** (local, unversioned notes) in a ticket title, description or step. A ticket says what is to be done, in its own words.
 - Columns: `later` (Later), `next` (Next), `doing` (In progress), `done` (Done). Milestones are written like "M1 Engine", "M2 Editor"…
 - Cards have ordered **steps** (`step add|done|undo|edit|rm`). A step is either done or not; **in a card of the `doing` column, the first step that is not done is automatically "In progress"**. A card in any other column has no step in progress, so nothing shows as in progress until the card is moved to `doing`. When a step is finished, run `step done <id>` to tick it, which moves "In progress" to the next step (outside `doing`, give the step number: `step done <id> <n>`).
@@ -105,7 +106,8 @@ This is proven, not assumed: `cargo xtask check` builds the core and the boxes (
 - **As few as possible.** Every dependency (library or tool) is a liability: prefer the standard library, then a tool or library already used in the project, then a new one.
 - **Modern, mainstream and well maintained.** Only widely used projects with active maintenance and a healthy community. Nothing obscure, experimental or abandoned.
 - **Every dependency is justified** in the dependency register of the local `doc/architecture.md` (what it is for, why it is needed, why this one). Adding one means adding its entry first. Every direct dependency of a crate or a package is also listed with its reason in `dependencies.txt`, which `cargo xtask check` requires to match the manifests exactly.
-- Versions are locked (`Cargo.lock`, `pnpm-lock.yaml`) and the toolchains are pinned.
+- Versions are locked (`Cargo.lock`, `pnpm-lock.yaml`) and the toolchains are pinned. A dependency whose code computes output samples or hashes, or the values they are computed from, is **bit-defining**: its line in `dependencies.txt` gives a reason starting `bit-defining: `, every normal or build dependency of the audio library is one, and each is pinned to one exact version (`=X.Y.Z`), its updates following `spec/engine-design.md` decision 29 (checked).
+- **The audio library stands alone** (xtask's `LIBRARY_CRATES`): its crates depend, within the project, only on each other, and their tests also on `engine-testkit`; never on the native shell, xtask, the apps or the tooling (checked).
 
 ## Strict typing and linting policy
 

@@ -131,8 +131,9 @@ const DEPENDABOT: &str = "version: 2\nupdates:\n  - package-ecosystem: cargo\n  
 const DENY: &str = "[bans]\n\n[[bans.features]]\ncrate = \"libm\"\nexact = true\nallow = []\n";
 
 /// The Cargo metadata of a workspace whose crate `x` depends on another crate of the
-/// workspace and on one third-party crate.
-const METADATA: &str = r#"{"packages":[{"name":"x","dependencies":[{"name":"engine-core","kind":null,"path":"/r/crates/engine-core"},{"name":"serde_json","kind":null}]}]}"#;
+/// workspace and on one third-party crate, beside the crates of the audio library, which
+/// depend on nothing.
+const METADATA: &str = r#"{"packages":[{"name":"x","dependencies":[{"name":"engine-core","kind":null,"path":"/r/crates/engine-core"},{"name":"serde_json","kind":null}]},{"name":"engine-core"},{"name":"engine-objects"},{"name":"engine-patch"},{"name":"engine-hash"},{"name":"engine-fpenv"},{"name":"engine-wasm"}]}"#;
 
 /// The two license listings, written out: the production dependencies of what ships
 /// (the engine package, the playground and the roadmap), then everything.
@@ -604,6 +605,7 @@ fn passing() -> Fake {
         (CHANGELOG.to_owned(), LOG),
         ("COMMIT_EDITMSG".to_owned(), "feat(core): add the plan\n"),
         (super::CARGO_CONFIG_FILE.to_owned(), super::CARGO_CONFIG),
+        (super::ROADMAP_BOARD.to_owned(), BOARD),
         (super::VOCABULARY.to_owned(), FAKE_WORDS),
         (super::DEPENDABOT.to_owned(), DEPENDABOT),
         (
@@ -867,6 +869,9 @@ fn command_lines(steps: &[Step]) -> Vec<String> {
             Action::TestDataGate => "test data gate".to_owned(),
             Action::FloatMethodGate => "float method gate".to_owned(),
             Action::DependencyGate => "dependency gate".to_owned(),
+            Action::PinGate => "pin gate".to_owned(),
+            Action::LibraryGate => "library gate".to_owned(),
+            Action::CitationGate => "citation gate".to_owned(),
             Action::FusedBuild => "fused build".to_owned(),
             Action::MathLayerGate => "math layer gate".to_owned(),
             Action::SupplyChainGate => "supply chain gate".to_owned(),
@@ -1524,10 +1529,13 @@ fn lists_every_check_in_order() {
             "Root: cargo run --package engine-cli --locked --quiet -- export conformance target/conformance",
             "Root: cargo deny --locked check",
             "dependency gate",
+            "pin gate",
+            "library gate",
             "math layer gate",
             "supply chain gate",
             "membership gate",
             "readme gate",
+            "citation gate",
             "vocabulary gate",
             "version gate",
             "history gate",
@@ -1630,10 +1638,13 @@ fn names_every_check_in_order() {
             "Conformance export (native WAV files)",
             "Rust supply chain",
             "Every direct dependency reviewed",
+            "Bit-defining dependencies pinned to one exact version",
+            "The audio library depends on no other part of the project",
             "Box arithmetic only through the math layer: libm in engine-core and engine-testkit only, no raw float in box code, no iterator reduction outside the math layer",
             "Supply-chain settings: a week before a release, libm without features",
             "Packages and crates known to the checks",
             "Every part described in a README",
+            "Every roadmap step cited exists on the board",
             "The words of the glossary, not their synonyms",
             "One version everywhere, changelog well formed",
             "Commit messages, and a changelog entry for each change of behavior",
@@ -2938,7 +2949,7 @@ fn runs_every_step_and_reports_success() {
         Ok(()),
         "all green"
     );
-    let (tools, commands, emptied, listed, captured, written) = (10, 54, 14, 22, 29, 3);
+    let (tools, commands, emptied, listed, captured, written) = (10, 54, 14, 23, 31, 3);
     let read = 2
         + 7
         + 13
@@ -2959,7 +2970,9 @@ fn runs_every_step_and_reports_success() {
         + 20
         + 3
         + 3 * 8
-        + 2 * 11;
+        + 2 * 11
+        + 1
+        + 87;
     assert_eq!(
         fake.ran.len(),
         tools + commands + emptied + listed + captured + written + read,
@@ -2968,15 +2981,15 @@ fn runs_every_step_and_reports_success() {
          the coverage build, the mutants of the changes, Miri, the \
          conformance check and export, deny, the JavaScript install, audit, the engine build and five package \
          checks each followed by its Stryker run); fourteen directories are emptied; git lists \
-         twelve kinds of files (the box sources among them), the Rust files again for the test code and \
+         thirteen kinds of files (the box sources and the text files that cite the roadmap among them), the Rust files again for the test code and \
          test data gates, the TypeScript ones again for the reports and scope gates of \
          each package after the first; the licenses and the history are captured twice each, the state \
-         of the tree (before, for the proof record and after) six times, the nightly's version and sysroot, the Cargo metadata (for the dependency and the math layer gates), the output of the fused test build, the merge base, the changes, the \
+         of the tree (before, for the proof record and after) six times, the nightly's version and sysroot, the Cargo metadata (for the dependency, pin, library and math layer gates), the output of the fused test build, the merge base, the changes, the \
          new Rust files and the list of every mutant once, git's common directory twice, the tree checked out, \
          cargo-mutants' version, rustc's host, the status for a push and the hidden files for the proof record; the measured base, the diff and the \
          proof record are written once each; the proof record, the measured base and the \
          toolchain file are read for it; and the gates read the eight fake test data readers for the unsafe, bypass and vocabulary gates, every Rust file (eleven) for the test code and test data gates, .node-version and the toolchain file for the preflight, the toolchain file, the four float sources and the float macros of the nightly and clippy.toml for the float gate, thirteen coverage reports, \
-         the unviable report and reviews, the reviews again against the list of every mutant, six TypeScript sources and their reviews, the nine \
+         the unviable report and reviews, the register of the pin gate, the 87 text files of the citation gate (the board among them), the reviews again against the list of every mutant, six TypeScript sources and their reviews, the nine \
          sources, the eleven Cargo manifests and the register of the bypass gate, the three unsafe files, the Cargo \
          configuration, the six package manifests and the register of the dependency gate, the three \
          supply-chain configurations, eleven crate manifests, ten READMEs, the changelog, ten READMEs, three Rust and six TypeScript sources and the vocabulary of the vocabulary gate, eight version files, the workflow and \
@@ -3002,15 +3015,15 @@ fn runs_every_step_and_reports_success() {
     );
     let text = String::from_utf8(out).expect("utf-8 output");
     assert!(
-        text.starts_with("▶ [1/82] Tools and platform\n"),
+        text.starts_with("▶ [1/85] Tools and platform\n"),
         "numbered progress: {text}"
     );
     assert!(
-        text.contains("▶ [78/82] Roadmap checks\n"),
+        text.contains("▶ [81/85] Roadmap checks\n"),
         "last step announced: {text}"
     );
     assert!(
-        text.ends_with("✔ all 82 checks passed\n"),
+        text.ends_with("✔ all 85 checks passed\n"),
         "summary: {text}"
     );
 }
@@ -5979,7 +5992,7 @@ fn checks_a_push_then_runs_every_check() {
     assert!(
         String::from_utf8(out)
             .expect("UTF-8")
-            .ends_with("✔ all 82 checks passed\n"),
+            .ends_with("✔ all 85 checks passed\n"),
         "then every check"
     );
     assert!(
@@ -6435,12 +6448,12 @@ fn prints_the_details_of_a_failure_on_stdout_and_one_line_on_stderr() {
     );
     assert_eq!(
         String::from_utf8(err).expect("UTF-8"),
-        "error: 1 of 80 checks failed, listed above\n",
+        "error: 1 of 83 checks failed, listed above\n",
         "one line on stderr, counting the failed steps"
     );
     assert!(
         String::from_utf8(out).expect("UTF-8").ends_with(&format!(
-            "▶ [80/80] Working tree unchanged by the checks\n\
+            "▶ [83/83] Working tree unchanged by the checks\n\
              not reviewed: crates/a/src/c.rs: replace g -> U with x\n\
              stale review: crates/a/src/b.rs: replace f -> T with Default::default()\n\
              Rust unviable mutants reviewed: unviable mutants must be reviewed in \
@@ -7988,6 +8001,402 @@ fn reviews_the_dependencies_real_cargo_metadata_lists() {
         "every kind, the crates of the workspace apart, a renamed one by its name"
     );
 }
+/// The context of the pin gate's verdict.
+const PINNED: &str = "bit-defining dependencies pinned to one exact version";
+
+/// What the pin gate says of a dependency `key` required as `req`.
+fn unpinned(key: &str, req: &str) -> String {
+    format!(
+        "{key} is required as `{req}`: pin it to one version, `=X.Y.Z`, in its Cargo.toml, so \
+         that an update, which can move bits, is decided alone (spec/engine-design.md, \
+         decision 29)"
+    )
+}
+
+/// What the pin gate says of a dependency `key` of the library not reviewed as bit-defining.
+fn unmarked(key: &str) -> String {
+    format!(
+        "{key}: its code runs in the audio library's: review it in dependencies.txt with a \
+         reason starting `bit-defining: `"
+    )
+}
+
+#[test]
+fn pins_the_bit_defining_dependencies_real_cargo_metadata_lists() {
+    let (metadata, _) = fixture_metadata();
+    let reviewed = "# engine-cli: libm (normal) -- bit-defining: in a comment\n\
+                    engine-core: libm (normal) -- bit-defining: the math layer\n\
+                    engine-testkit: libm (normal) -- the measurements\n\
+                    engine-testkit: sha2 (normal) -- bit-defining: the fingerprints\n\
+                    engine-hash: serde_json (normal) -- reads JSON\n\
+                    engine-hash: sha2 (normal) -- bit-defining: the render hash\n";
+    assert_eq!(
+        super::pin_gate(&metadata, reviewed),
+        found(
+            PINNED,
+            &[
+                unpinned("engine-testkit: sha2 (normal)", "^0.11"),
+                unmarked("engine-hash: serde_json (normal)"),
+                unpinned("engine-hash: serde_json (normal)", "^1"),
+            ]
+        ),
+        "a reviewed one unpinned, one of the library neither reviewed so nor pinned; the \
+         library's tests, another crate's and a comment apart"
+    );
+}
+
+#[test]
+fn reads_one_exact_version_only() {
+    let gate = |req: &str| {
+        super::pin_gate(
+            &format!(
+                r#"{{"packages":[{{"name":"engine-core","dependencies":[{{"name":"libm","kind":"build","req":"{req}"}}]}}]}}"#
+            ),
+            "engine-core: libm (build) -- bit-defining: the math layer\n",
+        )
+    };
+    assert_eq!(gate("=0.2.16"), Ok(()), "one version, a build dependency");
+    assert_eq!(gate("=10.20.300"), Ok(()), "numbers of several digits");
+    for req in [
+        "0.2.16",
+        "^0.2.16",
+        ">=0.2.16",
+        "=0.2",
+        "=0.2.16.1",
+        "=0.2.x",
+        "=0..16",
+        "=.2.16",
+        "=0.2.",
+        "=0.2.16-rc1",
+        "= 0.2.16",
+        "",
+    ] {
+        assert_eq!(
+            gate(req),
+            found(PINNED, &[unpinned("engine-core: libm (build)", req)]),
+            "{req}"
+        );
+    }
+    let missing = super::pin_gate(
+        r#"{"packages":[{"name":"engine-core","dependencies":[{"name":"libm"}]}]}"#,
+        "engine-core: libm (normal) -- reads\n",
+    );
+    assert_eq!(
+        missing,
+        found(
+            PINNED,
+            &[
+                unmarked("engine-core: libm (normal)"),
+                unpinned("engine-core: libm (normal)", "")
+            ]
+        ),
+        "no kind, no requirement"
+    );
+    assert_eq!(
+        super::pin_gate(
+            r#"{"packages":[{"name":"engine-cli","dependencies":[{"name":"x","req":"1"}]}]}"#,
+            "engine-cli: x (normal) --bit-defining: no space\nengine-cli: x (normal)  -- reads\n"
+        ),
+        Ok(()),
+        "a crate outside the library, a reason not starting with the mark"
+    );
+    assert!(
+        super::pin_gate("not json", "")
+            .is_err_and(|failure| failure.summary.starts_with("invalid cargo metadata: ")),
+        "the metadata's error"
+    );
+}
+
+/// The context of the library gate's verdict.
+const LIBRARY: &str = "the audio library depends on no other part of the project";
+
+/// What the library gate says of `library` depending on `name` (`kind`, at `path`).
+fn outside_library(library: &str, name: &str, kind: &str, path: &str) -> String {
+    format!(
+        "{library} depends on {name} ({kind}, {path}): the audio library depends only on its \
+         own crates (engine-core, engine-objects, engine-patch, engine-hash, engine-fpenv, \
+         engine-wasm), its tests also on engine-testkit; move what it needs into the library, \
+         or the dependency out of it"
+    )
+}
+
+#[test]
+fn keeps_the_library_apart_in_real_cargo_metadata() {
+    let (metadata, root) = fixture_metadata();
+    let cli = format!("{root}/crates/engine-cli");
+    assert_eq!(
+        super::library_gate(&metadata),
+        found(
+            LIBRARY,
+            &[
+                outside_library("engine-objects", "engine-cli", "normal", &cli),
+                outside_library("engine-wasm", "engine-cli", "dev", &cli),
+            ]
+        ),
+        "the native shell in the code and in the tests; the test bench in the tests, the \
+         library's own crates and third-party crates allowed"
+    );
+}
+
+#[test]
+fn refuses_a_library_that_reaches_outside_itself() {
+    let packages = |core: &str| {
+        let others = r#"{"name":"engine-objects"},{"name":"engine-patch"},{"name":"engine-hash"},{"name":"engine-fpenv"},"#;
+        format!(
+            r#"{{"packages":[{others}{{"name":"engine-wasm"}},{{"name":"engine-core","dependencies":[{core}]}}]}}"#
+        )
+    };
+    let dependency = |name: &str, kind: &str, path: &str| {
+        format!(r#"{{"name":"{name}","kind":{kind},"path":"{path}"}}"#)
+    };
+    let gate = |core: &str| super::library_gate(&packages(core));
+    for allowed in [
+        dependency("engine-hash", "null", "/r/crates/engine-hash"),
+        dependency("engine-wasm", "\"build\"", "/r/bindings/wasm"),
+        dependency("engine-testkit", "\"dev\"", "/r/crates/engine-testkit"),
+        r#"{"name":"serde","kind":null}"#.to_owned(),
+    ] {
+        assert_eq!(gate(&allowed), Ok(()), "{allowed}");
+    }
+    for (name, kind, path, said) in [
+        (
+            "engine-testkit",
+            "null",
+            "/r/crates/engine-testkit",
+            "normal",
+        ),
+        (
+            "engine-testkit",
+            "\"build\"",
+            "/r/crates/engine-testkit",
+            "build",
+        ),
+        (
+            "engine-alloc-counter",
+            "\"dev\"",
+            "/r/crates/engine-alloc-counter",
+            "dev",
+        ),
+        ("xtask", "null", "/r/crates/xtask", "normal"),
+        ("engine-hash", "null", "/r/apps/engine-hash", "normal"),
+        ("engine-hash", "null", "/r/crates/engine-hashx", "normal"),
+        (
+            "engine-testkit",
+            "\"dev\"",
+            "/r/tooling/engine-testkit",
+            "dev",
+        ),
+        ("player", "null", "/r/apps/player", "normal"),
+    ] {
+        assert_eq!(
+            gate(&dependency(name, kind, path)),
+            found(LIBRARY, &[outside_library("engine-core", name, said, path)]),
+            "{name} {kind} {path}"
+        );
+    }
+    assert_eq!(
+        super::library_gate(r#"{"packages":[{"name":"engine-core"}]}"#),
+        found(
+            LIBRARY,
+            &[
+                "engine-objects",
+                "engine-patch",
+                "engine-hash",
+                "engine-fpenv",
+                "engine-wasm"
+            ]
+            .map(|name| {
+                format!("{name}: not in the cargo metadata, so its dependencies cannot be checked")
+            })
+        ),
+        "a crate of the library missing"
+    );
+    assert!(
+        super::library_gate("{}")
+            .is_err_and(|failure| failure.summary == "cargo metadata lists no packages"),
+        "the metadata's error"
+    );
+}
+
+/// The context of the citation gate's verdict.
+const CITATIONS: &str = "every roadmap step cited exists on the board";
+
+/// A board of two cards: #12 of three steps, #3 of one.
+const BOARD: &str =
+    r#"{"version":1,"cards":[{"id":12,"tasks":[{},{},{}]},{"id":3,"tasks":[{"title":"x"}]}]}"#;
+
+/// The citation gate on the board [`BOARD`] and one file, `x.md`, holding `text`. A card is
+/// written `\u{23}N` in this file, so that the gate, reading it, sees no citation here.
+fn cite(text: &str) -> Result<(), Failure> {
+    super::citation_gate(&[
+        (super::ROADMAP_BOARD.to_owned(), BOARD.to_owned()),
+        ("x.md".to_owned(), text.to_owned()),
+    ])
+}
+
+#[test]
+fn accepts_the_steps_a_board_has() {
+    for text in [
+        "\u{23}12 step 3",
+        "see \u{23}12 steps 1 and 2.",
+        "\u{23}12, step 1",
+        "(\u{23}12 (step 2 of it)",
+        "\u{23}12 steps 1, 2, and 3",
+        "\u{23}12 steps 1, 2 and 3",
+        "\u{23}12 steps 1 to 3",
+        "\u{23}12 steps 2 or 3; \u{23}3 step 1",
+        "**Step.** \u{23}12 step 1 (with step 3). **Order:** 3, before step 2.",
+        "  **Step.** Engine: \u{23}12 step 3; format: \u{23}3 step 1, the port at step 1.",
+        "card \u{23}1 (entry 1) step 9",
+        "C\u{23}12 step 9, &\u{23}12 step 9, x\u{23}12 step 9",
+        "step 9 of the plan, steps 9 and 10",
+        "\u{23}12, ( step 9",
+        "\u{23}99, \u{23}12 Steps 9, \u{23}12 stepping 9, \u{23}12 step",
+        "",
+    ] {
+        assert_eq!(cite(text), Ok(()), "{text}");
+    }
+    assert_eq!(
+        super::citation_gate(&[(super::ROADMAP_BOARD.to_owned(), BOARD.to_owned())]),
+        Ok(()),
+        "the board alone"
+    );
+}
+
+#[test]
+fn refuses_a_step_the_board_does_not_have() {
+    let past = |step: u64| {
+        format!(
+            "x.md:1: cites \u{23}12 step {step}, but \u{23}12 has 3 steps: cite one of them, \
+             or add it (`pnpm roadmap step add 12 …`)"
+        )
+    };
+    for (text, problems) in [
+        ("\u{23}12 step 4", vec![past(4)]),
+        ("\u{23}12 step 0", vec![past(0)]),
+        ("\u{23}12 steps 2 to 5", vec![past(4), past(5)]),
+        ("\u{23}12 steps 1, 4 and 9", vec![past(4), past(9)]),
+        ("\u{23}12 steps 1, and 4", vec![past(4)]),
+        ("\u{23}12 steps 1 or 4", vec![past(4)]),
+        (
+            "\u{23}12 step 18446744073709551615",
+            vec![past(18_446_744_073_709_551_615)],
+        ),
+        (
+            "\u{23}7 step 1",
+            vec!["x.md:1: cites \u{23}7 step 1, but the board has no card \u{23}7".to_owned()],
+        ),
+        ("**Step.** \u{23}12 step 1 (with step 4).", vec![past(4)]),
+        (
+            "**Step.** \u{23}3 step 1, then \u{23}12: at step 4.",
+            vec![past(4)],
+        ),
+        ("\u{23}12 step 3 \u{23}12 step 4 step 5", vec![past(4)]),
+        ("\u{23}12  step 4", vec![past(4)]),
+        ("\u{23}12,step 4", vec![past(4)]),
+        ("\u{23}12step 4", vec![past(4)]),
+    ] {
+        let problems: Vec<String> = problems;
+        assert_eq!(cite(text), found(CITATIONS, &problems), "{text}");
+    }
+    assert_eq!(
+        cite("\u{23}12 step 1\n\n\u{23}12 step 4\n"),
+        found(CITATIONS, &[past(4).replace("x.md:1:", "x.md:3:")]),
+        "the line named"
+    );
+}
+
+#[test]
+fn refuses_a_citation_it_cannot_read() {
+    let at = |problem: &str| format!("x.md:1: {problem}");
+    for (text, problem) in [
+        ("\u{23}12 step one", "a step without its number"),
+        ("\u{23}12, steps x", "a step without its number"),
+        (
+            "\u{23}12 step 99999999999999999999",
+            "a step without its number",
+        ),
+        (
+            "\u{23}12 steps 3 to 1",
+            "the range of steps 3 to 1 does not rise",
+        ),
+        (
+            "\u{23}12 steps 2 to 2",
+            "the range of steps 2 to 2 does not rise",
+        ),
+        (
+            "\u{23}12 steps 1-3",
+            "a range of steps from 1 written with a dash: write `1 to N`",
+        ),
+        (
+            "\u{23}12 steps 1 and 2–3",
+            "a range of steps from 2 written with a dash: write `2 to N`",
+        ),
+        (
+            "**Step.** step 2, then \u{23}12 step 1.",
+            "a step cited without its card: write `\u{23}N step 2`",
+        ),
+        (
+            "**Step.** Engine block.",
+            "a **Step.** line citing no roadmap step: write `\u{23}N step M`",
+        ),
+        (
+            "**Step.** \u{23}12 steps 3 to 1.",
+            "the range of steps 3 to 1 does not rise",
+        ),
+    ] {
+        assert_eq!(cite(text), found(CITATIONS, &[at(problem)]), "{text}");
+    }
+    assert_eq!(cite("\u{23}12 steps 1-x"), Ok(()), "a dash, then no number");
+}
+
+#[test]
+fn reads_the_board_as_the_roadmap_writes_it() {
+    let gate = |board: &str| {
+        super::citation_gate(&[(super::ROADMAP_BOARD.to_owned(), board.to_owned())])
+            .map_err(|failure| failure.summary)
+    };
+    assert!(
+        gate("{").is_err_and(|summary| summary
+            .starts_with("cannot read the roadmap board apps/roadmap/board.json: ")),
+        "not JSON"
+    );
+    for board in ["{}", r#"{"cards":{}}"#] {
+        assert_eq!(
+            gate(board),
+            Err("apps/roadmap/board.json lists no cards (see: pnpm roadmap validate)".to_owned()),
+            "{board}"
+        );
+    }
+    for board in [
+        r#"{"cards":[{"tasks":[]}]}"#,
+        r#"{"cards":[{"id":"12","tasks":[]}]}"#,
+        r#"{"cards":[{"id":12}]}"#,
+        r#"{"cards":[{"id":12,"tasks":{}}]}"#,
+    ] {
+        assert_eq!(
+            gate(board),
+            Err(
+                "apps/roadmap/board.json holds a card without its number or its steps (see: \
+                 pnpm roadmap validate)"
+                    .to_owned()
+            ),
+            "{board}"
+        );
+    }
+    assert_eq!(
+        super::citation_gate(&[("x.md".to_owned(), String::new())])
+            .map_err(|failure| failure.summary),
+        Err("cannot read the roadmap board apps/roadmap/board.json".to_owned()),
+        "no board"
+    );
+    assert_eq!(
+        gate(r#"{"cards":[{"id":12,"tasks":[]}]}"#),
+        Ok(()),
+        "a card without steps"
+    );
+}
+
 #[test]
 fn refuses_workflows_that_could_pass_without_checking() {
     let gate = |workflows: &[&str], workflow: &str| {
@@ -9578,8 +9987,8 @@ fn the_parts_run_every_step_of_the_full_check_once() {
     }
     assert_eq!(
         steps_run,
-        18 * 3 + (80 - 3 - 7 - 2) + 8 * 2 + 1 + 2 + 6 * 3 + 1,
-        "each part's frame (three steps); every other step of the 80 once, but the seven \
+        18 * 3 + (83 - 3 - 7 - 2) + 8 * 2 + 1 + 2 + 6 * 3 + 1,
+        "each part's frame (three steps); every other step of the 83 once, but the seven \
          preparations, the mutation run and its unviable gate; in each of the eight shards, \
          the report emptied and the shard's run; the gate over the shards; the conformance \
          export (two steps) for the oracle; the JavaScript preparation (three steps) for the \

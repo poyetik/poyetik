@@ -576,6 +576,15 @@ pub enum Action {
     FloatMethodGate,
     /// Require every direct dependency to be reviewed, and every review current.
     DependencyGate,
+    /// Require every bit-defining dependency to be pinned to one exact version
+    /// ([`pin_gate`]).
+    PinGate,
+    /// Require the audio library to depend on no other part of the project
+    /// ([`library_gate`]).
+    LibraryGate,
+    /// Require every roadmap step a tracked file cites to exist on the board
+    /// ([`citation_gate`]).
+    CitationGate,
     /// Build and test the engine core and the boxes with the math layer's fused multiply-add
     /// option ([`fused_command`]), and require the option to have been in force
     /// ([`fused_gate`]).
@@ -1159,7 +1168,8 @@ pub fn miri_command() -> Cmd {
     Cmd::new("cargo", &args, Dir::Root)
 }
 
-/// The supply chain and the dependencies, every one reviewed.
+/// The supply chain and the dependencies: every one reviewed, the bit-defining ones pinned,
+/// the audio library standing alone.
 fn dependency_steps() -> Vec<Step> {
     vec![
         run(
@@ -1171,6 +1181,14 @@ fn dependency_steps() -> Vec<Step> {
         Step {
             name: "Every direct dependency reviewed".to_owned(),
             action: Action::DependencyGate,
+        },
+        Step {
+            name: "Bit-defining dependencies pinned to one exact version".to_owned(),
+            action: Action::PinGate,
+        },
+        Step {
+            name: "The audio library depends on no other part of the project".to_owned(),
+            action: Action::LibraryGate,
         },
     ]
 }
@@ -1238,6 +1256,10 @@ fn consistency_steps() -> Vec<(Role, Step)> {
         Step {
             name: "Every part described in a README".to_owned(),
             action: Action::ReadmeGate,
+        },
+        Step {
+            name: "Every roadmap step cited exists on the board".to_owned(),
+            action: Action::CitationGate,
         },
         Step {
             name: "The words of the glossary, not their synonyms".to_owned(),
@@ -3672,6 +3694,373 @@ pub fn dependency_gate(
         &format!("direct dependencies must be reviewed in {DEPENDENCIES_REVIEWED}"),
         problems,
     )
+}
+
+/// The start of the reason of a bit-defining dependency's review ([`DEPENDENCIES_REVIEWED`]).
+///
+/// Its code computes output samples or hashes, or the values they are computed from
+/// (`spec/engine-design.md`, decision 29).
+pub const BIT_DEFINING: &str = "bit-defining: ";
+
+/// The crates of the audio library: a library usable on its own, which needs nothing else
+/// of the project (`spec/engine-design.md`).
+pub const LIBRARY_CRATES: [&str; 6] = [
+    "engine-core",
+    "engine-objects",
+    "engine-patch",
+    "engine-hash",
+    "engine-fpenv",
+    "engine-wasm",
+];
+
+/// The crates of the project the tests of the audio library may use beside it (its
+/// development dependencies), never its code.
+pub const LIBRARY_TEST_CRATES: [&str; 1] = ["engine-testkit"];
+
+/// Whether `req`, a version requirement as cargo metadata writes it, names exactly one
+/// version: `=X.Y.Z`.
+fn exact_version(req: &str) -> bool {
+    req.strip_prefix('=').is_some_and(|version| {
+        let parts: Vec<&str> = version.split('.').collect();
+        parts.len() == 3
+            && parts
+                .iter()
+                .all(|part| !part.is_empty() && part.chars().all(|digit| digit.is_ascii_digit()))
+    })
+}
+
+/// Checks that every bit-defining dependency is pinned to one exact version.
+///
+/// A dependency is bit-defining when its review in `reviewed` ([`DEPENDENCIES_REVIEWED`])
+/// gives a reason starting with [`BIT_DEFINING`]; every normal or build dependency of the
+/// audio library ([`LIBRARY_CRATES`]) must be reviewed so, since its code runs in the
+/// library's. Each must be required as `=X.Y.Z` in its crate's manifest (as `metadata`, the
+/// output of [`metadata_command`], gives it), so that an update, which can move bits, is
+/// a decision of its own and never a side effect of another.
+///
+/// # Errors
+///
+/// Returns every dependency of the library not reviewed as bit-defining and every
+/// bit-defining dependency not pinned, or why the metadata cannot be read.
+pub fn pin_gate(metadata: &str, reviewed: &str) -> Result<(), Failure> {
+    let marked: BTreeSet<&str> = reviewed
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.starts_with('#'))
+        .filter_map(|line| line.split_once(" -- "))
+        .filter(|(_, reason)| reason.starts_with(BIT_DEFINING))
+        .map(|(key, _)| key.trim())
+        .collect();
+    let mut problems = Vec::new();
+    for (name, krate) in cargo_packages(metadata)? {
+        let dependencies = krate
+            .get("dependencies")
+            .and_then(serde_json::Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter(|dependency| dependency.get("path").is_none());
+        for dependency in dependencies {
+            let text = |key: &str| dependency.get(key).and_then(serde_json::Value::as_str);
+            let kind = text("kind").unwrap_or("normal");
+            let key = format!("{name}: {} ({kind})", text("name").unwrap_or_default());
+            let library = LIBRARY_CRATES.contains(&name.as_str()) && kind != "dev";
+            let bits = marked.contains(key.as_str());
+            if library && !bits {
+                problems.push(format!(
+                    "{key}: its code runs in the audio library's: review it in \
+                     {DEPENDENCIES_REVIEWED} with a reason starting `{BIT_DEFINING}`"
+                ));
+            }
+            let req = text("req").unwrap_or_default();
+            if (library || bits) && !exact_version(req) {
+                problems.push(format!(
+                    "{key} is required as `{req}`: pin it to one version, `=X.Y.Z`, in its \
+                     Cargo.toml, so that an update, which can move bits, is decided alone \
+                     (spec/engine-design.md, decision 29)"
+                ));
+            }
+        }
+    }
+    verdict(
+        "bit-defining dependencies pinned to one exact version",
+        problems,
+    )
+}
+
+/// Checks that the audio library ([`LIBRARY_CRATES`]) stands alone: each of its crates
+/// depends, among the crates of the project, only on its own, and its tests also on
+/// [`LIBRARY_TEST_CRATES`].
+///
+/// `metadata` is the output of [`metadata_command`]; a dependency of the project is one
+/// with a `path`, named and placed as a crate of [`RUST_CRATES`]. A third-party dependency
+/// is reviewed by [`dependency_gate`], and pinned by [`pin_gate`] when it is the library's.
+///
+/// # Errors
+///
+/// Returns every other dependency of a crate of the library on the project, every crate
+/// of the library the metadata does not list, or why the metadata cannot be read.
+pub fn library_gate(metadata: &str) -> Result<(), Failure> {
+    let packages = cargo_packages(metadata)?;
+    let mut problems = Vec::new();
+    for library in LIBRARY_CRATES {
+        let Some((_, krate)) = packages.iter().find(|(name, _)| name == library) else {
+            problems.push(format!(
+                "{library}: not in the cargo metadata, so its dependencies cannot be checked"
+            ));
+            continue;
+        };
+        let dependencies = krate
+            .get("dependencies")
+            .and_then(serde_json::Value::as_array)
+            .into_iter()
+            .flatten();
+        for dependency in dependencies {
+            let text = |key: &str| dependency.get(key).and_then(serde_json::Value::as_str);
+            let Some(path) = text("path") else {
+                continue;
+            };
+            let name = text("name").unwrap_or_default();
+            let kind = text("kind").unwrap_or("normal");
+            let allowed = |crates: &[&str]| {
+                crates.contains(&name)
+                    && RUST_CRATES.iter().any(|known| {
+                        known.name == name && path.ends_with(&format!("/{}", known.dir))
+                    })
+            };
+            if !(allowed(&LIBRARY_CRATES) || (kind == "dev" && allowed(&LIBRARY_TEST_CRATES))) {
+                problems.push(format!(
+                    "{library} depends on {name} ({kind}, {path}): the audio library depends \
+                     only on its own crates ({}), its tests also on {}; move what it needs \
+                     into the library, or the dependency out of it",
+                    LIBRARY_CRATES.join(", "),
+                    LIBRARY_TEST_CRATES.join(", ")
+                ));
+            }
+        }
+    }
+    verdict(
+        "the audio library depends on no other part of the project",
+        problems,
+    )
+}
+
+/// The roadmap board, written only by `pnpm roadmap` (`apps/roadmap/`).
+pub const ROADMAP_BOARD: &str = "apps/roadmap/board.json";
+
+/// The tracked files the citation gate reads: every kind of text file that can cite a
+/// roadmap step, the board included.
+pub const CITATION_SOURCES: [&str; 13] = [
+    "*.md", "*.rs", "*.ts", "*.tsx", "*.mts", "*.js", "*.mjs", "*.astro", "*.json", "*.toml",
+    "*.txt", "*.yml", "*.yaml",
+];
+
+/// The number of steps of each card of `board` ([`ROADMAP_BOARD`]), by card number.
+///
+/// # Errors
+///
+/// Returns why the board cannot be read.
+fn board_steps(board: &str) -> Result<BTreeMap<u64, usize>, Failure> {
+    let json: serde_json::Value = serde_json::from_str(board).map_err(|error| {
+        Failure::from(format!(
+            "cannot read the roadmap board {ROADMAP_BOARD}: {error}"
+        ))
+    })?;
+    json.get("cards")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| {
+            Failure::from(format!(
+                "{ROADMAP_BOARD} lists no cards (see: pnpm roadmap validate)"
+            ))
+        })?
+        .iter()
+        .map(|card| {
+            let id = card.get("id").and_then(serde_json::Value::as_u64);
+            let steps = card
+                .get("tasks")
+                .and_then(serde_json::Value::as_array)
+                .map(Vec::len);
+            id.zip(steps).ok_or_else(|| {
+                Failure::from(format!(
+                    "{ROADMAP_BOARD} holds a card without its number or its steps (see: pnpm \
+                     roadmap validate)"
+                ))
+            })
+        })
+        .collect()
+}
+
+/// The number `text` opens with, and the text after it.
+fn leading_number(text: &str) -> Option<(u64, &str)> {
+    let rest = text.trim_start_matches(|digit: char| digit.is_ascii_digit());
+    let digits = text.strip_suffix(rest)?;
+    digits.parse().ok().map(|number| (number, rest))
+}
+
+/// The ways one step number follows another in a list of steps: the last is a range from
+/// the number before it.
+const STEP_SEPARATORS: [&str; 5] = [", and ", ", ", " and ", " or ", " to "];
+
+/// The steps the list `text` opens with cites (`M`, then any of [`STEP_SEPARATORS`] and a
+/// number), and the text after it.
+///
+/// # Errors
+///
+/// Returns why the list cannot be read: a range that does not rise, or written with a dash.
+fn step_list(text: &str) -> Result<(Vec<u64>, &str), String> {
+    let (first, mut rest) =
+        leading_number(text).ok_or_else(|| "a step without its number".to_owned())?;
+    let mut steps = vec![first];
+    let mut previous = first;
+    while let Some((separator, (number, after))) = STEP_SEPARATORS.iter().find_map(|separator| {
+        rest.strip_prefix(separator)
+            .and_then(leading_number)
+            .map(|found| (*separator, found))
+    }) {
+        if separator == " to " {
+            if number <= previous {
+                return Err(format!(
+                    "the range of steps {previous} to {number} does not rise"
+                ));
+            }
+            steps.extend(previous.saturating_add(1)..=number);
+        } else {
+            steps.push(number);
+        }
+        previous = number;
+        rest = after;
+    }
+    if rest
+        .strip_prefix(['-', '–'])
+        .is_some_and(|after| after.starts_with(|digit: char| digit.is_ascii_digit()))
+    {
+        return Err(format!(
+            "a range of steps from {previous} written with a dash: write `{previous} to N`"
+        ));
+    }
+    Ok((steps, rest))
+}
+
+/// The roadmap steps `line` cites, each (card, step), and what in it the gate cannot read.
+///
+/// A step is cited as `#N step M` or `#N steps <list>` ([`step_list`]), with a comma,
+/// spaces and an opening parenthesis allowed between them (`#N, step M`, `#N (step M`). On a line of a
+/// spec opening with `**Step.**`, which must cite one, a list after `step` or `steps`
+/// alone cites the card named last before it on the line.
+fn line_citations(line: &str) -> (Vec<(u64, u64)>, Vec<String>) {
+    let step_line = line.trim_start().starts_with("**Step.**");
+    let mut cited = Vec::new();
+    let mut problems = Vec::new();
+    let mut card = None;
+    let mut rest = line;
+    let mut before = ' ';
+    while let Some(first) = rest.chars().next() {
+        let after_first = rest.get(first.len_utf8()..).unwrap_or_default();
+        let ticket = (first == '#' && !before.is_alphanumeric() && before != '&')
+            .then(|| leading_number(after_first))
+            .flatten();
+        let (named, list) = if let Some((number, after)) = ticket {
+            card = Some(number);
+            let follower = after.strip_prefix(',').unwrap_or(after);
+            let follower = follower.trim_start_matches(' ');
+            let follower = follower.strip_prefix('(').unwrap_or(follower);
+            let Some(list) = ["steps ", "step "]
+                .iter()
+                .find_map(|word| follower.strip_prefix(word))
+            else {
+                before = '0';
+                rest = after;
+                continue;
+            };
+            (Some(number), list)
+        } else if (before == ' ' || before == '(')
+            && let Some(list) = ["steps ", "step "]
+                .iter()
+                .find_map(|word| rest.strip_prefix(word))
+                .filter(|list| list.starts_with(|digit: char| digit.is_ascii_digit()))
+        {
+            if !step_line {
+                before = first;
+                rest = after_first;
+                continue;
+            }
+            if card.is_none() {
+                problems.push(format!(
+                    "a step cited without its card: write `#N step {}`",
+                    leading_number(list).map_or(0, |(number, _)| number)
+                ));
+            }
+            (card, list)
+        } else {
+            before = first;
+            rest = after_first;
+            continue;
+        };
+        match step_list(list) {
+            Ok((steps, after)) => {
+                if let Some(number) = named {
+                    cited.extend(steps.into_iter().map(|step| (number, step)));
+                }
+                before = '0';
+                rest = after;
+            }
+            Err(problem) => {
+                problems.push(problem);
+                before = '0';
+                rest = list;
+            }
+        }
+    }
+    if step_line && cited.is_empty() && problems.is_empty() {
+        problems.push("a **Step.** line citing no roadmap step: write `#N step M`".to_owned());
+    }
+    (cited, problems)
+}
+
+/// Checks that every roadmap step a tracked file cites exists on the board.
+///
+/// `sources` are the tracked files of [`CITATION_SOURCES`] (path and text), the board
+/// ([`ROADMAP_BOARD`]) among them. A line cites a step as `#N step M` or `#N steps` and a
+/// list (`M, M and M`, `M or M`, `M to M`), a comma, spaces or an opening parenthesis
+/// allowed after the card; on a spec's `**Step.**` line, which must cite one, `step M`
+/// alone cites the card named last before it. A step is cited by its number, so a step or
+/// a card the board does not have means the citation is stale or wrong.
+///
+/// # Errors
+///
+/// Returns every citation of a step or a card the board does not have, every citation
+/// the gate cannot read, or why the board cannot be read.
+pub fn citation_gate(sources: &[(String, String)]) -> Result<(), Failure> {
+    let board = sources
+        .iter()
+        .find(|(path, _)| path == ROADMAP_BOARD)
+        .map(|(_, text)| text.as_str())
+        .ok_or_else(|| Failure::from(format!("cannot read the roadmap board {ROADMAP_BOARD}")))?;
+    let steps = board_steps(board)?;
+    let mut problems = Vec::new();
+    for (path, text) in sources {
+        for (index, line) in text.lines().enumerate() {
+            let at = format!("{path}:{}", index.saturating_add(1));
+            let (cited, unread) = line_citations(line);
+            problems.extend(unread.into_iter().map(|problem| format!("{at}: {problem}")));
+            for (card, step) in cited {
+                match steps.get(&card) {
+                    None => problems.push(format!(
+                        "{at}: cites #{card} step {step}, but the board has no card #{card}"
+                    )),
+                    Some(&count)
+                        if usize::try_from(step).map_or(true, |step| step == 0 || step > count) =>
+                    {
+                        problems.push(format!(
+                            "{at}: cites #{card} step {step}, but #{card} has {count} steps: \
+                             cite one of them, or add it (`pnpm roadmap step add {card} …`)"
+                        ));
+                    }
+                    Some(_) => {}
+                }
+            }
+        }
+    }
+    verdict("every roadmap step cited exists on the board", problems)
 }
 
 /// The crates that may depend on `libm` outside their tests (`spec/engine-design.md`,
@@ -7625,6 +8014,18 @@ fn dependencies(runner: &mut dyn Runner) -> Result<(), Failure> {
     )
 }
 
+/// Reads what the pin gate checks, and runs it ([`pin_gate`]).
+fn pins(runner: &mut dyn Runner) -> Result<(), Failure> {
+    let metadata = crates_metadata(runner)?;
+    pin_gate(&metadata, &read_file(runner, DEPENDENCIES_REVIEWED)?)
+}
+
+/// Reads the tracked text files, and runs the citation gate on them ([`citation_gate`]).
+fn citations(runner: &mut dyn Runner) -> Result<(), Failure> {
+    let paths = list_tracked(runner, &CITATION_SOURCES, "the text files")?;
+    citation_gate(&read_all(runner, paths)?)
+}
+
 /// Runs the fused test build ([`fused_command`]) and checks its option was in force.
 fn fused_build(runner: &mut dyn Runner) -> Result<(), Failure> {
     let output = runner
@@ -7666,6 +8067,9 @@ fn run_action(
         Action::FreshDirs(paths) => paths.iter().try_for_each(|path| fresh(runner, path)),
         Action::MembershipGate => membership(runner),
         Action::ReadmeGate => readmes(runner),
+        Action::CitationGate => citations(runner),
+        Action::PinGate => pins(runner),
+        Action::LibraryGate => library_gate(&crates_metadata(runner)?),
         Action::VocabularyGate => {
             let paths = list_tracked(runner, &VOCABULARY_SOURCES, "the prose files")?;
             let sources = read_all(runner, paths)?;
