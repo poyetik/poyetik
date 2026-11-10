@@ -50,5 +50,9 @@
   "sine-440.25-at-96k": {
     "dac~": 1,
     "osc~": 1
+  },
+  "sines-summed-from-17-and-3-cables": {
+    "dac~": 1,
+    "osc~": 1
   }
 }

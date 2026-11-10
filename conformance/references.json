@@ -63,5 +63,10 @@
     "binary32": "91e164cbd8e2e35a9a22ee940f5bc0fc5b5eafe478d4db8cf1e9db3b25dda427",
     "binary64": "4597c283950de327f69e2e2ee20c63ee8ab6ea30f4b7cb20f990adb241166806",
     "binary64-as-binary32": "774334a57e439ddbb1b3992370e48bb491900a9316e393d6674c94e8507f66e9"
+  },
+  "sines-summed-from-17-and-3-cables": {
+    "binary32": "5d3f4491052461a9cb77ca0afdd45c1f86a48c4585bc9d395bda6df91711b95b",
+    "binary64": "456b719ef9797f28be4a6cd7b800af41a5dcbefa1b99749585336376deb6edee",
+    "binary64-as-binary32": "5a0075883f5764faeec0000482a44fa4613fded22050a5132d6b59b362affa25"
   }
 }

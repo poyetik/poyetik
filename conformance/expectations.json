@@ -102,5 +102,13 @@
       { "sine": { "frequency": 440.25, "amplitude": 1, "phase": 0 } },
       { "sine": { "frequency": 440.25, "amplitude": 1, "phase": 0 } }
     ]
+  },
+  "sines-summed-from-17-and-3-cables": {
+    "sample_rate": 48000,
+    "frames": 4800,
+    "channels": [
+      { "sine": { "frequency": 1000, "amplitude": 1, "phase": 0 } },
+      { "sine": { "frequency": 440, "amplitude": 1, "phase": 0 } }
+    ]
   }
 }
