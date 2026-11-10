@@ -7694,11 +7694,16 @@ pub const PROOF_RECORDS: &str = "poyetik/rust-mutants-proven";
 /// against, for [`Action::MutationProofRecorded`].
 pub const MEASURED_BASE: &str = "target/xtask/mutants-base";
 
-/// The first line of a mutation proof record: its format, version 3.
+/// The first line of a mutation proof record, before its format: [`PROOF_RECORD_FORMAT`].
+pub const PROOF_RECORD_TAG: &str = "poyetik rust-mutants-proven";
+
+/// The format of the mutation proof records this xtask writes and reads, after
+/// [`PROOF_RECORD_TAG`] on their first line.
 ///
 /// Version 1, which reused lines rather than crates, and version 2, which named neither the
-/// compiler's build nor the linker, are never read.
-pub const PROOF_RECORD_TAG: &str = "poyetik rust-mutants-proven 3";
+/// compiler's build nor the linker, are never read: a record of another format is ignored,
+/// its format said.
+pub const PROOF_RECORD_FORMAT: u32 = 3;
 
 /// What decides how the default check scopes its mutation testing, beside the tools.
 ///
@@ -7753,12 +7758,12 @@ fn object_name(text: &str) -> bool {
 }
 
 impl ProofRecord {
-    /// The record as its file holds it: [`PROOF_RECORD_TAG`], then one `key value` line
-    /// per field.
+    /// The record as its file holds it: [`PROOF_RECORD_TAG`] and [`PROOF_RECORD_FORMAT`],
+    /// then one `key value` line per field.
     #[must_use]
     pub fn text(&self) -> String {
         let mut text = format!(
-            "{PROOF_RECORD_TAG}\ncommit {}\ntree {}\nbase {}\n",
+            "{PROOF_RECORD_TAG} {PROOF_RECORD_FORMAT}\ncommit {}\ntree {}\nbase {}\n",
             self.commit, self.tree, self.base
         );
         for (key, value) in self.tools.fields() {
@@ -7774,15 +7779,36 @@ impl ProofRecord {
     ///
     /// # Errors
     ///
-    /// Returns what is malformed: another first line, a field missing, out of order,
-    /// repeated or empty, an object name that is not one, or a line more.
+    /// Returns the format of a record of another format (its tag, then a number written
+    /// as Rust writes one), or what is malformed: another first line, a field missing, out
+    /// of order, repeated or empty, an object name that is not one, or a line more.
     pub fn parse(text: &str) -> Result<Self, String> {
         let mut lines = text
             .strip_suffix('\n')
             .ok_or_else(|| "it does not end with a line break".to_owned())?
             .split('\n');
-        if lines.next() != Some(PROOF_RECORD_TAG) {
-            return Err(format!("its first line is not `{PROOF_RECORD_TAG}`"));
+        let first = lines.next().unwrap_or_default();
+        let format = first
+            .strip_prefix(PROOF_RECORD_TAG)
+            .and_then(|rest| rest.strip_prefix(' '))
+            .and_then(|number| {
+                number
+                    .parse::<u32>()
+                    .ok()
+                    .filter(|parsed| parsed.to_string() == number)
+            });
+        match format {
+            Some(PROOF_RECORD_FORMAT) => {}
+            Some(other) => {
+                return Err(format!(
+                    "it was written in format {other}; this xtask reads format {PROOF_RECORD_FORMAT}"
+                ));
+            }
+            None => {
+                return Err(format!(
+                    "its first line is not `{PROOF_RECORD_TAG} {PROOF_RECORD_FORMAT}`"
+                ));
+            }
         }
         let mut field = |key: &str| {
             lines

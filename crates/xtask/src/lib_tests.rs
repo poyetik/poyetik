@@ -10974,10 +10974,6 @@ fn reads_exactly_the_proof_records_it_writes() {
             "it does not end with a line break",
         ),
         (
-            text.replacen("proven 3", "proven 2", 1),
-            "its first line is not `poyetik rust-mutants-proven 3`",
-        ),
-        (
             text.replacen("commit ", "comit ", 1),
             "it has no `commit` line where expected",
         ),
@@ -11041,6 +11037,63 @@ fn reads_exactly_the_proof_records_it_writes() {
         assert!(
             refused(&text.replacen('1', name, 1)).is_some(),
             "{name} is no hexadecimal digit"
+        );
+    }
+}
+
+#[test]
+fn names_the_format_of_a_proof_record_of_another_format() {
+    let text = proof_record(PROVEN[2]).text();
+    for (malformed, reason) in [
+        (
+            text.replacen("proven 3", "proven 2", 1),
+            "it was written in format 2; this xtask reads format 3",
+        ),
+        (
+            text.replacen("proven 3", "proven 4", 1),
+            "it was written in format 4; this xtask reads format 3",
+        ),
+        (
+            text.replacen("proven 3", "proven 10", 1),
+            "it was written in format 10; this xtask reads format 3",
+        ),
+        (
+            text.replacen("proven 3", "proven 03", 1),
+            "its first line is not `poyetik rust-mutants-proven 3`",
+        ),
+        (
+            text.replacen("proven 3", "proven +3", 1),
+            "its first line is not `poyetik rust-mutants-proven 3`",
+        ),
+        (
+            text.replacen("proven 3", "proven 3x", 1),
+            "its first line is not `poyetik rust-mutants-proven 3`",
+        ),
+        (
+            text.replacen("proven 3", "proven ", 1),
+            "its first line is not `poyetik rust-mutants-proven 3`",
+        ),
+        (
+            text.replacen("proven 3", "proven -2", 1),
+            "its first line is not `poyetik rust-mutants-proven 3`",
+        ),
+        (
+            text.replacen("proven 3", "proven  3", 1),
+            "its first line is not `poyetik rust-mutants-proven 3`",
+        ),
+        (
+            text.replacen("proven 3", "proven3", 1),
+            "its first line is not `poyetik rust-mutants-proven 3`",
+        ),
+        (
+            text.replacen("poyetik rust-mutants-proven 3", "other 2", 1),
+            "its first line is not `poyetik rust-mutants-proven 3`",
+        ),
+    ] {
+        assert_eq!(
+            super::ProofRecord::parse(&malformed).err(),
+            Some(reason.to_owned()),
+            "{malformed:?}"
         );
     }
 }
