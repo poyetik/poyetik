@@ -75,6 +75,16 @@ Through `cargo xtask bless-benchmarks` (the process rule above), which builds th
 - `dac~`'s binary64 count holds the per-sample rounding of its channels to binary32 for delivery, which binary32 does not pay (binary32 is delivered as it is); a patch pays it once per output sample, not per box. Which part of that rounding costs most is not measured yet: roadmap #12 step 22 breaks it down.
 - What the counts cannot see (above): a binary64 sample is twice the memory and bandwidth of a binary32 one, a vector holds half as many (the module has no vector instructions yet), and an instruction of the binary64 sine counts as one of the binary32 sine whatever their latencies. The wall times of "Rendering each box" measure the real ratio on each browser engine.
 
+### Same cost through every interface
+
+No architecture choice may cost performance (`engine-design.md`, decision 33): the libraries are crates of one program and one WebAssembly module, and an interface between them costs nothing against calling the code directly. The instruction counts prove it, never an argument:
+
+- **The box contract's ABI** (roadmap #12 step 13): every box benchmark is counted twice, the box called directly and through the ABI form, with the same patch, rate and precision; the count through the ABI is held to the direct count within the tolerance above, as the renders are held to the same bits.
+- **The public interface** (roadmap #32 step 8): the engine driven through its public interface (Rust, the C interface, TypeScript over the module) is counted against the same patches driven directly, with the same tolerance.
+- **The precedent**: the sample newtypes `Binary64` and `Binary32` (decision 10) add no instruction to the counts of plain floats (roadmap #24 step 86 makes that comparison exact).
+
+A benchmark through an interface that exceeds its direct count beyond the tolerance fails the check like any other regression; the interface is changed, never the tolerance.
+
 ## Construction of the engine processor
 
 The engine processor compiles the module, instantiates it, parses the patch and builds its plan on the audio thread, once, before it renders (`engine-design.md`, decision 15; a known deviation of CLAUDE.md's real-time constraint). The end-to-end test "constructs the engine processor within its bound, every time" times it `runs` times per browser engine (Chromium, Firefox, WebKit, at desktop and iPhone sizes), each time from creating an engine node (copying the module and the patch into its options included) to its processor's `ready` message, on the bench page's "Time construction" button, with the sine-440 patch. It prints the times it measured.
