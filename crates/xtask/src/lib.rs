@@ -438,6 +438,13 @@ pub const PORTABILITY_TARGETS: [&str; 4] = [
     "thumbv7em-none-eabihf",
 ];
 
+/// Targets of the native shell (`engine-cli`) and of its floating-point mode
+/// (`engine-fpenv`), whose code differs by architecture.
+///
+/// Each is linted for both, whatever the machine, so that CI (`x86_64` Linux) compiles the
+/// aarch64 code and a Mac the `x86_64` code.
+pub const NATIVE_TARGETS: [&str; 2] = ["aarch64-apple-darwin", "x86_64-unknown-linux-gnu"];
+
 /// Directory a command runs in, relative to the repository root.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Dir {
@@ -855,6 +862,32 @@ fn portability_steps() -> Vec<Step> {
                     "engine-patch",
                     "--package",
                     "engine-hash",
+                    "--locked",
+                    "--target",
+                    target,
+                ],
+                Dir::Root,
+            )
+        })
+        .collect()
+}
+
+/// The native shell and its floating-point mode linted for each of [`NATIVE_TARGETS`]
+/// (Clippy type-checks without linking, so no linker of the other target is needed).
+fn native_lint_steps() -> Vec<Step> {
+    NATIVE_TARGETS
+        .iter()
+        .map(|&target| {
+            run(
+                &format!("Native shell lints ({target})"),
+                "cargo",
+                &[
+                    "clippy",
+                    "--package",
+                    "engine-fpenv",
+                    "--package",
+                    "engine-cli",
+                    "--all-targets",
                     "--locked",
                     "--target",
                     target,
@@ -1313,6 +1346,7 @@ fn roles(mode: Mode) -> Vec<(Role, Step)> {
         opening_steps(),
         tagged(rust, static_steps()),
         tagged(rust, portability_steps()),
+        tagged(rust, native_lint_steps()),
         proof_steps(mode),
         consistency_steps(),
         typescript_steps(mode),

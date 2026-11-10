@@ -4,6 +4,10 @@
 //! with its patch in a file of its own. `engine-cli` renders cases offline with the native engine, writes WAV
 //! files, and compares render hashes with the reference hashes of
 //! `conformance/references.json`, which only `bless` may change.
+//!
+//! It runs on `x86_64` and aarch64 only: it renders in the processor's default
+//! floating-point mode (`engine-fpenv`, `spec/engine-design.md` decision 11), and another
+//! architecture refuses to build until its mode is set there.
 
 #![forbid(unsafe_code)]
 
