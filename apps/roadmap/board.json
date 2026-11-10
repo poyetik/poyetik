@@ -519,7 +519,7 @@
           "done": false
         },
         {
-          "title": "Patch format spec: say how output boxes form the channels and in which order several are summed onto one channel, and that parameter ranges apply to the binary32 value; add a case with three output boxes and two range tests",
+          "title": "Patch format spec: say how output boxes form the channels and that several are summed onto one channel by box id (the engine's rule, spec/engine-design.md decision 28), and that parameter ranges apply to the binary32 value; add a case with three output boxes and two range tests",
           "done": false
         },
         {

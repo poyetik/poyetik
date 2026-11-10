@@ -1009,6 +1009,47 @@ fn several_output_boxes_are_summed_starting_from_the_first<S: Bits>() {
     );
 }
 
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "S is f32 or f64: IEEE 754 addition, which neither overflows nor panics"
+)]
+fn sums_output_boxes_in_box_id_order_whatever_the_execution_order<S: Bits>() {
+    // Output boxes 1, 2 and 3 fed by constants 9 (e), 4 (1) and 5 (e): they run in the
+    // order 2, 3, 1 (each after its source, the smallest ready id first), but a channel sums
+    // them by box id, like buses: terms e, 1, e, so (e + e) + 1 in the reduction order, the
+    // float just above 1, where the execution order's (1 + e) + e is 1. `e` is between a
+    // quarter and half an ulp of 1, in the precision of the render.
+    let tiny = match S::PRECISION {
+        Precision::Binary64 => 8.326_673e-17_f32,
+        Precision::Binary32 => 3.0e-8_f32,
+    };
+    let mut plan = build::<S>(
+        vec![
+            node(1, "mono~"),
+            node(2, "mono~"),
+            node(3, "mono~"),
+            with_param(node(4, "const~"), "value", 1.0),
+            with_param(node(5, "const~"), "value", tiny),
+            with_param(node(9, "const~"), "value", tiny),
+        ],
+        vec![wire(9, 0, 1, 0), wire(4, 0, 2, 0), wire(5, 0, 3, 0)],
+    )
+    .expect("valid patch");
+    assert_eq!(
+        plan.execution_order().collect::<Vec<_>>(),
+        [4, 2, 5, 3, 9, 1].map(NodeId),
+        "the outputs run in the order 2, 3, 1"
+    );
+    let (one, small) = (of::<S>(1.0), of::<S>(f64::from(tiny)));
+    let by_id = (small + small) + one;
+    assert_ne!(
+        by_id.bits(),
+        ((one + small) + small).bits(),
+        "the values reveal the order"
+    );
+    assert_eq!(run(&mut plan, 1)[0][0].bits(), by_id.bits(), "by box id");
+}
+
 fn delivers_a_binary64_render_rounded_to_binary32<S: Bits>()
 where
     f32: Delivered<S>,
@@ -1259,6 +1300,7 @@ in_both_precisions!(
     a_single_cable_passes_its_samples_bit_for_bit,
     several_cables_are_summed_starting_from_the_first,
     several_output_boxes_are_summed_starting_from_the_first,
+    sums_output_boxes_in_box_id_order_whatever_the_execution_order,
     delivers_a_binary64_render_rounded_to_binary32,
     renders_a_product_then_a_sum_in_the_mode_of_the_build,
     sums_three_cables_and_three_outputs_in_the_reduction_order,

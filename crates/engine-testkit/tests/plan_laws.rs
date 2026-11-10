@@ -306,7 +306,7 @@ mod tests {
     /// Deliberately simple and independent of the plan: the boxes run in `order`, one
     /// block at a time; each inlet sums its cables in the canonical cable order (source,
     /// outlet), and is silent without one; each output channel sums the matching inlets of
-    /// the output boxes, in execution order, and is silent without one, every sum in the
+    /// the output boxes, by box id, and is silent without one, every sum in the
     /// reduction order ([`reduce`]); there are as many channels as the widest output box
     /// has inlets.
     fn reference_render<S: Sample>(
@@ -351,7 +351,7 @@ mod tests {
         let mut outputs: BTreeMap<NodeId, Vec<Block<S>>> = BTreeMap::new();
         let mut samples = Vec::new();
         while samples.len() < frames.saturating_mul(channels) {
-            let mut out: Vec<Vec<Block<S>>> = vec![Vec::new(); channels];
+            let mut fed: BTreeMap<NodeId, Vec<Block<S>>> = BTreeMap::new();
             for id in order {
                 let node = by_id[id];
                 let inputs: Vec<Block<S>> = (0..spec(node).inlets.len())
@@ -371,12 +371,19 @@ mod tests {
                     .process(&inputs, &mut produced);
                 drop(outputs.insert(*id, produced));
                 if is_output(node) {
-                    for (channel, input) in out.iter_mut().zip(&inputs) {
-                        channel.push(*input);
-                    }
+                    drop(fed.insert(*id, inputs));
                 }
             }
-            let summed: Vec<Block<S>> = out.iter().map(|channel| reduce(channel)).collect();
+            let summed: Vec<Block<S>> = (0..channels)
+                .map(|channel| {
+                    let terms: Vec<Block<S>> = fed
+                        .values()
+                        .filter_map(|inputs| inputs.get(channel))
+                        .copied()
+                        .collect();
+                    reduce(&terms)
+                })
+                .collect();
             for frame in 0..BLOCK_SIZE {
                 samples.extend(summed.iter().map(|channel| channel[frame]));
             }

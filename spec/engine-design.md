@@ -595,7 +595,7 @@ Sub-decisions:
 
 **Decision.** **Every sum of more than two terms** that a box or the engine computes in one place (mixing, cables into one inlet, buses, FIR filters, convolution, dot products, the sums inside an FFT where there are any) follows one specified, vectorizable order:
 
-- the terms are numbered `k = 0 … n-1` by the order the decision concerned already fixes (cables in their fixed order, decision 6; taps by index; senders by box id);
+- the terms are numbered `k = 0 … n-1` by the order the decision concerned already fixes (cables in their fixed order, decision 6; taps by index; senders by box id; the output boxes summed onto one channel by box id, like buses, whatever the cables that set the execution order);
 - term `k` goes to **lane** `k mod 16`; each of the 16 lanes sums its terms in increasing `k`, starting from -0 (the exact identity of IEEE 754 addition: `x + (-0)` is `x` for every `x`, -0 included);
 - a sum of no terms is +0;
 - the 16 lane sums are combined by a fixed pairwise tree: lane `i` with lane `i + 8`, then `i` with `i + 4`, then `i + 2`, then `i + 1`, for `i` from 0.

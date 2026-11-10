@@ -55,8 +55,8 @@ pub struct Plan<S: Sample> {
     /// Every outlet of every box, boxes in id order: what connections read from.
     bus: Vec<Block<S>>,
     /// The instances whose inputs go to the engine output (boxes with
-    /// [`Capability::AudioOutput`]), in execution order: channel `c` sums the inlets `c` of
-    /// those that have one, in that order.
+    /// [`Capability::AudioOutput`]), by box id: channel `c` sums the inlets `c` of those that
+    /// have one, in that order.
     outputs: Vec<usize>,
     /// Number of engine output channels.
     channels: usize,
@@ -270,13 +270,15 @@ impl<S: Sample> Plan<S> {
                 }
             })
             .collect();
-        // The output boxes, by their place in the execution order.
-        let outputs: Vec<usize> = instances
+        // The output boxes, by box id (like buses, decision 6): the order a channel sums
+        // them in, whatever the cables that set the execution order.
+        let mut outputs: Vec<usize> = instances
             .iter()
             .enumerate()
             .filter(|(_, instance)| instance.is_output)
             .map(|(index, _)| index)
             .collect();
+        outputs.sort_by_key(|&index| instances.get(index).map(|instance| instance.node));
         // As many channels as the widest output box has inlets.
         let channels = outputs
             .iter()
@@ -310,7 +312,7 @@ impl<S: Sample> Plan<S> {
     /// Channels beyond `out.len()` are dropped; extra blocks in `out` receive silence.
     /// The cables into an inlet, and the output boxes on a channel, are summed by the
     /// reduction order of decision 28 of `spec/engine-design.md` (cables in their canonical
-    /// order, output boxes in execution order): a single one passes its samples bit for
+    /// order, output boxes by box id): a single one passes its samples bit for
     /// bit (`-0.0` and NaN payloads included).
     /// Does not use the heap. The samples are written as the boxes computed them: never
     /// clipped to ±1, scaled or sanitized, so that every target renders the same bits. The
