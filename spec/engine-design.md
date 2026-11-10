@@ -661,7 +661,7 @@ Sub-decisions:
 
 ## 32. Standalone libraries
 
-**Decision.** The **audio library** is a separate library, usable as it is: its crates (`engine-core`, `engine-objects`, `engine-patch`, `engine-hash`, `engine-fpenv` and `engine-wasm`, xtask's `LIBRARY_CRATES`) need nothing else of the project, neither the editor nor the coordinating layer nor any sibling library (decision 1). A sibling library (the visual one when it comes) stands alone the same way. The **coordinating layer** sits above the libraries and uses each only through its public interface: time alignment between them, the choice of clock, scenes and cues that span several of them.
+**Decision.** The **audio library** is a separate library, usable as it is: its crates (`engine-core`, `engine-objects`, `engine-patch`, `engine-hash`, `engine-fpenv` and `engine-wasm`, the crates of xtask's `RUST_CRATES` holding `CrateRole::Library`) need nothing else of the project, neither the editor nor the coordinating layer nor any sibling library (decision 1). A sibling library (the visual one when it comes) stands alone the same way. The **coordinating layer** sits above the libraries and uses each only through its public interface: time alignment between them, the choice of clock, scenes and cues that span several of them.
 
 Sub-decisions:
 

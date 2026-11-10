@@ -44,6 +44,47 @@ pub struct RustCrate {
     /// checked by [`test_data_gate`]: a change to one of them can weaken its tests as much
     /// as a change to its test code.
     pub test_data: &'static [&'static str],
+    /// What the rules of the checks take it for ([`CrateRole`]): the one place a crate's
+    /// role is written, every list of crates of one role derived from it
+    /// ([`crates_in`]).
+    pub roles: &'static [CrateRole],
+}
+
+/// A role of a crate of [`RUST_CRATES`] that a rule of the checks depends on; a crate may
+/// hold several.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CrateRole {
+    /// A crate of the audio library: a library usable on its own, which needs nothing else
+    /// of the project (`spec/engine-design.md`, decision 32; [`library_gate`]).
+    Library,
+    /// A crate the tests of the audio library may use beside it (a development dependency),
+    /// never its code ([`library_gate`]).
+    LibraryTests,
+    /// A crate that may depend on `libm` outside its tests (`spec/engine-design.md`,
+    /// decision 10; [`math_layer_gate`]): the engine core, whose math layer is the only
+    /// path from box arithmetic to a math function, and the test kit, whose measurements
+    /// must not share the arithmetic of the boxes they measure. A box crate is `no_std`,
+    /// where `f32` and `f64` have no math method: without `libm`, it can only reach the
+    /// math layer's. A test may use `libm` directly (a development dependency), for
+    /// references computed apart from the code under test.
+    Libm,
+    /// A crate whose sources the math layer gate reads, which may have no build script.
+    MathLayer,
+    /// Code for tests: a change below its directory can let a mutant of any crate whose
+    /// tests use it survive, so it widens the default check to all of them. Every crate the
+    /// workspace reaches only through development dependencies, directly or through such
+    /// crates, holds it ([`shared_tests_gate`]).
+    SharedTests,
+}
+
+/// The names of the crates of [`RUST_CRATES`] that hold `role`, in their order.
+#[must_use]
+pub fn crates_in(role: CrateRole) -> Vec<&'static str> {
+    RUST_CRATES
+        .iter()
+        .filter(|krate| krate.roles.contains(&role))
+        .map(|krate| krate.name)
+        .collect()
 }
 
 impl RustCrate {
@@ -65,6 +106,7 @@ pub const RUST_CRATES: [RustCrate; 10] = [
         dir: "crates/engine-core",
         binary: false,
         test_data: &["conformance/test-matrix.json"],
+        roles: &[CrateRole::Library, CrateRole::Libm, CrateRole::MathLayer],
     },
     RustCrate {
         name: "engine-objects",
@@ -74,30 +116,35 @@ pub const RUST_CRATES: [RustCrate; 10] = [
             "spec/benchmark-baseline.json",
             "spec/measurement-vectors.json",
         ],
+        roles: &[CrateRole::Library, CrateRole::MathLayer],
     },
     RustCrate {
         name: "engine-patch",
         dir: "crates/engine-patch",
         binary: false,
         test_data: &["spec/safe-message-vectors.json"],
+        roles: &[CrateRole::Library],
     },
     RustCrate {
         name: "engine-hash",
         dir: "crates/engine-hash",
         binary: false,
         test_data: &["spec/render-hash-vectors.json"],
+        roles: &[CrateRole::Library],
     },
     RustCrate {
         name: "engine-alloc-counter",
         dir: "crates/engine-alloc-counter",
         binary: false,
         test_data: &[],
+        roles: &[CrateRole::SharedTests],
     },
     RustCrate {
         name: "engine-fpenv",
         dir: "crates/engine-fpenv",
         binary: false,
         test_data: &["conformance/"],
+        roles: &[CrateRole::Library],
     },
     RustCrate {
         name: "engine-testkit",
@@ -107,18 +154,25 @@ pub const RUST_CRATES: [RustCrate; 10] = [
             "conformance/test-matrix.json",
             "spec/measurement-vectors.json",
         ],
+        roles: &[
+            CrateRole::LibraryTests,
+            CrateRole::Libm,
+            CrateRole::SharedTests,
+        ],
     },
     RustCrate {
         name: "engine-cli",
         dir: "crates/engine-cli",
         binary: true,
         test_data: &["conformance/"],
+        roles: &[],
     },
     RustCrate {
         name: "engine-wasm",
         dir: "bindings/wasm",
         binary: false,
         test_data: &[],
+        roles: &[CrateRole::Library],
     },
     RustCrate {
         name: "xtask",
@@ -128,6 +182,7 @@ pub const RUST_CRATES: [RustCrate; 10] = [
         // hooks, which they run; the gates that read the rest of the repository are steps
         // of every check, not tests that kill its mutants.
         test_data: &[".githooks/"],
+        roles: &[],
     },
 ];
 
@@ -138,6 +193,7 @@ pub const COVERAGE_LOCALITY: RustCrate = RustCrate {
     dir: "crates/xtask/tests/fixtures/coverage-locality",
     binary: false,
     test_data: &[],
+    roles: &[],
 };
 
 /// What a coverage measurement covers.
@@ -597,7 +653,8 @@ pub enum Action {
     /// ([`pin_gate`]).
     PinGate,
     /// Require the audio library to depend on no other part of the project
-    /// ([`library_gate`]).
+    /// ([`library_gate`]), and every crate only tests use to be shared test code
+    /// ([`shared_tests_gate`]).
     LibraryGate,
     /// Require every roadmap step a tracked file cites to exist on the board
     /// ([`citation_gate`]).
@@ -606,7 +663,7 @@ pub enum Action {
     /// option ([`fused_command`]), and require the option to have been in force
     /// ([`fused_gate`]).
     FusedBuild,
-    /// Require `libm` to be a dependency of the crates of [`LIBM_CRATES`] only, outside
+    /// Require `libm` to be a dependency of the crates of [`CrateRole::Libm`] only, outside
     /// tests: boxes reach math functions through the engine's math layer alone
     /// ([`math_layer_gate`]).
     MathLayerGate,
@@ -1225,7 +1282,9 @@ fn dependency_steps() -> Vec<Step> {
             action: Action::PinGate,
         },
         Step {
-            name: "The audio library depends on no other part of the project".to_owned(),
+            name: "The audio library depends on no other part of the project, and every crate \
+                   only tests use is shared test code"
+                .to_owned(),
             action: Action::LibraryGate,
         },
     ]
@@ -4143,21 +4202,6 @@ pub fn dependency_gate(
 /// (`spec/engine-design.md`, decision 29).
 pub const BIT_DEFINING: &str = "bit-defining: ";
 
-/// The crates of the audio library: a library usable on its own, which needs nothing else
-/// of the project (`spec/engine-design.md`).
-pub const LIBRARY_CRATES: [&str; 6] = [
-    "engine-core",
-    "engine-objects",
-    "engine-patch",
-    "engine-hash",
-    "engine-fpenv",
-    "engine-wasm",
-];
-
-/// The crates of the project the tests of the audio library may use beside it (its
-/// development dependencies), never its code.
-pub const LIBRARY_TEST_CRATES: [&str; 1] = ["engine-testkit"];
-
 /// Whether `req`, a version requirement as cargo metadata writes it, names exactly one
 /// version: `=X.Y.Z`.
 fn exact_version(req: &str) -> bool {
@@ -4174,7 +4218,7 @@ fn exact_version(req: &str) -> bool {
 ///
 /// A dependency is bit-defining when its review in `reviewed` ([`DEPENDENCIES_REVIEWED`])
 /// gives a reason starting with [`BIT_DEFINING`]; every normal or build dependency of the
-/// audio library ([`LIBRARY_CRATES`]) must be reviewed so, since its code runs in the
+/// audio library ([`CrateRole::Library`]) must be reviewed so, since its code runs in the
 /// library's. Each must be required as `=X.Y.Z` in its crate's manifest (as `metadata`, the
 /// output of [`metadata_command`], gives it), so that an update, which can move bits, is
 /// a decision of its own and never a side effect of another.
@@ -4204,7 +4248,7 @@ pub fn pin_gate(metadata: &str, reviewed: &str) -> Result<(), Failure> {
             let text = |key: &str| dependency.get(key).and_then(serde_json::Value::as_str);
             let kind = text("kind").unwrap_or("normal");
             let key = format!("{name}: {} ({kind})", text("name").unwrap_or_default());
-            let library = LIBRARY_CRATES.contains(&name.as_str()) && kind != "dev";
+            let library = crates_in(CrateRole::Library).contains(&name.as_str()) && kind != "dev";
             let bits = marked.contains(key.as_str());
             if library && !bits {
                 problems.push(format!(
@@ -4228,9 +4272,9 @@ pub fn pin_gate(metadata: &str, reviewed: &str) -> Result<(), Failure> {
     )
 }
 
-/// Checks that the audio library ([`LIBRARY_CRATES`]) stands alone: each of its crates
+/// Checks that the audio library ([`CrateRole::Library`]) stands alone: each of its crates
 /// depends, among the crates of the project, only on its own, and its tests also on
-/// [`LIBRARY_TEST_CRATES`].
+/// [`CrateRole::LibraryTests`].
 ///
 /// `metadata` is the output of [`metadata_command`]; a dependency of the project is one
 /// with a `path`, named and placed as a crate of [`RUST_CRATES`]. A third-party dependency
@@ -4243,7 +4287,11 @@ pub fn pin_gate(metadata: &str, reviewed: &str) -> Result<(), Failure> {
 pub fn library_gate(metadata: &str) -> Result<(), Failure> {
     let packages = cargo_packages(metadata)?;
     let mut problems = Vec::new();
-    for library in LIBRARY_CRATES {
+    let (library_crates, test_crates) = (
+        crates_in(CrateRole::Library),
+        crates_in(CrateRole::LibraryTests),
+    );
+    for library in library_crates.iter().copied() {
         let Some((_, krate)) = packages.iter().find(|(name, _)| name == library) else {
             problems.push(format!(
                 "{library}: not in the cargo metadata, so its dependencies cannot be checked"
@@ -4268,13 +4316,13 @@ pub fn library_gate(metadata: &str) -> Result<(), Failure> {
                         known.name == name && path.ends_with(&format!("/{}", known.dir))
                     })
             };
-            if !(allowed(&LIBRARY_CRATES) || (kind == "dev" && allowed(&LIBRARY_TEST_CRATES))) {
+            if !(allowed(&library_crates) || (kind == "dev" && allowed(&test_crates))) {
                 problems.push(format!(
                     "{library} depends on {name} ({kind}, {path}): the audio library depends \
                      only on its own crates ({}), its tests also on {}; move what it needs \
                      into the library, or the dependency out of it",
-                    LIBRARY_CRATES.join(", "),
-                    LIBRARY_TEST_CRATES.join(", ")
+                    library_crates.join(", "),
+                    test_crates.join(", ")
                 ));
             }
         }
@@ -4283,6 +4331,68 @@ pub fn library_gate(metadata: &str) -> Result<(), Failure> {
         "the audio library depends on no other part of the project",
         problems,
     )
+}
+
+/// Checks that every crate only tests use holds [`CrateRole::SharedTests`].
+///
+/// Such a crate is one of the workspace that some package of `metadata` (the output of
+/// [`metadata_command`]) depends on, only as a development dependency or from such a crate
+/// (the largest such set): a change to it can weaken the tests of every crate using it, so
+/// the default check widens to them, and a crate left without the role would be left out
+/// of that widening. A crate may hold the role though code depends on it too (the test kit,
+/// whose fingerprint battery `engine-cli` runs): it then widens more, never less.
+///
+/// # Errors
+///
+/// Returns every crate only tests use that does not hold the role, or why the metadata
+/// cannot be read.
+pub fn shared_tests_gate(metadata: &str) -> Result<(), Failure> {
+    let packages = cargo_packages(metadata)?;
+    // Each dependency on a crate of the workspace: (dependent, dependency, kind).
+    let mut edges: Vec<(String, &'static str, String)> = Vec::new();
+    for (name, package) in &packages {
+        let dependencies = package
+            .get("dependencies")
+            .and_then(serde_json::Value::as_array)
+            .into_iter()
+            .flatten();
+        for dependency in dependencies {
+            let text = |key: &str| dependency.get(key).and_then(serde_json::Value::as_str);
+            let Some(krate) = RUST_CRATES.iter().find(|krate| {
+                Some(krate.name) == text("name")
+                    && text("path").is_some_and(|path| path.ends_with(&format!("/{}", krate.dir)))
+            }) else {
+                continue;
+            };
+            edges.push((
+                name.clone(),
+                krate.name,
+                text("kind").unwrap_or("normal").to_owned(),
+            ));
+        }
+    }
+    let mut shared: BTreeSet<&'static str> = edges.iter().map(|(_, krate, _)| *krate).collect();
+    while let Some(used) = edges
+        .iter()
+        .find(|(user, krate, kind)| {
+            shared.contains(krate) && kind != "dev" && !shared.contains(user.as_str())
+        })
+        .map(|(_, krate, _)| *krate)
+    {
+        let _removed = shared.remove(used);
+    }
+    let flagged = crates_in(CrateRole::SharedTests);
+    let problems = shared
+        .into_iter()
+        .filter(|name| !flagged.contains(name))
+        .map(|name| {
+            format!(
+                "{name}: only tests reach it, so a change to it can weaken the tests of every \
+                 crate using it: give it CrateRole::SharedTests"
+            )
+        })
+        .collect();
+    verdict("every crate only tests use is shared test code", problems)
 }
 
 /// The roadmap board, written only by `pnpm roadmap` (`apps/roadmap/`).
@@ -4504,17 +4614,6 @@ pub fn citation_gate(sources: &[(String, String)]) -> Result<(), Failure> {
     verdict("every roadmap step cited exists on the board", problems)
 }
 
-/// The crates that may depend on `libm` outside their tests (`spec/engine-design.md`,
-/// decision 10).
-///
-/// `engine-core`, whose math layer is the only path from box arithmetic to a math
-/// function, and `engine-testkit`, whose measurements must not share the arithmetic of the
-/// boxes they measure. A box crate is `no_std`, where `f32` and `f64` have no math
-/// method: without `libm`, it can only reach the math layer's. A test may use `libm`
-/// directly (a development dependency), for references computed apart from the code
-/// under test.
-pub const LIBM_CRATES: [&str; 2] = ["engine-core", "engine-testkit"];
-
 /// The directory of box code, as a literal: [`BOX_CODE`], and the start of its pathspec.
 macro_rules! box_code {
     () => {
@@ -4602,9 +4701,6 @@ pub const BOX_ROOT: &str = "crates/engine-objects/src/lib.rs";
 /// The root of the engine core, which names none of [`ENGINE_FORBIDDEN_NAMES`] instead of
 /// forbidding the lint, so that the math layer may lift it.
 pub const ENGINE_ROOT: &str = "crates/engine-core/src/lib.rs";
-
-/// The crates whose sources the math layer gate reads, which may have no build script.
-pub const MATH_LAYER_CRATES: [&str; 2] = ["engine-objects", "engine-core"];
 
 /// The names box code may not write (`spec/engine-design.md`, decision 10).
 ///
@@ -4723,8 +4819,8 @@ fn cargo_packages(metadata: &str) -> Result<Vec<(String, serde_json::Value)>, Fa
 }
 
 /// What the math layer gate finds in the crates (`metadata`, the output of
-/// [`metadata_command`]): a dependency on `libm` outside [`LIBM_CRATES`], a build script in
-/// [`MATH_LAYER_CRATES`].
+/// [`metadata_command`]): a dependency on `libm` outside [`CrateRole::Libm`], a build script in
+/// [`CrateRole::MathLayer`].
 ///
 /// # Errors
 ///
@@ -4742,7 +4838,7 @@ fn math_layer_crates(metadata: &str) -> Result<Vec<String>, Failure> {
                 let text = |key: &str| dependency.get(key).and_then(serde_json::Value::as_str);
                 text("name") == Some("libm") && text("kind") != Some("dev")
             });
-        if reaches_libm && !LIBM_CRATES.contains(&name) {
+        if reaches_libm && !crates_in(CrateRole::Libm).contains(&name) {
             problems.push(format!(
                 "{name} depends on libm: its arithmetic must go through the math layer of \
                  engine-core"
@@ -4756,7 +4852,7 @@ fn math_layer_crates(metadata: &str) -> Result<Vec<String>, Failure> {
             .filter_map(|target| target.get("kind").and_then(serde_json::Value::as_array))
             .flatten()
             .any(|kind| kind.as_str() == Some("custom-build"));
-        if builds && MATH_LAYER_CRATES.contains(&name) {
+        if builds && crates_in(CrateRole::MathLayer).contains(&name) {
             problems.push(format!(
                 "{name} has a build script: code the math layer gate does not read"
             ));
@@ -4768,8 +4864,8 @@ fn math_layer_crates(metadata: &str) -> Result<Vec<String>, Failure> {
 /// Checks that box arithmetic can only go through the math layer, and that no code but the
 /// math layer's reduces through an iterator.
 ///
-/// No crate but those of [`LIBM_CRATES`] depends on `libm`, as a normal or a build
-/// dependency, under any name it is renamed to, and no crate of [`MATH_LAYER_CRATES`] has a
+/// No crate but those of [`CrateRole::Libm`] depends on `libm`, as a normal or a build
+/// dependency, under any name it is renamed to, and no crate of [`CrateRole::MathLayer`] has a
 /// build script; box code names none of [`BOX_FORBIDDEN_NAMES`], nor a float literal
 /// suffixed `f32` or `f64`, and its root holds [`BOX_FLOAT_FORBID`]; box code and the
 /// engine core outside [`MATH_LAYER_FILE`] name none of [`REDUCTION_NAMES`]; the engine core
@@ -4880,7 +4976,7 @@ pub fn math_layer_gate(metadata: &str, sources: &[(String, String)]) -> Result<(
             "box arithmetic only through the math layer ({} only may depend on libm; box code \
              names no raw float, libm, host or delivery, and computes no float; no iterator \
              reduction outside the math layer; code comes in by `mod` alone)",
-            LIBM_CRATES.join(", ")
+            crates_in(CrateRole::Libm).join(", ")
         ),
         problems,
     )
@@ -7673,10 +7769,6 @@ pub const LOCK_FILE: &str = "Cargo.lock";
 /// The names of the files that configure a Cargo build, wherever they are.
 const CARGO_FILES: [&str; 3] = [CARGO_TOML, LOCK_FILE, RUST_TOOLCHAIN_FILE];
 
-/// The crate of the workspace whose code only tests use: a change below its directory can
-/// let a mutant of any crate whose tests use it survive.
-pub const SHARED_TEST_CRATE: &str = "engine-testkit";
-
 /// What a change to one file widens the default check's mutation testing to, beyond the
 /// lines it changes ([`widening`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -7688,8 +7780,8 @@ enum Widening {
     Lock,
     /// The crate whose manifest it is, and every crate whose build includes it.
     Manifest(&'static str),
-    /// Every crate whose tests use [`SHARED_TEST_CRATE`].
-    SharedTests,
+    /// Every crate whose tests use this crate of shared test code ([`CrateRole::SharedTests`]).
+    SharedTests(&'static str),
 }
 
 /// What a change to `path` widens the mutation testing to, if anything: [`Widening`].
@@ -7706,7 +7798,10 @@ fn widening(path: &str) -> Option<Widening> {
     let name = path.rsplit_once('/').map_or(path, |(_, name)| name);
     match in_crate(path) {
         Some((krate, CARGO_TOML)) => Some(Widening::Manifest(krate.name)),
-        Some((krate, _)) => (krate.name == SHARED_TEST_CRATE).then_some(Widening::SharedTests),
+        Some((krate, _)) => krate
+            .roles
+            .contains(&CrateRole::SharedTests)
+            .then_some(Widening::SharedTests(krate.name)),
         None => CARGO_FILES.contains(&name).then_some(Widening::Everything),
     }
 }
@@ -7981,7 +8076,7 @@ fn needs_closures<'path>(mut changed: impl Iterator<Item = &'path str>) -> bool 
     changed.any(|path| {
         matches!(
             widening(path),
-            Some(Widening::Manifest(_) | Widening::SharedTests)
+            Some(Widening::Manifest(_) | Widening::SharedTests(_))
         )
     })
 }
@@ -8016,8 +8111,9 @@ fn reach<'path>(
                 }
                 Ok(crates) => crates,
             },
-            Some(Widening::Manifest(name)) => crates_building(closures, name),
-            Some(Widening::SharedTests) => crates_building(closures, SHARED_TEST_CRATE),
+            Some(Widening::Manifest(name) | Widening::SharedTests(name)) => {
+                crates_building(closures, name)
+            }
         };
         for krate in crates {
             let _first = widened.entry(krate).or_insert_with(|| path.to_owned());
@@ -9110,7 +9206,9 @@ fn run_action(
         Action::ReadmeGate => readmes(runner),
         Action::CitationGate => citations(runner),
         Action::PinGate => pins(runner),
-        Action::LibraryGate => library_gate(&crates_metadata(runner)?),
+        Action::LibraryGate => crates_metadata(runner).and_then(|metadata| {
+            library_gate(&metadata).and_then(|()| shared_tests_gate(&metadata))
+        }),
         Action::VocabularyGate => {
             let paths = list_tracked(runner, &VOCABULARY_SOURCES, "the prose files")?;
             let sources = read_all(runner, paths)?;

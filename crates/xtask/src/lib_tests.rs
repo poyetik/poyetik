@@ -133,9 +133,10 @@ const DENY: &str = "[bans]\n\n[[bans.features]]\ncrate = \"libm\"\nexact = true\
 
 /// The Cargo metadata of a workspace at `/r` whose crate `x`, a tested library, depends on
 /// another crate of the workspace and on one third-party crate, beside the crates of the
-/// audio library, which depend on nothing and have only the test target reading their test
-/// data ([`test_data_reader_sources`]).
-const METADATA: &str = r#"{"workspace_root":"/r","packages":[{"name":"x","manifest_path":"/r/crates/x/Cargo.toml","dependencies":[{"name":"engine-core","kind":null,"path":"/r/crates/engine-core"},{"name":"serde_json","kind":null}],"targets":[{"kind":["lib"],"src_path":"/r/crates/x/src/lib.rs","test":true,"doctest":true}]},{"name":"engine-core","manifest_path":"/r/crates/engine-core/Cargo.toml","targets":[{"kind":["test"],"src_path":"/r/crates/engine-core/tests/data.rs","test":true,"doctest":false}]},{"name":"engine-objects","manifest_path":"/r/crates/engine-objects/Cargo.toml","targets":[{"kind":["test"],"src_path":"/r/crates/engine-objects/tests/data.rs","test":true,"doctest":false}]},{"name":"engine-patch","manifest_path":"/r/crates/engine-patch/Cargo.toml","targets":[{"kind":["test"],"src_path":"/r/crates/engine-patch/tests/data.rs","test":true,"doctest":false}]},{"name":"engine-hash","manifest_path":"/r/crates/engine-hash/Cargo.toml","targets":[{"kind":["test"],"src_path":"/r/crates/engine-hash/tests/data.rs","test":true,"doctest":false}]},{"name":"engine-fpenv","manifest_path":"/r/crates/engine-fpenv/Cargo.toml","targets":[{"kind":["test"],"src_path":"/r/crates/engine-fpenv/tests/data.rs","test":true,"doctest":false}]},{"name":"engine-wasm","manifest_path":"/r/bindings/wasm/Cargo.toml","targets":[]}]}"#;
+/// audio library, which depend on nothing but the boxes' tests on the test kit, and the
+/// crates of shared test code, the test kit depending on the counting allocator; each has
+/// only the test target reading its test data ([`test_data_reader_sources`]).
+const METADATA: &str = r#"{"workspace_root":"/r","packages":[{"name":"x","manifest_path":"/r/crates/x/Cargo.toml","dependencies":[{"name":"engine-core","kind":null,"path":"/r/crates/engine-core"},{"name":"serde_json","kind":null}],"targets":[{"kind":["lib"],"src_path":"/r/crates/x/src/lib.rs","test":true,"doctest":true}]},{"name":"engine-core","manifest_path":"/r/crates/engine-core/Cargo.toml","targets":[{"kind":["test"],"src_path":"/r/crates/engine-core/tests/data.rs","test":true,"doctest":false}]},{"name":"engine-objects","manifest_path":"/r/crates/engine-objects/Cargo.toml","dependencies":[{"name":"engine-testkit","kind":"dev","path":"/r/crates/engine-testkit"}],"targets":[{"kind":["test"],"src_path":"/r/crates/engine-objects/tests/data.rs","test":true,"doctest":false}]},{"name":"engine-patch","manifest_path":"/r/crates/engine-patch/Cargo.toml","targets":[{"kind":["test"],"src_path":"/r/crates/engine-patch/tests/data.rs","test":true,"doctest":false}]},{"name":"engine-hash","manifest_path":"/r/crates/engine-hash/Cargo.toml","targets":[{"kind":["test"],"src_path":"/r/crates/engine-hash/tests/data.rs","test":true,"doctest":false}]},{"name":"engine-fpenv","manifest_path":"/r/crates/engine-fpenv/Cargo.toml","targets":[{"kind":["test"],"src_path":"/r/crates/engine-fpenv/tests/data.rs","test":true,"doctest":false}]},{"name":"engine-wasm","manifest_path":"/r/bindings/wasm/Cargo.toml","targets":[]},{"name":"engine-testkit","manifest_path":"/r/crates/engine-testkit/Cargo.toml","dependencies":[{"name":"engine-alloc-counter","kind":null,"path":"/r/crates/engine-alloc-counter"}],"targets":[{"kind":["test"],"src_path":"/r/crates/engine-testkit/tests/data.rs","test":true,"doctest":false}]},{"name":"engine-alloc-counter","manifest_path":"/r/crates/engine-alloc-counter/Cargo.toml","targets":[]}]}"#;
 
 /// The two license listings, written out: the production dependencies of what ships
 /// (the engine package, the playground and the roadmap), then everything.
@@ -519,6 +520,7 @@ const CRATE_A: Coverage = Coverage {
         dir: "crates/a",
         binary: true,
         test_data: &[],
+        roles: &[],
     },
     measured: Measured::Library,
 };
@@ -1712,7 +1714,7 @@ fn names_every_check_in_order() {
             "Rust supply chain",
             "Every direct dependency reviewed",
             "Bit-defining dependencies pinned to one exact version",
-            "The audio library depends on no other part of the project",
+            "The audio library depends on no other part of the project, and every crate only tests use is shared test code",
             "Box arithmetic only through the math layer: libm in engine-core and engine-testkit only, no raw float in box code, no iterator reduction outside the math layer",
             "Supply-chain settings: a week before a release, libm without features",
             "Packages and crates known to the checks",
@@ -2278,13 +2280,6 @@ fn mutates_everything_when_what_every_test_uses_changed() {
             "Rust mutation testing of the changes: `cargo mutants --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --workspace --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored` exited with code 3"
         ),
         "a surviving mutant of the workspace fails"
-    );
-    assert!(
-        super::RUST_CRATES
-            .iter()
-            .any(|krate| krate.name == super::SHARED_TEST_CRATE
-                && krate.dir == "crates/engine-testkit"),
-        "the shared test crate is where the widening looks"
     );
 }
 
@@ -8653,7 +8648,7 @@ fn reads_every_source_of_box_and_engine_code() {
             r#"{{"packages":[{{"name":"{name}","dependencies":[],"targets":[{{"kind":["lib"]}},{{"kind":["custom-build"]}}]}}]}}"#
         )
     };
-    for name in super::MATH_LAYER_CRATES {
+    for name in ["engine-objects", "engine-core"] {
         assert_eq!(
             gate(&build(name), &[]),
             failed(format!(
@@ -12906,6 +12901,7 @@ fn tells_the_files_of_a_crate_by_its_directory() {
         dir: "crates/engine-core",
         binary: false,
         test_data: &[],
+        roles: &[],
     };
     for (path, held) in [
         ("crates/engine-core/src/lib.rs", Some("src/lib.rs")),
@@ -12917,6 +12913,99 @@ fn tells_the_files_of_a_crate_by_its_directory() {
         ("crates/engine-cor/a.rs", None),
     ] {
         assert_eq!(core.holds(path), held, "{path}");
+    }
+}
+
+#[test]
+fn takes_for_shared_test_code_every_crate_only_tests_use() {
+    let (real, _) = fixture_metadata();
+    assert_eq!(
+        super::shared_tests_gate(&real),
+        Ok(()),
+        "the crates real cargo metadata reaches only through tests"
+    );
+    assert_eq!(super::shared_tests_gate(METADATA), Ok(()), "the fake's");
+    let context = "every crate only tests use is shared test code";
+    let package = |name: &str, dependencies: &[(&str, &str)]| {
+        let listed: Vec<String> = dependencies
+            .iter()
+            .map(|(dependency, kind)| {
+                format!(
+                    r#"{{"name":"{dependency}","kind":{kind},"path":"/r/crates/{dependency}"}}"#
+                )
+            })
+            .collect();
+        format!(
+            r#"{{"name":"{name}","dependencies":[{}]}}"#,
+            listed.join(",")
+        )
+    };
+    let metadata = |packages: &[String]| format!(r#"{{"packages":[{}]}}"#, packages.join(","));
+    assert_eq!(
+        super::shared_tests_gate(&metadata(&[
+            package("engine-objects", &[("engine-testkit", "\"dev\"")]),
+            package("engine-core", &[("engine-alloc-counter", "null")]),
+            package("engine-testkit", &[("engine-alloc-counter", "null")]),
+            package("engine-cli", &[("engine-testkit", "null")]),
+        ])),
+        Ok(()),
+        "shared test code that code depends on too widens more, never less"
+    );
+    assert_eq!(
+        super::shared_tests_gate(&metadata(&[
+            package(
+                "engine-objects",
+                &[("engine-testkit", "\"dev\""), ("engine-hash", "\"dev\"")]
+            ),
+            package("engine-testkit", &[("engine-alloc-counter", "null")]),
+        ])),
+        failed(format!(
+            "{context}: engine-hash: only tests reach it, so a change to it can weaken the \
+             tests of every crate using it: give it CrateRole::SharedTests"
+        )),
+        "a crate only tests reach, not taken for shared test code"
+    );
+    assert_eq!(
+        super::shared_tests_gate(&metadata(&[
+            package("engine-objects", &[("engine-testkit", "\"dev\"")]),
+            package("engine-testkit", &[("engine-alloc-counter", "\"build\"")]),
+            package("other", &[("engine-testkit", "\"dev\"")]),
+        ])),
+        Ok(()),
+        "through a crate of shared test code, any kind"
+    );
+    assert_eq!(
+        super::shared_tests_gate(&metadata(&[
+            package("engine-objects", &[("engine-hash", "\"dev\"")]),
+            package("engine-hash", &[("engine-patch", "null")]),
+            package("engine-wasm", &[("engine-patch", "\"dev\"")]),
+        ])),
+        found(
+            context,
+            &[
+                "engine-hash: only tests reach it, so a change to it can weaken the tests of \
+                 every crate using it: give it CrateRole::SharedTests"
+                    .to_owned(),
+                "engine-patch: only tests reach it, so a change to it can weaken the tests of \
+                 every crate using it: give it CrateRole::SharedTests"
+                    .to_owned(),
+            ]
+        ),
+        "reached through a crate only tests use, at any depth"
+    );
+    assert_eq!(
+        super::crates_in(super::CrateRole::SharedTests),
+        ["engine-alloc-counter", "engine-testkit"],
+        "the counting allocator and the test kit"
+    );
+    for krate in super::RUST_CRATES {
+        for role in krate.roles {
+            assert!(
+                super::crates_in(*role).contains(&krate.name),
+                "{} holds {role:?}",
+                krate.name
+            );
+        }
     }
 }
 
@@ -12941,7 +13030,11 @@ fn widens_each_kind_of_shared_input_as_far_as_it_reaches() {
         ),
         (
             "crates/engine-testkit/src/lib.rs",
-            Some(Widening::SharedTests),
+            Some(Widening::SharedTests("engine-testkit")),
+        ),
+        (
+            "crates/engine-alloc-counter/src/lib.rs",
+            Some(Widening::SharedTests("engine-alloc-counter")),
         ),
         ("tooling/x/Cargo.toml", Some(Widening::Everything)),
         ("doc/Cargo.lock", Some(Widening::Everything)),
