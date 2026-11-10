@@ -589,6 +589,58 @@ fn render_command_prints_the_hash_and_writes_wav() {
     }
 }
 
+/// An option's value that is itself an option is refused, never read as a file name: `--wav
+/// --format` wrote a file named `--format`.
+#[test]
+fn render_command_never_takes_an_option_for_a_value() {
+    let mut memory = Memory::with(&[("case.json", SINE), ("patch.json", PATCH)]);
+    for (words, option) in [
+        (
+            &["render", "case.json", "patch.json", "--wav", "--format"][..],
+            "--wav",
+        ),
+        (
+            &[
+                "render",
+                "case.json",
+                "patch.json",
+                "--wav",
+                "--format",
+                "binary32",
+            ][..],
+            "--wav",
+        ),
+        (
+            &["render", "case.json", "patch.json", "--wav", "--wav"][..],
+            "--wav",
+        ),
+    ] {
+        assert_eq!(
+            run_with(&mut memory, words),
+            (
+                Err(usage(&format!("option \"{option}\" needs a value"))),
+                String::new()
+            ),
+            "{words:?}"
+        );
+    }
+    assert_eq!(
+        memory.files.keys().collect::<Vec<_>>(),
+        [Path::new("case.json"), Path::new("patch.json")],
+        "nothing written"
+    );
+    assert_eq!(
+        run_with(
+            &mut memory,
+            &["render", "case.json", "patch.json", "--wav", "-out.wav"]
+        )
+        .0,
+        Ok(()),
+        "a file name that starts with a dash but is no option is a value"
+    );
+    assert!(memory.files.contains_key(Path::new("-out.wav")), "written");
+}
+
 #[test]
 fn render_command_reports_errors() {
     let mut memory = Memory::with(&[
@@ -611,7 +663,7 @@ fn render_command_reports_errors() {
         ),
         (
             &["render", "case.json", "patch.json", "--wav"][..],
-            expects.clone(),
+            usage("option \"--wav\" needs a value"),
         ),
         (
             &["render", "case.json", "patch.json", "extra"][..],
@@ -619,11 +671,22 @@ fn render_command_reports_errors() {
         ),
         (
             &["render", "case.json", "patch.json", "--wav", "a.wav", "b"][..],
-            expects.clone(),
+            expects,
         ),
         (
             &["render", "case.json", "patch.json", "--format"][..],
-            expects.clone(),
+            usage("option \"--format\" needs a value"),
+        ),
+        (
+            &[
+                "render",
+                "case.json",
+                "patch.json",
+                "--format",
+                "--wav",
+                "a.wav",
+            ][..],
+            usage("option \"--format\" needs a value"),
         ),
         (
             &[
@@ -635,7 +698,7 @@ fn render_command_reports_errors() {
                 "--wav",
                 "b.wav",
             ][..],
-            expects.clone(),
+            usage("option \"--wav\" given twice"),
         ),
         (
             &[
@@ -647,7 +710,19 @@ fn render_command_reports_errors() {
                 "--format",
                 "binary64",
             ][..],
-            expects,
+            usage("option \"--format\" given twice"),
+        ),
+        (
+            &[
+                "render",
+                "case.json",
+                "patch.json",
+                "--format",
+                "binary16",
+                "--format",
+                "binary64",
+            ][..],
+            usage("option \"--format\" given twice"),
         ),
         (
             &["render", "case.json", "patch.json", "--format", "binary16"][..],
@@ -655,16 +730,27 @@ fn render_command_reports_errors() {
                 "unknown render format \"binary16\" (binary64, binary64-as-binary32 or binary32)",
             ),
         ),
-        (
-            &["render", "missing.json", "patch.json"][..],
-            "cannot read missing.json: no such file".to_owned(),
-        ),
-        (
-            &["render", "case.json", "missing.json"][..],
-            "cannot read missing.json: no such file".to_owned(),
-        ),
     ] {
         assert_eq!(run_with(&mut memory, words).0, Err(error), "{words:?}");
+    }
+}
+
+#[test]
+fn render_command_names_the_file_at_fault() {
+    let mut memory = Memory::with(&[
+        ("case.json", SINE),
+        ("patch.json", PATCH),
+        ("bad.json", "{"),
+    ]);
+    for words in [
+        &["render", "missing.json", "patch.json"][..],
+        &["render", "case.json", "missing.json"][..],
+    ] {
+        assert_eq!(
+            run_with(&mut memory, words).0,
+            Err("cannot read missing.json: no such file".to_owned()),
+            "{words:?}"
+        );
     }
     assert_eq!(
         run_with(&mut memory, &["render", "bad.json", "patch.json"]).0,
@@ -1159,7 +1245,13 @@ fn bless_command_refuses_bits_changed_without_a_new_version() {
         ),
         "bless refuses it, whatever the case named"
     );
-    // Files bless cannot compare with are refused, a missing one is blessed from nothing.
+}
+
+/// Files bless cannot compare with are refused, a missing one is blessed from nothing.
+#[test]
+fn bless_command_refuses_files_it_cannot_compare_with() {
+    let mut memory = conformance(&format!(r#"{{"sine":{}}}"#, sine_references()));
+    let algorithms = memory.text("conf/algorithms.json");
     drop(
         memory
             .files

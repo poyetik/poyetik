@@ -340,7 +340,11 @@ fn references_path(dir: &Path) -> PathBuf {
     dir.join("references.json")
 }
 
-/// `render <case> <patch> [--wav <file>]`.
+/// The options of `render`, each taking a value.
+const RENDER_OPTIONS: [&str; 2] = ["--format", "--wav"];
+
+/// `render <case> <patch> [--format <format>] [--wav <file>]`: each option at most once, with
+/// a value that is not an option.
 fn render(
     files: &mut dyn Files,
     out: &mut dyn Write,
@@ -356,26 +360,32 @@ fn render(
     let [case, patch, options @ ..] = args else {
         return Err(expects());
     };
-    let (mut format, mut wav) = (None, None);
-    for pair in options.chunks(2) {
-        match pair {
-            [flag, value] if flag == "--format" && format.is_none() => {
-                format = Some(format_named(value)?);
-            }
-            [flag, value] if flag == "--wav" && wav.is_none() => wav = Some(value),
-            [option, ..]
-                if option.starts_with('-') && option != "--format" && option != "--wav" =>
-            {
-                return Err(CliError::Usage(format!("unknown option \"{option}\"")));
+    let (mut format, mut wav): (Option<&String>, Option<&String>) = (None, None);
+    let mut words = options.iter();
+    while let Some(option) = words.next() {
+        let slot = match option.as_str() {
+            "--format" => &mut format,
+            "--wav" => &mut wav,
+            unknown if unknown.starts_with('-') => {
+                return Err(CliError::Usage(format!("unknown option \"{unknown}\"")));
             }
             _ => return Err(expects()),
+        };
+        // A value is never one of the options: `--wav --format` names no file.
+        let value = words
+            .next()
+            .filter(|value| !RENDER_OPTIONS.contains(&value.as_str()))
+            .ok_or_else(|| CliError::Usage(format!("option \"{option}\" needs a value")))?;
+        if slot.replace(value).is_some() {
+            return Err(CliError::Usage(format!("option \"{option}\" given twice")));
         }
     }
+    let format = format.map_or(Ok(RenderFormat::Binary64), |name| format_named(name))?;
     let (case_path, patch_path) = (Path::new(case), Path::new(patch));
     let prepared = prepare_case(
         &read(files, case_path, MAX_CASE_BYTES)?,
         &read(files, patch_path, MAX_PATCH_BYTES)?,
-        format.unwrap_or(RenderFormat::Binary64),
+        format,
         mode,
     )
     .map_err(|error| error.in_files(case_path, patch_path))?;
