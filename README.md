@@ -26,6 +26,7 @@ A monorepo of separate parts:
 
 macOS or Linux (on Windows, use WSL2). `cargo xtask check` checks every tool first and says how to install what is missing; in short:
 
+- A C toolchain, which Rust links through (`cc`): the Command Line Tools on macOS, `build-essential` or an equivalent on Linux.
 - [rustup](https://rustup.rs): the pinned toolchain (`rust-toolchain.toml`) installs itself. The checks also need `nightly-2026-11-01` with `llvm-tools-preview`, `miri` and `rust-src` (branch coverage, Miri, and the float-method audit, which reads its `rust-src`).
 - `cargo install --locked cargo-llvm-cov@0.9.1 cargo-mutants@27.1.0 cargo-deny@0.20.2` (the exact versions the checks require).
 - Node.js, exactly the release in `.node-version` (the one CI installs; the preflight refuses any other, though the packages' `engines` accept 22.18 or later) and pnpm 10 (`corepack enable`), then `pnpm install` at the root, and `pnpm exec playwright install` in each package with end-to-end tests (`bindings/wasm`, `apps/playground`, `apps/roadmap`).
@@ -49,7 +50,7 @@ The checks build, link and start many test programs (mutation testing builds the
 - Linux: the pinned toolchain already links with its own fast linker on x86_64; exclude `target/` from any file indexer that runs.
 - Windows (WSL2): keep the repository in the WSL2 file system rather than below `/mnt/c`, and exclude the distribution's virtual disk from Microsoft Defender's real-time protection.
 
-A new linker or compiler build is an input of every test program: the mutation proof record of the default check names both, so the first default check after an update mutates as if there were no record.
+A new build of the compiler, or of the C compiler driver `cc` every build links through, is an input of every test program, and xtask's tests run git: the mutation proof record of the default check names the three, so the first default check after an update of one mutates as if there were no record.
 
 ## License
 

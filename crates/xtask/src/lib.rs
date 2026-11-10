@@ -1036,9 +1036,10 @@ const MUTANTS_ARGS: [&str; 5] = [
 /// It changes what the compiler is told only by its debug information options
 /// (`-C debuginfo`, `-C split-debuginfo`, `-C strip=debuginfo`) and the hashes Cargo names
 /// its outputs with, compared on every command line of `cargo test --no-run -v`, so no
-/// code it compiles differs; no code of the workspace reads a backtrace or a source
-/// location. Measured on a slice of the mutants, it saves about a tenth of their time
-/// (their builds and test programs, smaller, are written, linked and started faster).
+/// code it compiles differs. Debug information changes no compiled code; only a
+/// backtrace's file and line names depend on it, and no code of the workspace reads a
+/// backtrace (reviewed). It makes the builds and test programs of the mutants smaller, so
+/// they are written, linked and started faster.
 /// Given on the command line (`--config`), never in [`CARGO_CONFIG_FILE`], which holds no
 /// build setting; the full check and every part of it build mutants the same way.
 pub const MUTANT_BUILD_CONFIG: &str = "--cargo-arg=--config=profile.test.debug=false";
@@ -1075,7 +1076,9 @@ pub const MUTANT_TIMEOUT_FLOOR: usize = 20;
 /// other jobs. A job is either building, its builds sharing the processors' tokens of
 /// cargo-mutants' jobserver with every other build, or testing, each test binary running
 /// as many threads as there are processors; so at most `jobs` binaries' worth of work wants
-/// the processors at once, and a test runs at most `jobs` times slower than alone. Without
+/// the processors at once, and under no outside load a test runs about `jobs` times
+/// slower than alone at most (a model, not a bound: a timeout it gets wrong fails the
+/// check, never passes it). Without
 /// it, a mutant caught by a fast test but whose binary still runs its slow tests to the end
 /// was reported as a timeout under load (engine-testkit's `config` mutants). A mutant that really hangs is still stopped and reported as a timeout,
 /// which fails the check: the timeout only bounds how long that failing run takes.
