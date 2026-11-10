@@ -3699,6 +3699,10 @@ pub const MATH_LAYER_CRATES: [&str; 2] = ["engine-objects", "engine-core"];
 /// them could take a sample's float out with the type inferred, `f64` never written).
 pub const BOX_FORBIDDEN_NAMES: [&str; 6] = ["f32", "f64", "libm", "host", "Delivered", "deliver"];
 
+/// The most `#` a raw string literal may open with (rustc refuses more): [`code_words`]
+/// never looks further for them, so that reading a file stays linear in its length.
+const RAW_STRING_HASHES: usize = 255;
+
 /// The words of Rust code in `text`, with their line numbers: maximal runs of letters,
 /// digits and `_`, outside comments (line and block), string literals (raw ones included,
 /// `r#"…"#`, `br"…"`, `cr"…"`) and char literals (`'"'`, `'\''`), which are prose. A
@@ -3727,23 +3731,33 @@ fn code_words(text: &str) -> Vec<(usize, String, usize)> {
             words.push((line, core::mem::take(&mut word), index));
         }
         let next = at(index.saturating_add(1));
-        // The hashes of a raw string from here, when one starts here: `#…#"`.
-        let hashes = (index..chars.len())
-            .take_while(|&position| at(position) == Some('#'))
-            .count();
-        let quote = index.saturating_add(hashes);
-        let raw_string = raw_prefix && at(quote) == Some('"');
+        // The hashes of a raw string from here, when one starts here: `#…#"`; counted only
+        // after a raw prefix, so that reading a file stays linear in its length.
+        let hashes = || {
+            (index..chars.len())
+                .take(RAW_STRING_HASHES)
+                .take_while(|&position| at(position) == Some('#'))
+                .count()
+        };
+        let raw_string = raw_prefix && at(index.saturating_add(hashes())) == Some('"');
         let end = match (character, next) {
             ('/', Some('/')) => after(index, &mut |position| at(position) == Some('\n')),
             // Closed by the first `*/` after the opening `/*`: `/*/` does not close it.
             ('/', Some('*')) => after(index.saturating_add(3), &mut |position| {
                 at(position) == Some('/') && at(position.saturating_sub(1)) == Some('*')
             }),
-            ('"' | '#', _) if raw_string => after(quote.saturating_add(1), &mut |position| {
-                at(position) == Some('"')
-                    && (1..=hashes).all(|offset| at(position.saturating_add(offset)) == Some('#'))
-            })
-            .saturating_add(hashes),
+            ('"' | '#', _) if raw_string => {
+                let hashes = hashes();
+                after(
+                    index.saturating_add(hashes).saturating_add(1),
+                    &mut |position| {
+                        at(position) == Some('"')
+                            && (1..=hashes)
+                                .all(|offset| at(position.saturating_add(offset)) == Some('#'))
+                    },
+                )
+                .saturating_add(hashes)
+            }
             ('"', _) => {
                 let mut escaped = false;
                 after(index.saturating_add(1), &mut |position| {
