@@ -131,10 +131,10 @@ const DEPENDABOT: &str = "version: 2\nupdates:\n  - package-ecosystem: cargo\n  
 /// A cargo-deny configuration holding libm to no feature.
 const DENY: &str = "[bans]\n\n[[bans.features]]\ncrate = \"libm\"\nexact = true\nallow = []\n";
 
-/// The Cargo metadata of a workspace whose crate `x` depends on another crate of the
-/// workspace and on one third-party crate, beside the crates of the audio library, which
-/// depend on nothing.
-const METADATA: &str = r#"{"packages":[{"name":"x","dependencies":[{"name":"engine-core","kind":null,"path":"/r/crates/engine-core"},{"name":"serde_json","kind":null}]},{"name":"engine-core"},{"name":"engine-objects"},{"name":"engine-patch"},{"name":"engine-hash"},{"name":"engine-fpenv"},{"name":"engine-wasm"}]}"#;
+/// The Cargo metadata of a workspace at `/r` whose crate `x`, a tested library, depends on
+/// another crate of the workspace and on one third-party crate, beside the crates of the
+/// audio library, which depend on nothing and have no target.
+const METADATA: &str = r#"{"workspace_root":"/r","packages":[{"name":"x","dependencies":[{"name":"engine-core","kind":null,"path":"/r/crates/engine-core"},{"name":"serde_json","kind":null}],"targets":[{"kind":["lib"],"src_path":"/r/crates/x/src/lib.rs","test":true,"doctest":true}]},{"name":"engine-core","targets":[]},{"name":"engine-objects","targets":[]},{"name":"engine-patch","targets":[]},{"name":"engine-hash","targets":[]},{"name":"engine-fpenv","targets":[]},{"name":"engine-wasm","targets":[]}]}"#;
 
 /// The two license listings, written out: the production dependencies of what ships
 /// (the engine package, the playground and the roadmap), then everything.
@@ -879,6 +879,7 @@ fn command_lines(steps: &[Step]) -> Vec<String> {
             Action::CargoConfigGate => "cargo config gate".to_owned(),
             Action::TestCodeGate => "test code gate".to_owned(),
             Action::TestDataGate => "test data gate".to_owned(),
+            Action::UntestedTargetsGate => "untested targets gate".to_owned(),
             Action::FloatMethodGate => "float method gate".to_owned(),
             Action::DependencyGate => "dependency gate".to_owned(),
             Action::PinGate => "pin gate".to_owned(),
@@ -1532,6 +1533,7 @@ fn lists_every_check_in_order() {
             "cargo config gate",
             "test code gate",
             "test data gate",
+            "untested targets gate",
             &format!(
                 "Root: cargo +nightly-2026-11-01 {} test --package engine-alloc-counter --package engine-wasm --locked -- --include-ignored",
                 "miri"
@@ -1644,6 +1646,7 @@ fn names_every_check_in_order() {
             "Cargo configuration: no build flag, a locked alias",
             "Test code only in tests/ and declared *_tests.rs files",
             "The tests of each crate read only its declared test data",
+            "Tests turned off only where no test can hide, doc tests kept",
             "Unsafe code under Miri",
             "Conformance (native)",
             "Fresh conformance export directory",
@@ -2964,7 +2967,7 @@ fn runs_every_step_and_reports_success() {
         Ok(()),
         "all green"
     );
-    let (tools, commands, emptied, listed, captured, written) = (10, 54, 14, 23, 31, 3);
+    let (tools, commands, emptied, listed, captured, written) = (10, 54, 14, 24, 32, 3);
     let read = 2
         + 7
         + 13
@@ -2985,7 +2988,7 @@ fn runs_every_step_and_reports_success() {
         + 20
         + 3
         + 3 * 8
-        + 2 * 11
+        + 3 * 11
         + 1
         + 87;
     assert_eq!(
@@ -2996,14 +2999,13 @@ fn runs_every_step_and_reports_success() {
          the coverage build, the mutants of the changes, Miri, the \
          conformance check and export, deny, the JavaScript install, audit, the engine build and five package \
          checks each followed by its Stryker run); fourteen directories are emptied; git lists \
-         thirteen kinds of files (the box sources and the text files that cite the roadmap among them), the Rust files again for the test code and \
-         test data gates, the TypeScript ones again for the reports and scope gates of \
+         thirteen kinds of files (the box sources and the text files that cite the roadmap among them), the Rust files again for the test code, test data and untested targets gates, the TypeScript ones again for the reports and scope gates of \
          each package after the first; the licenses and the history are captured twice each, the state \
-         of the tree (before, for the proof record and after) six times, the nightly's version and sysroot, the Cargo metadata (for the dependency, pin, library and math layer gates), the output of the fused test build, the merge base, the changes, the \
+         of the tree (before, for the proof record and after) six times, the nightly's version and sysroot, the Cargo metadata (for the untested targets, dependency, pin, library and math layer gates), the output of the fused test build, the merge base, the changes, the \
          new Rust files and the list of every mutant once, git's common directory twice, the tree checked out, \
          cargo-mutants' version, rustc's host, the status for a push and the hidden files for the proof record; the measured base, the diff and the \
          proof record are written once each; the proof record, the measured base and the \
-         toolchain file are read for it; and the gates read the eight fake test data readers for the unsafe, bypass and vocabulary gates, every Rust file (eleven) for the test code and test data gates, .node-version and the toolchain file for the preflight, the toolchain file, the four float sources and the float macros of the nightly and clippy.toml for the float gate, thirteen coverage reports, \
+         toolchain file are read for it; and the gates read the eight fake test data readers for the unsafe, bypass and vocabulary gates, every Rust file (eleven) for the test code, test data and untested targets gates, .node-version and the toolchain file for the preflight, the toolchain file, the four float sources and the float macros of the nightly and clippy.toml for the float gate, thirteen coverage reports, \
          the unviable report and reviews, the register of the pin gate, the 87 text files of the citation gate (the board among them), the reviews again against the list of every mutant, six TypeScript sources and their reviews, the nine \
          sources, the eleven Cargo manifests and the register of the bypass gate, the three unsafe files, the Cargo \
          configuration, the six package manifests and the register of the dependency gate, the three \
@@ -3030,15 +3032,15 @@ fn runs_every_step_and_reports_success() {
     );
     let text = String::from_utf8(out).expect("utf-8 output");
     assert!(
-        text.starts_with("▶ [1/85] Tools and platform\n"),
+        text.starts_with("▶ [1/86] Tools and platform\n"),
         "numbered progress: {text}"
     );
     assert!(
-        text.contains("▶ [81/85] Roadmap checks\n  done in 1.5 s\n"),
+        text.contains("▶ [82/86] Roadmap checks\n  done in 1.5 s\n"),
         "last step announced: {text}"
     );
     assert!(
-        text.ends_with("  done in 1.5 s\n✔ all 85 checks passed in 2 min 07 s\n"),
+        text.ends_with("  done in 1.5 s\n✔ all 86 checks passed in 2 min 09 s\n"),
         "summary: {text}"
     );
 }
@@ -6055,7 +6057,7 @@ fn checks_a_push_then_runs_every_check() {
     assert!(
         String::from_utf8(out)
             .expect("UTF-8")
-            .ends_with("✔ all 85 checks passed in 2 min 07 s\n"),
+            .ends_with("✔ all 86 checks passed in 2 min 09 s\n"),
         "then every check"
     );
     assert!(
@@ -6511,12 +6513,12 @@ fn prints_the_details_of_a_failure_on_stdout_and_one_line_on_stderr() {
     );
     assert_eq!(
         String::from_utf8(err).expect("UTF-8"),
-        "error: 1 of 83 checks failed, listed above\n",
+        "error: 1 of 84 checks failed, listed above\n",
         "one line on stderr, counting the failed steps"
     );
     assert!(
         String::from_utf8(out).expect("UTF-8").ends_with(&format!(
-            "▶ [83/83] Working tree unchanged by the checks\n  done in 1.5 s\n\
+            "▶ [84/84] Working tree unchanged by the checks\n  done in 1.5 s\n\
              not reviewed: crates/a/src/c.rs: replace g -> U with x\n\
              stale review: crates/a/src/b.rs: replace f -> T with Default::default()\n\
              Rust unviable mutants reviewed: unviable mutants must be reviewed in \
@@ -10114,8 +10116,8 @@ fn the_parts_run_every_step_of_the_full_check_once() {
     }
     assert_eq!(
         steps_run,
-        18 * 3 + (83 - 3 - 7 - 2) + 8 * 2 + 1 + 2 + 6 * 3 + 1,
-        "each part's frame (three steps); every other step of the 83 once, but the seven \
+        18 * 3 + (84 - 3 - 7 - 2) + 8 * 2 + 1 + 2 + 6 * 3 + 1,
+        "each part's frame (three steps); every other step of the 84 once, but the seven \
          preparations, the mutation run and its unviable gate; in each of the eight shards, \
          the report emptied and the shard's run; the gate over the shards; the conformance \
          export (two steps) for the oracle; the JavaScript preparation (three steps) for the \
@@ -11877,4 +11879,178 @@ fn shares_proof_records_between_the_worktrees_of_real_git() {
         "nothing for a commit git does not have"
     );
     std::fs::remove_dir_all(&dir).expect("cleanup");
+}
+
+/// The Cargo metadata of a workspace at `/r` of one crate whose targets are these: kind,
+/// root (relative to `/r`), whether it is tested, whether its doc tests are.
+fn targets_metadata(targets: &[(&str, &str, bool, bool)]) -> String {
+    let targets: Vec<String> = targets
+        .iter()
+        .map(|(kind, root, test, doctest)| {
+            format!(
+                r#"{{"kind":["{kind}"],"src_path":"/r/{root}","test":{test},"doctest":{doctest}}}"#
+            )
+        })
+        .collect();
+    format!(
+        r#"{{"workspace_root":"/r","packages":[{{"name":"x","targets":[{}]}}]}}"#,
+        targets.join(",")
+    )
+}
+
+/// The failure of the untested targets gate with `problems`.
+fn untested_refused(problems: &[&str]) -> Result<(), Failure> {
+    found(
+        "every test of a target runs",
+        &problems
+            .iter()
+            .map(|problem| (*problem).to_owned())
+            .collect::<Vec<_>>(),
+    )
+}
+
+#[test]
+fn lets_a_target_without_modules_turn_its_tests_off() {
+    let metadata = targets_metadata(&[
+        ("lib", "crates/x/src/lib.rs", true, true),
+        ("bin", "crates/x/src/main.rs", false, false),
+        ("custom-build", "crates/x/build.rs", false, false),
+        ("test", "crates/x/tests/a.rs", true, false),
+    ]);
+    let sources = [
+        (
+            "crates/x/src/lib.rs".to_owned(),
+            "mod a;\n#[cfg(test)]\n#[path = \"lib_tests.rs\"]\nmod tests;\n".to_owned(),
+        ),
+        (
+            "crates/x/src/main.rs".to_owned(),
+            "// The module of a comment, \"mod\" of a string.\nfn main() { let _module = \"mod a;\"; }\n"
+                .to_owned(),
+        ),
+        ("crates/x/build.rs".to_owned(), "fn main() {}\n".to_owned()),
+    ];
+    assert_eq!(
+        super::untested_targets_gate(&metadata, &sources),
+        Ok(()),
+        "a library tested, roots without modules untested, a test target"
+    );
+}
+
+#[test]
+fn refuses_a_target_that_turns_off_tests_it_may_hold() {
+    let metadata = targets_metadata(&[
+        ("bin", "crates/x/src/main.rs", false, false),
+        ("lib", "crates/x/src/lib.rs", false, true),
+        ("bin", "crates/x/src/bin/b.rs", false, false),
+    ]);
+    let sources = [
+        (
+            "crates/x/src/main.rs".to_owned(),
+            "fn main() {}\n#[cfg(test)]\n#[path = \"main_tests.rs\"]\nmod tests;\n".to_owned(),
+        ),
+        (
+            "crates/x/src/lib.rs".to_owned(),
+            "//! A library.\npub mod a;\n".to_owned(),
+        ),
+    ];
+    assert_eq!(
+        super::untested_targets_gate(&metadata, &sources),
+        untested_refused(&[
+            "crates/x/src/main.rs:4: declares a module, but its target turns its tests off \
+             (`test = false`): only a root that is all its code may, so that no test hides in it",
+            "crates/x/src/lib.rs:2: declares a module, but its target turns its tests off \
+             (`test = false`): only a root that is all its code may, so that no test hides in it",
+            "crates/x/src/bin/b.rs: the root of a target without tests, not among the Rust \
+             files read",
+        ]),
+        "a test module declared, a library's modules, a root never read"
+    );
+}
+
+#[test]
+fn refuses_a_library_without_doc_tests() {
+    for kind in ["lib", "rlib", "proc-macro"] {
+        let metadata = targets_metadata(&[(kind, "crates/x/src/lib.rs", true, false)]);
+        assert_eq!(
+            super::untested_targets_gate(&metadata, &[]),
+            untested_refused(&[
+                "crates/x/src/lib.rs: its doc tests are turned off (`doctest = false`): they \
+                 would never run"
+            ]),
+            "{kind}"
+        );
+    }
+    let cdylib = targets_metadata(&[("cdylib", "crates/x/src/lib.rs", true, false)]);
+    assert_eq!(
+        super::untested_targets_gate(&cdylib, &[]),
+        Ok(()),
+        "a C library alone has no doc tests"
+    );
+}
+
+#[test]
+fn refuses_metadata_it_cannot_read_whole() {
+    let gate = |metadata: &str| super::untested_targets_gate(metadata, &[]);
+    assert_eq!(
+        gate("{"),
+        failed("invalid cargo metadata: EOF while parsing an object at line 1 column 1"),
+        "not JSON"
+    );
+    assert_eq!(
+        gate(r#"{"packages":[]}"#),
+        failed("cargo metadata names no workspace root"),
+        "no root"
+    );
+    assert_eq!(
+        gate(r#"{"workspace_root":"/r","packages":[{"name":"x"}]}"#),
+        failed("cargo metadata lists no targets of x"),
+        "no targets"
+    );
+    let unexpected = "x: a target cargo metadata does not describe as expected (`test`, \
+                      `doctest`, a source below the workspace root)";
+    for target in [
+        r#"{"kind":["bin"],"src_path":"/r/a.rs","doctest":false}"#,
+        r#"{"kind":["bin"],"src_path":"/r/a.rs","test":false}"#,
+        r#"{"kind":["bin"],"src_path":"/elsewhere/a.rs","test":false,"doctest":false}"#,
+        r#"{"kind":["bin"],"src_path":"/ra.rs","test":false,"doctest":false}"#,
+        r#"{"kind":["bin"],"test":false,"doctest":false}"#,
+    ] {
+        assert_eq!(
+            gate(&format!(
+                r#"{{"workspace_root":"/r","packages":[{{"name":"x","targets":[{target}]}}]}}"#
+            )),
+            untested_refused(&[unexpected]),
+            "{target}"
+        );
+    }
+}
+
+#[test]
+fn reads_the_targets_of_real_cargo_metadata() {
+    let dir = scratch("untested-targets");
+    std::fs::create_dir_all(dir.join("src")).expect("src");
+    std::fs::write(
+        dir.join("Cargo.toml"),
+        "[package]\nname = \"a\"\nversion = \"0.0.0\"\nedition = \"2024\"\n\n[lib]\npath = \"src/lib.rs\"\ndoctest = false\n\n[[bin]]\nname = \"a\"\npath = \"src/main.rs\"\ntest = false\n",
+    )
+    .expect("manifest");
+    let metadata = SystemRunner { root: dir }
+        .capture(&super::metadata_command())
+        .expect("cargo metadata");
+    let sources = [
+        ("src/lib.rs".to_owned(), "//! A.\n".to_owned()),
+        (
+            "src/main.rs".to_owned(),
+            "mod b;\nfn main() {}\n".to_owned(),
+        ),
+    ];
+    assert_eq!(
+        super::untested_targets_gate(&metadata, &sources),
+        untested_refused(&[
+            "src/lib.rs: its doc tests are turned off (`doctest = false`): they would never run",
+            "src/main.rs:1: declares a module, but its target turns its tests off (`test = \
+             false`): only a root that is all its code may, so that no test hides in it",
+        ]),
+        "both settings as cargo reports them"
+    );
 }

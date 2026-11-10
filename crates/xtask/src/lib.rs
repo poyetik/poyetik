@@ -574,6 +574,9 @@ pub enum Action {
     /// Require the tests of each crate to read only its declared test data
     /// ([`test_data_gate`]).
     TestDataGate,
+    /// Require every target that turns its tests off to hold no test, and every library to
+    /// keep its doc tests ([`untested_targets_gate`]).
+    UntestedTargetsGate,
     /// Require every stable float method of the pinned toolchain to be banned in
     /// `clippy.toml` or reviewed as deterministic ([`float_gate`]).
     FloatMethodGate,
@@ -1147,6 +1150,10 @@ fn proof_steps(mode: Mode) -> Vec<(Role, Step)> {
         Step {
             name: "The tests of each crate read only its declared test data".to_owned(),
             action: Action::TestDataGate,
+        },
+        Step {
+            name: "Tests turned off only where no test can hide, doc tests kept".to_owned(),
+            action: Action::UntestedTargetsGate,
         },
     ];
     steps.extend(tagged(Role::Proof(Part::Gates), gates));
@@ -3485,6 +3492,93 @@ pub fn test_code_gate(sources: &[(String, String)]) -> Result<(), Failure> {
         "test code only in tests/ and in declared *_tests.rs files",
         problems,
     )
+}
+
+/// The kinds of target whose documentation rustdoc tests.
+pub const DOC_TESTED_KINDS: [&str; 3] = ["lib", "rlib", "proc-macro"];
+
+/// Checks that no target of the workspace leaves its tests unrun.
+///
+/// `metadata` is the output of [`metadata_command`], `sources` the Rust files (path and
+/// text, relative to the root). A target may turn its unit tests off (`test = false` in
+/// its manifest, which spares the compiler and the linker a test harness at every build of
+/// a mutant; cargo's default for a build script) only if its root is all its code: it
+/// declares no module (no `mod` in its code words). The test code gate allows test code
+/// outside `tests/` only in `*_tests.rs` files a module declaration brings in, so such a
+/// root holds no test that would never run. A library keeps its doc tests
+/// ([`DOC_TESTED_KINDS`]).
+///
+/// # Errors
+///
+/// Returns every library that turns its doc tests off, every target without tests whose
+/// root declares a module or is not among `sources`, every target the metadata does not
+/// describe as expected, or why the metadata cannot be read.
+pub fn untested_targets_gate(metadata: &str, sources: &[(String, String)]) -> Result<(), Failure> {
+    let json: serde_json::Value = serde_json::from_str(metadata)
+        .map_err(|error| Failure::from(format!("invalid cargo metadata: {error}")))?;
+    let root = json
+        .get("workspace_root")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| Failure::from("cargo metadata names no workspace root".to_owned()))?;
+    let mut problems = Vec::new();
+    for (name, package) in cargo_packages(metadata)? {
+        let targets = package
+            .get("targets")
+            .and_then(serde_json::Value::as_array)
+            .ok_or_else(|| Failure::from(format!("cargo metadata lists no targets of {name}")))?;
+        for target in targets {
+            let field = |key: &str| target.get(key).and_then(serde_json::Value::as_bool);
+            let kinds: Vec<&str> = target
+                .get("kind")
+                .and_then(serde_json::Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(serde_json::Value::as_str)
+                .collect();
+            let source = target
+                .get("src_path")
+                .and_then(serde_json::Value::as_str)
+                .and_then(|path| path.strip_prefix(root))
+                .and_then(|path| path.strip_prefix('/'));
+            let (Some(tested), Some(doc_tested), Some(source)) =
+                (field("test"), field("doctest"), source)
+            else {
+                problems.push(format!(
+                    "{name}: a target cargo metadata does not describe as expected (`test`, \
+                     `doctest`, a source below the workspace root)"
+                ));
+                continue;
+            };
+            if !doc_tested && kinds.iter().any(|kind| DOC_TESTED_KINDS.contains(kind)) {
+                problems.push(format!(
+                    "{source}: its doc tests are turned off (`doctest = false`): they would \
+                     never run"
+                ));
+            }
+            if tested {
+                continue;
+            }
+            match sources.iter().find(|(path, _)| path == source) {
+                None => problems.push(format!(
+                    "{source}: the root of a target without tests, not among the Rust files \
+                     read"
+                )),
+                Some((path, text)) => problems.extend(
+                    code_words(text)
+                        .into_iter()
+                        .filter(|(_, word, _)| word == "mod")
+                        .map(|(line, _, _)| {
+                            format!(
+                                "{path}:{line}: declares a module, but its target turns its \
+                                 tests off (`test = false`): only a root that is all its \
+                                 code may, so that no test hides in it"
+                            )
+                        }),
+                ),
+            }
+        }
+    }
+    verdict("every test of a target runs", problems)
 }
 
 /// The repository path that `relative` names from the directory `dir` (both relative to
@@ -8135,6 +8229,10 @@ fn run_action(
         Action::UnsafeGate => rust_sources(runner).and_then(|sources| unsafe_gate(&sources)),
         Action::TestCodeGate => rust_sources(runner).and_then(|sources| test_code_gate(&sources)),
         Action::TestDataGate => rust_sources(runner).and_then(|sources| test_data_gate(&sources)),
+        Action::UntestedTargetsGate => {
+            let metadata = crates_metadata(runner)?;
+            untested_targets_gate(&metadata, &rust_sources(runner)?)
+        }
         Action::LicenseGate => licenses(runner),
         Action::CargoConfigGate => cargo_config_gate(&read_file(runner, CARGO_CONFIG_FILE)?),
         Action::FloatMethodGate => float_methods(runner),
