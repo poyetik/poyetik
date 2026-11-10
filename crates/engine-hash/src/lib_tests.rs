@@ -68,7 +68,7 @@ fn spec() -> Value {
     let json: Value = serde_json::from_str(VECTORS).expect("valid JSON");
     let mut keys: Vec<&str> = json
         .as_object()
-        .expect("an object")
+        .expect("a JSON object")
         .keys()
         .map(alloc::string::String::as_str)
         .collect();
