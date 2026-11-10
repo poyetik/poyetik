@@ -180,27 +180,17 @@ test("collapses every card to its title on one line, cut with an ellipsis, and o
   await expect(card.locator(".id")).toHaveText(`#${String(first.id)}`);
 });
 
-test("shows the most recent Done cards, the others behind Show all", async ({ page }) => {
+test("shows the most recent Done cards first, as the view orders them", async ({ page }) => {
   await page.goto("./");
   const done = view.columns.find((column) => column.id === "done");
   if (done === undefined) {
     throw new Error("the board has a Done column");
   }
-  const section = page.locator('[data-column="done"]');
-  const visible = section.locator(".card:visible");
-  await expect(visible).toHaveCount(done.shown.length);
-  const ids = async (): Promise<(string | null)[]> => visible.evaluateAll((cards) => cards.map((card) => card.getAttribute("data-id")));
-  expect(await ids()).toStrictEqual(done.shown.map((card) => String(card.id)));
-  const more = section.locator("details.more > summary");
-  if (done.more.length === 0) {
-    // Five cards or fewer: nothing hidden, no toggle (the toggle itself is covered by the component tests).
-    await expect(more).toHaveCount(0);
-    return;
-  }
-  await expect(more).toHaveText(`Show all ${String(done.cards.length)}`);
-  await more.click();
-  await expect(more).toHaveText("Show fewer");
-  expect(await ids()).toStrictEqual(done.cards.map((card) => String(card.id)));
+  // Whatever board.json holds: the cards shown, then those behind Show all (whose toggle
+  // e2e/fixture.spec.ts proves on a board that always has one).
+  const ids = await page.locator('[data-column="done"] .card').evaluateAll((cards) => cards.map((card) => card.getAttribute("data-id")));
+  expect(ids).toStrictEqual([...done.shown, ...done.more].map((card) => String(card.id)));
+  await expect(page.locator('[data-column="done"] .card:visible')).toHaveCount(done.shown.length);
 });
 
 test("sums up the board with the number of cards of each column", async ({ page }) => {
@@ -314,22 +304,19 @@ test("opens a card, then its steps, with the keyboard alone", async ({ page }) =
 
 test("draws a visible focus ring on every keyboard-focused toggle", async ({ page }) => {
   await page.goto("./");
-  // Every kind of toggle the board has: a card, its steps (in a card opened by keyboard), and Show all when Done hides cards.
-  // Each is reached by Tab from the previous one, in page order: a click would move the focus where Tab starts from.
+  // A card and its steps (in a card opened by keyboard); Show all is e2e/fixture.spec.ts's,
+  // on a board that always has one. Each is reached by Tab from the previous one, in page
+  // order: a click would move the focus where Tab starts from.
   const withSteps = page.locator(".card", { has: page.locator("details.steps-toggle") }).first();
-  const toggles = [withSteps.locator("details.card-toggle > summary"), withSteps.locator("details.steps-toggle > summary"), page.locator("details.more > summary")];
+  const toggles = [withSteps.locator("details.card-toggle > summary"), withSteps.locator("details.steps-toggle > summary")];
   for (const summary of toggles) {
-    // Show all exists only when Done hides cards (the component tests cover it otherwise); the other two always exist.
-    if (summary === toggles[2] && (await summary.count()) === 0) {
-      continue;
-    }
     await tabTo(page, summary);
     if (summary === toggles[0]) {
       await page.keyboard.press("Enter");
     }
     const ring = await summary.evaluate((element) => {
       const style = getComputedStyle(element);
-      // The ring is drawn over its card, or over the page for Show all: that is the color it must stand out from.
+      // The ring is drawn over its card: that is the color it must stand out from.
       const behind = element.closest(".card") ?? document.body;
       return { style: style.outlineStyle, width: style.outlineWidth, color: style.outlineColor, background: getComputedStyle(behind).backgroundColor };
     });

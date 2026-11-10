@@ -146,9 +146,21 @@ describe("Board.astro", () => {
   it("collapses every card to its title, its content inside the same toggle", async () => {
     const html = await render([card(1, "doing", { description: "The core", milestone: "M1", steps: [{ title: "Install", done: false }] })]);
     expect(html).toMatch(
-      /<li class="card" data-id="1"[^>]*>\s*<details class="card-toggle"[^>]*>\s*<summary[^>]*>\s*<h3[^>]*>Card 1<\/h3>\s*<\/summary>[\s\S]*The core[\s\S]*steps-toggle[\s\S]*#1[\s\S]*M1[\s\S]*<\/details>\s*<\/li>/,
+      /<li class="card" data-id="1"[^>]*>\s*<details class="card-toggle"[^>]*>\s*<summary[^>]*>\s*<h3[^>]*>Card 1<\/h3>\s*<span class="progress"[^>]*>\s*Steps 0\/1\s*<\/span>\s*<\/summary>[\s\S]*The core[\s\S]*steps-toggle[\s\S]*#1[\s\S]*M1[\s\S]*<\/details>\s*<\/li>/,
     );
     expect(html).not.toMatch(/<details[^>]*\bopen\b/);
+  });
+
+  it("shows an In progress card's progress on its closed line, and no other card's", async () => {
+    const steps = [
+      { title: "Install", done: true },
+      { title: "Build", done: false },
+      { title: "Ship", done: false },
+    ];
+    const html = await render([card(1, "doing", { steps }), card(2, "next", { steps }), card(3, "done", { steps }), card(4, "doing")]);
+    expect(html.match(/class="progress"/g)).toHaveLength(1);
+    expect(html).toMatch(/data-id="1"[^>]*>\s*<details class="card-toggle"[^>]*>\s*<summary[^>]*>\s*<h3[^>]*>Card 1<\/h3>\s*<span class="progress"[^>]*>\s*Steps 1\/3\s*<\/span>\s*<\/summary>/);
+    expect(html).toMatch(/data-id="4"[^>]*>\s*<details class="card-toggle"[^>]*>\s*<summary[^>]*>\s*<h3[^>]*>Card 4<\/h3>\s*<\/summary>/);
   });
 
   it("shows the five most recent Done cards, the rest behind Show all", async () => {

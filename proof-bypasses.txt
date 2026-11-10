@@ -31,6 +31,7 @@ apps/playground/playwright.config.ts: not measured -- Playwright's options; what
 apps/roadmap/playwright.config.ts: not measured -- Playwright's options; what they compute is @poyetik/config/playwright (measured and mutated); every end-to-end run loads them
 apps/playground/vite.config.ts: not measured -- Vite's and Vitest's options; their one decision, the Content Security Policy inserted at build, is csp.ts (measured and mutated); `allowOnly: false` is asserted by test/runner.test.ts
 apps/roadmap/astro.config.mjs: not measured -- Astro's options; their effect (stylesheets as files, never inlined) is what the end-to-end tests load under a policy that refuses inline styles
+apps/roadmap/astro.fixture.config.mjs: not measured -- Astro's options for the fixture page: astro.config.mjs with another output directory and the board import resolved to e2e/fixture-board.json; e2e/fixture.spec.ts first checks that the fixture is in force
 
 # Entry points and browser shells: wiring only, every decision in measured code.
 bindings/wasm/scripts/build-wasm.ts: not measured -- the entry point of pnpm build:wasm: one call of buildMain (scripts/cli.ts) with the real io (scripts/io.ts), both measured and mutated; every check builds through it

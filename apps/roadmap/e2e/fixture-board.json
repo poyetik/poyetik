@@ -1,0 +1,114 @@
+{
+  "version": 1,
+  "title": "Fixture",
+  "nextId": 10,
+  "cards": [
+    {
+      "id": 1,
+      "title": "A card without description or milestone",
+      "description": "",
+      "column": "next",
+      "milestone": "",
+      "createdAt": "2026-01-02",
+      "updatedAt": "2026-01-02",
+      "tasks": []
+    },
+    {
+      "id": 2,
+      "title": "Work under way",
+      "description": "A card in progress, with steps.",
+      "column": "doing",
+      "milestone": "M1 Fixture",
+      "createdAt": "2026-01-02",
+      "updatedAt": "2026-01-03",
+      "tasks": [
+        {
+          "title": "First step",
+          "done": true
+        },
+        {
+          "title": "Second step",
+          "done": true
+        },
+        {
+          "title": "Third step",
+          "done": false
+        },
+        {
+          "title": "Fourth step",
+          "done": false
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Finished 1",
+      "description": "Done.",
+      "column": "done",
+      "milestone": "M1 Fixture",
+      "createdAt": "2026-01-01",
+      "updatedAt": "2026-02-01",
+      "tasks": []
+    },
+    {
+      "id": 4,
+      "title": "Finished 2",
+      "description": "Done.",
+      "column": "done",
+      "milestone": "M1 Fixture",
+      "createdAt": "2026-01-01",
+      "updatedAt": "2026-02-02",
+      "tasks": []
+    },
+    {
+      "id": 5,
+      "title": "Finished 3",
+      "description": "Done.",
+      "column": "done",
+      "milestone": "M1 Fixture",
+      "createdAt": "2026-01-01",
+      "updatedAt": "2026-02-03",
+      "tasks": []
+    },
+    {
+      "id": 6,
+      "title": "Finished 4",
+      "description": "Done.",
+      "column": "done",
+      "milestone": "M1 Fixture",
+      "createdAt": "2026-01-01",
+      "updatedAt": "2026-02-04",
+      "tasks": []
+    },
+    {
+      "id": 7,
+      "title": "Finished 5",
+      "description": "Done.",
+      "column": "done",
+      "milestone": "M1 Fixture",
+      "createdAt": "2026-01-01",
+      "updatedAt": "2026-02-05",
+      "tasks": []
+    },
+    {
+      "id": 8,
+      "title": "Finished 6",
+      "description": "Done.",
+      "column": "done",
+      "milestone": "M1 Fixture",
+      "createdAt": "2026-01-01",
+      "updatedAt": "2026-02-06",
+      "tasks": []
+    },
+    {
+      "id": 9,
+      "title": "Finished 7",
+      "description": "Done.",
+      "column": "done",
+      "milestone": "M1 Fixture",
+      "createdAt": "2026-01-01",
+      "updatedAt": "2026-02-07",
+      "tasks": []
+    }
+  ]
+}

@@ -6,6 +6,8 @@ import { LOCALES, TIME_ZONES } from "./test/matrix.ts";
 const PORT = await freePort("ROADMAP_E2E_PORT", "localhost");
 /** Root URL of the preview server: the base URL of every test and the address Playwright waits on before starting. */
 const URL = `http://localhost:${String(PORT)}/`;
+/** Port of the preview of the page built from the fixture board (e2e/fixture.spec.ts reads it through `ROADMAP_E2E_FIXTURE_PORT`). */
+const FIXTURE_PORT = await freePort("ROADMAP_E2E_FIXTURE_PORT", "localhost");
 
 /**
  * The time zone and locale of the `index`-th project, taken in turn from the shared test matrix, so that
@@ -23,7 +25,20 @@ export default defineConfig({
   retries: 0,
   reporter: "list",
   use: { baseURL: URL },
-  webServer: { command: `pnpm build && ASTRO_TELEMETRY_DISABLED=1 astro preview --port ${String(PORT)} --ignore-lock`, url: URL, reuseExistingServer: false },
+  // Started in order: the first builds the page and the fixture page, then serves the page; the
+  // second serves the fixture page, built by then.
+  webServer: [
+    {
+      command: `pnpm build && ASTRO_TELEMETRY_DISABLED=1 astro build --config astro.fixture.config.mjs && ASTRO_TELEMETRY_DISABLED=1 astro preview --port ${String(PORT)} --ignore-lock`,
+      url: URL,
+      reuseExistingServer: false,
+    },
+    {
+      command: `ASTRO_TELEMETRY_DISABLED=1 astro preview --config astro.fixture.config.mjs --port ${String(FIXTURE_PORT)} --ignore-lock`,
+      url: `http://localhost:${String(FIXTURE_PORT)}/`,
+      reuseExistingServer: false,
+    },
+  ],
   projects: [
     { name: "chromium", use: { ...devices["Desktop Chrome"], ...environment(0) } },
     { name: "firefox", use: { ...devices["Desktop Firefox"], ...environment(1) } },

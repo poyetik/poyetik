@@ -22,13 +22,20 @@ const { view } = Astro.props;
 <div class="board">
   {
     view.columns.map((column) => {
-      // One card, collapsed to its title on one line; opened, its description, steps and footer.
-      // Defined once, rendered for the cards always shown and for those behind "Show all".
+      // One card, collapsed to its title on one line (an In progress card adds its progress,
+      // so that the work under way is seen without a click); opened, its description, steps
+      // and footer. Defined once, rendered for the cards always shown and for those behind
+      // "Show all".
       const cardItem = (card: CardView) => (
         <li class="card" data-id={card.id}>
           <details class="card-toggle">
             <summary>
               <h3>{card.title}</h3>
+              {column.id === "doing" && card.steps.length > 0 && (
+                <span class="progress">
+                  Steps {card.doneSteps}/{card.steps.length}
+                </span>
+              )}
             </summary>
             {card.description !== "" && <p>{card.description}</p>}
             {card.steps.length > 0 && (

@@ -42,6 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Roadmap page: an In progress card shows its progress ("Steps x/y") on its closed line, beside its title, so that the work under way is seen without a click; every card stays closed by default.
 - `engine-wasm`: `Blocks::len` and `Blocks::is_empty`, which only tests used, are removed (the tests read the blocks themselves), so that dead code shows.
 - `engine-cli`'s library: a `Rendered` carries the header of its WAV file, computed when its case was prepared, and `Rendered::wav` writes the file, so a header is never paired with other samples; `render_case`, `wav_bytes`, `wav_file`, `Prepared::format`, `Prepared::channels`, `Prepared::wav_header` and `Rendered::format`, which only tests used, are removed.
 - `cargo xtask check` reads the code words of a Rust file in time linear in its length whatever its contents: the hashes that open a raw string are counted only after its prefix (`r`, `br`, `cr`), at most 255.
@@ -62,6 +63,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Roadmap page: the end-to-end tests of Show all, its focus ring, its hidden labels and its accessibility audit (closed and open) run on a page built from a fixture board (`e2e/fixture-board.json`, `astro.fixture.config.mjs`) that reaches every state of a column, whatever `board.json` holds: they never ran with the real data (Done held five cards or fewer), read the labels as hidden text, and would have failed on the first data commit giving Done a sixth card. The real-data tests no longer branch on the data.
 - The dependency gate and the math layer gate refuse a package of `cargo metadata` without a name, which they read as `""`; one reader of the metadata serves both and the crate closures of the mutation proof record.
 - `engine-cli bless` reads each case and its patch once, and records the algorithm versions and the reference hashes of that one reading: it read them twice, so a file edited while it ran could give versions of one text and hashes of another.
 - `engine-cli render` reads each option at most once, with a value that is not an option: `render <case> <patch> --wav --format` wrote the render to a file named `--format`; it now says `option "--wav" needs a value`, and an option given twice or without a value is named instead of the generic usage line.

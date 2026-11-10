@@ -14,8 +14,8 @@ test("runs every Astro command with its telemetry disabled", () => {
   const sources = ["../package.json", "../playwright.config.ts"].map((path) => readFileSync(new URL(path, import.meta.url), "utf8"));
   const commands = /\bastro (?:add|build|check|dev|preview|sync|telemetry)\b/g;
   const disabled = /ASTRO_TELEMETRY_DISABLED=1 astro (?:add|build|check|dev|preview|sync|telemetry)\b/g;
-  // The package runs check, dev, build and preview, and Playwright preview again: each
-  // with the variable before it.
-  expect(sources.map((text) => text.match(commands)?.length)).toStrictEqual([4, 1]);
-  expect(sources.map((text) => text.match(disabled)?.length)).toStrictEqual([4, 1]);
+  // The package runs check, dev, build and preview, and Playwright builds the fixture page
+  // and previews both pages: each with the variable before it.
+  expect(sources.map((text) => text.match(commands)?.length)).toStrictEqual([4, 3]);
+  expect(sources.map((text) => text.match(disabled)?.length)).toStrictEqual([4, 3]);
 });

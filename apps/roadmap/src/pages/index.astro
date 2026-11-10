@@ -68,6 +68,8 @@ const policy = pagePolicy(import.meta.env.MODE);
       .card-toggle[open] > summary::before { content: "▾" / ""; }
       .card-toggle > summary h3 { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .card-toggle[open] > summary h3 { white-space: normal; overflow: visible; }
+      /* An In progress card's progress, on its closed line beside the title, never cut. */
+      .card-toggle > summary .progress { flex: none; font-size: 0.8rem; color: var(--muted); white-space: nowrap; }
       /* The Done column's "Show all": its label says what a click will do. */
       .more { margin-top: 0.6rem; }
       .more > summary { cursor: pointer; font-size: 0.85rem; font-weight: 600; color: var(--fg); margin-bottom: 0.6rem; }
