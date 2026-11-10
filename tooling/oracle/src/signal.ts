@@ -26,7 +26,7 @@ export function channel(wav: Wav, index: number): number[] {
  * The phase is reduced exactly before the sine: `(frequency × index) mod rate`. Both
  * operations are exact in binary64 when the frequency is a binary32 value (24
  * significant bits, as parameters are) and `index` is below 2^29 (see
- * {@link MAX_FRAMES}): the reference loses no precision however long the case.
+ * {@link MAX_EXACT_FRAMES}): the reference loses no precision however long the case.
  */
 export function ideal(sine: Sine, rate: number, index: number): number {
   return sine.amplitude * Math.sin((2 * Math.PI * ((sine.frequency * index) % rate)) / rate + sine.phase);
@@ -38,7 +38,7 @@ export function ideal(sine: Sine, rate: number, index: number): number {
  * product is exact. Its size is never the limit: one bit more of index makes products
  * round, while they stay far below 2^53.
  */
-export const MAX_FRAMES = 2 ** 29;
+export const MAX_EXACT_FRAMES = 2 ** 29;
 
 /**
  * The largest distance between `samples` and the ideal `sine` computed in double
@@ -91,7 +91,7 @@ export function sineError(samples: readonly number[], rate: number, sine: Sine):
  * Given as binary32, a box computing its phase in binary32 exceeds it (measured over one
  * second at 48 kHz). So does a gain error of 5e-7, over cases up to about 3e8 frames (1.7
  * hours at 48 kHz): the accumulation term grows with the case, and the bound reaches 5e-7
- * at about 3.37e8 frames, 7.8e-7 at {@link MAX_FRAMES}.
+ * at about 3.37e8 frames, 7.8e-7 at {@link MAX_EXACT_FRAMES}.
  */
 export function sineErrorBound(amplitude: number, frames: number, format: RenderFormat): number {
   const magnitude = Math.abs(amplitude);

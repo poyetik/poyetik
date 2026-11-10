@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { channel, ideal, MAX_FRAMES, sineError, sineErrorBound } from "../src/signal.ts";
+import { channel, ideal, MAX_EXACT_FRAMES, sineError, sineErrorBound } from "../src/signal.ts";
 import { parseWav } from "../src/wav.ts";
 import { makeWav, sineSamples } from "./fixtures.ts";
 
@@ -76,7 +76,7 @@ test("reduces the phase exactly, however far into the case", () => {
   // 1 kHz at 8 kHz: every sample is a multiple of π/4. Far into a case, the unreduced
   // argument 2π × 1000 × n / 8000 has lost the low bits of the phase; the reduced one
   // has not.
-  const last = MAX_FRAMES - 1;
+  const last = MAX_EXACT_FRAMES - 1;
   expect(ideal(SINE, 8000, last)).toBe(Math.sin((2 * Math.PI * 7) / 8));
   expect(Math.abs(ideal(SINE, 8000, last) - Math.sin((2 * Math.PI * 1000 * last) / 8000))).toBeGreaterThan(1e-9);
   expect(ideal({ frequency: 1000, amplitude: 2, phase: 1 }, 8000, 2)).toBe(2 * Math.sin((2 * Math.PI * 2000) / 8000 + 1));
@@ -88,7 +88,7 @@ test("reduces the phase exactly up to the longest case, not beyond", () => {
   const significand = BigInt(frequency * 2 ** 15);
   const rate = 44_100;
   const exact = (index: number): number => Number((significand * BigInt(index)) % (BigInt(rate) << 15n)) / 2 ** 15;
-  const last = MAX_FRAMES - 1;
+  const last = MAX_EXACT_FRAMES - 1;
   expect((frequency * last) % rate).toBe(exact(last));
   expect(ideal({ frequency, amplitude: 1, phase: 0 }, rate, last)).toBe(Math.sin((2 * Math.PI * exact(last)) / rate));
   // With one more bit of index the product needs 54 bits and rounds, although it is
@@ -167,7 +167,7 @@ test("tells a gain error of 5e-7 from a correct box up to about 3e8 frames, not 
   // The gain error shows at the peaks, less the output rounding of those samples (2^-25).
   expect(sineErrorBound(1, 300_000_000, GIVEN) + 2 ** -25).toBeLessThan(5e-7);
   expect(sineErrorBound(1, 337_100_000, GIVEN)).toBeGreaterThan(5e-7);
-  expect(sineErrorBound(1, MAX_FRAMES, GIVEN)).toBeCloseTo(7.79e-7, 9);
+  expect(sineErrorBound(1, MAX_EXACT_FRAMES, GIVEN)).toBeCloseTo(7.79e-7, 9);
 });
 
 test("accepts a correct oscillator of a subnormal amplitude", () => {

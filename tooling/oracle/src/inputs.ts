@@ -5,7 +5,7 @@
 
 import { RENDER_FORMATS, type RenderFormat } from "./format.ts";
 import { unmeasurable } from "./quality.ts";
-import { MAX_FRAMES, type Sine } from "./signal.ts";
+import { MAX_EXACT_FRAMES, type Sine } from "./signal.ts";
 
 /** Thrown when a conformance file does not have the expected shape. */
 export class InputError extends Error {
@@ -32,7 +32,7 @@ export const MAX_RATE = 384_000;
 export interface Case {
   /** Sample rate, in hertz: a whole number from {@link MIN_RATE} to {@link MAX_RATE}. */
   readonly rate: number;
-  /** Duration of the render, in frames (samples per channel), from 1 to `MAX_FRAMES`. */
+  /** Duration of the render, in frames (samples per channel), from 1 to `MAX_EXACT_FRAMES`. */
   readonly frames: number;
 }
 
@@ -113,11 +113,11 @@ function count(value: unknown, where: string): number {
   return read;
 }
 
-/** Reads a duration: a positive whole number up to {@link MAX_FRAMES}, or rejects `where`. */
+/** Reads a duration: a positive whole number up to {@link MAX_EXACT_FRAMES}, or rejects `where`. */
 function frames(value: unknown, where: string): number {
   const read = count(value, where);
-  if (read > MAX_FRAMES) {
-    throw new InputError(`${where} is above ${String(MAX_FRAMES)}, the longest case with an exact reference`);
+  if (read > MAX_EXACT_FRAMES) {
+    throw new InputError(`${where} is above ${String(MAX_EXACT_FRAMES)}, the longest case with an exact reference`);
   }
   return read;
 }
@@ -175,7 +175,7 @@ function wholeNumbers(name: string): (this: unknown, key: string, value: unknown
 /**
  * Reads the text of a case file, as `engine-cli` reads it: a JSON object with exactly the
  * fields `sample_rate` (a sample rate the engine supports) and `frames` (1 to
- * `MAX_FRAMES`), each a whole number written without fraction or exponent.
+ * `MAX_EXACT_FRAMES`), each a whole number written without fraction or exponent.
  *
  * The text is parsed twice. First plainly (`JSON.parse` does not recurse, however deep
  * the text), to check the fields and their values; then, once it is known to be a flat
