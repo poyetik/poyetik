@@ -54,7 +54,10 @@ fn maps_each_format_code_of_the_interface() {
 fn starts_empty() {
     let mut instance = Instance::default();
     assert_eq!(instance.channels(), 0, "no engine");
-    assert!(instance.process().is_empty(), "no blocks");
+    assert!(
+        matches!(instance.process(), Blocks::Binary32([])),
+        "no blocks"
+    );
     assert_eq!(instance.message(), "", "no error");
 }
 
@@ -173,7 +176,10 @@ fn a_failed_load_unloads_and_explains() {
     instance.input(1).copy_from_slice(b"x");
     assert!(!instance.load(48_000, 1), "invalid patch");
     assert_eq!(instance.channels(), 0, "unloaded");
-    assert!(instance.process().is_empty(), "no blocks");
+    assert!(
+        matches!(instance.process(), Blocks::Binary32([])),
+        "no blocks"
+    );
     assert_eq!(
         instance.message(),
         "invalid patch: expected value at line 1 column 1",

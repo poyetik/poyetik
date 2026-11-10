@@ -95,11 +95,13 @@ fn gives_each_format_in_its_own_width() {
             wide,
             "{format}: binary64 blocks"
         );
-        assert_eq!((blocks.len(), blocks.is_empty()), (2, false), "{format}");
+        let count = match blocks {
+            Blocks::Binary64(blocks) => blocks.len(),
+            Blocks::Binary32(blocks) => blocks.len(),
+        };
+        assert_eq!(count, 2, "{format}: one block per channel");
         assert!(!blocks.as_ptr().is_null(), "{format}: an address");
     }
-    let none = Blocks::Binary64(&[]);
-    assert_eq!((none.len(), none.is_empty()), (0, true), "no block");
 }
 
 #[test]

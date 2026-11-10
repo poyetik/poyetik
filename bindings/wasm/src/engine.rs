@@ -56,21 +56,6 @@ impl Blocks<'_> {
             Self::Binary32(blocks) => blocks.as_ptr().cast(),
         }
     }
-
-    /// The number of blocks: one per output channel.
-    #[must_use]
-    pub const fn len(&self) -> usize {
-        match self {
-            Self::Binary64(blocks) => blocks.len(),
-            Self::Binary32(blocks) => blocks.len(),
-        }
-    }
-
-    /// Whether there is no block.
-    #[must_use]
-    pub const fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
 }
 
 /// A validated patch ready to render in one render format, with its output buffers.
