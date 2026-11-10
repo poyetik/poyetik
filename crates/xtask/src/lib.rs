@@ -3014,6 +3014,53 @@ fn crate_root(relative: &str) -> bool {
             .any(single)
 }
 
+/// The first line of the one form that declares a unit test module ([`test_declarations`]).
+pub const TEST_DECLARATION: &str = "#[cfg(test)]";
+
+/// The unit test files that `text`, the Rust file `path`, declares, each with the line of
+/// its declaration: the one form, three whole lines,
+///
+/// ```text
+/// #[cfg(test)]
+/// #[path = "<name>_tests.rs"]
+/// mod <identifier>;
+/// ```
+///
+/// where `<name>` is not empty and holds only letters, digits and `_`, so that the file is
+/// beside `path` (`<directory of path>/<name>_tests.rs`). Each line may be indented; nothing
+/// else may share it.
+#[must_use]
+pub fn test_declarations(path: &str, text: &str) -> Vec<(usize, String)> {
+    let word = |name: &str| {
+        !name.is_empty()
+            && name
+                .chars()
+                .all(|character| character.is_ascii_alphanumeric() || character == '_')
+    };
+    let dir = path.rsplit_once('/').map_or("", |(dir, _)| dir);
+    let lines: Vec<&str> = text.lines().map(str::trim).collect();
+    lines
+        .iter()
+        .zip(lines.iter().skip(1))
+        .zip(lines.iter().skip(2))
+        .enumerate()
+        .filter_map(|(index, ((cfg, attribute), declaration))| {
+            let name = attribute
+                .strip_prefix("#[path = \"")?
+                .strip_suffix("_tests.rs\"]")?;
+            let module = declaration.strip_prefix("mod ")?.strip_suffix(';')?;
+            (*cfg == TEST_DECLARATION && word(name) && word(module)).then(|| {
+                let file = if dir.is_empty() {
+                    format!("{name}_tests.rs")
+                } else {
+                    format!("{dir}/{name}_tests.rs")
+                };
+                (index.saturating_add(1), file)
+            })
+        })
+        .collect()
+}
+
 /// Checks that unsafe code is impossible outside [`UNSAFE_FILES`], by the compiler.
 ///
 /// Only those files lift the lint against unsafe code (an `allow` or `expect` of it), and
@@ -3022,7 +3069,9 @@ fn crate_root(relative: &str) -> bool {
 /// benchmark, example, build script) holds the exact inner attribute forbidding the lint, so
 /// that the compiler refuses any later lifting (E0453); in a crate holding an unsafe file,
 /// whose library root cannot forbid it, every other module and every root outside `src/`
-/// does. The lint name is built at run time, so that this file does not name it.
+/// does, but the unit test modules an unsafe file declares ([`test_declarations`]): they
+/// belong to it, under its lifting (and under Miri with it), and lift nothing themselves.
+/// The lint name is built at run time, so that this file does not name it.
 ///
 /// Every file of [`ASSEMBLY_FILES`], which leaves the Miri step, must still hold inline
 /// assembly (`asm!(`): a file that no longer does would be unsafe code Miri could check.
@@ -3069,6 +3118,12 @@ pub fn unsafe_gate(sources: &[(String, String)]) -> Result<(), Failure> {
             })
             .map(|file| format!("{file} is listed in ASSEMBLY_FILES but holds no inline assembly")),
     );
+    let unsafe_tests: BTreeSet<String> = sources
+        .iter()
+        .filter(|(path, _)| UNSAFE_FILES.contains(&path.as_str()))
+        .flat_map(|(path, text)| test_declarations(path, text))
+        .map(|(_, file)| file)
+        .collect();
     for (path, text) in sources {
         let Some((krate, relative)) = RUST_CRATES.iter().find_map(|krate| {
             path.strip_prefix(&format!("{}/", krate.dir))
@@ -3081,6 +3136,7 @@ pub fn unsafe_gate(sources: &[(String, String)]) -> Result<(), Failure> {
             .any(|file| file.starts_with(&format!("{}/", krate.dir)));
         let required = if holds_unsafe {
             !UNSAFE_FILES.contains(&path.as_str())
+                && !unsafe_tests.contains(path)
                 && relative != "src/lib.rs"
                 && (relative.starts_with("src/") || crate_root(relative))
         } else {

@@ -1,5 +1,9 @@
 //! Tests of the registry.
 
+/// The test binary counts heap operations, so that the no-heap law can be checked.
+#[global_allocator]
+static ALLOCATOR: engine_testkit::CountingAllocator = engine_testkit::CountingAllocator;
+
 use super::REGISTRY;
 
 #[test]

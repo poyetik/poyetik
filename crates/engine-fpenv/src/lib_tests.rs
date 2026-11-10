@@ -4,6 +4,9 @@
 
 #![forbid(unsafe_code)]
 
+extern crate alloc;
+extern crate std;
+
 use alloc::borrow::ToOwned;
 use alloc::boxed::Box;
 use alloc::collections::{BTreeMap, BTreeSet};

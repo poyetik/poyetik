@@ -188,57 +188,5 @@ pub trait Object<S: Sample>: Send + fmt::Debug {
 }
 
 #[cfg(test)]
-mod tests {
-    use alloc::format;
-
-    use super::{AlgorithmVersion, ParamSpec};
-    use crate::host::ParamBounds;
-
-    const PARAM: ParamSpec = ParamSpec::new("p", "p", 0.0, -1.0, 2.0);
-
-    #[test]
-    fn accepts_values_within_range_inclusive() {
-        for value in [-1.0_f32, 0.0, 2.0] {
-            assert!(PARAM.accepts(value), "{value} is accepted");
-        }
-    }
-
-    #[test]
-    fn rejects_values_outside_range_and_nan() {
-        for value in [-1.5_f32, 2.5, f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
-            assert!(!PARAM.accepts(value), "{value} is rejected");
-        }
-    }
-
-    #[test]
-    fn gives_hosts_its_values_as_written() {
-        let param = ParamSpec::new("q", "a q", 0.25, -1.5, 2.5);
-        assert_eq!(
-            (param.name, param.description),
-            ("q", "a q"),
-            "name and description"
-        );
-        assert_eq!(
-            [param.default_value(), param.minimum(), param.maximum()].map(f32::to_bits),
-            [0.25_f32, -1.5, 2.5].map(f32::to_bits),
-            "default, minimum, maximum"
-        );
-    }
-
-    #[test]
-    fn numbers_algorithm_versions_from_one() {
-        let first = AlgorithmVersion::FIRST;
-        assert_eq!(first.get(), 1, "the first version");
-        assert_eq!(first.next().get(), 2, "the next one");
-        assert_eq!(first.next().next().get(), 3, "and the one after");
-        assert!(first < first.next(), "ordered");
-        assert_eq!(format!("{}", first.next()), "2", "shown as its number");
-        let last = AlgorithmVersion(core::num::NonZeroU32::MAX);
-        assert_eq!(last.get(), u32::MAX, "the largest version");
-        assert_eq!(
-            last.next().get(),
-            u32::MAX,
-            "stays the largest, never wraps to zero"
-        );
-    }
-}
+#[path = "object_tests.rs"]
+mod tests;

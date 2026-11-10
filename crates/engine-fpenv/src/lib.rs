@@ -48,11 +48,6 @@ compile_error!(
     "engine-fpenv supports x86_64 and aarch64 only: set the floating-point mode of another target before adding it"
 );
 
-#[cfg(test)]
-extern crate alloc;
-#[cfg(test)]
-extern crate std;
-
 mod word;
 
 use core::marker::PhantomData;
@@ -111,4 +106,5 @@ pub fn with_default_mode<R>(body: impl for<'scope> FnOnce(DefaultMode<'scope>) -
 }
 
 #[cfg(test)]
+#[path = "lib_tests.rs"]
 mod tests;

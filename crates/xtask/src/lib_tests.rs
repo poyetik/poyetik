@@ -51,6 +51,39 @@ fn scratch(name: &str) -> std::path::PathBuf {
     dir
 }
 
+/// The Rust files of the crates of the repository, read from their `src/` and `tests/`
+/// directories (a copy of the repository, as cargo-mutants makes, has no git to list them),
+/// sorted by path.
+fn repository_rust_sources() -> Vec<(String, String)> {
+    fn walk(root: &Path, dir: &str, found: &mut Vec<(String, String)>) {
+        let Ok(entries) = std::fs::read_dir(root.join(dir)) else {
+            return;
+        };
+        for entry in entries {
+            let name = entry.expect("an entry").file_name();
+            let path = format!("{dir}/{}", name.to_str().expect("UTF-8"));
+            if root.join(&path).is_dir() {
+                walk(root, &path, found);
+            } else if Path::new(&path)
+                .extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("rs"))
+            {
+                let text = std::fs::read_to_string(root.join(&path)).expect("readable");
+                found.push((path, text));
+            }
+        }
+    }
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let mut found = Vec::new();
+    for krate in super::RUST_CRATES {
+        for dir in ["src", "tests"] {
+            walk(&root, &format!("{}/{dir}", krate.dir), &mut found);
+        }
+    }
+    found.sort();
+    found
+}
+
 /// Runs [`cli`] on UTF-8 arguments.
 fn run_cli(
     args: &[String],
@@ -6563,6 +6596,127 @@ fn makes_the_compiler_refuse_unsafe_outside_the_audited_files() {
                 &["crates/engine-core/src/m.rs lifts the lint against unsafe code".to_owned()]
             ),
             "only the exact attribute is exempt: {text}"
+        );
+    }
+}
+
+#[test]
+fn lets_the_test_modules_of_an_unsafe_file_inherit_its_lifting() {
+    let forbid = format!("#![forbid({}_{})]\n", "unsafe", "code");
+    let declaration = "#[cfg(test)]\n#[path = \"ffi_tests.rs\"]\nmod tests;\n";
+    let mut sources: Vec<(String, String)> = UNSAFE_FILES
+        .iter()
+        .map(|path| {
+            let text = if *path == "bindings/wasm/src/ffi.rs" {
+                format!("{}{declaration}", audited(path))
+            } else {
+                audited(path)
+            };
+            ((*path).to_owned(), text)
+        })
+        .collect();
+    sources.push((
+        "bindings/wasm/src/ffi_tests.rs".to_owned(),
+        "fn pointer() {}\n".to_owned(),
+    ));
+    sources.push((
+        "bindings/wasm/src/engine.rs".to_owned(),
+        format!("{forbid}{declaration}").replace("ffi_tests", "engine_tests"),
+    ));
+    sources.push((
+        "bindings/wasm/src/engine_tests.rs".to_owned(),
+        forbid.clone(),
+    ));
+    assert_eq!(
+        unsafe_gate(&sources),
+        Ok(()),
+        "the test module of the FFI file is under its lifting"
+    );
+    let mut safe_tests = sources.clone();
+    for (path, text) in &mut safe_tests {
+        if path == "bindings/wasm/src/engine_tests.rs" {
+            *text = "fn plain() {}\n".to_owned();
+        }
+    }
+    assert_eq!(
+        unsafe_gate(&safe_tests),
+        failed(format!(
+            "the lint against unsafe code: bindings/wasm/src/engine_tests.rs does not hold `{}`",
+            forbid.trim()
+        )),
+        "the test module of a safe file forbids it like any module"
+    );
+    let mut undeclared = sources;
+    for (path, text) in &mut undeclared {
+        if path == "bindings/wasm/src/ffi.rs" {
+            *text = audited(path);
+        }
+    }
+    assert_eq!(
+        unsafe_gate(&undeclared),
+        failed(format!(
+            "the lint against unsafe code: bindings/wasm/src/ffi_tests.rs does not hold `{}`",
+            forbid.trim()
+        )),
+        "a file the unsafe file does not declare is not its test module"
+    );
+}
+
+#[test]
+fn confines_unsafe_blocks_in_the_repository() {
+    let sources = repository_rust_sources();
+    assert!(
+        [
+            "bindings/wasm/src/ffi_tests.rs",
+            "crates/engine-fpenv/src/lib_tests.rs"
+        ]
+        .iter()
+        .all(|file| sources.iter().any(|(path, _)| path == file)),
+        "the test modules are read"
+    );
+    assert_eq!(unsafe_gate(&sources), Ok(()), "the files of the repository");
+}
+
+#[test]
+fn reads_only_the_one_form_of_a_test_declaration() {
+    let declared = |path: &str, text: &str| super::test_declarations(path, text);
+    assert_eq!(
+        declared(
+            "crates/a/src/x.rs",
+            "fn f() {}\n#[cfg(test)]\n#[path = \"x_tests.rs\"]\nmod tests;\n  #[cfg(test)]\n  #[path = \"y_2_tests.rs\"]\n  mod other_1;\n"
+        ),
+        vec![
+            (2, "crates/a/src/x_tests.rs".to_owned()),
+            (5, "crates/a/src/y_2_tests.rs".to_owned()),
+        ],
+        "every declaration, indented or not, beside its file"
+    );
+    assert_eq!(
+        declared("x.rs", "#[cfg(test)]\n#[path = \"x_tests.rs\"]\nmod tests;"),
+        vec![(1, "x_tests.rs".to_owned())],
+        "a file at the root"
+    );
+    for text in [
+        "#[path = \"x_tests.rs\"]\nmod tests;\n",
+        "#[cfg(not(test))]\n#[path = \"x_tests.rs\"]\nmod tests;\n",
+        "#[cfg(test)]\n\n#[path = \"x_tests.rs\"]\nmod tests;\n",
+        "#[cfg(test)]\n#[path = \"../x_tests.rs\"]\nmod tests;\n",
+        "#[cfg(test)]\n#[path = \"d/x_tests.rs\"]\nmod tests;\n",
+        "#[cfg(test)]\n#[path = \"_tests.rs\"]\nmod tests;\n",
+        "#[cfg(test)]\n#[path = \"x.rs\"]\nmod tests;\n",
+        "#[cfg(test)]\n#[path=\"x_tests.rs\"]\nmod tests;\n",
+        "#[cfg(test)]\n#[path = \"x_tests.rs\"] mod tests;\n",
+        "#[cfg(test)]\n#[path = \"x_tests.rs\"]\nmod tests {}\n",
+        "#[cfg(test)]\n#[path = \"x_tests.rs\"]\nmod ;\n",
+        "#[cfg(test)]\n#[path = \"x_tests.rs\"]\nmod a::b;\n",
+        "#[cfg(test)]\n#[path = \"x_tests.rs\"]\npub mod tests;\n",
+        "#[cfg(test)]\n#[path = \"x_tests.rs\"]\nmod tests;;\n",
+        "#[cfg(test)]\n#[path = \"x_tests.rs\"]\n",
+    ] {
+        assert_eq!(
+            declared("crates/a/src/x.rs", text),
+            vec![],
+            "not the form: {text}"
         );
     }
 }

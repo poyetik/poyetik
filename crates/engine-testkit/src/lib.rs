@@ -40,7 +40,6 @@ pub mod runner;
 pub use engine_alloc_counter::{CountingAllocator, NotCounting, heap_operations_during};
 pub use laws::{check_laws, check_metadata, check_registry};
 
-/// The test binary of this crate counts heap operations, like every box test binary must.
 #[cfg(test)]
-#[global_allocator]
-static ALLOCATOR: CountingAllocator = CountingAllocator;
+#[path = "lib_tests.rs"]
+mod tests;
