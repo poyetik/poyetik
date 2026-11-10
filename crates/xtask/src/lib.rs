@@ -712,16 +712,19 @@ fn run(name: &str, program: &'static str, args: &[&str], dir: Dir) -> Step {
     }
 }
 
+/// The pinned tools, the platform and an environment that changes no build: the first step
+/// of every check, and of every bless, whose output later checks compare with.
+fn preflight_step() -> Step {
+    Step {
+        name: "Tools and platform".to_owned(),
+        action: Action::Preflight,
+    }
+}
+
 /// The tools first, then the state of the working tree: what every part starts with.
 fn opening_steps() -> Vec<(Role, Step)> {
     vec![
-        (
-            Role::Frame,
-            Step {
-                name: "Tools and platform".to_owned(),
-                action: Action::Preflight,
-            },
-        ),
+        (Role::Frame, preflight_step()),
         (
             Role::Frame,
             Step {
@@ -8148,8 +8151,10 @@ pub fn cli(
         Task::ListParts => full_parts()
             .into_iter()
             .try_for_each(|part| say(out, &part.name())),
-        Task::Bless => run_steps(&[bless_step()], runner, out),
-        Task::BlessBenchmarks => run_steps(&[bless_benchmarks_step()], runner, out),
+        Task::Bless => run_steps(&[preflight_step(), bless_step()], runner, out),
+        Task::BlessBenchmarks => {
+            run_steps(&[preflight_step(), bless_benchmarks_step()], runner, out)
+        }
         Task::CommitMsg(path) => {
             read_file(runner, &path).and_then(|message| commit_msg_gate(&message))
         }

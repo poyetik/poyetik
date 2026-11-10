@@ -4153,6 +4153,23 @@ fn release_gate_runs_on_the_real_files() {
     }
 }
 
+/// What the preflight asks and reads in a passing fake: the ten tools, `.node-version`
+/// and the toolchain file.
+const PREFLIGHT_RAN: [&str; 12] = [
+    "capture git --version",
+    "capture cargo --version",
+    "capture cargo +nightly-2026-11-01 --version",
+    "capture cargo +nightly-2026-11-01 miri --version",
+    "capture cargo llvm-cov --version",
+    "capture cargo mutants --version",
+    "capture cargo deny --version",
+    "capture node --version",
+    "capture pnpm --version",
+    "capture rustc --version",
+    "read .node-version",
+    "read rust-toolchain.toml",
+];
+
 #[test]
 fn bless_benchmarks_counts_and_rewrites_the_baseline() {
     let step = bless_benchmarks_step();
@@ -4176,12 +4193,13 @@ fn bless_benchmarks_counts_and_rewrites_the_baseline() {
     );
     assert_eq!(
         fake.ran,
-        vec!["pnpm run benchmarks:bless"],
-        "only the benchmark bless runs"
+        [PREFLIGHT_RAN.as_slice(), &["pnpm run benchmarks:bless"]].concat(),
+        "the preflight, then only the benchmark bless runs"
     );
     assert_eq!(
         String::from_utf8(out).expect("utf-8"),
-        "▶ [1/1] Bless the benchmark baseline\n✔ all 1 checks passed\n",
+        "▶ [1/2] Tools and platform\n▶ [2/2] Bless the benchmark baseline\n✔ all 2 checks \
+         passed\n",
         "progress"
     );
 }
@@ -4204,14 +4222,69 @@ fn bless_renders_and_rewrites_the_references() {
     );
     assert_eq!(
         fake.ran,
-        vec!["cargo run --package engine-cli --locked --quiet -- bless conformance"],
-        "only bless runs"
+        [
+            PREFLIGHT_RAN.as_slice(),
+            &["cargo run --package engine-cli --locked --quiet -- bless conformance"]
+        ]
+        .concat(),
+        "the preflight, then only bless runs"
     );
     assert_eq!(
         String::from_utf8(out).expect("utf-8"),
-        "▶ [1/1] Bless conformance references\n✔ all 1 checks passed\n",
+        "▶ [1/2] Tools and platform\n▶ [2/2] Bless conformance references\n✔ all 2 checks \
+         passed\n",
         "progress"
     );
+}
+
+#[test]
+fn blesses_only_where_the_checks_could_run() {
+    // A bless writes what every later check compares with: it starts with the preflight of
+    // the check, so that a build drifted by the environment (a profile, a wrapper, an
+    // outside Cargo configuration) is never blessed.
+    for (task, script) in [
+        (
+            "bless",
+            "cargo run --package engine-cli --locked --quiet -- bless conformance",
+        ),
+        ("bless-benchmarks", "pnpm run benchmarks:bless"),
+    ] {
+        let mut fake = passing();
+        fake.environment.variables = vec!["CARGO_PROFILE_RELEASE_OPT_LEVEL".to_owned()];
+        let mut err = Vec::new();
+        assert_eq!(
+            run_cli(&[task.to_owned()], &mut fake, &mut Vec::new(), &mut err),
+            1,
+            "{task}: a drifting variable fails"
+        );
+        assert_eq!(
+            String::from_utf8(err).expect("utf-8"),
+            "error: Tools and platform: the checks cannot run here: \
+             CARGO_PROFILE_RELEASE_OPT_LEVEL is set, which changes what cargo builds or how it \
+             lints: unset it\n",
+            "{task}: the preflight's reason"
+        );
+        assert!(
+            !fake.ran.contains(&script.to_owned()),
+            "{task}: nothing blessed"
+        );
+        let mut configured = passing();
+        configured.environment.cargo_configs = vec!["/home/x/.cargo/config.toml".to_owned()];
+        assert_eq!(
+            run_cli(
+                &[task.to_owned()],
+                &mut configured,
+                &mut Vec::new(),
+                &mut Vec::new()
+            ),
+            1,
+            "{task}: an outside Cargo configuration fails"
+        );
+        assert!(
+            !configured.ran.contains(&script.to_owned()),
+            "{task}: nothing blessed"
+        );
+    }
 }
 
 #[test]
