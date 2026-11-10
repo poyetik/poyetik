@@ -7,6 +7,7 @@ use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
 
+use super::Feed;
 use crate::host::{Delivered, Raw};
 use crate::{
     AlgorithmVersion, BLOCK_SIZE, Binary32, Binary64, Block, Capability, Connection, CoreError,
@@ -1290,6 +1291,43 @@ fn sums_seventeen_cables_and_seventeen_outputs_in_the_reduction_order<S: Bits>()
     );
 }
 
+/// The plan decides when it is built how each inlet and each output channel is fed: no
+/// source leaves it silent, one source is a copy (the reduction order of one term, bit for
+/// bit), two or more go through the sum of decision 28. The choice is the plan's structure,
+/// read here, not a branch taken while processing.
+fn decides_how_each_block_is_fed_when_built<S: Bits>() {
+    let plan = build::<S>(
+        vec![
+            node(1, "const~"),
+            node(2, "ramp~"),
+            node(3, "out~"),
+            node(4, "mono~"),
+        ],
+        vec![wire(1, 0, 3, 0), wire(2, 0, 3, 0), wire(2, 0, 3, 1)],
+    )
+    .expect("valid patch");
+    let feeds: Vec<&[Option<Feed<usize>>]> = plan
+        .instances
+        .iter()
+        .map(|instance| instance.feeds.as_slice())
+        .collect();
+    assert_eq!(
+        feeds,
+        vec![
+            &[][..],
+            &[][..],
+            &[Some(Feed::Several(vec![0, 1])), Some(Feed::Single(1))][..],
+            &[None][..],
+        ],
+        "out~ sums two cables and copies one; mono~ is unconnected"
+    );
+    assert_eq!(
+        plan.channel_feeds,
+        vec![Feed::Several(vec![(2, 0), (3, 0)]), Feed::Single((2, 1))],
+        "channel 0 sums out~ and mono~; channel 1 copies out~ alone"
+    );
+}
+
 /// Runs each generic test in both precisions, each instantiation a test of its own.
 macro_rules! in_both_precisions {
     ($($test:ident),* $(,)?) => {
@@ -1347,4 +1385,5 @@ in_both_precisions!(
     renders_a_product_then_a_sum_in_the_mode_of_the_build,
     sums_three_cables_and_three_outputs_in_the_reduction_order,
     sums_seventeen_cables_and_seventeen_outputs_in_the_reduction_order,
+    decides_how_each_block_is_fed_when_built,
 );
