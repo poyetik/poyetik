@@ -1,0 +1,16 @@
+# A workspace of its own, outside the project's, of manifests only: xtask's tests read what
+# the real `cargo metadata --no-deps` says of it. Its crates take the names and places of the
+# project's, and hold what each gate reading the metadata must refuse.
+[workspace]
+members = [
+    "crates/engine-core",
+    "crates/engine-objects",
+    "crates/engine-patch",
+    "crates/engine-hash",
+    "crates/engine-fpenv",
+    "crates/engine-alloc-counter",
+    "crates/engine-testkit",
+    "crates/engine-cli",
+    "bindings/wasm",
+]
+resolver = "3"

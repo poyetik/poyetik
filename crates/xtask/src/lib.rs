@@ -37,15 +37,11 @@ pub struct RustCrate {
     /// Whether it has a binary, `src/main.rs`, which its unit tests cannot reach.
     pub binary: bool,
     /// The files of the repository outside its directory that its tests read (`spec/`
-    /// vectors, the conformance corpus…), each a file or a directory ending in `/`
-    /// ([`REPOSITORY`] for all of it), checked by [`test_data_gate`]: a change to one of
-    /// them can weaken its tests as much as a change to its test code.
+    /// vectors, the conformance corpus…), each a file or a directory ending in `/`,
+    /// checked by [`test_data_gate`]: a change to one of them can weaken its tests as much
+    /// as a change to its test code.
     pub test_data: &'static [&'static str],
 }
-
-/// The test data root that holds the whole repository: the tests of `xtask` check the
-/// repository itself (its hooks, workflow, manifests and sources).
-pub const REPOSITORY: &str = "";
 
 /// The crates of the Cargo workspace (checked by [`membership_gate`]): each is measured by
 /// its own unit tests, and each binary by the crate's tests.
@@ -114,7 +110,10 @@ pub const RUST_CRATES: [RustCrate; 10] = [
         name: "xtask",
         dir: "crates/xtask",
         binary: true,
-        test_data: &[REPOSITORY],
+        // Its tests read fixtures of their own, under its directory, and the repository's
+        // hooks, which they run; the gates that read the rest of the repository are steps
+        // of every check, not tests that kill its mutants.
+        test_data: &[".githooks/"],
     },
 ];
 
@@ -1160,6 +1159,22 @@ pub fn miri_command() -> Cmd {
     Cmd::new("cargo", &args, Dir::Root)
 }
 
+/// The supply chain and the dependencies, every one reviewed.
+fn dependency_steps() -> Vec<Step> {
+    vec![
+        run(
+            "Rust supply chain",
+            "cargo",
+            &["deny", "--locked", "check"],
+            Dir::Root,
+        ),
+        Step {
+            name: "Every direct dependency reviewed".to_owned(),
+            action: Action::DependencyGate,
+        },
+    ]
+}
+
 /// Conformance, supply chain, then the consistency of the repository: membership, READMEs,
 /// versions, history and the CI workflow.
 fn consistency_steps() -> Vec<(Role, Step)> {
@@ -1202,17 +1217,8 @@ fn consistency_steps() -> Vec<(Role, Step)> {
             Dir::Root,
         ),
     ];
-    let gates = vec![
-        run(
-            "Rust supply chain",
-            "cargo",
-            &["deny", "--locked", "check"],
-            Dir::Root,
-        ),
-        Step {
-            name: "Every direct dependency reviewed".to_owned(),
-            action: Action::DependencyGate,
-        },
+    let mut gates = dependency_steps();
+    gates.extend([
         Step {
             name: "Box arithmetic only through the math layer: libm in engine-core and \
                    engine-testkit only, no raw float in box code, no iterator reduction \
@@ -1253,7 +1259,7 @@ fn consistency_steps() -> Vec<(Role, Step)> {
             name: "The parts of CI run every check of the full check once".to_owned(),
             action: Action::PartsGate,
         },
-    ];
+    ]);
     let mut steps = vec![(Role::Proof(Part::Gates), conformance)];
     steps.extend(tagged(Role::Setup(Setup::ConformanceExport), export));
     steps.extend(tagged(Role::Proof(Part::Gates), gates));
@@ -3455,14 +3461,11 @@ fn resolve(dir: &str, relative: &str) -> Option<String> {
     Some(parts.join("/"))
 }
 
-/// Whether `path`, a file or directory of the repository, lies under `root`: a file, a
-/// directory ending in `/`, or [`REPOSITORY`].
+/// Whether `path`, a file or directory of the repository, lies under `root`: a file or a
+/// directory ending in `/`.
 fn under_root(path: &str, root: &str) -> bool {
-    match root.strip_suffix('/') {
-        _ if root == REPOSITORY => true,
-        Some(dir) => path == dir || path.starts_with(root),
-        None => path == root,
-    }
+    root.strip_suffix('/')
+        .map_or_else(|| path == root, |dir| path == dir || path.starts_with(root))
 }
 
 /// How much of the text after `include_str`, `include_bytes` or `env` the test data gate
@@ -7611,6 +7614,17 @@ fn crates_metadata(runner: &mut dyn Runner) -> Result<String, Failure> {
         .map_err(|failure| Failure::from(format!("cannot list the crates: {failure}")))
 }
 
+/// Reads what the dependency gate checks, and runs it ([`dependency_gate`]).
+fn dependencies(runner: &mut dyn Runner) -> Result<(), Failure> {
+    let metadata = crates_metadata(runner)?;
+    let packages = read_all(runner, package_jsons())?;
+    dependency_gate(
+        &metadata,
+        &packages,
+        &read_file(runner, DEPENDENCIES_REVIEWED)?,
+    )
+}
+
 /// Runs the fused test build ([`fused_command`]) and checks its option was in force.
 fn fused_build(runner: &mut dyn Runner) -> Result<(), Failure> {
     let output = runner
@@ -7686,15 +7700,7 @@ fn run_action(
         ),
         Action::FusedBuild => fused_build(runner),
         Action::MathLayerGate => math_layer(runner),
-        Action::DependencyGate => {
-            let metadata = crates_metadata(runner)?;
-            let packages = read_all(runner, package_jsons())?;
-            dependency_gate(
-                &metadata,
-                &packages,
-                &read_file(runner, DEPENDENCIES_REVIEWED)?,
-            )
-        }
+        Action::DependencyGate => dependencies(runner),
         Action::TypeScriptReportsGate(package) => {
             let disabled = disabled_mutants(runner)?;
             let [coverage, mutation] = package.reports();

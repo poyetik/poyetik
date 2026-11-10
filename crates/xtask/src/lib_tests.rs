@@ -2,7 +2,7 @@
 
 extern crate alloc;
 
-use alloc::collections::{BTreeMap, BTreeSet};
+use alloc::collections::BTreeMap;
 use core::num::NonZeroUsize;
 use std::ffi::OsString;
 use std::io;
@@ -51,37 +51,28 @@ fn scratch(name: &str) -> std::path::PathBuf {
     dir
 }
 
-/// The Rust files of the crates of the repository, read from their `src/` and `tests/`
-/// directories (a copy of the repository, as cargo-mutants makes, has no git to list them),
-/// sorted by path.
-fn repository_rust_sources() -> Vec<(String, String)> {
-    fn walk(root: &Path, dir: &str, found: &mut Vec<(String, String)>) {
-        let Ok(entries) = std::fs::read_dir(root.join(dir)) else {
-            return;
-        };
-        for entry in entries {
-            let name = entry.expect("an entry").file_name();
-            let path = format!("{dir}/{}", name.to_str().expect("UTF-8"));
-            if root.join(&path).is_dir() {
-                walk(root, &path, found);
-            } else if Path::new(&path)
-                .extension()
-                .is_some_and(|extension| extension.eq_ignore_ascii_case("rs"))
-            {
-                let text = std::fs::read_to_string(root.join(&path)).expect("readable");
-                found.push((path, text));
-            }
-        }
+/// A fixture of xtask's tests (`tests/fixtures/<name>`), the directory its commands run in.
+fn fixture(name: &str) -> std::path::PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures")
+        .join(name)
+}
+
+/// What the real `cargo metadata` ([`super::metadata_command`]) says of the fixture
+/// workspace, and the root it names, from which it writes every path.
+fn fixture_metadata() -> (String, String) {
+    let metadata = SystemRunner {
+        root: fixture("workspace"),
     }
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let mut found = Vec::new();
-    for krate in super::RUST_CRATES {
-        for dir in ["src", "tests"] {
-            walk(&root, &format!("{}/{dir}", krate.dir), &mut found);
-        }
-    }
-    found.sort();
-    found
+    .capture(&super::metadata_command())
+    .expect("cargo metadata");
+    let json: serde_json::Value = serde_json::from_str(&metadata).expect("JSON");
+    let root = json
+        .get("workspace_root")
+        .and_then(serde_json::Value::as_str)
+        .expect("a workspace root")
+        .to_owned();
+    (metadata, root)
 }
 
 /// Runs [`cli`] on UTF-8 arguments.
@@ -504,8 +495,10 @@ fn float_sources(fake: &mut Fake) {
     }
 }
 
-/// For each crate that declares test data, an integration test reading every root of it.
-fn test_data_readers(fake: &mut Fake) {
+/// For each crate that declares test data, an integration test reading every root of it
+/// (path and text).
+fn test_data_reader_sources() -> Vec<(String, String)> {
+    let mut sources = Vec::new();
     for krate in super::RUST_CRATES {
         if krate.test_data.is_empty() {
             continue;
@@ -516,7 +509,14 @@ fn test_data_readers(fake: &mut Fake) {
             text.push_str(root);
             text.push_str("\"); }\n");
         }
-        let path = format!("{}/tests/data.rs", krate.dir);
+        sources.push((format!("{}/tests/data.rs", krate.dir), text));
+    }
+    sources
+}
+
+/// Adds to the fake [`test_data_reader_sources`].
+fn test_data_readers(fake: &mut Fake) {
+    for (path, text) in test_data_reader_sources() {
         assert!(fake.files.insert(path, text).is_none(), "fresh fake");
     }
 }
@@ -1564,6 +1564,10 @@ fn lists_every_check_in_order() {
         ],
         "the default check pipeline"
     );
+}
+
+#[test]
+fn builds_and_lints_for_every_target() {
     assert_eq!(PORTABILITY_TARGETS.len(), 4, "four portability targets");
     assert_eq!(
         NATIVE_TARGETS,
@@ -1820,14 +1824,13 @@ fn mutates_the_changes_since_the_merge_base_with_the_upstream() {
             "read .git/poyetik/rust-mutants-proven/abc1230000000000000000000000000000000000",
             "capture git diff --no-color --no-ext-diff --no-textconv --no-renames --src-prefix=a/ --dst-prefix=b/ abc1230000000000000000000000000000000000",
             "capture git ls-files -z --others --exclude-standard -- *.rs",
-            "list *.rs",
             "write target/xtask/changes.diff",
             "cargo mutants --cap-lints=true --gitignore=true --cargo-arg=--locked --workspace --in-diff target/xtask/changes.diff --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored",
             "read mutants.out/unviable.txt",
             "read mutants-unviable.txt",
         ],
-        "the diff since the merge base is written, then mutated; every change is test data of \
-         xtask, whose tests check the repository (the fake has no source of it to add)"
+        "the diff since the merge base is written, then mutated; a change to no crate's test \
+         code or test data widens it to no crate, xtask included"
     );
     assert_eq!(
         CHANGES_DIFF, "target/xtask/changes.diff",
@@ -1840,7 +1843,7 @@ fn mutates_the_changes_since_the_merge_base_with_the_upstream() {
     );
     assert_eq!(
         String::from_utf8(out).expect("UTF-8"),
-        "▶ [1/2] Rust mutation testing of the changes\n  the changes since abc1230000000000000000000000000000000000 (merge base with @{upstream})\n  the test data of xtask changed: every mutant of xtask\n▶ [2/2] Rust unviable mutants reviewed\n✔ all 2 checks passed\n",
+        "▶ [1/2] Rust mutation testing of the changes\n  the changes since abc1230000000000000000000000000000000000 (merge base with @{upstream})\n▶ [2/2] Rust unviable mutants reviewed\n✔ all 2 checks passed\n",
         "the base is said"
     );
 }
@@ -1956,10 +1959,12 @@ fn mutates_a_whole_crate_whose_test_code_changed() {
 
 #[test]
 fn mutates_a_whole_crate_whose_test_data_changed() {
-    for (data, read) in [
-        ("spec/render-hash-vectors.json", true),
-        ("apps/roadmap/board.json", false),
-        ("spec/render-hash-vectors.json.orig", false),
+    for (data, hash_reads, xtask_reads) in [
+        ("spec/render-hash-vectors.json", true, false),
+        (".githooks/pre-push", false, true),
+        ("apps/roadmap/board.json", false, false),
+        ("spec/render-hash-vectors.json.orig", false, false),
+        (".githooks-old/pre-push", false, false),
     ] {
         let mut fake = passing();
         let _changes = fake
@@ -1981,21 +1986,28 @@ fn mutates_a_whole_crate_whose_test_data_changed() {
         );
         let hash = super::new_file_diff("crates/engine-hash/src/lib.rs", "fn h() {}\n");
         let xtask = super::new_file_diff("crates/xtask/src/lib.rs", "fn x() {}\n");
-        let expected = if read {
-            format!("{}{hash}{xtask}", one_line_change(data))
-        } else {
-            format!("{}{xtask}", one_line_change(data))
-        };
+        let expected = format!(
+            "{}{}{}",
+            one_line_change(data),
+            if hash_reads { hash.as_str() } else { "" },
+            if xtask_reads { xtask.as_str() } else { "" }
+        );
         assert_eq!(
             fake.files.get(CHANGES_DIFF).cloned(),
             Some(expected),
-            "{data}: the crates that read it, whole (xtask's tests read the whole repository)"
+            "{data}: the crates that read it, whole, and no other (xtask's tests read its \
+             fixtures and the hooks)"
         );
         let said = String::from_utf8(out).expect("UTF-8");
         assert_eq!(
             said.contains("  the test data of engine-hash changed: every mutant of engine-hash\n"),
-            read,
+            hash_reads,
             "{data}: said"
+        );
+        assert_eq!(
+            said.contains("  the test data of xtask changed: every mutant of xtask\n"),
+            xtask_reads,
+            "{data}: said of xtask"
         );
     }
 }
@@ -2926,7 +2938,7 @@ fn runs_every_step_and_reports_success() {
         Ok(()),
         "all green"
     );
-    let (tools, commands, emptied, listed, captured, written) = (10, 54, 14, 23, 29, 3);
+    let (tools, commands, emptied, listed, captured, written) = (10, 54, 14, 22, 29, 3);
     let read = 2
         + 7
         + 13
@@ -2957,7 +2969,7 @@ fn runs_every_step_and_reports_success() {
          conformance check and export, deny, the JavaScript install, audit, the engine build and five package \
          checks each followed by its Stryker run); fourteen directories are emptied; git lists \
          twelve kinds of files (the box sources among them), the Rust files again for the test code and \
-         test data gates and for the mutation testing (every change is test data of xtask), the TypeScript ones again for the reports and scope gates of \
+         test data gates, the TypeScript ones again for the reports and scope gates of \
          each package after the first; the licenses and the history are captured twice each, the state \
          of the tree (before, for the proof record and after) six times, the nightly's version and sysroot, the Cargo metadata (for the dependency and the math layer gates), the output of the fused test build, the merge base, the changes, the \
          new Rust files and the list of every mutant once, git's common directory twice, the tree checked out, \
@@ -3352,8 +3364,9 @@ fn shows_command_lines() {
 
 #[test]
 fn system_runner_runs_commands_and_reads_files() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let mut runner = SystemRunner { root };
+    let mut runner = SystemRunner {
+        root: fixture("coverage-locality"),
+    };
     let ok = Cmd {
         program: "cargo",
         args: vec!["--version".to_owned()],
@@ -5087,8 +5100,9 @@ fn reports_license_lists_it_cannot_get() {
 
 #[test]
 fn system_runner_captures_output_and_failures() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let mut runner = SystemRunner { root };
+    let mut runner = SystemRunner {
+        root: fixture("coverage-locality"),
+    };
     let echo = Cmd {
         program: "cargo",
         args: vec!["--version".to_owned()],
@@ -5270,6 +5284,12 @@ fn reports_rust_files_it_cannot_list() {
     ] {
         let mut fake = passing();
         fake.broken = Some("list *.rs".to_owned());
+        // A change to test code, which widens the mutation testing to the crate, whose
+        // sources are then listed.
+        let _changes = fake.files.insert(
+            format!("capture {}", CHANGES.0),
+            one_line_change("crates/engine-core/src/lib_tests.rs"),
+        );
         let step = Step {
             name: name.to_owned(),
             action,
@@ -5427,16 +5447,6 @@ fn requires_the_rust_release_of_the_toolchain_file() {
         super::toolchain_channel("[toolchain]\n  channel   =   \"1.99.1\"  \n"),
         Some("1.99.1"),
         "spaces around"
-    );
-    let real = std::fs::read_to_string(
-        Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../..")
-            .join(super::RUST_TOOLCHAIN_FILE),
-    )
-    .expect("the toolchain file");
-    assert!(
-        super::toolchain_channel(&real).is_some(),
-        "the real file is read"
     );
     let without = super::command("rustc", Path::new("."));
     assert!(
@@ -6183,21 +6193,6 @@ fn requires_an_audio_sink_for_firefox() {
         gate(&PINNED_WORKFLOW.replace("          sudo", "      sudo")),
         Ok(()),
         "lines read trimmed, as the other required lines"
-    );
-}
-
-#[test]
-fn the_real_workflow_pins_everything() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let read = |path: &str| std::fs::read_to_string(root.join(path)).expect("readable");
-    assert_eq!(
-        super::workflow_gate(
-            &[super::WORKFLOW.to_owned()],
-            &read(super::WORKFLOW),
-            &read(super::NODE_VERSION_FILE)
-        ),
-        Ok(()),
-        "the workflow of the repository"
     );
 }
 
@@ -7107,21 +7102,6 @@ fn lets_the_test_modules_of_an_unsafe_file_inherit_its_lifting() {
 }
 
 #[test]
-fn confines_unsafe_blocks_in_the_repository() {
-    let sources = repository_rust_sources();
-    assert!(
-        [
-            "bindings/wasm/src/ffi_tests.rs",
-            "crates/engine-fpenv/src/lib_tests.rs"
-        ]
-        .iter()
-        .all(|file| sources.iter().any(|(path, _)| path == file)),
-        "the test modules are read"
-    );
-    assert_eq!(unsafe_gate(&sources), Ok(()), "the files of the repository");
-}
-
-#[test]
 fn refuses_test_code_outside_test_files() {
     let gate = |sources: &[(&str, &str)]| {
         let owned: Vec<(String, String)> = sources
@@ -7213,18 +7193,10 @@ fn refuses_test_code_outside_test_files() {
 }
 
 #[test]
-fn keeps_the_test_code_of_the_repository_in_test_files() {
-    assert_eq!(
-        super::test_code_gate(&repository_rust_sources()),
-        Ok(()),
-        "the files of the repository"
-    );
-}
-
-#[test]
 fn refuses_test_data_a_crate_does_not_declare() {
     let context = "the tests of each crate read only its declared test data";
-    let base = repository_rust_sources();
+    let base = test_data_reader_sources();
+    assert_eq!(super::test_data_gate(&base), Ok(()), "every root read");
     let with = |path: &str, text: &str| {
         let mut sources = base.clone();
         sources.push((path.to_owned(), text.to_owned()));
@@ -7306,7 +7278,7 @@ fn refuses_test_data_a_crate_does_not_declare() {
     );
     let without: Vec<(String, String)> = base
         .iter()
-        .filter(|(path, _)| path != "crates/engine-hash/src/lib_tests.rs")
+        .filter(|(path, _)| path != "crates/engine-hash/tests/data.rs")
         .cloned()
         .collect();
     assert_eq!(
@@ -7321,15 +7293,6 @@ fn refuses_test_data_a_crate_does_not_declare() {
         with("README.rs", "const A: &str = include_str!(\"x\");\n"),
         Ok(()),
         "a file of no crate"
-    );
-}
-
-#[test]
-fn reads_only_the_declared_test_data_of_the_repository() {
-    assert_eq!(
-        super::test_data_gate(&repository_rust_sources()),
-        Ok(()),
-        "the files of the repository"
     );
 }
 
@@ -7444,14 +7407,6 @@ fn requires_the_exact_cargo_configuration() {
             "{config}"
         );
     }
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    assert_eq!(
-        super::cargo_config_gate(
-            &std::fs::read_to_string(root.join(super::CARGO_CONFIG_FILE)).expect("readable")
-        ),
-        Ok(()),
-        "the configuration of the repository"
-    );
 }
 
 #[test]
@@ -8002,67 +7957,37 @@ fn reads_every_source_of_box_and_engine_code() {
 }
 
 #[test]
-fn keeps_the_box_code_of_the_repository_in_the_math_layer() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let mut runner = SystemRunner { root: root.clone() };
-    let metadata = runner
-        .capture(&super::metadata_command())
-        .expect("cargo metadata");
-    // The files of the box crate's sources, read from the directory (a copy of the
-    // repository, as cargo-mutants makes, has no git to list them).
-    let mut sources: Vec<(String, String)> =
-        ["crates/engine-objects/src", "crates/engine-core/src"]
-            .into_iter()
-            .flat_map(|dir| {
-                std::fs::read_dir(root.join(dir))
-                    .expect("the sources")
-                    .map(|entry| {
-                        let name = entry.expect("an entry").file_name();
-                        let name = name.to_str().expect("UTF-8").to_owned();
-                        let text =
-                            std::fs::read_to_string(root.join(dir).join(&name)).expect("readable");
-                        (format!("{dir}/{name}"), text)
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .collect();
-    sources.sort();
-    assert!(
-        ["/osc.rs", "/osc_tests.rs", "/plan.rs", "/math.rs"]
-            .iter()
-            .all(|file| sources.iter().any(|(path, _)| path.ends_with(file))),
-        "the box and engine sources and their tests are read"
-    );
+fn reads_what_real_cargo_metadata_says_of_libm_and_build_scripts() {
+    let (metadata, _) = fixture_metadata();
     assert_eq!(
-        super::math_layer_gate(&metadata, &sources),
-        Ok(()),
-        "only the math layer and the measurements depend on libm, box code names no raw \
-         float, and only the math layer sums"
+        super::math_layer_gate(&metadata, &[]),
+        found(
+            MATH_LAYER,
+            &[
+                "engine-objects has a build script: code the math layer gate does not read"
+                    .to_owned(),
+                "engine-cli depends on libm: its arithmetic must go through the math layer of \
+                 engine-core"
+                    .to_owned(),
+            ]
+        ),
+        "a dependency renamed, a build script; libm in the core and the measurements, and in \
+         the tests of the boxes"
     );
 }
-
 #[test]
-fn reviews_the_real_dependencies() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let mut runner = SystemRunner { root: root.clone() };
-    let metadata = runner
-        .capture(&super::metadata_command())
-        .expect("cargo metadata");
-    let read = |path: &str| std::fs::read_to_string(root.join(path)).expect("readable");
-    let packages: Vec<(String, String)> = package_jsons()
-        .into_iter()
-        .map(|path| {
-            let text = read(&path);
-            (path, text)
-        })
-        .collect();
+fn reviews_the_dependencies_real_cargo_metadata_lists() {
+    let (metadata, _) = fixture_metadata();
+    let reviewed = "engine-core: libm (normal) -- r\nengine-testkit: libm (normal) -- r\n\
+                    engine-testkit: sha2 (normal) -- r\nengine-objects: libm (dev) -- r\n\
+                    engine-cli: libm (normal) -- r\nengine-cli: serde (build) -- r\n\
+                    engine-hash: serde_json (normal) -- r\nengine-hash: sha2 (normal) -- r\n";
     assert_eq!(
-        super::dependency_gate(&metadata, &packages, &read(super::DEPENDENCIES_REVIEWED)),
+        super::dependency_gate(&metadata, &[], reviewed),
         Ok(()),
-        "every direct dependency of the repository"
+        "every kind, the crates of the workspace apart, a renamed one by its name"
     );
 }
-
 #[test]
 fn refuses_workflows_that_could_pass_without_checking() {
     let gate = |workflows: &[&str], workflow: &str| {
@@ -8195,16 +8120,6 @@ fn requires_a_week_before_a_release_and_libm_without_features() {
         super::supply_chain_gate(&files("version: 2\n", "minimumReleaseAge: 10080\n", DENY)),
         failed("the supply-chain settings: .github/dependabot.yml configures nothing"),
         "no ecosystem"
-    );
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let real: Vec<String> = super::SUPPLY_CHAIN_SETTINGS
-        .iter()
-        .map(|(path, _)| std::fs::read_to_string(root.join(path)).expect("readable"))
-        .collect();
-    assert_eq!(
-        super::supply_chain_gate(&real),
-        Ok(()),
-        "the repository's settings"
     );
 }
 
@@ -9363,7 +9278,7 @@ fn starts_commands_with_no_input_and_git_untranslated() {
     );
     assert_eq!(locale("cargo"), None, "the other commands keep the locale");
     let mut runner = SystemRunner {
-        root: Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."),
+        root: fixture("coverage-locality"),
     };
     let reads = Cmd::new(
         "sh",
@@ -11310,28 +11225,41 @@ fn reads_the_crates_each_crate_compiles_for_its_tests() {
 }
 
 #[test]
-fn reads_the_crates_of_the_real_workspace() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let metadata = SystemRunner { root }
-        .capture(&super::metadata_command())
-        .expect("cargo metadata");
+fn reads_the_crates_real_cargo_metadata_lists() {
+    let (metadata, _) = fixture_metadata();
     let closures = super::crate_closures(&metadata).expect("valid metadata");
-    let of = |name: &str| closures.get(name).cloned().unwrap_or_default();
-    assert!(
-        of("engine-objects").is_superset(&BTreeSet::from([
+    let of = |name: &str| {
+        closures
+            .get(name)
+            .map(|closure| closure.iter().copied().collect::<Vec<_>>())
+    };
+    assert_eq!(
+        of("engine-objects"),
+        Some(vec![
+            "engine-alloc-counter",
+            "engine-cli",
             "engine-core",
             "engine-objects",
-            "engine-testkit",
-            "engine-alloc-counter"
-        ])),
-        "the boxes compile the core and, for their tests, the test bench and its allocator"
+            "engine-testkit"
+        ]),
+        "normal and development dependencies, at any depth"
     );
-    assert!(
-        !of("engine-core").contains("engine-objects"),
-        "the core depends on no box"
+    assert_eq!(
+        of("engine-fpenv"),
+        Some(vec![
+            "engine-alloc-counter",
+            "engine-core",
+            "engine-fpenv",
+            "engine-testkit"
+        ]),
+        "a development dependency's own"
+    );
+    assert_eq!(
+        of("xtask"),
+        Some(vec!["xtask"]),
+        "a crate the metadata does not list"
     );
 }
-
 #[test]
 fn shares_proof_records_between_the_worktrees_of_real_git() {
     let dir = scratch("proof-record");

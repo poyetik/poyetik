@@ -1,0 +1,14 @@
+[package]
+name = "engine-core"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+libm = "=0.2.16"
+
+[dev-dependencies]
+engine-testkit = { path = "../engine-testkit" }

@@ -1,0 +1,17 @@
+[package]
+name = "engine-objects"
+version = "0.0.0"
+edition = "2024"
+publish = false
+build = "build.rs"
+[lib]
+path = "lib.rs"
+
+# Refused: a box crate has a build script.
+[dependencies]
+engine-core = { path = "../engine-core" }
+engine-cli = { path = "../engine-cli" }
+
+[dev-dependencies]
+engine-testkit = { path = "../engine-testkit" }
+libm = "0.2"
