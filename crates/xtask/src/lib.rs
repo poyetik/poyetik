@@ -2416,6 +2416,14 @@ fn rust_hints() -> Vec<String> {
     ]
 }
 
+/// What replaces a Cargo target's tests by a program of its own, unseen by cargo metadata:
+/// the `harness` key of a target, in any spelling of its whitespace or case. Built at run
+/// time, like [`bypass_tokens`]; [`bypass_gate`] seeks them in a whole manifest, without case
+/// or whitespace.
+fn manifest_hints() -> Vec<String> {
+    vec![format!("{}{}", "har", "ness")]
+}
+
 /// The `cfg` Miri sets: a test that names it can leave the Miri run ([`miri_command`]), so
 /// [`bypass_gate`] refuses it as a word anywhere in Rust code (a raw identifier included),
 /// except in the exact string literal that names the tool.
@@ -2578,6 +2586,8 @@ pub fn bypass_gate(sources: &[(String, String)], reviewed: &str) -> Result<(), F
             coverage_hints().to_vec()
         } else if extension == "rs" {
             rust_hints()
+        } else if extension == "toml" {
+            manifest_hints()
         } else {
             Vec::new()
         };
@@ -3585,19 +3595,27 @@ pub const DOC_TESTED_KINDS: [&str; 3] = ["lib", "rlib", "proc-macro"];
 /// Checks that no target of the workspace leaves its tests unrun.
 ///
 /// `metadata` is the output of [`metadata_command`], `sources` the Rust files (path and
-/// text, relative to the root). A target may turn its unit tests off (`test = false` in
-/// its manifest, which spares the compiler and the linker a test harness at every build of
-/// a mutant; cargo's default for a build script) only if its root is all its code: it
-/// declares no module (no `mod` in its code words). The test code gate allows test code
-/// outside `tests/` only in `*_tests.rs` files a module declaration brings in, so such a
-/// root holds no test that would never run. A library keeps its doc tests
-/// ([`DOC_TESTED_KINDS`]).
+/// text, relative to the root). Every way a manifest offers to keep `cargo test` from
+/// running a target's tests is refused, but one:
+/// - a target may turn its unit tests off (`test = false` in its manifest, which spares the
+///   compiler and the linker a test harness at every build of a mutant; cargo's default for
+///   a build script) only if its root is all its code: it declares no module (no `mod` in
+///   its code words). The test code gate allows test code outside `tests/` only in
+///   `*_tests.rs` files a module declaration brings in, so such a root holds no test that
+///   would never run. A test target never may: its root's own tests are its tests;
+/// - no target needs features (`required-features`), which `cargo test` skips it without;
+/// - every file cargo discovers as a test target (`tests/<name>.rs`, `tests/<name>/main.rs`
+///   of a package) is the root of a test target, so that `autotests = false` or a target
+///   moved elsewhere leaves none of them unbuilt;
+/// - a library keeps its doc tests ([`DOC_TESTED_KINDS`]).
+///
+/// The `harness` key, which cargo metadata does not report and which can replace a
+/// target's tests by its own `main`, is refused by [`bypass_gate`] in every manifest.
 ///
 /// # Errors
 ///
-/// Returns every library that turns its doc tests off, every target without tests whose
-/// root declares a module or is not among `sources`, every target the metadata does not
-/// describe as expected, or why the metadata cannot be read.
+/// Returns every target or file that breaks one of these, every package or target the
+/// metadata does not describe as expected, or why the metadata cannot be read.
 pub fn untested_targets_gate(metadata: &str, sources: &[(String, String)]) -> Result<(), Failure> {
     let json: serde_json::Value = serde_json::from_str(metadata)
         .map_err(|error| Failure::from(format!("invalid cargo metadata: {error}")))?;
@@ -3605,12 +3623,31 @@ pub fn untested_targets_gate(metadata: &str, sources: &[(String, String)]) -> Re
         .get("workspace_root")
         .and_then(serde_json::Value::as_str)
         .ok_or_else(|| Failure::from("cargo metadata names no workspace root".to_owned()))?;
+    let below_root = |path: &str| -> Option<String> {
+        path.strip_prefix(root)
+            .and_then(|path| path.strip_prefix('/'))
+            .map(str::to_owned)
+    };
     let mut problems = Vec::new();
     for (name, package) in cargo_packages(metadata)? {
         let targets = package
             .get("targets")
             .and_then(serde_json::Value::as_array)
             .ok_or_else(|| Failure::from(format!("cargo metadata lists no targets of {name}")))?;
+        let Some(dir) = package
+            .get("manifest_path")
+            .and_then(serde_json::Value::as_str)
+            .and_then(below_root)
+            .and_then(|manifest| manifest.strip_suffix(CARGO_TOML).map(str::to_owned))
+            .filter(|dir| dir.is_empty() || dir.ends_with('/'))
+        else {
+            problems.push(format!(
+                "{name}: a package cargo metadata does not describe as expected (a \
+                 `manifest_path` below the workspace root)"
+            ));
+            continue;
+        };
+        let mut test_roots = Vec::new();
         for target in targets {
             let field = |key: &str| target.get(key).and_then(serde_json::Value::as_bool);
             let kinds: Vec<&str> = target
@@ -3623,8 +3660,7 @@ pub fn untested_targets_gate(metadata: &str, sources: &[(String, String)]) -> Re
             let source = target
                 .get("src_path")
                 .and_then(serde_json::Value::as_str)
-                .and_then(|path| path.strip_prefix(root))
-                .and_then(|path| path.strip_prefix('/'));
+                .and_then(below_root);
             let (Some(tested), Some(doc_tested), Some(source)) =
                 (field("test"), field("doctest"), source)
             else {
@@ -3634,6 +3670,20 @@ pub fn untested_targets_gate(metadata: &str, sources: &[(String, String)]) -> Re
                 ));
                 continue;
             };
+            let test_kind = kinds.contains(&"test");
+            if test_kind && tested {
+                test_roots.push(source.clone());
+            }
+            if target
+                .get("required-features")
+                .and_then(serde_json::Value::as_array)
+                .is_some_and(|features| !features.is_empty())
+            {
+                problems.push(format!(
+                    "{source}: its target needs features (`required-features`), without \
+                     which `cargo test` skips it: its tests would never run"
+                ));
+            }
             if !doc_tested && kinds.iter().any(|kind| DOC_TESTED_KINDS.contains(kind)) {
                 problems.push(format!(
                     "{source}: its doc tests are turned off (`doctest = false`): they would \
@@ -3643,27 +3693,70 @@ pub fn untested_targets_gate(metadata: &str, sources: &[(String, String)]) -> Re
             if tested {
                 continue;
             }
-            match sources.iter().find(|(path, _)| path == source) {
-                None => problems.push(format!(
-                    "{source}: the root of a target without tests, not among the Rust files \
-                     read"
-                )),
-                Some((path, text)) => problems.extend(
-                    code_words(text)
-                        .into_iter()
-                        .filter(|(_, word, _)| word == "mod")
-                        .map(|(line, _, _)| {
-                            format!(
-                                "{path}:{line}: declares a module, but its target turns its \
-                                 tests off (`test = false`): only a root that is all its \
-                                 code may, so that no test hides in it"
-                            )
-                        }),
-                ),
+            if test_kind {
+                problems.push(format!(
+                    "{source}: a test target that turns its tests off (`test = false`): they \
+                     would never run"
+                ));
+                continue;
             }
+            untested_root(&source, sources, &mut problems);
         }
+        undiscovered_tests(&dir, sources, &test_roots, &mut problems);
     }
     verdict("every test of a target runs", problems)
+}
+
+/// The problems of the files of `sources` cargo discovers as test targets of the package
+/// in `dir` (`""` or a path ending in `/`: `tests/<name>.rs`, `tests/<name>/main.rs`) that
+/// are not among `test_roots`, the roots of its tested test targets
+/// ([`untested_targets_gate`]).
+fn undiscovered_tests(
+    dir: &str,
+    sources: &[(String, String)],
+    test_roots: &[String],
+    problems: &mut Vec<String>,
+) {
+    for (path, _) in sources {
+        let discovered = path
+            .strip_prefix(dir)
+            .and_then(|rest| rest.strip_prefix("tests/"))
+            .is_some_and(|rest| match rest.split_once('/') {
+                None => rest
+                    .rsplit_once('.')
+                    .is_some_and(|(_, extension)| extension == "rs"),
+                Some((_, file)) => file == "main.rs",
+            });
+        if discovered && !test_roots.contains(path) {
+            problems.push(format!(
+                "{path}: a test file cargo discovers, but no tested test target's root \
+                 (`autotests = false`, a target moved or turned off): its tests would never \
+                 run"
+            ));
+        }
+    }
+}
+
+/// The problems of `source`, the root of a target that turns its tests off: it must be
+/// among `sources` and declare no module ([`untested_targets_gate`]).
+fn untested_root(source: &str, sources: &[(String, String)], problems: &mut Vec<String>) {
+    match sources.iter().find(|(path, _)| path == source) {
+        None => problems.push(format!(
+            "{source}: the root of a target without tests, not among the Rust files read"
+        )),
+        Some((path, text)) => problems.extend(
+            code_words(text)
+                .into_iter()
+                .filter(|(_, word, _)| word == "mod")
+                .map(|(line, _, _)| {
+                    format!(
+                        "{path}:{line}: declares a module, but its target turns its tests off \
+                         (`test = false`): only a root that is all its code may, so that no \
+                         test hides in it"
+                    )
+                }),
+        ),
+    }
 }
 
 /// The repository path that `relative` names from the directory `dir` (both relative to

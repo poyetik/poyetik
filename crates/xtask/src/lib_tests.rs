@@ -134,8 +134,9 @@ const DENY: &str = "[bans]\n\n[[bans.features]]\ncrate = \"libm\"\nexact = true\
 
 /// The Cargo metadata of a workspace at `/r` whose crate `x`, a tested library, depends on
 /// another crate of the workspace and on one third-party crate, beside the crates of the
-/// audio library, which depend on nothing and have no target.
-const METADATA: &str = r#"{"workspace_root":"/r","packages":[{"name":"x","dependencies":[{"name":"engine-core","kind":null,"path":"/r/crates/engine-core"},{"name":"serde_json","kind":null}],"targets":[{"kind":["lib"],"src_path":"/r/crates/x/src/lib.rs","test":true,"doctest":true}]},{"name":"engine-core","targets":[]},{"name":"engine-objects","targets":[]},{"name":"engine-patch","targets":[]},{"name":"engine-hash","targets":[]},{"name":"engine-fpenv","targets":[]},{"name":"engine-wasm","targets":[]}]}"#;
+/// audio library, which depend on nothing and have only the test target reading their test
+/// data ([`test_data_reader_sources`]).
+const METADATA: &str = r#"{"workspace_root":"/r","packages":[{"name":"x","manifest_path":"/r/crates/x/Cargo.toml","dependencies":[{"name":"engine-core","kind":null,"path":"/r/crates/engine-core"},{"name":"serde_json","kind":null}],"targets":[{"kind":["lib"],"src_path":"/r/crates/x/src/lib.rs","test":true,"doctest":true}]},{"name":"engine-core","manifest_path":"/r/crates/engine-core/Cargo.toml","targets":[{"kind":["test"],"src_path":"/r/crates/engine-core/tests/data.rs","test":true,"doctest":false}]},{"name":"engine-objects","manifest_path":"/r/crates/engine-objects/Cargo.toml","targets":[{"kind":["test"],"src_path":"/r/crates/engine-objects/tests/data.rs","test":true,"doctest":false}]},{"name":"engine-patch","manifest_path":"/r/crates/engine-patch/Cargo.toml","targets":[{"kind":["test"],"src_path":"/r/crates/engine-patch/tests/data.rs","test":true,"doctest":false}]},{"name":"engine-hash","manifest_path":"/r/crates/engine-hash/Cargo.toml","targets":[{"kind":["test"],"src_path":"/r/crates/engine-hash/tests/data.rs","test":true,"doctest":false}]},{"name":"engine-fpenv","manifest_path":"/r/crates/engine-fpenv/Cargo.toml","targets":[{"kind":["test"],"src_path":"/r/crates/engine-fpenv/tests/data.rs","test":true,"doctest":false}]},{"name":"engine-wasm","manifest_path":"/r/bindings/wasm/Cargo.toml","targets":[]}]}"#;
 
 /// The two license listings, written out: the production dependencies of what ships
 /// (the engine package, the playground and the roadmap), then everything.
@@ -5154,6 +5155,46 @@ fn refuses_every_form_of_a_rust_bypass() {
             check_cfg,
         ),
     ]);
+}
+
+#[test]
+fn refuses_the_harness_key_in_every_manifest() {
+    let key = format!("{}{}", "har", "ness");
+    assert_refused(vec![
+        (
+            "crates/a/Cargo.toml",
+            format!("[[test]]\n{key} = false\n"),
+            key.clone(),
+        ),
+        (
+            "Cargo.toml",
+            format!("[[bench]]\n\"{}{}\"=true\n", "HAR", "NESS"),
+            key.clone(),
+        ),
+    ]);
+    let manifest = [(
+        "crates/a/Cargo.toml".to_owned(),
+        format!("[[bench]]\n{key} = false\n"),
+    )];
+    assert_eq!(
+        bypass_gate_text(
+            &manifest,
+            &format!("crates/a/Cargo.toml: {key} at {key} = false -- a benchmark's own main\n")
+        ),
+        Ok(()),
+        "a reviewed key"
+    );
+    assert_eq!(
+        bypass_gate_text(
+            &[(
+                "crates/a/src/lib.rs".to_owned(),
+                format!("// {key} = false\n")
+            )],
+            ""
+        ),
+        Ok(()),
+        "the word in Rust is no manifest key"
+    );
 }
 
 #[test]
@@ -12477,7 +12518,7 @@ fn targets_metadata(targets: &[(&str, &str, bool, bool)]) -> String {
         })
         .collect();
     format!(
-        r#"{{"workspace_root":"/r","packages":[{{"name":"x","targets":[{}]}}]}}"#,
+        r#"{{"workspace_root":"/r","packages":[{{"name":"x","manifest_path":"/r/crates/x/Cargo.toml","targets":[{}]}}]}}"#,
         targets.join(",")
     )
 }
@@ -12552,6 +12593,57 @@ fn refuses_a_target_that_turns_off_tests_it_may_hold() {
 }
 
 #[test]
+fn refuses_every_way_a_manifest_offers_to_leave_tests_unrun() {
+    let metadata = r#"{"workspace_root":"/r","packages":[{"name":"x","manifest_path":"/r/crates/x/Cargo.toml","targets":[
+        {"kind":["test"],"src_path":"/r/crates/x/tests/off.rs","test":false,"doctest":false},
+        {"kind":["test"],"src_path":"/r/crates/x/tests/featured.rs","test":true,"doctest":false,"required-features":["never"]},
+        {"kind":["test"],"src_path":"/r/crates/x/tests/run.rs","test":true,"doctest":false,"required-features":[]},
+        {"kind":["test"],"src_path":"/r/crates/x/tests/dir/main.rs","test":true,"doctest":false},
+        {"kind":["test"],"src_path":"/r/crates/x/checks/elsewhere.rs","test":true,"doctest":false},
+        {"kind":["bin"],"src_path":"/r/crates/x/tests/bin.rs","test":true,"doctest":false}
+    ]}]}"#;
+    let source = |path: &str| (path.to_owned(), "#[test]\nfn t() { panic!() }\n".to_owned());
+    let sources = [
+        source("crates/x/tests/off.rs"),
+        source("crates/x/tests/featured.rs"),
+        source("crates/x/tests/run.rs"),
+        source("crates/x/tests/dir/main.rs"),
+        source("crates/x/tests/dir/helper.rs"),
+        source("crates/x/tests/fixtures/a/main.rs"),
+        source("crates/x/tests/fixtures/a/tests/b.rs"),
+        source("crates/x/tests/undeclared.rs"),
+        source("crates/x/tests/gone/main.rs"),
+        source("crates/x/tests/bin.rs"),
+        source("crates/x/tests/notes.txt"),
+        source("crates/x/checks/elsewhere.rs"),
+        source("crates/xy/tests/other.rs"),
+    ];
+    let never = "its tests would never run";
+    let discovered = "a test file cargo discovers, but no tested test target's root \
+                      (`autotests = false`, a target moved or turned off): its tests would \
+                      never run";
+    assert_eq!(
+        super::untested_targets_gate(metadata, &sources),
+        untested_refused(&[
+            "crates/x/tests/off.rs: a test target that turns its tests off (`test = false`): \
+             they would never run",
+            &format!(
+                "crates/x/tests/featured.rs: its target needs features (`required-features`), \
+                 without which `cargo test` skips it: {never}"
+            ),
+            &format!("crates/x/tests/off.rs: {discovered}"),
+            &format!("crates/x/tests/undeclared.rs: {discovered}"),
+            &format!("crates/x/tests/gone/main.rs: {discovered}"),
+            &format!("crates/x/tests/bin.rs: {discovered}"),
+        ]),
+        "a test target turned off (its root declares no module), one needing features, and \
+         files cargo discovers that no tested test target builds; a test target elsewhere, \
+         a helper beside a test's main, fixtures below a directory and another crate's files \
+         are fine"
+    );
+}
+
+#[test]
 fn refuses_a_library_without_doc_tests() {
     for kind in ["lib", "rlib", "proc-macro"] {
         let metadata = targets_metadata(&[(kind, "crates/x/src/lib.rs", true, false)]);
@@ -12601,10 +12693,27 @@ fn refuses_metadata_it_cannot_read_whole() {
     ] {
         assert_eq!(
             gate(&format!(
-                r#"{{"workspace_root":"/r","packages":[{{"name":"x","targets":[{target}]}}]}}"#
+                r#"{{"workspace_root":"/r","packages":[{{"name":"x","manifest_path":"/r/Cargo.toml","targets":[{target}]}}]}}"#
             )),
             untested_refused(&[unexpected]),
             "{target}"
+        );
+    }
+    let unplaced = "x: a package cargo metadata does not describe as expected (a \
+                    `manifest_path` below the workspace root)";
+    for package in [
+        r#""name":"x""#,
+        r#""name":"x","manifest_path":"/elsewhere/Cargo.toml""#,
+        r#""name":"x","manifest_path":"/r/x/Cargo.tom""#,
+        r#""name":"x","manifest_path":"/r/xCargo.toml""#,
+        r#""name":"x","manifest_path":7"#,
+    ] {
+        assert_eq!(
+            gate(&format!(
+                r#"{{"workspace_root":"/r","packages":[{{{package},"targets":[]}}]}}"#
+            )),
+            untested_refused(&[unplaced]),
+            "{package}"
         );
     }
 }
