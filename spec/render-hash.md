@@ -19,6 +19,8 @@ A render is:
 - a **channel count**;
 - its **samples**, **interleaved by channel**: the samples of the first frame, channel 0 first, then those of the second frame, and so on. The sample count is the number of frames times the channel count.
 
+Samples that are **not whole frames** of the channel count (a sample count that is not a multiple of it, or any sample at all without a channel) are not a render: every implementation **refuses** them, with the reason `<n> samples are not whole frames of <c> channels`, and never hashes them. No channel and no sample is a render (of a patch without output).
+
 ## Arithmetic mode
 
 A set of **arithmetic options**, one flag each, as an unsigned 64-bit integer. Version 1 of the set defines three flags:
@@ -82,4 +84,4 @@ The same values in binary32 hash differently as `binary64-as-binary32` and as `b
 
 ## Known-answer vectors
 
-[`render-hash-vectors.json`](render-hash-vectors.json) holds the vectors every implementation must reproduce. Each one gives its `format`, its `arithmetic_mode` (16 hexadecimal digits), its `rate`, its `channels`, its `samples` as the bit patterns of the interleaved samples (16 hexadecimal digits each in binary64, 8 in binary32, so that `-0` and NaN payloads are exact), the hashed `bytes` in hexadecimal, and the expected `sha256`. Its `refused_modes` are arithmetic modes every implementation must refuse, each with an unknown flag. They were computed by an implementation independent of the three above (Python's `hashlib` and `struct` over the bytes of this document).
+[`render-hash-vectors.json`](render-hash-vectors.json) holds the vectors every implementation must reproduce. Each one gives its `format`, its `arithmetic_mode` (16 hexadecimal digits), its `rate`, its `channels`, its `samples` as the bit patterns of the interleaved samples (16 hexadecimal digits each in binary64, 8 in binary32, so that `-0` and NaN payloads are exact), the hashed `bytes` in hexadecimal, and the expected `sha256`. Its `refused_modes` are arithmetic modes every implementation must refuse, each with an unknown flag, and the `unknown_flags` (16 hexadecimal digits) every implementation names in its refusal: the unknown flags alone, never the known ones beside them. Its `refused_shapes` are inputs that are not whole frames, each given as a vector without `bytes` and `sha256`, with the `reason` every implementation gives. Each implementation's tests read exactly the keys of the file, so that a new kind of vector or refusal fails every suite that does not read it yet. The vectors were computed by an implementation independent of the three above (Python's `hashlib` and `struct` over the bytes of this document).

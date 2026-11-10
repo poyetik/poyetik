@@ -66,6 +66,9 @@ pub enum RenderFormat {
 
 impl RenderFormat {
     /// Every render format, in the order of `conformance/references.json`.
+    ///
+    /// Its order is also the format code of engine-wasm's C interface (the index), pinned
+    /// there by literal tests: a new format is appended, never inserted.
     pub const ALL: [Self; 3] = [Self::Binary64, Self::Binary64AsBinary32, Self::Binary32];
 
     /// The precision that computes it.
@@ -144,14 +147,27 @@ pub struct ArithmeticMode(u64);
 
 /// An arithmetic mode with flags that no [`ArithmeticOption`] defines: from a later
 /// version of the set of options, or not a mode at all.
+///
+/// Only [`ArithmeticMode::from_bits`] builds it, with the unknown bits alone: never zero,
+/// never a known flag.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct UnknownArithmeticOptions(pub u64);
+pub struct UnknownArithmeticOptions(u64);
+
+impl UnknownArithmeticOptions {
+    /// The flags no option defines, alone: what a reader reports.
+    #[must_use]
+    pub const fn bits(self) -> u64 {
+        self.0
+    }
+}
 
 impl fmt::Display for UnknownArithmeticOptions {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "unknown arithmetic options: {:#018x}", self.0)
     }
 }
+
+impl core::error::Error for UnknownArithmeticOptions {}
 
 impl ArithmeticMode {
     /// Every option off: each operation correctly rounded, no fused multiply-add, the
@@ -192,7 +208,7 @@ pub const MODE: ArithmeticMode = ArithmeticMode::STRICT;
 /// The arithmetic mode of a test build with the fused multiply-add option, which proves the
 /// option a hook of the math layer alone (xtask's fused build); no engine is built so.
 #[cfg(poyetik_math = "fused")]
-pub const MODE: ArithmeticMode = ArithmeticMode(1);
+pub const MODE: ArithmeticMode = ArithmeticMode(ArithmeticOption::FusedMultiplyAdd.flag());
 
 /// The nearest binary32 value to `value`, the same bits on every target.
 ///

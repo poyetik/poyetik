@@ -6,7 +6,7 @@ use engine_core::{Binary32, Binary64, MODE, Plan, RenderFormat, Renderer, Sample
 use engine_fpenv::DefaultMode;
 
 use crate::{HEADER_LEN, wav_header};
-use engine_hash::{RenderHash, Samples, render_hash};
+use engine_hash::{NotWholeFrames, RenderHash, Samples, render_hash};
 use engine_objects::REGISTRY;
 use serde::Deserialize;
 
@@ -107,8 +107,13 @@ pub struct Rendered {
 impl Rendered {
     /// The canonical hash of the render, computed in this build's arithmetic mode
     /// ([`MODE`]).
-    #[must_use]
-    pub fn hash(&self) -> RenderHash {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NotWholeFrames`] when its samples are not whole frames of its channels:
+    /// never for a render of [`Prepared::render`], possibly for one built by hand (its
+    /// fields are public).
+    pub fn hash(&self) -> Result<RenderHash, NotWholeFrames> {
         render_hash(self.rate, self.channels, self.samples.as_samples(), MODE)
     }
 

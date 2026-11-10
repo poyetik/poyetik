@@ -35,6 +35,21 @@ fn loaded() -> Instance {
     instance
 }
 
+/// The format codes of the C interface, written as literals: a reorder of
+/// [`RenderFormat::ALL`] would change them silently otherwise.
+#[test]
+fn maps_each_format_code_of_the_interface() {
+    assert_eq!(super::format_of(0), Some(RenderFormat::Binary64), "0");
+    assert_eq!(
+        super::format_of(1),
+        Some(RenderFormat::Binary64AsBinary32),
+        "1"
+    );
+    assert_eq!(super::format_of(2), Some(RenderFormat::Binary32), "2");
+    assert_eq!(super::format_of(3), None, "3");
+    assert_eq!(super::format_of(u32::MAX), None, "the largest code");
+}
+
 #[test]
 fn starts_empty() {
     let mut instance = Instance::default();

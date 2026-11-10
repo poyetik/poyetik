@@ -21,19 +21,32 @@ const U64_MAX = 0xffff_ffff_ffff_ffffn;
  * SHA-256 of the tag, the precision and the sample width (one byte each), the arithmetic
  * mode (u64), the rate (u32), the channels (u64), the sample count (u64) and the samples,
  * little-endian, in hex.
+ * The sample count hashed is that of the data, which must be whole frames of the
+ * channels and agree with the frame count of `wav` (a `Wav` from `parseWav` always
+ * does; one built by hand may not).
  * @throws {RangeError} When `mode` is not an unsigned 64-bit integer, holds a flag no
- * option defines, or when the samples of `wav` are not as wide as those of `format`: a
- * hash of anything else than what was asked would prove nothing.
+ * option defines (naming those flags alone), when the samples of `wav` are not as wide as
+ * those of `format`, are not whole frames of its channels (no sample at all without a
+ * channel), or are not as many as its frames say: a hash of anything else than what was
+ * asked would prove nothing.
  */
 export function renderHash(wav: Wav, format: RenderFormat, mode: bigint): string {
   if (mode < 0n || mode > U64_MAX) {
     throw new RangeError(`the arithmetic mode must be an unsigned 64-bit integer, not ${String(mode)}`);
   }
-  if ((mode & ~KNOWN_OPTIONS) !== 0n) {
-    throw new RangeError(`unknown arithmetic options: 0x${mode.toString(16).padStart(16, "0")}`);
+  const unknown = mode & ~KNOWN_OPTIONS;
+  if (unknown !== 0n) {
+    throw new RangeError(`unknown arithmetic options: 0x${unknown.toString(16).padStart(16, "0")}`);
   }
   if (wav.bits !== sampleBits(format)) {
     throw new RangeError(`${format} samples are ${String(sampleBits(format))}-bit, not ${String(wav.bits)}-bit`);
+  }
+  const samples = wav.data.byteLength / (wav.bits / 8);
+  if (wav.channels === 0 ? samples !== 0 : samples % wav.channels !== 0) {
+    throw new RangeError(`${String(samples)} samples are not whole frames of ${String(wav.channels)} channels`);
+  }
+  if (wav.frames * wav.channels !== samples) {
+    throw new RangeError(`${String(wav.frames)} frames of ${String(wav.channels)} channels are not the ${String(samples)} samples of the data`);
   }
   const header = new DataView(new ArrayBuffer(30));
   header.setUint8(0, precisionBits(format));
@@ -41,6 +54,6 @@ export function renderHash(wav: Wav, format: RenderFormat, mode: bigint): string
   header.setBigUint64(2, mode, true);
   header.setUint32(10, wav.rate, true);
   header.setBigUint64(14, BigInt(wav.channels), true);
-  header.setBigUint64(22, BigInt(wav.frames * wav.channels), true);
+  header.setBigUint64(22, BigInt(samples), true);
   return createHash("sha256").update("render-hash/2").update(new Uint8Array(header.buffer)).update(wav.data).digest("hex");
 }

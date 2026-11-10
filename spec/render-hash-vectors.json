@@ -112,23 +112,71 @@
       ],
       "bytes": "72656e6465722d686173682f3240400700000000000000401f000001000000000000000100000000000000000000000000f03f",
       "sha256": "7773e35d6a5fb13ed33a4876349598fce51c2e39929c5b769a5972833369e4c0"
+    },
+    {
+      "name": "no-channel",
+      "description": "No channel and no sample, in binary32: a render of a patch without output, whole frames of no channel (48 000 Hz, the strict mode).",
+      "format": "binary32",
+      "arithmetic_mode": "0000000000000000",
+      "rate": 48000,
+      "channels": 0,
+      "samples": [],
+      "bytes": "72656e6465722d686173682f322020000000000000000080bb000000000000000000000000000000000000",
+      "sha256": "4cf4fe6dd7048fb7aa9e7bb77fd0fcab7b90a82aa7847e7820ac26271422511c"
     }
   ],
   "refused_modes": [
     {
       "name": "unknown-option",
       "description": "Flag 3, which no option defines: refused.",
-      "arithmetic_mode": "0000000000000008"
+      "arithmetic_mode": "0000000000000008",
+      "unknown_flags": "0000000000000008"
+    },
+    {
+      "name": "fused-and-unknown",
+      "description": "Fused multiply-add with flag 3, which no option defines: refused, naming flag 3 alone.",
+      "arithmetic_mode": "0000000000000009",
+      "unknown_flags": "0000000000000008"
     },
     {
       "name": "highest-flag",
       "description": "The highest flag alone: refused.",
-      "arithmetic_mode": "8000000000000000"
+      "arithmetic_mode": "8000000000000000",
+      "unknown_flags": "8000000000000000"
     },
     {
       "name": "known-and-unknown",
       "description": "Every known option with every unknown flag: refused.",
-      "arithmetic_mode": "ffffffffffffffff"
+      "arithmetic_mode": "ffffffffffffffff",
+      "unknown_flags": "fffffffffffffff8"
+    }
+  ],
+  "refused_shapes": [
+    {
+      "name": "partial-frame",
+      "description": "Three samples of two channels: the last frame is cut, so they are not a render.",
+      "format": "binary32",
+      "arithmetic_mode": "0000000000000000",
+      "rate": 48000,
+      "channels": 2,
+      "samples": [
+        "00000000",
+        "3f000000",
+        "bf000000"
+      ],
+      "reason": "3 samples are not whole frames of 2 channels"
+    },
+    {
+      "name": "sample-without-channel",
+      "description": "One sample of no channel: not a render.",
+      "format": "binary64",
+      "arithmetic_mode": "0000000000000000",
+      "rate": 48000,
+      "channels": 0,
+      "samples": [
+        "3ff0000000000000"
+      ],
+      "reason": "1 samples are not whole frames of 0 channels"
     }
   ]
 }

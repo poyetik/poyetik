@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import { CountedInstance, CountError, countedModule } from "../../benchmarks/counter.ts";
 import { instrument } from "../../benchmarks/instrument.ts";
 import { RENDER_FORMATS, WasmEngine } from "../../ts/engine.ts";
-import { interleave, interleave64, renderHash } from "../../ts/hash.ts";
+import { interleave, interleave64, renderHash, STRICT } from "../../ts/hash.ts";
 import { CORPUS, SINE_PATCH, UNKNOWN_BOX, reference, wasmBytes } from "../fixtures.ts";
 import { assemble, I32_GLOBAL } from "./assemble.ts";
 
@@ -25,12 +25,12 @@ describe("the instrumented engine module", () => {
     const wide = WasmEngine.create(module, patch, rate, "binary64");
     const wideChannels = Array.from({ length: wide.channels }, () => new Float64Array(frames));
     wide.render(wideChannels);
-    expect(await renderHash(rate, wide.channels, interleave64(wideChannels), "binary64")).toBe(reference(name, "binary64"));
+    expect(await renderHash(rate, wide.channels, interleave64(wideChannels), "binary64", STRICT)).toBe(reference(name, "binary64"));
     for (const format of RENDER_FORMATS.filter((candidate) => candidate !== "binary64")) {
       const engine = WasmEngine.create(module, patch, rate, format);
       const channels = Array.from({ length: engine.channels }, () => new Float32Array(frames));
       engine.render(channels);
-      expect(await renderHash(rate, engine.channels, interleave(channels), format)).toBe(reference(name, format));
+      expect(await renderHash(rate, engine.channels, interleave(channels), format, STRICT)).toBe(reference(name, format));
     }
   });
 });

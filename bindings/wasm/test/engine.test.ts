@@ -1,6 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
 import { ABI_VERSION, EngineTrap, ModuleError, PatchError, RENDER_FORMATS, WasmEngine, givenAsBinary32, type RenderFormat } from "../ts/engine.ts";
-import { interleave, interleave64, renderHash } from "../ts/hash.ts";
+import { interleave, interleave64, renderHash, STRICT } from "../ts/hash.ts";
 import { Counted, created } from "./counted.ts";
 import { CORPUS, engineFunctions, HOST_BUFFER_SIZES, FUNCTIONS, oscillators, PATCH_NAMES, PRECISION_NAMES, REFERENCES, SILENT_PATCH, SINE_PATCH, UNKNOWN_BOX, handMadeModule, NAN_BITS, reference, wasmBytes, type CorpusCase } from "./fixtures.ts";
 
@@ -30,14 +30,14 @@ async function corpusHash(testCase: CorpusCase, size: number, format: RenderForm
     for (let start = 0; start < frames; start += size) {
       wide.render(outputs.map((output) => output.subarray(start, Math.min(start + size, frames))));
     }
-    return renderHash(rate, wide.channels, interleave64(outputs), format);
+    return renderHash(rate, wide.channels, interleave64(outputs), format, STRICT);
   }
   const engine = WasmEngine.create(module, patch, rate, format);
   const channels = Array.from({ length: engine.channels }, () => new Float32Array(frames));
   for (let start = 0; start < frames; start += size) {
     engine.render(channels.map((channel) => channel.subarray(start, Math.min(start + size, frames))));
   }
-  return renderHash(rate, engine.channels, interleave(channels), format);
+  return renderHash(rate, engine.channels, interleave(channels), format, STRICT);
 }
 
 /**

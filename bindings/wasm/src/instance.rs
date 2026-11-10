@@ -9,7 +9,9 @@ use engine_core::RenderFormat;
 
 use crate::{Blocks, Engine};
 
-/// The render format of a code of [`Instance::load`]: its index in [`RenderFormat::ALL`].
+/// The render format of a code of [`Instance::load`]: its index in [`RenderFormat::ALL`],
+/// part of the C interface (0 binary64, 1 binary64-as-binary32, 2 binary32), pinned by
+/// literal tests on both sides of it.
 fn format_of(code: u32) -> Option<RenderFormat> {
     usize::try_from(code)
         .ok()

@@ -3,7 +3,7 @@
 // precision the engine computes in from `?precision=<binary64|binary32>` (binary64 when
 // absent); the render is given as binary32, as Web Audio takes it.
 import { WasmEngine } from "../../dist/engine.js";
-import { interleave, renderHash } from "../../dist/hash.js";
+import { interleave, renderHash, STRICT } from "../../dist/hash.js";
 import { PRECISIONS, addProcessors, captureEngine, createEngineNode, givenAsBinary32, loadPatch, renderOffline, type LoadedPatch } from "../../dist/web.js";
 import { fetchOk } from "./fetch.ts";
 
@@ -73,7 +73,7 @@ function on(button: string, action: () => Promise<void>): void {
 
 on("offline", async () => {
   const channels = await renderOffline(loaded, testCase.frames, PROCESSORS);
-  element("offline-hash", HTMLOutputElement).value = await renderHash(loaded.rate, loaded.channels, interleave(channels), format);
+  element("offline-hash", HTMLOutputElement).value = await renderHash(loaded.rate, loaded.channels, interleave(channels), format, STRICT);
 });
 
 on("live", async () => {
@@ -98,7 +98,7 @@ on("live", async () => {
   await ready;
   const channels = await captured;
   await context.close();
-  element("live-hash", HTMLOutputElement).value = await renderHash(loaded.rate, loaded.channels, interleave(channels), format);
+  element("live-hash", HTMLOutputElement).value = await renderHash(loaded.rate, loaded.channels, interleave(channels), format, STRICT);
 });
 
 on("invalid", async () => {

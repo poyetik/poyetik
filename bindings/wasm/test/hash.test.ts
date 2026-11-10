@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
-import { RENDER_FORMATS, type RenderFormat } from "../ts/engine.ts";
-import { interleave, interleave64, renderHash } from "../ts/hash.ts";
+import { RENDER_FORMATS, type RenderFormat, type Samples } from "../ts/engine.ts";
+import { interleave, interleave64, renderHash, STRICT } from "../ts/hash.ts";
 
 /**
  * The known-answer vectors of the specification, found by walking up from this file: the
@@ -102,8 +102,11 @@ interface Vector {
   readonly sha256: string;
 }
 
-/** Every vector of the specification. */
-const VECTORS: readonly Vector[] = list(SPEC, "vectors").map((vector) => {
+/** What a vector gives the hash: its render, whether or not its shape is one. */
+type Input = Pick<Vector, "name" | "format" | "mode" | "rate" | "channels" | "samples">;
+
+/** Reads the render of a vector or of a refused shape. */
+function input(vector: unknown): Input {
   const bits = list(vector, "samples").map(String);
   const read = format(vector);
   return {
@@ -116,20 +119,48 @@ const VECTORS: readonly Vector[] = list(SPEC, "vectors").map((vector) => {
       read === "binary64"
         ? new Float64Array(BigUint64Array.from(bits, (word) => BigInt(`0x${word}`)).buffer)
         : new Float32Array(Uint32Array.from(bits, (word) => Number.parseInt(word, 16)).buffer),
-    bytes: hexBytes(text(vector, "bytes")),
-    sha256: text(vector, "sha256"),
   };
-});
+}
 
-/** Every arithmetic mode the specification says a reader refuses. */
-const REFUSED: readonly { readonly name: string; readonly mode: bigint }[] = list(SPEC, "refused_modes").map((entry) => ({ name: text(entry, "name"), mode: mode(entry) }));
+/** Every vector of the specification. */
+const VECTORS: readonly Vector[] = list(SPEC, "vectors").map((vector) => ({
+  ...input(vector),
+  bytes: hexBytes(text(vector, "bytes")),
+  sha256: text(vector, "sha256"),
+}));
+
+/** Every arithmetic mode the specification says a reader refuses, with the flags it names: written in the vectors, never computed here. */
+const REFUSED: readonly { readonly name: string; readonly mode: bigint; readonly unknown: string }[] = list(SPEC, "refused_modes").map((entry) => ({
+  name: text(entry, "name"),
+  mode: mode(entry),
+  unknown: text(entry, "unknown_flags"),
+}));
+
+/** Every shape the specification says is not a render, with the reason a reader gives. */
+const SHAPES: readonly (Input & { readonly reason: string })[] = list(SPEC, "refused_shapes").map((entry) => ({ ...input(entry), reason: text(entry, "reason") }));
 
 describe("renderHash", () => {
-  test("reads every known-answer vector of the specification", () => {
+  test("reads every known-answer vector of the specification, and every kind of refusal", () => {
+    expect(Object.keys(typeof SPEC === "object" && SPEC !== null ? SPEC : {}).sort()).toStrictEqual(["refused_modes", "refused_shapes", "scheme", "vectors"]);
     expect(text(SPEC, "scheme")).toBe("render-hash/2");
-    expect(VECTORS.length).toBeGreaterThanOrEqual(7);
+    expect(VECTORS.length).toBeGreaterThanOrEqual(8);
     expect(new Set(VECTORS.map((vector) => vector.format))).toStrictEqual(new Set(RENDER_FORMATS));
-    expect(REFUSED.length).toBeGreaterThanOrEqual(3);
+    expect(REFUSED.length).toBeGreaterThanOrEqual(4);
+    expect(SHAPES.length).toBeGreaterThanOrEqual(2);
+  });
+
+  test.each(SHAPES)("refuses the shape $name, which is not whole frames", async (shape) => {
+    await expect(renderHash(shape.rate, shape.channels, shape.samples, shape.format, shape.mode)).rejects.toThrow(new RangeError(shape.reason));
+  });
+
+  test("refuses a render format it does not know, from plain JavaScript", async () => {
+    const formats: readonly string[] = RENDER_FORMATS;
+    const unknown = "float32";
+    expect(formats).not.toContain(unknown);
+    // The type allows only render formats: the call goes through a method typed loosely (method parameters are bivariant), as plain JavaScript would make it.
+    const untyped: { hash(rate: number, channels: number, samples: Samples, format: string, mode: bigint): Promise<string> } = { hash: renderHash };
+    await expect(untyped.hash(48_000, 1, new Float32Array(1), unknown, 0n)).rejects.toThrow(new RangeError("unknown render format: float32"));
+    await expect(untyped.hash(48_000, 1, new Float32Array(1), "toString", 0n)).rejects.toThrow(new RangeError("unknown render format: toString"));
   });
 
   test.each(VECTORS)("reproduces the known-answer vector $name", async (vector) => {
@@ -139,10 +170,7 @@ describe("renderHash", () => {
   });
 
   test.each(REFUSED)("refuses the arithmetic mode $name, whose flags no option defines", async (refused) => {
-    const unknown = refused.mode & ~0b111n;
-    await expect(renderHash(48_000, 1, new Float32Array(), "binary32", refused.mode)).rejects.toThrow(
-      new RangeError(`unknown arithmetic options: 0x${unknown.toString(16).padStart(16, "0")}`),
-    );
+    await expect(renderHash(48_000, 1, new Float32Array(), "binary32", refused.mode)).rejects.toThrow(new RangeError(`unknown arithmetic options: 0x${refused.unknown}`));
   });
 
   test.each([-1n, 2n ** 64n])("refuses the arithmetic mode %s, which is not 64 bits of flags", async (wrong) => {
@@ -152,47 +180,48 @@ describe("renderHash", () => {
   test("accepts every known option, alone and together, each changing the hash", async () => {
     const hashes = await Promise.all([0n, 1n, 2n, 4n, 7n].map((flags) => renderHash(48_000, 1, new Float32Array([1]), "binary32", flags)));
     expect(new Set(hashes).size).toBe(5);
-    expect(hashes[0]).toBe(await renderHash(48_000, 1, new Float32Array([1]), "binary32"));
+    expect(hashes[0]).toBe(await renderHash(48_000, 1, new Float32Array([1]), "binary32", STRICT));
+    expect(STRICT).toBe(0n);
   });
 
   test("refuses samples of another width than the render format's", async () => {
-    await expect(renderHash(48_000, 1, new Float32Array(1), "binary64")).rejects.toThrow(new RangeError("binary64 samples are 64-bit, not 32-bit"));
-    await expect(renderHash(48_000, 1, new Float64Array(1), "binary64-as-binary32")).rejects.toThrow(new RangeError("binary64-as-binary32 samples are 32-bit, not 64-bit"));
-    await expect(renderHash(48_000, 1, new Float64Array(1), "binary32")).rejects.toThrow(new RangeError("binary32 samples are 32-bit, not 64-bit"));
+    await expect(renderHash(48_000, 1, new Float32Array(1), "binary64", 0n)).rejects.toThrow(new RangeError("binary64 samples are 64-bit, not 32-bit"));
+    await expect(renderHash(48_000, 1, new Float64Array(1), "binary64-as-binary32", 0n)).rejects.toThrow(new RangeError("binary64-as-binary32 samples are 32-bit, not 64-bit"));
+    await expect(renderHash(48_000, 1, new Float64Array(1), "binary32", 0n)).rejects.toThrow(new RangeError("binary32 samples are 32-bit, not 64-bit"));
   });
 
   test("hashes the rate and the channel count of an empty render", async () => {
-    expect(await renderHash(48_000, 1, new Float32Array(), "binary32")).not.toBe(await renderHash(44_100, 1, new Float32Array(), "binary32"));
-    expect(await renderHash(48_000, 1, new Float32Array(), "binary32")).not.toBe(await renderHash(48_000, 2, new Float32Array(), "binary32"));
+    expect(await renderHash(48_000, 1, new Float32Array(), "binary32", 0n)).not.toBe(await renderHash(44_100, 1, new Float32Array(), "binary32", 0n));
+    expect(await renderHash(48_000, 1, new Float32Array(), "binary32", 0n)).not.toBe(await renderHash(48_000, 2, new Float32Array(), "binary32", 0n));
   });
 
   test("covers every bit of every sample, NaN payloads included, in both widths", async () => {
     const bits = new Uint32Array([0x7fc00000, 0x3f000000]);
     const other = new Uint32Array([0x7fc00001, 0x3f000000]);
-    expect(await renderHash(48_000, 1, new Float32Array(bits.buffer), "binary32")).not.toBe(await renderHash(48_000, 1, new Float32Array(other.buffer), "binary32"));
+    expect(await renderHash(48_000, 1, new Float32Array(bits.buffer), "binary32", 0n)).not.toBe(await renderHash(48_000, 1, new Float32Array(other.buffer), "binary32", 0n));
     const ulp = new Uint32Array([0x7fc00000, 0x3f000001]);
-    expect(await renderHash(48_000, 1, new Float32Array(bits.buffer), "binary32")).not.toBe(await renderHash(48_000, 1, new Float32Array(ulp.buffer), "binary32"));
+    expect(await renderHash(48_000, 1, new Float32Array(bits.buffer), "binary32", 0n)).not.toBe(await renderHash(48_000, 1, new Float32Array(ulp.buffer), "binary32", 0n));
     const wide = new BigUint64Array([0x7ff8_0000_0000_0000n, 0x3fe0_0000_0000_0000n]);
     const highest = new BigUint64Array([0xfff8_0000_0000_0000n, 0x3fe0_0000_0000_0000n]);
     const lowest = new BigUint64Array([0x7ff8_0000_0000_0000n, 0x3fe0_0000_0000_0001n]);
-    const hash64 = (words: BigUint64Array): Promise<string> => renderHash(48_000, 1, new Float64Array(words.buffer), "binary64");
+    const hash64 = (words: BigUint64Array): Promise<string> => renderHash(48_000, 1, new Float64Array(words.buffer), "binary64", 0n);
     expect(await hash64(wide)).not.toBe(await hash64(highest));
     expect(await hash64(wide)).not.toBe(await hash64(lowest));
   });
 
   test("reads only the samples of a view", async () => {
     const whole = new Float32Array([9, 0, 0.5, -0.5, 1, 9]);
-    expect(await renderHash(48_000, 2, whole.subarray(1, 5), "binary32")).toBe(await renderHash(48_000, 2, new Float32Array([0, 0.5, -0.5, 1]), "binary32"));
+    expect(await renderHash(48_000, 2, whole.subarray(1, 5), "binary32", 0n)).toBe(await renderHash(48_000, 2, new Float32Array([0, 0.5, -0.5, 1]), "binary32", 0n));
     const wide = new Float64Array([9, 0, 0.5, -0.5, 1, 9]);
-    expect(await renderHash(48_000, 2, wide.subarray(1, 5), "binary64")).toBe(await renderHash(48_000, 2, new Float64Array([0, 0.5, -0.5, 1]), "binary64"));
+    expect(await renderHash(48_000, 2, wide.subarray(1, 5), "binary64", 0n)).toBe(await renderHash(48_000, 2, new Float64Array([0, 0.5, -0.5, 1]), "binary64", 0n));
   });
 
   test.each([44_100.5, -1, 2 ** 32, Number.NaN])("refuses the sample rate %d, which is not a 32-bit unsigned integer", async (rate) => {
-    await expect(renderHash(rate, 1, new Float32Array(), "binary32")).rejects.toThrow(new RangeError(`the sample rate must be a whole number from 0 to 4294967295, not ${String(rate)}`));
+    await expect(renderHash(rate, 1, new Float32Array(), "binary32", 0n)).rejects.toThrow(new RangeError(`the sample rate must be a whole number from 0 to 4294967295, not ${String(rate)}`));
   });
 
   test.each([1.5, -1, Number.NaN, 2 ** 53])("refuses the channel count %d", async (channels) => {
-    await expect(renderHash(48_000, channels, new Float32Array(), "binary32")).rejects.toThrow(
+    await expect(renderHash(48_000, channels, new Float32Array(), "binary32", 0n)).rejects.toThrow(
       new RangeError(`the channel count must be a whole number from 0 to 2^53 - 1, not ${String(channels)}`),
     );
   });
@@ -202,21 +231,21 @@ describe("renderHash", () => {
     [2, 3],
     [0, 1],
   ])("refuses %i channels over %i samples, not whole frames", async (channels, samples) => {
-    await expect(renderHash(48_000, channels, new Float32Array(samples), "binary32")).rejects.toThrow(
+    await expect(renderHash(48_000, channels, new Float32Array(samples), "binary32", 0n)).rejects.toThrow(
       new RangeError(`${String(samples)} samples are not whole frames of ${String(channels)} channels`),
     );
   });
 
   test("accepts the edges of each domain", async () => {
     // Independent values (Python hashlib).
-    expect(await renderHash(0, 0, new Float64Array(), "binary64")).toBe("6447e2f7a6ae9ef2eff5242dc39b9f760b005aca865abd0dfccdabaa00072dc5");
+    expect(await renderHash(0, 0, new Float64Array(), "binary64", 0n)).toBe("6447e2f7a6ae9ef2eff5242dc39b9f760b005aca865abd0dfccdabaa00072dc5");
     expect(await renderHash(0xff_ff_ff_ff, 2 ** 53 - 1, new Float32Array(), "binary32", 2n ** 3n - 1n)).toBe("ee57da60938c3aded8540a4fa8aed5839e765e6b2ba4029b13929dcd641f4f7b");
-    expect(await renderHash(48_000, 2, new Float32Array(4), "binary64-as-binary32")).toBe("4fcbb6a883cfb323f730917e171b7490b147b772d184ced277258bfaeea76d07");
-    expect(await renderHash(48_000, 2, new Float64Array(4), "binary64")).toBe("73710d443a2641f3299af7a7782a6b16c2ff1e7482ceb638517662df14cbfbc6");
+    expect(await renderHash(48_000, 2, new Float32Array(4), "binary64-as-binary32", 0n)).toBe("4fcbb6a883cfb323f730917e171b7490b147b772d184ced277258bfaeea76d07");
+    expect(await renderHash(48_000, 2, new Float64Array(4), "binary64", 0n)).toBe("73710d443a2641f3299af7a7782a6b16c2ff1e7482ceb638517662df14cbfbc6");
   });
 
   test("is 64 lowercase hex digits", async () => {
-    expect(await renderHash(1, 1, new Float32Array([1e-45]), "binary32")).toMatch(/^[0-9a-f]{64}$/);
+    expect(await renderHash(1, 1, new Float32Array([1e-45]), "binary32", 0n)).toMatch(/^[0-9a-f]{64}$/);
   });
 });
 

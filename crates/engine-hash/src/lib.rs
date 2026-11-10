@@ -10,7 +10,8 @@
 //! ASCII tag `render-hash/2`, the processing precision and the width of the hashed samples
 //! (one byte each, 32 or 64), the arithmetic mode (`u64` flags), the sample rate (`u32`),
 //! the channel count (`u64`), the sample count (frames times channels, `u64`), then every
-//! sample's bit pattern (`u32` or `u64`), channels interleaved.
+//! sample's bit pattern (`u32` or `u64`), channels interleaved. Samples that are not
+//! whole frames are refused, never hashed.
 
 #![no_std]
 #![forbid(unsafe_code)]
@@ -20,8 +21,12 @@ use core::fmt;
 use engine_core::{ArithmeticMode, RenderFormat, SampleRate};
 use sha2::{Digest, Sha256};
 
-/// Identifies the hashing scheme; changes whenever the hashed bytes change.
-const TAG: &[u8] = b"render-hash/2";
+/// The name and version of the hashing scheme, `render-hash/2`: a new version whenever the
+/// hashed bytes change, recorded beside the references blessed under it.
+pub const SCHEME: &str = "render-hash/2";
+
+/// Identifies the hashing scheme at the start of the hashed bytes: [`SCHEME`].
+const TAG: &[u8] = SCHEME.as_bytes();
 
 /// The SHA-256 hash of a render, shown as 64 lowercase hexadecimal digits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -84,15 +89,66 @@ fn length(value: usize) -> u64 {
     u64::try_from(value).unwrap_or(u64::MAX)
 }
 
+/// Samples that are not whole frames of the channel count: not a render, so not hashed
+/// (`spec/render-hash.md`, Input).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NotWholeFrames {
+    /// The number of samples given.
+    samples: u64,
+    /// The channel count given.
+    channels: u64,
+}
+
+impl NotWholeFrames {
+    /// The number of samples given.
+    #[must_use]
+    pub const fn samples(self) -> u64 {
+        self.samples
+    }
+
+    /// The channel count given.
+    #[must_use]
+    pub const fn channels(self) -> u64 {
+        self.channels
+    }
+}
+
+impl fmt::Display for NotWholeFrames {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{} samples are not whole frames of {} channels",
+            self.samples, self.channels
+        )
+    }
+}
+
+impl core::error::Error for NotWholeFrames {}
+
 /// Hashes a render: `samples` holds `channels` interleaved channels at `rate`, computed in
 /// the arithmetic mode `mode`.
-#[must_use]
+///
+/// # Errors
+///
+/// Returns [`NotWholeFrames`] when the samples are not whole frames of `channels` channels
+/// (any sample at all without a channel): a hash of them would identify no render.
 pub fn render_hash(
     rate: SampleRate,
     channels: usize,
     samples: Samples<'_>,
     mode: ArithmeticMode,
-) -> RenderHash {
+) -> Result<RenderHash, NotWholeFrames> {
+    // Without a channel there is no remainder: only no sample at all is whole frames.
+    let whole = samples
+        .len()
+        .checked_rem(channels)
+        .map_or(samples.is_empty(), |rest| rest == 0);
+    if !whole {
+        return Err(NotWholeFrames {
+            samples: length(samples.len()),
+            channels: length(channels),
+        });
+    }
     let format = samples.format();
     let mut hasher = Sha256::new();
     hasher.update(TAG);
@@ -113,7 +169,7 @@ pub fn render_hash(
             }
         }
     }
-    RenderHash(hasher.finalize().into())
+    Ok(RenderHash(hasher.finalize().into()))
 }
 
 #[cfg(test)]

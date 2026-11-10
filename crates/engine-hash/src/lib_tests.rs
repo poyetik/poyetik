@@ -5,11 +5,11 @@ extern crate alloc;
 use alloc::string::ToString;
 use alloc::vec::Vec;
 
-use engine_core::{ArithmeticMode, MODE, RenderFormat, SampleRate, UnknownArithmeticOptions};
+use engine_core::{ArithmeticMode, MODE, RenderFormat, SampleRate};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-use super::{Samples, TAG, render_hash};
+use super::{NotWholeFrames, RenderHash, Samples, TAG, render_hash};
 
 const RATE: SampleRate = SampleRate::HZ_48000;
 
@@ -62,42 +62,100 @@ fn narrow(bits: &[u64]) -> Vec<f32> {
         .collect()
 }
 
+/// The vectors file, parsed, refusing a key this suite does not read: a new kind of
+/// vector or refusal fails here until it is read.
+fn spec() -> Value {
+    let json: Value = serde_json::from_str(VECTORS).expect("valid JSON");
+    let mut keys: Vec<&str> = json
+        .as_object()
+        .expect("an object")
+        .keys()
+        .map(alloc::string::String::as_str)
+        .collect();
+    keys.sort_unstable();
+    assert_eq!(
+        keys,
+        ["refused_modes", "refused_shapes", "scheme", "vectors"],
+        "every key of the vectors file is read"
+    );
+    json
+}
+
+/// The render a vector describes: its rate, channels, mode, format and sample bits.
+struct Input {
+    /// Its sample rate.
+    rate: SampleRate,
+    /// Its channel count.
+    channels: usize,
+    /// Its arithmetic mode.
+    mode: ArithmeticMode,
+    /// Its render format.
+    format: RenderFormat,
+    /// The bit patterns of its samples.
+    bits: Vec<u64>,
+}
+
+/// Reads the render a vector describes.
+fn input(vector: &Value) -> Input {
+    Input {
+        rate: SampleRate::new(u32::try_from(number(vector, "rate")).expect("u32"))
+            .expect("a valid rate"),
+        channels: usize::try_from(number(vector, "channels")).expect("usize"),
+        mode: ArithmeticMode::from_bits(mode_bits(vector)).expect("a known mode"),
+        format: RenderFormat::ALL
+            .into_iter()
+            .find(|format| format.name() == text(vector, "format"))
+            .expect("a render format"),
+        bits: sample_bits(vector),
+    }
+}
+
+/// Hashes the render a vector describes, or says why it is not one.
+fn hash_of(vector: &Value) -> Result<RenderHash, NotWholeFrames> {
+    let Input {
+        rate,
+        channels,
+        mode,
+        format,
+        bits,
+    } = input(vector);
+    match format {
+        RenderFormat::Binary64 => {
+            let wide: Vec<f64> = bits.iter().copied().map(f64::from_bits).collect();
+            render_hash(rate, channels, Samples::Binary64(&wide), mode)
+        }
+        RenderFormat::Binary64AsBinary32 => render_hash(
+            rate,
+            channels,
+            Samples::Binary64AsBinary32(&narrow(&bits)),
+            mode,
+        ),
+        RenderFormat::Binary32 => {
+            render_hash(rate, channels, Samples::Binary32(&narrow(&bits)), mode)
+        }
+    }
+}
+
+/// Hashes one channel of binary64 samples at 48 kHz in the strict mode.
+fn mono(samples: &[f64]) -> RenderHash {
+    render_hash(RATE, 1, Samples::Binary64(samples), MODE).expect("whole frames")
+}
+
 #[test]
 fn reproduces_the_known_answer_vectors_of_the_specification() {
     // If one changes, every reference hash changes: the scheme needs a new tag.
-    let json: Value = serde_json::from_str(VECTORS).expect("valid JSON");
+    let json = spec();
     assert_eq!(text(&json, "scheme").as_bytes(), TAG, "same scheme");
     let vectors = json["vectors"].as_array().expect("a list of vectors");
-    assert!(vectors.len() >= 7, "every vector is read");
+    assert!(vectors.len() >= 8, "every vector is read");
     let mut formats = Vec::new();
     for vector in vectors {
         let name = text(vector, "name");
-        let rate = SampleRate::new(u32::try_from(number(vector, "rate")).expect("u32"))
-            .expect("a valid rate");
-        let channels = usize::try_from(number(vector, "channels")).expect("usize");
-        let mode = ArithmeticMode::from_bits(mode_bits(vector)).expect("a known mode");
-        let bits = sample_bits(vector);
-        let (wide, narrowed): (Vec<f64>, Vec<f32>) = match text(vector, "format") {
-            "binary64" => (
-                bits.iter().copied().map(f64::from_bits).collect(),
-                Vec::new(),
-            ),
-            _ => (Vec::new(), narrow(&bits)),
-        };
-        let format = RenderFormat::ALL
-            .into_iter()
-            .find(|format| format.name() == text(vector, "format"))
-            .expect("a render format");
-        let samples = match format {
-            RenderFormat::Binary64 => Samples::Binary64(&wide),
-            RenderFormat::Binary64AsBinary32 => Samples::Binary64AsBinary32(&narrowed),
-            RenderFormat::Binary32 => Samples::Binary32(&narrowed),
-        };
-        formats.push(samples.format());
+        formats.push(text(vector, "format"));
         let expected = text(vector, "sha256");
         assert_eq!(
-            render_hash(rate, channels, samples, mode).to_string(),
-            expected,
+            hash_of(vector).map(|hash| hash.to_string()).as_deref(),
+            Ok(expected),
             "{name}"
         );
         assert_eq!(
@@ -107,29 +165,66 @@ fn reproduces_the_known_answer_vectors_of_the_specification() {
         );
     }
     for format in RenderFormat::ALL {
-        assert!(formats.contains(&format), "a vector of {format}");
+        assert!(formats.contains(&format.name()), "a vector of {format}");
     }
 }
 
 #[test]
-fn refuses_every_unknown_mode_of_the_specification() {
-    let json: Value = serde_json::from_str(VECTORS).expect("valid JSON");
-    let refused = json["refused_modes"].as_array().expect("a list of modes");
-    assert!(refused.len() >= 3, "every refused mode is read");
+fn refuses_every_shape_of_the_specification_that_is_not_whole_frames() {
+    let json = spec();
+    let refused = json["refused_shapes"].as_array().expect("a list of shapes");
+    assert!(refused.len() >= 2, "every refused shape is read");
     for vector in refused {
-        let bits = mode_bits(vector);
+        let name = text(vector, "name");
+        let error = hash_of(vector).expect_err(name);
         assert_eq!(
-            ArithmeticMode::from_bits(bits),
-            Err(UnknownArithmeticOptions(bits & !0b111)),
-            "{}: refused, naming the unknown flags",
-            text(vector, "name")
+            error.to_string(),
+            text(vector, "reason"),
+            "{name}: its reason"
+        );
+        assert_eq!(
+            (error.samples(), error.channels()),
+            (
+                u64::try_from(sample_bits(vector).len()).expect("u64"),
+                number(vector, "channels")
+            ),
+            "{name}: what it was given"
         );
     }
 }
 
 #[test]
+fn refuses_every_unknown_mode_of_the_specification() {
+    let json = spec();
+    let refused = json["refused_modes"].as_array().expect("a list of modes");
+    assert!(refused.len() >= 4, "every refused mode is read");
+    for vector in refused {
+        let digits = text(vector, "unknown_flags");
+        let name = text(vector, "name");
+        let error = ArithmeticMode::from_bits(mode_bits(vector)).expect_err(name);
+        assert_eq!(
+            error.bits(),
+            u64::from_str_radix(digits, 16).expect("hexadecimal"),
+            "{name}: refused, naming the unknown flags alone"
+        );
+        assert_eq!(
+            error.to_string(),
+            alloc::format!("unknown arithmetic options: 0x{digits}"),
+            "{name}: in the words of every reader"
+        );
+    }
+}
+
+#[test]
+fn reports_a_shape_that_is_not_whole_frames_as_an_error() {
+    /// Compiles only for an error type.
+    const fn error<E: core::error::Error>() {}
+    error::<NotWholeFrames>();
+}
+
+#[test]
 fn shows_64_lowercase_hex_digits() {
-    let text = render_hash(RATE, 1, Samples::Binary64(&[]), MODE).to_string();
+    let text = mono(&[]).to_string();
     assert_eq!(text.len(), 64, "32 bytes");
     assert!(
         text.bytes()
@@ -140,7 +235,7 @@ fn shows_64_lowercase_hex_digits() {
 
 #[test]
 fn covers_every_bit_of_every_sample() {
-    let hash = |samples: &[f64]| render_hash(RATE, 1, Samples::Binary64(samples), MODE);
+    let hash = mono;
     let base = hash(&[0.25_f64, 0.5_f64]);
     assert_ne!(
         base,

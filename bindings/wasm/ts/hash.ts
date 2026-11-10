@@ -9,6 +9,13 @@ import type { RenderFormat, Samples } from "./engine.ts";
 /** Tag opening the hashed bytes: the version of the scheme. */
 const TAG = "render-hash/2";
 
+/**
+ * The strict arithmetic mode, every option off: the only mode the engine's WebAssembly
+ * module is built in (a build in any other is refused at compile time by `engine-wasm`),
+ * so the mode its renders are hashed in.
+ */
+export const STRICT = 0n;
+
 /** The flags of every arithmetic option the scheme defines: fused multiply-add, reassociable operations, platform math functions. */
 const KNOWN_OPTIONS = 0b111n;
 
@@ -70,15 +77,17 @@ export function interleave64(channels: readonly Float64Array[]): Float64Array {
  * little-endian; as 64 lowercase hex digits.
  *
  * Samples are read as bits, never as numbers, so that no value (not even a NaN) changes.
- * Rejects with a `RangeError`, rather than hashing something else than what was asked,
- * when `rate` is not a 32-bit unsigned integer (any such rate: the scheme does not
- * restrict it to the rates the engine runs at), when `channels` is not a whole number
- * from 0 to 2^53 - 1, when `samples` are not whole frames of `channels` channels (no
- * sample at all without a channel), when their type is not the one of `format`
+ * The mode has no default: it is a fact the hash records, stated by every caller (the
+ * module's renders are {@link STRICT}). Rejects with a `RangeError`, rather than hashing
+ * something else than what was asked, when `rate` is not a 32-bit unsigned integer (any
+ * such rate: the scheme does not restrict it to the rates the engine runs at), when
+ * `channels` is not a whole number from 0 to 2^53 - 1, when `samples` are not whole
+ * frames of `channels` channels (no sample at all without a channel), when `format` is
+ * not a render format (from plain JavaScript), when their type is not the one of `format`
  * (`Float64Array` for binary64, `Float32Array` otherwise), or when `mode` is not 64 bits
  * of flags or holds a flag no arithmetic option defines.
  */
-export async function renderHash(rate: number, channels: number, samples: Samples, format: RenderFormat, mode = 0n): Promise<string> {
+export async function renderHash(rate: number, channels: number, samples: Samples, format: RenderFormat, mode: bigint): Promise<string> {
   if (!Number.isInteger(rate) || rate < 0 || rate > 0xff_ff_ff_ff) {
     throw new RangeError(`the sample rate must be a whole number from 0 to 4294967295, not ${String(rate)}`);
   }
@@ -87,6 +96,9 @@ export async function renderHash(rate: number, channels: number, samples: Sample
   }
   if (channels === 0 ? samples.length > 0 : samples.length % channels !== 0) {
     throw new RangeError(`${String(samples.length)} samples are not whole frames of ${String(channels)} channels`);
+  }
+  if (!Object.hasOwn(WIDTHS, format)) {
+    throw new RangeError(`unknown render format: ${format}`);
   }
   const widths = WIDTHS[format];
   if (samples.BYTES_PER_ELEMENT * 8 !== widths.samples) {

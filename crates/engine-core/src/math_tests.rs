@@ -250,17 +250,25 @@ fn reads_every_known_mode_and_refuses_every_unknown_flag() {
         for known in [0_u64, 7] {
             let unknown = 1_u64 << bit;
             assert_eq!(
-                ArithmeticMode::from_bits(known | unknown),
-                Err(UnknownArithmeticOptions(unknown)),
+                ArithmeticMode::from_bits(known | unknown).map_err(UnknownArithmeticOptions::bits),
+                Err(unknown),
                 "bit {bit}, with {known:#b}: the unknown bits only"
             );
         }
     }
+    let refused = ArithmeticMode::from_bits(9).expect_err("flag 3 is unknown");
     assert_eq!(
-        format!("{}", UnknownArithmeticOptions(8)),
+        format!("{refused}"),
         "unknown arithmetic options: 0x0000000000000008",
-        "explained"
+        "explained, the known flag left out"
     );
+}
+
+#[test]
+fn reports_unknown_options_as_an_error() {
+    /// Compiles only for an error type.
+    const fn error<E: core::error::Error>() {}
+    error::<UnknownArithmeticOptions>();
 }
 
 /// Shorthand for a binary64 sample.

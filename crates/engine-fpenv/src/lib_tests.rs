@@ -205,7 +205,9 @@ fn render(case: &str, patch: &str, format: RenderFormat) -> String {
         engine_core::Plan::<engine_core::Binary64>::build(&patch, registry, rate).expect("a plan")
     };
     let hash = |channels, samples| {
-        engine_hash::render_hash(rate, channels, samples, engine_core::MODE).to_string()
+        engine_hash::render_hash(rate, channels, samples, engine_core::MODE)
+            .expect("whole frames")
+            .to_string()
     };
     match format {
         RenderFormat::Binary64 => {

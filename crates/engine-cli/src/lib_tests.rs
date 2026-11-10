@@ -122,7 +122,39 @@ fn sine_hash(format: RenderFormat) -> String {
     with_default_mode(|mode| render_case(SINE, PATCH, format, mode))
         .expect("valid case")
         .hash()
+        .expect("whole frames")
         .to_string()
+}
+
+/// A render built by hand whose samples are not whole frames is refused, never hashed:
+/// by the render, and in words by the command line.
+#[test]
+fn refuses_to_hash_samples_that_are_not_whole_frames() {
+    let rendered = Rendered {
+        rate: SampleRate::HZ_48000,
+        channels: 2,
+        samples: RenderedSamples::Binary32(vec![0.0; 3]),
+    };
+    let error = rendered.hash().expect_err("a cut frame");
+    assert_eq!(
+        (error.samples(), error.channels()),
+        (3, 2),
+        "what was given"
+    );
+    assert_eq!(
+        super::cli::hash_of(&rendered),
+        Err("cannot hash the render: 3 samples are not whole frames of 2 channels".to_owned()),
+        "in words"
+    );
+    let whole = Rendered {
+        samples: RenderedSamples::Binary32(vec![0.0; 4]),
+        ..rendered
+    };
+    assert_eq!(
+        super::cli::hash_of(&whole),
+        Ok(whole.hash().expect("whole frames")),
+        "a render is hashed"
+    );
 }
 
 /// The references of the sine case, as `bless` writes them, in every format: a JSON object
@@ -1406,7 +1438,10 @@ fn export_command_writes_the_wav_of_every_case_in_order() {
                 wav_bytes(&rendered).expect("fits"),
                 "{path}"
             );
-            lines.push(format!("wrote    {path} {}\n", rendered.hash()));
+            lines.push(format!(
+                "wrote    {path} {}\n",
+                rendered.hash().expect("whole frames")
+            ));
         }
     }
     assert_ne!(

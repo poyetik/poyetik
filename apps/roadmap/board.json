@@ -823,12 +823,12 @@
           "done": false
         },
         {
-          "title": "Browser render hash: renderHash (bindings/wasm) defaults the arithmetic mode to 0n with nothing tying it to the module's MODE; export the module's mode and hash with it once a second mode exists",
+          "title": "Browser render hash: the module is built in the strict mode only (a compile-time assertion in engine-wasm) and renderHash requires its mode; once a second mode is offered, export the module's mode through the C interface and hash with it",
           "done": false
         },
         {
           "title": "Unknown arithmetic mode: the oracle, engine-hash and the browser renderHash word their refusal differently; one message and a shared vector of it",
-          "done": false
+          "done": true
         },
         {
           "title": "Math layer gate: it sees only a direct libm dependency of a box crate; also refuse engine-testkit as a normal dependency of a box crate, and math reached through other crates (num-traits, a libm feature of another dependency)",

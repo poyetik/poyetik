@@ -91,8 +91,8 @@ interface Vector {
   readonly sha256: string;
 }
 
-/** Every vector of the specification. */
-const VECTORS: readonly Vector[] = list(SPEC, "vectors").map((vector) => {
+/** The render of a vector or of a refused shape, as WAV data, its frames the whole frames its samples hold. */
+function input(vector: unknown): Pick<Vector, "name" | "wav" | "format" | "mode"> {
   const samples = list(vector, "samples");
   const bits = sampleBits(format(vector));
   const data = new Uint8Array((bits / 8) * samples.length);
@@ -107,18 +107,30 @@ const VECTORS: readonly Vector[] = list(SPEC, "vectors").map((vector) => {
   const channels = integer(vector, "channels");
   return {
     name: text(vector, "name"),
-    wav: { rate: integer(vector, "rate"), channels, frames: samples.length / channels, bits, data },
+    wav: { rate: integer(vector, "rate"), channels, frames: channels === 0 ? 0 : Math.trunc(samples.length / channels), bits, data },
     format: format(vector),
     mode: mode(vector),
-    bytes: Buffer.from(text(vector, "bytes"), "hex"),
-    sha256: text(vector, "sha256"),
   };
+}
+
+/** Every vector of the specification. */
+const VECTORS: readonly Vector[] = list(SPEC, "vectors").map((vector) => ({
+  ...input(vector),
+  bytes: Buffer.from(text(vector, "bytes"), "hex"),
+  sha256: text(vector, "sha256"),
+}));
+
+test("reads every known-answer vector of the specification, in every render format, and every kind of refusal", () => {
+  expect(Object.keys(typeof SPEC === "object" && SPEC !== null ? SPEC : {}).sort()).toStrictEqual(["refused_modes", "refused_shapes", "scheme", "vectors"]);
+  expect(text(SPEC, "scheme")).toBe("render-hash/2");
+  expect(VECTORS.length).toBeGreaterThanOrEqual(8);
+  expect(new Set(VECTORS.map((vector) => vector.format))).toStrictEqual(new Set(RENDER_FORMATS));
+  expect(list(SPEC, "refused_modes").length).toBeGreaterThanOrEqual(4);
+  expect(list(SPEC, "refused_shapes").length).toBeGreaterThanOrEqual(2);
 });
 
-test("reads every known-answer vector of the specification, in every render format", () => {
-  expect(text(SPEC, "scheme")).toBe("render-hash/2");
-  expect(VECTORS.length).toBeGreaterThanOrEqual(7);
-  expect(new Set(VECTORS.map((vector) => vector.format))).toStrictEqual(new Set(RENDER_FORMATS));
+test.each(list(SPEC, "refused_shapes").map((shape) => ({ ...input(shape), reason: text(shape, "reason") })))("refuses the shape $name, which is not whole frames", (shape) => {
+  expect(() => renderHash(shape.wav, shape.format, shape.mode)).toThrow(new RangeError(shape.reason));
 });
 
 test.each(VECTORS)("reproduces the known-answer vector $name", (vector) => {
@@ -127,13 +139,16 @@ test.each(VECTORS)("reproduces the known-answer vector $name", (vector) => {
   expect(createHash("sha256").update(vector.bytes).digest("hex")).toBe(vector.sha256);
 });
 
-test.each(list(SPEC, "refused_modes").map((refused) => ({ name: text(refused, "name"), mode: mode(refused) })))("refuses the unknown mode $name", ({ mode: refused }) => {
-  const [vector] = VECTORS;
-  if (vector === undefined) {
-    throw new Error("no vector");
-  }
-  expect(() => renderHash(vector.wav, vector.format, refused)).toThrow(new RangeError(`unknown arithmetic options: 0x${refused.toString(16).padStart(16, "0")}`));
-});
+test.each(list(SPEC, "refused_modes").map((refused) => ({ name: text(refused, "name"), mode: mode(refused), unknown: text(refused, "unknown_flags") })))(
+  "refuses the unknown mode $name, naming the unknown flags alone",
+  ({ mode: refused, unknown }) => {
+    const [vector] = VECTORS;
+    if (vector === undefined) {
+      throw new Error("no vector");
+    }
+    expect(() => renderHash(vector.wav, vector.format, refused)).toThrow(new RangeError(`unknown arithmetic options: 0x${unknown}`));
+  },
+);
 
 test("accepts every known option and the strict mode, and refuses what is not a 64-bit mode", () => {
   const stereo = parseWav(makeWav({ rate: 48_000, channels: 2, samples: [0, 0.5, -0.5, 1] }));
@@ -143,7 +158,7 @@ test("accepts every known option and the strict mode, and refuses what is not a 
   expect(KNOWN_OPTIONS).toBe(7n);
   expect(() => renderHash(stereo, "binary32", -1n)).toThrow(new RangeError("the arithmetic mode must be an unsigned 64-bit integer, not -1"));
   expect(() => renderHash(stereo, "binary32", 2n ** 64n)).toThrow(new RangeError("the arithmetic mode must be an unsigned 64-bit integer, not 18446744073709551616"));
-  expect(() => renderHash(stereo, "binary32", 2n ** 64n - 1n)).toThrow(new RangeError("unknown arithmetic options: 0xffffffffffffffff"));
+  expect(() => renderHash(stereo, "binary32", 2n ** 64n - 1n)).toThrow(new RangeError("unknown arithmetic options: 0xfffffffffffffff8"));
 });
 
 test("hashes the WAV data it reads, in its format", () => {
@@ -162,8 +177,24 @@ test("refuses samples of another width than the format's", () => {
   expect(() => renderHash(wide, "binary64-as-binary32", STRICT)).toThrow(new RangeError("binary64-as-binary32 samples are 32-bit, not 64-bit"));
 });
 
+/** The hashes of 0, 0.5, -0.5, 1 in binary32 at 48 kHz, strict, as 1, 2 and 4 channels: computed with Python's hashlib over the bytes of the specification. */
+const MONO_STEREO_QUAD = [
+  "cd83f6aaa160c805350dc7438bf2e9930ccaee8e8592e61936047a07c80a1ea8",
+  "0dc64f4f5637f60df1c254200fe71bba0124ce4f3807570df6ec039eb5bcea62",
+  "b89f2d5ed6d83bf44ea2493748ecea72f5ce956b82081b441722c708289d4b24",
+];
+
 test("counts samples, not frames", () => {
+  // The same data as 4 frames of 1 channel, 2 of 2 and 1 of 4: the same sample count, three hashes (the channel count differs), each the one Python's hashlib gives.
+  const mono = parseWav(makeWav({ rate: 48_000, channels: 1, samples: [0, 0.5, -0.5, 1] }));
   const stereo = parseWav(makeWav({ rate: 48_000, channels: 2, samples: [0, 0.5, -0.5, 1] }));
-  expect(renderHash({ ...stereo, frames: 1 }, "binary32", STRICT)).not.toBe(renderHash(stereo, "binary32", STRICT));
-  expect(renderHash({ ...stereo, channels: 4, frames: 1 }, "binary32", STRICT)).not.toBe(renderHash(stereo, "binary32", STRICT));
+  const quad = parseWav(makeWav({ rate: 48_000, channels: 4, samples: [0, 0.5, -0.5, 1] }));
+  expect([mono, stereo, quad].map((wav) => renderHash(wav, "binary32", STRICT))).toStrictEqual(MONO_STEREO_QUAD);
+});
+
+test("refuses a WAV whose frames are not the samples of its data", () => {
+  const stereo = parseWav(makeWav({ rate: 48_000, channels: 2, samples: [0, 0.5, -0.5, 1] }));
+  expect(() => renderHash({ ...stereo, frames: 1 }, "binary32", STRICT)).toThrow(new RangeError("1 frames of 2 channels are not the 4 samples of the data"));
+  expect(() => renderHash({ ...stereo, frames: 3 }, "binary32", STRICT)).toThrow(new RangeError("3 frames of 2 channels are not the 4 samples of the data"));
+  expect(() => renderHash({ ...stereo, channels: 4, frames: 2 }, "binary32", STRICT)).toThrow(new RangeError("2 frames of 4 channels are not the 4 samples of the data"));
 });

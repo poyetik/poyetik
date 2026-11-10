@@ -11,7 +11,8 @@ use engine_patch::MAX_PATCH_BYTES;
 
 use engine_objects::REGISTRY;
 
-use crate::{Files, Prepared, prepare_case, wav_file};
+use crate::{Files, Prepared, Rendered, prepare_case, wav_file};
+use engine_hash::RenderHash;
 
 /// Usage of the `engine-cli` command, printed on stdout by `engine-cli help`.
 pub const USAGE: &str = "\
@@ -298,6 +299,13 @@ fn cases(files: &mut dyn Files, dir: &Path) -> Result<Vec<CaseFiles>, String> {
     Ok(read_cases)
 }
 
+/// The hash of `rendered`, or why it is not a render, in words.
+pub(crate) fn hash_of(rendered: &Rendered) -> Result<RenderHash, String> {
+    rendered
+        .hash()
+        .map_err(|error| format!("cannot hash the render: {error}"))
+}
+
 /// Renders every case of `<dir>/cases` in every render format, sorted by name: for each
 /// case, its hash in each format.
 fn hashes(files: &mut dyn Files, dir: &Path, mode: DefaultMode<'_>) -> Result<References, String> {
@@ -306,7 +314,7 @@ fn hashes(files: &mut dyn Files, dir: &Path, mode: DefaultMode<'_>) -> Result<Re
         let mut formats = BTreeMap::new();
         for format in RenderFormat::ALL {
             let rendered = case.prepare(format, mode)?.render(mode);
-            drop(formats.insert(format.name().to_owned(), rendered.hash().to_string()));
+            drop(formats.insert(format.name().to_owned(), hash_of(&rendered)?.to_string()));
         }
         // Case names are file names of one directory, hence unique.
         drop(hashes.insert(case.name, formats));
@@ -377,7 +385,7 @@ fn render(
             .write(Path::new(path), &wav_file(&header, &rendered.samples))
             .map_err(|error| format!("cannot write {path}: {error}"))?;
     }
-    Ok(say(out, &OneLine::new(&rendered.hash().to_string()))?)
+    Ok(say(out, &OneLine::new(&hash_of(&rendered)?.to_string()))?)
 }
 
 /// The problems of the algorithm versions of case `name`: `current`, those of its box types
@@ -456,7 +464,8 @@ fn check(
         for format in RenderFormat::ALL {
             let (passed, line) = match case
                 .prepare(format, mode)
-                .map(|prepared| prepared.render(mode).hash().to_string())
+                .and_then(|prepared| hash_of(&prepared.render(mode)))
+                .map(|hash| hash.to_string())
             {
                 Ok(hash) => match references.and_then(|hashes| hashes.get(format.name())) {
                     Some(reference) if *reference == hash => {
@@ -583,9 +592,10 @@ fn export(
             files
                 .write(&path, &wav_file(&header, &rendered.samples))
                 .map_err(|error| format!("cannot write {}: {error}", path.display()))?;
+            let hash = hash_of(&rendered)?;
             say(
                 out,
-                &OneLine::new(&format!("wrote    {} {}", path.display(), rendered.hash())),
+                &OneLine::new(&format!("wrote    {} {hash}", path.display())),
             )?;
         }
     }

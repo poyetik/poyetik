@@ -65,6 +65,17 @@ compile_error!(
     "engine-wasm with WebAssembly atomics: the instance lock could block the audio thread; reach the instance without a lock first (roadmap #32)"
 );
 
+// The browser hashes this module's renders as strict (`renderHash` of the binding, given
+// the strict mode by its callers), and this interface does not export the mode: a module
+// built with any arithmetic option (`--cfg poyetik_math=...`, or a later one) would have
+// its renders hashed under a mode they were not computed in. Derived from the math layer's
+// own `MODE`, so that every option is refused, and refused until the mode is exported
+// (`spec/engine-design.md`, decision 10, rule 4).
+const _: () = assert!(
+    engine_core::MODE.bits() == engine_core::ArithmeticMode::STRICT.bits(),
+    "engine-wasm is built in the strict arithmetic mode only: the browser hashes its renders as strict; export the mode through the C interface first (decision 10, rule 4)"
+);
+
 /// The state of this module instance.
 static INSTANCE: Mutex<Instance> = Mutex::new(Instance::new());
 
