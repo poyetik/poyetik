@@ -7310,6 +7310,36 @@ fn refuses_test_data_a_crate_does_not_declare() {
 }
 
 #[test]
+fn leaves_a_binary_entry_point_to_find_its_repository() {
+    let context = "the tests of each crate read only its declared test data";
+    let with = |path: &str, text: &str| {
+        let mut sources = test_data_reader_sources();
+        sources.push((path.to_owned(), text.to_owned()));
+        super::test_data_gate(&sources)
+    };
+    let root =
+        "fn main() { let _ = PathBuf::from(env!(\"CARGO_MANIFEST_DIR\")).join(\"../..\"); }\n";
+    assert_eq!(
+        with("crates/xtask/src/main.rs", root),
+        Ok(()),
+        "a binary's entry point, which finds the repository it runs in"
+    );
+    for (path, krate) in [
+        ("crates/engine-hash/src/main.rs", "engine-hash"),
+        ("crates/xtask/src/bin/main.rs", "xtask"),
+        ("crates/xtask/tests/main.rs", "xtask"),
+    ] {
+        assert_eq!(
+            with(path, root),
+            failed(format!(
+                "{context}: {path}:1: the tests of {krate} read ``, which is not in its test_data"
+            )),
+            "{path}: not a binary's entry point"
+        );
+    }
+}
+
+#[test]
 fn reads_only_the_one_form_of_a_test_declaration() {
     let declared = |path: &str, text: &str| super::test_declarations(path, text);
     assert_eq!(

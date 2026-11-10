@@ -3513,7 +3513,9 @@ fn literal_argument(rest: &str) -> Option<&str> {
 /// `.join("<literal>")`, relative to the crate (the forms that name a file of the repository); each must lie in the crate or
 /// under one of its roots, and each root must be read so. A file read through another
 /// form (a path computed at run time) is not seen: the forms above are the ones the tests
-/// use, and review keeps it so.
+/// use, and review keeps it so. A binary's entry point (`src/main.rs` of a crate with
+/// [`RustCrate::binary`]) is not read: it only wires the real process, finding the
+/// repository it runs in, and its tests give it their own files.
 ///
 /// # Errors
 ///
@@ -3523,9 +3525,12 @@ pub fn test_data_gate(sources: &[(String, String)]) -> Result<(), Failure> {
     let mut problems = Vec::new();
     let mut read: BTreeSet<(&str, &str)> = BTreeSet::new();
     for (path, text) in sources {
-        let Some((krate, _)) = in_crate(path) else {
+        let Some((krate, relative)) = in_crate(path) else {
             continue;
         };
+        if krate.binary && relative == "src/main.rs" {
+            continue;
+        }
         let file_dir = path.rsplit_once('/').map_or("", |(dir, _)| dir);
         let chars: Vec<char> = text.chars().collect();
         for (line, word, end) in code_words(text) {
