@@ -46,6 +46,17 @@ pub struct RustCrate {
     pub test_data: &'static [&'static str],
 }
 
+impl RustCrate {
+    /// The path of `path` relative to this crate's directory, if the crate holds it (a path
+    /// git names, `/`-separated): `crates/engine-core/src/lib.rs` is `src/lib.rs` of
+    /// `engine-core`, while `crates/engine-core-x/a.rs` and the directory itself are none
+    /// of its files.
+    #[must_use]
+    pub fn holds<'path>(&self, path: &'path str) -> Option<&'path str> {
+        path.strip_prefix(self.dir)?.strip_prefix('/')
+    }
+}
+
 /// The crates of the Cargo workspace (checked by [`membership_gate`]): each is measured by
 /// its own unit tests, and each binary by the crate's tests.
 pub const RUST_CRATES: [RustCrate; 10] = [
@@ -7676,14 +7687,6 @@ fn widened_crates(
     Ok(Ok(widened))
 }
 
-/// The paths a diff written with the `a/` and `b/` prefixes changes.
-fn changed_paths(diff: &str) -> Vec<&str> {
-    diff.lines()
-        .filter_map(|line| line.strip_prefix("diff --git a/"))
-        .filter_map(|rest| rest.split_once(" b/").map(|(_, path)| path))
-        .collect()
-}
-
 /// Where the default check keeps its mutation proof records ([`ProofRecord`]).
 ///
 /// Below git's common directory (`git rev-parse --git-common-dir`), which every worktree of
@@ -7700,10 +7703,12 @@ pub const PROOF_RECORD_TAG: &str = "poyetik rust-mutants-proven";
 /// The format of the mutation proof records this xtask writes and reads, after
 /// [`PROOF_RECORD_TAG`] on their first line.
 ///
-/// Version 1, which reused lines rather than crates, and version 2, which named neither the
-/// compiler's build nor the linker, are never read: a record of another format is ignored,
-/// its format said.
-pub const PROOF_RECORD_FORMAT: u32 = 3;
+/// Version 1, which reused lines rather than crates, version 2, which named neither the
+/// compiler's build nor the linker, and version 3, which did not name git and was written
+/// when the default check could give a path two sections in its diff (so that cargo-mutants
+/// missed some of its mutants), are never read: a record of another format is ignored, its
+/// format said.
+pub const PROOF_RECORD_FORMAT: u32 = 4;
 
 /// What decides how the default check scopes its mutation testing, beside the tools.
 ///
@@ -7830,6 +7835,7 @@ impl ProofRecord {
                 host: field("host")?,
                 compiler: field("compiler")?,
                 linker: field("linker")?,
+                git: field("git")?,
             },
         };
         if lines.next().is_some() {
@@ -7863,7 +7869,8 @@ fn proof_record_path(runner: &mut dyn Runner, base: &str) -> Result<String, Fail
 }
 
 /// What a record holds of the tools and the host: `cargo mutants --version`, the pinned
-/// release, the host and the compiler's build of `rustc -vV`, and the linker driver.
+/// release, the host and the compiler's build of `rustc -vV`, the linker driver, and git,
+/// which xtask's tests run.
 ///
 /// One type, written, read and compared field by field through [`ProofTools::fields`]
 /// only: a field left out of it is never read, which the compiler refuses (`dead_code`).
@@ -7883,17 +7890,20 @@ struct ProofTools {
     /// `cc --version` names it ([`LINKER_DRIVER`]): an input of every test program that
     /// the pinned toolchain does not pin (a system update replaces it).
     linker: String,
+    /// The first line of `git --version`: xtask's tests run git.
+    git: String,
 }
 
 impl ProofTools {
     /// Each field with its key in a record, in the order a record writes them.
-    fn fields(&self) -> [(&'static str, &str); 5] {
+    fn fields(&self) -> [(&'static str, &str); 6] {
         [
             ("cargo-mutants", &self.mutants),
             ("toolchain", &self.toolchain),
             ("host", &self.host),
             ("compiler", &self.compiler),
             ("linker", &self.linker),
+            ("git", &self.git),
         ]
     }
 
@@ -7945,26 +7955,40 @@ fn proof_tools(runner: &mut dyn Runner) -> Result<ProofTools, Failure> {
     };
     let host = named("host")?;
     let compiler = format!("{} LLVM {}", named("commit-hash")?, named("LLVM version")?);
-    let linker = runner
-        .capture(&Cmd::new(LINKER_DRIVER, &["--version"], Dir::Root))
-        .map_err(|failure| {
-            Failure::from(format!(
-                "cannot read the version of the linker driver: {failure}"
-            ))
-        })?;
-    let linker = linker
-        .lines()
-        .next()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .ok_or_else(|| Failure::from(format!("`{LINKER_DRIVER} --version` names no version")))?;
+    let linker = version_line(runner, LINKER_DRIVER, "the linker driver")?;
+    let git = version_line(runner, "git", "git")?;
     Ok(ProofTools {
         mutants: mutants.trim().to_owned(),
         toolchain: release,
         host: host.to_owned(),
         compiler,
-        linker: linker.to_owned(),
+        linker,
+        git,
     })
+}
+
+/// The first line of `<program> --version` (`what` names the program in errors).
+///
+/// # Errors
+///
+/// Returns why it cannot be read, or that it is empty.
+fn version_line(
+    runner: &mut dyn Runner,
+    program: &'static str,
+    what: &str,
+) -> Result<String, Failure> {
+    let answer = runner
+        .capture(&Cmd::new(program, &["--version"], Dir::Root))
+        .map_err(|failure| {
+            Failure::from(format!("cannot read the version of {what}: {failure}"))
+        })?;
+    answer
+        .lines()
+        .next()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_owned)
+        .ok_or_else(|| Failure::from(format!("`{program} --version` names no version")))
 }
 
 /// The proof record of `base` the default check may start from, if there is a valid one;
@@ -8158,28 +8182,44 @@ fn record_mutation_proof(
     )
 }
 
-/// The changes since `since`: the diff of the tracked files, committed or not, then every
-/// new Rust file git does not ignore, added whole.
+/// The paths of the tracked files changed since `since`, committed or not, as git names
+/// them (`--name-only -z`: never quoted, whatever they hold).
 ///
 /// # Errors
 ///
-/// Returns why git cannot show them or a new file cannot be read.
-fn changes_since(runner: &mut dyn Runner, since: &str) -> Result<String, Failure> {
-    let mut diff = git_output(
+/// Returns why git cannot list them.
+fn changed_since(runner: &mut dyn Runner, since: &str) -> Result<Vec<String>, Failure> {
+    let listed = git_output(
         runner,
         &[
             "diff",
             "--no-color",
-            "--no-ext-diff",
-            "--no-textconv",
+            "--name-only",
+            "-z",
             "--no-renames",
-            "--src-prefix=a/",
-            "--dst-prefix=b/",
             since,
         ],
-        "read the changes",
+        "list the changes",
     )?;
-    let new = git_output(
+    Ok(nul_separated(&listed))
+}
+
+/// The paths of a NUL-separated list of git (`-z`), in its order.
+fn nul_separated(listed: &str) -> Vec<String> {
+    listed
+        .split('\0')
+        .filter(|path| !path.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
+/// The new Rust files git does not ignore.
+///
+/// # Errors
+///
+/// Returns why git cannot list them.
+fn new_rust_files(runner: &mut dyn Runner) -> Result<Vec<String>, Failure> {
+    let listed = git_output(
         runner,
         &[
             "ls-files",
@@ -8191,10 +8231,51 @@ fn changes_since(runner: &mut dyn Runner, since: &str) -> Result<String, Failure
         ],
         "list the new Rust files",
     )?;
-    for path in new.split('\0').filter(|path| !path.is_empty()) {
-        diff.push_str(&new_file_diff(path, &read_file(runner, path)?));
+    Ok(nul_separated(&listed))
+}
+
+/// The diff of the tracked files since `since`, committed or not, but those below the
+/// directories of `left_out`, which git leaves out (`:(exclude)` pathspecs): so that the
+/// diff holds no section of a crate tested whole or proven, rather than a second one.
+///
+/// # Errors
+///
+/// Returns why git cannot show it.
+fn diff_since(
+    runner: &mut dyn Runner,
+    since: &str,
+    left_out: &[&RustCrate],
+) -> Result<String, Failure> {
+    let excluded: Vec<String> = left_out
+        .iter()
+        .map(|krate| format!(":(exclude){}/", krate.dir))
+        .collect();
+    let mut args = vec![
+        "diff",
+        "--no-color",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--no-renames",
+        "--src-prefix=a/",
+        "--dst-prefix=b/",
+        since,
+    ];
+    if !excluded.is_empty() {
+        args.push("--");
+        args.extend(excluded.iter().map(String::as_str));
     }
-    Ok(diff)
+    git_output(runner, &args, "read the changes")
+}
+
+/// The first `diff --git` line `diff` holds twice, if any.
+///
+/// cargo-mutants joins the changed lines of every section of one path in one list it does
+/// not sort, then searches it as sorted: a path with two sections loses mutants silently.
+fn repeated_section(diff: &str) -> Option<&str> {
+    let mut seen = BTreeSet::new();
+    diff.lines()
+        .filter(|line| line.starts_with("diff --git "))
+        .find(|line| !seen.insert(*line))
 }
 
 /// The crates of the workspace each crate of [`RUST_CRATES`] depends on, at any depth and
@@ -8254,15 +8335,17 @@ fn proven_crates(
     out: &mut dyn Write,
     record: &ProofRecord,
 ) -> Result<Vec<RustCrate>, Failure> {
-    let diff = changes_since(runner, &record.commit)?;
+    let tracked = changed_since(runner, &record.commit)?;
     let untracked = git_output(
         runner,
         &["ls-files", "-z", "--others", "--exclude-standard"],
         "list the untracked files",
     )?;
-    let changed: BTreeSet<&str> = changed_paths(&diff)
-        .into_iter()
-        .chain(untracked.split('\0').filter(|path| !path.is_empty()))
+    let untracked = nul_separated(&untracked);
+    let changed: BTreeSet<&str> = tracked
+        .iter()
+        .chain(&untracked)
+        .map(String::as_str)
         .collect();
     let mut locked = BTreeSet::new();
     let mut voiding = None;
@@ -8321,24 +8404,6 @@ fn proven_crates(
         .collect())
 }
 
-/// The sections of `diff` (a diff written with the `a/` and `b/` prefixes) of the files no
-/// crate of `proven` holds.
-fn without_crates(diff: &str, proven: &[RustCrate]) -> String {
-    let mut kept = String::new();
-    let mut keep = true;
-    for line in diff.split_inclusive('\n') {
-        if let Some(path) = changed_paths(line).first() {
-            keep = !proven
-                .iter()
-                .any(|krate| path.starts_with(&format!("{}/", krate.dir)));
-        }
-        if keep {
-            kept.push_str(line);
-        }
-    }
-    kept
-}
-
 /// Says on `out` each crate of `proven` that `changed` (the paths changed since the base)
 /// touches: the record proves it.
 ///
@@ -8368,6 +8433,55 @@ fn say_proven(
     Ok(())
 }
 
+/// The diff cargo-mutants mutates the lines of: the changes since `base` (`new`, the new Rust
+/// files, added whole) but those of the crates `tested` whole or `proven`, which git leaves
+/// out, so that each path has at most one section; then every source of each crate of
+/// `tested` (its test code apart), added whole, after saying why on `out`.
+///
+/// # Errors
+///
+/// Returns why git cannot show the changes, a file cannot be read, or stdout cannot be
+/// written.
+fn mutated_diff(
+    runner: &mut dyn Runner,
+    out: &mut dyn Write,
+    base: &str,
+    new: &[String],
+    tested: Vec<(RustCrate, Option<String>)>,
+    proven: &[RustCrate],
+) -> Result<String, Failure> {
+    // Git leaves out every crate tested whole or proven, so that each path has at most
+    // one section: the changes of the others, then each source of a crate tested whole.
+    let left_out: Vec<&RustCrate> = tested
+        .iter()
+        .map(|(krate, _)| krate)
+        .chain(proven)
+        .collect();
+    let outside = |path: &str| !left_out.iter().any(|krate| krate.holds(path).is_some());
+    let mut diff = diff_since(runner, base, &left_out)?;
+    for path in new.iter().filter(|path| outside(path)) {
+        diff.push_str(&new_file_diff(path, &read_file(runner, path)?));
+    }
+    if !tested.is_empty() {
+        let mut sources = list_tracked(runner, &["*.rs"], "the Rust files")?;
+        sources.extend(new.iter().cloned());
+        sources.sort();
+        sources.dedup();
+        for (krate, said) in tested {
+            if let Some(said) = said {
+                say(out, &format!("  {said}"))?;
+            }
+            for path in &sources {
+                if krate.holds(path).is_some_and(|rel| !rust_test_code(rel)) {
+                    let text = read_file(runner, path)?;
+                    diff.push_str(&new_file_diff(path, &text));
+                }
+            }
+        }
+    }
+    Ok(diff)
+}
+
 /// Runs cargo-mutants on what changed since the merge base ([`Action::RustMutantsOfChanges`]):
 /// the changes of the tracked files, committed or not, and every new Rust file git does not
 /// ignore; nothing when nothing changed.
@@ -8389,19 +8503,19 @@ fn rust_mutants_of_changes(
         .write(MEASURED_BASE, &format!("{base}\n"))
         .map_err(|error| Failure::from(format!("cannot write {MEASURED_BASE}: {error}")))?;
     let proof = usable_proof(runner, out, &base)?;
-    let mut diff = changes_since(runner, &base)?;
+    let new = new_rust_files(runner)?;
+    let changed: Vec<String> = changed_since(runner, &base)?
+        .into_iter()
+        .chain(new.iter().cloned())
+        .collect();
     let measured = format!("{base} (merge base with {against})");
-    if diff.is_empty() {
+    if changed.is_empty() {
         return say(
             out,
             &format!("  no change since {measured}: no mutant to test"),
         );
     }
     say(out, &format!("  the changes since {measured}"))?;
-    let changed: Vec<String> = changed_paths(&diff)
-        .into_iter()
-        .map(str::to_owned)
-        .collect();
     let proven = match &proof {
         Some(record) => proven_crates(runner, out, record)?,
         None => Vec::new(),
@@ -8446,27 +8560,14 @@ fn rust_mutants_of_changes(
                 .map_err(|failure| Failure::from(failure.to_string()));
         }
     }
-    if !tested.is_empty() {
-        let sources = list_tracked(runner, &["*.rs"], "the Rust files")?;
-        for (krate, said) in tested {
-            if let Some(said) = said {
-                say(out, &format!("  {said}"))?;
-            }
-            let prefix = format!("{}/", krate.dir);
-            for path in &sources {
-                if path
-                    .strip_prefix(&prefix)
-                    .is_some_and(|rel| !rust_test_code(rel))
-                {
-                    let text = read_file(runner, path)?;
-                    diff.push_str(&new_file_diff(path, &text));
-                }
-            }
-        }
-    }
-    let diff = without_crates(&diff, &proven);
+    let diff = mutated_diff(runner, out, &base, &new, tested, &proven)?;
     if diff.is_empty() {
         return say(out, "  every change is proven: no mutant to test");
+    }
+    if let Some(header) = repeated_section(&diff) {
+        return Err(Failure::from(format!(
+            "the diff for cargo-mutants holds `{header}` twice, whose mutants it would miss"
+        )));
     }
     runner
         .write(CHANGES_DIFF, &diff)

@@ -364,6 +364,7 @@ impl Runner for Fake {
         self.files
             .get(&format!("capture {line}"))
             .cloned()
+            .or_else(|| self.git_from_its_diff(cmd))
             .ok_or_else(|| {
                 CommandFailure::of(
                     cmd,
@@ -404,6 +405,79 @@ impl Runner for Fake {
             .cloned()
             .collect())
     }
+}
+
+impl Fake {
+    /// What git answers to `cmd`, unscripted, from the diff a test scripted for the same
+    /// commit ([`diff_since`]), as real git does: the paths of its sections, NUL-separated
+    /// (`diff --name-only -z`), or its sections but those below the directories excluded by
+    /// `:(exclude)<dir>/` pathspecs.
+    fn git_from_its_diff(&self, cmd: &Cmd) -> Option<String> {
+        let args: Vec<&str> = cmd.args.iter().map(String::as_str).collect();
+        if cmd.program != "git" {
+            return None;
+        }
+        match args.as_slice() {
+            [
+                "diff",
+                "--no-color",
+                "--name-only",
+                "-z",
+                "--no-renames",
+                since,
+            ] => Some(
+                diff_sections(self.files.get(&diff_since(since))?)
+                    .into_iter()
+                    .fold(String::new(), |mut listed, (path, _)| {
+                        listed.push_str(&path);
+                        listed.push('\0');
+                        listed
+                    }),
+            ),
+            [
+                "diff",
+                "--no-color",
+                "--no-ext-diff",
+                "--no-textconv",
+                "--no-renames",
+                "--src-prefix=a/",
+                "--dst-prefix=b/",
+                since,
+                "--",
+                excluded @ ..,
+            ] => {
+                let dirs: Vec<&str> = excluded
+                    .iter()
+                    .map(|pathspec| pathspec.strip_prefix(":(exclude)"))
+                    .collect::<Option<_>>()?;
+                Some(
+                    diff_sections(self.files.get(&diff_since(since))?)
+                        .into_iter()
+                        .filter(|(path, _)| !dirs.iter().any(|dir| path.starts_with(dir)))
+                        .map(|(_, section)| section)
+                        .collect(),
+                )
+            }
+            _ => None,
+        }
+    }
+}
+
+/// The sections of `diff`, a diff a test scripted, each with the path it changes.
+fn diff_sections(diff: &str) -> Vec<(String, String)> {
+    let mut sections: Vec<(String, String)> = Vec::new();
+    for line in diff.split_inclusive('\n') {
+        if let Some(rest) = line.strip_prefix("diff --git a/") {
+            let (path, _) = rest
+                .split_once(" b/")
+                .expect("a scripted diff names its path");
+            sections.push((path.to_owned(), String::new()));
+        }
+        if let Some((_, section)) = sections.last_mut() {
+            section.push_str(line);
+        }
+    }
+    sections
 }
 
 /// One file of an llvm-cov JSON summary: its path and its (count, covered) lines,
@@ -738,6 +812,7 @@ fn tool_answer(program: &str, subcommand: Option<&str>) -> String {
         .find(|(name, _)| subcommand == name.strip_prefix("cargo-"));
     match (program, pinned) {
         ("node", _) => "v22.23.4\n".to_owned(),
+        ("git", _) => "git version 2.39.2 (Apple Git-143)\n".to_owned(),
         ("rustc", _) => "rustc 1.99.1 (58cf8f9c3 2026-10-13)\n".to_owned(),
         (_, Some((name, version))) => format!("{name} {version}\n"),
         _ => "1.0\n".to_owned(),
@@ -1926,8 +2001,9 @@ fn mutates_the_changes_since_the_merge_base_with_the_upstream() {
             "write target/xtask/mutants-base",
             "capture git rev-parse --git-common-dir",
             "read .git/poyetik/rust-mutants-proven/abc1230000000000000000000000000000000000",
-            "capture git diff --no-color --no-ext-diff --no-textconv --no-renames --src-prefix=a/ --dst-prefix=b/ abc1230000000000000000000000000000000000",
             "capture git ls-files -z --others --exclude-standard -- *.rs",
+            "capture git diff --no-color --name-only -z --no-renames abc1230000000000000000000000000000000000",
+            "capture git diff --no-color --no-ext-diff --no-textconv --no-renames --src-prefix=a/ --dst-prefix=b/ abc1230000000000000000000000000000000000",
             "write target/xtask/changes.diff",
             "cargo mutants --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --workspace --in-diff target/xtask/changes.diff --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored",
             "read mutants.out/unviable.txt",
@@ -2045,12 +2121,19 @@ fn mutates_a_whole_crate_whose_test_code_changed() {
         );
         assert_eq!(
             fake.files.get(CHANGES_DIFF).cloned(),
-            Some(format!(
-                "{}{}",
-                one_line_change(test_code),
-                super::new_file_diff("crates/engine-core/src/lib.rs", "fn a() {}\n")
+            Some(super::new_file_diff(
+                "crates/engine-core/src/lib.rs",
+                "fn a() {}\n"
             )),
-            "{test_code}: every source of its crate added whole, its test code and other crates apart"
+            "{test_code}: every source of its crate added whole, nothing else of it, its test \
+             code and other crates apart"
+        );
+        assert!(
+            fake.ran.contains(&format!(
+                "{} -- :(exclude)crates/engine-core/",
+                diff_since(MERGE_BASE.1.trim())
+            )),
+            "{test_code}: git leaves the crate out of the diff"
         );
         assert!(
             String::from_utf8(out)
@@ -2196,6 +2279,161 @@ fn mutates_everything_when_what_every_test_uses_changed() {
                 && krate.dir == "crates/engine-testkit"),
         "the shared test crate is where the widening looks"
     );
+}
+
+#[test]
+fn gives_each_changed_file_one_section_when_its_crate_is_tested_whole() {
+    let mut fake = passing();
+    let _changes = fake.files.insert(
+        format!("capture {}", CHANGES.0),
+        format!(
+            "{}{}{}",
+            one_line_change("crates/engine-core/src/lib.rs"),
+            one_line_change("crates/engine-core/src/plan_tests.rs"),
+            one_line_change("crates/engine-hash/src/lib.rs")
+        ),
+    );
+    for (path, text) in [
+        ("crates/engine-core/src/lib.rs", "fn a() {}\nfn b() {}\n"),
+        ("crates/engine-core/src/plan_tests.rs", "fn t() {}\n"),
+        ("crates/engine-hash/src/lib.rs", "fn h() {}\n"),
+    ] {
+        let _source = fake.files.insert(path.to_owned(), text.to_owned());
+    }
+    let _new = fake.files.insert(
+        "crates/engine-core/src/new.rs".to_owned(),
+        "fn n() {}\n".to_owned(),
+    );
+    let _listed = fake.files.insert(
+        format!("capture {}", NEW_RUST_FILES.0),
+        "crates/engine-core/src/new.rs\0".to_owned(),
+    );
+    let said = mutate_changes(&mut fake);
+    assert_eq!(
+        fake.files.get(CHANGES_DIFF).cloned(),
+        Some(format!(
+            "{}{}{}",
+            one_line_change("crates/engine-hash/src/lib.rs"),
+            super::new_file_diff("crates/engine-core/src/lib.rs", "fn a() {}\nfn b() {}\n"),
+            super::new_file_diff("crates/engine-core/src/new.rs", "fn n() {}\n")
+        )),
+        "the source changed and widened, and the new file, once each and whole; the other \
+         crate's change as git wrote it"
+    );
+    assert!(
+        said.contains("  the test code of engine-core changed: every mutant of engine-core\n"),
+        "said: {said}"
+    );
+    // A git that ignored the exclusion: the diff would hold the crate's source twice.
+    let mut careless = passing();
+    let _careless_changes = careless.files.insert(
+        format!("capture {}", CHANGES.0),
+        format!(
+            "{}{}",
+            one_line_change("crates/engine-core/src/lib.rs"),
+            one_line_change("crates/engine-core/src/plan_tests.rs")
+        ),
+    );
+    let _ignored = careless.files.insert(
+        format!(
+            "{} -- :(exclude)crates/engine-core/",
+            diff_since(MERGE_BASE.1.trim())
+        ),
+        one_line_change("crates/engine-core/src/lib.rs"),
+    );
+    let _source = careless.files.insert(
+        "crates/engine-core/src/lib.rs".to_owned(),
+        "fn a() {}\n".to_owned(),
+    );
+    assert_eq!(
+        run_steps(&rust_mutation_of_changes(), &mut careless, &mut Vec::new()),
+        failed(
+            "Rust mutation testing of the changes: the diff for cargo-mutants holds `diff --git \
+             a/crates/engine-core/src/lib.rs b/crates/engine-core/src/lib.rs` twice, whose \
+             mutants it would miss"
+        ),
+        "refused before cargo-mutants reads it"
+    );
+    assert!(
+        !careless
+            .ran
+            .iter()
+            .any(|line| line.starts_with("cargo mutants")
+                || line == "write target/xtask/changes.diff"),
+        "nothing written, nothing mutated"
+    );
+}
+
+#[test]
+fn finds_a_section_written_twice() {
+    let twice = format!(
+        "{}{}",
+        one_line_change("crates/a/src/b.rs"),
+        super::new_file_diff("crates/a/src/b.rs", "fn f() {}\n")
+    );
+    assert_eq!(
+        super::repeated_section(&twice),
+        Some("diff --git a/crates/a/src/b.rs b/crates/a/src/b.rs"),
+        "a change and the whole file"
+    );
+    let once = format!(
+        "{}{}",
+        one_line_change("crates/a/src/b.rs"),
+        super::new_file_diff(
+            "crates/a/src/c.rs",
+            "diff --git a/crates/a/src/b.rs b/crates/a/src/b.rs\n"
+        )
+    );
+    assert_eq!(
+        super::repeated_section(&once),
+        None,
+        "a header as a line of a file is no section"
+    );
+    assert_eq!(super::repeated_section(""), None, "no section");
+}
+
+#[test]
+fn reads_the_paths_real_git_changes_whatever_they_hold() {
+    let dir = scratch("changed-paths");
+    let quoted = "crates/engine-core/tests/caf\u{e9}.json";
+    let spaced = "crates/engine-core/tests/x b/y.rs";
+    let hash = "crates/engine-hash/src/lib.rs";
+    for path in [quoted, spaced, hash] {
+        let file = dir.join(path);
+        std::fs::create_dir_all(file.parent().expect("a parent")).expect("its directory");
+        std::fs::write(&file, "a\n").expect("a file");
+    }
+    let _init = hermetic_git(&dir, &["init", "--quiet", "--initial-branch=main"]);
+    let _add = hermetic_git(&dir, &["add", "."]);
+    let _commit = hermetic_git(&dir, &["commit", "--quiet", "-m", "first"]);
+    for path in [quoted, spaced, hash] {
+        std::fs::write(dir.join(path), "b\n").expect("a change");
+    }
+    std::fs::write(dir.join("crates/engine-core/tests/new.rs"), "fn n() {}\n").expect("a new file");
+    let mut runner = SystemRunner { root: dir.clone() };
+    assert_eq!(
+        super::changed_since(&mut runner, "HEAD").map_err(|failure| failure.summary),
+        Ok(vec![quoted.to_owned(), spaced.to_owned(), hash.to_owned()]),
+        "a path git would quote, and one holding ` b/`, as they are"
+    );
+    assert_eq!(
+        super::new_rust_files(&mut runner).map_err(|failure| failure.summary),
+        Ok(vec!["crates/engine-core/tests/new.rs".to_owned()]),
+        "the new Rust file"
+    );
+    let core = super::RUST_CRATES
+        .iter()
+        .find(|krate| krate.name == "engine-core")
+        .expect("the engine core");
+    let diff = super::diff_since(&mut runner, "HEAD", &[core]).expect("a diff");
+    assert_eq!(
+        diff,
+        format!(
+            "diff --git a/{hash} b/{hash}\nindex 7898192..6178079 100644\n--- a/{hash}\n+++ b/{hash}\n@@ -1 +1 @@\n-a\n+b\n"
+        ),
+        "git leaves out the crate excluded"
+    );
+    std::fs::remove_dir_all(&dir).expect("cleanup");
 }
 
 #[test]
@@ -3049,7 +3287,7 @@ fn runs_every_step_and_reports_success() {
         Ok(()),
         "all green"
     );
-    let (tools, commands, emptied, listed, captured, written) = (10, 54, 14, 24, 33, 3);
+    let (tools, commands, emptied, listed, captured, written) = (10, 54, 14, 24, 35, 3);
     let read = 2
         + 7
         + 13
@@ -3083,9 +3321,9 @@ fn runs_every_step_and_reports_success() {
          checks each followed by its Stryker run); fourteen directories are emptied; git lists \
          thirteen kinds of files (the box sources and the text files that cite the roadmap among them), the Rust files again for the test code, test data and untested targets gates, the TypeScript ones again for the reports and scope gates of \
          each package after the first; the licenses and the history are captured twice each, the state \
-         of the tree (before, for the proof record and after) six times, the nightly's version and sysroot, the Cargo metadata (for the untested targets, dependency, pin, library and math layer gates), the output of the fused test build, the merge base, the changes, the \
+         of the tree (before, for the proof record and after) six times, the nightly's version and sysroot, the Cargo metadata (for the untested targets, dependency, pin, library and math layer gates), the output of the fused test build, the merge base, the changed paths, the changes, the \
          new Rust files and the list of every mutant once, git's common directory twice, the tree checked out, \
-         cargo-mutants' version, rustc's host and build, the linker driver's version, the status for a push and the hidden files for the proof record; the measured base, the diff and the \
+         cargo-mutants' version, rustc's host and build, the linker driver's and git's versions, the status for a push and the hidden files for the proof record; the measured base, the diff and the \
          proof record are written once each; the proof record, the measured base and the \
          toolchain file are read for it; and the gates read the eight fake test data readers for the unsafe, bypass and vocabulary gates, every Rust file (eleven) for the test code, test data and untested targets gates, .node-version and the toolchain file for the preflight, the toolchain file, the four float sources and the float macros of the nightly and clippy.toml for the float gate, thirteen coverage reports, \
          the unviable report and reviews, the register of the pin gate, the 87 text files of the citation gate (the board among them), the reviews again against the list of every mutant, six TypeScript sources and their reviews, the nine \
@@ -10927,6 +11165,7 @@ fn fake_tools() -> super::ProofTools {
         host: "aarch64-apple-darwin".to_owned(),
         compiler: "58cf8f9c35b355199727627d07ae34a4e2846d67 LLVM 23.1.1".to_owned(),
         linker: "Apple clang version 14.0.3 (clang-1403.0.22.14.1)".to_owned(),
+        git: "git version 2.39.2 (Apple Git-143)".to_owned(),
     }
 }
 
@@ -10948,7 +11187,7 @@ fn reads_exactly_the_proof_records_it_writes() {
     assert_eq!(
         text,
         format!(
-            "poyetik rust-mutants-proven 3\ncommit {}\ntree {}\nbase {}\ncargo-mutants cargo-mutants 27.1.0\ntoolchain 1.99.1\nhost aarch64-apple-darwin\ncompiler 58cf8f9c35b355199727627d07ae34a4e2846d67 LLVM 23.1.1\nlinker Apple clang version 14.0.3 (clang-1403.0.22.14.1)\n",
+            "poyetik rust-mutants-proven 4\ncommit {}\ntree {}\nbase {}\ncargo-mutants cargo-mutants 27.1.0\ntoolchain 1.99.1\nhost aarch64-apple-darwin\ncompiler 58cf8f9c35b355199727627d07ae34a4e2846d67 LLVM 23.1.1\nlinker Apple clang version 14.0.3 (clang-1403.0.22.14.1)\ngit git version 2.39.2 (Apple Git-143)\n",
             PROVEN[0], PROVEN[1], PROVEN[2]
         ),
         "one field per line, after the tag"
@@ -11023,7 +11262,7 @@ fn reads_exactly_the_proof_records_it_writes() {
             "its base is not an object name",
         ),
         (
-            "poyetik rust-mutants-proven 3\ncommit x\n".to_owned(),
+            "poyetik rust-mutants-proven 4\ncommit x\n".to_owned(),
             "it has no `tree` line where expected",
         ),
     ] {
@@ -11046,48 +11285,52 @@ fn names_the_format_of_a_proof_record_of_another_format() {
     let text = proof_record(PROVEN[2]).text();
     for (malformed, reason) in [
         (
-            text.replacen("proven 3", "proven 2", 1),
-            "it was written in format 2; this xtask reads format 3",
+            text.replacen("proven 4", "proven 2", 1),
+            "it was written in format 2; this xtask reads format 4",
         ),
         (
-            text.replacen("proven 3", "proven 4", 1),
-            "it was written in format 4; this xtask reads format 3",
+            text.replacen("proven 4", "proven 3", 1),
+            "it was written in format 3; this xtask reads format 4",
         ),
         (
-            text.replacen("proven 3", "proven 10", 1),
-            "it was written in format 10; this xtask reads format 3",
+            text.replacen("proven 4", "proven 5", 1),
+            "it was written in format 5; this xtask reads format 4",
         ),
         (
-            text.replacen("proven 3", "proven 03", 1),
-            "its first line is not `poyetik rust-mutants-proven 3`",
+            text.replacen("proven 4", "proven 10", 1),
+            "it was written in format 10; this xtask reads format 4",
         ),
         (
-            text.replacen("proven 3", "proven +3", 1),
-            "its first line is not `poyetik rust-mutants-proven 3`",
+            text.replacen("proven 4", "proven 04", 1),
+            "its first line is not `poyetik rust-mutants-proven 4`",
         ),
         (
-            text.replacen("proven 3", "proven 3x", 1),
-            "its first line is not `poyetik rust-mutants-proven 3`",
+            text.replacen("proven 4", "proven +4", 1),
+            "its first line is not `poyetik rust-mutants-proven 4`",
         ),
         (
-            text.replacen("proven 3", "proven ", 1),
-            "its first line is not `poyetik rust-mutants-proven 3`",
+            text.replacen("proven 4", "proven 4x", 1),
+            "its first line is not `poyetik rust-mutants-proven 4`",
         ),
         (
-            text.replacen("proven 3", "proven -2", 1),
-            "its first line is not `poyetik rust-mutants-proven 3`",
+            text.replacen("proven 4", "proven ", 1),
+            "its first line is not `poyetik rust-mutants-proven 4`",
         ),
         (
-            text.replacen("proven 3", "proven  3", 1),
-            "its first line is not `poyetik rust-mutants-proven 3`",
+            text.replacen("proven 4", "proven -2", 1),
+            "its first line is not `poyetik rust-mutants-proven 4`",
         ),
         (
-            text.replacen("proven 3", "proven3", 1),
-            "its first line is not `poyetik rust-mutants-proven 3`",
+            text.replacen("proven 4", "proven  4", 1),
+            "its first line is not `poyetik rust-mutants-proven 4`",
         ),
         (
-            text.replacen("poyetik rust-mutants-proven 3", "other 2", 1),
-            "its first line is not `poyetik rust-mutants-proven 3`",
+            text.replacen("proven 4", "proven4", 1),
+            "its first line is not `poyetik rust-mutants-proven 4`",
+        ),
+        (
+            text.replacen("poyetik rust-mutants-proven 4", "other 2", 1),
+            "its first line is not `poyetik rust-mutants-proven 4`",
         ),
     ] {
         assert_eq!(
@@ -11309,13 +11552,11 @@ fn widens_a_crate_that_changed_since_the_record_as_without_it() {
     );
     assert_eq!(
         after.files.get(CHANGES_DIFF).cloned(),
-        Some(format!(
-            "{}{}{}",
-            one_line_change("crates/engine-hash/src/lib.rs"),
-            one_line_change("crates/engine-hash/src/lib_tests.rs"),
-            super::new_file_diff("crates/engine-hash/src/lib.rs", "fn h() {}\n")
+        Some(super::new_file_diff(
+            "crates/engine-hash/src/lib.rs",
+            "fn h() {}\n"
         )),
-        "the render hash widened, the engine core left out"
+        "the render hash widened, its source once and whole, the engine core left out"
     );
     // Its test data changed since the record, or an untracked file under it appeared.
     let mut data = proven_fake(
@@ -11367,6 +11608,23 @@ fn widens_a_crate_that_changed_since_the_record_as_without_it() {
             && diff.contains("+++ b/crates/engine-hash/src/lib.rs\n@@ -0,0 +1,1 @@\n+fn h() {}\n")
             && !diff.contains("engine-core"),
         "everything_said: {everything_said}; diff: {diff}"
+    );
+}
+
+#[test]
+fn reuses_no_record_of_a_crate_whose_quoted_path_changed() {
+    let mut fake = proven_fake(&proof_record(PROVEN[2]), "");
+    drop(fake.files.insert(
+        format!(
+            "capture git diff --no-color --name-only -z --no-renames {}",
+            PROVEN[0]
+        ),
+        "crates/engine-hash/tests/caf\u{e9}.json\0".to_owned(),
+    ));
+    let said = mutate_changes(&mut fake);
+    assert!(
+        !said.contains(&proven_line("engine-hash")) && said.contains(&proven_line("engine-core")),
+        "a path git would quote is a change of its crate: {said}"
     );
 }
 
@@ -11438,7 +11696,7 @@ fn ignores_a_proof_record_it_cannot_trust() {
     );
     ignored(
         &mut malformed,
-        "its first line is not `poyetik rust-mutants-proven 3`",
+        "its first line is not `poyetik rust-mutants-proven 4`",
     );
     let mut unreadable = proven_fake(&proof_record(PROVEN[2]), "");
     unreadable.broken = Some(format!("read {}", record_path(PROVEN[2])));
@@ -11625,7 +11883,7 @@ fn records_the_proof_of_a_clean_tree() {
     assert_eq!(
         fake.files.get(&record_path(PROVEN[2])).cloned(),
         Some(format!(
-            "poyetik rust-mutants-proven 3\ncommit {}\ntree {}\nbase {}\ncargo-mutants cargo-mutants 27.1.0\ntoolchain 1.99.1\nhost aarch64-apple-darwin\ncompiler 58cf8f9c35b355199727627d07ae34a4e2846d67 LLVM 23.1.1\nlinker Apple clang version 14.0.3 (clang-1403.0.22.14.1)\n",
+            "poyetik rust-mutants-proven 4\ncommit {}\ntree {}\nbase {}\ncargo-mutants cargo-mutants 27.1.0\ntoolchain 1.99.1\nhost aarch64-apple-darwin\ncompiler 58cf8f9c35b355199727627d07ae34a4e2846d67 LLVM 23.1.1\nlinker Apple clang version 14.0.3 (clang-1403.0.22.14.1)\ngit git version 2.39.2 (Apple Git-143)\n",
             CHECKED_OUT[0], CHECKED_OUT[1], PROVEN[2]
         )),
         "the commit and tree checked out, the base measured, the tools, the host"
@@ -12567,10 +12825,17 @@ fn locked_fake(registry: &[Registered<'_>], changes: &str) -> Fake {
     fake
 }
 
-/// The diff of [`locked_fake`]'s change, then the source of each crate of `whole`, added
-/// whole, in the order of the workspace.
+/// The diff of [`locked_fake`]'s change, unless it is a file of a crate of `whole`, then
+/// the source of each crate of `whole`, added whole, in the order of the workspace.
 fn whole_crates(change: &str, whole: &[&str]) -> String {
-    let mut diff = change.to_owned();
+    let mut diff = if super::RUST_CRATES
+        .iter()
+        .any(|krate| whole.contains(&krate.name) && change.contains(&format!(" b/{}/", krate.dir)))
+    {
+        String::new()
+    } else {
+        change.to_owned()
+    };
     for krate in super::RUST_CRATES {
         if whole.contains(&krate.name) {
             diff.push_str(&super::new_file_diff(
@@ -12739,6 +13004,16 @@ fn ignores_a_proof_record_of_another_compiler_or_linker() {
     ignored(
         &mut no_linker,
         "cannot read the version of the linker driver: cannot run `cc --version`: not found",
+    );
+    ignored(
+        &mut other(&|record| record.tools.git = "git version 2.30.0".to_owned()),
+        "it was made with the git git version 2.30.0, not git version 2.39.2 (Apple Git-143)",
+    );
+    let mut no_git = proven_fake(&proof_record(PROVEN[2]), "");
+    no_git.broken = Some("git --version".to_owned());
+    ignored(
+        &mut no_git,
+        "cannot read the version of git: cannot run `git --version`: not found",
     );
     for silent in ["", "\nclang\n", "  \n"] {
         let mut unnamed = proven_fake(&proof_record(PROVEN[2]), "");
