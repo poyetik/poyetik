@@ -67,7 +67,10 @@ export function sineError(samples: readonly number[], rate: number, sine: Sine):
  *   - binary32: the angle 2π · phase, below 8, rounded to binary32 within 2^-22, which moves
  *     the sine by as much; `sinf` within 2^-33 of the sine of that angle before its result
  *     is rounded to binary32, half an ulp of the sine, 2^-25; these scale with |a|; then a
- *     gain of |a| rounds the product to binary32 again, half an ulp, 2^(e − 25); values
+ *     gain of |a| rounds the product to binary32 again, half an ulp, 2^(e − 25), a gain
+ *     exact in binary32 (`parseExpectations` refuses any other amplitude: a gain that itself
+ *     rounds to binary32 adds 2^(e − 25) more, for the first box with such a gain to derive
+ *     and add); values
  *     below 2^-126 are flushed to zero, an error up to 2^-126, which the exponent's floor of
  *     −101 keeps;
  * - phase accumulation in binary64, in every format, at c = frequency / rate cycles per

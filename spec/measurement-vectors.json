@@ -464,11 +464,11 @@
       "bound": 1.0471536993362795e-06
     },
     {
-      "description": "a tiny amplitude: values below 2^-126 flushed to zero, an error up to 2^-126",
+      "description": "a tiny amplitude, 2^-116: values below 2^-126 flushed to zero, an error up to 2^-126",
       "format": "binary32",
-      "amplitude": 1e-35,
+      "amplitude": 1.2037062152420224e-35,
       "frames": 1000,
-      "bound": 1.1757626895377986e-38
+      "bound": 1.1758173518019385e-38
     },
     {
       "description": "half scale",

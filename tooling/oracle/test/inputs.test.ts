@@ -132,6 +132,16 @@ describe("parseExpectations", () => {
     // The bound is derived below 4 cycles per sample.
     [{ a: { sample_rate: 8000, frames: 4, channels: [{ sine: { ...CHANNEL.sine, frequency: 32_000 } }] } }, "expectations.json: a: channel 0: sine.frequency is not in [0, 4 × sample_rate)"],
     [{ a: { sample_rate: 8000, frames: 4, channels: [{ sine: { ...CHANNEL.sine, frequency: -(2 ** -149) } }] } }, "expectations.json: a: channel 0: sine.frequency is not in [0, 4 × sample_rate)"],
+    // The binary32 bound counts a gain only when it is exact in binary32.
+    [
+      { a: { sample_rate: 8000, frames: 4, channels: [{ sine: { ...CHANNEL.sine, amplitude: 0.1 } }] } },
+      "expectations.json: a: channel 0: sine.amplitude is not a binary32 value (the error bound of a binary32 render counts a gain only when it is exact in binary32)",
+    ],
+    [
+      { a: { sample_rate: 8000, frames: 4, channels: [{ sine: { ...CHANNEL.sine, amplitude: 1e-35 } }] } },
+      "expectations.json: a: channel 0: sine.amplitude is not a binary32 value (the error bound of a binary32 render counts a gain only when it is exact in binary32)",
+    ],
+    [{ a: { sample_rate: 8000, frames: 4, channels: [{ sine: { ...CHANNEL.sine, amplitude: 1e300 } }] } }, "expectations.json: a: channel 0: sine.amplitude is not a binary32 value (the error bound of a binary32 render counts a gain only when it is exact in binary32)"],
     // The bound covers a start phase in [0, 2π) only: a larger one cannot be reduced exactly.
     [{ a: { sample_rate: 8000, frames: 4, channels: [{ sine: { ...CHANNEL.sine, phase: 1e6 } }] } }, "expectations.json: a: channel 0: sine.phase is not in [0, 2π)"],
     [{ a: { sample_rate: 8000, frames: 4, channels: [{ sine: { ...CHANNEL.sine, phase: 2 * Math.PI } }] } }, "expectations.json: a: channel 0: sine.phase is not in [0, 2π)"],

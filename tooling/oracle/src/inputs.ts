@@ -73,17 +73,19 @@ function number(value: unknown, where: string): number {
 }
 
 /**
- * Reads a number that is exactly a binary32 value, or rejects `where`. A frequency is the
- * value of a box parameter, and the patch format stores parameters as binary32
- * (spec/patch-format.md): the engine rounds the decimal text to binary32 once. Rounding
- * here what `JSON.parse` already rounded to binary64 would round twice, and differ by an
- * ulp from a text near a binary32 midpoint. A binary64 that is a binary32 value lies far
- * from every midpoint, so its text, whatever its digits, rounds to it once or twice alike.
+ * Reads a number that is exactly a binary32 value, or rejects `where`, saying `why` it must
+ * be. A frequency is the value of a box parameter, and the patch format stores parameters as
+ * binary32 (spec/patch-format.md): the engine rounds the decimal text to binary32 once.
+ * Rounding here what `JSON.parse` already rounded to binary64 would round twice, and differ
+ * by an ulp from a text near a binary32 midpoint. A binary64 that is a binary32 value lies
+ * far from every midpoint, so its text, whatever its digits, rounds to it once or twice
+ * alike. An amplitude is a gain after the sine, which `sineErrorBound` counts in binary32
+ * only when it is exact there.
  */
-function binary32(value: unknown, where: string): number {
+function binary32(value: unknown, where: string, why: string): number {
   const read = number(value, where);
   if (Math.fround(read) !== read) {
-    throw new InputError(`${where} is not a binary32 value (parameters are binary32: give the value the engine plays)`);
+    throw new InputError(`${where} is not a binary32 value (${why})`);
   }
   return read;
 }
@@ -221,19 +223,20 @@ export function parseReferences(value: unknown): Map<string, ReadonlyMap<RenderF
 
 /**
  * Reads one channel expectation: an object with a `sine` and nothing else, the sine
- * having exactly a frequency, an amplitude and a phase, and its frequency lying in
- * [0, 4 × `rate`), the domain `sineErrorBound` is derived for.
+ * having exactly a frequency, an amplitude and a phase, its frequency lying in
+ * [0, 4 × `rate`) and its amplitude exact in binary32, the domain `sineErrorBound` is
+ * derived for.
  */
 function parseChannel(value: unknown, rate: number, where: string): ChannelExpectation {
   const sine = onlyKeys(field(onlyKeys(value, ["sine"], where, " (tolerances are derived, not declared)"), "sine"), ["frequency", "amplitude", "phase"], `${where}: sine`);
-  const frequency = binary32(field(sine, "frequency"), `${where}: sine.frequency`);
+  const frequency = binary32(field(sine, "frequency"), `${where}: sine.frequency`, "parameters are binary32: give the value the engine plays");
   if (!(frequency >= 0 && frequency < 4 * rate)) {
     throw new InputError(`${where}: sine.frequency is not in [0, 4 × sample_rate)`);
   }
   return {
     sine: {
       frequency,
-      amplitude: number(field(sine, "amplitude"), `${where}: sine.amplitude`),
+      amplitude: binary32(field(sine, "amplitude"), `${where}: sine.amplitude`, "the error bound of a binary32 render counts a gain only when it is exact in binary32"),
       phase: phase(field(sine, "phase"), `${where}: sine.phase`),
     },
   };

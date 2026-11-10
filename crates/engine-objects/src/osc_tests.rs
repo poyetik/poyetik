@@ -540,6 +540,29 @@ fn computes_its_angle_below_eight() {
 const VECTORS: &str = include_str!("../../../spec/measurement-vectors.json");
 
 #[test]
+fn bounds_binary32_sines_only_for_amplitudes_exact_in_binary32() {
+    // The binary32 formula counts the rounding of a gain after the sine once: its domain is
+    // amplitudes exact in binary32, which every binary32 vector must lie in.
+    let vectors: serde_json::Value = serde_json::from_str(VECTORS).expect("valid JSON");
+    let binary32: Vec<f64> = vectors["sine_error_bounds"]
+        .as_array()
+        .expect("bounds")
+        .iter()
+        .filter(|vector| vector["format"].as_str() == Some(RenderFormat::Binary32.name()))
+        .map(|vector| vector["amplitude"].as_f64().expect("an amplitude"))
+        .collect();
+    assert!(!binary32.is_empty(), "binary32 vectors");
+    for amplitude in binary32 {
+        let narrowed = Binary32::from_binary64(Binary64::new(amplitude)).to_binary64();
+        assert_eq!(
+            narrowed.bits(),
+            amplitude.to_bits(),
+            "{amplitude:e} is exact in binary32"
+        );
+    }
+}
+
+#[test]
 fn bounds_its_error_like_the_shared_vectors() {
     let vectors: serde_json::Value = serde_json::from_str(VECTORS).expect("valid JSON");
     let list = vectors["sine_error_bounds"].as_array().expect("bounds");

@@ -222,6 +222,14 @@ describe("the shared known answers", () => {
     }
   });
 
+  test("bounds binary32 sines only for amplitudes exact in binary32, the domain of the bound", () => {
+    const binary32 = list(VECTORS, "sine_error_bounds").filter((vector) => text(vector, "format") === "binary32");
+    expect(binary32.length).toBeGreaterThan(0);
+    for (const vector of binary32) {
+      expect(Math.fround(num(vector, "amplitude"))).toBe(num(vector, "amplitude"));
+    }
+  });
+
   test.each(list(VECTORS, "sine_error_bounds").map((vector) => [`${text(vector, "format")}, ${text(vector, "description")}`, vector] as const))(
     "bounds the error of a sine: %s",
     (_name, vector) => {
