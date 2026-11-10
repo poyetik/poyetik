@@ -179,3 +179,21 @@ test("accepts a correct oscillator of a subnormal amplitude", () => {
   expect(sineError(samples, 8000, sine)).toBeGreaterThan(2 ** -165);
   expect(sineError(samples, 8000, sine)).toBeLessThanOrEqual(sineErrorBound(amplitude, 8000, GIVEN));
 });
+
+test("the evaluation term holds every term of its derivation, per format, with its margin", () => {
+  // The terms of `sineErrorBound`'s evaluation term for |a| = 1, written as derived there.
+  const twoPiRounded = 2.4492935982947064e-16;
+  const reference = twoPiRounded + 2 ** -53 * 2 * Math.PI + 2 ** -51 + 2 ** -50 + 2 ** -53 + 2 ** -53;
+  const box = twoPiRounded + 2 ** -51;
+  const totals = { binary64: reference + box + 2 ** -54, "binary64-as-binary32": reference + box + 2 ** -53, binary32: reference + box };
+  for (const total of Object.values(totals)) {
+    expect(total).toBeLessThanOrEqual(0.93 * 2 ** -48);
+  }
+  expect(totals.binary64).toBeCloseTo(3.24e-15, 17);
+  expect(totals["binary64-as-binary32"]).toBeCloseTo(3.3e-15, 17);
+  expect(totals.binary32).toBeCloseTo(3.19e-15, 17);
+  // A start phase up to 4π (sums below 6π, half an ulp below 32) would break it.
+  expect(totals.binary64 - 2 ** -50 + 2 ** -49).toBeGreaterThan(2 ** -48);
+  expect(sineErrorBound(1, 0, "binary64") - 2 ** -54).toBe(2 ** -48);
+});
+

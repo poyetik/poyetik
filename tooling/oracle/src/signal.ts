@@ -84,9 +84,23 @@ export function sineError(samples: readonly number[], rate: number, sine: Sine):
  *   so at most 2^-52 cycle per sample, 2π · frames · 2^-52 radians, times |a|. From 4
  *   cycles on, c rounds by up to 2^-51 and this term no longer holds: `parseExpectations`
  *   requires a frequency in [0, 4 × rate);
- * - evaluation of the sine and of this reference (the 2π products and `Math.sin`, a few
- *   ulps of values below 4π: a reduced phase plus a start phase in [0, 2π), which
- *   `parseExpectations` requires): bounded by |a| · 2^-48.
+ * - evaluation of the sine and of this reference, which `parseExpectations` keeps below 4π
+ *   (a reduced phase plus a start phase in [0, 2π)), term by term for |a| = 1 (each scales
+ *   with |a|; a change of an angle moves the sine by at most as much):
+ *   - this reference: 2π rounded to binary64, 2.449e-16 times a phase fraction below 1; the
+ *     product by the reduced phase, within 2^-53 of a value below 2π · rate, so 2^-53 · 2π
+ *     (6.98e-16) once divided by the rate; the division, half an ulp below 8, 2^-51
+ *     (4.44e-16); the start phase added, half an ulp below 16, 2^-50 (8.88e-16);
+ *     `Math.sin`, within an ulp below 1 (V8's port of fdlibm), 2^-53 (1.11e-16); the gain,
+ *     half an ulp relative, 2^-53 (1.11e-16): 2.497e-15 in all;
+ *   - the box: 2π rounded to binary64 (2.449e-16, times a phase below 1) and the product by
+ *     the phase, half an ulp below 8, 2^-51; then, binary64: the sine beyond the half ulp
+ *     already counted, 2^-54 (5.55e-17); given as binary32: a whole ulp of the binary64
+ *     sine, 2^-53, since only the rounding to binary32 is counted above; binary32: nothing
+ *     more, the rounding of the angle and `sinf` being counted above;
+ *   so 3.24e-15 in binary64, 3.30e-15 given as binary32 and 3.19e-15 in binary32, within
+ *   |a| · 2^-48 (3.55e-15) by at least 7 % (`signal.test.ts` sums them). A start phase up
+ *   to 4π, or any term doubled, would break it.
  *
  * Given as binary32, a box computing its phase in binary32 exceeds it (measured over one
  * second at 48 kHz). So does a gain error of 5e-7, over cases up to about 3e8 frames (1.7
