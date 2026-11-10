@@ -5529,19 +5529,29 @@ pub fn history_gate(messages: &str, files: &str) -> Result<(), Failure> {
 /// Checks that the pre-push hook validates exactly what is pushed.
 ///
 /// The working tree has nothing uncommitted (`status`, from `git status --porcelain
-/// --untracked-files=all --ignore-submodules=none`), and
-/// every commit pushed (`pushed`, each object the hook received peeled to its commit) is
+/// --untracked-files=all --ignore-submodules=none`) nor hidden from git status (`listed`,
+/// from `git ls-files -v`; see [`unclean`]), and every commit pushed (`pushed`, each object the hook received peeled to its commit) is
 /// `head`, the commit checked out. A deleted branch (all zeros) pushes nothing.
 ///
 /// # Errors
 ///
 /// Returns what to commit or check out first.
-pub fn pre_push_gate(head: &str, status: &str, pushed: &[String]) -> Result<(), Failure> {
+pub fn pre_push_gate(
+    head: &str,
+    status: &str,
+    listed: &str,
+    pushed: &[String],
+) -> Result<(), Failure> {
     let mut problems = Vec::new();
     if !status.trim().is_empty() {
         problems.push(format!(
             "the working tree has changes not committed, which the check would include: {}",
             status.lines().map(str::trim).collect::<Vec<_>>().join(", ")
+        ));
+    } else if let Some(reason) = unclean(status, listed) {
+        problems.push(format!(
+            "the working tree may differ from what is committed, which the check would \
+             include: {reason}"
         ));
     }
     for commit in pushed {
@@ -5889,18 +5899,7 @@ fn git_output(runner: &mut dyn Runner, args: &[&str], doing: &str) -> Result<Str
 /// Reads the commit checked out and the state of the working tree, then checks a push.
 fn pre_push(runner: &mut dyn Runner, pushed: &[String]) -> Result<(), Failure> {
     let head = git_output(runner, &["rev-parse", "HEAD"], "read the work tree")?;
-    // Every untracked file and submodule change, whatever the user's configuration hides
-    // (`status.showUntrackedFiles`, `diff.ignoreSubmodules`): the check would read them.
-    let status = git_output(
-        runner,
-        &[
-            "status",
-            "--porcelain",
-            "--untracked-files=all",
-            "--ignore-submodules=none",
-        ],
-        "read the work tree",
-    )?;
+    let (status, listed) = tree_cleanliness(runner)?;
     // Git gives the hook the object pushed: for an annotated tag, the tag object, which is
     // never the commit checked out. The gate compares the commit each object names.
     let commits = pushed
@@ -5917,7 +5916,7 @@ fn pre_push(runner: &mut dyn Runner, pushed: &[String]) -> Result<(), Failure> {
             .map(|commit| commit.trim().to_owned())
         })
         .collect::<Result<Vec<_>, _>>()?;
-    pre_push_gate(&head, &status, &commits)
+    pre_push_gate(&head, &status, &listed, &commits)
 }
 
 /// Whether git pushes `object` to delete a ref: the hook then receives an object name of
@@ -6708,6 +6707,15 @@ pub const MUTATE_EVERYTHING_WHEN: [&str; 4] = [
     "crates/engine-testkit/",
 ];
 
+/// Whether a change to `path` can let any mutant survive ([`MUTATE_EVERYTHING_WHEN`]): a
+/// file of one of its names, anywhere, or a path below one of its directories.
+fn everything_depends_on(path: &str) -> bool {
+    let name = path.rsplit_once('/').map_or(path, |(_, name)| name);
+    MUTATE_EVERYTHING_WHEN
+        .iter()
+        .any(|shared| *shared == name || (shared.ends_with('/') && path.starts_with(shared)))
+}
+
 /// The paths a diff written with the `a/` and `b/` prefixes changes.
 fn changed_paths(diff: &str) -> Vec<&str> {
     diff.lines()
@@ -6726,24 +6734,42 @@ pub const PROOF_RECORDS: &str = "poyetik/rust-mutants-proven";
 /// against, for [`Action::MutationProofRecorded`].
 pub const MEASURED_BASE: &str = "target/xtask/mutants-base";
 
-/// The first line of a mutation proof record: its format, version 1.
-pub const PROOF_RECORD_TAG: &str = "poyetik rust-mutants-proven 1";
+/// The first line of a mutation proof record: its format, version 2 (version 1, which
+/// reused lines rather than crates, is never read).
+pub const PROOF_RECORD_TAG: &str = "poyetik rust-mutants-proven 2";
+
+/// What decides how the default check scopes its mutation testing, beside the tools.
+///
+/// Its code (the sources of xtask, its tests apart), the reviews of unviable mutants, and
+/// the Cargo configuration: a change to one of these since a record voids it.
+pub const PROOF_RECORD_RULES: [&str; 3] = ["crates/xtask/src/", UNVIABLE_REVIEWED, ".cargo/"];
+
+/// Whether `path` is one of the [`PROOF_RECORD_RULES`]: a file of the list, or below one of
+/// its directories, unit test files apart.
+fn mutation_rule(path: &str) -> bool {
+    !path.ends_with("_tests.rs")
+        && PROOF_RECORD_RULES.iter().any(|rule| {
+            rule.strip_suffix('/')
+                .map_or(path == *rule, |_| path.starts_with(rule))
+        })
+}
 
 /// A mutation proof record of the default check.
 ///
 /// The Rust mutation step of a default check passed, with its unviable gate, on the clean
-/// commit `commit` (of tree `tree`), measured against the merge base `base`, with these
-/// tool versions.
+/// commit `commit` (of tree `tree`), measured against the merge base `base`, on the host
+/// `host`, with these tool versions: every mutant of the changes since `base`, widened as
+/// the default check widens, was killed in that state.
 ///
-/// Every mutant of the lines changed between `base` and `commit` (widened as the default
-/// check widens) was killed in that state. So a later default check against the same base
-/// need only mutate what changed since `commit` (widened the same way): a line changed
-/// since the base but not since `commit` is byte-identical to a state whose mutants were
-/// all killed, and any change to the tests that could kill them (the same crate's test
-/// code, what every test depends on, the toolchain) widens as before. What it cannot see
-/// is the gap the default check already has: a callee changed elsewhere that lets an
-/// untouched caller's mutant survive, now also across earlier checks of the same base.
-/// `cargo xtask check --full` and CI never read a record.
+/// A later default check of the same base and host skips a crate whose inputs are all
+/// byte-identical to `commit`'s: its files, those of every crate of the workspace it
+/// depends on (from `cargo metadata`, normal, build and development dependencies, at any
+/// depth) and its declared test data ([`RustCrate::test_data`]); a crate's mutants are
+/// tested by its own tests (cargo-mutants' default), so their outcome depends on nothing
+/// else but what every test depends on, the mutation rules and the tools, a change to which
+/// voids the record. Every other crate is mutated exactly as without a record, so the
+/// record never changes what the default check proves. `cargo xtask check --full` and CI
+/// never read a record.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProofRecord {
     /// The commit proven.
@@ -6756,6 +6782,9 @@ pub struct ProofRecord {
     pub mutants: String,
     /// The release of the pinned toolchain ([`RUST_TOOLCHAIN_FILE`]).
     pub toolchain: String,
+    /// The host the run compiled and tested on, as `rustc -vV` names it: what a run proves
+    /// depends on the architecture (`cfg(target_arch)`).
+    pub host: String,
 }
 
 /// Whether `text` is a full object name of git: 40 or 64 lowercase hexadecimal digits.
@@ -6772,8 +6801,8 @@ impl ProofRecord {
     #[must_use]
     pub fn text(&self) -> String {
         format!(
-            "{PROOF_RECORD_TAG}\ncommit {}\ntree {}\nbase {}\ncargo-mutants {}\ntoolchain {}\n",
-            self.commit, self.tree, self.base, self.mutants, self.toolchain
+            "{PROOF_RECORD_TAG}\ncommit {}\ntree {}\nbase {}\ncargo-mutants {}\ntoolchain {}\nhost {}\n",
+            self.commit, self.tree, self.base, self.mutants, self.toolchain, self.host
         )
     }
 
@@ -6806,6 +6835,7 @@ impl ProofRecord {
             base: field("base")?,
             mutants: field("cargo-mutants")?,
             toolchain: field("toolchain")?,
+            host: field("host")?,
         };
         if lines.next().is_some() {
             return Err("it has a line more".to_owned());
@@ -6837,12 +6867,24 @@ fn proof_record_path(runner: &mut dyn Runner, base: &str) -> Result<String, Fail
     Ok(format!("{}/{PROOF_RECORDS}/{base}", common.trim_end()))
 }
 
-/// The tool versions a record holds: `cargo mutants --version` and the pinned release.
+/// What a record holds of the tools and the host: `cargo mutants --version`, the pinned
+/// release and the host of `rustc -vV`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ProofTools {
+    /// `cargo mutants --version`.
+    mutants: String,
+    /// The pinned release.
+    toolchain: String,
+    /// The host `rustc -vV` names.
+    host: String,
+}
+
+/// The tools and the host a record holds ([`ProofTools`]).
 ///
 /// # Errors
 ///
-/// Returns why either cannot be read.
-fn proof_tools(runner: &mut dyn Runner) -> Result<(String, String), Failure> {
+/// Returns why any of them cannot be read.
+fn proof_tools(runner: &mut dyn Runner) -> Result<ProofTools, Failure> {
     let mutants = runner
         .capture(&Cmd::new("cargo", &["mutants", "--version"], Dir::Root))
         .map_err(|failure| {
@@ -6854,12 +6896,26 @@ fn proof_tools(runner: &mut dyn Runner) -> Result<(String, String), Failure> {
     let release = toolchain_channel(&toolchain)
         .map(str::to_owned)
         .ok_or_else(|| Failure::from(format!("{RUST_TOOLCHAIN_FILE} pins no channel")))?;
-    Ok((mutants.trim().to_owned(), release))
+    let verbose = runner
+        .capture(&Cmd::new("rustc", &["-vV"], Dir::Root))
+        .map_err(|failure| Failure::from(format!("cannot read the host of rustc: {failure}")))?;
+    let host = verbose
+        .lines()
+        .find_map(|line| line.strip_prefix("host: "))
+        .map(str::trim)
+        .filter(|host| !host.is_empty())
+        .ok_or_else(|| Failure::from("`rustc -vV` names no host".to_owned()))?;
+    Ok(ProofTools {
+        mutants: mutants.trim().to_owned(),
+        toolchain: release,
+        host: host.to_owned(),
+    })
 }
 
 /// The proof record of `base` the default check may start from, if there is a valid one;
-/// a record that is not ([`ProofRecord::parse`], another base, other tools, a commit git no
-/// longer has or whose tree differs) is ignored, with a one-line notice on `out`.
+/// a record that is not (unreadable, [`ProofRecord::parse`] refuses it, another base, other
+/// tools or host, a commit git no longer has or whose tree differs) is ignored, with a
+/// one-line notice on `out`. Only a record that does not exist is passed over in silence.
 ///
 /// # Errors
 ///
@@ -6879,42 +6935,56 @@ fn usable_proof(
             return Ok(None);
         }
     };
-    let Ok(text) = runner.read(&path) else {
-        return Ok(None);
+    let text = match runner.read(&path) {
+        Ok(text) => Ok(text),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => Err(format!("cannot read it: {error}")),
     };
-    let checked = ProofRecord::parse(&text).and_then(|record| {
-        let tools = proof_tools(runner).map_err(|failure| failure.summary)?;
-        let tree = runner
-            .capture(&Cmd::new(
-                "git",
-                &[
-                    "rev-parse",
-                    "--verify",
-                    "--quiet",
-                    &format!("{}^{{tree}}", record.commit),
-                ],
-                Dir::Root,
-            ))
-            .map(|tree| tree.trim().to_owned())
-            .unwrap_or_default();
-        if record.base != base {
-            Err(format!("it is of the base {}", record.base))
-        } else if (record.mutants.as_str(), record.toolchain.as_str())
-            != (tools.0.as_str(), tools.1.as_str())
-        {
-            Err(format!(
-                "it was made with {} and {}, not {} and {}",
-                record.mutants, record.toolchain, tools.0, tools.1
-            ))
-        } else if tree != record.tree {
-            Err(format!(
-                "git has no commit {} of tree {}",
-                record.commit, record.tree
-            ))
-        } else {
-            Ok(record)
-        }
-    });
+    let checked = text
+        .and_then(|text| ProofRecord::parse(&text))
+        .and_then(|record| {
+            let tools = proof_tools(runner).map_err(|failure| failure.summary)?;
+            let tree = runner
+                .capture(&Cmd::new(
+                    "git",
+                    &[
+                        "rev-parse",
+                        "--verify",
+                        "--quiet",
+                        &format!("{}^{{tree}}", record.commit),
+                    ],
+                    Dir::Root,
+                ))
+                .map(|tree| tree.trim().to_owned())
+                .map_err(|failure| {
+                    format!(
+                        "git cannot find the tree of its commit {}: {failure}",
+                        record.commit
+                    )
+                })?;
+            if record.base != base {
+                Err(format!("it is of the base {}", record.base))
+            } else if record.host != tools.host {
+                Err(format!(
+                    "it was made on the host {}, not {}",
+                    record.host, tools.host
+                ))
+            } else if (record.mutants.as_str(), record.toolchain.as_str())
+                != (tools.mutants.as_str(), tools.toolchain.as_str())
+            {
+                Err(format!(
+                    "it was made with {} and {}, not {} and {}",
+                    record.mutants, record.toolchain, tools.mutants, tools.toolchain
+                ))
+            } else if tree != record.tree {
+                Err(format!(
+                    "git has no commit {} of tree {}",
+                    record.commit, record.tree
+                ))
+            } else {
+                Ok(record)
+            }
+        });
     match checked {
         Ok(record) => Ok(Some(record)),
         Err(reason) => {
@@ -6927,36 +6997,86 @@ fn usable_proof(
     }
 }
 
+/// Why the tree may differ from what is committed, or `None` when it is clean.
+///
+/// `status` is `git status --porcelain --untracked-files=all --ignore-submodules=none` and
+/// `listed` is `git ls-files -v`: the reason names the first change or untracked file, or
+/// the first file git hides from the status (`assume-unchanged`, a lowercase tag, or
+/// `skip-worktree`, `S`).
+#[must_use]
+pub fn unclean(status: &str, listed: &str) -> Option<String> {
+    status
+        .lines()
+        .find(|line| !line.trim().is_empty())
+        .map(|line| format!("`{}` is not committed", line.trim_end()))
+        .or_else(|| {
+            listed
+                .lines()
+                .find(|line| {
+                    line.chars()
+                        .next()
+                        .is_some_and(|tag| tag.is_ascii_lowercase() || tag == 'S')
+                })
+                .map(|line| {
+                    format!(
+                        "`{}` is hidden from git status (assume-unchanged or skip-worktree)",
+                        line.get(2..).unwrap_or_default()
+                    )
+                })
+        })
+}
+
+/// The status and the hidden files of the tree, for [`unclean`].
+///
+/// # Errors
+///
+/// Returns why git cannot give them.
+fn tree_cleanliness(runner: &mut dyn Runner) -> Result<(String, String), Failure> {
+    // Every untracked file and submodule change, whatever the user's configuration hides
+    // (`status.showUntrackedFiles`, `diff.ignoreSubmodules`): the check would read them.
+    let status = git_output(
+        runner,
+        &[
+            "status",
+            "--porcelain",
+            "--untracked-files=all",
+            "--ignore-submodules=none",
+        ],
+        "read the work tree",
+    )?;
+    let listed = git_output(runner, &["ls-files", "-v"], "read the work tree")?;
+    Ok((status, listed))
+}
+
 /// Records the proof of the Rust mutation step of the default check that just passed
 /// ([`Action::MutationProofRecorded`]), for the next default check against the same base
-/// ([`ProofRecord`]): only when the tree was clean when the checks started (no change of a
-/// tracked file, no untracked Rust file) and is still as it was then, so that the commit
-/// recorded is the state the mutants were killed in. Otherwise it says why it records
-/// nothing, and succeeds.
+/// ([`ProofRecord`]): only when the tree is clean ([`unclean`]) and as it was when the
+/// checks started (nothing checked out, changed or added while they ran), so that the
+/// commit recorded is exactly the state the mutants were killed in. Otherwise it says why
+/// it records nothing, and succeeds.
 ///
 /// # Errors
 ///
 /// Returns why the base measured, the tree, the tools or the record cannot be read or
-/// written.
+/// written, or the record would not read back as written.
 fn record_mutation_proof(
     runner: &mut dyn Runner,
     out: &mut dyn Write,
     recorded: Option<&TreeState>,
 ) -> Result<(), Failure> {
     let now = tree_state(runner)?;
-    let unclean = recorded.is_none_or(|before| {
-        before != &now
-            || now.status.lines().any(|line| {
-                !line.starts_with("?? ")
-                    || Path::new(line)
-                        .extension()
-                        .is_some_and(|extension| extension.eq_ignore_ascii_case("rs"))
-            })
-    });
-    if unclean {
+    if recorded != Some(&now) {
         return say(
             out,
-            "  not recorded: the tree is not clean, or changed while the checks ran",
+            "  not recorded: the tree changed while the checks ran, or was not recorded at \
+             their start",
+        );
+    }
+    let (status, listed) = tree_cleanliness(runner)?;
+    if let Some(reason) = unclean(&status, &listed) {
+        return say(
+            out,
+            &format!("  not recorded: the tree is not clean: {reason}"),
         );
     }
     let base = read_file(runner, MEASURED_BASE)?.trim().to_owned();
@@ -6968,14 +7088,26 @@ fn record_mutation_proof(
     )?
     .trim()
     .to_owned();
-    let (mutants, toolchain) = proof_tools(runner)?;
+    let tools = proof_tools(runner)?;
     let record = ProofRecord {
         commit,
         tree,
         base,
-        mutants,
-        toolchain,
+        mutants: tools.mutants,
+        toolchain: tools.toolchain,
+        host: tools.host,
     };
+    if let Err(reason) = ProofRecord::parse(&record.text()).and_then(|read| {
+        if read == record {
+            Ok(())
+        } else {
+            Err("it would not read back as written".to_owned())
+        }
+    }) {
+        return Err(Failure::from(format!(
+            "cannot record the mutation proof: {reason}"
+        )));
+    }
     let path = proof_record_path(runner, &record.base)?;
     runner
         .write(&path, &record.text())
@@ -7028,6 +7160,173 @@ fn changes_since(runner: &mut dyn Runner, since: &str) -> Result<String, Failure
     Ok(diff)
 }
 
+/// The crates of the workspace each crate of [`RUST_CRATES`] depends on, at any depth and
+/// of any kind (normal, build, development), itself included, from `metadata` (the output
+/// of [`metadata_command`]): what its tests compile.
+///
+/// # Errors
+///
+/// Returns why the metadata cannot be read.
+fn crate_closures(
+    metadata: &str,
+) -> Result<BTreeMap<&'static str, BTreeSet<&'static str>>, Failure> {
+    let json: serde_json::Value = serde_json::from_str(metadata)
+        .map_err(|error| Failure::from(format!("invalid cargo metadata: {error}")))?;
+    let packages = json
+        .get("packages")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| Failure::from("cargo metadata lists no packages".to_owned()))?;
+    let workspace = |name: &str| RUST_CRATES.iter().find(|krate| krate.name == name);
+    let mut direct: BTreeMap<&'static str, BTreeSet<&'static str>> = BTreeMap::new();
+    for package in packages {
+        let Some(krate) = package
+            .get("name")
+            .and_then(serde_json::Value::as_str)
+            .and_then(workspace)
+        else {
+            continue;
+        };
+        let dependencies = package
+            .get("dependencies")
+            .and_then(serde_json::Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter(|dependency| dependency.get("path").is_some())
+            .filter_map(|dependency| dependency.get("name").and_then(serde_json::Value::as_str))
+            .filter_map(workspace)
+            .map(|dependency| dependency.name);
+        direct.entry(krate.name).or_default().extend(dependencies);
+    }
+    Ok(RUST_CRATES
+        .iter()
+        .map(|krate| {
+            let mut closure = BTreeSet::from([krate.name]);
+            let mut pending = vec![krate.name];
+            while let Some(name) = pending.pop() {
+                for dependency in direct.get(name).into_iter().flatten() {
+                    if closure.insert(dependency) {
+                        pending.push(dependency);
+                    }
+                }
+            }
+            (krate.name, closure)
+        })
+        .collect())
+}
+
+/// The crates the proof record `record` still proves: those whose inputs are unchanged
+/// since its commit ([`ProofRecord`]), none when what every test depends on or the mutation
+/// rules changed since (said on `out`).
+///
+/// # Errors
+///
+/// Returns why the changes since the record, the untracked files or the crates cannot be
+/// read, or stdout cannot be written.
+fn proven_crates(
+    runner: &mut dyn Runner,
+    out: &mut dyn Write,
+    record: &ProofRecord,
+) -> Result<Vec<RustCrate>, Failure> {
+    let diff = changes_since(runner, &record.commit)?;
+    let untracked = git_output(
+        runner,
+        &["ls-files", "-z", "--others", "--exclude-standard"],
+        "list the untracked files",
+    )?;
+    let changed: BTreeSet<&str> = changed_paths(&diff)
+        .into_iter()
+        .chain(untracked.split('\0').filter(|path| !path.is_empty()))
+        .collect();
+    let voiding = changed.iter().find_map(|path| {
+        if everything_depends_on(path) {
+            Some((path, "what every test depends on"))
+        } else if mutation_rule(path) {
+            Some((path, "the mutation rules"))
+        } else {
+            None
+        }
+    });
+    if let Some((path, what)) = voiding {
+        say(
+            out,
+            &format!(
+                "  ignored the mutation proof record of {}: {path} changed since, {what}",
+                record.commit
+            ),
+        )?;
+        return Ok(Vec::new());
+    }
+    let closures = crate_closures(&crates_metadata(runner)?)?;
+    let dir_of = |name: &str| {
+        RUST_CRATES
+            .iter()
+            .find(|krate| krate.name == name)
+            .map_or(String::new(), |krate| format!("{}/", krate.dir))
+    };
+    Ok(RUST_CRATES
+        .into_iter()
+        .filter(|krate| {
+            let dirs: Vec<String> = closures
+                .get(krate.name)
+                .into_iter()
+                .flatten()
+                .map(|name| dir_of(name))
+                .collect();
+            !changed.iter().any(|path| {
+                dirs.iter().any(|dir| path.starts_with(dir.as_str()))
+                    || krate.test_data.iter().any(|root| under_root(path, root))
+            })
+        })
+        .collect())
+}
+
+/// The sections of `diff` (a diff written with the `a/` and `b/` prefixes) of the files no
+/// crate of `proven` holds.
+fn without_crates(diff: &str, proven: &[RustCrate]) -> String {
+    let mut kept = String::new();
+    let mut keep = true;
+    for line in diff.split_inclusive('\n') {
+        if let Some(path) = changed_paths(line).first() {
+            keep = !proven
+                .iter()
+                .any(|krate| path.starts_with(&format!("{}/", krate.dir)));
+        }
+        if keep {
+            kept.push_str(line);
+        }
+    }
+    kept
+}
+
+/// Says on `out` each crate of `proven` that `changed` (the paths changed since the base)
+/// touches: the record proves it.
+///
+/// # Errors
+///
+/// Returns why stdout cannot be written.
+fn say_proven(
+    out: &mut dyn Write,
+    proven: &[RustCrate],
+    changed: &[String],
+    record: &ProofRecord,
+) -> Result<(), Failure> {
+    for krate in proven {
+        if changed
+            .iter()
+            .any(|path| path.starts_with(&format!("{}/", krate.dir)))
+        {
+            say(
+                out,
+                &format!(
+                    "  {}: proven by an earlier check at {}, unchanged since",
+                    krate.name, record.commit
+                ),
+            )?;
+        }
+    }
+    Ok(())
+}
+
 /// Runs cargo-mutants on what changed since the merge base ([`Action::RustMutantsOfChanges`]):
 /// the changes of the tracked files, committed or not, and every new Rust file git does not
 /// ignore; nothing when nothing changed.
@@ -7035,7 +7334,9 @@ fn changes_since(runner: &mut dyn Runner, since: &str) -> Result<String, Failure
 /// A change to the test code of a crate, or to the test data it declares
 /// ([`RustCrate::test_data`]), can weaken the tests of any of its code, so every source of
 /// that crate is then added whole; a change to what every test depends on
-/// ([`MUTATE_EVERYTHING_WHEN`]) mutates the whole workspace.
+/// ([`MUTATE_EVERYTHING_WHEN`]) mutates the whole workspace. A valid proof record of the
+/// base ([`usable_proof`]) then leaves out the crates it still proves ([`proven_crates`]),
+/// each said: every other crate is mutated exactly as without it.
 fn rust_mutants_of_changes(
     runner: &mut dyn Runner,
     out: &mut dyn Write,
@@ -7046,19 +7347,8 @@ fn rust_mutants_of_changes(
         .write(MEASURED_BASE, &format!("{base}\n"))
         .map_err(|error| Failure::from(format!("cannot write {MEASURED_BASE}: {error}")))?;
     let proof = usable_proof(runner, out, &base)?;
-    let since = proof
-        .as_ref()
-        .map_or(base.as_str(), |record| record.commit.as_str());
-    let mut diff = changes_since(runner, since)?;
-    let measured = proof.as_ref().map_or_else(
-        || format!("{base} (merge base with {against})"),
-        |record| {
-            format!(
-                "{} (proven by an earlier check against {base}, merge base with {against})",
-                record.commit
-            )
-        },
-    );
+    let mut diff = changes_since(runner, &base)?;
+    let measured = format!("{base} (merge base with {against})");
     if diff.is_empty() {
         return say(
             out,
@@ -7070,25 +7360,18 @@ fn rust_mutants_of_changes(
         .into_iter()
         .map(str::to_owned)
         .collect();
-    if let Some(path) = changed.iter().find(|path| {
-        let name = path
-            .rsplit_once('/')
-            .map_or(path.as_str(), |(_, name)| name);
-        MUTATE_EVERYTHING_WHEN
-            .iter()
-            .any(|shared| *shared == name || (shared.ends_with('/') && path.starts_with(shared)))
-    }) {
-        say(out, &format!("  {path} changed: every Rust mutant"))?;
-        return runner
-            .run(&mutants_command(&[
-                "--workspace",
-                "--jobs",
-                &jobs.to_string(),
-            ]))
-            .map_err(|failure| Failure::from(failure.to_string()));
+    let proven = match &proof {
+        Some(record) => proven_crates(runner, out, record)?,
+        None => Vec::new(),
+    };
+    if let Some(record) = &proof {
+        say_proven(out, &proven, &changed, record)?;
     }
+    let unproven = |krate: &RustCrate| !proven.contains(krate);
+    let everything = changed.iter().find(|path| everything_depends_on(path));
     let tested: Vec<(RustCrate, &str)> = RUST_CRATES
         .into_iter()
+        .filter(unproven)
         .filter_map(|krate| {
             let prefix = format!("{}/", krate.dir);
             let code = changed
@@ -7099,19 +7382,37 @@ fn rust_mutants_of_changes(
                 .iter()
                 .find(|path| krate.test_data.iter().any(|root| under_root(path, root)))
                 .map(|_| "test data");
-            code.or(data).map(|what| (krate, what))
+            everything
+                .map(|_| "dependencies")
+                .or(code)
+                .or(data)
+                .map(|what| (krate, what))
         })
         .collect();
+    if let Some(path) = everything {
+        say(out, &format!("  {path} changed: every Rust mutant"))?;
+        if proven.is_empty() {
+            return runner
+                .run(&mutants_command(&[
+                    "--workspace",
+                    "--jobs",
+                    &jobs.to_string(),
+                ]))
+                .map_err(|failure| Failure::from(failure.to_string()));
+        }
+    }
     if !tested.is_empty() {
         let sources = list_tracked(runner, &["*.rs"], "the Rust files")?;
         for (krate, what) in tested {
-            say(
-                out,
-                &format!(
-                    "  the {what} of {} changed: every mutant of {}",
-                    krate.name, krate.name
-                ),
-            )?;
+            if what != "dependencies" {
+                say(
+                    out,
+                    &format!(
+                        "  the {what} of {} changed: every mutant of {}",
+                        krate.name, krate.name
+                    ),
+                )?;
+            }
             let prefix = format!("{}/", krate.dir);
             for path in &sources {
                 if path
@@ -7123,6 +7424,10 @@ fn rust_mutants_of_changes(
                 }
             }
         }
+    }
+    let diff = without_crates(&diff, &proven);
+    if diff.is_empty() {
+        return say(out, "  every change is proven: no mutant to test");
     }
     runner
         .write(CHANGES_DIFF, &diff)

@@ -2,7 +2,7 @@
 
 extern crate alloc;
 
-use alloc::collections::BTreeMap;
+use alloc::collections::{BTreeMap, BTreeSet};
 use core::num::NonZeroUsize;
 use std::ffi::OsString;
 use std::io;
@@ -130,7 +130,7 @@ const TREE_DIFF: (&str, &str) = ("git diff --no-ext-diff --no-textconv HEAD", ""
 /// How the fake reads what is checked out, and what it answers: a commit on a branch.
 const TREE_HEAD: (&str, &str) = (
     "git rev-parse HEAD --symbolic-full-name HEAD",
-    "abc123\nrefs/heads/main\n",
+    "abc1230000000000000000000000000000000000\nrefs/heads/main\n",
 );
 
 /// A Dependabot configuration whose two ecosystems wait a week.
@@ -168,8 +168,11 @@ const FAKE_JOBS: NonZeroUsize = NonZeroUsize::new(3).expect("three is not zero")
 const CHANGES_MODE: Mode = Mode::Changes { jobs: FAKE_JOBS };
 
 /// What the fake's git answers about its tree and its changes.
-const GIT_ANSWERS: [(&str, &str); 8] = [
+const GIT_ANSWERS: [(&str, &str); 11] = [
     TREE_STATUS,
+    PUSH_STATUS,
+    HIDDEN,
+    HOST,
     TREE_DIFF,
     TREE_HEAD,
     MERGE_BASE,
@@ -179,19 +182,50 @@ const GIT_ANSWERS: [(&str, &str); 8] = [
     HEAD_TREE,
 ];
 
+/// How the fake reads the status that must be empty for a push or a proof record, and what
+/// it answers: nothing uncommitted.
+const PUSH_STATUS: (&str, &str) = (
+    "git status --porcelain --untracked-files=all --ignore-submodules=none",
+    "",
+);
+
+/// How the fake lists the tracked files with their tags, and what it answers: none hidden.
+const HIDDEN: (&str, &str) = (
+    "git ls-files -v",
+    "H Cargo.toml
+H crates/a/src/b.rs
+",
+);
+
+/// How the fake's rustc names its host, and what it answers.
+const HOST: (&str, &str) = (
+    "rustc -vV",
+    "rustc 1.99.1 (58cf8f9c3 2026-10-13)
+binary: rustc
+host: aarch64-apple-darwin
+release: 1.99.1
+",
+);
+
 /// How the fake names git's common directory, and what it answers: the repository's own.
 const COMMON_DIR: (&str, &str) = ("git rev-parse --git-common-dir", ".git\n");
 
 /// How the fake reads the tree of the commit checked out, and what it answers.
-const HEAD_TREE: (&str, &str) = ("git log -1 --format=%T HEAD", "def456\n");
+const HEAD_TREE: (&str, &str) = (
+    "git log -1 --format=%T HEAD",
+    "def4560000000000000000000000000000000000\n",
+);
 
 /// How the fake finds the base of the changes, and what it answers: the upstream resolves.
-const MERGE_BASE: (&str, &str) = ("git merge-base HEAD @{upstream}", "abc123\n");
+const MERGE_BASE: (&str, &str) = (
+    "git merge-base HEAD @{upstream}",
+    "abc1230000000000000000000000000000000000\n",
+);
 
 /// How the fake reads the changes since [`MERGE_BASE`], and what it answers: one changed
 /// line of a Rust file.
 const CHANGES: (&str, &str) = (
-    "git diff --no-color --no-ext-diff --no-textconv --no-renames --src-prefix=a/ --dst-prefix=b/ abc123",
+    "git diff --no-color --no-ext-diff --no-textconv --no-renames --src-prefix=a/ --dst-prefix=b/ abc1230000000000000000000000000000000000",
     "diff --git a/crates/a/src/b.rs b/crates/a/src/b.rs\n--- a/crates/a/src/b.rs\n+++ b/crates/a/src/b.rs\n@@ -1 +1 @@\n-fn f() {}\n+fn f() -> u8 { 1 }\n",
 );
 
@@ -241,8 +275,13 @@ impl Runner for Fake {
         Err(CommandFailure { line, failed })
     }
 
+    /// Answers with the file, fails as absent, or as not UTF-8 when the test breaks
+    /// `read <path>`.
     fn read(&mut self, path: &str) -> io::Result<String> {
         self.ran.push(format!("read {path}"));
+        if self.broken.as_deref() == Some(format!("read {path}").as_str()) {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "not UTF-8"));
+        }
         self.files
             .get(path)
             .cloned()
@@ -1769,8 +1808,8 @@ fn mutates_the_changes_since_the_merge_base_with_the_upstream() {
             "capture git merge-base HEAD @{upstream}",
             "write target/xtask/mutants-base",
             "capture git rev-parse --git-common-dir",
-            "read .git/poyetik/rust-mutants-proven/abc123",
-            "capture git diff --no-color --no-ext-diff --no-textconv --no-renames --src-prefix=a/ --dst-prefix=b/ abc123",
+            "read .git/poyetik/rust-mutants-proven/abc1230000000000000000000000000000000000",
+            "capture git diff --no-color --no-ext-diff --no-textconv --no-renames --src-prefix=a/ --dst-prefix=b/ abc1230000000000000000000000000000000000",
             "capture git ls-files -z --others --exclude-standard -- *.rs",
             "list *.rs",
             "write target/xtask/changes.diff",
@@ -1792,7 +1831,7 @@ fn mutates_the_changes_since_the_merge_base_with_the_upstream() {
     );
     assert_eq!(
         String::from_utf8(out).expect("UTF-8"),
-        "▶ [1/2] Rust mutation testing of the changes\n  the changes since abc123 (merge base with @{upstream})\n  the test data of xtask changed: every mutant of xtask\n▶ [2/2] Rust unviable mutants reviewed\n✔ all 2 checks passed\n",
+        "▶ [1/2] Rust mutation testing of the changes\n  the changes since abc1230000000000000000000000000000000000 (merge base with @{upstream})\n  the test data of xtask changed: every mutant of xtask\n▶ [2/2] Rust unviable mutants reviewed\n✔ all 2 checks passed\n",
         "the base is said"
     );
 }
@@ -1808,7 +1847,7 @@ fn falls_back_to_origin_main_then_main() {
         for base in &resolved {
             let _base = fake.files.insert(
                 format!("capture git merge-base HEAD {base}"),
-                "abc123\n".to_owned(),
+                "abc1230000000000000000000000000000000000\n".to_owned(),
             );
         }
         let mut out = Vec::new();
@@ -2050,7 +2089,7 @@ fn mutates_nothing_without_a_change() {
     );
     assert!(
         String::from_utf8(out).expect("UTF-8").contains(
-            "  no change since abc123 (merge base with @{upstream}): no mutant to test\n"
+            "  no change since abc1230000000000000000000000000000000000 (merge base with @{upstream}): no mutant to test\n"
         ),
         "said"
     );
@@ -2856,7 +2895,7 @@ fn runs_every_step_and_reports_success() {
         Ok(()),
         "all green"
     );
-    let (tools, commands, emptied, listed, captured, written) = (10, 52, 14, 23, 26, 3);
+    let (tools, commands, emptied, listed, captured, written) = (10, 52, 14, 23, 29, 3);
     let read = 2
         + 7
         + 13
@@ -2890,8 +2929,8 @@ fn runs_every_step_and_reports_success() {
          test data gates and for the mutation testing (every change is test data of xtask), the TypeScript ones again for the reports and scope gates of \
          each package after the first; the licenses and the history are captured twice each, the state \
          of the tree (before, for the proof record and after) six times, the nightly's version and sysroot, the Cargo metadata (for the dependency and the math layer gates), the output of the fused test build, the merge base, the changes, the \
-         new Rust files and the list of every mutant once, git's common directory twice, the tree checked out and \
-         cargo-mutants' version for the proof record; the measured base, the diff and the \
+         new Rust files and the list of every mutant once, git's common directory twice, the tree checked out, \
+         cargo-mutants' version, rustc's host, the status for a push and the hidden files for the proof record; the measured base, the diff and the \
          proof record are written once each; the proof record, the measured base and the \
          toolchain file are read for it; and the gates read the eight fake test data readers for the unsafe, bypass and vocabulary gates, every Rust file (eleven) for the test code and test data gates, .node-version and the toolchain file for the preflight, the toolchain file, the four float sources and the float macros of the nightly and clippy.toml for the float gate, thirteen coverage reports, \
          the unviable report and reviews, the reviews again against the list of every mutant, six TypeScript sources and their reviews, the nine \
@@ -5688,14 +5727,27 @@ fn pushes_only_what_was_checked() {
         super::pre_push_gate(
             head,
             "",
+            "H a.rs\nH b.rs\n",
             &pushed(&["1111111111111111111111111111111111111111"])
         ),
         Ok(()),
         "the checked-out commit"
     );
+    for (hidden, path) in [("h a.rs\n", "a.rs"), ("H b.rs\nS c d.rs\n", "c d.rs")] {
+        assert_eq!(
+            super::pre_push_gate(head, "", hidden, &[]),
+            failed(format!(
+                "the push cannot be checked: the working tree may differ from what is \
+                 committed, which the check would include: `{path}` is hidden from git status \
+                 (assume-unchanged or skip-worktree)"
+            )),
+            "{hidden}"
+        );
+    }
     assert_eq!(
         super::pre_push_gate(
             head,
+            "",
             "",
             &pushed(&["0000000000000000000000000000000000000000"])
         ),
@@ -5703,7 +5755,7 @@ fn pushes_only_what_was_checked() {
         "a deleted branch"
     );
     assert_eq!(
-        super::pre_push_gate(head, "\n", &[]),
+        super::pre_push_gate(head, "\n", "", &[]),
         Ok(()),
         "nothing pushed, nothing changed"
     );
@@ -5711,6 +5763,7 @@ fn pushes_only_what_was_checked() {
         super::pre_push_gate(
             head,
             " M src/a.rs\n?? notes.txt\n",
+            "h hidden.rs\n",
             &pushed(&["2222222222222222222222222222222222222222"])
         ),
         failed(
@@ -5768,11 +5821,12 @@ fn checks_a_push_then_runs_every_check() {
     let first = fake
         .files
         .insert("capture git rev-parse HEAD".to_owned(), format!("{head}\n"));
-    let second = fake.files.insert(
-        "capture git status --porcelain --untracked-files=all --ignore-submodules=none".to_owned(),
-        String::new(),
+    assert!(first.is_none(), "fresh fake");
+    assert_eq!(
+        fake.files.get(&format!("capture {}", PUSH_STATUS.0)),
+        Some(&String::new()),
+        "a clean tree"
     );
-    assert!(first.is_none() && second.is_none(), "fresh fake");
     let peeled = fake.files.insert(
         format!("capture git rev-parse --verify {head}^{{commit}}"),
         format!("{head}\n"),
@@ -5816,8 +5870,8 @@ fn checks_a_push_then_runs_every_check() {
         format!("{head}\n"),
     );
     assert!(
-        third.is_none() && fourth.is_none() && fifth.is_none(),
-        "fresh fake"
+        third.is_none() && fourth.is_some() && fifth.is_none(),
+        "fresh fake, but its clean status"
     );
     let mut err = Vec::new();
     assert_eq!(
@@ -6085,20 +6139,16 @@ fn explains_why_a_command_failed() {
 /// commit.
 fn pushing(head: &str, objects: &[(&str, &str)]) -> Fake {
     let mut fake = passing();
-    for (command, answer) in [
-        ("git rev-parse HEAD".to_owned(), format!("{head}\n")),
-        (
-            "git status --porcelain --untracked-files=all --ignore-submodules=none".to_owned(),
-            String::new(),
-        ),
-    ]
-    .into_iter()
-    .chain(objects.iter().map(|(object, commit)| {
-        (
-            format!("git rev-parse --verify {object}^{{commit}}"),
-            format!("{commit}\n"),
+    for (command, answer) in
+        core::iter::once(("git rev-parse HEAD".to_owned(), format!("{head}\n"))).chain(
+            objects.iter().map(|(object, commit)| {
+                (
+                    format!("git rev-parse --verify {object}^{{commit}}"),
+                    format!("{commit}\n"),
+                )
+            }),
         )
-    })) {
+    {
         let fresh = fake.files.insert(format!("capture {command}"), answer);
         assert!(fresh.is_none(), "fresh fake");
     }
@@ -6714,9 +6764,9 @@ fn refuses_checks_that_change_the_working_tree() {
         "a dirty file changed again"
     );
     for head in [
-        "def456\nrefs/heads/main\n",
-        "abc123\nrefs/heads/other\n",
-        "abc123\nHEAD\n",
+        "def4560000000000000000000000000000000000\nrefs/heads/main\n",
+        "abc1230000000000000000000000000000000000\nrefs/heads/other\n",
+        "abc1230000000000000000000000000000000000\nHEAD\n",
     ] {
         let moved = super::TreeState {
             head: head.to_owned(),
@@ -6726,7 +6776,7 @@ fn refuses_checks_that_change_the_working_tree() {
             super::tree_gate(Some(&dirty), &moved),
             failed(format!(
                 "the checks changed the working tree: what is checked out changed, from \
-                 `abc123 refs/heads/main` to `{}`: the checks read another commit than the one \
+                 `abc1230000000000000000000000000000000000 refs/heads/main` to `{}`: the checks read another commit than the one \
                  recorded",
                 head.split_whitespace().collect::<Vec<_>>().join(" ")
             )),
@@ -6742,13 +6792,13 @@ fn refuses_checks_that_change_the_working_tree() {
     committed.rewrite = Some((
         "cargo deny --locked check".to_owned(),
         format!("capture {}", TREE_HEAD.0),
-        "def456\nrefs/heads/main\n".to_owned(),
+        "def4560000000000000000000000000000000000\nrefs/heads/main\n".to_owned(),
     ));
     assert!(
         run_steps(&check_steps(CHANGES_MODE), &mut committed, &mut Vec::new()).is_err_and(
             |failure| failure
                 .summary
-                .contains("what is checked out changed, from `abc123 refs/heads/main` to `def456 refs/heads/main`")
+                .contains("what is checked out changed, from `abc1230000000000000000000000000000000000 refs/heads/main` to `def4560000000000000000000000000000000000 refs/heads/main`")
         ),
         "a commit made in the same checkout while the check runs fails it"
     );
@@ -10157,7 +10207,7 @@ const PROVEN: [&str; 3] = [
     "3333333333333333333333333333333333333333",
 ];
 
-/// A record of the fake's tools for `base`, proving [`PROVEN`]'s commit.
+/// A record of the fake's tools and host for `base`, proving [`PROVEN`]'s commit.
 fn proof_record(base: &str) -> super::ProofRecord {
     let [commit, tree, _] = PROVEN;
     super::ProofRecord {
@@ -10166,6 +10216,7 @@ fn proof_record(base: &str) -> super::ProofRecord {
         base: base.to_owned(),
         mutants: "cargo-mutants 27.1.0".to_owned(),
         toolchain: "1.99.1".to_owned(),
+        host: "aarch64-apple-darwin".to_owned(),
     }
 }
 
@@ -10176,7 +10227,7 @@ fn reads_exactly_the_proof_records_it_writes() {
     assert_eq!(
         text,
         format!(
-            "poyetik rust-mutants-proven 1\ncommit {}\ntree {}\nbase {}\ncargo-mutants cargo-mutants 27.1.0\ntoolchain 1.99.1\n",
+            "poyetik rust-mutants-proven 2\ncommit {}\ntree {}\nbase {}\ncargo-mutants cargo-mutants 27.1.0\ntoolchain 1.99.1\nhost aarch64-apple-darwin\n",
             PROVEN[0], PROVEN[1], PROVEN[2]
         ),
         "one field per line, after the tag"
@@ -10202,8 +10253,8 @@ fn reads_exactly_the_proof_records_it_writes() {
             "it does not end with a line break",
         ),
         (
-            text.replacen("proven 1", "proven 2", 1),
-            "its first line is not `poyetik rust-mutants-proven 1`",
+            text.replacen("proven 2", "proven 1", 1),
+            "its first line is not `poyetik rust-mutants-proven 2`",
         ),
         (
             text.replacen("commit ", "comit ", 1),
@@ -10216,6 +10267,10 @@ fn reads_exactly_the_proof_records_it_writes() {
         (
             text.replacen("toolchain 1.99.1", "toolchain  ", 1),
             "it has no `toolchain` line where expected",
+        ),
+        (
+            text.replacen("host aarch64-apple-darwin\n", "", 1),
+            "it has no `host` line where expected",
         ),
         (
             text.replacen("tree ", "treex", 1),
@@ -10239,7 +10294,7 @@ fn reads_exactly_the_proof_records_it_writes() {
             "its base is not an object name",
         ),
         (
-            "poyetik rust-mutants-proven 1\ncommit x\n".to_owned(),
+            "poyetik rust-mutants-proven 2\ncommit x\n".to_owned(),
             "it has no `tree` line where expected",
         ),
     ] {
@@ -10277,19 +10332,50 @@ fn diff_since(since: &str) -> String {
     )
 }
 
+/// The command listing the untracked files, for the changes since a proof record.
+const UNTRACKED: &str = "capture git ls-files -z --others --exclude-standard";
+
+/// The changes since the base of the proof record tests: a line of the engine core and a
+/// line of the render hash.
+fn since_base() -> String {
+    format!(
+        "{}{}",
+        one_line_change("crates/engine-core/src/plan.rs"),
+        one_line_change("crates/engine-hash/src/lib.rs")
+    )
+}
+
+/// Cargo metadata where the render hash depends on the engine core when `linked`, and on
+/// no crate of the workspace otherwise; the boxes always depend on the engine core.
+fn closure_metadata(linked: bool) -> String {
+    let hash = if linked {
+        r#"[{"name":"engine-core","kind":null,"path":"/r/crates/engine-core"},{"name":"sha2","kind":null}]"#
+    } else {
+        r#"[{"name":"sha2","kind":null}]"#
+    };
+    format!(
+        r#"{{"packages":[{{"name":"engine-hash","dependencies":{hash}}},{{"name":"engine-objects","dependencies":[{{"name":"engine-core","kind":null,"path":"/r/crates/engine-core"}},{{"name":"engine-testkit","kind":"dev","path":"/r/crates/engine-testkit"}}]}},{{"name":"engine-core","dependencies":[]}},{{"name":"serde","dependencies":[]}}]}}"#
+    )
+}
+
 /// A passing fake whose base is [`PROVEN`]'s, holding `record` as its proof record, the
-/// tree of the proven commit, `since_commit` as the changes since it and a change of
-/// `crates/a/src/d.rs` as the changes since the base.
+/// tree of the proven commit, `since_commit` as the changes since it, no untracked file,
+/// [`since_base`] as the changes since the base, and [`closure_metadata`] unlinked.
 fn proven_fake(record: &super::ProofRecord, since_commit: &str) -> Fake {
     let mut fake = passing();
     for (key, value) in [
         (record_path(PROVEN[2]), record.text()),
         (proven_tree_command(), format!("{}\n", PROVEN[1])),
         (diff_since(PROVEN[0]), since_commit.to_owned()),
-        (diff_since(PROVEN[2]), one_line_change("crates/a/src/d.rs")),
+        (diff_since(PROVEN[2]), since_base()),
+        (UNTRACKED.to_owned(), String::new()),
         (
             format!("capture {}", MERGE_BASE.0),
             format!("{}\n", PROVEN[2]),
+        ),
+        (
+            format!("capture {}", super::metadata_command().line()),
+            closure_metadata(false),
         ),
     ] {
         drop(fake.files.insert(key, value));
@@ -10308,23 +10394,31 @@ fn mutate_changes(fake: &mut Fake) -> String {
     String::from_utf8(out).expect("UTF-8")
 }
 
+/// What the default check says of a crate a record still proves.
+fn proven_line(name: &str) -> String {
+    format!(
+        "  {name}: proven by an earlier check at {}, unchanged since\n",
+        PROVEN[0]
+    )
+}
+
 #[test]
-fn mutates_only_what_changed_since_a_valid_proof_record() {
-    let mut fake = proven_fake(
-        &proof_record(PROVEN[2]),
-        &one_line_change("crates/a/src/c.rs"),
-    );
+fn skips_only_the_crates_a_valid_proof_record_still_proves() {
+    let plan = one_line_change("crates/engine-core/src/plan.rs");
+    let mut fake = proven_fake(&proof_record(PROVEN[2]), &plan);
     let said = mutate_changes(&mut fake);
     assert_eq!(
         fake.files.get(CHANGES_DIFF).cloned(),
-        Some(one_line_change("crates/a/src/c.rs")),
-        "the diff since the proven commit, not since the base"
+        Some(plan.clone()),
+        "the changes since the base of the crate changed since the record; the render hash, \
+         unchanged since and depending on nothing changed, left out"
     );
     assert!(
         said.contains(&format!(
-            "  the changes since {} (proven by an earlier check against {}, merge base with @{{upstream}})\n",
-            PROVEN[0], PROVEN[2]
-        )),
+            "  the changes since {} (merge base with @{{upstream}})\n",
+            PROVEN[2]
+        )) && said.contains(&proven_line("engine-hash"))
+            && !said.contains(&proven_line("engine-core")),
         "said: {said}"
     );
     assert_eq!(
@@ -10332,62 +10426,188 @@ fn mutates_only_what_changed_since_a_valid_proof_record() {
         Some(format!("{}\n", PROVEN[2])),
         "the base noted for the record of this run"
     );
-    // The widening rules apply to the diff since the proven commit.
-    let mut widened = proven_fake(
+    let mut linked = proven_fake(&proof_record(PROVEN[2]), &plan);
+    drop(linked.files.insert(
+        format!("capture {}", super::metadata_command().line()),
+        closure_metadata(true),
+    ));
+    let linked_said = mutate_changes(&mut linked);
+    assert_eq!(
+        linked.files.get(CHANGES_DIFF).cloned(),
+        Some(since_base()),
+        "a crate whose dependency changed since the record is mutated as without it"
+    );
+    assert!(
+        !linked_said.contains("proven by an earlier check"),
+        "linked_said: {linked_said}"
+    );
+    // A line changed since the base, its neighbor since the record: the crate's changes
+    // since the base are mutated whole, not only what changed since the record.
+    let mut neighbor = proven_fake(&proof_record(PROVEN[2]), &plan);
+    let two = "diff --git a/crates/engine-core/src/plan.rs b/crates/engine-core/src/plan.rs\n--- a/crates/engine-core/src/plan.rs\n+++ b/crates/engine-core/src/plan.rs\n@@ -1 +1 @@\n-a\n+b\n@@ -9 +9 @@\n-c\n+d\n";
+    drop(neighbor.files.insert(diff_since(PROVEN[2]), two.to_owned()));
+    let _said = mutate_changes(&mut neighbor);
+    assert_eq!(
+        neighbor.files.get(CHANGES_DIFF).map(String::as_str),
+        Some(two),
+        "every change of the crate since the base"
+    );
+}
+
+#[test]
+fn mutates_nothing_when_every_change_is_proven() {
+    for since_commit in [
+        String::new(),
+        one_line_change("apps/roadmap/board.json"),
+        one_line_change("crates/engine-cli/src/lib.rs"),
+    ] {
+        let mut fake = proven_fake(&proof_record(PROVEN[2]), &since_commit);
+        drop(fake.files.remove(UNVIABLE_REPORT));
+        let said = mutate_changes(&mut fake);
+        assert!(
+            said.contains(&proven_line("engine-core"))
+                && said.contains(&proven_line("engine-hash"))
+                && said.contains("  every change is proven: no mutant to test\n"),
+            "{since_commit}: said: {said}"
+        );
+        assert!(
+            !fake
+                .ran
+                .iter()
+                .any(|line| line.starts_with("cargo mutants")),
+            "{since_commit}: nothing mutated"
+        );
+    }
+}
+
+#[test]
+fn widens_a_crate_that_changed_since_the_record_as_without_it() {
+    // Test code changed since the base, before the record: proven, not widened again.
+    let mut before = proven_fake(&proof_record(PROVEN[2]), "");
+    drop(before.files.insert(
+        diff_since(PROVEN[2]),
+        format!(
+            "{}{}",
+            since_base(),
+            one_line_change("crates/engine-hash/src/lib_tests.rs")
+        ),
+    ));
+    let said = mutate_changes(&mut before);
+    assert!(
+        !said.contains("the test code of engine-hash changed"),
+        "said: {said}"
+    );
+    // The same, with the render hash changed since the record: widened whole.
+    let mut after = proven_fake(
         &proof_record(PROVEN[2]),
-        &one_line_change("crates/engine-testkit/src/lib.rs"),
+        &one_line_change("crates/engine-hash/src/lib.rs"),
     );
+    drop(after.files.insert(
+        diff_since(PROVEN[2]),
+        format!(
+            "{}{}",
+            since_base(),
+            one_line_change("crates/engine-hash/src/lib_tests.rs")
+        ),
+    ));
+    drop(after.files.insert(
+        "crates/engine-hash/src/lib.rs".to_owned(),
+        "fn h() {}\n".to_owned(),
+    ));
+    let after_said = mutate_changes(&mut after);
     assert!(
-        mutate_changes(&mut widened)
-            .contains("  crates/engine-testkit/src/lib.rs changed: every Rust mutant\n"),
-        "what every test uses changed since the proven commit: everything"
+        after_said
+            .contains("  the test code of engine-hash changed: every mutant of engine-hash\n")
+            && after_said.contains(&proven_line("engine-core")),
+        "after_said: {after_said}"
     );
-    let mut nothing = proven_fake(&proof_record(PROVEN[2]), "");
-    drop(nothing.files.remove(UNVIABLE_REPORT));
-    assert!(
-        mutate_changes(&mut nothing).contains(&format!(
-            "  no change since {} (proven by an earlier check against {}, merge base with @{{upstream}}): no mutant to test\n",
-            PROVEN[0], PROVEN[2]
+    assert_eq!(
+        after.files.get(CHANGES_DIFF).cloned(),
+        Some(format!(
+            "{}{}{}",
+            one_line_change("crates/engine-hash/src/lib.rs"),
+            one_line_change("crates/engine-hash/src/lib_tests.rs"),
+            super::new_file_diff("crates/engine-hash/src/lib.rs", "fn h() {}\n")
         )),
-        "nothing changed since the proven commit"
+        "the render hash widened, the engine core left out"
+    );
+    // Its test data changed since the record, or an untracked file under it appeared.
+    let mut data = proven_fake(
+        &proof_record(PROVEN[2]),
+        &one_line_change("spec/render-hash-vectors.json"),
     );
     assert!(
-        !nothing
-            .ran
-            .iter()
-            .any(|line| line.starts_with("cargo mutants")),
-        "nothing mutated"
+        !mutate_changes(&mut data).contains(&proven_line("engine-hash")),
+        "test data changed since the record"
+    );
+    let mut untracked = proven_fake(&proof_record(PROVEN[2]), "");
+    drop(untracked.files.insert(
+        UNTRACKED.to_owned(),
+        "conformance/new.json\0crates/engine-hash/notes.txt\0".to_owned(),
+    ));
+    let untracked_said = mutate_changes(&mut untracked);
+    assert!(
+        !untracked_said.contains(&proven_line("engine-hash"))
+            && untracked_said.contains(&proven_line("engine-core")),
+        "an untracked file in a crate: untracked_said: {untracked_said}"
+    );
+    // What every test depends on changed since the base, before the record: every crate
+    // not proven, whole; the proven ones left out.
+    let mut everything = proven_fake(
+        &proof_record(PROVEN[2]),
+        &one_line_change("crates/engine-hash/src/lib.rs"),
+    );
+    drop(everything.files.insert(
+        diff_since(PROVEN[2]),
+        format!("{}{}", since_base(), one_line_change("Cargo.lock")),
+    ));
+    drop(everything.files.insert(
+        "crates/engine-hash/src/lib.rs".to_owned(),
+        "fn h() {}\n".to_owned(),
+    ));
+    drop(everything.files.insert(
+        "crates/engine-core/src/plan.rs".to_owned(),
+        "fn p() {}\n".to_owned(),
+    ));
+    let everything_said = mutate_changes(&mut everything);
+    let diff = everything
+        .files
+        .get(CHANGES_DIFF)
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        everything_said.contains("  Cargo.lock changed: every Rust mutant\n")
+            && everything_said.contains(&proven_line("engine-core"))
+            && diff.contains("+++ b/crates/engine-hash/src/lib.rs\n@@ -0,0 +1,1 @@\n+fn h() {}\n")
+            && !diff.contains("engine-core"),
+        "everything_said: {everything_said}; diff: {diff}"
     );
 }
 
 /// Checks that `fake` ignores its proof record for `reason`, saying so, and mutates the
-/// changes since the base.
+/// changes since the base as without it.
 fn ignored(fake: &mut Fake, reason: &str) {
     let said = mutate_changes(fake);
     assert!(
         said.contains(&format!(
             "  ignored the mutation proof record {}: {reason}\n",
             record_path(PROVEN[2])
-        )) && said.contains(&format!(
-            "  the changes since {} (merge base with @{{upstream}})\n",
-            PROVEN[2]
-        )),
-        "{reason}: said, then the changes since the base: {said}"
+        )) && !said.contains("proven by an earlier check"),
+        "{reason}: said, then nothing proven: {said}"
     );
     assert_eq!(
         fake.files.get(CHANGES_DIFF).cloned(),
-        Some(one_line_change("crates/a/src/d.rs")),
+        Some(since_base()),
         "{reason}: the diff since the base"
     );
 }
 
 #[test]
 fn ignores_a_proof_record_it_cannot_trust() {
-    let change = one_line_change("crates/a/src/c.rs");
     let other = |edit: &dyn Fn(&mut super::ProofRecord)| {
         let mut record = proof_record(PROVEN[2]);
         edit(&mut record);
-        proven_fake(&record, &change)
+        proven_fake(&record, "")
     };
     ignored(
         &mut other(&|record| record.base = "4".repeat(40)),
@@ -10401,18 +10621,30 @@ fn ignores_a_proof_record_it_cannot_trust() {
         &mut other(&|record| record.toolchain = "1.98.0".to_owned()),
         "it was made with cargo-mutants 27.1.0 and 1.98.0, not cargo-mutants 27.1.0 and 1.99.1",
     );
-    let missing = format!("git has no commit {} of tree {}", PROVEN[0], PROVEN[1]);
-    let mut gone = proven_fake(&proof_record(PROVEN[2]), &change);
+    ignored(
+        &mut other(&|record| record.host = "x86_64-apple-darwin".to_owned()),
+        "it was made on the host x86_64-apple-darwin, not aarch64-apple-darwin",
+    );
+    let mut gone = proven_fake(&proof_record(PROVEN[2]), "");
     drop(gone.files.remove(&proven_tree_command()));
-    ignored(&mut gone, &missing);
-    let mut retreed = proven_fake(&proof_record(PROVEN[2]), &change);
+    ignored(
+        &mut gone,
+        &format!(
+            "git cannot find the tree of its commit {0}: `git rev-parse --verify --quiet {0}^{{tree}}` exited with code 1: failed",
+            PROVEN[0]
+        ),
+    );
+    let mut retreed = proven_fake(&proof_record(PROVEN[2]), "");
     drop(
         retreed
             .files
             .insert(proven_tree_command(), format!("{}\n", PROVEN[2])),
     );
-    ignored(&mut retreed, &missing);
-    let mut malformed = proven_fake(&proof_record(PROVEN[2]), &change);
+    ignored(
+        &mut retreed,
+        &format!("git has no commit {} of tree {}", PROVEN[0], PROVEN[1]),
+    );
+    let mut malformed = proven_fake(&proof_record(PROVEN[2]), "");
     drop(
         malformed
             .files
@@ -10420,22 +10652,89 @@ fn ignores_a_proof_record_it_cannot_trust() {
     );
     ignored(
         &mut malformed,
-        "its first line is not `poyetik rust-mutants-proven 1`",
+        "its first line is not `poyetik rust-mutants-proven 2`",
     );
-    let mut no_tools = proven_fake(&proof_record(PROVEN[2]), &change);
+    let mut unreadable = proven_fake(&proof_record(PROVEN[2]), "");
+    unreadable.broken = Some(format!("read {}", record_path(PROVEN[2])));
+    ignored(&mut unreadable, "cannot read it: not UTF-8");
+    let mut no_tools = proven_fake(&proof_record(PROVEN[2]), "");
     no_tools.broken = Some("cargo mutants --version".to_owned());
     ignored(
         &mut no_tools,
         "cannot read the version of cargo-mutants: cannot run `cargo mutants --version`: not found",
     );
+    let mut no_host = proven_fake(&proof_record(PROVEN[2]), "");
+    no_host.broken = Some("rustc -vV".to_owned());
+    ignored(
+        &mut no_host,
+        "cannot read the host of rustc: cannot run `rustc -vV`: not found",
+    );
+    let mut hostless = proven_fake(&proof_record(PROVEN[2]), "");
+    drop(hostless.files.insert(
+        format!("capture {}", HOST.0),
+        "rustc 1.99.1\nhost: \n".to_owned(),
+    ));
+    ignored(&mut hostless, "`rustc -vV` names no host");
+    let mut absent = proven_fake(&proof_record(PROVEN[2]), "");
+    drop(absent.files.remove(&record_path(PROVEN[2])));
+    assert!(
+        !mutate_changes(&mut absent).contains("proof record"),
+        "no record: nothing to say"
+    );
+}
+
+#[test]
+fn ignores_a_proof_record_when_its_rules_or_shared_inputs_changed() {
+    for (path, what) in [
+        ("crates/xtask/src/lib.rs", "the mutation rules"),
+        ("mutants-unviable.txt", "the mutation rules"),
+        (".cargo/config.toml", "the mutation rules"),
+        ("Cargo.lock", "what every test depends on"),
+        (
+            "crates/engine-testkit/src/lib.rs",
+            "what every test depends on",
+        ),
+    ] {
+        let mut fake = proven_fake(&proof_record(PROVEN[2]), &one_line_change(path));
+        let said = mutate_changes(&mut fake);
+        assert!(
+            said.contains(&format!(
+                "  ignored the mutation proof record of {}: {path} changed since, {what}\n",
+                PROVEN[0]
+            )) && !said.contains("proven by an earlier check"),
+            "{path}: said: {said}"
+        );
+        assert_eq!(
+            fake.files.get(CHANGES_DIFF).cloned(),
+            Some(since_base()),
+            "{path}: as without a record"
+        );
+    }
+    let mut untracked = proven_fake(&proof_record(PROVEN[2]), "");
+    drop(
+        untracked
+            .files
+            .insert(UNTRACKED.to_owned(), ".cargo/mutants.toml\0".to_owned()),
+    );
+    assert!(
+        mutate_changes(&mut untracked).contains("  ignored the mutation proof record of"),
+        "an untracked configuration voids it"
+    );
+    let mut tests = proven_fake(
+        &proof_record(PROVEN[2]),
+        &one_line_change("crates/xtask/src/lib_tests.rs"),
+    );
+    let said = mutate_changes(&mut tests);
+    assert!(
+        !said.contains("ignored the mutation proof record")
+            && said.contains(&proven_line("engine-core")),
+        "xtask's tests are not its rules: said: {said}"
+    );
 }
 
 #[test]
 fn falls_back_without_a_common_directory() {
-    let mut fake = proven_fake(
-        &proof_record(PROVEN[2]),
-        &one_line_change("crates/a/src/c.rs"),
-    );
+    let mut fake = proven_fake(&proof_record(PROVEN[2]), "");
     drop(fake.files.remove(&format!("capture {}", COMMON_DIR.0)));
     let said = mutate_changes(&mut fake);
     assert!(
@@ -10446,7 +10745,7 @@ fn falls_back_without_a_common_directory() {
     );
     assert_eq!(
         fake.files.get(CHANGES_DIFF).cloned(),
-        Some(one_line_change("crates/a/src/d.rs")),
+        Some(since_base()),
         "the diff since the base"
     );
     let mut unwritable = passing();
@@ -10462,6 +10761,35 @@ fn falls_back_without_a_common_directory() {
             super::MEASURED_BASE
         )),
         "the base measured cannot be noted"
+    );
+    for broken in [
+        UNTRACKED
+            .strip_prefix("capture ")
+            .unwrap_or_default()
+            .to_owned(),
+        super::metadata_command().line(),
+    ] {
+        let mut broken_fake = proven_fake(&proof_record(PROVEN[2]), "");
+        broken_fake.broken = Some(broken.clone());
+        assert!(
+            run_steps(
+                &rust_mutation_of_changes(),
+                &mut broken_fake,
+                &mut Vec::new()
+            )
+            .is_err(),
+            "{broken}: the record cannot be weighed"
+        );
+    }
+    let mut invalid = proven_fake(&proof_record(PROVEN[2]), "");
+    drop(invalid.files.insert(
+        format!("capture {}", super::metadata_command().line()),
+        "{}".to_owned(),
+    ));
+    assert_eq!(
+        run_steps(&rust_mutation_of_changes(), &mut invalid, &mut Vec::new()),
+        failed("Rust mutation testing of the changes: cargo metadata lists no packages"),
+        "metadata without packages"
     );
 }
 
@@ -10489,6 +10817,12 @@ fn measured() -> Fake {
     fake
 }
 
+/// The commit and tree the fake checks out, full object names.
+const CHECKED_OUT: [&str; 2] = [
+    "abc1230000000000000000000000000000000000",
+    "def4560000000000000000000000000000000000",
+];
+
 #[test]
 fn records_the_proof_of_a_clean_tree() {
     let mut fake = measured();
@@ -10499,75 +10833,163 @@ fn records_the_proof_of_a_clean_tree() {
         "recorded"
     );
     let record = super::ProofRecord {
-        commit: "abc123".to_owned(),
-        tree: "def456".to_owned(),
+        commit: CHECKED_OUT[0].to_owned(),
+        tree: CHECKED_OUT[1].to_owned(),
         base: PROVEN[2].to_owned(),
         mutants: "cargo-mutants 27.1.0".to_owned(),
         toolchain: "1.99.1".to_owned(),
+        host: "aarch64-apple-darwin".to_owned(),
     };
     assert_eq!(
         fake.files.get(&record_path(PROVEN[2])).cloned(),
-        Some(record.text()),
-        "the commit and tree checked out, the base measured, the tools"
+        Some(format!(
+            "poyetik rust-mutants-proven 2\ncommit {}\ntree {}\nbase {}\ncargo-mutants cargo-mutants 27.1.0\ntoolchain 1.99.1\nhost aarch64-apple-darwin\n",
+            CHECKED_OUT[0], CHECKED_OUT[1], PROVEN[2]
+        )),
+        "the commit and tree checked out, the base measured, the tools, the host"
+    );
+    assert_eq!(
+        super::ProofRecord::parse(
+            &fake
+                .files
+                .get(&record_path(PROVEN[2]))
+                .cloned()
+                .unwrap_or_default()
+        ),
+        Ok(record),
+        "readable as written"
     );
     assert!(
         String::from_utf8(out).expect("UTF-8").contains(&format!(
-            "  recorded: the mutants of abc123 are proven against {}\n",
-            PROVEN[2]
+            "  recorded: the mutants of {} are proven against {}\n",
+            CHECKED_OUT[0], PROVEN[2]
         )),
         "said"
     );
 }
 
 #[test]
+fn uses_the_proof_record_it_wrote() {
+    let mut fake = measured();
+    assert_eq!(
+        run_steps(&proof_steps(), &mut fake, &mut Vec::new()),
+        Ok(()),
+        "recorded"
+    );
+    for (key, value) in [
+        (
+            format!(
+                "capture git rev-parse --verify --quiet {}^{{tree}}",
+                CHECKED_OUT[0]
+            ),
+            format!("{}\n", CHECKED_OUT[1]),
+        ),
+        (diff_since(CHECKED_OUT[0]), String::new()),
+        (diff_since(PROVEN[2]), since_base()),
+        (UNTRACKED.to_owned(), String::new()),
+        (
+            format!("capture {}", MERGE_BASE.0),
+            format!("{}\n", PROVEN[2]),
+        ),
+    ] {
+        drop(fake.files.insert(key, value));
+    }
+    let said = mutate_changes(&mut fake);
+    assert!(
+        said.contains(&format!(
+            "  engine-core: proven by an earlier check at {}, unchanged since\n",
+            CHECKED_OUT[0]
+        )) && said.contains("  every change is proven: no mutant to test\n"),
+        "the record written is the record read: {said}"
+    );
+}
+
+#[test]
 fn records_no_proof_of_a_tree_not_clean() {
-    for status in [
-        " M crates/a/src/b.rs\n",
-        "?? crates/a/src/new.rs\n",
-        "?? x.RS\n",
+    for (status, hidden, reason) in [
+        (
+            " M crates/a/src/b.rs\n",
+            "",
+            "` M crates/a/src/b.rs` is not committed",
+        ),
+        (
+            "?? crates/a/src/new.rs\n",
+            "",
+            "`?? crates/a/src/new.rs` is not committed",
+        ),
+        (
+            "?? conformance/x.json\n",
+            "",
+            "`?? conformance/x.json` is not committed",
+        ),
+        ("?? \"a b.rs\"\n", "", "`?? \"a b.rs\"` is not committed"),
+        (
+            "?? .cargo/mutants.toml\n",
+            "",
+            "`?? .cargo/mutants.toml` is not committed",
+        ),
+        (
+            "",
+            "H Cargo.toml\nh crates/engine-core/src/plan.rs\n",
+            "`crates/engine-core/src/plan.rs` is hidden from git status (assume-unchanged or skip-worktree)",
+        ),
+        (
+            "",
+            "S crates/engine-core/src/plan.rs\n",
+            "`crates/engine-core/src/plan.rs` is hidden from git status (assume-unchanged or skip-worktree)",
+        ),
     ] {
         let mut dirty = measured();
-        drop(
-            dirty
-                .files
-                .insert(format!("capture {}", TREE_STATUS.0), status.to_owned()),
-        );
+        for (command, answer) in [(PUSH_STATUS.0, status), (HIDDEN.0, hidden)] {
+            drop(
+                dirty
+                    .files
+                    .insert(format!("capture {command}"), answer.to_owned()),
+            );
+        }
         let mut out = Vec::new();
         assert_eq!(
             run_steps(&proof_steps(), &mut dirty, &mut out),
             Ok(()),
-            "{status}"
+            "{status}{hidden}"
         );
         assert!(
             !dirty.ran.iter().any(|line| line.starts_with("write")),
-            "{status}: nothing recorded"
+            "{status}{hidden}: nothing recorded"
         );
-        assert!(
-            String::from_utf8(out).expect("UTF-8").contains(
-                "  not recorded: the tree is not clean, or changed while the checks ran\n"
+        assert_eq!(
+            String::from_utf8(out).expect("UTF-8"),
+            format!(
+                "▶ [1/2] Working tree recorded\n▶ [2/2] Rust mutation proof recorded for the next default check\n  not recorded: the tree is not clean: {reason}\n✔ all 2 checks passed\n"
             ),
-            "{status}: said"
+            "{status}{hidden}: said"
         );
     }
+}
+
+#[test]
+fn records_no_proof_of_a_tree_that_changed() {
+    let changed_while = "  not recorded: the tree changed while the checks ran, or was not \
+                         recorded at their start\n";
     let mut unrecorded = measured();
+    let mut out = Vec::new();
     assert_eq!(
-        run_steps(
-            &proof_steps().split_off(1),
-            &mut unrecorded,
-            &mut Vec::new()
-        ),
+        run_steps(&proof_steps().split_off(1), &mut unrecorded, &mut out),
         Ok(()),
         "no state of the tree"
     );
     assert!(
-        !unrecorded.ran.iter().any(|line| line.starts_with("write")),
+        !unrecorded.ran.iter().any(|line| line.starts_with("write"))
+            && String::from_utf8(out)
+                .expect("UTF-8")
+                .contains(changed_while),
         "nothing recorded without the tree's state at the start"
     );
     let mut moved = measured();
     moved.rewrite = Some((
         "git checkout other".to_owned(),
         format!("capture {}", TREE_HEAD.0),
-        "fed987\nrefs/heads/other\n".to_owned(),
+        "fed9870000000000000000000000000000000000\nrefs/heads/other\n".to_owned(),
     ));
     let mut steps = proof_steps();
     steps.insert(
@@ -10577,13 +10999,17 @@ fn records_no_proof_of_a_tree_not_clean() {
             action: Action::Run(Cmd::new("git", &["checkout", "other"], Dir::Root)),
         },
     );
+    let mut moved_out = Vec::new();
     assert_eq!(
-        run_steps(&steps, &mut moved, &mut Vec::new()),
+        run_steps(&steps, &mut moved, &mut moved_out),
         Ok(()),
         "moved"
     );
     assert!(
-        !moved.ran.iter().any(|line| line.starts_with("write")),
+        !moved.ran.iter().any(|line| line.starts_with("write"))
+            && String::from_utf8(moved_out)
+                .expect("UTF-8")
+                .contains(changed_while),
         "nothing recorded when what is checked out changed"
     );
 }
@@ -10601,6 +11027,18 @@ fn fails_to_record_what_it_cannot_read_or_write() {
             "cargo mutants --version".to_owned(),
             "cannot read the version of cargo-mutants: cannot run `cargo mutants --version`: not found"
                 .to_owned(),
+        ),
+        (
+            "rustc -vV".to_owned(),
+            "cannot read the host of rustc: cannot run `rustc -vV`: not found".to_owned(),
+        ),
+        (
+            "git ls-files -v".to_owned(),
+            "cannot read the work tree: cannot run `git ls-files -v`: not found".to_owned(),
+        ),
+        (
+            PUSH_STATUS.0.to_owned(),
+            format!("cannot read the work tree: cannot run `{}`: not found", PUSH_STATUS.0),
         ),
         (
             format!("write {}", record_path(PROVEN[2])),
@@ -10621,6 +11059,40 @@ fn fails_to_record_what_it_cannot_read_or_write() {
             .is_err_and(|failure| failure.summary.contains(super::MEASURED_BASE)),
         "no base measured"
     );
+    let mut empty_base = measured();
+    drop(
+        empty_base
+            .files
+            .insert(super::MEASURED_BASE.to_owned(), "\n".to_owned()),
+    );
+    assert_eq!(
+        run_steps(&proof_steps(), &mut empty_base, &mut Vec::new()),
+        failed(format!(
+            "{step}: cannot record the mutation proof: it has no `base` line where expected"
+        )),
+        "an empty base is never written"
+    );
+    let mut spaced = measured();
+    drop(spaced.files.insert(
+        format!("capture {}", HOST.0),
+        "host: a b\nhost: c\n".to_owned(),
+    ));
+    let mut spaced_host = measured();
+    drop(
+        spaced_host
+            .files
+            .insert(format!("capture {}", HOST.0), "release: 1\n".to_owned()),
+    );
+    assert_eq!(
+        run_steps(&proof_steps(), &mut spaced_host, &mut Vec::new()),
+        failed(format!("{step}: `rustc -vV` names no host")),
+        "no host"
+    );
+    assert_eq!(
+        run_steps(&proof_steps(), &mut spaced, &mut Vec::new()),
+        Ok(()),
+        "a host with a space is written as it is, and reads back"
+    );
     let mut no_channel = measured();
     drop(no_channel.files.insert(
         super::RUST_TOOLCHAIN_FILE.to_owned(),
@@ -10638,6 +11110,69 @@ fn fails_to_record_what_it_cannot_read_or_write() {
             .summary
             .contains("cannot find git's common directory")),
         "no common directory"
+    );
+}
+
+#[test]
+fn reads_the_crates_each_crate_compiles_for_its_tests() {
+    let closures = super::crate_closures(&closure_metadata(true)).expect("valid metadata");
+    let names = |name: &str| -> Vec<&str> {
+        closures
+            .get(name)
+            .map(|closure| closure.iter().copied().collect())
+            .unwrap_or_default()
+    };
+    assert_eq!(
+        names("engine-objects"),
+        ["engine-core", "engine-objects", "engine-testkit"],
+        "its dependencies of every kind, and itself"
+    );
+    assert_eq!(
+        names("engine-hash"),
+        ["engine-core", "engine-hash"],
+        "linked"
+    );
+    assert_eq!(
+        names("xtask"),
+        ["xtask"],
+        "a crate the metadata does not list"
+    );
+    let deep = r#"{"packages":[{"name":"engine-cli","dependencies":[{"name":"engine-hash","path":"/r"}]},{"name":"engine-hash","dependencies":[{"name":"engine-core","path":"/r"},{"name":"other","path":"/r"}]}]}"#;
+    let deep_closures = super::crate_closures(deep).expect("valid metadata");
+    assert_eq!(
+        deep_closures
+            .get("engine-cli")
+            .map(|closure| closure.iter().copied().collect::<Vec<_>>()),
+        Some(vec!["engine-cli", "engine-core", "engine-hash"]),
+        "at any depth, crates outside the workspace apart"
+    );
+    assert!(
+        super::crate_closures("not json")
+            .is_err_and(|failure| failure.summary.starts_with("invalid cargo metadata: ")),
+        "not JSON"
+    );
+}
+
+#[test]
+fn reads_the_crates_of_the_real_workspace() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let metadata = SystemRunner { root }
+        .capture(&super::metadata_command())
+        .expect("cargo metadata");
+    let closures = super::crate_closures(&metadata).expect("valid metadata");
+    let of = |name: &str| closures.get(name).cloned().unwrap_or_default();
+    assert!(
+        of("engine-objects").is_superset(&BTreeSet::from([
+            "engine-core",
+            "engine-objects",
+            "engine-testkit",
+            "engine-alloc-counter"
+        ])),
+        "the boxes compile the core and, for their tests, the test bench and its allocator"
+    );
+    assert!(
+        !of("engine-core").contains("engine-objects"),
+        "the core depends on no box"
     );
 }
 
@@ -10674,6 +11209,7 @@ fn shares_proof_records_between_the_worktrees_of_real_git() {
         base: commit.clone(),
         mutants: "cargo-mutants 27.1.0".to_owned(),
         toolchain: "1.99.1".to_owned(),
+        host: "aarch64-apple-darwin".to_owned(),
     };
     // Written from the linked worktree, read from the main one: one common directory.
     let mut from_linked = SystemRunner { root: linked };
