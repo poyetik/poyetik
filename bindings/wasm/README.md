@@ -6,11 +6,12 @@ The engine in browsers: a WebAssembly module (Rust crate `engine-wasm`) and its 
 |---|---|
 | `src/` | The Rust crate: safe `Engine` and `Instance`, and `ffi`, the exported C interface (the only `unsafe` of the engine, checked with Miri) |
 | `ts/engine.ts` | `WasmEngine`: one module instance, renders into buffers of any length, never ahead, in one render format: binary64 into `Float64Array`s, binary64 given as binary32 or binary32 into `Float32Array`s |
+| `ts/abi.ts` | The one reader of the module's exported interface (its memory, its version, each function with its arity), shared by `WasmEngine` and the benchmarks' counted instance |
 | `ts/worklet/processors.ts` | The `AudioWorklet` processors: the engine, and a tap that posts its input to the main thread |
 | `ts/web.ts` | Main-thread API: registering the processors, loading a patch in a precision (binary64 by default, binary32 as a setting; Web Audio is always given binary32), playing it in engine nodes, tapping and capturing what a Web Audio node outputs, rendering offline |
 | `ts/hash.ts` | The canonical render hash (`render-hash/2`) in TypeScript, independent of the Rust one |
 | `test/` | Unit tests (Node, with the real module): every conformance case renders with its native reference hash, in every render format |
-| `benchmarks/` | The cost benchmarks (`spec/benchmarks.md`): an instrumenter counting the WebAssembly instructions the module executes, the benchmarks of every box in both precisions and of building plans, and their comparison with the baseline |
+| `benchmarks/` | The cost benchmarks (`spec/benchmarks.md`): an instrumenter counting the WebAssembly instructions the module executes, the benchmarks of every box in both precisions, of the plan's sums and of building plans, the module's size, and their comparison with the baseline |
 | `e2e/` | End-to-end tests: a test bench page rendering conformance cases offline and live, in both precisions, in Chromium, Firefox and Playwright's WebKit (desktop and iPhone sizes; not Safari); `?precision=binary32` on the page computes in binary32 |
 
 ```sh

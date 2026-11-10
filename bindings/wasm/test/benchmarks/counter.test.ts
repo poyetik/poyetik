@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { CountedInstance, CountError, countedEngine, countedModule } from "../../benchmarks/counter.ts";
 import { instrument } from "../../benchmarks/instrument.ts";
-import { RENDER_FORMATS, WasmEngine } from "../../ts/engine.ts";
+import { ModuleError, RENDER_FORMATS, WasmEngine } from "../../ts/engine.ts";
 import { interleave, interleave64, renderHash, STRICT } from "../../ts/hash.ts";
 import { CORPUS, SINE_PATCH, UNKNOWN_BOX, reference, wasmBytes } from "../fixtures.ts";
 import { assemble, I32_GLOBAL } from "./assemble.ts";
@@ -86,7 +86,7 @@ describe("CountedInstance", () => {
     expect(() => instance.load(SINE_PATCH, 7, "binary64-as-binary32")).toThrow(/^the engine refused the patch: .+/);
   });
 
-  test("refuses a module without its memory and counter, of another interface, without a function, or whose counter is not an i64", () => {
+  test("refuses a module without its counter or memory, of another interface, without a function or with another arity (read as the engine reads them), or whose counter is not an i64", () => {
     const version = { params: 0, result: true, locals: [0x00], code: [0x41, 0x83, 0x80, 0xe4, 0x82, 0x05, 0x0b], exported: "engine_abi_version" };
     const other = { ...version, code: [0x41, 0x84, 0x80, 0xe4, 0x82, 0x05, 0x0b] };
     const counter = (kind: readonly number[]): readonly (readonly [string, number, number])[] => [
@@ -96,17 +96,29 @@ describe("CountedInstance", () => {
     const i64 = [0x7e, 0x01, 0x42, 0x00, 0x0b];
     const module = (functions: readonly (typeof version)[], globals: readonly (readonly number[])[], exports: readonly (readonly [string, number, number])[]): WebAssembly.Module =>
       new WebAssembly.Module(assemble({ functions, globals, exports }));
-    expect(() => new CountedInstance(module([version], [i64], [["memory", 0x02, 0]]))).toThrow(new CountError('the module does not export its memory and its counter "instructions"'));
-    expect(() => new CountedInstance(module([version], [i64], [["instructions", 0x03, 0]]))).toThrow(new CountError('the module does not export its memory and its counter "instructions"'));
-    expect(() => new CountedInstance(module([other], [i64], counter([0x03])))).toThrow(new CountError("the module has the interface 0x50590004, expected 0x50590003"));
-    expect(() => new CountedInstance(module([version], [i64], counter([0x03])))).toThrow(new CountError("the module has no function engine_input"));
-    const stubs = ["engine_input", "engine_load", "engine_message_ptr", "engine_message_len", "engine_process"].map((name) => ({
-      params: name === "engine_input" ? 1 : name === "engine_load" ? 2 : 0,
-      result: true,
-      locals: [0x00],
-      code: [0x41, 0x01, 0x0b],
-      exported: name,
-    }));
+    expect(() => new CountedInstance(module([version], [i64], [["memory", 0x02, 0]]))).toThrow(new CountError('the module does not export its counter "instructions"'));
+    expect(() => new CountedInstance(module([version], [i64], [["instructions", 0x03, 0]]))).toThrow(new ModuleError("no memory"));
+    expect(() => new CountedInstance(module([other], [i64], counter([0x03])))).toThrow(new ModuleError("interface 0x50590004, expected 0x50590003"));
+    expect(() => new CountedInstance(module([version], [i64], counter([0x03])))).toThrow(new ModuleError("no function engine_input"));
+    const arities: Readonly<Record<string, number>> = {
+      engine_input: 1,
+      engine_load: 2,
+      engine_message_ptr: 0,
+      engine_message_len: 0,
+      engine_channels: 0,
+      engine_block_size: 0,
+      engine_process: 0,
+      engine_max_patch_bytes: 0,
+    };
+    const stubbed = (arity: (name: string, expected: number) => number): (typeof version)[] =>
+      Object.entries(arities).map(([name, expected]) => ({ params: arity(name, expected), result: true, locals: [0x00], code: [0x41, 0x01, 0x0b], exported: name }));
+    const stubs = stubbed((_name, expected) => expected);
+    expect(() => new CountedInstance(module([version, ...stubbed((name, expected) => (name === "engine_load" ? 1 : expected))], [i64], counter([0x03])))).toThrow(
+      new ModuleError("engine_load takes 1 argument(s), expected 2"),
+    );
+    expect(() => new CountedInstance(module([version, ...stubbed((name, expected) => (name === "engine_process" ? 1 : expected))], [i64], counter([0x03])))).toThrow(
+      new ModuleError("engine_process takes 1 argument(s), expected 0"),
+    );
     const wrong = new CountedInstance(module([version, ...stubs], [I32_GLOBAL], counter([0x03])));
     expect(() => wrong.process(1)).toThrow(new CountError('the counter "instructions" is not an i64'));
   });

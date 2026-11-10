@@ -170,7 +170,7 @@ describe("benchMain", () => {
     const invalid = assemble({ functions: [{ params: 0, result: false, locals: [0x00], code: [0x6a, 0x0b], exported: "f" }] });
     expect(run(invalid)[0]).toMatch(/^error: bindings\/wasm\/dist\/engine\.wasm: WebAssembly\.Module\(\): .+/);
     const empty = assemble({ functions: [{ params: 0, result: false, locals: [0x00], code: [0x0b], exported: "f" }] });
-    expect(run(empty)).toStrictEqual(['error: bindings/wasm/dist/engine.wasm: osc~ 440 Hz at 48 kHz in binary64: the module does not export its memory and its counter "instructions"']);
+    expect(run(empty)).toStrictEqual(['error: bindings/wasm/dist/engine.wasm: osc~ 440 Hz at 48 kHz in binary64: not an engine module: no memory']);
     const [first] = BOX_BENCHMARKS;
     if (first === undefined) {
       throw new Error("no benchmark");
