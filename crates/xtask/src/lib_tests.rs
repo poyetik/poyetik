@@ -7094,7 +7094,7 @@ fn refuses_test_data_a_crate_does_not_declare() {
     };
     for text in [
         "const A: &str = include_str!(\"../../../spec/render-hash-vectors.json\");\n",
-        "const A: &[u8] = include_bytes!(\"data/own.bin\");\n",
+        "const A: &[u8] = include_bytes!(\"./data/own.bin\");\n",
         "fn f() { let _ = Path::new(env!(\"CARGO_MANIFEST_DIR\")).join(\"src\"); }\n",
         "fn f() { let _ = env!(\"CARGO_PKG_NAME\"); let _ = std::env::temp_dir(); }\n",
         "// include_str!(\"../../../spec/x.json\")\nconst A: &str = \"include_str!(\\\"x\\\")\";\n",

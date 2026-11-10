@@ -7058,7 +7058,7 @@ fn tree_cleanliness(runner: &mut dyn Runner) -> Result<(String, String), Failure
 /// # Errors
 ///
 /// Returns why the base measured, the tree, the tools or the record cannot be read or
-/// written, or the record would not read back as written.
+/// written, or why the reader would refuse the record.
 fn record_mutation_proof(
     runner: &mut dyn Runner,
     out: &mut dyn Write,
@@ -7097,17 +7097,9 @@ fn record_mutation_proof(
         toolchain: tools.toolchain,
         host: tools.host,
     };
-    if let Err(reason) = ProofRecord::parse(&record.text()).and_then(|read| {
-        if read == record {
-            Ok(())
-        } else {
-            Err("it would not read back as written".to_owned())
-        }
-    }) {
-        return Err(Failure::from(format!(
-            "cannot record the mutation proof: {reason}"
-        )));
-    }
+    // Written only as the reader reads it: an empty or malformed field fails here.
+    let record = ProofRecord::parse(&record.text())
+        .map_err(|reason| Failure::from(format!("cannot record the mutation proof: {reason}")))?;
     let path = proof_record_path(runner, &record.base)?;
     runner
         .write(&path, &record.text())
