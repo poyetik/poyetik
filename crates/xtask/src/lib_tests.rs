@@ -1747,7 +1747,7 @@ fn the_full_check_differs_only_by_its_mutation_testing() {
     let mut expected = vec![
         (
             "rust mutants of the changes (3 jobs)".to_owned(),
-            "Root: cargo mutants --cap-lints=true --gitignore=true --cargo-arg=--locked --workspace --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored".to_owned(),
+            "Root: cargo mutants --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --workspace --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored".to_owned(),
         ),
         (
             "unviable gate (Partial)".to_owned(),
@@ -1836,7 +1836,7 @@ fn mutates_the_changes_since_the_merge_base_with_the_upstream() {
             "capture git diff --no-color --no-ext-diff --no-textconv --no-renames --src-prefix=a/ --dst-prefix=b/ abc1230000000000000000000000000000000000",
             "capture git ls-files -z --others --exclude-standard -- *.rs",
             "write target/xtask/changes.diff",
-            "cargo mutants --cap-lints=true --gitignore=true --cargo-arg=--locked --workspace --in-diff target/xtask/changes.diff --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored",
+            "cargo mutants --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --workspace --in-diff target/xtask/changes.diff --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored",
             "read mutants.out/unviable.txt",
             "read mutants-unviable.txt",
         ],
@@ -2044,7 +2044,7 @@ fn mutates_everything_when_what_every_test_uses_changed() {
         );
         assert!(
             fake.ran.contains(
-                &"cargo mutants --cap-lints=true --gitignore=true --cargo-arg=--locked --workspace --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored".to_owned()
+                &"cargo mutants --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --workspace --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored".to_owned()
             ) && !fake.ran.iter().any(|line| line.starts_with("write target/xtask/changes")),
             "{path}: every mutant of the workspace, no diff: {:?}",
             fake.ran
@@ -2085,11 +2085,11 @@ fn mutates_everything_when_what_every_test_uses_changed() {
         one_line_change("Cargo.lock"),
     );
     broken.fail =
-        Some("cargo mutants --cap-lints=true --gitignore=true --cargo-arg=--locked --workspace --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored".to_owned());
+        Some("cargo mutants --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --workspace --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored".to_owned());
     assert_eq!(
         run_steps(&rust_mutation_of_changes(), &mut broken, &mut Vec::new()),
         failed(
-            "Rust mutation testing of the changes: `cargo mutants --cap-lints=true --gitignore=true --cargo-arg=--locked --workspace --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored` exited with code 3"
+            "Rust mutation testing of the changes: `cargo mutants --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --workspace --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored` exited with code 3"
         ),
         "a surviving mutant of the workspace fails"
     );
@@ -2217,8 +2217,8 @@ fn reports_why_the_changes_cannot_be_mutated() {
             "cannot write target/xtask/changes.diff: read-only".to_owned(),
         ),
         (
-            "cargo mutants --cap-lints=true --gitignore=true --cargo-arg=--locked --workspace --in-diff target/xtask/changes.diff --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored",
-            "cannot run `cargo mutants --cap-lints=true --gitignore=true --cargo-arg=--locked --workspace --in-diff target/xtask/changes.diff --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored`: not found".to_owned(),
+            "cargo mutants --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --workspace --in-diff target/xtask/changes.diff --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored",
+            "cannot run `cargo mutants --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --workspace --in-diff target/xtask/changes.diff --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored`: not found".to_owned(),
         ),
     ] {
         let mut fake = passing();
@@ -2505,7 +2505,7 @@ fn mutates_every_mutant_of_one_target() {
         lines("engine-core"),
         vec![
             "fresh mutants.out",
-            "Root: cargo mutants --cap-lints=true --gitignore=true --cargo-arg=--locked --package engine-core --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored",
+            "Root: cargo mutants --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --package engine-core --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored",
             "unviable gate (Partial)",
         ],
         "a crate"
@@ -2514,7 +2514,7 @@ fn mutates_every_mutant_of_one_target() {
         lines("crates/xtask/src/lib.rs"),
         vec![
             "fresh mutants.out",
-            "Root: cargo mutants --cap-lints=true --gitignore=true --cargo-arg=--locked --package xtask --file crates/xtask/src/lib.rs --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored",
+            "Root: cargo mutants --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --package xtask --file crates/xtask/src/lib.rs --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored",
             "unviable gate (Partial)",
         ],
         "a Rust file"
@@ -2591,7 +2591,7 @@ fn cli_mutates_one_target() {
         fake.ran,
         vec![
             "fresh mutants.out",
-            "cargo mutants --cap-lints=true --gitignore=true --cargo-arg=--locked --package engine-core --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored",
+            "cargo mutants --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --package engine-core --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored",
             "read mutants.out/unviable.txt",
             "read mutants-unviable.txt",
         ],
@@ -3591,7 +3591,7 @@ fn the_default_check_refuses_stale_reviews_of_unviable_mutants() {
         run_steps(&steps, &mut unlisted, &mut Vec::new()),
         failed(
             "Rust unviable mutant reviews all current: cannot list the Rust mutants: \
-             `cargo mutants --cap-lints=true --gitignore=true --cargo-arg=--locked --list \
+             `cargo mutants --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --list \
              --workspace` exited with code 1: failed"
         ),
         "the list cannot be made"
@@ -5953,7 +5953,7 @@ fn runs_the_full_check_before_pushing_a_tag() {
     );
     assert!(
         tagged.ran.contains(
-            &"cargo mutants --cap-lints=true --gitignore=true --cargo-arg=--locked --workspace --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored".to_owned()
+            &"cargo mutants --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --workspace --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored".to_owned()
         ) && !tagged.ran.contains(&format!("capture {}", MERGE_BASE.0)),
         "a pushed tag runs every mutant: {:?}",
         tagged.ran
@@ -5998,7 +5998,7 @@ fn checks_a_push_then_runs_every_check() {
     assert!(
         fake.ran.contains(&format!("capture {}", MERGE_BASE.0))
             && fake.ran.contains(
-                &"cargo mutants --cap-lints=true --gitignore=true --cargo-arg=--locked --workspace --in-diff target/xtask/changes.diff --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored"
+                &"cargo mutants --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --workspace --in-diff target/xtask/changes.diff --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored"
                     .to_owned()
             ),
         "the default check: the hook mutates the changes"
@@ -6442,7 +6442,7 @@ fn prints_the_details_of_a_failure_on_stdout_and_one_line_on_stderr() {
     );
     assert!(
         fake.ran.contains(
-            &"cargo mutants --cap-lints=true --gitignore=true --cargo-arg=--locked --workspace --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored".to_owned()
+            &"cargo mutants --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --workspace --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored".to_owned()
         ),
         "every mutant, in half the threads of the machine"
     );
@@ -9933,7 +9933,7 @@ fn runs_each_part_of_the_full_check_as_its_own_job() {
         lines("mutation-3"),
         frame(&[
             "fresh mutants.out",
-            "Root: cargo mutants --cap-lints=true --gitignore=true --cargo-arg=--locked --workspace --shard 3/8 --sharding=round-robin --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored",
+            "Root: cargo mutants --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --workspace --shard 3/8 --sharding=round-robin --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored",
         ]),
         "one shard of the mutants, round-robin"
     );

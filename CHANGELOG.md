@@ -43,6 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `cargo xtask check` builds every mutant without debug information (`MUTANT_BUILD_CONFIG`, the test profile's `debug = false` on cargo-mutants' command line), in both modes: on a slice of 111 mutants, about a tenth less time; the compiler is told nothing else differently, and no outcome changed.
 - `spec/engine-design.md`: two more decisions, from the maintainer (2026-11-10): the audio library stands alone, its crates depending within the project only on each other, under a coordinating layer that uses it only through its public interface (decision 32; a shared time base left open); and no architecture choice may cost performance, a box or the engine costing the same directly and through the box contract's ABI or the public interface, held by the instruction-count benchmarks (decision 33, `spec/benchmarks.md`). Decision 11 is named "Subnormal numbers".
 - Roadmap page: an In progress card shows its progress ("Steps x/y") on its closed line, beside its title, so that the work under way is seen without a click; every card stays closed by default.
 - `engine-cli`'s library: a `Rendered` carries the header of its WAV file, computed when its case was prepared, and `Rendered::wav` writes the file, so a header is never paired with other samples.

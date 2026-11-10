@@ -922,13 +922,30 @@ pub const INCLUDE_IGNORED: &str = "--include-ignored";
 /// (otherwise a mutant that merely leaves a variable unused fails to compile and is silently
 /// skipped instead of tested), the ignored files are not copied, and every cargo command
 /// it runs keeps `Cargo.lock` as it is (`--locked`, as every other cargo command of the
-/// checks).
-const MUTANTS_ARGS: [&str; 4] = [
+/// checks) and builds without debug information ([`MUTANT_BUILD_CONFIG`]).
+const MUTANTS_ARGS: [&str; 5] = [
     "mutants",
     "--cap-lints=true",
     "--gitignore=true",
     "--cargo-arg=--locked",
+    MUTANT_BUILD_CONFIG,
 ];
+
+/// The one build setting of cargo-mutants' builds that differs from the other builds of the
+/// checks: no debug information in the test profile.
+///
+/// Every build `cargo test` makes uses that profile; without debug information, Cargo's
+/// default also strips it.
+///
+/// It changes what the compiler is told only by its debug information options
+/// (`-C debuginfo`, `-C split-debuginfo`, `-C strip=debuginfo`) and the hashes Cargo names
+/// its outputs with, compared on every command line of `cargo test --no-run -v`, so no
+/// code it compiles differs; no code of the workspace reads a backtrace or a source
+/// location. Measured on a slice of the mutants, it saves about a tenth of their time
+/// (their builds and test programs, smaller, are written, linked and started faster).
+/// Given on the command line (`--config`), never in [`CARGO_CONFIG_FILE`], which holds no
+/// build setting; the full check and every part of it build mutants the same way.
+pub const MUTANT_BUILD_CONFIG: &str = "--cargo-arg=--config=profile.test.debug=false";
 
 /// A cargo-mutants command: [`MUTANTS_ARGS`], then `args`, then [`INCLUDE_IGNORED`] for the
 /// test harness (cargo-mutants passes what follows its `--` to `cargo test`, which passes
