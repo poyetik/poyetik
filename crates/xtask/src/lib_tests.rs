@@ -10919,6 +10919,17 @@ const PROVEN: [&str; 3] = [
     "3333333333333333333333333333333333333333",
 ];
 
+/// The tools and the host the fake answers with.
+fn fake_tools() -> super::ProofTools {
+    super::ProofTools {
+        mutants: "cargo-mutants 27.1.0".to_owned(),
+        toolchain: "1.99.1".to_owned(),
+        host: "aarch64-apple-darwin".to_owned(),
+        compiler: "58cf8f9c35b355199727627d07ae34a4e2846d67 LLVM 23.1.1".to_owned(),
+        linker: "Apple clang version 14.0.3 (clang-1403.0.22.14.1)".to_owned(),
+    }
+}
+
 /// A record of the fake's tools and host for `base`, proving [`PROVEN`]'s commit.
 fn proof_record(base: &str) -> super::ProofRecord {
     let [commit, tree, _] = PROVEN;
@@ -10926,11 +10937,7 @@ fn proof_record(base: &str) -> super::ProofRecord {
         commit: commit.to_owned(),
         tree: tree.to_owned(),
         base: base.to_owned(),
-        mutants: "cargo-mutants 27.1.0".to_owned(),
-        toolchain: "1.99.1".to_owned(),
-        host: "aarch64-apple-darwin".to_owned(),
-        compiler: "58cf8f9c35b355199727627d07ae34a4e2846d67 LLVM 23.1.1".to_owned(),
-        linker: "Apple clang version 14.0.3 (clang-1403.0.22.14.1)".to_owned(),
+        tools: fake_tools(),
     }
 }
 
@@ -11340,16 +11347,16 @@ fn ignores_a_proof_record_it_cannot_trust() {
         &format!("it is of the base {}", "4".repeat(40)),
     );
     ignored(
-        &mut other(&|record| record.mutants = "cargo-mutants 27.0.0".to_owned()),
-        "it was made with cargo-mutants 27.0.0 and 1.99.1, not cargo-mutants 27.1.0 and 1.99.1",
+        &mut other(&|record| record.tools.mutants = "cargo-mutants 27.0.0".to_owned()),
+        "it was made with the cargo-mutants cargo-mutants 27.0.0, not cargo-mutants 27.1.0",
     );
     ignored(
-        &mut other(&|record| record.toolchain = "1.98.0".to_owned()),
-        "it was made with cargo-mutants 27.1.0 and 1.98.0, not cargo-mutants 27.1.0 and 1.99.1",
+        &mut other(&|record| record.tools.toolchain = "1.98.0".to_owned()),
+        "it was made with the toolchain 1.98.0, not 1.99.1",
     );
     ignored(
-        &mut other(&|record| record.host = "x86_64-apple-darwin".to_owned()),
-        "it was made on the host x86_64-apple-darwin, not aarch64-apple-darwin",
+        &mut other(&|record| record.tools.host = "x86_64-apple-darwin".to_owned()),
+        "it was made with the host x86_64-apple-darwin, not aarch64-apple-darwin",
     );
     let mut gone = proven_fake(&proof_record(PROVEN[2]), "");
     drop(gone.files.remove(&proven_tree_command()));
@@ -11560,11 +11567,7 @@ fn records_the_proof_of_a_clean_tree() {
         commit: CHECKED_OUT[0].to_owned(),
         tree: CHECKED_OUT[1].to_owned(),
         base: PROVEN[2].to_owned(),
-        mutants: "cargo-mutants 27.1.0".to_owned(),
-        toolchain: "1.99.1".to_owned(),
-        host: "aarch64-apple-darwin".to_owned(),
-        compiler: "58cf8f9c35b355199727627d07ae34a4e2846d67 LLVM 23.1.1".to_owned(),
-        linker: "Apple clang version 14.0.3 (clang-1403.0.22.14.1)".to_owned(),
+        tools: fake_tools(),
     };
     assert_eq!(
         fake.files.get(&record_path(PROVEN[2])).cloned(),
@@ -11946,11 +11949,7 @@ fn shares_proof_records_between_the_worktrees_of_real_git() {
         commit: commit.clone(),
         tree,
         base: commit.clone(),
-        mutants: "cargo-mutants 27.1.0".to_owned(),
-        toolchain: "1.99.1".to_owned(),
-        host: "aarch64-apple-darwin".to_owned(),
-        compiler: "58cf8f9c35b355199727627d07ae34a4e2846d67 LLVM 23.1.1".to_owned(),
-        linker: "Apple clang version 14.0.3 (clang-1403.0.22.14.1)".to_owned(),
+        tools: fake_tools(),
     };
     // Written from the linked worktree, read from the main one: one common directory.
     let mut from_linked = SystemRunner { root: linked };
@@ -12659,16 +12658,14 @@ fn ignores_a_proof_record_of_another_compiler_or_linker() {
         proven_fake(&record, "")
     };
     ignored(
-        &mut other(&|record| record.compiler = "0000 LLVM 23.1.1".to_owned()),
-        "it was built by the compiler 0000 LLVM 23.1.1 and the linker Apple clang version 14.0.3 \
-         (clang-1403.0.22.14.1), not 58cf8f9c35b355199727627d07ae34a4e2846d67 LLVM 23.1.1 and \
-         Apple clang version 14.0.3 (clang-1403.0.22.14.1)",
+        &mut other(&|record| record.tools.compiler = "0000 LLVM 23.1.1".to_owned()),
+        "it was made with the compiler 0000 LLVM 23.1.1, not \
+         58cf8f9c35b355199727627d07ae34a4e2846d67 LLVM 23.1.1",
     );
     ignored(
-        &mut other(&|record| record.linker = "Apple clang version 17.0.0".to_owned()),
-        "it was built by the compiler 58cf8f9c35b355199727627d07ae34a4e2846d67 LLVM 23.1.1 and \
-         the linker Apple clang version 17.0.0, not 58cf8f9c35b355199727627d07ae34a4e2846d67 \
-         LLVM 23.1.1 and Apple clang version 14.0.3 (clang-1403.0.22.14.1)",
+        &mut other(&|record| record.tools.linker = "Apple clang version 17.0.0".to_owned()),
+        "it was made with the linker Apple clang version 17.0.0, not Apple clang version 14.0.3 \
+         (clang-1403.0.22.14.1)",
     );
     for (missing, key) in [
         (

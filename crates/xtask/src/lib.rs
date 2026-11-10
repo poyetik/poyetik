@@ -7720,8 +7720,8 @@ fn mutation_rule(path: &str) -> bool {
 ///
 /// The Rust mutation step of a default check passed, with its unviable gate, on the clean
 /// commit `commit` (of tree `tree`), measured against the merge base `base`, on the host
-/// `host`, with these tools, compiler and linker: every mutant of the changes since `base`, widened as
-/// the default check widens, was killed in that state.
+/// and with the tools, compiler and linker driver it names: every mutant of the changes
+/// since `base`, widened as the default check widens, was killed in that state.
 ///
 /// A later default check of the same base and host skips a crate whose inputs are all
 /// byte-identical to `commit`'s: its files, those of every crate of the workspace it
@@ -7735,25 +7735,13 @@ fn mutation_rule(path: &str) -> bool {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProofRecord {
     /// The commit proven.
-    pub commit: String,
+    commit: String,
     /// Its tree.
-    pub tree: String,
+    tree: String,
     /// The merge base the run measured against.
-    pub base: String,
-    /// `cargo mutants --version`, as it answered.
-    pub mutants: String,
-    /// The release of the pinned toolchain ([`RUST_TOOLCHAIN_FILE`]).
-    pub toolchain: String,
-    /// The host the run compiled and tested on, as `rustc -vV` names it: what a run proves
-    /// depends on the architecture (`cfg(target_arch)`).
-    pub host: String,
-    /// The build of the compiler, as `rustc -vV` names it: its commit, then its LLVM
-    /// version (`<commit-hash> LLVM <version>`).
-    pub compiler: String,
-    /// The linker driver every build of the host links through, as the first line of
-    /// `cc --version` names it ([`LINKER_DRIVER`]): an input of every test binary that the
-    /// pinned toolchain does not pin (a system update replaces it).
-    pub linker: String,
+    base: String,
+    /// The tools and the host the run used, each compared whole with those of a later run.
+    tools: ProofTools,
 }
 
 /// Whether `text` is a full object name of git: 40 or 64 lowercase hexadecimal digits.
@@ -7769,17 +7757,17 @@ impl ProofRecord {
     /// per field.
     #[must_use]
     pub fn text(&self) -> String {
-        format!(
-            "{PROOF_RECORD_TAG}\ncommit {}\ntree {}\nbase {}\ncargo-mutants {}\ntoolchain {}\nhost {}\ncompiler {}\nlinker {}\n",
-            self.commit,
-            self.tree,
-            self.base,
-            self.mutants,
-            self.toolchain,
-            self.host,
-            self.compiler,
-            self.linker
-        )
+        let mut text = format!(
+            "{PROOF_RECORD_TAG}\ncommit {}\ntree {}\nbase {}\n",
+            self.commit, self.tree, self.base
+        );
+        for (key, value) in self.tools.fields() {
+            text.push_str(key);
+            text.push(' ');
+            text.push_str(value);
+            text.push('\n');
+        }
+        text
     }
 
     /// Reads a record written by [`ProofRecord::text`], and nothing else.
@@ -7805,15 +7793,18 @@ impl ProofRecord {
                 .map(str::to_owned)
                 .ok_or_else(|| format!("it has no `{key}` line where expected"))
         };
+        // The keys in the order of `ProofTools::fields`, which `text` writes.
         let record = Self {
             commit: field("commit")?,
             tree: field("tree")?,
             base: field("base")?,
-            mutants: field("cargo-mutants")?,
-            toolchain: field("toolchain")?,
-            host: field("host")?,
-            compiler: field("compiler")?,
-            linker: field("linker")?,
+            tools: ProofTools {
+                mutants: field("cargo-mutants")?,
+                toolchain: field("toolchain")?,
+                host: field("host")?,
+                compiler: field("compiler")?,
+                linker: field("linker")?,
+            },
         };
         if lines.next().is_some() {
             return Err("it has a line more".to_owned());
@@ -7847,18 +7838,51 @@ fn proof_record_path(runner: &mut dyn Runner, base: &str) -> Result<String, Fail
 
 /// What a record holds of the tools and the host: `cargo mutants --version`, the pinned
 /// release, the host and the compiler's build of `rustc -vV`, and the linker driver.
+///
+/// One type, written, read and compared field by field through [`ProofTools::fields`]
+/// only: a field left out of it is never read, which the compiler refuses (`dead_code`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ProofTools {
     /// `cargo mutants --version`.
     mutants: String,
-    /// The pinned release.
+    /// The pinned release ([`RUST_TOOLCHAIN_FILE`]).
     toolchain: String,
-    /// The host `rustc -vV` names.
+    /// The host `rustc -vV` names: what a run proves depends on the architecture
+    /// (`cfg(target_arch)`).
     host: String,
-    /// The compiler's commit and LLVM version, as `rustc -vV` names them.
+    /// The compiler's build, as `rustc -vV` names it: its commit, then its LLVM version
+    /// (`<commit-hash> LLVM <version>`).
     compiler: String,
-    /// The first line of `cc --version`.
+    /// The linker driver every build of the host links through, as the first line of
+    /// `cc --version` names it ([`LINKER_DRIVER`]): an input of every test program that
+    /// the pinned toolchain does not pin (a system update replaces it).
     linker: String,
+}
+
+impl ProofTools {
+    /// Each field with its key in a record, in the order a record writes them.
+    fn fields(&self) -> [(&'static str, &str); 5] {
+        [
+            ("cargo-mutants", &self.mutants),
+            ("toolchain", &self.toolchain),
+            ("host", &self.host),
+            ("compiler", &self.compiler),
+            ("linker", &self.linker),
+        ]
+    }
+
+    /// The first field of `self`, as recorded, that differs from `now`'s, by its key, or
+    /// `None` when every field is the same.
+    fn differing<'tools>(
+        &'tools self,
+        now: &'tools Self,
+    ) -> Option<(&'static str, &'tools str, &'tools str)> {
+        self.fields()
+            .into_iter()
+            .zip(now.fields())
+            .find(|((_, recorded), (_, current))| recorded != current)
+            .map(|((key, recorded), (_, current))| (key, recorded, current))
+    }
 }
 
 /// The program the Rust toolchain links through on every platform the checks run on
@@ -7969,24 +7993,9 @@ fn usable_proof(
                 })?;
             if record.base != base {
                 Err(format!("it is of the base {}", record.base))
-            } else if record.host != tools.host {
+            } else if let Some((key, recorded, current)) = record.tools.differing(&tools) {
                 Err(format!(
-                    "it was made on the host {}, not {}",
-                    record.host, tools.host
-                ))
-            } else if (record.mutants.as_str(), record.toolchain.as_str())
-                != (tools.mutants.as_str(), tools.toolchain.as_str())
-            {
-                Err(format!(
-                    "it was made with {} and {}, not {} and {}",
-                    record.mutants, record.toolchain, tools.mutants, tools.toolchain
-                ))
-            } else if (record.compiler.as_str(), record.linker.as_str())
-                != (tools.compiler.as_str(), tools.linker.as_str())
-            {
-                Err(format!(
-                    "it was built by the compiler {} and the linker {}, not {} and {}",
-                    record.compiler, record.linker, tools.compiler, tools.linker
+                    "it was made with the {key} {recorded}, not {current}"
                 ))
             } else if tree != record.tree {
                 Err(format!(
@@ -8105,11 +8114,7 @@ fn record_mutation_proof(
         commit,
         tree,
         base,
-        mutants: tools.mutants,
-        toolchain: tools.toolchain,
-        host: tools.host,
-        compiler: tools.compiler,
-        linker: tools.linker,
+        tools,
     };
     // Written only as the reader reads it: an empty or malformed field fails here.
     let record = ProofRecord::parse(&record.text())
