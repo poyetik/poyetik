@@ -8033,13 +8033,7 @@ pub const LINKER_DRIVER: &str = "cc";
 ///
 /// Returns why any of them cannot be read.
 fn proof_tools(runner: &mut dyn Runner) -> Result<ProofTools, Failure> {
-    let mutants = runner
-        .capture(&Cmd::new("cargo", &["mutants", "--version"], Dir::Root))
-        .map_err(|failure| {
-            Failure::from(format!(
-                "cannot read the version of cargo-mutants: {failure}"
-            ))
-        })?;
+    let mutants = version_line(runner, "cargo", &["mutants"], "cargo-mutants")?;
     let toolchain = read_file(runner, RUST_TOOLCHAIN_FILE)?;
     let release = toolchain_channel(&toolchain)
         .map(str::to_owned)
@@ -8057,10 +8051,10 @@ fn proof_tools(runner: &mut dyn Runner) -> Result<ProofTools, Failure> {
     };
     let host = named("host")?;
     let compiler = format!("{} LLVM {}", named("commit-hash")?, named("LLVM version")?);
-    let linker = version_line(runner, LINKER_DRIVER, "the linker driver")?;
-    let git = version_line(runner, "git", "git")?;
+    let linker = version_line(runner, LINKER_DRIVER, &[], "the linker driver")?;
+    let git = version_line(runner, "git", &[], "git")?;
     Ok(ProofTools {
-        mutants: mutants.trim().to_owned(),
+        mutants,
         toolchain: release,
         host: host.to_owned(),
         compiler,
@@ -8069,7 +8063,8 @@ fn proof_tools(runner: &mut dyn Runner) -> Result<ProofTools, Failure> {
     })
 }
 
-/// The first line of `<program> --version` (`what` names the program in errors).
+/// The first line of `<program> <subcommand…> --version` (`what` names the program in
+/// errors).
 ///
 /// # Errors
 ///
@@ -8077,20 +8072,22 @@ fn proof_tools(runner: &mut dyn Runner) -> Result<ProofTools, Failure> {
 fn version_line(
     runner: &mut dyn Runner,
     program: &'static str,
+    subcommand: &[&str],
     what: &str,
 ) -> Result<String, Failure> {
-    let answer = runner
-        .capture(&Cmd::new(program, &["--version"], Dir::Root))
-        .map_err(|failure| {
-            Failure::from(format!("cannot read the version of {what}: {failure}"))
-        })?;
+    let mut args = subcommand.to_vec();
+    args.push("--version");
+    let cmd = Cmd::new(program, &args, Dir::Root);
+    let answer = runner.capture(&cmd).map_err(|failure| {
+        Failure::from(format!("cannot read the version of {what}: {failure}"))
+    })?;
     answer
         .lines()
         .next()
         .map(str::trim)
         .filter(|line| !line.is_empty())
         .map(str::to_owned)
-        .ok_or_else(|| Failure::from(format!("`{program} --version` names no version")))
+        .ok_or_else(|| Failure::from(format!("`{}` names no version", cmd.line())))
 }
 
 /// The proof record of `base` the default check may start from, if there is a valid one;
@@ -8225,36 +8222,34 @@ fn tree_cleanliness(runner: &mut dyn Runner) -> Result<(String, String), Failure
     Ok((status, listed))
 }
 
-/// Records the proof of the Rust mutation step of the default check that just passed
-/// ([`Action::MutationProofRecorded`]), for the next default check against the same base
-/// ([`ProofRecord`]): only when the tree is clean ([`unclean`]) and as it was when the
-/// checks started (nothing checked out, changed or added while they ran), so that the
-/// commit recorded is exactly the state the mutants were killed in. Otherwise it says why
-/// it records nothing, and succeeds.
+/// What the proof record step found ([`proof_to_record`]).
+enum Recordable {
+    /// The record of a clean tree, as it was when the checks started.
+    Record(ProofRecord),
+    /// Why the tree cannot be recorded.
+    Not(String),
+}
+
+/// The record of the tree, if it can be recorded: only when the tree is clean
+/// ([`unclean`]) and as it was when the checks started (`recorded`: nothing checked out,
+/// changed or added while they ran).
 ///
 /// # Errors
 ///
-/// Returns why the base measured, the tree, the tools or the record cannot be read or
-/// written, or why the reader would refuse the record.
-fn record_mutation_proof(
+/// Returns why the tree, the base measured or the tools cannot be read.
+fn proof_to_record(
     runner: &mut dyn Runner,
-    out: &mut dyn Write,
     recorded: Option<&TreeState>,
-) -> Result<(), Failure> {
+) -> Result<Recordable, Failure> {
     let now = tree_state(runner)?;
     if recorded != Some(&now) {
-        return say(
-            out,
-            "  not recorded: the tree changed while the checks ran, or was not recorded at \
-             their start",
-        );
+        return Ok(Recordable::Not(
+            "the tree changed while the checks ran, or was not recorded at their start".to_owned(),
+        ));
     }
     let (status, listed) = tree_cleanliness(runner)?;
     if let Some(reason) = unclean(&status, &listed) {
-        return say(
-            out,
-            &format!("  not recorded: the tree is not clean: {reason}"),
-        );
+        return Ok(Recordable::Not(format!("the tree is not clean: {reason}")));
     }
     let base = read_file(runner, MEASURED_BASE)?.trim().to_owned();
     let commit = now.head.lines().next().unwrap_or_default().to_owned();
@@ -8265,27 +8260,58 @@ fn record_mutation_proof(
     )?
     .trim()
     .to_owned();
-    let tools = proof_tools(runner)?;
-    let record = ProofRecord {
+    Ok(Recordable::Record(ProofRecord {
         commit,
         tree,
         base,
-        tools,
+        tools: proof_tools(runner)?,
+    }))
+}
+
+/// Records the proof of the Rust mutation step of the default check that just passed
+/// ([`Action::MutationProofRecorded`]), for the next default check against the same base
+/// ([`ProofRecord`]), when [`proof_to_record`] gives one, so that the commit recorded is
+/// exactly the state the mutants were killed in.
+///
+/// The record is optional: when the tree cannot be recorded, or the environment refuses
+/// (the tree, the base measured or the tools cannot be read, git's common directory cannot
+/// be found, the record cannot be written), it says why on one line (`not recorded: …`)
+/// and succeeds.
+///
+/// # Errors
+///
+/// Returns why the reader would refuse the record it would write (a defect of xtask, never
+/// of the environment), or why stdout cannot be written.
+fn record_mutation_proof(
+    runner: &mut dyn Runner,
+    out: &mut dyn Write,
+    recorded: Option<&TreeState>,
+) -> Result<(), Failure> {
+    let record = match proof_to_record(runner, recorded) {
+        Ok(Recordable::Record(record)) => record,
+        Ok(Recordable::Not(reason)) => return say(out, &format!("  not recorded: {reason}")),
+        Err(failure) => {
+            return say(out, &format!("  not recorded: {}", failure.summary));
+        }
     };
     // Written only as the reader reads it: an empty or malformed field fails here.
     let record = ProofRecord::parse(&record.text())
         .map_err(|reason| Failure::from(format!("cannot record the mutation proof: {reason}")))?;
-    let path = proof_record_path(runner, &record.base)?;
-    runner
-        .write(&path, &record.text())
-        .map_err(|error| Failure::from(format!("cannot write {path}: {error}")))?;
-    say(
-        out,
-        &format!(
-            "  recorded: the mutants of {} are proven against {}",
-            record.commit, record.base
+    let written = proof_record_path(runner, &record.base).and_then(|path| {
+        runner
+            .write(&path, &record.text())
+            .map_err(|error| Failure::from(format!("cannot write {path}: {error}")))
+    });
+    match written {
+        Ok(()) => say(
+            out,
+            &format!(
+                "  recorded: the mutants of {} are proven against {}",
+                record.commit, record.base
+            ),
         ),
-    )
+        Err(failure) => say(out, &format!("  not recorded: {}", failure.summary)),
+    }
 }
 
 /// The paths of the tracked files changed since `since`, committed or not, as git names

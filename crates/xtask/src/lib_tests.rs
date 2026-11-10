@@ -12167,10 +12167,29 @@ fn records_no_proof_of_a_tree_that_changed() {
     );
 }
 
+/// Runs the proof steps on `fake`, which must succeed without writing a record, and returns
+/// what the record step said.
+fn not_recorded(fake: &mut Fake) -> String {
+    let mut out = Vec::new();
+    assert_eq!(
+        run_steps(&proof_steps(), fake, &mut out),
+        Ok(()),
+        "the record is optional"
+    );
+    assert!(
+        !fake.files.contains_key(&record_path(PROVEN[2])),
+        "nothing recorded"
+    );
+    let said = String::from_utf8(out).expect("UTF-8");
+    said.lines()
+        .find(|line| line.starts_with("  not recorded: "))
+        .unwrap_or_default()
+        .to_owned()
+}
+
 #[test]
-fn fails_to_record_what_it_cannot_read_or_write() {
-    let step = "Rust mutation proof recorded for the next default check";
-    for (broken, error) in [
+fn records_nothing_when_it_cannot_read_or_write() {
+    for (broken, reason) in [
         (
             "git log -1 --format=%T HEAD".to_owned(),
             "cannot read the tree checked out: cannot run `git log -1 --format=%T HEAD`: not found"
@@ -12201,17 +12220,56 @@ fn fails_to_record_what_it_cannot_read_or_write() {
         let mut fake = measured();
         fake.broken = Some(broken.clone());
         assert_eq!(
-            run_steps(&proof_steps(), &mut fake, &mut Vec::new()),
-            failed(format!("{step}: {error}")),
+            not_recorded(&mut fake),
+            format!("  not recorded: {reason}"),
             "{broken}"
         );
     }
     let mut no_base = passing();
-    assert!(
-        run_steps(&proof_steps(), &mut no_base, &mut Vec::new())
-            .is_err_and(|failure| failure.summary.contains(super::MEASURED_BASE)),
+    assert_eq!(
+        not_recorded(&mut no_base),
+        format!(
+            "  not recorded: cannot read {}: missing",
+            super::MEASURED_BASE
+        ),
         "no base measured"
     );
+    let mut no_host = measured();
+    drop(
+        no_host
+            .files
+            .insert(format!("capture {}", HOST.0), "release: 1\n".to_owned()),
+    );
+    assert_eq!(
+        not_recorded(&mut no_host),
+        "  not recorded: `rustc -vV` names no host",
+        "no host"
+    );
+    let mut no_channel = measured();
+    drop(no_channel.files.insert(
+        super::RUST_TOOLCHAIN_FILE.to_owned(),
+        "[toolchain]\n".to_owned(),
+    ));
+    assert_eq!(
+        not_recorded(&mut no_channel),
+        "  not recorded: rust-toolchain.toml pins no channel",
+        "no channel"
+    );
+    let mut no_common = measured();
+    drop(no_common.files.remove(&format!("capture {}", COMMON_DIR.0)));
+    assert_eq!(
+        not_recorded(&mut no_common),
+        format!(
+            "  not recorded: cannot find git's common directory: `{}` exited with code 1: failed",
+            COMMON_DIR.0
+        ),
+        "no common directory"
+    );
+}
+
+#[test]
+fn fails_to_record_what_it_would_not_read_back() {
+    let step = "Rust mutation proof recorded for the next default check";
     let mut empty_base = measured();
     drop(
         empty_base
@@ -12225,44 +12283,29 @@ fn fails_to_record_what_it_cannot_read_or_write() {
         )),
         "an empty base is never written"
     );
+    assert!(
+        !empty_base
+            .ran
+            .iter()
+            .any(|line| line.starts_with("write .git/poyetik/")),
+        "nothing written"
+    );
     let mut spaced = measured();
     drop(spaced.files.insert(
         format!("capture {}", HOST.0),
         "commit-hash: 1\nhost: a b\nhost: c\nLLVM version: 2\n".to_owned(),
     ));
-    let mut spaced_host = measured();
-    drop(
-        spaced_host
-            .files
-            .insert(format!("capture {}", HOST.0), "release: 1\n".to_owned()),
-    );
-    assert_eq!(
-        run_steps(&proof_steps(), &mut spaced_host, &mut Vec::new()),
-        failed(format!("{step}: `rustc -vV` names no host")),
-        "no host"
-    );
     assert_eq!(
         run_steps(&proof_steps(), &mut spaced, &mut Vec::new()),
         Ok(()),
         "a host with a space is written as it is, and reads back"
     );
-    let mut no_channel = measured();
-    drop(no_channel.files.insert(
-        super::RUST_TOOLCHAIN_FILE.to_owned(),
-        "[toolchain]\n".to_owned(),
-    ));
-    assert_eq!(
-        run_steps(&proof_steps(), &mut no_channel, &mut Vec::new()),
-        failed(format!("{step}: rust-toolchain.toml pins no channel")),
-        "no channel"
-    );
-    let mut no_common = measured();
-    drop(no_common.files.remove(&format!("capture {}", COMMON_DIR.0)));
     assert!(
-        run_steps(&proof_steps(), &mut no_common, &mut Vec::new()).is_err_and(|failure| failure
-            .summary
-            .contains("cannot find git's common directory")),
-        "no common directory"
+        spaced
+            .files
+            .get(&record_path(PROVEN[2]))
+            .is_some_and(|text| text.contains("\nhost a b\n")),
+        "recorded"
     );
 }
 
