@@ -220,6 +220,30 @@ impl Prepared {
 /// Reads a conformance case and its patch (the text of the patch file, unchanged) and
 /// builds its plan in the precision of `format`, without rendering it yet.
 ///
+/// It runs in the default floating-point mode that `_mode` proves (`engine_fpenv`):
+/// parsing and building do float work, so a preparation without the proof does not compile:
+///
+/// ```compile_fail,E0061
+/// let case = r#"{"sample_rate":48000,"frames":100}"#;
+/// let patch = r#"{"format":1,"nodes":[{"id":1,"box":"osc~"},{"id":2,"box":"dac~"}],
+///   "connections":[{"from":[1,0],"to":[2,0]}]}"#;
+/// let format = engine_core::RenderFormat::Binary64;
+/// let _ = engine_cli::prepare_case(case, patch, format);
+/// ```
+///
+/// while inside [`engine_fpenv::with_default_mode`] it does:
+///
+/// ```
+/// let case = r#"{"sample_rate":48000,"frames":100}"#;
+/// let patch = r#"{"format":1,"nodes":[{"id":1,"box":"osc~"},{"id":2,"box":"dac~"}],
+///   "connections":[{"from":[1,0],"to":[2,0]}]}"#;
+/// let format = engine_core::RenderFormat::Binary64;
+/// let prepared = engine_fpenv::with_default_mode(|mode| {
+///     engine_cli::prepare_case(case, patch, format, mode)
+/// });
+/// assert_eq!(prepared.map(|prepared| prepared.format()), Ok(format));
+/// ```
+///
 /// Also checks, before any rendering, that the render fits a WAV file.
 ///
 /// # Errors
@@ -228,7 +252,12 @@ impl Prepared {
 /// or its sample rate is invalid or when its
 /// render would not fit a WAV file, and [`CaseError::Patch`] when the patch is invalid
 /// or has no audio output.
-pub fn prepare_case(case: &str, patch: &str, format: RenderFormat) -> Result<Prepared, CaseError> {
+pub fn prepare_case(
+    case: &str,
+    patch: &str,
+    format: RenderFormat,
+    _mode: DefaultMode<'_>,
+) -> Result<Prepared, CaseError> {
     let case: Case = serde_json::from_str(case)
         .map_err(|error| CaseError::Case(format!("invalid case: {error}")))?;
     if !(1..=MAX_FRAMES).contains(&case.frames) {
@@ -269,8 +298,8 @@ pub fn prepare_case(case: &str, patch: &str, format: RenderFormat) -> Result<Pre
     })
 }
 
-/// Reads a conformance case and its patch and renders it in `format` with the native
-/// engine, in the default floating-point mode that `mode` proves.
+/// Reads a conformance case and its patch, builds its plan and renders it in `format` with
+/// the native engine, all in the default floating-point mode that `mode` proves.
 ///
 /// # Errors
 ///
@@ -281,5 +310,5 @@ pub fn render_case(
     format: RenderFormat,
     mode: DefaultMode<'_>,
 ) -> Result<Rendered, CaseError> {
-    prepare_case(case, patch, format).map(|prepared| prepared.render(mode))
+    prepare_case(case, patch, format, mode).map(|prepared| prepared.render(mode))
 }

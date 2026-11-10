@@ -192,9 +192,10 @@ struct CaseFiles {
 }
 
 impl CaseFiles {
-    /// Prepares the case in `format`, naming the file at fault on failure.
-    fn prepare(&self, format: RenderFormat) -> Result<Prepared, String> {
-        prepare_case(&self.case, &self.patch, format)
+    /// Prepares the case in `format`, in the default floating-point mode that `mode`
+    /// proves, naming the file at fault on failure.
+    fn prepare(&self, format: RenderFormat, mode: DefaultMode<'_>) -> Result<Prepared, String> {
+        prepare_case(&self.case, &self.patch, format, mode)
             .map_err(|error| error.in_files(&self.case_path, &self.patch_path))
     }
 }
@@ -304,7 +305,7 @@ fn hashes(files: &mut dyn Files, dir: &Path, mode: DefaultMode<'_>) -> Result<Re
     for case in cases(files, dir)? {
         let mut formats = BTreeMap::new();
         for format in RenderFormat::ALL {
-            let rendered = case.prepare(format)?.render(mode);
+            let rendered = case.prepare(format, mode)?.render(mode);
             drop(formats.insert(format.name().to_owned(), rendered.hash().to_string()));
         }
         // Case names are file names of one directory, hence unique.
@@ -366,6 +367,7 @@ fn render(
         &read(files, case_path, MAX_CASE_BYTES)?,
         &read(files, patch_path, MAX_PATCH_BYTES)?,
         format.unwrap_or(RenderFormat::Binary64),
+        mode,
     )
     .map_err(|error| error.in_files(case_path, patch_path))?;
     let header = *prepared.wav_header();
@@ -453,7 +455,7 @@ fn check(
         let same_versions = current.is_some() && current.as_ref() == recorded;
         for format in RenderFormat::ALL {
             let (passed, line) = match case
-                .prepare(format)
+                .prepare(format, mode)
                 .map(|prepared| prepared.render(mode).hash().to_string())
             {
                 Ok(hash) => match references.and_then(|hashes| hashes.get(format.name())) {
@@ -574,7 +576,7 @@ fn export(
         .map_err(|error| format!("cannot create {}: {error}", target.display()))?;
     for case in cases(files, dir)? {
         for format in RenderFormat::ALL {
-            let prepared = case.prepare(format)?;
+            let prepared = case.prepare(format, mode)?;
             let header = *prepared.wav_header();
             let rendered = prepared.render(mode);
             let path = target.join(format!("{}.{format}.wav", case.name));

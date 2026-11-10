@@ -112,6 +112,11 @@ fn usage(reason: &str) -> String {
     format!("{reason} (see: engine-cli help)")
 }
 
+/// Prepares a case in the default floating-point mode, as `dispatch` does.
+fn prepare(case: &str, patch: &str, format: RenderFormat) -> Result<super::Prepared, CaseError> {
+    with_default_mode(|mode| super::prepare_case(case, patch, format, mode))
+}
+
 /// The hash of the sine case in `format`.
 fn sine_hash(format: RenderFormat) -> String {
     with_default_mode(|mode| render_case(SINE, PATCH, format, mode))
@@ -252,7 +257,7 @@ fn accepts_durations_from_one_frame_to_the_limit_only() {
     let with_frames = |frames: &str| format!(r#"{{"sample_rate":48000,"frames":{frames}}}"#);
     for frames in ["0", "536870913", "18446744073709551615"] {
         assert_eq!(
-            super::prepare_case(&with_frames(frames), PATCH, RenderFormat::Binary32).map(|_| ()),
+            prepare(&with_frames(frames), PATCH, RenderFormat::Binary32).map(|_| ()),
             Err(CaseError::Case(format!(
                 "invalid case: frames must be between 1 and 536870912, got {frames}"
             ))),
@@ -261,12 +266,12 @@ fn accepts_durations_from_one_frame_to_the_limit_only() {
     }
     for format in RenderFormat::ALL {
         assert!(
-            super::prepare_case(&with_frames("1"), PATCH, format).is_ok(),
+            prepare(&with_frames("1"), PATCH, format).is_ok(),
             "one frame"
         );
         // The longest case passes the duration check; in stereo, only the WAV size stops it.
         assert_eq!(
-            super::prepare_case(&with_frames("536870912"), PATCH, format).map(|_| ()),
+            prepare(&with_frames("536870912"), PATCH, format).map(|_| ()),
             Err(CaseError::Case(
                 "too long for WAV: 1073741824 samples".to_owned()
             )),
@@ -286,12 +291,9 @@ fn rejects_every_case_of_the_shared_invalid_corpus() {
         // above it.
         let refused = match Disk.read(&path, super::MAX_CASE_BYTES) {
             Err(error) => error.kind() == io::ErrorKind::FileTooLarge,
-            Ok(case) => RenderFormat::ALL.into_iter().all(|format| {
-                matches!(
-                    super::prepare_case(&case, PATCH, format),
-                    Err(CaseError::Case(_))
-                )
-            }),
+            Ok(case) => RenderFormat::ALL
+                .into_iter()
+                .all(|format| matches!(prepare(&case, PATCH, format), Err(CaseError::Case(_)))),
         };
         assert!(refused, "{} is rejected", path.display());
         count += 1;
@@ -1288,7 +1290,7 @@ fn refuses_files_larger_than_their_limit() {
 #[test]
 fn prepares_a_case_before_rendering() {
     for format in RenderFormat::ALL {
-        let prepared = super::prepare_case(SINE, PATCH, format).expect("valid case");
+        let prepared = prepare(SINE, PATCH, format).expect("valid case");
         assert_eq!(prepared.channels(), 2, "channels");
         assert_eq!(prepared.sample_count(), 200, "100 frames x 2 channels");
         assert_eq!(prepared.format(), format, "its format");
@@ -1308,13 +1310,13 @@ fn refuses_a_case_too_long_for_a_wav_file_before_rendering() {
     assert_ne!(huge, SINE, "the duration was replaced");
     for format in RenderFormat::ALL {
         assert_eq!(
-            super::prepare_case(&huge, PATCH, format).map(|prepared| prepared.sample_count()),
+            prepare(&huge, PATCH, format).map(|prepared| prepared.sample_count()),
             Err(CaseError::Case(
                 "too long for WAV: 1073741824 samples".to_owned()
             )),
             "rejected while preparing"
         );
-        let prepared = super::prepare_case(SINE, PATCH, format).expect("valid case");
+        let prepared = prepare(SINE, PATCH, format).expect("valid case");
         assert_eq!(
             prepared.wav_header(),
             &wav_header(48_000, 2, 200, format).expect("valid sizes"),
