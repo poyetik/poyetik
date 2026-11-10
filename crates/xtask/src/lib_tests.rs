@@ -11578,6 +11578,10 @@ fn widens_a_crate_that_changed_since_the_record_as_without_it() {
             && untracked_said.contains(&proven_line("engine-core")),
         "an untracked file in a crate: untracked_said: {untracked_said}"
     );
+}
+
+#[test]
+fn mutates_every_crate_not_proven_whole_when_what_every_test_uses_changed() {
     // What every test depends on changed since the base, before the record: every crate
     // not proven, whole; the proven ones left out.
     let mut everything = proven_fake(
@@ -11602,12 +11606,65 @@ fn widens_a_crate_that_changed_since_the_record_as_without_it() {
         .get(CHANGES_DIFF)
         .cloned()
         .unwrap_or_default();
-    assert!(
-        everything_said.contains("  Cargo.lock changed: every Rust mutant\n")
-            && everything_said.contains(&proven_line("engine-core"))
-            && diff.contains("+++ b/crates/engine-hash/src/lib.rs\n@@ -0,0 +1,1 @@\n+fn h() {}\n")
-            && !diff.contains("engine-core"),
-        "everything_said: {everything_said}; diff: {diff}"
+    let proven: String = [
+        "engine-core",
+        "engine-objects",
+        "engine-patch",
+        "engine-alloc-counter",
+        "engine-fpenv",
+        "engine-testkit",
+        "engine-cli",
+        "engine-wasm",
+        "xtask",
+    ]
+    .iter()
+    .map(|name| proven_line(name))
+    .collect();
+    assert_eq!(
+        everything_said,
+        format!(
+            "▶ [1/2] Rust mutation testing of the changes\n  the changes since {} (merge base \
+             with @{{upstream}})\n  Cargo.lock changed: every Rust mutant but the crates proven \
+             below\n{proven}  done in 1.5 s\n▶ [2/2] Rust unviable mutants reviewed\n  done in \
+             1.5 s\n✔ all 2 checks passed in 3.0 s\n",
+            PROVEN[2]
+        ),
+        "every crate proven named, the render hash mutated whole"
+    );
+    assert_eq!(
+        diff,
+        format!(
+            "{}{}",
+            one_line_change("Cargo.lock"),
+            super::new_file_diff("crates/engine-hash/src/lib.rs", "fn h() {}\n")
+        ),
+        "every crate is tested whole or proven: git keeps only what no crate holds"
+    );
+}
+
+#[test]
+fn names_each_proven_crate_the_check_would_otherwise_have_tested() {
+    // The shared test crate changed since the base, before the record: the boxes, which
+    // only it widens, are proven, and said so; the render hash, out of scope, is not named.
+    let mut fake = proven_fake(&proof_record(PROVEN[2]), "");
+    drop(fake.files.insert(
+        diff_since(PROVEN[2]),
+        one_line_change("crates/engine-testkit/src/lib.rs"),
+    ));
+    drop(fake.files.remove(UNVIABLE_REPORT));
+    let said = mutate_changes(&mut fake);
+    assert_eq!(
+        said,
+        format!(
+            "▶ [1/2] Rust mutation testing of the changes\n  the changes since {} (merge base \
+             with @{{upstream}})\n{}{}  every change is proven: no mutant to test\n  done in \
+             1.5 s\n▶ [2/2] Rust unviable mutants reviewed\n  done in 1.5 s\n✔ all 2 checks \
+             passed in 3.0 s\n",
+            PROVEN[2],
+            proven_line("engine-objects"),
+            proven_line("engine-testkit")
+        ),
+        "the crates in scope only through the widening are named"
     );
 }
 
@@ -12481,6 +12538,27 @@ fn reads_the_targets_of_real_cargo_metadata() {
         ]),
         "both settings as cargo reports them"
     );
+}
+
+#[test]
+fn tells_the_files_of_a_crate_by_its_directory() {
+    let core = RustCrate {
+        name: "engine-core",
+        dir: "crates/engine-core",
+        binary: false,
+        test_data: &[],
+    };
+    for (path, held) in [
+        ("crates/engine-core/src/lib.rs", Some("src/lib.rs")),
+        ("crates/engine-core/", Some("")),
+        ("crates/engine-core", None),
+        ("crates/engine-core-x/a.rs", None),
+        ("crates/engine-corea.rs", None),
+        ("x/crates/engine-core/a.rs", None),
+        ("crates/engine-cor/a.rs", None),
+    ] {
+        assert_eq!(core.holds(path), held, "{path}");
+    }
 }
 
 #[test]

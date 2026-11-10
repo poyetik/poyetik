@@ -1188,7 +1188,7 @@ pub fn unsafe_crates() -> Vec<&'static str> {
             UNSAFE_FILES
                 .iter()
                 .filter(|file| !ASSEMBLY_FILES.contains(file))
-                .any(|file| file.starts_with(&format!("{}/", krate.dir)))
+                .any(|file| krate.holds(file).is_some())
         })
         .map(|krate| krate.name)
         .collect()
@@ -3482,15 +3482,10 @@ pub fn unsafe_gate(sources: &[(String, String)]) -> Result<(), Failure> {
         .map(|(_, file)| file)
         .collect();
     for (path, text) in sources {
-        let Some((krate, relative)) = RUST_CRATES.iter().find_map(|krate| {
-            path.strip_prefix(&format!("{}/", krate.dir))
-                .map(|relative| (krate, relative))
-        }) else {
+        let Some((krate, relative)) = in_crate(path) else {
             continue;
         };
-        let holds_unsafe = UNSAFE_FILES
-            .iter()
-            .any(|file| file.starts_with(&format!("{}/", krate.dir)));
+        let holds_unsafe = UNSAFE_FILES.iter().any(|file| krate.holds(file).is_some());
         let required = if holds_unsafe {
             !UNSAFE_FILES.contains(&path.as_str())
                 && !unsafe_tests.contains(path)
@@ -3512,11 +3507,9 @@ pub const NOT_TEST_LINES: [&str; 2] = [ENGINE_ARITHMETIC_FORBID, BOX_FLOAT_FORBI
 
 /// The crate of [`RUST_CRATES`] holding `path`, and the path relative to its directory.
 fn in_crate(path: &str) -> Option<(&'static RustCrate, &str)> {
-    RUST_CRATES.iter().find_map(|krate| {
-        path.strip_prefix(krate.dir)
-            .and_then(|rest| rest.strip_prefix('/'))
-            .map(|relative| (krate, relative))
-    })
+    RUST_CRATES
+        .iter()
+        .find_map(|krate| krate.holds(path).map(|relative| (krate, relative)))
 }
 
 /// Checks that Rust test code lives only under a crate's `tests/` or in its `*_tests.rs`
@@ -3779,7 +3772,7 @@ pub fn test_data_gate(sources: &[(String, String)]) -> Result<(), Failure> {
                 problems.push(format!("{path}:{line}: `{literal}` leaves the repository"));
                 continue;
             };
-            if under_root(&target, &format!("{}/", krate.dir)) {
+            if krate.holds(&target).is_some() {
                 continue;
             }
             match krate
@@ -7645,46 +7638,59 @@ fn crates_building(
         .collect()
 }
 
-/// What the paths of `changed`, changed since `since`, widen the default check's mutation
-/// testing to ([`widening`]): `Err` with the first path that widens it to every crate, else
-/// each crate widened to every mutant with the first path that widens it.
-///
-/// # Errors
-///
-/// Returns why the crates or the lock files cannot be read.
-fn widened_crates(
-    runner: &mut dyn Runner,
-    since: &str,
-    changed: &[String],
-) -> Result<Result<BTreeMap<&'static str, String>, String>, Failure> {
-    let mut widened: BTreeMap<&'static str, String> = BTreeMap::new();
-    let builds = changed.iter().any(|path| {
+/// The crates of the workspace each crate of [`RUST_CRATES`] compiles for its tests
+/// ([`crate_closures`]).
+type Closures = BTreeMap<&'static str, BTreeSet<&'static str>>;
+
+/// What the changes since a commit widen the default check's mutation testing to, beyond
+/// their lines ([`reach`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Reach {
+    /// Every crate, by the first path that widens to it.
+    Everything(String),
+    /// Each crate widened to every mutant, with the first path that widens it.
+    Crates(BTreeMap<&'static str, String>),
+}
+
+/// Whether one of `changed` widens through the builds of crates (a manifest, the shared
+/// test crate), which needs the [`Closures`].
+fn needs_closures<'path>(mut changed: impl Iterator<Item = &'path str>) -> bool {
+    changed.any(|path| {
         matches!(
             widening(path),
             Some(Widening::Manifest(_) | Widening::SharedTests)
         )
-    });
-    let closures = if builds {
-        crate_closures(&crates_metadata(runner)?)?
-    } else {
-        BTreeMap::new()
-    };
+    })
+}
+
+/// What the paths of `changed`, changed since `since`, widen the default check's mutation
+/// testing to ([`widening`], [`Reach`]): the one decision both the run and a proof record
+/// take, `closures` holding what each crate builds when [`needs_closures`].
+///
+/// A lock file that cannot be compared entry by entry widens to every crate.
+fn reach<'path>(
+    runner: &mut dyn Runner,
+    since: &str,
+    changed: impl IntoIterator<Item = &'path str>,
+    closures: &Closures,
+) -> Reach {
+    let mut widened: BTreeMap<&'static str, String> = BTreeMap::new();
     for path in changed {
         let crates = match widening(path) {
             None => continue,
-            Some(Widening::Everything) => return Ok(Err(path.clone())),
+            Some(Widening::Everything) => return Reach::Everything(path.to_owned()),
             Some(Widening::Lock) => match lock_changes(runner, since) {
-                None => return Ok(Err(path.clone())),
+                None => return Reach::Everything(path.to_owned()),
                 Some(crates) => crates,
             },
-            Some(Widening::Manifest(name)) => crates_building(&closures, name),
-            Some(Widening::SharedTests) => crates_building(&closures, SHARED_TEST_CRATE),
+            Some(Widening::Manifest(name)) => crates_building(closures, name),
+            Some(Widening::SharedTests) => crates_building(closures, SHARED_TEST_CRATE),
         };
         for krate in crates {
-            let _first = widened.entry(krate).or_insert_with(|| path.clone());
+            let _first = widened.entry(krate).or_insert_with(|| path.to_owned());
         }
     }
-    Ok(Ok(widened))
+    Reach::Crates(widened)
 }
 
 /// Where the default check keeps its mutation proof records ([`ProofRecord`]).
@@ -8324,16 +8330,18 @@ fn crate_closures(
 
 /// The crates the proof record `record` still proves: those whose inputs are unchanged
 /// since its commit ([`ProofRecord`]), none when what every test depends on or the mutation
-/// rules changed since (said on `out`).
+/// rules changed since (said on `out`). Its changes widen as the run's do ([`reach`]); a
+/// change of any crate a crate builds (`closures`) is a change of its inputs.
 ///
 /// # Errors
 ///
-/// Returns why the changes since the record, the untracked files or the crates cannot be
-/// read, or stdout cannot be written.
+/// Returns why the changes since the record, the untracked files or the lock files cannot
+/// be read, or stdout cannot be written.
 fn proven_crates(
     runner: &mut dyn Runner,
     out: &mut dyn Write,
     record: &ProofRecord,
+    closures: &Closures,
 ) -> Result<Vec<RustCrate>, Failure> {
     let tracked = changed_since(runner, &record.commit)?;
     let untracked = git_output(
@@ -8347,90 +8355,82 @@ fn proven_crates(
         .chain(&untracked)
         .map(String::as_str)
         .collect();
-    let mut locked = BTreeSet::new();
-    let mut voiding = None;
-    for path in &changed {
-        if mutation_rule(path) {
-            voiding = Some((*path, "the mutation rules"));
-            break;
-        }
-        match widening(path) {
-            Some(Widening::Everything) => {
-                voiding = Some((*path, "what every test depends on"));
-                break;
+    let voiding = match changed.iter().find(|path| mutation_rule(path)) {
+        Some(path) => Some(format!("{path} changed since, the mutation rules")),
+        None => match reach(runner, &record.commit, changed.iter().copied(), closures) {
+            Reach::Everything(path) => {
+                Some(format!("{path} changed since, what every test depends on"))
             }
-            Some(Widening::Lock) => match lock_changes(runner, &record.commit) {
-                None => {
-                    voiding = Some((*path, "what every test depends on"));
-                    break;
-                }
-                Some(crates) => locked = crates,
-            },
-            Some(Widening::Manifest(_) | Widening::SharedTests) | None => {}
-        }
-    }
-    if let Some((path, what)) = voiding {
+            Reach::Crates(reached) => {
+                return Ok(RUST_CRATES
+                    .into_iter()
+                    .filter(|krate| {
+                        !reached.contains_key(krate.name)
+                            && !changed.iter().any(|path| {
+                                closures.get(krate.name).into_iter().flatten().any(|name| {
+                                    RUST_CRATES.iter().any(|built| {
+                                        built.name == *name && built.holds(path).is_some()
+                                    })
+                                }) || krate.test_data.iter().any(|root| under_root(path, root))
+                            })
+                    })
+                    .collect());
+            }
+        },
+    };
+    if let Some(why) = voiding {
         say(
             out,
             &format!(
-                "  ignored the mutation proof record of {}: {path} changed since, {what}",
+                "  ignored the mutation proof record of {}: {why}",
                 record.commit
             ),
         )?;
-        return Ok(Vec::new());
     }
-    let closures = crate_closures(&crates_metadata(runner)?)?;
-    let dir_of = |name: &str| {
-        RUST_CRATES
-            .iter()
-            .find(|krate| krate.name == name)
-            .map_or(String::new(), |krate| format!("{}/", krate.dir))
-    };
-    Ok(RUST_CRATES
-        .into_iter()
-        .filter(|krate| {
-            let dirs: Vec<String> = closures
-                .get(krate.name)
-                .into_iter()
-                .flatten()
-                .map(|name| dir_of(name))
-                .collect();
-            !locked.contains(krate.name)
-                && !changed.iter().any(|path| {
-                    dirs.iter().any(|dir| path.starts_with(dir.as_str()))
-                        || krate.test_data.iter().any(|root| under_root(path, root))
-                })
-        })
-        .collect())
+    Ok(Vec::new())
 }
 
-/// Says on `out` each crate of `proven` that `changed` (the paths changed since the base)
-/// touches: the record proves it.
-///
-/// # Errors
-///
-/// Returns why stdout cannot be written.
-fn say_proven(
-    out: &mut dyn Write,
-    proven: &[RustCrate],
-    changed: &[String],
-    record: &ProofRecord,
-) -> Result<(), Failure> {
-    for krate in proven {
-        if changed
-            .iter()
-            .any(|path| path.starts_with(&format!("{}/", krate.dir)))
-        {
-            say(
-                out,
-                &format!(
-                    "  {}: proven by an earlier check at {}, unchanged since",
-                    krate.name, record.commit
-                ),
-            )?;
-        }
-    }
-    Ok(())
+/// How much of a crate the changes put in scope ([`in_scope`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum MutatedPart {
+    /// The lines of it that changed.
+    Lines,
+    /// Every mutant of it, with why (`None` for [`Reach::Everything`], said once).
+    Whole(Option<String>),
+}
+
+/// Each crate the changes `changed` put in scope, and how much of it ([`MutatedPart`]): its own
+/// lines changed, or its test code or test data changed, or `reach` widens it.
+fn in_scope(changed: &[String], reach: &Reach) -> Vec<(RustCrate, MutatedPart)> {
+    RUST_CRATES
+        .into_iter()
+        .filter_map(|krate| {
+            let every = format!("every mutant of {}", krate.name);
+            let code = changed
+                .iter()
+                .find(|path| krate.holds(path).is_some_and(rust_test_code))
+                .map(|_| format!("the test code of {} changed: {every}", krate.name));
+            let data = changed
+                .iter()
+                .find(|path| krate.test_data.iter().any(|root| under_root(path, root)))
+                .map(|_| format!("the test data of {} changed: {every}", krate.name));
+            let whole = match reach {
+                Reach::Everything(_) => Some(MutatedPart::Whole(None)),
+                Reach::Crates(crates) => code
+                    .or(data)
+                    .or_else(|| {
+                        crates
+                            .get(krate.name)
+                            .map(|path| format!("{path} changed: {every}"))
+                    })
+                    .map(|said| MutatedPart::Whole(Some(said))),
+            };
+            let touched = changed.iter().any(|path| krate.holds(path).is_some());
+            whole
+                .or_else(|| touched.then_some(MutatedPart::Lines))
+                .map(|scope| (krate, scope))
+        })
+        .collect()
 }
 
 /// The diff cargo-mutants mutates the lines of: the changes since `base` (`new`, the new Rust
@@ -8489,10 +8489,11 @@ fn mutated_diff(
 /// A change to the test code of a crate, or to the test data it declares
 /// ([`RustCrate::test_data`]), can weaken the tests of any of its code, so every source of
 /// that crate is then added whole, and so is every crate a change of a shared input
-/// reaches ([`widened_crates`]); a change to what every test depends on
+/// reaches ([`reach`]); a change to what every test depends on
 /// ([`MUTATE_EVERYTHING_WHEN`]) mutates the whole workspace. A valid proof record of the
 /// base ([`usable_proof`]) then leaves out the crates it still proves ([`proven_crates`]),
-/// each said: every other crate is mutated exactly as without it.
+/// each the check would otherwise have tested said: every other crate is mutated exactly as
+/// without it.
 fn rust_mutants_of_changes(
     runner: &mut dyn Runner,
     out: &mut dyn Write,
@@ -8516,50 +8517,56 @@ fn rust_mutants_of_changes(
         );
     }
     say(out, &format!("  the changes since {measured}"))?;
+    // What every crate builds, read once, for the run and the record alike.
+    let closures = if proof.is_some() || needs_closures(changed.iter().map(String::as_str)) {
+        crate_closures(&crates_metadata(runner)?)?
+    } else {
+        Closures::new()
+    };
     let proven = match &proof {
-        Some(record) => proven_crates(runner, out, record)?,
+        Some(record) => proven_crates(runner, out, record, &closures)?,
         None => Vec::new(),
     };
-    if let Some(record) = &proof {
-        say_proven(out, &proven, &changed, record)?;
-    }
-    let unproven = |krate: &RustCrate| !proven.contains(krate);
-    let widened = widened_crates(runner, &base, &changed)?;
-    let everything = widened.as_ref().err();
-    // Each crate tested whole, with what to say of it (nothing when every crate is).
-    let tested: Vec<(RustCrate, Option<String>)> = RUST_CRATES
-        .into_iter()
-        .filter(unproven)
-        .filter_map(|krate| {
-            let prefix = format!("{}/", krate.dir);
-            let every = format!("every mutant of {}", krate.name);
-            let code = changed
-                .iter()
-                .find(|path| path.strip_prefix(&prefix).is_some_and(rust_test_code))
-                .map(|_| format!("the test code of {} changed: {every}", krate.name));
-            let data = changed
-                .iter()
-                .find(|path| krate.test_data.iter().any(|root| under_root(path, root)))
-                .map(|_| format!("the test data of {} changed: {every}", krate.name));
-            let built = widened
-                .as_ref()
-                .ok()
-                .and_then(|crates| crates.get(krate.name))
-                .map(|path| format!("{path} changed: {every}"));
-            match everything {
-                Some(_) => Some((krate, None)),
-                None => code.or(data).or(built).map(|said| (krate, Some(said))),
-            }
-        })
+    let reach = reach(runner, &base, changed.iter().map(String::as_str), &closures);
+    let scoped = in_scope(&changed, &reach);
+    // Each proven crate the check would otherwise have tested is named.
+    let skipped: Vec<&RustCrate> = scoped
+        .iter()
+        .map(|(krate, _)| krate)
+        .filter(|krate| proven.contains(krate))
         .collect();
-    if let Some(path) = everything {
-        say(out, &format!("  {path} changed: every Rust mutant"))?;
-        if proven.is_empty() {
-            return runner
-                .run(&tested_mutants_command(&["--workspace"], jobs))
-                .map_err(|failure| Failure::from(failure.to_string()));
+    if let Reach::Everything(path) = &reach {
+        let but = if skipped.is_empty() {
+            ""
+        } else {
+            " but the crates proven below"
+        };
+        say(out, &format!("  {path} changed: every Rust mutant{but}"))?;
+    }
+    if let Some(record) = &proof {
+        for krate in skipped {
+            say(
+                out,
+                &format!(
+                    "  {}: proven by an earlier check at {}, unchanged since",
+                    krate.name, record.commit
+                ),
+            )?;
         }
     }
+    if matches!(reach, Reach::Everything(_)) && proven.is_empty() {
+        return runner
+            .run(&tested_mutants_command(&["--workspace"], jobs))
+            .map_err(|failure| Failure::from(failure.to_string()));
+    }
+    let tested: Vec<(RustCrate, Option<String>)> = scoped
+        .into_iter()
+        .filter(|(krate, _)| !proven.contains(krate))
+        .filter_map(|(krate, scope)| match scope {
+            MutatedPart::Lines => None,
+            MutatedPart::Whole(said) => Some((krate, said)),
+        })
+        .collect();
     let diff = mutated_diff(runner, out, &base, &new, tested, &proven)?;
     if diff.is_empty() {
         return say(out, "  every change is proven: no mutant to test");
