@@ -199,10 +199,25 @@ fn meets_the_shared_known_answers() {
         // (checked below), not the floor.
         let noisy = vector.get("noise").is_some();
         let wanted_floor = if noisy { 0.0_f64 } else { floor };
+        // Without noise, the fundamental is within the floor. With white noise of step `s`
+        // (variance σ² = s²/12), the least-squares amplitude of a sine over N frames deviates
+        // by σ·√(2/N), one standard deviation: ten of them hold it with at least 99%
+        // (Chebyshev), as the noise interval below does, plus the floor.
+        let tolerance = if noisy {
+            let step = vector["noise"]["step"].as_f64().expect("a step");
+            10.0_f64 * step / 12.0_f64.sqrt() * (2.0_f64 / f64::from(frames)).sqrt() + floor
+        } else {
+            floor
+        };
+        let within = |level: f64| (level - amplitude).abs() <= tolerance;
         assert!(
-            (measured.fundamental - amplitude).abs() <= if noisy { 1e-5_f64 } else { floor },
-            "{name}: fundamental {} instead of {amplitude}",
+            within(measured.fundamental),
+            "{name}: fundamental {} instead of {amplitude}, beyond {tolerance}",
             measured.fundamental
+        );
+        assert!(
+            !within(amplitude + 2.0_f64 * tolerance),
+            "{name}: the tolerance refuses a fundamental twice as far"
         );
         if noisy {
             noise_within_its_interval(vector, &measured);
@@ -280,7 +295,8 @@ fn meets_the_shared_known_answers() {
 /// `σ² = s²/12`; the mean square of `N` of its samples has the standard deviation
 /// `s²/√(180·N)`, so it lies within 10 of them of `σ²` with a probability of at least 99 %
 /// (Chebyshev); a fit of `K` unknowns removes `K·σ²/N` of it on average, at most 100 times
-/// that with a probability of at least 99 % (Markov).
+/// that with a probability of at least 99 % (Markov); both at once with a probability of at
+/// least 98 % (a union bound).
 fn noise_within_its_interval(vector: &Value, measured: &Measurements) {
     let step = vector["noise"]["step"].as_f64().expect("a step");
     let frames = vector["frames"].as_f64().expect("frames");
@@ -566,6 +582,10 @@ fn evaluates_the_basis_at_a_phase() {
     // Orders 0 to 4 at an eighth of a cycle: 1; cos and sin of π/4, π/2, 3π/4; cos π.
     let half = core::f64::consts::FRAC_1_SQRT_2;
     let wanted = [1.0_f64, half, half, 0.0_f64, 1.0_f64, -half, half, -1.0_f64];
+    // Tolerance: each value is a sine or cosine of `2π·k·φ` (a product and the library's
+    // function, within an ulp each, of values below 1): a few ulps, 2^-53 each, below 1e-15;
+    // from 7.125, the fraction of `k·φ` (up to 4 · 7.125) is exact, its product with 2π
+    // rounds once more on a value below 2π: below 1e-14.
     assert_eq!(row.len(), wanted.len(), "{row:?}");
     for (value, expected) in row.iter().zip(wanted) {
         assert!((value - expected).abs() < 1e-15_f64, "{row:?}");
@@ -592,11 +612,14 @@ fn bounds_its_own_error_by_the_floor() {
     // the scaled normal equations `Ĝ y = b` err, entry by entry, by at most 2·(2β + 2^-52)
     // (products of two basis values, each within β, then compensated sums within 2^-52;
     // the scaled entries are at most 2 in magnitude), so a row of `Ĝ` by K times that, and
-    // `b` by 2β·√(2N)·peak; as `‖Ĝ⁻¹‖∞ ≤ 1/(1 - ρ)`, the coefficients `c = s·y` err by at most
-    // `(K·2·(2β + 2^-52)·Σ|c| + 2β·peak) / (1 - ρ)`, plus the Jacobi iterations left over
-    // (`ρ^T` of three times the right-hand side);
+    // `b` by β·√(2N)·peak (each product has one basis value) plus the rounding of those
+    // products and their compensated sum, 2^-53 and 2^-52 of it; as `‖Ĝ⁻¹‖∞ ≤ 1/(1 - ρ)`,
+    // the coefficients `c = s·y` err by at most
+    // `(K·2·(2β + 2^-52)·Σ|c| + (2β + 2^-53 + 2^-52)·peak) / (1 - ρ)`, plus the Jacobi
+    // iterations left over (`ρ^T` of three times the right-hand side);
     let rows = unknowns * 2.0_f64 * (2.0_f64 * basis_error + libm::exp2(-52.0_f64));
-    let solve = (rows + 2.0_f64 * basis_error) / (1.0_f64 - CONDITIONING_MAX)
+    let right = 2.0_f64 * basis_error + libm::exp2(-53.0_f64) + libm::exp2(-52.0_f64);
+    let solve = (rows + right) / (1.0_f64 - CONDITIONING_MAX)
         + libm::pow(CONDITIONING_MAX, f64::from(JACOBI_ITERATIONS)) * 3.0_f64;
     // and the spectrum errs by log2(M)·5·2^-53 of its norm (Higham, 2002, theorem 24.2),
     // at most 23 stages, times √(M/N)·2/Σw·√N ≤ 2·√8/0.358 at most.
@@ -738,6 +761,9 @@ fn refuses_components_it_cannot_tell_apart() {
         .expect("resolvable")
         .harmonics
         .expect("resolvable");
+    // Tolerance: orthogonal components give a Gram matrix diagonal in exact arithmetic; its
+    // off-diagonal entries are sums of N products below 1, each within N · 2^-53 of zero
+    // (8000 · 2^-53 < 1e-12), the conditioning the largest of them relative to the diagonal.
     assert!(
         coherent_harmonics.quality.conditioning < 1e-12_f64,
         "{}",
@@ -856,6 +882,8 @@ fn derives_the_bounds_term_by_term() {
     let error_bound = libm::exp2(-25.0_f64) + libm::exp2(-40.0_f64);
     let a_sine = 1.0_f64 - error_bound * 2.2_f64.sqrt() / 0.9_f64;
     let a_harmonic = 1.0_f64 - error_bound * 2.4_f64.sqrt() / 0.8_f64;
+    // Tolerance: levels near -150 dB, a few roundings deep on both sides (a square root, a
+    // quotient, a logarithm): within a few ulps of 150, about 1e-13: 1e-12 dB.
     let close = |got: f64, wanted: f64, what: &str| {
         assert!(
             (got - wanted).abs() < 1e-12_f64,
@@ -884,7 +912,9 @@ fn derives_the_bounds_term_by_term() {
         "SNR",
     );
     // About -147.5 dB, 147.5 dB and -144.5 dB at this scale: the levels of a full-scale
-    // binary32 sine.
+    // binary32 sine. Tolerance: the value rounded to one decimal for this comment, within
+    // 0.05 dB of it; 0.2 dB only checks the comment's figure, the exact levels are checked
+    // above.
     assert!(
         (bounds.thd_plus_n + 147.5_f64).abs() < 0.2_f64,
         "{}",
@@ -1083,6 +1113,8 @@ fn accepts_a_conditioning_of_one_half_and_no_more() {
     let (coefficients, conditioning) =
         solve(&[sum_of(1.5_f64)], &[sum_of(3.0_f64)], &[1.0_f64]).expect("accepted");
     assert_eq!(conditioning.to_bits(), 0.5_f64.to_bits(), "exactly 1/2");
+    // Tolerance: `3 / 1.5` through the solver's few roundings of values near 2: within a few
+    // ulps of 2 (2^-51 each), below 1e-15.
     assert!(
         (coefficients[0] - 2.0_f64).abs() < 1e-15_f64,
         "{coefficients:?}"
@@ -1121,6 +1153,8 @@ fn accepts_a_conditioning_of_one_half_and_no_more() {
         matches!(solve(&uneven, &ones, &[1.0_f64; 3]), Err(MeasureError::Unresolvable { conditioning: largest }) if largest.to_bits() == 0.6_f64.to_bits()),
         "the largest row"
     );
+    // Tolerance: a 2 × 2 system with entries below 2 solved in a few roundings: within a few
+    // ulps of its exact solution (0, 2), below 1e-15.
     assert!(
         coupled[0].abs() < 1e-15_f64 && (coupled[1] - 2.0_f64).abs() < 1e-15_f64,
         "{coupled:?}"
@@ -1137,6 +1171,8 @@ fn scales_its_floor_by_the_signal_and_the_fit() {
         .collect();
     let measured = measure(&samples, rate(8_000), 1_000.0_f64).expect("measurable");
     let wanted = FLOOR * 1.5_f64;
+    // Tolerance, relative: the floor is FLOOR times the peak plus the coefficients' sizes,
+    // each fitted to within the fit's own error, about 1e-13 of them: 1e-12 of the floor.
     assert!(
         (measured.sine.floor - wanted).abs() <= wanted * 1e-12_f64,
         "{}",

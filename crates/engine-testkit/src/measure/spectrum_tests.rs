@@ -51,6 +51,8 @@ fn transform(weights: &[f64], nu: f64) -> f64 {
 #[test]
 fn the_window_has_its_closed_form_values() {
     // N = 4: w[0] = a0 - a1 + a2 - a3, w[1] = w[3] = a0 - a2, w[2] = a0 + a1 + a2 + a3.
+    // Tolerance: each weight is four products of a coefficient (below 1) by a cosine (within
+    // an ulp) and three sums, values below 1: at most 8 roundings of 2^-53, below 1e-15.
     let expected = [6.0e-5_f64, 0.217_47_f64, 1.0_f64, 0.217_47_f64];
     for (value, wanted) in window(4).iter().zip(expected) {
         assert!(
@@ -70,6 +72,8 @@ fn the_window_has_its_closed_form_values() {
             usize::try_from(frames).expect("small"),
             "one per sample"
         );
+        // Tolerance: both forms are four products and three sums of values below 1, each
+        // within 8 roundings of 2^-53 of the exact weight: 16 · 2^-53 below 1e-15 apart.
         for (value, wanted) in weights.iter().zip(reference_window(frames)) {
             assert!(
                 (value - wanted).abs() < 1e-15_f64,
@@ -246,6 +250,10 @@ fn measures_a_sine_on_a_point_exactly() {
     // 1000 frames, 4096 points: 1024/4096 cycle per sample is on point 1024; its image at
     // minus that frequency lies 2048 points away, far below the sidelobes.
     let measured = spectrum(&tone(1_000, 0.25_f64, 0.5_f64, 1.0_f64), rate()).expect("measurable");
+    // Tolerance: the window's weights (8 roundings each), its sum over 1000 frames (1000
+    // roundings of values below 1000) and the 12 stages of the transform (a few ulps of the
+    // largest value, at most 1000, each): about 1e-13 at worst, so 1e-12 is that bound with a
+    // factor 10 to spare, far below the image's sidelobes.
     assert!(
         (measured.amplitudes()[1_024] - 0.5_f64).abs() < 1e-12_f64,
         "{}",
@@ -274,14 +282,20 @@ fn loses_at_most_the_scalloping_bound_between_points() {
             spectrum(&tone(frames, 0.1_f64, 1.0_f64, 0.0_f64), rate()).expect("measurable");
         let points = f64::from(measured.points());
         let bound = PI * PI * moment / (2.0_f64 * points * points);
+        // Tolerance: both values are below 0.01 and a few dozen roundings of 2^-53 deep
+        // (the moment's sum included), so within 1e-15 of each other.
         assert!(
             (measured.scalloping() - bound).abs() <= 1e-15_f64,
             "{frames}: {} instead of {bound}",
             measured.scalloping()
         );
-        // Below 0.6 % (0.05 dB) at every length: the window's second moment is about
+        // Below 0.6 % (0.052 dB) at every length: the window's second moment is about
         // 0.0192 N², and M ≥ 4N.
         assert!(bound < 0.006_f64, "{bound}");
+        assert!(
+            20.0_f64 * libm::log10(1.0_f64 - bound) > -0.052_f64,
+            "{bound}: within 0.052 dB"
+        );
         // The worst case, a sine halfway between two points, at 1/(2M) cycle from each.
         let cycles = (f64::from(measured.points() / 8) + 0.5_f64) / points;
         let halfway =
@@ -307,13 +321,17 @@ fn has_the_window_s_equivalent_noise_bandwidth() {
         let wanted = f64::from(frames) * squares / (sum * sum);
         let measured =
             spectrum(&tone(frames, 0.1_f64, 1.0_f64, 0.0_f64), rate()).expect("measurable");
+        // Tolerance: two sums of at most 1000 terms below 1 (1000 roundings of 2^-53 each,
+        // 2.2e-13 at most) and a quotient near 2: within 1e-12.
         assert!(
             (measured.enbw() - wanted).abs() < 1e-12_f64,
             "{frames}: {}",
             measured.enbw()
         );
     }
-    // Harris's value for the four-term window: 2.0044 bins.
+    // Harris's value for the four-term window: 2.0044 bins. Tolerance: the published value
+    // has five decimals, 2.00435 for N → ∞; at 1000 frames the window's ENBW is within 1e-5
+    // of it (the sums of its weights differ from their integrals by O(1/N²)).
     let long = spectrum(&[0.0_f64; 1_000], rate()).expect("measurable");
     assert!(
         (long.enbw() - 2.004_35_f64).abs() < 1e-5_f64,
@@ -370,6 +388,8 @@ fn reads_up_to_twice_a_component_beside_an_edge() {
     let beside = measured.amplitudes()[usize::try_from(points / 2 - 1).expect("small")];
     let wanted =
         2.0_f64 * 0.5_f64 * transform(&reference_window(frames), 1.0_f64 / f64::from(points));
+    // Tolerance: as for a sine on a point, a sum over 1000 frames and the 12 stages of the
+    // transform, about 1e-13 at worst: 1e-12 is that bound with a factor 10 to spare.
     assert!(
         (beside - wanted).abs() < 1e-12_f64,
         "{beside} instead of {wanted}"
