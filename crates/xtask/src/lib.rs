@@ -36,7 +36,16 @@ pub struct RustCrate {
     pub dir: &'static str,
     /// Whether it has a binary, `src/main.rs`, which its unit tests cannot reach.
     pub binary: bool,
+    /// The files of the repository outside its directory that its tests read (`spec/`
+    /// vectors, the conformance corpus…), each a file or a directory ending in `/`
+    /// ([`REPOSITORY`] for all of it), checked by [`test_data_gate`]: a change to one of
+    /// them can weaken its tests as much as a change to its test code.
+    pub test_data: &'static [&'static str],
 }
+
+/// The test data root that holds the whole repository: the tests of `xtask` check the
+/// repository itself (its hooks, workflow, manifests and sources).
+pub const REPOSITORY: &str = "";
 
 /// The crates of the Cargo workspace (checked by [`membership_gate`]): each is measured by
 /// its own unit tests, and each binary by the crate's tests.
@@ -45,51 +54,67 @@ pub const RUST_CRATES: [RustCrate; 10] = [
         name: "engine-core",
         dir: "crates/engine-core",
         binary: false,
+        test_data: &["conformance/test-matrix.json"],
     },
     RustCrate {
         name: "engine-objects",
         dir: "crates/engine-objects",
         binary: false,
+        test_data: &[
+            "spec/benchmark-baseline.json",
+            "spec/measurement-vectors.json",
+        ],
     },
     RustCrate {
         name: "engine-patch",
         dir: "crates/engine-patch",
         binary: false,
+        test_data: &["spec/safe-message-vectors.json"],
     },
     RustCrate {
         name: "engine-hash",
         dir: "crates/engine-hash",
         binary: false,
+        test_data: &["spec/render-hash-vectors.json"],
     },
     RustCrate {
         name: "engine-alloc-counter",
         dir: "crates/engine-alloc-counter",
         binary: false,
+        test_data: &[],
     },
     RustCrate {
         name: "engine-fpenv",
         dir: "crates/engine-fpenv",
         binary: false,
+        test_data: &["conformance/"],
     },
     RustCrate {
         name: "engine-testkit",
         dir: "crates/engine-testkit",
         binary: false,
+        test_data: &[
+            "conformance/test-matrix.json",
+            "spec/measurement-vectors.json",
+        ],
     },
     RustCrate {
         name: "engine-cli",
         dir: "crates/engine-cli",
         binary: true,
+        test_data: &["conformance/"],
     },
     RustCrate {
         name: "engine-wasm",
         dir: "bindings/wasm",
         binary: false,
+        test_data: &[],
     },
     RustCrate {
         name: "xtask",
         dir: "crates/xtask",
         binary: true,
+        test_data: &[REPOSITORY],
     },
 ];
 
@@ -99,6 +124,7 @@ pub const COVERAGE_LOCALITY: RustCrate = RustCrate {
     name: "coverage-locality",
     dir: "crates/xtask/tests/fixtures/coverage-locality",
     binary: false,
+    test_data: &[],
 };
 
 /// What a coverage measurement covers.
@@ -533,6 +559,12 @@ pub enum Action {
     UnsafeGate,
     /// Require the Cargo configuration to be exactly [`CARGO_CONFIG`].
     CargoConfigGate,
+    /// Require Rust test code to live only in `tests/` and declared `*_tests.rs` files
+    /// ([`test_code_gate`]).
+    TestCodeGate,
+    /// Require the tests of each crate to read only its declared test data
+    /// ([`test_data_gate`]).
+    TestDataGate,
     /// Require every stable float method of the pinned toolchain to be banned in
     /// `clippy.toml` or reviewed as deterministic ([`float_gate`]).
     FloatMethodGate,
@@ -1004,6 +1036,14 @@ fn proof_steps(mode: Mode) -> Vec<(Role, Step)> {
         Step {
             name: "Cargo configuration: no build flag, a locked alias".to_owned(),
             action: Action::CargoConfigGate,
+        },
+        Step {
+            name: "Test code only in tests/ and declared *_tests.rs files".to_owned(),
+            action: Action::TestCodeGate,
+        },
+        Step {
+            name: "The tests of each crate read only its declared test data".to_owned(),
+            action: Action::TestDataGate,
         },
     ];
     steps.extend(tagged(Role::Proof(Part::Gates), gates));
@@ -3218,6 +3258,225 @@ pub fn unsafe_gate(sources: &[(String, String)]) -> Result<(), Failure> {
     verdict("the lint against unsafe code", problems)
 }
 
+/// The lines outside test code that may name `test`, each whole: none yet but the first
+/// line of a test declaration ([`test_declarations`]).
+pub const NOT_TEST_LINES: [&str; 0] = [];
+
+/// The crate of [`RUST_CRATES`] holding `path`, and the path relative to its directory.
+fn in_crate(path: &str) -> Option<(&'static RustCrate, &str)> {
+    RUST_CRATES.iter().find_map(|krate| {
+        path.strip_prefix(krate.dir)
+            .and_then(|rest| rest.strip_prefix('/'))
+            .map(|relative| (krate, relative))
+    })
+}
+
+/// Checks that Rust test code lives only under a crate's `tests/` or in its `*_tests.rs`
+/// files, each declared once in the one form ([`test_declarations`]).
+///
+/// So every rule that tells test code by its path (the mutation widening, the math layer
+/// gate) sees all of it.
+///
+/// `sources` are the Rust files (path and text). In a crate of [`RUST_CRATES`], outside
+/// `tests/` and the `*_tests.rs` files, the code word `test` (`#[cfg(test)]`, `#[test]`,
+/// `cfg_attr(test, …)`, `cfg!(test)`, `mod test`…) appears only on the first line of a
+/// declaration or on a line of [`NOT_TEST_LINES`], and `include` (`include!`, which brings
+/// in code no gate reads by its path) nowhere.
+///
+/// # Errors
+///
+/// Returns every other `test` or `include` with its file and line, and every `*_tests.rs`
+/// file declared other than once.
+pub fn test_code_gate(sources: &[(String, String)]) -> Result<(), Failure> {
+    let mut problems = Vec::new();
+    let mut declared: BTreeMap<String, usize> = BTreeMap::new();
+    let crate_sources = sources.iter().filter(|(path, _)| {
+        in_crate(path).is_some_and(|(_, relative)| !relative.starts_with("tests/"))
+    });
+    for (path, text) in crate_sources.clone() {
+        if path.ends_with("_tests.rs") {
+            continue;
+        }
+        let declarations = test_declarations(path, text);
+        let firsts: BTreeSet<usize> = declarations.iter().map(|(line, _)| *line).collect();
+        for (_, file) in declarations {
+            let times = declared.entry(file).or_default();
+            *times = times.saturating_add(1);
+        }
+        let lines: Vec<&str> = text.lines().map(str::trim).collect();
+        for (line, word, _) in code_words(text) {
+            let whole = lines
+                .get(line.saturating_sub(1))
+                .copied()
+                .unwrap_or_default();
+            if word == "test" && !firsts.contains(&line) && !NOT_TEST_LINES.contains(&whole) {
+                problems.push(format!(
+                    "{path}:{line}: names `test` outside test code: tests live in tests/ or in a \
+                     *_tests.rs file declared `#[cfg(test)] #[path = \"<name>_tests.rs\"] mod <name>;`"
+                ));
+            }
+            if word == "include" {
+                problems.push(format!(
+                    "{path}:{line}: names `include`: code is brought in by `mod` only, so that \
+                     its path says what it is"
+                ));
+            }
+        }
+    }
+    for (path, _) in crate_sources.filter(|(path, _)| path.ends_with("_tests.rs")) {
+        match declared.get(path).copied().unwrap_or_default() {
+            1 => {}
+            0 => problems.push(format!(
+                "{path}: a *_tests.rs file no file beside it declares as test code"
+            )),
+            times => problems.push(format!("{path}: declared as test code {times} times")),
+        }
+    }
+    verdict(
+        "test code only in tests/ and in declared *_tests.rs files",
+        problems,
+    )
+}
+
+/// The repository path that `relative` names from the directory `dir` (both relative to
+/// the root, `..` and `.` resolved), or `None` when it leaves the repository.
+fn resolve(dir: &str, relative: &str) -> Option<String> {
+    let mut parts: Vec<&str> = dir.split('/').filter(|part| !part.is_empty()).collect();
+    for part in relative.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                let _parent = parts.pop()?;
+            }
+            name => parts.push(name),
+        }
+    }
+    Some(parts.join("/"))
+}
+
+/// Whether `path`, a file or directory of the repository, lies under `root`: a file, a
+/// directory ending in `/`, or [`REPOSITORY`].
+fn under_root(path: &str, root: &str) -> bool {
+    match root.strip_suffix('/') {
+        _ if root == REPOSITORY => true,
+        Some(dir) => path == dir || path.starts_with(root),
+        None => path == root,
+    }
+}
+
+/// How much of the text after `include_str`, `include_bytes` or `env` the test data gate
+/// reads to find its literal path.
+const FOLLOWING_CHARS: usize = 400;
+
+/// The literal the text at `rest` opens with, `("<literal>")` with no space, if it does.
+fn literal_argument(rest: &str) -> Option<&str> {
+    let (literal, _) = rest.strip_prefix("(\"")?.split_once('"')?;
+    rest.get(literal.len().saturating_add(3)..)?
+        .starts_with(')')
+        .then_some(literal)
+}
+
+/// Checks that the tests of every crate read nothing of the repository outside the crate's
+/// directory but its declared test data ([`RustCrate::test_data`]).
+///
+/// So a change to that data widens the default check's mutation testing to the crate.
+///
+/// In every Rust file of a crate (`sources`, path and text), each `include_str!` and
+/// `include_bytes!` takes a literal path, relative to its file, and each
+/// `env!("CARGO_MANIFEST_DIR")` is the argument of a path's constructor followed by
+/// `.join("<literal>")`, relative to the crate (the forms that name a file of the repository); each must lie in the crate or
+/// under one of its roots, and each root must be read so. A file read through another
+/// form (a path computed at run time) is not seen: the forms above are the ones the tests
+/// use, and review keeps it so.
+///
+/// # Errors
+///
+/// Returns every read outside the declared data, every form without its literal, and
+/// every root no test reads.
+pub fn test_data_gate(sources: &[(String, String)]) -> Result<(), Failure> {
+    let mut problems = Vec::new();
+    let mut read: BTreeSet<(&str, &str)> = BTreeSet::new();
+    for (path, text) in sources {
+        let Some((krate, _)) = in_crate(path) else {
+            continue;
+        };
+        let file_dir = path.rsplit_once('/').map_or("", |(dir, _)| dir);
+        let chars: Vec<char> = text.chars().collect();
+        for (line, word, end) in code_words(text) {
+            if !["include_str", "include_bytes", "env"].contains(&word.as_str()) {
+                continue;
+            }
+            // Enough of what follows for the longest form: `env!("CARGO_MANIFEST_DIR"))`, a
+            // line break and its indentation, then `.join("<literal>")`.
+            let rest: String = chars
+                .get(end..)
+                .unwrap_or_default()
+                .iter()
+                .take(FOLLOWING_CHARS)
+                .collect();
+            let (from, literal) = match word.as_str() {
+                "include_str" | "include_bytes" => {
+                    (file_dir, rest.strip_prefix('!').and_then(literal_argument))
+                }
+                "env" if rest.starts_with("!(\"CARGO_MANIFEST_DIR\")") => {
+                    let after = rest
+                        .get("!(\"CARGO_MANIFEST_DIR\")".len()..)
+                        .unwrap_or_default();
+                    // In a path's constructor: `Path::new(env!(…))`, then the join.
+                    let joined = after
+                        .strip_prefix(')')
+                        .map(str::trim_start)
+                        .and_then(|joined| joined.strip_prefix(".join"))
+                        .and_then(literal_argument);
+                    (krate.dir, joined)
+                }
+                _ => continue,
+            };
+            let Some(literal) = literal else {
+                problems.push(format!(
+                    "{path}:{line}: `{word}!` without a literal path the gate can follow"
+                ));
+                continue;
+            };
+            let Some(target) = resolve(from, literal) else {
+                problems.push(format!("{path}:{line}: `{literal}` leaves the repository"));
+                continue;
+            };
+            if under_root(&target, &format!("{}/", krate.dir)) {
+                continue;
+            }
+            match krate
+                .test_data
+                .iter()
+                .find(|root| under_root(&target, root))
+            {
+                Some(root) => {
+                    let _new = read.insert((krate.name, root));
+                }
+                None => problems.push(format!(
+                    "{path}:{line}: the tests of {} read `{target}`, which is not in its \
+                     test_data",
+                    krate.name
+                )),
+            }
+        }
+    }
+    for krate in &RUST_CRATES {
+        for root in krate.test_data {
+            if !read.contains(&(krate.name, *root)) {
+                problems.push(format!(
+                    "{}: declares `{root}` as test data, which no test of it reads",
+                    krate.name
+                ));
+            }
+        }
+    }
+    verdict(
+        "the tests of each crate read only its declared test data",
+        problems,
+    )
+}
+
 /// The exact Cargo configuration of the repository: an alias, nothing else.
 ///
 /// Build flags (`rustflags`) could lift any lint of the workspace in every crate, and an
@@ -3387,8 +3646,9 @@ pub const BOX_FORBIDDEN_NAMES: [&str; 6] = ["f32", "f64", "libm", "host", "Deliv
 /// digits and `_`, outside comments (line and block), string literals (raw ones included,
 /// `r#"…"#`, `br"…"`, `cr"…"`) and char literals (`'"'`, `'\''`), which are prose. A
 /// lifetime (`'a`) is code, as is a raw identifier (`r#f64` names `f64`). Every literal or
-/// comment left open runs to the end of the text.
-fn code_words(text: &str) -> Vec<(usize, String)> {
+/// comment left open runs to the end of the text. Each word comes with the index of the
+/// character after it, in `text.chars()`.
+fn code_words(text: &str) -> Vec<(usize, String, usize)> {
     let chars: Vec<char> = text.chars().collect();
     let at = |index: usize| chars.get(index).copied();
     // The index after the first position from `from` where `ends` holds, or the end.
@@ -3407,7 +3667,7 @@ fn code_words(text: &str) -> Vec<(usize, String)> {
         }
         let raw_prefix = matches!(word.as_str(), "r" | "br" | "cr");
         if !word.is_empty() {
-            words.push((line, core::mem::take(&mut word)));
+            words.push((line, core::mem::take(&mut word), index));
         }
         let next = at(index.saturating_add(1));
         // The hashes of a raw string from here, when one starts here: `#…#"`.
@@ -3446,7 +3706,7 @@ fn code_words(text: &str) -> Vec<(usize, String)> {
         index = end;
     }
     if !word.is_empty() {
-        words.push((line, word));
+        words.push((line, word, chars.len()));
     }
     words
 }
@@ -3509,7 +3769,7 @@ pub fn math_layer_gate(metadata: &str, sources: &[(String, String)]) -> Result<(
             problems.push(format!("{path}: not a source the math layer gate reads"));
             continue;
         }
-        for (line, word) in code_words(text) {
+        for (line, word, _) in code_words(text) {
             let suffixed = word.starts_with(|first: char| first.is_ascii_digit())
                 && (word.ends_with("f32") || word.ends_with("f64"));
             if is_box && (suffixed || BOX_FORBIDDEN_NAMES.contains(&word.as_str())) {
@@ -6634,8 +6894,9 @@ fn changes_since(runner: &mut dyn Runner, since: &str) -> Result<String, Failure
 /// the changes of the tracked files, committed or not, and every new Rust file git does not
 /// ignore; nothing when nothing changed.
 ///
-/// A change to the test code of a crate can weaken the tests of any of its code, so every
-/// source of that crate is then added whole; a change to what every test depends on
+/// A change to the test code of a crate, or to the test data it declares
+/// ([`RustCrate::test_data`]), can weaken the tests of any of its code, so every source of
+/// that crate is then added whole; a change to what every test depends on
 /// ([`MUTATE_EVERYTHING_WHEN`]) mutates the whole workspace.
 fn rust_mutants_of_changes(
     runner: &mut dyn Runner,
@@ -6688,23 +6949,28 @@ fn rust_mutants_of_changes(
             ]))
             .map_err(|failure| Failure::from(failure.to_string()));
     }
-    let tested: Vec<RustCrate> = RUST_CRATES
+    let tested: Vec<(RustCrate, &str)> = RUST_CRATES
         .into_iter()
-        .filter(|krate| {
+        .filter_map(|krate| {
             let prefix = format!("{}/", krate.dir);
-            changed
+            let code = changed
                 .iter()
-                .filter_map(|path| path.strip_prefix(&prefix))
-                .any(rust_test_code)
+                .find(|path| path.strip_prefix(&prefix).is_some_and(rust_test_code))
+                .map(|_| "test code");
+            let data = changed
+                .iter()
+                .find(|path| krate.test_data.iter().any(|root| under_root(path, root)))
+                .map(|_| "test data");
+            code.or(data).map(|what| (krate, what))
         })
         .collect();
     if !tested.is_empty() {
         let sources = list_tracked(runner, &["*.rs"], "the Rust files")?;
-        for krate in tested {
+        for (krate, what) in tested {
             say(
                 out,
                 &format!(
-                    "  the test code of {} changed: every mutant of {}",
+                    "  the {what} of {} changed: every mutant of {}",
                     krate.name, krate.name
                 ),
             )?;
@@ -6758,6 +7024,12 @@ fn unviable_report(runner: &mut dyn Runner, extent: Extent) -> Result<String, Fa
             read.map_err(|error| Failure::from(format!("cannot read {UNVIABLE_REPORT}: {error}")))
         }
     }
+}
+
+/// The tracked Rust files, path and text.
+fn rust_sources(runner: &mut dyn Runner) -> Result<Vec<(String, String)>, Failure> {
+    let paths = list_tracked(runner, &["*.rs"], "the Rust files")?;
+    read_all(runner, paths)
 }
 
 /// Lists every mutant of the workspace and checks the reviews against them
@@ -6867,10 +7139,9 @@ fn run_action(
                 &read_file(runner, NODE_VERSION_FILE)?,
             )
         }
-        Action::UnsafeGate => {
-            let paths = list_tracked(runner, &["*.rs"], "the Rust files")?;
-            unsafe_gate(&read_all(runner, paths)?)
-        }
+        Action::UnsafeGate => rust_sources(runner).and_then(|sources| unsafe_gate(&sources)),
+        Action::TestCodeGate => rust_sources(runner).and_then(|sources| test_code_gate(&sources)),
+        Action::TestDataGate => rust_sources(runner).and_then(|sources| test_data_gate(&sources)),
         Action::LicenseGate => licenses(runner),
         Action::CargoConfigGate => cargo_config_gate(&read_file(runner, CARGO_CONFIG_FILE)?),
         Action::FloatMethodGate => float_methods(runner),

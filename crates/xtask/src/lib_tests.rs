@@ -387,6 +387,7 @@ const CRATE_A: Coverage = Coverage {
         name: "a",
         dir: "crates/a",
         binary: true,
+        test_data: &[],
     },
     measured: Measured::Library,
 };
@@ -461,6 +462,23 @@ fn float_sources(fake: &mut Fake) {
     }
 }
 
+/// For each crate that declares test data, an integration test reading every root of it.
+fn test_data_readers(fake: &mut Fake) {
+    for krate in super::RUST_CRATES {
+        if krate.test_data.is_empty() {
+            continue;
+        }
+        let mut text = format!("#![forbid({}_{})]\n", "unsafe", "code");
+        for root in krate.test_data {
+            text.push_str("fn f() { let _ = Path::new(env!(\"CARGO_MANIFEST_DIR\")).join(\"../../");
+            text.push_str(root);
+            text.push_str("\"); }\n");
+        }
+        let path = format!("{}/tests/data.rs", krate.dir);
+        assert!(fake.files.insert(path, text).is_none(), "fresh fake");
+    }
+}
+
 /// The unviable mutants of a passing run, their reviews, and the list of every mutant.
 fn unviable_answers(fake: &mut Fake) {
     let report = "crates/a/src/b.rs:3:5: replace f -> T with Default::default()\n";
@@ -487,6 +505,7 @@ fn passing() -> Fake {
     assert!(fused.is_none(), "fresh fake");
     coverage_reports(&mut fake);
     unviable_answers(&mut fake);
+    test_data_readers(&mut fake);
     let equivalent = "tooling/config/x.ts: EqualityOperator at while (a < 2) {} -- same result\n";
     typescript_reports(&mut fake);
     for (command, answer) in GIT_ANSWERS {
@@ -802,6 +821,8 @@ fn command_lines(steps: &[Step]) -> Vec<String> {
             Action::LicenseGate => "license gate".to_owned(),
             Action::UnsafeGate => "unsafe gate".to_owned(),
             Action::CargoConfigGate => "cargo config gate".to_owned(),
+            Action::TestCodeGate => "test code gate".to_owned(),
+            Action::TestDataGate => "test data gate".to_owned(),
             Action::FloatMethodGate => "float method gate".to_owned(),
             Action::DependencyGate => "dependency gate".to_owned(),
             Action::FusedBuild => "fused build".to_owned(),
@@ -1448,6 +1469,8 @@ fn lists_every_check_in_order() {
             "bypass gate",
             "unsafe gate",
             "cargo config gate",
+            "test code gate",
+            "test data gate",
             &format!(
                 "Root: cargo +nightly-2026-11-01 {} test --package engine-alloc-counter --package engine-wasm --locked -- --include-ignored",
                 "miri"
@@ -1544,6 +1567,8 @@ fn names_every_check_in_order() {
             "Every bypass of coverage or mutation testing reviewed",
             "Unsafe code confined to the audited files",
             "Cargo configuration: no build flag, a locked alias",
+            "Test code only in tests/ and declared *_tests.rs files",
+            "The tests of each crate read only its declared test data",
             "Unsafe code under Miri",
             "Conformance (native)",
             "Fresh conformance export directory",
@@ -1744,12 +1769,14 @@ fn mutates_the_changes_since_the_merge_base_with_the_upstream() {
             "read .git/poyetik/rust-mutants-proven/abc123",
             "capture git diff --no-color --no-ext-diff --no-textconv --no-renames --src-prefix=a/ --dst-prefix=b/ abc123",
             "capture git ls-files -z --others --exclude-standard -- *.rs",
+            "list *.rs",
             "write target/xtask/changes.diff",
             "cargo mutants --cap-lints=true --gitignore=true --cargo-arg=--locked --workspace --jobs 3 --in-diff target/xtask/changes.diff -- -- --include-ignored",
             "read mutants.out/unviable.txt",
             "read mutants-unviable.txt",
         ],
-        "the diff since the merge base is written, then mutated"
+        "the diff since the merge base is written, then mutated; every change is test data of \
+         xtask, whose tests check the repository (the fake has no source of it to add)"
     );
     assert_eq!(
         CHANGES_DIFF, "target/xtask/changes.diff",
@@ -1762,7 +1789,7 @@ fn mutates_the_changes_since_the_merge_base_with_the_upstream() {
     );
     assert_eq!(
         String::from_utf8(out).expect("UTF-8"),
-        "▶ [1/2] Rust mutation testing of the changes\n  the changes since abc123 (merge base with @{upstream})\n▶ [2/2] Rust unviable mutants reviewed\n✔ all 2 checks passed\n",
+        "▶ [1/2] Rust mutation testing of the changes\n  the changes since abc123 (merge base with @{upstream})\n  the test data of xtask changed: every mutant of xtask\n▶ [2/2] Rust unviable mutants reviewed\n✔ all 2 checks passed\n",
         "the base is said"
     );
 }
@@ -1872,6 +1899,52 @@ fn mutates_a_whole_crate_whose_test_code_changed() {
                 .expect("UTF-8")
                 .contains("  the test code of engine-core changed: every mutant of engine-core\n"),
             "{test_code}: said"
+        );
+    }
+}
+
+#[test]
+fn mutates_a_whole_crate_whose_test_data_changed() {
+    for (data, read) in [
+        ("spec/render-hash-vectors.json", true),
+        ("apps/roadmap/board.json", false),
+        ("spec/render-hash-vectors.json.orig", false),
+    ] {
+        let mut fake = passing();
+        let _changes = fake
+            .files
+            .insert(format!("capture {}", CHANGES.0), one_line_change(data));
+        for (path, text) in [
+            ("crates/engine-hash/src/lib.rs", "fn h() {}\n"),
+            ("crates/engine-hash/src/lib_tests.rs", "fn t() {}\n"),
+            ("crates/engine-core/src/lib.rs", "fn a() {}\n"),
+            ("crates/xtask/src/lib.rs", "fn x() {}\n"),
+        ] {
+            let _source = fake.files.insert(path.to_owned(), text.to_owned());
+        }
+        let mut out = Vec::new();
+        assert_eq!(
+            run_steps(&rust_mutation_of_changes(), &mut fake, &mut out),
+            Ok(()),
+            "{data}"
+        );
+        let hash = super::new_file_diff("crates/engine-hash/src/lib.rs", "fn h() {}\n");
+        let xtask = super::new_file_diff("crates/xtask/src/lib.rs", "fn x() {}\n");
+        let expected = if read {
+            format!("{}{hash}{xtask}", one_line_change(data))
+        } else {
+            format!("{}{xtask}", one_line_change(data))
+        };
+        assert_eq!(
+            fake.files.get(CHANGES_DIFF).cloned(),
+            Some(expected),
+            "{data}: the crates that read it, whole (xtask's tests read the whole repository)"
+        );
+        let said = String::from_utf8(out).expect("UTF-8");
+        assert_eq!(
+            said.contains("  the test data of engine-hash changed: every mutant of engine-hash\n"),
+            read,
+            "{data}: said"
         );
     }
 }
@@ -2780,8 +2853,28 @@ fn runs_every_step_and_reports_success() {
         Ok(()),
         "all green"
     );
-    let (tools, commands, emptied, listed, captured, written) = (10, 52, 14, 20, 26, 3);
-    let read = 2 + 7 + 13 + 3 + 7 + 21 + 3 + 1 + 7 + 3 + 11 + 10 + 21 + 8 + 2 + 11 + 40 + 20 + 3;
+    let (tools, commands, emptied, listed, captured, written) = (10, 52, 14, 23, 26, 3);
+    let read = 2
+        + 7
+        + 13
+        + 3
+        + 7
+        + 21
+        + 3
+        + 1
+        + 7
+        + 3
+        + 11
+        + 10
+        + 21
+        + 8
+        + 2
+        + 11
+        + 40
+        + 20
+        + 3
+        + 3 * 8
+        + 2 * 11;
     assert_eq!(
         fake.ran.len(),
         tools + commands + emptied + listed + captured + written + read,
@@ -2790,13 +2883,14 @@ fn runs_every_step_and_reports_success() {
          the coverage build, the mutants of the changes, Miri, the \
          conformance check and export, deny, the JavaScript install, audit, the engine build and five package \
          checks each followed by its Stryker run); fourteen directories are emptied; git lists \
-         twelve kinds of files (the box sources among them), the TypeScript ones again for the reports and scope gates of \
+         twelve kinds of files (the box sources among them), the Rust files again for the test code and \
+         test data gates and for the mutation testing (every change is test data of xtask), the TypeScript ones again for the reports and scope gates of \
          each package after the first; the licenses and the history are captured twice each, the state \
          of the tree (before, for the proof record and after) six times, the nightly's version and sysroot, the Cargo metadata (for the dependency and the math layer gates), the output of the fused test build, the merge base, the changes, the \
          new Rust files and the list of every mutant once, git's common directory twice, the tree checked out and \
          cargo-mutants' version for the proof record; the measured base, the diff and the \
          proof record are written once each; the proof record, the measured base and the \
-         toolchain file are read for it; and the gates read .node-version and the toolchain file for the preflight, the toolchain file, the four float sources and the float macros of the nightly and clippy.toml for the float gate, thirteen coverage reports, \
+         toolchain file are read for it; and the gates read the eight fake test data readers for the unsafe, bypass and vocabulary gates, every Rust file (eleven) for the test code and test data gates, .node-version and the toolchain file for the preflight, the toolchain file, the four float sources and the float macros of the nightly and clippy.toml for the float gate, thirteen coverage reports, \
          the unviable report and reviews, the reviews again against the list of every mutant, six TypeScript sources and their reviews, the nine \
          sources, the eleven Cargo manifests and the register of the bypass gate, the three unsafe files, the Cargo \
          configuration, the six package manifests and the register of the dependency gate, the three \
@@ -2823,15 +2917,15 @@ fn runs_every_step_and_reports_success() {
     );
     let text = String::from_utf8(out).expect("utf-8 output");
     assert!(
-        text.starts_with("▶ [1/78] Tools and platform\n"),
+        text.starts_with("▶ [1/80] Tools and platform\n"),
         "numbered progress: {text}"
     );
     assert!(
-        text.contains("▶ [74/78] Roadmap checks\n"),
+        text.contains("▶ [76/80] Roadmap checks\n"),
         "last step announced: {text}"
     );
     assert!(
-        text.ends_with("✔ all 78 checks passed\n"),
+        text.ends_with("✔ all 80 checks passed\n"),
         "summary: {text}"
     );
 }
@@ -4971,15 +5065,34 @@ fn confines_unsafe_blocks_to_the_audited_files() {
 
 #[test]
 fn reports_rust_files_it_cannot_list() {
-    let mut fake = passing();
-    fake.broken = Some("list *.rs".to_owned());
-    assert_eq!(
-        run_steps(&check_steps(CHANGES_MODE), &mut fake, &mut Vec::new()),
-        failed(
-            "Unsafe code confined to the audited files: cannot list the Rust files: `git ls-files -- *.rs` exited with code 128: fatal: not a git repository"
+    for (name, action) in [
+        (
+            "Unsafe code confined to the audited files",
+            Action::UnsafeGate,
         ),
-        "named"
-    );
+        ("Test code only in tests/", Action::TestCodeGate),
+        ("Test data declared", Action::TestDataGate),
+        (
+            "Rust mutation testing of the changes",
+            Action::RustMutantsOfChanges {
+                jobs: NonZeroUsize::MIN,
+            },
+        ),
+    ] {
+        let mut fake = passing();
+        fake.broken = Some("list *.rs".to_owned());
+        let step = Step {
+            name: name.to_owned(),
+            action,
+        };
+        assert_eq!(
+            run_steps(&[step], &mut fake, &mut Vec::new()),
+            failed(format!(
+                "{name}: cannot list the Rust files: `git ls-files -- *.rs` exited with code 128: fatal: not a git repository"
+            )),
+            "named"
+        );
+    }
 }
 
 #[test]
@@ -5652,7 +5765,7 @@ fn checks_a_push_then_runs_every_check() {
     assert!(
         String::from_utf8(out)
             .expect("UTF-8")
-            .ends_with("✔ all 78 checks passed\n"),
+            .ends_with("✔ all 80 checks passed\n"),
         "then every check"
     );
     assert!(
@@ -6127,12 +6240,12 @@ fn prints_the_details_of_a_failure_on_stdout_and_one_line_on_stderr() {
     );
     assert_eq!(
         String::from_utf8(err).expect("UTF-8"),
-        "error: 1 of 76 checks failed, listed above\n",
+        "error: 1 of 78 checks failed, listed above\n",
         "one line on stderr, counting the failed steps"
     );
     assert!(
         String::from_utf8(out).expect("UTF-8").ends_with(&format!(
-            "▶ [76/76] Working tree unchanged by the checks\n\
+            "▶ [78/78] Working tree unchanged by the checks\n\
              not reviewed: crates/a/src/c.rs: replace g -> U with x\n\
              stale review: crates/a/src/b.rs: replace f -> T with Default::default()\n\
              Rust unviable mutants reviewed: unviable mutants must be reviewed in \
@@ -6791,6 +6904,218 @@ fn confines_unsafe_blocks_in_the_repository() {
         "the test modules are read"
     );
     assert_eq!(unsafe_gate(&sources), Ok(()), "the files of the repository");
+}
+
+#[test]
+fn refuses_test_code_outside_test_files() {
+    let gate = |sources: &[(&str, &str)]| {
+        let owned: Vec<(String, String)> = sources
+            .iter()
+            .map(|(path, text)| ((*path).to_owned(), (*text).to_owned()))
+            .collect();
+        super::test_code_gate(&owned)
+    };
+    let context = "test code only in tests/ and in declared *_tests.rs files";
+    let declared = "//! test, in prose\nconst A: &str = \"test\";\nconst B: &str = include_str!(\"x.json\");\n#[cfg(test)]\n#[path = \"plan_tests.rs\"]\nmod tests;\n";
+    let tests = "#[test]\nfn f() { assert!(cfg!(test)); }\n";
+    let fine = [
+        ("crates/engine-core/src/plan.rs", declared),
+        ("crates/engine-core/src/plan_tests.rs", tests),
+        (
+            "crates/engine-cli/tests/binary.rs",
+            "#[cfg(test)]\nmod t { include!(\"x.rs\"); }\n",
+        ),
+        ("crates/engine-cli/tests/data_tests.rs", ""),
+        ("README.rs", "#[test] fn f() {}\n"),
+        ("crates/other/src/lib.rs", "#[test] fn f() {}\n"),
+    ];
+    assert_eq!(gate(&fine), Ok(()), "test code where it belongs");
+    let names = "names `test` outside test code: tests live in tests/ or in a *_tests.rs file \
+                 declared `#[cfg(test)] #[path = \"<name>_tests.rs\"] mod <name>;`";
+    for (text, line) in [
+        ("#[cfg(test)]\nmod tests {\n    fn f() {}\n}\n", 1_usize),
+        ("fn g() {}\n#[cfg(test)]\nfn f() {}\n", 2),
+        ("#[cfg_attr(test, derive(Debug))]\nstruct S;\n", 1),
+        ("fn f() -> bool { cfg!(test) }\n", 1),
+        ("#[cfg(test)]\nmod tests;\n", 1),
+        ("#[cfg(any(test, doc))]\nfn f() {}\n", 1),
+    ] {
+        assert_eq!(
+            gate(&[("crates/engine-core/src/a.rs", text)]),
+            failed(format!(
+                "{context}: crates/engine-core/src/a.rs:{line}: {names}"
+            )),
+            "{text}"
+        );
+    }
+    assert_eq!(
+        gate(&[(
+            "crates/engine-core/src/a.rs",
+            "fn f() {\n    #[test]\n    fn g() {}\n}\n"
+        )]),
+        failed(format!("{context}: crates/engine-core/src/a.rs:2: {names}")),
+        "a test function"
+    );
+    assert_eq!(
+        gate(&[("bindings/wasm/src/a.rs", "include!(\"b.rs\");\n")]),
+        failed(format!(
+            "{context}: bindings/wasm/src/a.rs:1: names `include`: code is brought in by `mod` \
+             only, so that its path says what it is"
+        )),
+        "code included"
+    );
+    assert_eq!(
+        gate(&[("crates/engine-core/src/plan_tests.rs", tests)]),
+        failed(format!(
+            "{context}: crates/engine-core/src/plan_tests.rs: a *_tests.rs file no file beside \
+             it declares as test code"
+        )),
+        "an undeclared test file"
+    );
+    assert_eq!(
+        gate(&[
+            ("crates/engine-core/src/plan.rs", declared),
+            ("crates/engine-core/src/other.rs", declared),
+            ("crates/engine-core/src/plan_tests.rs", tests),
+            ("crates/engine-core/src/sub/x.rs", declared),
+        ]),
+        found(
+            context,
+            &["crates/engine-core/src/plan_tests.rs: declared as test code 2 times".to_owned()]
+        ),
+        "a test file declared twice; one declared from another directory is another file"
+    );
+    let unknown = gate(&[
+        ("crates/engine-core/src/plan.rs", declared),
+        ("crates/engine-core/src/plan_tests.rs", tests),
+        ("crates/engine-core/src/sub/x.rs", declared),
+    ]);
+    assert_eq!(
+        unknown,
+        Ok(()),
+        "a declaration of a missing file is the compiler's to refuse"
+    );
+}
+
+#[test]
+fn keeps_the_test_code_of_the_repository_in_test_files() {
+    assert_eq!(
+        super::test_code_gate(&repository_rust_sources()),
+        Ok(()),
+        "the files of the repository"
+    );
+}
+
+#[test]
+fn refuses_test_data_a_crate_does_not_declare() {
+    let context = "the tests of each crate read only its declared test data";
+    let base = repository_rust_sources();
+    let with = |path: &str, text: &str| {
+        let mut sources = base.clone();
+        sources.push((path.to_owned(), text.to_owned()));
+        super::test_data_gate(&sources)
+    };
+    for text in [
+        "const A: &str = include_str!(\"../../../spec/render-hash-vectors.json\");\n",
+        "const A: &[u8] = include_bytes!(\"data/own.bin\");\n",
+        "fn f() { let _ = Path::new(env!(\"CARGO_MANIFEST_DIR\")).join(\"src\"); }\n",
+        "fn f() { let _ = env!(\"CARGO_PKG_NAME\"); let _ = std::env::temp_dir(); }\n",
+        "// include_str!(\"../../../spec/x.json\")\nconst A: &str = \"include_str!(\\\"x\\\")\";\n",
+    ] {
+        assert_eq!(
+            with("crates/engine-hash/src/more_tests.rs", text),
+            Ok(()),
+            "declared data, the crate's own files, other variables, prose: {text}"
+        );
+    }
+    let unread = "crates/engine-hash/src/more_tests.rs:1: the tests of engine-hash read";
+    for (text, read) in [
+        (
+            "const A: &str = include_str!(\"../../../spec/measurement-vectors.json\");\n",
+            "spec/measurement-vectors.json",
+        ),
+        (
+            "fn f() { let _ = Path::new(env!(\"CARGO_MANIFEST_DIR\"))\n    .join(\"../../conformance\"); }\n",
+            "conformance",
+        ),
+        (
+            "const A: &str = include_str!(\"../../x.json\");\n",
+            "crates/x.json",
+        ),
+    ] {
+        assert_eq!(
+            with("crates/engine-hash/src/more_tests.rs", text),
+            failed(format!(
+                "{context}: {unread} `{read}`, which is not in its test_data"
+            )),
+            "{text}"
+        );
+    }
+    for (text, word) in [
+        ("const A: &str = include_str!(PATH);\n", "include_str"),
+        ("const A: &str = include_bytes! (\"x\");\n", "include_bytes"),
+        ("const A: &str = include_str!(\"x\" );\n", "include_str"),
+        ("const A: &str = include_str!(\"x\n", "include_str"),
+        (
+            "fn f() { let _ = Path::new(env!(\"CARGO_MANIFEST_DIR\")); }\n",
+            "env",
+        ),
+        (
+            "fn f() { let _ = Path::new(env!(\"CARGO_MANIFEST_DIR\")).join(DIR); }\n",
+            "env",
+        ),
+        (
+            "fn f() { let _ = env!(\"CARGO_MANIFEST_DIR\").join(\"x\"); }\n",
+            "env",
+        ),
+    ] {
+        assert_eq!(
+            with("crates/engine-hash/src/more_tests.rs", text),
+            failed(format!(
+                "{context}: crates/engine-hash/src/more_tests.rs:1: `{word}!` without a literal \
+                 path the gate can follow"
+            )),
+            "{text}"
+        );
+    }
+    assert_eq!(
+        with(
+            "crates/engine-hash/src/more_tests.rs",
+            "const A: &str = include_str!(\"../../../../x\");\n"
+        ),
+        failed(format!(
+            "{context}: crates/engine-hash/src/more_tests.rs:1: `../../../../x` leaves the \
+             repository"
+        )),
+        "outside the repository"
+    );
+    let without: Vec<(String, String)> = base
+        .iter()
+        .filter(|(path, _)| path != "crates/engine-hash/src/lib_tests.rs")
+        .cloned()
+        .collect();
+    assert_eq!(
+        super::test_data_gate(&without),
+        failed(format!(
+            "{context}: engine-hash: declares `spec/render-hash-vectors.json` as test data, \
+             which no test of it reads"
+        )),
+        "a stale root"
+    );
+    assert_eq!(
+        with("README.rs", "const A: &str = include_str!(\"x\");\n"),
+        Ok(()),
+        "a file of no crate"
+    );
+}
+
+#[test]
+fn reads_only_the_declared_test_data_of_the_repository() {
+    assert_eq!(
+        super::test_data_gate(&repository_rust_sources()),
+        Ok(()),
+        "the files of the repository"
+    );
 }
 
 #[test]
@@ -8916,8 +9241,8 @@ fn the_parts_run_every_step_of_the_full_check_once() {
     }
     assert_eq!(
         steps_run,
-        18 * 3 + (76 - 3 - 7 - 2) + 8 * 2 + 1 + 2 + 6 * 3 + 1,
-        "each part's frame (three steps); every other step of the 76 once, but the seven \
+        18 * 3 + (78 - 3 - 7 - 2) + 8 * 2 + 1 + 2 + 6 * 3 + 1,
+        "each part's frame (three steps); every other step of the 78 once, but the seven \
          preparations, the mutation run and its unviable gate; in each of the eight shards, \
          the report emptied and the shard's run; the gate over the shards; the conformance \
          export (two steps) for the oracle; the JavaScript preparation (three steps) for the \
