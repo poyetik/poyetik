@@ -17,7 +17,9 @@
 //! records the mode (`spec/render-hash.md`).
 
 use alloc::boxed::Box;
+use core::borrow::Borrow;
 use core::fmt;
+use core::iter;
 use core::ops::{Add, AddAssign, BitOr, Div, Mul, Neg, Sub, SubAssign};
 
 use crate::{BLOCK_SIZE, Block, Factory, Object, SampleRate};
@@ -556,6 +558,100 @@ const LANES: usize = 16;
 /// `i + 2` and `i + 1`, for `i` from 0 (decision 28).
 const TREE: [usize; 4] = [8, 4, 2, 1];
 
+// `TREE` halves `LANES` round by round down to 1: the two constants state one fact, which
+// the compiler checks (the split points of `reduce`, `half - 1`, rely on it).
+const _: () = {
+    let [first, second, third, last] = TREE;
+    assert!(
+        first == LANES.div_euclid(2)
+            && second == first.div_euclid(2)
+            && third == second.div_euclid(2)
+            && last == third.div_euclid(2)
+            && last == 1,
+        "TREE halves LANES down to one lane"
+    );
+};
+
+/// What the reduction order sums: a sample, or a block of samples frame by frame.
+trait Summand: Copy {
+    /// The sum of no terms: +0, or a block of +0.
+    const NOTHING: Self;
+    /// Adds `other` to itself, frame by frame for a block.
+    fn add(&mut self, other: &Self);
+}
+
+impl<S: Sample> Summand for S {
+    const NOTHING: Self = S::ZERO;
+
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "IEEE 754 addition of the sample type, which neither overflows nor panics"
+    )]
+    fn add(&mut self, other: &Self) {
+        *self += *other;
+    }
+}
+
+impl<S: Sample> Summand for Block<S> {
+    const NOTHING: Self = S::SILENCE;
+
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "IEEE 754 addition of the sample type, which neither overflows nor panics"
+    )]
+    fn add(&mut self, other: &Self) {
+        for (sum, term) in self.iter_mut().zip(other) {
+            *sum += *term;
+        }
+    }
+}
+
+/// The reduction order of decision 28, once, for a sample and for a block alike: lane 0 is
+/// `out`, lanes 1 to 15 are `rest`. A block's frames never meet, so frame `f` of a block
+/// sum is the sample sum of the frames `f` of its terms, by construction.
+///
+/// Term `k` starts lane `k` (copied, never added to -0) for `k` below 16, then adds to lane
+/// `k mod 16` in increasing `k`; no term at all gives `NOTHING`; the tree then adds lane
+/// `i + half` to lane `i` over the lanes holding a term.
+fn reduce<L: Summand, T: Borrow<L>>(
+    out: &mut L,
+    rest: &mut [L; LANES - 1],
+    terms: impl IntoIterator<Item = T>,
+) {
+    let mut terms = terms.into_iter().peekable();
+    let mut used = 0_usize;
+    // `zip` asks the lanes first, so a term is never taken without a lane for it.
+    for (lane, term) in iter::once(&mut *out)
+        .chain(rest.iter_mut())
+        .zip(terms.by_ref())
+    {
+        *lane = *term.borrow();
+        used = used.saturating_add(1);
+    }
+    if used == 0 {
+        *out = L::NOTHING;
+    }
+    while terms.peek().is_some() {
+        for (lane, term) in iter::once(&mut *out)
+            .chain(rest.iter_mut())
+            .zip(terms.by_ref())
+        {
+            lane.add(term.borrow());
+        }
+    }
+    for half in TREE {
+        // Lanes 0 to `half - 1` are `out` and `rest[..half - 1]`; lanes `half` on are
+        // `rest[half - 1..]`, of which the first `used - half` hold a term.
+        let (low, high) = rest.split_at_mut(half.saturating_sub(1));
+        for (lane, other) in iter::once(&mut *out)
+            .chain(low.iter_mut())
+            .zip(high.iter().take(used.saturating_sub(half)))
+        {
+            lane.add(other);
+        }
+    }
+}
+
 /// The sum of `terms`, in the reduction order (`spec/engine-design.md`, decision 28).
 ///
 /// Every sum of more than two terms of the engine and of boxes goes through it, so that
@@ -583,56 +679,34 @@ const TREE: [usize; 4] = [8, 4, 2, 1];
 /// }
 /// ```
 #[must_use]
-#[expect(
-    clippy::arithmetic_side_effects,
-    reason = "IEEE 754 addition of the sample type, which neither overflows nor panics"
-)]
 pub fn ordered_sum<S: Sample>(terms: impl IntoIterator<Item = S>) -> S {
-    let mut terms = terms.into_iter().peekable();
-    let mut lanes = [S::ZERO; LANES];
-    // Terms 0 to 15 start their lanes.
-    let mut used = 0_usize;
-    for (lane, term) in lanes.iter_mut().zip(terms.by_ref()) {
-        *lane = term;
-        used = used.saturating_add(1);
-    }
-    // Every further 16 terms add to the lanes in turn, in increasing `k`, until none is left.
-    // `zip` asks the lanes first, so a term is never taken from `terms` without a lane to
-    // add it to.
-    while terms.peek().is_some() {
-        for (lane, term) in lanes.iter_mut().zip(terms.by_ref()) {
-            *lane += term;
-        }
-    }
-    // The tree, over the lanes holding a term: below `used`, the lanes `i + half` it adds.
-    for half in TREE {
-        let (low, high) = lanes.split_at_mut(half);
-        for (lane, other) in low
-            .iter_mut()
-            .zip(high.iter().take(used.saturating_sub(half)))
-        {
-            *lane += *other;
-        }
-    }
-    let [sum, ..] = lanes;
-    sum
+    let (mut out, mut rest) = (S::ZERO, [S::ZERO; LANES - 1]);
+    reduce(&mut out, &mut rest, terms);
+    out
 }
 
-/// The sum of the blocks `terms` frame by frame, by [`ordered_sum`]: the block itself for
-/// one (bit for bit), each frame through [`ordered_sum`] otherwise (silence, +0, for no
-/// block). The plan sums the cables into an inlet and the output boxes on a channel with it.
-pub(crate) fn sum_blocks<'terms, S: Sample, T: Iterator<Item = &'terms Block<S>> + Clone>(
-    out: &mut Block<S>,
-    terms: &T,
-) {
-    let mut first = terms.clone();
-    if let (Some(only), None) = (first.next(), first.next()) {
-        *out = *only;
-    } else {
-        for (frame, sample) in out.iter_mut().enumerate() {
-            *sample = ordered_sum(terms.clone().filter_map(|block| block.get(frame)).copied());
-        }
+/// The scratch lanes of the block form of the reduction order, 15 blocks, reserved once by
+/// [`Lanes::new`] (a plan's build), so that summing blocks never allocates.
+#[derive(Debug)]
+pub(crate) struct Lanes<S: Sample>(Box<[Block<S>; LANES - 1]>);
+
+impl<S: Sample> Lanes<S> {
+    /// Lanes of silence, on the heap.
+    pub(crate) fn new() -> Self {
+        Self(Box::new([S::SILENCE; LANES - 1]))
     }
+}
+
+/// The sum of the blocks `terms` frame by frame, in the reduction order of
+/// [`ordered_sum`] (the same core, `reduce`): the block itself for one (bit for bit),
+/// silence (+0) for none. The plan sums the cables into an inlet and the output boxes on a
+/// channel with it, using `lanes` as scratch.
+pub(crate) fn sum_blocks<'terms, S: Sample>(
+    out: &mut Block<S>,
+    lanes: &mut Lanes<S>,
+    terms: impl Iterator<Item = &'terms Block<S>>,
+) {
+    reduce(out, &mut lanes.0, terms);
 }
 
 /// What a host, never a box, needs of the engine's samples: their floats and their bits,

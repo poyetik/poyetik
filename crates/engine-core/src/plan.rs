@@ -14,7 +14,7 @@ use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec;
 use alloc::vec::Vec;
 
-use crate::math::sum_blocks;
+use crate::math::{Lanes, sum_blocks};
 use crate::{
     Binary64, Block, Capability, Connection, CoreError, Node, NodeId, Object, ObjectSpec, Patch,
     Sample, SampleRate, flush,
@@ -60,6 +60,9 @@ pub struct Plan<S: Sample> {
     outputs: Vec<usize>,
     /// Number of engine output channels.
     channels: usize,
+    /// The scratch lanes of every sum of blocks, reserved here so that summing never
+    /// allocates.
+    lanes: Lanes<S>,
 }
 
 /// A box resolved against the registry.
@@ -286,6 +289,7 @@ impl<S: Sample> Plan<S> {
             bus: vec![S::SILENCE; bus_len],
             outputs,
             channels,
+            lanes: Lanes::new(),
         })
     }
 
@@ -322,7 +326,11 @@ impl<S: Sample> Plan<S> {
                 .filter(|(_, slots)| !slots.is_empty())
             {
                 // Every slot is below the bus length (`source_slot`): none is skipped.
-                sum_blocks(input, &slots.iter().filter_map(|&slot| self.bus.get(slot)));
+                sum_blocks(
+                    input,
+                    &mut self.lanes,
+                    slots.iter().filter_map(|&slot| self.bus.get(slot)),
+                );
             }
             instance
                 .object
@@ -344,7 +352,7 @@ impl<S: Sample> Plan<S> {
                     .get(output)
                     .and_then(|instance| instance.inputs.get(index))
             });
-            sum_blocks(channel, &inputs);
+            sum_blocks(channel, &mut self.lanes, inputs);
         }
     }
 }

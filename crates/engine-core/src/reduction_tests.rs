@@ -6,7 +6,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::ops::Add;
 
-use super::{ordered_sum, sum_blocks};
+use super::{Lanes, ordered_sum, sum_blocks};
 
 use crate::host::Raw;
 use crate::{BLOCK_SIZE, Binary64, Block, Sample};
@@ -343,6 +343,9 @@ where
 {
     let specials = specials::<S::Float>();
     let mut draws = Draws(0x5059_0064);
+    // One set of scratch lanes for every sum, as a plan keeps one: nothing left in them by a
+    // sum may reach the next.
+    let mut lanes = Lanes::new();
     let draw = |source: &mut Draws| {
         let pick = source.next();
         if pick.trailing_zeros() >= 2 {
@@ -357,7 +360,7 @@ where
             .map(|_| core::array::from_fn(|_| draw(&mut draws)))
             .collect();
         let mut out = [S::from_raw(draws.finite()); BLOCK_SIZE];
-        sum_blocks(&mut out, &blocks.iter());
+        sum_blocks(&mut out, &mut lanes, blocks.iter());
         for (frame, sample) in out.iter().enumerate() {
             let terms: Vec<S::Float> = blocks
                 .iter()
@@ -382,13 +385,17 @@ where
         *first = S::from_raw(S::Float::from_bits(signaling));
     }
     let mut out = [S::ZERO; BLOCK_SIZE];
-    sum_blocks(&mut out, &core::slice::from_ref(&odd).iter());
+    sum_blocks(&mut out, &mut lanes, core::slice::from_ref(&odd).iter());
     assert_eq!(
         out.map(Raw::bits),
         odd.map(Raw::bits),
         "one block, bit for bit"
     );
-    sum_blocks(&mut out, &core::slice::from_ref(&odd)[..0].iter());
+    sum_blocks(
+        &mut out,
+        &mut lanes,
+        core::slice::from_ref(&odd)[..0].iter(),
+    );
     assert_eq!(out.map(Raw::bits), [0; BLOCK_SIZE], "no block: +0");
 }
 
