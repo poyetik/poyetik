@@ -5,7 +5,7 @@
  * from the expectation alone, never declared.
  */
 
-import { MAX_FRAMES, MeasureError, measure, sineBounds, sineFitRefusal, type Bounds, type Measurements } from "./measure.ts";
+import { MAX_FRAMES, MeasureError, hasMargin, measure, sineBounds, sineFitConditioning, sineFitRefusal, type Bounds, type Measurements } from "./measure.ts";
 import { RENDER_FORMATS, type RenderFormat } from "./format.ts";
 import { ideal, sineErrorBound, type Sine } from "./signal.ts";
 
@@ -20,7 +20,7 @@ export interface Levels {
 }
 
 /** Why a channel measures nothing: its expectation has no fundamental to measure. */
-export const UNMEASURED = "no fundamental strictly between DC and Nyquist above its error bound";
+export const UNMEASURED = "no fundamental strictly between DC and Nyquist with a margin above its error bound";
 
 /** What the measurement of a channel found: its levels within their bounds, the levels out of them, or that it measures nothing ({@link UNMEASURED}). */
 export type Quality = { readonly kind: "measured"; readonly levels: Levels } | { readonly kind: "failed"; readonly problems: readonly string[] } | { readonly kind: "unmeasured" };
@@ -41,16 +41,18 @@ function db(value: number): string {
  * {@link MAX_FRAMES} frames from the start, and holds every level to the bound of its
  * format.
  *
- * Measures nothing when the sine has no fundamental strictly between DC and Nyquist, or
- * when its ideal values over those frames all stay within its error bound of zero (silence
- * included, and a sine at 2^-126 Hz over a few thousand frames): no level can then tell it
- * from silence, which its distance from the ideal sine (`sineError`) already checks.
+ * Measures nothing when the sine has no fundamental strictly between DC and Nyquist, when
+ * its ideal values over those frames all stay within its error bound of zero (silence
+ * included, and a sine at 2^-126 Hz over a few thousand frames), or when its amplitude
+ * leaves its fundamental no margin above that bound, even measured from its exact samples
+ * (a binary32 sine just above 2^-126): no level can then tell it from silence, or be held
+ * to a bound, which its distance from the ideal sine (`sineError`) already checks.
  */
 export function judgeQuality(samples: readonly number[], rate: number, sine: Sine, format: RenderFormat): Quality {
   const fundamental = fold(sine.frequency, rate);
   const frames = Math.min(samples.length, MAX_FRAMES);
   const bound = sineErrorBound(sine.amplitude, frames, format);
-  if (!isMeasured(sine, rate, frames, [bound])) {
+  if (!isMeasured(sine, rate, frames, bound)) {
     return { kind: "unmeasured" };
   }
   let measured;
@@ -69,10 +71,15 @@ export function judgeQuality(samples: readonly number[], rate: number, sine: Sin
 
 /**
  * Whether {@link judgeQuality} measures `sine` over its first `frames` frames at `rate`,
- * under one of `bounds` (the error bounds of the formats concerned): its fundamental lies
- * strictly between DC and Nyquist, and its ideal values rise above that bound somewhere.
+ * under `bound` (its error bound in the format concerned): its fundamental lies strictly
+ * between DC and Nyquist, its ideal values rise above that bound somewhere, and its
+ * amplitude leaves the fundamental a margin above it, for the conditioning its sine fit has
+ * over those frames, from the floor of an exact render (`hasMargin`, the condition the
+ * bounds of a level need), so that no expectation is measured that every render would fail.
+ * A fit refused whatever the samples is measured, and fails: the expectation is refused
+ * when it is read ({@link unmeasurable}).
  */
-function isMeasured(sine: Sine, rate: number, frames: number, bounds: readonly number[]): boolean {
+function isMeasured(sine: Sine, rate: number, frames: number, bound: number): boolean {
   const fundamental = fold(sine.frequency, rate);
   if (!(fundamental > 0 && fundamental < rate / 2)) {
     return false;
@@ -81,7 +88,11 @@ function isMeasured(sine: Sine, rate: number, frames: number, bounds: readonly n
   for (let frame = 0; frame < frames; frame += 1) {
     peak = Math.max(peak, Math.abs(ideal(sine, rate, frame)));
   }
-  return bounds.some((bound) => peak > bound);
+  if (!(peak > bound)) {
+    return false;
+  }
+  const conditioning = sineFitConditioning(fundamental, rate, frames);
+  return conditioning instanceof MeasureError || hasMargin(sine.amplitude, bound, conditioning);
 }
 
 /**
@@ -93,8 +104,7 @@ function isMeasured(sine: Sine, rate: number, frames: number, bounds: readonly n
  */
 export function unmeasurable(sine: Sine, rate: number, frames: number): string | null {
   const counted = Math.min(frames, MAX_FRAMES);
-  const bounds = RENDER_FORMATS.map((format) => sineErrorBound(sine.amplitude, counted, format));
-  if (!isMeasured(sine, rate, counted, bounds)) {
+  if (!RENDER_FORMATS.some((format) => isMeasured(sine, rate, counted, sineErrorBound(sine.amplitude, counted, format)))) {
     return null;
   }
   return sineFitRefusal(fold(sine.frequency, rate), rate, counted)?.message ?? null;

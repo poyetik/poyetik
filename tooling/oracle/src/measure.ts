@@ -221,6 +221,16 @@ export function solve(gram: readonly (readonly number[])[], projections: readonl
  * neither depends on the samples, only on the frequencies fitted and the frames.
  */
 export function sineFitRefusal(fundamental: number, rate: number, frames: number): MeasureError | null {
+  const conditioning = sineFitConditioning(fundamental, rate, frames);
+  return conditioning instanceof MeasureError ? conditioning : null;
+}
+
+/**
+ * The conditioning the sine fit of `fundamental` over `frames` frames at `rate` has when
+ * {@link measure} measures it, computed as it computes it, or why it would refuse the fit
+ * (`TooShort` or `Unresolvable`): neither depends on the samples.
+ */
+export function sineFitConditioning(fundamental: number, rate: number, frames: number): number | MeasureError {
   const found = components(fundamental, rate, 1);
   const list = unknowns(found);
   const size = list.length;
@@ -237,7 +247,11 @@ export function sineFitRefusal(fundamental: number, rate: number, frames: number
     });
   }
   const scales = list.map((unknown) => 1 / Math.sqrt(unknown.weight * frames));
-  return unresolvable(deviationOf(gram.map((sums) => sums.map((sum) => sum.value())), scales).conditioning);
+  const { conditioning } = deviationOf(
+    gram.map((sums) => sums.map((sum) => sum.value())),
+    scales,
+  );
+  return unresolvable(conditioning) ?? conditioning;
 }
 
 /** What a fit found. */
@@ -518,6 +532,15 @@ function margins(amplitude: number, error: number, quality: Quality): [number, n
   const total = error + quality.floor;
   const lowest = Math.abs(amplitude) - (total * Math.sqrt(2 * (1 + rho))) / (1 - rho);
   return lowest > 0 ? [total, lowest] : null;
+}
+
+/**
+ * Whether a fit of conditioning `conditioning` leaves the fundamental of a render exactly
+ * within `error` per sample of a sine of `amplitude` a margin above that error, from the
+ * floor of an exact render (zero): the condition {@link sineBounds} needs to bound its levels.
+ */
+export function hasMargin(amplitude: number, error: number, conditioning: number): boolean {
+  return margins(amplitude, error, { conditioning, floor: 0 }) !== null;
 }
 
 /** The bounds of the harmonic fit of quality `quality` (see {@link Bounds}); null without a margin. */

@@ -1,6 +1,7 @@
 import { describe as group, expect, test } from "vitest";
 import { MeasureError, type Bounds, type Measurements } from "../src/measure.ts";
-import { describe, fold, hold, judgeQuality, worst, type Levels } from "../src/quality.ts";
+import { describe, fold, hold, judgeQuality, unmeasurable, worst, type Levels } from "../src/quality.ts";
+import { sineError, sineErrorBound } from "../src/signal.ts";
 import { sineSamples, sineSamples64 } from "./fixtures.ts";
 
 /** A 1 kHz full-scale sine. */
@@ -80,6 +81,41 @@ group("judgeQuality", () => {
     ["twice its bound", (2 * 2 ** -25 * 8000) / (2 * Math.PI * 63), "failed"],
   ])("measures nothing of a sine that stays within its error bound of silence: %s", (_name, frequency, kind) => {
     expect(judgeQuality(new Array<number>(64).fill(0), 8000, { ...SINE, frequency }, "binary64-as-binary32").kind).toBe(kind);
+  });
+
+  group("a binary32 amplitude just above 2^-126, where the error bound nears the amplitude", () => {
+    /** The binary32 value of the bits `bits`. */
+    const binary32 = (bits: number): number => new Float32Array(new Uint32Array([bits]).buffer)[0] ?? Number.NaN;
+    /** The exact samples of a 1 kHz sine of `amplitude` over 4800 frames at 48 kHz: 100 whole cycles. */
+    const exact = (amplitude: number): number[] => Array.from({ length: 4800 }, (_frame, frame) => amplitude * Math.sin((2 * Math.PI * 1000 * frame) / 48_000));
+    /** The quality of the exact samples of `amplitude`, judged as a binary32 render. */
+    const judged = (amplitude: number): string => judgeQuality(exact(amplitude), 48_000, { ...SINE, amplitude }, "binary32").kind;
+    // Where its fundamental has a margin, computed apart from the oracle: the bound is
+    // 2^-126 + a·k (k = 2^-22 + 2^-25 + 2^-33 + 2π·4800·2^-52 + 2^-48), the fit's basis is
+    // orthogonal over whole cycles, so a > √2 · bound: a > 1.41421410 · 2^-126, between the
+    // binary32 values 0x00b504f7 and 0x00b504f8.
+    test.each([
+      ["1.25 · 2^-126", 0x00a0_0000, "unmeasured"],
+      ["the last value without a margin", 0x00b5_04f7, "unmeasured"],
+      ["the first value with one", 0x00b5_04f8, "measured"],
+    ])("%s (bits %i) is %s, never failed for every render", (_name, bits, kind) => {
+      expect(judged(binary32(bits))).toBe(kind);
+      expect(unmeasurable({ ...SINE, amplitude: binary32(bits) }, 48_000, 4800)).toBeNull();
+    });
+
+    test("measures nothing of a sine whose peak equals its error bound", () => {
+      // A start phase of the bound itself: sin(x) is x in binary64 for so small an x, so the
+      // one frame measured peaks at exactly the bound, which it does not rise above.
+      const bound = sineErrorBound(1, 1, "binary64");
+      expect(Math.sin(bound)).toBe(bound);
+      expect(judgeQuality([bound], 48_000, { ...SINE, phase: bound }, "binary64")).toStrictEqual({ kind: "unmeasured" });
+    });
+
+    test("still holds a wrong render to its distance from the sine", () => {
+      const amplitude = binary32(0x00b5_04f7);
+      expect(judgeQuality(new Array<number>(4800).fill(0), 48_000, { ...SINE, amplitude }, "binary32")).toStrictEqual({ kind: "unmeasured" });
+      expect(sineError(new Array<number>(4800).fill(0), 48_000, { ...SINE, amplitude })).toBeGreaterThan(sineErrorBound(amplitude, 4800, "binary32"));
+    });
   });
 
   test("reports what cannot be measured", () => {
