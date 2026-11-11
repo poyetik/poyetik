@@ -7476,28 +7476,26 @@ pub fn history_gate(messages: &str, files: &str, scoped: &str) -> Result<(), Fai
 
 /// Checks that the pre-push hook validates exactly what is pushed.
 ///
-/// The working tree has nothing uncommitted (`status`, from `git status --porcelain
-/// --untracked-files=all --ignore-submodules=none`) nor hidden from git status (`listed`,
-/// from `git ls-files -v`; see [`unclean`]), and every commit pushed (`pushed`, each object the
+/// The working tree (`view`) has nothing uncommitted, nor hidden from git status or by a
+/// filter ([`unclean`]), and every commit pushed (`pushed`, each object the
 /// hook received peeled to its commit) is `head`, the commit checked out. A deleted branch (all
 /// zeros) pushes nothing.
 ///
 /// # Errors
 ///
 /// Returns what to commit or check out first.
-pub fn pre_push_gate(
-    head: &str,
-    status: &str,
-    listed: &str,
-    pushed: &[String],
-) -> Result<(), Failure> {
+pub fn pre_push_gate(head: &str, view: &TreeView, pushed: &[String]) -> Result<(), Failure> {
     let mut problems = Vec::new();
-    if !status.trim().is_empty() {
+    if !view.status.trim().is_empty() {
         problems.push(format!(
             "the working tree has changes not committed, which the check would include: {}",
-            status.lines().map(str::trim).collect::<Vec<_>>().join(", ")
+            view.status
+                .lines()
+                .map(str::trim)
+                .collect::<Vec<_>>()
+                .join(", ")
         ));
-    } else if let Some(reason) = unclean(status, listed) {
+    } else if let Some(reason) = unclean(view) {
         problems.push(format!(
             "the working tree may differ from what is committed, which the check would \
              include: {reason}"
@@ -7939,7 +7937,7 @@ fn git_output(runner: &mut dyn Runner, args: &[&str], doing: &str) -> Result<Str
 /// Reads the commit checked out and the state of the working tree, then checks a push.
 fn pre_push(runner: &mut dyn Runner, pushed: &[String]) -> Result<(), Failure> {
     let head = git_output(runner, &["rev-parse", "HEAD"], "read the work tree")?;
-    let (status, listed) = tree_cleanliness(runner)?;
+    let view = tree_cleanliness(runner)?;
     // Git gives the hook the object pushed: for an annotated tag, the tag object, which is
     // never the commit checked out. The gate compares the commit each object names.
     let commits = pushed
@@ -7956,7 +7954,7 @@ fn pre_push(runner: &mut dyn Runner, pushed: &[String]) -> Result<(), Failure> {
             .map(|commit| commit.trim().to_owned())
         })
         .collect::<Result<Vec<_>, _>>()?;
-    pre_push_gate(&head, &status, &listed, &commits)
+    pre_push_gate(&head, &view, &commits)
 }
 
 /// Whether git pushes `object` to delete a ref: the hook then receives an object name of
@@ -9607,18 +9605,75 @@ fn usable_proof(
     }
 }
 
+/// What git says of the work tree, for [`unclean`] ([`tree_cleanliness`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TreeView {
+    /// `git status --porcelain --untracked-files=all --ignore-submodules=none`.
+    pub status: String,
+    /// `git ls-files -v`: each tracked file with its tag.
+    pub listed: String,
+    /// Why a tracked file passes through a filter, if one does ([`filtered`]).
+    pub filtered: Option<String>,
+}
+
 /// Why the tree may differ from what is committed, or `None` when it is clean.
 ///
-/// `status` is `git status --porcelain --untracked-files=all --ignore-submodules=none` and
-/// `listed` is `git ls-files -v`: the reason names the first change or untracked file, or
-/// the first file git hides from the status ([`hidden`]).
+/// The reason names the first change or untracked file of the status, the first file git
+/// hides from the status ([`hidden`]), or the first file a filter may hide a change of
+/// ([`filtered`]).
 #[must_use]
-pub fn unclean(status: &str, listed: &str) -> Option<String> {
-    status
+pub fn unclean(view: &TreeView) -> Option<String> {
+    view.status
         .lines()
         .find(|line| !line.trim().is_empty())
         .map(|line| format!("`{}` is not committed", line.trim_end()))
-        .or_else(|| hidden(listed))
+        .or_else(|| hidden(&view.listed))
+        .or_else(|| view.filtered.clone())
+}
+
+/// The first tracked file git passes through a filter, said as a reason.
+///
+/// `tracked` is `git ls-files -z`, and `attributes` git's answer on their `filter`
+/// attribute (`git check-attr -z filter -- <each>`: path, attribute and value, each ended
+/// by NUL).
+///
+/// A filter's clean driver rewrites what git reads of the file, so git's status, its diffs
+/// and its index can miss a change the work tree holds, which cargo builds and tests: no
+/// option of git's turns it off. Only `unspecified` and `unset` mean no filter; an answer
+/// that is not one entry per tracked file, in their order, is refused as unread.
+#[must_use]
+pub fn filtered(tracked: &str, attributes: &str) -> Option<String> {
+    let paths = nul_separated(tracked);
+    let fields: Vec<&str> = attributes.split('\0').collect();
+    let entries = fields
+        .split_last()
+        .filter(|(last, _)| last.is_empty())
+        .map(|(_, entries)| entries)
+        .filter(|entries| entries.len() == paths.len().saturating_mul(3))
+        .filter(|entries| {
+            paths.iter().zip(entries.chunks(3)).all(|(path, entry)| {
+                entry.first() == Some(&path.as_str()) && entry.get(1) == Some(&"filter")
+            })
+        });
+    let Some(entries) = entries else {
+        return Some(
+            "git's answer on the `filter` attribute of the tracked files is not one entry per \
+             file, in their order"
+                .to_owned(),
+        );
+    };
+    paths
+        .iter()
+        .zip(entries.chunks(3))
+        .find_map(|(path, entry)| {
+            let value = entry.get(2).copied().unwrap_or_default();
+            (!["unspecified", "unset"].contains(&value)).then(|| {
+                format!(
+                    "`{path}` passes through git's `{value}` filter, whose clean driver may hide a \
+                 change from git (status, diff): the tree checked may not be the one committed"
+                )
+            })
+        })
 }
 
 /// The first file `listed` (`git ls-files -v`) shows git hiding from its status and its
@@ -9640,12 +9695,12 @@ pub fn hidden(listed: &str) -> Option<String> {
         })
 }
 
-/// The status and the hidden files of the tree, for [`unclean`].
+/// The status, the hidden files and the filtered files of the tree, for [`unclean`].
 ///
 /// # Errors
 ///
 /// Returns why git cannot give them.
-fn tree_cleanliness(runner: &mut dyn Runner) -> Result<(String, String), Failure> {
+fn tree_cleanliness(runner: &mut dyn Runner) -> Result<TreeView, Failure> {
     // Every untracked file and submodule change, whatever the user's configuration hides
     // (`status.showUntrackedFiles`, `diff.ignoreSubmodules`): the check would read them.
     let status = git_output(
@@ -9659,7 +9714,30 @@ fn tree_cleanliness(runner: &mut dyn Runner) -> Result<(String, String), Failure
         "read the work tree",
     )?;
     let listed = git_output(runner, &["ls-files", "-v"], "read the work tree")?;
-    Ok((status, listed))
+    Ok(TreeView {
+        status,
+        listed,
+        filtered: filtered_files(runner)?,
+    })
+}
+
+/// Why a tracked file passes through a filter, if one does ([`filtered`]), from git: the
+/// tracked files, then the `filter` attribute of each, given as arguments (an argument list
+/// too long for the system fails to start, and so fails the check).
+///
+/// # Errors
+///
+/// Returns why git cannot give them.
+fn filtered_files(runner: &mut dyn Runner) -> Result<Option<String>, Failure> {
+    let tracked = git_output(runner, &["ls-files", "-z"], "list the tracked files")?;
+    let paths = nul_separated(&tracked);
+    if paths.is_empty() {
+        return Ok(None);
+    }
+    let mut args = vec!["check-attr", "-z", "filter", "--"];
+    args.extend(paths.iter().map(String::as_str));
+    let attributes = git_output(runner, &args, "read the filters of the tracked files")?;
+    Ok(filtered(&tracked, &attributes))
 }
 
 /// What the proof record step found ([`proof_to_record`]).
@@ -9687,8 +9765,8 @@ fn proof_to_record(
             "the tree changed while the checks ran, or was not recorded at their start".to_owned(),
         ));
     }
-    let (status, listed) = tree_cleanliness(runner)?;
-    if let Some(reason) = unclean(&status, &listed) {
+    let view = tree_cleanliness(runner)?;
+    if let Some(reason) = unclean(&view) {
         return Ok(Recordable::Not(format!("the tree is not clean: {reason}")));
     }
     let base = read_file(runner, MEASURED_BASE)?.trim().to_owned();
@@ -10141,6 +10219,28 @@ fn mutated_diff(
     Ok(diff)
 }
 
+/// Checks that git shows every change of the tracked files: none hidden from its status
+/// ([`hidden`]) nor passed through a filter ([`filtered`]), which would be in no diff git
+/// gives, and so go unmutated.
+///
+/// # Errors
+///
+/// Returns the first such file, or why git cannot list them.
+fn shown_whole(runner: &mut dyn Runner) -> Result<(), Failure> {
+    let listed = git_output(runner, &["ls-files", "-v"], "read the work tree")?;
+    if let Some(reason) = hidden(&listed) {
+        return Err(Failure::from(format!(
+            "{reason}: its changes would not be mutated (clear it with `git update-index \
+             --no-assume-unchanged --no-skip-worktree <file>`)"
+        )));
+    }
+    filtered_files(runner)?.map_or(Ok(()), |reason| {
+        Err(Failure::from(format!(
+            "{reason}: its changes may not be mutated (remove the attribute)"
+        )))
+    })
+}
+
 /// Runs cargo-mutants on what changed since the merge base ([`Action::RustMutantsOfChanges`]):
 /// the changes of the tracked files, committed or not, and every new Rust file git does not
 /// ignore; nothing when nothing changed.
@@ -10158,14 +10258,7 @@ fn rust_mutants_of_changes(
     out: &mut dyn Write,
     jobs: NonZeroUsize,
 ) -> Result<(), Failure> {
-    // A file git hides is in no diff git gives: its changes would go unmutated.
-    let listed = git_output(runner, &["ls-files", "-v"], "read the work tree")?;
-    if let Some(reason) = hidden(&listed) {
-        return Err(Failure::from(format!(
-            "{reason}: its changes would not be mutated (clear it with `git update-index \
-             --no-assume-unchanged --no-skip-worktree <file>`)"
-        )));
-    }
+    shown_whole(runner)?;
     let (base, against) = mutation_base(runner)?;
     runner
         .write(MEASURED_BASE, &format!("{base}\n"))

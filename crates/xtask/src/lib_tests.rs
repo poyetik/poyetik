@@ -293,10 +293,11 @@ const CHANGES_MODE: Mode = Mode::Changes { jobs: FAKE_JOBS };
 
 /// What the fake's git answers about its tree and its changes, and its compiler and linker
 /// driver about themselves.
-const GIT_ANSWERS: [(&str, &str); 14] = [
+const GIT_ANSWERS: [(&str, &str); 15] = [
     TREE_STATUS,
     PUSH_STATUS,
     HIDDEN,
+    TRACKED,
     HOST,
     LINKER,
     TREE_DIFF,
@@ -324,6 +325,10 @@ const HIDDEN: (&str, &str) = (
 H crates/a/src/b.rs
 ",
 );
+
+/// How the fake lists the tracked files for their filters, and what it answers: none, so
+/// that no filter is asked ([`super::filtered`]).
+const TRACKED: (&str, &str) = ("git ls-files -z", "");
 
 /// How the fake's rustc names its host, and what it answers.
 const HOST: (&str, &str) = (
@@ -2253,6 +2258,7 @@ fn mutates_the_changes_since_the_merge_base_with_the_upstream() {
         fake.ran,
         vec![
             "capture git ls-files -v",
+            "capture git ls-files -z",
             "capture git merge-base HEAD @{upstream}",
             "write target/xtask/mutants-base",
             "capture git rev-parse --git-common-dir",
@@ -3050,6 +3056,63 @@ fn reads_the_record_real_git_holds_at_a_commit() {
         ),
         "a commit git does not have"
     );
+}
+
+#[test]
+fn refuses_to_mutate_a_tree_where_a_filter_may_hide_changes() {
+    let attributes = "git check-attr -z filter -- Cargo.toml crates/a/src/b.rs";
+    let filtered = |answer: &str| {
+        let mut fake = passing();
+        for (command, text) in [
+            (TRACKED.0, "Cargo.toml\0crates/a/src/b.rs\0"),
+            (attributes, answer),
+        ] {
+            drop(
+                fake.files
+                    .insert(format!("capture {command}"), text.to_owned()),
+            );
+        }
+        fake
+    };
+    let mut hiding = filtered("Cargo.toml\0filter\0unspecified\0crates/a/src/b.rs\0filter\0hide\0");
+    assert_eq!(
+        run_steps(&rust_mutation_of_changes(), &mut hiding, &mut Vec::new()),
+        failed(
+            "Rust mutation testing of the changes: `crates/a/src/b.rs` passes through git's \
+             `hide` filter, whose clean driver may hide a change from git (status, diff): the \
+             tree checked may not be the one committed: its changes may not be mutated (remove \
+             the attribute)"
+        ),
+        "a filtered file"
+    );
+    assert!(
+        !hiding
+            .ran
+            .iter()
+            .any(|line| line.starts_with("cargo mutants")),
+        "nothing mutated"
+    );
+    let mut plain = filtered("Cargo.toml\0filter\0unspecified\0crates/a/src/b.rs\0filter\0unset\0");
+    assert_eq!(
+        run_steps(&rust_mutation_of_changes(), &mut plain, &mut Vec::new()),
+        Ok(()),
+        "no filter"
+    );
+    for (broken, doing) in [
+        (TRACKED.0, "list the tracked files"),
+        (attributes, "read the filters of the tracked files"),
+    ] {
+        let mut unread = filtered("");
+        unread.broken = Some(broken.to_owned());
+        assert_eq!(
+            run_steps(&rust_mutation_of_changes(), &mut unread, &mut Vec::new()),
+            failed(format!(
+                "Rust mutation testing of the changes: cannot {doing}: cannot run `{broken}`: \
+                 not found"
+            )),
+            "{doing}"
+        );
+    }
 }
 
 #[test]
@@ -3950,7 +4013,7 @@ fn runs_every_step_and_reports_success() {
         Ok(()),
         "all green"
     );
-    let (tools, commands, emptied, listed, captured, written) = (10, 58, 14, 26, 48, 4);
+    let (tools, commands, emptied, listed, captured, written) = (10, 58, 14, 26, 50, 4);
     let read = 9
         + 2
         + 13
@@ -3988,7 +4051,7 @@ fn runs_every_step_and_reports_success() {
          each package after the first; the licenses twice and the history three times, the state \
          of the tree (before, for the proof record and after) six times, the nightly's version and sysroot, the Cargo metadata (for the untested targets, dependency, pin, library and math layer gates), the output of the fused test build and of the nine builds of the loaded files gate, the merge base, the merge base of the versions spent and the record listed there, the changed paths, the changes, the \
          new Rust files and the list of every mutant once, git's common directory twice, the tree checked out, \
-         cargo-mutants' version, rustc's host and build, the linker driver's and git's versions, the status for a push and the hidden files for the mutation step and the proof record; the record spent, the measured base, the diff and the \
+         cargo-mutants' version, rustc's host and build, the linker driver's and git's versions, the status for a push and the hidden files and the tracked files (for their filters) for the mutation step and the proof record; the record spent, the measured base, the diff and the \
          proof record are written once each; the proof record, the measured base and the \
          toolchain file are read for it; and the gates read the nine dep-info files of the loaded files gate, the nine fake test data readers for the unsafe, bypass and vocabulary gates, every Rust file (twelve) for the test code, test data, untested targets and unviable names gates and the reviews of unviable mutants for the last, .node-version and the toolchain file for the preflight, the toolchain file, the four float sources and the float macros of the nightly and clippy.toml for the float gate, fourteen coverage reports, \
          the unviable report and reviews, the register of the pin gate, the 91 text files of the citation gate (the board and the record spent, which the fake lists as tracked, among them), the reviews again against the list of every mutant, six TypeScript sources and their reviews, the nine \
@@ -8104,6 +8167,96 @@ fn reads_the_history_or_says_why_it_cannot() {
 }
 
 #[test]
+fn refuses_a_tracked_file_git_passes_through_a_filter() {
+    let tracked = "a.rs\0b c.rs\0";
+    let answer =
+        |first: &str, second: &str| format!("a.rs\0filter\0{first}\0b c.rs\0filter\0{second}\0");
+    for (first, second) in [("unspecified", "unspecified"), ("unset", "unspecified")] {
+        assert_eq!(
+            super::filtered(tracked, &answer(first, second)),
+            None,
+            "{first}, {second}: no filter"
+        );
+    }
+    assert_eq!(super::filtered("", ""), None, "no tracked file");
+    for (value, path) in [("hide", "b c.rs"), ("set", "b c.rs"), ("lfs", "b c.rs")] {
+        assert_eq!(
+            super::filtered(tracked, &answer("unspecified", value)),
+            Some(format!(
+                "`{path}` passes through git's `{value}` filter, whose clean driver may hide a \
+                 change from git (status, diff): the tree checked may not be the one committed"
+            )),
+            "{value}"
+        );
+    }
+    for unread in [
+        "a.rs\0filter\0unspecified\0".to_owned(),
+        "a.rs\0filter\0unspecified\0b c.rs\0filter\0unspecified".to_owned(),
+        "a.rs\0diff\0unspecified\0b c.rs\0filter\0unspecified\0".to_owned(),
+        "b c.rs\0filter\0unspecified\0a.rs\0filter\0unspecified\0".to_owned(),
+        format!(
+            "{}x.rs\0filter\0unspecified\0",
+            answer("unspecified", "unspecified")
+        ),
+        "a.rs: filter: unspecified\nb c.rs: filter: unspecified\n".to_owned(),
+    ] {
+        assert_eq!(
+            super::filtered(tracked, &unread),
+            Some(
+                "git's answer on the `filter` attribute of the tracked files is not one entry \
+                 per file, in their order"
+                    .to_owned()
+            ),
+            "{unread:?}"
+        );
+    }
+}
+
+#[test]
+fn sees_a_change_a_clean_filter_hides_from_git() {
+    let dir = scratch("clean-filter");
+    let path = "crates/engine-hash/src/lib.rs";
+    std::fs::create_dir_all(dir.join("crates/engine-hash/src")).expect("its directory");
+    std::fs::write(dir.join(path), "fn a() {}\n").expect("a file");
+    let _init = hermetic_git(&dir, &["init", "--quiet", "--initial-branch=main"]);
+    let _add = hermetic_git(&dir, &["add", "."]);
+    let _commit = hermetic_git(&dir, &["commit", "--quiet", "-m", "first"]);
+    let _filter = hermetic_git(&dir, &["config", "filter.hide.clean", "grep -v HIDDEN"]);
+    let unclean = || {
+        let tree = super::tree_cleanliness(&mut system(dir.path())).expect("read");
+        super::unclean(&tree)
+    };
+    std::fs::write(dir.join(".git/info/attributes"), "").expect("no attribute");
+    assert_eq!(unclean(), None, "a clean tree, no filter assigned");
+    std::fs::write(dir.join(".git/info/attributes"), "*.rs filter=hide\n").expect("an attribute");
+    std::fs::write(dir.join(path), "fn a() {}\nfn b() {} // HIDDEN\n").expect("a change");
+    let _staged = hermetic_git(&dir, &["add", path]);
+    assert_eq!(
+        hermetic_git(&dir, &["status", "--porcelain"]),
+        "",
+        "git sees no change: the filter took effect"
+    );
+    assert_eq!(
+        unclean(),
+        Some(format!(
+            "`{path}` passes through git's `hide` filter, whose clean driver may hide a change \
+             from git (status, diff): the tree checked may not be the one committed"
+        )),
+        "the file the filter hides a change of"
+    );
+}
+
+/// What git says of a work tree whose status is `status`, whose files with their tags are
+/// `listed`, and which no filter rewrites.
+fn view(status: &str, listed: &str) -> super::TreeView {
+    super::TreeView {
+        status: status.to_owned(),
+        listed: listed.to_owned(),
+        filtered: None,
+    }
+}
+
+#[test]
 fn pushes_only_what_was_checked() {
     let head = "1111111111111111111111111111111111111111\n";
     let pushed = |commits: &[&str]| {
@@ -8115,8 +8268,7 @@ fn pushes_only_what_was_checked() {
     assert_eq!(
         super::pre_push_gate(
             head,
-            "",
-            "H a.rs\nH b.rs\n",
+            &view("", "H a.rs\nH b.rs\n"),
             &pushed(&["1111111111111111111111111111111111111111"])
         ),
         Ok(()),
@@ -8124,7 +8276,7 @@ fn pushes_only_what_was_checked() {
     );
     for (hidden, path) in [("h a.rs\n", "a.rs"), ("H b.rs\nS c d.rs\n", "c d.rs")] {
         assert_eq!(
-            super::pre_push_gate(head, "", hidden, &[]),
+            super::pre_push_gate(head, &view("", hidden), &[]),
             failed(format!(
                 "the push cannot be checked: the working tree may differ from what is \
                  committed, which the check would include: `{path}` is hidden from git status \
@@ -8136,23 +8288,21 @@ fn pushes_only_what_was_checked() {
     assert_eq!(
         super::pre_push_gate(
             head,
-            "",
-            "",
+            &view("", ""),
             &pushed(&["0000000000000000000000000000000000000000"])
         ),
         Ok(()),
         "a deleted branch"
     );
     assert_eq!(
-        super::pre_push_gate(head, "\n", "", &[]),
+        super::pre_push_gate(head, &view("\n", ""), &[]),
         Ok(()),
         "nothing pushed, nothing changed"
     );
     assert_eq!(
         super::pre_push_gate(
             head,
-            " M src/a.rs\n?? notes.txt\n",
-            "h hidden.rs\n",
+            &view(" M src/a.rs\n?? notes.txt\n", "h hidden.rs\n"),
             &pushed(&["2222222222222222222222222222222222222222"])
         ),
         failed(
