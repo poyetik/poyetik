@@ -1,8 +1,20 @@
 // Test bench page: drives the built package (dist/) and shows results as text, for the
-// end-to-end tests and for Claude in Chrome. The case comes from `?case=<name>`, the
-// precision the engine computes in from `?precision=<binary64|binary32>` (binary64 when
-// absent); the render is given as binary32, as Web Audio takes it. While a button's action
-// runs, it is disabled and its outputs and the error are cleared (page.ts).
+// end-to-end tests and for Claude in Chrome. This list is the one source of what it takes
+// and offers (the package's README points here):
+// - `?case=<name>`: the conformance case it renders, `sine-440` when absent;
+// - `?precision=<binary64|binary32>`: the precision the engine computes in, binary64 when
+//   absent; the render is given as binary32, as Web Audio takes it;
+// - `?runs=<n>`: how many times "Time construction" constructs the engine processor, 1 when
+//   absent;
+// - the buttons "Render offline" (shown in "Offline hash"), "Capture live" ("Live hash"),
+//   "Load an invalid patch" (its refusal shown in "Error") and "Time construction"
+//   ("Construction times");
+// - "Error": why the page could not load, or why the last action failed;
+// - `window.timeRendering(patch, rate, precision, blocks, runs)`: the times of rendering a
+//   patch (JSON text) on the page's own thread, which the per-box end-to-end benchmarks
+//   call (see `timeRendering` below).
+// While a button's action runs, it is disabled and its outputs and the error are cleared
+// (page.ts).
 import { WasmEngine } from "../../dist/engine.js";
 import { interleave, renderHash, STRICT } from "../../dist/hash.js";
 import { addProcessors, captureEngine, createEngineNode, givenAsBinary32, loadPatch, parsePrecision, renderOffline, type LoadedPatch, type Precision } from "../../dist/web.js";
