@@ -6943,6 +6943,10 @@ static CLOCK_ORIGIN: OnceLock<Instant> = OnceLock::new();
 pub struct SystemRunner {
     /// The repository root.
     pub root: PathBuf,
+    /// Variables set for every command it starts, on top of xtask's own: none for the
+    /// checks, which keep the user's git configuration (`safe.directory`, for one); a
+    /// test's runner sets those that keep git from reading the machine's configuration.
+    pub env: &'static [(&'static str, &'static str)],
 }
 
 /// The variables git sets for a hook that name one repository.
@@ -6982,7 +6986,7 @@ pub const PATHSPEC_GIT_VARIABLES: [&str; 4] = [
     "GIT_ICASE_PATHSPECS",
 ];
 
-/// A command for `program` in `dir`, without the variables of [`LOCAL_GIT_VARIABLES`] and
+/// A command for `program` in `dir`, with the variables of `env`, without the variables of [`LOCAL_GIT_VARIABLES`] and
 /// [`PATHSPEC_GIT_VARIABLES`], nor `RUSTUP_TOOLCHAIN`, reading no input (a command waiting
 /// for an answer fails instead of blocking the check), and for git with `LC_ALL=C` (its
 /// messages untranslated, as [`error_reason`] reads them).
@@ -6991,9 +6995,12 @@ pub const PATHSPEC_GIT_VARIABLES: [&str; 4] = [
 /// +beta xtask`, `RUSTUP_TOOLCHAIN=stable`): inherited, it would replace the toolchain of
 /// [`RUST_TOOLCHAIN_FILE`] for every command. Without it, each command runs with the
 /// toolchain of the file (or of an override, which the preflight refuses).
-fn command(program: &str, dir: &Path) -> Command {
+fn command(program: &str, dir: &Path, env: &[(&str, &str)]) -> Command {
     let mut command = Command::new(program);
-    let _in_dir = command.current_dir(dir).stdin(Stdio::null());
+    let _in_dir = command
+        .current_dir(dir)
+        .stdin(Stdio::null())
+        .envs(env.iter().copied());
     if program == "git" {
         let _untranslated = command.env("LC_ALL", "C");
     }
@@ -7012,7 +7019,7 @@ impl Runner for SystemRunner {
     /// (`cargo xtask check | head`) then stops none of the commands xtask starts (CLAUDE.md,
     /// command-line tools), while each keeps a terminal to write to, colors included.
     fn run(&mut self, cmd: &Cmd) -> Result<(), CommandFailure> {
-        let status = command(cmd.program, &cmd.dir.under(&self.root))
+        let status = command(cmd.program, &cmd.dir.under(&self.root), self.env)
             .args(&cmd.args)
             .stdout(io::stderr())
             .status()
@@ -7044,7 +7051,7 @@ impl Runner for SystemRunner {
     }
 
     fn capture(&mut self, cmd: &Cmd) -> Result<String, CommandFailure> {
-        let output = command(cmd.program, &cmd.dir.under(&self.root))
+        let output = command(cmd.program, &cmd.dir.under(&self.root), self.env)
             .args(&cmd.args)
             .output()
             .map_err(|error| CommandFailure::of(cmd, Failed::NotStarted(error.to_string())))?;

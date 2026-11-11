@@ -13,7 +13,7 @@ use std::process::ExitCode;
 fn main() -> ExitCode {
     let args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let mut runner = xtask::SystemRunner { root };
+    let mut runner = xtask::SystemRunner { root, env: &[] };
     ExitCode::from(xtask::cli(
         &args,
         &mut runner,

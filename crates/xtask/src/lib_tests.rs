@@ -33,14 +33,29 @@ fn hermetic_git(dir: &Path, args: &[&str]) -> String {
         .env("GIT_AUTHOR_EMAIL", "test@example.invalid")
         .env("GIT_COMMITTER_NAME", "Test")
         .env("GIT_COMMITTER_EMAIL", "test@example.invalid")
-        .env("GIT_CONFIG_NOSYSTEM", "1")
-        .env("GIT_CONFIG_GLOBAL", "/dev/null");
+        .envs(HERMETIC);
     for variable in super::LOCAL_GIT_VARIABLES {
         let _without = command.env_remove(variable);
     }
     let output = command.output().expect("git runs");
     assert!(output.status.success(), "git {args:?} in {}", dir.display());
     String::from_utf8(output.stdout).expect("UTF-8")
+}
+
+/// The configuration of git for every command a test runs, as [`hermetic_git`] or through
+/// [`system`]: neither the system's nor the user's (their attributes, aliases, hooks path).
+const HERMETIC: [(&str, &str); 2] = [
+    ("GIT_CONFIG_NOSYSTEM", "1"),
+    ("GIT_CONFIG_GLOBAL", "/dev/null"),
+];
+
+/// A real runner at `root` whose commands read no git configuration of the machine
+/// ([`HERMETIC`]).
+fn system(root: std::path::PathBuf) -> SystemRunner {
+    SystemRunner {
+        root,
+        env: &HERMETIC,
+    }
 }
 
 /// A directory of one test below the system's temporary directory, removed with
@@ -125,11 +140,9 @@ fn fixture(name: &str) -> std::path::PathBuf {
 /// What the real `cargo metadata` ([`super::metadata_command`]) says of the fixture
 /// workspace, and the root it names, from which it writes every path.
 fn fixture_metadata() -> (String, String) {
-    let metadata = SystemRunner {
-        root: fixture("workspace"),
-    }
-    .capture(&super::metadata_command())
-    .expect("cargo metadata");
+    let metadata = system(fixture("workspace"))
+        .capture(&super::metadata_command())
+        .expect("cargo metadata");
     let json: serde_json::Value = serde_json::from_str(&metadata).expect("JSON");
     let root = json
         .get("workspace_root")
@@ -2528,7 +2541,7 @@ fn reads_the_paths_real_git_changes_whatever_they_hold() {
         std::fs::write(dir.join(path), "b\n").expect("a change");
     }
     std::fs::write(dir.join("crates/engine-core/tests/new.rs"), "fn n() {}\n").expect("a new file");
-    let mut runner = SystemRunner { root: dir.path() };
+    let mut runner = system(dir.path());
     assert_eq!(
         super::changed_since(&mut runner, "HEAD").map_err(|failure| failure.summary),
         Ok(vec![quoted.to_owned(), spaced.to_owned(), hash.to_owned()]),
@@ -2570,7 +2583,7 @@ fn reads_the_changed_lines_whatever_git_attributes_say() {
             format!("*.rs {attribute}\n"),
         )
         .expect("an attribute no gate sees");
-        let mut runner = SystemRunner { root: dir.path() };
+        let mut runner = system(dir.path());
         let diff = super::diff_since(&mut runner, "HEAD", &[]).expect("a diff");
         assert!(
             diff.ends_with("@@ -1 +1 @@\n-a\n+b\n"),
@@ -2635,8 +2648,35 @@ fn refuses_a_diff_that_is_not_every_change_in_text() {
 }
 
 #[test]
+fn starts_a_test_runner_s_commands_without_the_machine_s_git_configuration() {
+    let runner = system(Path::new(".").to_path_buf());
+    let set = |env: &[(&str, &str)]| -> Vec<(OsString, Option<OsString>)> {
+        super::command("cargo", &runner.root, env)
+            .get_envs()
+            .filter(|(name, _)| *name == "GIT_CONFIG_NOSYSTEM" || *name == "GIT_CONFIG_GLOBAL")
+            .map(|(name, value)| (name.to_owned(), value.map(OsString::from)))
+            .collect()
+    };
+    let hermetic = set(runner.env);
+    for (name, value) in [
+        ("GIT_CONFIG_NOSYSTEM", "1"),
+        ("GIT_CONFIG_GLOBAL", "/dev/null"),
+    ] {
+        assert!(
+            hermetic.contains(&(OsString::from(name), Some(OsString::from(value)))),
+            "{name}={value}: {hermetic:?}"
+        );
+    }
+    assert_eq!(
+        set(&[]),
+        Vec::new(),
+        "the checks' runner keeps the user's configuration"
+    );
+}
+
+#[test]
 fn starts_git_without_the_variables_that_change_its_pathspecs() {
-    let git = super::command("git", Path::new("."));
+    let git = super::command("git", Path::new("."), &[]);
     for variable in [
         "GIT_LITERAL_PATHSPECS",
         "GIT_GLOB_PATHSPECS",
@@ -2669,7 +2709,7 @@ fn reads_the_record_real_git_holds_at_a_commit() {
     let _add_record = hermetic_git(&dir, &["add", "."]);
     let _record = hermetic_git(&dir, &["commit", "--quiet", "-m", "with"]);
     let with = hermetic_git(&dir, &["rev-parse", "HEAD"]);
-    let mut runner = SystemRunner { root: dir.path() };
+    let mut runner = system(dir.path());
     assert_eq!(
         super::record_at(&mut runner, without.trim()).map_err(|failure| failure.summary),
         Ok(None),
@@ -3781,9 +3821,7 @@ fn shows_tenths_below_a_minute_then_whole_seconds() {
 
 #[test]
 fn the_system_clock_advances_across_a_command() {
-    let mut runner = SystemRunner {
-        root: fixture("coverage-locality"),
-    };
+    let mut runner = system(fixture("coverage-locality"));
     let before = runner.clock();
     let _version = runner
         .capture(&Cmd::new("git", &["--version"], Dir::Root))
@@ -4068,9 +4106,7 @@ fn shows_command_lines() {
 
 #[test]
 fn system_runner_runs_commands_and_reads_files() {
-    let mut runner = SystemRunner {
-        root: fixture("coverage-locality"),
-    };
+    let mut runner = system(fixture("coverage-locality"));
     let missing = Cmd {
         program: "no-such-program-xyz",
         args: vec![],
@@ -4127,7 +4163,7 @@ fn system_runner_runs_commands_and_reads_files() {
 #[test]
 fn system_runner_writes_files_and_counts_threads() {
     let root = scratch("write");
-    let mut runner = SystemRunner { root: root.path() };
+    let mut runner = system(root.path());
     assert!(runner.write("a/b/c.diff", "text\n").is_ok(), "written");
     assert_eq!(
         std::fs::read_to_string(root.join("a/b/c.diff")).expect("readable"),
@@ -4156,7 +4192,7 @@ fn system_runner_writes_files_and_counts_threads() {
 #[test]
 fn system_runner_empties_fresh_directories() {
     let root = scratch("fresh");
-    let mut runner = SystemRunner { root: root.path() };
+    let mut runner = system(root.path());
     assert!(runner.fresh_dir("out/wav").is_ok(), "created when missing");
     std::fs::write(root.join("out/wav/stale.wav"), b"old").expect("stale file");
     assert!(runner.fresh_dir("out/wav").is_ok(), "emptied when present");
@@ -4465,7 +4501,7 @@ fn system_runner_lists_the_tracked_typescript_files() {
     std::fs::write(root.join("untracked.ts"), "u").expect("untracked file");
     let _init = hermetic_git(&root, &["init", "--quiet"]);
     let _add = hermetic_git(&root, &["add", "src", "d.ts"]);
-    let files = SystemRunner { root: root.path() }.tracked(&["*.ts", "*.tsx"]);
+    let files = system(root.path()).tracked(&["*.ts", "*.tsx"]);
     std::fs::remove_dir_all(&root).expect("cleanup");
     assert_eq!(
         files.expect("git lists the files"),
@@ -4478,10 +4514,7 @@ fn system_runner_lists_the_tracked_typescript_files() {
         "tracked TypeScript only, a name out of ASCII as it is (git quotes it by default)"
     );
     let outside = scratch("no-git");
-    let error = SystemRunner {
-        root: outside.path(),
-    }
-    .tracked(&["*.ts", "*.tsx"]);
+    let error = system(outside.path()).tracked(&["*.ts", "*.tsx"]);
     std::fs::remove_dir_all(&outside).expect("cleanup");
     assert!(
         error.is_err_and(|failure| failure
@@ -6011,9 +6044,7 @@ fn reports_license_lists_it_cannot_get() {
 
 #[test]
 fn system_runner_captures_output_and_failures() {
-    let mut runner = SystemRunner {
-        root: fixture("coverage-locality"),
-    };
+    let mut runner = system(fixture("coverage-locality"));
     let echo = Cmd {
         program: "cargo",
         args: vec!["--version".to_owned()],
@@ -6414,7 +6445,7 @@ fn requires_the_rust_release_of_the_toolchain_file() {
         Some("1.99.1"),
         "spaces around"
     );
-    let without = super::command("rustc", Path::new("."));
+    let without = super::command("rustc", Path::new("."), &[]);
     assert!(
         without
             .get_envs()
@@ -6559,14 +6590,8 @@ fn lists_the_cargo_configurations_outside_the_repository() {
         std::fs::write(path, "").expect("configuration");
     }
     std::fs::create_dir_all(repo.join("x")).expect("a folder to walk out of");
-    let environment = SystemRunner {
-        root: repo.join("x/.."),
-    }
-    .environment();
-    let missing = SystemRunner {
-        root: dir.join("missing"),
-    }
-    .environment();
+    let environment = system(repo.join("x/..")).environment();
+    let missing = system(dir.join("missing")).environment();
     let canonical = std::fs::canonicalize(&dir).expect("canonical");
     std::fs::remove_dir_all(&dir).expect("cleanup");
     let listed = |path: &str| {
@@ -7439,7 +7464,7 @@ fn pushes_an_annotated_tag_of_the_commit_checked_out() {
     let object = |name: &str| hermetic_git(&repo, &["rev-parse", name]).trim().to_owned();
     let (here, before, parent) = (object("here"), object("before"), object("HEAD~1"));
     assert_ne!(here, object("HEAD"), "a tag object, not the commit");
-    let mut runner = SystemRunner { root: repo.path() };
+    let mut runner = system(repo.path());
     let on_head = super::pre_push(&mut runner, core::slice::from_ref(&here));
     let elsewhere = super::pre_push(&mut runner, &[before]);
     let _hidden = hermetic_git(&repo, &["config", "status.showUntrackedFiles", "no"]);
@@ -7487,7 +7512,7 @@ fn checks_the_history_git_really_writes() {
     let unrecorded = commit("fix: unrecorded", Some("c.rs"));
     let malformed = commit("Update stuff", None);
     let unscoped = commit("docs(wasm): a part named two ways", None);
-    let mut runner = SystemRunner { root: repo.path() };
+    let mut runner = system(repo.path());
     let [messages, files, scoped] = super::history_commands(&since, &scopes_since)
         .map(|cmd| runner.capture(&cmd).expect("git log"));
     std::fs::remove_dir_all(&repo).expect("cleanup");
@@ -11078,7 +11103,7 @@ fn shows_untrusted_text_on_one_bounded_line() {
 #[test]
 fn starts_commands_with_no_input_and_git_untranslated() {
     let locale = |program: &str| {
-        super::command(program, Path::new("."))
+        super::command(program, Path::new("."), &[])
             .get_envs()
             .find(|(name, _)| *name == "LC_ALL")
             .map(|(_, value)| value.map(OsString::from))
@@ -11089,9 +11114,7 @@ fn starts_commands_with_no_input_and_git_untranslated() {
         "git's messages in English, which error_reason reads"
     );
     assert_eq!(locale("cargo"), None, "the other commands keep the locale");
-    let mut runner = SystemRunner {
-        root: fixture("coverage-locality"),
-    };
+    let mut runner = system(fixture("coverage-locality"));
     let reads = Cmd::new(
         "sh",
         &["-c", "if read line; then echo read; else echo none; fi"],
@@ -11125,7 +11148,7 @@ fn reads_the_changes_as_they_are() {
     ] {
         let _set = hermetic_git(&repo, &["config", key, value]);
     }
-    let mut runner = SystemRunner { root: repo.path() };
+    let mut runner = system(repo.path());
     let state = super::tree_state(&mut runner);
     std::fs::remove_dir_all(&repo).expect("cleanup");
     let diff = state.expect("read").diff;
@@ -13322,12 +13345,12 @@ fn shares_proof_records_between_the_worktrees_of_real_git() {
         tools: fake_tools(),
     };
     // Written from the linked worktree, read from the main one: one common directory.
-    let mut from_linked = SystemRunner { root: linked };
+    let mut from_linked = system(linked);
     let path = super::proof_record_path(&mut from_linked, &commit).expect("common directory");
     from_linked
         .write(&path, &record.text())
         .expect("the record is written");
-    let mut from_main = SystemRunner { root: main.clone() };
+    let mut from_main = system(main.clone());
     let main_path = super::proof_record_path(&mut from_main, &commit).expect("common directory");
     let read = from_main.read(&main_path).expect("the record is read");
     assert_eq!(
@@ -13589,7 +13612,7 @@ fn reads_the_targets_of_real_cargo_metadata() {
         "[package]\nname = \"a\"\nversion = \"0.0.0\"\nedition = \"2024\"\n\n[lib]\npath = \"src/lib.rs\"\ndoctest = false\n\n[[bin]]\nname = \"a\"\npath = \"src/main.rs\"\ntest = false\n",
     )
     .expect("manifest");
-    let metadata = SystemRunner { root: dir.path() }
+    let metadata = system(dir.path())
         .capture(&super::metadata_command())
         .expect("cargo metadata");
     let sources = [
