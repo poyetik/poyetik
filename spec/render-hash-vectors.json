@@ -48,7 +48,7 @@
     },
     {
       "name": "special-values-binary64-as-binary32",
-      "description": "The same values in binary32, given by a 64-bit render: the header differs from the binary32 render's in the precision only.",
+      "description": "The same values computed as a binary64 render, given as binary32: the header differs from the binary32 render's in the precision only.",
       "format": "binary64-as-binary32",
       "arithmetic_mode": "0000000000000000",
       "rate": 11025,

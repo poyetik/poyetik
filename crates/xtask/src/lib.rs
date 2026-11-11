@@ -7283,10 +7283,22 @@ fn scope(runner: &mut dyn Runner, package: Package) -> Result<(), Failure> {
 /// instead, where it is refused and the contexts where it is allowed ([`vocabulary_gate`]).
 pub const VOCABULARY: &str = "vocabulary.txt";
 
-/// The tracked files whose prose [`vocabulary_gate`] reads (git pathspecs): Markdown, and
-/// the comments and string literals of Rust and TypeScript.
-pub const VOCABULARY_SOURCES: [&str; 7] =
-    ["*.md", "*.rs", "*.ts", "*.tsx", "*.mts", "*.js", "*.mjs"];
+/// The tracked files whose prose [`vocabulary_gate`] reads (git pathspecs).
+///
+/// Markdown, the comments and string literals of Rust and TypeScript, and the string
+/// values of the JSON files of the specifications and the conformance corpus (the
+/// roadmap's board, written only through its command, apart).
+pub const VOCABULARY_SOURCES: [&str; 9] = [
+    "*.md",
+    "*.rs",
+    "*.ts",
+    "*.tsx",
+    "*.mts",
+    "*.js",
+    "*.mjs",
+    "spec/*.json",
+    "conformance/*.json",
+];
 
 /// The language of a file, which decides what of it is prose.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -7298,6 +7310,8 @@ enum Language {
     /// TypeScript or JavaScript: comments and string literals, template substitutions
     /// apart.
     Script,
+    /// JSON: the string values, the keys apart.
+    Json,
 }
 
 /// The language of `path`, by its extension; `None` for a file without prose to read.
@@ -7306,6 +7320,7 @@ fn language(path: &str) -> Option<Language> {
         Some("md") => Some(Language::Markdown),
         Some("rs") => Some(Language::Rust),
         Some("ts" | "tsx" | "mts" | "js" | "mjs") => Some(Language::Script),
+        Some("json") => Some(Language::Json),
         _ => None,
     }
 }
@@ -7531,6 +7546,45 @@ impl Lexer {
     }
 }
 
+/// The prose of a JSON document: its string values, each with the number of its line.
+///
+/// A JSON string holds no line break. A key (a string followed by `:`) and a value of a
+/// single word ([`Prose::literal`]) are no prose. A string runs to its closing quote, an escaped
+/// quote (`\"`) included, or to the end of its line: nothing is skipped, even in a
+/// document that is not valid JSON, which its own readers refuse.
+fn json_prose(text: &str) -> Vec<(usize, String)> {
+    let mut prose = Vec::new();
+    for (index, line) in text.lines().enumerate() {
+        let mut rest = line;
+        while let Some(start) = rest.find('"') {
+            let after = rest.get(start.saturating_add(1)..).unwrap_or_default();
+            let mut value = String::new();
+            let mut chars = after.char_indices();
+            let mut end = after.len();
+            while let Some((at, character)) = chars.next() {
+                match character {
+                    '"' => {
+                        end = at.saturating_add(1);
+                        break;
+                    }
+                    '\\' => value.extend(chars.next().map(|(_, escaped)| escaped)),
+                    _ => value.push(character),
+                }
+            }
+            rest = after.get(end..).unwrap_or_default();
+            if !rest.trim_start().starts_with(':') {
+                let mut piece = Prose {
+                    line: index.saturating_add(1),
+                    ..Prose::default()
+                };
+                piece.literal(&value, false);
+                prose.append(&mut piece.lines);
+            }
+        }
+    }
+    prose
+}
+
 /// The prose of a Rust or TypeScript source: its comments and string literals, each line
 /// with its number.
 fn code_prose(text: &str, language: Language) -> Vec<(usize, String)> {
@@ -7741,8 +7795,8 @@ fn wordings(vocabulary: &str, problems: &mut Vec<String>) -> Vec<Wording> {
 /// Checks that the prose of the repository uses the words of the glossary.
 ///
 /// `sources` are the tracked files of [`VOCABULARY_SOURCES`] (path and text); their prose
-/// is the text of Markdown outside code blocks, and the comments and string literals of
-/// Rust and TypeScript, code spans (between backquotes), link targets, Rust format
+/// is the text of Markdown outside code blocks, the comments and string literals of Rust
+/// and TypeScript, and the string values of JSON (`json_prose`), code spans (between backquotes), link targets, Rust format
 /// placeholders, template substitutions and literals of a single word (a key, a program
 /// name) apart. `vocabulary` ([`VOCABULARY`]) lists the refused synonyms, each with what to
 /// say instead and where it applies, and the contexts where one is allowed: a file or a
@@ -7783,6 +7837,7 @@ pub fn vocabulary_gate(sources: &[(String, String)], vocabulary: &str) -> Result
         let prose = match language {
             Language::Markdown => markdown_prose(text),
             Language::Rust | Language::Script => code_prose(text, language),
+            Language::Json => json_prose(text),
         };
         for (number, line) in &prose {
             let line = without_code(line);

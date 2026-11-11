@@ -401,8 +401,8 @@ impl Runner for Fake {
             .filter(|path| {
                 patterns
                     .iter()
-                    .filter_map(|pattern| pattern.strip_prefix('*'))
-                    .any(|suffix| path.ends_with(suffix))
+                    .filter_map(|pattern| pattern.split_once('*'))
+                    .any(|(prefix, suffix)| path.starts_with(prefix) && path.ends_with(suffix))
             })
             .cloned()
             .collect())
@@ -10303,6 +10303,21 @@ fn reads_the_prose_of_each_language() {
         "a        [link]          (node) b",
         "code spans and link targets apart"
     );
+    let json = "{\n  \"description\": \"a long render\", \"key\": \"word\",\n  \"say \\\"x\\\" here\" : [\"two words\", \"esc\\\\aped \\\"q\\\"\"],\n  \"open\": \"to the end\n}\n";
+    assert_eq!(
+        super::json_prose(json),
+        [
+            (2, "a long render"),
+            (3, "two words"),
+            (3, "esc\\aped \"q\""),
+            (4, "to the end"),
+        ]
+        .map(|(line, text)| (line, text.to_owned()))
+        .to_vec(),
+        "string values, keys and single words apart, escapes read, an unclosed string to the \
+         end of its line"
+    );
+    assert_eq!(super::language("spec/b.json"), Some(super::Language::Json));
     assert_eq!(super::language("a/b.tsx"), Some(super::Language::Script));
     assert_eq!(super::language("a/b.txt"), None);
     assert_eq!(super::language("Makefile"), None);
@@ -10433,13 +10448,34 @@ fn reads_the_prose_files_and_the_vocabulary() {
         .files
         .insert("README.md".to_owned(), "A node.\n".to_owned());
     assert!(replaced.is_some(), "README replaced");
+    for (path, text) in [
+        ("spec/v.json", "{\"description\": \"a node, then\"}\n"),
+        ("conformance/cases/c.json", "{\"note\": \"one node\"}\n"),
+    ] {
+        let added = fake.files.insert(path.to_owned(), text.to_owned());
+        assert!(added.is_none(), "fresh fake");
+    }
+    let board = fake.files.insert(
+        super::ROADMAP_BOARD.to_owned(),
+        "{\"title\": \"a node\"}\n".to_owned(),
+    );
+    assert!(board.is_some(), "the board replaced");
     assert_eq!(
         run_steps(&step, &mut fake, &mut Vec::new()),
-        failed(
-            "Words: words the glossary replaces (reviewed in vocabulary.txt): README.md:1: \
-             \"node\": say \"box\" (the glossary)"
-        ),
-        "the tracked prose against the vocabulary"
+        Err(Failure {
+            summary: "Words: words the glossary replaces (reviewed in vocabulary.txt): 3 \
+                      problems, listed above"
+                .to_owned(),
+            details: [
+                "README.md:1: \"node\": say \"box\" (the glossary)",
+                "conformance/cases/c.json:1: \"node\": say \"box\" (the glossary)",
+                "spec/v.json:1: \"node\": say \"box\" (the glossary)",
+            ]
+            .map(str::to_owned)
+            .to_vec(),
+        }),
+        "the tracked prose against the vocabulary, the JSON of the specifications and the \
+         corpus included, the board's apart"
     );
     let mut lacking = passing();
     let removed = lacking.files.remove(super::VOCABULARY);
@@ -10450,7 +10486,9 @@ fn reads_the_prose_files_and_the_vocabulary() {
         "no vocabulary"
     );
     let mut unlisted = passing();
-    unlisted.broken = Some("list *.md *.rs *.ts *.tsx *.mts *.js *.mjs".to_owned());
+    unlisted.broken = Some(
+        "list *.md *.rs *.ts *.tsx *.mts *.js *.mjs spec/*.json conformance/*.json".to_owned(),
+    );
     assert!(
         run_steps(&step, &mut unlisted, &mut Vec::new()).is_err_and(|failure| failure
             .summary
