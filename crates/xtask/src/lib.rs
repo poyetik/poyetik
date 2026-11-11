@@ -3848,9 +3848,10 @@ fn in_crate(path: &str) -> Option<(&'static RustCrate, &str)> {
 /// (a module without a body, `#[path]`, `include!`), which no rule would tell as test code:
 /// its modules are written inline. A module a macro of another file declares in it is no
 /// word of it: [`loaded_files_gate`] sees it, from what rustc read. No file of a crate, `tests/`
-/// included, holds a `path` attribute (`path_attributes`) but on the second line of a test
-/// declaration: a module comes from the file its name gives, never from another crate's file (whose
-/// changes would not widen this crate) nor from a file that is not `.rs` (which no gate reads).
+/// included, holds a `path` attribute ([`path_attributes`]) but in a test declaration, nor
+/// an attribute a macro names by a variable ([`variable_attributes`]): a module comes from
+/// the file its name gives, never from another crate's file (whose changes would not widen
+/// this crate) nor from a file that is not `.rs` (which no gate reads).
 ///
 /// # Errors
 ///
@@ -3870,11 +3871,17 @@ pub fn test_code_gate(sources: &[RustSource]) -> Result<(), Failure> {
     let in_tests = sources.iter().filter(|source| {
         in_crate(&source.path).is_some_and(|(_, relative)| relative.starts_with("tests/"))
     });
-    for RustSource { path, text, .. } in in_tests {
+    for source in in_tests {
         problems.extend(
-            path_attributes(text)
+            path_attributes(source)
                 .into_iter()
-                .map(|line| loose_path(path, line)),
+                .filter_map(|at| source.tokens.get(at))
+                .map(|name| loose_path(&source.path, name.line)),
+        );
+        problems.extend(
+            variable_attributes(source)
+                .into_iter()
+                .map(|line| variable_attribute(&source.path, line)),
         );
     }
     let crate_sources = sources.iter().filter(|source| {
@@ -3883,16 +3890,22 @@ pub fn test_code_gate(sources: &[RustSource]) -> Result<(), Failure> {
     for source in crate_sources.clone() {
         let RustSource { path, text, .. } = source;
         if path.ends_with("_tests.rs") {
-            problems.extend(loaded_by_tests(path, text));
+            problems.extend(loaded_by_tests(source));
             continue;
         }
         let declarations = test_declarations(source);
         let firsts: BTreeSet<usize> = declarations.iter().map(|found| found.line).collect();
         problems.extend(
-            path_attributes(text)
+            path_attributes(source)
                 .into_iter()
-                .filter(|line| !firsts.contains(&line.saturating_sub(1)))
-                .map(|line| loose_path(path, line)),
+                .filter(|at| !declarations.iter().any(|found| found.tokens.contains(at)))
+                .filter_map(|at| source.tokens.get(at))
+                .map(|name| loose_path(path, name.line)),
+        );
+        problems.extend(
+            variable_attributes(source)
+                .into_iter()
+                .map(|line| variable_attribute(path, line)),
         );
         for TestDeclaration { file, .. } in declarations {
             let times = declared.entry(file).or_default();
@@ -3933,49 +3946,123 @@ pub fn test_code_gate(sources: &[RustSource]) -> Result<(), Failure> {
     step_verdict(problems)
 }
 
-/// The lines of `text` holding a `path` attribute, which makes rustc load a module from the
-/// file it names: the code word `path` right after `[`, `(` or `,` and right before one
-/// `=`, spaces apart (`#[path = …]`, `#![path = …]`, and a conditional attribute's
-/// `(<condition>, path = …)`).
+/// The tokens of `source` that name a `path` attribute, which makes rustc load a module from
+/// the file it names, by their index: the identifier `path` (raw or not) right after `[`,
+/// `(` or `,` and right before a `=` that does not open `==` or `=>` (`#[path = …]`,
+/// `#![path = …]`, and a conditional attribute's `(<condition>, path = …)`), comments
+/// anywhere between.
 ///
 /// The one rule of the gates that tell code by its path (the test code gate, the math
-/// layer gate); `path` as a name (`let path = …`, `f(path)`) is not one.
-fn path_attributes(text: &str) -> Vec<usize> {
-    let chars: Vec<char> = text.chars().collect();
-    code_words(text)
+/// layer gate); `path` as a name (`let path = …`, `f(path)`, `path == x`) is not one. An
+/// attribute a macro builds from a variable is [`variable_attributes`].
+fn path_attributes(source: &RustSource) -> Vec<usize> {
+    named_attributes(source)
         .into_iter()
-        .filter(|(_, word, end)| path_attribute(&chars, word, *end))
-        .map(|(line, _, _)| line)
+        .filter(|&at| {
+            source
+                .tokens
+                .get(at)
+                .is_some_and(|name| name.is_ident("path"))
+        })
         .collect()
 }
 
-/// Whether `word`, a code word of `chars` ending before index `end`, names a `path`
-/// attribute ([`path_attributes`]).
-fn path_attribute(chars: &[char], word: &str, end: usize) -> bool {
-    let spaced = |character: &&char| !character.is_whitespace();
-    let start = end.saturating_sub(word.chars().count());
-    let before = chars
-        .get(..start)
-        .unwrap_or_default()
-        .iter()
-        .rev()
-        .find(spaced);
-    let mut after = chars.get(end..).unwrap_or_default().iter().filter(spaced);
-    word == "path"
-        && matches!(before, Some('[' | '(' | ','))
-        && after.next() == Some(&'=')
-        && after.next() != Some(&'=')
+/// The lines of `source` where a macro names an attribute by a variable, which could be
+/// `path` ([`path_attributes`]): `#[$…`, `#![$…`, or `$<name>` where `path` would stand
+/// (`#[$a = …]`, `cfg_attr(…, $a = …)`). Refused everywhere: an attribute is written by
+/// its name.
+fn variable_attributes(source: &RustSource) -> Vec<usize> {
+    let tokens = &source.tokens;
+    let named = named_attributes(source).into_iter().filter_map(|at| {
+        tokens
+            .get(at)
+            .filter(|name| name.is_punct('$'))
+            .map(|name| name.line)
+    });
+    let opened = tokens.windows(3).filter_map(|window| match window {
+        [hash, open, dollar] if hash.is_punct('#') && open.opens('[') && dollar.is_punct('$') => {
+            Some(dollar.line)
+        }
+        _ => None,
+    });
+    let inner = tokens.windows(4).filter_map(|window| match window {
+        [hash, bang, open, dollar]
+            if hash.is_punct('#')
+                && bang.is_punct('!')
+                && open.opens('[')
+                && dollar.is_punct('$') =>
+        {
+            Some(dollar.line)
+        }
+        _ => None,
+    });
+    let mut lines: Vec<usize> = named.chain(opened).chain(inner).collect();
+    lines.sort_unstable();
+    lines.dedup();
+    lines
 }
 
-/// The problems of `text`, the `*_tests.rs` file `path`, that would load another file: a
-/// module declared without a body (`mod <identifier>;`, which rustc reads from a file
-/// beside it), a `#[path]` attribute, or the code word `include` (`include_str` and
-/// `include_bytes` are other words, read as test data by [`test_data_gate`]).
-fn loaded_by_tests(path: &str, text: &str) -> Vec<String> {
-    let chars: Vec<char> = text.chars().collect();
-    let words = code_words(text);
-    let mut problems = Vec::new();
-    for (index, (line, word, end)) in words.iter().enumerate() {
+/// The tokens of `source` in the place of an attribute's name before its value, by their
+/// index: right after `[`, `(` or `,`, and right before a `=` that opens neither `==` nor
+/// `=>`; a macro variable (`$a`) by its `$`.
+fn named_attributes(source: &RustSource) -> Vec<usize> {
+    let tokens = &source.tokens;
+    let assigns = |at: usize| match tokens.get(at..).unwrap_or_default() {
+        [equals, next, ..] if equals.is_punct('=') => {
+            !(equals.kind == (TokenKind::Punct { joint: true })
+                && (next.is_punct('=') || next.is_punct('>')))
+        }
+        _ => false,
+    };
+    (1..tokens.len())
+        .filter(|&at| {
+            let opens = tokens.get(at.saturating_sub(1)).is_some_and(|before| {
+                before.opens('[') || before.opens('(') || before.is_punct(',')
+            });
+            let name = tokens.get(at);
+            let after = if name.is_some_and(|name| name.is_punct('$')) {
+                tokens
+                    .get(at.saturating_add(1))
+                    .is_some_and(|variable| variable.kind == TokenKind::Ident)
+                    .then_some(at.saturating_add(2))
+            } else {
+                name.filter(|name| name.kind == TokenKind::Ident)
+                    .map(|_| at.saturating_add(1))
+            };
+            opens && after.is_some_and(assigns)
+        })
+        .collect()
+}
+
+/// The message for an attribute a macro names by a variable in `path`, at `line`
+/// ([`variable_attributes`]).
+fn variable_attribute(path: &str, line: usize) -> String {
+    format!(
+        "{path}:{line}: names an attribute by a macro variable (`#[$…]`, `$<name> = …`), which \
+         could be `path`: an attribute is written by its name"
+    )
+}
+
+/// The problems of `source`, a `*_tests.rs` file, that would load another file: a module
+/// declared without a body (`mod <identifier>;`, which rustc reads from a file beside it),
+/// a `#[path]` attribute ([`path_attributes`], [`variable_attributes`]), or the code word
+/// `include` (`include_str` and `include_bytes` are other words, read as test data by
+/// [`test_data_gate`]).
+fn loaded_by_tests(source: &RustSource) -> Vec<String> {
+    let path = source.path.as_str();
+    let chars: Vec<char> = source.text.chars().collect();
+    let words = code_words(&source.text);
+    let mut found: Vec<(usize, &str)> = path_attributes(source)
+        .into_iter()
+        .filter_map(|at| source.tokens.get(at))
+        .map(|name| {
+            (
+                name.line,
+                "holds a `#[path]` attribute, which loads another file",
+            )
+        })
+        .collect();
+    for (index, (line, word, _)) in words.iter().enumerate() {
         let bodyless = word == "mod"
             && words
                 .get(index.saturating_add(1))
@@ -3987,21 +4074,30 @@ fn loaded_by_tests(path: &str, text: &str) -> Vec<String> {
                         .find(|character| !character.is_whitespace())
                         == Some(&';')
                 });
-        let what = if bodyless {
-            "declares a module without a body, loaded from another file"
-        } else if path_attribute(&chars, word, *end) {
-            "holds a `#[path]` attribute, which loads another file"
+        if bodyless {
+            found.push((
+                *line,
+                "declares a module without a body, loaded from another file",
+            ));
         } else if word == "include" {
-            "names `include`, which loads another file"
-        } else {
-            continue;
-        };
-        problems.push(format!(
-            "{path}:{line}: {what}, which no rule tells as test code: a *_tests.rs file writes \
-             its modules inline"
-        ));
+            found.push((*line, "names `include`, which loads another file"));
+        }
     }
-    problems
+    found.sort_by_key(|(line, _)| *line);
+    found
+        .into_iter()
+        .map(|(line, what)| {
+            format!(
+                "{path}:{line}: {what}, which no rule tells as test code: a *_tests.rs file \
+                 writes its modules inline"
+            )
+        })
+        .chain(
+            variable_attributes(source)
+                .into_iter()
+                .map(|line| variable_attribute(path, line)),
+        )
+        .collect()
 }
 
 /// The kinds of target whose documentation rustdoc tests.
@@ -5060,6 +5156,23 @@ struct Token {
     line: usize,
 }
 
+impl Token {
+    /// Whether it is the identifier or keyword `name`.
+    fn is_ident(&self, name: &str) -> bool {
+        self.kind == TokenKind::Ident && self.text == name
+    }
+
+    /// Whether it is the punctuation character `character`.
+    fn is_punct(&self, character: char) -> bool {
+        matches!(self.kind, TokenKind::Punct { .. }) && self.text.chars().eq([character])
+    }
+
+    /// Whether it opens a group with `delimiter` (`(`, `[` or `{`).
+    fn opens(&self, delimiter: char) -> bool {
+        self.kind == TokenKind::Open && self.text.chars().eq([delimiter])
+    }
+}
+
 /// A Rust source of the repository, read as rustc reads it: its path, and its tokens.
 ///
 /// The one reader of Rust code for the gates that follow it ([`RustSource::parse`]): they
@@ -5416,6 +5529,31 @@ fn math_layer_crates(metadata: &str) -> Result<Vec<String>, Failure> {
     Ok(problems)
 }
 
+/// The problems of `source`, a source the math layer gate reads, whose test declarations
+/// are `declared`, that bring code in other than by `mod`: a `path` attribute outside a
+/// test declaration ([`path_attributes`]), an attribute a macro names by a variable
+/// ([`variable_attributes`]).
+fn brought_in(source: &RustSource, declared: &[TestDeclaration]) -> Vec<String> {
+    let path = &source.path;
+    path_attributes(source)
+        .into_iter()
+        .filter(|at| !declared.iter().any(|one| one.tokens.contains(at)))
+        .filter_map(|at| source.tokens.get(at))
+        .map(|name| {
+            format!(
+                "{path}:{}: names `path` outside a test declaration: code comes into these \
+                 crates by `mod` alone, from files the gate reads",
+                name.line
+            )
+        })
+        .chain(
+            variable_attributes(source)
+                .into_iter()
+                .map(|line| variable_attribute(path, line)),
+        )
+        .collect()
+}
+
 /// Checks that box arithmetic can only go through the math layer, and that no code but the
 /// math layer's reduces through an iterator.
 ///
@@ -5427,7 +5565,8 @@ fn math_layer_crates(metadata: &str) -> Result<Vec<String>, Failure> {
 /// outside it names none of [`ENGINE_FORBIDDEN_NAMES`] but on the line
 /// [`ENGINE_ARITHMETIC_FORBID`], which every module of it but [`ENGINE_ROOT`] holds; and no
 /// source names `include` (`include!`), nor holds a `path` attribute but in a test
-/// declaration (`path_attributes`).
+/// declaration ([`path_attributes`]), nor an attribute a macro names by a variable
+/// ([`variable_attributes`]).
 ///
 /// `metadata` is the output of [`metadata_command`]; `sources` the files of
 /// [`MATH_LAYER_SOURCES`] (path and text), of which the `*_tests.rs` files declared once
@@ -5443,24 +5582,22 @@ fn math_layer_crates(metadata: &str) -> Result<Vec<String>, Failure> {
 /// Returns every other crate that depends on `libm`, every build script, every forbidden
 /// name with its file and line, every missing forbid line, every test file not declared
 /// once, every file it does not read, or why the metadata cannot be read.
-pub fn math_layer_gate(metadata: &str, parsed: &[RustSource]) -> Result<(), Failure> {
-    let sources = &texts(parsed);
+pub fn math_layer_gate(metadata: &str, sources: &[RustSource]) -> Result<(), Failure> {
     let mut problems = math_layer_crates(metadata)?;
     let mut declared: BTreeMap<&str, usize> = BTreeMap::new();
-    let mut path_lines: BTreeSet<(&str, usize)> = BTreeSet::new();
-    let declarations: Vec<(&str, Vec<TestDeclaration>)> = parsed
+    let declarations: BTreeMap<&str, Vec<TestDeclaration>> = sources
         .iter()
         .filter(|source| !source.path.ends_with("_tests.rs"))
         .map(|source| (source.path.as_str(), test_declarations(source)))
         .collect();
-    for (path, found) in &declarations {
-        for TestDeclaration { line, file, .. } in found {
+    for found in declarations.values() {
+        for TestDeclaration { file, .. } in found {
             let times = declared.entry(file.as_str()).or_default();
             *times = times.saturating_add(1);
-            let _new = path_lines.insert((path, line.saturating_add(1)));
         }
     }
-    for (path, text) in sources {
+    for source in sources {
+        let RustSource { path, text, .. } = source;
         if path.ends_with("_tests.rs") {
             if declared.get(path.as_str()) != Some(&1) {
                 problems.push(format!(
@@ -5489,11 +5626,12 @@ pub fn math_layer_gate(metadata: &str, parsed: &[RustSource]) -> Result<(), Fail
         {
             problems.push(format!("{path} does not hold `{forbid}`"));
         }
-        let chars: Vec<char> = text.chars().collect();
-        for (line, word, end) in code_words(text) {
-            let loose_path =
-                path_attribute(&chars, &word, end) && !path_lines.contains(&(path, line));
-            if word == "include" || loose_path {
+        problems.extend(brought_in(
+            source,
+            declarations.get(path.as_str()).map_or(&[], Vec::as_slice),
+        ));
+        for (line, word, _) in code_words(text) {
+            if word == "include" {
                 problems.push(format!(
                     "{path}:{line}: names `{word}` outside a test declaration: code comes \
                      into these crates by `mod` alone, from files the gate reads"
