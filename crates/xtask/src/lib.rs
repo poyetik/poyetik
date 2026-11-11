@@ -4635,32 +4635,36 @@ pub fn metadata_command() -> Cmd {
 /// (path and text), each declaring dependencies in its [`NPM_FIELDS`], those on another
 /// package of the workspace (`workspace:`) apart. `reviewed` ([`DEPENDENCIES_REVIEWED`])
 /// holds one `<crate or package directory>: <dependency> (<kind>) -- <reason>` line per
-/// dependency.
+/// dependency. No crate renames a dependency, a crate of the workspace included (`package =`
+/// in its manifest, `rename` in the metadata): a crate named `core` or `std` that is
+/// another would change what `::core` names, and the reviews name packages.
 ///
 /// # Errors
 ///
-/// Returns every unreviewed dependency, stale review and review without a reason, or why
-/// the metadata or a manifest cannot be read.
+/// Returns every renamed dependency, unreviewed dependency, stale review and review without
+/// a reason, or why the metadata or a manifest cannot be read.
 pub fn dependency_gate(
     metadata: &str,
     packages: &[(String, String)],
     reviewed: &str,
 ) -> Result<(), Failure> {
     let mut keys = Vec::new();
+    let mut problems = Vec::new();
     for (name, krate) in cargo_packages(metadata)? {
-        let dependencies = krate
-            .get("dependencies")
-            .and_then(serde_json::Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter(|dependency| dependency.get("path").is_none());
-        for dependency in dependencies {
+        for dependency in dependencies_of(&krate) {
             let text = |key: &str| dependency.get(key).and_then(serde_json::Value::as_str);
-            let kind = text("kind").unwrap_or("normal");
-            keys.push(format!(
-                "{name}: {} ({kind})",
-                text("name").unwrap_or_default()
-            ));
+            let package = text("name").unwrap_or_default();
+            if let Some(rename) = text("rename") {
+                problems.push(format!(
+                    "{name} depends on {package} renamed `{rename}`: a dependency keeps its \
+                     package's name, so that no name (`core`, `std` …) can stand for another \
+                     crate"
+                ));
+            }
+            if dependency.get("path").is_none() {
+                let kind = text("kind").unwrap_or("normal");
+                keys.push(format!("{name}: {package} ({kind})"));
+            }
         }
     }
     for (path, manifest) in packages {
@@ -4683,10 +4687,11 @@ pub fn dependency_gate(
             }
         }
     }
-    let mut problems = Vec::new();
     compare_reviews(&count(keys), Extent::Complete, reviewed, &mut problems);
     verdict(
-        &format!("direct dependencies must be reviewed in {DEPENDENCIES_REVIEWED}"),
+        &format!(
+            "direct dependencies must be reviewed in {DEPENDENCIES_REVIEWED} and keep their names"
+        ),
         problems,
     )
 }

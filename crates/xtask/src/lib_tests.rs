@@ -10382,6 +10382,26 @@ fn requires_the_exact_cargo_configuration() {
 }
 
 #[test]
+fn refuses_a_dependency_renamed() {
+    let metadata = r#"{"packages":[{"name":"x","dependencies":[{"name":"engine-hash","kind":null,"path":"/r/crates/engine-hash","rename":"core"},{"name":"serde_json","kind":"dev","rename":"json"}]}]}"#;
+    assert_eq!(
+        super::dependency_gate(metadata, &[], "x: serde_json (dev) -- reads JSON\n"),
+        found(
+            "direct dependencies must be reviewed in dependencies.txt and keep their names",
+            &[
+                "x depends on engine-hash renamed `core`: a dependency keeps its package's \
+                 name, so that no name (`core`, `std` …) can stand for another crate"
+                    .to_owned(),
+                "x depends on serde_json renamed `json`: a dependency keeps its package's \
+                 name, so that no name (`core`, `std` …) can stand for another crate"
+                    .to_owned(),
+            ]
+        ),
+        "a crate of the workspace and a third-party one, each renamed"
+    );
+}
+
+#[test]
 fn requires_every_direct_dependency_to_be_reviewed() {
     let reviewed = "x: serde_json (normal) -- reads JSON\n./: left-pad (devDependencies) -- old\n";
     let packages = vec![
@@ -10394,11 +10414,11 @@ fn requires_every_direct_dependency_to_be_reviewed() {
             r#"{"dependencies":{"@poyetik/engine-wasm":"workspace:*","react":"^19"},"peerDependencies":{"typescript":"~6"}}"#.to_owned(),
         ),
     ];
-    let metadata = r#"{"packages":[{"name":"x","dependencies":[{"name":"engine-core","kind":null,"path":"/r"},{"name":"serde_json","kind":null},{"name":"rand","kind":"dev"}]},{"name":"y"}]}"#;
+    let metadata = r#"{"packages":[{"name":"x","dependencies":[{"name":"engine-core","kind":null,"path":"/r","rename":null},{"name":"serde_json","kind":null},{"name":"rand","kind":"dev"}]},{"name":"y"}]}"#;
     assert_eq!(
         super::dependency_gate(metadata, &packages, reviewed),
         found(
-            "direct dependencies must be reviewed in dependencies.txt",
+            "direct dependencies must be reviewed in dependencies.txt and keep their names",
             &[
                 "not reviewed: .: left-pad (devDependencies)".to_owned(),
                 "not reviewed: apps/a: react (dependencies)".to_owned(),
@@ -11093,8 +11113,13 @@ fn reviews_the_dependencies_real_cargo_metadata_lists() {
                     engine-hash: serde_json (normal) -- r\nengine-hash: sha2 (normal) -- r\n";
     assert_eq!(
         super::dependency_gate(&metadata, &[], reviewed),
-        Ok(()),
-        "every kind, the crates of the workspace apart, a renamed one by its name"
+        failed(
+            "direct dependencies must be reviewed in dependencies.txt and keep their names: engine-cli depends on \
+             libm renamed `fast-math`: a dependency keeps its package's name, so that no name \
+             (`core`, `std` …) can stand for another crate"
+        ),
+        "every kind reviewed, the crates of the workspace apart, a renamed one by its name, \
+         and refused"
     );
 }
 /// What the pin gate says of a dependency `key` required as `req`.
