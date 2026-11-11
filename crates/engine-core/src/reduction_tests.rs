@@ -162,19 +162,11 @@ const COUNTS: [usize; 24] = [
     0, 1, 2, 3, 4, 7, 8, 9, 15, 16, 17, 31, 32, 33, 47, 48, 49, 63, 64, 65, 255, 256, 257, 4099,
 ];
 
-/// A deterministic generator of 64-bit draws (`SplitMix64`), for reproducible terms.
-struct Draws(u64);
+/// The deterministic generator of 64-bit draws of this crate's tests (`SplitMix64`), for
+/// reproducible terms.
+use super::tests::proptest_like::Draws;
 
 impl Draws {
-    /// The next 64 bits.
-    fn next(&mut self) -> u64 {
-        self.0 = self.0.wrapping_add(0x9e37_79b9_7f4a_7c15);
-        let mut mixed = self.0;
-        mixed = (mixed ^ (mixed >> 30_u32)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
-        mixed = (mixed ^ (mixed >> 27_u32)).wrapping_mul(0x94d0_49bb_1331_11eb);
-        mixed ^ (mixed >> 31_u32)
-    }
-
     /// A finite value of either sign whose magnitude lies in [2^-20, 2^21) (2^21 itself
     /// possible once rounded to binary32), so that sums of thousands of terms round at every
     /// step and never overflow.

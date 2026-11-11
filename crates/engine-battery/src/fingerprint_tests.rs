@@ -7,7 +7,7 @@ use engine_core::{
     Params, PortSpec, Precision, Sample, SampleRate,
 };
 
-use super::{FINGERPRINT_BATTERY, fingerprint, seeded_signal};
+use super::{FINGERPRINT_BATTERY, fingerprint, seeded_signal, splitmix64};
 use crate::inputs::{BLOCKS, param_sets};
 use sha2::{Digest, Sha256};
 
@@ -204,6 +204,16 @@ fn hashes_the_battery_version_first() {
     assert_eq!(
         fingerprint(&silent),
         "26b25d457597a7b0463f9620f666dd10aa2c4373a505967c7c8d70922a2d6ece"
+    );
+}
+
+#[test]
+fn draws_splitmix64_from_its_published_values() {
+    // SplitMix64's first outputs from the state 0, computed apart from this code.
+    let mut state = 0_u64;
+    assert_eq!(
+        [splitmix64(&mut state), splitmix64(&mut state)],
+        [0xe220_a839_7b1d_cdaf, 0x6e78_9e6a_a1b9_65f4]
     );
 }
 

@@ -131,18 +131,27 @@ fn outputs<S: BatterySample>(
     rendered
 }
 
-/// `length` values in `[-1, 1)` from a fixed seed: `SplitMix64`, written here so that no
-/// dependency's generator can change the battery.
+/// The next 64 bits of `SplitMix64` (Steele, Lea and Flood, 2014, as `spec/measurements.md`
+/// defines it) from `state`, which it advances.
+///
+/// Written here so that no dependency's generator can change the battery, and the one copy
+/// of the crates that depend on this one (the measurement tests of `engine-testkit` draw
+/// their noise from it, each with its own mapping to floats).
+pub const fn splitmix64(state: &mut u64) -> u64 {
+    *state = state.wrapping_add(0x9e37_79b9_7f4a_7c15);
+    let mut mixed = *state;
+    mixed = (mixed ^ mixed.wrapping_shr(30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    mixed = (mixed ^ mixed.wrapping_shr(27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+    mixed ^ mixed.wrapping_shr(31)
+}
+
+/// `length` values in `[-1, 1)` from a fixed seed: [`splitmix64`] from the state 0, the top
+/// 32 bits of each draw scaled.
 fn seeded_signal(length: usize) -> Vec<f64> {
     let mut state = 0_u64;
     (0..length)
         .map(|_| {
-            state = state.wrapping_add(0x9e37_79b9_7f4a_7c15);
-            let mut mixed = state;
-            mixed = (mixed ^ mixed.wrapping_shr(30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
-            mixed = (mixed ^ mixed.wrapping_shr(27)).wrapping_mul(0x94d0_49bb_1331_11eb);
-            mixed ^= mixed.wrapping_shr(31);
-            let [first, second, third, fourth, ..] = mixed.to_be_bytes();
+            let [first, second, third, fourth, ..] = splitmix64(&mut state).to_be_bytes();
             f64::from(u32::from_be_bytes([first, second, third, fourth])) / 2_147_483_648.0_f64
                 - 1.0_f64
         })

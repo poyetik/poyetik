@@ -22,17 +22,14 @@ fn rate(hz: u32) -> SampleRate {
     SampleRate::new(hz).expect("a supported rate")
 }
 
-/// `SplitMix64` (Steele, Lea and Flood, 2014), as `spec/measurements.md` specifies it.
+/// `SplitMix64` (Steele, Lea and Flood, 2014), as `spec/measurements.md` specifies it: the
+/// battery's core ([`engine_battery::splitmix64`]), mapped to `[0, 1)`.
 struct SplitMix(u64);
 
 impl SplitMix {
     /// The next value, uniform in `[0, 1)` with 53 bits.
     fn next(&mut self) -> f64 {
-        self.0 = self.0.wrapping_add(0x9e37_79b9_7f4a_7c15);
-        let mut mixed = self.0;
-        mixed = (mixed ^ (mixed >> 30_u32)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
-        mixed = (mixed ^ (mixed >> 27_u32)).wrapping_mul(0x94d0_49bb_1331_11eb);
-        mixed ^= mixed >> 31_u32;
+        let mixed = engine_battery::splitmix64(&mut self.0);
         // `mixed >> 11` is below 2^53, so exact in f64: split it in two halves of 32 bits.
         let top = mixed >> 11_u32;
         let high = u32::try_from(top >> 32_u32).expect("21 bits");
