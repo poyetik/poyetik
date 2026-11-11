@@ -10268,7 +10268,7 @@ fn refuses_a_library_that_reaches_outside_itself() {
     let packages = |core: &str| {
         let others = r#"{"name":"engine-objects"},{"name":"engine-patch"},{"name":"engine-hash"},{"name":"engine-fpenv"},"#;
         format!(
-            r#"{{"packages":[{others}{{"name":"engine-wasm"}},{{"name":"engine-core","dependencies":[{core}]}}]}}"#
+            r#"{{"workspace_root":"/r","packages":[{others}{{"name":"engine-wasm"}},{{"name":"engine-core","dependencies":[{core}]}}]}}"#
         )
     };
     let dependency = |name: &str, kind: &str, path: &str| {
@@ -10306,6 +10306,12 @@ fn refuses_a_library_that_reaches_outside_itself() {
         ("engine-hash", "null", "/r/apps/engine-hash", "normal"),
         ("engine-hash", "null", "/r/crates/engine-hashx", "normal"),
         (
+            "engine-hash",
+            "null",
+            "/r/vendor/crates/engine-hash",
+            "normal",
+        ),
+        (
             "engine-testkit",
             "\"dev\"",
             "/r/tooling/engine-testkit",
@@ -10319,8 +10325,14 @@ fn refuses_a_library_that_reaches_outside_itself() {
             "{name} {kind} {path}"
         );
     }
+    assert!(
+        gate(r#"{"kind":null,"path":"/r/crates/engine-hash"}"#).is_err_and(|failure| {
+            failure.summary == "cargo metadata lists a dependency without a name"
+        }),
+        "a dependency without a name"
+    );
     assert_eq!(
-        super::library_gate(r#"{"packages":[{"name":"engine-core"}]}"#),
+        super::library_gate(r#"{"workspace_root":"/r","packages":[{"name":"engine-core"}]}"#),
         found(
             LIBRARY,
             &[
@@ -13132,7 +13144,7 @@ fn closure_metadata(linked: bool) -> String {
         r#"[{"name":"sha2","kind":null}]"#
     };
     format!(
-        r#"{{"packages":[{{"name":"engine-hash","dependencies":{hash}}},{{"name":"engine-objects","dependencies":[{{"name":"engine-core","kind":null,"path":"/r/crates/engine-core"}},{{"name":"engine-testkit","kind":"dev","path":"/r/crates/engine-testkit"}}]}},{{"name":"engine-core","dependencies":[]}},{{"name":"serde","dependencies":[]}}]}}"#
+        r#"{{"workspace_root":"/r","packages":[{{"name":"engine-hash","dependencies":{hash}}},{{"name":"engine-objects","dependencies":[{{"name":"engine-core","kind":null,"path":"/r/crates/engine-core"}},{{"name":"engine-testkit","kind":"dev","path":"/r/crates/engine-testkit"}}]}},{{"name":"engine-core","dependencies":[]}},{{"name":"serde","dependencies":[]}}]}}"#
     )
 }
 
@@ -14047,13 +14059,20 @@ fn fails_to_record_what_it_would_not_read_back() {
     );
 }
 
+/// The names of `crates`, sorted.
+fn sorted_names(crates: &[&RustCrate]) -> Vec<&'static str> {
+    let mut names: Vec<&'static str> = crates.iter().map(|krate| krate.name).collect();
+    names.sort_unstable();
+    names
+}
+
 #[test]
 fn reads_the_crates_each_crate_compiles_for_its_tests() {
     let closures = super::crate_closures(&closure_metadata(true)).expect("valid metadata");
     let names = |name: &str| -> Vec<&str> {
         closures
             .get(name)
-            .map(|closure| closure.iter().copied().collect())
+            .map(|closure| sorted_names(closure))
             .unwrap_or_default()
     };
     assert_eq!(
@@ -14071,14 +14090,20 @@ fn reads_the_crates_each_crate_compiles_for_its_tests() {
         ["xtask"],
         "a crate the metadata does not list"
     );
-    let deep = r#"{"packages":[{"name":"engine-cli","dependencies":[{"name":"engine-hash","path":"/r"}]},{"name":"engine-hash","dependencies":[{"name":"engine-core","path":"/r"},{"name":"other","path":"/r"}]}]}"#;
+    let deep = r#"{"workspace_root":"/r","packages":[{"name":"engine-cli","dependencies":[{"name":"engine-hash","path":"/r/crates/engine-hash"}]},{"name":"engine-hash","dependencies":[{"name":"engine-core","path":"/r/crates/engine-core"},{"name":"other","path":"/r/crates/other"},{"name":"engine-patch","path":"/r/vendor/crates/engine-patch"}]}]}"#;
     let deep_closures = super::crate_closures(deep).expect("valid metadata");
     assert_eq!(
         deep_closures
             .get("engine-cli")
-            .map(|closure| closure.iter().copied().collect::<Vec<_>>()),
+            .map(|closure| sorted_names(closure)),
         Some(vec!["engine-cli", "engine-core", "engine-hash"]),
-        "at any depth, crates outside the workspace apart"
+        "at any depth, crates outside the workspace apart, one named like a crate elsewhere \
+         included"
+    );
+    assert!(
+        super::crate_closures(r#"{"workspace_root":"/r","packages":[{"name":"engine-hash","dependencies":[{"path":"/r/crates/engine-core"}]}]}"#)
+            .is_err_and(|failure| failure.summary == "cargo metadata lists a dependency without a name"),
+        "a dependency without a name"
     );
     assert!(
         super::crate_closures("not json")
@@ -14091,11 +14116,7 @@ fn reads_the_crates_each_crate_compiles_for_its_tests() {
 fn reads_the_crates_real_cargo_metadata_lists() {
     let (metadata, _) = fixture_metadata();
     let closures = super::crate_closures(&metadata).expect("valid metadata");
-    let of = |name: &str| {
-        closures
-            .get(name)
-            .map(|closure| closure.iter().copied().collect::<Vec<_>>())
-    };
+    let of = |name: &str| closures.get(name).map(|closure| sorted_names(closure));
     assert_eq!(
         of("engine-objects"),
         Some(vec![
@@ -14468,6 +14489,22 @@ fn tells_the_files_of_a_crate_by_its_directory() {
 }
 
 #[test]
+fn takes_a_crate_of_the_workspace_by_its_name_and_its_directory() {
+    assert_eq!(
+        super::shared_tests_gate(
+            r#"{"workspace_root":"/r","packages":[{"name":"engine-objects","dependencies":[{"name":"engine-hash","kind":"dev","path":"/elsewhere/engine-hash"},{"name":"engine-patch","kind":"dev","path":"/r/vendor/crates/engine-patch"},{"name":"other","kind":"dev","path":"/r/crates/engine-patch"},{"name":"engine-testkit","kind":"dev","path":"/r/crates/engine-testkit"}]},{"name":"engine-testkit","dependencies":[{"name":"engine-alloc-counter","kind":null,"path":"/r/crates/engine-alloc-counter"}]}]}"#
+        ),
+        Ok(()),
+        "a dependency is a crate of the workspace by its name and its directory both"
+    );
+    assert!(
+        super::shared_tests_gate(r#"{"workspace_root":"/r","packages":[{"name":"x","dependencies":[{"kind":"dev"}]}]}"#)
+            .is_err_and(|failure| failure.summary == "cargo metadata lists a dependency without a name"),
+        "a dependency without a name"
+    );
+}
+
+#[test]
 fn takes_for_shared_test_code_every_crate_only_tests_use() {
     let (real, _) = fixture_metadata();
     assert_eq!(
@@ -14491,7 +14528,12 @@ fn takes_for_shared_test_code_every_crate_only_tests_use() {
             listed.join(",")
         )
     };
-    let metadata = |packages: &[String]| format!(r#"{{"packages":[{}]}}"#, packages.join(","));
+    let metadata = |packages: &[String]| {
+        format!(
+            r#"{{"workspace_root":"/r","packages":[{}]}}"#,
+            packages.join(",")
+        )
+    };
     assert_eq!(
         super::shared_tests_gate(&metadata(&[
             package("engine-objects", &[("engine-testkit", "\"dev\"")]),
@@ -14543,13 +14585,6 @@ fn takes_for_shared_test_code_every_crate_only_tests_use() {
             ]
         ),
         "reached through a crate only tests use, at any depth"
-    );
-    assert_eq!(
-        super::shared_tests_gate(
-            r#"{"packages":[{"name":"engine-objects","dependencies":[{"name":"engine-hash","kind":"dev","path":"/elsewhere/engine-hash"},{"name":"other","kind":"dev","path":"/r/crates/engine-patch"},{"name":"engine-testkit","kind":"dev","path":"/r/crates/engine-testkit"}]},{"name":"engine-testkit","dependencies":[{"name":"engine-alloc-counter","kind":null,"path":"/r/crates/engine-alloc-counter"}]}]}"#
-        ),
-        Ok(()),
-        "a dependency is a crate of the workspace by its name and its directory both"
     );
     assert_eq!(
         super::shared_tests_gate(&metadata(&[

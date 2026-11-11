@@ -3971,14 +3971,9 @@ pub const DOC_TESTED_KINDS: [&str; 3] = ["lib", "rlib", "proc-macro"];
 /// Returns every target or file that breaks one of these, every package or target the
 /// metadata does not describe as expected, or why the metadata cannot be read.
 pub fn untested_targets_gate(metadata: &str, sources: &[(String, String)]) -> Result<(), Failure> {
-    let json: serde_json::Value = serde_json::from_str(metadata)
-        .map_err(|error| Failure::from(format!("invalid cargo metadata: {error}")))?;
-    let root = json
-        .get("workspace_root")
-        .and_then(serde_json::Value::as_str)
-        .ok_or_else(|| Failure::from("cargo metadata names no workspace root".to_owned()))?;
+    let root = workspace_root(metadata)?;
     let below_root = |path: &str| -> Option<String> {
-        path.strip_prefix(root)
+        path.strip_prefix(root.as_str())
             .and_then(|path| path.strip_prefix('/'))
             .map(str::to_owned)
     };
@@ -4536,7 +4531,8 @@ pub fn pin_gate(metadata: &str, reviewed: &str) -> Result<(), Failure> {
 /// [`CrateRole::LibraryTests`].
 ///
 /// `metadata` is the output of [`metadata_command`]; a dependency of the project is one
-/// with a `path`, named and placed as a crate of [`RUST_CRATES`]. A third-party dependency
+/// with a `path`, and it is allowed only as a crate of [`RUST_CRATES`] it names and places
+/// (`workspace_dependency`). A third-party dependency
 /// is reviewed by [`dependency_gate`], and pinned by [`pin_gate`] when it is the library's.
 ///
 /// # Errors
@@ -4545,6 +4541,7 @@ pub fn pin_gate(metadata: &str, reviewed: &str) -> Result<(), Failure> {
 /// of the library the metadata does not list, or why the metadata cannot be read.
 pub fn library_gate(metadata: &str) -> Result<(), Failure> {
     let packages = cargo_packages(metadata)?;
+    let root = workspace_root(metadata)?;
     let mut problems = Vec::new();
     let (library_crates, test_crates) = (
         crates_in(CrateRole::Library),
@@ -4557,24 +4554,15 @@ pub fn library_gate(metadata: &str) -> Result<(), Failure> {
             ));
             continue;
         };
-        let dependencies = krate
-            .get("dependencies")
-            .and_then(serde_json::Value::as_array)
-            .into_iter()
-            .flatten();
-        for dependency in dependencies {
+        for dependency in dependencies_of(krate) {
+            let known = workspace_dependency(dependency, &root)?;
             let text = |key: &str| dependency.get(key).and_then(serde_json::Value::as_str);
             let Some(path) = text("path") else {
                 continue;
             };
             let name = text("name").unwrap_or_default();
             let kind = text("kind").unwrap_or("normal");
-            let allowed = |crates: &[&str]| {
-                crates.contains(&name)
-                    && RUST_CRATES.iter().any(|known| {
-                        known.name == name && path.ends_with(&format!("/{}", known.dir))
-                    })
-            };
+            let allowed = |crates: &[&str]| known.is_some_and(|known| crates.contains(&known.name));
             if !(allowed(&library_crates) || (kind == "dev" && allowed(&test_crates))) {
                 problems.push(format!(
                     "{library} depends on {name} ({kind}, {path}): the audio library depends \
@@ -4608,26 +4596,19 @@ pub fn library_gate(metadata: &str) -> Result<(), Failure> {
 /// cannot be read.
 pub fn shared_tests_gate(metadata: &str) -> Result<(), Failure> {
     let packages = cargo_packages(metadata)?;
+    let root = workspace_root(metadata)?;
     // Each dependency on a crate of the workspace: (dependent, dependency, kind).
     let mut edges: Vec<(String, &'static str, String)> = Vec::new();
     for (name, package) in &packages {
-        let dependencies = package
-            .get("dependencies")
-            .and_then(serde_json::Value::as_array)
-            .into_iter()
-            .flatten();
-        for dependency in dependencies {
-            let text = |key: &str| dependency.get(key).and_then(serde_json::Value::as_str);
-            let Some(krate) = RUST_CRATES.iter().find(|krate| {
-                Some(krate.name) == text("name")
-                    && text("path").is_some_and(|path| path.ends_with(&format!("/{}", krate.dir)))
-            }) else {
+        for dependency in dependencies_of(package) {
+            let Some(krate) = workspace_dependency(dependency, &root)? else {
                 continue;
             };
+            let kind = dependency.get("kind").and_then(serde_json::Value::as_str);
             edges.push((
                 name.clone(),
                 krate.name,
-                text("kind").unwrap_or("normal").to_owned(),
+                kind.unwrap_or("normal").to_owned(),
             ));
         }
     }
@@ -5105,6 +5086,55 @@ fn cargo_packages(metadata: &str) -> Result<Vec<(String, serde_json::Value)>, Fa
                 })
         })
         .collect()
+}
+
+/// The workspace root `metadata` (the output of [`metadata_command`]) names, from which it
+/// writes every path.
+///
+/// # Errors
+///
+/// Returns why the metadata cannot be read, or that it names no root.
+fn workspace_root(metadata: &str) -> Result<String, Failure> {
+    let json: serde_json::Value = serde_json::from_str(metadata)
+        .map_err(|error| Failure::from(format!("invalid cargo metadata: {error}")))?;
+    json.get("workspace_root")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned)
+        .ok_or_else(|| Failure::from("cargo metadata names no workspace root".to_owned()))
+}
+
+/// The crate of [`RUST_CRATES`] that `dependency`, a dependency of a package of `cargo
+/// metadata`, is: one with a `path`, named as the crate and at the crate's directory below
+/// `root`, the workspace root. The one rule of the gates and the mutation proof for "a
+/// crate of the workspace": a path dependency named like a crate but placed elsewhere is
+/// none.
+///
+/// # Errors
+///
+/// Returns that the dependency has no name, which cargo always writes.
+fn workspace_dependency(
+    dependency: &serde_json::Value,
+    root: &str,
+) -> Result<Option<&'static RustCrate>, Failure> {
+    let name = dependency
+        .get("name")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| {
+            Failure::from("cargo metadata lists a dependency without a name".to_owned())
+        })?;
+    let path = dependency.get("path").and_then(serde_json::Value::as_str);
+    Ok(RUST_CRATES
+        .iter()
+        .find(|krate| krate.name == name && path == Some(format!("{root}/{}", krate.dir).as_str())))
+}
+
+/// The dependencies `package`, a package of `cargo metadata`, lists.
+fn dependencies_of(package: &serde_json::Value) -> impl Iterator<Item = &serde_json::Value> {
+    package
+        .get("dependencies")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
 }
 
 /// What the math layer gate finds in the crates (`metadata`, the output of
@@ -8475,20 +8505,17 @@ fn lock_changes(runner: &mut dyn Runner, since: &str) -> Result<BTreeSet<&'stati
 }
 
 /// The crates of [`RUST_CRATES`] whose closure ([`crate_closures`]) holds `name`.
-fn crates_building(
-    closures: &BTreeMap<&'static str, BTreeSet<&'static str>>,
-    name: &str,
-) -> BTreeSet<&'static str> {
+fn crates_building(closures: &Closures, name: &str) -> BTreeSet<&'static str> {
     closures
         .iter()
-        .filter(|(_, closure)| closure.contains(name))
+        .filter(|(_, closure)| closure.iter().any(|built| built.name == name))
         .map(|(krate, _)| *krate)
         .collect()
 }
 
-/// The crates of the workspace each crate of [`RUST_CRATES`] compiles for its tests
-/// ([`crate_closures`]).
-type Closures = BTreeMap<&'static str, BTreeSet<&'static str>>;
+/// The crates of the workspace each crate of [`RUST_CRATES`] compiles for its tests, by
+/// its name, in the order of [`RUST_CRATES`] ([`crate_closures`]).
+type Closures = BTreeMap<&'static str, Vec<&'static RustCrate>>;
 
 /// What the changes since a commit widen the default check's mutation testing to, beyond
 /// their lines ([`reach`]).
@@ -9244,25 +9271,20 @@ fn repeated_section(diff: &str) -> Option<&str> {
 /// # Errors
 ///
 /// Returns why the metadata cannot be read.
-fn crate_closures(
-    metadata: &str,
-) -> Result<BTreeMap<&'static str, BTreeSet<&'static str>>, Failure> {
-    let workspace = |name: &str| RUST_CRATES.iter().find(|krate| krate.name == name);
+fn crate_closures(metadata: &str) -> Result<Closures, Failure> {
+    let packages = cargo_packages(metadata)?;
+    let root = workspace_root(metadata)?;
     let mut direct: BTreeMap<&'static str, BTreeSet<&'static str>> = BTreeMap::new();
-    for (name, package) in cargo_packages(metadata)? {
-        let Some(krate) = workspace(&name) else {
+    for (name, package) in packages {
+        let Some(krate) = RUST_CRATES.iter().find(|krate| krate.name == name) else {
             continue;
         };
-        let dependencies = package
-            .get("dependencies")
-            .and_then(serde_json::Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter(|dependency| dependency.get("path").is_some())
-            .filter_map(|dependency| dependency.get("name").and_then(serde_json::Value::as_str))
-            .filter_map(workspace)
-            .map(|dependency| dependency.name);
-        direct.entry(krate.name).or_default().extend(dependencies);
+        let built = direct.entry(krate.name).or_default();
+        for dependency in dependencies_of(&package) {
+            if let Some(dependency) = workspace_dependency(dependency, &root)? {
+                let _new = built.insert(dependency.name);
+            }
+        }
     }
     Ok(RUST_CRATES
         .iter()
@@ -9276,7 +9298,11 @@ fn crate_closures(
                     }
                 }
             }
-            (krate.name, closure)
+            let crates = RUST_CRATES
+                .iter()
+                .filter(|built| closure.contains(built.name))
+                .collect();
+            (krate.name, crates)
         })
         .collect())
 }
@@ -9320,13 +9346,9 @@ fn proven_crates(
                     .into_iter()
                     .filter(|krate| {
                         !reached.contains_key(krate.name)
-                            && !changed.iter().any(|path| {
-                                closures.get(krate.name).into_iter().flatten().any(|name| {
-                                    RUST_CRATES.iter().any(|built| {
-                                        built.name == *name && built.holds(path).is_some()
-                                    })
-                                }) || krate.test_data.iter().any(|root| under_root(path, root))
-                            })
+                            && !changed
+                                .iter()
+                                .any(|path| inputs_changed(krate, path, closures))
                     })
                     .collect());
             }
@@ -9340,6 +9362,17 @@ fn proven_crates(
         ),
     )?;
     Ok(Vec::new())
+}
+
+/// Whether `path`, changed, is an input of the tests of `krate`: a file of a crate it
+/// builds (`closures`, itself included) or of its declared test data.
+fn inputs_changed(krate: &RustCrate, path: &str, closures: &Closures) -> bool {
+    closures
+        .get(krate.name)
+        .into_iter()
+        .flatten()
+        .any(|built| built.holds(path).is_some())
+        || krate.test_data.iter().any(|root| under_root(path, root))
 }
 
 /// How much of a crate the changes put in scope ([`in_scope`]).
