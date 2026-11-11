@@ -9589,6 +9589,10 @@ fn refuses_a_test_file_that_loads_another() {
     };
     let declared = "#[cfg(test)]\n#[path = \"plan_tests.rs\"]\nmod tests;\n";
     let inline = "the modules of a *_tests.rs file are inline";
+    let (bodyless, path) = (
+        "declares a module without a body, loaded from another file",
+        "holds a `#[path]` attribute, which loads another file",
+    );
     let loads = |what: &str, line: usize| {
         format!(
             "crates/engine-core/src/plan_tests.rs:{line}: {what}, which no rule tells \
@@ -9596,50 +9600,26 @@ fn refuses_a_test_file_that_loads_another() {
         )
     };
     for (text, expected) in [
+        ("#[test]\nfn t() {}\nmod helper;\n", loads(bodyless, 3)),
+        ("mod r#helper;\n", loads(bodyless, 1)),
+        ("pub(crate) mod  helper ;\n", loads(bodyless, 1)),
+        ("mod helper /* a comment */ ;\n", loads(bodyless, 1)),
+        ("/* /* */ \"*/\nmod helper;\n// \"\n", loads(bodyless, 2)),
         (
-            "#[test]\nfn t() {}\nmod helper;\n",
-            loads(
-                "declares a module without a body, loaded from another file",
-                3,
-            ),
+            "/* /* */ \"*/\ninclude!(\"h.rs\");\n// \"\n",
+            loads("names `include`, which loads another file", 2),
         ),
-        (
-            "mod r#helper;\n",
-            loads(
-                "declares a module without a body, loaded from another file",
-                1,
-            ),
-        ),
-        (
-            "pub(crate) mod  helper ;\n",
-            loads(
-                "declares a module without a body, loaded from another file",
-                1,
-            ),
-        ),
-        (
-            "#[path = \"h.rs\"]\nmod h {}\n",
-            loads("holds a `#[path]` attribute, which loads another file", 1),
-        ),
-        (
-            "# [\n  path = \"h.rs\"]\nmod h {}\n",
-            loads("holds a `#[path]` attribute, which loads another file", 2),
-        ),
-        (
-            "#![path = \"h.rs\"]\n",
-            loads("holds a `#[path]` attribute, which loads another file", 1),
-        ),
+        ("#[path = \"h.rs\"]\nmod h {}\n", loads(path, 1)),
+        ("# [\n  path = \"h.rs\"]\nmod h {}\n", loads(path, 2)),
+        ("#![path = \"h.rs\"]\n", loads(path, 1)),
         (
             "#[cfg_attr(test, path = \"h.rs\")]\nmod h {}\n",
-            loads("holds a `#[path]` attribute, which loads another file", 1),
+            loads(path, 1),
         ),
-        (
-            "#[path/**/= \"h.rs\"]\nmod h {}\n",
-            loads("holds a `#[path]` attribute, which loads another file", 1),
-        ),
+        ("#[path/**/= \"h.rs\"]\nmod h {}\n", loads(path, 1)),
         (
             "/* /* */ \"*/\n#[path = \"h.rs\"]\nmod h {}\n// \"\n",
-            loads("holds a `#[path]` attribute, which loads another file", 2),
+            loads(path, 2),
         ),
         (
             "macro_rules! load {\n    ($m:meta) => { #[$m] mod h {} };\n}\n",

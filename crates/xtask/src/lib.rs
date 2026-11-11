@@ -4044,14 +4044,12 @@ fn variable_attribute(path: &str, line: usize) -> String {
 }
 
 /// The problems of `source`, a `*_tests.rs` file, that would load another file: a module
-/// declared without a body (`mod <identifier>;`, which rustc reads from a file beside it),
-/// a `#[path]` attribute ([`path_attributes`], [`variable_attributes`]), or the code word
-/// `include` (`include_str` and `include_bytes` are other words, read as test data by
-/// [`test_data_gate`]).
+/// declared without a body (the tokens `mod <identifier> ;`, which rustc reads from a file
+/// beside it), a `#[path]` attribute ([`path_attributes`], [`variable_attributes`]), or the
+/// identifier `include` (`include_str` and `include_bytes` are other identifiers, read as
+/// test data by [`test_data_gate`]).
 fn loaded_by_tests(source: &RustSource) -> Vec<String> {
     let path = source.path.as_str();
-    let chars: Vec<char> = source.text.chars().collect();
-    let words = code_words(&source.text);
     let mut found: Vec<(usize, &str)> = path_attributes(source)
         .into_iter()
         .filter_map(|at| source.tokens.get(at))
@@ -4062,25 +4060,21 @@ fn loaded_by_tests(source: &RustSource) -> Vec<String> {
             )
         })
         .collect();
-    for (index, (line, word, _)) in words.iter().enumerate() {
-        let bodyless = word == "mod"
-            && words
-                .get(index.saturating_add(1))
-                .is_some_and(|(_, _, after)| {
-                    chars
-                        .get(*after..)
-                        .unwrap_or_default()
-                        .iter()
-                        .find(|character| !character.is_whitespace())
-                        == Some(&';')
-                });
-        if bodyless {
+    for window in source.tokens.windows(3) {
+        if let [keyword, module, end] = window
+            && keyword.is_ident("mod")
+            && module.kind == TokenKind::Ident
+            && end.is_punct(';')
+        {
             found.push((
-                *line,
+                keyword.line,
                 "declares a module without a body, loaded from another file",
             ));
-        } else if word == "include" {
-            found.push((*line, "names `include`, which loads another file"));
+        }
+    }
+    for token in &source.tokens {
+        if token.is_ident("include") {
+            found.push((token.line, "names `include`, which loads another file"));
         }
     }
     found.sort_by_key(|(line, _)| *line);
