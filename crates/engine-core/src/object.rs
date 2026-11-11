@@ -66,22 +66,22 @@ pub struct ParamSpec {
 }
 
 impl ParamSpec {
-    /// The parameter `name`, described by `description`, of default value `default`,
-    /// accepting `min` to `max` (inclusive).
+    /// The parameter `name`, described by `description`, of default value
+    /// `default_value`, accepting `minimum` to `maximum` (inclusive).
     #[must_use]
     pub const fn new(
         name: &'static str,
         description: &'static str,
-        default: f32,
-        min: f32,
-        max: f32,
+        default_value: f32,
+        minimum: f32,
+        maximum: f32,
     ) -> Self {
         Self {
             name,
             description,
-            default_value: default,
-            minimum: min,
-            maximum: max,
+            default_value,
+            minimum,
+            maximum,
         }
     }
 
