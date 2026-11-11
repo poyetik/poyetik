@@ -882,6 +882,10 @@
         {
           "title": "Changelog gate on the last release: every backticked name of an [Unreleased] Removed entry exists at the last version tag (git grep at the tag), and a Changed or Fixed entry names something the tag holds, with fixture changelogs it must refuse; until then, a deep review checks that [Unreleased] describes the change from the last tag, never the branch's history",
           "done": false
+        },
+        {
+          "title": "Vocabulary gate on Rust prose from the tokenizer: its own scan of Rust comments and strings (code_prose) does not nest block comments as rustc does, so a nested comment can hide a refused synonym from it or show code as prose; read the prose of a Rust file from RustSource instead (its string literals and doc comments, and the source between tokens, which is exactly its comments), keeping its TypeScript reading, with fixtures of nested comments and raw strings it must refuse",
+          "done": false
         }
       ]
     },
