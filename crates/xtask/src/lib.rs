@@ -9623,17 +9623,17 @@ pub fn run_steps_then(
 /// Usage of the `xtask` command, in the order of its first line.
 pub const USAGE: &str = "\
 usage: cargo xtask <check [--full [--part <part>]]|list [--full [--parts]]|mutants <target>|bless [--case-changed <name>]... [--battery-changed] [--from-nothing]|bless-benchmarks|commit-msg <file>|pre-push [pair...]|help>
-  check [--full]        run every quality check; mutation testing covers the changes: Rust
-                        since the merge base with the upstream, origin/main or main,
-                        but the crates an earlier default check of that base proved
-                        and left unchanged (its mutation proof record, which --full
-                        never reads), TypeScript since the last local Stryker run;
-                        stops at the first failure; with --full every mutant, as CI
-                        does, and every check runs whatever fails, then every failure
-                        is reported; with
-                        --full --part <part>, only that part, as one CI job runs it
-                        (the parts together run every check once; the final part
-                        reads the unviable mutants of every mutation shard)
+  check [--full]        run every quality check, stopping at the first failure;
+                        mutation testing covers the changes. Rust: the changes since
+                        the merge base with the upstream, origin/main or main; the
+                        crates an earlier default check of that base proved, unchanged
+                        since, are skipped (its mutation proof record, which --full
+                        never reads). TypeScript: since the last local Stryker run.
+                        With --full, every mutant, as CI does, and every check runs
+                        whatever fails, then every failure is reported. With --full
+                        --part <part>, only that part, as one CI job runs it (the
+                        parts together run every check once; the final part reads
+                        the unviable mutants of every mutation shard)
   list [--full]         list the checks of `check` (or `check --full`), in order; with
                         --full --parts, the parts of `check --full`
   mutants <target>      run every mutant of one target: a crate (its name), a Rust file
