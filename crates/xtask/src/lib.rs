@@ -4178,6 +4178,18 @@ enum Read<'text> {
     Refused(String),
 }
 
+/// Whether `compact`, the text after `var` or `var_os` without its spaces, is a call whose
+/// argument is a string literal, raw or not (`r"…"`, `r#"…"#`), naming one of the variables
+/// Cargo sets for the crate's manifest (`CARGO_MANIFEST_DIR`, `CARGO_MANIFEST_PATH` …).
+fn manifest_variable(compact: &str) -> bool {
+    compact
+        .strip_prefix('(')
+        .map(|argument| argument.strip_prefix('r').unwrap_or(argument))
+        .map(|argument| argument.trim_start_matches('#'))
+        .and_then(|argument| argument.strip_prefix('"'))
+        .is_some_and(|name| name.starts_with("CARGO_MANIFEST_"))
+}
+
 /// What `word`, a word of [`TEST_DATA_WORDS`], reads, `rest` being the text after it.
 fn test_data_read<'text>(word: &str, rest: &'text str) -> Read<'text> {
     let manifest_dir = "!(\"CARGO_MANIFEST_DIR\")";
@@ -4228,9 +4240,9 @@ fn test_data_read<'text>(word: &str, rest: &'text str) -> Read<'text> {
         "option_env" => {
             Read::Refused("`option_env!`, which may name a directory of the repository".to_owned())
         }
-        _ if compact.starts_with("(\"CARGO_MANIFEST_DIR\"") => Read::Refused(format!(
-            "`{word}(\"CARGO_MANIFEST_DIR\")`, a directory read at run time the gate cannot \
-             follow"
+        _ if manifest_variable(&compact) => Read::Refused(format!(
+            "`{word}` of a variable naming the crate's manifest, a directory read at run time \
+             the gate cannot follow"
         )),
         _ => Read::Other,
     }
@@ -4250,11 +4262,14 @@ fn test_data_read<'text>(word: &str, rest: &'text str) -> Read<'text> {
 /// outside its crate: a library's read would be an input of every crate whose tests build
 /// it, which no crate declares. The other ways to name the crate's directory are refused:
 /// `option_env!`, `env!` of any variable but `CARGO_MANIFEST_DIR` and those Cargo sets for
-/// a crate (`CARGO_BIN_EXE_<name>`, `CARGO_PKG_<field>`), and `var` or `var_os` of the
-/// literal `"CARGO_MANIFEST_DIR"`. **Review only**: a relative path given to a file API at
-/// run time, which cargo resolves against the crate's directory when it runs the tests (no
-/// text gate tells it from any other string), and a path held in a variable, then joined
-/// again (xtask's fixtures, below its `tests/fixtures/`). A binary's entry point (`src/main.rs` of a
+/// a crate (`CARGO_BIN_EXE_<name>`, `CARGO_PKG_<field>`), and `var` or `var_os` of a
+/// literal, raw or not, naming a variable of the crate's manifest (`CARGO_MANIFEST_DIR`,
+/// `CARGO_MANIFEST_PATH`). **Review only**: any path computed at run time, which no text
+/// gate tells from any other value: a relative path given to a file API (cargo runs the
+/// tests in the crate's directory), the current directory, the executable's path,
+/// `file!()`, a variable of the environment read by a name not written as a literal or
+/// through `vars()`, and a path held in a variable, then joined again (xtask's fixtures,
+/// below its `tests/fixtures/`). A binary's entry point (`src/main.rs` of a
 /// crate with [`RustCrate::binary`]) is not read: it only wires the real process, finding
 /// the repository it runs in, and its tests give it their own files.
 ///

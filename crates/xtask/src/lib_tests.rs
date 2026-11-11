@@ -9310,14 +9310,36 @@ fn refuses_the_reads_of_test_data_it_cannot_follow() {
     };
     let file = "crates/engine-hash/src/more_tests.rs";
     let manifest = format!("\"{}_{}_{}\"", "CARGO", "MANIFEST", "DIR");
+    let run_time = |word: &str| {
+        format!(
+            "`{word}` of a variable naming the crate's manifest, a directory read at run time \
+             the gate cannot follow"
+        )
+    };
+    let (variable, path) = (
+        format!("{}_{}_", "CARGO", "MANIFEST"),
+        format!("\"{}_{}_{}\"", "CARGO", "MANIFEST", "PATH"),
+    );
     for (text, why) in [
         (
             format!("fn f() {{ let _ = std::env::var_os({manifest}); }}\n"),
-            format!("`var_os({manifest})`, a directory read at run time the gate cannot follow"),
+            run_time("var_os"),
         ),
         (
             format!("fn f() {{ let _ = var ( {manifest} ); }}\n"),
-            format!("`var({manifest})`, a directory read at run time the gate cannot follow"),
+            run_time("var"),
+        ),
+        (
+            format!("fn f() {{ let _ = var(r{manifest}); }}\n"),
+            run_time("var"),
+        ),
+        (
+            format!("fn f() {{ let _ = var_os(r#\"{variable}DIR\"#); }}\n"),
+            run_time("var_os"),
+        ),
+        (
+            format!("fn f() {{ let _ = var({path}); }}\n"),
+            run_time("var"),
         ),
         (
             "fn f() { let _ = option_env!(\"X\"); }\n".to_owned(),
@@ -9350,6 +9372,7 @@ fn refuses_the_reads_of_test_data_it_cannot_follow() {
     }
     for text in [
         "fn f() { let _ = std::env::var_os(CHILD); let _ = var(\"HOME\"); }\n".to_owned(),
+        "fn f() { let _ = var(r\"CARGO_PKG_NAME\"); let _ = var_os(r#\"CARGO\"#); }\n".to_owned(),
         "fn f() { let _ = env!(\"CARGO_BIN_EXE_engine-cli\"); let _ = env!(\"CARGO_PKG_VERSION\"); }\n"
             .to_owned(),
         format!(
