@@ -147,9 +147,10 @@ const LICENSE_LINES: [&str; 2] = [
 
 /// The two history listings, written out: every message, then the files touched by each
 /// commit after the changelog boundary.
-const HISTORY_LINES: [&str; 2] = [
+const HISTORY_LINES: [&str; 3] = [
     "git log --format=%x1e%H%x1f%B HEAD",
     "git log --format=%x1e%H --name-only 8182fda87a1c631295548ff52eeb4ea08335fa36..HEAD",
+    "git log --format=%H abb3bb6f37e23ab4addd534ec4bc1fc3aca9477f..HEAD",
 ];
 
 /// The threads of the fake's machine: six, so that the jobs of a full check (three) differ
@@ -670,14 +671,15 @@ fn passing() -> Fake {
         assert!(previous_unsafe.is_none(), "fresh fake");
     }
     float_sources(&mut fake);
-    let [messages, files] = HISTORY_LINES;
-    let logged = fake
-        .files
-        .insert(format!("capture {messages}"), HISTORY.to_owned());
-    let listed = fake
-        .files
-        .insert(format!("capture {files}"), HISTORY_FILES.to_owned());
-    assert!(logged.is_none() && listed.is_none(), "fresh fake");
+    for (line, text) in HISTORY_LINES
+        .into_iter()
+        .zip([HISTORY, HISTORY_FILES, HISTORY_SCOPED])
+    {
+        let logged = fake
+            .files
+            .insert(format!("capture {line}"), text.to_owned());
+        assert!(logged.is_none(), "fresh fake");
+    }
     for (path, text) in [
         (super::WORKFLOW, PINNED_WORKFLOW),
         (super::NODE_VERSION_FILE, "22.23.4\n"),
@@ -705,7 +707,10 @@ fn passing() -> Fake {
     for (path, text) in [
         (CARGO_TOML.to_owned(), CARGO),
         (CHANGELOG.to_owned(), LOG),
-        ("COMMIT_EDITMSG".to_owned(), "feat(core): add the plan\n"),
+        (
+            "COMMIT_EDITMSG".to_owned(),
+            "feat(engine-core): add the plan\n",
+        ),
         (super::CARGO_CONFIG_FILE.to_owned(), super::CARGO_CONFIG),
         (super::ROADMAP_BOARD.to_owned(), BOARD),
         (super::VOCABULARY.to_owned(), FAKE_WORDS),
@@ -874,12 +879,14 @@ const PINNED_WORKFLOW: &str = concat!(
 
 /// A history whose two commits follow the convention, the change of behavior with its
 /// changelog entry, as `git log` writes it for the history gate.
-const HISTORY: &str =
-    "\u{1e}bbbbbbbbbb\u{1f}feat(core): add the plan\n\nWhy.\n\u{1e}aaaaaaaaaa\u{1f}docs: start\n";
+const HISTORY: &str = "\u{1e}bbbbbbbbbb\u{1f}feat(engine-core): add the plan\n\nWhy.\n\u{1e}aaaaaaaaaa\u{1f}docs: start\n";
 
 /// The files the commits of [`HISTORY`] touched.
 const HISTORY_FILES: &str =
     "\u{1e}bbbbbbbbbb\n\nCHANGELOG.md\ncrates/a.rs\n\u{1e}aaaaaaaaaa\n\nREADME.md\n";
+
+/// The commits of [`HISTORY`] whose scope is held to the registered scopes: both.
+const HISTORY_SCOPED: &str = "bbbbbbbbbb\naaaaaaaaaa\n";
 
 /// The READMEs of a repository whose parts are all described: each TypeScript package has
 /// its own, each folder names its parts, the root names the folders.
@@ -3381,7 +3388,7 @@ fn runs_every_step_and_reports_success() {
         Ok(()),
         "all green"
     );
-    let (tools, commands, emptied, listed, captured, written) = (10, 58, 14, 24, 36, 3);
+    let (tools, commands, emptied, listed, captured, written) = (10, 58, 14, 24, 37, 3);
     let read = 2
         + 7
         + 14
@@ -3414,7 +3421,7 @@ fn runs_every_step_and_reports_success() {
          conformance check and export, deny, the JavaScript install, audit, the engine build and five package \
          checks each followed by its Stryker run); fourteen directories are emptied; git lists \
          thirteen kinds of files (the box sources and the text files that cite the roadmap among them), the Rust files again for the test code, test data and untested targets gates, the TypeScript ones again for the reports and scope gates of \
-         each package after the first; the licenses and the history are captured twice each, the state \
+         each package after the first; the licenses twice and the history three times, the state \
          of the tree (before, for the proof record and after) six times, the nightly's version and sysroot, the Cargo metadata (for the untested targets, dependency, pin, library and math layer gates), the output of the fused test build, the merge base, the changed paths, the changes, the \
          new Rust files and the list of every mutant once, git's common directory twice, the tree checked out, \
          cargo-mutants' version, rustc's host and build, the linker driver's and git's versions, the status for a push and the hidden files for the mutation step and the proof record; the measured base, the diff and the \
@@ -4519,7 +4526,10 @@ fn accepts_conventional_commit_messages() {
         "feat: add the plan",
         "fix(engine-core): keep box state across blocks\n\nBody text.\nCo-Authored-By: x",
         "refactor(xtask)!: rename the gate",
-        "build(v2): bump the format",
+        "build(engine-wasm): bump the format",
+        "chore(roadmap): tick",
+        "docs(deep-review): add a check",
+        "test(config): cover",
         "docs!: rewrite the readme",
         "# comment from git\nci: run on every push\n# another comment\n",
     ] {
@@ -4551,7 +4561,20 @@ fn rejects_other_commit_messages() {
         ))
     };
     let long = format!("feat: {}", "x".repeat(COMMIT_HEADER_MAX - 5));
-    let cases: [(&str, String); 14] = [
+    let unknown = |scope: &str| {
+        format!(
+            "unknown scope \"{scope}\": name a crate, a package or a scope of xtask's \
+             COMMIT_SCOPE_EXTRAS (engine-core, engine-objects, engine-patch, engine-hash, \
+             engine-alloc-counter, engine-fpenv, engine-battery, engine-testkit, engine-cli, \
+             engine-wasm, xtask, config, oracle, playground, roadmap, spec, conformance, ci, \
+             build, release, changelog, glossary, deep-review)"
+        )
+    };
+    let cases: [(&str, String); 18] = [
+        ("refactor(wasm): rename", unknown("wasm")),
+        ("feat(core)!: add", unknown("core")),
+        ("docs(bindings): x", unknown("bindings")),
+        ("fix(x2): y", unknown("x2")),
         ("", "missing \"<type>: \" prefix".to_owned()),
         (
             "Merge whatever I want",
@@ -6554,14 +6577,14 @@ fn tells_changes_of_behavior() {
 #[test]
 fn checks_every_message_and_the_changelog_of_every_change() {
     assert_eq!(
-        super::history_gate(HISTORY, HISTORY_FILES),
+        super::history_gate(HISTORY, HISTORY_FILES, HISTORY_SCOPED),
         Ok(()),
         "a clean history"
     );
     let messages = "\u{1e}cccccccccc\u{1f}fix: repair\n\u{1e}bbbbbbbbbb\u{1f}Update stuff\n\u{1e}aaaaaaaaaa\u{1f}feat: before the rule\n";
     let files = "\u{1e}cccccccccc\n\nsrc/a.rs\n\u{1e}bbbbbbbbbb\n\nsrc/b.rs\n";
     assert_eq!(
-        super::history_gate(messages, files),
+        super::history_gate(messages, files, ""),
         failed(
             "the history breaks the commit rules: 2 problems, listed above\n\
              commit ccccccc changes behavior but not CHANGELOG.md\n\
@@ -6569,9 +6592,23 @@ fn checks_every_message_and_the_changelog_of_every_change() {
         ),
         "a change without its entry, a malformed message; the commit before the rule is not held to it"
     );
-    assert_eq!(super::history_gate("", ""), Ok(()), "no commit");
+    assert_eq!(super::history_gate("", "", ""), Ok(()), "no commit");
+    let named = "\u{1e}cccccccccc\u{1f}docs(wasm): x\n\u{1e}bbbbbbbbbb\u{1f}docs(wasm): y\n";
     assert_eq!(
-        super::history_gate("\u{1e}eeeeeeeeee\u{1f}# fix: hidden\nfix: shown\n", ""),
+        super::history_gate(named, "", "cccccccccc\n"),
+        Err(Failure {
+            summary: format!(
+                "the history breaks the commit rules: commit ccccccc: invalid commit message: \
+                 unknown scope \"wasm\": name a crate, a package or a scope of xtask's \
+                 COMMIT_SCOPE_EXTRAS ({})",
+                super::commit_scopes().join(", ")
+            ),
+            details: vec![],
+        }),
+        "a scope held to the registries only after the scopes' boundary"
+    );
+    assert_eq!(
+        super::history_gate("\u{1e}eeeeeeeeee\u{1f}# fix: hidden\nfix: shown\n", "", ""),
         found(
             "the history breaks the commit rules",
             &["commit eeeeeee: invalid commit message: unknown type \"# fix\"".to_owned()]
@@ -6579,7 +6616,7 @@ fn checks_every_message_and_the_changelog_of_every_change() {
         "a recorded message is read as it is: a first line starting with # is its header"
     );
     assert_eq!(
-        super::history_gate("\u{1e}dddddddddd", "\u{1e}dddddddddd\n"),
+        super::history_gate("\u{1e}dddddddddd", "\u{1e}dddddddddd\n", ""),
         found(
             "the history breaks the commit rules",
             &["commit ddddddd: invalid commit message: missing \"<type>: \" prefix".to_owned()]
@@ -7121,24 +7158,32 @@ fn checks_the_history_git_really_writes() {
     };
     let _before = commit("fix: before the boundary", Some("a.rs"));
     let since = commit("fix: the boundary itself", Some("b.rs"));
+    let _free = commit("docs(wasm): before the scopes' boundary", None);
+    let scopes_since = commit("docs(wasm): the scopes' boundary itself", None);
     let _recorded = commit("fix: recorded\n\nWhy.", Some(CHANGELOG));
     let unrecorded = commit("fix: unrecorded", Some("c.rs"));
     let malformed = commit("Update stuff", None);
+    let unscoped = commit("docs(wasm): a part named two ways", None);
     let mut runner = SystemRunner { root: repo.clone() };
-    let [messages, files] =
-        super::history_commands(&since).map(|cmd| runner.capture(&cmd).expect("git log"));
+    let [messages, files, scoped] = super::history_commands(&since, &scopes_since)
+        .map(|cmd| runner.capture(&cmd).expect("git log"));
     std::fs::remove_dir_all(&repo).expect("cleanup");
     let short = |hash: &str| hash.chars().take(7).collect::<String>();
     assert_eq!(
-        super::history_gate(&messages, &files),
+        super::history_gate(&messages, &files, &scoped),
         failed(format!(
-            "the history breaks the commit rules: 2 problems, listed above\n\
+            "the history breaks the commit rules: 3 problems, listed above\n\
+             commit {}: invalid commit message: unknown scope \"wasm\": name a crate, a \
+             package or a scope of xtask's COMMIT_SCOPE_EXTRAS ({})\n\
              commit {}: invalid commit message: missing \"<type>: \" prefix\n\
              commit {} changes behavior but not CHANGELOG.md",
+            short(&unscoped),
+            super::commit_scopes().join(", "),
             short(&malformed),
             short(&unrecorded)
         )),
-        "every message checked; the changelog rule from the commit after the boundary on"
+        "every message checked; the changelog rule from the commit after its boundary on, \
+         the scopes from the commit after theirs"
     );
 }
 
@@ -7562,14 +7607,17 @@ fn license_and_history_commands_are_exactly() {
         "every shipped package filtered, then everything"
     );
     assert_eq!(
-        super::history_commands(super::CHANGELOG_SINCE).map(|cmd| cmd.line()),
+        super::history_commands(super::CHANGELOG_SINCE, super::SCOPES_SINCE).map(|cmd| cmd.line()),
         HISTORY_LINES.map(str::to_owned),
-        "every message, then the files after the boundary"
+        "every message, the files after the boundary, the commits after the scopes' boundary"
     );
     assert!(
         super::license_commands()
             .iter()
-            .chain(&super::history_commands(super::CHANGELOG_SINCE))
+            .chain(&super::history_commands(
+                super::CHANGELOG_SINCE,
+                super::SCOPES_SINCE
+            ))
             .all(|cmd| cmd.dir == Dir::Root),
         "run at the root"
     );
@@ -10467,13 +10515,14 @@ fn confines_the_ci_marker_to_a_line_of_its_own() {
     assert!(
         super::history_gate(
             &record("1111111111111111111111111111111111111111", sentence),
+            "",
             ""
         )
         .is_err(),
         "the history refuses it too"
     );
     assert_eq!(
-        super::history_gate(&record(super::CI_MARKER_EXEMPT[0], sentence), ""),
+        super::history_gate(&record(super::CI_MARKER_EXEMPT[0], sentence), "", ""),
         Ok(()),
         "except the published commit that predates the rule"
     );
@@ -10487,7 +10536,7 @@ fn accepts_the_synthetic_merge_of_a_pull_request_only_as_the_commit_checked_out(
     for message in [merge.clone(), format!("{merge}\n")] {
         let merged = format!("{}{HISTORY}", record("ffffffffff", &message));
         assert_eq!(
-            super::history_gate(&merged, HISTORY_FILES),
+            super::history_gate(&merged, HISTORY_FILES, ""),
             Ok(()),
             "the merge GitHub checks out for a pull request, at HEAD: {message:?}"
         );
@@ -10506,7 +10555,7 @@ fn accepts_the_synthetic_merge_of_a_pull_request_only_as_the_commit_checked_out(
         record("ffffffffff", &merge)
     );
     assert_eq!(
-        super::history_gate(&below, HISTORY_FILES),
+        super::history_gate(&below, HISTORY_FILES, ""),
         refused("fffffff"),
         "anywhere but HEAD, the same message is refused"
     );
@@ -10521,7 +10570,7 @@ fn accepts_the_synthetic_merge_of_a_pull_request_only_as_the_commit_checked_out(
         format!("merge {head} into {base}\n"),
     ] {
         assert_eq!(
-            super::history_gate(&record("ffffffffff", &message), ""),
+            super::history_gate(&record("ffffffffff", &message), "", ""),
             refused("fffffff"),
             "{message:?}"
         );

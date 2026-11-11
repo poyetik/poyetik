@@ -6438,13 +6438,60 @@ pub const COMMIT_TYPES: [&str; 11] = [
     "feat", "fix", "docs", "test", "refactor", "perf", "build", "ci", "chore", "style", "revert",
 ];
 
+/// The scopes a commit may name besides the crates and the packages ([`commit_scopes`]),
+/// each with what it names.
+pub const COMMIT_SCOPE_EXTRAS: [(&str, &str); 8] = [
+    ("spec", "the specifications under spec/"),
+    ("conformance", "the conformance corpus"),
+    ("ci", "the CI workflow"),
+    (
+        "build",
+        "the build files of the workspaces and the toolchains",
+    ),
+    ("release", "a version commit"),
+    ("changelog", "CHANGELOG.md"),
+    ("glossary", "GLOSSARY.md and vocabulary.txt"),
+    ("deep-review", "the deep review skill"),
+];
+
+/// Every scope a commit may name, derived from the registries.
+///
+/// Each crate of [`RUST_CRATES`] by its name, each package of [`PACKAGES`] by the last
+/// folder of its directory, or by the name of the crate that shares that directory
+/// (`engine-wasm`, never `wasm`), then [`COMMIT_SCOPE_EXTRAS`]: one name per part, so that
+/// a part is never named two ways.
+#[must_use]
+pub fn commit_scopes() -> Vec<&'static str> {
+    let packages = PACKAGES.iter().map(|package| {
+        RUST_CRATES
+            .iter()
+            .find(|krate| krate.dir == package.dir)
+            .map_or_else(
+                || package.dir.rsplit('/').next().unwrap_or(package.dir),
+                |krate| krate.name,
+            )
+    });
+    let mut scopes: Vec<&str> = RUST_CRATES.iter().map(|krate| krate.name).collect();
+    for scope in packages.chain(COMMIT_SCOPE_EXTRAS.iter().map(|(scope, _)| *scope)) {
+        if !scopes.contains(&scope) {
+            scopes.push(scope);
+        }
+    }
+    scopes
+}
+
+/// The last commit whose scope the history gate does not hold to [`commit_scopes`]: the
+/// scopes were free text before it, and the published history is not rewritten.
+pub const SCOPES_SINCE: &str = "abb3bb6f37e23ab4addd534ec4bc1fc3aca9477f";
+
 /// Longest allowed commit header, in characters.
 pub const COMMIT_HEADER_MAX: usize = 72;
 
 /// Checks a commit message against Conventional Commits.
 ///
 /// Expected header: `type(scope)!: summary`, scope and `!` optional, at most
-/// [`COMMIT_HEADER_MAX`] characters, no trailing period, blank line before any body.
+/// [`COMMIT_HEADER_MAX`] characters, no trailing period, blank line before any body; a
+/// scope is one of [`commit_scopes`].
 /// `message` is the file git hands the commit-msg hook: its lines starting with `#` are
 /// git's comments, removed before the commit is recorded, and are ignored. Every message
 /// follows the convention, those git writes for merges and reverts included (`Merge …`,
@@ -6461,7 +6508,7 @@ pub fn commit_msg_gate(message: &str) -> Result<(), Failure> {
         .filter(|line| !line.starts_with('#'))
         .collect();
     let text = text.join("\n");
-    conventional(&text)?;
+    conventional(&text, true)?;
     ci_marker(&text).map_or(Ok(()), |problem| Err(Failure::from(problem)))
 }
 
@@ -6494,8 +6541,8 @@ pub fn ci_marker(message: &str) -> Option<String> {
 }
 
 /// Checks a recorded commit message, as it is, against the convention of
-/// [`commit_msg_gate`].
-fn conventional(message: &str) -> Result<(), Failure> {
+/// [`commit_msg_gate`], its scope held to [`commit_scopes`] when `registered`.
+fn conventional(message: &str, registered: bool) -> Result<(), Failure> {
     let mut lines = message.lines();
     let header = lines.next().unwrap_or("");
     let fail = |reason: &str| {
@@ -6527,6 +6574,16 @@ fn conventional(message: &str) -> Result<(), Failure> {
     if !scope_ok {
         return fail("the scope must be lowercase letters, digits or hyphens");
     }
+    let scopes = commit_scopes();
+    if let Some(name) =
+        scope.filter(|name| registered && prefix.contains('(') && !scopes.contains(name))
+    {
+        return fail(&format!(
+            "unknown scope \"{name}\": name a crate, a package or a scope of xtask's \
+             COMMIT_SCOPE_EXTRAS ({})",
+            scopes.join(", ")
+        ));
+    }
     if summary.trim().is_empty() || summary.ends_with('.') {
         return fail("the summary must be non-empty and must not end with a period");
     }
@@ -6549,12 +6606,13 @@ fn conventional(message: &str) -> Result<(), Failure> {
 /// and the history is not rewritten to move them.
 pub const CHANGELOG_SINCE: &str = "8182fda87a1c631295548ff52eeb4ea08335fa36";
 
-/// The two history listings the history gate reads.
+/// The three history listings the history gate reads.
 ///
-/// Every commit with its message, and the files each commit after `since` touched (`since`
-/// itself excluded; the check passes [`CHANGELOG_SINCE`]). Records are separated by `0x1e`.
+/// Every commit with its message, the files each commit after `since` touched (`since`
+/// itself excluded; the check passes [`CHANGELOG_SINCE`]), records separated by `0x1e`,
+/// and the commits after `scopes_since`, one per line (the check passes [`SCOPES_SINCE`]).
 #[must_use]
-pub fn history_commands(since: &str) -> [Cmd; 2] {
+pub fn history_commands(since: &str, scopes_since: &str) -> [Cmd; 3] {
     let git = |args: &[&str]| Cmd::new("git", args, Dir::Root);
     [
         git(&["log", "--format=%x1e%H%x1f%B", "HEAD"]),
@@ -6564,6 +6622,7 @@ pub fn history_commands(since: &str) -> [Cmd; 2] {
             "--name-only",
             &format!("{since}..HEAD"),
         ]),
+        git(&["log", "--format=%H", &format!("{scopes_since}..HEAD")]),
     ]
 }
 
@@ -6601,8 +6660,9 @@ fn synthetic_merge(message: &str) -> bool {
 
 /// Checks the history of commits.
 ///
-/// Every commit message, as recorded, follows the convention ([`commit_msg_gate`]), and every commit
-/// since [`CHANGELOG_SINCE`] that changes behavior touches `CHANGELOG.md`.
+/// Every commit message, as recorded, follows the convention ([`commit_msg_gate`]), its
+/// scope held to [`commit_scopes`] only in the commits after [`SCOPES_SINCE`] (`scoped`),
+/// and every commit since [`CHANGELOG_SINCE`] that changes behavior touches `CHANGELOG.md`.
 ///
 /// One commit is not held to the convention: the first of `messages`, the commit checked
 /// out, when its message is exactly the one GitHub writes for the merge it checks out to
@@ -6614,7 +6674,8 @@ fn synthetic_merge(message: &str) -> bool {
 /// # Errors
 ///
 /// Returns one line per commit at fault, naming it by its short hash.
-pub fn history_gate(messages: &str, files: &str) -> Result<(), Failure> {
+pub fn history_gate(messages: &str, files: &str, scoped: &str) -> Result<(), Failure> {
+    let scoped: Vec<&str> = scoped.lines().collect();
     let short = |hash: &str| hash.chars().take(7).collect::<String>();
     let touched: BTreeMap<&str, Vec<&str>> = files
         .split('\u{1e}')
@@ -6633,7 +6694,7 @@ pub fn history_gate(messages: &str, files: &str) -> Result<(), Failure> {
         if index == 0 && synthetic_merge(message) {
             continue;
         }
-        if let Err(failure) = conventional(message) {
+        if let Err(failure) = conventional(message, scoped.contains(&hash)) {
             problems.push(format!("commit {}: {}", short(hash), failure.summary));
         }
         if let Some(problem) = ci_marker(message).filter(|_| !CI_MARKER_EXEMPT.contains(&hash)) {
@@ -7070,12 +7131,12 @@ fn is_deletion(object: &str) -> bool {
 
 /// Reads the history, then checks it.
 fn history(runner: &mut dyn Runner) -> Result<(), Failure> {
-    let [messages, files] = history_commands(CHANGELOG_SINCE).map(|cmd| {
+    let [messages, files, scoped] = history_commands(CHANGELOG_SINCE, SCOPES_SINCE).map(|cmd| {
         runner
             .capture(&cmd)
             .map_err(|failure| Failure::from(format!("cannot read the history: {failure}")))
     });
-    history_gate(&messages?, &files?)
+    history_gate(&messages?, &files?, &scoped?)
 }
 
 /// Asks every tool of [`TOOLS`] for its version, then checks them.
