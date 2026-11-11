@@ -48,6 +48,19 @@ const SYNTAX: readonly { readonly selector: string; readonly message: string }[]
   },
 ];
 
+/**
+ * The clock reads written as syntax: the current date and time read without a timestamp
+ * (`new Date()`, `Date()`), directly or through the global object (`globalThis`, `window`,
+ * `self`), and `performance.now` and `Date.now` through the global object, which
+ * `no-restricted-properties` cannot see (it matches only a bare object name). A clock
+ * reached through an alias is beyond a syntax rule.
+ */
+const CLOCK_SYNTAX: readonly { readonly selector: string; readonly message: string }[] = [
+  { selector: "NewExpression[callee.name='Date'][arguments.length=0], CallExpression[callee.name='Date']", message: CLOCK_MESSAGE },
+  { selector: ":matches(NewExpression[arguments.length=0], CallExpression)[callee.property.name='Date'][callee.object.name=/^(globalThis|window|self)$/]", message: CLOCK_MESSAGE },
+  { selector: "MemberExpression[property.name='now'][object.property.name=/^(performance|Date)$/][object.object.name=/^(globalThis|window|self)$/]", message: CLOCK_MESSAGE },
+];
+
 /** The restricted properties that are not a clock read: what a clock reader keeps refusing. */
 const PROPERTIES: readonly { readonly object: string; readonly property: string; readonly message: string }[] = [
   // The global `fetch` reached through its object, for the reason given at `no-restricted-globals`.
@@ -58,6 +71,26 @@ const PROPERTIES: readonly { readonly object: string; readonly property: string;
     message: "It is missing from browsers the friendly checks still explain (Safari before 17.4, Firefox before 121): use `new Promise`.",
   },
 ];
+
+/** The clock reads written as properties of a global named directly. */
+const CLOCK_PROPERTIES: readonly { readonly object: string; readonly property: string; readonly message: string }[] = [
+  { object: "performance", property: "now", message: CLOCK_MESSAGE },
+  { object: "Date", property: "now", message: CLOCK_MESSAGE },
+  { object: "process", property: "hrtime", message: CLOCK_MESSAGE },
+  { object: "process", property: "uptime", message: CLOCK_MESSAGE },
+];
+
+/**
+ * The two restriction rules, with the clock reads unless `readsClock`: the one source of
+ * both the general rules and the exemption of {@link CLOCK_READERS}, which can therefore
+ * drop only the clock reads, every other restriction staying.
+ */
+function restrictions(readsClock: boolean): Linter.RulesRecord {
+  return {
+    "no-restricted-syntax": ["error", ...SYNTAX, ...(readsClock ? [] : CLOCK_SYNTAX)],
+    "no-restricted-properties": ["error", ...PROPERTIES, ...(readsClock ? [] : CLOCK_PROPERTIES)],
+  };
+}
 
 /**
  * The rules the policy sets itself, on top of the recommended and strict configurations
@@ -79,12 +112,12 @@ export const RULES: Linter.RulesRecord = {
   "@typescript-eslint/prefer-readonly": "error",
   "@typescript-eslint/consistent-type-imports": "error",
   "@typescript-eslint/no-import-type-side-effects": "error",
-  "no-restricted-syntax": [
-    "error",
-    ...SYNTAX,
-    // The current date and time, read without a timestamp (`new Date()`, `Date()`): a clock.
-    { selector: "NewExpression[callee.name='Date'][arguments.length=0], CallExpression[callee.name='Date']", message: CLOCK_MESSAGE },
-  ],
+  // Restricted syntax and properties: what is refused everywhere (an enum, a global
+  // augmentation, a focused or skipped test, `fetch` through the global object, and, in
+  // code that runs in browsers, APIs newer than what the friendly capability checks
+  // explain: the playground names a missing AudioWorklet, not a TypeError; they are banned
+  // here one by one until a baseline is declared), and the clock reads.
+  ...restrictions(false),
   // Every named item is documented, exported or not, as in Rust (missing_docs and
   // missing_docs_in_private_items): functions, classes, interfaces and their members,
   // types, and module-level constants. Inline callbacks are not items and need none.
@@ -112,17 +145,6 @@ export const RULES: Linter.RulesRecord = {
   // Parameters are never reassigned nor mutated, except the mutable-by-design objects
   // received to be drawn on or written into: canvas contexts and DOM elements.
   "no-param-reassign": ["error", { props: true, ignorePropertyModificationsFor: ["canvas", "element"] }],
-  // Code that runs in browsers stays within what the friendly capability checks
-  // explain (the playground names a missing AudioWorklet, not a TypeError): APIs newer
-  // than that baseline are banned here, one by one, until a baseline is declared.
-  "no-restricted-properties": [
-    "error",
-    ...PROPERTIES,
-    // The clocks.
-    { object: "performance", property: "now", message: CLOCK_MESSAGE },
-    { object: "Date", property: "now", message: CLOCK_MESSAGE },
-    { object: "process", property: "hrtime", message: CLOCK_MESSAGE },
-  ],
   // A response is read only once its status is checked: `fetch` resolves on a 404 too,
   // whose empty body would then be parsed as JSON or compiled as WebAssembly, an error
   // naming neither the URL nor the status. Each package fetches through one checked helper,
@@ -171,7 +193,7 @@ export function strict(directory: string, ignores: readonly string[], ...extra: 
     // The checked helper itself calls `fetch`: the only rule of `no-restricted-globals` is that one.
     { files: [...FETCH_HELPERS], rules: { "no-restricted-globals": "off" } },
     // A clock reader may read a clock: every other restriction of the two rules stays.
-    { files: [...CLOCK_READERS], rules: { "no-restricted-syntax": ["error", ...SYNTAX], "no-restricted-properties": ["error", ...PROPERTIES] } },
+    { files: [...CLOCK_READERS], rules: restrictions(true) },
     ...extra,
   );
 }

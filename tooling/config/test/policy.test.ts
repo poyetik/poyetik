@@ -89,11 +89,14 @@ test("each rule of the policy rejects what it forbids, and only that", async () 
     // The global, then through globalThis, window and self; the checked helper (fetch.ts) may call it.
     "bare-fetch": ["no-restricted-globals", ...Array<string>(3).fill("no-restricted-properties")],
     fetch: [],
-    // performance.now, Date.now and process.hrtime, then new Date() and Date(); not new Date(0).
-    clock: [...Array<string>(3).fill("no-restricted-properties"), ...Array<string>(2).fill("no-restricted-syntax")].sort(),
-    // The clock readers (CLOCK_READERS) read a clock; the bench page's timing module still
-    // may not use what the other restrictions refuse.
-    timing: ["no-restricted-properties"],
+    // performance.now, Date.now, process.hrtime and process.uptime, then new Date() and
+    // Date(), then the five reads through globalThis, window and self; not new Date(0),
+    // directly or through the global object.
+    clock: [...Array<string>(4).fill("no-restricted-properties"), ...Array<string>(7).fill("no-restricted-syntax")].sort(),
+    // The clock readers (CLOCK_READERS) read a clock, directly or through the global object;
+    // the bench page's timing module still may not use what the other restrictions refuse
+    // (Promise.withResolvers, an enum, a global augmentation, a skipped test).
+    timing: ["no-restricted-properties", ...Array<string>(3).fill("no-restricted-syntax")],
     bin: [],
     // Vitest and Playwright: every focus or skip, at every level.
     "focused-test": ["no-restricted-syntax", "no-restricted-syntax"],
@@ -115,12 +118,26 @@ test("each rule of the policy rejects what it forbids, and only that", async () 
   const clockMessage = "Read no clock (CLAUDE.md: tests are deterministic): only the files of CLOCK_READERS read one.";
   expect(messages).toContain(`'performance.now' is restricted from being used. ${clockMessage}`);
   expect(messages).toContain(`'process.hrtime' is restricted from being used. ${clockMessage}`);
+  expect(messages).toContain(`'process.uptime' is restricted from being used. ${clockMessage}`);
   expect(messages).toContain(clockMessage);
   // The package's own ignores, then the outputs every package ignores.
   for (const ignored of ["ignored.ts", "coverage/x.ts", "reports/x.ts", ".stryker-tmp/x.ts", "playwright-report/x.ts", "test-results/x.ts"]) {
     expect(await eslint.isPathIgnored(path.join(POLICY, ignored)), ignored).toBe(true);
   }
   expect(await eslint.isPathIgnored(path.join(POLICY, "clean.ts"))).toBe(false);
+});
+
+test("a clock reader keeps exactly the general restrictions but the clock reads", () => {
+  const clockMessage = "Read no clock (CLAUDE.md: tests are deterministic): only the files of CLOCK_READERS read one.";
+  const readers = strict(POLICY, []).find((config) => config.files?.includes("**/e2e/site/timing.ts") === true);
+  for (const rule of ["no-restricted-syntax", "no-restricted-properties"]) {
+    const general = RULES[rule];
+    const kept = readers?.rules?.[rule];
+    expect(Array.isArray(general) && Array.isArray(kept)).toBe(true);
+    const unclocked = Array.isArray(general) ? general.filter((entry: unknown) => !JSON.stringify(entry).includes(clockMessage)) : [];
+    expect(kept).toStrictEqual(unclocked);
+    expect(Array.isArray(general) ? general.length - unclocked.length : 0).toBeGreaterThan(0);
+  }
 });
 
 test("each JSDoc context of the policy is triggered by a fixture", async () => {
