@@ -447,8 +447,13 @@
       "column": "later",
       "milestone": "M0 Foundations",
       "createdAt": "2026-11-08",
-      "updatedAt": "2026-11-08",
-      "tasks": []
+      "updatedAt": "2026-11-11",
+      "tasks": [
+        {
+          "title": "Parse cargo metadata once into typed packages, dependencies and targets, refusing missing fields, and make every gate read them",
+          "done": false
+        }
+      ]
     },
     {
       "id": 20,
