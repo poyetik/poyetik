@@ -9918,7 +9918,13 @@ fn leaves_a_binary_entry_point_to_find_its_repository() {
 
 #[test]
 fn reads_only_the_one_form_of_a_test_declaration() {
-    let declared = |path: &str, text: &str| super::test_declarations(path, text);
+    let declared = |path: &str, text: &str| -> Vec<(usize, String)> {
+        let source = super::RustSource::parse(path, text).expect("lexes");
+        super::test_declarations(&source)
+            .into_iter()
+            .map(|declaration| (declaration.line, declaration.file))
+            .collect()
+    };
     assert_eq!(
         declared(
             "crates/a/src/x.rs",
@@ -9935,16 +9941,26 @@ fn reads_only_the_one_form_of_a_test_declaration() {
         vec![(1, "x_tests.rs".to_owned())],
         "a file at the root"
     );
+    assert_eq!(
+        declared(
+            "x.rs",
+            "#[cfg(test)] #[path=\"x_tests.rs\"]\n\n  mod /* the tests */ tests ;"
+        ),
+        vec![(1, "x_tests.rs".to_owned())],
+        "the same tokens however they are laid out, as rustc reads them"
+    );
     for text in [
         "#[path = \"x_tests.rs\"]\nmod tests;\n",
         "#[cfg(not(test))]\n#[path = \"x_tests.rs\"]\nmod tests;\n",
-        "#[cfg(test)]\n\n#[path = \"x_tests.rs\"]\nmod tests;\n",
         "#[cfg(test)]\n#[path = \"../x_tests.rs\"]\nmod tests;\n",
         "#[cfg(test)]\n#[path = \"d/x_tests.rs\"]\nmod tests;\n",
         "#[cfg(test)]\n#[path = \"_tests.rs\"]\nmod tests;\n",
         "#[cfg(test)]\n#[path = \"x.rs\"]\nmod tests;\n",
-        "#[cfg(test)]\n#[path=\"x_tests.rs\"]\nmod tests;\n",
-        "#[cfg(test)]\n#[path = \"x_tests.rs\"] mod tests;\n",
+        "/*\n#[cfg(test)]\n#[path = \"x_tests.rs\"]\nmod tests;\n*/\n",
+        "/* /* */\n#[cfg(test)]\n#[path = \"x_tests.rs\"]\nmod tests;\n*/\n",
+        "const S: &str = \"\n#[cfg(test)]\n#[path = \\\"x_tests.rs\\\"]\nmod tests;\n\";\n",
+        "#[cfg(test)]\n#[path = r\"x_tests.rs\"]\nmod tests;\n",
+        "#[cfg(test)]\n#[path = \"x\\x5ftests.rs\"]\nmod tests;\n",
         "#[cfg(test)]\n#[path = \"x_tests.rs\"]\nmod tests {}\n",
         "#[cfg(test)]\n#[path = \"x_tests.rs\"]\nmod ;\n",
         "#[cfg(test)]\n#[path = \"x_tests.rs\"]\nmod a::b;\n",

@@ -3503,16 +3503,28 @@ fn crate_root(relative: &str) -> bool {
             .any(single)
 }
 
-/// The first line of the one form that declares a unit test module ([`test_declarations`]).
-pub const TEST_DECLARATION: &str = "#[cfg(test)]";
-
 /// The one form that declares a unit test module ([`test_declarations`]), as the gates
 /// say it: any identifier names the module.
 pub const TEST_DECLARATION_FORM: &str =
     "`#[cfg(test)] #[path = \"<name>_tests.rs\"] mod <module>;`";
 
-/// The unit test files that `text`, the Rust file `path`, declares, each with the line of
-/// its declaration: the one form, three whole lines,
+/// The one form that declares a unit test module ([`test_declarations`]), as written in
+/// Rust: any name may replace `x` (in the literal) and `tests` (the module).
+const TEST_DECLARATION_TOKENS: &str = "#[cfg(test)] #[path = \"x_tests.rs\"] mod tests;";
+
+/// A declaration of a unit test file in a Rust source ([`test_declarations`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TestDeclaration {
+    /// The line it starts on.
+    pub line: usize,
+    /// The file it declares, relative to the root.
+    pub file: String,
+    /// The range of its tokens among its source's.
+    pub tokens: core::ops::Range<usize>,
+}
+
+/// The unit test files that `source` declares, each with the line its declaration starts
+/// on and the range of its tokens: the one form ([`TEST_DECLARATION_FORM`]), in tokens,
 ///
 /// ```text
 /// #[cfg(test)]
@@ -3520,36 +3532,53 @@ pub const TEST_DECLARATION_FORM: &str =
 /// mod <identifier>;
 /// ```
 ///
-/// where `<name>` is not empty and holds only letters, digits and `_`, so that the file is
-/// beside `path` (`<directory of path>/<name>_tests.rs`). Each line may be indented; nothing
-/// else may share it.
+/// where `<name>` is not empty and holds only letters, digits and `_`, written in a plain
+/// string literal (no escape, not raw), so that the file is beside `source`
+/// (`<directory of source>/<name>_tests.rs`). Comments, strings and spaces apart, nothing
+/// else may come between its tokens; their layout is free, as it is to rustc.
 #[must_use]
-pub fn test_declarations(path: &str, text: &str) -> Vec<(usize, String)> {
-    let word = |name: &str| {
-        !name.is_empty()
-            && name
-                .chars()
-                .all(|character| character.is_ascii_alphanumeric() || character == '_')
-    };
-    let dir = path.rsplit_once('/').map_or("", |(dir, _)| dir);
-    let lines: Vec<&str> = text.lines().map(str::trim).collect();
-    lines
-        .iter()
-        .zip(lines.iter().skip(1))
-        .zip(lines.iter().skip(2))
+pub fn test_declarations(source: &RustSource) -> Vec<TestDeclaration> {
+    let form = tokens_of(TEST_DECLARATION_TOKENS);
+    // The module's name, the token before the final `;`: any identifier.
+    let module = form.len().saturating_sub(2);
+    let dir = source.path.rsplit_once('/').map_or("", |(dir, _)| dir);
+    source
+        .tokens
+        .windows(form.len())
         .enumerate()
-        .filter_map(|(index, ((cfg, attribute), declaration))| {
-            let name = attribute
-                .strip_prefix("#[path = \"")?
-                .strip_suffix("_tests.rs\"]")?;
-            let module = declaration.strip_prefix("mod ")?.strip_suffix(';')?;
-            (*cfg == TEST_DECLARATION && word(name) && word(module)).then(|| {
+        .filter_map(|(at, window)| {
+            let shaped = window
+                .iter()
+                .zip(&form)
+                .enumerate()
+                .all(|(index, (held, wanted))| {
+                    held.kind == wanted.kind
+                        && (held.text == wanted.text
+                            || held.kind == TokenKind::Literal
+                            || index == module)
+                });
+            let name = window
+                .iter()
+                .find(|token| token.kind == TokenKind::Literal)?
+                .text
+                .strip_prefix('"')?
+                .strip_suffix("_tests.rs\"")?;
+            let word = !name.is_empty()
+                && name
+                    .chars()
+                    .all(|character| character.is_ascii_alphanumeric() || character == '_');
+            (shaped && word).then(|| {
                 let file = if dir.is_empty() {
                     format!("{name}_tests.rs")
                 } else {
                     format!("{dir}/{name}_tests.rs")
                 };
-                (index.saturating_add(1), file)
+                let line = window.first().map_or(0, |first| first.line);
+                TestDeclaration {
+                    line,
+                    file,
+                    tokens: at..at.saturating_add(form.len()),
+                }
             })
         })
         .collect()
@@ -3588,8 +3617,8 @@ pub fn test_declarations(path: &str, text: &str) -> Vec<(usize, String)> {
 /// its forbid line, every `unsafe` of an assembly file that does not open its assembly call,
 /// every declaration of an assembly file, and every `unsafe` or rebinding of `core` in
 /// another file of its crate.
-pub fn unsafe_gate(sources: &[RustSource]) -> Result<(), Failure> {
-    let sources = &texts(sources);
+pub fn unsafe_gate(parsed: &[RustSource]) -> Result<(), Failure> {
+    let sources = &texts(parsed);
     let lint = format!("{}_{}", "unsafe", "code");
     let forbid = format!("#![forbid({lint})]");
     let exempt = [
@@ -3624,11 +3653,11 @@ pub fn unsafe_gate(sources: &[RustSource]) -> Result<(), Failure> {
         assembly_problems(file, text, &mut problems);
     }
     unsafe_beside_assembly(sources, &mut problems);
-    let unsafe_tests: BTreeSet<String> = sources
+    let unsafe_tests: BTreeSet<String> = parsed
         .iter()
-        .filter(|(path, _)| UNSAFE_FILES.contains(&path.as_str()))
-        .flat_map(|(path, text)| test_declarations(path, text))
-        .map(|(_, file)| file)
+        .filter(|source| UNSAFE_FILES.contains(&source.path.as_str()))
+        .flat_map(test_declarations)
+        .map(|declaration| declaration.file)
         .collect();
     for (path, text) in sources {
         let Some((krate, relative)) = in_crate(path) else {
@@ -3829,7 +3858,6 @@ fn in_crate(path: &str) -> Option<(&'static RustCrate, &str)> {
 /// `*_tests.rs` file would load, every other `path` attribute, and every `*_tests.rs` file
 /// declared other than once.
 pub fn test_code_gate(sources: &[RustSource]) -> Result<(), Failure> {
-    let sources = &texts(sources);
     let mut problems = Vec::new();
     let mut declared: BTreeMap<String, usize> = BTreeMap::new();
     let loose_path = |path: &str, line: usize| {
@@ -3839,33 +3867,34 @@ pub fn test_code_gate(sources: &[RustSource]) -> Result<(), Failure> {
              name gives"
         )
     };
-    let in_tests = sources.iter().filter(|(path, _)| {
-        in_crate(path).is_some_and(|(_, relative)| relative.starts_with("tests/"))
+    let in_tests = sources.iter().filter(|source| {
+        in_crate(&source.path).is_some_and(|(_, relative)| relative.starts_with("tests/"))
     });
-    for (path, text) in in_tests {
+    for RustSource { path, text, .. } in in_tests {
         problems.extend(
             path_attributes(text)
                 .into_iter()
                 .map(|line| loose_path(path, line)),
         );
     }
-    let crate_sources = sources.iter().filter(|(path, _)| {
-        in_crate(path).is_some_and(|(_, relative)| !relative.starts_with("tests/"))
+    let crate_sources = sources.iter().filter(|source| {
+        in_crate(&source.path).is_some_and(|(_, relative)| !relative.starts_with("tests/"))
     });
-    for (path, text) in crate_sources.clone() {
+    for source in crate_sources.clone() {
+        let RustSource { path, text, .. } = source;
         if path.ends_with("_tests.rs") {
             problems.extend(loaded_by_tests(path, text));
             continue;
         }
-        let declarations = test_declarations(path, text);
-        let firsts: BTreeSet<usize> = declarations.iter().map(|(line, _)| *line).collect();
+        let declarations = test_declarations(source);
+        let firsts: BTreeSet<usize> = declarations.iter().map(|found| found.line).collect();
         problems.extend(
             path_attributes(text)
                 .into_iter()
                 .filter(|line| !firsts.contains(&line.saturating_sub(1)))
                 .map(|line| loose_path(path, line)),
         );
-        for (_, file) in declarations {
+        for TestDeclaration { file, .. } in declarations {
             let times = declared.entry(file).or_default();
             *times = times.saturating_add(1);
         }
@@ -3889,7 +3918,10 @@ pub fn test_code_gate(sources: &[RustSource]) -> Result<(), Failure> {
             }
         }
     }
-    for (path, _) in crate_sources.filter(|(path, _)| path.ends_with("_tests.rs")) {
+    for path in crate_sources
+        .map(|source| &source.path)
+        .filter(|path| path.ends_with("_tests.rs"))
+    {
         match declared.get(path).copied().unwrap_or_default() {
             1 => {}
             0 => problems.push(format!(
@@ -5107,6 +5139,13 @@ fn texts(sources: &[RustSource]) -> Vec<(String, String)> {
         .collect()
 }
 
+/// The tokens of `text`, a constant of xtask written as Rust (none when it does not lex).
+fn tokens_of(text: &str) -> Vec<Token> {
+    RustSource::parse("", text)
+        .map(|source| source.tokens)
+        .unwrap_or_default()
+}
+
 /// Appends the tokens of `stream` to `tokens` ([`RustSource`]).
 fn flatten(stream: proc_macro2::TokenStream, tokens: &mut Vec<Token>) {
     use proc_macro2::{Delimiter, Spacing, TokenTree};
@@ -5404,18 +5443,18 @@ fn math_layer_crates(metadata: &str) -> Result<Vec<String>, Failure> {
 /// Returns every other crate that depends on `libm`, every build script, every forbidden
 /// name with its file and line, every missing forbid line, every test file not declared
 /// once, every file it does not read, or why the metadata cannot be read.
-pub fn math_layer_gate(metadata: &str, sources: &[RustSource]) -> Result<(), Failure> {
-    let sources = &texts(sources);
+pub fn math_layer_gate(metadata: &str, parsed: &[RustSource]) -> Result<(), Failure> {
+    let sources = &texts(parsed);
     let mut problems = math_layer_crates(metadata)?;
     let mut declared: BTreeMap<&str, usize> = BTreeMap::new();
     let mut path_lines: BTreeSet<(&str, usize)> = BTreeSet::new();
-    let declarations: Vec<(&str, Vec<(usize, String)>)> = sources
+    let declarations: Vec<(&str, Vec<TestDeclaration>)> = parsed
         .iter()
-        .filter(|(path, _)| !path.ends_with("_tests.rs"))
-        .map(|(path, text)| (path.as_str(), test_declarations(path, text)))
+        .filter(|source| !source.path.ends_with("_tests.rs"))
+        .map(|source| (source.path.as_str(), test_declarations(source)))
         .collect();
     for (path, found) in &declarations {
-        for (line, file) in found {
+        for TestDeclaration { line, file, .. } in found {
             let times = declared.entry(file.as_str()).or_default();
             *times = times.saturating_add(1);
             let _new = path_lines.insert((path, line.saturating_add(1)));
