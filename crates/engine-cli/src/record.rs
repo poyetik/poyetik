@@ -9,6 +9,7 @@ use alloc::collections::BTreeMap;
 
 use engine_battery::{FINGERPRINT_BATTERY, fingerprint};
 use engine_core::RENDER_RULES_VERSION;
+use engine_fpenv::DefaultMode;
 use engine_hash::SCHEME;
 use engine_objects::REGISTRY;
 use serde::{Deserialize, Serialize};
@@ -44,8 +45,10 @@ pub(crate) struct Record {
     pub(crate) render_rules: u32,
 }
 
-/// The fingerprint of every registered box type at its current algorithm version.
-pub(crate) fn current_fingerprints() -> Fingerprints {
+/// The fingerprint of every registered box type at its current algorithm version, rendered
+/// in the default floating-point mode (`mode`, the proof of it), as every recorded
+/// fingerprint was: a host mode that flushed subnormals could give other bits.
+pub(crate) fn current_fingerprints(_mode: DefaultMode<'_>) -> Fingerprints {
     REGISTRY
         .iter()
         .map(|spec| {

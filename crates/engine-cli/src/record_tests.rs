@@ -62,7 +62,7 @@ fn references(cases: &[(&str, &str)]) -> References {
 
 #[test]
 fn fingerprints_every_registered_box_type_at_its_version() {
-    let now = current_fingerprints();
+    let now = engine_fpenv::with_default_mode(current_fingerprints);
     assert_eq!(
         now.keys().map(String::as_str).collect::<Vec<_>>(),
         ["dac~", "osc~"],

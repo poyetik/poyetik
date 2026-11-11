@@ -558,7 +558,7 @@ fn check(
             report(out, false, line)?;
         }
     }
-    for line in record_problems(&record, &current_fingerprints()) {
+    for line in record_problems(&record, &current_fingerprints(mode)) {
         report(out, false, line)?;
     }
     for name in expected
@@ -622,7 +622,7 @@ fn bless(
     let versions_path = algorithms_path(dir);
     let earlier: Option<References> = read_earlier(files, &path)?;
     let old: Option<Record> = read_earlier(files, &versions_path)?;
-    let now = current_fingerprints();
+    let now = current_fingerprints(mode);
     let problems = old.as_ref().map_or_else(Vec::new, |old| {
         bless_problems(
             old,
