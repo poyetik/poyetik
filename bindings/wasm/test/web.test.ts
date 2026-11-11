@@ -2,7 +2,7 @@ import { runInNewContext } from "node:vm";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { EngineTrap, ModuleError, PatchError } from "../ts/engine.ts";
 import { ENGINE_PROCESSOR, MessageError, SOURCE_STOPPED, TAP_PROCESSOR } from "../ts/protocol.ts";
-import { addProcessors, capture, captureEngine, createEngineNode, LoadedPatch, loadPatch, MarkedEngineNode, MAX_MARKED_FRAMES, START_MARGIN, renderOffline, tap } from "../ts/web.ts";
+import { addProcessors, capture, captureEngine, ContextClosed, createEngineNode, LoadedPatch, loadPatch, MarkedEngineNode, MAX_MARKED_FRAMES, START_MARGIN, renderOffline, tap } from "../ts/web.ts";
 import { engineFunctions, handMadeBytes, SILENT_PATCH, SINE_PATCH, UNKNOWN_BOX, wasmBytes } from "./fixtures.ts";
 
 /** The sample rate of the fake audio contexts, in hertz. */
@@ -378,11 +378,16 @@ describe("createEngineNode", () => {
       expect(await settled(ready)).toBe("pending");
     }
     context.close();
-    expect(await settled(ready)).toStrictEqual(new Error("the context closed before the engine processor was ready"));
+    expect(await settled(ready)).toStrictEqual(new ContextClosed("the context closed before the engine processor was ready"));
     expect([failures, context.listeners.size]).toStrictEqual([[], 0]);
     // The processor's later messages still reach onFailure, once.
     FakeNode.created[0]?.port.deliver({ type: "failed", message: "trap" });
     expect(failures).toStrictEqual([new Error("the engine failed: trap")]);
+  });
+
+  test("names the end of its context, told apart from a failure by its name", () => {
+    const error = new ContextClosed("closed");
+    expect([error instanceof Error, error.name, error.message]).toStrictEqual([true, "ContextClosed", "closed"]);
   });
 
   test("rejects ready at once when its context is already closed", async () => {
@@ -390,7 +395,7 @@ describe("createEngineNode", () => {
     const context = fakeContext(RATE);
     context.close();
     const { ready } = createEngineNode(asContext(context), await loaded(2), () => undefined);
-    expect(await settled(ready)).toStrictEqual(new Error("the context closed before the engine processor was ready"));
+    expect(await settled(ready)).toStrictEqual(new ContextClosed("the context closed before the engine processor was ready"));
     expect(context.listeners.size).toBe(0);
   });
 
@@ -507,7 +512,7 @@ describe("capture", () => {
     });
     expect(await settled(captured)).toBe("pending");
     context.close();
-    await expect(captured).rejects.toThrow(new Error("the context closed before the end of the capture"));
+    await expect(captured).rejects.toStrictEqual(new ContextClosed("the context closed before the end of the capture"));
     expect(FakeNode.created[0]?.port.posted).toStrictEqual(["stop"]);
     expect(source.log).toStrictEqual([`connect ${TAP_PROCESSOR}`, `disconnect ${TAP_PROCESSOR}`]);
     expect(context.listeners.size).toBe(0);
@@ -518,7 +523,7 @@ describe("capture", () => {
     const source = fakeSource();
     const context = fakeContext(RATE);
     context.close();
-    await expect(capture(asContext(context), asNode(source), 1, 4)).rejects.toThrow(new Error("the context closed before the end of the capture"));
+    await expect(capture(asContext(context), asNode(source), 1, 4)).rejects.toStrictEqual(new ContextClosed("the context closed before the end of the capture"));
     expect(FakeNode.created).toHaveLength(0);
     expect(source.log).toStrictEqual([]);
     expect(context.listeners.size).toBe(0);

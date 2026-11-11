@@ -104,8 +104,8 @@ export interface EngineNode {
   /** The node: no input, one output with one channel per patch channel. */
   readonly node: AudioWorkletNode;
   /**
-   * Resolves when the processor has loaded the patch; rejects if it could not, or if the
-   * context closed first (then it never will).
+   * Resolves when the processor has loaded the patch; rejects if it could not, or with a
+   * {@link ContextClosed} if the context closed first (then it never will).
    */
   readonly ready: Promise<void>;
 }
@@ -129,7 +129,7 @@ function engineNode(context: BaseAudioContext, loaded: LoadedPatch, onFailure: (
     const follow = (): void => {
       if (context.state === "closed") {
         context.removeEventListener("statechange", follow);
-        reject(new Error("the context closed before the engine processor was ready"));
+        reject(new ContextClosed("the context closed before the engine processor was ready"));
       }
     };
     const fail = (error: Error): void => {
@@ -180,7 +180,7 @@ function engineNode(context: BaseAudioContext, loaded: LoadedPatch, onFailure: (
 export class MarkedEngineNode implements EngineNode {
   /** The node: no input, one output with the patch channels then the marker channel. */
   readonly node: AudioWorkletNode;
-  /** Resolves when the processor has loaded the patch; rejects if it could not, or if the context closed first. */
+  /** Resolves when the processor has loaded the patch; rejects if it could not, or with a {@link ContextClosed} if the context closed first. */
   readonly ready: Promise<void>;
   /** Number of patch channels, before the marker channel. */
   readonly #channels: number;
@@ -212,8 +212,9 @@ export class MarkedEngineNode implements EngineNode {
  * channel (one silent channel when the patch has none), plus the marker channel when
  * `marker` is set (then a {@link MarkedEngineNode}). `onFailure` receives the first
  * failure of the processor, at load or later (the node is then silent); `ready` also
- * rejects with it when it comes before the patch is loaded, and rejects when the context
- * closes first (which `onFailure` is not told: the engine did not fail).
+ * rejects with it when it comes before the patch is loaded, and rejects with a
+ * {@link ContextClosed} when the context closes first (which `onFailure` is not told: the
+ * engine did not fail).
  * @throws {Error} when the context does not run at the rate the patch was checked at.
  */
 export function createEngineNode(context: BaseAudioContext, loaded: LoadedPatch, onFailure: (error: Error) => void, marker?: false): EngineNode;
@@ -230,9 +231,25 @@ export interface Tap {
   readonly stop: () => void;
 }
 
+/**
+ * Thrown when the audio context closed before the work that needed it ended: the end of
+ * the context (the browser closed the device, or its owner closed it), no failure of the
+ * engine; told apart from the engine's errors by its name.
+ */
+export class ContextClosed extends Error {
+  /**
+   * Records what the context's end interrupted.
+   * @param message What could not end.
+   */
+  constructor(message: string) {
+    super(message);
+    this.name = "ContextClosed";
+  }
+}
+
 /** The failure of a capture whose context closed before its end. */
-function closed(): Error {
-  return new Error("the context closed before the end of the capture");
+function closed(): ContextClosed {
+  return new ContextClosed("the context closed before the end of the capture");
 }
 
 /** Turns anything thrown into an `Error` of this realm (the worklet is another realm). */
@@ -309,8 +326,8 @@ function listen(context: BaseAudioContext, source: AudioNode, channels: number, 
  *
  * Connect `source` and start capturing before the context starts running to capture from
  * its very first frame.
- * @throws {Error} when the source stops, or the context closes, before the end of the
- * capture.
+ * @throws {Error} when the source stops before the end of the capture.
+ * @throws {ContextClosed} when the context closes before the end of the capture.
  */
 export function capture(context: BaseAudioContext, source: AudioNode, channels: number, frames: number): Promise<Float32Array[]> {
   if (!Number.isInteger(channels) || channels < 1) {
@@ -480,6 +497,7 @@ export async function renderOffline(loaded: LoadedPatch, frames: number, process
  * @throws {RangeError} when `frames` is not a whole number from 0 to {@link MAX_MARKED_FRAMES}.
  * @throws {Error} when the engine did not start within {@link START_MARGIN} frames, when
  * the capture started after it, or when it stopped before the end of the capture.
+ * @throws {ContextClosed} when the context closes before the end of the capture.
  */
 export function captureEngine(context: BaseAudioContext, engine: MarkedEngineNode, frames: number): Promise<Float32Array[]> {
   const invalid = markedFrames("a capture", frames);
