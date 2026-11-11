@@ -75,3 +75,13 @@ fn gives_parameters_in_order_none_below_the_smallest_normal_binary32() {
     );
     assert!(Params::new([]).is_empty(), "none");
 }
+
+#[test]
+fn names_and_describes_a_parameter() {
+    const GAIN: ParamSpec = ParamSpec::new("gain", "how loud", 0.5, 0.0, 1.0);
+    assert_eq!(
+        (GAIN.name(), GAIN.description()),
+        ("gain", "how loud"),
+        "its name and description"
+    );
+}

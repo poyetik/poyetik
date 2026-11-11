@@ -54,9 +54,9 @@ pub struct PortSpec {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ParamSpec {
     /// Name used in patches.
-    pub name: &'static str,
+    pub(crate) name: &'static str,
     /// What the parameter controls.
-    pub description: &'static str,
+    pub(crate) description: &'static str,
     /// Value used when the patch does not set it.
     pub(crate) default_value: f32,
     /// Lowest accepted value.
@@ -83,6 +83,18 @@ impl ParamSpec {
             minimum: min,
             maximum: max,
         }
+    }
+
+    /// Its name, used in patches.
+    #[must_use]
+    pub const fn name(&self) -> &'static str {
+        self.name
+    }
+
+    /// What it controls.
+    #[must_use]
+    pub const fn description(&self) -> &'static str {
+        self.description
     }
 
     /// Whether `value` is within range. Always `false` for NaN.

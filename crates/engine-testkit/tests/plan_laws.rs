@@ -324,7 +324,7 @@ mod tests {
             let params = Params::new(spec(node).params.iter().map(|param| {
                 Binary64::new(f64::from(
                     node.params
-                        .get(param.name)
+                        .get(param.name())
                         .copied()
                         .unwrap_or_else(|| param.default_value()),
                 ))

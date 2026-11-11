@@ -4,7 +4,8 @@ use alloc::collections::BTreeSet;
 
 use engine_core::host::{ParamBounds, Raw};
 use engine_core::{
-    BLOCK_SIZE, Binary32, Binary64, Block, Object, ObjectSpec, Params, Precision, SampleRate,
+    BLOCK_SIZE, Binary32, Binary64, Block, Object, ObjectSpec, ParamSpec, Params, Precision,
+    SampleRate,
 };
 use proptest::collection::vec;
 use proptest::test_runner::TestCaseError;
@@ -85,21 +86,21 @@ pub fn check_metadata(spec: &ObjectSpec) -> Result<(), String> {
     }
     unique_names("inlet", &mut spec.inlets.iter().map(|port| port.name))?;
     unique_names("outlet", &mut spec.outlets.iter().map(|port| port.name))?;
-    unique_names("parameter", &mut spec.params.iter().map(|param| param.name))?;
+    unique_names("parameter", &mut spec.params.iter().map(ParamSpec::name))?;
     for port in spec.inlets.iter().chain(spec.outlets) {
         if port.description.trim().is_empty() {
             return Err(format!("port \"{}\" has no description", port.name));
         }
     }
     for param in spec.params {
-        if param.description.trim().is_empty() {
-            return Err(format!("parameter \"{}\" has no description", param.name));
+        if param.description().trim().is_empty() {
+            return Err(format!("parameter \"{}\" has no description", param.name()));
         }
         let finite = param.minimum().is_finite() && param.maximum().is_finite();
         if !finite || !param.accepts(param.default_value()) {
             return Err(format!(
                 "parameter \"{}\": default {} outside finite range [{}, {}]",
-                param.name,
+                param.name(),
                 param.default_value(),
                 param.minimum(),
                 param.maximum()

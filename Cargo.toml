@@ -90,6 +90,7 @@ print_stdout = "deny"
 print_stderr = "deny"
 exit = "deny"
 missing_assert_message = "deny"
+partial_pub_fields = "deny"         # a struct whose fields are not all public keeps an invariant: none of them is
 missing_docs_in_private_items = "deny"
 undocumented_unsafe_blocks = "deny"
 multiple_unsafe_ops_per_block = "deny"

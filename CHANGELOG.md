@@ -74,7 +74,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 
 - **Breaking:** `engine_core::SILENCE`: a block of silence is `Sample::SILENCE`, in the precision of the render.
-- **Breaking:** the public `default`, `min` and `max` fields of `ParamSpec` (`engine-core`): box code builds one with `ParamSpec::new`, and hosts read its bounds and default through `host::ParamBounds`, so that no interface meant for boxes gives a raw float.
+- **Breaking:** the public fields of `ParamSpec` (`engine-core`): box code builds one with `ParamSpec::new` and reads its `name()` and `description()`, and hosts read its bounds and default through `host::ParamBounds`, so that no interface meant for boxes gives a raw float. A struct may no longer mix public and private fields (Clippy's `partial_pub_fields`, denied for the workspace), since such a mix keeps an invariant the public fields could break.
 - **Breaking:** `engine-cli`'s `render_case`, `wav_bytes`, `wav_file`, `Prepared::format`, `Prepared::channels`, `Prepared::wav_header` and `Rendered::format`, which only tests used (a render's WAV file is `Rendered::wav`).
 - **Breaking:** `engine-wasm`'s `Blocks::len` and `Blocks::is_empty`, which only tests used (the tests read the blocks themselves), so that dead code shows.
 
