@@ -1,6 +1,7 @@
 # The words GLOSSARY.md replaces: one concept, one word. `cargo xtask check` refuses each
 # term below in the prose of the repository (Markdown outside code blocks; the comments and
-# string literals of Rust and TypeScript), case-sensitively, as a whole word, never inside a
+# string literals of Rust and TypeScript; the string values of the JSON files under spec/ and
+# conformance/), case-sensitively, as a whole word, never inside a
 # name or a code span; a literal of one word alone (a key, a program name) is a name too.
 #
 #   forbid <term> -> <instead>[ in <path>…] -- <reason>   refused (in those files or directories only)
@@ -16,6 +17,9 @@ forbid behaviours -> behaviors -- the project's spelling is American
 forbid behavioural -> behavioral -- the project's spelling is American
 forbid colour -> color -- the project's spelling is American
 forbid colours -> colors -- the project's spelling is American
+
+forbid sibling engine -> sibling library -- GLOSSARY.md: a library of another domain beside the audio library (spec/engine-design.md, decision 32)
+forbid sibling engines -> sibling libraries -- GLOSSARY.md: libraries of other domains beside the audio library
 
 forbid node -> box -- GLOSSARY.md: one processing unit of a patch is a box (the code's `Node` keeps its name until roadmap #32)
 forbid nodes -> boxes -- GLOSSARY.md: one processing unit of a patch is a box
