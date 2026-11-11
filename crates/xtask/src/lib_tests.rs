@@ -3531,7 +3531,8 @@ fn runs_every_step_then_reports_every_failure_when_asked() {
     assert_eq!(
         String::from_utf8(out).expect("UTF-8"),
         "▶ [1/5] ONE\n  done in 1.5 s\n▶ [2/5] TWO\n  failed after 1.5 s\n▶ [3/5] THREE\n  done in \
-         1.5 s\n▶ [4/5] FOUR\n  failed after 1.5 s\n▶ [5/5] FIVE\n  done in 1.5 s\n",
+         1.5 s\n▶ [4/5] FOUR\n  failed after 1.5 s\n▶ [5/5] FIVE\n  done in 1.5 s\n\
+         ✘ 2 of 5 checks failed in 7.5 s\n",
         "no claim that the checks passed"
     );
     let mut passing = Fake::default();
@@ -3607,8 +3608,9 @@ fn stops_at_the_first_failure_unless_asked_to_run_the_rest() {
     assert_eq!(fake.ran, ["x one", "x two"], "nothing after it");
     assert_eq!(
         String::from_utf8(out).expect("UTF-8"),
-        "▶ [1/5] ONE\n  done in 1.5 s\n▶ [2/5] TWO\n  failed after 1.5 s\n",
-        "the time of the failed step said too"
+        "▶ [1/5] ONE\n  done in 1.5 s\n▶ [2/5] TWO\n  failed after 1.5 s\n\
+         ✘ stopped after 3.0 s, 2 of 5 checks run\n",
+        "the time of the failed step said too, then the total"
     );
     let mut stopped = failing_twice();
     assert_eq!(
@@ -7368,6 +7370,7 @@ fn prints_the_details_of_a_failure_on_stdout_and_one_line_on_stderr() {
     assert!(
         String::from_utf8(out).expect("UTF-8").ends_with(&format!(
             "▶ [87/87] Working tree unchanged by the checks\n  done in 1.5 s\n\
+             ✘ 1 of 87 checks failed in 2 min 10 s\n\
              not reviewed: crates/a/src/c.rs: replace g -> U with x\n\
              stale review: crates/a/src/b.rs: replace f -> T with Default::default()\n\
              Rust unviable mutants reviewed: unviable mutants must be reviewed in \

@@ -9546,8 +9546,10 @@ pub fn duration_text(duration: Duration) -> String {
 /// Runs `steps` in order; at a failure, does what `on_failure` says.
 ///
 /// Each step is announced (`▶ [n/total] name`), then, once it ends, its elapsed time is
-/// said (`done in …` or `failed after …`, [`duration_text`] of [`Runner::clock`]), and a
-/// passing run ends with the total time.
+/// said (`done in …` or `failed after …`, [`duration_text`] of [`Runner::clock`]), and the
+/// run ends with its total time: `✔ all N checks passed in …`, `✘ stopped after …, n of N
+/// checks run` ([`OnFailure::Stop`]) or `✘ k of N checks failed in …`
+/// ([`OnFailure::RunTheRest`]).
 ///
 /// # Errors
 ///
@@ -9583,17 +9585,29 @@ pub fn run_steps_then(
             details: failure.details,
         };
         if on_failure == OnFailure::Stop {
+            let total = duration_text(step_started.saturating_sub(started));
+            say(
+                out,
+                &format!("✘ stopped after {total}, {number} of {total_steps} checks run"),
+            )?;
             return Err(failure);
         }
         failures.push(failure);
     }
+    let total = duration_text(step_started.saturating_sub(started));
     if failures.is_empty() {
-        let total = duration_text(step_started.saturating_sub(started));
         return say(
             out,
             &format!("✔ all {total_steps} checks passed in {total}"),
         );
     }
+    say(
+        out,
+        &format!(
+            "✘ {} of {total_steps} checks failed in {total}",
+            failures.len()
+        ),
+    )?;
     Err(Failure {
         summary: format!(
             "{} of {total_steps} checks failed, listed above",
