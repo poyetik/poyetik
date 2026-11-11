@@ -14,7 +14,7 @@ use alloc::vec::Vec;
 use core::fmt::Write as _;
 
 use engine_core::host::Raw;
-use engine_core::{BLOCK_SIZE, Binary32, Binary64, Block, Object, ObjectSpec, Precision};
+use engine_core::{BLOCK_SIZE, Binary32, Binary64, Block, Object, ObjectSpec, Params, Precision};
 use sha2::{Digest, Sha256};
 
 use crate::inputs::{BLOCKS, BatterySample, param_sets, special_input};
@@ -29,7 +29,8 @@ use crate::matrix::{PRECISIONS, sample_rates};
 /// fingerprint, which no recorded one is compared with; `bless --battery-changed` records
 /// them (`spec/engine-design.md`, decision 29).
 ///
-/// Battery 2 drops the subnormal parameter set, a value no plan gives a box.
+/// Battery 2 gives the parameters as `engine_core::Params`, as a plan does, without the
+/// subnormal parameter set no box can be given.
 pub const FINGERPRINT_BATTERY: u32 = 2;
 
 /// The fingerprint of a box type: 64 lowercase hexadecimal digits, the same at every run
@@ -38,7 +39,8 @@ pub const FINGERPRINT_BATTERY: u32 = 2;
 /// The SHA-256 of [`FINGERPRINT_BATTERY`] (`u32`, little-endian), then of the bit pattern
 /// (`u64`, little-endian, a binary32 sample widened from its bits) of every output sample
 /// of each run, in this order: binary64 then binary32; every sample rate of the matrix;
-/// every parameter set ([`param_sets`]); the special inputs of the matrix, then a seeded random signal in `[-1, 1)` (the same values in
+/// every parameter set ([`param_sets`], given as `engine_core::Params`); the special
+/// inputs of the matrix, then a seeded random signal in `[-1, 1)` (the same values in
 /// both precisions, rounded to binary32 there). Each run is a fresh instance rendering
 /// [`BLOCKS`] blocks; the signal is cut into blocks, which feed the inlets in turn (block
 /// by block, inlet by inlet: inlet 0 the first block, inlet 1 the next), so that two
@@ -86,10 +88,11 @@ fn battery<S: BatterySample>(
     ];
     for rate in sample_rates() {
         for params in param_sets(spec) {
-            let wide: Vec<Binary64> = params
-                .iter()
-                .map(|&param| Binary64::from_raw(f64::from(param)))
-                .collect();
+            let wide = Params::new(
+                params
+                    .iter()
+                    .map(|&param| Binary64::from_raw(f64::from(param))),
+            );
             for input in &inputs {
                 let mut object: Box<dyn Object<S>> = spec.create.create(rate, &wide);
                 for block in outputs(object.as_mut(), spec, input) {

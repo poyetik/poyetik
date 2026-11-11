@@ -7,7 +7,7 @@ static ALLOCATOR: engine_testkit::CountingAllocator = engine_testkit::CountingAl
 use alloc::vec;
 use alloc::vec::Vec;
 
-use engine_core::{Binary32, Binary64, Block, Instance, Object, ObjectSpec, Sample};
+use engine_core::{Binary32, Binary64, Block, Instance, Object, ObjectSpec, Params, Sample};
 use engine_testkit::matrix::{SPECIAL_INPUTS_BINARY64, sample_rates};
 
 use super::{BuiltIn, Kind, OSC, REGISTRY};
@@ -76,7 +76,7 @@ static COPY: ObjectSpec = ObjectSpec {
 /// virtual table.
 fn held_as(spec: &'static ObjectSpec) -> &'static str {
     let rate = sample_rates()[0];
-    match BuiltIn::<Binary64>::create(spec, rate, &[]).0 {
+    match BuiltIn::<Binary64>::create(spec, rate, &Params::new([])).0 {
         Kind::Osc(_) => "osc~",
         Kind::Dac(_) => "dac~",
         Kind::Other(_) => "other",
@@ -125,10 +125,10 @@ fn inputs<S: Sample>(inlets: usize, block: usize) -> Vec<Block<S>> {
 /// processing performs no heap operation.
 fn same_as_the_factory<S: Sample>(spec: &'static ObjectSpec) {
     let params = [
-        vec![],
-        vec![Binary64::new(0.0)],
-        vec![Binary64::new(997.25)],
-        vec![Binary64::new(-30_000.5)],
+        Params::new([]),
+        Params::new([Binary64::new(0.0)]),
+        Params::new([Binary64::new(997.25)]),
+        Params::new([Binary64::new(-30_000.5)]),
     ];
     for rate in sample_rates() {
         for list in &params {

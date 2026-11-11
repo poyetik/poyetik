@@ -52,6 +52,25 @@ pub(crate) const fn binary64(value: f64) -> f64 {
     }
 }
 
+/// The binary64 exponent bits of 2^-126, the smallest normal binary32 value.
+const SMALLEST_NORMAL_32_IN_64: u64 = 0x3810_0000_0000_0000;
+
+/// A parameter value, `value`, or a zero of its sign when its magnitude is nonzero and
+/// below 2^-126, the smallest normal binary32 value (`spec/engine-design.md`, decisions 5
+/// and 11): what a binary32 value flushed by [`binary32`] gives once widened, and the rule
+/// binary64 parameters follow, before any rounding to binary32. Decided from the bits
+/// alone, as [`binary32`].
+#[must_use]
+#[inline]
+pub(crate) const fn parameter(value: f64) -> f64 {
+    let bits = value.to_bits();
+    if bits & EXPONENT_64 < SMALLEST_NORMAL_32_IN_64 {
+        f64::from_bits(bits & SIGN_64)
+    } else {
+        value
+    }
+}
+
 #[cfg(test)]
 #[path = "flush_tests.rs"]
 mod tests;

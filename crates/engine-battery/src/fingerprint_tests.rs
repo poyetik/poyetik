@@ -4,7 +4,7 @@
 use engine_core::host::{Delivered, Raw};
 use engine_core::{
     AlgorithmVersion, BLOCK_SIZE, Binary64, Block, Create, Factory, Object, ObjectSpec, ParamSpec,
-    PortSpec, Precision, Sample, SampleRate,
+    Params, PortSpec, Precision, Sample, SampleRate,
 };
 
 use super::{FINGERPRINT_BATTERY, fingerprint, seeded_signal};
@@ -40,6 +40,8 @@ enum Quirk {
     /// On a special input of the matrix only: the smallest normal of either precision,
     /// which the seeded random signal never is.
     Special,
+    /// With its gain nonzero and below 2^-126, which no parameter given as `Params` is.
+    SubnormalGain,
 }
 
 /// Multiplies its input by its gain, then flips the lowest bit of its output, in the
@@ -88,7 +90,11 @@ impl<S: Sample> Object<S> for Echo {
                             wide.to_bits() == f64::MIN_POSITIVE.to_bits()
                                 || wide.to_bits() == f64::from(f32::MIN_POSITIVE).to_bits()
                         }
-                        Quirk::None | Quirk::HighestRate | Quirk::Binary32 | Quirk::Maximum => true,
+                        Quirk::None
+                        | Quirk::HighestRate
+                        | Quirk::Binary32
+                        | Quirk::Maximum
+                        | Quirk::SubnormalGain => true,
                     };
                 let product = *value * gain;
                 *out = if flip {
@@ -108,13 +114,16 @@ fn echo(quirk: Quirk) -> ObjectSpec {
             /// The box type of one quirk.
             struct Chosen;
             impl Create for Chosen {
-                fn create<S: Sample>(rate: SampleRate, params: &[Binary64]) -> Box<dyn Object<S>> {
+                fn create<S: Sample>(rate: SampleRate, params: &Params) -> Box<dyn Object<S>> {
                     let gain = params.first().map_or(0.0_f64, |param| param.raw());
                     let quirky = match $quirk {
                         Quirk::None => false,
                         Quirk::HighestRate => rate.hz() == 384_000,
                         Quirk::Binary32 => S::PRECISION == Precision::Binary32,
                         Quirk::Maximum => gain.to_bits() == 1.0_f64.to_bits(),
+                        Quirk::SubnormalGain => {
+                            gain != 0.0_f64 && gain.abs() < f64::from(f32::MIN_POSITIVE)
+                        }
                         Quirk::Random | Quirk::LastBlock | Quirk::Special => true,
                     };
                     Box::new(Echo {
@@ -136,6 +145,7 @@ fn echo(quirk: Quirk) -> ObjectSpec {
         Quirk::Random => with!(Quirk::Random),
         Quirk::LastBlock => with!(Quirk::LastBlock),
         Quirk::Special => with!(Quirk::Special),
+        Quirk::SubnormalGain => with!(Quirk::SubnormalGain),
     };
     ObjectSpec {
         name: "echo~",
@@ -276,6 +286,17 @@ fn tries_a_value_away_from_the_default() {
     );
 }
 
+#[test]
+fn gives_the_parameters_as_a_plan_does() {
+    // A box that changes only for a nonzero gain below 2^-126, which no parameter given as
+    // `Params` is: no plan can reach that change, so its fingerprint is the plain one.
+    assert_eq!(
+        fingerprint(&echo(Quirk::SubnormalGain)),
+        fingerprint(&echo(Quirk::None)),
+        "no parameter below 2^-126 but zero"
+    );
+}
+
 /// Copies each inlet to an outlet: inlet 0 to outlet `first`, inlet 1 to the other.
 #[derive(Debug)]
 struct Route {
@@ -299,7 +320,7 @@ fn route<const FIRST: usize>() -> ObjectSpec {
     /// The box type routing inlet 0 to outlet `FIRST`.
     struct Routed<const FIRST: usize>;
     impl<const FIRST: usize> Create for Routed<FIRST> {
-        fn create<S: Sample>(_rate: SampleRate, _params: &[Binary64]) -> Box<dyn Object<S>> {
+        fn create<S: Sample>(_rate: SampleRate, _params: &Params) -> Box<dyn Object<S>> {
             Box::new(Route { first: FIRST })
         }
     }

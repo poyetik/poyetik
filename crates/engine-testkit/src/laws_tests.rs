@@ -5,7 +5,7 @@ use core::sync::atomic::{AtomicU16, Ordering};
 
 use engine_core::host::Raw;
 use engine_core::{
-    AlgorithmVersion, Binary64, Block, Create, Factory, Object, ObjectSpec, ParamSpec, PortSpec,
+    AlgorithmVersion, Block, Create, Factory, Object, ObjectSpec, ParamSpec, Params, PortSpec,
     Precision, Sample, SampleRate,
 };
 
@@ -152,7 +152,7 @@ macro_rules! factory {
         /// The fixture's box type.
         struct Chosen;
         impl Create for Chosen {
-            fn create<S: Sample>($rate: SampleRate, given: &[Binary64]) -> Box<dyn Object<S>> {
+            fn create<S: Sample>($rate: SampleRate, given: &Params) -> Box<dyn Object<S>> {
                 let raw: Vec<f64> = given.iter().map(|param| param.raw()).collect();
                 let $params: &[f64] = &raw;
                 Box::new($body)
@@ -322,8 +322,8 @@ fn catches_a_release_while_processing() {
 #[test]
 fn checks_parameters_at_negative_zero_and_the_smallest_normal_and_never_below() {
     // NaN only for a parameter of -0.0, then only for the smallest normal binary32: none is
-    // a minimum, default, midpoint or maximum. No parameter set holds a nonzero value below
-    // 2^-126, which no plan gives, so a box breaking on one passes.
+    // a minimum, default, midpoint or maximum. Parameters reach a box as `Params`, so a
+    // box breaking on a nonzero parameter below 2^-126 passes: no plan can give it one.
     let negative_zero = spec_with(factory!(|_, params| {
         if params.first().map(|value| value.to_bits()) == Some((-0.0_f64).to_bits()) {
             Fixture::Nan

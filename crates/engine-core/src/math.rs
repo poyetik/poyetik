@@ -23,7 +23,7 @@ use core::fmt;
 use core::iter;
 use core::ops::{Add, AddAssign, BitOr, Div, Mul, Neg, Sub, SubAssign};
 
-use crate::{BLOCK_SIZE, Block, Factory, Object, SampleRate};
+use crate::{BLOCK_SIZE, Block, Factory, Object, Params, SampleRate};
 
 /// The precision a render computes its signals in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -242,7 +242,7 @@ pub(crate) fn to_binary32(value: f64) -> f32 {
 }
 
 /// A constructor of box instances computing in `S`.
-pub type Constructor<S> = fn(SampleRate, &[Binary64]) -> Box<dyn Object<S>>;
+pub type Constructor<S> = fn(SampleRate, &Params) -> Box<dyn Object<S>>;
 
 /// A binary64 value of the engine: a signal sample of a binary64 render, and in both
 /// precisions a parameter value and what boxes derive from it (increments, coefficients,
@@ -268,6 +268,13 @@ impl Binary64 {
 
     /// One.
     pub const ONE: Self = Self(1.0);
+
+    /// This value as a parameter: a zero of its sign below 2^-126 in magnitude
+    /// ([`crate::flush::parameter`]).
+    #[must_use]
+    pub(crate) const fn as_parameter(self) -> Self {
+        Self(crate::flush::parameter(self.0))
+    }
 
     /// The value `value`, which a box writes as a literal: a constant, never a computed
     /// float. Box code computes no float outside its tests (`float_arithmetic` is forbidden

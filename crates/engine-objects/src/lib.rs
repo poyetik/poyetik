@@ -22,7 +22,7 @@ mod osc;
 use alloc::boxed::Box;
 use core::ptr;
 
-use engine_core::{Binary64, Block, Instance, Object, ObjectSpec, Sample, SampleRate};
+use engine_core::{Block, Instance, Object, ObjectSpec, Params, Sample, SampleRate};
 
 pub use dac::DAC;
 pub use osc::OSC;
@@ -67,7 +67,7 @@ impl<S: Sample> Instance<S> for BuiltIn<S> {
     /// The box type is told by the address of its spec, the registry's statics being the
     /// only specs of the built-in box types: a copy of one is another box type, created
     /// through its factory.
-    fn create(spec: &'static ObjectSpec, rate: SampleRate, params: &[Binary64]) -> Self {
+    fn create(spec: &'static ObjectSpec, rate: SampleRate, params: &Params) -> Self {
         Self(if ptr::eq(spec, &raw const OSC) {
             Kind::Osc(Box::new(osc::Osc::of(rate, params)))
         } else if ptr::eq(spec, &raw const DAC) {

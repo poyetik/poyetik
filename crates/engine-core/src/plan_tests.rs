@@ -9,6 +9,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use super::Feed;
+use crate::Params;
 use crate::host::{Delivered, Raw};
 use crate::{
     AlgorithmVersion, BLOCK_SIZE, Binary32, Binary64, Block, Capability, Connection, CoreError,
@@ -43,7 +44,7 @@ impl<S: Sample> Object<S> for Const {
     }
 }
 impl Create for Const {
-    fn create<S: Sample>(_rate: SampleRate, params: &[Binary64]) -> Box<dyn Object<S>> {
+    fn create<S: Sample>(_rate: SampleRate, params: &Params) -> Box<dyn Object<S>> {
         Box::new(Self(params.first().copied().unwrap_or(Binary64::ONE)))
     }
 }
@@ -72,7 +73,7 @@ impl<S: Sample> Object<S> for Ramp {
     }
 }
 impl Create for Ramp {
-    fn create<S: Sample>(_rate: SampleRate, _params: &[Binary64]) -> Box<dyn Object<S>> {
+    fn create<S: Sample>(_rate: SampleRate, _params: &Params) -> Box<dyn Object<S>> {
         Box::new(Self(0.0))
     }
 }
@@ -114,7 +115,7 @@ impl<S: Sample> Object<S> for Add {
     }
 }
 impl Create for Add {
-    fn create<S: Sample>(_rate: SampleRate, _params: &[Binary64]) -> Box<dyn Object<S>> {
+    fn create<S: Sample>(_rate: SampleRate, _params: &Params) -> Box<dyn Object<S>> {
         Box::new(Self)
     }
 }
@@ -136,7 +137,7 @@ impl<S: Sample> Object<S> for Out {
     fn process(&mut self, _inputs: &[Block<S>], _outputs: &mut [Block<S>]) {}
 }
 impl Create for Out {
-    fn create<S: Sample>(_rate: SampleRate, _params: &[Binary64]) -> Box<dyn Object<S>> {
+    fn create<S: Sample>(_rate: SampleRate, _params: &Params) -> Box<dyn Object<S>> {
         Box::new(Self)
     }
 }
@@ -174,7 +175,7 @@ impl<S: Sample> Object<S> for Rate {
     }
 }
 impl Create for Rate {
-    fn create<S: Sample>(rate: SampleRate, _params: &[Binary64]) -> Box<dyn Object<S>> {
+    fn create<S: Sample>(rate: SampleRate, _params: &Params) -> Box<dyn Object<S>> {
         Box::new(Self(f64::from(rate.hz() / 10)))
     }
 }
@@ -200,7 +201,7 @@ impl<S: Sample> Object<S> for Pass {
     }
 }
 impl Create for Pass {
-    fn create<S: Sample>(_rate: SampleRate, _params: &[Binary64]) -> Box<dyn Object<S>> {
+    fn create<S: Sample>(_rate: SampleRate, _params: &Params) -> Box<dyn Object<S>> {
         Box::new(Self)
     }
 }
@@ -1137,7 +1138,7 @@ impl<S: Sample> Object<S> for ProductThenSum {
     }
 }
 impl Create for ProductThenSum {
-    fn create<S: Sample>(_rate: SampleRate, _params: &[Binary64]) -> Box<dyn Object<S>> {
+    fn create<S: Sample>(_rate: SampleRate, _params: &Params) -> Box<dyn Object<S>> {
         Box::new(Self)
     }
 }

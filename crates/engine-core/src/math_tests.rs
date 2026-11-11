@@ -5,6 +5,7 @@ use alloc::format;
 use alloc::vec::Vec;
 
 use super::to_binary32;
+use crate::Params;
 use crate::host::{Delivered, Raw};
 use crate::{
     ArithmeticMode, ArithmeticOption, BLOCK_SIZE, Binary32, Binary64, Block, Create, Factory, MODE,
@@ -596,7 +597,7 @@ impl<S: Sample> Object<S> for Width {
 }
 
 impl Create for Width {
-    fn create<S: Sample>(rate: SampleRate, params: &[Binary64]) -> Box<dyn Object<S>> {
+    fn create<S: Sample>(rate: SampleRate, params: &Params) -> Box<dyn Object<S>> {
         let sum = params.iter().map(|param| param.raw()).sum::<f64>();
         Box::new(Self(sum + f64::from(rate.hz()) / 1e6_f64))
     }
@@ -608,12 +609,12 @@ fn a_factory_creates_instances_in_either_precision() {
     let rate = SampleRate::new(8_000).expect("valid rate");
     let mut out64 = [Binary64::SILENCE];
     factory
-        .create::<Binary64>(rate, &[wide(0.25), wide(0.5)])
+        .create::<Binary64>(rate, &Params::new([wide(0.25), wide(0.5)]))
         .process(&[], &mut out64);
     assert_eq!(out64[0][0].bits(), 64.758_f64.to_bits(), "binary64");
     let mut out32 = [Binary32::SILENCE];
     factory
-        .create::<Binary32>(rate, &[wide(0.25)])
+        .create::<Binary32>(rate, &Params::new([wide(0.25)]))
         .process(&[], &mut out32);
     assert_eq!(
         out32[0][0].bits(),

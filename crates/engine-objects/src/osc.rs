@@ -3,8 +3,8 @@
 use alloc::boxed::Box;
 
 use engine_core::{
-    AlgorithmVersion, Binary64, Block, Create, Factory, Object, ObjectSpec, ParamSpec, PortSpec,
-    Sample, SampleRate,
+    AlgorithmVersion, Binary64, Block, Create, Factory, Object, ObjectSpec, ParamSpec, Params,
+    PortSpec, Sample, SampleRate,
 };
 
 /// Sine oscillator, written once for both precisions. The phase is accumulated in binary64
@@ -58,7 +58,7 @@ impl Osc {
     /// An oscillator from its frequency parameter, as [`Create::create`] receives it: the
     /// one constructor of both its factory and [`crate::BuiltIn`].
     #[inline]
-    pub(crate) fn of(rate: SampleRate, params: &[Binary64]) -> Self {
+    pub(crate) fn of(rate: SampleRate, params: &Params) -> Self {
         let frequency = params.first().copied().unwrap_or(Binary64::new(440.0));
         Self::new(rate, frequency)
     }
@@ -66,7 +66,7 @@ impl Osc {
 
 impl Create for Osc {
     /// An oscillator from its frequency parameter.
-    fn create<S: Sample>(rate: SampleRate, params: &[Binary64]) -> Box<dyn Object<S>> {
+    fn create<S: Sample>(rate: SampleRate, params: &Params) -> Box<dyn Object<S>> {
         Box::new(Self::of(rate, params))
     }
 }

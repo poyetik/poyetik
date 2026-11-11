@@ -11,7 +11,7 @@
 //! and at every sample rate of the shared [`matrix`], with the
 //! parameters at their minimum, default and maximum, at a value away from the default
 //! (see `engine_battery::param_sets`), and at `-0.0` and the smallest normal binary32 value (where
-//! the range accepts them).
+//! the range accepts them), given as `engine_core::Params`, as a plan gives them.
 //!
 //! The laws:
 //! - **metadata**: names and descriptions are present, port and parameter names are

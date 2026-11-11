@@ -3,7 +3,7 @@
 use alloc::boxed::Box;
 
 use engine_core::{
-    AlgorithmVersion, Binary64, Block, Capability, Create, Factory, Object, ObjectSpec, PortSpec,
+    AlgorithmVersion, Block, Capability, Create, Factory, Object, ObjectSpec, Params, PortSpec,
     Sample, SampleRate,
 };
 
@@ -17,7 +17,7 @@ impl<S: Sample> Object<S> for Dac {
 }
 
 impl Create for Dac {
-    fn create<S: Sample>(_rate: SampleRate, _params: &[Binary64]) -> Box<dyn Object<S>> {
+    fn create<S: Sample>(_rate: SampleRate, _params: &Params) -> Box<dyn Object<S>> {
         Box::new(Self)
     }
 }

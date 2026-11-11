@@ -19,7 +19,7 @@ use core::{hint, iter};
 use crate::math::{Lanes, add_two, sum_blocks};
 use crate::{
     Binary64, Block, Capability, Connection, CoreError, Instance, Node, NodeId, Object, ObjectSpec,
-    Patch, Sample, SampleRate, flush,
+    Params, Patch, Sample, SampleRate, flush,
 };
 
 /// One box instance in execution order, held as `I` ([`Instance`]), with its own input and
@@ -150,10 +150,9 @@ struct Resolved<'patch> {
     node: &'patch Node,
     /// Its box type.
     spec: &'static ObjectSpec,
-    /// Its parameter values, in spec order, none subnormal, in binary64 (decision 10 of
-    /// `spec/engine-design.md`): a parameter of format 1 is its binary32 value, exact in
-    /// binary64.
-    params: Vec<Binary64>,
+    /// Its parameter values, in spec order ([`Params`]): a parameter of format 1 is its
+    /// binary32 value, exact in binary64.
+    params: Params,
     /// First bus slot of its outlets (outlets occupy consecutive slots, boxes in id
     /// order).
     first_slot: usize,
@@ -162,8 +161,8 @@ struct Resolved<'patch> {
 /// Resolves the box type and parameter values of a box.
 ///
 /// A subnormal parameter, written or default, is a zero of its sign (decisions 5 and 11 of
-/// `spec/engine-design.md`): flushed before its range is checked, so that a box is never
-/// given one. A parameter of format 1 is its binary32 value, exact in binary64, so this is
+/// `spec/engine-design.md`): flushed before its range is checked, and given to the box as
+/// [`Params`], which flushes it again, so that a box is never given one. A parameter of format 1 is its binary32 value, exact in binary64, so this is
 /// also the rule "below 2^-126 in binary64, before any rounding to binary32" that binary64
 /// parameters will follow.
 fn resolve<'patch>(
@@ -196,18 +195,14 @@ fn resolve<'patch>(
             });
         }
     }
-    let params = spec
-        .params
-        .iter()
-        .map(|param| {
-            Binary64::new(f64::from(flush::binary32(
-                node.params
-                    .get(param.name)
-                    .copied()
-                    .unwrap_or(param.default_value),
-            )))
-        })
-        .collect();
+    let params = Params::new(spec.params.iter().map(|param| {
+        Binary64::new(f64::from(
+            node.params
+                .get(param.name)
+                .copied()
+                .unwrap_or(param.default_value),
+        ))
+    }));
     Ok(Resolved {
         node,
         spec,

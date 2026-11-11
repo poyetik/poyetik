@@ -1,6 +1,6 @@
 //! Tests of the flush of subnormal samples to zero.
 
-use super::{binary32 as flush, binary64};
+use super::{binary32 as flush, binary64, parameter};
 
 /// The smallest normal binary32 value, 2^-126, written as a literal (not read from
 /// the constants of the code under test).
@@ -124,4 +124,45 @@ fn keeps_every_other_binary64_class_bit_for_bit() {
         SMALLEST_NORMAL_64.to_bits(),
         "the smallest normal"
     );
+}
+
+#[test]
+fn makes_a_parameter_below_the_smallest_normal_binary32_a_zero_of_its_sign() {
+    let below = f64::from_bits(SMALLEST_NORMAL.to_bits() - 1);
+    for (value, kept) in [
+        (SMALLEST_NORMAL, SMALLEST_NORMAL.to_bits()),
+        (-SMALLEST_NORMAL, (-SMALLEST_NORMAL).to_bits()),
+        (below, 0_u64),
+        (-below, 0x8000_0000_0000_0000),
+        (f64::MIN_POSITIVE, 0),
+        (f64::from_bits(1), 0),
+        (-f64::from_bits(1), 0x8000_0000_0000_0000),
+        (0.0_f64, 0),
+        (-0.0_f64, 0x8000_0000_0000_0000),
+        (1.0_f64, 1.0_f64.to_bits()),
+        (-20_000.5_f64, (-20_000.5_f64).to_bits()),
+        (f64::INFINITY, f64::INFINITY.to_bits()),
+        (f64::NEG_INFINITY, f64::NEG_INFINITY.to_bits()),
+        (f64::from_bits(0x7ff8_0000_0000_0001), 0x7ff8_0000_0000_0001),
+    ] {
+        assert_eq!(parameter(value).to_bits(), kept, "{value:e}");
+    }
+}
+
+#[test]
+fn flushes_a_widened_binary32_parameter_as_the_binary32_flush() {
+    // Every exponent, both signs, the smallest and largest fractions: the rule of a
+    // binary64 parameter gives a format 1 parameter exactly its flushed binary32 value.
+    for exponent in 0_u32..=0xff {
+        for fraction in [0_u32, 1, 0x40_0000, 0x7f_ffff] {
+            for sign in [0_u32, 0x8000_0000] {
+                let value = f32::from_bits(sign | (exponent << 23_u32) | fraction);
+                assert_eq!(
+                    parameter(f64::from(value)).to_bits(),
+                    f64::from(flush(value)).to_bits(),
+                    "{value:e}"
+                );
+            }
+        }
+    }
 }

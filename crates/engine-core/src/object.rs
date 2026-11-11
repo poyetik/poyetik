@@ -3,8 +3,10 @@
 #![cfg_attr(not(test), forbid(clippy::arithmetic_side_effects))]
 
 use alloc::boxed::Box;
+use alloc::vec::Vec;
 use core::fmt;
 use core::num::NonZeroU32;
+use core::ops::Deref;
 
 use crate::{Binary32, Binary64, Block, Constructor, Sample, SampleRate};
 
@@ -90,16 +92,42 @@ impl ParamSpec {
     }
 }
 
+/// The parameter values of a box instance, in the order of [`ObjectSpec::params`].
+///
+/// In binary64 whatever the precision of the render (`spec/engine-design.md`, decision
+/// 10), and never below 2^-126 in magnitude but zero: [`Params::new`], the only way to
+/// build one, makes such a value a zero of its sign (decisions 5 and 11), as a plan reads
+/// a patch's parameters. A box can rely on both, whoever created it: the plan, the box
+/// laws or the fingerprint battery.
+#[derive(Debug, Clone)]
+pub struct Params(Vec<Binary64>);
+
+impl Params {
+    /// The parameter values `values`, in order, each nonzero one below 2^-126 in
+    /// magnitude made a zero of its sign; every other value keeps its bits.
+    #[must_use]
+    pub fn new(values: impl IntoIterator<Item = Binary64>) -> Self {
+        Self(values.into_iter().map(Binary64::as_parameter).collect())
+    }
+}
+
+impl Deref for Params {
+    type Target = [Binary64];
+
+    /// The values, in order.
+    fn deref(&self) -> &[Binary64] {
+        &self.0
+    }
+}
+
 /// A box type's way of creating its instances, written once for every precision: the
 /// plan calls [`Create::create`] with the [`Sample`] type of the render.
 pub trait Create {
     /// Creates an instance computing in `S`, from a sample rate and its parameter values.
     ///
-    /// The values come in the order of [`ObjectSpec::params`], already validated against
-    /// their ranges, never subnormal (a plan flushes a subnormal parameter to a zero of its
-    /// sign, [`Sample::flush`]), and given in binary64 whatever the precision of the render
-    /// (`spec/engine-design.md`, decision 10).
-    fn create<S: Sample>(rate: SampleRate, params: &[Binary64]) -> Box<dyn Object<S>>;
+    /// The values come as [`Params`] says (in order, in binary64, none below 2^-126 but
+    /// zero); a plan also validates them against their ranges first.
+    fn create<S: Sample>(rate: SampleRate, params: &Params) -> Box<dyn Object<S>>;
 }
 
 /// Creates the instances of a box type, in either precision: built only from one generic
@@ -126,7 +154,7 @@ impl Factory {
     /// Creates an instance computing in `S`, at `rate`, with `params` as
     /// [`Create::create`] receives them.
     #[must_use]
-    pub fn create<S: Sample>(&self, rate: SampleRate, params: &[Binary64]) -> Box<dyn Object<S>> {
+    pub fn create<S: Sample>(&self, rate: SampleRate, params: &Params) -> Box<dyn Object<S>> {
         S::constructor(self)(rate, params)
     }
 }
@@ -158,8 +186,9 @@ impl AlgorithmVersion {
     /// Version 1, the first algorithm of a box type.
     pub const FIRST: Self = Self(NonZeroU32::MIN);
 
-    /// The version after this one; the largest version stays the largest, never wrapping
-    /// to an earlier one.
+    /// The version after this one, the only way to write a version above the first: a box
+    /// type whose bits change declares `AlgorithmVersion::FIRST.next()`, in a `const`. The
+    /// largest version stays the largest, never wrapping to an earlier one.
     #[must_use]
     pub const fn next(self) -> Self {
         Self(self.0.saturating_add(1))
@@ -223,12 +252,12 @@ impl<S: Sample, T: Object<S> + ?Sized> Object<S> for Box<T> {
 pub trait Instance<S: Sample>: Object<S> + Sized {
     /// The instance of the box type `spec` at `rate`, with `params` as [`Create::create`]
     /// receives them.
-    fn create(spec: &'static ObjectSpec, rate: SampleRate, params: &[Binary64]) -> Self;
+    fn create(spec: &'static ObjectSpec, rate: SampleRate, params: &Params) -> Self;
 }
 
 /// Every box type through its factory, each instance called through its virtual table.
 impl<S: Sample> Instance<S> for Box<dyn Object<S>> {
-    fn create(spec: &'static ObjectSpec, rate: SampleRate, params: &[Binary64]) -> Self {
+    fn create(spec: &'static ObjectSpec, rate: SampleRate, params: &Params) -> Self {
         spec.create.create(rate, params)
     }
 }
