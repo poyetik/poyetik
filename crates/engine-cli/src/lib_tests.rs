@@ -886,7 +886,7 @@ fn check_command_reports_every_problem() {
         format!(
             "MISMATCH sine binary64: expected 0000, got {} (the same algorithm versions: its \
              bits changed without a new version)\n\
-             MISSING  sine binary64-as-binary32: no reference hash (run bless)\n\
+             MISSING  sine binary64-as-binary32: no reference hash (run `cargo xtask bless`)\n\
              ok       sine binary32 {binary32}\n\
              STALE    sine binary16: reference of no render format\n\
              STALE    gone: reference without a case\n",
@@ -903,9 +903,9 @@ fn check_command_reports_every_problem() {
     );
     assert_eq!(
         missing_out,
-        "MISSING  sine binary64: no reference hash (run bless)\n\
-         MISSING  sine binary64-as-binary32: no reference hash (run bless)\n\
-         MISSING  sine binary32: no reference hash (run bless)\n",
+        "MISSING  sine binary64: no reference hash (run `cargo xtask bless`)\n\
+         MISSING  sine binary64-as-binary32: no reference hash (run `cargo xtask bless`)\n\
+         MISSING  sine binary32: no reference hash (run `cargo xtask bless`)\n",
         "explained, format by format"
     );
 }
@@ -935,7 +935,7 @@ fn check_command_refuses_algorithm_versions_other_than_blessed() {
         bumped_out,
         format!(
             "{ok}VERSION  sine osc~: at algorithm version 1, the references were blessed with \
-             version 2 (check the renders of the new version, then run bless)\n"
+             version 2 (check the renders of the new version, then run `cargo xtask bless`)\n"
         ),
         "explained"
     );
@@ -953,7 +953,7 @@ fn check_command_refuses_algorithm_versions_other_than_blessed() {
     assert_eq!(
         partial_out,
         format!(
-            "{ok}MISSING  sine dac~: no algorithm version (run bless)\n\
+            "{ok}MISSING  sine dac~: no algorithm version (run `cargo xtask bless`)\n\
              STALE    sine env~: algorithm version of a box type the case does not use\n\
              STALE    gone: algorithm versions without a case\n"
         ),
@@ -967,7 +967,10 @@ fn check_command_refuses_algorithm_versions_other_than_blessed() {
     );
     assert_eq!(
         none_out,
-        format!("{ok}MISSING  sine: no algorithm versions (run bless)\n"),
+        format!(
+            "{ok}MISSING  sine: no algorithm versions (`cargo xtask bless --case-changed sine`, or \
+             restore the record from git)\n"
+        ),
         "explained"
     );
     // Bits changed under a new version: the mismatch says nothing of a missing version,
@@ -1004,13 +1007,7 @@ fn check_command_refuses_algorithm_versions_other_than_blessed() {
             "{algorithms}"
         );
     }
-    let mut absent = conformance(&references);
-    drop(absent.files.remove(Path::new("conf/algorithms.json")));
-    assert_eq!(
-        run_with(&mut absent, &["check", "conf"]).0,
-        Err("cannot read conf/algorithms.json: no such file (run bless)".to_owned()),
-        "no algorithm versions"
-    );
+    // A missing record: every_hint_leads_to_a_directory_that_checks.
 }
 
 #[test]
@@ -1060,7 +1057,11 @@ fn check_command_reports_unreadable_inputs() {
     ]);
     assert_eq!(
         run_with(&mut no_refs, &["check", "conf"]).0,
-        Err("cannot read conf/references.json: no such file (run bless)".to_owned()),
+        Err(
+            "cannot read conf/references.json: no such file (restore conf/references.json from \
+             git; a new directory: `cargo xtask bless --from-nothing`)"
+                .to_owned()
+        ),
         "no references"
     );
     let mut no_cases = Memory::default();
@@ -1189,7 +1190,7 @@ fn bless_command_writes_sorted_references() {
         run_with(&mut memory, &["bless", "conf"]).0,
         Err(
             "cannot write conf/algorithms.json: read-only (conf/references.json was written: \
-             run bless)"
+             run `cargo xtask bless` again)"
                 .to_owned()
         ),
         "unwritable algorithm versions, the references written"
@@ -1227,7 +1228,7 @@ fn bless_command_refuses_bits_changed_without_a_new_version() {
     assert_eq!(
         out,
         "CHANGED  sine binary32: its reference changed under the same algorithm versions (a \
-         new version, or --case-changed sine)\n",
+         new version, or `cargo xtask bless --case-changed sine`)\n",
         "named"
     );
     assert_eq!(
@@ -1331,7 +1332,11 @@ fn bless_command_spends_only_the_versions_of_the_merge_base() {
     );
     assert_eq!(
         run_with(&mut memory, &["bless", "conf", "--spent", "none.json"]).0,
-        Err("cannot read none.json: no such file".to_owned()),
+        Err(
+            "cannot read the spent record none.json: no such file (`cargo xtask bless` writes \
+             it: run that)"
+                .to_owned()
+        ),
         "a record of the merge base to read"
     );
     drop(
@@ -1342,7 +1347,10 @@ fn bless_command_spends_only_the_versions_of_the_merge_base() {
     assert!(
         run_with(&mut memory, &["bless", "conf", "--spent", "base.json"])
             .0
-            .is_err_and(|error| error.starts_with("invalid base.json: ")),
+            .is_err_and(
+                |error| error.starts_with("invalid spent record base.json: ")
+                    && error.ends_with(" (`cargo xtask bless` writes it: run that)")
+            ),
         "an invalid record of the merge base"
     );
 }
@@ -1353,18 +1361,7 @@ fn bless_command_refuses_files_it_cannot_compare_with() {
     let mut memory = conformance(&format!(r#"{{"sine":{}}}"#, sine_references()));
     let algorithms = memory.text("conf/algorithms.json");
     let references = memory.text("conf/references.json");
-    drop(
-        memory
-            .files
-            .insert(PathBuf::from("conf/algorithms.json"), b"[1]".to_vec()),
-    );
-    assert!(
-        run_with(&mut memory, &["bless", "conf"])
-            .0
-            .is_err_and(|error| error.starts_with("invalid conf/algorithms.json: ")
-                && error.ends_with("(bless compares with it: restore it as bless wrote it)")),
-        "an invalid record"
-    );
+    // An invalid record and the hints of every refusal: every_hint_leads_to_a_directory_that_checks.
     memory.unreadable = Some(PathBuf::from("conf/references.json"));
     assert_eq!(
         run_with(&mut memory, &["bless", "conf"]).0,
@@ -1386,7 +1383,7 @@ fn bless_command_refuses_files_it_cannot_compare_with() {
             (
                 refused.clone(),
                 "MISSING  conf/algorithms.json: missing beside conf/references.json (restore \
-                 it: bless compares with both)\n"
+                 conf/algorithms.json from git: bless compares with both)\n"
                     .to_owned()
             ),
             "the record alone missing: {told:?}"
@@ -1401,8 +1398,8 @@ fn bless_command_refuses_files_it_cannot_compare_with() {
         run_with(&mut memory, &["bless", "conf"]),
         (
             refused.clone(),
-            "MISSING  conf/references.json: missing beside conf/algorithms.json (restore it: \
-             bless compares with both)\n"
+            "MISSING  conf/references.json: missing beside conf/algorithms.json (restore \
+             conf/references.json from git: bless compares with both)\n"
                 .to_owned()
         ),
         "the references alone missing"
@@ -1413,7 +1410,7 @@ fn bless_command_refuses_files_it_cannot_compare_with() {
         (
             refused.clone(),
             "MISSING  conf/references.json and conf/algorithms.json: none to compare with (a \
-             first bless: --from-nothing)\n"
+             first bless: `cargo xtask bless --from-nothing`)\n"
                 .to_owned()
         ),
         "neither, unsaid"
@@ -1445,11 +1442,272 @@ fn bless_command_refuses_files_it_cannot_compare_with() {
         (
             refused,
             "OPTION   --from-nothing: conf/references.json and conf/algorithms.json exist, to \
-             compare with\n"
+             compare with (run `cargo xtask bless` without it)\n"
                 .to_owned()
         ),
         "from nothing, with both to compare with"
     );
+}
+
+/// The conformance directory as committed: the sine case, its references and its record.
+fn committed() -> Memory {
+    conformance(&format!(r#"{{"sine":{}}}"#, sine_references()))
+}
+
+/// What `cargo xtask bless <options>` runs: `engine-cli bless conf --spent spent.json`, the
+/// record on main written to `spent.json` first (here, the committed one), then the options.
+fn xtask_bless(memory: &mut Memory, options: &[&str]) -> (Result<(), String>, String) {
+    drop(memory.files.insert(
+        PathBuf::from("spent.json"),
+        committed().files[Path::new("conf/algorithms.json")].clone(),
+    ));
+    let words: Vec<&str> = ["bless", "conf", "--spent", "spent.json"]
+        .into_iter()
+        .chain(options.iter().copied())
+        .collect();
+    run_with(memory, &words)
+}
+
+/// Does what `line` says to do, the first of its alternatives: run the `cargo xtask bless`
+/// command it names (after removing the file it says to remove first), or restore the file
+/// it names from git (its committed contents).
+fn follow(memory: &mut Memory, line: &str) {
+    let command = line.find("`cargo xtask bless");
+    let restore = line.find("restore ");
+    if let Some(start) = command.filter(|start| restore.is_none_or(|other| *start < other)) {
+        if let Some((_, removed)) = line.split_once("remove ") {
+            let path = removed.split(',').next().expect("a path");
+            assert!(
+                memory.files.remove(Path::new(path)).is_some(),
+                "{line}: {path} to remove"
+            );
+        }
+        let named = line
+            .get(start..)
+            .and_then(|from| from.split('`').nth(1))
+            .expect("a closed command");
+        let words: Vec<&str> = named.split_whitespace().skip(3).collect();
+        assert_eq!(xtask_bless(memory, &words).0, Ok(()), "{line}: followed");
+    } else {
+        let start = restore.expect("a hint");
+        let path = line
+            .get(start..)
+            .expect("the hint")
+            .trim_start_matches("restore ")
+            .split(' ')
+            .next()
+            .expect("a path");
+        drop(memory.files.insert(
+            PathBuf::from(path),
+            committed().files[Path::new(path)].clone(),
+        ));
+    }
+}
+
+/// How a test brings a conformance directory into a state and runs the command that
+/// refuses it: what it returned and printed.
+type Setup = fn(&mut Memory) -> (Result<(), String>, String);
+
+/// Every state a command refuses with a hint: its name, how it is reached, and the end of
+/// the line that gives the hint, exactly.
+const HINTED: [(&str, Setup, &str); 14] = [
+    (
+        "references missing",
+        |memory| {
+            drop(memory.files.remove(Path::new("conf/references.json")));
+            run_with(memory, &["check", "conf"])
+        },
+        "cannot read conf/references.json: no such file (restore conf/references.json \
+         from git; a new directory: `cargo xtask bless --from-nothing`)",
+    ),
+    (
+        "record missing",
+        |memory| {
+            drop(memory.files.remove(Path::new("conf/algorithms.json")));
+            run_with(memory, &["check", "conf"])
+        },
+        "cannot read conf/algorithms.json: no such file (restore conf/algorithms.json \
+         from git; a new directory: `cargo xtask bless --from-nothing`)",
+    ),
+    (
+        "both missing, at bless",
+        |memory| {
+            drop(memory.files.remove(Path::new("conf/references.json")));
+            drop(memory.files.remove(Path::new("conf/algorithms.json")));
+            xtask_bless(memory, &[])
+        },
+        "MISSING  conf/references.json and conf/algorithms.json: none to compare with (a \
+         first bless: `cargo xtask bless --from-nothing`)",
+    ),
+    (
+        "references alone missing, at bless",
+        |memory| {
+            drop(memory.files.remove(Path::new("conf/references.json")));
+            xtask_bless(memory, &[])
+        },
+        "MISSING  conf/references.json: missing beside conf/algorithms.json (restore \
+         conf/references.json from git: bless compares with both)",
+    ),
+    (
+        "invalid references",
+        |memory| {
+            drop(
+                memory
+                    .files
+                    .insert(PathBuf::from("conf/references.json"), b"[1".to_vec()),
+            );
+            run_with(memory, &["check", "conf"])
+        },
+        "(restore conf/references.json from git)",
+    ),
+    (
+        "invalid record, at bless",
+        |memory| {
+            drop(
+                memory
+                    .files
+                    .insert(PathBuf::from("conf/algorithms.json"), b"[1".to_vec()),
+            );
+            xtask_bless(memory, &[])
+        },
+        "(bless compares with it: restore conf/algorithms.json from git)",
+    ),
+    (
+        "references not as bless writes them",
+        |memory| {
+            let text = format!("{} ", memory.text("conf/references.json"));
+            drop(
+                memory
+                    .files
+                    .insert(PathBuf::from("conf/references.json"), text.into_bytes()),
+            );
+            run_with(memory, &["check", "conf"])
+        },
+        "conf/references.json is not as bless writes it (run `cargo xtask bless`)",
+    ),
+    (
+        "a case with references and no versions",
+        |memory| {
+            drop(memory.files.insert(
+                PathBuf::from("conf/algorithms.json"),
+                record("{}").into_bytes(),
+            ));
+            run_with(memory, &["check", "conf"])
+        },
+        "MISSING  sine: no algorithm versions (`cargo xtask bless --case-changed sine`, or \
+         restore the record from git)",
+    ),
+    (
+        "a new case: no references and no versions",
+        |memory| {
+            drop(memory.files.insert(
+                PathBuf::from("conf/algorithms.json"),
+                record("{}").into_bytes(),
+            ));
+            drop(
+                memory
+                    .files
+                    .insert(PathBuf::from("conf/references.json"), b"{}\n".to_vec()),
+            );
+            run_with(memory, &["check", "conf"])
+        },
+        "MISSING  sine: no algorithm versions (run `cargo xtask bless`)",
+    ),
+    (
+        "a format without a reference",
+        |memory| {
+            let references = canonical(&format!(
+                r#"{{"sine":{}}}"#,
+                sine_references().replace(
+                    &format!(r#","binary32":"{}""#, sine_hash(RenderFormat::Binary32)),
+                    ""
+                )
+            ));
+            drop(memory.files.insert(
+                PathBuf::from("conf/references.json"),
+                references.into_bytes(),
+            ));
+            run_with(memory, &["check", "conf"])
+        },
+        "MISSING  sine binary32: no reference hash (run `cargo xtask bless`)",
+    ),
+    (
+        "another battery",
+        |memory| {
+            let text = memory
+                .text("conf/algorithms.json")
+                .replace(r#""fingerprint_battery": 2"#, r#""fingerprint_battery": 1"#);
+            drop(
+                memory
+                    .files
+                    .insert(PathBuf::from("conf/algorithms.json"), text.into_bytes()),
+            );
+            run_with(memory, &["check", "conf"])
+        },
+        "BATTERY  the fingerprints were computed with battery 1, the engine's is 2 (run \
+         `cargo xtask bless --battery-changed`)",
+    ),
+    (
+        "a first bless that wrote the references alone",
+        |memory| {
+            drop(memory.files.remove(Path::new("conf/references.json")));
+            drop(memory.files.remove(Path::new("conf/algorithms.json")));
+            memory.unwritable = Some(PathBuf::from("conf/algorithms.json"));
+            let refused = xtask_bless(memory, &["--from-nothing"]);
+            memory.unwritable = None;
+            refused
+        },
+        "cannot write conf/algorithms.json: read-only (conf/references.json was written: \
+         remove conf/references.json, then run `cargo xtask bless --from-nothing`)",
+    ),
+    (
+        "a bless that wrote the references alone",
+        |memory| {
+            memory.unwritable = Some(PathBuf::from("conf/algorithms.json"));
+            let refused = xtask_bless(memory, &[]);
+            memory.unwritable = None;
+            refused
+        },
+        "cannot write conf/algorithms.json: read-only (conf/references.json was written: \
+         run `cargo xtask bless` again)",
+    ),
+    (
+        "an invalid spent record",
+        |memory| {
+            drop(
+                memory
+                    .files
+                    .insert(PathBuf::from("spent.json"), b"[1".to_vec()),
+            );
+            run_with(memory, &["bless", "conf", "--spent", "spent.json"])
+        },
+        "(`cargo xtask bless` writes it: run that)",
+    ),
+];
+
+/// Every state a command refuses with a hint, the hint asserted as written, then followed:
+/// what it says to run or restore succeeds, and the directory checks again.
+#[test]
+fn every_hint_leads_to_a_directory_that_checks() {
+    for (state, setup, hint) in HINTED {
+        let mut memory = committed();
+        let (result, out) = setup(&mut memory);
+        let said: Vec<String> = result
+            .err()
+            .into_iter()
+            .chain(out.lines().map(str::to_owned))
+            .collect();
+        let line = said
+            .iter()
+            .find(|line| line.ends_with(hint))
+            .unwrap_or_else(|| panic!("{state}: {hint} in {said:?}"));
+        follow(&mut memory, line);
+        assert_eq!(
+            run_with(&mut memory, &["check", "conf"]).0,
+            Ok(()),
+            "{state}: checks once followed"
+        );
+    }
 }
 
 #[test]
@@ -1484,7 +1742,7 @@ fn check_command_names_a_mismatch_under_other_render_rules_as_such() {
     assert!(
         out.ends_with(
             "RULES    the references were rendered under render rules version 0, the engine's is \
-             1 (run bless)\n"
+             1 (run `cargo xtask bless`)\n"
         ),
         "{out}"
     );
@@ -1509,7 +1767,9 @@ fn check_command_reads_its_files_only_as_bless_writes_them() {
         drop(edited.files.insert(PathBuf::from(file), text.into_bytes()));
         assert_eq!(
             run_with(&mut edited, &["check", "conf"]).0,
-            Err(format!("{file} is not as bless writes it (run bless)")),
+            Err(format!(
+                "{file} is not as bless writes it (run `cargo xtask bless`)"
+            )),
             "{file}: a hand edit or a repeated key"
         );
     }
@@ -1907,7 +2167,9 @@ fn refuses_files_larger_than_their_limit() {
         );
         assert_eq!(
             run_with(&mut at_limit, &["check", "conf"]).0,
-            Err(format!("{file} is not as bless writes it (run bless)")),
+            Err(format!(
+                "{file} is not as bless writes it (run `cargo xtask bless`)"
+            )),
             "{file}: read at its limit"
         );
     }

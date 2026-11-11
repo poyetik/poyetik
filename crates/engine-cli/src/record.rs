@@ -104,7 +104,8 @@ pub(crate) fn record_problems(record: &Record, now: &Fingerprints) -> Vec<String
     let mut problems = Vec::new();
     if record.render_hash != SCHEME {
         problems.push(format!(
-            "{status} the references were hashed with {}, the engine with {SCHEME} (run bless)",
+            "{status} the references were hashed with {}, the engine with {SCHEME} (run `cargo \
+             xtask bless`)",
             record.render_hash,
             status = Status::Hash
         ));
@@ -112,7 +113,7 @@ pub(crate) fn record_problems(record: &Record, now: &Fingerprints) -> Vec<String
     if record.render_rules != RENDER_RULES_VERSION {
         problems.push(format!(
             "{status} the references were rendered under render rules version {}, the \
-             engine's is {RENDER_RULES_VERSION} (run bless)",
+             engine's is {RENDER_RULES_VERSION} (run `cargo xtask bless`)",
             record.render_rules,
             status = Status::Rules
         ));
@@ -127,7 +128,8 @@ pub(crate) fn record_problems(record: &Record, now: &Fingerprints) -> Vec<String
                 Some(recorded) if recorded == print => {}
                 Some(_) => problems.push(changed_bits(name, *version)),
                 None => problems.push(format!(
-                    "{status} {name}: no fingerprint at algorithm version {version} (run bless)",
+                    "{status} {name}: no fingerprint at algorithm version {version} (run \
+                     `cargo xtask bless`)",
                     status = Status::Missing
                 )),
             }
@@ -135,7 +137,7 @@ pub(crate) fn record_problems(record: &Record, now: &Fingerprints) -> Vec<String
     } else {
         problems.push(format!(
             "{status} the fingerprints were computed with battery {}, the engine's is \
-             {FINGERPRINT_BATTERY} (run bless --battery-changed)",
+             {FINGERPRINT_BATTERY} (run `cargo xtask bless --battery-changed`)",
             record.fingerprint_battery,
             status = Status::Battery
         ));
@@ -282,7 +284,8 @@ fn reference_problems(before: &Before<'_>, now: &Blessing<'_>, told: &Told<'_>) 
             } else if before.references.contains_key(case) && !named {
                 problems.push(format!(
                     "{status} {case}: a reference but no versions recorded in the record \
-                     bless replaces (restore it, or --case-changed {case})",
+                     bless replaces (`cargo xtask bless --case-changed {case}`, or restore \
+                     the record from git)",
                     status = Status::Missing
                 ));
             }
@@ -301,7 +304,7 @@ fn reference_problems(before: &Before<'_>, now: &Blessing<'_>, told: &Told<'_>) 
                 let hint = if told.battery_changed {
                     "a battery change blesses no reference change".to_owned()
                 } else {
-                    format!("a new version, or --case-changed {case}")
+                    format!("a new version, or `cargo xtask bless --case-changed {case}`")
                 };
                 problems.push(format!(
                     "{status} {case} {format}: its reference changed under the same \
@@ -368,7 +371,8 @@ pub(crate) fn bless_problems(
     match (battery_changed, told.battery_changed) {
         (true, false) => problems.push(format!(
             "{status} the fingerprints were computed with battery {}, the engine's is \
-             {FINGERPRINT_BATTERY} (a battery change: bless --battery-changed, changing no \
+             {FINGERPRINT_BATTERY} (a battery change: `cargo xtask bless --battery-changed`, \
+             changing no \
              reference and no version)",
             old.fingerprint_battery,
             status = Status::Battery

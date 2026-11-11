@@ -176,7 +176,7 @@ fn check_refuses_every_difference_from_the_current_engine() {
     let missing = record(&[], &[("dac~", 1, "d"), ("osc~", 2, "o")]);
     assert_eq!(
         record_problems(&missing, &now),
-        ["MISSING  osc~: no fingerprint at algorithm version 1 (run bless)"],
+        ["MISSING  osc~: no fingerprint at algorithm version 1 (run `cargo xtask bless`)"],
         "none at the current version"
     );
     let other = Record {
@@ -189,11 +189,11 @@ fn check_refuses_every_difference_from_the_current_engine() {
         record_problems(&other, &now),
         [
             "HASH     the references were hashed with render-hash/1, the engine with \
-             render-hash/2 (run bless)",
+             render-hash/2 (run `cargo xtask bless`)",
             "RULES    the references were rendered under render rules version 0, the engine's \
-             is 1 (run bless)",
+             is 1 (run `cargo xtask bless`)",
             "BATTERY  the fingerprints were computed with battery 0, the engine's is 2 (run \
-             bless --battery-changed)",
+             `cargo xtask bless --battery-changed`)",
         ],
         "every version named, no fingerprint compared across batteries"
     );
@@ -225,7 +225,7 @@ fn bless_refuses_bits_changed_without_a_new_version() {
         problems(&old, &earlier, &now, &cases, &moved, &[]),
         [
             "CHANGED  b binary64: its reference changed under the same algorithm versions (a new \
-          version, or --case-changed b)"
+          version, or `cargo xtask bless --case-changed b`)"
         ],
         "a changed reference refused, a new case accepted"
     );
@@ -246,7 +246,7 @@ fn bless_refuses_bits_changed_without_a_new_version() {
         [
             "UNKNOWN  --case-changed c: no such case",
             "CHANGED  b binary64: its reference changed under the same algorithm versions (a new \
-             version, or --case-changed b)",
+             version, or `cargo xtask bless --case-changed b`)",
         ],
         "only the case named, which must be a case"
     );
@@ -317,7 +317,7 @@ fn bless_refuses_lower_versions_and_changed_fingerprints() {
         problems(&other_battery, &none, &changed, &cases, &none, &[]),
         [
             "BATTERY  the fingerprints were computed with battery 3, the engine's is 2 (a \
-             battery change: bless --battery-changed, changing no reference and no version)"
+             battery change: `cargo xtask bless --battery-changed`, changing no reference and no version)"
         ],
         "fingerprints of another battery are not compared, and the battery change is refused"
     );
@@ -450,7 +450,7 @@ fn blesses_a_battery_change_alone() {
         refused(&old, &earlier, Spent::Replaced, same, PLAIN),
         [
             "BATTERY  the fingerprints were computed with battery 0, the engine's is 2 (a \
-             battery change: bless --battery-changed, changing no reference and no version)"
+             battery change: `cargo xtask bless --battery-changed`, changing no reference and no version)"
         ],
         "a battery change, not said"
     );
@@ -572,8 +572,10 @@ fn blesses_a_battery_change_apart_from_the_render_rules_and_hash() {
             (&now, &cases, &moved),
             PLAIN
         ),
-        ["BATTERY  the fingerprints were computed with battery 0, the engine's is 2 (a \
-          battery change: bless --battery-changed, changing no reference and no version)"],
+        [
+            "BATTERY  the fingerprints were computed with battery 0, the engine's is 2 (a \
+          battery change: `cargo xtask bless --battery-changed`, changing no reference and no version)"
+        ],
         "without the flag, only the battery is refused: new rules re-bless every reference"
     );
 }
@@ -623,7 +625,7 @@ fn refuses_a_reference_whose_case_the_record_does_not_hold() {
         problems(&old, &earlier, &now, &cases, &moved, &[]),
         [
             "MISSING  a: a reference but no versions recorded in the record bless replaces \
-             (restore it, or --case-changed a)"
+             (`cargo xtask bless --case-changed a`, or restore the record from git)"
         ],
         "a case left out of the record"
     );
