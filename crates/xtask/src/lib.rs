@@ -3719,15 +3719,36 @@ fn in_crate(path: &str) -> Option<(&'static RustCrate, &str)> {
 /// declaration or on a line of [`NOT_TEST_LINES`], and `include` (`include!`, which brings
 /// in code no gate reads by its path) nowhere. A `*_tests.rs` file brings in no other file
 /// (a module without a body, `#[path]`, `include!`), which no rule would tell as test code:
-/// its modules are written inline.
+/// its modules are written inline. No file of a crate, `tests/` included, holds a `path`
+/// attribute (`path_attributes`) but on the second line of a test declaration: a module
+/// comes from the file its name gives, never from another crate's file (whose changes
+/// would not widen this crate) nor from a file that is not `.rs` (which no gate reads).
 ///
 /// # Errors
 ///
 /// Returns every other `test` or `include` with its file and line, every file a
-/// `*_tests.rs` file would load, and every `*_tests.rs` file declared other than once.
+/// `*_tests.rs` file would load, every other `path` attribute, and every `*_tests.rs` file
+/// declared other than once.
 pub fn test_code_gate(sources: &[(String, String)]) -> Result<(), Failure> {
     let mut problems = Vec::new();
     let mut declared: BTreeMap<String, usize> = BTreeMap::new();
+    let loose_path = |path: &str, line: usize| {
+        format!(
+            "{path}:{line}: holds a `path` attribute outside a test declaration, which loads a \
+             file no rule tells by its path: code is brought in by `mod` from the file its \
+             name gives"
+        )
+    };
+    let in_tests = sources.iter().filter(|(path, _)| {
+        in_crate(path).is_some_and(|(_, relative)| relative.starts_with("tests/"))
+    });
+    for (path, text) in in_tests {
+        problems.extend(
+            path_attributes(text)
+                .into_iter()
+                .map(|line| loose_path(path, line)),
+        );
+    }
     let crate_sources = sources.iter().filter(|(path, _)| {
         in_crate(path).is_some_and(|(_, relative)| !relative.starts_with("tests/"))
     });
@@ -3738,6 +3759,12 @@ pub fn test_code_gate(sources: &[(String, String)]) -> Result<(), Failure> {
         }
         let declarations = test_declarations(path, text);
         let firsts: BTreeSet<usize> = declarations.iter().map(|(line, _)| *line).collect();
+        problems.extend(
+            path_attributes(text)
+                .into_iter()
+                .filter(|line| !firsts.contains(&line.saturating_sub(1)))
+                .map(|line| loose_path(path, line)),
+        );
         for (_, file) in declarations {
             let times = declared.entry(file).or_default();
             *times = times.saturating_add(1);
@@ -3777,6 +3804,40 @@ pub fn test_code_gate(sources: &[(String, String)]) -> Result<(), Failure> {
     )
 }
 
+/// The lines of `text` holding a `path` attribute, which makes rustc load a module from the
+/// file it names: the code word `path` right after `[`, `(` or `,` and right before one
+/// `=`, spaces apart (`#[path = …]`, `#![path = …]`, and a conditional attribute's
+/// `(<condition>, path = …)`).
+///
+/// The one rule of the gates that tell code by its path (the test code gate, the math
+/// layer gate); `path` as a name (`let path = …`, `f(path)`) is not one.
+fn path_attributes(text: &str) -> Vec<usize> {
+    let chars: Vec<char> = text.chars().collect();
+    code_words(text)
+        .into_iter()
+        .filter(|(_, word, end)| path_attribute(&chars, word, *end))
+        .map(|(line, _, _)| line)
+        .collect()
+}
+
+/// Whether `word`, a code word of `chars` ending before index `end`, names a `path`
+/// attribute ([`path_attributes`]).
+fn path_attribute(chars: &[char], word: &str, end: usize) -> bool {
+    let spaced = |character: &&char| !character.is_whitespace();
+    let start = end.saturating_sub(word.chars().count());
+    let before = chars
+        .get(..start)
+        .unwrap_or_default()
+        .iter()
+        .rev()
+        .find(spaced);
+    let mut after = chars.get(end..).unwrap_or_default().iter().filter(spaced);
+    word == "path"
+        && matches!(before, Some('[' | '(' | ','))
+        && after.next() == Some(&'=')
+        && after.next() != Some(&'=')
+}
+
 /// The problems of `text`, the `*_tests.rs` file `path`, that would load another file: a
 /// module declared without a body (`mod <identifier>;`, which rustc reads from a file
 /// beside it), a `#[path]` attribute, or the code word `include` (`include_str` and
@@ -3786,15 +3847,6 @@ fn loaded_by_tests(path: &str, text: &str) -> Vec<String> {
     let words = code_words(text);
     let mut problems = Vec::new();
     for (index, (line, word, end)) in words.iter().enumerate() {
-        let start = end.saturating_sub(word.chars().count());
-        let before: String = chars
-            .get(..start)
-            .unwrap_or_default()
-            .iter()
-            .rev()
-            .filter(|character| !character.is_whitespace())
-            .take(2)
-            .collect();
         let bodyless = word == "mod"
             && words
                 .get(index.saturating_add(1))
@@ -3808,7 +3860,7 @@ fn loaded_by_tests(path: &str, text: &str) -> Vec<String> {
                 });
         let what = if bodyless {
             "declares a module without a body, loaded from another file"
-        } else if word == "path" && (before == "[#" || before == "[!") {
+        } else if path_attribute(&chars, word, *end) {
             "holds a `#[path]` attribute, which loads another file"
         } else if word == "include" {
             "names `include`, which loads another file"
@@ -5025,7 +5077,8 @@ fn math_layer_crates(metadata: &str) -> Result<Vec<String>, Failure> {
 /// engine core outside [`MATH_LAYER_FILE`] name none of [`REDUCTION_NAMES`]; the engine core
 /// outside it names none of [`ENGINE_FORBIDDEN_NAMES`] but on the line
 /// [`ENGINE_ARITHMETIC_FORBID`], which every module of it but [`ENGINE_ROOT`] holds; and no
-/// source names `include` (`include!`), nor `path` but in a test declaration.
+/// source names `include` (`include!`), nor holds a `path` attribute but in a test
+/// declaration (`path_attributes`).
 ///
 /// `metadata` is the output of [`metadata_command`]; `sources` the files of
 /// [`MATH_LAYER_SOURCES`] (path and text), of which the `*_tests.rs` files declared once
@@ -5086,8 +5139,11 @@ pub fn math_layer_gate(metadata: &str, sources: &[(String, String)]) -> Result<(
         {
             problems.push(format!("{path} does not hold `{forbid}`"));
         }
-        for (line, word, _) in code_words(text) {
-            if word == "include" || (word == "path" && !path_lines.contains(&(path, line))) {
+        let chars: Vec<char> = text.chars().collect();
+        for (line, word, end) in code_words(text) {
+            let loose_path =
+                path_attribute(&chars, &word, end) && !path_lines.contains(&(path, line));
+            if word == "include" || loose_path {
                 problems.push(format!(
                     "{path}:{line}: names `{word}` outside a test declaration: code comes \
                      into these crates by `mod` alone, from files the gate reads"

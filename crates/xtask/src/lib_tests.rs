@@ -8422,6 +8422,75 @@ fn reads_the_lint_forbids_as_no_test_code() {
 }
 
 #[test]
+fn refuses_a_path_attribute_outside_a_test_declaration() {
+    let gate = |sources: &[(&str, &str)]| {
+        let owned: Vec<(String, String)> = sources
+            .iter()
+            .map(|(path, text)| ((*path).to_owned(), (*text).to_owned()))
+            .collect();
+        super::test_code_gate(&owned)
+    };
+    let context = "test code only in tests/ and declared *_tests.rs files";
+    for (path, text, line) in [
+        (
+            "crates/engine-fpenv/src/word.rs",
+            "#[path = \"x.inc\"]\nmod x;\n",
+            1_usize,
+        ),
+        (
+            "crates/engine-cli/tests/binary.rs",
+            "//! Tests.\n#[path = \"../../engine-core/src/h.rs\"]\nmod h;\n",
+            2,
+        ),
+        (
+            "crates/engine-cli/src/cli.rs",
+            "#[cfg_attr(all(), path = \"../../engine-core/src/h.rs\")]\nmod h;\n",
+            1,
+        ),
+        (
+            "crates/engine-cli/src/cli.rs",
+            "#[cfg_attr(path = \"h.rs\")]\nmod h;\n",
+            1,
+        ),
+        ("crates/engine-core/src/plan.rs", "#![path = \"h.rs\"]\n", 1),
+        (
+            "crates/engine-core/src/plan.rs",
+            "# [\n  path\n = \"h.rs\"]\nmod h;\n",
+            2,
+        ),
+    ] {
+        assert_eq!(
+            gate(&[(path, text)]),
+            failed(format!(
+                "{context}: {path}:{line}: holds a `path` attribute outside a test declaration, \
+                 which loads a file no rule tells by its path: code is brought in by `mod` from \
+                 the file its name gives"
+            )),
+            "{path}: {text}"
+        );
+    }
+    let declared = "#[cfg(test)]\n#[path = \"plan_tests.rs\"]\nmod tests;\n";
+    assert_eq!(
+        gate(&[
+            ("crates/engine-core/src/plan.rs", declared),
+            ("crates/engine-core/src/plan_tests.rs", "fn t() {}\n"),
+            (
+                "crates/engine-cli/tests/binary.rs",
+                "fn f(path: &str) {\n    let path = path;\n    g(path, path.len());\n    \
+                 let _ = [path];\n    h(path == path, (path >= path));\n}\n// #[path = \"h.rs\"]\nconst A: &str = \"#[path = \\\"h.rs\\\"]\";\n"
+            ),
+        ]),
+        Ok(()),
+        "the test declaration, `path` as a name, and in prose and strings"
+    );
+    assert_eq!(
+        gate(&[("tools/x/src/lib.rs", "#[path = \"h.rs\"]\nmod h;\n")]),
+        Ok(()),
+        "a file of no crate of the workspace"
+    );
+}
+
+#[test]
 fn reads_a_raw_identifier_as_its_name() {
     let words = |text: &str| -> Vec<String> {
         super::code_words(text)
@@ -8500,6 +8569,10 @@ fn refuses_a_test_file_that_loads_another() {
         ),
         (
             "#![path = \"h.rs\"]\n",
+            loads("holds a `#[path]` attribute, which loads another file", 1),
+        ),
+        (
+            "#[cfg_attr(test, path = \"h.rs\")]\nmod h {}\n",
             loads("holds a `#[path]` attribute, which loads another file", 1),
         ),
         (
