@@ -15,10 +15,13 @@ function steps(step: number): Clock & { readings: number } {
   return clock;
 }
 
-/** A fake engine of `channels` channels that records the outputs of every render. */
-function engine(channels: number): { readonly channels: number; readonly rendered: (readonly Float32Array[])[]; render: (outputs: Float32Array[]) => void } {
+/** A fake engine of `channels` channels and blocks of `blockSize` frames (64 unless given) that records the outputs of every render. */
+function engine(
+  channels: number,
+  blockSize = 64,
+): { readonly channels: number; readonly blockSize: number; readonly rendered: (readonly Float32Array[])[]; render: (outputs: Float32Array[]) => void } {
   const rendered: (readonly Float32Array[])[] = [];
-  return { channels, rendered, render: (outputs) => rendered.push([...outputs]) };
+  return { channels, blockSize, rendered, render: (outputs) => rendered.push([...outputs]) };
 }
 
 afterEach(() => {
@@ -36,7 +39,7 @@ describe("the bench page's timing", () => {
     }
   });
 
-  test("renders a number of blocks in quanta of two blocks, into one output per channel and at least one", () => {
+  test("renders a number of 64-frame blocks in 128-frame quanta, into one output per channel and at least one", () => {
     for (const [channels, outputs] of [
       [0, 1],
       [1, 1],
@@ -55,7 +58,32 @@ describe("the bench page's timing", () => {
     renderBlocks(none, 0);
     expect(none.rendered).toHaveLength(0);
     for (const blocks of [1, 7, -2, 2.5]) {
-      expect(() => { renderBlocks(engine(1), blocks); }).toThrow(new RangeError(`${String(blocks)} blocks are not a whole number of 128-frame quanta`));
+      expect(() => { renderBlocks(engine(1), blocks); }).toThrow(new RangeError(`${String(blocks)} blocks of 64 frames are not a whole number of 128-frame quanta`));
+    }
+  });
+
+  test("renders the frames of a number of blocks of the engine's own block size, never of a block size it assumes", () => {
+    for (const [blockSize, blocks, quanta] of [
+      [32, 16, 4],
+      [64, 16, 8],
+      [128, 16, 16],
+      [256, 16, 32],
+      [48, 8, 3],
+      [1, 384, 3],
+    ] as const) {
+      const fake = engine(2, blockSize);
+      renderBlocks(fake, blocks);
+      expect(fake.rendered).toHaveLength(quanta);
+    }
+    for (const [blockSize, blocks] of [
+      [48, 1],
+      [32, 3],
+      [256, 0.25],
+      [1, 127],
+    ] as const) {
+      expect(() => {
+        renderBlocks(engine(1, blockSize), blocks);
+      }).toThrow(new RangeError(`${String(blocks)} blocks of ${String(blockSize)} frames are not a whole number of 128-frame quanta`));
     }
   });
 

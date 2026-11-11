@@ -173,6 +173,11 @@ describe("WasmEngine", () => {
     expect(engine.blocks).toBe(Math.ceil(Math.floor(1000 / size) * size / 64));
   });
 
+  test("reports the frames of its blocks, as the module gives them", () => {
+    expect(WasmEngine.create(module, SINE_PATCH, RATE, "binary64-as-binary32").blockSize).toBe(64);
+    expect(WasmEngine.create(module, SINE_PATCH, RATE, "binary64").blockSize).toBe(64);
+  });
+
   test("reports its channels", () => {
     expect(WasmEngine.create(module, SINE_PATCH, RATE, "binary64-as-binary32").channels).toBe(2);
     expect(WasmEngine.create(module, SILENT_PATCH, RATE, "binary64-as-binary32").channels).toBe(0);
@@ -418,6 +423,8 @@ describe("WasmEngine", () => {
   test("refuses a module whose blocks have no frame, which would render forever", () => {
     expect(() => placing(1, 0, 4)).toThrow(new ModuleError("engine_block_size returned 0: a block has at least one frame"));
     expect(placing(1, 1, 4).blocks).toBe(0);
+    expect(placing(1, 1, 4).blockSize).toBe(1);
+    expect(placing(2, 48, 4).blockSize).toBe(48);
   });
 
   test("reads a block that ends at the end of the memory", () => {

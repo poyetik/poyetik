@@ -9,11 +9,8 @@ export type Clock = () => number;
 /** The page's clock: the only clock a test of the repository reads (CLAUDE.md, "Tests are deterministic"). */
 export const PAGE_CLOCK: Clock = () => performance.now();
 
-/** Frames per render quantum of Web Audio, two engine blocks: what the engine renders at each call. */
+/** Frames per render quantum of Web Audio: what the engine renders at each call. */
 const QUANTUM_FRAMES = 128;
-
-/** Engine blocks per render quantum. */
-const BLOCKS_PER_QUANTUM = 2;
 
 /**
  * The number of runs `?runs=` asks in `search` (the page's `location.search`): 1 when absent.
@@ -31,23 +28,27 @@ export function runsOf(search: string): number {
   return runs;
 }
 
-/** What {@link renderBlocks} needs of an engine: its channel count, and rendering into buffers. */
+/** What {@link renderBlocks} needs of an engine: its channel count, its block size, and rendering into buffers. */
 export interface Renders {
   /** Its output channels. */
   readonly channels: number;
+  /** The frames of each of its blocks, as its module gives them. */
+  readonly blockSize: number;
   /** Renders the next frames into `outputs`, one per channel. */
   render(outputs: Float32Array[]): void;
 }
 
 /**
- * Renders `blocks` blocks of `engine` in render quanta of {@link QUANTUM_FRAMES} frames (two
- * blocks each), as Web Audio asks them, into one output per channel and at least one.
- * @throws {RangeError} when `blocks` is not a whole number of quanta.
+ * Renders `blocks` blocks of `engine`, of its own block size, in render quanta of
+ * {@link QUANTUM_FRAMES} frames, as Web Audio asks them, into one output per channel and at
+ * least one. The engine renders a block when its first frame is output, so the frames of
+ * `blocks` blocks render exactly `blocks` blocks.
+ * @throws {RangeError} when the frames of `blocks` blocks are not a whole number of quanta.
  */
 export function renderBlocks(engine: Renders, blocks: number): void {
-  const quanta = blocks / BLOCKS_PER_QUANTUM;
+  const quanta = (blocks * engine.blockSize) / QUANTUM_FRAMES;
   if (!Number.isInteger(quanta) || quanta < 0) {
-    throw new RangeError(`${String(blocks)} blocks are not a whole number of ${String(QUANTUM_FRAMES)}-frame quanta`);
+    throw new RangeError(`${String(blocks)} blocks of ${String(engine.blockSize)} frames are not a whole number of ${String(QUANTUM_FRAMES)}-frame quanta`);
   }
   const outputs = Array.from({ length: Math.max(1, engine.channels) }, () => new Float32Array(QUANTUM_FRAMES));
   for (let quantum = 0; quantum < quanta; quantum += 1) {

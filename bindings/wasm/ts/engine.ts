@@ -268,6 +268,11 @@ export class WasmEngine<A extends Samples> {
     });
   }
 
+  /** Number of frames of every block the module renders (`engine_block_size`), read once when the engine is created. */
+  get blockSize(): number {
+    return this.#blockSize;
+  }
+
   /**
    * Number of blocks rendered so far. The engine never renders ahead: a block is rendered
    * only when its first frame is output, so that it never depends on how the host splits
