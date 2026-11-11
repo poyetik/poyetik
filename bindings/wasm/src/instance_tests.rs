@@ -127,11 +127,10 @@ fn loads_at_the_requested_rate() {
         instance.input(MONO.len()).copy_from_slice(MONO);
         assert!(instance.load(rate.hz(), 0), "{}", instance.message());
         let expected = engine_core::Renderer::new(
-            engine_core::Plan::<engine_core::Binary64>::build(
-                &patch,
-                &engine_objects::REGISTRY,
-                rate,
-            )
+            engine_core::Plan::<
+                engine_core::Binary64,
+                Box<dyn engine_core::Object<engine_core::Binary64>>,
+            >::build(&patch, &engine_objects::REGISTRY, rate)
             .expect("valid plan"),
         )
         .render::<f64>(BLOCK_SIZE)

@@ -26,9 +26,10 @@ mod tests {
     use engine_core::host::{Delivered, ParamBounds, Raw};
     use engine_core::{
         AlgorithmVersion, BLOCK_SIZE, Binary32, Binary64, Block, Capability, Connection, CoreError,
-        Create, Factory, Node, NodeId, Object, ObjectSpec, ParamSpec, ParamValues, Params, Patch,
-        Plan, PortSpec, Precision, Renderer, Sample, SampleRate,
+        Create, Dispatch, Factory, Node, NodeId, Object, ObjectSpec, ParamSpec, ParamValues,
+        Params, Patch, Plan, PortSpec, Precision, Renderer, Sample, SampleRate,
     };
+    use engine_objects::BuiltIn;
     use engine_testkit::matrix::{HOST_BUFFER_SIZES, PRECISIONS, sample_rates};
     use engine_testkit::runner::runner;
     use engine_testkit::{heap_bytes_during, heap_operations_during, sample_of as of};
@@ -40,6 +41,13 @@ mod tests {
         name: "x",
         description: "test port",
     };
+
+    /// Every box type through its virtual table: the instance type of a plan that names no
+    /// box type it calls directly. The laws run on it and on the engine's [`BuiltIn`], which
+    /// routes these laws' test box types to its arm for the box types outside the registry:
+    /// they prove the plan the engine ships and that arm, while `osc~` and `dac~`'s own arms
+    /// are proven by the parse laws, `engine-objects`' tests and conformance.
+    type Virtual<S> = Box<dyn Object<S>>;
 
     /// The samples whose renders these laws compare, in either precision: rendered as their
     /// own floats, read back bit for bit.
@@ -390,7 +398,10 @@ mod tests {
 
     /// Renders `frames` frames of a fresh plan at once: no heap operation from its very
     /// first call.
-    fn first_render<S: Bits>(plan: Plan<S>, frames: usize) -> Result<Vec<S>, String> {
+    fn first_render<S: Bits, I: Dispatch<S>>(
+        plan: Plan<S, I>,
+        frames: usize,
+    ) -> Result<Vec<S>, String> {
         let mut renderer = Renderer::new(plan);
         let mut whole = vec![S::ZERO.raw(); frames.saturating_mul(renderer.channels())];
         let ((), operations) = heap_operations_during(|| renderer.render_into(&mut whole))?;
@@ -402,7 +413,10 @@ mod tests {
 
     /// Processes a fresh plan block by block until `samples` interleaved samples: no
     /// heap operation from the first block on.
-    fn first_blocks<S: Sample>(mut plan: Plan<S>, samples: usize) -> Result<Vec<S>, String> {
+    fn first_blocks<S: Sample, I: Dispatch<S>>(
+        mut plan: Plan<S, I>,
+        samples: usize,
+    ) -> Result<Vec<S>, String> {
         let mut block = vec![S::SILENCE; plan.channels()];
         let mut processed =
             Vec::with_capacity(samples.saturating_add(BLOCK_SIZE.saturating_mul(block.len())));
@@ -419,8 +433,9 @@ mod tests {
         Ok(processed)
     }
 
-    /// Every law, for one shape at one rate, rendering `frames` split at `split`.
-    fn check<S: Bits>(
+    /// Every law, for one shape at one rate, rendering `frames` split at `split`, the plan
+    /// holding its box instances as `I`.
+    fn check<S: Bits, I: Dispatch<S>>(
         shape: &Shape,
         rate: SampleRate,
         frames: usize,
@@ -429,7 +444,7 @@ mod tests {
         let (nodes, connections) = patch_parts(shape);
         let patch =
             Patch::new(nodes.clone(), connections.clone()).map_err(|error| error.to_string())?;
-        let built = Plan::<S>::build(&patch, &REGISTRY, rate);
+        let built = Plan::<S, I>::build(&patch, &REGISTRY, rate);
         let expected = reference_order(&nodes, &connections);
         let plan = match (built, expected) {
             (Err(error), Err(reference)) if error == reference => return Ok(()),
@@ -464,7 +479,7 @@ mod tests {
         // Rendered in host buffers of every size of the matrix: the same samples.
         for size in HOST_BUFFER_SIZES {
             let mut chunked = Renderer::new(
-                Plan::<S>::build(&patch, &REGISTRY, rate).map_err(|error| error.to_string())?,
+                Plan::<S, I>::build(&patch, &REGISTRY, rate).map_err(|error| error.to_string())?,
             );
             let mut parts = vec![S::ZERO.raw(); whole.len()];
             for buffer in parts.chunks_mut(size.saturating_mul(chunked.channels()).max(1)) {
@@ -479,7 +494,7 @@ mod tests {
 
         // The same patch, advanced block by block from a fresh plan: the same samples.
         let processed = first_blocks(
-            Plan::<S>::build(&patch, &REGISTRY, rate).map_err(|error| error.to_string())?,
+            Plan::<S, I>::build(&patch, &REGISTRY, rate).map_err(|error| error.to_string())?,
             whole.len(),
         )?;
         if bits(&processed) != bits(&whole) {
@@ -494,7 +509,7 @@ mod tests {
         let reversed =
             Patch::new(reversed_nodes, reversed_connections).map_err(|error| error.to_string())?;
         let mut again = Renderer::new(
-            Plan::<S>::build(&reversed, &REGISTRY, rate).map_err(|error| error.to_string())?,
+            Plan::<S, I>::build(&reversed, &REGISTRY, rate).map_err(|error| error.to_string())?,
         );
         let split_at = split.min(frames);
         let mut parts: Vec<S::Float> = again.render(split_at).map_err(|error| error.to_string())?;
@@ -524,14 +539,15 @@ mod tests {
         Ok(())
     }
 
-    /// Every law over random patches at every rate, computing in `S`.
-    fn obeys_the_laws_in<S: Bits>() -> Result<(), String> {
+    /// Every law over random patches at every rate, computing in `S`, the plans holding
+    /// their box instances as `I`.
+    fn obeys_the_laws_in<S: Bits, I: Dispatch<S>>() -> Result<(), String> {
         at_every_rate(|runner, rate| {
             runner
                 .run(
                     &(shapes(), 0_usize..300, 0_usize..300),
                     |(shape, frames, split)| {
-                        check::<S>(&shape, rate, frames, split).map_err(TestCaseError::fail)
+                        check::<S, I>(&shape, rate, frames, split).map_err(TestCaseError::fail)
                     },
                 )
                 .map_err(|error| error.to_string())
@@ -541,11 +557,28 @@ mod tests {
     #[test]
     fn plans_obey_their_laws_in_every_precision_at_every_rate() {
         for precision in PRECISIONS {
-            let result = match precision {
-                Precision::Binary64 => obeys_the_laws_in::<Binary64>(),
-                Precision::Binary32 => obeys_the_laws_in::<Binary32>(),
+            let [shipped, virtual_table] = match precision {
+                Precision::Binary64 => [
+                    obeys_the_laws_in::<Binary64, BuiltIn<Binary64>>(),
+                    obeys_the_laws_in::<Binary64, Virtual<Binary64>>(),
+                ],
+                Precision::Binary32 => [
+                    obeys_the_laws_in::<Binary32, BuiltIn<Binary32>>(),
+                    obeys_the_laws_in::<Binary32, Virtual<Binary32>>(),
+                ],
             };
-            assert_eq!(result, Ok(()), "plan laws in binary{}", precision.bits());
+            assert_eq!(
+                shipped,
+                Ok(()),
+                "plan laws in binary{}, the engine's plan",
+                precision.bits()
+            );
+            assert_eq!(
+                virtual_table,
+                Ok(()),
+                "plan laws in binary{}, every box through its virtual table",
+                precision.bits()
+            );
         }
     }
 
@@ -616,8 +649,8 @@ mod tests {
             for (nodes, connections) in [into_one, on_one] {
                 let patch = Patch::new(nodes.clone(), connections.clone())
                     .map_err(|error| error.to_string())?;
-                let plan =
-                    Plan::<S>::build(&patch, &REGISTRY, rate).map_err(|error| error.to_string())?;
+                let plan = Plan::<S, BuiltIn<S>>::build(&patch, &REGISTRY, rate)
+                    .map_err(|error| error.to_string())?;
                 let order: Vec<NodeId> = plan.execution_order().collect();
                 let expected = reference_render::<S>(&nodes, &connections, &order, rate, 1);
                 let rendered = first_render(plan, 1)?;
@@ -683,7 +716,7 @@ mod tests {
                 let patch =
                     Patch::new(nodes.clone(), wires(fed_by)).map_err(|error| error.to_string())?;
                 let (plan, bytes) =
-                    heap_bytes_during(|| Plan::<S>::build(&patch, &REGISTRY, rate))?;
+                    heap_bytes_during(|| Plan::<S, BuiltIn<S>>::build(&patch, &REGISTRY, rate))?;
                 plan.map(|_| bytes).map_err(|error| error.to_string())
             };
             let (summed, single) = (kept(sources)?, kept(1)?);
@@ -849,7 +882,10 @@ mod tests {
         )
         .expect("valid patch");
         let rate = SampleRate::new(48_000).expect("valid rate");
-        let plan = || Plan::<Binary64>::build(&patch, &[&FREEING, &OUT], rate).expect("valid plan");
+        let plan = || {
+            Plan::<Binary64, BuiltIn<Binary64>>::build(&patch, &[&FREEING, &OUT], rate)
+                .expect("valid plan")
+        };
         assert_eq!(
             first_render(plan(), 100),
             Err("1 heap operations in a first render".to_owned()),
@@ -860,7 +896,8 @@ mod tests {
             Err("1 heap operations while processing a block".to_owned()),
             "block by block"
         );
-        let narrow = Plan::<Binary32>::build(&patch, &[&FREEING, &OUT], rate).expect("valid plan");
+        let narrow = Plan::<Binary32, BuiltIn<Binary32>>::build(&patch, &[&FREEING, &OUT], rate)
+            .expect("valid plan");
         assert_eq!(
             first_render(narrow, 100),
             Err("1 heap operations in a first render".to_owned()),
@@ -918,7 +955,7 @@ mod tests {
                     .expect("few inlets");
                 kinds.extend(nodes.iter().map(|node| node.kind.clone()));
                 let patch = Patch::new(nodes, connections).map_err(|error| error.to_string())?;
-                match Plan::<Binary64>::build(&patch, &REGISTRY, rate) {
+                match Plan::<Binary64, Virtual<Binary64>>::build(&patch, &REGISTRY, rate) {
                     Ok(_) => plans += 1,
                     Err(CoreError::Cycle(_)) => cycles += 1,
                     Err(other) => return Err(format!("unexpected error {other}")),

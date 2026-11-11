@@ -22,7 +22,9 @@ mod osc;
 use alloc::boxed::Box;
 use core::ptr;
 
-use engine_core::{Block, Dispatch, Object, ObjectSpec, Params, Sample, SampleRate};
+use engine_core::{
+    Block, Dispatch, Object, ObjectSpec, Params, Plan, Renderer, Sample, SampleRate,
+};
 
 pub use dac::DAC;
 pub use osc::OSC;
@@ -30,10 +32,20 @@ pub use osc::OSC;
 /// Every box type of the engine.
 pub static REGISTRY: [&ObjectSpec; 2] = [&OSC, &DAC];
 
+/// The engine's plan computing in `S`, its box instances held as [`BuiltIn`].
+///
+/// A built-in box type is then called directly (`spec/engine-design.md`, decision 33): the
+/// plan of every host of the engine, where `engine_core::Plan` names the instance type
+/// itself.
+pub type EnginePlan<S> = Plan<S, BuiltIn<S>>;
+
+/// The engine's offline renderer computing in `S`, of an [`EnginePlan`].
+pub type EngineRenderer<S> = Renderer<S, BuiltIn<S>>;
+
 /// An instance of a box type of [`REGISTRY`], called directly, or of any other box type
 /// (one loaded at run time), called through its virtual table.
 ///
-/// It is the instance type of the engine's plans (`engine_core::Plan<S, BuiltIn<S>>`),
+/// It is the instance type of the engine's plans ([`EnginePlan`], [`EngineRenderer`]),
 /// which call a built-in box with no indirect call (`spec/engine-design.md`, decision 33).
 ///
 /// A box whose state is larger than a pointer is kept on the heap, as the virtual table's

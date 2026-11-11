@@ -9,7 +9,6 @@
 
 #![cfg_attr(not(test), forbid(clippy::arithmetic_side_effects))]
 
-use alloc::boxed::Box;
 use alloc::collections::btree_map::Entry;
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec;
@@ -18,7 +17,7 @@ use core::{hint, iter};
 
 use crate::math::{Lanes, add_two, sum_blocks};
 use crate::{
-    Binary64, Block, Capability, Connection, CoreError, Dispatch, Node, NodeId, Object, ObjectSpec,
+    Binary64, Block, Capability, Connection, CoreError, Dispatch, Node, NodeId, ObjectSpec,
     ParamValues, Patch, Sample, SampleRate, flush,
 };
 
@@ -121,12 +120,30 @@ impl<K: Copy> Feed<K> {
 /// a [`crate::Renderer`], which owns it: the two ways of advancing time can then never be
 /// mixed on one plan.
 ///
-/// `I` is how the plan holds and calls its box instances ([`Dispatch`]): by default each
-/// through its virtual table, one indirect call per box per block; a set of box types
-/// known when the program is built (the engine's own, in `engine-objects`) can be called
-/// directly instead, leaving the virtual table to the box types loaded at run time.
+/// `I` is how the plan holds and calls its box instances ([`Dispatch`]), always named, so
+/// that no plan takes a slower path by omission: `Box<dyn Object<S>>` calls each through
+/// its virtual table, one indirect call per box per block; the engine's own box types are
+/// called directly through `engine_objects::BuiltIn` (its `EnginePlan`), which leaves the
+/// virtual table to the box types loaded at run time (`spec/engine-design.md`, decision
+/// 33). A plan without it does not compile:
+///
+/// ```compile_fail,E0107
+/// fn channels(plan: &engine_core::Plan<engine_core::Binary64>) -> usize {
+///     plan.channels()
+/// }
+/// ```
+///
+/// The same function naming it compiles, so the missing type is the only error above:
+///
+/// ```
+/// use engine_core::{Binary64, Object, Plan};
+///
+/// fn channels(plan: &Plan<Binary64, Box<dyn Object<Binary64>>>) -> usize {
+///     plan.channels()
+/// }
+/// ```
 #[derive(Debug)]
-pub struct Plan<S: Sample, I = Box<dyn Object<S>>> {
+pub struct Plan<S: Sample, I> {
     /// Box instances in execution order.
     instances: Vec<Running<S, I>>,
     /// Every outlet of every box, boxes in id order: what connections read from.

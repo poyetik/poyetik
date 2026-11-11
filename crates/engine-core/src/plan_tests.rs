@@ -17,6 +17,11 @@ use crate::{
     Renderer, Sample, SampleRate,
 };
 
+/// How these tests' plans hold their box instances: every box type through its virtual
+/// table (`engine-core` cannot name `engine_objects::BuiltIn`, whose plans the plan laws
+/// of `engine-testkit` run).
+type Virtual<S> = Box<dyn Object<S>>;
+
 const PORT: PortSpec = PortSpec {
     name: "x",
     description: "test port",
@@ -264,11 +269,15 @@ fn wire(from: u32, outlet: usize, to: u32, inlet: usize) -> Connection {
     }
 }
 
-fn build<S: Sample>(nodes: Vec<Node>, connections: Vec<Connection>) -> Result<Plan<S>, CoreError> {
-    Patch::new(nodes, connections).and_then(|patch| Plan::<S>::build(&patch, &REGISTRY, rate()))
+fn build<S: Sample>(
+    nodes: Vec<Node>,
+    connections: Vec<Connection>,
+) -> Result<Plan<S, Virtual<S>>, CoreError> {
+    Patch::new(nodes, connections)
+        .and_then(|patch| Plan::<S, Virtual<S>>::build(&patch, &REGISTRY, rate()))
 }
 
-fn run<S: Sample>(plan: &mut Plan<S>, channels: usize) -> Vec<Block<S>> {
+fn run<S: Sample>(plan: &mut Plan<S, Virtual<S>>, channels: usize) -> Vec<Block<S>> {
     let mut out = vec![[of::<S>(99.0); BLOCK_SIZE]; channels];
     plan.process(&mut out);
     out
@@ -424,7 +433,7 @@ fn passes_the_sample_rate_to_boxes<S: Bits>() {
         )
         .expect("valid patch");
         let rate = SampleRate::new(hz).expect("a supported rate");
-        let mut plan = Plan::<S>::build(&patch, &REGISTRY, rate).expect("valid plan");
+        let mut plan = Plan::<S, Virtual<S>>::build(&patch, &REGISTRY, rate).expect("valid plan");
         let tenth = f64::from(u16::try_from(hz / 10).expect("small"));
         assert_eq!(run(&mut plan, 1), vec![block::<S>(tenth)], "{hz} Hz / 10");
     }
@@ -591,7 +600,7 @@ fn treats_subnormal_parameters_as_zero<S: Bits>() {
     )
     .expect("a valid patch");
     assert_eq!(
-        Plan::<S>::build(&patch, &[&ABOVE], rate()).map(|_| ()),
+        Plan::<S, Virtual<S>>::build(&patch, &[&ABOVE], rate()).map(|_| ()),
         Err(CoreError::ParamOutOfRange {
             node: NodeId(1),
             name: String::from("value"),
@@ -839,7 +848,7 @@ fn accepts_patches_up_to_the_limits_only<S: Bits>() {
     cables.extend(all_ports(0, 2));
     assert_eq!(cables.len(), Patch::MAX_CONNECTIONS, "exactly the limit");
     let patch = Patch::new(nodes, cables).expect("within the limits");
-    let plan = Plan::<S>::build(&patch, &REGISTRY, rate()).expect("valid plan");
+    let plan = Plan::<S, Virtual<S>>::build(&patch, &REGISTRY, rate()).expect("valid plan");
     assert_eq!(
         plan.execution_order().count(),
         Patch::MAX_NODES,
@@ -1177,7 +1186,8 @@ fn renders_a_product_then_a_sum_in_the_mode_of_the_build<S: Bits>() {
         vec![wire(1, 0, 2, 0)],
     )
     .expect("valid patch");
-    let plan = Plan::<S>::build(&patch, &[&PRODUCT, &MONO_OUT], rate()).expect("valid plan");
+    let plan =
+        Plan::<S, Virtual<S>>::build(&patch, &[&PRODUCT, &MONO_OUT], rate()).expect("valid plan");
     let rendered: Vec<u64> = Renderer::new(plan)
         .render::<S::Float>(3)
         .expect("small render")

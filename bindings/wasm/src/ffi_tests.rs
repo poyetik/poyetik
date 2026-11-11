@@ -86,7 +86,14 @@ fn first_channels(
         "loaded at {} Hz",
         rate.hz()
     );
-    let wide = || Renderer::new(Plan::<Binary64>::build(&patch, &REGISTRY, rate).expect("plan"));
+    let wide = || {
+        Renderer::new(
+            Plan::<Binary64, Box<dyn engine_core::Object<Binary64>>>::build(
+                &patch, &REGISTRY, rate,
+            )
+            .expect("plan"),
+        )
+    };
     let (exported, expected): (Vec<u64>, Vec<u64>) = match format {
         RenderFormat::Binary64 => (
             wide_block(),
@@ -114,12 +121,17 @@ fn first_channels(
                 .iter()
                 .map(|sample| u64::from(sample.to_bits()))
                 .collect(),
-            Renderer::new(Plan::<Binary32>::build(&patch, &REGISTRY, rate).expect("plan"))
-                .render::<f32>(BLOCK_SIZE)
-                .expect("small render")
-                .iter()
-                .map(|sample| u64::from(sample.to_bits()))
-                .collect(),
+            Renderer::new(
+                Plan::<Binary32, Box<dyn engine_core::Object<Binary32>>>::build(
+                    &patch, &REGISTRY, rate,
+                )
+                .expect("plan"),
+            )
+            .render::<f32>(BLOCK_SIZE)
+            .expect("small render")
+            .iter()
+            .map(|sample| u64::from(sample.to_bits()))
+            .collect(),
         ),
     };
     (
@@ -168,7 +180,12 @@ fn follows_the_protocol() {
     let patch =
         engine_patch::parse_patch(core::str::from_utf8(sine).expect("UTF-8")).expect("valid patch");
     let mut renderer = Renderer::new(
-        Plan::<Binary64>::build(&patch, &REGISTRY, SampleRate::HZ_48000).expect("valid plan"),
+        Plan::<Binary64, Box<dyn engine_core::Object<Binary64>>>::build(
+            &patch,
+            &REGISTRY,
+            SampleRate::HZ_48000,
+        )
+        .expect("valid plan"),
     );
     let expected: Vec<f32> = renderer.render(2 * BLOCK_SIZE).expect("small render");
     let mut actual = Vec::new();

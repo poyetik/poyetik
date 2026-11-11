@@ -7,7 +7,7 @@ use engine_fpenv::DefaultMode;
 
 use crate::{HEADER_LEN, wav_header};
 use engine_hash::{NotWholeFrames, RenderHash, Samples, render_hash};
-use engine_objects::{BuiltIn, REGISTRY};
+use engine_objects::{EnginePlan, REGISTRY};
 use serde::Deserialize;
 
 /// A conformance case, as written: how to render its patch, which is a separate file
@@ -191,11 +191,11 @@ impl Rendered {
 #[derive(Debug)]
 enum Built {
     /// Rendered and given in binary64.
-    Binary64(Plan<Binary64, BuiltIn<Binary64>>),
+    Binary64(EnginePlan<Binary64>),
     /// Rendered in binary64, given in binary32.
-    Binary64AsBinary32(Plan<Binary64, BuiltIn<Binary64>>),
+    Binary64AsBinary32(EnginePlan<Binary64>),
     /// Rendered and given in binary32.
-    Binary32(Plan<Binary32, BuiltIn<Binary32>>),
+    Binary32(EnginePlan<Binary32>),
 }
 
 impl Built {

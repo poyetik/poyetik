@@ -7,7 +7,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use engine_core::{Binary32, Binary64, Block, Plan, RenderFormat, Sample, SampleRate};
-use engine_objects::{BuiltIn, REGISTRY};
+use engine_objects::{EnginePlan, REGISTRY};
 
 /// The plan of a patch and its output buffers, in one render format.
 #[derive(Debug)]
@@ -15,14 +15,14 @@ enum Rendering {
     /// Computed and given in binary64.
     Binary64 {
         /// The execution plan.
-        plan: Plan<Binary64, BuiltIn<Binary64>>,
+        plan: EnginePlan<Binary64>,
         /// The last rendered block, one per output channel.
         out: Vec<Block<Binary64>>,
     },
     /// Computed in binary64, given in binary32.
     Binary64AsBinary32 {
         /// The execution plan.
-        plan: Plan<Binary64, BuiltIn<Binary64>>,
+        plan: EnginePlan<Binary64>,
         /// The last rendered block, one per output channel, as computed.
         out: Vec<Block<Binary64>>,
         /// The same block rounded to binary32: what the host is given.
@@ -31,7 +31,7 @@ enum Rendering {
     /// Computed and given in binary32.
     Binary32 {
         /// The execution plan.
-        plan: Plan<Binary32, BuiltIn<Binary32>>,
+        plan: EnginePlan<Binary32>,
         /// The last rendered block, one per output channel.
         out: Vec<Block<Binary32>>,
     },
@@ -68,10 +68,7 @@ pub struct Engine {
 }
 
 /// Builds the plan of `patch` at `rate`, computing in `S`.
-fn plan<S: Sample>(
-    patch: &engine_core::Patch,
-    rate: SampleRate,
-) -> Result<Plan<S, BuiltIn<S>>, String> {
+fn plan<S: Sample>(patch: &engine_core::Patch, rate: SampleRate) -> Result<EnginePlan<S>, String> {
     Plan::build(patch, &REGISTRY, rate).map_err(|error| error.to_string())
 }
 

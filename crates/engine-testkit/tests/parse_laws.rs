@@ -284,10 +284,12 @@ mod tests {
             );
             match engine_patch::parse_patch(&text) {
                 Err(_) => unread += 1,
-                Ok(patch) => match Plan::<Binary64>::build(&patch, &REGISTRY, rate) {
-                    Err(_) => unbuilt += 1,
-                    Ok(plan) => played += u32::from(plan.channels() > 0),
-                },
+                Ok(patch) => {
+                    match Plan::<Binary64, BuiltIn<Binary64>>::build(&patch, &REGISTRY, rate) {
+                        Err(_) => unbuilt += 1,
+                        Ok(plan) => played += u32::from(plan.channels() > 0),
+                    }
+                }
             }
         }
         assert!(unread >= 100, "{unread} refused while reading");

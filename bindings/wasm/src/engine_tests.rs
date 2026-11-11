@@ -38,7 +38,12 @@ fn expected(
     format: RenderFormat,
     frames: usize,
 ) -> Vec<u64> {
-    let wide = || Renderer::new(Plan::<Binary64>::build(patch, &REGISTRY, rate).expect("a plan"));
+    let wide = || {
+        Renderer::new(
+            Plan::<Binary64, Box<dyn engine_core::Object<Binary64>>>::build(patch, &REGISTRY, rate)
+                .expect("a plan"),
+        )
+    };
     match format {
         RenderFormat::Binary64 => wide()
             .render::<f64>(frames)
@@ -52,14 +57,15 @@ fn expected(
             .iter()
             .map(|sample| u64::from(sample.to_bits()))
             .collect(),
-        RenderFormat::Binary32 => {
-            Renderer::new(Plan::<Binary32>::build(patch, &REGISTRY, rate).expect("a plan"))
-                .render::<f32>(frames)
-                .expect("small render")
-                .iter()
-                .map(|sample| u64::from(sample.to_bits()))
-                .collect()
-        }
+        RenderFormat::Binary32 => Renderer::new(
+            Plan::<Binary32, Box<dyn engine_core::Object<Binary32>>>::build(patch, &REGISTRY, rate)
+                .expect("a plan"),
+        )
+        .render::<f32>(frames)
+        .expect("small render")
+        .iter()
+        .map(|sample| u64::from(sample.to_bits()))
+        .collect(),
     }
 }
 

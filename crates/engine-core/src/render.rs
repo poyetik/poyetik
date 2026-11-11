@@ -2,12 +2,11 @@
 
 #![cfg_attr(not(test), forbid(clippy::arithmetic_side_effects))]
 
-use alloc::boxed::Box;
 use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::host::Delivered;
-use crate::{BLOCK_SIZE, Block, CoreError, Dispatch, Object, Plan, Sample};
+use crate::{BLOCK_SIZE, Block, CoreError, Dispatch, Plan, Sample};
 
 /// Renders a plan computing in `S` offline, frame by frame, as one continuous stream; its
 /// plan holds its box instances as `I`, as [`Plan`] says.
@@ -21,9 +20,11 @@ use crate::{BLOCK_SIZE, Block, CoreError, Dispatch, Object, Plan, Sample};
 /// the rest of the current one). That mix does not compile:
 ///
 /// ```compile_fail,E0599
-/// use engine_core::{Binary64, Block, Renderer};
+/// use engine_core::{Binary64, Block, Object, Renderer};
 ///
-/// fn mix(renderer: &mut Renderer<Binary64>, out: &mut [Block<Binary64>]) {
+/// type Virtual = Box<dyn Object<Binary64>>;
+///
+/// fn mix(renderer: &mut Renderer<Binary64, Virtual>, out: &mut [Block<Binary64>]) {
 ///     renderer.process(out);
 /// }
 /// ```
@@ -31,14 +32,24 @@ use crate::{BLOCK_SIZE, Block, CoreError, Dispatch, Object, Plan, Sample};
 /// The same function without that call compiles, so the call is the only error above:
 ///
 /// ```
-/// use engine_core::{Binary64, Block, Renderer};
+/// use engine_core::{Binary64, Block, Object, Renderer};
 ///
-/// fn mix(renderer: &mut Renderer<Binary64>, out: &mut [Block<Binary64>]) {
+/// type Virtual = Box<dyn Object<Binary64>>;
+///
+/// fn mix(renderer: &mut Renderer<Binary64, Virtual>, out: &mut [Block<Binary64>]) {
 ///     let _ = (renderer.channels(), out);
 /// }
 /// ```
+///
+/// Like [`Plan`], it names how its plan calls its boxes: without it, it does not compile.
+///
+/// ```compile_fail,E0107
+/// fn channels(renderer: &engine_core::Renderer<engine_core::Binary64>) -> usize {
+///     renderer.channels()
+/// }
+/// ```
 #[derive(Debug)]
-pub struct Renderer<S: Sample, I = Box<dyn Object<S>>> {
+pub struct Renderer<S: Sample, I> {
     /// The plan, advanced only by this renderer.
     plan: Plan<S, I>,
     /// The last block the plan produced, one per channel.
