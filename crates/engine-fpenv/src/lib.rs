@@ -49,6 +49,7 @@
 //! runs them (`x86_64` in CI, aarch64 on a Mac) and by the review written there.
 
 #![no_std]
+#![doc(test(attr(forbid(unsafe_code))))]
 
 #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
 compile_error!(

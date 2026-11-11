@@ -14,6 +14,7 @@
     unsafe_code,
     reason = "a counting GlobalAlloc must implement an unsafe trait"
 )]
+#![doc(test(attr(forbid(unsafe_code))))]
 
 use core::alloc::{GlobalAlloc, Layout};
 use core::cell::Cell;

@@ -749,16 +749,25 @@ fn lifting() -> String {
 const ONE_UNSAFE_OPERATION: &str = "#![forbid(clippy::multiple_unsafe_ops_per_block)]";
 
 /// The text of the audited file `path`: [`lifting`], and in the files of `ASSEMBLY_FILES`
-/// the forbid of [`ONE_UNSAFE_OPERATION`] and inline assembly.
+/// the forbid of [`ONE_UNSAFE_OPERATION`] and inline assembly, in a library root
+/// [`doc_tests_forbid`].
 fn audited(path: &str) -> String {
     if super::ASSEMBLY_FILES.contains(&path) {
         format!(
             "{}{ONE_UNSAFE_OPERATION}\nfn f() {{\n    unsafe {{\n        ::core::arch::asm!(\"nop\");\n    }}\n}}\n",
             lifting()
         )
+    } else if path.ends_with("/src/lib.rs") {
+        format!("{}{}", lifting(), doc_tests_forbid())
     } else {
         lifting()
     }
+}
+
+/// The inner attribute every library root holds, so that its doc tests forbid unsafe code,
+/// built so that this file does not hold it whole.
+fn doc_tests_forbid() -> String {
+    format!("#![doc(test(attr(forbid({}_{}))))]\n", "unsafe", "code")
 }
 
 /// The licenses of what the apps ship, all allowed.
@@ -6874,7 +6883,7 @@ fn refuses_a_file_that_rebinds_core_in_the_crate_of_an_assembly_file() {
         ("crates/engine-fpenv/src/other.rs", "mod r#core {}\n"),
     ] {
         let text = if path.ends_with("lib.rs") {
-            format!("//! The crate.\n{code}")
+            format!("//! The crate.\n{}{code}", doc_tests_forbid())
         } else {
             format!("{forbid}{code}")
         };
@@ -6901,7 +6910,7 @@ fn refuses_a_file_that_rebinds_core_in_the_crate_of_an_assembly_file() {
     assert_eq!(
         gate(
             "crates/engine-core/src/lib.rs",
-            &format!("{forbid}use crate::m as core;\n")
+            &format!("{forbid}{}use crate::m as core;\n", doc_tests_forbid())
         ),
         Ok(()),
         "another crate"
@@ -6922,7 +6931,8 @@ fn refuses_unsafe_operations_another_file_could_bring_under_the_assembly_file() 
     };
     let word = "unsafe";
     let peek = format!(
-        "//! The crate.\nmacro_rules! peek {{\n    ($p:expr) => {{\n        // SAFETY: read.\n        {word} {{ core::ptr::read($p) }}\n    }};\n}}\n"
+        "//! The crate.\n{}macro_rules! peek {{\n    ($p:expr) => {{\n        // SAFETY: read.\n        {word} {{ core::ptr::read($p) }}\n    }};\n}}\n",
+        doc_tests_forbid()
     );
     let assembly = super::ASSEMBLY_FILES[0];
     let refused = |path: &str, line: usize| {
@@ -6934,7 +6944,7 @@ fn refuses_unsafe_operations_another_file_could_bring_under_the_assembly_file() 
     };
     assert_eq!(
         with("crates/engine-fpenv/src/lib.rs", &peek),
-        refused("crates/engine-fpenv/src/lib.rs", 5),
+        refused("crates/engine-fpenv/src/lib.rs", 6),
         "a macro of the library root, used in the assembly file"
     );
     assert_eq!(
@@ -6948,10 +6958,113 @@ fn refuses_unsafe_operations_another_file_could_bring_under_the_assembly_file() 
     assert_eq!(
         with(
             "crates/engine-fpenv/src/lib.rs",
-            &format!("//! Not {word} but the assembly.\nconst A: &str = \"{word}\";\n")
+            &format!(
+                "//! Not {word} but the assembly.\n{}const A: &str = \"{word}\";\n",
+                doc_tests_forbid()
+            )
         ),
         Ok(()),
         "the word in prose and strings"
+    );
+}
+
+#[test]
+fn refuses_assembly_outside_an_unsafe_block_everywhere() {
+    let sources: Vec<(String, String)> = UNSAFE_FILES
+        .iter()
+        .map(|path| ((*path).to_owned(), audited(path)))
+        .collect();
+    let forbid = format!("#![forbid({}_{})]\n", "unsafe", "code");
+    for (path, text, line) in [
+        (
+            super::ASSEMBLY_FILES[0].to_owned(),
+            format!(
+                "{}core::arch::global_asm!(\"nop\");\n",
+                audited(super::ASSEMBLY_FILES[0])
+            ),
+            11_usize,
+        ),
+        (
+            "bindings/wasm/src/ffi.rs".to_owned(),
+            format!("{}::core::arch::naked_asm!(\"ret\");\n", lifting()),
+            5,
+        ),
+        (
+            "crates/engine-core/src/render.rs".to_owned(),
+            format!("{forbid}macro_rules! g {{\n    () => {{ global_asm!(\"\") }};\n}}\n"),
+            3,
+        ),
+    ] {
+        let mut all = sources.clone();
+        all.retain(|(held, _)| *held != path);
+        all.push((path.clone(), text.clone()));
+        let word = if text.contains("naked") {
+            "naked_asm"
+        } else {
+            "global_asm"
+        };
+        let found = unsafe_gate(&all);
+        assert!(
+            reports(
+                &found,
+                &format!(
+                    "{path}:{line}: names `{word}`: assembly outside an `unsafe` block (a global \
+                     symbol, a naked function) is written nowhere, since neither the one-operation \
+                     rule nor Miri sees it"
+                )
+            ),
+            "{text}: {found:?}"
+        );
+    }
+}
+
+#[test]
+fn requires_every_library_root_to_forbid_unsafe_code_in_its_doc_tests() {
+    let forbid = format!("#![forbid({}_{})]\n", "unsafe", "code");
+    let doc = format!("#![doc(test(attr(forbid({}_{}))))]\n", "unsafe", "code");
+    let mut sources: Vec<(String, String)> = UNSAFE_FILES
+        .iter()
+        .map(|path| ((*path).to_owned(), audited(path)))
+        .collect();
+    let root = "crates/engine-core/src/lib.rs";
+    let gate = |text: String| {
+        let mut all = sources.clone();
+        all.push((root.to_owned(), text));
+        unsafe_gate(&all)
+    };
+    let refused = |path: &str| {
+        format!(
+            "{path} does not hold `{}`: its doc tests, each a crate of its own, would not \
+             forbid unsafe code",
+            doc.trim()
+        )
+    };
+    assert_eq!(
+        gate(format!("//! The crate.\n{forbid}{doc}")),
+        Ok(()),
+        "a library root forbidding unsafe code in its doc tests"
+    );
+    for text in [
+        forbid.clone(),
+        format!("{forbid}/* {doc} */"),
+        format!("{forbid}fn f() {{}}\n{doc}"),
+    ] {
+        assert!(reports(&gate(text.clone()), &refused(root)), "{text}");
+    }
+    sources.retain(|(path, _)| path != "crates/engine-alloc-counter/src/lib.rs");
+    sources.push((
+        "crates/engine-alloc-counter/src/lib.rs".to_owned(),
+        lifting(),
+    ));
+    sources.push(("crates/engine-core/src/plan.rs".to_owned(), forbid.clone()));
+    sources.push(("crates/engine-cli/src/main.rs".to_owned(), forbid));
+    assert_eq!(
+        unsafe_gate(&sources),
+        failed(format!(
+            "the lint against unsafe code: {}",
+            refused("crates/engine-alloc-counter/src/lib.rs")
+        )),
+        "the root of an unsafe crate too; a module and a binary's root need not"
     );
 }
 
@@ -7040,7 +7153,10 @@ fn refuses_unsafe_outside_the_unsafe_files_and_their_declared_tests() {
     assert_eq!(
         with(
             "crates/engine-core/src/lib.rs",
-            &format!("{forbid}//! Not {word} code.\nconst A: &str = \"{word}\"; // {word}\n")
+            &format!(
+                "{forbid}{}//! Not {word} code.\nconst A: &str = \"{word}\"; // {word}\n",
+                doc_tests_forbid()
+            )
         ),
         Ok(()),
         "the word in prose and strings"
@@ -8945,7 +9061,12 @@ fn makes_the_compiler_refuse_unsafe_outside_the_audited_files() {
         "bindings/wasm/src/engine.rs",
         "bindings/wasm/tests/web.rs",
     ] {
-        sources.push((path.to_owned(), forbid.clone()));
+        let text = if path.ends_with("/src/lib.rs") {
+            format!("{forbid}{}", doc_tests_forbid())
+        } else {
+            forbid.clone()
+        };
+        sources.push((path.to_owned(), text));
     }
     for path in [
         "crates/engine-core/src/plan.rs",
@@ -8953,7 +9074,12 @@ fn makes_the_compiler_refuse_unsafe_outside_the_audited_files() {
         "bindings/wasm/src/lib.rs",
         "README.rs",
     ] {
-        sources.push((path.to_owned(), "fn plain() {}\n".to_owned()));
+        let text = if path.ends_with("/src/lib.rs") {
+            format!("{}fn plain() {{}}\n", doc_tests_forbid())
+        } else {
+            "fn plain() {}\n".to_owned()
+        };
+        sources.push((path.to_owned(), text));
     }
     assert_eq!(
         unsafe_gate(&sources),
@@ -8967,7 +9093,10 @@ fn makes_the_compiler_refuse_unsafe_outside_the_audited_files() {
         ("bindings/wasm/src/engine.rs", ""),
     ] {
         missing.retain(|(source, _)| source != path);
-        missing.push((path.to_owned(), "fn plain() {}\n".to_owned()));
+        missing.push((
+            path.to_owned(),
+            format!("{}fn plain() {{}}\n", doc_tests_forbid()),
+        ));
     }
     assert_eq!(
         unsafe_gate(&missing),
@@ -9046,7 +9175,7 @@ fn requires_each_forbid_as_a_leading_inner_attribute_of_its_file() {
         .iter()
         .map(|path| ((*path).to_owned(), audited(path)))
         .collect();
-    let root = "crates/engine-core/src/lib.rs";
+    let root = "crates/engine-cli/src/main.rs";
     let unsafe_site = |text: &str| {
         let mut sources = audited_sources.clone();
         sources.push((root.to_owned(), text.to_owned()));

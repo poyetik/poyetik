@@ -7,6 +7,8 @@
 //! [`Instance`]; [`ffi`] uses `unsafe` (for `#[unsafe(no_mangle)]` and in its own tests),
 //! as one of the files allowed to, listed in xtask's `UNSAFE_FILES` and run under Miri.
 
+#![doc(test(attr(forbid(unsafe_code))))]
+
 extern crate alloc;
 
 mod engine;

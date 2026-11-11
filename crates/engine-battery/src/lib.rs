@@ -9,6 +9,7 @@
 //! box laws of `engine-testkit` read too: one source for both.
 
 #![forbid(unsafe_code)]
+#![doc(test(attr(forbid(unsafe_code))))]
 
 extern crate alloc;
 

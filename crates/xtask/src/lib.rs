@@ -8,6 +8,7 @@
 //! crate's `README.md`.
 
 #![forbid(unsafe_code)]
+#![doc(test(attr(forbid(unsafe_code))))]
 
 extern crate alloc;
 
@@ -3600,8 +3601,12 @@ pub fn test_declarations(source: &RustSource) -> Vec<TestDeclaration> {
 /// rustc does not lint code expanded from another crate's macro, so a macro of a crate
 /// that forbids unsafe code can still bring it into another: no Rust file but those and the
 /// unit tests they declare names the keyword `unsafe` in its tokens, prose and strings
-/// apart. A macro of a third-party dependency is outside this gate: dependencies are
-/// reviewed (`dependencies.txt`).
+/// apart, and no Rust file at all names an identifier of [`REFUSED_ASSEMBLY`]. A macro of a
+/// third-party dependency is outside this gate: dependencies are reviewed
+/// (`dependencies.txt`). A doc test is prose to the gate and compiled as a crate of its
+/// own, outside its crate's attributes: every library root (`src/lib.rs`) holds
+/// [`DOC_TESTS_FORBID_UNSAFE_CODE`] among its leading inner attributes, so that the
+/// compiler refuses unsafe code in its doc tests.
 ///
 /// Every file of [`ASSEMBLY_FILES`], which leaves the Miri step, must still hold inline
 /// assembly, and nothing else unsafe: in its tokens ([`RustSource`]), it names `unsafe` at
@@ -3622,8 +3627,9 @@ pub fn test_declarations(source: &RustSource) -> Vec<TestDeclaration> {
 /// Returns every other file that lifts the lint, every listed file that no longer does,
 /// every file that should forbid it and does not, every assembly file without assembly or
 /// its forbid, every `unsafe` of an assembly file that does not open its assembly call,
-/// every declaration of an assembly file, every other `unsafe`, and every rebinding of
-/// `core` in another file of an assembly file's crate.
+/// every declaration of an assembly file, every other `unsafe`, every identifier of
+/// [`REFUSED_ASSEMBLY`], every library root whose doc tests do not forbid unsafe code, and
+/// every rebinding of `core` in another file of an assembly file's crate.
 pub fn unsafe_gate(parsed: &[RustSource]) -> Result<(), Failure> {
     let lifting: BTreeSet<&str> = parsed
         .iter()
@@ -3667,6 +3673,16 @@ pub fn unsafe_gate(parsed: &[RustSource]) -> Result<(), Failure> {
         if required && source.leading_attribute(FORBID_UNSAFE_CODE).is_none() {
             problems.push(format!("{path} does not hold `{FORBID_UNSAFE_CODE}`"));
         }
+        if relative == "src/lib.rs"
+            && source
+                .leading_attribute(DOC_TESTS_FORBID_UNSAFE_CODE)
+                .is_none()
+        {
+            problems.push(format!(
+                "{path} does not hold `{DOC_TESTS_FORBID_UNSAFE_CODE}`: its doc tests, each a \
+                 crate of its own, would not forbid unsafe code"
+            ));
+        }
     }
     verdict("the lint against unsafe code", problems)
 }
@@ -3675,10 +3691,23 @@ pub fn unsafe_gate(parsed: &[RustSource]) -> Result<(), Failure> {
 /// of holds among its leading inner attributes (`RustSource::leading_attribute`).
 pub const FORBID_UNSAFE_CODE: &str = "#![forbid(unsafe_code)]";
 
+/// The inner attribute every library root holds among its leading ones ([`unsafe_gate`]):
+/// its doc tests, each compiled as a crate of its own outside the crate's attributes,
+/// forbid unsafe code too.
+pub const DOC_TESTS_FORBID_UNSAFE_CODE: &str = "#![doc(test(attr(forbid(unsafe_code))))]";
+
+/// The identifiers no Rust file names: assembly outside an `unsafe` block.
+///
+/// `global_asm!`, a global symbol, and `naked_asm!`, a naked function's body, which neither
+/// the one-operation rule of the assembly file nor Miri sees, and which rustc does not lint
+/// when another crate's macro expands to it.
+pub const REFUSED_ASSEMBLY: [&str; 2] = ["global_asm", "naked_asm"];
+
 /// The attributes that name the lint against unsafe code without lifting it: each forbids
-/// or denies it, for the file or for one item.
-pub const UNSAFE_CODE_KEPT: [&str; 4] = [
+/// or denies it, for the file, for one item, or for the file's doc tests.
+pub const UNSAFE_CODE_KEPT: [&str; 5] = [
     FORBID_UNSAFE_CODE,
+    DOC_TESTS_FORBID_UNSAFE_CODE,
     "#![deny(unsafe_code)]",
     "#[forbid(unsafe_code)]",
     "#[deny(unsafe_code)]",
@@ -3767,9 +3796,10 @@ fn assembly_problems(file: &str, source: Option<&RustSource>, problems: &mut Vec
     }
 }
 
-/// Adds to `problems` every `unsafe` of `sources` outside [`UNSAFE_FILES`] and the unit
-/// tests they declare (`tests`), and every rebinding of `core` (`as core`, `mod core`) in
-/// the crate of an assembly file ([`unsafe_gate`]).
+/// Adds to `problems` every identifier of [`REFUSED_ASSEMBLY`] in `sources`, every
+/// `unsafe` outside [`UNSAFE_FILES`] and the unit tests they declare (`tests`), and every
+/// rebinding of `core` (`as core`, `mod core`) in the crate of an assembly file
+/// ([`unsafe_gate`]).
 ///
 /// rustc does not lint code expanded from another crate's macro against unsafe code, so a
 /// `forbid` cannot keep a macro of a safe crate from bringing unsafe code into another:
@@ -3781,6 +3811,16 @@ fn assembly_problems(file: &str, source: Option<&RustSource>, problems: &mut Vec
 fn unsafe_outside(sources: &[RustSource], tests: &BTreeSet<String>, problems: &mut Vec<String>) {
     for source in sources {
         let path = source.path.as_str();
+        for token in &source.tokens {
+            if token.kind == TokenKind::Ident && REFUSED_ASSEMBLY.contains(&token.text.as_str()) {
+                problems.push(format!(
+                    "{path}:{}: names `{}`: assembly outside an `unsafe` block (a global \
+                     symbol, a naked function) is written nowhere, since neither the \
+                     one-operation rule nor Miri sees it",
+                    token.line, token.text
+                ));
+            }
+        }
         if UNSAFE_FILES.contains(&path) && !ASSEMBLY_FILES.contains(&path) {
             continue;
         }
@@ -3870,11 +3910,15 @@ pub fn unviable_names_gate(reviews: &str, sources: &[RustSource]) -> Result<(), 
 }
 
 /// The attributes outside test code that may name `test`: the lint forbids that apply
-/// outside tests.
+/// outside tests, and the forbid of unsafe code in doc tests.
 ///
 /// Each only among a file's leading inner attributes (`RustSource::leading_attribute`),
 /// besides a test declaration ([`test_declarations`]).
-pub const NOT_TEST_ATTRIBUTES: [&str; 2] = [ENGINE_ARITHMETIC_FORBID, BOX_FLOAT_FORBID];
+pub const NOT_TEST_ATTRIBUTES: [&str; 3] = [
+    ENGINE_ARITHMETIC_FORBID,
+    BOX_FLOAT_FORBID,
+    DOC_TESTS_FORBID_UNSAFE_CODE,
+];
 
 /// The crate of [`RUST_CRATES`] holding `path`, and the path relative to its directory.
 fn in_crate(path: &str) -> Option<(&'static RustCrate, &str)> {
@@ -3900,7 +3944,10 @@ fn in_crate(path: &str) -> Option<(&'static RustCrate, &str)> {
 /// included, holds a `path` attribute (`path_attributes`) but in a test declaration, nor
 /// an attribute a macro names by a variable (`variable_attributes`): a module comes from
 /// the file its name gives, never from another crate's file (whose changes would not widen
-/// this crate) nor from a file that is not `.rs` (which no gate reads).
+/// this crate) nor from a file that is not `.rs` (which no gate reads). **Review only**: what
+/// a doc test loads (`include!`, `#[path]`, `include_str!` in a code block of a doc
+/// comment), which is prose to every gate and which no build the loaded-files gate reads
+/// compiles; the compiler refuses unsafe code there ([`DOC_TESTS_FORBID_UNSAFE_CODE`]).
 ///
 /// # Errors
 ///

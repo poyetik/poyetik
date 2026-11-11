@@ -31,6 +31,7 @@
 //!   global allocator).
 
 #![forbid(unsafe_code)]
+#![doc(test(attr(forbid(unsafe_code))))]
 
 extern crate alloc;
 
