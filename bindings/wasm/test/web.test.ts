@@ -222,8 +222,11 @@ describe("loadPatch", () => {
     const byDefault = await loadPatch(wasmBytes(), SINE_PATCH, RATE);
     expect(byDefault.precision).toBe("binary64");
     expect(byDefault.options(false).precision).toBe("binary64");
+    // Its two entry points, one default: 0.1.0's three arguments still load a patch.
+    expect((await LoadedPatch.load(wasmBytes(), SINE_PATCH, RATE)).precision).toBe("binary64");
     const narrow = await loadPatch(wasmBytes(), SINE_PATCH, RATE, "binary32");
     expect(narrow).toMatchObject({ rate: RATE, channels: 2, precision: "binary32" });
+    expect((await LoadedPatch.load(wasmBytes(), SINE_PATCH, RATE, "binary32")).precision).toBe("binary32");
     expect(narrow.options(true).precision).toBe("binary32");
     await expect(loadPatch(wasmBytes(), UNKNOWN_BOX, RATE, "binary32")).rejects.toThrow(new Error('box 1: unknown box type "nope~"'));
   });

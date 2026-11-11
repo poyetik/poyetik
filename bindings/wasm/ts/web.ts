@@ -47,7 +47,8 @@ export class LoadedPatch {
   }
 
   /**
-   * Checks `patch` with the engine at `rate` hertz in `precision`, on this thread: errors are thrown here
+   * Checks `patch` with the engine at `rate` hertz in `precision` (binary64 by default, a
+   * host setting; the render is given to Web Audio as binary32), on this thread: errors are thrown here
    * with the explanation of the engine, rather than in the audio thread. What it rejects
    * with, told apart by `name` (the error classes are not exported yet, roadmap #32):
    * @throws {RangeError} when `rate` is not a whole number of hertz that fits 32 bits.
@@ -59,7 +60,7 @@ export class LoadedPatch {
    * @throws {Error} named `EngineTrap`, with the WebAssembly `RuntimeError` as `cause`, when
    * the module traps while checking the patch.
    */
-  static async load(wasm: ArrayBuffer, patch: Uint8Array, rate: number, precision: Precision): Promise<LoadedPatch> {
+  static async load(wasm: ArrayBuffer, patch: Uint8Array, rate: number, precision: Precision = "binary64"): Promise<LoadedPatch> {
     const bytes = wasm.slice(0);
     const module = await WebAssembly.compile(bytes).catch((error: unknown) => {
       throw new ModuleError(`cannot be compiled: ${String(error)}`, { cause: error });
@@ -90,12 +91,12 @@ export async function addProcessors(context: BaseAudioContext, url: string | URL
 }
 
 /**
- * Checks `patch` with the engine at `rate` hertz, to compute in `precision` (binary64 by
- * default, a host setting; the render is given to Web Audio as binary32): see
- * {@link LoadedPatch.load}, which lists what it rejects with.
+ * Checks `patch` with the engine at `rate` hertz, to compute in `precision` (by default,
+ * the default of {@link LoadedPatch.load}): see {@link LoadedPatch.load}, which lists what
+ * it rejects with.
  * @throws {Error} as {@link LoadedPatch.load}.
  */
-export function loadPatch(wasm: ArrayBuffer, patch: Uint8Array, rate: number, precision: Precision = "binary64"): Promise<LoadedPatch> {
+export function loadPatch(wasm: ArrayBuffer, patch: Uint8Array, rate: number, precision?: Precision): Promise<LoadedPatch> {
   return LoadedPatch.load(wasm, patch, rate, precision);
 }
 
