@@ -95,9 +95,9 @@ impl<K: Copy> Feed<K> {
     /// on the result. Without it, the compiler computes the addresses of the lanes before
     /// the loop over the boxes, which every plan with a box then pays each block, a sum or
     /// not; with it, a sum of three or more and a fed output box pay a little more each
-    /// block. The barrier is the cheaper for every box benchmark, the other side's cost is
-    /// smaller, and both are dated in `spec/benchmarks.md` ("Forms measured on the
-    /// real-time path"); the unconnected `dac~` benchmark fails without it.
+    /// block, less than a box saves. Both sides are dated in `spec/benchmarks.md` ("Forms
+    /// measured on the real-time path"); the unconnected `dac~` benchmark fails without the
+    /// barrier.
     fn write<'source, S: Sample + 'source>(
         &self,
         out: &mut Block<S>,
