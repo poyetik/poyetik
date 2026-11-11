@@ -6,9 +6,22 @@ export function now(): readonly unknown[] {
   return [performance.now(), Date.now(), process.hrtime(), process.uptime(), new Date(), Date()];
 }
 
-/** The same clocks through the global object, by each of its names. */
+/** The same clocks through the global object: each form by each of its names. */
 export function nowThroughTheGlobal(): readonly unknown[] {
-  return [globalThis.performance.now(), window.performance.now(), self.Date.now(), new globalThis.Date(), window.Date()];
+  return [
+    globalThis.performance.now(),
+    window.performance.now(),
+    self.performance.now(),
+    globalThis.Date.now(),
+    window.Date.now(),
+    self.Date.now(),
+    new globalThis.Date(),
+    new window.Date(),
+    new self.Date(),
+    globalThis.Date(),
+    window.Date(),
+    self.Date(),
+  ];
 }
 
 /** A date from a timestamp reads no clock. */

@@ -90,9 +90,10 @@ test("each rule of the policy rejects what it forbids, and only that", async () 
     "bare-fetch": ["no-restricted-globals", ...Array<string>(3).fill("no-restricted-properties")],
     fetch: [],
     // performance.now, Date.now, process.hrtime and process.uptime, then new Date() and
-    // Date(), then the five reads through globalThis, window and self; not new Date(0),
+    // Date(), then the twelve reads through the global object (performance.now, Date.now,
+    // new Date() and Date() through each of globalThis, window and self); not new Date(0),
     // directly or through the global object.
-    clock: [...Array<string>(4).fill("no-restricted-properties"), ...Array<string>(7).fill("no-restricted-syntax")].sort(),
+    clock: [...Array<string>(4).fill("no-restricted-properties"), ...Array<string>(14).fill("no-restricted-syntax")].sort(),
     // The clock readers (CLOCK_READERS) read a clock, directly or through the global object;
     // the bench page's timing module still may not use what the other restrictions refuse
     // (Promise.withResolvers, an enum, a global augmentation, a skipped test).
