@@ -1021,13 +1021,19 @@ fn native_lint_steps() -> Vec<Step> {
 /// runs: the bypass gate refuses all of them.
 pub const INCLUDE_IGNORED: &str = "--include-ignored";
 
-/// The arguments of every cargo-mutants run: lints are capped while building mutants
-/// (otherwise a mutant that merely leaves a variable unused fails to compile and is silently
-/// skipped instead of tested), the ignored files are not copied, and every cargo command
-/// it runs keeps `Cargo.lock` as it is (`--locked`, as every other cargo command of the
-/// checks) and builds without debug information ([`MUTANT_BUILD_CONFIG`]).
-const MUTANTS_ARGS: [&str; 5] = [
+/// The arguments of every cargo-mutants run: no configuration file is read (`--no-config`)
+/// and its report goes to `mutants.out` at the root (`--output=.`), whatever an ignored
+/// `.cargo/mutants.toml` or `CARGO_MUTANTS_OUTPUT` says, which neither the bypass gate nor
+/// the cleanliness checks see (the bypass gate still refuses a tracked `mutants.toml`,
+/// dead under `--no-config`, so that a reviewer is told); lints are capped while building
+/// mutants (otherwise a mutant that merely leaves a variable unused fails to compile and is
+/// silently skipped instead of tested), the ignored files are not copied, and every cargo
+/// command it runs keeps `Cargo.lock` as it is (`--locked`, as every other cargo command of
+/// the checks) and builds without debug information ([`MUTANT_BUILD_CONFIG`]).
+const MUTANTS_ARGS: [&str; 7] = [
     "mutants",
+    "--no-config",
+    "--output=.",
     "--cap-lints=true",
     "--gitignore=true",
     "--cargo-arg=--locked",
