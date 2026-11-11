@@ -680,9 +680,8 @@ pub enum Action {
     /// Require every bit-defining dependency to be pinned to one exact version
     /// ([`pin_gate`]).
     PinGate,
-    /// Require the audio library to depend on no other part of the project
-    /// ([`library_gate`]), and every crate only tests use to be shared test code
-    /// ([`shared_tests_gate`]).
+    /// The rules of [`library_gate`] (what the audio library may depend on) and of
+    /// [`shared_tests_gate`] (which crates only tests use).
     LibraryGate,
     /// Require every roadmap step a tracked file cites to exist on the board
     /// ([`citation_gate`]).
