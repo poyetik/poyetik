@@ -144,7 +144,7 @@ class FakeConstantSource extends FakeNode {
 }
 
 /** Fake `AudioContext`, at 48 kHz, 1 s into its clock. */
-export class FakeContext {
+export class FakeContext extends EventTarget {
   /** Every context created, in order; emptied before each test. */
   static readonly created: FakeContext[] = [];
   /** The state `resume` leads to: a browser may keep a context suspended. */
@@ -161,8 +161,25 @@ export class FakeContext {
   readonly destination = {};
   /** State of the context: suspended until `resume`, as browsers create them outside a user gesture. */
   state: AudioContextState | "interrupted" = "suspended";
-  /** The handler the player sets for state changes, called by {@link FakeContext.become}. */
-  onstatechange: (() => void) | null = null;
+  /** The handler attribute's callback; registered as a listener when first set, as in browsers. */
+  #handler: (() => void) | null = null;
+  /** Calls the current handler: the listener the attribute holds its place with. */
+  readonly #invoke = (): void => {
+    this.#handler?.();
+  };
+  /** The event handler attribute: takes its place among the listeners when first set, keeps it when replaced, leaves when cleared. */
+  get onstatechange(): (() => void) | null {
+    return this.#handler;
+  }
+  /** Sets the handler attribute. */
+  set onstatechange(handler: (() => void) | null) {
+    if (handler === null) {
+      this.removeEventListener("statechange", this.#invoke);
+    } else if (this.#handler === null) {
+      this.addEventListener("statechange", this.#invoke);
+    }
+    this.#handler = handler;
+  }
   /** The worklet of the context: logs the modules added, and always loads them. */
   readonly audioWorklet = {
     addModule: (url: string): Promise<void> => {
@@ -176,6 +193,7 @@ export class FakeContext {
     if (FakeContext.refuses.has("create")) {
       throw new DOMException("no device", "NotSupportedError");
     }
+    super();
     this.sampleRate = options?.sampleRate ?? FakeContext.rate;
     FakeContext.created.push(this);
     log.push("new context");
@@ -203,6 +221,7 @@ export class FakeContext {
     }
     log.push("close");
     this.state = "closed";
+    queueMicrotask(() => this.dispatchEvent(new Event("statechange")));
     return Promise.resolve();
   }
 
@@ -227,7 +246,7 @@ export class FakeContext {
   /** The browser changes the state; Safari also has "interrupted", which the DOM types do not list. */
   become(state: AudioContextState | "interrupted"): void {
     this.state = state;
-    this.onstatechange?.();
+    this.dispatchEvent(new Event("statechange"));
   }
 }
 
