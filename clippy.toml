@@ -90,7 +90,7 @@ disallowed-methods = [
   { path = "f64::from_ne_bytes", reason = "native byte order differs between targets; use from_le_bytes" },
   { path = "std::time::Instant::now", reason = "the engine counts time in samples" },
   { path = "std::time::SystemTime::now", reason = "the engine counts time in samples" },
-  { path = "std::env::temp_dir", reason = "a test's directory is a Scratch guard, which removes it whatever the outcome: call scratch()" },
+  { path = "std::env::temp_dir", reason = "a test's directory is a Scratch guard, which removes it when the test returns or unwinds: call scratch()" },
 ]
 disallowed-types = [
   { path = "std::collections::HashMap", reason = "random iteration order: use BTreeMap" },

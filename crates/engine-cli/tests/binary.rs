@@ -8,9 +8,12 @@ mod tests {
     use std::process::Command;
 
     /// A directory of one test below the system's temporary directory, removed with
-    /// everything in it when the guard is dropped: when the test ends, passing, failing or
-    /// unwinding, so that no run leaves it behind.
+    /// everything in it when the guard is dropped: when the test returns or unwinds, a failing
+    /// test or a panicking mutant included. A test process killed (a mutant stopped at its
+    /// timeout) or aborted runs no drop and leaves it; the next test of the same name in a
+    /// process of the same id removes it when it starts.
     #[derive(Debug)]
+    #[must_use = "the directory is removed when the guard is dropped"]
     struct Scratch(std::path::PathBuf);
 
     impl AsRef<Path> for Scratch {
@@ -46,6 +49,26 @@ mod tests {
         }
         std::fs::create_dir_all(&dir).expect("scratch directory");
         Scratch(dir)
+    }
+
+    #[test]
+    fn removes_a_scratch_directory_whatever_the_test_does() {
+        let kept = scratch("guard");
+        let dropped = kept.to_path_buf();
+        std::fs::write(kept.join("a.txt"), "a").expect("written");
+        drop(kept);
+        assert!(!dropped.exists(), "removed with its files when dropped");
+        let unwound = std::panic::catch_unwind(|| {
+            let held = scratch("guard-unwound");
+            let inside = held.to_path_buf();
+            std::fs::write(held.join("a.txt"), "a").expect("written");
+            std::panic::panic_any(inside);
+        });
+        let left = unwound
+            .expect_err("the test panicked")
+            .downcast::<std::path::PathBuf>()
+            .expect("the path");
+        assert!(!left.exists(), "removed when the test unwinds");
     }
 
     /// The repository's conformance corpus.
@@ -117,7 +140,6 @@ mod tests {
             .args(["check", &dir.display().to_string()])
             .output()
             .expect("the binary runs");
-        std::fs::remove_dir_all(&dir).expect("cleanup");
         assert_eq!(
             output.status.code(),
             Some(1_i32),
@@ -157,7 +179,6 @@ mod tests {
             read("binary64-as-binary32"),
             read("binary32"),
         );
-        std::fs::remove_dir_all(&dir).expect("cleanup");
         assert!(
             output.status.success(),
             "{}",
@@ -264,7 +285,6 @@ mod tests {
             missing.as_os_str(),
             patch.as_os_str(),
         ]);
-        std::fs::remove_dir_all(&dir).expect("cleanup");
         assert_error(
             &unknown_box,
             1,
@@ -308,7 +328,6 @@ mod tests {
                 ])
             })
             .collect();
-        std::fs::remove_dir_all(&dir).expect("cleanup");
         for output in outputs {
             let stderr = &output.stderr;
             assert_eq!(output.status.code(), Some(1_i32), "a failure");
@@ -376,7 +395,6 @@ mod tests {
         )
         .expect("algorithm versions");
         let output = engine_cli(&[std::ffi::OsStr::new("check"), dir.as_os_str()]);
-        std::fs::remove_dir_all(&dir).expect("cleanup");
         assert_eq!(output.status.code(), Some(1_i32), "a failure");
         assert_eq!(
             String::from_utf8_lossy(&output.stderr),

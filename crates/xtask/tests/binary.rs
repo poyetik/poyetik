@@ -28,9 +28,12 @@ mod tests {
     }
 
     /// A directory of one test below the system's temporary directory, removed with
-    /// everything in it when the guard is dropped: when the test ends, passing, failing or
-    /// unwinding, so that no run leaves it behind.
+    /// everything in it when the guard is dropped: when the test returns or unwinds, a failing
+    /// test or a panicking mutant included. A test process killed (a mutant stopped at its
+    /// timeout) or aborted runs no drop and leaves it; the next test of the same name in a
+    /// process of the same id removes it when it starts.
     #[derive(Debug)]
+    #[must_use = "the directory is removed when the guard is dropped"]
     pub(super) struct Scratch(PathBuf);
 
     impl AsRef<Path> for Scratch {
@@ -66,6 +69,26 @@ mod tests {
         }
         std::fs::create_dir_all(&dir).expect("scratch directory");
         Scratch(dir)
+    }
+
+    #[test]
+    fn removes_a_scratch_directory_whatever_the_test_does() {
+        let kept = scratch("guard");
+        let dropped = kept.to_path_buf();
+        std::fs::write(kept.join("a.txt"), "a").expect("written");
+        drop(kept);
+        assert!(!dropped.exists(), "removed with its files when dropped");
+        let unwound = std::panic::catch_unwind(|| {
+            let held = scratch("guard-unwound");
+            let inside = held.to_path_buf();
+            std::fs::write(held.join("a.txt"), "a").expect("written");
+            std::panic::panic_any(inside);
+        });
+        let left = unwound
+            .expect_err("the test panicked")
+            .downcast::<PathBuf>()
+            .expect("the path");
+        assert!(!left.exists(), "removed when the test unwinds");
     }
 
     /// A file of this test, `message` in a scratch directory holding `content`, with its
@@ -380,7 +403,6 @@ mod hooks {
                     && line.ends_with(" refs/tags/v1.0.0")),
             "a pushed tag is named: {tagged}"
         );
-        fs::remove_dir_all(&root).expect("scratch removed");
     }
 
     #[test]
@@ -422,6 +444,5 @@ mod hooks {
         git(&worktree, &["commit", "-q", "-m", "docs: more"], &path);
         let received = fs::read_to_string(&record).expect("the hook ran cargo");
         assert_eq!(local_variables(&received), Vec::<&str>::new(), "{received}");
-        fs::remove_dir_all(&root).expect("scratch removed");
     }
 }

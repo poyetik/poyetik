@@ -59,27 +59,15 @@ fn system(root: std::path::PathBuf) -> SystemRunner {
 }
 
 /// A directory of one test below the system's temporary directory, removed with
-/// everything in it when the guard is dropped: when the test ends, passing, failing or
-/// unwinding (a mutant's failure included), so that no run leaves it behind.
+/// everything in it when the guard is dropped: when the test returns or unwinds, a failing
+/// test or a panicking mutant included. A test process killed (a mutant stopped at its
+/// timeout) or aborted runs no drop and leaves it; the next test of the same name in a
+/// process of the same id removes it when it starts.
 #[derive(Debug)]
+#[must_use = "the directory is removed when the guard is dropped"]
 struct Scratch(std::path::PathBuf);
 
 impl Scratch {
-    /// A fresh, empty directory for one test, `xtask-<name>-<process id>`.
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "the one place xtask's unit tests name the temporary directory: the guard \
-                  removes what it creates"
-    )]
-    fn new(name: &str) -> Self {
-        let dir = std::env::temp_dir().join(format!("xtask-{name}-{}", std::process::id()));
-        if let Err(error) = std::fs::remove_dir_all(&dir) {
-            assert_eq!(error.kind(), io::ErrorKind::NotFound, "clean start");
-        }
-        std::fs::create_dir_all(&dir).expect("scratch directory");
-        Self(dir)
-    }
-
     /// Its path, owned.
     fn path(&self) -> std::path::PathBuf {
         self.0.clone()
@@ -106,9 +94,19 @@ impl Drop for Scratch {
     }
 }
 
-/// A fresh, empty directory for one test ([`Scratch`]).
+/// A fresh, empty directory for one test, `xtask-<name>-<process id>` ([`Scratch`]).
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the one place xtask's unit tests name the temporary directory: the guard removes \
+              what it creates"
+)]
 fn scratch(name: &str) -> Scratch {
-    Scratch::new(name)
+    let dir = std::env::temp_dir().join(format!("xtask-{name}-{}", std::process::id()));
+    if let Err(error) = std::fs::remove_dir_all(&dir) {
+        assert_eq!(error.kind(), io::ErrorKind::NotFound, "clean start");
+    }
+    std::fs::create_dir_all(&dir).expect("scratch directory");
+    Scratch(dir)
 }
 
 #[test]
@@ -2630,7 +2628,6 @@ fn reads_the_paths_real_git_changes_whatever_they_hold() {
         ),
         "git leaves out the crate excluded"
     );
-    std::fs::remove_dir_all(&dir).expect("cleanup");
 }
 
 #[test]
@@ -2795,7 +2792,6 @@ fn reads_the_record_real_git_holds_at_a_commit() {
         ),
         "a commit git does not have"
     );
-    std::fs::remove_dir_all(&dir).expect("cleanup");
 }
 
 #[test]
@@ -4254,7 +4250,6 @@ fn system_runner_writes_files_and_counts_threads() {
         std::thread::available_parallelism().expect("known here"),
         "the machine's"
     );
-    std::fs::remove_dir_all(&root).expect("cleanup");
 }
 
 #[test]
@@ -4290,7 +4285,6 @@ fn system_runner_empties_fresh_directories() {
         b"kept",
         "and is left as it was"
     );
-    std::fs::remove_dir_all(&root).expect("cleanup");
 }
 
 #[test]
@@ -4573,7 +4567,6 @@ fn system_runner_lists_the_tracked_typescript_files() {
     let _add = hermetic_git(&root, &["add", "src", "d.ts"]);
     std::fs::remove_file(root.join("src/gone e.ts")).expect("deleted, not staged");
     let files = system(root.path()).tracked(&["*.ts", "*.tsx"]);
-    std::fs::remove_dir_all(&root).expect("cleanup");
     assert_eq!(
         files.expect("git lists the files"),
         vec![
@@ -4587,7 +4580,6 @@ fn system_runner_lists_the_tracked_typescript_files() {
     );
     let outside = scratch("no-git");
     let error = system(outside.path()).tracked(&["*.ts", "*.tsx"]);
-    std::fs::remove_dir_all(&outside).expect("cleanup");
     assert!(
         error.is_err_and(|failure| failure
             .to_string()
@@ -6787,7 +6779,6 @@ fn lists_the_cargo_configurations_outside_the_repository() {
     let environment = system(repo.join("x/..")).environment();
     let missing = system(dir.join("missing")).environment();
     let canonical = std::fs::canonicalize(&dir).expect("canonical");
-    std::fs::remove_dir_all(&dir).expect("cleanup");
     let listed = |path: &str| {
         environment
             .cargo_configs
@@ -7667,7 +7658,6 @@ fn pushes_an_annotated_tag_of_the_commit_checked_out() {
     std::fs::create_dir_all(repo.join("src")).expect("folder");
     std::fs::write(repo.join("src/gain.rs"), "").expect("untracked file");
     let untracked = super::pre_push(&mut runner, &[here]);
-    std::fs::remove_dir_all(&repo).expect("cleanup");
     assert_eq!(
         untracked,
         failed(
@@ -7711,7 +7701,6 @@ fn checks_the_history_git_really_writes() {
     let mut runner = system(repo.path());
     let [messages, files, scoped] = super::history_commands(&since, &scopes_since)
         .map(|cmd| runner.capture(&cmd).expect("git log"));
-    std::fs::remove_dir_all(&repo).expect("cleanup");
     let short = |hash: &str| hash.chars().take(7).collect::<String>();
     assert_eq!(
         super::history_gate(&messages, &files, &scoped),
@@ -11925,7 +11914,6 @@ fn reads_the_changes_as_they_are() {
     }
     let mut runner = system(repo.path());
     let state = super::tree_state(&mut runner);
-    std::fs::remove_dir_all(&repo).expect("cleanup");
     let diff = state.expect("read").diff;
     assert!(
         diff.contains("-fn f() {}\n+fn g() {}\n"),
@@ -14221,7 +14209,6 @@ fn shares_proof_records_between_the_worktrees_of_real_git() {
         None,
         "nothing for a commit git does not have"
     );
-    std::fs::remove_dir_all(&dir).expect("cleanup");
 }
 
 /// The Cargo metadata of a workspace at `/r` of one crate whose targets are these: kind,

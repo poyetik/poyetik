@@ -1738,9 +1738,12 @@ impl io::Write for Limited {
 }
 
 /// A directory of one test below the system's temporary directory, removed with
-/// everything in it when the guard is dropped: when the test ends, passing, failing or
-/// unwinding, so that no run leaves it behind.
+/// everything in it when the guard is dropped: when the test returns or unwinds, a failing
+/// test or a panicking mutant included. A test process killed (a mutant stopped at its
+/// timeout) or aborted runs no drop and leaves it; the next test of the same name in a
+/// process of the same id removes it when it starts.
 #[derive(Debug)]
+#[must_use = "the directory is removed when the guard is dropped"]
 struct Scratch(PathBuf);
 
 impl AsRef<Path> for Scratch {
@@ -1776,6 +1779,26 @@ fn scratch(name: &str) -> Scratch {
     }
     std::fs::create_dir_all(&dir).expect("scratch directory");
     Scratch(dir)
+}
+
+#[test]
+fn removes_a_scratch_directory_whatever_the_test_does() {
+    let kept = scratch("guard");
+    let dropped = kept.to_path_buf();
+    std::fs::write(kept.join("a.txt"), "a").expect("written");
+    drop(kept);
+    assert!(!dropped.exists(), "removed with its files when dropped");
+    let unwound = std::panic::catch_unwind(|| {
+        let held = scratch("guard-unwound");
+        let inside = held.to_path_buf();
+        std::fs::write(held.join("a.txt"), "a").expect("written");
+        std::panic::panic_any(inside);
+    });
+    let left = unwound
+        .expect_err("the test panicked")
+        .downcast::<PathBuf>()
+        .expect("the path");
+    assert!(!left.exists(), "removed when the test unwinds");
 }
 
 #[test]
@@ -1818,7 +1841,6 @@ fn disk_reads_writes_and_lists() {
         disk.write(&dir.join("missing").join("x"), b"").is_err(),
         "unwritable"
     );
-    std::fs::remove_dir_all(&dir).expect("cleanup");
 }
 
 #[cfg(unix)]
