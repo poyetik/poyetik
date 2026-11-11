@@ -11519,9 +11519,6 @@ fn reads_every_source_of_box_and_engine_code() {
         )),
         "the math layer brings no code in either"
     );
-    let undeclared = "crates/engine-objects/src/a_tests.rs: a *_tests.rs file not declared \
-                      once as test code beside it, `#[cfg(test)] #[path = \"<name>_tests.rs\"] \
-                      mod <module>;`";
     assert_eq!(
         gate(
             none,
@@ -11533,23 +11530,22 @@ fn reads_every_source_of_box_and_engine_code() {
         Ok(()),
         "a declared test file"
     );
-    for sources in [
-        vec![("crates/engine-objects/src/a_tests.rs", "f64")],
-        vec![
-            (boxes, declared),
-            ("crates/engine-objects/src/b.rs", declared),
-            ("crates/engine-objects/src/a_tests.rs", "f64"),
-        ],
-        vec![
-            ("crates/engine-objects/src/sub/a.rs", declared),
-            ("crates/engine-objects/src/a_tests.rs", "f64"),
-        ],
-    ] {
-        assert_eq!(
-            gate(none, &sources),
-            failed(format!("{MATH_LAYER}: {undeclared}")),
-            "not declared once beside it: {sources:?}"
-        );
+    assert_eq!(
+        gate(none, &[("crates/engine-objects/src/a_tests.rs", "f64")]),
+        Ok(()),
+        "a test file not declared: the test code and loaded-files gates' to refuse"
+    );
+    for mode in [CHANGES_MODE, Mode::Full { jobs: FAKE_JOBS }] {
+        let actions: Vec<Action> = check_steps(mode)
+            .into_iter()
+            .map(|step| step.action)
+            .collect();
+        for keeps_the_names_true in [Action::TestCodeGate, Action::LoadedFilesGate] {
+            assert!(
+                actions.contains(&Action::MathLayerGate) && actions.contains(&keeps_the_names_true),
+                "{mode:?}: the math layer gate skips test files by name beside {keeps_the_names_true:?}"
+            );
+        }
     }
     let build = |name: &str| {
         format!(

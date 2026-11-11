@@ -5730,9 +5730,11 @@ fn brought_in(source: &RustSource, declared: &[TestDeclaration]) -> Vec<String> 
 /// (`variable_attributes`).
 ///
 /// `metadata` is the output of [`metadata_command`]; `sources` the files of
-/// [`MATH_LAYER_SOURCES`] (read into their tokens), of which the `*_tests.rs` files declared once
-/// beside them ([`test_declarations`]) are test code, not read, and [`MATH_LAYER_FILE`] is
-/// the math layer, read only for `include` and `path`; any other file is refused. So code
+/// [`MATH_LAYER_SOURCES`] (read into their tokens), of which the `*_tests.rs` files are test
+/// code, not read (the test code gate, [`test_code_gate`], proves each declared once beside
+/// its source, and the loaded-files gate, [`loaded_files_gate`], that no build of the code
+/// reads one, both steps of every check), and [`MATH_LAYER_FILE`] is the math layer, read
+/// only for `include` and `path`; any other file is refused. So code
 /// reaches these crates only through `mod`, from files the gate reads; a box crate,
 /// `no_std` and without `libm`, computes with the engine's sample types alone, whose
 /// operators and math functions are the math layer's; and no iterator sums samples but the
@@ -5741,31 +5743,18 @@ fn brought_in(source: &RustSource, declared: &[TestDeclaration]) -> Vec<String> 
 /// # Errors
 ///
 /// Returns every other crate that depends on `libm`, every build script, every forbidden
-/// name with its file and line, every missing forbid, every test file not declared
-/// once, every file it does not read, or why the metadata cannot be read.
+/// name with its file and line, every missing forbid, every file it does not read, or why
+/// the metadata cannot be read.
 pub fn math_layer_gate(metadata: &str, sources: &[RustSource]) -> Result<(), Failure> {
     let mut problems = math_layer_crates(metadata)?;
-    let mut declared: BTreeMap<&str, usize> = BTreeMap::new();
     let declarations: BTreeMap<&str, Vec<TestDeclaration>> = sources
         .iter()
         .filter(|source| !unit_test_file(&source.path))
         .map(|source| (source.path.as_str(), test_declarations(source)))
         .collect();
-    for found in declarations.values() {
-        for TestDeclaration { file, .. } in found {
-            let times = declared.entry(file.as_str()).or_default();
-            *times = times.saturating_add(1);
-        }
-    }
     for source in sources {
         let path = &source.path;
         if unit_test_file(path) {
-            if declared.get(path.as_str()) != Some(&1) {
-                problems.push(format!(
-                    "{path}: a *_tests.rs file not declared once as test code beside it, \
-                     {TEST_DECLARATION_FORM}"
-                ));
-            }
             continue;
         }
         let is_box = path.starts_with(BOX_CODE);
