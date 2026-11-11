@@ -878,6 +878,10 @@
         {
           "title": "Plan lanes only when a sum needs them: every plan reserves 15 scratch blocks (7,680 bytes in binary64, 3,840 in binary32) whether it sums three or more terms or not. Measured on 2026-11-11 (lanes held as an Option, made only when the plan has such a sum): sum-free plans unchanged per block, but every sum of three or more 2 instructions per block dearer, loading 0.08% to 0.09% dearer and the module 491 bytes larger, so deferred. Decide against a real memory budget once a bare-metal player exists (or with lanes from a host's plan arena), measuring again; a failing test first: a sum-free plan keeps less than 15 blocks",
           "done": false
+        },
+        {
+          "title": "Changelog gate on the last release: every backticked name of an [Unreleased] Removed entry exists at the last version tag (git grep at the tag), and a Changed or Fixed entry names something the tag holds, with fixture changelogs it must refuse; until then, a deep review checks that [Unreleased] describes the change from the last tag, never the branch's history",
+          "done": false
         }
       ]
     },
