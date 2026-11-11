@@ -82,6 +82,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `engine-cli export` lists and reads the corpus before it creates the output directory, so that a corpus missing, empty or unreadable leaves no directory behind (a case refused when it is prepared still leaves the WAV files of the cases before it).
 - `engine-cli`'s usage errors keep their pointer to the usage, ` (see: engine-cli help)`, whatever the length of their reason: the reason is bounded first, then the pointer appended (a reason quoting a long argument cut it).
 - A closed stdout (`cargo xtask check | head`) no longer stops the commands `cargo xtask` starts, which a broken pipe killed, failing their steps: their output now goes to xtask's stderr, so `cargo xtask check > log` keeps only the progress lines and `2>&1` keeps everything.
 - The verdicts of `cargo xtask check`'s gates of test code, untested targets and the audio library now open with their step's name, and the library's says what it checks: the audio library depends only on its own crates, its tests also on its test crates (it said "on no other part of the project"); a test holds every gate classed as naming its step to it.

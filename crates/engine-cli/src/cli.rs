@@ -839,7 +839,10 @@ fn read_earlier<T: DeserializeOwned>(
 }
 
 /// `export <dir> <out>`: the WAV file of every case, for tools that check renders
-/// independently of this engine.
+/// independently of this engine. The corpus is listed and read whole before `out` is
+/// created, so that a corpus missing, empty, unpaired or unreadable leaves nothing behind;
+/// a case refused when it is prepared (an invalid case file or patch) leaves `out` and the
+/// WAV files of the cases before it.
 fn export(
     files: &mut dyn Files,
     out: &mut dyn Write,
@@ -847,10 +850,11 @@ fn export(
     target: &Path,
     mode: DefaultMode<'_>,
 ) -> Result<(), String> {
+    let cases = cases(files, dir)?;
     files
         .create_dir_all(target)
         .map_err(|error| format!("cannot create {}: {error}", target.display()))?;
-    for case in cases(files, dir)? {
+    for case in cases {
         for format in RenderFormat::ALL {
             let rendered = case.prepare(format, mode)?.render(mode);
             let path = target.join(format!("{}.{format}.wav", case.name));

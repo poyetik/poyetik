@@ -2043,6 +2043,13 @@ fn export_command_reports_errors() {
         Err("cannot read conf/cases/a.json: permission denied".to_owned()),
         "unreadable case"
     );
+    for (refused, what) in [(missing, "no cases"), (unreadable, "an unreadable case")] {
+        assert_eq!(
+            refused.dirs,
+            Vec::<PathBuf>::new(),
+            "{what}: the corpus is listed and read before the output directory is created"
+        );
+    }
     assert_eq!(
         run_with(&mut two_cases(), &["export", "conf"]).0,
         Err(usage("export expects <dir> <out>")),
