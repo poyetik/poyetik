@@ -164,7 +164,7 @@ const COUNTS: [usize; 24] = [
 
 /// The deterministic generator of 64-bit draws of this crate's tests (`SplitMix64`), for
 /// reproducible terms.
-use super::tests::proptest_like::Draws;
+use super::tests::splitmix::Draws;
 
 impl Draws {
     /// A finite value of either sign whose magnitude lies in [2^-20, 2^21) (2^21 itself

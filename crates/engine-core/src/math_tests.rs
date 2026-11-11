@@ -108,7 +108,7 @@ fn the_reference_rounds_like_ieee_754_on_worked_values() {
 
 #[test]
 fn rounds_binary64_to_the_nearest_binary32() {
-    let mut runner = proptest_like::Draws::new();
+    let mut runner = splitmix::Draws::new();
     for _ in 0_u32..200_000_u32 {
         let bits = runner.next();
         let value = f64::from_bits(bits);
@@ -148,7 +148,7 @@ fn rounds_binary64_to_the_nearest_binary32() {
 /// and Flood, 2014), as `spec/measurements.md` defines it. The one copy of this crate's
 /// tests (the reduction tests draw from it too); `engine-core` cannot use the battery's
 /// (`engine_battery::splitmix64`), which depends on it.
-pub(super) mod proptest_like {
+pub(super) mod splitmix {
     /// The state of the generator.
     pub(in super::super) struct Draws(pub(in super::super) u64);
 
@@ -172,7 +172,7 @@ pub(super) mod proptest_like {
 #[test]
 fn draws_splitmix64_from_its_published_values() {
     // SplitMix64's first outputs from the state 0, computed apart from this code.
-    let mut draws = proptest_like::Draws(0);
+    let mut draws = splitmix::Draws(0);
     assert_eq!(
         [draws.next(), draws.next()],
         [0xe220_a839_7b1d_cdaf, 0x6e78_9e6a_a1b9_65f4]

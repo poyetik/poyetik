@@ -157,9 +157,10 @@ fn outputs<S: BatterySample>(
 /// The next 64 bits of `SplitMix64` (Steele, Lea and Flood, 2014, as `spec/measurements.md`
 /// defines it) from `state`, which it advances.
 ///
-/// Written here so that no dependency's generator can change the battery, and the one copy
-/// of the crates that depend on this one (the measurement tests of `engine-testkit` draw
-/// their noise from it, each with its own mapping to floats).
+/// Written here so that no dependency's generator can change the battery. The crates that
+/// test with this one draw from it too (the measurement tests of `engine-testkit`, with
+/// their own mapping to floats); `engine-core`, which this crate depends on, keeps its own
+/// copy, held to the same published values by its tests.
 pub const fn splitmix64(state: &mut u64) -> u64 {
     *state = state.wrapping_add(0x9e37_79b9_7f4a_7c15);
     let mut mixed = *state;

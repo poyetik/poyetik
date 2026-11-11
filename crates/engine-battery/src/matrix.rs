@@ -29,8 +29,9 @@ pub const HOST_BUFFER_SIZES: [usize; 6] = [1, 37, 64, 100, 128, 4096];
 /// Special input values inside the input domain `[-1, 1]`.
 ///
 /// Signed zeros, the smallest subnormals, the smallest normals and full scale. Values
-/// outside the domain (NaN, infinities, huge values) have no policy yet (roadmap #12,
-/// step 1).
+/// outside the domain (NaN, infinities, huge values) are not in the matrix yet: decision 5
+/// of `spec/engine-design.md` sets their policy, which roadmap #12 step 14 (parameters)
+/// and step 9 (non-finite outputs) apply.
 pub const SPECIAL_INPUTS: [f32; 8] = [
     0.0,
     -0.0,
