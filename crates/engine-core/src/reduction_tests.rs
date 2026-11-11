@@ -499,7 +499,8 @@ where
     let specials = specials::<S::Float>();
     let mut draws = Draws(0x5059_0064);
     // One set of scratch lanes for every sum, as a plan keeps one: nothing left in them by a
-    // sum may reach the next.
+    // sum may reach the next. The counts run downward, then upward: every count but the
+    // largest follows a larger sum, which left nonzero values in more lanes than it uses.
     let mut lanes = Lanes::new();
     let draw = |source: &mut Draws| {
         let pick = source.next();
@@ -510,7 +511,7 @@ where
             S::from_raw(source.finite())
         }
     };
-    for count in COUNTS {
+    for count in COUNTS.iter().rev().chain(&COUNTS).copied() {
         let blocks: Vec<Block<S>> = (0..count)
             .map(|_| core::array::from_fn(|_| draw(&mut draws)))
             .collect();
