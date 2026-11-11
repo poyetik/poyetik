@@ -8923,6 +8923,118 @@ fn makes_the_compiler_refuse_unsafe_outside_the_audited_files() {
     }
 }
 
+/// Whether `found` failed with `problem` among its problems (its summary or its details).
+fn reports(found: &Result<(), Failure>, problem: &str) -> bool {
+    found.as_ref().is_err_and(|failure| {
+        failure
+            .details
+            .iter()
+            .chain([&failure.summary])
+            .any(|line| line.contains(problem))
+    })
+}
+
+/// The texts that hold `attribute` somewhere but not among the leading inner attributes of
+/// the file: in a block comment, in a raw string, in an inline module, after an item, after
+/// an outer doc comment.
+fn misplaced(attribute: &str) -> [String; 5] {
+    [
+        format!("/* {attribute} */\nfn f() {{}}\n"),
+        format!("const S: &str = r#\"\n{attribute}\n\"#;\n"),
+        format!("mod inner {{\n    {attribute}\n}}\n"),
+        format!("fn f() {{}}\n{attribute}\n"),
+        format!("/// An item.\n{attribute}\nfn f() {{}}\n"),
+    ]
+}
+
+/// `attribute` among other leading inner attributes, its tokens spaced otherwise.
+fn leading(attribute: &str) -> String {
+    format!(
+        "//! The file.\n#![allow(dead_code, reason = \"r\")]\n{}\n/// An item.\nfn f() {{}}\n",
+        attribute.replace('(', "( ").replace(')', " )")
+    )
+}
+
+#[test]
+fn requires_each_forbid_as_a_leading_inner_attribute_of_its_file() {
+    let forbid = format!("#![forbid({}_{})]", "unsafe", "code");
+    let audited_sources: Vec<(String, String)> = UNSAFE_FILES
+        .iter()
+        .map(|path| ((*path).to_owned(), audited(path)))
+        .collect();
+    let root = "crates/engine-core/src/lib.rs";
+    let unsafe_site = |text: &str| {
+        let mut sources = audited_sources.clone();
+        sources.push((root.to_owned(), text.to_owned()));
+        unsafe_gate(&sources)
+    };
+    let assembly = super::ASSEMBLY_FILES[0];
+    let assembly_site = |text: &str| {
+        let mut sources = audited_sources.clone();
+        for (path, held) in &mut sources {
+            if path == assembly {
+                *held = format!(
+                    "{}{text}fn g() {{\n    unsafe {{\n        ::core::arch::asm!(\"nop\");\n    }}\n}}\n",
+                    lifting()
+                );
+            }
+        }
+        unsafe_gate(&sources)
+    };
+    let module = "crates/engine-core/src/plan.rs";
+    let math_site = |path: &str, text: &str| {
+        math_layer_gate(r#"{"packages":[]}"#, &[(path.to_owned(), text.to_owned())])
+    };
+    let (float, arithmetic) = (super::BOX_FLOAT_FORBID, super::ENGINE_ARITHMETIC_FORBID);
+    assert_eq!(unsafe_site(&leading(&forbid)), Ok(()), "{forbid}");
+    assert_eq!(
+        assembly_site(&leading(ONE_UNSAFE_OPERATION)),
+        Ok(()),
+        "{ONE_UNSAFE_OPERATION}"
+    );
+    assert_eq!(
+        math_site(super::BOX_ROOT, &leading(float)),
+        Ok(()),
+        "{float}"
+    );
+    assert_eq!(
+        math_site(module, &leading(arithmetic)),
+        Ok(()),
+        "{arithmetic}"
+    );
+    for text in misplaced(&forbid) {
+        assert_eq!(
+            unsafe_site(&text),
+            failed(format!(
+                "the lint against unsafe code: {root} does not hold `{forbid}`"
+            )),
+            "{text}"
+        );
+    }
+    for text in misplaced(ONE_UNSAFE_OPERATION) {
+        let found = assembly_site(&text);
+        assert!(
+            reports(
+                &found,
+                &format!(
+                    "{assembly} does not hold `{ONE_UNSAFE_OPERATION}`: an unsafe block of it \
+                     could hold more than its assembly call"
+                )
+            ),
+            "{text}: {found:?}"
+        );
+    }
+    for (path, attribute) in [(super::BOX_ROOT, float), (module, arithmetic)] {
+        for text in misplaced(attribute) {
+            let found = math_site(path, &text);
+            assert!(
+                reports(&found, &format!("{path} does not hold `{attribute}`")),
+                "{text}: {found:?}"
+            );
+        }
+    }
+}
+
 #[test]
 fn lets_the_test_modules_of_an_unsafe_file_inherit_its_lifting() {
     let forbid = format!("#![forbid({}_{})]\n", "unsafe", "code");
@@ -10297,7 +10409,7 @@ fn refuses_raw_floats_libm_and_host_in_box_code() {
     }
     assert_eq!(
         gate("let x = 1.5_f64;"),
-        refused(1, "5_f64"),
+        refused(1, "1.5_f64"),
         "a suffixed literal"
     );
     assert_eq!(

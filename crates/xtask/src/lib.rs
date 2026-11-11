@@ -3587,20 +3587,20 @@ pub fn test_declarations(source: &RustSource) -> Vec<TestDeclaration> {
 /// Checks that unsafe code is impossible outside [`UNSAFE_FILES`], by the compiler.
 ///
 /// Only those files lift the lint against unsafe code (an `allow` or `expect` of it), and
-/// each still does; a line naming the lint is exempt only if it is exactly the attribute
-/// forbidding or denying it. Every crate root of [`RUST_CRATES`] (library, binary, test,
-/// benchmark, example, build script) holds the exact inner attribute forbidding the lint, so
+/// each still does: a file lifts it when its tokens name the lint (the identifier
+/// `unsafe_code`) outside an attribute of [`UNSAFE_CODE_KEPT`], which forbid or deny it.
+/// Every crate root of [`RUST_CRATES`] (library, binary, test, benchmark, example, build
+/// script) holds [`FORBID_UNSAFE_CODE`] among its leading inner attributes, in tokens, so
 /// that the compiler refuses any later lifting (E0453); in a crate holding an unsafe file,
 /// whose library root cannot forbid it, every other module and every root outside `src/`
 /// does, but the unit test modules an unsafe file declares ([`test_declarations`]): they
 /// belong to it, under its lifting (and under Miri with it), and lift nothing themselves.
-/// The lint name is built at run time, so that this file does not name it.
 ///
 /// Every file of [`ASSEMBLY_FILES`], which leaves the Miri step, must still hold inline
 /// assembly, and nothing else unsafe: in its tokens ([`RustSource`]), it names `unsafe` at
 /// least once, each time opening [`ASSEMBLY_CALL`], the standard library's `asm!` by a path
 /// from the crates' root; it
-/// holds the line [`ONE_UNSAFE_OPERATION`], so that the compiler keeps each unsafe block
+/// holds [`ONE_UNSAFE_OPERATION`] among its leading inner attributes, so that the compiler keeps each unsafe block
 /// to that one operation (an `asm!` operand's included) whatever a later attribute says;
 /// and it declares no module, import, crate or macro ([`ASSEMBLY_REFUSED_WORDS`]). Neither
 /// an `unsafe fn` nor an `unsafe impl` can hide there. No other file of its crate names
@@ -3614,27 +3614,15 @@ pub fn test_declarations(source: &RustSource) -> Vec<TestDeclaration> {
 ///
 /// Returns every other file that lifts the lint, every listed file that no longer does,
 /// every file that should forbid it and does not, every assembly file without assembly or
-/// its forbid line, every `unsafe` of an assembly file that does not open its assembly call,
+/// its forbid, every `unsafe` of an assembly file that does not open its assembly call,
 /// every declaration of an assembly file, and every `unsafe` or rebinding of `core` in
 /// another file of its crate.
 pub fn unsafe_gate(parsed: &[RustSource]) -> Result<(), Failure> {
     let sources = &texts(parsed);
-    let lint = format!("{}_{}", "unsafe", "code");
-    let forbid = format!("#![forbid({lint})]");
-    let exempt = [
-        forbid.clone(),
-        format!("#![deny({lint})]"),
-        format!("#[forbid({lint})]"),
-        format!("#[deny({lint})]"),
-    ];
-    let lifting: BTreeSet<&str> = sources
+    let lifting: BTreeSet<&str> = parsed
         .iter()
-        .filter(|(_, text)| {
-            text.lines().any(|line| {
-                line.contains(&lint) && !exempt.iter().any(|attribute| line.trim() == attribute)
-            })
-        })
-        .map(|(path, _)| path.as_str())
+        .filter(|source| lifts_unsafe_code(source))
+        .map(|source| source.path.as_str())
         .collect();
     let allowed: BTreeSet<&str> = UNSAFE_FILES.into_iter().collect();
     let mut problems: Vec<String> =
@@ -3656,7 +3644,8 @@ pub fn unsafe_gate(parsed: &[RustSource]) -> Result<(), Failure> {
         .flat_map(test_declarations)
         .map(|declaration| declaration.file)
         .collect();
-    for (path, text) in sources {
+    for source in parsed {
+        let path = &source.path;
         let Some((krate, relative)) = in_crate(path) else {
             continue;
         };
@@ -3669,15 +3658,42 @@ pub fn unsafe_gate(parsed: &[RustSource]) -> Result<(), Failure> {
         } else {
             crate_root(relative)
         };
-        if required && !text.lines().any(|line| line.trim() == forbid) {
-            problems.push(format!("{path} does not hold `{forbid}`"));
+        if required && source.leading_attribute(FORBID_UNSAFE_CODE).is_none() {
+            problems.push(format!("{path} does not hold `{FORBID_UNSAFE_CODE}`"));
         }
     }
     verdict("the lint against unsafe code", problems)
 }
 
-/// The line every file of [`ASSEMBLY_FILES`] holds: each unsafe block of it holds one
-/// unsafe operation.
+/// The inner attribute forbidding unsafe code, which every file [`unsafe_gate`] requires it
+/// of holds among its leading inner attributes (`RustSource::leading_attribute`).
+pub const FORBID_UNSAFE_CODE: &str = "#![forbid(unsafe_code)]";
+
+/// The attributes that name the lint against unsafe code without lifting it: each forbids
+/// or denies it, for the file or for one item.
+pub const UNSAFE_CODE_KEPT: [&str; 4] = [
+    FORBID_UNSAFE_CODE,
+    "#![deny(unsafe_code)]",
+    "#[forbid(unsafe_code)]",
+    "#[deny(unsafe_code)]",
+];
+
+/// Whether `source` names the lint against unsafe code (the identifier `unsafe_code`)
+/// outside every attribute of [`UNSAFE_CODE_KEPT`]: rustc reads lint names in tokens, so
+/// any other use of the identifier can lift it (`allow`, `expect`, `warn`, a conditional attribute, a
+/// macro writing the attribute).
+fn lifts_unsafe_code(source: &RustSource) -> bool {
+    let kept: Vec<core::ops::Range<usize>> = UNSAFE_CODE_KEPT
+        .into_iter()
+        .flat_map(|attribute| source.occurrences(attribute))
+        .collect();
+    source.tokens.iter().enumerate().any(|(at, token)| {
+        token.is_ident("unsafe_code") && !kept.iter().any(|range| range.contains(&at))
+    })
+}
+
+/// The inner attribute every file of [`ASSEMBLY_FILES`] holds among its leading ones: each
+/// unsafe block of it holds one unsafe operation.
 ///
 /// That operation is its assembly call, whatever a later `allow` or `expect` says
 /// (E0453); Clippy's `multiple_unsafe_ops_per_block` counts the operations of an `asm!`
@@ -3701,8 +3717,10 @@ pub const ASSEMBLY_REFUSED_WORDS: [&str; 4] = ["mod", "use", "extern", "macro_ru
 /// was read: no [`ONE_UNSAFE_OPERATION`] line, an `unsafe` not opening [`ASSEMBLY_CALL`],
 /// none at all, or an identifier of [`ASSEMBLY_REFUSED_WORDS`].
 fn assembly_problems(file: &str, source: Option<&RustSource>, problems: &mut Vec<String>) {
-    let text = source.map_or("", |source| source.text.as_str());
-    if !text.lines().any(|line| line.trim() == ONE_UNSAFE_OPERATION) {
+    if source
+        .and_then(|source| source.leading_attribute(ONE_UNSAFE_OPERATION))
+        .is_none()
+    {
         problems.push(format!(
             "{file} does not hold `{ONE_UNSAFE_OPERATION}`: an unsafe block of it could hold \
              more than its assembly call"
@@ -3828,9 +3846,12 @@ pub fn unviable_names_gate(reviews: &str, sources: &[RustSource]) -> Result<(), 
     step_verdict(problems)
 }
 
-/// The lines outside test code that may name `test`, each whole, besides the first line of
-/// a test declaration ([`test_declarations`]): the lint forbids that apply outside tests.
-pub const NOT_TEST_LINES: [&str; 2] = [ENGINE_ARITHMETIC_FORBID, BOX_FLOAT_FORBID];
+/// The attributes outside test code that may name `test`: the lint forbids that apply
+/// outside tests.
+///
+/// Each only among a file's leading inner attributes (`RustSource::leading_attribute`),
+/// besides a test declaration ([`test_declarations`]).
+pub const NOT_TEST_ATTRIBUTES: [&str; 2] = [ENGINE_ARITHMETIC_FORBID, BOX_FLOAT_FORBID];
 
 /// The crate of [`RUST_CRATES`] holding `path`, and the path relative to its directory.
 fn in_crate(path: &str) -> Option<(&'static RustCrate, &str)> {
@@ -3847,14 +3868,14 @@ fn in_crate(path: &str) -> Option<(&'static RustCrate, &str)> {
 ///
 /// `sources` are the Rust files (path and text). In a crate of [`RUST_CRATES`], outside
 /// `tests/` and the `*_tests.rs` files, the code word `test` (`#[cfg(test)]`, `#[test]`,
-/// `cfg_attr(test, …)`, `cfg!(test)`, `mod test`…) appears only on the first line of a
-/// declaration or on a line of [`NOT_TEST_LINES`], and `include` (`include!`, which brings
+/// `cfg_attr(test, …)`, `cfg!(test)`, `mod test`…) appears only in a test declaration or in
+/// a leading inner attribute of [`NOT_TEST_ATTRIBUTES`], and `include` (`include!`, which brings
 /// in code no gate reads by its path) nowhere. A `*_tests.rs` file brings in no other file
 /// (a module without a body, `#[path]`, `include!`), which no rule would tell as test code:
 /// its modules are written inline. A module a macro of another file declares in it is no
 /// word of it: [`loaded_files_gate`] sees it, from what rustc read. No file of a crate, `tests/`
-/// included, holds a `path` attribute ([`path_attributes`]) but in a test declaration, nor
-/// an attribute a macro names by a variable ([`variable_attributes`]): a module comes from
+/// included, holds a `path` attribute (`path_attributes`) but in a test declaration, nor
+/// an attribute a macro names by a variable (`variable_attributes`): a module comes from
 /// the file its name gives, never from another crate's file (whose changes would not widen
 /// this crate) nor from a file that is not `.rs` (which no gate reads).
 ///
@@ -3893,13 +3914,12 @@ pub fn test_code_gate(sources: &[RustSource]) -> Result<(), Failure> {
         in_crate(&source.path).is_some_and(|(_, relative)| !relative.starts_with("tests/"))
     });
     for source in crate_sources.clone() {
-        let RustSource { path, text, .. } = source;
+        let path = &source.path;
         if path.ends_with("_tests.rs") {
             problems.extend(loaded_by_tests(source));
             continue;
         }
         let declarations = test_declarations(source);
-        let firsts: BTreeSet<usize> = declarations.iter().map(|found| found.line).collect();
         problems.extend(
             path_attributes(source)
                 .into_iter()
@@ -3912,23 +3932,28 @@ pub fn test_code_gate(sources: &[RustSource]) -> Result<(), Failure> {
                 .into_iter()
                 .map(|line| variable_attribute(path, line)),
         );
+        let exempt: Vec<core::ops::Range<usize>> = declarations
+            .iter()
+            .map(|declaration| declaration.tokens.clone())
+            .chain(
+                NOT_TEST_ATTRIBUTES
+                    .into_iter()
+                    .filter_map(|attribute| source.leading_attribute(attribute)),
+            )
+            .collect();
         for TestDeclaration { file, .. } in declarations {
             let times = declared.entry(file).or_default();
             *times = times.saturating_add(1);
         }
-        let lines: Vec<&str> = text.lines().map(str::trim).collect();
-        for (line, word, _) in code_words(text) {
-            let whole = lines
-                .get(line.saturating_sub(1))
-                .copied()
-                .unwrap_or_default();
-            if word == "test" && !firsts.contains(&line) && !NOT_TEST_LINES.contains(&whole) {
+        for (at, token) in source.tokens.iter().enumerate() {
+            let line = token.line;
+            if token.is_ident("test") && !exempt.iter().any(|range| range.contains(&at)) {
                 problems.push(format!(
                     "{path}:{line}: names `test` outside test code: tests live in tests/ or in a \
                      *_tests.rs file declared {TEST_DECLARATION_FORM}"
                 ));
             }
-            if word == "include" {
+            if token.is_ident("include") {
                 problems.push(format!(
                     "{path}:{line}: names `include`: code is brought in by `mod` only, so that \
                      its path says what it is"
@@ -3974,7 +3999,7 @@ fn path_attributes(source: &RustSource) -> Vec<usize> {
 
 /// The lines of `source` where a macro names an attribute by a variable, which could be
 /// `path` ([`path_attributes`]): `#[$…`, `#![$…`, or `$<name>` where `path` would stand
-/// (`#[$a = …]`, `cfg_attr(…, $a = …)`). Refused everywhere: an attribute is written by
+/// (`#[$a = …]`, a conditional attribute's `(…, $a = …)`). Refused everywhere: an attribute is written by
 /// its name.
 fn variable_attributes(source: &RustSource) -> Vec<usize> {
     let tokens = &source.tokens;
@@ -5075,8 +5100,8 @@ pub const REDUCTION_NAMES: [&str; 10] = [
     "Product",
 ];
 
-/// The names the engine core may not write outside the math layer, but on the line
-/// [`ENGINE_ARITHMETIC_FORBID`].
+/// The names the engine core may not write outside the math layer, but in its leading
+/// inner attribute [`ENGINE_ARITHMETIC_FORBID`].
 ///
 /// Clippy's `arithmetic_side_effects`, without whose exception Clippy refuses arithmetic on
 /// a generic sample type there (`Binary64` and `Binary32` are allowed by `clippy.toml`),
@@ -5090,13 +5115,16 @@ pub const ENGINE_FORBIDDEN_NAMES: [&str; 4] = [
     "blanket_clippy_restriction_lints",
 ];
 
-/// The line every module of the engine core but its root and the math layer holds, outside
-/// tests: the compiler then refuses any lifting of `arithmetic_side_effects` there, by any
-/// name (E0453).
+/// The leading inner attribute of every module of the engine core but its root and the
+/// math layer.
+///
+/// Outside tests, the compiler then refuses any lifting of `arithmetic_side_effects` there,
+/// by any name (E0453).
 pub const ENGINE_ARITHMETIC_FORBID: &str =
     "#![cfg_attr(not(test), forbid(clippy::arithmetic_side_effects))]";
 
-/// The line the root of the box crate holds: outside tests, box code computes no float.
+/// The leading inner attribute of the root of the box crate: outside tests, box code
+/// computes no float.
 ///
 /// Clippy's `float_arithmetic`, which the compiler then refuses to lift by any name
 /// (E0453). The box tests compute their references in raw floats.
@@ -5170,6 +5198,11 @@ impl Token {
     fn opens(&self, delimiter: char) -> bool {
         self.kind == TokenKind::Open && self.text.chars().eq([delimiter])
     }
+
+    /// Whether it is written as `other` is, wherever each stands: the same kind and text.
+    fn same(&self, other: &Self) -> bool {
+        self.kind == other.kind && self.text == other.text
+    }
 }
 
 /// A Rust source of the repository, read as rustc reads it: its path, and its tokens.
@@ -5241,6 +5274,80 @@ impl RustSource {
     pub fn path(&self) -> &str {
         &self.path
     }
+
+    /// The index of the closing delimiter of the group whose opening delimiter is at
+    /// `open` (every group of a lexed text closes).
+    fn close_of(&self, open: usize) -> usize {
+        let mut depth = 0_usize;
+        self.tokens
+            .iter()
+            .enumerate()
+            .skip(open)
+            .find_map(|(index, token)| {
+                match token.kind {
+                    TokenKind::Open => depth = depth.saturating_add(1),
+                    TokenKind::Close => depth = depth.saturating_sub(1),
+                    TokenKind::Ident
+                    | TokenKind::Punct { .. }
+                    | TokenKind::Literal
+                    | TokenKind::Doc { .. } => {}
+                }
+                (depth == 0).then_some(index)
+            })
+            .unwrap_or(self.tokens.len())
+    }
+
+    /// The leading inner attributes of the file, each the range of its tokens: every
+    /// `#![…]` and inner doc comment before the first other token, which apply to the
+    /// whole file (a `#![…]` in an inline module is that module's).
+    fn leading_attributes(&self) -> Vec<core::ops::Range<usize>> {
+        let mut attributes = Vec::new();
+        let mut at = 0_usize;
+        loop {
+            match self.tokens.get(at..).unwrap_or_default() {
+                [doc, ..] if doc.kind == (TokenKind::Doc { inner: true }) => {
+                    at = at.saturating_add(1);
+                }
+                [hash, bang, open, ..]
+                    if hash.is_punct('#') && bang.is_punct('!') && open.opens('[') =>
+                {
+                    let end = self.close_of(at.saturating_add(2)).saturating_add(1);
+                    attributes.push(at..end);
+                    at = end;
+                }
+                _ => return attributes,
+            }
+        }
+    }
+
+    /// The range of the tokens of `attribute` (an inner attribute written as a constant,
+    /// `#![forbid(…)]`) among the leading inner attributes of the file
+    /// ([`leading_attributes`](Self::leading_attributes)), if it holds it: the same tokens,
+    /// spaces and comments apart, so that the attribute in a comment, a string or an inline
+    /// module, or after the file's first item, is not it.
+    fn leading_attribute(&self, attribute: &str) -> Option<core::ops::Range<usize>> {
+        let wanted = tokens_of(attribute);
+        self.leading_attributes()
+            .into_iter()
+            .find(|range| same_tokens(self.tokens.get(range.clone()).unwrap_or_default(), &wanted))
+    }
+
+    /// The ranges of every occurrence of the tokens of `attribute` (written as a constant)
+    /// in the file, wherever it stands.
+    fn occurrences(&self, attribute: &str) -> Vec<core::ops::Range<usize>> {
+        let wanted = tokens_of(attribute);
+        self.tokens
+            .windows(wanted.len())
+            .enumerate()
+            .filter(|(_, window)| same_tokens(window, &wanted))
+            .map(|(at, _)| at..at.saturating_add(wanted.len()))
+            .collect()
+    }
+}
+
+/// Whether `held` and `wanted` are the same tokens, written alike ([`Token::same`]).
+fn same_tokens(held: &[Token], wanted: &[Token]) -> bool {
+    held.len() == wanted.len() && held.iter().zip(wanted).all(|(one, other)| one.same(other))
 }
 
 /// The path and text of each of `sources`.
@@ -5561,11 +5668,11 @@ fn brought_in(source: &RustSource, declared: &[TestDeclaration]) -> Vec<String> 
 /// build script; box code names none of [`BOX_FORBIDDEN_NAMES`], nor a float literal
 /// suffixed `f32` or `f64`, and its root holds [`BOX_FLOAT_FORBID`]; box code and the
 /// engine core outside [`MATH_LAYER_FILE`] name none of [`REDUCTION_NAMES`]; the engine core
-/// outside it names none of [`ENGINE_FORBIDDEN_NAMES`] but on the line
+/// outside it names none of [`ENGINE_FORBIDDEN_NAMES`] but in its leading inner attribute
 /// [`ENGINE_ARITHMETIC_FORBID`], which every module of it but [`ENGINE_ROOT`] holds; and no
 /// source names `include` (`include!`), nor holds a `path` attribute but in a test
-/// declaration ([`path_attributes`]), nor an attribute a macro names by a variable
-/// ([`variable_attributes`]).
+/// declaration (`path_attributes`), nor an attribute a macro names by a variable
+/// (`variable_attributes`).
 ///
 /// `metadata` is the output of [`metadata_command`]; `sources` the files of
 /// [`MATH_LAYER_SOURCES`] (path and text), of which the `*_tests.rs` files declared once
@@ -5579,7 +5686,7 @@ fn brought_in(source: &RustSource, declared: &[TestDeclaration]) -> Vec<String> 
 /// # Errors
 ///
 /// Returns every other crate that depends on `libm`, every build script, every forbidden
-/// name with its file and line, every missing forbid line, every test file not declared
+/// name with its file and line, every missing forbid, every test file not declared
 /// once, every file it does not read, or why the metadata cannot be read.
 pub fn math_layer_gate(metadata: &str, sources: &[RustSource]) -> Result<(), Failure> {
     let mut problems = math_layer_crates(metadata)?;
@@ -5596,7 +5703,7 @@ pub fn math_layer_gate(metadata: &str, sources: &[RustSource]) -> Result<(), Fai
         }
     }
     for source in sources {
-        let RustSource { path, text, .. } = source;
+        let path = &source.path;
         if path.ends_with("_tests.rs") {
             if declared.get(path.as_str()) != Some(&1) {
                 problems.push(format!(
@@ -5612,7 +5719,6 @@ pub fn math_layer_gate(metadata: &str, sources: &[RustSource]) -> Result<(), Fai
             continue;
         }
         let layer = path == MATH_LAYER_FILE;
-        let lines: Vec<&str> = text.lines().map(str::trim).collect();
         let required = if path == BOX_ROOT {
             Some(BOX_FLOAT_FORBID)
         } else if is_box || layer || path == ENGINE_ROOT {
@@ -5620,17 +5726,17 @@ pub fn math_layer_gate(metadata: &str, sources: &[RustSource]) -> Result<(), Fai
         } else {
             Some(ENGINE_ARITHMETIC_FORBID)
         };
-        if let Some(forbid) = required
-            && !lines.contains(&forbid)
-        {
-            problems.push(format!("{path} does not hold `{forbid}`"));
+        let forbid = required.and_then(|forbid| source.leading_attribute(forbid));
+        if let Some(missing) = required.filter(|_| forbid.is_none()) {
+            problems.push(format!("{path} does not hold `{missing}`"));
         }
         problems.extend(brought_in(
             source,
             declarations.get(path.as_str()).map_or(&[], Vec::as_slice),
         ));
-        for (line, word, _) in code_words(text) {
-            if word == "include" {
+        for (at, token) in source.tokens.iter().enumerate() {
+            let (line, word) = (token.line, token.text.as_str());
+            if token.is_ident("include") {
                 problems.push(format!(
                     "{path}:{line}: names `{word}` outside a test declaration: code comes \
                      into these crates by `mod` alone, from files the gate reads"
@@ -5639,28 +5745,24 @@ pub fn math_layer_gate(metadata: &str, sources: &[RustSource]) -> Result<(), Fai
             if layer {
                 continue;
             }
-            let whole = lines
-                .get(line.saturating_sub(1))
-                .copied()
-                .unwrap_or_default();
-            let suffixed = word.starts_with(|first: char| first.is_ascii_digit())
+            let named = |names: &[&str]| token.kind == TokenKind::Ident && names.contains(&word);
+            let suffixed = token.kind == TokenKind::Literal
+                && word.starts_with(|first: char| first.is_ascii_digit())
                 && (word.ends_with("f32") || word.ends_with("f64"));
-            if is_box && (suffixed || BOX_FORBIDDEN_NAMES.contains(&word.as_str())) {
+            if is_box && (suffixed || named(&BOX_FORBIDDEN_NAMES)) {
                 problems.push(format!(
                     "{path}:{line}: box code names `{word}`: it computes with the engine's \
                      sample types, through the math layer"
                 ));
             }
-            if REDUCTION_NAMES.contains(&word.as_str()) {
+            if named(&REDUCTION_NAMES) {
                 problems.push(format!(
                     "{path}:{line}: `{word}` is an iterator reduction outside the math layer: \
                      an iterator sums samples only through ordered_sum, in the reduction order"
                 ));
             }
-            if !is_box
-                && ENGINE_FORBIDDEN_NAMES.contains(&word.as_str())
-                && whole != ENGINE_ARITHMETIC_FORBID
-            {
+            let in_forbid = forbid.as_ref().is_some_and(|range| range.contains(&at));
+            if !is_box && named(&ENGINE_FORBIDDEN_NAMES) && !in_forbid {
                 problems.push(format!(
                     "{path}:{line}: engine code names `{word}`: it does no arithmetic on a \
                      sample type outside the math layer"
