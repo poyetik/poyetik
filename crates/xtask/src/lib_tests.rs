@@ -12534,19 +12534,31 @@ fn ignores_a_proof_record_it_cannot_trust() {
 
 #[test]
 fn ignores_a_proof_record_when_its_rules_or_shared_inputs_changed() {
-    for (path, what) in [
-        ("crates/xtask/src/lib.rs", "the mutation rules"),
-        ("mutants-unviable.txt", "the mutation rules"),
-        (".cargo/config.toml", "the mutation rules"),
+    for (path, what, tracked) in [
+        ("crates/xtask/src/lib.rs", "the mutation rules", true),
+        ("mutants-unviable.txt", "the mutation rules", true),
+        (".cargo/config.toml", "the mutation rules", true),
+        (".cargo/mutants.toml", "the mutation rules", false),
         (
             "Cargo.lock",
             "and cannot be narrowed (`git show 1111111111111111111111111111111111111111:Cargo.lock` \
              exited with code 1: failed), what every test depends on",
+            true,
         ),
-        ("rust-toolchain.toml", "what every test depends on"),
-        ("Cargo.toml", "what every test depends on"),
+        ("rust-toolchain.toml", "what every test depends on", true),
+        ("Cargo.toml", "what every test depends on", true),
     ] {
-        let mut fake = proven_fake(&proof_record(PROVEN[2]), &one_line_change(path));
+        let mut fake = if tracked {
+            proven_fake(&proof_record(PROVEN[2]), &one_line_change(path))
+        } else {
+            let mut untracked = proven_fake(&proof_record(PROVEN[2]), "");
+            drop(
+                untracked
+                    .files
+                    .insert(UNTRACKED.to_owned(), format!("{path}\0")),
+            );
+            untracked
+        };
         let said = mutate_changes(&mut fake);
         let comma = if what.starts_with("and ") { " " } else { ", " };
         assert!(
@@ -12562,16 +12574,6 @@ fn ignores_a_proof_record_when_its_rules_or_shared_inputs_changed() {
             "{path}: as without a record"
         );
     }
-    let mut untracked = proven_fake(&proof_record(PROVEN[2]), "");
-    drop(
-        untracked
-            .files
-            .insert(UNTRACKED.to_owned(), ".cargo/mutants.toml\0".to_owned()),
-    );
-    assert!(
-        mutate_changes(&mut untracked).contains("  ignored the mutation proof record of"),
-        "an untracked configuration voids it"
-    );
     let mut tests = proven_fake(
         &proof_record(PROVEN[2]),
         &one_line_change("crates/xtask/src/lib_tests.rs"),
@@ -12614,22 +12616,29 @@ fn falls_back_without_a_common_directory() {
         )),
         "the base measured cannot be noted"
     );
-    for broken in [
-        UNTRACKED
-            .strip_prefix("capture ")
-            .unwrap_or_default()
-            .to_owned(),
-        super::metadata_command().line(),
+    for (broken, expected) in [
+        (
+            UNTRACKED
+                .strip_prefix("capture ")
+                .unwrap_or_default()
+                .to_owned(),
+            "cannot list the untracked files: cannot run `git ls-files -z --others --exclude-standard`: not found",
+        ),
+        (
+            super::metadata_command().line(),
+            "cannot list the crates: cannot run `cargo metadata --format-version 1 --no-deps \
+             --locked`: not found",
+        ),
     ] {
         let mut broken_fake = proven_fake(&proof_record(PROVEN[2]), "");
         broken_fake.broken = Some(broken.clone());
-        assert!(
+        assert_eq!(
             run_steps(
                 &rust_mutation_of_changes(),
                 &mut broken_fake,
                 &mut Vec::new()
-            )
-            .is_err(),
+            ),
+            failed(format!("Rust mutation testing of the changes: {expected}")),
             "{broken}: the record cannot be weighed"
         );
     }
