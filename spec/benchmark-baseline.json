@@ -4,73 +4,73 @@
       "box": "osc~",
       "precision": "binary64",
       "setting": "440 Hz at 48 kHz",
-      "instructions": 758133
+      "instructions": 762229
     },
     {
       "box": "osc~",
       "precision": "binary32",
       "setting": "440 Hz at 48 kHz",
-      "instructions": 501898
+      "instructions": 503946
     },
     {
       "box": "osc~",
       "precision": "binary64",
       "setting": "1000 Hz at 8 kHz",
-      "instructions": 803584
+      "instructions": 807680
     },
     {
       "box": "osc~",
       "precision": "binary32",
       "setting": "1000 Hz at 8 kHz",
-      "instructions": 492800
+      "instructions": 494848
     },
     {
       "box": "osc~",
       "precision": "binary64",
       "setting": "19999 Hz at 384 kHz",
-      "instructions": 757819
+      "instructions": 761915
     },
     {
       "box": "osc~",
       "precision": "binary32",
       "setting": "19999 Hz at 384 kHz",
-      "instructions": 501962
+      "instructions": 504010
     },
     {
       "box": "osc~",
       "precision": "binary64",
       "setting": "0 Hz at 44.1 kHz",
-      "instructions": 346368
+      "instructions": 350464
     },
     {
       "box": "osc~",
       "precision": "binary32",
       "setting": "0 Hz at 44.1 kHz",
-      "instructions": 395520
+      "instructions": 397568
     },
     {
       "box": "dac~",
       "precision": "binary64",
       "setting": "two inlets fed at 48 kHz",
-      "instructions": 233728
+      "instructions": 250112
     },
     {
       "box": "dac~",
       "precision": "binary32",
       "setting": "two inlets fed at 48 kHz",
-      "instructions": 17536
+      "instructions": 25728
     },
     {
       "box": "dac~",
       "precision": "binary64",
       "setting": "unconnected at 48 kHz",
-      "instructions": 227328
+      "instructions": 235520
     },
     {
       "box": "dac~",
       "precision": "binary32",
       "setting": "unconnected at 48 kHz",
-      "instructions": 11136
+      "instructions": 15232
     }
   ],
   "mixes": [
@@ -87,60 +87,60 @@
     {
       "precision": "binary64",
       "setting": "3 cables into one inlet at 48 kHz",
-      "instructions": 142016
+      "instructions": 150208
     },
     {
       "precision": "binary32",
       "setting": "3 cables into one inlet at 48 kHz",
-      "instructions": 142016
+      "instructions": 146112
     },
     {
       "precision": "binary64",
       "setting": "16 cables into one inlet at 48 kHz",
-      "instructions": 943488
+      "instructions": 1004928
     },
     {
       "precision": "binary32",
       "setting": "16 cables into one inlet at 48 kHz",
-      "instructions": 943488
+      "instructions": 974208
     },
     {
       "precision": "binary64",
       "setting": "17 cables into one inlet at 48 kHz",
-      "instructions": 1006016
+      "instructions": 1067456
     },
     {
       "precision": "binary32",
       "setting": "17 cables into one inlet at 48 kHz",
-      "instructions": 1006016
+      "instructions": 1036736
     },
     {
       "precision": "binary64",
       "setting": "two output boxes fed by one oscillator at 48 kHz",
-      "instructions": 131840
+      "instructions": 135936
     },
     {
       "precision": "binary32",
       "setting": "two output boxes fed by one oscillator at 48 kHz",
-      "instructions": 131840
+      "instructions": 133888
     }
   ],
   "plans": [
     {
       "oscillators": 256,
-      "instructions": 3881743
+      "instructions": 3931431
     },
     {
       "oscillators": 1024,
-      "instructions": 16691346
+      "instructions": 16888293
     },
     {
       "oscillators": 4096,
-      "instructions": 72104551
+      "instructions": 72891400
     },
     {
       "oscillators": 16384,
-      "instructions": 305936483
+      "instructions": 309088398
     }
   ],
   "module_bytes": 344374

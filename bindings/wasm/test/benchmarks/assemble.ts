@@ -65,6 +65,19 @@ export const COUNTER_ENTRY = [0x7e, 0x01, 0x42, 0x00, 0x0b] as const;
 /** A mutable `i32` global starting at 0, as a module's own global. */
 export const I32_GLOBAL = [0x7f, 0x01, 0x41, 0x00, 0x0b] as const;
 
+/** The scratch global the instrumenter appends after the counter: a mutable `i32` starting at 0. */
+export const SCRATCH_ENTRY = I32_GLOBAL;
+
+/**
+ * The instructions charging a bulk memory instruction, inserted right before it: its length
+ * (the top of the stack) is kept in the scratch global `scratch`, the counter `counter` gains
+ * ceil(length / 8) computed in 64 bits (`i64.extend_i32_u`, 7, `i64.add`, 3, `i64.shr_u`), and
+ * the length is pushed back. Both indices below 128.
+ */
+export function charge(counter: number, scratch: number): number[] {
+  return [0x24, scratch, 0x23, counter, 0x23, scratch, 0xad, 0x42, 0x07, 0x7c, 0x42, 0x03, 0x88, 0x7c, 0x24, counter, 0x23, scratch];
+}
+
 /** The instructions adding `count` (below 64) to global `index` (below 128). */
 export function bump(index: number, count: number): number[] {
   return [0x23, index, 0x42, count, 0x7c, 0x24, index];

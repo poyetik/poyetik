@@ -1,14 +1,17 @@
 // Counting the WebAssembly instructions a module executes, deterministically: the module is
 // rewritten so that every straight-line run of its code adds its number of instructions to
-// a global counter before it runs. The count depends only on the bytes of the module and on
-// what it is asked to do, never on the machine, the browser engine or the load of the
-// machine: the same on a developer's Mac and on CI. What it does not see (native code,
-// memory and caches, vector width) is stated in spec/benchmarks.md.
+// a global counter before it runs, and every bulk memory instruction also adds the words it
+// moves, ceil(length / 8), right before it runs, since its work grows with the length it
+// is given. The count depends only on the bytes of the module and on what it is asked to
+// do, never on the machine, the browser engine or the load of the machine: the same on a
+// developer's Mac and on CI. What it does not see (native code, memory and caches, vector
+// width) is stated in spec/benchmarks.md.
 //
 // Only the instructions of the features the engine module is built with are understood
 // (the MVP, sign extension, non-trapping conversions, bulk memory, reference types and
 // multiple values); any other instruction is refused, never skipped, so that a new
-// compiler feature cannot make the counts silently wrong.
+// compiler feature cannot make the counts silently wrong. So is a bulk table instruction,
+// whose work also grows with its operand but which nothing charges.
 
 /** The name under which the instrumented module exports its counter: a mutable `i64` global. */
 export const COUNTER = "instructions";
@@ -272,7 +275,10 @@ const INSTRUCTIONS: ReadonlyMap<number, Immediates> = new Map<number, Immediates
   [0xd2, INDEX], // ref.func
 ]);
 
-/** The immediates of the instructions of the 0xfc prefix after the saturating truncations, by sub-opcode. */
+/**
+ * The immediates of the instructions of the 0xfc prefix after the saturating truncations, by
+ * sub-opcode, but the bulk table instructions, refused by {@link instruction}.
+ */
 const FC_INSTRUCTIONS: ReadonlyMap<number, Immediates> = new Map<number, Immediates>([
   [
     8, // memory.init: data segment, memory
@@ -290,13 +296,24 @@ const FC_INSTRUCTIONS: ReadonlyMap<number, Immediates> = new Map<number, Immedia
     },
   ],
   [11, MEMORY], // memory.fill
-  [12, TWO_INDICES], // table.init: element segment, table
   [13, INDEX], // elem.drop
-  [14, TWO_INDICES], // table.copy
   [15, INDEX], // table.grow
   [16, INDEX], // table.size
-  [17, INDEX], // table.fill
 ]);
+
+/**
+ * The bulk memory instructions of the 0xfc prefix (`memory.init`, `memory.copy`,
+ * `memory.fill`): each moves the number of bytes on top of the stack, which is charged as
+ * the words it moves.
+ */
+const BULK_MEMORY: ReadonlySet<number> = new Set([8, 10, 11]);
+
+/**
+ * The bulk table instructions of the 0xfc prefix (`table.init`, `table.copy`, `table.fill`):
+ * their work grows with the number of elements on top of the stack, and nothing charges it,
+ * so a module holding one is refused (the engine module holds none).
+ */
+const BULK_TABLE: ReadonlySet<number> = new Set([12, 14, 17]);
 
 /**
  * The immediates of an instruction without a prefix: those listed, then the loads and
@@ -344,18 +361,26 @@ interface Instruction {
   readonly opcode: number;
   /** The whole instruction, immediates included. */
   readonly bytes: Uint8Array;
+  /** Whether it is a bulk memory instruction, charged the words it moves. */
+  readonly bulk: boolean;
 }
 
 /**
  * Reads one instruction.
- * @throws {InstrumentError} for an instruction the instrumenter does not understand.
+ * @throws {InstrumentError} for an instruction the instrumenter does not understand, and
+ * for a bulk table instruction.
  */
 function instruction(reader: Reader): Instruction {
   const start = reader.position;
   const at = reader.offset;
   const opcode = reader.byte();
+  let bulk = false;
   if (opcode === 0xfc) {
     const code = reader.u32();
+    if (BULK_TABLE.has(code)) {
+      throw new InstrumentError(`instruction 0xfc ${String(code)} at byte ${String(at)} does work that grows with its operand, which the count does not charge`);
+    }
+    bulk = BULK_MEMORY.has(code);
     const immediates = fcImmediatesOf(code);
     if (immediates === undefined) {
       throw new InstrumentError(`unknown instruction 0xfc ${String(code)} at byte ${String(at)}`);
@@ -368,7 +393,7 @@ function instruction(reader: Reader): Instruction {
     }
     immediates(reader);
   }
-  return { opcode, bytes: reader.since(start) };
+  return { opcode, bytes: reader.since(start), bulk };
 }
 
 /** The instructions adding `count` to the global `counter`. */
@@ -378,14 +403,29 @@ function bump(counter: number, count: number): number[] {
 }
 
 /**
+ * The instructions charging a bulk memory instruction, inserted right before it, where its
+ * length in bytes is on top of the stack: the length is kept in the global `scratch`, the
+ * counter gains ceil(length / 8) computed in 64 bits from the unsigned length (so that no
+ * length overflows it), and the length is pushed back. They are not counted themselves.
+ */
+function charge(counter: number, scratch: number): number[] {
+  const kept = unsignedLeb(scratch);
+  const index = unsignedLeb(counter);
+  return [0x24, ...kept, 0x23, ...index, 0x23, ...kept, 0xad, 0x42, 0x07, 0x7c, 0x42, 0x03, 0x88, 0x7c, 0x24, ...index, 0x23, ...kept];
+}
+
+/**
  * Instruments one function body (its locals and its code, without its size).
  *
  * Every straight-line run of the code is preceded by the instructions adding its number
  * of counted instructions to the counter: a run starts where a branch may land (the
  * start of the function, after a structure marker, after a branch), so whenever any of
- * its instructions runs, all of them do, unless the module traps.
+ * its instructions runs, all of them do, unless the module traps. Every bulk memory
+ * instruction is also preceded by its {@link charge}, the global after the counter being
+ * the scratch global.
  * @throws {InstrumentError} when the body is truncated, holds an instruction the
- * instrumenter does not understand, or goes on after the end of the function.
+ * instrumenter does not understand or a bulk table instruction, or goes on after the end
+ * of the function.
  */
 function instrumentBody(reader: Reader, counter: number): number[] {
   const localsStart = reader.position;
@@ -399,7 +439,10 @@ function instrumentBody(reader: Reader, counter: number): number[] {
   let counted = 0;
   let depth = 0;
   while (depth >= 0) {
-    const { opcode, bytes } = instruction(reader);
+    const { opcode, bytes, bulk } = instruction(reader);
+    if (bulk) {
+      append(run, charge(counter, counter + 1));
+    }
     append(run, bytes);
     if (!MARKERS.has(opcode)) {
       counted += 1;
@@ -521,20 +564,30 @@ function instrumentedCode(found: Section, counter: number): number[] {
   return out;
 }
 
-/** The counter global: a mutable `i64` starting at 0. */
-const COUNTER_GLOBAL = [0x7e, 0x01, 0x42, 0x00, 0x0b] as const;
+/**
+ * The globals appended to the module: the counter, a mutable `i64` starting at 0, then the
+ * scratch global of the bulk memory charges, a mutable `i32` starting at 0.
+ */
+const ADDED_GLOBALS: readonly (readonly number[])[] = [
+  [0x7e, 0x01, 0x42, 0x00, 0x0b],
+  [0x7f, 0x01, 0x41, 0x00, 0x0b],
+];
 
 /**
  * Returns `module` rewritten to count the instructions it executes, in a mutable `i64`
  * global exported as {@link COUNTER}.
  *
  * What is counted: every instruction executed, except the structure markers `block`,
- * `loop`, `else` and `end`, which compute nothing. Everything else of the module is kept
- * as it is (custom sections included), so it computes exactly the same results.
+ * `loop`, `else` and `end`, which compute nothing; and for every bulk memory instruction
+ * executed (`memory.init`, `memory.copy`, `memory.fill`), the 8-byte words it moves,
+ * ceil(length / 8), on top of the instruction itself. Everything else of the module is kept
+ * as it is (custom sections included), so it computes exactly the same results; the
+ * counter and a scratch global follow its own globals.
  * @throws {InstrumentError} when the module is not a version 1 module, imports anything
  * (the counter's index would have to follow the imported globals: only self-contained
  * modules are counted), exports nothing or already exports a {@link COUNTER}, has no
- * code, or holds an instruction the instrumenter does not understand.
+ * code, or holds an instruction the instrumenter does not understand or a bulk table
+ * instruction.
  */
 export function instrument(module: Uint8Array): Uint8Array<ArrayBuffer> {
   const found = sections(module);
@@ -555,12 +608,12 @@ export function instrument(module: Uint8Array): Uint8Array<ArrayBuffer> {
   for (const current of found) {
     if (current.id === EXPORT) {
       if (globals === undefined) {
-        append(out, section(GLOBAL, [1, ...COUNTER_GLOBAL]));
+        append(out, section(GLOBAL, [ADDED_GLOBALS.length, ...ADDED_GLOBALS.flat()]));
       }
       append(out, section(EXPORT, exportsWithCounter(current, counter)));
     } else if (current.id === GLOBAL) {
       const { rest } = vector(current);
-      append(out, section(GLOBAL, [...unsignedLeb(counter + 1), ...rest, ...COUNTER_GLOBAL]));
+      append(out, section(GLOBAL, [...unsignedLeb(counter + ADDED_GLOBALS.length), ...rest, ...ADDED_GLOBALS.flat()]));
     } else if (current.id === CODE) {
       append(out, section(CODE, instrumentedCode(current, counter)));
     } else {

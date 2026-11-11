@@ -11,7 +11,7 @@ The engine in browsers: a WebAssembly module (Rust crate `engine-wasm`) and its 
 | `ts/web.ts` | Main-thread API: registering the processors, loading a patch in a precision (binary64 by default, binary32 as a setting; Web Audio is always given binary32), playing it in engine nodes, tapping and capturing what a Web Audio node outputs, rendering offline |
 | `ts/hash.ts` | The canonical render hash (`render-hash/2`) in TypeScript, independent of the Rust one |
 | `test/` | Unit tests (Node, with the real module): every conformance case renders with its native reference hash, in every render format |
-| `benchmarks/` | The cost benchmarks (`spec/benchmarks.md`): an instrumenter counting the WebAssembly instructions the module executes, the benchmarks of every box in both precisions, of the plan's sums and of building plans, the module's size, and their comparison with the baseline |
+| `benchmarks/` | The cost benchmarks (`spec/benchmarks.md`): an instrumenter counting the WebAssembly instructions the module executes and the words its bulk memory instructions move, the benchmarks of every box in both precisions, of the plan's sums and of building plans, the module's size, and their comparison with the baseline |
 | `e2e/` | End-to-end tests: a test bench page rendering conformance cases offline and live, in both precisions, in Chromium, Firefox and Playwright's WebKit (desktop and iPhone sizes; not Safari); `?precision=binary32` on the page computes in binary32 |
 
 ```sh
