@@ -22,12 +22,17 @@ async function openCard(page: Page, id: number): Promise<void> {
   await expect(card.locator("details.card-toggle")).toHaveAttribute("open", "");
 }
 
-/** Opens every toggle of the page with clicks, outermost first: every "Show all", every card, then every card's steps. */
+/**
+ * Opens every toggle of the page with clicks, outermost first: every "Show all", every card,
+ * then every card's steps. Each click must open its toggle: one that does not fails at once,
+ * never a loop until the test's timeout.
+ */
 async function openEverything(page: Page): Promise<void> {
   for (const selector of ["details.more", "details.card-toggle", "details.steps-toggle"]) {
     const toggles = page.locator(`${selector}:not([open]) > summary`);
-    while ((await toggles.count()) > 0) {
+    for (let closed = await toggles.count(); closed > 0; closed -= 1) {
       await toggles.first().click();
+      await expect(toggles).toHaveCount(closed - 1);
     }
   }
   await expect(page.locator("details:not([open])")).toHaveCount(0);
