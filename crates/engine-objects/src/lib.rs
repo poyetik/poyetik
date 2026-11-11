@@ -22,7 +22,7 @@ mod osc;
 use alloc::boxed::Box;
 use core::ptr;
 
-use engine_core::{Block, Instance, Object, ObjectSpec, Params, Sample, SampleRate};
+use engine_core::{Block, Dispatch, Object, ObjectSpec, Params, Sample, SampleRate};
 
 pub use dac::DAC;
 pub use osc::OSC;
@@ -63,7 +63,7 @@ impl<S: Sample> Object<S> for BuiltIn<S> {
     }
 }
 
-impl<S: Sample> Instance<S> for BuiltIn<S> {
+impl<S: Sample> Dispatch<S> for BuiltIn<S> {
     /// The box type is told by the address of its spec, the registry's statics being the
     /// only specs of the built-in box types: a copy of one is another box type, created
     /// through its factory.

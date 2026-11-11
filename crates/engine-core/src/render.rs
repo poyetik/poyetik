@@ -7,7 +7,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::host::Delivered;
-use crate::{BLOCK_SIZE, Block, CoreError, Instance, Object, Plan, Sample};
+use crate::{BLOCK_SIZE, Block, CoreError, Dispatch, Object, Plan, Sample};
 
 /// Renders a plan computing in `S` offline, frame by frame, as one continuous stream; its
 /// plan holds its box instances as `I`, as [`Plan`] says.
@@ -47,7 +47,7 @@ pub struct Renderer<S: Sample, I = Box<dyn Object<S>>> {
     used: usize,
 }
 
-impl<S: Sample, I: Instance<S>> Renderer<S, I> {
+impl<S: Sample, I: Dispatch<S>> Renderer<S, I> {
     /// A renderer starting at the first frame of `plan`.
     #[must_use]
     pub fn new(plan: Plan<S, I>) -> Self {

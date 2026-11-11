@@ -302,14 +302,14 @@ impl<S: Sample, T: Object<S> + ?Sized> Object<S> for Box<T> {
 
 /// How a plan holds the instances of its boxes and calls them: the type of every instance
 /// of a plan, created from its box type.
-pub trait Instance<S: Sample>: Object<S> + Sized {
+pub trait Dispatch<S: Sample>: Object<S> + Sized {
     /// The instance of the box type `spec` at `rate`, with `params` as [`Create::create`]
     /// receives them.
     fn create(spec: &'static ObjectSpec, rate: SampleRate, params: Params<'_>) -> Self;
 }
 
 /// Every box type through its factory, each instance called through its virtual table.
-impl<S: Sample> Instance<S> for Box<dyn Object<S>> {
+impl<S: Sample> Dispatch<S> for Box<dyn Object<S>> {
     fn create(spec: &'static ObjectSpec, rate: SampleRate, params: Params<'_>) -> Self {
         spec.create.create(rate, params)
     }

@@ -18,11 +18,11 @@ use core::{hint, iter};
 
 use crate::math::{Lanes, add_two, sum_blocks};
 use crate::{
-    Binary64, Block, Capability, Connection, CoreError, Instance, Node, NodeId, Object, ObjectSpec,
+    Binary64, Block, Capability, Connection, CoreError, Dispatch, Node, NodeId, Object, ObjectSpec,
     ParamValues, Patch, Sample, SampleRate, flush,
 };
 
-/// One box instance in execution order, held as `I` ([`Instance`]), with its own input and
+/// One box instance in execution order, held as `I` ([`Dispatch`]), with its own input and
 /// output buffers.
 #[derive(Debug)]
 struct Running<S: Sample, I> {
@@ -121,7 +121,7 @@ impl<K: Copy> Feed<K> {
 /// a [`crate::Renderer`], which owns it: the two ways of advancing time can then never be
 /// mixed on one plan.
 ///
-/// `I` is how the plan holds and calls its box instances ([`Instance`]): by default each
+/// `I` is how the plan holds and calls its box instances ([`Dispatch`]): by default each
 /// through its virtual table, one indirect call per box per block; a set of box types
 /// known when the program is built (the engine's own, in `engine-objects`) can be called
 /// directly instead, leaving the virtual table to the box types loaded at run time.
@@ -292,7 +292,7 @@ fn execution_order(
     }
 }
 
-impl<S: Sample, I: Instance<S>> Plan<S, I> {
+impl<S: Sample, I: Dispatch<S>> Plan<S, I> {
     /// Validates `patch` against `registry` and builds its execution plan, computing in
     /// `S`.
     ///

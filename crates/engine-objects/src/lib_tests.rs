@@ -7,7 +7,7 @@ static ALLOCATOR: engine_testkit::CountingAllocator = engine_testkit::CountingAl
 use alloc::vec;
 use alloc::vec::Vec;
 
-use engine_core::{Binary32, Binary64, Block, Instance, Object, ObjectSpec, ParamValues, Sample};
+use engine_core::{Binary32, Binary64, Block, Dispatch, Object, ObjectSpec, ParamValues, Sample};
 use engine_testkit::matrix::{SPECIAL_INPUTS_BINARY64, sample_rates};
 
 use super::{BuiltIn, Kind, OSC, REGISTRY};
