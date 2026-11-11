@@ -81,7 +81,7 @@ fn loads_in_the_format_of_its_code() {
         assert_eq!(
             instance.message(),
             alloc::format!(
-                "unknown render format: {code} (supported: 0 binary64, 1 binary64-as-binary32, 2 binary32)"
+                "unknown render format {code} (0 binary64, 1 binary64-as-binary32, 2 binary32)"
             ),
             "explained"
         );

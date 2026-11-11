@@ -4,7 +4,7 @@
  * (`crates/engine-hash`), giving the same hash for the same bits.
  */
 
-import type { RenderFormat, Samples } from "./engine.ts";
+import { RENDER_FORMATS, type RenderFormat, type Samples } from "./engine.ts";
 
 /** Tag opening the hashed bytes: the version of the scheme. */
 const TAG = "render-hash/2";
@@ -21,6 +21,9 @@ const KNOWN_OPTIONS = 0b111n;
 
 /** The largest arithmetic mode: 64 bits of flags. */
 const LARGEST_MODE = 2n ** 64n - 1n;
+
+/** The render formats, as an error names them: from {@link RENDER_FORMATS}, so a format added there is named at once. */
+const ACCEPTED_FORMATS = `${RENDER_FORMATS.slice(0, -1).join(", ")} or ${RENDER_FORMATS.slice(-1).join("")}`;
 
 /** The processing precision and the sample width of each render format, in bits. */
 const WIDTHS: Readonly<Record<RenderFormat, { readonly precision: number; readonly samples: number }>> = {
@@ -98,7 +101,8 @@ export async function renderHash(rate: number, channels: number, samples: Sample
     throw new RangeError(`${String(samples.length)} samples are not whole frames of ${String(channels)} channels`);
   }
   if (!Object.hasOwn(WIDTHS, format)) {
-    throw new RangeError(`unknown render format: ${format}`);
+    const given: unknown = format;
+    throw new RangeError(`unknown render format ${typeof given === "string" ? JSON.stringify(given) : String(given)} (${ACCEPTED_FORMATS})`);
   }
   const widths = WIDTHS[format];
   if (samples.BYTES_PER_ELEMENT * 8 !== widths.samples) {

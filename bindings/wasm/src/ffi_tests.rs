@@ -157,7 +157,7 @@ fn follows_the_protocol() {
     assert_eq!(engine_load(48_000, 3), 0, "an unknown render format");
     assert_eq!(
         message(),
-        b"unknown render format: 3 (supported: 0 binary64, 1 binary64-as-binary32, 2 binary32)",
+        b"unknown render format 3 (0 binary64, 1 binary64-as-binary32, 2 binary32)",
         "explained"
     );
     write(sine);

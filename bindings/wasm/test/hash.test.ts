@@ -159,8 +159,12 @@ describe("renderHash", () => {
     expect(formats).not.toContain(unknown);
     // The type allows only render formats: the call goes through a method typed loosely (method parameters are bivariant), as plain JavaScript would make it.
     const untyped: { hash(rate: number, channels: number, samples: Samples, format: string, mode: bigint): Promise<string> } = { hash: renderHash };
-    await expect(untyped.hash(48_000, 1, new Float32Array(1), unknown, 0n)).rejects.toThrow(new RangeError("unknown render format: float32"));
-    await expect(untyped.hash(48_000, 1, new Float32Array(1), "toString", 0n)).rejects.toThrow(new RangeError("unknown render format: toString"));
+    const accepted = "(binary64, binary64-as-binary32 or binary32)";
+    await expect(untyped.hash(48_000, 1, new Float32Array(1), unknown, 0n)).rejects.toThrow(new RangeError(`unknown render format "float32" ${accepted}`));
+    await expect(untyped.hash(48_000, 1, new Float32Array(1), "toString", 0n)).rejects.toThrow(new RangeError(`unknown render format "toString" ${accepted}`));
+    // Not even a string: shown as it is.
+    const anything: { hash(rate: number, channels: number, samples: Samples, format: unknown, mode: bigint): Promise<string> } = { hash: renderHash };
+    await expect(anything.hash(48_000, 1, new Float32Array(1), 2, 0n)).rejects.toThrow(new RangeError(`unknown render format 2 ${accepted}`));
   });
 
   test.each(VECTORS)("reproduces the known-answer vector $name", async (vector) => {

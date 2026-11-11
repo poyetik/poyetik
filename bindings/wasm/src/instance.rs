@@ -63,9 +63,7 @@ impl Instance {
                 // From `RenderFormat::ALL`, whose order is the codes: a fourth format does not
                 // compile until it is named here.
                 let [first, second, third] = RenderFormat::ALL.map(RenderFormat::name);
-                alloc::format!(
-                    "unknown render format: {format} (supported: 0 {first}, 1 {second}, 2 {third})"
-                )
+                alloc::format!("unknown render format {format} (0 {first}, 1 {second}, 2 {third})")
             })
             .and_then(|known| Engine::new(&self.input, rate, known));
         match loaded {
