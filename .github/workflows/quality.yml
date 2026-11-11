@@ -30,10 +30,11 @@ jobs:
     # GitHub's weekly updates, which no workflow can pin.
     runs-on: ubuntu-24.04
     # A guard against a hung job: 1.5 times the longest part of the latest green run of
-    # this workflow on the code it tests. The first green run (2026-11-09, on main) took
-    # 18.2 minutes for its longest part (apps-playground), but predates crates, mutants and
-    # browser tests added since; the value is set from the next green pull request run,
-    # in its version commit, and kept wide until then.
+    # this workflow on the code it tests. The first green run (2026-11-09, on main: 17
+    # parallel parts and the final job, about 19 minutes in all) took 18.2 minutes for its
+    # longest part (apps-playground), but predates crates, mutants and browser tests added
+    # since; the value is set from the next green pull request run, in its version commit,
+    # and kept wide until then.
     timeout-minutes: 90
     strategy:
       # Every part runs whatever the others find, as the full check runs every step.
