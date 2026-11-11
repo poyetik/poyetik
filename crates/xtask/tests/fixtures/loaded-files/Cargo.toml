@@ -1,0 +1,6 @@
+# A workspace of its own, outside the project's: xtask's tests build it with real cargo and
+# read the files rustc loaded for each build, among them a module that a macro of its
+# library brings into its tests, which no gate reading words sees.
+[workspace]
+members = ["crates/loaded"]
+resolver = "3"

@@ -317,6 +317,60 @@ const CHANGES: (&str, &str) = (
 /// How the fake lists the new Rust files, and what it answers: none.
 const NEW_RUST_FILES: (&str, &str) = ("git ls-files -z --others --exclude-standard -- *.rs", "");
 
+/// A cargo message of a build of `target` of the crate in `dir` (below the root `/r`),
+/// with tests or not, whose first output is `output`.
+fn artifact(dir: &str, target: &str, test: bool, output: &str) -> String {
+    format!(
+        r#"{{"reason":"compiler-artifact","package_id":"path+file:///r/{dir}#0.1.0","manifest_path":"/r/{dir}/Cargo.toml","target":{{"kind":["lib"],"name":"{target}"}},"profile":{{"test":{test}}},"filenames":["{output}"],"fresh":true}}"#
+    )
+}
+
+/// A dep-info file of rustc for the output `output`, listing `files`.
+fn dep_info(output: &str, files: &[&str]) -> String {
+    let listed = files.join(" ");
+    let phony = files.iter().fold(String::new(), |mut phony, file| {
+        phony.push_str(file);
+        phony.push_str(":\n");
+        phony
+    });
+    format!(
+        "{output}.d: {listed}\n\n{output}: {listed}\n\n{phony}\n# env-dep:CARGO_MANIFEST_DIR=/r\n"
+    )
+}
+
+/// Gives the fake the builds of [`super::loaded_files_commands`]: one of the assembly file's
+/// crate without its tests, one with them, each reading the assembly file only, and a
+/// message of no build and one of a registry package between them.
+fn loaded_answers(fake: &mut Fake) {
+    let [check, test] = super::loaded_files_commands();
+    let word = super::ASSEMBLY_FILES[0];
+    let registry = r#"{"reason":"compiler-artifact","package_id":"registry+https://github.com/rust-lang/crates.io-index#serde@1.0.0","profile":{"test":false}}"#;
+    for (cmd, tested, output) in [
+        (check, false, "/t/debug/deps/libengine_fpenv-1.rmeta"),
+        (test, true, "/t/debug/deps/engine_fpenv-2"),
+    ] {
+        let stem = output
+            .trim_end_matches(".rmeta")
+            .replace("/libengine", "/engine");
+        let answer = format!(
+            "{registry}\n{}\n{{\"reason\":\"build-finished\",\"success\":true}}\n",
+            artifact("crates/engine-fpenv", "engine_fpenv", tested, output)
+        );
+        assert!(
+            fake.files
+                .insert(format!("capture {}", cmd.line()), answer)
+                .is_none(),
+            "fresh fake"
+        );
+        assert!(
+            fake.files
+                .insert(format!("{stem}.d"), dep_info(&stem, &[word]))
+                .is_none(),
+            "fresh fake"
+        );
+    }
+}
+
 /// Records commands and answers with scripted results.
 #[derive(Debug, Default)]
 struct Fake {
@@ -729,6 +783,7 @@ fn passing() -> Fake {
         format!("running 1 test\n{}\n", super::FUSED_PROOF),
     );
     assert!(fused.is_none(), "fresh fake");
+    loaded_answers(&mut fake);
     coverage_reports(&mut fake);
     unviable_answers(&mut fake);
     test_data_readers(&mut fake);
@@ -1065,6 +1120,7 @@ fn command_lines(steps: &[Step]) -> Vec<String> {
             Action::LibraryGate => "library gate".to_owned(),
             Action::CitationGate => "citation gate".to_owned(),
             Action::FusedBuild => "fused build".to_owned(),
+            Action::LoadedFilesGate => "loaded files gate".to_owned(),
             Action::MathLayerGate => "math layer gate".to_owned(),
             Action::SupplyChainGate => "supply chain gate".to_owned(),
             Action::Preflight => "preflight".to_owned(),
@@ -1708,6 +1764,7 @@ fn lists_every_check_in_order() {
             "float method gate",
             "Root: cargo doc --workspace --no-deps --document-private-items --locked",
             "Root: cargo test --workspace --locked -- --include-ignored",
+            "loaded files gate",
             "fused build",
             "Root: cargo build --package engine-core --package engine-objects --package engine-patch --package engine-hash --locked --target aarch64-apple-darwin",
             "Root: cargo build --package engine-core --package engine-objects --package engine-patch --package engine-hash --locked --target x86_64-unknown-linux-gnu",
@@ -1824,6 +1881,7 @@ fn names_every_check_in_order() {
             "Float methods of the pinned toolchain banned or reviewed as deterministic",
             "Rust documentation",
             "Rust tests",
+            "Files rustc loads: tracked, in their crate, those of tests alone named as test code",
             "Boxes unchanged under the math layer's fused multiply-add option (a test build)",
             "Engine portability (aarch64-apple-darwin)",
             "Engine portability (x86_64-unknown-linux-gnu)",
@@ -3630,8 +3688,9 @@ fn runs_every_step_and_reports_success() {
         Ok(()),
         "all green"
     );
-    let (tools, commands, emptied, listed, captured, written) = (10, 58, 14, 24, 37, 3);
+    let (tools, commands, emptied, listed, captured, written) = (10, 58, 14, 25, 39, 3);
     let read = 2
+        + 2
         + 7
         + 14
         + 3
@@ -3662,13 +3721,13 @@ fn runs_every_step_and_reports_success() {
          the coverage build, the mutants of the changes, Miri, the \
          conformance check and export, deny, the JavaScript install, audit, the engine build and five package \
          checks each followed by its Stryker run); fourteen directories are emptied; git lists \
-         thirteen kinds of files (the box sources and the text files that cite the roadmap among them), the Rust files again for the test code, test data and untested targets gates, the TypeScript ones again for the reports and scope gates of \
+         thirteen kinds of files (the box sources and the text files that cite the roadmap among them), the Rust files again for the test code, test data, untested targets and loaded files gates, the TypeScript ones again for the reports and scope gates of \
          each package after the first; the licenses twice and the history three times, the state \
-         of the tree (before, for the proof record and after) six times, the nightly's version and sysroot, the Cargo metadata (for the untested targets, dependency, pin, library and math layer gates), the output of the fused test build, the merge base, the changed paths, the changes, the \
+         of the tree (before, for the proof record and after) six times, the nightly's version and sysroot, the Cargo metadata (for the untested targets, dependency, pin, library and math layer gates), the output of the fused test build and of the two builds of the loaded files gate, the merge base, the changed paths, the changes, the \
          new Rust files and the list of every mutant once, git's common directory twice, the tree checked out, \
          cargo-mutants' version, rustc's host and build, the linker driver's and git's versions, the status for a push and the hidden files for the mutation step and the proof record; the measured base, the diff and the \
          proof record are written once each; the proof record, the measured base and the \
-         toolchain file are read for it; and the gates read the nine fake test data readers for the unsafe, bypass and vocabulary gates, every Rust file (twelve) for the test code, test data and untested targets gates, .node-version and the toolchain file for the preflight, the toolchain file, the four float sources and the float macros of the nightly and clippy.toml for the float gate, fourteen coverage reports, \
+         toolchain file are read for it; and the gates read the two dep-info files of the loaded files gate, the nine fake test data readers for the unsafe, bypass and vocabulary gates, every Rust file (twelve) for the test code, test data and untested targets gates, .node-version and the toolchain file for the preflight, the toolchain file, the four float sources and the float macros of the nightly and clippy.toml for the float gate, fourteen coverage reports, \
          the unviable report and reviews, the register of the pin gate, the 90 text files of the citation gate (the board among them), the reviews again against the list of every mutant, six TypeScript sources and their reviews, the nine \
          sources, the twelve Cargo manifests and the register of the bypass gate, the three unsafe files, the Cargo \
          configuration, the six package manifests and the register of the dependency gate, the three \
@@ -3695,15 +3754,15 @@ fn runs_every_step_and_reports_success() {
     );
     let text = String::from_utf8(out).expect("utf-8 output");
     assert!(
-        text.starts_with("▶ [1/89] Tools and platform\n"),
+        text.starts_with("▶ [1/90] Tools and platform\n"),
         "numbered progress: {text}"
     );
     assert!(
-        text.contains("▶ [80/89] Roadmap checks\n  done in 1.5 s\n"),
+        text.contains("▶ [81/90] Roadmap checks\n  done in 1.5 s\n"),
         "last step announced: {text}"
     );
     assert!(
-        text.ends_with("  done in 1.5 s\n✔ all 89 checks passed in 2 min 13 s\n"),
+        text.ends_with("  done in 1.5 s\n✔ all 90 checks passed in 2 min 15 s\n"),
         "summary: {text}"
     );
 }
@@ -6955,6 +7014,7 @@ const fn names_its_step(action: &Action) -> bool {
         | Action::MutationProofRecorded
         | Action::FreshDirs(_)
         | Action::FusedBuild
+        | Action::LoadedFilesGate
         | Action::TreeRecorded
         | Action::TreeUnchanged
         | Action::Preflight => false,
@@ -7247,7 +7307,7 @@ fn checks_a_push_then_runs_every_check() {
     assert!(
         String::from_utf8(out)
             .expect("UTF-8")
-            .ends_with("✔ all 89 checks passed in 2 min 13 s\n"),
+            .ends_with("✔ all 90 checks passed in 2 min 15 s\n"),
         "then every check"
     );
     assert!(
@@ -7711,13 +7771,13 @@ fn prints_the_details_of_a_failure_on_stdout_and_one_line_on_stderr() {
     );
     assert_eq!(
         String::from_utf8(err).expect("UTF-8"),
-        "error: 1 of 87 checks failed, listed above\n",
+        "error: 1 of 88 checks failed, listed above\n",
         "one line on stderr, counting the failed steps"
     );
     assert!(
         String::from_utf8(out).expect("UTF-8").ends_with(&format!(
-            "▶ [87/87] Working tree unchanged by the checks\n  done in 1.5 s\n\
-             ✘ 1 of 87 checks failed in 2 min 10 s\n\
+            "▶ [88/88] Working tree unchanged by the checks\n  done in 1.5 s\n\
+             ✘ 1 of 88 checks failed in 2 min 12 s\n\
              not reviewed: crates/a/src/c.rs: replace g -> U with x\n\
              stale review: crates/a/src/b.rs: replace f -> T with Default::default()\n\
              Rust unviable mutants reviewed: unviable mutants must be reviewed in \
@@ -8487,6 +8547,402 @@ fn refuses_a_path_attribute_outside_a_test_declaration() {
         gate(&[("tools/x/src/lib.rs", "#[path = \"h.rs\"]\nmod h;\n")]),
         Ok(()),
         "a file of no crate of the workspace"
+    );
+}
+
+#[test]
+fn reads_the_files_a_dep_info_file_lists() {
+    let text = "/t/deps/x-1.d: a/src/lib.rs a/src/my\\ file.rs ../../spec/v.json\n\n/t/deps/x-1: a/src/lib.rs a/src/my\\ file.rs ../../spec/v.json\n\na/src/lib.rs:\na/src/my\\ file.rs:\n../../spec/v.json:\n\n# env-dep:CARGO_MANIFEST_DIR=/r/a\n# checksum:x\n";
+    assert_eq!(
+        super::dep_info_files(text),
+        Ok(vec![
+            "a/src/lib.rs".to_owned(),
+            "a/src/my file.rs".to_owned(),
+            "../../spec/v.json".to_owned()
+        ]),
+        "each file once, a space unescaped, the targets and comments apart"
+    );
+    assert_eq!(
+        super::dep_info_files("x-1: a.rs\n\na.rs:\nb.rs\n"),
+        Err("a line not as rustc writes dep-info: b.rs".to_owned()),
+        "a line of no known form"
+    );
+    for (file, expected) in [
+        ("crates/a/src/lib.rs", "crates/a/src/lib.rs"),
+        ("/r/crates/a/src/lib.rs", "crates/a/src/lib.rs"),
+        ("crates/a/src/../../../spec/x.json", "spec/x.json"),
+        ("crates/a/./src/lib.rs", "crates/a/src/lib.rs"),
+        ("../outside/x.rs", "../outside/x.rs"),
+        ("crates/../../../x.rs", "../../x.rs"),
+        ("/rx/a.rs", "/rx/a.rs"),
+        ("/elsewhere/a/../b.rs", "/elsewhere/b.rs"),
+    ] {
+        assert_eq!(super::normalized(file, "/r"), expected, "{file}");
+    }
+}
+
+#[test]
+fn tells_each_build_and_its_dep_info_file_from_cargo_s_messages() {
+    let core = super::RUST_CRATES[0];
+    let read = |line: &str, test: bool| {
+        super::built_artifact(line, test, &super::RUST_CRATES).map_err(|failure| failure.summary)
+    };
+    let found = |target: &str, dep_info: &str| {
+        Ok(Some((
+            core,
+            "/r".to_owned(),
+            target.to_owned(),
+            dep_info.to_owned(),
+        )))
+    };
+    for (output, target, test, dep_info) in [
+        (
+            "/t/deps/libengine_core-1.rmeta",
+            "engine_core",
+            false,
+            "/t/deps/engine_core-1.d",
+        ),
+        (
+            "/t/deps/engine_core-2",
+            "engine_core",
+            true,
+            "/t/deps/engine_core-2.d",
+        ),
+        (
+            "/t/deps/plan_laws-3.exe",
+            "plan_laws",
+            true,
+            "/t/deps/plan_laws-3.d",
+        ),
+        (
+            "/t/deps/libengine_cli-4.rmeta",
+            "engine-cli",
+            false,
+            "/t/deps/engine_cli-4.d",
+        ),
+    ] {
+        assert_eq!(
+            read(&artifact(core.dir, target, test, output), test),
+            found(target, dep_info),
+            "{output}"
+        );
+    }
+    let built = artifact(core.dir, "engine_core", true, "/t/deps/engine_core-2");
+    assert_eq!(
+        read(&built, false),
+        Ok(None),
+        "a build of tests, when builds without are read"
+    );
+    assert_eq!(
+        read(r#"{"reason":"build-finished"}"#, false),
+        Ok(None),
+        "no build"
+    );
+    assert_eq!(
+        read(
+            r#"{"reason":"compiler-artifact","package_id":"registry+x#serde@1.0.0"}"#,
+            false
+        ),
+        Ok(None),
+        "a package of a registry"
+    );
+}
+
+#[test]
+fn refuses_a_cargo_message_it_does_not_read() {
+    let core = super::RUST_CRATES[0];
+    let read = |line: &str, test: bool| {
+        super::built_artifact(line, test, &super::RUST_CRATES).map_err(|failure| failure.summary)
+    };
+    let built = artifact(core.dir, "engine_core", true, "/t/deps/engine_core-2");
+    let unread =
+        |what: &str, line: &str| Err(format!("cannot read cargo's message {what}: {line}"));
+    for (what, line) in [
+        ("(not JSON)", "Compiling x".to_owned()),
+        (
+            "(no package_id)",
+            r#"{"reason":"compiler-artifact"}"#.to_owned(),
+        ),
+        (
+            "(no manifest_path)",
+            built.replace(r#""manifest_path":"/r/crates/engine-core/Cargo.toml","#, ""),
+        ),
+        (
+            "(no target name)",
+            built.replace(r#""name":"engine_core""#, r#""kind":[]"#),
+        ),
+        (
+            "(no output)",
+            built.replace(r#"["/t/deps/engine_core-2"]"#, "[]"),
+        ),
+        (
+            "(an output with no directory)",
+            built.replace("/t/deps/engine_core-2", "engine_core-2"),
+        ),
+        (
+            "(an output not named <crate>-<hash>)",
+            built.replace("/t/deps/engine_core-2", "/t/deps/engine_corex-2"),
+        ),
+    ] {
+        assert_eq!(read(&line, true), unread(what, &line), "{what}");
+    }
+    let foreign = built.replace(
+        "/r/crates/engine-core/Cargo.toml",
+        "/r/crates/other/Cargo.toml",
+    );
+    assert_eq!(
+        read(&foreign, true),
+        Err("/r/crates/other/Cargo.toml: a package of no crate of the checks".to_owned()),
+        "a local package the checks do not know"
+    );
+}
+
+#[test]
+fn refuses_a_file_rustc_loads_where_no_gate_looks() {
+    let [core, objects] = [super::RUST_CRATES[0], super::RUST_CRATES[1]];
+    let build = |krate: RustCrate, of_tests: bool, files: &[&str]| super::Loaded {
+        krate,
+        target: krate.name.replace('-', "_"),
+        of_tests,
+        files: files.iter().map(|file| (*file).to_owned()).collect(),
+    };
+    let tracked: Vec<String> = [
+        "crates/engine-core/src/lib.rs",
+        "crates/engine-core/src/plan_tests.rs",
+        "crates/engine-core/src/helper.rs",
+        "crates/engine-core/tests/laws.rs",
+        "crates/engine-objects/src/lib.rs",
+    ]
+    .map(str::to_owned)
+    .into();
+    let library = build(core, false, &["crates/engine-core/src/lib.rs"]);
+    let tests = build(
+        core,
+        true,
+        &[
+            "crates/engine-core/src/lib.rs",
+            "crates/engine-core/src/plan_tests.rs",
+            "crates/engine-core/tests/laws.rs",
+            "conformance/test-matrix.json",
+            "crates/engine-core/tests/data.bin",
+        ],
+    );
+    assert_eq!(
+        super::loaded_files_gate(&[library.clone(), tests], &tracked),
+        Ok(()),
+        "code, test code, declared test data and a file of the crate"
+    );
+    let gate = |builds: &[super::Loaded]| {
+        super::loaded_files_gate(builds, &tracked).map_err(|failure| failure.summary)
+    };
+    let refused = |problem: &str| Err(format!("the files rustc loads: {problem}"));
+    assert_eq!(
+        gate(&[
+            library,
+            build(core, true, &["crates/engine-core/src/helper.rs"])
+        ]),
+        refused(
+            "crates/engine-core/src/helper.rs: read only by the test build of `engine_core` \
+             (engine-core), but not named as test code (tests/, a *_tests.rs file): a module \
+             brought in by a macro or an attribute"
+        ),
+        "a file only the tests load, named as code"
+    );
+    assert_eq!(
+        gate(&[
+            build(
+                core,
+                false,
+                &[
+                    "crates/engine-core/src/lib.rs",
+                    "crates/engine-core/src/helper.rs"
+                ]
+            ),
+            build(core, true, &["crates/engine-core/src/helper.rs"]),
+        ]),
+        Ok(()),
+        "a file of the code, which the tests load too"
+    );
+    assert_eq!(
+        gate(&[
+            build(objects, false, &["crates/engine-objects/src/lib.rs"]),
+            build(core, true, &["crates/engine-objects/src/lib.rs"])
+        ]),
+        refused(
+            "crates/engine-objects/src/lib.rs: read by the test build of `engine_core` \
+             (engine-core), outside its crate and its declared test data"
+        ),
+        "another crate's code, which its build reads: not this crate's"
+    );
+}
+
+#[test]
+fn refuses_a_file_rustc_loads_outside_its_crate_or_git() {
+    let core = super::RUST_CRATES[0];
+    let build = |krate: RustCrate, of_tests: bool, files: &[&str]| super::Loaded {
+        krate,
+        target: krate.name.replace('-', "_"),
+        of_tests,
+        files: files.iter().map(|file| (*file).to_owned()).collect(),
+    };
+    let gate = |builds: &[super::Loaded]| {
+        super::loaded_files_gate(builds, &[]).map_err(|failure| failure.summary)
+    };
+    let refused = |problem: &str| Err(format!("the files rustc loads: {problem}"));
+    assert_eq!(
+        gate(&[build(core, false, &["conformance/test-matrix.json"])]),
+        refused(
+            "conformance/test-matrix.json: read by the build of `engine_core` (engine-core), \
+             outside its crate"
+        ),
+        "test data read by the code"
+    );
+    assert_eq!(
+        gate(&[build(core, true, &["spec/x.json"])]),
+        refused(
+            "spec/x.json: read by the test build of `engine_core` (engine-core), outside its \
+             crate and its declared test data"
+        ),
+        "data no declaration names"
+    );
+    assert_eq!(
+        gate(&[build(core, false, &["crates/engine-core/src/new.rs"])]),
+        refused(
+            "crates/engine-core/src/new.rs: read by the build of `engine_core` (engine-core), \
+             but not tracked by git, so no gate read it (git add it)"
+        ),
+        "a Rust file git does not track"
+    );
+    assert_eq!(
+        gate(&[build(
+            core,
+            true,
+            &["crates/engine-core/tests/new_tests.rs"]
+        )]),
+        refused(
+            "crates/engine-core/tests/new_tests.rs: read by the test build of `engine_core` \
+             (engine-core), but not tracked by git, so no gate read it (git add it)"
+        ),
+        "untracked test code"
+    );
+}
+
+#[test]
+fn reads_the_files_real_rustc_loads_for_each_build() {
+    let target = scratch("loaded-files");
+    let target_dir = target.display().to_string();
+    let commands = super::loaded_files_commands().map(|mut cmd| {
+        cmd.args
+            .extend(["--target-dir".to_owned(), target_dir.clone()]);
+        cmd
+    });
+    let loaded_crate = RustCrate {
+        name: "loaded",
+        dir: "crates/loaded",
+        binary: false,
+        test_data: &[],
+        roles: &[],
+    };
+    let loaded = super::loaded_files(
+        &mut system(fixture("loaded-files")),
+        &commands,
+        &[loaded_crate],
+    )
+    .expect("built and read");
+    let [lib, tests] =
+        ["src/lib.rs", "src/lib_tests.rs"].map(|file| format!("crates/loaded/{file}"));
+    let helper = "crates/loaded/src/lib_tests/helper.rs".to_owned();
+    assert_eq!(
+        loaded,
+        [
+            super::Loaded {
+                krate: loaded_crate,
+                target: "loaded".to_owned(),
+                of_tests: false,
+                files: vec![lib.clone()],
+            },
+            super::Loaded {
+                krate: loaded_crate,
+                target: "loaded".to_owned(),
+                of_tests: true,
+                files: vec![lib.clone(), tests.clone(), helper.clone()],
+            },
+        ],
+        "the library alone, then its tests with the module the macro brought in"
+    );
+    assert_eq!(
+        super::loaded_files_gate(&loaded, &[lib, tests, helper.clone()])
+            .map_err(|failure| failure.summary),
+        Err(format!(
+            "the files rustc loads: {helper}: read only by the test build of `loaded` (loaded), \
+             but not named as test code (tests/, a *_tests.rs file): a module brought in by a \
+             macro or an attribute"
+        )),
+        "what the test code gate cannot see"
+    );
+}
+
+#[test]
+fn reports_the_builds_and_dep_info_files_it_cannot_read() {
+    let step = || {
+        vec![Step {
+            name: "Loaded".to_owned(),
+            action: Action::LoadedFilesGate,
+        }]
+    };
+    let [check, test] = super::loaded_files_commands();
+    let mut broken = passing();
+    broken.broken = Some(test.line());
+    assert_eq!(
+        run_steps(&step(), &mut broken, &mut Vec::new()),
+        failed(format!(
+            "Loaded: cannot build: cannot run `{}`: not found",
+            test.line()
+        )),
+        "a build that fails"
+    );
+    let mut missing = passing();
+    let _gone = missing.files.remove("/t/debug/deps/engine_fpenv-1.d");
+    assert_eq!(
+        run_steps(&step(), &mut missing, &mut Vec::new()),
+        failed("Loaded: cannot read /t/debug/deps/engine_fpenv-1.d: missing"),
+        "a dep-info file missing"
+    );
+    let mut garbled = passing();
+    let _garbled = garbled.files.insert(
+        "/t/debug/deps/engine_fpenv-2.d".to_owned(),
+        "x\n".to_owned(),
+    );
+    assert_eq!(
+        run_steps(&step(), &mut garbled, &mut Vec::new()),
+        failed("Loaded: /t/debug/deps/engine_fpenv-2.d: a line not as rustc writes dep-info: x"),
+        "a dep-info file not as rustc writes it"
+    );
+    let mut noise = passing();
+    let _noise = noise
+        .files
+        .insert(format!("capture {}", check.line()), "warning\n".to_owned());
+    assert_eq!(
+        run_steps(&step(), &mut noise, &mut Vec::new()),
+        failed("Loaded: cannot read cargo's message (not JSON): warning"),
+        "an output of no JSON message"
+    );
+    let mut stray = passing();
+    let _stray = stray.files.insert(
+        "/t/debug/deps/engine_fpenv-2.d".to_owned(),
+        dep_info(
+            "/t/debug/deps/engine_fpenv-2",
+            &["crates/engine-fpenv/src/stray.rs"],
+        ),
+    );
+    assert_eq!(
+        run_steps(&step(), &mut stray, &mut Vec::new()),
+        failed(
+            "Loaded: the files rustc loads: crates/engine-fpenv/src/stray.rs: read by the test \
+             build of `engine_fpenv` (engine-fpenv), but not tracked by git, so no gate read it \
+             (git add it)"
+        ),
+        "the gate fed with what the builds read"
     );
 }
 
@@ -11660,8 +12116,8 @@ fn the_parts_run_every_step_of_the_full_check_once() {
     }
     assert_eq!(
         steps_run,
-        18 * 3 + (87 - 3 - 7 - 2) + 8 * 2 + 1 + 2 + 6 * 3 + 1,
-        "each part's frame (three steps); every other step of the 87 once, but the seven \
+        18 * 3 + (88 - 3 - 7 - 2) + 8 * 2 + 1 + 2 + 6 * 3 + 1,
+        "each part's frame (three steps); every other step of the 88 once, but the seven \
          preparations, the mutation run and its unviable gate; in each of the eight shards, \
          the report emptied and the shard's run; the gate over the shards; the conformance \
          export (two steps) for the oracle; the JavaScript preparation (three steps) for the \
