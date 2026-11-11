@@ -81,15 +81,15 @@ impl<K: Copy> Feed<K> {
     /// three or more.
     ///
     /// `read` finds every source the plan built (`source_slot` gives every slot below the
-    /// bus length; every channel source is an instance and one of its inlets, from `build`):
-    /// the absence each arm skips is unreachable, and reviewed, not tested. Were a plan
-    /// built wrong, a single or two-term feed would leave `out` as the last block left it,
-    /// and a longer sum would drop the term, renumbering the later ones onto other lanes:
-    /// plausible bits, which the plan laws' reference comparisons would catch only on the
-    /// patches they generate. Reading every source as a block or silence, which keeps the
-    /// positions, was measured against this: cheaper for sums of three or more, dearer for
-    /// single and two-term feeds and for the module's size, all held by the benchmarks, so
-    /// the skip stays.
+    /// bus length; every channel source is an instance and one of its inlets, from `build`),
+    /// so no source is ever missing. Were a plan built wrong, a sum of three or more would
+    /// read the missing source as silence in its place (tested), the later terms keeping
+    /// their lanes: the sum of the same patch with that cable silent. A single or two-term
+    /// feed skips the write instead, leaving `out` as the last block left it: unreachable,
+    /// and reviewed, not tested. Each arm takes the form measured the cheaper per block
+    /// (`spec/benchmarks.md`, "Forms measured on the real-time path"): reading as silence
+    /// costs single and two-term feeds more than the skip, and saves sums of three or more
+    /// instructions against it, for a larger module.
     ///
     /// The lanes reach the sum through `black_box`, an optimization barrier with no effect
     /// on the result: without it, the compiler computes the addresses of the lanes before
@@ -116,10 +116,13 @@ impl<K: Copy> Feed<K> {
                 }
             }
             Self::Several(sources) => {
+                let silence = S::SILENCE;
                 sum_blocks(
                     out,
                     hint::black_box(lanes),
-                    sources.iter().filter_map(|&source| read(source)),
+                    sources
+                        .iter()
+                        .map(|&source| read(source).unwrap_or(&silence)),
                 );
             }
         }

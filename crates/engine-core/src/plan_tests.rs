@@ -1389,6 +1389,50 @@ fn decides_how_each_block_is_fed_when_built<S: Bits>() {
     );
 }
 
+/// A sum of three or more reads a source it cannot find as silence in its place, so the
+/// later terms keep their lanes: a plan built wrong would give the sum with a +0 term, the
+/// result of the same patch with that cable silent, never a sum renumbered onto other lanes.
+/// The read below finds no second source, a case a plan's build never makes.
+fn a_sum_reads_a_missing_source_as_silence_in_its_place<S: Bits>() {
+    // 2^60, the missing source, fourteen ones, -2^60: the seventeenth term joins the first
+    // in lane 0, where they cancel, only if every term keeps its place.
+    let big = 1_073_741_824.0_f64 * 1_073_741_824.0_f64;
+    let values: Vec<f64> = [vec![big, 5.0_f64], vec![1.0_f64; 14], vec![-big]].concat();
+    let blocks: Vec<Block<S>> = values.iter().map(|&value| block::<S>(value)).collect();
+    let mut out = block::<S>(99.0);
+    let mut lanes = crate::math::Lanes::new();
+    Feed::Several((0..values.len()).collect()).write(&mut out, &mut lanes, |source| {
+        if source == 1 {
+            None
+        } else {
+            blocks.get(source)
+        }
+    });
+    let in_place: S = crate::ordered_sum(
+        values
+            .iter()
+            .enumerate()
+            .map(|(index, &value)| of::<S>(if index == 1 { 0.0_f64 } else { value })),
+    );
+    let renumbered: S = crate::ordered_sum(
+        values
+            .iter()
+            .enumerate()
+            .filter(|&(index, _)| index != 1)
+            .map(|(_, &value)| of::<S>(value)),
+    );
+    assert_ne!(
+        in_place.bits(),
+        renumbered.bits(),
+        "the values tell a kept place from a renumbering"
+    );
+    assert_eq!(
+        block_bits(&[out]),
+        vec![in_place.bits(); BLOCK_SIZE],
+        "the missing source is silence in its place"
+    );
+}
+
 /// How `feed` is fed, in words: `copy <source>`, `pair <source> <source>` or
 /// `sum [<sources>]`.
 fn shape<K: core::fmt::Debug>(feed: &Feed<K>) -> String {
@@ -1433,4 +1477,5 @@ in_both_precisions!(
     sums_three_cables_and_three_outputs_in_the_reduction_order,
     sums_seventeen_cables_and_seventeen_outputs_in_the_reduction_order,
     decides_how_each_block_is_fed_when_built,
+    a_sum_reads_a_missing_source_as_silence_in_its_place,
 );
