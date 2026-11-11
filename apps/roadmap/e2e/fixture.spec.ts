@@ -15,7 +15,7 @@ if (PORT === undefined) {
 
 test.use({ baseURL: `http://localhost:${PORT}/` });
 
-/** The states a column renders in, each with the fixture column that holds it: a new state does not compile without one. */
+/** The states a column renders in today, listed by hand from Board.astro, each with the fixture column that holds it. */
 const STATES: Readonly<Record<"empty" | "all-shown" | "with-more", ColumnId>> = { empty: "later", "all-shown": "doing", "with-more": "done" };
 
 /** Opens the fixture page and checks that it is the fixture's, before anything depends on it. */
@@ -81,6 +81,11 @@ test("shows the progress of an In progress card on its closed line", async ({ pa
   // Beside the title, on its one line.
   const [title, progress] = await Promise.all([summary.locator("h3").boundingBox(), summary.locator(".progress").boundingBox()]);
   expect(Math.abs((title?.y ?? 0) + (title?.height ?? 0) - ((progress?.y ?? 0) + (progress?.height ?? 0)))).toBeLessThan(4);
+  // Open, the card shows its progress once, in its steps' toggle.
+  await summary.click();
+  await expect(card.locator("details.card-toggle")).toHaveAttribute("open", "");
+  await expect(summary.locator(".progress")).toBeHidden();
+  await expect(card.locator("details.steps-toggle > summary")).toContainText("Steps 2/4");
 });
 
 test("names a card by its title alone, its marker apart, closed and open, and its steps as a list", async ({ page }) => {
