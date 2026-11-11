@@ -4,7 +4,7 @@ use alloc::collections::BTreeSet;
 
 use engine_core::host::{ParamBounds, Raw};
 use engine_core::{
-    BLOCK_SIZE, Binary32, Binary64, Block, Object, ObjectSpec, ParamSpec, Params, Precision,
+    BLOCK_SIZE, Binary32, Binary64, Block, Object, ObjectSpec, ParamSpec, ParamValues, Precision,
     SampleRate,
 };
 use proptest::collection::vec;
@@ -127,7 +127,7 @@ pub fn check_registry(registry: &[&ObjectSpec]) -> Result<(), String> {
 /// blocks taken from `input` (then silence). Returns the outputs and the heap operations
 /// made while processing.
 ///
-/// The parameters are given as a plan gives them, as [`Params`].
+/// The parameters are given as a plan gives them, as `engine_core::Params`.
 ///
 /// # Errors
 ///
@@ -139,12 +139,12 @@ fn render<S: LawSample>(
     input: &[S],
     blocks: usize,
 ) -> Result<(Vec<Block<S>>, usize), String> {
-    let wide = Params::new(
+    let wide = ParamValues::new(
         params
             .iter()
             .map(|&param| Binary64::from_raw(f64::from(param))),
     );
-    let mut object: Box<dyn Object<S>> = spec.create.create(rate, &wide);
+    let mut object: Box<dyn Object<S>> = spec.create.create(rate, wide.params());
     let (chunked, _remainder) = input.as_chunks::<BLOCK_SIZE>();
     let mut chunks = chunked.iter();
     let mut inputs = vec![S::SILENCE; spec.inlets.len()];

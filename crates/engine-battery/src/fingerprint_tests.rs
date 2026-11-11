@@ -114,7 +114,7 @@ fn echo(quirk: Quirk) -> ObjectSpec {
             /// The box type of one quirk.
             struct Chosen;
             impl Create for Chosen {
-                fn create<S: Sample>(rate: SampleRate, params: &Params) -> Box<dyn Object<S>> {
+                fn create<S: Sample>(rate: SampleRate, params: Params<'_>) -> Box<dyn Object<S>> {
                     let gain = params.first().map_or(0.0_f64, |param| param.raw());
                     let quirky = match $quirk {
                         Quirk::None => false,
@@ -320,7 +320,7 @@ fn route<const FIRST: usize>() -> ObjectSpec {
     /// The box type routing inlet 0 to outlet `FIRST`.
     struct Routed<const FIRST: usize>;
     impl<const FIRST: usize> Create for Routed<FIRST> {
-        fn create<S: Sample>(_rate: SampleRate, _params: &Params) -> Box<dyn Object<S>> {
+        fn create<S: Sample>(_rate: SampleRate, _params: Params<'_>) -> Box<dyn Object<S>> {
             Box::new(Route { first: FIRST })
         }
     }

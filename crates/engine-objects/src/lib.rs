@@ -67,9 +67,10 @@ impl<S: Sample> Instance<S> for BuiltIn<S> {
     /// The box type is told by the address of its spec, the registry's statics being the
     /// only specs of the built-in box types: a copy of one is another box type, created
     /// through its factory.
-    fn create(spec: &'static ObjectSpec, rate: SampleRate, params: &Params) -> Self {
+    #[inline]
+    fn create(spec: &'static ObjectSpec, rate: SampleRate, params: Params<'_>) -> Self {
         Self(if ptr::eq(spec, &raw const OSC) {
-            Kind::Osc(Box::new(osc::Osc::of(rate, params)))
+            Kind::Osc(Box::new(osc::Osc::of(rate, &params)))
         } else if ptr::eq(spec, &raw const DAC) {
             Kind::Dac(dac::Dac)
         } else {

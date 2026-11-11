@@ -15,7 +15,7 @@ mod tests {
         fn process(&mut self, _inputs: &[Block<S>], _outputs: &mut [Block<S>]) {}
     }
     impl Create for Silent {
-        fn create<S: Sample>(_rate: SampleRate, _params: &Params) -> Box<dyn Object<S>> {
+        fn create<S: Sample>(_rate: SampleRate, _params: Params<'_>) -> Box<dyn Object<S>> {
             Box::new(Self)
         }
     }

@@ -14,7 +14,9 @@ use alloc::vec::Vec;
 use core::fmt::Write as _;
 
 use engine_core::host::Raw;
-use engine_core::{BLOCK_SIZE, Binary32, Binary64, Block, Object, ObjectSpec, Params, Precision};
+use engine_core::{
+    BLOCK_SIZE, Binary32, Binary64, Block, Object, ObjectSpec, ParamValues, Precision,
+};
 use sha2::{Digest, Sha256};
 
 use crate::inputs::{BLOCKS, BatterySample, param_sets, special_input};
@@ -88,13 +90,13 @@ fn battery<S: BatterySample>(
     ];
     for rate in sample_rates() {
         for params in param_sets(spec) {
-            let wide = Params::new(
+            let wide = ParamValues::new(
                 params
                     .iter()
                     .map(|&param| Binary64::from_raw(f64::from(param))),
             );
             for input in &inputs {
-                let mut object: Box<dyn Object<S>> = spec.create.create(rate, &wide);
+                let mut object: Box<dyn Object<S>> = spec.create.create(rate, wide.params());
                 for block in outputs(object.as_mut(), spec, input) {
                     for sample in block {
                         hasher.update(sample.bits().to_le_bytes());

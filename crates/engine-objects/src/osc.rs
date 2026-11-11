@@ -58,7 +58,7 @@ impl Osc {
     /// An oscillator from its frequency parameter, as [`Create::create`] receives it: the
     /// one constructor of both its factory and [`crate::BuiltIn`].
     #[inline]
-    pub(crate) fn of(rate: SampleRate, params: &Params) -> Self {
+    pub(crate) fn of(rate: SampleRate, params: &[Binary64]) -> Self {
         let frequency = params.first().copied().unwrap_or(Binary64::new(440.0));
         Self::new(rate, frequency)
     }
@@ -66,8 +66,8 @@ impl Osc {
 
 impl Create for Osc {
     /// An oscillator from its frequency parameter.
-    fn create<S: Sample>(rate: SampleRate, params: &Params) -> Box<dyn Object<S>> {
-        Box::new(Self::of(rate, params))
+    fn create<S: Sample>(rate: SampleRate, params: Params<'_>) -> Box<dyn Object<S>> {
+        Box::new(Self::of(rate, &params))
     }
 }
 

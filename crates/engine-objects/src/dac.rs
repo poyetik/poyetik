@@ -17,7 +17,7 @@ impl<S: Sample> Object<S> for Dac {
 }
 
 impl Create for Dac {
-    fn create<S: Sample>(_rate: SampleRate, _params: &Params) -> Box<dyn Object<S>> {
+    fn create<S: Sample>(_rate: SampleRate, _params: Params<'_>) -> Box<dyn Object<S>> {
         Box::new(Self)
     }
 }

@@ -2,7 +2,7 @@
 
 use alloc::format;
 
-use super::{AlgorithmVersion, ParamSpec, Params};
+use super::{AlgorithmVersion, ParamSpec, ParamValues};
 use crate::Binary64;
 use crate::host::ParamBounds;
 
@@ -57,8 +57,9 @@ fn numbers_algorithm_versions_from_one() {
 #[test]
 fn gives_parameters_in_order_none_below_the_smallest_normal_binary32() {
     let below = f64::from_bits(f64::from(f32::MIN_POSITIVE).to_bits() - 1);
-    let params = Params::new([2.5_f64, -below, below, -0.0_f64, 440.0_f64].map(Binary64::new));
+    let params = ParamValues::new([2.5_f64, -below, below, -0.0_f64, 440.0_f64].map(Binary64::new));
     let bits: alloc::vec::Vec<u64> = params
+        .params()
         .iter()
         .map(|value| crate::host::Raw::raw(*value).to_bits())
         .collect();
@@ -73,7 +74,7 @@ fn gives_parameters_in_order_none_below_the_smallest_normal_binary32() {
         ],
         "in order, every value kept but those below 2^-126, zeros of their sign"
     );
-    assert!(Params::new([]).is_empty(), "none");
+    assert!(ParamValues::new([]).params().is_empty(), "none");
 }
 
 #[test]

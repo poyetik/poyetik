@@ -152,7 +152,7 @@ macro_rules! factory {
         /// The fixture's box type.
         struct Chosen;
         impl Create for Chosen {
-            fn create<S: Sample>($rate: SampleRate, given: &Params) -> Box<dyn Object<S>> {
+            fn create<S: Sample>($rate: SampleRate, given: Params<'_>) -> Box<dyn Object<S>> {
                 let raw: Vec<f64> = given.iter().map(|param| param.raw()).collect();
                 let $params: &[f64] = &raw;
                 Box::new($body)

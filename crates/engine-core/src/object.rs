@@ -105,31 +105,54 @@ impl ParamSpec {
     }
 }
 
-/// The parameter values of a box instance, in the order of [`ObjectSpec::params`].
+/// The parameter values of a box instance, owned, in the order of [`ObjectSpec::params`].
 ///
 /// In binary64 whatever the precision of the render (`spec/engine-design.md`, decision
-/// 10), and never below 2^-126 in magnitude but zero: [`Params::new`], the only way to
-/// build one, makes such a value a zero of its sign (decisions 5 and 11), as a plan reads
-/// a patch's parameters. A box can rely on both, whoever created it: the plan, the box
-/// laws or the fingerprint battery.
+/// 10), and never below 2^-126 in magnitude but zero: [`ParamValues::new`], the only way
+/// to build one outside the engine, makes such a value a zero of its sign (decisions 5 and
+/// 11), as a plan reads a patch's parameters. A box is given them as [`Params`], borrowed
+/// from one, so it can rely on both, whoever created it: the plan, the box laws or the
+/// fingerprint battery.
 #[derive(Debug, Clone)]
-pub struct Params(Vec<Binary64>);
+pub struct ParamValues(Vec<Binary64>);
 
-impl Params {
+impl ParamValues {
     /// The parameter values `values`, in order, each nonzero one below 2^-126 in
     /// magnitude made a zero of its sign; every other value keeps its bits.
     #[must_use]
     pub fn new(values: impl IntoIterator<Item = Binary64>) -> Self {
         Self(values.into_iter().map(Binary64::as_parameter).collect())
     }
+
+    /// The parameter values `values`, which the plan has flushed as [`ParamValues::new`]
+    /// would (each a binary32 value flushed by [`crate::flush::binary32`], widened
+    /// exactly): taken as they are, so that reading a patch's parameters costs what it did
+    /// before this type (the plan tests check the values against [`ParamValues::new`]'s).
+    pub(crate) const fn flushed(values: Vec<Binary64>) -> Self {
+        Self(values)
+    }
+
+    /// The values, as a box is given them.
+    #[must_use]
+    pub fn params(&self) -> Params<'_> {
+        Params(&self.0)
+    }
 }
 
-impl Deref for Params {
+/// The parameter values a box is created with, borrowed from [`ParamValues`].
+///
+/// They keep its promise: in order, in binary64, none below 2^-126 but zero. Passed by
+/// value, as cheap as a slice (two words: a reference to the owned values made loading a
+/// plan dearer, `spec/benchmarks.md`), and read as one.
+#[derive(Debug, Clone, Copy)]
+pub struct Params<'values>(&'values [Binary64]);
+
+impl Deref for Params<'_> {
     type Target = [Binary64];
 
     /// The values, in order.
     fn deref(&self) -> &[Binary64] {
-        &self.0
+        self.0
     }
 }
 
@@ -140,7 +163,7 @@ pub trait Create {
     ///
     /// The values come as [`Params`] says (in order, in binary64, none below 2^-126 but
     /// zero); a plan also validates them against their ranges first.
-    fn create<S: Sample>(rate: SampleRate, params: &Params) -> Box<dyn Object<S>>;
+    fn create<S: Sample>(rate: SampleRate, params: Params<'_>) -> Box<dyn Object<S>>;
 }
 
 /// Creates the instances of a box type, in either precision: built only from one generic
@@ -183,7 +206,7 @@ impl Factory {
     /// Creates an instance computing in `S`, at `rate`, with `params` as
     /// [`Create::create`] receives them.
     #[must_use]
-    pub fn create<S: Sample>(&self, rate: SampleRate, params: &Params) -> Box<dyn Object<S>> {
+    pub fn create<S: Sample>(&self, rate: SampleRate, params: Params<'_>) -> Box<dyn Object<S>> {
         <S as sealed::Construct>::constructor(self)(rate, params)
     }
 }
@@ -281,12 +304,12 @@ impl<S: Sample, T: Object<S> + ?Sized> Object<S> for Box<T> {
 pub trait Instance<S: Sample>: Object<S> + Sized {
     /// The instance of the box type `spec` at `rate`, with `params` as [`Create::create`]
     /// receives them.
-    fn create(spec: &'static ObjectSpec, rate: SampleRate, params: &Params) -> Self;
+    fn create(spec: &'static ObjectSpec, rate: SampleRate, params: Params<'_>) -> Self;
 }
 
 /// Every box type through its factory, each instance called through its virtual table.
 impl<S: Sample> Instance<S> for Box<dyn Object<S>> {
-    fn create(spec: &'static ObjectSpec, rate: SampleRate, params: &Params) -> Self {
+    fn create(spec: &'static ObjectSpec, rate: SampleRate, params: Params<'_>) -> Self {
         spec.create.create(rate, params)
     }
 }

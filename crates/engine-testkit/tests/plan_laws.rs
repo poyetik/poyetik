@@ -26,8 +26,8 @@ mod tests {
     use engine_core::host::{Delivered, ParamBounds, Raw};
     use engine_core::{
         AlgorithmVersion, BLOCK_SIZE, Binary32, Binary64, Block, Capability, Connection, CoreError,
-        Create, Factory, Node, NodeId, Object, ObjectSpec, ParamSpec, Params, Patch, Plan,
-        PortSpec, Precision, Renderer, Sample, SampleRate,
+        Create, Factory, Node, NodeId, Object, ObjectSpec, ParamSpec, ParamValues, Params, Patch,
+        Plan, PortSpec, Precision, Renderer, Sample, SampleRate,
     };
     use engine_testkit::matrix::{HOST_BUFFER_SIZES, PRECISIONS, sample_rates};
     use engine_testkit::runner::runner;
@@ -63,7 +63,7 @@ mod tests {
         }
     }
     impl Create for Const {
-        fn create<S: Sample>(_rate: SampleRate, params: &Params) -> Box<dyn Object<S>> {
+        fn create<S: Sample>(_rate: SampleRate, params: Params<'_>) -> Box<dyn Object<S>> {
             Box::new(Self(params.first().map_or(0.0, |param| param.raw())))
         }
     }
@@ -104,7 +104,7 @@ mod tests {
         }
     }
     impl Create for Mix {
-        fn create<S: Sample>(_rate: SampleRate, _params: &Params) -> Box<dyn Object<S>> {
+        fn create<S: Sample>(_rate: SampleRate, _params: Params<'_>) -> Box<dyn Object<S>> {
             Box::new(Self(0.0))
         }
     }
@@ -126,7 +126,7 @@ mod tests {
         fn process(&mut self, _inputs: &[Block<S>], _outputs: &mut [Block<S>]) {}
     }
     impl Create for Out {
-        fn create<S: Sample>(_rate: SampleRate, _params: &Params) -> Box<dyn Object<S>> {
+        fn create<S: Sample>(_rate: SampleRate, _params: Params<'_>) -> Box<dyn Object<S>> {
             Box::new(Self)
         }
     }
@@ -153,7 +153,7 @@ mod tests {
         }
     }
     impl Create for Rate {
-        fn create<S: Sample>(rate: SampleRate, _params: &Params) -> Box<dyn Object<S>> {
+        fn create<S: Sample>(rate: SampleRate, _params: Params<'_>) -> Box<dyn Object<S>> {
             Box::new(Self(f64::from(rate.hz() / 10)))
         }
     }
@@ -321,7 +321,7 @@ mod tests {
         let by_id: BTreeMap<NodeId, &Node> = nodes.iter().map(|node| (node.id, node)).collect();
         let mut boxes: BTreeMap<NodeId, Box<dyn Object<S>>> = BTreeMap::new();
         for node in nodes {
-            let params = Params::new(spec(node).params.iter().map(|param| {
+            let params = ParamValues::new(spec(node).params.iter().map(|param| {
                 Binary64::new(f64::from(
                     node.params
                         .get(param.name())
@@ -329,7 +329,7 @@ mod tests {
                         .unwrap_or_else(|| param.default_value()),
                 ))
             }));
-            drop(boxes.insert(node.id, spec(node).create.create(rate, &params)));
+            drop(boxes.insert(node.id, spec(node).create.create(rate, params.params())));
         }
         let is_output = |node: &Node| spec(node).capabilities.contains(&Capability::AudioOutput);
         let channels = nodes
@@ -794,7 +794,7 @@ mod tests {
         }
     }
     impl Create for Freeing {
-        fn create<S: Sample>(_rate: SampleRate, _params: &Params) -> Box<dyn Object<S>> {
+        fn create<S: Sample>(_rate: SampleRate, _params: Params<'_>) -> Box<dyn Object<S>> {
             Box::new(Self(Some(vec![0.0; 8])))
         }
     }

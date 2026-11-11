@@ -7,7 +7,7 @@ use core::f64::consts::TAU;
 
 use engine_core::host::{Delivered, ParamBounds, Raw};
 use engine_core::{
-    BLOCK_SIZE, Binary32, Binary64, Block, Params, RenderFormat, Sample, SampleRate,
+    BLOCK_SIZE, Binary32, Binary64, Block, ParamValues, RenderFormat, Sample, SampleRate,
 };
 
 /// The nearest binary32 to `value`, as the engine gives a binary64 render to a host that
@@ -186,7 +186,7 @@ fn assert_exact(samples: &[f64], format: RenderFormat, frequency: f32, rate: u32
 fn render_in<S: Raw>(frequency: f32, rate: u32, frames: usize) -> Vec<S::Float> {
     let mut osc = OSC.create.create::<S>(
         SampleRate::new(rate).expect("valid rate"),
-        &Params::new([param(f64::from(frequency))]),
+        ParamValues::new([param(f64::from(frequency))]).params(),
     );
     let mut samples = Vec::new();
     while samples.len() < frames {
@@ -283,7 +283,9 @@ fn follows_its_frequency_parameter() {
 /// Renders one block into a first outlet and an extra buffer, which must stay as it was.
 fn leaves_extra_buffers<S: Sample>() {
     let rate = SampleRate::new(48_000).expect("valid rate");
-    let mut osc = OSC.create.create::<S>(rate, &Params::new([param(440.0)]));
+    let mut osc = OSC
+        .create
+        .create::<S>(rate, ParamValues::new([param(440.0)]).params());
     let seven = [S::from_binary64(param(7.0)); BLOCK_SIZE];
     let mut out: [Block<S>; 2] = [S::SILENCE, seven];
     osc.process(&[], &mut out);
@@ -508,8 +510,10 @@ fn stays_below_four_cycles_per_sample() {
 /// Checks that an oscillator computing in `S` given no parameter plays 440 Hz.
 fn defaults_to_440_hz_in<S: Sample>() {
     let rate = SampleRate::new(48_000).expect("valid rate");
-    let mut with_default = OSC.create.create::<S>(rate, &Params::new([]));
-    let mut with_440 = OSC.create.create::<S>(rate, &Params::new([param(440.0)]));
+    let mut with_default = OSC.create.create::<S>(rate, ParamValues::new([]).params());
+    let mut with_440 = OSC
+        .create
+        .create::<S>(rate, ParamValues::new([param(440.0)]).params());
     let (mut default_out, mut explicit_out) = ([S::SILENCE], [S::SILENCE]);
     with_default.process(&[], &mut default_out);
     with_440.process(&[], &mut explicit_out);
