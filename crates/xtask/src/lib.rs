@@ -4,7 +4,8 @@
 //! at the first failure, mutation testing only the changes ([`Mode::Changes`]); the
 //! pre-push hook runs it. `cargo xtask check --full` runs every mutant ([`Mode::Full`]);
 //! CI runs it. A green default check proves less than a green full check: see
-//! [`Mode`].
+//! [`Mode`]. The measured choices behind the check's speed are recorded, dated, in the
+//! crate's `README.md`.
 
 #![forbid(unsafe_code)]
 
