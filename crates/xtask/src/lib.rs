@@ -4862,8 +4862,8 @@ const RAW_STRING_HASHES: usize = 255;
 /// The words of Rust code in `text`, with their line numbers: maximal runs of letters,
 /// digits and `_`, outside comments (line and block), string literals (raw ones included,
 /// `r#"…"#`, `br"…"`, `cr"…"`) and char literals (`'"'`, `'\''`), which are prose. A
-/// lifetime (`'a`) is code, as is a raw identifier (`r#f64` names `f64`). Every literal or
-/// comment left open runs to the end of the text. Each word comes with the index of the
+/// lifetime (`'a`) is code, as is a raw identifier (`r#f64` is the word `f64`, with no
+/// `r`). Every literal or comment left open runs to the end of the text. Each word comes with the index of the
 /// character after it, in `text.chars()`.
 fn code_words(text: &str) -> Vec<(usize, String, usize)> {
     let chars: Vec<char> = text.chars().collect();
@@ -4882,11 +4882,20 @@ fn code_words(text: &str) -> Vec<(usize, String, usize)> {
             index = index.saturating_add(1);
             continue;
         }
+        let next = at(index.saturating_add(1));
+        // A raw identifier, `r#name`: the word is the name, so `r` is dropped.
+        if word == "r"
+            && character == '#'
+            && next.is_some_and(|first| first.is_ascii_alphabetic() || first == '_')
+        {
+            word.clear();
+            index = index.saturating_add(1);
+            continue;
+        }
         let raw_prefix = matches!(word.as_str(), "r" | "br" | "cr");
         if !word.is_empty() {
             words.push((line, core::mem::take(&mut word), index));
         }
-        let next = at(index.saturating_add(1));
         // The hashes of a raw string from here, when one starts here: `#…#"`; counted only
         // after a raw prefix, so that reading a file stays linear in its length.
         let hashes = || {

@@ -6299,6 +6299,7 @@ fn refuses_a_file_that_rebinds_core_in_the_crate_of_an_assembly_file() {
         ),
         ("crates/engine-fpenv/src/lib.rs", "use crate::m as core;\n"),
         ("crates/engine-fpenv/src/other.rs", "mod core {}\n"),
+        ("crates/engine-fpenv/src/other.rs", "mod r#core {}\n"),
     ] {
         let text = if path.ends_with("lib.rs") {
             format!("//! The crate.\n{code}")
@@ -8421,6 +8422,35 @@ fn reads_the_lint_forbids_as_no_test_code() {
 }
 
 #[test]
+fn reads_a_raw_identifier_as_its_name() {
+    let words = |text: &str| -> Vec<String> {
+        super::code_words(text)
+            .into_iter()
+            .map(|(_, word, _)| word)
+            .collect()
+    };
+    assert_eq!(
+        words("let r#f64 = r#_x;"),
+        ["let", "f64", "_x"],
+        "raw identifiers"
+    );
+    assert_eq!(
+        words("mod r#helper;"),
+        ["mod", "helper"],
+        "a raw module name"
+    );
+    assert_eq!(words("r #x"), ["r", "x"], "a space: no raw identifier");
+    assert_eq!(words("r#1"), ["r", "1"], "no identifier after the hash");
+    assert_eq!(
+        words("br#x"),
+        ["br", "x"],
+        "only `r` makes a raw identifier"
+    );
+    assert_eq!(words("r#\"s\"# a"), ["r", "a"], "a raw string stays prose");
+    assert_eq!(super::code_words("r#x")[0].2, 3, "where the name ends");
+}
+
+#[test]
 fn refuses_a_test_file_that_loads_another() {
     let gate = |sources: &[(&str, &str)]| {
         let owned: Vec<(String, String)> = sources
@@ -8444,6 +8474,13 @@ fn refuses_a_test_file_that_loads_another() {
             loads(
                 "declares a module without a body, loaded from another file",
                 3,
+            ),
+        ),
+        (
+            "mod r#helper;\n",
+            loads(
+                "declares a module without a body, loaded from another file",
+                1,
             ),
         ),
         (
