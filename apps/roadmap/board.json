@@ -619,7 +619,7 @@
           "done": false
         },
         {
-          "title": "Check runner: a closed stdout (piped to head) makes the commands it starts fail, which changes the exit code, waits on children have no bound and no progress output while a step runs (each step's elapsed time is printed once it ends), and the tree gate does not name the file whose changes changed; route the children's stdout, bound the waits, list each file",
+          "title": "Check runner: waits on children have no bound and no progress output while a step runs (each step's elapsed time is printed once it ends), and the tree gate does not name the file whose changes changed; bound the waits, list each file",
           "done": false
         },
         {
@@ -647,11 +647,11 @@
           "done": false
         },
         {
-          "title": "Hermetic tests: the hooks test has a hard-coded PATH and no GIT_CONFIG_GLOBAL, the list of local git variables misses one of git rev-parse --local-env-vars, and tests use predictable shared temporary paths with no cleanup on failure; one hermetic helper asserted against git's list, and CARGO_TARGET_TMPDIR with a drop guard",
+          "title": "Hermetic tests: the hooks test has a hard-coded PATH and no GIT_CONFIG_GLOBAL, the list of local git variables misses one of git rev-parse --local-env-vars, and tests use predictable temporary paths (removed whatever the outcome by a guard); one hermetic helper asserted against git's list, and CARGO_TARGET_TMPDIR for the paths",
           "done": false
         },
         {
-          "title": "Vocabulary gate: it skips .json, .astro, .txt and .toml, where British spellings and the old word for boxes have slipped in; \"connection\" is used for \"cable\"; digits are grouped three ways; nothing enforces the bans on other software names and the old project name; extend the gate and fix the occurrences",
+          "title": "Vocabulary gate: it skips .astro, .txt and .toml, and JSON outside spec/ and conformance/, where British spellings and the old word for boxes have slipped in; \"connection\" is used for \"cable\"; digits are grouped three ways; nothing enforces the bans on other software names and the old project name; extend the gate and fix the occurrences",
           "done": false
         },
         {
