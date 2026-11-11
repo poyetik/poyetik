@@ -3584,7 +3584,8 @@ pub fn test_declarations(source: &RustSource) -> Vec<TestDeclaration> {
         .collect()
 }
 
-/// Checks that unsafe code is impossible outside [`UNSAFE_FILES`], by the compiler.
+/// Checks that unsafe code is written only in [`UNSAFE_FILES`] and the unit tests they
+/// declare: by the compiler where it lints, and by the keyword where it does not.
 ///
 /// Only those files lift the lint against unsafe code (an `allow` or `expect` of it), and
 /// each still does: a file lifts it when its tokens name the lint (the identifier
@@ -3596,18 +3597,24 @@ pub fn test_declarations(source: &RustSource) -> Vec<TestDeclaration> {
 /// does, but the unit test modules an unsafe file declares ([`test_declarations`]): they
 /// belong to it, under its lifting (and under Miri with it), and lift nothing themselves.
 ///
+/// rustc does not lint code expanded from another crate's macro, so a macro of a crate
+/// that forbids unsafe code can still bring it into another: no Rust file but those and the
+/// unit tests they declare names the keyword `unsafe` in its tokens, prose and strings
+/// apart. A macro of a third-party dependency is outside this gate: dependencies are
+/// reviewed (`dependencies.txt`).
+///
 /// Every file of [`ASSEMBLY_FILES`], which leaves the Miri step, must still hold inline
 /// assembly, and nothing else unsafe: in its tokens ([`RustSource`]), it names `unsafe` at
 /// least once, each time opening [`ASSEMBLY_CALL`], the standard library's `asm!` by a path
-/// from the crates' root; it
-/// holds [`ONE_UNSAFE_OPERATION`] among its leading inner attributes, so that the compiler keeps each unsafe block
-/// to that one operation (an `asm!` operand's included) whatever a later attribute says;
-/// and it declares no module, import, crate or macro ([`ASSEMBLY_REFUSED_WORDS`]). Neither
-/// an `unsafe fn` nor an `unsafe impl` can hide there. No other file of its crate names
-/// `unsafe` in its code words, since a macro or a function of another file could otherwise
-/// bring unsafe code under the assembly file's lifting, and any unsafe operation of the
-/// crate is written `unsafe` somewhere in it; nor rebinds `core` (`as core`, `mod core`),
-/// the one way left to make `::core` name another crate. Any other unsafe code would escape
+/// from the crates' root; it holds [`ONE_UNSAFE_OPERATION`] among its leading inner
+/// attributes, so that the compiler keeps each unsafe block to that one operation (an
+/// `asm!` operand's included) whatever a later attribute says; and it declares no module,
+/// import, crate or macro ([`ASSEMBLY_REFUSED_WORDS`]). Neither an `unsafe fn` nor an
+/// `unsafe impl` can hide there. No other file of its crate, its unit tests included, names
+/// `unsafe`, since a macro or a function of another file could otherwise bring unsafe code
+/// under the assembly file's lifting, and any unsafe operation of the crate is written
+/// `unsafe` somewhere in it; nor rebinds `core` (`as core`, `mod core`), the one way left
+/// in Rust code to make `::core` name another crate. Any other unsafe code would escape
 /// Miri with its crate.
 ///
 /// # Errors
@@ -3615,10 +3622,9 @@ pub fn test_declarations(source: &RustSource) -> Vec<TestDeclaration> {
 /// Returns every other file that lifts the lint, every listed file that no longer does,
 /// every file that should forbid it and does not, every assembly file without assembly or
 /// its forbid, every `unsafe` of an assembly file that does not open its assembly call,
-/// every declaration of an assembly file, and every `unsafe` or rebinding of `core` in
-/// another file of its crate.
+/// every declaration of an assembly file, every other `unsafe`, and every rebinding of
+/// `core` in another file of an assembly file's crate.
 pub fn unsafe_gate(parsed: &[RustSource]) -> Result<(), Failure> {
-    let sources = &texts(parsed);
     let lifting: BTreeSet<&str> = parsed
         .iter()
         .filter(|source| lifts_unsafe_code(source))
@@ -3637,13 +3643,13 @@ pub fn unsafe_gate(parsed: &[RustSource]) -> Result<(), Failure> {
         let source = parsed.iter().find(|source| source.path == file);
         assembly_problems(file, source, &mut problems);
     }
-    unsafe_beside_assembly(sources, &mut problems);
     let unsafe_tests: BTreeSet<String> = parsed
         .iter()
         .filter(|source| UNSAFE_FILES.contains(&source.path.as_str()))
         .flat_map(test_declarations)
         .map(|declaration| declaration.file)
         .collect();
+    unsafe_outside(parsed, &unsafe_tests, &mut problems);
     for source in parsed {
         let path = &source.path;
         let Some((krate, relative)) = in_crate(path) else {
@@ -3761,35 +3767,52 @@ fn assembly_problems(file: &str, source: Option<&RustSource>, problems: &mut Vec
     }
 }
 
-/// The problems of every file but an assembly file ([`ASSEMBLY_FILES`]) in the crate of one
-/// that names `unsafe` in its code, or rebinds `core` (`as core`, `mod core`), which would
-/// change what the assembly file's `::core::arch::asm!` names ([`unsafe_gate`]).
-fn unsafe_beside_assembly(sources: &[(String, String)], problems: &mut Vec<String>) {
-    // Code of another file of an assembly file's crate can run under its lifting (a macro,
-    // a function it calls), so no other file of that crate names `unsafe` at all.
-    for (path, other) in sources {
-        if ASSEMBLY_FILES.contains(&path.as_str()) {
+/// Adds to `problems` every `unsafe` of `sources` outside [`UNSAFE_FILES`] and the unit
+/// tests they declare (`tests`), and every rebinding of `core` (`as core`, `mod core`) in
+/// the crate of an assembly file ([`unsafe_gate`]).
+///
+/// rustc does not lint code expanded from another crate's macro against unsafe code, so a
+/// `forbid` cannot keep a macro of a safe crate from bringing unsafe code into another:
+/// the keyword `unsafe` is refused in every other file, test code included. In the crate
+/// of an assembly file ([`ASSEMBLY_FILES`]), which Miri never runs, it is refused in every
+/// other file, its own unit tests included, since code of any of them (a macro, a function
+/// it calls) can run under its lifting; a rebinding of `core` there would change what its
+/// `::core::arch::asm!` names.
+fn unsafe_outside(sources: &[RustSource], tests: &BTreeSet<String>, problems: &mut Vec<String>) {
+    for source in sources {
+        let path = source.path.as_str();
+        if UNSAFE_FILES.contains(&path) && !ASSEMBLY_FILES.contains(&path) {
             continue;
         }
-        let Some(file) = in_crate(path).and_then(|(krate, _)| {
+        let assembly = in_crate(path).and_then(|(krate, _)| {
             ASSEMBLY_FILES
                 .into_iter()
                 .find(|file| krate.holds(file).is_some())
-        }) else {
+        });
+        if assembly == Some(path) {
             continue;
-        };
-        let words = code_words(other);
-        for (index, (line, word, _)) in words.iter().enumerate() {
-            if word == "unsafe" {
-                problems.push(format!(
+        }
+        let tokens = &source.tokens;
+        for (at, token) in tokens.iter().enumerate() {
+            let line = token.line;
+            match assembly {
+                _ if !token.is_ident("unsafe") => {}
+                Some(file) => problems.push(format!(
                     "{path}:{line}: `unsafe` in the crate of the assembly file {file}: its \
                      code could run under that file's lifting, where Miri never checks it"
-                ));
+                )),
+                None if tests.contains(path) => {}
+                None => problems.push(format!(
+                    "{path}:{line}: names `unsafe` outside UNSAFE_FILES and the unit tests they \
+                     declare: rustc does not lint code expanded from another crate's macro, so \
+                     unsafe code is written only where Miri and the audit see it"
+                )),
             }
-            let named = words
-                .get(index.saturating_add(1))
-                .is_some_and(|(_, next, _)| next == "core");
-            if named && (word == "as" || word == "mod") {
+            let rebinds = (token.is_ident("as") || token.is_ident("mod"))
+                && tokens
+                    .get(at.saturating_add(1))
+                    .is_some_and(|next| next.is_ident("core"));
+            if let Some(file) = assembly.filter(|_| rebinds) {
                 problems.push(format!(
                     "{path}:{line}: rebinds `core` in the crate of the assembly file {file}, \
                      whose `::core::arch::asm!` must name the real one"

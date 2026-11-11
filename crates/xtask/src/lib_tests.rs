@@ -6953,13 +6953,97 @@ fn refuses_unsafe_operations_another_file_could_bring_under_the_assembly_file() 
         Ok(()),
         "the word in prose and strings"
     );
+}
+
+#[test]
+fn refuses_unsafe_outside_the_unsafe_files_and_their_declared_tests() {
+    let forbid = format!("#![forbid({}_{})]\n", "unsafe", "code");
+    let word = "unsafe";
+    let declaration = "#[cfg(test)]\n#[path = \"ffi_tests.rs\"]\nmod tests;\n";
+    let sources: Vec<(String, String)> = UNSAFE_FILES
+        .iter()
+        .map(|path| {
+            let text = if *path == "bindings/wasm/src/ffi.rs" {
+                format!(
+                    "{}{declaration}fn f(p: *const u8) -> u8 {{ {word} {{ *p }} }}\n",
+                    audited(path)
+                )
+            } else {
+                format!(
+                    "{}fn f(p: *const u8) -> u8 {{ {word} {{ *p }} }}\n",
+                    audited(path)
+                )
+            };
+            ((*path).to_owned(), text)
+        })
+        .filter(|(path, _)| !super::ASSEMBLY_FILES.contains(&path.as_str()))
+        .chain(
+            UNSAFE_FILES
+                .iter()
+                .filter(|path| super::ASSEMBLY_FILES.contains(path))
+                .map(|path| ((*path).to_owned(), audited(path))),
+        )
+        .chain([(
+            "bindings/wasm/src/ffi_tests.rs".to_owned(),
+            format!("fn t(p: *const u8) -> u8 {{ {word} {{ *p }} }}\n"),
+        )])
+        .collect();
+    let with = |path: &str, text: &str| {
+        let mut all = sources.clone();
+        all.push((path.to_owned(), text.to_owned()));
+        unsafe_gate(&all)
+    };
+    assert_eq!(
+        unsafe_gate(&sources),
+        Ok(()),
+        "the unsafe files and the unit tests they declare"
+    );
+    let problem = |path: &str, line: usize| {
+        format!(
+            "{path}:{line}: names `unsafe` outside UNSAFE_FILES and the unit tests they declare: \
+             rustc does not lint code expanded from another crate's macro, so unsafe code is \
+             written only where Miri and the audit see it"
+        )
+    };
+    let peek = format!(
+        "{forbid}#[macro_export]\nmacro_rules! peek {{\n    ($p:expr) => {{ {word} {{ ::core::ptr::read_volatile($p) }} }};\n}}\n"
+    );
+    for (path, text, line) in [
+        ("crates/engine-hash/src/lib.rs", peek, 4_usize),
+        (
+            "crates/engine-core/src/lib.rs",
+            format!("{forbid}fn f(p: *const u8) -> u8 {{\n    {word} {{ *p }}\n}}\n"),
+            3,
+        ),
+        (
+            "crates/engine-core/src/render.rs",
+            format!("{forbid}/* /* */ \"*/ {word} fn f() {{}} // \"\n"),
+            2,
+        ),
+        (
+            "bindings/wasm/src/other_tests.rs",
+            format!("{forbid}fn t(p: *const u8) -> u8 {{ {word} {{ *p }} }}\n"),
+            2,
+        ),
+        (
+            "crates/xtask/tests/fixtures/workspace/src/lib.rs",
+            format!("{word} impl Send for S {{}}\n"),
+            1,
+        ),
+    ] {
+        let found = with(path, &text);
+        assert!(
+            reports(&found, &problem(path, line)),
+            "{path}: {text}: {found:?}"
+        );
+    }
     assert_eq!(
         with(
             "crates/engine-core/src/lib.rs",
-            &format!("{forbid}fn f(p: *const u8) -> u8 {{\n    {word} {{ *p }}\n}}\n")
+            &format!("{forbid}//! Not {word} code.\nconst A: &str = \"{word}\"; // {word}\n")
         ),
         Ok(()),
-        "another crate, whose forbid the compiler holds"
+        "the word in prose and strings"
     );
 }
 
