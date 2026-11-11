@@ -87,7 +87,7 @@ impl<K: Copy> Feed<K> {
     /// their lanes: the sum of the same patch with that cable silent. A single or two-term
     /// feed skips the write instead, leaving `out` as the last block left it: unreachable,
     /// and reviewed, not tested. Each arm takes the form measured the cheaper per block
-    /// (`spec/benchmarks.md`, "Forms measured on the real-time path"): reading as silence
+    /// (`spec/benchmarks.md`, "Measured design choices"): reading as silence
     /// costs single and two-term feeds more than the skip, and saves sums of three or more
     /// instructions against it, for a larger module.
     ///
@@ -95,9 +95,8 @@ impl<K: Copy> Feed<K> {
     /// on the result. Without it, the compiler computes the addresses of the lanes before
     /// the loop over the boxes, which every plan with a box then pays each block, a sum or
     /// not; with it, a sum of three or more and a fed output box pay a little more each
-    /// block, less than a box saves. Both sides are dated in `spec/benchmarks.md` ("Forms
-    /// measured on the real-time path"); the unconnected `dac~` benchmark fails without the
-    /// barrier.
+    /// block, less than a box saves. Both sides are dated in `spec/benchmarks.md` ("Measured
+    /// design choices"); the unconnected `dac~` benchmark fails without the barrier.
     fn write<'source, S: Sample + 'source>(
         &self,
         out: &mut Block<S>,

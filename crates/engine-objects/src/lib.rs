@@ -52,7 +52,7 @@ pub type EngineRenderer<S> = Renderer<S, BuiltIn<S>>;
 /// A box whose state is larger than a pointer is kept on the heap, as the virtual table's
 /// instances are: the form measured faster per block, while held inline it loads plans
 /// faster but costs `osc~` more per block in binary32, the real-time path coming first
-/// (`spec/benchmarks.md`, "The plan's call of each box", where the trade is dated; it is
+/// (`spec/benchmarks.md`, "Measured design choices", where the trade is dated; it is
 /// measured again whenever this type or the plan's per-block code changes).
 #[derive(Debug)]
 pub struct BuiltIn<S: Sample>(Kind<S>);
