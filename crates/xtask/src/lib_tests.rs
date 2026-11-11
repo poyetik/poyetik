@@ -9910,9 +9910,12 @@ fn refuses_a_review_naming_a_function_no_source_holds() {
 #[test]
 fn reads_a_raw_identifier_as_its_name() {
     let words = |text: &str| -> Vec<String> {
-        super::code_words(text)
+        super::RustSource::parse("a.rs", text)
+            .expect("lexes")
+            .tokens
             .into_iter()
-            .map(|(_, word, _)| word)
+            .filter(|token| token.kind == super::TokenKind::Ident)
+            .map(|token| token.text)
             .collect()
     };
     assert_eq!(
@@ -9926,14 +9929,8 @@ fn reads_a_raw_identifier_as_its_name() {
         "a raw module name"
     );
     assert_eq!(words("r #x"), ["r", "x"], "a space: no raw identifier");
-    assert_eq!(words("r#1"), ["r", "1"], "no identifier after the hash");
-    assert_eq!(
-        words("br#x"),
-        ["br", "x"],
-        "only `r` makes a raw identifier"
-    );
-    assert_eq!(words("r#\"s\"# a"), ["r", "a"], "a raw string stays prose");
-    assert_eq!(super::code_words("r#x")[0].2, 3, "where the name ends");
+    assert_eq!(words("r#\"s\"# a"), ["a"], "a raw string stays prose");
+    assert_eq!(words("br#\"s\"# b"), ["b"], "a raw byte string too");
 }
 
 #[test]
@@ -15427,6 +15424,7 @@ fn refuses_a_target_that_turns_off_tests_it_may_hold() {
         ("bin", "crates/x/src/main.rs", false, false),
         ("lib", "crates/x/src/lib.rs", false, true),
         ("bin", "crates/x/src/bin/b.rs", false, false),
+        ("bin", "crates/x/src/bin/c.rs", false, false),
     ]);
     let sources = [
         (
@@ -15436,6 +15434,10 @@ fn refuses_a_target_that_turns_off_tests_it_may_hold() {
         (
             "crates/x/src/lib.rs".to_owned(),
             "//! A library.\npub mod a;\n".to_owned(),
+        ),
+        (
+            "crates/x/src/bin/c.rs".to_owned(),
+            "/* /* */ \"*/ mod hidden; // \"\nfn main() {}\n".to_owned(),
         ),
     ];
     assert_eq!(
@@ -15447,8 +15449,11 @@ fn refuses_a_target_that_turns_off_tests_it_may_hold() {
              (`test = false`): only a root that is all its code may, so that no test hides in it",
             "crates/x/src/bin/b.rs: the root of a target without tests, not among the Rust \
              files read",
+            "crates/x/src/bin/c.rs:1: declares a module, but its target turns its tests off \
+             (`test = false`): only a root that is all its code may, so that no test hides in it",
         ]),
-        "a test module declared, a library's modules, a root never read"
+        "a test module declared, a library's modules, a root never read, a module after a \
+         nested comment"
     );
 }
 

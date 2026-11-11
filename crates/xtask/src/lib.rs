@@ -3963,8 +3963,8 @@ fn in_crate(path: &str) -> Option<(&'static RustCrate, &str)> {
 /// So every rule that tells test code by its path (the mutation widening, the math layer
 /// gate) sees all of it.
 ///
-/// `sources` are the Rust files (path and text). In a crate of [`RUST_CRATES`], outside
-/// `tests/` and the `*_tests.rs` files, the code word `test` (`#[cfg(test)]`, `#[test]`,
+/// `sources` are the Rust files, read into their tokens ([`RustSource`]). In a crate of [`RUST_CRATES`], outside
+/// `tests/` and the `*_tests.rs` files, the identifier `test` (`#[cfg(test)]`, `#[test]`,
 /// `cfg_attr(test, …)`, `cfg!(test)`, `mod test`…) appears only in a test declaration or in
 /// a leading inner attribute of [`NOT_TEST_ATTRIBUTES`], and `include` (`include!`, which brings
 /// in code no gate reads by its path) nowhere. A `*_tests.rs` file brings in no other file
@@ -4229,13 +4229,13 @@ pub const DOC_TESTED_KINDS: [&str; 3] = ["lib", "rlib", "proc-macro"];
 
 /// Checks that no target of the workspace leaves its tests unrun.
 ///
-/// `metadata` is the output of [`metadata_command`], `sources` the Rust files (path and
-/// text, relative to the root). Every way a manifest offers to keep `cargo test` from
+/// `metadata` is the output of [`metadata_command`], `sources` the Rust files (their paths
+/// relative to the root, read into their tokens). Every way a manifest offers to keep `cargo test` from
 /// running a target's tests is refused, but one:
 /// - a target may turn its unit tests off (`test = false` in its manifest, which spares the
 ///   compiler and the linker a test harness at every build of a mutant; cargo's default for
 ///   a build script) only if its root is all its code: it declares no module (no `mod` in
-///   its code words). The test code gate allows test code outside `tests/` only in
+///   its tokens). The test code gate allows test code outside `tests/` only in
 ///   `*_tests.rs` files a module declaration brings in, so such a root holds no test that
 ///   would never run. A test target never may: its root's own tests are its tests;
 /// - no target needs features (`required-features`), which `cargo test` skips it without;
@@ -4252,7 +4252,6 @@ pub const DOC_TESTED_KINDS: [&str; 3] = ["lib", "rlib", "proc-macro"];
 /// Returns every target or file that breaks one of these, every package or target the
 /// metadata does not describe as expected, or why the metadata cannot be read.
 pub fn untested_targets_gate(metadata: &str, sources: &[RustSource]) -> Result<(), Failure> {
-    let sources = &texts(sources);
     let root = workspace_root(metadata)?;
     let below_root = |path: &str| -> Option<String> {
         path.strip_prefix(root.as_str())
@@ -4344,11 +4343,11 @@ pub fn untested_targets_gate(metadata: &str, sources: &[RustSource]) -> Result<(
 /// ([`untested_targets_gate`]).
 fn undiscovered_tests(
     dir: &str,
-    sources: &[(String, String)],
+    sources: &[RustSource],
     test_roots: &[String],
     problems: &mut Vec<String>,
 ) {
-    for (path, _) in sources {
+    for RustSource { path, .. } in sources {
         let discovered = path
             .strip_prefix(dir)
             .and_then(|rest| rest.strip_prefix("tests/"))
@@ -4370,20 +4369,21 @@ fn undiscovered_tests(
 
 /// The problems of `source`, the root of a target that turns its tests off: it must be
 /// among `sources` and declare no module ([`untested_targets_gate`]).
-fn untested_root(source: &str, sources: &[(String, String)], problems: &mut Vec<String>) {
-    match sources.iter().find(|(path, _)| path == source) {
+fn untested_root(source: &str, sources: &[RustSource], problems: &mut Vec<String>) {
+    match sources.iter().find(|held| held.path == source) {
         None => problems.push(format!(
             "{source}: the root of a target without tests, not among the Rust files read"
         )),
-        Some((path, text)) => problems.extend(
-            code_words(text)
-                .into_iter()
-                .filter(|(_, word, _)| word == "mod")
-                .map(|(line, _, _)| {
+        Some(held) => problems.extend(
+            held.tokens
+                .iter()
+                .filter(|token| token.is_ident("mod"))
+                .map(|token| {
                     format!(
-                        "{path}:{line}: declares a module, but its target turns its tests off \
+                        "{source}:{}: declares a module, but its target turns its tests off \
                          (`test = false`): only a root that is all its code may, so that no \
-                         test hides in it"
+                         test hides in it",
+                        token.line
                     )
                 }),
         ),
@@ -5361,8 +5361,6 @@ impl Token {
 pub struct RustSource {
     /// Its path, relative to the root.
     path: String,
-    /// Its text.
-    text: String,
     /// Its tokens, in order: a group as its opening delimiter, its tokens, its closing
     /// delimiter.
     tokens: Vec<Token>,
@@ -5410,7 +5408,6 @@ impl RustSource {
         proc_macro2::extra::invalidate_current_thread_spans();
         Ok(Self {
             path: path.to_owned(),
-            text: text.to_owned(),
             tokens: lexed?,
         })
     }
@@ -5496,14 +5493,6 @@ fn same_tokens(held: &[Token], wanted: &[Token]) -> bool {
     held.len() == wanted.len() && held.iter().zip(wanted).all(|(one, other)| one.same(other))
 }
 
-/// The path and text of each of `sources`.
-fn texts(sources: &[RustSource]) -> Vec<(String, String)> {
-    sources
-        .iter()
-        .map(|source| (source.path.clone(), source.text.clone()))
-        .collect()
-}
-
 /// The tokens of `text`, a constant of xtask written as Rust (none when it does not lex).
 fn tokens_of(text: &str) -> Vec<Token> {
     RustSource::parse("", text)
@@ -5570,98 +5559,6 @@ fn flatten(stream: proc_macro2::TokenStream, tokens: &mut Vec<Token>) {
         };
         tokens.push(Token { kind, text, line });
     }
-}
-
-/// The most `#` a raw string literal may open with (rustc refuses more): [`code_words`]
-/// never looks further for them, so that reading a file stays linear in its length.
-const RAW_STRING_HASHES: usize = 255;
-
-/// The words of Rust code in `text`, with their line numbers: maximal runs of letters,
-/// digits and `_`, outside comments (line and block), string literals (raw ones included,
-/// `r#"…"#`, `br"…"`, `cr"…"`) and char literals (`'"'`, `'\''`), which are prose. A
-/// lifetime (`'a`) is code, as is a raw identifier (`r#f64` is the word `f64`, with no
-/// `r`). Every literal or comment left open runs to the end of the text. Each word comes with the
-/// index of the character after it, in `text.chars()`.
-fn code_words(text: &str) -> Vec<(usize, String, usize)> {
-    let chars: Vec<char> = text.chars().collect();
-    let at = |index: usize| chars.get(index).copied();
-    // The index after the first position from `from` where `ends` holds, or the end.
-    let after = |from: usize, ends: &mut dyn FnMut(usize) -> bool| {
-        (from..chars.len())
-            .find(|&index| ends(index))
-            .map_or(chars.len(), |index| index.saturating_add(1))
-    };
-    let mut words = Vec::new();
-    let (mut line, mut word, mut index) = (1_usize, String::new(), 0_usize);
-    while let Some(character) = at(index) {
-        if character.is_ascii_alphanumeric() || character == '_' {
-            word.push(character);
-            index = index.saturating_add(1);
-            continue;
-        }
-        let next = at(index.saturating_add(1));
-        // A raw identifier, `r#name`: the word is the name, so `r` is dropped.
-        if word == "r"
-            && character == '#'
-            && next.is_some_and(|first| first.is_ascii_alphabetic() || first == '_')
-        {
-            word.clear();
-            index = index.saturating_add(1);
-            continue;
-        }
-        let raw_prefix = matches!(word.as_str(), "r" | "br" | "cr");
-        if !word.is_empty() {
-            words.push((line, core::mem::take(&mut word), index));
-        }
-        // The hashes of a raw string from here, when one starts here: `#…#"`; counted only
-        // after a raw prefix, so that reading a file stays linear in its length.
-        let hashes = || {
-            (index..chars.len())
-                .take(RAW_STRING_HASHES)
-                .take_while(|&position| at(position) == Some('#'))
-                .count()
-        };
-        let raw_string = raw_prefix && at(index.saturating_add(hashes())) == Some('"');
-        let end = match (character, next) {
-            ('/', Some('/')) => after(index, &mut |position| at(position) == Some('\n')),
-            // Closed by the first `*/` after the opening `/*`: `/*/` does not close it.
-            ('/', Some('*')) => after(index.saturating_add(3), &mut |position| {
-                at(position) == Some('/') && at(position.saturating_sub(1)) == Some('*')
-            }),
-            ('"' | '#', _) if raw_string => {
-                let hashes = hashes();
-                after(
-                    index.saturating_add(hashes).saturating_add(1),
-                    &mut |position| {
-                        at(position) == Some('"')
-                            && (1..=hashes)
-                                .all(|offset| at(position.saturating_add(offset)) == Some('#'))
-                    },
-                )
-                .saturating_add(hashes)
-            }
-            ('"', _) => {
-                let mut escaped = false;
-                after(index.saturating_add(1), &mut |position| {
-                    let closes = !escaped && at(position) == Some('"');
-                    escaped = !escaped && at(position) == Some('\\');
-                    closes
-                })
-            }
-            ('\'', Some('\\')) => after(index.saturating_add(3), &mut |position| {
-                at(position) == Some('\'')
-            }),
-            ('\'', _) if at(index.saturating_add(2)) == Some('\'') => index.saturating_add(3),
-            _ => index.saturating_add(1),
-        };
-        let skipped = chars.get(index..end).unwrap_or_default();
-        line = line.saturating_add(skipped.iter().filter(|&&skipped| skipped == '\n').count());
-        index = end;
-    }
-    if !word.is_empty() {
-        words.push((line, word, chars.len()));
-    }
-    words
 }
 
 /// The packages of `metadata` (the output of [`metadata_command`]), each with its name.
@@ -5821,7 +5718,7 @@ fn brought_in(source: &RustSource, declared: &[TestDeclaration]) -> Vec<String> 
 /// (`variable_attributes`).
 ///
 /// `metadata` is the output of [`metadata_command`]; `sources` the files of
-/// [`MATH_LAYER_SOURCES`] (path and text), of which the `*_tests.rs` files declared once
+/// [`MATH_LAYER_SOURCES`] (read into their tokens), of which the `*_tests.rs` files declared once
 /// beside them ([`test_declarations`]) are test code, not read, and [`MATH_LAYER_FILE`] is
 /// the math layer, read only for `include` and `path`; any other file is refused. So code
 /// reaches these crates only through `mod`, from files the gate reads; a box crate,
