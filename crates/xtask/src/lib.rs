@@ -3993,7 +3993,7 @@ pub fn test_code_gate(sources: &[RustSource]) -> Result<(), Failure> {
         )
     };
     let in_tests = sources.iter().filter(|source| {
-        in_crate(&source.path).is_some_and(|(_, relative)| relative.starts_with("tests/"))
+        in_crate(&source.path).is_some_and(|(_, relative)| in_tests_dir(relative))
     });
     for source in in_tests {
         problems.extend(
@@ -4009,11 +4009,11 @@ pub fn test_code_gate(sources: &[RustSource]) -> Result<(), Failure> {
         );
     }
     let crate_sources = sources.iter().filter(|source| {
-        in_crate(&source.path).is_some_and(|(_, relative)| !relative.starts_with("tests/"))
+        in_crate(&source.path).is_some_and(|(_, relative)| !in_tests_dir(relative))
     });
     for source in crate_sources.clone() {
         let path = &source.path;
-        if path.ends_with("_tests.rs") {
+        if unit_test_file(path) {
             problems.extend(loaded_by_tests(source));
             continue;
         }
@@ -4061,7 +4061,7 @@ pub fn test_code_gate(sources: &[RustSource]) -> Result<(), Failure> {
     }
     for path in crate_sources
         .map(|source| &source.path)
-        .filter(|path| path.ends_with("_tests.rs"))
+        .filter(|path| unit_test_file(path))
     {
         match declared.get(path).copied().unwrap_or_default() {
             1 => {}
@@ -5741,7 +5741,7 @@ pub fn math_layer_gate(metadata: &str, sources: &[RustSource]) -> Result<(), Fai
     let mut declared: BTreeMap<&str, usize> = BTreeMap::new();
     let declarations: BTreeMap<&str, Vec<TestDeclaration>> = sources
         .iter()
-        .filter(|source| !source.path.ends_with("_tests.rs"))
+        .filter(|source| !unit_test_file(&source.path))
         .map(|source| (source.path.as_str(), test_declarations(source)))
         .collect();
     for found in declarations.values() {
@@ -5752,7 +5752,7 @@ pub fn math_layer_gate(metadata: &str, sources: &[RustSource]) -> Result<(), Fai
     }
     for source in sources {
         let path = &source.path;
-        if path.ends_with("_tests.rs") {
+        if unit_test_file(path) {
             if declared.get(path.as_str()) != Some(&1) {
                 problems.push(format!(
                     "{path}: a *_tests.rs file not declared once as test code beside it, \
@@ -8827,9 +8827,22 @@ pub fn new_file_diff(path: &str, text: &str) -> String {
 }
 
 /// Whether `rel`, a path relative to its crate, is Rust test code: under `tests/` (its
-/// fixtures included), or a unit test file beside its source (`*_tests.rs`).
+/// fixtures included, [`in_tests_dir`]), or a unit test file beside its source
+/// ([`unit_test_file`]).
 fn rust_test_code(rel: &str) -> bool {
-    rel.starts_with("tests/") || rel.ends_with("_tests.rs")
+    in_tests_dir(rel) || unit_test_file(rel)
+}
+
+/// Whether `path` names a unit test file beside its source (`*_tests.rs`): a path relative
+/// to its crate or to the repository, the suffix being the same in both.
+fn unit_test_file(path: &str) -> bool {
+    path.ends_with("_tests.rs")
+}
+
+/// Whether `rel`, a path relative to its crate (never to the repository), lies under the
+/// crate's `tests/` directory.
+fn in_tests_dir(rel: &str) -> bool {
+    rel.starts_with("tests/")
 }
 
 /// What every Rust test depends on, at the root: the default check mutates everything when
@@ -9228,7 +9241,7 @@ pub const PROOF_RECORD_RULES: [&str; 3] = ["crates/xtask/src/", UNVIABLE_REVIEWE
 /// Whether `path` is one of the [`PROOF_RECORD_RULES`]: a file of the list, or below one of
 /// its directories, unit test files apart.
 fn mutation_rule(path: &str) -> bool {
-    !path.ends_with("_tests.rs")
+    !unit_test_file(path)
         && PROOF_RECORD_RULES.iter().any(|rule| {
             rule.strip_suffix('/')
                 .map_or(path == *rule, |_| path.starts_with(rule))
