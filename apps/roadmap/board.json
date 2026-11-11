@@ -870,6 +870,10 @@
         {
           "title": "SemVer check: a breaking change of a published Rust interface (a removed item, a public field made private, a new required field) went without a ! in its commit six times on one branch; check the public API against the last version tag in the default check (cargo-semver-checks, a new tool to review, or a commit-msg rule requiring ! when ABI_VERSION, a vectors file, the render hash version or a pub use line changes), with a fixture it refuses",
           "done": false
+        },
+        {
+          "title": "Gates for two classes of defect: refuse derive(PartialEq) on a type whose fields hold raw f32 or f64 (an IEEE equality the float_cmp lint cannot see, as renders had) unless reviewed, and refuse one public name exported by two crates of the audio library (as the plan's instance trait and engine_wasm::Instance were) unless reviewed; each with refused fixtures and a review register",
+          "done": false
         }
       ]
     },
