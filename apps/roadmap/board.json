@@ -44,7 +44,7 @@
     },
     {
       "id": 32,
-      "title": "Public API of the engine library, in Rust, C and TypeScript",
+      "title": "Public API of the audio library, in Rust, C and TypeScript",
       "description": "The engine's public interface, designed in one place and grown with each step of #12 that adds a piece of it: a low-level host API, the box contract, a toolkit of proven DSP building blocks, and a patch builder; exposed in Rust, through a C interface (functions written in Rust with the C calling convention, the bridge every other language can call), and in TypeScript over the WebAssembly module. The audio library stands alone behind it: the layer above uses it only through this interface, which costs nothing measurable against calling the engine directly, proven by the benchmarks (spec/engine-design.md decisions 32 and 33). Other languages come with the work that needs them. Stabilized and versioned by #29.",
       "column": "next",
       "milestone": "M1 Engine",
@@ -1129,7 +1129,7 @@
       "column": "later",
       "milestone": "M1 Engine",
       "createdAt": "2026-11-07",
-      "updatedAt": "2026-11-09",
+      "updatedAt": "2026-11-11",
       "tasks": [
         {
           "title": "Choose the host",
@@ -1148,7 +1148,7 @@
           "done": false
         },
         {
-          "title": "The engine library's demos (#29): every box playable and checked in the browser",
+          "title": "The audio library's demos (#29): every box playable and checked in the browser",
           "done": false
         }
       ]

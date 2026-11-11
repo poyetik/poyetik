@@ -20,6 +20,7 @@ forbid colours -> colors -- the project's spelling is American
 
 forbid sibling engine -> sibling library -- GLOSSARY.md: a library of another domain beside the audio library (spec/engine-design.md, decision 32)
 forbid sibling engines -> sibling libraries -- GLOSSARY.md: libraries of other domains beside the audio library
+forbid engine library -> audio library -- GLOSSARY.md: the crates of the audio library, under one name
 
 forbid node -> box -- GLOSSARY.md: one processing unit of a patch is a box (the code's `Node` keeps its name until roadmap #32)
 forbid nodes -> boxes -- GLOSSARY.md: one processing unit of a patch is a box
