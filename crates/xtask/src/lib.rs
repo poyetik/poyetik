@@ -5514,9 +5514,13 @@ fn flatten(stream: proc_macro2::TokenStream, tokens: &mut Vec<Token>) {
     while let Some(tree) = trees.next() {
         let line = tree.span().start().line;
         let (kind, text) = match tree {
-            TokenTree::Punct(_) if documents(&tree) => {
+            // Its own text read only for a `#`: reading every token's is most of the cost.
+            TokenTree::Punct(ref hash) if hash.as_char() == '#' && documents(&tree) => {
                 let inner = trees
-                    .next_if(|bang| matches!(bang, TokenTree::Punct(_)) && documents(bang))
+                    .next_if(|bang| {
+                        matches!(bang, TokenTree::Punct(punct) if punct.as_char() == '!')
+                            && documents(bang)
+                    })
                     .is_some();
                 let _group = trees.next();
                 let text = tree.span().source_text().unwrap_or_default();
