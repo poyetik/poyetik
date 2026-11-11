@@ -23,7 +23,7 @@ use engine_core::{
 /// as +0. The phase, its only recursive state, is never subnormal
 /// (`keeps_its_phase_zero_or_normal`).
 #[derive(Debug)]
-struct Osc {
+pub(crate) struct Osc {
     /// Current phase, in cycles, within `[0, 1)`.
     phase: Binary64,
     /// Phase increment per sample, in cycles.
@@ -54,13 +54,20 @@ impl Osc {
             increment: cycles - cycles.floor(),
         }
     }
+
+    /// An oscillator from its frequency parameter, as [`Create::create`] receives it: the
+    /// one constructor of both its factory and [`crate::BuiltIn`].
+    #[inline]
+    pub(crate) fn of(rate: SampleRate, params: &[Binary64]) -> Self {
+        let frequency = params.first().copied().unwrap_or(Binary64::new(440.0));
+        Self::new(rate, frequency)
+    }
 }
 
 impl Create for Osc {
     /// An oscillator from its frequency parameter.
     fn create<S: Sample>(rate: SampleRate, params: &[Binary64]) -> Box<dyn Object<S>> {
-        let frequency = params.first().copied().unwrap_or(Binary64::new(440.0));
-        Box::new(Self::new(rate, frequency))
+        Box::new(Self::of(rate, params))
     }
 }
 

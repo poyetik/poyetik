@@ -10,7 +10,7 @@ use engine_core::{
 /// Audio output: the engine sums the inlets of this box into its output channels.
 /// The box itself does nothing, in either precision.
 #[derive(Debug)]
-struct Dac;
+pub(crate) struct Dac;
 
 impl<S: Sample> Object<S> for Dac {
     fn process(&mut self, _inputs: &[Block<S>], _outputs: &mut [Block<S>]) {}

@@ -2,13 +2,15 @@
 
 #![cfg_attr(not(test), forbid(clippy::arithmetic_side_effects))]
 
+use alloc::boxed::Box;
 use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::host::Delivered;
-use crate::{BLOCK_SIZE, Block, CoreError, Plan, Sample};
+use crate::{BLOCK_SIZE, Block, CoreError, Instance, Object, Plan, Sample};
 
-/// Renders a plan computing in `S` offline, frame by frame, as one continuous stream.
+/// Renders a plan computing in `S` offline, frame by frame, as one continuous stream; its
+/// plan holds its box instances as `I`, as [`Plan`] says.
 ///
 /// Rendering `a` then `b` frames gives the same samples as rendering `a + b`. Its samples
 /// are given as they are computed, or rounded to binary32 for a host that takes binary32
@@ -36,19 +38,19 @@ use crate::{BLOCK_SIZE, Block, CoreError, Plan, Sample};
 /// }
 /// ```
 #[derive(Debug)]
-pub struct Renderer<S: Sample> {
+pub struct Renderer<S: Sample, I = Box<dyn Object<S>>> {
     /// The plan, advanced only by this renderer.
-    plan: Plan<S>,
+    plan: Plan<S, I>,
     /// The last block the plan produced, one per channel.
     last: Vec<Block<S>>,
     /// Frames of `last` already returned; [`BLOCK_SIZE`] when none is left.
     used: usize,
 }
 
-impl<S: Sample> Renderer<S> {
+impl<S: Sample, I: Instance<S>> Renderer<S, I> {
     /// A renderer starting at the first frame of `plan`.
     #[must_use]
-    pub fn new(plan: Plan<S>) -> Self {
+    pub fn new(plan: Plan<S, I>) -> Self {
         Self {
             last: vec![S::SILENCE; plan.channels()],
             plan,

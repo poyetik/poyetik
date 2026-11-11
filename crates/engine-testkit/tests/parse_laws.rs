@@ -1,9 +1,9 @@
 //! Laws of reading patches, over random and mutated documents: the deterministic start
 //! of fuzzing (coverage-guided fuzzing comes with roadmap #3).
 //!
-//! Whatever the bytes, `parse_patch` then `Plan::build` (with the real registry) return
-//! `Ok` or `Err`, never panic; every plan they accept renders finite samples without a
-//! heap operation. The documents mix arbitrary text with patches built from valid parts and
+//! Whatever the bytes, `parse_patch` then `Plan::build` (with the real registry, its boxes
+//! called directly as the engine calls them) return `Ok` or `Err`, never panic; every
+//! plan they accept renders finite samples without a heap operation. The documents mix arbitrary text with patches built from valid parts and
 //! hostile ones: wrong types, extreme ids, ports and numbers, unknown and repeated keys,
 //! deep nesting, every box type with random parameters and cables.
 
@@ -20,7 +20,7 @@ mod tests {
 
     use engine_core::host::{Delivered, Raw};
     use engine_core::{Binary32, Binary64, Plan, Precision, Renderer, SampleRate};
-    use engine_objects::REGISTRY;
+    use engine_objects::{BuiltIn, REGISTRY};
     use engine_testkit::heap_operations_during;
     use engine_testkit::matrix::PRECISIONS;
     use engine_testkit::runner::runner;
@@ -196,7 +196,7 @@ mod tests {
         text: &str,
         rate: SampleRate,
     ) -> Result<(), String> {
-        let Ok(plan) = Plan::<S>::build(patch, &REGISTRY, rate) else {
+        let Ok(plan) = Plan::<S, BuiltIn<S>>::build(patch, &REGISTRY, rate) else {
             return Ok(());
         };
         let mut renderer = Renderer::new(plan);

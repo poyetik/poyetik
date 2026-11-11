@@ -18,17 +18,18 @@ use core::{hint, iter};
 
 use crate::math::{Lanes, add_two, sum_blocks};
 use crate::{
-    Binary64, Block, Capability, Connection, CoreError, Node, NodeId, Object, ObjectSpec, Patch,
-    Sample, SampleRate, flush,
+    Binary64, Block, Capability, Connection, CoreError, Instance, Node, NodeId, Object, ObjectSpec,
+    Patch, Sample, SampleRate, flush,
 };
 
-/// One box instance in execution order, with its own input and output buffers.
+/// One box instance in execution order, held as `I` ([`Instance`]), with its own input and
+/// output buffers.
 #[derive(Debug)]
-struct Instance<S: Sample> {
+struct Running<S: Sample, I> {
     /// The box this instance runs.
     node: NodeId,
     /// The box instance.
-    object: Box<dyn Object<S>>,
+    object: I,
     /// Input buffers, one per inlet: a connected inlet is rewritten before every block,
     /// an unconnected one stays silent from the build on.
     inputs: Vec<Block<S>>,
@@ -119,10 +120,15 @@ impl<K: Copy> Feed<K> {
 /// To render a number of frames offline, whatever the block boundaries, hand the plan to
 /// a [`crate::Renderer`], which owns it: the two ways of advancing time can then never be
 /// mixed on one plan.
+///
+/// `I` is how the plan holds and calls its box instances ([`Instance`]): by default each
+/// through its virtual table, one indirect call per box per block; a set of box types
+/// known when the program is built (the engine's own, in `engine-objects`) can be called
+/// directly instead, leaving the virtual table to the box types loaded at run time.
 #[derive(Debug)]
-pub struct Plan<S: Sample> {
+pub struct Plan<S: Sample, I = Box<dyn Object<S>>> {
     /// Box instances in execution order.
-    instances: Vec<Instance<S>>,
+    instances: Vec<Running<S, I>>,
     /// Every outlet of every box, boxes in id order: what connections read from.
     bus: Vec<Block<S>>,
     /// How each engine output channel is fed, one feed per channel, from the instances
@@ -286,7 +292,7 @@ fn execution_order(
     }
 }
 
-impl<S: Sample> Plan<S> {
+impl<S: Sample, I: Instance<S>> Plan<S, I> {
     /// Validates `patch` against `registry` and builds its execution plan, computing in
     /// `S`.
     ///
@@ -324,7 +330,7 @@ impl<S: Sample> Plan<S> {
         // The output boxes (boxes with `AudioOutput`), as (box id, instance index, inlet
         // count).
         let mut outputs: Vec<(NodeId, usize, usize)> = Vec::new();
-        let mut instances: Vec<Instance<S>> = Vec::with_capacity(order.len());
+        let mut instances: Vec<Running<S, I>> = Vec::with_capacity(order.len());
         // Every id of the order is a resolved box: `remove` always finds it.
         for resolved in order.iter().filter_map(|id| nodes.remove(id)) {
             let id = resolved.node.id;
@@ -336,9 +342,9 @@ impl<S: Sample> Plan<S> {
             {
                 outputs.push((id, instances.len(), inlets));
             }
-            instances.push(Instance {
+            instances.push(Running {
                 node: id,
-                object: resolved.spec.create.create(rate, &resolved.params),
+                object: I::create(resolved.spec, rate, &resolved.params),
                 inputs: vec![S::SILENCE; inlets],
                 outputs: vec![S::SILENCE; resolved.spec.outlets.len()],
                 feeds: (0..inlets)
