@@ -1454,25 +1454,31 @@ fn committed() -> Memory {
     conformance(&format!(r#"{{"sine":{}}}"#, sine_references()))
 }
 
-/// What `cargo xtask bless <options>` runs: `engine-cli bless conf --spent spent.json`, the
-/// record on main written to `spent.json` first (here, the committed one), then the options.
-fn xtask_bless(memory: &mut Memory, options: &[&str]) -> (Result<(), String>, String) {
+/// What `cargo xtask <command> <options>` runs: `engine-cli <command> conf --spent
+/// spent.json`, the record on main written to `spent.json` first (here, the committed one),
+/// then the options.
+fn xtask(memory: &mut Memory, command: &str, options: &[&str]) -> (Result<(), String>, String) {
     drop(memory.files.insert(
         PathBuf::from("spent.json"),
         committed().files[Path::new("conf/algorithms.json")].clone(),
     ));
-    let words: Vec<&str> = ["bless", "conf", "--spent", "spent.json"]
+    let words: Vec<&str> = [command, "conf", "--spent", "spent.json"]
         .into_iter()
         .chain(options.iter().copied())
         .collect();
     run_with(memory, &words)
 }
 
-/// Does what `line` says to do, the first of its alternatives: run the `cargo xtask bless`
+/// What `cargo xtask bless <options>` runs ([`xtask`]).
+fn xtask_bless(memory: &mut Memory, options: &[&str]) -> (Result<(), String>, String) {
+    xtask(memory, "bless", options)
+}
+
+/// Does what `line` says to do, the first of its alternatives: run the `cargo xtask`
 /// command it names (after removing the file it says to remove first), or restore the file
 /// it names from git (its committed contents).
 fn follow(memory: &mut Memory, line: &str) {
-    let command = line.find("`cargo xtask bless");
+    let command = line.find("`cargo xtask ");
     let restore = line.find("restore ");
     if let Some(start) = command.filter(|start| restore.is_none_or(|other| *start < other)) {
         if let Some((_, removed)) = line.split_once("remove ") {
@@ -1486,8 +1492,9 @@ fn follow(memory: &mut Memory, line: &str) {
             .get(start..)
             .and_then(|from| from.split('`').nth(1))
             .expect("a closed command");
-        let words: Vec<&str> = named.split_whitespace().skip(3).collect();
-        assert_eq!(xtask_bless(memory, &words).0, Ok(()), "{line}: followed");
+        let words: Vec<&str> = named.split_whitespace().skip(2).collect();
+        let (task, options) = words.split_first().expect("a command of xtask");
+        assert_eq!(xtask(memory, task, options).0, Ok(()), "{line}: followed");
     } else {
         let start = restore.expect("a hint");
         let path = line
@@ -1510,7 +1517,7 @@ type Setup = fn(&mut Memory) -> (Result<(), String>, String);
 
 /// Every state a command refuses with a hint: its name, how it is reached, and the end of
 /// the line that gives the hint, exactly.
-const HINTED: [(&str, Setup, &str); 14] = [
+const HINTED: [(&str, Setup, &str); 15] = [
     (
         "references missing",
         |memory| {
@@ -1683,6 +1690,18 @@ const HINTED: [(&str, Setup, &str); 14] = [
         },
         "(`cargo xtask bless` writes it: run that)",
     ),
+    (
+        "an invalid spent record, at check",
+        |memory| {
+            drop(
+                memory
+                    .files
+                    .insert(PathBuf::from("spent.json"), b"null ]".to_vec()),
+            );
+            run_with(memory, &["check", "conf", "--spent", "spent.json"])
+        },
+        "(`cargo xtask check` writes it: run that)",
+    ),
 ];
 
 /// Every state a command refuses with a hint, the hint asserted as written, then followed:
@@ -1706,6 +1725,73 @@ fn every_hint_leads_to_a_directory_that_checks() {
             run_with(&mut memory, &["check", "conf"]).0,
             Ok(()),
             "{state}: checks once followed"
+        );
+    }
+}
+
+#[test]
+fn check_command_compares_the_fingerprints_with_the_record_on_main() {
+    let mut memory = committed();
+    assert_eq!(
+        xtask(&mut memory, "check", &[]).0,
+        Ok(()),
+        "the record on main itself"
+    );
+    drop(
+        memory
+            .files
+            .insert(PathBuf::from("null.json"), b"null\n".to_vec()),
+    );
+    assert_eq!(
+        run_with(&mut memory, &["check", "conf", "--spent", "null.json"]).0,
+        Ok(()),
+        "no record on main"
+    );
+    let osc = fingerprint_of("osc~");
+    let main = record(&format!("{{{}}}", sine_algorithms("sine"))).replace(&osc, "0000");
+    drop(
+        memory
+            .files
+            .insert(PathBuf::from("main.json"), main.into_bytes()),
+    );
+    let (result, out) = run_with(&mut memory, &["check", "conf", "--spent", "main.json"]);
+    assert_eq!(
+        result,
+        Err("conformance failed in conf: 1 problem(s)".to_owned()),
+        "a version spent on main given other bits"
+    );
+    assert!(
+        out.ends_with(
+            "BITS     osc~ 1: other bits than the record on main holds at this spent version (a \
+             new version of osc~, then run `cargo xtask bless`)\n"
+        ),
+        "{out}"
+    );
+    assert_eq!(
+        run_with(&mut memory, &["check", "conf", "--spent", "gone.json"]).0,
+        Err(
+            "cannot read the spent record gone.json: no such file (`cargo xtask check` writes \
+             it: run that)"
+                .to_owned()
+        ),
+        "a record on main to read"
+    );
+    for words in [
+        &["check", "conf", "--spent"][..],
+        &["check", "conf", "--other", "main.json"],
+        &[
+            "check",
+            "conf",
+            "--spent",
+            "main.json",
+            "--spent",
+            "main.json",
+        ],
+    ] {
+        assert_eq!(
+            run_with(&mut memory, words).0,
+            Err(usage("check expects <dir> [--spent <record>]")),
+            "{words:?}"
         );
     }
 }
@@ -1792,7 +1878,7 @@ fn rejects_unknown_commands() {
         (&[][..], "missing command"),
         (&["play", "x"][..], "unknown command \"play\""),
         (&["play"][..], "unknown command \"play\""),
-        (&["check"][..], "check expects <dir>"),
+        (&["check"][..], "check expects <dir> [--spent <record>]"),
         (
             &["bless"][..],
             "bless expects <dir> [--case-changed <name>]... [--spent <record>] \

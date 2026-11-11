@@ -254,7 +254,7 @@ const CHANGES_MODE: Mode = Mode::Changes { jobs: FAKE_JOBS };
 
 /// What the fake's git answers about its tree and its changes, and its compiler and linker
 /// driver about themselves.
-const GIT_ANSWERS: [(&str, &str); 12] = [
+const GIT_ANSWERS: [(&str, &str); 14] = [
     TREE_STATUS,
     PUSH_STATUS,
     HIDDEN,
@@ -263,6 +263,8 @@ const GIT_ANSWERS: [(&str, &str); 12] = [
     TREE_DIFF,
     TREE_HEAD,
     MERGE_BASE,
+    SPENT_BASE,
+    SPENT_LISTED,
     CHANGES,
     NEW_RUST_FILES,
     COMMON_DIR,
@@ -1122,6 +1124,7 @@ fn command_lines(steps: &[Step]) -> Vec<String> {
             Action::UnviableGate(extent) => format!("unviable gate ({extent:?})"),
             Action::MutationProofRecorded => "mutation proof recorded".to_owned(),
             Action::Bless(options) => format!("bless {}", super::bless_command(options).line()),
+            Action::Conformance => format!("conformance {}", super::conformance_command().line()),
             Action::UnviableReviewsCurrent => "unviable reviews current".to_owned(),
             Action::EquivalentGate => "equivalent gate".to_owned(),
             Action::VersionGate => "version gate".to_owned(),
@@ -1774,7 +1777,7 @@ fn lists_every_check_in_order() {
             "test data gate",
             "untested targets gate",
             "unviable names gate",
-            "Root: cargo run --package engine-cli --locked --quiet -- check conformance",
+            "conformance cargo run --package engine-cli --locked --quiet -- check conformance --spent target/xtask/spent-algorithms.json",
             "Root: cargo deny --locked check",
             "dependency gate",
             "pin gate",
@@ -2228,6 +2231,7 @@ fn falls_back_to_origin_main_then_main() {
     ] {
         let mut fake = passing();
         let _upstream = fake.files.remove(&format!("capture {}", MERGE_BASE.0));
+        let _main = fake.files.remove(&format!("capture {}", SPENT_BASE.0));
         for base in &resolved {
             let _base = fake.files.insert(
                 format!("capture git merge-base HEAD {base}"),
@@ -2262,6 +2266,7 @@ fn falls_back_to_origin_main_then_main() {
     }
     let mut none = passing();
     let _upstream = none.files.remove(&format!("capture {}", MERGE_BASE.0));
+    let _main = none.files.remove(&format!("capture {}", SPENT_BASE.0));
     assert_eq!(
         run_steps(&rust_mutation_of_changes(), &mut none, &mut Vec::new()),
         failed(
@@ -3726,7 +3731,7 @@ fn runs_every_step_and_reports_success() {
         Ok(()),
         "all green"
     );
-    let (tools, commands, emptied, listed, captured, written) = (10, 58, 14, 26, 39, 3);
+    let (tools, commands, emptied, listed, captured, written) = (10, 58, 14, 26, 41, 4);
     let read = 2
         + 2
         + 13
@@ -3751,7 +3756,7 @@ fn runs_every_step_and_reports_success() {
         + 3 * 9
         + 3 * 12
         + 1
-        + 90;
+        + 91;
     assert_eq!(
         fake.ran.len(),
         tools + commands + emptied + listed + captured + written + read,
@@ -3762,12 +3767,12 @@ fn runs_every_step_and_reports_success() {
          checks each followed by its Stryker run); fourteen directories are emptied; git lists \
          thirteen kinds of files (the box sources and the text files that cite the roadmap among them), the Rust files again for the test code, test data, untested targets, unviable names and loaded files gates, the TypeScript ones again for the reports and scope gates of \
          each package after the first; the licenses twice and the history three times, the state \
-         of the tree (before, for the proof record and after) six times, the nightly's version and sysroot, the Cargo metadata (for the untested targets, dependency, pin, library and math layer gates), the output of the fused test build and of the two builds of the loaded files gate, the merge base, the changed paths, the changes, the \
+         of the tree (before, for the proof record and after) six times, the nightly's version and sysroot, the Cargo metadata (for the untested targets, dependency, pin, library and math layer gates), the output of the fused test build and of the two builds of the loaded files gate, the merge base, the merge base of the versions spent and the record listed there, the changed paths, the changes, the \
          new Rust files and the list of every mutant once, git's common directory twice, the tree checked out, \
-         cargo-mutants' version, rustc's host and build, the linker driver's and git's versions, the status for a push and the hidden files for the mutation step and the proof record; the measured base, the diff and the \
+         cargo-mutants' version, rustc's host and build, the linker driver's and git's versions, the status for a push and the hidden files for the mutation step and the proof record; the record spent, the measured base, the diff and the \
          proof record are written once each; the proof record, the measured base and the \
          toolchain file are read for it; and the gates read the two dep-info files of the loaded files gate, the nine fake test data readers for the unsafe, bypass and vocabulary gates, every Rust file (twelve) for the test code, test data, untested targets and unviable names gates and the reviews of unviable mutants for the last, .node-version and the toolchain file for the preflight, the toolchain file, the four float sources and the float macros of the nightly and clippy.toml for the float gate, fourteen coverage reports, \
-         the unviable report and reviews, the register of the pin gate, the 90 text files of the citation gate (the board among them), the reviews again against the list of every mutant, six TypeScript sources and their reviews, the nine \
+         the unviable report and reviews, the register of the pin gate, the 91 text files of the citation gate (the board and the record spent, which the fake lists as tracked, among them), the reviews again against the list of every mutant, six TypeScript sources and their reviews, the nine \
          sources, the twelve Cargo manifests and the register of the bypass gate, the three unsafe files, the Cargo \
          configuration, the six package manifests and the register of the dependency gate, the three \
          supply-chain configurations, twelve crate manifests, ten READMEs, the changelog, ten READMEs, three Rust and six TypeScript sources and the vocabulary of the vocabulary gate, eight version files, the workflow and \
@@ -5108,14 +5113,17 @@ const SPENT_BASE: (&str, &str) = (
     "fed4560000000000000000000000000000000000\n",
 );
 
-/// A passing fake whose spent base resolves ([`SPENT_BASE`]).
+/// How the fake lists the record of the conformance references at the base of the
+/// versions spent, and what it answers: none, nothing spent.
+const SPENT_LISTED: (&str, &str) = (
+    "git ls-tree --name-only fed4560000000000000000000000000000000000 -- \
+     conformance/algorithms.json",
+    "",
+);
+
+/// A passing fake: its spent base resolves ([`SPENT_BASE`]).
 fn blessing() -> Fake {
-    let mut fake = passing();
-    let spent = fake
-        .files
-        .insert(format!("capture {}", SPENT_BASE.0), SPENT_BASE.1.to_owned());
-    assert!(spent.is_none(), "fresh fake");
-    fake
+    passing()
 }
 
 /// How the fake lists the record of the conformance references at its merge base.
@@ -5473,8 +5481,10 @@ fn blesses_only_with_the_record_at_the_merge_base() {
     let mut cases: Vec<(Fake, &str)> = Vec::new();
     // The upstream of the branch resolves (MERGE_BASE), neither origin/main nor main: the
     // versions pushed on the branch are not spent.
+    let mut baseless = passing();
+    let _main = baseless.files.remove(&format!("capture {}", SPENT_BASE.0));
     cases.push((
-        passing(),
+        baseless,
         "error: Bless conformance references: no merge base with origin/main or main to read \
          the algorithm versions spent from (fetch origin/main, or create main)\n",
     ));
@@ -5532,6 +5542,9 @@ fn blesses_only_with_the_record_at_the_merge_base() {
 #[test]
 fn reads_the_versions_spent_at_origin_main_then_main() {
     let mut fallen_back = passing();
+    let _origin = fallen_back
+        .files
+        .remove(&format!("capture {}", SPENT_BASE.0));
     let _main = fallen_back.files.insert(
         "capture git merge-base HEAD main".to_owned(),
         "fed4560000000000000000000000000000000000\n".to_owned(),
@@ -5552,8 +5565,10 @@ fn reads_the_versions_spent_at_origin_main_then_main() {
         ],
         "origin/main first, never the upstream"
     );
+    let mut neither = passing();
+    let _unresolved = neither.files.remove(&format!("capture {}", SPENT_BASE.0));
     assert_eq!(
-        super::spent_base(&mut passing()).map(|_base| ()),
+        super::spent_base(&mut neither).map(|_base| ()),
         failed(
             "no merge base with origin/main or main to read the algorithm versions spent from \
              (fetch origin/main, or create main)\n\
@@ -5611,6 +5626,81 @@ fn reads_the_versions_spent_where_real_git_says_main_is() {
         super::spent_base(&mut runner).map_err(|failure| failure.summary),
         Ok((on_main, "main")),
         "without origin/main, main"
+    );
+}
+
+/// The command of the conformance step.
+const CONFORMANCE_RAN: &str = "cargo run --package engine-cli --locked --quiet -- check \
+                               conformance --spent target/xtask/spent-algorithms.json";
+
+#[test]
+fn checks_the_conformance_against_the_record_on_main() {
+    let step = Step {
+        name: "Conformance (native)".to_owned(),
+        action: Action::Conformance,
+    };
+    let mut fake = passing();
+    drop(fake.files.insert(
+        RECORD_AT_BASE.to_owned(),
+        "conformance/algorithms.json\n".to_owned(),
+    ));
+    drop(
+        fake.files
+            .insert(SHOW_RECORD.to_owned(), "{\"spent\": 1}\n".to_owned()),
+    );
+    let mut out = Vec::new();
+    assert_eq!(
+        run_steps(core::slice::from_ref(&step), &mut fake, &mut out),
+        Ok(()),
+        "checked"
+    );
+    assert_eq!(
+        fake.ran,
+        [
+            "capture git merge-base HEAD origin/main",
+            RECORD_AT_BASE,
+            SHOW_RECORD,
+            "write target/xtask/spent-algorithms.json",
+            CONFORMANCE_RAN,
+        ],
+        "the record on main written, then the check given it"
+    );
+    assert_eq!(
+        fake.files.get(super::SPENT_RECORD).map(String::as_str),
+        Some("{\"spent\": 1}\n"),
+        "as git gives it"
+    );
+    assert!(
+        String::from_utf8(out).expect("utf-8").contains(
+            "  spent: its versions at fed4560000000000000000000000000000000000 (merge base with \
+             origin/main)\n"
+        ),
+        "said"
+    );
+    let mut failing = Fake {
+        fail: Some(CONFORMANCE_RAN.to_owned()),
+        ..passing()
+    };
+    assert_eq!(
+        run_steps(core::slice::from_ref(&step), &mut failing, &mut Vec::new()),
+        failed(format!(
+            "Conformance (native): `{CONFORMANCE_RAN}` exited with code 3"
+        )),
+        "the check's failure"
+    );
+    let mut baseless = passing();
+    let _main = baseless.files.remove(&format!("capture {}", SPENT_BASE.0));
+    assert!(
+        run_steps(core::slice::from_ref(&step), &mut baseless, &mut Vec::new()).is_err_and(
+            |failure| failure.summary
+                == "Conformance (native): no merge base with origin/main or main to read the \
+                    algorithm versions spent from (fetch origin/main, or create main)"
+        ),
+        "no record on main to compare with: the step fails"
+    );
+    assert!(
+        !baseless.ran.contains(&CONFORMANCE_RAN.to_owned()),
+        "nothing checked without it"
     );
 }
 
@@ -7350,6 +7440,7 @@ const fn carries_its_problems_alone(action: &Action) -> bool {
         | Action::CoverageLocality
         | Action::RustMutantsOfChanges { .. }
         | Action::Bless(_)
+        | Action::Conformance
         | Action::MutationProofRecorded
         | Action::FreshDirs(_)
         | Action::FusedBuild

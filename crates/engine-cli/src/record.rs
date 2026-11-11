@@ -157,6 +157,40 @@ pub(crate) fn record_problems(record: &Record, now: &Fingerprints) -> Vec<String
     problems
 }
 
+/// The problems `check` reports of `record` against `base`, the record on `main`: a box
+/// type whose fingerprint differs from the one `base` holds at the same version, a version
+/// spent on `main` given other bits (`spec/engine-design.md`, decision 29), whatever way
+/// `record` was written (a conflict resolved by hand included). None when `base` is none or
+/// its fingerprints were computed with another battery: a battery change is blessed apart.
+pub(crate) fn spent_problems(record: &Record, base: Option<&Record>) -> Vec<String> {
+    let Some(base) = base.filter(|base| base.fingerprint_battery == record.fingerprint_battery)
+    else {
+        return Vec::new();
+    };
+    base.fingerprints
+        .iter()
+        .flat_map(|(name, versions)| {
+            versions
+                .iter()
+                .filter(|(version, print)| {
+                    record
+                        .fingerprints
+                        .get(name)
+                        .and_then(|recorded| recorded.get(*version))
+                        .is_some_and(|recorded| recorded != *print)
+                })
+                .map(move |(version, _)| {
+                    format!(
+                        "{status} {name} {version}: other bits than the record on main holds at \
+                         this spent version (a new version of {name}, then run `cargo xtask \
+                         bless`)",
+                        status = Status::Bits
+                    )
+                })
+        })
+        .collect()
+}
+
 /// The line of a box type whose outputs changed at algorithm version `version`.
 fn changed_bits(name: &str, version: u32) -> String {
     format!(

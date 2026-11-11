@@ -603,6 +603,10 @@ pub enum Action {
         /// The number of cargo-mutants jobs.
         jobs: NonZeroUsize,
     },
+    /// Check the conformance references natively: read the record at the merge base of
+    /// [`SPENT_BASES`], then run [`conformance_command`], which also compares the
+    /// fingerprints with it.
+    Conformance,
     /// Bless the conformance references ([`bless_step`]): read the record at the merge base
     /// of [`SPENT_BASES`], then run `engine-cli bless` with it as the versions spent and
     /// these options, as `cargo xtask bless` was given them.
@@ -1384,21 +1388,10 @@ fn dependency_steps() -> Vec<Step> {
 /// Conformance, supply chain, then the consistency of the repository: membership, READMEs,
 /// versions, history and the CI workflow.
 fn consistency_steps() -> Vec<(Role, Step)> {
-    let conformance = run(
-        "Conformance (native)",
-        "cargo",
-        &[
-            "run",
-            "--package",
-            "engine-cli",
-            "--locked",
-            "--quiet",
-            "--",
-            "check",
-            "conformance",
-        ],
-        Dir::Root,
-    );
+    let conformance = Step {
+        name: "Conformance (native)".to_owned(),
+        action: Action::Conformance,
+    };
     // The independent oracle (tooling/oracle) checks these files after the JavaScript
     // dependencies are installed.
     let export = vec![
@@ -10178,6 +10171,7 @@ fn run_action(
         }
         Action::RustMutantsOfChanges { jobs } => rust_mutants_of_changes(runner, out, *jobs),
         Action::MutationProofRecorded => record_mutation_proof(runner, out, tree.as_ref()),
+        Action::Conformance => conformance(runner, out),
         Action::Bless(options) => bless(runner, out, options),
         Action::UnviableGate(extent) => {
             let report = unviable_report(runner, *extent)?;
@@ -10519,7 +10513,8 @@ pub fn mutants_steps(target: &Target, jobs: NonZeroUsize) -> Vec<Step> {
 /// The record of the conformance references, `conformance/algorithms.json`.
 pub const CONFORMANCE_RECORD: &str = "conformance/algorithms.json";
 
-/// Where [`bless_step`] writes the record at the merge base, for `engine-cli bless --spent`:
+/// Where [`bless_step`] and the conformance check write the record at the merge base of
+/// [`SPENT_BASES`], for `engine-cli bless --spent` and `engine-cli check --spent`:
 /// `null` when the merge base has none.
 pub const SPENT_RECORD: &str = "target/xtask/spent-algorithms.json";
 
@@ -10596,16 +10591,14 @@ pub fn record_at(runner: &mut dyn Runner, base: &str) -> Result<Option<String>, 
     .map(Some)
 }
 
-/// Writes the record at the merge base to [`SPENT_RECORD`] (`null` when the merge base has
-/// none), then blesses with it.
+/// Writes the record at the merge base of [`SPENT_BASES`] to [`SPENT_RECORD`] (`null` when
+/// the merge base has none), and says where it was read.
 ///
 /// # Errors
 ///
-/// Returns why there is no merge base, why git cannot give the record there, why it
-/// cannot be written, or why the bless failed: a usage error ([`Failure::usage`]) when
-/// `engine-cli` refused the options, exiting with code 2 (cargo's own failures exit with
-/// 101, and the other arguments are xtask's).
-fn bless(runner: &mut dyn Runner, out: &mut dyn Write, options: &[String]) -> Result<(), Failure> {
+/// Returns why there is no merge base, why git cannot give the record there, or why it
+/// cannot be written.
+fn write_spent(runner: &mut dyn Runner, out: &mut dyn Write) -> Result<(), Failure> {
     let (base, against) = spent_base(runner)?;
     let record = record_at(runner, &base)?;
     let (spent, held) = record.map_or_else(
@@ -10618,7 +10611,57 @@ fn bless(runner: &mut dyn Runner, out: &mut dyn Write, options: &[String]) -> Re
     say(
         out,
         &format!("  spent: {held} at {base} (merge base with {against})"),
-    )?;
+    )
+}
+
+/// The command of the native conformance check, once the record at the merge base of
+/// [`SPENT_BASES`] is in [`SPENT_RECORD`].
+///
+/// It checks every case against its reference, and every fingerprint against that record's
+/// at the versions both hold, so that a record written other than by bless (a conflict
+/// resolved by hand) cannot give a version spent on `main` other bits.
+#[must_use]
+pub fn conformance_command() -> Cmd {
+    Cmd::new(
+        "cargo",
+        &[
+            "run",
+            "--package",
+            "engine-cli",
+            "--locked",
+            "--quiet",
+            "--",
+            "check",
+            "conformance",
+            SPENT_OPTION,
+            SPENT_RECORD,
+        ],
+        Dir::Root,
+    )
+}
+
+/// Writes the record at the merge base ([`write_spent`]), then checks the conformance
+/// references with it.
+///
+/// # Errors
+///
+/// Returns why the record could not be written, or why the check failed.
+fn conformance(runner: &mut dyn Runner, out: &mut dyn Write) -> Result<(), Failure> {
+    write_spent(runner, out)?;
+    runner
+        .run(&conformance_command())
+        .map_err(|failure| Failure::from(failure.to_string()))
+}
+
+/// Writes the record at the merge base ([`write_spent`]), then blesses with it.
+///
+/// # Errors
+///
+/// Returns why the record could not be written, or why the bless failed: a usage error
+/// ([`Failure::usage`]) when `engine-cli` refused the options, exiting with code 2
+/// (cargo's own failures exit with 101, and the other arguments are xtask's).
+fn bless(runner: &mut dyn Runner, out: &mut dyn Write, options: &[String]) -> Result<(), Failure> {
+    write_spent(runner, out)?;
     // Its result lines (CHANGED, BITS, what it wrote, or what it refuses) are xtask's
     // result too: on xtask's stdout, so that `cargo xtask bless > log` keeps them.
     let (result, ended) = runner.run_for_stdout(&bless_command(options));

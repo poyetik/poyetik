@@ -14,7 +14,7 @@ use engine_objects::REGISTRY;
 
 use crate::record::{
     Before, Blessing, Record, References, Spent, Told, Versions, bless_problems, blessed,
-    current_fingerprints, record_problems, same_rules, unknown_cases,
+    current_fingerprints, record_problems, same_rules, spent_problems, unknown_cases,
 };
 use crate::{Files, Prepared, Rendered, prepare_case};
 use engine_hash::RenderHash;
@@ -28,10 +28,12 @@ usage: engine-cli <command>
                       render a case in <format> (binary64, the default,
                       binary64-as-binary32 or binary32), print its hash,
                       optionally write a WAV file
-  check <dir>         compare every case of <dir>/cases (patches in <dir>/patches),
+  check <dir> [--spent <record>]
+                      compare every case of <dir>/cases (patches in <dir>/patches),
                       in every format, with <dir>/references.json, and
                       the algorithm versions of its box types, with
-                      <dir>/algorithms.json
+                      <dir>/algorithms.json, whose fingerprints must be those of
+                      <record>, the record on main, at the versions both hold
   bless <dir> [--case-changed <name>]... [--spent <record>]
         [--battery-changed] [--from-nothing]
                       rewrite <dir>/references.json from the current renders,
@@ -532,8 +534,9 @@ fn format_line(
     }
 }
 
-/// `check <dir>`: renders every case and reports each one on `out`, a case that fails
-/// to render included, so that one run lists every problem.
+/// `check <dir> [--spent <record>]`: renders every case and reports each one on `out`, a
+/// case that fails to render included, so that one run lists every problem; with `spent`,
+/// the record on `main`, also each version spent there given other bits.
 ///
 /// `bless` and `export`, by contrast, stop at the first failing case: a partial set of
 /// references or renders would be wrong.
@@ -541,11 +544,15 @@ fn check(
     files: &mut dyn Files,
     out: &mut dyn Write,
     dir: &Path,
+    spent: Option<&Path>,
     mode: DefaultMode<'_>,
 ) -> Result<(), String> {
     let cases = cases(files, dir)?;
     let expected: References = read_blessed(files, &references_path(dir))?;
     let record: Record = read_blessed(files, &algorithms_path(dir))?;
+    let base = spent
+        .map(|path| read_spent(files, path, "cargo xtask check"))
+        .transpose()?;
     let blessed = &record.cases;
     let rules = same_rules(&record);
     let mut failures = 0_usize;
@@ -585,7 +592,10 @@ fn check(
             report(out, false, line)?;
         }
     }
-    for line in record_problems(&record, &current_fingerprints(mode)) {
+    for line in record_problems(&record, &current_fingerprints(mode))
+        .into_iter()
+        .chain(spent_problems(&record, base.flatten().as_ref()))
+    {
         report(out, false, line)?;
     }
     for name in expected
@@ -702,7 +712,7 @@ fn bless(
     let base: Option<Option<Record>> = options
         .spent
         .as_ref()
-        .map(|spent| read_spent(files, spent))
+        .map(|spent| read_spent(files, spent, "cargo xtask bless"))
         .transpose()?;
     let now = current_fingerprints(mode);
     let told = Told {
@@ -861,15 +871,14 @@ fn read_earlier<T: DeserializeOwned>(
 }
 
 /// Reads `path`, the record spent (`--spent`): the record on `main`, or `null` when `main`
-/// has none, as `cargo xtask bless` writes it before it runs this bless.
+/// has none, as `writer`, the command of `cargo xtask` that runs this one, writes it first.
 ///
 /// # Errors
 ///
-/// Returns why it cannot be read or is not a record or `null`, naming the command that
-/// writes it.
-fn read_spent(files: &mut dyn Files, path: &Path) -> Result<Option<Record>, String> {
+/// Returns why it cannot be read or is not a record or `null`, naming `writer`.
+fn read_spent(files: &mut dyn Files, path: &Path, writer: &str) -> Result<Option<Record>, String> {
     let shown = path.display();
-    let hint = "(`cargo xtask bless` writes it: run that)";
+    let hint = format!("(`{writer}` writes it: run that)");
     let text = files
         .read(path, MAX_REFERENCES_BYTES)
         .map_err(|error| format!("cannot read the spent record {shown}: {error} {hint}"))?;
@@ -943,7 +952,14 @@ fn dispatch(
     let expects = |synopsis: &str| CliError::Usage(format!("{command} expects {synopsis}"));
     match (command.as_str(), rest) {
         ("render", _) => render(files, out, rest, mode),
-        ("check", [dir]) => Ok(check(files, out, Path::new(dir), mode)?),
+        ("check", [dir]) => Ok(check(files, out, Path::new(dir), None, mode)?),
+        ("check", [dir, option, spent]) if option == "--spent" => Ok(check(
+            files,
+            out,
+            Path::new(dir),
+            Some(Path::new(spent)),
+            mode,
+        )?),
         ("bless", [dir, options @ ..]) => {
             let options = BlessOptions::parse(options).map_err(|problem| {
                 CliError::Usage(problem.unwrap_or_else(|| format!("{command} expects {BLESS}")))
@@ -954,7 +970,7 @@ fn dispatch(
             Ok(export(files, out, Path::new(dir), Path::new(target), mode)?)
         }
         ("help", []) => Ok(say_usage(out)?),
-        ("check", _) => Err(expects("<dir>")),
+        ("check", _) => Err(expects("<dir> [--spent <record>]")),
         ("bless", _) => Err(expects(BLESS)),
         ("export", _) => Err(expects("<dir> <out>")),
         ("help", _) => Err(expects("no argument")),

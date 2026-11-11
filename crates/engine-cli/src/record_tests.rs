@@ -4,7 +4,7 @@ use alloc::collections::BTreeMap;
 
 use super::{
     Before, Blessing, Fingerprints, Record, References, Spent, Told, Versions, bless_problems,
-    blessed, current_fingerprints, record_problems, same_rules,
+    blessed, current_fingerprints, record_problems, same_rules, spent_problems,
 };
 
 /// What `bless` refuses replacing `old` and `earlier`, every version of `old` spent, as
@@ -638,5 +638,50 @@ fn refuses_a_reference_whose_case_the_record_does_not_hold() {
         problems(&old, &References::new(), &now, &cases, &moved, &[]),
         Vec::<String>::new(),
         "a new case"
+    );
+}
+
+#[test]
+fn refuses_other_bits_than_main_at_a_version_both_records_hold() {
+    let main = record(
+        &[],
+        &[("osc~", 1, "one"), ("osc~", 2, "two"), ("dac~", 1, "d")],
+    );
+    let kept = record(
+        &[],
+        &[("osc~", 1, "one"), ("osc~", 2, "two"), ("osc~", 3, "x")],
+    );
+    assert_eq!(
+        spent_problems(&kept, Some(&main)),
+        Vec::<String>::new(),
+        "every version of main kept or dropped, a version of the branch added"
+    );
+    let resolved = record(
+        &[],
+        &[("osc~", 1, "one"), ("osc~", 2, "other"), ("dac~", 1, "e")],
+    );
+    assert_eq!(
+        spent_problems(&resolved, Some(&main)),
+        [
+            "BITS     dac~ 1: other bits than the record on main holds at this spent version (a \
+             new version of dac~, then run `cargo xtask bless`)",
+            "BITS     osc~ 2: other bits than the record on main holds at this spent version (a \
+             new version of osc~, then run `cargo xtask bless`)",
+        ],
+        "each version given other bits, by box type then version"
+    );
+    let other_battery = Record {
+        fingerprint_battery: 1,
+        ..main
+    };
+    assert_eq!(
+        spent_problems(&resolved, Some(&other_battery)),
+        Vec::<String>::new(),
+        "another battery: a battery change, blessed apart"
+    );
+    assert_eq!(
+        spent_problems(&resolved, None),
+        Vec::<String>::new(),
+        "no record on main"
     );
 }

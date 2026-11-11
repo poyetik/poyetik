@@ -223,8 +223,11 @@ mod tests {
                 &["render", "a.json", "b.json", "--wvv", "x"][..],
                 "unknown option \"--wvv\"",
             ),
-            (&["check"][..], "check expects <dir>"),
-            (&["check", "a", "b"][..], "check expects <dir>"),
+            (&["check"][..], "check expects <dir> [--spent <record>]"),
+            (
+                &["check", "a", "b"][..],
+                "check expects <dir> [--spent <record>]",
+            ),
         ] {
             let os_args: Vec<&std::ffi::OsStr> = args.iter().map(std::ffi::OsStr::new).collect();
             assert_error(
