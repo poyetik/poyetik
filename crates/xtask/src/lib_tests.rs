@@ -618,12 +618,15 @@ fn lifting() -> String {
     )
 }
 
-/// The text of the audited file `path`: [`lifting`], and inline assembly in the files of
-/// `ASSEMBLY_FILES`.
+/// The line an assembly file must hold, built so that this file does not hold it whole.
+const ONE_UNSAFE_OPERATION: &str = "#![forbid(clippy::multiple_unsafe_ops_per_block)]";
+
+/// The text of the audited file `path`: [`lifting`], and in the files of `ASSEMBLY_FILES`
+/// the forbid of [`ONE_UNSAFE_OPERATION`] and inline assembly.
 fn audited(path: &str) -> String {
     if super::ASSEMBLY_FILES.contains(&path) {
         format!(
-            "{}fn f() {{\n    unsafe {{\n        core::arch::asm!(\"nop\");\n    }}\n}}\n",
+            "{}{ONE_UNSAFE_OPERATION}\nfn f() {{\n    unsafe {{\n        ::core::arch::asm!(\"nop\");\n    }}\n}}\n",
             lifting()
         )
     } else {
@@ -6161,7 +6164,7 @@ fn confines_unsafe_blocks_to_the_audited_files() {
     for (path, text) in &mut no_assembly {
         if super::ASSEMBLY_FILES.contains(&path.as_str()) {
             *text = format!(
-                "{}// unsafe {{ core::arch::asm!(\"nop\") }} in a comment\nconst A: &str = \"unsafe {{ core::arch::asm!() }}\";\n",
+                "{}{ONE_UNSAFE_OPERATION}\n// unsafe {{ ::core::arch::asm!(\"nop\") }} in a comment\nconst A: &str = \"unsafe {{ ::core::arch::asm!() }}\";\n",
                 lifting()
             );
         }
@@ -6190,8 +6193,8 @@ fn confines_unsafe_blocks_to_the_audited_files() {
         assert_eq!(
             unsafe_gate(&other),
             failed(format!(
-                "the lint against unsafe code: {}:{}: `unsafe` not followed by \
-                 `core::arch::asm!`: an assembly file holds no other unsafe code, which Miri \
+                "the lint against unsafe code: {}:{}: `unsafe` not opening `{{ \
+                 ::core::arch::asm!(`: an assembly file holds no other unsafe code, which Miri \
                  would not check",
                 super::ASSEMBLY_FILES[0],
                 offset + line
@@ -6208,6 +6211,127 @@ fn confines_unsafe_blocks_to_the_audited_files() {
             UNSAFE_FILES[0]
         )),
         "a stale entry"
+    );
+}
+
+#[test]
+fn refuses_an_assembly_file_whose_unsafe_block_could_run_more_than_its_assembly() {
+    let assembly = super::ASSEMBLY_FILES[0];
+    let sources: Vec<(String, String)> = UNSAFE_FILES
+        .iter()
+        .map(|path| ((*path).to_owned(), audited(path)))
+        .collect();
+    assert_eq!(unsafe_gate(&sources), Ok(()), "the canonical file");
+    let gate = |path: &str, text: &str| {
+        let mut all = sources.clone();
+        match all.iter_mut().find(|(file, _)| file == path) {
+            Some((_, old)) => *old = text.to_owned(),
+            None => all.push((path.to_owned(), text.to_owned())),
+        }
+        unsafe_gate(&all)
+    };
+    let refused = |problem: String| failed(format!("the lint against unsafe code: {problem}"));
+    let canonical = audited(assembly);
+    let lines = canonical.lines().count();
+    assert_eq!(
+        gate(assembly, &canonical.replace(ONE_UNSAFE_OPERATION, "")),
+        refused(format!(
+            "{assembly} does not hold `{ONE_UNSAFE_OPERATION}`: an unsafe block of it could \
+             hold more than its assembly call"
+        )),
+        "the lint that keeps one operation per block, lifted by an `expect` unseen"
+    );
+    let unsafe_line = lines - 3;
+    for shadowable in [
+        "core::arch::asm!(\"nop\");",
+        "self::core::arch::asm!(\"nop\");",
+        "::core::arch::asm(\"nop\");",
+        "::core::arch::asm!{\"nop\"};",
+    ] {
+        assert_eq!(
+            gate(
+                assembly,
+                &canonical.replace("::core::arch::asm!(\"nop\");", shadowable)
+            ),
+            refused(format!(
+                "{assembly}:{unsafe_line}: `unsafe` not opening `{{ ::core::arch::asm!(`: an \
+                 assembly file holds no other unsafe code, which Miri would not check"
+            )),
+            "{shadowable}"
+        );
+    }
+    for (code, word) in [
+        ("mod core {}\n", "mod"),
+        ("use crate::m as m;\n", "use"),
+        ("extern crate alloc;\n", "extern"),
+        ("macro_rules! m {\n    () => {};\n}\n", "macro_rules"),
+    ] {
+        assert_eq!(
+            gate(assembly, &format!("{canonical}{code}")),
+            refused(format!(
+                "{assembly}:{}: names `{word}`: an assembly file declares no module, import, \
+                 crate or macro, through which its paths could resolve elsewhere",
+                lines + 1
+            )),
+            "{code}"
+        );
+    }
+}
+
+#[test]
+fn refuses_a_file_that_rebinds_core_in_the_crate_of_an_assembly_file() {
+    let assembly = super::ASSEMBLY_FILES[0];
+    let sources: Vec<(String, String)> = UNSAFE_FILES
+        .iter()
+        .map(|path| ((*path).to_owned(), audited(path)))
+        .collect();
+    let gate = |path: &str, text: &str| {
+        let mut all = sources.clone();
+        all.push((path.to_owned(), text.to_owned()));
+        unsafe_gate(&all)
+    };
+    let refused = |problem: String| failed(format!("the lint against unsafe code: {problem}"));
+    let forbid = format!("#![forbid({}_{})]\n", "unsafe", "code");
+    for (path, code) in [
+        (
+            "crates/engine-fpenv/src/lib.rs",
+            "extern crate shadow as core;\n",
+        ),
+        ("crates/engine-fpenv/src/lib.rs", "use crate::m as core;\n"),
+        ("crates/engine-fpenv/src/other.rs", "mod core {}\n"),
+    ] {
+        let text = if path.ends_with("lib.rs") {
+            format!("//! The crate.\n{code}")
+        } else {
+            format!("{forbid}{code}")
+        };
+        assert_eq!(
+            gate(path, &text),
+            refused(format!(
+                "{path}:{}: rebinds `core` in the crate of the assembly file {assembly}, \
+                 whose `::core::arch::asm!` must name the real one",
+                text.lines().count()
+            )),
+            "{path}: {code}"
+        );
+    }
+    assert_eq!(
+        gate(
+            "crates/engine-fpenv/src/other.rs",
+            &format!(
+                "{forbid}//! as core, mod core\nconst A: &str = \"as core\";\nmod coreless {{}}\n"
+            )
+        ),
+        Ok(()),
+        "in prose and strings, and another name"
+    );
+    assert_eq!(
+        gate(
+            "crates/engine-core/src/lib.rs",
+            &format!("{forbid}use crate::m as core;\n")
+        ),
+        Ok(()),
+        "another crate"
     );
 }
 

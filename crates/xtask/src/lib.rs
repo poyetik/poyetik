@@ -3518,20 +3518,25 @@ pub fn test_declarations(path: &str, text: &str) -> Vec<(usize, String)> {
 /// The lint name is built at run time, so that this file does not name it.
 ///
 /// Every file of [`ASSEMBLY_FILES`], which leaves the Miri step, must still hold inline
-/// assembly, and nothing else unsafe: in its code words (comments and strings apart), it
-/// names `unsafe` at least once, each time followed by `core::arch::asm`. With Clippy's
-/// `multiple_unsafe_ops_per_block`, each unsafe block then holds one assembly call and no
-/// other unsafe operation, and neither an `unsafe fn` nor an `unsafe impl` can hide there.
-/// No other file of its crate names `unsafe` in its code words: a macro or a function of
-/// another file could otherwise bring unsafe code under the assembly file's lifting, and
-/// any unsafe operation of the crate is written `unsafe` somewhere in it. Any other unsafe
-/// code would escape Miri with its crate.
+/// assembly, and nothing else unsafe: in its code words (comments
+/// and strings apart), it names `unsafe` at least once, each time opening
+/// [`ASSEMBLY_CALL`], the standard library's `asm!` by a path from the crates' root; it
+/// holds the line [`ONE_UNSAFE_OPERATION`], so that the compiler keeps each unsafe block
+/// to that one operation (an `asm!` operand's included) whatever a later attribute says;
+/// and it declares no module, import, crate or macro ([`ASSEMBLY_REFUSED_WORDS`]). Neither
+/// an `unsafe fn` nor an `unsafe impl` can hide there. No other file of its crate names
+/// `unsafe` in its code words, since a macro or a function of another file could otherwise
+/// bring unsafe code under the assembly file's lifting, and any unsafe operation of the
+/// crate is written `unsafe` somewhere in it; nor rebinds `core` (`as core`, `mod core`),
+/// the one way left to make `::core` name another crate. Any other unsafe code would escape
+/// Miri with its crate.
 ///
 /// # Errors
 ///
 /// Returns every other file that lifts the lint, every listed file that no longer does,
-/// every file that should forbid it and does not, every assembly file without assembly,
-/// every `unsafe` of an assembly file that is not inline assembly, and every `unsafe` of
+/// every file that should forbid it and does not, every assembly file without assembly or
+/// its forbid line, every `unsafe` of an assembly file that does not open its assembly call,
+/// every declaration of an assembly file, and every `unsafe` or rebinding of `core` in
 /// another file of its crate.
 pub fn unsafe_gate(sources: &[(String, String)]) -> Result<(), Failure> {
     let lint = format!("{}_{}", "unsafe", "code");
@@ -3565,31 +3570,7 @@ pub fn unsafe_gate(sources: &[(String, String)]) -> Result<(), Failure> {
             .iter()
             .find(|(path, _)| path == file)
             .map_or("", |(_, text)| text.as_str());
-        let words = code_words(text);
-        let mut unsafe_at = 0_usize;
-        for (index, (line, word, _)) in words.iter().enumerate() {
-            if word != "unsafe" {
-                continue;
-            }
-            unsafe_at = unsafe_at.saturating_add(1);
-            let next: Vec<&str> = words
-                .iter()
-                .skip(index.saturating_add(1))
-                .take(3)
-                .map(|(_, following, _)| following.as_str())
-                .collect();
-            if next != ["core", "arch", "asm"] {
-                problems.push(format!(
-                    "{file}:{line}: `unsafe` not followed by `core::arch::asm!`: an assembly \
-                     file holds no other unsafe code, which Miri would not check"
-                ));
-            }
-        }
-        if unsafe_at == 0 {
-            problems.push(format!(
-                "{file} is listed in ASSEMBLY_FILES but holds no inline assembly"
-            ));
-        }
+        assembly_problems(file, text, &mut problems);
     }
     unsafe_beside_assembly(sources, &mut problems);
     let unsafe_tests: BTreeSet<String> = sources
@@ -3618,8 +3599,68 @@ pub fn unsafe_gate(sources: &[(String, String)]) -> Result<(), Failure> {
     verdict("the lint against unsafe code", problems)
 }
 
+/// The line every file of [`ASSEMBLY_FILES`] holds: each unsafe block of it holds one
+/// unsafe operation.
+///
+/// That operation is its assembly call, whatever a later `allow` or `expect` says
+/// (E0453); Clippy's `multiple_unsafe_ops_per_block` counts the operations of an `asm!`
+/// operand too.
+pub const ONE_UNSAFE_OPERATION: &str = "#![forbid(clippy::multiple_unsafe_ops_per_block)]";
+
+/// What every `unsafe` of an assembly file opens, its spaces apart: the standard library's
+/// `asm!` by a path that starts at the crates' root (`::core`), which no module of the
+/// file can shadow.
+pub const ASSEMBLY_CALL: &str = "unsafe{::core::arch::asm!(";
+
+/// The code words an assembly file never holds: each declares a name a path could
+/// resolve through, a module (`mod core`), an import, a crate or a macro.
+pub const ASSEMBLY_REFUSED_WORDS: [&str; 4] = ["mod", "use", "extern", "macro_rules"];
+
+/// Adds to `problems` those of `text`, the assembly file `file` ([`unsafe_gate`]): no
+/// [`ONE_UNSAFE_OPERATION`] line, an `unsafe` not opening [`ASSEMBLY_CALL`], none at all, or
+/// a word of [`ASSEMBLY_REFUSED_WORDS`].
+fn assembly_problems(file: &str, text: &str, problems: &mut Vec<String>) {
+    if !text.lines().any(|line| line.trim() == ONE_UNSAFE_OPERATION) {
+        problems.push(format!(
+            "{file} does not hold `{ONE_UNSAFE_OPERATION}`: an unsafe block of it could hold \
+             more than its assembly call"
+        ));
+    }
+    let chars: Vec<char> = text.chars().collect();
+    let mut unsafe_at = 0_usize;
+    for (line, word, end) in code_words(text) {
+        let start = end.saturating_sub(word.chars().count());
+        if word == "unsafe" {
+            unsafe_at = unsafe_at.saturating_add(1);
+            let opened = chars
+                .get(start..)
+                .unwrap_or_default()
+                .iter()
+                .filter(|character| !character.is_whitespace())
+                .take(ASSEMBLY_CALL.len());
+            if !opened.eq(ASSEMBLY_CALL.chars().collect::<Vec<_>>().iter()) {
+                problems.push(format!(
+                    "{file}:{line}: `unsafe` not opening `{{ ::core::arch::asm!(`: an assembly \
+                     file holds no other unsafe code, which Miri would not check"
+                ));
+            }
+        } else if ASSEMBLY_REFUSED_WORDS.contains(&word.as_str()) {
+            problems.push(format!(
+                "{file}:{line}: names `{word}`: an assembly file declares no module, import, \
+                 crate or macro, through which its paths could resolve elsewhere"
+            ));
+        }
+    }
+    if unsafe_at == 0 {
+        problems.push(format!(
+            "{file} is listed in ASSEMBLY_FILES but holds no inline assembly"
+        ));
+    }
+}
+
 /// The problems of every file but an assembly file ([`ASSEMBLY_FILES`]) in the crate of one
-/// that names `unsafe` in its code ([`unsafe_gate`]).
+/// that names `unsafe` in its code, or rebinds `core` (`as core`, `mod core`), which would
+/// change what the assembly file's `::core::arch::asm!` names ([`unsafe_gate`]).
 fn unsafe_beside_assembly(sources: &[(String, String)], problems: &mut Vec<String>) {
     // Code of another file of an assembly file's crate can run under its lifting (a macro,
     // a function it calls), so no other file of that crate names `unsafe` at all.
@@ -3634,11 +3675,21 @@ fn unsafe_beside_assembly(sources: &[(String, String)], problems: &mut Vec<Strin
         }) else {
             continue;
         };
-        for (line, word, _) in code_words(other) {
+        let words = code_words(other);
+        for (index, (line, word, _)) in words.iter().enumerate() {
             if word == "unsafe" {
                 problems.push(format!(
                     "{path}:{line}: `unsafe` in the crate of the assembly file {file}: its \
                      code could run under that file's lifting, where Miri never checks it"
+                ));
+            }
+            let named = words
+                .get(index.saturating_add(1))
+                .is_some_and(|(_, next, _)| next == "core");
+            if named && (word == "as" || word == "mod") {
+                problems.push(format!(
+                    "{path}:{line}: rebinds `core` in the crate of the assembly file {file}, \
+                     whose `::core::arch::asm!` must name the real one"
                 ));
             }
         }

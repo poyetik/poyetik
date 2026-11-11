@@ -50,6 +50,9 @@
     unsafe_code,
     reason = "reading and writing the floating-point control register needs inline assembly"
 )]
+// Each unsafe block holds one unsafe operation, its assembly call, whatever a later
+// attribute says: xtask's unsafe gate requires this line.
+#![forbid(clippy::multiple_unsafe_ops_per_block)]
 
 /// The control register's value: MXCSR (32 bits) on `x86_64`, FPCR (64 bits) on aarch64.
 #[cfg(target_arch = "x86_64")]
@@ -85,7 +88,7 @@ pub(crate) fn read() -> Word {
     #[cfg(target_arch = "aarch64")]
     // SAFETY: `mrs` from FPCR is allowed in user mode and only writes the output register.
     unsafe {
-        core::arch::asm!("mrs {word}, fpcr", word = out(reg) word, options(nostack, preserves_flags));
+        ::core::arch::asm!("mrs {word}, fpcr", word = out(reg) word, options(nostack, preserves_flags));
     }
     #[cfg(target_arch = "x86_64")]
     {
@@ -93,7 +96,7 @@ pub(crate) fn read() -> Word {
         // SAFETY: `stmxcsr` writes 4 bytes at its operand, the address of `stored`, a live,
         // aligned `u32` of this frame.
         unsafe {
-            core::arch::asm!("stmxcsr [{at}]", at = in(reg) &raw mut stored, options(nostack, preserves_flags));
+            ::core::arch::asm!("stmxcsr [{at}]", at = in(reg) &raw mut stored, options(nostack, preserves_flags));
         }
         word = stored;
     }
@@ -107,14 +110,14 @@ fn write(word: Word) {
     // SAFETY: `msr` to FPCR is allowed in user mode; `word` keeps the reserved bits as read
     // (its only caller, `set_control`).
     unsafe {
-        core::arch::asm!("msr fpcr, {word}", word = in(reg) word, options(nostack, preserves_flags));
+        ::core::arch::asm!("msr fpcr, {word}", word = in(reg) word, options(nostack, preserves_flags));
     }
     #[cfg(target_arch = "x86_64")]
     // SAFETY: `ldmxcsr` reads 4 bytes at its operand, the address of `word`, a live, aligned
     // `u32` argument; its reserved bits are as read (the only caller, `set_control`), so
     // the load cannot fault.
     unsafe {
-        core::arch::asm!("ldmxcsr [{at}]", at = in(reg) &raw const word, options(nostack, preserves_flags));
+        ::core::arch::asm!("ldmxcsr [{at}]", at = in(reg) &raw const word, options(nostack, preserves_flags));
     }
 }
 
