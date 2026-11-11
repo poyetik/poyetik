@@ -2,6 +2,7 @@
 
 use alloc::boxed::Box;
 use alloc::format;
+use alloc::vec;
 use alloc::vec::Vec;
 
 use super::to_binary32;
@@ -621,12 +622,15 @@ fn a_factory_creates_instances_in_either_precision() {
     let rate = SampleRate::new(8_000).expect("valid rate");
     let mut out64 = [Binary64::SILENCE];
     factory
-        .create::<Binary64>(rate, ParamValues::new([wide(0.25), wide(0.5)]).params())
+        .create::<Binary64>(
+            rate,
+            ParamValues::flushed(vec![wide(0.25), wide(0.5)]).params(),
+        )
         .process(&[], &mut out64);
     assert_eq!(out64[0][0].bits(), 64.758_f64.to_bits(), "binary64");
     let mut out32 = [Binary32::SILENCE];
     factory
-        .create::<Binary32>(rate, ParamValues::new([wide(0.25)]).params())
+        .create::<Binary32>(rate, ParamValues::flushed(vec![wide(0.25)]).params())
         .process(&[], &mut out32);
     assert_eq!(
         out32[0][0].bits(),

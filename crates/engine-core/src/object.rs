@@ -216,14 +216,6 @@ impl ParamValues {
         )
     }
 
-    /// The parameter values `values`, in order, each nonzero one below 2^-126 in
-    /// magnitude made a zero of its sign, unchecked: for this crate's tests of the flush
-    /// and of factories, which have no spec.
-    #[cfg(test)]
-    pub(crate) fn new(values: impl IntoIterator<Item = Binary64>) -> Self {
-        Self(values.into_iter().map(Binary64::as_parameter).collect())
-    }
-
     /// The parameter values `values`, which the plan has checked against their ranges and
     /// flushed as [`ParamValues::of`] would (each a binary32 value flushed by
     /// [`crate::flush::binary32`], widened exactly): taken as they are, so that reading a

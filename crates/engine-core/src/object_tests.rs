@@ -64,7 +64,11 @@ fn numbers_algorithm_versions_from_one() {
 #[test]
 fn gives_parameters_in_order_none_below_the_smallest_normal_binary32() {
     let below = f64::from_bits(f64::from(f32::MIN_POSITIVE).to_bits() - 1);
-    let params = ParamValues::new([2.5_f64, -below, below, -0.0_f64, 440.0_f64].map(Binary64::new));
+    let params = ParamValues::of(
+        &FIVE,
+        &[2.5_f64, -below, below, -0.0_f64, 440.0_f64].map(Binary64::new),
+    )
+    .expect("within range");
     let bits: Vec<u64> = params
         .params()
         .iter()
@@ -81,7 +85,13 @@ fn gives_parameters_in_order_none_below_the_smallest_normal_binary32() {
         ],
         "in order, every value kept but those below 2^-126, zeros of their sign"
     );
-    assert!(ParamValues::new([]).params().is_empty(), "none");
+    assert!(
+        ParamValues::of(&NONE, &[])
+            .expect("none")
+            .params()
+            .is_empty(),
+        "none"
+    );
 }
 
 #[test]
@@ -129,6 +139,18 @@ static TINY: ObjectSpec = ObjectSpec {
     params: &[ParamSpec::new("t", "t", -1e-40, -1.0, 1.0)],
     ..TWO
 };
+
+/// [`TWO`] with five parameters, each accepting -1,000 to 1,000.
+static FIVE: ObjectSpec = ObjectSpec {
+    params: &[WIDE, WIDE, WIDE, WIDE, WIDE],
+    ..TWO
+};
+
+/// A parameter accepting -1,000 to 1,000.
+const WIDE: ParamSpec = ParamSpec::new("w", "w", 0.0, -1_000.0, 1_000.0);
+
+/// [`TWO`] without parameters.
+static NONE: ObjectSpec = ObjectSpec { params: &[], ..TWO };
 
 /// The bits of `values`, as a box is given them.
 fn bits(values: &ParamValues) -> Vec<u64> {
