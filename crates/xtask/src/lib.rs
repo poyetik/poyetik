@@ -806,6 +806,20 @@ fn verdict(context: &str, problems: Vec<String>) -> Result<(), Failure> {
     }
 }
 
+/// The verdict of a gate that only runs as a step: its problems alone, the step's name
+/// being the one source of what it checks (`run_steps_then` opens the summary with it):
+/// the one problem inline, or how many, listed above.
+fn step_verdict(problems: Vec<String>) -> Result<(), Failure> {
+    match problems.as_slice() {
+        [] => Ok(()),
+        [only] => Err(Failure::from(only.clone())),
+        _ => Err(Failure {
+            summary: format!("{} problems, listed above", problems.len()),
+            details: problems,
+        }),
+    }
+}
+
 /// Builds a command step.
 fn run(name: &str, program: &'static str, args: &[&str], dir: Dir) -> Step {
     Step {
@@ -3764,10 +3778,7 @@ pub fn unviable_names_gate(reviews: &str, sources: &[(String, String)]) -> Resul
             }
         }
     }
-    verdict(
-        "the functions the reviews of unviable mutants name",
-        problems,
-    )
+    step_verdict(problems)
 }
 
 /// The lines outside test code that may name `test`, each whole, besides the first line of
@@ -3873,10 +3884,7 @@ pub fn test_code_gate(sources: &[(String, String)]) -> Result<(), Failure> {
             times => problems.push(format!("{path}: declared as test code {times} times")),
         }
     }
-    verdict(
-        "test code only in tests/ and declared *_tests.rs files",
-        problems,
-    )
+    step_verdict(problems)
 }
 
 /// The lines of `text` holding a `path` attribute, which makes rustc load a module from the
@@ -4060,10 +4068,7 @@ pub fn untested_targets_gate(metadata: &str, sources: &[(String, String)]) -> Re
         }
         undiscovered_tests(&dir, sources, &test_roots, &mut problems);
     }
-    verdict(
-        "tests turned off only where no test can hide, doc tests kept",
-        problems,
-    )
+    step_verdict(problems)
 }
 
 /// The problems of the files of `sources` cargo discovers as test targets of the package
@@ -4358,10 +4363,7 @@ pub fn test_data_gate(sources: &[(String, String)]) -> Result<(), Failure> {
             }
         }
     }
-    verdict(
-        "the tests of each crate read only its declared test data",
-        problems,
-    )
+    step_verdict(problems)
 }
 
 /// The exact Cargo configuration of the repository: an alias, nothing else.
@@ -4527,10 +4529,7 @@ pub fn pin_gate(metadata: &str, reviewed: &str) -> Result<(), Failure> {
             }
         }
     }
-    verdict(
-        "bit-defining dependencies pinned to one exact version",
-        problems,
-    )
+    step_verdict(problems)
 }
 
 /// Checks that the audio library ([`CrateRole::Library`]) stands alone: each of its crates
@@ -4581,10 +4580,7 @@ pub fn library_gate(metadata: &str) -> Result<(), Failure> {
             }
         }
     }
-    verdict(
-        "the audio library depends only on its own crates, its tests also on its test crates",
-        problems,
-    )
+    step_verdict(problems)
 }
 
 /// Checks that every crate only tests use holds [`CrateRole::SharedTests`].
@@ -4650,7 +4646,7 @@ pub fn shared_tests_gate(metadata: &str) -> Result<(), Failure> {
             )
         })
         .collect();
-    verdict("every crate only tests use is shared test code", problems)
+    step_verdict(problems)
 }
 
 /// The roadmap board, written only by `pnpm roadmap` (`apps/roadmap/`).
@@ -4879,7 +4875,7 @@ pub fn citation_gate(sources: &[(String, String)]) -> Result<(), Failure> {
             }
         }
     }
-    verdict("every roadmap step cited exists on the board", problems)
+    step_verdict(problems)
 }
 
 /// The directory of box code, as a literal: [`BOX_CODE`], and the start of its pathspec.
@@ -10029,7 +10025,7 @@ pub fn loaded_files_gate(loaded: &[Loaded], tracked: &[String]) -> Result<(), Fa
             }
         }
     }
-    verdict("the files rustc loads", problems)
+    step_verdict(problems)
 }
 
 /// Reads what the math layer gate checks, and runs it ([`math_layer_gate`]).

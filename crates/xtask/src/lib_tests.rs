@@ -183,6 +183,18 @@ fn found(context: &str, problems: &[String]) -> Result<(), Failure> {
     }
 }
 
+/// The failure of a gate run only as a step that found `problems`, as
+/// [`super::step_verdict`] shows it: the step's name comes from the step.
+fn step_found(problems: &[String]) -> Result<(), Failure> {
+    match problems {
+        [only] => failed(only),
+        _ => Err(Failure {
+            summary: format!("{} problems, listed above", problems.len()),
+            details: problems.to_vec(),
+        }),
+    }
+}
+
 /// How the fake reads the state of its working tree, and what it answers: one untracked
 /// file.
 const TREE_STATUS: (&str, &str) = (
@@ -7065,32 +7077,21 @@ fn names_every_check_alike() {
     }
 }
 
-/// Whether a check step is a gate whose verdict names its step: the summary of a refusal
-/// opens with the step's name, its first letter in lowercase, or with one clause of it
-/// (`; `) for a step running two gates.
-fn opens_with_its_step(step: &str, summary: &str) -> bool {
-    let mut letters = step.chars();
-    let lowered: String = letters
-        .next()
-        .map(|first| first.to_lowercase().chain(letters).collect())
-        .unwrap_or_default();
-    lowered
-        .split("; ")
-        .any(|clause| summary.starts_with(&format!("{clause}: ")))
-}
-
-/// Whether the verdict of a step doing `action` names its step ([`opens_with_its_step`]):
-/// every action is classed here, with no wildcard, so that a new one does not compile
-/// before it is. `false` for a step that is no gate, or for a gate whose verdict names
-/// the register or the files it reads, written before the rule.
-const fn names_its_step(action: &Action) -> bool {
+/// Whether the verdict of a gate doing `action` carries its problems alone, the step's name
+/// being their one source (`super::step_verdict`): every action is classed here, with no
+/// wildcard, so that a new one does not compile before it is. `false` for a step that is
+/// no gate, or for a gate whose verdict opens with a context of its own: the file or the
+/// register it reads, or what it found, never a copy of its step's name.
+const fn carries_its_problems_alone(action: &Action) -> bool {
     match action {
         Action::TestCodeGate
         | Action::TestDataGate
         | Action::UntestedTargetsGate
+        | Action::UnviableNamesGate
         | Action::PinGate
         | Action::LibraryGate
-        | Action::CitationGate => true,
+        | Action::CitationGate
+        | Action::LoadedFilesGate => true,
         Action::BypassGate
         | Action::CargoConfigGate
         | Action::DependencyGate
@@ -7122,21 +7123,40 @@ const fn names_its_step(action: &Action) -> bool {
         | Action::MutationProofRecorded
         | Action::FreshDirs(_)
         | Action::FusedBuild
-        | Action::LoadedFilesGate
-        | Action::UnviableNamesGate
         | Action::TreeRecorded
         | Action::TreeUnchanged
         | Action::Preflight => false,
     }
 }
 
+/// How many times `text` names `step`, or one of its clauses (`; `), its first letter in
+/// either case.
+fn times_named(step: &str, text: &str) -> usize {
+    let lowered = text.to_lowercase();
+    step.split("; ")
+        .map(|clause| lowered.matches(&clause.to_lowercase()).count())
+        .sum()
+}
+
 #[test]
-fn names_each_gate_verdict_after_its_step() {
+fn names_each_failed_step_once() {
     let refused = |result: Result<(), Failure>| result.expect_err("refused").summary;
     let rust = |text: &str| vec![("crates/engine-core/src/a.rs".to_owned(), text.to_owned())];
     let (real, _) = fixture_metadata();
     let shared = r#"{"workspace_root":"/r","packages":[{"name":"x","dependencies":[{"name":"engine-core","kind":"dev","path":"/r/crates/engine-core"}]}]}"#;
-    let named = [
+    let alone = [
+        (
+            Action::LoadedFilesGate,
+            vec![refused(super::loaded_files_gate(
+                &[super::Loaded {
+                    krate: super::RUST_CRATES[0],
+                    target: "engine_core".to_owned(),
+                    of_tests: false,
+                    files: vec!["spec/x.json".to_owned()],
+                }],
+                &[],
+            ))],
+        ),
         (
             Action::TestCodeGate,
             vec![refused(super::test_code_gate(&rust(
@@ -7156,6 +7176,13 @@ fn names_each_gate_verdict_after_its_step() {
                 &[],
             ))],
         ),
+        (
+            Action::UnviableNamesGate,
+            vec![refused(super::unviable_names_gate(
+                "a: b -- killed by no_such_test\n",
+                &[],
+            ))],
+        ),
         (Action::PinGate, vec![refused(super::pin_gate(&real, ""))]),
         (
             Action::LibraryGate,
@@ -7170,29 +7197,55 @@ fn names_each_gate_verdict_after_its_step() {
     let classed: Vec<&Action> = steps
         .iter()
         .map(|step| &step.action)
-        .filter(|action| names_its_step(action))
+        .filter(|action| carries_its_problems_alone(action))
         .collect();
     assert_eq!(
         classed,
-        named.iter().map(|(action, _)| action).collect::<Vec<_>>(),
-        "every gate whose verdict names its step is refused below, in the order of the steps"
+        alone.iter().map(|(action, _)| action).collect::<Vec<_>>(),
+        "every gate whose verdict carries its problems alone is refused below, in the order of \
+         the steps"
     );
-    for (action, summaries) in named {
+    for (action, summaries) in alone {
         let step = steps
             .iter()
             .find(|step| step.action == action)
             .unwrap_or_else(|| panic!("{action:?} is a step"));
         for summary in summaries {
-            assert!(
-                opens_with_its_step(&step.name, &summary),
+            assert_eq!(
+                times_named(&step.name, &summary),
+                0,
                 "{}: {summary}",
                 step.name
             );
         }
     }
+}
+
+#[test]
+fn names_a_failed_step_once_as_the_user_reads_it() {
+    let steps = check_steps(Mode::Full { jobs: FAKE_JOBS });
+    let step = steps
+        .iter()
+        .find(|step| step.action == Action::TestCodeGate)
+        .expect("the test code gate is a step")
+        .clone();
+    let mut fake = passing();
+    drop(fake.files.insert(
+        "crates/engine-core/src/a.rs".to_owned(),
+        "#[cfg(test)]\nmod tests {}\n".to_owned(),
+    ));
+    let summary = run_steps(core::slice::from_ref(&step), &mut fake, &mut Vec::new())
+        .expect_err("refused")
+        .summary;
+    assert_eq!(times_named(&step.name, &summary), 1, "{summary}");
     assert!(
-        opens_with_its_step("A b; c d", "c d: x") && !opens_with_its_step("A b", "a b c: x"),
-        "a clause, then a colon"
+        summary.starts_with(&format!("{}: crates/engine-core/src/a.rs:1: ", step.name)),
+        "{summary}"
+    );
+    assert_eq!(
+        times_named("A b; c d", "x a B, C d"),
+        2,
+        "each clause, in either case"
     );
 }
 
@@ -8561,7 +8614,6 @@ fn reads_the_lint_forbids_as_no_test_code() {
     let gate = |text: &str| {
         super::test_code_gate(&[("crates/engine-core/src/a.rs".to_owned(), text.to_owned())])
     };
-    let context = "test code only in tests/ and declared *_tests.rs files";
     // The two lint forbids that apply outside tests, written whole, the attribute's name
     // apart so that the bypass gate does not read this file as lifting a lint.
     let attribute = format!("{}_{}", "cfg", "attr");
@@ -8579,11 +8631,11 @@ fn reads_the_lint_forbids_as_no_test_code() {
         gate(&format!(
             "#![{attribute}(not(test), forbid(clippy::float_arithmetic, unused))]\n"
         )),
-        failed(format!(
-            "{context}: crates/engine-core/src/a.rs:1: names `test` outside test code: tests \
+        failed(
+            "crates/engine-core/src/a.rs:1: names `test` outside test code: tests \
              live in tests/ or in a *_tests.rs file declared `#[cfg(test)] #[path = \
              \"<name>_tests.rs\"] mod <module>;`"
-        )),
+        ),
         "another line"
     );
 }
@@ -8597,7 +8649,6 @@ fn refuses_a_path_attribute_outside_a_test_declaration() {
             .collect();
         super::test_code_gate(&owned)
     };
-    let context = "test code only in tests/ and declared *_tests.rs files";
     for (path, text, line) in [
         (
             "crates/engine-fpenv/src/word.rs",
@@ -8629,7 +8680,7 @@ fn refuses_a_path_attribute_outside_a_test_declaration() {
         assert_eq!(
             gate(&[(path, text)]),
             failed(format!(
-                "{context}: {path}:{line}: holds a `path` attribute outside a test declaration, \
+                "{path}:{line}: holds a `path` attribute outside a test declaration, \
                  which loads a file no rule tells by its path: code is brought in by `mod` from \
                  the file its name gives"
             )),
@@ -8842,7 +8893,7 @@ fn refuses_a_file_rustc_loads_where_no_gate_looks() {
     let gate = |builds: &[super::Loaded]| {
         super::loaded_files_gate(builds, &tracked).map_err(|failure| failure.summary)
     };
-    let refused = |problem: &str| Err(format!("the files rustc loads: {problem}"));
+    let refused = |problem: &str| Err(problem.to_owned());
     assert_eq!(
         gate(&[
             library,
@@ -8895,7 +8946,7 @@ fn refuses_a_file_rustc_loads_outside_its_crate_or_git() {
     let gate = |builds: &[super::Loaded]| {
         super::loaded_files_gate(builds, &[]).map_err(|failure| failure.summary)
     };
-    let refused = |problem: &str| Err(format!("the files rustc loads: {problem}"));
+    let refused = |problem: &str| Err(problem.to_owned());
     assert_eq!(
         gate(&[build(core, false, &["conformance/test-matrix.json"])]),
         refused(
@@ -8981,7 +9032,7 @@ fn reads_the_files_real_rustc_loads_for_each_build() {
         super::loaded_files_gate(&loaded, &[lib, tests, helper.clone()])
             .map_err(|failure| failure.summary),
         Err(format!(
-            "the files rustc loads: {helper}: read only by the test build of `loaded` (loaded), \
+            "{helper}: read only by the test build of `loaded` (loaded), \
              but not named as test code (tests/, a *_tests.rs file): a module brought in by a \
              macro or an attribute"
         )),
@@ -9045,7 +9096,7 @@ fn reports_the_builds_and_dep_info_files_it_cannot_read() {
     assert_eq!(
         run_steps(&step(), &mut stray, &mut Vec::new()),
         failed(
-            "Loaded: the files rustc loads: crates/engine-fpenv/src/stray.rs: read by the test \
+            "Loaded: crates/engine-fpenv/src/stray.rs: read by the test \
              build of `engine_fpenv` (engine-fpenv), but not tracked by git, so no gate read it \
              (git add it)"
         ),
@@ -9074,7 +9125,7 @@ fn refuses_a_review_naming_a_function_no_source_holds() {
     assert_eq!(
         super::unviable_names_gate(&dead, &sources),
         Err(Failure {
-            summary: "the functions the reviews of unviable mutants name: 3 problems, listed \
+            summary: "3 problems, listed \
                       above"
                 .to_owned(),
             details: [
@@ -9130,12 +9181,11 @@ fn refuses_a_test_file_that_loads_another() {
             .collect();
         super::test_code_gate(&owned)
     };
-    let context = "test code only in tests/ and declared *_tests.rs files";
     let declared = "#[cfg(test)]\n#[path = \"plan_tests.rs\"]\nmod tests;\n";
     let inline = "the modules of a *_tests.rs file are inline";
     let loads = |what: &str, line: usize| {
         format!(
-            "{context}: crates/engine-core/src/plan_tests.rs:{line}: {what}, which no rule tells \
+            "crates/engine-core/src/plan_tests.rs:{line}: {what}, which no rule tells \
              as test code: a *_tests.rs file writes its modules inline"
         )
     };
@@ -9213,7 +9263,6 @@ fn refuses_test_code_outside_test_files() {
             .collect();
         super::test_code_gate(&owned)
     };
-    let context = "test code only in tests/ and declared *_tests.rs files";
     let declared = "//! test, in prose\nconst A: &str = \"test\";\nconst B: &str = include_str!(\"x.json\");\n#[cfg(test)]\n#[path = \"plan_tests.rs\"]\nmod tests;\n";
     let tests = "#[test]\nfn f() { assert!(cfg!(test)); }\n";
     let fine = [
@@ -9240,9 +9289,7 @@ fn refuses_test_code_outside_test_files() {
     ] {
         assert_eq!(
             gate(&[("crates/engine-core/src/a.rs", text)]),
-            failed(format!(
-                "{context}: crates/engine-core/src/a.rs:{line}: {names}"
-            )),
+            failed(format!("crates/engine-core/src/a.rs:{line}: {names}")),
             "{text}"
         );
     }
@@ -9251,23 +9298,23 @@ fn refuses_test_code_outside_test_files() {
             "crates/engine-core/src/a.rs",
             "fn f() {\n    #[test]\n    fn g() {}\n}\n"
         )]),
-        failed(format!("{context}: crates/engine-core/src/a.rs:2: {names}")),
+        failed(format!("crates/engine-core/src/a.rs:2: {names}")),
         "a test function"
     );
     assert_eq!(
         gate(&[("bindings/wasm/src/a.rs", "include!(\"b.rs\");\n")]),
-        failed(format!(
-            "{context}: bindings/wasm/src/a.rs:1: names `include`: code is brought in by `mod` \
+        failed(
+            "bindings/wasm/src/a.rs:1: names `include`: code is brought in by `mod` \
              only, so that its path says what it is"
-        )),
+        ),
         "code included"
     );
     assert_eq!(
         gate(&[("crates/engine-core/src/plan_tests.rs", tests)]),
-        failed(format!(
-            "{context}: crates/engine-core/src/plan_tests.rs: a *_tests.rs file no file beside \
+        failed(
+            "crates/engine-core/src/plan_tests.rs: a *_tests.rs file no file beside \
              it declares as test code"
-        )),
+        ),
         "an undeclared test file"
     );
     assert_eq!(
@@ -9277,10 +9324,9 @@ fn refuses_test_code_outside_test_files() {
             ("crates/engine-core/src/plan_tests.rs", tests),
             ("crates/engine-core/src/sub/x.rs", declared),
         ]),
-        found(
-            context,
-            &["crates/engine-core/src/plan_tests.rs: declared as test code 2 times".to_owned()]
-        ),
+        step_found(&[
+            "crates/engine-core/src/plan_tests.rs: declared as test code 2 times".to_owned()
+        ]),
         "a test file declared twice; one declared from another directory is another file"
     );
     let unknown = gate(&[
@@ -9297,7 +9343,6 @@ fn refuses_test_code_outside_test_files() {
 
 #[test]
 fn refuses_test_data_a_crate_does_not_declare() {
-    let context = "the tests of each crate read only its declared test data";
     let base = test_data_reader_sources();
     assert_eq!(super::test_data_gate(&base), Ok(()), "every root read");
     let with = |path: &str, text: &str| {
@@ -9335,9 +9380,7 @@ fn refuses_test_data_a_crate_does_not_declare() {
     ] {
         assert_eq!(
             with("crates/engine-hash/src/more_tests.rs", text),
-            failed(format!(
-                "{context}: {unread} `{read}`, which is not in its test_data"
-            )),
+            failed(format!("{unread} `{read}`, which is not in its test_data")),
             "{text}"
         );
     }
@@ -9362,7 +9405,7 @@ fn refuses_test_data_a_crate_does_not_declare() {
         assert_eq!(
             with("crates/engine-hash/src/more_tests.rs", text),
             failed(format!(
-                "{context}: crates/engine-hash/src/more_tests.rs:1: `{word}!` without a literal \
+                "crates/engine-hash/src/more_tests.rs:1: `{word}!` without a literal \
                  path the gate can follow"
             )),
             "{text}"
@@ -9373,10 +9416,10 @@ fn refuses_test_data_a_crate_does_not_declare() {
             "crates/engine-hash/src/more_tests.rs",
             "const A: &str = include_str!(\"../../../../x\");\n"
         ),
-        failed(format!(
-            "{context}: crates/engine-hash/src/more_tests.rs:1: `../../../../x` leaves the \
+        failed(
+            "crates/engine-hash/src/more_tests.rs:1: `../../../../x` leaves the \
              repository"
-        )),
+        ),
         "outside the repository"
     );
     let without: Vec<(String, String)> = base
@@ -9386,10 +9429,10 @@ fn refuses_test_data_a_crate_does_not_declare() {
         .collect();
     assert_eq!(
         super::test_data_gate(&without),
-        failed(format!(
-            "{context}: engine-hash: declares `spec/render-hash-vectors.json` as test data, \
+        failed(
+            "engine-hash: declares `spec/render-hash-vectors.json` as test data, \
              which no test of it reads"
-        )),
+        ),
         "a stale root"
     );
     assert_eq!(
@@ -9401,7 +9444,6 @@ fn refuses_test_data_a_crate_does_not_declare() {
 
 #[test]
 fn refuses_the_reads_of_test_data_it_cannot_follow() {
-    let context = "the tests of each crate read only its declared test data";
     let with = |path: &str, text: &str| {
         let mut sources = test_data_reader_sources();
         sources.push((path.to_owned(), text.to_owned()));
@@ -9465,7 +9507,7 @@ fn refuses_the_reads_of_test_data_it_cannot_follow() {
     ] {
         assert_eq!(
             with(file, &text),
-            failed(format!("{context}: {file}:1: {why}")),
+            failed(format!("{file}:1: {why}")),
             "{text}"
         );
     }
@@ -9486,17 +9528,16 @@ fn refuses_the_reads_of_test_data_it_cannot_follow() {
             "crates/engine-testkit/src/measure/mod.rs",
             "const V: &str = include_str!(\"../../../../spec/measurement-vectors.json\");\n"
         ),
-        failed(format!(
-            "{context}: crates/engine-testkit/src/measure/mod.rs:1: code that is not a test \
+        failed(
+            "crates/engine-testkit/src/measure/mod.rs:1: code that is not a test \
              reads `spec/measurement-vectors.json`, outside its crate: only tests read test data"
-        )),
+        ),
         "a library's read is no input any crate declares"
     );
 }
 
 #[test]
 fn leaves_a_binary_entry_point_to_find_its_repository() {
-    let context = "the tests of each crate read only its declared test data";
     let with = |path: &str, text: &str| {
         let mut sources = test_data_reader_sources();
         sources.push((path.to_owned(), text.to_owned()));
@@ -9516,7 +9557,7 @@ fn leaves_a_binary_entry_point_to_find_its_repository() {
         assert_eq!(
             with(path, root),
             failed(format!(
-                "{context}: {path}:1: code that is not a test reads ``, outside its crate: only \
+                "{path}:1: code that is not a test reads ``, outside its crate: only \
                  tests read test data"
             )),
             "{path}: not a binary's entry point"
@@ -9524,10 +9565,10 @@ fn leaves_a_binary_entry_point_to_find_its_repository() {
     }
     assert_eq!(
         with("crates/xtask/tests/main.rs", root),
-        failed(format!(
-            "{context}: crates/xtask/tests/main.rs:1: the tests of xtask read ``, which is not in \
+        failed(
+            "crates/xtask/tests/main.rs:1: the tests of xtask read ``, which is not in \
              its test_data"
-        )),
+        ),
         "a test's main"
     );
 }
@@ -10224,9 +10265,6 @@ fn reviews_the_dependencies_real_cargo_metadata_lists() {
         "every kind, the crates of the workspace apart, a renamed one by its name"
     );
 }
-/// The context of the pin gate's verdict.
-const PINNED: &str = "bit-defining dependencies pinned to one exact version";
-
 /// What the pin gate says of a dependency `key` required as `req`.
 fn unpinned(key: &str, req: &str) -> String {
     format!(
@@ -10255,14 +10293,11 @@ fn pins_the_bit_defining_dependencies_real_cargo_metadata_lists() {
                     engine-hash: sha2 (normal) -- bit-defining: the render hash\n";
     assert_eq!(
         super::pin_gate(&metadata, reviewed),
-        found(
-            PINNED,
-            &[
-                unpinned("engine-testkit: sha2 (normal)", "^0.11"),
-                unmarked("engine-hash: serde_json (normal)"),
-                unpinned("engine-hash: serde_json (normal)", "^1"),
-            ]
-        ),
+        step_found(&[
+            unpinned("engine-testkit: sha2 (normal)", "^0.11"),
+            unmarked("engine-hash: serde_json (normal)"),
+            unpinned("engine-hash: serde_json (normal)", "^1"),
+        ]),
         "a reviewed one unpinned, one of the library neither reviewed so nor pinned; the \
          library's tests, another crate's and a comment apart"
     );
@@ -10296,7 +10331,7 @@ fn reads_one_exact_version_only() {
     ] {
         assert_eq!(
             gate(req),
-            found(PINNED, &[unpinned("engine-core: libm (build)", req)]),
+            step_found(&[unpinned("engine-core: libm (build)", req)]),
             "{req}"
         );
     }
@@ -10306,13 +10341,10 @@ fn reads_one_exact_version_only() {
     );
     assert_eq!(
         missing,
-        found(
-            PINNED,
-            &[
-                unmarked("engine-core: libm (normal)"),
-                unpinned("engine-core: libm (normal)", "")
-            ]
-        ),
+        step_found(&[
+            unmarked("engine-core: libm (normal)"),
+            unpinned("engine-core: libm (normal)", "")
+        ]),
         "no kind, no requirement"
     );
     assert_eq!(
@@ -10330,10 +10362,6 @@ fn reads_one_exact_version_only() {
     );
 }
 
-/// The context of the library gate's verdict.
-const LIBRARY: &str =
-    "the audio library depends only on its own crates, its tests also on its test crates";
-
 /// What the library gate says of `library` depending on `name` (`kind`, at `path`).
 fn outside_library(library: &str, name: &str, kind: &str, path: &str) -> String {
     format!(
@@ -10350,13 +10378,10 @@ fn keeps_the_library_apart_in_real_cargo_metadata() {
     let cli = format!("{root}/crates/engine-cli");
     assert_eq!(
         super::library_gate(&metadata),
-        found(
-            LIBRARY,
-            &[
-                outside_library("engine-objects", "engine-cli", "normal", &cli),
-                outside_library("engine-wasm", "engine-cli", "dev", &cli),
-            ]
-        ),
+        step_found(&[
+            outside_library("engine-objects", "engine-cli", "normal", &cli),
+            outside_library("engine-wasm", "engine-cli", "dev", &cli),
+        ]),
         "the native shell in the code and in the tests; the test bench in the tests, the \
          library's own crates and third-party crates allowed"
     );
@@ -10420,7 +10445,7 @@ fn refuses_a_library_that_reaches_outside_itself() {
     ] {
         assert_eq!(
             gate(&dependency(name, kind, path)),
-            found(LIBRARY, &[outside_library("engine-core", name, said, path)]),
+            step_found(&[outside_library("engine-core", name, said, path)]),
             "{name} {kind} {path}"
         );
     }
@@ -10432,8 +10457,7 @@ fn refuses_a_library_that_reaches_outside_itself() {
     );
     assert_eq!(
         super::library_gate(r#"{"workspace_root":"/r","packages":[{"name":"engine-core"}]}"#),
-        found(
-            LIBRARY,
+        step_found(
             &[
                 "engine-objects",
                 "engine-patch",
@@ -10453,9 +10477,6 @@ fn refuses_a_library_that_reaches_outside_itself() {
         "the metadata's error"
     );
 }
-
-/// The context of the citation gate's verdict.
-const CITATIONS: &str = "every roadmap step cited exists on the board";
 
 /// A board of two cards: #12 of three steps, #3 of one.
 const BOARD: &str =
@@ -10535,11 +10556,11 @@ fn refuses_a_step_the_board_does_not_have() {
         ("\u{23}12step 4", vec![past(4)]),
     ] {
         let problems: Vec<String> = problems;
-        assert_eq!(cite(text), found(CITATIONS, &problems), "{text}");
+        assert_eq!(cite(text), step_found(&problems), "{text}");
     }
     assert_eq!(
         cite("\u{23}12 step 1\n\n\u{23}12 step 4\n"),
-        found(CITATIONS, &[past(4).replace("x.md:1:", "x.md:3:")]),
+        step_found(&[past(4).replace("x.md:1:", "x.md:3:")]),
         "the line named"
     );
 }
@@ -10599,7 +10620,7 @@ fn refuses_a_citation_it_cannot_read() {
             "\u{23}12 tasks 2 cites no step: write `\u{23}12 step 2`",
         ),
     ] {
-        assert_eq!(cite(text), found(CITATIONS, &[at(problem)]), "{text}");
+        assert_eq!(cite(text), step_found(&[at(problem)]), "{text}");
     }
     assert_eq!(cite("\u{23}12 steps 1-x"), Ok(()), "a dash, then no number");
     for text in [
@@ -14340,8 +14361,7 @@ fn targets_metadata(targets: &[(&str, &str, bool, bool)]) -> String {
 
 /// The failure of the untested targets gate with `problems`.
 fn untested_refused(problems: &[&str]) -> Result<(), Failure> {
-    found(
-        "tests turned off only where no test can hide, doc tests kept",
+    step_found(
         &problems
             .iter()
             .map(|problem| (*problem).to_owned())
@@ -14610,7 +14630,6 @@ fn takes_for_shared_test_code_every_crate_only_tests_use() {
         "the crates real cargo metadata reaches only through tests"
     );
     assert_eq!(super::shared_tests_gate(METADATA), Ok(()), "the fake's");
-    let context = "every crate only tests use is shared test code";
     let package = |name: &str, dependencies: &[(&str, &str)]| {
         let listed: Vec<String> = dependencies
             .iter()
@@ -14649,10 +14668,10 @@ fn takes_for_shared_test_code_every_crate_only_tests_use() {
             ),
             package("engine-testkit", &[("engine-alloc-counter", "null")]),
         ])),
-        failed(format!(
-            "{context}: engine-hash: only tests reach it, so a change to it can weaken the \
+        failed(
+            "engine-hash: only tests reach it, so a change to it can weaken the \
              tests of every crate using it: give it CrateRole::SharedTests"
-        )),
+        ),
         "a crate only tests reach, not taken for shared test code"
     );
     assert_eq!(
@@ -14670,17 +14689,14 @@ fn takes_for_shared_test_code_every_crate_only_tests_use() {
             package("engine-hash", &[("engine-patch", "null")]),
             package("engine-wasm", &[("engine-patch", "\"dev\"")]),
         ])),
-        found(
-            context,
-            &[
-                "engine-hash: only tests reach it, so a change to it can weaken the tests of \
+        step_found(&[
+            "engine-hash: only tests reach it, so a change to it can weaken the tests of \
                  every crate using it: give it CrateRole::SharedTests"
-                    .to_owned(),
-                "engine-patch: only tests reach it, so a change to it can weaken the tests of \
+                .to_owned(),
+            "engine-patch: only tests reach it, so a change to it can weaken the tests of \
                  every crate using it: give it CrateRole::SharedTests"
-                    .to_owned(),
-            ]
-        ),
+                .to_owned(),
+        ]),
         "reached through a crate only tests use, at any depth"
     );
     assert_eq!(
@@ -14688,10 +14704,10 @@ fn takes_for_shared_test_code_every_crate_only_tests_use() {
             package("engine-objects", &[("engine-hash", "\"dev\"")]),
             package("engine-core", &[("engine-patch", "null")]),
         ])),
-        failed(format!(
-            "{context}: engine-hash: only tests reach it, so a change to it can weaken the \
+        failed(
+            "engine-hash: only tests reach it, so a change to it can weaken the \
              tests of every crate using it: give it CrateRole::SharedTests"
-        )),
+        ),
         "code depending on one crate takes no other out of the set"
     );
 }
