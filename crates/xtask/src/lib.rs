@@ -6962,10 +6962,24 @@ pub const LOCAL_GIT_VARIABLES: [&str; 15] = [
     "GIT_COMMON_DIR",
 ];
 
-/// A command for `program` in `dir`, without the variables of [`LOCAL_GIT_VARIABLES`], nor
-/// `RUSTUP_TOOLCHAIN`, reading no input (a command waiting for an answer fails instead of
-/// blocking the check), and for git with `LC_ALL=C` (its messages untranslated, as
-/// [`error_reason`] reads them).
+/// The variables that change how git reads a pathspec: literal, glob or case-insensitive.
+///
+/// xtask's pathspecs (`*.rs`, `:(exclude)<dir>/`) are its own, written for git's default
+/// reading: under `GIT_LITERAL_PATHSPECS` they match nothing, under `GIT_GLOB_PATHSPECS`
+/// `*.rs` matches the files at the root only, and under `GIT_NOGLOB_PATHSPECS` nothing; a
+/// gate given no file may pass vacuously. `GIT_ICASE_PATHSPECS` only widens a match, and is removed with
+/// them. Git does not list them among its local variables ([`LOCAL_GIT_VARIABLES`]).
+pub const PATHSPEC_GIT_VARIABLES: [&str; 4] = [
+    "GIT_LITERAL_PATHSPECS",
+    "GIT_GLOB_PATHSPECS",
+    "GIT_NOGLOB_PATHSPECS",
+    "GIT_ICASE_PATHSPECS",
+];
+
+/// A command for `program` in `dir`, without the variables of [`LOCAL_GIT_VARIABLES`] and
+/// [`PATHSPEC_GIT_VARIABLES`], nor `RUSTUP_TOOLCHAIN`, reading no input (a command waiting
+/// for an answer fails instead of blocking the check), and for git with `LC_ALL=C` (its
+/// messages untranslated, as [`error_reason`] reads them).
 ///
 /// Rustup sets that variable for xtask itself, to the toolchain it chose for it (`cargo
 /// +beta xtask`, `RUSTUP_TOOLCHAIN=stable`): inherited, it would replace the toolchain of
@@ -6978,7 +6992,10 @@ fn command(program: &str, dir: &Path) -> Command {
         let _untranslated = command.env("LC_ALL", "C");
     }
     let _pinned = command.env_remove("RUSTUP_TOOLCHAIN");
-    for variable in LOCAL_GIT_VARIABLES {
+    for variable in LOCAL_GIT_VARIABLES
+        .into_iter()
+        .chain(PATHSPEC_GIT_VARIABLES)
+    {
         let _without = command.env_remove(variable);
     }
     command
@@ -8912,6 +8929,8 @@ fn new_rust_files(runner: &mut dyn Runner) -> Result<Vec<String>, Failure> {
 /// The diff of the tracked files since `since`, committed or not, but those below the
 /// directories of `left_out`, which git leaves out (`:(exclude)` pathspecs): so that the
 /// diff holds no section of a crate tested whole or proven, rather than a second one.
+/// Every file is shown as text (`--text`), whatever git's attributes say (`-diff`,
+/// `binary`), which no gate reads ([`incomplete_diff`]).
 ///
 /// # Errors
 ///
@@ -8930,6 +8949,7 @@ fn diff_since(
         "--no-color",
         "--no-ext-diff",
         "--no-textconv",
+        "--text",
         "--no-renames",
         "--src-prefix=a/",
         "--dst-prefix=b/",
@@ -8940,6 +8960,37 @@ fn diff_since(
         args.extend(excluded.iter().map(String::as_str));
     }
     git_output(runner, &args, "read the changes")
+}
+
+/// Why `diff`, git's diff of the changes outside the crates tested whole or proven, is not
+/// every one of the `changed` files in text, if it is not.
+///
+/// Each changed file has exactly one section (`diff --git`), a mode change or an empty file
+/// included, so a count that differs means git left a change out (a configuration or a
+/// variable no gate sees, such as the pathspec variables [`command`] removes); and no
+/// section is binary (`Binary files … differ`, `GIT binary patch`), which `--text` asks git
+/// never to write, whatever the attributes say. A line of a file starts with `+`, `-`, a
+/// space or `\`, so these lines can only be git's.
+fn incomplete_diff(diff: &str, changed: usize) -> Option<String> {
+    let mut sections = 0_usize;
+    let mut header = "";
+    for line in diff.lines() {
+        if line.starts_with("diff --git ") {
+            sections = sections.saturating_add(1);
+            header = line;
+        } else if line.starts_with("Binary files ") || line == "GIT binary patch" {
+            return Some(format!(
+                "git wrote `{header}` as binary: cargo-mutants would see none of its changed \
+                 lines"
+            ));
+        }
+    }
+    (sections != changed).then(|| {
+        format!(
+            "git's diff holds {sections} section(s) for {changed} changed file(s): it left a \
+             change out, whose mutants would go untested"
+        )
+    })
 }
 
 /// The first `diff --git` line `diff` holds twice, if any.
@@ -9101,20 +9152,22 @@ fn in_scope(changed: &[String], reach: &Reach) -> Vec<(RustCrate, MutatedPart)> 
         .collect()
 }
 
-/// The diff cargo-mutants mutates the lines of: the changes since `base` (`new`, the new Rust
-/// files, added whole) but those of the crates `tested` whole or `proven`, which git leaves
-/// out, so that each path has at most one section; then every source of each crate of
-/// `tested` (its test code apart), added whole, after saying why on `out`.
+/// The diff cargo-mutants mutates the lines of: the changes since `base` (`changed`, the
+/// tracked files changed since it; `new`, the new Rust files, added whole) but those of the
+/// crates `tested` whole or `proven`, which git leaves out, so that each path has at most
+/// one section; then every source of each crate of `tested` (its test code apart), added
+/// whole, after saying why on `out`.
 ///
 /// # Errors
 ///
-/// Returns why git cannot show the changes, a file cannot be read, or stdout cannot be
-/// written.
+/// Returns why git cannot show the changes, or shows them other than as one text section
+/// per changed file outside the crates left out ([`incomplete_diff`]), a file cannot be
+/// read, or stdout cannot be written.
 fn mutated_diff(
     runner: &mut dyn Runner,
     out: &mut dyn Write,
     base: &str,
-    new: &[String],
+    (changed, new): (&[String], &[String]),
     tested: Vec<(RustCrate, Option<String>)>,
     proven: &[RustCrate],
 ) -> Result<String, Failure> {
@@ -9127,6 +9180,10 @@ fn mutated_diff(
         .collect();
     let outside = |path: &str| !left_out.iter().any(|krate| krate.holds(path).is_some());
     let mut diff = diff_since(runner, base, &left_out)?;
+    let shown = changed.iter().filter(|path| outside(path)).count();
+    if let Some(reason) = incomplete_diff(&diff, shown) {
+        return Err(Failure::from(reason));
+    }
     for path in new.iter().filter(|path| outside(path)) {
         diff.push_str(&new_file_diff(path, &read_file(runner, path)?));
     }
@@ -9181,10 +9238,8 @@ fn rust_mutants_of_changes(
         .map_err(|error| Failure::from(format!("cannot write {MEASURED_BASE}: {error}")))?;
     let proof = usable_proof(runner, out, &base)?;
     let new = new_rust_files(runner)?;
-    let changed: Vec<String> = changed_since(runner, &base)?
-        .into_iter()
-        .chain(new.iter().cloned())
-        .collect();
+    let tracked = changed_since(runner, &base)?;
+    let changed: Vec<String> = tracked.iter().chain(&new).cloned().collect();
     let measured = format!("{base} (merge base with {against})");
     if changed.is_empty() {
         return say(
@@ -9247,7 +9302,7 @@ fn rust_mutants_of_changes(
             MutatedPart::Whole(said) => Some((krate, said)),
         })
         .collect();
-    let diff = mutated_diff(runner, out, &base, &new, tested, &proven)?;
+    let diff = mutated_diff(runner, out, &base, (&tracked, &new), tested, &proven)?;
     if diff.is_empty() {
         return say(out, "  every change is proven: no mutant to test");
     }

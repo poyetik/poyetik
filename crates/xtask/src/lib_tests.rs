@@ -297,7 +297,7 @@ const MERGE_BASE: (&str, &str) = (
 /// How the fake reads the changes since [`MERGE_BASE`], and what it answers: one changed
 /// line of a Rust file.
 const CHANGES: (&str, &str) = (
-    "git diff --no-color --no-ext-diff --no-textconv --no-renames --src-prefix=a/ --dst-prefix=b/ abc1230000000000000000000000000000000000",
+    "git diff --no-color --no-ext-diff --no-textconv --text --no-renames --src-prefix=a/ --dst-prefix=b/ abc1230000000000000000000000000000000000",
     "diff --git a/crates/a/src/b.rs b/crates/a/src/b.rs\n--- a/crates/a/src/b.rs\n+++ b/crates/a/src/b.rs\n@@ -1 +1 @@\n-fn f() {}\n+fn f() -> u8 { 1 }\n",
 );
 
@@ -504,6 +504,7 @@ impl Fake {
                 "--no-color",
                 "--no-ext-diff",
                 "--no-textconv",
+                "--text",
                 "--no-renames",
                 "--src-prefix=a/",
                 "--dst-prefix=b/",
@@ -2083,7 +2084,7 @@ fn mutates_the_changes_since_the_merge_base_with_the_upstream() {
             "read .git/poyetik/rust-mutants-proven/abc1230000000000000000000000000000000000",
             "capture git ls-files -z --others --exclude-standard -- *.rs",
             "capture git diff --no-color --name-only -z --no-renames abc1230000000000000000000000000000000000",
-            "capture git diff --no-color --no-ext-diff --no-textconv --no-renames --src-prefix=a/ --dst-prefix=b/ abc1230000000000000000000000000000000000",
+            "capture git diff --no-color --no-ext-diff --no-textconv --text --no-renames --src-prefix=a/ --dst-prefix=b/ abc1230000000000000000000000000000000000",
             "write target/xtask/changes.diff",
             "cargo mutants --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --workspace --in-diff target/xtask/changes.diff --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored",
             "read mutants.out/unviable.txt",
@@ -2403,14 +2404,16 @@ fn gives_each_changed_file_one_section_when_its_crate_is_tested_whole() {
         said.contains("  the test code of engine-core changed: every mutant of engine-core\n"),
         "said: {said}"
     );
-    // A git that ignored the exclusion: the diff would hold the crate's source twice.
+    // A git that wrote the excluded crate's change in place of another's, as many sections
+    // as changed files outside it: the diff would hold the crate's source twice.
     let mut careless = passing();
     let _careless_changes = careless.files.insert(
         format!("capture {}", CHANGES.0),
         format!(
-            "{}{}",
+            "{}{}{}",
             one_line_change("crates/engine-core/src/lib.rs"),
-            one_line_change("crates/engine-core/src/plan_tests.rs")
+            one_line_change("crates/engine-core/src/plan_tests.rs"),
+            one_line_change("crates/engine-hash/src/lib.rs")
         ),
     );
     let _ignored = careless.files.insert(
@@ -2440,6 +2443,42 @@ fn gives_each_changed_file_one_section_when_its_crate_is_tested_whole() {
             .any(|line| line.starts_with("cargo mutants")
                 || line == "write target/xtask/changes.diff"),
         "nothing written, nothing mutated"
+    );
+}
+
+#[test]
+fn refuses_a_diff_git_left_a_change_out_of() {
+    // A git that left a change out (a pathspec variable, a configuration no gate reads).
+    let mut lossy = passing();
+    let _lossy_changes = lossy.files.insert(
+        format!("capture {}", CHANGES.0),
+        format!(
+            "{}{}",
+            one_line_change("crates/engine-core/src/plan_tests.rs"),
+            one_line_change("crates/engine-hash/src/lib.rs")
+        ),
+    );
+    let _lost = lossy.files.insert(
+        format!(
+            "{} -- :(exclude)crates/engine-core/",
+            diff_since(MERGE_BASE.1.trim())
+        ),
+        String::new(),
+    );
+    assert_eq!(
+        run_steps(&rust_mutation_of_changes(), &mut lossy, &mut Vec::new()),
+        failed(
+            "Rust mutation testing of the changes: git's diff holds 0 section(s) for 1 changed \
+             file(s): it left a change out, whose mutants would go untested"
+        ),
+        "refused before cargo-mutants reads it"
+    );
+    assert!(
+        !lossy
+            .ran
+            .iter()
+            .any(|line| line.starts_with("cargo mutants")),
+        "nothing mutated"
     );
 }
 
@@ -2513,6 +2552,103 @@ fn reads_the_paths_real_git_changes_whatever_they_hold() {
         "git leaves out the crate excluded"
     );
     std::fs::remove_dir_all(&dir).expect("cleanup");
+}
+
+#[test]
+fn reads_the_changed_lines_whatever_git_attributes_say() {
+    let dir = scratch("binary-attributes");
+    let path = "crates/engine-hash/src/lib.rs";
+    std::fs::create_dir_all(dir.join("crates/engine-hash/src")).expect("its directory");
+    std::fs::write(dir.join(path), "a\n").expect("a file");
+    let _init = hermetic_git(&dir, &["init", "--quiet", "--initial-branch=main"]);
+    let _add = hermetic_git(&dir, &["add", "."]);
+    let _commit = hermetic_git(&dir, &["commit", "--quiet", "-m", "first"]);
+    std::fs::write(dir.join(path), "b\n").expect("a change");
+    for attribute in ["-diff", "binary"] {
+        std::fs::write(
+            dir.join(".git/info/attributes"),
+            format!("*.rs {attribute}\n"),
+        )
+        .expect("an attribute no gate sees");
+        let mut runner = SystemRunner { root: dir.path() };
+        let diff = super::diff_since(&mut runner, "HEAD", &[]).expect("a diff");
+        assert!(
+            diff.ends_with("@@ -1 +1 @@\n-a\n+b\n"),
+            "{attribute}: the changed line, never `Binary files … differ`: {diff}"
+        );
+        assert_eq!(super::incomplete_diff(&diff, 1), None, "{attribute}");
+    }
+}
+
+#[test]
+fn refuses_a_diff_that_is_not_every_change_in_text() {
+    let one = one_line_change("crates/a/src/b.rs");
+    let two = format!("{one}{}", one_line_change("crates/a/src/c.rs"));
+    assert_eq!(
+        super::incomplete_diff(&one, 1),
+        None,
+        "one section, one change"
+    );
+    assert_eq!(super::incomplete_diff(&two, 2), None, "two of each");
+    assert_eq!(super::incomplete_diff("", 0), None, "none of either");
+    assert_eq!(
+        super::incomplete_diff(&one, 2),
+        Some(
+            "git's diff holds 1 section(s) for 2 changed file(s): it left a change out, \
+             whose mutants would go untested"
+                .to_owned()
+        ),
+        "a change left out"
+    );
+    assert_eq!(
+        super::incomplete_diff(&two, 1),
+        Some(
+            "git's diff holds 2 section(s) for 1 changed file(s): it left a change out, \
+             whose mutants would go untested"
+                .to_owned()
+        ),
+        "more sections than changes"
+    );
+    let header = "diff --git a/crates/a/src/b.rs b/crates/a/src/b.rs";
+    for binary in [
+        "Binary files a/crates/a/src/b.rs and b/crates/a/src/b.rs differ\n",
+        "GIT binary patch\nliteral 2\n",
+    ] {
+        assert_eq!(
+            super::incomplete_diff(&format!("{header}\nindex 1..2 100644\n{binary}"), 1),
+            Some(format!(
+                "git wrote `{header}` as binary: cargo-mutants would see none of its changed \
+                 lines"
+            )),
+            "{binary}"
+        );
+    }
+    let content = format!(
+        "{header}\n--- a/crates/a/src/b.rs\n+++ b/crates/a/src/b.rs\n@@ -1 +1 @@\n-Binary files\n \
+         GIT binary patch\n+diff --git x\n"
+    );
+    assert_eq!(
+        super::incomplete_diff(&content, 1),
+        None,
+        "lines of a file are no binary section, nor a section"
+    );
+}
+
+#[test]
+fn starts_git_without_the_variables_that_change_its_pathspecs() {
+    let git = super::command("git", Path::new("."));
+    for variable in [
+        "GIT_LITERAL_PATHSPECS",
+        "GIT_GLOB_PATHSPECS",
+        "GIT_NOGLOB_PATHSPECS",
+        "GIT_ICASE_PATHSPECS",
+    ] {
+        assert!(
+            git.get_envs()
+                .any(|(name, value)| name == variable && value.is_none()),
+            "{variable}"
+        );
+    }
 }
 
 #[test]
@@ -12165,7 +12301,7 @@ fn proven_tree_command() -> String {
 /// The command reading the changes since `since`.
 fn diff_since(since: &str) -> String {
     format!(
-        "capture git diff --no-color --no-ext-diff --no-textconv --no-renames --src-prefix=a/ --dst-prefix=b/ {since}"
+        "capture git diff --no-color --no-ext-diff --no-textconv --text --no-renames --src-prefix=a/ --dst-prefix=b/ {since}"
     )
 }
 
