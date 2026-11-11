@@ -199,7 +199,9 @@ mod tests {
     /// A closed stdout stops no command xtask starts: a stand-in for `pnpm`, the first
     /// command `bless-benchmarks` runs after the preflight, writes lines on its stdout, then
     /// records that it finished and fails, so that nothing runs after it. Before the
-    /// children's stdout went to xtask's stderr, the first line killed it (SIGPIPE).
+    /// children's stdout went to xtask's stderr, the first line killed it (SIGPIPE). The
+    /// contract holds while stderr stays open: with both streams closed (`2>&1 | head`),
+    /// the commands' own output has nowhere to go, which no tool can keep from failing.
     #[cfg(unix)]
     #[test]
     fn keeps_the_commands_it_runs_alive_on_a_closed_stdout() {

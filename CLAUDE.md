@@ -93,8 +93,8 @@ Every command-line tool of the repository (`engine-cli`, `cargo xtask`, the orac
 - exit code 0 on success, 1 when the work failed, 2 for a usage error;
 - every error is one line on stderr, `error: ...`, naming the file or the command involved; never a stack trace;
 - a usage error says what is wrong and where the usage is, `error: <reason> (see: <tool> help)`; only `<tool> help` prints the usage, on stdout;
-- a closed stdout (`| head`) is never an error and never changes the exit code, for the commands a tool starts too (`cargo xtask` writes their output to its stderr);
-- a tool with several problems to report prints them on stdout, one per line, and one `error:` summary on stderr;
+- a closed stdout (`| head`) is never an error and never changes the exit code, for the commands a tool starts too as long as stderr stays open (`cargo xtask` writes their output to its stderr);
+- a tool with several problems to report prints them on stdout, one per line, and one `error:` summary on stderr (for `cargo xtask`, the problems of the commands it runs come with their output, on its stderr, but `cargo xtask bless`, which replays `engine-cli bless`'s result lines on its stdout);
 - untrusted text quoted in an error (a box name, a field of a document) is escaped and bounded, so that it can neither drive the terminal nor forge a second line.
 
 ## Portability

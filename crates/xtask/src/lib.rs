@@ -7153,6 +7153,16 @@ pub trait Runner {
     /// it wrote on stderr.
     fn capture(&mut self, cmd: &Cmd) -> Result<String, CommandFailure>;
 
+    /// Runs a command whose stdout is its result: returns what it wrote there, whether it
+    /// succeeded or not, and how it ended; its stderr is xtask's, so its progress and its
+    /// errors show as they come.
+    ///
+    /// # Errors
+    ///
+    /// The second value is why the command could not be started, did not succeed, or wrote
+    /// on stdout what is not text (then the first is empty).
+    fn run_for_stdout(&mut self, cmd: &Cmd) -> (String, Result<(), CommandFailure>);
+
     /// Writes `text` to a file below the repository root, creating its directory if needed.
     ///
     /// # Errors
@@ -7307,6 +7317,35 @@ impl Runner for SystemRunner {
 
     /// The files of the index (`--cached`) but those deleted from the work tree
     /// (`--deleted`), each from git.
+    fn run_for_stdout(&mut self, cmd: &Cmd) -> (String, Result<(), CommandFailure>) {
+        let output = command(cmd.program, &cmd.dir.under(&self.root), self.env)
+            .args(&cmd.args)
+            .stderr(Stdio::inherit())
+            .output();
+        let output = match output {
+            Ok(output) => output,
+            Err(error) => {
+                let failure = CommandFailure::of(cmd, Failed::NotStarted(error.to_string()));
+                return (String::new(), Err(failure));
+            }
+        };
+        let Ok(text) = String::from_utf8(output.stdout) else {
+            return (String::new(), Err(CommandFailure::of(cmd, Failed::NotText)));
+        };
+        let ended = if output.status.success() {
+            Ok(())
+        } else {
+            Err(CommandFailure::of(
+                cmd,
+                Failed::Ended {
+                    exit: exit_of(output.status),
+                    reason: None,
+                },
+            ))
+        };
+        (text, ended)
+    }
+
     fn tracked(&mut self, patterns: &[&str]) -> Result<Vec<String>, CommandFailure> {
         // Separated by NUL, every name as it is: git quotes a name out of ASCII otherwise.
         let mut list = |listed: &str| {
@@ -10577,9 +10616,13 @@ fn bless(
         out,
         &format!("  spent: {held} at {base} (merge base with {against})"),
     )?;
-    runner
-        .run(&bless_command(options))
-        .map_err(|failure| Failure::from(failure.to_string()))
+    // Its result lines (CHANGED, BITS, what it wrote, or what it refuses) are xtask's
+    // result too: on xtask's stdout, so that `cargo xtask bless > log` keeps them.
+    let (result, ended) = runner.run_for_stdout(&bless_command(options));
+    for line in result.lines() {
+        say(out, &format!("  {line}"))?;
+    }
+    ended.map_err(|failure| Failure::from(failure.to_string()))
 }
 
 /// The only way to change the benchmark baseline: no package script runs the bless.

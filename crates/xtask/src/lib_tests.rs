@@ -418,6 +418,18 @@ impl Runner for Fake {
         Err(CommandFailure { line, failed })
     }
 
+    /// Runs `cmd` as [`Runner::run`] does, its stdout the file named `stdout <command
+    /// line>`, or nothing.
+    fn run_for_stdout(&mut self, cmd: &Cmd) -> (String, Result<(), CommandFailure>) {
+        let ended = self.run(cmd);
+        let stdout = self
+            .files
+            .get(&format!("stdout {}", cmd.line()))
+            .cloned()
+            .unwrap_or_default();
+        (stdout, ended)
+    }
+
     /// Answers with the file, fails as absent, or as not UTF-8 when the test breaks
     /// `read <path>`.
     fn read(&mut self, path: &str) -> io::Result<String> {
@@ -3063,6 +3075,9 @@ impl Runner for Unreadable {
     fn capture(&mut self, cmd: &Cmd) -> Result<String, CommandFailure> {
         self.0.capture(cmd)
     }
+    fn run_for_stdout(&mut self, cmd: &Cmd) -> (String, Result<(), CommandFailure>) {
+        self.0.run_for_stdout(cmd)
+    }
     fn write(&mut self, path: &str, text: &str) -> io::Result<()> {
         self.0.write(path, text)
     }
@@ -5103,6 +5118,101 @@ fn bless_reports_the_failure_of_the_bless_it_runs() {
         String::from_utf8(err).expect("utf-8"),
         format!("error: Bless conformance references: `{BLESS_RAN}` exited with code 3\n"),
         "the bless's own failure, once"
+    );
+}
+
+#[test]
+fn replays_the_result_lines_of_the_bless_on_stdout() {
+    let results = "CHANGED sine-1000 (run bless)\nBITS sine-1000 binary32\n";
+    let mut fake = passing();
+    drop(fake.files.insert(RECORD_AT_BASE.to_owned(), String::new()));
+    drop(
+        fake.files
+            .insert(format!("stdout {BLESS_RAN}"), results.to_owned()),
+    );
+    let (mut out, mut err) = (Vec::new(), Vec::new());
+    assert_eq!(
+        run_cli(&["bless".to_owned()], &mut fake, &mut out, &mut err),
+        0,
+        "bless succeeds"
+    );
+    let said = String::from_utf8(out).expect("utf-8");
+    assert!(
+        said.contains("  CHANGED sine-1000 (run bless)\n  BITS sine-1000 binary32\n  done in"),
+        "each result line on stdout, as the step's: {said}"
+    );
+    assert!(err.is_empty(), "nothing on stderr");
+    let mut refused = passing();
+    drop(
+        refused
+            .files
+            .insert(RECORD_AT_BASE.to_owned(), String::new()),
+    );
+    drop(
+        refused
+            .files
+            .insert(format!("stdout {BLESS_RAN}"), "MISMATCH a\n".to_owned()),
+    );
+    refused.fail = Some(BLESS_RAN.to_owned());
+    let mut refused_out = Vec::new();
+    assert_eq!(
+        run_cli(
+            &["bless".to_owned()],
+            &mut refused,
+            &mut refused_out,
+            &mut Vec::new()
+        ),
+        1,
+        "bless fails"
+    );
+    assert!(
+        String::from_utf8(refused_out)
+            .expect("utf-8")
+            .contains("  MISMATCH a\n  failed after"),
+        "what it refuses, on stdout too"
+    );
+}
+
+#[test]
+fn runs_a_real_command_for_its_stdout() {
+    let mut runner = system(fixture("coverage-locality"));
+    let (version, ended) = runner.run_for_stdout(&Cmd::new("git", &["--version"], Dir::Root));
+    assert!(
+        ended.is_ok() && version.starts_with("git version "),
+        "{version}"
+    );
+    let (nothing, refused) =
+        runner.run_for_stdout(&Cmd::new("git", &["no-such-command"], Dir::Root));
+    assert_eq!(
+        (
+            nothing.as_str(),
+            refused.map_err(|failure| failure.to_string())
+        ),
+        (
+            "",
+            Err("`git no-such-command` exited with code 1".to_owned())
+        ),
+        "a command that fails, its stderr shown as it comes"
+    );
+    let (none, missing) = runner.run_for_stdout(&Cmd::new("no-such-program-xtask", &[], Dir::Root));
+    assert!(
+        none.is_empty()
+            && missing.is_err_and(|failure| failure
+                .to_string()
+                .starts_with("cannot run `no-such-program-xtask`: ")),
+        "a program that does not start"
+    );
+    let (bytes, garbled) = runner.run_for_stdout(&Cmd::new("printf", &["\\377"], Dir::Root));
+    assert_eq!(
+        (
+            bytes.as_str(),
+            garbled.map_err(|failure| failure.to_string())
+        ),
+        (
+            "",
+            Err("`printf \\377` wrote output that is not UTF-8 text".to_owned())
+        ),
+        "stdout that is not text"
     );
 }
 
