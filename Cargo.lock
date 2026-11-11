@@ -145,6 +145,7 @@ version = "0.1.0"
 dependencies = [
  "engine-core",
  "serde",
+ "serde_derive",
  "serde_json",
 ]
 

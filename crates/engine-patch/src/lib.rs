@@ -19,8 +19,8 @@ use alloc::vec::Vec;
 use core::fmt;
 
 use engine_core::{Connection, CoreError, Node, NodeId, Patch};
-use serde::Deserialize;
-use serde::de::{self, Deserializer, MapAccess, Visitor};
+use serde::de::{self, Deserialize, Deserializer, MapAccess, Visitor};
+use serde_derive::Deserialize;
 
 /// The only format version this crate reads.
 pub const FORMAT: u32 = 1;

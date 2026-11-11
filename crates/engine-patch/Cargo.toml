@@ -14,8 +14,10 @@ categories = ["multimedia::audio", "no-std", "parser-implementations"]
 [dependencies]
 engine-core = { path = "../engine-core" }
 # Exactly pinned: they read the parameter values a render computes from, so an update follows
-# spec/engine-design.md decision 29 (bit-defining dependencies, dependencies.txt).
-serde = { version = "=1.0.229", default-features = false, features = ["alloc", "derive"] }
+# spec/engine-design.md decision 29 (bit-defining dependencies, dependencies.txt). The derive
+# is a direct dependency, so that the code it generates for the patch reader is pinned too.
+serde = { version = "=1.0.229", default-features = false, features = ["alloc"] }
+serde_derive = "=1.0.229"
 serde_json = { version = "=1.0.154", default-features = false, features = ["alloc", "float_roundtrip"] }
 
 [lints]
