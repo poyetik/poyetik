@@ -874,6 +874,10 @@
         {
           "title": "Gates for two classes of defect: refuse derive(PartialEq) on a type whose fields hold raw f32 or f64 (an IEEE equality the float_cmp lint cannot see, as renders had) unless reviewed, and refuse one public name exported by two crates of the audio library (as the plan's instance trait and engine_wasm::Instance were) unless reviewed; each with refused fixtures and a review register",
           "done": false
+        },
+        {
+          "title": "Plan lanes only when a sum needs them: every plan reserves 15 scratch blocks (7,680 bytes in binary64, 3,840 in binary32) whether it sums three or more terms or not. Measured on 2026-11-11 (lanes held as an Option, made only when the plan has such a sum): sum-free plans unchanged per block, but every sum of three or more 2 instructions per block dearer, loading 0.08% to 0.09% dearer and the module 491 bytes larger, so deferred. Decide against a real memory budget once a bare-metal player exists (or with lanes from a host's plan arena), measuring again; a failing test first: a sum-free plan keeps less than 15 blocks",
+          "done": false
         }
       ]
     },
