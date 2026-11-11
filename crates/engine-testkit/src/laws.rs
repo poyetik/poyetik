@@ -131,7 +131,8 @@ pub fn check_registry(registry: &[&ObjectSpec]) -> Result<(), String> {
 ///
 /// # Errors
 ///
-/// Returns why the heap operations cannot be counted.
+/// Returns why the parameters are not those of the box type ([`ParamValues::of`]), or why
+/// the heap operations cannot be counted.
 fn render<S: LawSample>(
     spec: &ObjectSpec,
     rate: SampleRate,
@@ -139,11 +140,11 @@ fn render<S: LawSample>(
     input: &[S],
     blocks: usize,
 ) -> Result<(Vec<Block<S>>, usize), String> {
-    let wide = ParamValues::new(
-        params
-            .iter()
-            .map(|&param| Binary64::from_raw(f64::from(param))),
-    );
+    let values: Vec<Binary64> = params
+        .iter()
+        .map(|&param| Binary64::from_raw(f64::from(param)))
+        .collect();
+    let wide = ParamValues::of(spec, &values).map_err(|error| error.to_string())?;
     let mut object: Box<dyn Object<S>> = spec.create.create(rate, wide.params());
     let (chunked, _remainder) = input.as_chunks::<BLOCK_SIZE>();
     let mut chunks = chunked.iter();

@@ -7,7 +7,8 @@ use core::f64::consts::TAU;
 
 use engine_core::host::{Delivered, ParamBounds, Raw};
 use engine_core::{
-    BLOCK_SIZE, Binary32, Binary64, Block, ParamValues, RenderFormat, Sample, SampleRate,
+    BLOCK_SIZE, Binary32, Binary64, Block, Object as _, ParamValues, RenderFormat, Sample,
+    SampleRate,
 };
 
 /// The nearest binary32 to `value`, as the engine gives a binary64 render to a host that
@@ -182,11 +183,13 @@ fn assert_exact(samples: &[f64], format: RenderFormat, frequency: f32, rate: u32
     }
 }
 
-/// Renders `frames` frames of `osc~` computing in `S`, at `frequency` Hz and `rate` Hz.
+/// Renders `frames` frames of `osc~`'s oscillator computing in `S`, at `frequency` Hz and
+/// `rate` Hz: built directly, so that its tests reach frequencies beyond the range of its
+/// parameter (up to Nyquist at every rate), which no plan gives it.
 fn render_in<S: Raw>(frequency: f32, rate: u32, frames: usize) -> Vec<S::Float> {
-    let mut osc = OSC.create.create::<S>(
+    let mut osc = super::Osc::new(
         SampleRate::new(rate).expect("valid rate"),
-        ParamValues::new([param(f64::from(frequency))]).params(),
+        param(f64::from(frequency)),
     );
     let mut samples = Vec::new();
     while samples.len() < frames {
@@ -285,7 +288,7 @@ fn leaves_extra_buffers<S: Sample>() {
     let rate = SampleRate::new(48_000).expect("valid rate");
     let mut osc = OSC
         .create
-        .create::<S>(rate, ParamValues::new([param(440.0)]).params());
+        .create::<S>(rate, ParamValues::defaults(&OSC).params());
     let seven = [S::from_binary64(param(7.0)); BLOCK_SIZE];
     let mut out: [Block<S>; 2] = [S::SILENCE, seven];
     osc.process(&[], &mut out);
@@ -507,13 +510,14 @@ fn stays_below_four_cycles_per_sample() {
     assert!(highest < 4.0_f64, "{highest} cycles per sample");
 }
 
-/// Checks that an oscillator computing in `S` given no parameter plays 440 Hz.
+/// Checks that an oscillator computing in `S` given the defaults of its box type plays 440 Hz.
 fn defaults_to_440_hz_in<S: Sample>() {
     let rate = SampleRate::new(48_000).expect("valid rate");
-    let mut with_default = OSC.create.create::<S>(rate, ParamValues::new([]).params());
-    let mut with_440 = OSC
+    let mut with_default = OSC
         .create
-        .create::<S>(rate, ParamValues::new([param(440.0)]).params());
+        .create::<S>(rate, ParamValues::defaults(&OSC).params());
+    let explicit = ParamValues::of(&OSC, &[param(440.0)]).expect("440 Hz within range");
+    let mut with_440 = OSC.create.create::<S>(rate, explicit.params());
     let (mut default_out, mut explicit_out) = ([S::SILENCE], [S::SILENCE]);
     with_default.process(&[], &mut default_out);
     with_440.process(&[], &mut explicit_out);
@@ -521,7 +525,7 @@ fn defaults_to_440_hz_in<S: Sample>() {
 }
 
 #[test]
-fn defaults_to_440_hz_without_parameter() {
+fn defaults_to_440_hz() {
     defaults_to_440_hz_in::<Binary64>();
     defaults_to_440_hz_in::<Binary32>();
 }

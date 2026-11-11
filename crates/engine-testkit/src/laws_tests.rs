@@ -659,3 +659,19 @@ fn checks_a_registry() {
         "every box is checked"
     );
 }
+
+#[test]
+fn renders_only_with_the_parameters_of_the_box_type() {
+    // The laws give each box type its own parameter sets, within range: a set that is not
+    // one of its own is refused, never given to the box.
+    let rate = SampleRate::new(48_000).expect("valid rate");
+    assert_eq!(
+        super::render::<engine_core::Binary64>(&GOOD, rate, &[], &[], 1).map(|_rendered| ()),
+        Err("box type \"gain~\" takes 1 parameter value(s), not 0".to_owned()),
+        "the wrong count"
+    );
+    assert!(
+        super::render::<engine_core::Binary64>(&GOOD, rate, &[0.5], &[], 1).is_ok(),
+        "its own"
+    );
+}

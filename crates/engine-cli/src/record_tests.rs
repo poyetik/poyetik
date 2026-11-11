@@ -4,7 +4,7 @@ use alloc::collections::BTreeMap;
 
 use super::{
     Before, Blessing, Fingerprints, Record, References, Spent, Told, Versions, bless_problems,
-    blessed, current_fingerprints, record_problems, same_rules, spent_problems,
+    blessed, current_fingerprints, fingerprints_of, record_problems, same_rules, spent_problems,
 };
 
 /// What `bless` refuses replacing `old` and `earlier`, every version of `old` spent, as
@@ -90,7 +90,7 @@ fn references(cases: &[(&str, &str)]) -> References {
 
 #[test]
 fn fingerprints_every_registered_box_type_at_its_version() {
-    let now = engine_fpenv::with_default_mode(current_fingerprints);
+    let now = engine_fpenv::with_default_mode(current_fingerprints).expect("registered box types");
     assert_eq!(
         now.keys().map(String::as_str).collect::<Vec<_>>(),
         ["dac~", "osc~"],
@@ -683,5 +683,21 @@ fn refuses_other_bits_than_main_at_a_version_both_records_hold() {
         spent_problems(&resolved, None),
         Vec::<String>::new(),
         "no record on main"
+    );
+}
+
+#[test]
+fn says_why_the_battery_cannot_fingerprint_a_box_type() {
+    static WRONG: engine_core::ObjectSpec = engine_core::ObjectSpec {
+        name: "wrong~",
+        params: &[engine_core::ParamSpec::new(
+            "f", "f", 30_000.0, 0.0, 20_000.0,
+        )],
+        ..engine_objects::OSC
+    };
+    assert_eq!(
+        engine_fpenv::with_default_mode(|mode| fingerprints_of(&[&WRONG], mode)),
+        Err("parameter \"f\" of box type \"wrong~\": 30000 is outside its range".to_owned()),
+        "a default outside its range, in words"
     );
 }

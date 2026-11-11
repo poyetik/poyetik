@@ -592,7 +592,7 @@ fn check(
             report(out, false, line)?;
         }
     }
-    for line in record_problems(&record, &current_fingerprints(mode))
+    for line in record_problems(&record, &current_fingerprints(mode)?)
         .into_iter()
         .chain(spent_problems(&record, base.flatten().as_ref()))
     {
@@ -714,7 +714,7 @@ fn bless(
         .as_ref()
         .map(|spent| read_spent(files, spent, "cargo xtask bless"))
         .transpose()?;
-    let now = current_fingerprints(mode);
+    let now = current_fingerprints(mode)?;
     let told = Told {
         changed: &options.changed,
         battery_changed: options.battery_changed,

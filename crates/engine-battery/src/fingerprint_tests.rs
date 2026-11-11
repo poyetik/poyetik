@@ -9,6 +9,7 @@ use engine_core::{
 
 use super::{FINGERPRINT_BATTERY, fingerprint, seeded_signal, splitmix64};
 use crate::inputs::{BLOCKS, param_sets};
+use engine_core::ParamError;
 use sha2::{Digest, Sha256};
 
 const IN: PortSpec = PortSpec {
@@ -20,6 +21,11 @@ const OUT: PortSpec = PortSpec {
     description: "a signal",
 };
 const GAIN: ParamSpec = ParamSpec::new("gain", "gain", 0.5, 0.0, 1.0);
+
+/// The fingerprint of `spec`, whose parameter sets are its own.
+fn print(spec: &ObjectSpec) -> String {
+    fingerprint(spec).expect("parameter sets within range")
+}
 
 /// Where a quirk of [`Echo`] changes its output: under one condition only.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -161,7 +167,7 @@ fn echo(quirk: Quirk) -> ObjectSpec {
 
 #[test]
 fn is_64_lowercase_hex_digits_the_same_at_every_run() {
-    let first = fingerprint(&echo(Quirk::None));
+    let first = print(&echo(Quirk::None));
     assert_eq!(first.len(), 64, "{first}");
     assert!(
         first
@@ -169,12 +175,12 @@ fn is_64_lowercase_hex_digits_the_same_at_every_run() {
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
         "{first}"
     );
-    assert_eq!(first, fingerprint(&echo(Quirk::None)), "deterministic");
+    assert_eq!(first, print(&echo(Quirk::None)), "deterministic");
 }
 
 #[test]
 fn sees_one_bit_changed_in_any_run_of_the_battery() {
-    let plain = fingerprint(&echo(Quirk::None));
+    let plain = print(&echo(Quirk::None));
     let mut seen = vec![plain.clone()];
     for quirk in [
         Quirk::HighestRate,
@@ -184,7 +190,7 @@ fn sees_one_bit_changed_in_any_run_of_the_battery() {
         Quirk::LastBlock,
         Quirk::Special,
     ] {
-        let changed = fingerprint(&echo(quirk));
+        let changed = print(&echo(quirk));
         assert_ne!(changed, plain, "{quirk:?}");
         assert!(!seen.contains(&changed), "{quirk:?}: its own fingerprint");
         seen.push(changed);
@@ -202,7 +208,7 @@ fn hashes_the_battery_version_first() {
         ..echo(Quirk::None)
     };
     assert_eq!(
-        fingerprint(&silent),
+        print(&silent),
         "26b25d457597a7b0463f9620f666dd10aa2c4373a505967c7c8d70922a2d6ece"
     );
 }
@@ -301,8 +307,8 @@ fn gives_the_parameters_as_a_plan_does() {
     // A box that changes only for a nonzero gain below 2^-126, which no parameter given as
     // `Params` is: no plan can reach that change, so its fingerprint is the plain one.
     assert_eq!(
-        fingerprint(&echo(Quirk::SubnormalGain)),
-        fingerprint(&echo(Quirk::None)),
+        print(&echo(Quirk::SubnormalGain)),
+        print(&echo(Quirk::None)),
         "no parameter below 2^-126 but zero"
     );
 }
@@ -371,8 +377,8 @@ fn feeds_the_inlets_in_turn_and_hashes_the_outlets_in_order() {
         "the two inlets are given different signals"
     );
     assert_ne!(
-        fingerprint(&route::<0>()),
-        fingerprint(&route::<1>()),
+        print(&route::<0>()),
+        print(&route::<1>()),
         "swapping the inlets, or the outlets, is seen"
     );
 }
@@ -420,5 +426,25 @@ fn pins_the_inputs_of_the_battery() {
     assert_eq!(
         digest, "f3ae291af4c69bc1fc6751206f4817706b7bb1f27b7939af747aa96a4dcabae0",
         "the battery's inputs changed: raise FINGERPRINT_BATTERY and write this digest"
+    );
+}
+
+#[test]
+fn refuses_a_parameter_set_the_box_type_does_not_take() {
+    // A default outside its range, which the box laws refuse: the battery's set of
+    // defaults is no set of the box type's, and no fingerprint is computed from it.
+    const LOUD: ParamSpec = ParamSpec::new("gain", "gain", 1.5, 0.0, 1.0);
+    let wrong = ObjectSpec {
+        params: &[LOUD],
+        ..echo(Quirk::None)
+    };
+    assert_eq!(
+        fingerprint(&wrong),
+        Err(ParamError::OutOfRange {
+            kind: "echo~",
+            name: "gain",
+            bits: 1.5_f64.to_bits()
+        }),
+        "its default refused"
     );
 }

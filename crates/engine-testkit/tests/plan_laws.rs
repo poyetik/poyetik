@@ -321,14 +321,19 @@ mod tests {
         let by_id: BTreeMap<NodeId, &Node> = nodes.iter().map(|node| (node.id, node)).collect();
         let mut boxes: BTreeMap<NodeId, Box<dyn Object<S>>> = BTreeMap::new();
         for node in nodes {
-            let params = ParamValues::new(spec(node).params.iter().map(|param| {
-                Binary64::new(f64::from(
-                    node.params
-                        .get(param.name())
-                        .copied()
-                        .unwrap_or_else(|| param.default_value()),
-                ))
-            }));
+            let values: Vec<Binary64> = spec(node)
+                .params
+                .iter()
+                .map(|param| {
+                    Binary64::new(f64::from(
+                        node.params
+                            .get(param.name())
+                            .copied()
+                            .unwrap_or_else(|| param.default_value()),
+                    ))
+                })
+                .collect();
+            let params = ParamValues::of(spec(node), &values).expect("values the plan accepted");
             drop(boxes.insert(node.id, spec(node).create.create(rate, params.params())));
         }
         let is_output = |node: &Node| spec(node).capabilities.contains(&Capability::AudioOutput);

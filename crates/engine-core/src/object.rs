@@ -8,6 +8,7 @@ use core::fmt;
 use core::num::NonZeroU32;
 use core::ops::Deref;
 
+use crate::host::Raw as _;
 use crate::math::{Constructor, sealed};
 use crate::{Binary32, Binary64, Block, Sample, SampleRate};
 
@@ -105,30 +106,130 @@ impl ParamSpec {
     }
 }
 
-/// The parameter values of a box instance, owned, in the order of [`ObjectSpec::params`].
+/// The parameter values of a box instance, owned: one per entry of [`ObjectSpec::params`],
+/// in its order, each within its parameter's range.
 ///
 /// In binary64 whatever the precision of the render (`spec/engine-design.md`, decision
-/// 10), and never below 2^-126 in magnitude but zero: [`ParamValues::new`], the only way
-/// to build one outside the engine, makes such a value a zero of its sign (decisions 5 and
-/// 11), as a plan reads a patch's parameters. A box is given them as [`Params`], borrowed
-/// from one, so it can rely on both, whoever created it: the plan, the box laws or the
-/// fingerprint battery.
+/// 10), and never below 2^-126 in magnitude but zero: such a value is a zero of its sign
+/// (decisions 5 and 11), as a plan reads a patch's parameters. Outside the engine, only
+/// [`ParamValues::of`] and [`ParamValues::defaults`] build one, from the box type's spec,
+/// so a box can rely on all of it, whoever created it: the plan, the box laws, the
+/// fingerprint battery or a host. No unchecked constructor is public:
+///
+/// ```compile_fail,E0599
+/// let _values = engine_core::ParamValues::new([engine_core::Binary64::new(1e9)]);
+/// ```
 #[derive(Debug, Clone)]
 pub struct ParamValues(Vec<Binary64>);
 
+/// Why parameter values are not those of a box type ([`ParamValues::of`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParamError {
+    /// Not one value per parameter of the box type.
+    Count {
+        /// The box type.
+        kind: &'static str,
+        /// How many parameters it has.
+        expected: usize,
+        /// How many values were given.
+        given: usize,
+    },
+    /// A value outside its parameter's range, or not a number, once flushed.
+    OutOfRange {
+        /// The box type.
+        kind: &'static str,
+        /// The parameter.
+        name: &'static str,
+        /// The bits of the binary64 value refused.
+        bits: u64,
+    },
+}
+
+impl fmt::Display for ParamError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::Count {
+                kind,
+                expected,
+                given,
+            } => write!(
+                f,
+                "box type \"{kind}\" takes {expected} parameter value(s), not {given}"
+            ),
+            Self::OutOfRange { kind, name, bits } => write!(
+                f,
+                "parameter \"{name}\" of box type \"{kind}\": {} is outside its range",
+                f64::from_bits(bits)
+            ),
+        }
+    }
+}
+
 impl ParamValues {
-    /// The parameter values `values`, in order, each nonzero one below 2^-126 in
-    /// magnitude made a zero of its sign; every other value keeps its bits.
+    /// The parameter values `values` of the box type `spec`: one per parameter, in order,
+    /// each nonzero one below 2^-126 in magnitude made a zero of its sign, then checked
+    /// against its parameter's range widened to binary64 (exactly, as a plan checks a
+    /// patch's value against it in binary32); every other value keeps its bits.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ParamError::Count`] unless there is one value per parameter, and
+    /// [`ParamError::OutOfRange`] for the first value outside its range or NaN.
+    pub fn of(spec: &ObjectSpec, values: &[Binary64]) -> Result<Self, ParamError> {
+        if values.len() != spec.params.len() {
+            return Err(ParamError::Count {
+                kind: spec.name,
+                expected: spec.params.len(),
+                given: values.len(),
+            });
+        }
+        values
+            .iter()
+            .zip(spec.params)
+            .map(|(&value, param)| {
+                let flushed = value.as_parameter();
+                let wide = flushed.raw();
+                if f64::from(param.minimum) <= wide && wide <= f64::from(param.maximum) {
+                    Ok(flushed)
+                } else {
+                    Err(ParamError::OutOfRange {
+                        kind: spec.name,
+                        name: param.name,
+                        bits: wide.to_bits(),
+                    })
+                }
+            })
+            .collect::<Result<_, _>>()
+            .map(Self)
+    }
+
+    /// The default values of the box type `spec`, each a binary32 value widened exactly and
+    /// flushed as a plan flushes it. The box laws prove every default of a registered box
+    /// type within its range, through [`ParamValues::of`].
     #[must_use]
-    pub fn new(values: impl IntoIterator<Item = Binary64>) -> Self {
+    pub fn defaults(spec: &ObjectSpec) -> Self {
+        Self(
+            spec.params
+                .iter()
+                .map(|param| Binary64::new(f64::from(param.default_value)).as_parameter())
+                .collect(),
+        )
+    }
+
+    /// The parameter values `values`, in order, each nonzero one below 2^-126 in
+    /// magnitude made a zero of its sign, unchecked: for this crate's tests of the flush
+    /// and of factories, which have no spec.
+    #[cfg(test)]
+    pub(crate) fn new(values: impl IntoIterator<Item = Binary64>) -> Self {
         Self(values.into_iter().map(Binary64::as_parameter).collect())
     }
 
-    /// The parameter values `values`, which the plan has flushed as [`ParamValues::new`]
-    /// would (each a binary32 value flushed by [`crate::flush::binary32`], widened
-    /// exactly): taken as they are, so that reading a patch's parameters costs what it did
-    /// before this type (the plan tests check what a box is given, and the flush tests that
-    /// [`ParamValues::new`] gives a binary32 value the same).
+    /// The parameter values `values`, which the plan has checked against their ranges and
+    /// flushed as [`ParamValues::of`] would (each a binary32 value flushed by
+    /// [`crate::flush::binary32`], widened exactly): taken as they are, so that reading a
+    /// patch's parameters costs what it did before this type (the plan tests check what a
+    /// box is given, and the flush tests that [`ParamValues::of`] gives a binary32 value
+    /// the same).
     pub(crate) const fn flushed(values: Vec<Binary64>) -> Self {
         Self(values)
     }
@@ -142,7 +243,8 @@ impl ParamValues {
 
 /// The parameter values a box is created with, borrowed from [`ParamValues`].
 ///
-/// They keep its promise: in order, in binary64, none below 2^-126 but zero. Passed by
+/// They keep its promise: one per parameter of the box type, in order, each within its
+/// range, in binary64, none below 2^-126 but zero. Passed by
 /// value, as cheap as a slice (two words: a reference to the owned values made loading a
 /// plan dearer, `spec/benchmarks.md`), and read as one.
 #[derive(Debug, Clone, Copy)]
@@ -162,8 +264,8 @@ impl Deref for Params<'_> {
 pub trait Create {
     /// Creates an instance computing in `S`, from a sample rate and its parameter values.
     ///
-    /// The values come as [`Params`] says (in order, in binary64, none below 2^-126 but
-    /// zero); a plan also validates them against their ranges first.
+    /// The values come as [`Params`] says: one per parameter, in order, each within its
+    /// range, in binary64, none below 2^-126 but zero.
     fn create<S: Sample>(rate: SampleRate, params: Params<'_>) -> Box<dyn Object<S>>;
 }
 

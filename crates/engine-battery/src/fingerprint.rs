@@ -15,7 +15,7 @@ use core::fmt::Write as _;
 
 use engine_core::host::Raw;
 use engine_core::{
-    BLOCK_SIZE, Binary32, Binary64, Block, Object, ObjectSpec, ParamValues, Precision,
+    BLOCK_SIZE, Binary32, Binary64, Block, Object, ObjectSpec, ParamError, ParamValues, Precision,
 };
 use sha2::{Digest, Sha256};
 
@@ -50,8 +50,13 @@ pub const FINGERPRINT_BATTERY: u32 = 2;
 /// outlet. A box type without outlets has the battery's fingerprint alone, whatever it
 /// does: its bits are those the plan reads from its inlets (the output boxes), which the
 /// conformance cases check.
-#[must_use]
-pub fn fingerprint(spec: &ObjectSpec) -> String {
+///
+/// # Errors
+///
+/// Returns why a parameter set is not one of the box type's ([`ParamValues::of`]): the
+/// sets keep every value within its range, so only a default outside its range (which the
+/// box laws refuse) gives one.
+pub fn fingerprint(spec: &ObjectSpec) -> Result<String, ParamError> {
     let mut hasher = Sha256::new();
     hasher.update(FINGERPRINT_BATTERY.to_le_bytes());
     let length = BLOCKS
@@ -60,27 +65,31 @@ pub fn fingerprint(spec: &ObjectSpec) -> String {
     let random = seeded_signal(length);
     for precision in PRECISIONS {
         match precision {
-            Precision::Binary64 => battery::<Binary64>(spec, length, &random, &mut hasher),
-            Precision::Binary32 => battery::<Binary32>(spec, length, &random, &mut hasher),
+            Precision::Binary64 => battery::<Binary64>(spec, length, &random, &mut hasher)?,
+            Precision::Binary32 => battery::<Binary32>(spec, length, &random, &mut hasher)?,
         }
     }
-    hasher
+    Ok(hasher
         .finalize()
         .iter()
         .fold(String::with_capacity(64), |mut text, byte| {
             // Writing to a `String` never fails.
             let _written = write!(text, "{byte:02x}");
             text
-        })
+        }))
 }
 
 /// Hashes every run of the battery computing in `S`.
+///
+/// # Errors
+///
+/// Returns why a parameter set is not one of the box type's.
 fn battery<S: BatterySample>(
     spec: &ObjectSpec,
     length: usize,
     random: &[f64],
     hasher: &mut Sha256,
-) {
+) -> Result<(), ParamError> {
     let inputs = [
         special_input::<S>(length),
         random
@@ -90,11 +99,11 @@ fn battery<S: BatterySample>(
     ];
     for rate in sample_rates() {
         for params in param_sets(spec) {
-            let wide = ParamValues::new(
-                params
-                    .iter()
-                    .map(|&param| Binary64::from_raw(f64::from(param))),
-            );
+            let values: Vec<Binary64> = params
+                .iter()
+                .map(|&param| Binary64::from_raw(f64::from(param)))
+                .collect();
+            let wide = ParamValues::of(spec, &values)?;
             for input in &inputs {
                 let mut object: Box<dyn Object<S>> = spec.create.create(rate, wide.params());
                 for block in outputs(object.as_mut(), spec, input) {
@@ -105,6 +114,7 @@ fn battery<S: BatterySample>(
             }
         }
     }
+    Ok(())
 }
 
 /// The outputs of [`BLOCKS`] blocks of `object`, outlet by outlet at each block, its inlets

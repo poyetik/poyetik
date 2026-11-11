@@ -39,8 +39,8 @@ pub use math::{
     UnknownArithmeticOptions, host, ordered_sum,
 };
 pub use object::{
-    AlgorithmVersion, Capability, Create, Dispatch, Factory, Object, ObjectSpec, ParamSpec,
-    ParamValues, Params, PortSpec, RENDER_RULES_VERSION,
+    AlgorithmVersion, Capability, Create, Dispatch, Factory, Object, ObjectSpec, ParamError,
+    ParamSpec, ParamValues, Params, PortSpec, RENDER_RULES_VERSION,
 };
 pub use patch::{Connection, Node, NodeId, Patch};
 pub use plan::Plan;

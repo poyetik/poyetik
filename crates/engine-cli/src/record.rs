@@ -8,6 +8,7 @@ use crate::status::Status;
 use alloc::collections::BTreeMap;
 
 use engine_battery::{FINGERPRINT_BATTERY, fingerprint};
+use engine_core::ObjectSpec;
 use engine_core::RENDER_RULES_VERSION;
 use engine_fpenv::DefaultMode;
 use engine_hash::SCHEME;
@@ -48,14 +49,35 @@ pub(crate) struct Record {
 /// The fingerprint of every registered box type at its current algorithm version, rendered
 /// in the default floating-point mode (`mode`, the proof of it), as every recorded
 /// fingerprint was: a host mode that flushed subnormals could give other bits.
-pub(crate) fn current_fingerprints(_mode: DefaultMode<'_>) -> Fingerprints {
-    REGISTRY
+///
+/// # Errors
+///
+/// Returns why the battery could not give a box type its parameters
+/// (`engine_battery::fingerprint`), in words.
+pub(crate) fn current_fingerprints(mode: DefaultMode<'_>) -> Result<Fingerprints, String> {
+    fingerprints_of(&REGISTRY, mode)
+}
+
+/// The fingerprint of every box type of `registry` at its current algorithm version
+/// ([`current_fingerprints`]).
+///
+/// # Errors
+///
+/// Returns why the battery could not give a box type its parameters, in words.
+fn fingerprints_of(
+    registry: &[&'static ObjectSpec],
+    _mode: DefaultMode<'_>,
+) -> Result<Fingerprints, String> {
+    registry
         .iter()
         .map(|spec| {
-            (
+            Ok((
                 spec.name.to_owned(),
-                (spec.algorithm_version.get(), fingerprint(spec)),
-            )
+                (
+                    spec.algorithm_version.get(),
+                    fingerprint(spec).map_err(|error| error.to_string())?,
+                ),
+            ))
         })
         .collect()
 }

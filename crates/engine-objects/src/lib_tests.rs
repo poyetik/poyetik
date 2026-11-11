@@ -7,6 +7,7 @@ static ALLOCATOR: engine_testkit::CountingAllocator = engine_testkit::CountingAl
 use alloc::vec;
 use alloc::vec::Vec;
 
+use engine_core::host::{ParamBounds as _, Raw as _};
 use engine_core::{Binary32, Binary64, Block, Dispatch, Object, ObjectSpec, ParamValues, Sample};
 use engine_testkit::matrix::{SPECIAL_INPUTS_BINARY64, sample_rates};
 
@@ -76,7 +77,7 @@ static COPY: ObjectSpec = ObjectSpec {
 /// virtual table.
 fn held_as(spec: &'static ObjectSpec) -> &'static str {
     let rate = sample_rates()[0];
-    match BuiltIn::<Binary64>::create(spec, rate, ParamValues::new([]).params()).0 {
+    match BuiltIn::<Binary64>::create(spec, rate, ParamValues::defaults(spec).params()).0 {
         Kind::Osc(_) => "osc~",
         Kind::Dac(_) => "dac~",
         Kind::Other(_) => "other",
@@ -120,16 +121,40 @@ fn inputs<S: Sample>(inlets: usize, block: usize) -> Vec<Block<S>> {
         .collect()
 }
 
-/// Checks, at every sample rate and for several parameter lists, that `spec` held by
-/// [`BuiltIn`] gives the same blocks, bit for bit, as its factory's instance, and that
-/// processing performs no heap operation.
+/// The parameter lists `spec` is tried with: its defaults, then each parameter at its
+/// minimum, at its maximum and at three eighths of its range, the others at their default.
+fn param_lists(spec: &ObjectSpec) -> Vec<ParamValues> {
+    let defaults: Vec<Binary64> = spec
+        .params
+        .iter()
+        .map(|param| Binary64::from_raw(f64::from(param.default_value())))
+        .collect();
+    let mut lists = vec![ParamValues::defaults(spec)];
+    for (index, param) in spec.params.iter().enumerate() {
+        let (low, high) = (f64::from(param.minimum()), f64::from(param.maximum()));
+        for value in [low, high, low + (high - low) * 0.375_f64] {
+            let values: Vec<Binary64> = defaults
+                .iter()
+                .enumerate()
+                .map(|(at, default)| {
+                    if at == index {
+                        Binary64::from_raw(value)
+                    } else {
+                        *default
+                    }
+                })
+                .collect();
+            lists.push(ParamValues::of(spec, &values).expect("within range"));
+        }
+    }
+    lists
+}
+
+/// Checks, at every sample rate and for several parameter lists ([`param_lists`]), that
+/// `spec` held by [`BuiltIn`] gives the same blocks, bit for bit, as its factory's instance,
+/// and that processing performs no heap operation.
 fn same_as_the_factory<S: Sample>(spec: &'static ObjectSpec) {
-    let params = [
-        ParamValues::new([]),
-        ParamValues::new([Binary64::new(0.0)]),
-        ParamValues::new([Binary64::new(997.25)]),
-        ParamValues::new([Binary64::new(-30_000.5)]),
-    ];
+    let params = param_lists(spec);
     for rate in sample_rates() {
         for list in &params {
             let mut direct = BuiltIn::<S>::create(spec, rate, list.params());
