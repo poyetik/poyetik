@@ -29,7 +29,11 @@ jobs:
     # The OS release is pinned (never `-latest`); the runner image itself still receives
     # GitHub's weekly updates, which no workflow can pin.
     runs-on: ubuntu-24.04
-    # Provisional: to be set to 1.5 times the duration of the longest part of the first run.
+    # A guard against a hung job: 1.5 times the longest part of the latest green run of
+    # this workflow on the code it tests. The first green run (2026-11-09, on main) took
+    # 18.2 minutes for its longest part (apps-playground), but predates crates, mutants and
+    # browser tests added since; the value is set from the next green pull request run,
+    # in its version commit, and kept wide until then.
     timeout-minutes: 90
     strategy:
       # Every part runs whatever the others find, as the full check runs every step.
@@ -131,7 +135,7 @@ jobs:
     needs: check
     if: github.event_name != 'push' || contains(github.event.head_commit.message, '[ci]')
     runs-on: ubuntu-24.04
-    # Provisional, as above.
+    # Set by the same rule as the parts' timeout, from this job's own time.
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
