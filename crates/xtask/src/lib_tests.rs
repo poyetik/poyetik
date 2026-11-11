@@ -14547,19 +14547,44 @@ fn takes_for_shared_test_code_every_crate_only_tests_use() {
 
 #[test]
 fn derives_each_list_of_crates_from_their_roles() {
-    assert_eq!(
-        super::crates_in(super::CrateRole::SharedTests),
-        ["engine-alloc-counter", "engine-battery", "engine-testkit"],
-        "the counting allocator, the fingerprint battery and the test kit"
-    );
-    for krate in super::RUST_CRATES {
-        for role in krate.roles {
-            assert!(
-                super::crates_in(*role).contains(&krate.name),
-                "{} holds {role:?}",
-                krate.name
-            );
-        }
+    use super::CrateRole;
+    // Each list a fact written here, so that a role gained or lost is a decision of this
+    // test too.
+    for (role, crates, what) in [
+        (
+            CrateRole::Library,
+            &[
+                "engine-core",
+                "engine-objects",
+                "engine-patch",
+                "engine-hash",
+                "engine-fpenv",
+                "engine-wasm",
+            ][..],
+            "the audio library",
+        ),
+        (
+            CrateRole::LibraryTests,
+            &["engine-testkit"][..],
+            "the test kit",
+        ),
+        (
+            CrateRole::Libm,
+            &["engine-core", "engine-testkit"][..],
+            "the engine core and the test kit",
+        ),
+        (
+            CrateRole::MathLayer,
+            &["engine-core", "engine-objects"][..],
+            "the engine core and the boxes",
+        ),
+        (
+            CrateRole::SharedTests,
+            &["engine-alloc-counter", "engine-battery", "engine-testkit"][..],
+            "the counting allocator, the fingerprint battery and the test kit",
+        ),
+    ] {
+        assert_eq!(super::crates_in(role), crates, "{what}");
     }
 }
 
