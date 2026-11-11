@@ -45,11 +45,11 @@
     {
       "id": 32,
       "title": "Public API of the engine library, in Rust, C and TypeScript",
-      "description": "The engine's public interface, designed in one place and grown with each step of #12 that adds a piece of it: a low-level host API, the box contract, a toolkit of proven DSP building blocks, and a patch builder; exposed in Rust, through a C interface (functions written in Rust with the C calling convention, the bridge every other language can call), and in TypeScript over the WebAssembly module. The audio library stands alone behind it: the layer above uses it only through this interface, which costs nothing against calling the engine directly, proven by the benchmarks (spec/engine-design.md decisions 32 and 33). Other languages come with the work that needs them. Stabilized and versioned by #29.",
+      "description": "The engine's public interface, designed in one place and grown with each step of #12 that adds a piece of it: a low-level host API, the box contract, a toolkit of proven DSP building blocks, and a patch builder; exposed in Rust, through a C interface (functions written in Rust with the C calling convention, the bridge every other language can call), and in TypeScript over the WebAssembly module. The audio library stands alone behind it: the layer above uses it only through this interface, which costs nothing measurable against calling the engine directly, proven by the benchmarks (spec/engine-design.md decisions 32 and 33). Other languages come with the work that needs them. Stabilized and versioned by #29.",
       "column": "next",
       "milestone": "M1 Engine",
       "createdAt": "2026-11-09",
-      "updatedAt": "2026-11-10",
+      "updatedAt": "2026-11-11",
       "tasks": [
         {
           "title": "An API specification in spec/, completed at each step of #12 that adds a piece (host settings, events, the return path, state, hot swap, the box contract)",
@@ -80,7 +80,7 @@
           "done": false
         },
         {
-          "title": "Every interface checked against the same test vectors and conformance hashes, a gate proving the Rust, C and TypeScript surfaces expose the same functions; and the same cost: the engine driven through each public interface counted by the instruction-count benchmarks against the same patches driven directly, within their regression thresholds (block calls, borrowed slices, no call per sample, no dynamic dispatch on hot paths)",
+          "title": "Every interface checked against the same test vectors and conformance hashes, a gate proving the Rust, C and TypeScript surfaces expose the same functions; and the same cost: the engine driven through each public interface counted by the instruction-count benchmarks against the same patches driven directly, by an exact comparison or a per-call allowance derived and written for each interface, never by the counts' tolerance alone (block calls, borrowed slices, no call per sample, no dynamic dispatch on hot paths)",
           "done": false
         },
         {
@@ -957,7 +957,7 @@
           "done": false
         },
         {
-          "title": "Box contract as a public, versioned ABI shared by built-in boxes and third-party externals: explicit state, compile-friendly processing, buffers aligned to 64 bytes and padded, routing resolved when the plan is built; every built-in box giving the same bits and the same cost directly and through the ABI, the cost measured by the instruction-count benchmarks of step 3 with their regression thresholds (spec/engine-design.md decision 33), the plan still calling every built-in box directly and only a box type loaded at run time through one indirect call per box per block, never per sample; instantaneous responses and sub-sample discontinuity ports declared",
+          "title": "Box contract as a public, versioned ABI shared by built-in boxes and third-party externals: explicit state, compile-friendly processing, buffers aligned to 64 bytes and padded, routing resolved when the plan is built; every built-in box giving the same bits and the same cost directly and through the ABI, the cost measured by the instruction-count benchmarks of step 3 through the interface, by an exact comparison with the direct counts or a per-call allowance derived and written for the ABI (the NaN canonicalisation of decision 25 is work per sample), never by the counts' tolerance alone (spec/engine-design.md decision 33), the plan still calling every built-in box directly and only a box type loaded at run time through one indirect call per box per block, never per sample; instantaneous responses and sub-sample discontinuity ports declared",
           "done": false
         },
         {
