@@ -8,7 +8,7 @@
 /// The command-line contract of the binary.
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     use std::process::{Command, Output, Stdio};
 
     /// The first line of the usage.
@@ -27,11 +27,54 @@ mod tests {
         String::from_utf8(bytes.to_vec()).expect("UTF-8")
     }
 
-    /// A file of this test, below the system's temporary directory, holding `content`.
-    fn file(name: &str, content: &str) -> PathBuf {
-        let path = std::env::temp_dir().join(format!("xtask-binary-{name}-{}", std::process::id()));
+    /// A directory of one test below the system's temporary directory, removed with
+    /// everything in it when the guard is dropped: when the test ends, passing, failing or
+    /// unwinding, so that no run leaves it behind.
+    #[derive(Debug)]
+    pub(super) struct Scratch(PathBuf);
+
+    impl AsRef<Path> for Scratch {
+        fn as_ref(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl core::ops::Deref for Scratch {
+        type Target = Path;
+        fn deref(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            // Nothing better can be done in a drop: a directory a test removed itself is gone.
+            drop(std::fs::remove_dir_all(&self.0));
+        }
+    }
+
+    /// A fresh, empty directory for one test, `xtask-binary-<name>-<process id>` ([`Scratch`]).
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the one place xtask's binary tests name the temporary directory: the guard removes what it \
+                  creates"
+    )]
+    pub(super) fn scratch(name: &str) -> Scratch {
+        let dir = std::env::temp_dir().join(format!("xtask-binary-{name}-{}", std::process::id()));
+        if let Err(error) = std::fs::remove_dir_all(&dir) {
+            assert_eq!(error.kind(), std::io::ErrorKind::NotFound, "clean start");
+        }
+        std::fs::create_dir_all(&dir).expect("scratch directory");
+        Scratch(dir)
+    }
+
+    /// A file of this test, `message` in a scratch directory holding `content`, with its
+    /// directory, which removes it when dropped.
+    fn file(name: &str, content: &str) -> (Scratch, PathBuf) {
+        let dir = scratch(name);
+        let path = dir.join("message");
         std::fs::write(&path, content).expect("file written");
-        path
+        (dir, path)
     }
 
     #[test]
@@ -89,9 +132,8 @@ mod tests {
 
     #[test]
     fn refuses_a_commit_message_in_one_line_with_the_form_on_stdout() {
-        let path = file("message", "Update stuff\n");
+        let (_dir, path) = file("message", "Update stuff\n");
         let output = xtask(&["commit-msg", path.to_str().expect("UTF-8 path")]);
-        std::fs::remove_file(&path).expect("cleanup");
         assert_eq!(output.status.code(), Some(1_i32), "the check failed");
         assert_eq!(
             text(&output.stderr),
@@ -139,8 +181,7 @@ mod tests {
     #[test]
     fn keeps_the_commands_it_runs_alive_on_a_closed_stdout() {
         use std::os::unix::fs::PermissionsExt as _;
-        let dir = std::env::temp_dir().join(format!("xtask-binary-pipe-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).expect("scratch created");
+        let dir = scratch("pipe");
         let record = dir.join("record.txt");
         let stub = dir.join("pnpm");
         std::fs::write(
@@ -176,7 +217,6 @@ mod tests {
             .output()
             .expect("the binary runs");
         let finished = std::fs::read_to_string(&record);
-        std::fs::remove_dir_all(&dir).expect("cleanup");
         let stderr = text(&output.stderr);
         assert_eq!(
             finished.ok().as_deref(),
@@ -203,7 +243,7 @@ mod tests {
 mod hooks {
     use std::fs;
     use std::os::unix::fs::PermissionsExt as _;
-    use std::path::{Path, PathBuf};
+    use std::path::Path;
     use std::process::Command;
 
     use xtask::LOCAL_GIT_VARIABLES;
@@ -218,14 +258,10 @@ mod hooks {
             .collect()
     }
 
-    /// A fresh directory of this test, emptied first.
-    fn scratch(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("xtask-hooks-{name}-{}", std::process::id()));
-        if dir.exists() {
-            fs::remove_dir_all(&dir).expect("old scratch removed");
-        }
-        fs::create_dir_all(&dir).expect("scratch created");
-        dir
+    /// A fresh directory of this test, `xtask-binary-hooks-<name>-<process id>`, removed
+    /// when dropped ([`super::tests::Scratch`]).
+    fn scratch(name: &str) -> super::tests::Scratch {
+        super::tests::scratch(&format!("hooks-{name}"))
     }
 
     /// Runs git in `dir`, hermetically: no variable of an enclosing git process leaks in.

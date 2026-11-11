@@ -1737,10 +1737,50 @@ impl io::Write for Limited {
     }
 }
 
+/// A directory of one test below the system's temporary directory, removed with
+/// everything in it when the guard is dropped: when the test ends, passing, failing or
+/// unwinding, so that no run leaves it behind.
+#[derive(Debug)]
+struct Scratch(PathBuf);
+
+impl AsRef<Path> for Scratch {
+    fn as_ref(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl core::ops::Deref for Scratch {
+    type Target = Path;
+    fn deref(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        // Nothing better can be done in a drop: a directory a test removed itself is gone.
+        drop(std::fs::remove_dir_all(&self.0));
+    }
+}
+
+/// A fresh, empty directory for one test, `engine-cli-<name>-<process id>` ([`Scratch`]).
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the one place engine-cli's unit tests name the temporary directory: the guard removes what it \
+              creates"
+)]
+fn scratch(name: &str) -> Scratch {
+    let dir = std::env::temp_dir().join(format!("engine-cli-{name}-{}", std::process::id()));
+    if let Err(error) = std::fs::remove_dir_all(&dir) {
+        assert_eq!(error.kind(), io::ErrorKind::NotFound, "clean start");
+    }
+    std::fs::create_dir_all(&dir).expect("scratch directory");
+    Scratch(dir)
+}
+
 #[test]
 fn disk_reads_writes_and_lists() {
-    let dir = std::env::temp_dir().join(format!("engine-cli-disk-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).expect("temporary directory");
+    let dir = scratch("disk");
     let file = dir.join("a.txt");
     let mut disk = Disk;
     assert!(disk.write(&file, b"hello").is_ok(), "write");

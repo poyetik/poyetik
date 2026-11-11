@@ -43,14 +43,77 @@ fn hermetic_git(dir: &Path, args: &[&str]) -> String {
     String::from_utf8(output.stdout).expect("UTF-8")
 }
 
-/// A fresh, empty directory for one test, below the system's temporary directory.
-fn scratch(name: &str) -> std::path::PathBuf {
-    let dir = std::env::temp_dir().join(format!("xtask-{name}-{}", std::process::id()));
-    if let Err(error) = std::fs::remove_dir_all(&dir) {
-        assert_eq!(error.kind(), io::ErrorKind::NotFound, "clean start");
+/// A directory of one test below the system's temporary directory, removed with
+/// everything in it when the guard is dropped: when the test ends, passing, failing or
+/// unwinding (a mutant's failure included), so that no run leaves it behind.
+#[derive(Debug)]
+struct Scratch(std::path::PathBuf);
+
+impl Scratch {
+    /// A fresh, empty directory for one test, `xtask-<name>-<process id>`.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the one place xtask's unit tests name the temporary directory: the guard \
+                  removes what it creates"
+    )]
+    fn new(name: &str) -> Self {
+        let dir = std::env::temp_dir().join(format!("xtask-{name}-{}", std::process::id()));
+        if let Err(error) = std::fs::remove_dir_all(&dir) {
+            assert_eq!(error.kind(), io::ErrorKind::NotFound, "clean start");
+        }
+        std::fs::create_dir_all(&dir).expect("scratch directory");
+        Self(dir)
     }
-    std::fs::create_dir_all(&dir).expect("scratch directory");
-    dir
+
+    /// Its path, owned.
+    fn path(&self) -> std::path::PathBuf {
+        self.0.clone()
+    }
+}
+
+impl AsRef<Path> for Scratch {
+    fn as_ref(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl core::ops::Deref for Scratch {
+    type Target = Path;
+    fn deref(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        // Nothing better can be done in a drop: a directory a test removed itself is gone.
+        drop(std::fs::remove_dir_all(&self.0));
+    }
+}
+
+/// A fresh, empty directory for one test ([`Scratch`]).
+fn scratch(name: &str) -> Scratch {
+    Scratch::new(name)
+}
+
+#[test]
+fn removes_a_scratch_directory_whatever_the_test_does() {
+    let kept = scratch("guard");
+    let dropped = kept.path();
+    std::fs::write(kept.join("a.txt"), "a").expect("written");
+    drop(kept);
+    assert!(!dropped.exists(), "removed with its files when dropped");
+    let unwound = std::panic::catch_unwind(|| {
+        let held = scratch("guard-unwound");
+        let inside = held.path();
+        std::fs::write(held.join("a.txt"), "a").expect("written");
+        std::panic::panic_any(inside);
+    });
+    let left = unwound
+        .expect_err("the test panicked")
+        .downcast::<std::path::PathBuf>()
+        .expect("the path");
+    assert!(!left.exists(), "removed when the test unwinds");
 }
 
 /// A fixture of xtask's tests (`tests/fixtures/<name>`), the directory its commands run in.
@@ -2426,7 +2489,7 @@ fn reads_the_paths_real_git_changes_whatever_they_hold() {
         std::fs::write(dir.join(path), "b\n").expect("a change");
     }
     std::fs::write(dir.join("crates/engine-core/tests/new.rs"), "fn n() {}\n").expect("a new file");
-    let mut runner = SystemRunner { root: dir.clone() };
+    let mut runner = SystemRunner { root: dir.path() };
     assert_eq!(
         super::changed_since(&mut runner, "HEAD").map_err(|failure| failure.summary),
         Ok(vec![quoted.to_owned(), spaced.to_owned(), hash.to_owned()]),
@@ -2470,7 +2533,7 @@ fn reads_the_record_real_git_holds_at_a_commit() {
     let _add_record = hermetic_git(&dir, &["add", "."]);
     let _record = hermetic_git(&dir, &["commit", "--quiet", "-m", "with"]);
     let with = hermetic_git(&dir, &["rev-parse", "HEAD"]);
-    let mut runner = SystemRunner { root: dir.clone() };
+    let mut runner = SystemRunner { root: dir.path() };
     assert_eq!(
         super::record_at(&mut runner, without.trim()).map_err(|failure| failure.summary),
         Ok(None),
@@ -3583,7 +3646,7 @@ fn shows_tenths_below_a_minute_then_whole_seconds() {
 #[test]
 fn the_system_clock_advances_across_a_command() {
     let mut runner = SystemRunner {
-        root: scratch("clock"),
+        root: fixture("coverage-locality"),
     };
     let before = runner.clock();
     let _version = runner
@@ -3928,7 +3991,7 @@ fn system_runner_runs_commands_and_reads_files() {
 #[test]
 fn system_runner_writes_files_and_counts_threads() {
     let root = scratch("write");
-    let mut runner = SystemRunner { root: root.clone() };
+    let mut runner = SystemRunner { root: root.path() };
     assert!(runner.write("a/b/c.diff", "text\n").is_ok(), "written");
     assert_eq!(
         std::fs::read_to_string(root.join("a/b/c.diff")).expect("readable"),
@@ -3956,12 +4019,8 @@ fn system_runner_writes_files_and_counts_threads() {
 
 #[test]
 fn system_runner_empties_fresh_directories() {
-    let root = std::env::temp_dir().join(format!("xtask-fresh-{}", std::process::id()));
-    if let Err(error) = std::fs::remove_dir_all(&root) {
-        assert_eq!(error.kind(), io::ErrorKind::NotFound, "clean start");
-    }
-    std::fs::create_dir_all(&root).expect("temporary root");
-    let mut runner = SystemRunner { root: root.clone() };
+    let root = scratch("fresh");
+    let mut runner = SystemRunner { root: root.path() };
     assert!(runner.fresh_dir("out/wav").is_ok(), "created when missing");
     std::fs::write(root.join("out/wav/stale.wav"), b"old").expect("stale file");
     assert!(runner.fresh_dir("out/wav").is_ok(), "emptied when present");
@@ -4256,7 +4315,7 @@ fn fails_when_equivalent_files_cannot_be_read() {
 #[test]
 fn system_runner_lists_the_tracked_typescript_files() {
     // A repository of its own: the tests also run from copies without git history.
-    let root = std::env::temp_dir().join(format!("xtask-git-{}", std::process::id()));
+    let root = scratch("git");
     std::fs::create_dir_all(root.join("src")).expect("temporary repository");
     for (file, text) in [
         ("src/a.ts", "a"),
@@ -4270,7 +4329,7 @@ fn system_runner_lists_the_tracked_typescript_files() {
     std::fs::write(root.join("untracked.ts"), "u").expect("untracked file");
     let _init = hermetic_git(&root, &["init", "--quiet"]);
     let _add = hermetic_git(&root, &["add", "src", "d.ts"]);
-    let files = SystemRunner { root: root.clone() }.tracked(&["*.ts", "*.tsx"]);
+    let files = SystemRunner { root: root.path() }.tracked(&["*.ts", "*.tsx"]);
     std::fs::remove_dir_all(&root).expect("cleanup");
     assert_eq!(
         files.expect("git lists the files"),
@@ -4282,10 +4341,9 @@ fn system_runner_lists_the_tracked_typescript_files() {
         ],
         "tracked TypeScript only, a name out of ASCII as it is (git quotes it by default)"
     );
-    let outside = std::env::temp_dir().join(format!("xtask-no-git-{}", std::process::id()));
-    std::fs::create_dir_all(&outside).expect("temporary directory");
+    let outside = scratch("no-git");
     let error = SystemRunner {
-        root: outside.clone(),
+        root: outside.path(),
     }
     .tracked(&["*.ts", "*.tsx"]);
     std::fs::remove_dir_all(&outside).expect("cleanup");
@@ -7245,7 +7303,7 @@ fn pushes_an_annotated_tag_of_the_commit_checked_out() {
     let object = |name: &str| hermetic_git(&repo, &["rev-parse", name]).trim().to_owned();
     let (here, before, parent) = (object("here"), object("before"), object("HEAD~1"));
     assert_ne!(here, object("HEAD"), "a tag object, not the commit");
-    let mut runner = SystemRunner { root: repo.clone() };
+    let mut runner = SystemRunner { root: repo.path() };
     let on_head = super::pre_push(&mut runner, core::slice::from_ref(&here));
     let elsewhere = super::pre_push(&mut runner, &[before]);
     let _hidden = hermetic_git(&repo, &["config", "status.showUntrackedFiles", "no"]);
@@ -7293,7 +7351,7 @@ fn checks_the_history_git_really_writes() {
     let unrecorded = commit("fix: unrecorded", Some("c.rs"));
     let malformed = commit("Update stuff", None);
     let unscoped = commit("docs(wasm): a part named two ways", None);
-    let mut runner = SystemRunner { root: repo.clone() };
+    let mut runner = SystemRunner { root: repo.path() };
     let [messages, files, scoped] = super::history_commands(&since, &scopes_since)
         .map(|cmd| runner.capture(&cmd).expect("git log"));
     std::fs::remove_dir_all(&repo).expect("cleanup");
@@ -10931,7 +10989,7 @@ fn reads_the_changes_as_they_are() {
     ] {
         let _set = hermetic_git(&repo, &["config", key, value]);
     }
-    let mut runner = SystemRunner { root: repo.clone() };
+    let mut runner = SystemRunner { root: repo.path() };
     let state = super::tree_state(&mut runner);
     std::fs::remove_dir_all(&repo).expect("cleanup");
     let diff = state.expect("read").diff;
@@ -13395,7 +13453,7 @@ fn reads_the_targets_of_real_cargo_metadata() {
         "[package]\nname = \"a\"\nversion = \"0.0.0\"\nedition = \"2024\"\n\n[lib]\npath = \"src/lib.rs\"\ndoctest = false\n\n[[bin]]\nname = \"a\"\npath = \"src/main.rs\"\ntest = false\n",
     )
     .expect("manifest");
-    let metadata = SystemRunner { root: dir }
+    let metadata = SystemRunner { root: dir.path() }
         .capture(&super::metadata_command())
         .expect("cargo metadata");
     let sources = [
