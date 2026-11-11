@@ -9830,13 +9830,50 @@ fn reports_the_builds_and_dep_info_files_it_cannot_read() {
 }
 
 #[test]
+fn refuses_a_reason_naming_a_function_outside_test_code() {
+    let production = (
+        "crates/engine-hash/src/lib.rs".to_owned(),
+        "pub fn unsafe_gate_helper_fn() {}\n".to_owned(),
+    );
+    let review = "crates/engine-hash/src/lib.rs: replace unsafe_gate_helper_fn with () -- killed by unsafe_gate_helper_fn\n";
+    assert_eq!(
+        unviable_names_gate(review, core::slice::from_ref(&production)),
+        failed(format!(
+            "{UNVIABLE_REVIEWED}:1: names `unsafe_gate_helper_fn` as its reason, which no test \
+             code defines as a function: a review's reason names the test that kills its \
+             viable variant"
+        )),
+        "a production function named as the test that kills the mutant"
+    );
+    for test_code in [
+        "crates/engine-hash/src/lib_tests.rs",
+        "crates/engine-hash/tests/hash.rs",
+    ] {
+        assert_eq!(
+            unviable_names_gate(
+                review,
+                &[
+                    production.clone(),
+                    (
+                        test_code.to_owned(),
+                        "fn unsafe_gate_helper_fn() {}\n".to_owned()
+                    )
+                ]
+            ),
+            Ok(()),
+            "the mutated function in production code, the reason's in test code: {test_code}"
+        );
+    }
+}
+
+#[test]
 fn refuses_a_review_naming_a_function_no_source_holds() {
     let sources = vec![
         (
-            "crates/a/src/lib.rs".to_owned(),
+            "crates/engine-core/src/lib_tests.rs".to_owned(),
             "fn kills_the_viable_variant() {}\n// fn in_a_comment_only() {}\nconst A: &str = \"fn in_a_string_only\";\nfn r#raw_named_one() {}\n".to_owned(),
         ),
-        ("crates/b/src/x.rs".to_owned(), "pub(crate) fn other_crate_s_test() {}\n".to_owned()),
+        ("crates/engine-hash/tests/x.rs".to_owned(), "pub(crate) fn other_crate_s_test() {}\n".to_owned()),
     ];
     let reviews = "# A comment naming no_such_function_here is prose.\n\ncrates/a/src/lib.rs: replace f -> u8 with 0 -- killed by kills_the_viable_variant and other_crate_s_test\ncrates/a/src/lib.rs: replace g -> u8 with 1 -- killed by raw_named_one, not two_parts nor Not_a_name nor not_A_name\n";
     assert_eq!(
@@ -9845,18 +9882,19 @@ fn refuses_a_review_naming_a_function_no_source_holds() {
         "every name a function"
     );
     let dead = format!(
-        "{reviews}crates/a/src/lib.rs: replace h -> u8 with 2 -- killed by in_a_comment_only\ncrates/a/src/lib.rs: replace i -> u8 with 3 -- killed by in_a_string_only or renamed_since_the_review\n"
+        "{reviews}crates/a/src/lib.rs: replace h -> u8 with 2 -- killed by in_a_comment_only\ncrates/a/src/lib.rs: replace i -> u8 with 3 -- killed by in_a_string_only or renamed_since_the_review\ncrates/a/src/lib.rs: replace no_such_mutated_fn -> u8 with 4 -- killed by kills_the_viable_variant\n"
     );
     assert_eq!(
         unviable_names_gate(&dead, &sources),
         Err(Failure {
-            summary: "3 problems, listed \
+            summary: "4 problems, listed \
                       above"
                 .to_owned(),
             details: [
                 (5_usize, "in_a_comment_only"),
                 (6, "in_a_string_only"),
-                (6, "renamed_since_the_review")
+                (6, "renamed_since_the_review"),
+                (7, "no_such_mutated_fn")
             ]
             .map(|(line, name)| format!(
                 "{UNVIABLE_REVIEWED}:{line}: names `{name}`, which no Rust source defines as a \
@@ -9865,7 +9903,7 @@ fn refuses_a_review_naming_a_function_no_source_holds() {
             .into(),
             usage: false,
         }),
-        "names only in prose, and one renamed"
+        "names only in prose, one renamed, a mutated function that no longer exists"
     );
 }
 

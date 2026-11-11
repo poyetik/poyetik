@@ -3862,46 +3862,76 @@ fn unsafe_outside(sources: &[RustSource], tests: &BTreeSet<String>, problems: &m
     }
 }
 
-/// Checks that every function a review of an unviable mutant names exists.
+/// Checks that every function a review of an unviable mutant names exists, and that its
+/// reason names tests.
 ///
 /// A review cites the test that kills its mutant's viable variant by its name, a fact the
 /// test keeps: every word of `reviews` ([`UNVIABLE_REVIEWED`], its comments apart) written
 /// like a function's name of three parts or more (lowercase letters and digits, joined by
-/// `_`) is the name of a `fn` in the code words of `sources` (the tracked Rust files), so
-/// that a test renamed or removed leaves no review citing it.
+/// `_`) is the name of a `fn` in the tokens of `sources` (the tracked Rust files); after the
+/// line's ` -- ` (its reason), of a `fn` of test code (a crate's `tests/` or `*_tests.rs`
+/// files, the generic test bodies a macro instantiates included). So a test renamed or
+/// removed leaves no review citing it, and a reason cannot cite a function that tests
+/// nothing. Names of two parts are not checked.
 ///
 /// # Errors
 ///
-/// Returns every such word that names no function, with its line.
+/// Returns every such word that names no function, or in a reason no function of test
+/// code, with its line.
 pub fn unviable_names_gate(reviews: &str, sources: &[RustSource]) -> Result<(), Failure> {
-    let sources = &texts(sources);
     let mut functions = BTreeSet::new();
-    for (_, text) in sources {
-        let words = code_words(text);
-        for ((_, keyword, _), (_, name, _)) in words.iter().zip(words.iter().skip(1)) {
-            if keyword == "fn" {
-                let _new = functions.insert(name.clone());
+    let mut tests = BTreeSet::new();
+    for source in sources {
+        let test_code =
+            in_crate(&source.path).is_some_and(|(_, relative)| rust_test_code(relative));
+        for window in source.tokens.windows(2) {
+            if let [keyword, name] = window
+                && keyword.is_ident("fn")
+                && name.kind == TokenKind::Ident
+            {
+                let _new = functions.insert(name.text.as_str());
+                if test_code {
+                    let _test = tests.insert(name.text.as_str());
+                }
             }
         }
     }
+    let names = |text: &'_ str| -> Vec<String> {
+        text.split(|character: char| !(character.is_ascii_alphanumeric() || character == '_'))
+            .filter(|word| {
+                word.starts_with(|first: char| first.is_ascii_lowercase())
+                    && !word.chars().any(|character| character.is_ascii_uppercase())
+                    && word.split('_').filter(|part| !part.is_empty()).count() >= 3
+            })
+            .map(str::to_owned)
+            .collect()
+    };
     let mut problems = Vec::new();
     for (index, line) in reviews.lines().enumerate() {
         if line.starts_with('#') {
             continue;
         }
-        let named = line
-            .split(|character: char| !(character.is_ascii_alphanumeric() || character == '_'))
-            .filter(|word| {
-                word.starts_with(|first: char| first.is_ascii_lowercase())
-                    && !word.chars().any(|character| character.is_ascii_uppercase())
-                    && word.split('_').filter(|part| !part.is_empty()).count() >= 3
-            });
-        for name in named {
-            if !functions.contains(name) {
+        let at = index.saturating_add(1);
+        let (mutant, reason) = line.split_once(" -- ").unwrap_or((line, ""));
+        for name in names(mutant) {
+            if !functions.contains(name.as_str()) {
                 problems.push(format!(
-                    "{UNVIABLE_REVIEWED}:{}: names `{name}`, which no Rust source defines as a \
-                     function: a review names the test that kills its viable variant as it is now",
-                    index.saturating_add(1)
+                    "{UNVIABLE_REVIEWED}:{at}: names `{name}`, which no Rust source defines as a \
+                     function: a review names the test that kills its viable variant as it is now"
+                ));
+            }
+        }
+        for name in names(reason) {
+            if !functions.contains(name.as_str()) {
+                problems.push(format!(
+                    "{UNVIABLE_REVIEWED}:{at}: names `{name}`, which no Rust source defines as a \
+                     function: a review names the test that kills its viable variant as it is now"
+                ));
+            } else if !tests.contains(name.as_str()) {
+                problems.push(format!(
+                    "{UNVIABLE_REVIEWED}:{at}: names `{name}` as its reason, which no test code \
+                     defines as a function: a review's reason names the test that kills its \
+                     viable variant"
                 ));
             }
         }
