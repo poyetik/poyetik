@@ -27,8 +27,7 @@
     "bench": "tsc -p e2e/site/tsconfig.build.json && node e2e/serve.ts",
     "test:e2e": "playwright test",
     "check": "pnpm build && pnpm typecheck && pnpm lint && pnpm test && pnpm benchmarks:check && pnpm test:allocation && pnpm test:reproducible && pnpm test:e2e",
-    "benchmarks:check": "node scripts/benchmarks.ts check",
-    "benchmarks:bless": "pnpm build:wasm && node scripts/benchmarks.ts bless"
+    "benchmarks:check": "node scripts/benchmarks.ts check"
   },
   "devDependencies": {
     "@poyetik/config": "workspace:*",

@@ -16,7 +16,7 @@ use super::{
     CommandFailure, Coverage, Dir, EQUIVALENT_REVIEWED, Exit, Extent, Failed, Failure, MUTANTS_OUT,
     Measured, Mode, NATIVE_TARGETS, OnFailure, PACKAGES, PORTABILITY_TARGETS, Runner, RustCrate,
     Step, SystemRunner, UNSAFE_FILES, UNVIABLE_REPORT, UNVIABLE_REVIEWED, USAGE, Version,
-    bless_benchmarks_step, bless_step, check_steps, cli, commit_msg_gate, coverage_gate,
+    bless_benchmarks_steps, bless_step, check_steps, cli, commit_msg_gate, coverage_gate,
     equivalent_gate, license_gate, membership_gate, package_jsons, preflight_gate, release_gate,
     run_steps, run_steps_then, ts_coverage_gate, ts_mutation_gate, unsafe_gate, unviable_gate,
 };
@@ -4703,12 +4703,22 @@ const PREFLIGHT_RAN: [&str; 12] = [
 
 #[test]
 fn bless_benchmarks_counts_and_rewrites_the_baseline() {
-    let step = bless_benchmarks_step();
-    assert_eq!(step.name, "Bless the benchmark baseline", "name");
+    let steps = bless_benchmarks_steps();
     assert_eq!(
-        command_lines(&[step]),
-        vec!["Package(\"bindings/wasm\"): pnpm run benchmarks:bless"],
-        "runs the package's bless script"
+        steps
+            .iter()
+            .map(|step| step.name.as_str())
+            .collect::<Vec<_>>(),
+        ["Build the engine module", "Bless the benchmark baseline"],
+        "names"
+    );
+    assert_eq!(
+        command_lines(&steps),
+        vec![
+            "Package(\"bindings/wasm\"): pnpm run build:wasm",
+            "Package(\"bindings/wasm\"): node scripts/benchmarks.ts bless"
+        ],
+        "builds the module, then runs the benchmark command's bless, which no package script runs"
     );
     let mut fake = passing();
     let mut out = Vec::new();
@@ -4724,13 +4734,18 @@ fn bless_benchmarks_counts_and_rewrites_the_baseline() {
     );
     assert_eq!(
         fake.ran,
-        [PREFLIGHT_RAN.as_slice(), &["pnpm run benchmarks:bless"]].concat(),
-        "the preflight, then only the benchmark bless runs"
+        [
+            PREFLIGHT_RAN.as_slice(),
+            &["pnpm run build:wasm", "node scripts/benchmarks.ts bless"]
+        ]
+        .concat(),
+        "the preflight, then only the build and the benchmark bless run"
     );
     assert_eq!(
         String::from_utf8(out).expect("utf-8"),
-        "▶ [1/2] Tools and platform\n  done in 1.5 s\n▶ [2/2] Bless the benchmark baseline\n  \
-         done in 1.5 s\n✔ all 2 checks passed in 3.0 s\n",
+        "▶ [1/3] Tools and platform\n  done in 1.5 s\n▶ [2/3] Build the engine module\n  done in \
+         1.5 s\n▶ [3/3] Bless the benchmark baseline\n  done in 1.5 s\n✔ all 3 checks passed in \
+         4.5 s\n",
         "progress"
     );
 }
@@ -4940,7 +4955,7 @@ fn blesses_only_where_the_checks_could_run() {
     // outside Cargo configuration) is never blessed.
     for (task, script) in [
         ("bless", BLESS_RAN),
-        ("bless-benchmarks", "pnpm run benchmarks:bless"),
+        ("bless-benchmarks", "node scripts/benchmarks.ts bless"),
     ] {
         let mut fake = passing();
         fake.environment.variables = vec!["CARGO_PROFILE_RELEASE_OPT_LEVEL".to_owned()];

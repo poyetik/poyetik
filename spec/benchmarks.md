@@ -4,7 +4,7 @@ What the engine's cost benchmarks measure, how their thresholds are derived, wha
 
 | File | Contents | Changed by |
 |---|---|---|
-| [`benchmark-baseline.json`](benchmark-baseline.json) | The instruction count of every benchmark | `cargo xtask bless-benchmarks` (which runs `pnpm benchmarks:bless`), in a commit that says why: a process rule; `check` refuses a count beyond the tolerance, an entry nothing measures and a benchmark missing, so only a hand edit within the tolerance would pass it |
+| [`benchmark-baseline.json`](benchmark-baseline.json) | The instruction count of every benchmark | `cargo xtask bless-benchmarks` (which runs the preflight of the check, builds the module, then `node scripts/benchmarks.ts bless` in `bindings/wasm`, which no package script runs), in a commit that says why: a process rule; `check` refuses a count beyond the tolerance, an entry nothing measures and a benchmark missing, so only a hand edit within the tolerance would pass it |
 | [`benchmark-thresholds.json`](benchmark-thresholds.json) | The tolerance of the counts, and the measured times the construction bound derives from | By hand, in a reviewed commit, with the derivation below |
 | `bindings/wasm/benchmarks/` | The instrumenter, the benchmarks, the comparison and the law | Code, under the package's proofs (100% coverage, no surviving mutant) |
 

@@ -9832,19 +9832,27 @@ fn bless(
         .map_err(|failure| Failure::from(failure.to_string()))
 }
 
-/// The only way to change the benchmark baseline.
+/// The only way to change the benchmark baseline: no package script runs the bless.
 ///
-/// Builds the engine module, counts the instructions of every benchmark and rewrites
+/// Builds the engine module, then counts the instructions of every benchmark and rewrites
 /// `spec/benchmark-baseline.json`, refusing to when building plans grows faster than
 /// n log n. The commit must explain why the counts changed (`spec/benchmarks.md`).
 #[must_use]
-pub fn bless_benchmarks_step() -> Step {
-    run(
-        "Bless the benchmark baseline",
-        "pnpm",
-        &["run", "benchmarks:bless"],
-        Dir::Package("bindings/wasm"),
-    )
+pub fn bless_benchmarks_steps() -> [Step; 2] {
+    [
+        run(
+            "Build the engine module",
+            "pnpm",
+            &["run", "build:wasm"],
+            Dir::Package("bindings/wasm"),
+        ),
+        run(
+            "Bless the benchmark baseline",
+            "node",
+            &["scripts/benchmarks.ts", "bless"],
+            Dir::Package("bindings/wasm"),
+        ),
+    ]
 }
 
 /// A command of `cargo xtask`, read from its arguments.
@@ -10004,7 +10012,8 @@ pub fn cli(
             .try_for_each(|part| say(out, &part.name())),
         Task::Bless(options) => run_steps(&[preflight_step(), bless_step(&options)], runner, out),
         Task::BlessBenchmarks => {
-            run_steps(&[preflight_step(), bless_benchmarks_step()], runner, out)
+            let [build, bless] = bless_benchmarks_steps();
+            run_steps(&[preflight_step(), build, bless], runner, out)
         }
         Task::CommitMsg(path) => {
             read_file(runner, &path).and_then(|message| commit_msg_gate(&message))
