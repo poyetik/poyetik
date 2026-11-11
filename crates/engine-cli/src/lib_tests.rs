@@ -844,7 +844,7 @@ fn bless_command_reads_each_case_once() {
     drop(memory.files.remove(Path::new("conf/references.json")));
     drop(memory.files.remove(Path::new("conf/algorithms.json")));
     assert_eq!(
-        run_with(&mut memory, &["bless", "conf"]).0,
+        run_with(&mut memory, &["bless", "conf", "--from-nothing"]).0,
         Ok(()),
         "blessed"
     );
@@ -1147,7 +1147,7 @@ fn bless_command_writes_sorted_references() {
         ("conf/cases/a.json", SINE),
         ("conf/patches/a.json", PATCH),
     ]);
-    let (result, out) = run_with(&mut memory, &["bless", "conf"]);
+    let (result, out) = run_with(&mut memory, &["bless", "conf", "--from-nothing"]);
     assert_eq!(result, Ok(()), "blessed");
     assert_eq!(
         out, "blessed 2 case(s) in conf/references.json and conf/algorithms.json\n",
@@ -1281,11 +1281,77 @@ fn bless_command_refuses_bits_changed_without_a_new_version() {
     );
 }
 
-/// Files bless cannot compare with are refused, a missing one is blessed from nothing.
+#[test]
+fn bless_command_spends_only_the_versions_of_the_merge_base() {
+    let mut memory = conformance(&format!(r#"{{"sine":{}}}"#, sine_references()));
+    let algorithms = memory.text("conf/algorithms.json");
+    let changed = algorithms.replace(&fingerprint_of("osc~"), &"0".repeat(64));
+    drop(memory.files.insert(
+        PathBuf::from("conf/algorithms.json"),
+        changed.as_bytes().to_vec(),
+    ));
+    let bits = "BITS     osc~ 1: its outputs changed at the same algorithm version (a new version \
+                needed)\n";
+    // A version the merge base did not spend may take other bits; one it spent may not.
+    drop(
+        memory
+            .files
+            .insert(PathBuf::from("base.json"), b"null\n".to_vec()),
+    );
+    let (unspent, _) = run_with(
+        &mut memory,
+        &[
+            "bless",
+            "conf",
+            "--case-changed",
+            "sine",
+            "--spent",
+            "base.json",
+        ],
+    );
+    assert_eq!(unspent, Ok(()), "nothing spent at the merge base");
+    assert_eq!(
+        memory.text("conf/algorithms.json"),
+        algorithms,
+        "re-blessed"
+    );
+    drop(
+        memory
+            .files
+            .insert(PathBuf::from("base.json"), changed.as_bytes().to_vec()),
+    );
+    assert_eq!(
+        run_with(&mut memory, &["bless", "conf", "--spent", "base.json"]),
+        (
+            Err("bless refused in conf: 1 problem(s), nothing written".to_owned()),
+            bits.to_owned()
+        ),
+        "spent at the merge base"
+    );
+    assert_eq!(
+        run_with(&mut memory, &["bless", "conf", "--spent", "none.json"]).0,
+        Err("cannot read none.json: no such file".to_owned()),
+        "a record of the merge base to read"
+    );
+    drop(
+        memory
+            .files
+            .insert(PathBuf::from("base.json"), b"[1]".to_vec()),
+    );
+    assert!(
+        run_with(&mut memory, &["bless", "conf", "--spent", "base.json"])
+            .0
+            .is_err_and(|error| error.starts_with("invalid base.json: ")),
+        "an invalid record of the merge base"
+    );
+}
+
+/// Files bless cannot compare with are refused; a first bless, with neither, only when said.
 #[test]
 fn bless_command_refuses_files_it_cannot_compare_with() {
     let mut memory = conformance(&format!(r#"{{"sine":{}}}"#, sine_references()));
     let algorithms = memory.text("conf/algorithms.json");
+    let references = memory.text("conf/references.json");
     drop(
         memory
             .files
@@ -1295,9 +1361,7 @@ fn bless_command_refuses_files_it_cannot_compare_with() {
         run_with(&mut memory, &["bless", "conf"])
             .0
             .is_err_and(|error| error.starts_with("invalid conf/algorithms.json: ")
-                && error.ends_with(
-                    "(bless compares with it: fix it, or remove it to bless from nothing)"
-                )),
+                && error.ends_with("(bless compares with it: restore it as bless wrote it)")),
         "an invalid record"
     );
     memory.unreadable = Some(PathBuf::from("conf/references.json"));
@@ -1313,13 +1377,78 @@ fn bless_command_refuses_files_it_cannot_compare_with() {
         "unreadable record"
     );
     memory.unreadable = None;
+    let refused = Err("bless refused in conf: 1 problem(s), nothing written".to_owned());
+    drop(memory.files.remove(Path::new("conf/algorithms.json")));
+    for told in [&["bless", "conf"][..], &["bless", "conf", "--from-nothing"]] {
+        assert_eq!(
+            run_with(&mut memory, told),
+            (
+                refused.clone(),
+                "MISSING  conf/algorithms.json: missing beside conf/references.json (restore \
+                 it: bless compares with both)\n"
+                    .to_owned()
+            ),
+            "the record alone missing: {told:?}"
+        );
+    }
+    drop(memory.files.insert(
+        PathBuf::from("conf/algorithms.json"),
+        algorithms.clone().into_bytes(),
+    ));
+    drop(memory.files.remove(Path::new("conf/references.json")));
+    assert_eq!(
+        run_with(&mut memory, &["bless", "conf"]),
+        (
+            refused.clone(),
+            "MISSING  conf/references.json: missing beside conf/algorithms.json (restore it: \
+             bless compares with both)\n"
+                .to_owned()
+        ),
+        "the references alone missing"
+    );
     drop(memory.files.remove(Path::new("conf/algorithms.json")));
     assert_eq!(
-        run_with(&mut memory, &["bless", "conf"]).0,
+        run_with(&mut memory, &["bless", "conf", "--case-changed", "typo"]),
+        (
+            refused.clone(),
+            "MISSING  conf/references.json and conf/algorithms.json: none to compare with (a \
+             first bless: --from-nothing)\n"
+                .to_owned()
+        ),
+        "neither, unsaid"
+    );
+    assert_eq!(
+        run_with(
+            &mut memory,
+            &["bless", "conf", "--from-nothing", "--case-changed", "typo"]
+        ),
+        (
+            refused.clone(),
+            "UNKNOWN  --case-changed typo: no such case\n".to_owned()
+        ),
+        "the names checked from nothing too"
+    );
+    assert_eq!(
+        run_with(&mut memory, &["bless", "conf", "--from-nothing"]).0,
         Ok(()),
-        "from nothing"
+        "from nothing, said"
     );
     assert_eq!(memory.text("conf/algorithms.json"), algorithms, "recorded");
+    assert_eq!(
+        memory.text("conf/references.json"),
+        references,
+        "referenced"
+    );
+    assert_eq!(
+        run_with(&mut memory, &["bless", "conf", "--from-nothing"]),
+        (
+            refused,
+            "OPTION   --from-nothing: conf/references.json and conf/algorithms.json exist, to \
+             compare with\n"
+                .to_owned()
+        ),
+        "from nothing, with both to compare with"
+    );
 }
 
 #[test]
@@ -1405,19 +1534,42 @@ fn rejects_unknown_commands() {
         (&["check"][..], "check expects <dir>"),
         (
             &["bless"][..],
-            "bless expects <dir> [--case-changed <name>]...",
+            "bless expects <dir> [--case-changed <name>]... [--spent <record>] \
+             [--battery-changed] [--from-nothing]",
+        ),
+        (&["bless", "a", "b"][..], "unknown option \"b\""),
+        (
+            &["bless", "a", "--case-changed", "x", "--case-changed"][..],
+            "bless expects <dir> [--case-changed <name>]... [--spent <record>] \
+             [--battery-changed] [--from-nothing]",
         ),
         (
-            &["bless", "a", "b"][..],
-            "bless expects <dir> [--case-changed <name>]...",
-        ),
-        (
-            &["bless", "a", "--case-changed", "x", "--case"][..],
-            "bless expects <dir> [--case-changed <name>]...",
+            &["bless", "a", "--spent"][..],
+            "bless expects <dir> [--case-changed <name>]... [--spent <record>] \
+             [--battery-changed] [--from-nothing]",
         ),
         (
             &["bless", "a", "--case", "x"][..],
             "unknown option \"--case\"",
+        ),
+        (
+            &["bless", "a", "--spent", "x", "--spent", "x"][..],
+            "option \"--spent\" given twice",
+        ),
+        (
+            &["bless", "a", "--battery-changed", "--battery-changed"][..],
+            "option \"--battery-changed\" given twice",
+        ),
+        (
+            &[
+                "bless",
+                "a",
+                "--from-nothing",
+                "--case-changed",
+                "x",
+                "--from-nothing",
+            ][..],
+            "option \"--from-nothing\" given twice",
         ),
         (&["export", "a"][..], "export expects <dir> <out>"),
         (&["help", "render"][..], "help expects no argument"),
@@ -2182,7 +2334,7 @@ fn bless_and_export_print_safe_lines() {
         ("conf\u{1b}[2J/cases/a\n\u{202e}.json", SINE),
         ("conf\u{1b}[2J/patches/a\n\u{202e}.json", PATCH),
     ]);
-    let (blessed, bless_out) = run_with(&mut memory, &["bless", "conf\u{1b}[2J"]);
+    let (blessed, bless_out) = run_with(&mut memory, &["bless", "conf\u{1b}[2J", "--from-nothing"]);
     assert_eq!(blessed, Ok(()), "blessed");
     assert_eq!(
         bless_out,

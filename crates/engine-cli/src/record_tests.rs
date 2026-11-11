@@ -3,9 +3,37 @@
 use alloc::collections::BTreeMap;
 
 use super::{
-    Fingerprints, Record, References, Versions, bless_problems, blessed, current_fingerprints,
-    record_problems, same_rules,
+    Before, Blessing, Fingerprints, Record, References, Spent, Told, Versions, bless_problems,
+    blessed, current_fingerprints, record_problems, same_rules,
 };
+
+/// What `bless` refuses replacing `old` and `earlier`, every version of `old` spent, as
+/// `cases` and `references` now are with the fingerprints `now`, the cases `changed` named.
+fn problems(
+    old: &Record,
+    earlier: &References,
+    now: &Fingerprints,
+    cases: &BTreeMap<String, Versions>,
+    references: &References,
+    changed: &[String],
+) -> Vec<String> {
+    bless_problems(
+        &Before {
+            record: old,
+            references: earlier,
+            spent: Spent::Replaced,
+        },
+        &Blessing {
+            fingerprints: now,
+            cases,
+            references,
+        },
+        &Told {
+            changed,
+            battery_changed: false,
+        },
+    )
+}
 
 /// The versions of `boxes`, by name.
 fn versions(boxes: &[(&str, u32)]) -> Versions {
@@ -165,7 +193,7 @@ fn check_refuses_every_difference_from_the_current_engine() {
             "RULES    the references were rendered under render rules version 0, the engine's \
              is 1 (run bless)",
             "BATTERY  the fingerprints were computed with battery 0, the engine's is 1 (run \
-             bless)",
+             bless --battery-changed)",
         ],
         "every version named, no fingerprint compared across batteries"
     );
@@ -188,13 +216,13 @@ fn bless_refuses_bits_changed_without_a_new_version() {
     let earlier = references(&[("a", "1"), ("b", "2")]);
     let same = references(&[("a", "1"), ("b", "2")]);
     assert_eq!(
-        bless_problems(&old, &earlier, &now, &cases, &same, &[]),
+        problems(&old, &earlier, &now, &cases, &same, &[]),
         Vec::<String>::new(),
         "nothing changed"
     );
     let moved = references(&[("a", "1"), ("b", "9"), ("new", "5")]);
     assert_eq!(
-        bless_problems(&old, &earlier, &now, &cases, &moved, &[]),
+        problems(&old, &earlier, &now, &cases, &moved, &[]),
         [
             "CHANGED  b binary64: its reference changed under the same algorithm versions (a new \
           version, or --case-changed b)"
@@ -202,12 +230,12 @@ fn bless_refuses_bits_changed_without_a_new_version() {
         "a changed reference refused, a new case accepted"
     );
     assert_eq!(
-        bless_problems(&old, &earlier, &now, &cases, &moved, &["b".to_owned()]),
+        problems(&old, &earlier, &now, &cases, &moved, &["b".to_owned()]),
         Vec::<String>::new(),
         "the case named as changed"
     );
     assert_eq!(
-        bless_problems(
+        problems(
             &old,
             &earlier,
             &now,
@@ -230,7 +258,7 @@ fn bless_refuses_bits_changed_without_a_new_version() {
     ]);
     let now_bumped = prints(&[("osc~", 2, "p")]);
     assert_eq!(
-        bless_problems(&old, &earlier, &now_bumped, &bumped, &moved, &[]),
+        problems(&old, &earlier, &now_bumped, &bumped, &moved, &[]),
         Vec::<String>::new(),
         "a new version"
     );
@@ -245,7 +273,7 @@ fn bless_refuses_bits_changed_without_a_new_version() {
         },
     ] {
         assert_eq!(
-            bless_problems(&other, &earlier, &now, &cases, &moved, &[]),
+            problems(&other, &earlier, &now, &cases, &moved, &[]),
             Vec::<String>::new(),
             "{other:?}"
         );
@@ -262,19 +290,19 @@ fn bless_refuses_lower_versions_and_changed_fingerprints() {
     let none = References::new();
     let lower = prints(&[("dac~", 1, "d"), ("osc~", 2, "o")]);
     assert_eq!(
-        bless_problems(&old, &none, &lower, &cases, &none, &[]),
+        problems(&old, &none, &lower, &cases, &none, &[]),
         ["LOWER    osc~: at algorithm version 2, below version 3 already recorded"],
         "below the version a case was blessed with"
     );
     let fingerprinted = record(&[], &[("osc~", 4, "o"), ("osc~", 5, "p")]);
     assert_eq!(
-        bless_problems(&fingerprinted, &none, &lower, &cases, &none, &[]),
+        problems(&fingerprinted, &none, &lower, &cases, &none, &[]),
         ["LOWER    osc~: at algorithm version 2, below version 5 already recorded"],
         "below the highest version fingerprinted"
     );
     let changed = prints(&[("dac~", 1, "other"), ("osc~", 3, "o")]);
     assert_eq!(
-        bless_problems(&old, &none, &changed, &cases, &none, &[]),
+        problems(&old, &none, &changed, &cases, &none, &[]),
         [
             "BITS     dac~ 1: its outputs changed at the same algorithm version (a new version \
           needed)"
@@ -286,21 +314,215 @@ fn bless_refuses_lower_versions_and_changed_fingerprints() {
         ..old.clone()
     };
     assert_eq!(
-        bless_problems(&other_battery, &none, &changed, &cases, &none, &[]),
-        Vec::<String>::new(),
-        "fingerprints of another battery are not compared"
+        problems(&other_battery, &none, &changed, &cases, &none, &[]),
+        [
+            "BATTERY  the fingerprints were computed with battery 2, the engine's is 1 (a \
+             battery change: bless --battery-changed, changing no reference and no version)"
+        ],
+        "fingerprints of another battery are not compared, and the battery change is refused"
     );
     let later_rules = Record {
         render_rules: 2,
         ..old
     };
     assert_eq!(
-        bless_problems(&later_rules, &none, &changed, &cases, &none, &[]),
+        problems(&later_rules, &none, &changed, &cases, &none, &[]),
         [
             "LOWER    render rules version 1: below version 2 already recorded",
             "BITS     dac~ 1: its outputs changed at the same algorithm version (a new version \
              needed)",
         ],
         "render rules below those recorded"
+    );
+}
+
+/// What `bless` refuses replacing `old` and its references `earlier` with `now`, `cases`
+/// and `references`, the spent versions being `spent`, as `told`.
+fn refused(
+    old: &Record,
+    earlier: &References,
+    spent: Spent<'_>,
+    (now, cases, references): (&Fingerprints, &BTreeMap<String, Versions>, &References),
+    told: Told<'_>,
+) -> Vec<String> {
+    bless_problems(
+        &Before {
+            record: old,
+            references: earlier,
+            spent,
+        },
+        &Blessing {
+            fingerprints: now,
+            cases,
+            references,
+        },
+        &told,
+    )
+}
+
+/// Nothing named, the battery unchanged.
+const PLAIN: Told<'static> = Told {
+    changed: &[],
+    battery_changed: false,
+};
+
+#[test]
+fn blesses_again_a_version_the_merge_base_did_not_spend() {
+    // osc~ 2 was blessed on the branch at print A; the merge base spent only version 1.
+    let base = record(&[], &[("osc~", 1, "one")]);
+    let old = record(&[], &[("osc~", 1, "one"), ("osc~", 2, "A")]);
+    let none = References::new();
+    let cases = BTreeMap::new();
+    let changed = prints(&[("osc~", 2, "B")]);
+    let now = (&changed, &cases, &none);
+    assert_eq!(
+        refused(&old, &none, Spent::Base(Some(&base)), now, PLAIN),
+        Vec::<String>::new(),
+        "a version first blessed on the branch takes other bits"
+    );
+    assert_eq!(
+        refused(&old, &none, Spent::Base(None), now, PLAIN),
+        Vec::<String>::new(),
+        "no record at the merge base: nothing spent"
+    );
+    let bits = [
+        "BITS     osc~ 2: its outputs changed at the same algorithm version (a new \
+                 version needed)",
+    ];
+    assert_eq!(
+        refused(&old, &none, Spent::Replaced, now, PLAIN),
+        bits,
+        "without the merge base, every recorded version is spent"
+    );
+    let spent = record(&[], &[("osc~", 2, "A")]);
+    assert_eq!(
+        refused(&old, &none, Spent::Base(Some(&spent)), now, PLAIN),
+        bits,
+        "a version the merge base spent keeps its bits"
+    );
+    let higher = record(&[("a", versions(&[("osc~", 3)]))], &[]);
+    assert_eq!(
+        refused(&old, &none, Spent::Base(Some(&higher)), now, PLAIN),
+        ["LOWER    osc~: at algorithm version 2, below version 3 already recorded"],
+        "below a version the merge base recorded"
+    );
+    // The merge base's fingerprints of another battery: the spent version keeps the print
+    // the replaced record holds under this one.
+    let older_battery = Record {
+        fingerprint_battery: 0,
+        ..spent
+    };
+    assert_eq!(
+        refused(&old, &none, Spent::Base(Some(&older_battery)), now, PLAIN),
+        bits,
+        "the print the battery change recorded"
+    );
+    let unspent = record(&[], &[("osc~", 1, "one")]);
+    assert_eq!(
+        refused(
+            &unspent,
+            &none,
+            Spent::Base(Some(&older_battery)),
+            now,
+            PLAIN
+        ),
+        Vec::<String>::new(),
+        "no print of the spent version under this battery"
+    );
+}
+
+#[test]
+fn blesses_a_battery_change_alone() {
+    let now = prints(&[("osc~", 1, "new")]);
+    let cases = BTreeMap::from([("a".to_owned(), versions(&[("osc~", 1)]))]);
+    let earlier = references(&[("a", "1")]);
+    let current = record(&[("a", versions(&[("osc~", 1)]))], &[("osc~", 1, "new")]);
+    let old = Record {
+        fingerprint_battery: 0,
+        ..current.clone()
+    };
+    let battery = Told {
+        changed: &[],
+        battery_changed: true,
+    };
+    let same = (&now, &cases, &earlier);
+    assert_eq!(
+        refused(&old, &earlier, Spent::Replaced, same, PLAIN),
+        [
+            "BATTERY  the fingerprints were computed with battery 0, the engine's is 1 (a \
+             battery change: bless --battery-changed, changing no reference and no version)"
+        ],
+        "a battery change, not said"
+    );
+    assert_eq!(
+        refused(&old, &earlier, Spent::Replaced, same, battery),
+        Vec::<String>::new(),
+        "said, and nothing else changed"
+    );
+    assert_eq!(
+        refused(&current, &earlier, Spent::Replaced, same, battery),
+        ["BATTERY  --battery-changed: the battery is unchanged (1)"],
+        "said of an unchanged battery"
+    );
+    let moved = references(&[("a", "2"), ("new", "3")]);
+    let named = ["a".to_owned()];
+    assert_eq!(
+        refused(
+            &old,
+            &earlier,
+            Spent::Replaced,
+            (&now, &cases, &moved),
+            Told {
+                changed: &named,
+                battery_changed: true,
+            }
+        ),
+        [
+            "CHANGED  a binary64: its reference changed under the same algorithm versions (a \
+             battery change blesses no reference change)",
+            "CHANGED  new: a case the record bless replaces does not hold (a battery change \
+             blesses no reference change)",
+        ],
+        "no reference change, even named, and no new case"
+    );
+    let bumped = prints(&[("osc~", 2, "new")]);
+    let bumped_cases = BTreeMap::from([("a".to_owned(), versions(&[("osc~", 2)]))]);
+    assert_eq!(
+        refused(
+            &old,
+            &earlier,
+            Spent::Replaced,
+            (&bumped, &bumped_cases, &earlier),
+            battery
+        ),
+        ["VERSION  osc~: version 2 is not recorded (a battery change blesses no new version)"],
+        "no new version"
+    );
+}
+
+#[test]
+fn refuses_a_reference_whose_case_the_record_does_not_hold() {
+    let now = prints(&[("osc~", 1, "o")]);
+    let cases = BTreeMap::from([("a".to_owned(), versions(&[("osc~", 1)]))]);
+    let old = record(&[], &[("osc~", 1, "o")]);
+    let earlier = references(&[("a", "1")]);
+    let moved = references(&[("a", "2")]);
+    assert_eq!(
+        problems(&old, &earlier, &now, &cases, &moved, &[]),
+        [
+            "MISSING  a: a reference but no versions recorded in the record bless replaces \
+             (restore it, or --case-changed a)"
+        ],
+        "a case left out of the record"
+    );
+    assert_eq!(
+        problems(&old, &earlier, &now, &cases, &moved, &["a".to_owned()]),
+        Vec::<String>::new(),
+        "named as changed"
+    );
+    assert_eq!(
+        problems(&old, &References::new(), &now, &cases, &moved, &[]),
+        Vec::<String>::new(),
+        "a new case"
     );
 }

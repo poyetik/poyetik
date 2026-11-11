@@ -587,6 +587,9 @@ pub enum Action {
         /// The number of cargo-mutants jobs.
         jobs: NonZeroUsize,
     },
+    /// Bless the conformance references ([`bless_step`]): read the record at the merge base,
+    /// then run `engine-cli bless` with it as the versions spent.
+    Bless(BlessOptions),
     /// Record the proof of the Rust mutation step of the default check that passed
     /// ([`ProofRecord`]), when the tree is clean.
     MutationProofRecorded,
@@ -9348,6 +9351,7 @@ fn run_action(
         }
         Action::RustMutantsOfChanges { jobs } => rust_mutants_of_changes(runner, out, *jobs),
         Action::MutationProofRecorded => record_mutation_proof(runner, out, tree.as_ref()),
+        Action::Bless(options) => bless(runner, out, options),
         Action::UnviableGate(extent) => {
             let report = unviable_report(runner, *extent)?;
             unviable_gate(&report, *extent, &read_file(runner, UNVIABLE_REVIEWED)?)
@@ -9471,7 +9475,7 @@ pub fn run_steps_then(
 
 /// Usage of the `xtask` command, in the order of its first line.
 pub const USAGE: &str = "\
-usage: cargo xtask <check [--full [--part <part>]]|list [--full [--parts]]|mutants <target>|bless [--case-changed <name>]...|bless-benchmarks|commit-msg <file>|pre-push [pair...]|help>
+usage: cargo xtask <check [--full [--part <part>]]|list [--full [--parts]]|mutants <target>|bless [--case-changed <name>]... [--battery-changed] [--from-nothing]|bless-benchmarks|commit-msg <file>|pre-push [pair...]|help>
   check [--full]        run every quality check; mutation testing covers the changes: Rust
                         since the merge base with the upstream, origin/main or main,
                         but the crates an earlier default check of that base proved
@@ -9490,9 +9494,11 @@ usage: cargo xtask <check [--full [--part <part>]]|list [--full [--parts]]|mutan
                         sources (their paths from the root)
   bless [options]       rewrite conformance/references.json from the current renders,
                         and conformance/algorithms.json from the current box types and
-                        engine, refusing a reference changed under the same versions
-                        (decision 29) but for each case named by --case-changed <name>
-                        (repeatable)
+                        engine (decision 29), refusing a reference changed under the
+                        same versions but for each case named by --case-changed <name>
+                        (repeatable), outputs changed at a version spent at the merge
+                        base, a battery change but with --battery-changed, and a first
+                        bless but with --from-nothing
   bless-benchmarks      rewrite spec/benchmark-baseline.json from the current instruction
                         counts of the engine module (spec/benchmarks.md)
   commit-msg <file>     check a commit message (used by the commit-msg hook)
@@ -9673,15 +9679,81 @@ pub fn mutants_steps(target: &Target, jobs: NonZeroUsize) -> Vec<Step> {
     }
 }
 
+/// The record of the conformance references, `conformance/algorithms.json`.
+pub const CONFORMANCE_RECORD: &str = "conformance/algorithms.json";
+
+/// Where [`bless_step`] writes the record at the merge base, for `engine-cli bless --spent`:
+/// `null` when the merge base has none.
+pub const SPENT_RECORD: &str = "target/xtask/spent-algorithms.json";
+
+/// What `cargo xtask bless` was told, passed on to `engine-cli bless`
+/// (`spec/engine-design.md`, decision 29; each "Review only").
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct BlessOptions {
+    /// The cases whose references changed on purpose (`--case-changed <name>`).
+    pub changed: Vec<String>,
+    /// The fingerprint battery changed, and nothing else (`--battery-changed`).
+    pub battery_changed: bool,
+    /// A first bless, with neither file to compare with (`--from-nothing`).
+    pub from_nothing: bool,
+}
+
+impl BlessOptions {
+    /// Reads the options of `cargo xtask bless`: `--case-changed <name>` (repeatable),
+    /// `--battery-changed` and `--from-nothing` (each at most once).
+    ///
+    /// # Errors
+    ///
+    /// Returns why the options are not those.
+    pub fn parse(options: &[String]) -> Result<Self, String> {
+        let usage = || {
+            "`bless` takes only `--case-changed <name>` (repeatable), `--battery-changed` and \
+             `--from-nothing`"
+                .to_owned()
+        };
+        let mut parsed = Self::default();
+        let mut rest = options.iter();
+        while let Some(option) = rest.next() {
+            let flag = match option.as_str() {
+                "--case-changed" => {
+                    parsed.changed.push(rest.next().ok_or_else(usage)?.clone());
+                    continue;
+                }
+                "--battery-changed" => &mut parsed.battery_changed,
+                "--from-nothing" => &mut parsed.from_nothing,
+                _ => return Err(usage()),
+            };
+            if *flag {
+                return Err(usage());
+            }
+            *flag = true;
+        }
+        Ok(parsed)
+    }
+}
+
 /// The only way to change the reference hashes: renders every conformance case.
 ///
 /// It rewrites `conformance/references.json`, and what they were blessed under,
-/// `conformance/algorithms.json`; `engine-cli bless` refuses a reference changed under the
-/// same versions but for the cases of `changed` (each given as `--case-changed <name>`), a
-/// lower version, and a box type's outputs changed at the same version
-/// (`spec/engine-design.md`, decision 29). The commit must explain why they changed.
+/// [`CONFORMANCE_RECORD`]; `engine-cli bless` refuses a reference changed under the same
+/// versions but for the cases of `--case-changed`, a lower version, a box type's outputs
+/// changed at a version spent (one the record at the merge base of [`MUTATION_BASES`]
+/// holds: successive changes on a branch share one new version), a battery change but
+/// with `--battery-changed`, and a directory without both files but with
+/// `--from-nothing` (`spec/engine-design.md`, decision 29). The commit must explain why
+/// they changed.
 #[must_use]
-pub fn bless_step(changed: &[String]) -> Step {
+pub fn bless_step(options: &BlessOptions) -> Step {
+    Step {
+        name: "Bless conformance references".to_owned(),
+        action: Action::Bless(options.clone()),
+    }
+}
+
+/// The command [`bless_step`] runs once the record at the merge base is in
+/// [`SPENT_RECORD`].
+#[must_use]
+pub fn bless_command(options: &BlessOptions) -> Cmd {
     let mut args = vec![
         "run",
         "--package",
@@ -9691,11 +9763,73 @@ pub fn bless_step(changed: &[String]) -> Step {
         "--",
         "bless",
         "conformance",
+        "--spent",
+        SPENT_RECORD,
     ];
-    for name in changed {
+    for name in &options.changed {
         args.extend(["--case-changed", name]);
     }
-    run("Bless conformance references", "cargo", &args, Dir::Root)
+    if options.battery_changed {
+        args.push("--battery-changed");
+    }
+    if options.from_nothing {
+        args.push("--from-nothing");
+    }
+    Cmd::new("cargo", &args, Dir::Root)
+}
+
+/// The record of the conformance references at `base`, as git gives it, or `None` when
+/// `base` holds none.
+///
+/// # Errors
+///
+/// Returns why git cannot list or show it.
+pub fn record_at(runner: &mut dyn Runner, base: &str) -> Result<Option<String>, Failure> {
+    let doing = format!("read {CONFORMANCE_RECORD} at the merge base {base}");
+    let listed = git_output(
+        runner,
+        &["ls-tree", "--name-only", base, "--", CONFORMANCE_RECORD],
+        &doing,
+    )?;
+    if listed.trim().is_empty() {
+        return Ok(None);
+    }
+    git_output(
+        runner,
+        &["show", &format!("{base}:{CONFORMANCE_RECORD}")],
+        &doing,
+    )
+    .map(Some)
+}
+
+/// Writes the record at the merge base to [`SPENT_RECORD`] (`null` when the merge base has
+/// none), then blesses with it.
+///
+/// # Errors
+///
+/// Returns why there is no merge base, why git cannot give the record there, why it
+/// cannot be written, or why the bless failed.
+fn bless(
+    runner: &mut dyn Runner,
+    out: &mut dyn Write,
+    options: &BlessOptions,
+) -> Result<(), Failure> {
+    let (base, against) = mutation_base(runner)?;
+    let record = record_at(runner, &base)?;
+    let (spent, held) = record.map_or_else(
+        || ("null\n".to_owned(), "none"),
+        |text| (text, "its versions"),
+    );
+    runner
+        .write(SPENT_RECORD, &spent)
+        .map_err(|error| Failure::from(format!("cannot write {SPENT_RECORD}: {error}")))?;
+    say(
+        out,
+        &format!("  spent: {held} at {base} (merge base with {against})"),
+    )?;
+    runner
+        .run(&bless_command(options))
+        .map_err(|failure| Failure::from(failure.to_string()))
 }
 
 /// The only way to change the benchmark baseline.
@@ -9726,8 +9860,8 @@ enum Task {
     ListParts,
     /// Every mutant of one target.
     Mutants(Target),
-    /// Rewrite the reference hashes, accepting a changed reference of the cases named.
-    Bless(Vec<String>),
+    /// Rewrite the reference hashes, as told.
+    Bless(BlessOptions),
     /// Rewrite the benchmark baseline.
     BlessBenchmarks,
     /// Check the commit message in this file.
@@ -9777,15 +9911,7 @@ fn task(args: &[OsString]) -> Result<Task, String> {
                 })
         }
         [command, options @ ..] if command == "bless" => {
-            let (pairs, rest) = options.as_chunks::<2>();
-            let changed: Option<Vec<String>> = pairs
-                .iter()
-                .map(|[flag, name]| (flag == "--case-changed").then(|| name.clone()))
-                .collect();
-            match changed {
-                Some(changed) if rest.is_empty() => Ok(Task::Bless(changed)),
-                _ => Err("`bless` takes only `--case-changed <name>`, repeatable".to_owned()),
-            }
+            BlessOptions::parse(options).map(Task::Bless)
         }
         [command] if command == "bless-benchmarks" => Ok(Task::BlessBenchmarks),
         [command] if command == "help" => Ok(Task::Help),
@@ -9876,7 +10002,7 @@ pub fn cli(
         Task::ListParts => full_parts()
             .into_iter()
             .try_for_each(|part| say(out, &part.name())),
-        Task::Bless(changed) => run_steps(&[preflight_step(), bless_step(&changed)], runner, out),
+        Task::Bless(options) => run_steps(&[preflight_step(), bless_step(&options)], runner, out),
         Task::BlessBenchmarks => {
             run_steps(&[preflight_step(), bless_benchmarks_step()], runner, out)
         }

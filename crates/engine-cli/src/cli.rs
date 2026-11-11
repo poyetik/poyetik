@@ -13,8 +13,8 @@ use engine_patch::MAX_PATCH_BYTES;
 use engine_objects::REGISTRY;
 
 use crate::record::{
-    Record, References, Versions, bless_problems, blessed, current_fingerprints, record_problems,
-    same_rules,
+    Before, Blessing, Record, References, Spent, Told, Versions, bless_problems, blessed,
+    current_fingerprints, record_problems, same_rules, unknown_cases,
 };
 use crate::{Files, Prepared, Rendered, prepare_case};
 use engine_hash::RenderHash;
@@ -32,12 +32,18 @@ usage: engine-cli <command>
                       in every format, with <dir>/references.json, and
                       the algorithm versions of its box types, with
                       <dir>/algorithms.json
-  bless <dir> [--case-changed <name>]...
+  bless <dir> [--case-changed <name>]... [--spent <record>]
+        [--battery-changed] [--from-nothing]
                       rewrite <dir>/references.json from the current renders,
                       and <dir>/algorithms.json from the current box types and
                       engine; refuses a reference changed under the same
-                      versions but for each case named, a lower version, and
-                      a box type's outputs changed at the same version
+                      versions but for each case named, a lower version, a
+                      box type's outputs changed at a spent version (those of
+                      <record>, the record at the merge base, `null` for none;
+                      else those of <dir>/algorithms.json), another battery
+                      but with --battery-changed (then no reference and no
+                      version may change), and a directory missing either
+                      file but with --from-nothing (neither file then)
   export <dir> <out>  write the WAV file of every case of <dir>/cases, in every
                       format, to <out>/<case>.<format>.wav
   help                print this help";
@@ -597,17 +603,67 @@ fn check(
     }
 }
 
-/// `bless <dir> [--case-changed <name>]...`: the reference hash of every case in every
-/// render format, cases and the names of the formats sorted, and the record of what they
-/// were blessed under (`spec/engine-design.md`, decision 29).
+/// The arguments `bless` expects after its command.
+const BLESS: &str =
+    "<dir> [--case-changed <name>]... [--spent <record>] [--battery-changed] [--from-nothing]";
+
+/// The options of `bless`, as given on its command line.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct BlessOptions {
+    /// The cases whose references changed on purpose (`--case-changed`, repeatable).
+    changed: Vec<String>,
+    /// The record at the merge base (`--spent`, at most once): the versions spent.
+    spent: Option<PathBuf>,
+    /// `--battery-changed`: the fingerprint battery changed, nothing else.
+    battery_changed: bool,
+    /// `--from-nothing`: a first bless, with neither file to compare with.
+    from_nothing: bool,
+}
+
+impl BlessOptions {
+    /// Reads `options`, every one at most once but `--case-changed`.
+    ///
+    /// # Errors
+    ///
+    /// Returns the option that is unknown or repeated, or `None` when one lacks its value.
+    fn parse(options: &[String]) -> Result<Self, Option<String>> {
+        let mut parsed = Self::default();
+        let mut rest = options.iter();
+        while let Some(option) = rest.next() {
+            let once = |given: bool| {
+                if given {
+                    Err(Some(format!("option \"{option}\" given twice")))
+                } else {
+                    Ok(true)
+                }
+            };
+            match option.as_str() {
+                "--case-changed" => parsed.changed.push(rest.next().ok_or(None)?.clone()),
+                "--spent" => {
+                    let _once = once(parsed.spent.is_some())?;
+                    parsed.spent = Some(PathBuf::from(rest.next().ok_or(None)?));
+                }
+                "--battery-changed" => parsed.battery_changed = once(parsed.battery_changed)?,
+                "--from-nothing" => parsed.from_nothing = once(parsed.from_nothing)?,
+                _ => return Err(Some(format!("unknown option \"{option}\""))),
+            }
+        }
+        Ok(parsed)
+    }
+}
+
+/// `bless <dir> [options]`: the reference hash of every case in every render format, cases
+/// and the names of the formats sorted, and the record of what they were blessed under
+/// (`spec/engine-design.md`, decision 29).
 ///
 /// Refuses, writing nothing and naming each problem on `out`, what [`bless_problems`]
-/// refuses against the files it replaces; a directory without them is blessed whole.
+/// refuses against the files it replaces, which must both exist; with `--from-nothing`,
+/// neither may, and the directory is blessed whole.
 fn bless(
     files: &mut dyn Files,
     out: &mut dyn Write,
     dir: &Path,
-    changed: &[String],
+    options: &BlessOptions,
     mode: DefaultMode<'_>,
 ) -> Result<(), String> {
     // One reading of the cases gives both the versions and the hashes. The versions first:
@@ -622,17 +678,60 @@ fn bless(
     let versions_path = algorithms_path(dir);
     let earlier: Option<References> = read_earlier(files, &path)?;
     let old: Option<Record> = read_earlier(files, &versions_path)?;
+    let base: Option<Option<Record>> = options
+        .spent
+        .as_ref()
+        .map(|spent| {
+            read_earlier::<Option<Record>>(files, spent)?
+                .ok_or_else(|| format!("cannot read {}: no such file", spent.display()))
+        })
+        .transpose()?;
     let now = current_fingerprints(mode);
-    let problems = old.as_ref().map_or_else(Vec::new, |old| {
-        bless_problems(
-            old,
-            &earlier.unwrap_or_default(),
-            &now,
-            &versions,
-            &actual,
-            changed,
+    let told = Told {
+        changed: &options.changed,
+        battery_changed: options.battery_changed,
+    };
+    let blessing = Blessing {
+        fingerprints: &now,
+        cases: &versions,
+        references: &actual,
+    };
+    let missing = |what: &Path, other: &Path| {
+        format!(
+            "{status} {}: missing beside {} (restore it: bless compares with both)",
+            what.display(),
+            other.display(),
+            status = Status::Missing
         )
-    });
+    };
+    let problems = match (&old, &earlier, options.from_nothing) {
+        (Some(record), Some(references), false) => bless_problems(
+            &Before {
+                record,
+                references,
+                spent: base
+                    .as_ref()
+                    .map_or(Spent::Replaced, |base| Spent::Base(base.as_ref())),
+            },
+            &blessing,
+            &told,
+        ),
+        (None, None, true) => unknown_cases(&told, &actual),
+        (None, None, false) => vec![format!(
+            "{status} {} and {}: none to compare with (a first bless: --from-nothing)",
+            path.display(),
+            versions_path.display(),
+            status = Status::Missing
+        )],
+        (Some(_), Some(_), true) => vec![format!(
+            "{status} --from-nothing: {} and {} exist, to compare with",
+            path.display(),
+            versions_path.display(),
+            status = Status::Option
+        )],
+        (Some(_), None, _) => vec![missing(&path, &versions_path)],
+        (None, Some(_), _) => vec![missing(&versions_path, &path)],
+    };
     if !problems.is_empty() {
         for problem in &problems {
             say(out, &OneLine::new(problem))?;
@@ -720,8 +819,7 @@ fn read_earlier<T: DeserializeOwned>(
     match files.read(path, MAX_REFERENCES_BYTES) {
         Ok(text) => serde_json::from_str(&text).map(Some).map_err(|error| {
             format!(
-                "invalid {}: {error} (bless compares with it: fix it, or remove it to bless \
-                 from nothing)",
+                "invalid {}: {error} (bless compares with it: restore it as bless wrote it)",
                 path.display()
             )
         }),
@@ -794,24 +892,17 @@ fn dispatch(
         ("render", _) => render(files, out, rest, mode),
         ("check", [dir]) => Ok(check(files, out, Path::new(dir), mode)?),
         ("bless", [dir, options @ ..]) => {
-            let mut changed = Vec::new();
-            for pair in options.chunks(2) {
-                match pair {
-                    [flag, name] if flag == "--case-changed" => changed.push(name.clone()),
-                    [flag, _] => {
-                        return Err(CliError::Usage(format!("unknown option \"{flag}\"")));
-                    }
-                    _ => return Err(expects("<dir> [--case-changed <name>]...")),
-                }
-            }
-            Ok(bless(files, out, Path::new(dir), &changed, mode)?)
+            let options = BlessOptions::parse(options).map_err(|problem| {
+                CliError::Usage(problem.unwrap_or_else(|| format!("{command} expects {BLESS}")))
+            })?;
+            Ok(bless(files, out, Path::new(dir), &options, mode)?)
         }
         ("export", [dir, target]) => {
             Ok(export(files, out, Path::new(dir), Path::new(target), mode)?)
         }
         ("help", []) => Ok(say_usage(out)?),
         ("check", _) => Err(expects("<dir>")),
-        ("bless", _) => Err(expects("<dir> [--case-changed <name>]...")),
+        ("bless", _) => Err(expects(BLESS)),
         ("export", _) => Err(expects("<dir> <out>")),
         ("help", _) => Err(expects("no argument")),
         _ => Err(CliError::Usage(format!("unknown command \"{command}\""))),

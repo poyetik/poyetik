@@ -947,6 +947,7 @@ fn command_lines(steps: &[Step]) -> Vec<String> {
             }
             Action::UnviableGate(extent) => format!("unviable gate ({extent:?})"),
             Action::MutationProofRecorded => "mutation proof recorded".to_owned(),
+            Action::Bless(options) => format!("bless {}", super::bless_command(options).line()),
             Action::UnviableReviewsCurrent => "unviable reviews current".to_owned(),
             Action::EquivalentGate => "equivalent gate".to_owned(),
             Action::VersionGate => "version gate".to_owned(),
@@ -2440,6 +2441,47 @@ fn reads_the_paths_real_git_changes_whatever_they_hold() {
             "diff --git a/{hash} b/{hash}\nindex 7898192..6178079 100644\n--- a/{hash}\n+++ b/{hash}\n@@ -1 +1 @@\n-a\n+b\n"
         ),
         "git leaves out the crate excluded"
+    );
+    std::fs::remove_dir_all(&dir).expect("cleanup");
+}
+
+#[test]
+fn reads_the_record_real_git_holds_at_a_commit() {
+    let dir = scratch("record-at");
+    std::fs::create_dir_all(dir.join("conformance/algorithms.json.d")).expect("a directory");
+    std::fs::write(dir.join("conformance/algorithms.json.d/x"), "x\n").expect("a near name");
+    std::fs::write(dir.join("conformance/algorithms.jsonx"), "y\n").expect("a near name");
+    let _init = hermetic_git(&dir, &["init", "--quiet", "--initial-branch=main"]);
+    let _add = hermetic_git(&dir, &["add", "."]);
+    let _commit = hermetic_git(&dir, &["commit", "--quiet", "-m", "without"]);
+    let without = hermetic_git(&dir, &["rev-parse", "HEAD"]);
+    std::fs::write(
+        dir.join("conformance/algorithms.json"),
+        "{\n  \"a\": 1\n}\n",
+    )
+    .expect("a record");
+    let _add_record = hermetic_git(&dir, &["add", "."]);
+    let _record = hermetic_git(&dir, &["commit", "--quiet", "-m", "with"]);
+    let with = hermetic_git(&dir, &["rev-parse", "HEAD"]);
+    let mut runner = SystemRunner { root: dir.clone() };
+    assert_eq!(
+        super::record_at(&mut runner, without.trim()).map_err(|failure| failure.summary),
+        Ok(None),
+        "none at a commit without it, whatever names begin like it"
+    );
+    assert_eq!(
+        super::record_at(&mut runner, with.trim()).map_err(|failure| failure.summary),
+        Ok(Some("{\n  \"a\": 1\n}\n".to_owned())),
+        "its bytes at a commit with it"
+    );
+    assert!(
+        super::record_at(&mut runner, "0000000000000000000000000000000000000000").is_err_and(
+            |failure| failure.summary.starts_with(
+                "cannot read conformance/algorithms.json at the merge base \
+                 0000000000000000000000000000000000000000: "
+            )
+        ),
+        "a commit git does not have"
     );
     std::fs::remove_dir_all(&dir).expect("cleanup");
 }
@@ -4693,16 +4735,66 @@ fn bless_benchmarks_counts_and_rewrites_the_baseline() {
     );
 }
 
+/// What `cargo xtask bless` tells about its options.
+const BLESS_USAGE: &str = "`bless` takes only `--case-changed <name>` (repeatable), \
+                           `--battery-changed` and `--from-nothing`";
+
+/// How the fake lists the record of the conformance references at its merge base.
+const RECORD_AT_BASE: &str = "capture git ls-tree --name-only \
+                              abc1230000000000000000000000000000000000 -- \
+                              conformance/algorithms.json";
+
+/// How the fake shows the record of the conformance references at its merge base.
+const SHOW_RECORD: &str =
+    "capture git show abc1230000000000000000000000000000000000:conformance/algorithms.json";
+
+/// The command `cargo xtask bless` runs, without options.
+const BLESS_RAN: &str = "cargo run --package engine-cli --locked --quiet -- bless conformance \
+                         --spent target/xtask/spent-algorithms.json";
+
+#[test]
+fn bless_reports_the_failure_of_the_bless_it_runs() {
+    let mut fake = Fake {
+        fail: Some(BLESS_RAN.to_owned()),
+        ..passing()
+    };
+    drop(fake.files.insert(RECORD_AT_BASE.to_owned(), String::new()));
+    let mut err = Vec::new();
+    assert_eq!(
+        run_cli(&["bless".to_owned()], &mut fake, &mut Vec::new(), &mut err),
+        1,
+        "a failing bless fails the command"
+    );
+    assert_eq!(
+        fake.ran.last().map(String::as_str),
+        Some(BLESS_RAN),
+        "the bless ran last"
+    );
+    assert_eq!(
+        String::from_utf8(err).expect("utf-8"),
+        format!("error: Bless conformance references: `{BLESS_RAN}` exited with code 3\n"),
+        "the bless's own failure, once"
+    );
+}
+
 #[test]
 fn bless_renders_and_rewrites_the_references() {
-    let step = bless_step(&[]);
+    let step = bless_step(&super::BlessOptions::default());
     assert_eq!(step.name, "Bless conformance references", "name");
     assert_eq!(
         command_lines(&[step]),
-        vec!["Root: cargo run --package engine-cli --locked --quiet -- bless conformance"],
-        "runs engine-cli bless"
+        [format!("bless {BLESS_RAN}")],
+        "blesses with the record at the merge base"
     );
     let mut fake = passing();
+    drop(fake.files.insert(
+        RECORD_AT_BASE.to_owned(),
+        "conformance/algorithms.json\n".to_owned(),
+    ));
+    drop(
+        fake.files
+            .insert(SHOW_RECORD.to_owned(), "{\"spent\": 1}\n".to_owned()),
+    );
     let mut out = Vec::new();
     assert_eq!(
         run_cli(&["bless".to_owned()], &mut fake, &mut out, &mut Vec::new()),
@@ -4713,36 +4805,132 @@ fn bless_renders_and_rewrites_the_references() {
         fake.ran,
         [
             PREFLIGHT_RAN.as_slice(),
-            &["cargo run --package engine-cli --locked --quiet -- bless conformance"]
+            &[
+                "capture git merge-base HEAD @{upstream}",
+                RECORD_AT_BASE,
+                SHOW_RECORD,
+                "write target/xtask/spent-algorithms.json",
+                BLESS_RAN,
+            ]
         ]
         .concat(),
-        "the preflight, then only bless runs"
+        "the preflight, the record at the merge base, then bless with it"
+    );
+    assert_eq!(
+        fake.files.get(super::SPENT_RECORD).map(String::as_str),
+        Some("{\"spent\": 1}\n"),
+        "the record at the merge base, as git gives it"
     );
     assert_eq!(
         String::from_utf8(out).expect("utf-8"),
         "▶ [1/2] Tools and platform\n  done in 1.5 s\n▶ [2/2] Bless conformance references\n  \
-         done in 1.5 s\n✔ all 2 checks passed in 3.0 s\n",
+         spent: its versions at abc1230000000000000000000000000000000000 (merge base with \
+         @{upstream})\n  done in 1.5 s\n✔ all 2 checks passed in 3.0 s\n",
         "progress"
     );
     let mut named = passing();
+    drop(named.files.insert(RECORD_AT_BASE.to_owned(), String::new()));
+    let mut named_out = Vec::new();
     assert_eq!(
         run_cli(
-            &["bless", "--case-changed", "a", "--case-changed", "b c"].map(str::to_owned),
+            &[
+                "bless",
+                "--case-changed",
+                "a",
+                "--from-nothing",
+                "--case-changed",
+                "b c",
+                "--battery-changed"
+            ]
+            .map(str::to_owned),
             &mut named,
-            &mut Vec::new(),
+            &mut named_out,
             &mut Vec::new()
         ),
         0,
-        "bless with changed cases succeeds"
+        "bless with every option succeeds"
     );
     assert_eq!(
         named.ran.last().map(String::as_str),
         Some(
-            "cargo run --package engine-cli --locked --quiet -- bless conformance \
-             --case-changed a --case-changed b c"
+            format!(
+                "{BLESS_RAN} --case-changed a --case-changed b c --battery-changed --from-nothing"
+            )
+            .as_str()
         ),
-        "every case named is forwarded, in order"
+        "every option is forwarded, the cases in order"
     );
+    assert!(
+        !named.ran.contains(&SHOW_RECORD.to_owned()),
+        "nothing to show"
+    );
+    assert_eq!(
+        named.files.get(super::SPENT_RECORD).map(String::as_str),
+        Some("null\n"),
+        "no record at the merge base: nothing spent"
+    );
+    assert!(
+        String::from_utf8(named_out)
+            .expect("utf-8")
+            .contains("  spent: none at abc1230000000000000000000000000000000000"),
+        "said"
+    );
+}
+
+#[test]
+fn blesses_only_with_the_record_at_the_merge_base() {
+    let mut cases: Vec<(Fake, &str)> = Vec::new();
+    let mut baseless = passing();
+    let _upstream = baseless.files.remove(&format!("capture {}", MERGE_BASE.0));
+    cases.push((
+        baseless,
+        "error: Bless conformance references: no base to measure the changes against",
+    ));
+    let mut unlisted = passing();
+    unlisted.broken = Some(RECORD_AT_BASE.trim_start_matches("capture ").to_owned());
+    cases.push((
+        unlisted,
+        "error: Bless conformance references: cannot read conformance/algorithms.json at the \
+         merge base abc1230000000000000000000000000000000000: ",
+    ));
+    let mut unshown = passing();
+    drop(unshown.files.insert(
+        RECORD_AT_BASE.to_owned(),
+        "conformance/algorithms.json\n".to_owned(),
+    ));
+    cases.push((
+        unshown,
+        "error: Bless conformance references: cannot read conformance/algorithms.json at the \
+         merge base abc1230000000000000000000000000000000000: ",
+    ));
+    let mut unwritable = passing();
+    drop(
+        unwritable
+            .files
+            .insert(RECORD_AT_BASE.to_owned(), String::new()),
+    );
+    unwritable.broken = Some("write target/xtask/spent-algorithms.json".to_owned());
+    cases.push((
+        unwritable,
+        "error: Bless conformance references: cannot write target/xtask/spent-algorithms.json: \
+         read-only",
+    ));
+    for (mut fake, said) in cases {
+        let mut err = Vec::new();
+        assert_eq!(
+            run_cli(&["bless".to_owned()], &mut fake, &mut Vec::new(), &mut err),
+            1,
+            "{said}"
+        );
+        assert!(
+            String::from_utf8(err).expect("utf-8").starts_with(said),
+            "{said}"
+        );
+        assert!(
+            !fake.ran.contains(&BLESS_RAN.to_owned()),
+            "{said}: nothing blessed"
+        );
+    }
 }
 
 #[test]
@@ -4751,10 +4939,7 @@ fn blesses_only_where_the_checks_could_run() {
     // the check, so that a build drifted by the environment (a profile, a wrapper, an
     // outside Cargo configuration) is never blessed.
     for (task, script) in [
-        (
-            "bless",
-            "cargo run --package engine-cli --locked --quiet -- bless conformance",
-        ),
+        ("bless", BLESS_RAN),
         ("bless-benchmarks", "pnpm run benchmarks:bless"),
     ] {
         let mut fake = passing();
@@ -7069,21 +7254,29 @@ fn refuses_usage_errors_in_one_line() {
         (vec!["list", "--parts"], LIST_USAGE),
         (vec!["list", "x", "--parts"], LIST_USAGE),
         (vec!["list", "--full", "--parts", "x"], LIST_USAGE),
-        (
-            vec!["bless", "x"],
-            "`bless` takes only `--case-changed <name>`, repeatable",
-        ),
-        (
-            vec!["bless", "--case-changed"],
-            "`bless` takes only `--case-changed <name>`, repeatable",
-        ),
+        (vec!["bless", "x"], BLESS_USAGE),
+        (vec!["bless", "--case-changed"], BLESS_USAGE),
         (
             vec!["bless", "--case-changed", "a", "--other", "b"],
-            "`bless` takes only `--case-changed <name>`, repeatable",
+            BLESS_USAGE,
+        ),
+        (
+            vec!["bless", "--from-nothing", "--from-nothing"],
+            BLESS_USAGE,
+        ),
+        (
+            vec![
+                "bless",
+                "--battery-changed",
+                "--case-changed",
+                "a",
+                "--battery-changed",
+            ],
+            BLESS_USAGE,
         ),
         (
             vec!["bless", "--case-changed", "a", "--case-changed"],
-            "`bless` takes only `--case-changed <name>`, repeatable",
+            BLESS_USAGE,
         ),
         (
             vec!["bless-benchmarks", "x"],

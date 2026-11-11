@@ -26,6 +26,8 @@ pub(crate) enum Status {
     Bits,
     /// A name `bless` was given that is no case.
     Unknown,
+    /// An option `bless` was given that does not apply to the directory.
+    Option,
     /// A version below one already blessed.
     Lower,
     /// A reference changed under the same versions.
@@ -49,6 +51,7 @@ impl Status {
             Self::Battery => "BATTERY",
             Self::Bits => "BITS",
             Self::Unknown => "UNKNOWN",
+            Self::Option => "OPTION",
             Self::Lower => "LOWER",
             Self::Changed => "CHANGED",
             Self::Wrote => "wrote",
