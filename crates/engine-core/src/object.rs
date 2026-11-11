@@ -218,10 +218,9 @@ impl ParamValues {
 
     /// The parameter values `values`, which the plan has checked against their ranges and
     /// flushed as [`ParamValues::of`] would (each a binary32 value flushed by
-    /// [`crate::flush::binary32`], widened exactly): taken as they are, so that reading a
-    /// patch's parameters costs what it did before this type (the plan tests check what a
-    /// box is given, and the flush tests that [`ParamValues::of`] gives a binary32 value
-    /// the same).
+    /// [`crate::flush::binary32`], widened exactly): taken as they are, so that a patch's
+    /// parameters are read with no second flush (the plan tests check what a box is given,
+    /// and the flush tests that [`ParamValues::of`] gives a binary32 value the same).
     pub(crate) const fn flushed(values: Vec<Binary64>) -> Self {
         Self(values)
     }
