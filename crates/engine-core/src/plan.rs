@@ -78,6 +78,17 @@ impl<K: Copy> Feed<K> {
     /// (which finds every source the plan built), with `lanes` as the scratch of a sum of
     /// three or more.
     ///
+    /// `read` finds every source the plan built (`source_slot` gives every slot below the
+    /// bus length; every channel source is an instance and one of its inlets, from `build`):
+    /// the absence each arm skips is unreachable, and reviewed, not tested. Were a plan
+    /// built wrong, a single or two-term feed would leave `out` as the last block left it,
+    /// and a longer sum would drop the term, renumbering the later ones onto other lanes:
+    /// plausible bits, which the plan laws' reference comparisons would catch only on the
+    /// patches they generate. Reading every source as a block or silence, which keeps the
+    /// positions, was measured against this: cheaper for sums of three or more, dearer for
+    /// single and two-term feeds and for the module's size, all held by the benchmarks, so
+    /// the skip stays.
+    ///
     /// The lanes reach the sum through `black_box`, an optimization barrier with no effect
     /// on the result: without it, the compiler computes the addresses of the lanes before
     /// the loop over the boxes, which every plan with a box then pays each block, a sum or
@@ -426,7 +437,8 @@ impl<S: Sample, I: Dispatch<S>> Plan<S, I> {
             let bus: &[Block<S>] = &self.bus;
             for (inlet, feed) in &instance.feeds {
                 // Every fed inlet exists, and every slot is below the bus length
-                // (`source_slot`): each is found.
+                // (`source_slot`): each is found. Unreachable, and reviewed: a missing
+                // inlet would keep its last block, as `Feed::write` says of its sources.
                 for input in instance.inputs.iter_mut().skip(*inlet).take(1) {
                     feed.write(input, &mut self.lanes, |slot| bus.get(slot));
                 }
