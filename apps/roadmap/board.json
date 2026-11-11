@@ -531,7 +531,7 @@
           "done": false
         },
         {
-          "title": "Public types before the SDKs: port indices and case frames are pointer-wide (use u16 and u32), REGISTRY's type holds the box count (use a slice), wav_file pairs a header with any samples, and test-only items are pub (make them pub(crate))",
+          "title": "Public types before the SDKs: port indices and case frames are pointer-wide (use u16 and u32), REGISTRY's type holds the box count (use a slice), and test-only items are pub (make them pub(crate))",
           "done": false
         },
         {
@@ -563,7 +563,7 @@
           "done": false
         },
         {
-          "title": "Browser capture: the live subset is a hard-coded list and browser audio threads may flush subnormals; derive the subset from a case field, run the subnormal case live, and state that graph mixing may turn -0 into +0 at the capture point (or capture at the processor output)",
+          "title": "Browser capture: the live subset is a hard-coded list and browser audio threads may flush subnormals; derive the subset from a case field, and state that graph mixing may turn -0 into +0 at the capture point (or capture at the processor output)",
           "done": false
         },
         {
@@ -631,7 +631,7 @@
           "done": false
         },
         {
-          "title": "Pinned versions: pnpm is not checked against packageManager, @types/node is not tied to the Node floor, the target list is typed twice, and the README retypes the pinned tool versions; tie each to its source with a test. Decide and record the remaining hardening options (build-script bans, strict dependency builds, trust policy, pnpm's blockExoticSubdeps, a hardened CI runner such as harden-runner, repository rules, Dependabot for the pins)",
+          "title": "Pinned versions: pnpm is not checked against packageManager, @types/node is not tied to the Node floor, the target list is typed twice, and the README retypes the pinned tool versions; tie each to its source with a test. Decide and record the remaining hardening options (build-script bans, strict dependency builds, trust policy, pnpm's blockExoticSubdeps, a hardened CI runner such as harden-runner, workflow static analysis (zizmor or actionlint), repository rules, Dependabot for the pins)",
           "done": false
         },
         {
@@ -643,7 +643,7 @@
           "done": false
         },
         {
-          "title": "Gate parsers: compare_reviews splits at the first \" -- \", mutant_key does not parse line and column, an empty Stryker mutator name is accepted, changelog dates are checked for shape only, the README gate matches a prefix, crate_root misses tests/<dir>/main.rs, benches, examples and src/bin, and coverage_locality matches a summary wording; fix each with a test",
+          "title": "Gate parsers: compare_reviews splits at the first \" -- \", mutant_key does not parse line and column, an empty Stryker mutator name is accepted, changelog dates are checked for shape only, the README gate matches a prefix, crate_root misses tests/<dir>/main.rs, and coverage_locality matches a summary wording; fix each with a test",
           "done": false
         },
         {
@@ -852,7 +852,7 @@
         },
         {
           "title": "Math layer gate: read every file box code compiles (include!d files, #[path] modules outside src/, a future build.rs) or refuse them in box crates",
-          "done": false
+          "done": true
         },
         {
           "title": "Decision 10's cost claim: the newtypes' instruction counts are held only within the benchmark tolerance; prove them identical to plain floats (an exact comparison of the counts) or keep the weaker wording",
@@ -938,7 +938,7 @@
         },
         {
           "title": "Box algorithm versions, engine side: every box type declares its algorithm version, any change of bits takes a new one, the conformance references record the versions, the render rules version and the box fingerprints they were blessed with, and check and bless refuse bits changed without a new version (the versions in the patch, playing older versions and migrating them: #3 step 7); then the end of this block (steps 6 to 8): a deep review, its decided fixes, and a pull request whose full check is green",
-          "done": true
+          "done": false
         },
         {
           "title": "Output stage: raw and protected (safety limiter) modes; non-finite samples always replaced and reported; the playground protected by default",
@@ -961,7 +961,7 @@
           "done": false
         },
         {
-          "title": "Typed, smoothed parameters (kinds such as frequency, with a declared Nyquist policy) and sample-accurate timestamped events, in the engine and the patch format; an event quantum per patch and subpatch (1 frame by default); a box reads its parameter values through a typed access that cannot be missing, so that no box keeps a fallback default of its own (osc~'s 440 Hz, #24 item 6)",
+          "title": "Typed, smoothed parameters (kinds such as frequency, with a declared Nyquist policy) and sample-accurate timestamped events, in the engine and the patch format; an event quantum per patch and subpatch (1 frame by default); a box reads its parameter values through a typed access that cannot be missing, so that no box keeps a fallback default of its own (osc~'s 440 Hz, #24 step 6)",
           "done": false
         },
         {
