@@ -139,6 +139,12 @@ const REFUSED: readonly { readonly name: string; readonly mode: bigint; readonly
 /** Every shape the specification says is not a render, with the reason a reader gives. */
 const SHAPES: readonly (Input & { readonly reason: string })[] = list(SPEC, "refused_shapes").map((entry) => ({ ...input(entry), reason: text(entry, "reason") }));
 
+/**
+ * {@link renderHash} called with any samples and any render format, as plain JavaScript or
+ * data read at run time calls it: its types accept only samples of the format's width.
+ */
+const anyPair: { hash(rate: number, channels: number, samples: Samples, format: RenderFormat, mode: bigint): Promise<string> } = { hash: renderHash };
+
 describe("renderHash", () => {
   test("reads every known-answer vector of the specification, and every kind of refusal", () => {
     expect(Object.keys(typeof SPEC === "object" && SPEC !== null ? SPEC : {}).sort()).toStrictEqual(["refused_modes", "refused_shapes", "scheme", "vectors"]);
@@ -150,7 +156,7 @@ describe("renderHash", () => {
   });
 
   test.each(SHAPES)("refuses the shape $name, which is not whole frames", async (shape) => {
-    await expect(renderHash(shape.rate, shape.channels, shape.samples, shape.format, shape.mode)).rejects.toThrow(new RangeError(shape.reason));
+    await expect(anyPair.hash(shape.rate, shape.channels, shape.samples, shape.format, shape.mode)).rejects.toThrow(new RangeError(shape.reason));
   });
 
   test("refuses a render format it does not know, from plain JavaScript", async () => {
@@ -162,13 +168,13 @@ describe("renderHash", () => {
     const accepted = "(binary64, binary64-as-binary32 or binary32)";
     await expect(untyped.hash(48_000, 1, new Float32Array(1), unknown, 0n)).rejects.toThrow(new RangeError(`unknown render format "float32" ${accepted}`));
     await expect(untyped.hash(48_000, 1, new Float32Array(1), "toString", 0n)).rejects.toThrow(new RangeError(`unknown render format "toString" ${accepted}`));
-    // Not even a string: shown as it is.
+    // Not even a string: shown as `String` gives it.
     const anything: { hash(rate: number, channels: number, samples: Samples, format: unknown, mode: bigint): Promise<string> } = { hash: renderHash };
-    await expect(anything.hash(48_000, 1, new Float32Array(1), 2, 0n)).rejects.toThrow(new RangeError(`unknown render format 2 ${accepted}`));
+    await expect(anything.hash(48_000, 1, new Float32Array(1), {}, 0n)).rejects.toThrow(new RangeError(`unknown render format [object Object] ${accepted}`));
   });
 
   test.each(VECTORS)("reproduces the known-answer vector $name", async (vector) => {
-    expect(await renderHash(vector.rate, vector.channels, vector.samples, vector.format, vector.mode)).toBe(vector.sha256);
+    expect(await anyPair.hash(vector.rate, vector.channels, vector.samples, vector.format, vector.mode)).toBe(vector.sha256);
     // The vector is consistent: its bytes give its hash.
     expect(hexText(new Uint8Array(await crypto.subtle.digest("SHA-256", vector.bytes)))).toBe(vector.sha256);
   });
@@ -189,9 +195,10 @@ describe("renderHash", () => {
   });
 
   test("refuses samples of another width than the render format's", async () => {
-    await expect(renderHash(48_000, 1, new Float32Array(1), "binary64", 0n)).rejects.toThrow(new RangeError("binary64 samples are 64-bit, not 32-bit"));
-    await expect(renderHash(48_000, 1, new Float64Array(1), "binary64-as-binary32", 0n)).rejects.toThrow(new RangeError("binary64-as-binary32 samples are 32-bit, not 64-bit"));
-    await expect(renderHash(48_000, 1, new Float64Array(1), "binary32", 0n)).rejects.toThrow(new RangeError("binary32 samples are 32-bit, not 64-bit"));
+    // Its types refuse these pairs; only a call typed loosely reaches the check.
+    await expect(anyPair.hash(48_000, 1, new Float32Array(1), "binary64", 0n)).rejects.toThrow(new RangeError("binary64 samples are 64-bit, not 32-bit"));
+    await expect(anyPair.hash(48_000, 1, new Float64Array(1), "binary64-as-binary32", 0n)).rejects.toThrow(new RangeError("binary64-as-binary32 samples are 32-bit, not 64-bit"));
+    await expect(anyPair.hash(48_000, 1, new Float64Array(1), "binary32", 0n)).rejects.toThrow(new RangeError("binary32 samples are 32-bit, not 64-bit"));
   });
 
   test("hashes the rate and the channel count of an empty render", async () => {

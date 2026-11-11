@@ -4,7 +4,9 @@
  * (`crates/engine-hash`), giving the same hash for the same bits.
  */
 
-import { RENDER_FORMATS, type RenderFormat, type Samples } from "./engine.ts";
+import { type Binary32Format, RENDER_FORMATS, type RenderFormat, type Samples } from "./engine.ts";
+
+export type { Binary32Format, RenderFormat, Samples } from "./engine.ts";
 
 /** Tag opening the hashed bytes: the version of the scheme. */
 const TAG = "render-hash/2";
@@ -23,7 +25,7 @@ const KNOWN_OPTIONS = 0b111n;
 const LARGEST_MODE = 2n ** 64n - 1n;
 
 /** The render formats, as an error names them: from {@link RENDER_FORMATS}, so a format added there is named at once. */
-const ACCEPTED_FORMATS = `${RENDER_FORMATS.slice(0, -1).join(", ")} or ${RENDER_FORMATS.slice(-1).join("")}`;
+const ACCEPTED_FORMATS = `${RENDER_FORMATS.slice(0, -1).join(", ")} or ${RENDER_FORMATS.slice(-1).join()}`;
 
 /** The processing precision and the sample width of each render format, in bits. */
 const WIDTHS: Readonly<Record<RenderFormat, { readonly precision: number; readonly samples: number }>> = {
@@ -87,9 +89,12 @@ export function interleave64(channels: readonly Float64Array[]): Float64Array {
  * `channels` is not a whole number from 0 to 2^53 - 1, when `samples` are not whole
  * frames of `channels` channels (no sample at all without a channel), when `format` is
  * not a render format (from plain JavaScript), when their type is not the one of `format`
- * (`Float64Array` for binary64, `Float32Array` otherwise), or when `mode` is not 64 bits
+ * (`Float64Array` for binary64, `Float32Array` otherwise; its types refuse that pair, so
+ * only plain JavaScript or a loosely typed call reaches the check), or when `mode` is not 64 bits
  * of flags or holds a flag no arithmetic option defines.
  */
+export function renderHash(rate: number, channels: number, samples: Float64Array, format: "binary64", mode: bigint): Promise<string>;
+export function renderHash(rate: number, channels: number, samples: Float32Array, format: Binary32Format, mode: bigint): Promise<string>;
 export async function renderHash(rate: number, channels: number, samples: Samples, format: RenderFormat, mode: bigint): Promise<string> {
   if (!Number.isInteger(rate) || rate < 0 || rate > 0xff_ff_ff_ff) {
     throw new RangeError(`the sample rate must be a whole number from 0 to 4294967295, not ${String(rate)}`);
