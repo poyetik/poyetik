@@ -392,27 +392,28 @@ fn dep_info(output: &str, files: &[&str]) -> String {
     )
 }
 
-/// Gives the fake the builds of [`super::loaded_files_commands`]: one of the assembly file's
-/// crate without its tests, one with them, each reading the assembly file only, and a
-/// message of no build and one of a registry package between them.
+/// Gives the fake the builds of [`super::loaded_files_commands`]: of each, one of the
+/// assembly file's crate (with its tests for the second, the host's test build, without
+/// for the others), each reading the assembly file only, and a message of no build and one
+/// of a registry package between them.
 fn loaded_answers(fake: &mut Fake) {
-    let [check, test] = super::loaded_files_commands();
     let word = super::ASSEMBLY_FILES[0];
     let registry = r#"{"reason":"compiler-artifact","package_id":"registry+https://github.com/rust-lang/crates.io-index#serde@1.0.0","profile":{"test":false}}"#;
-    for (cmd, tested, output) in [
-        (check, false, "/t/debug/deps/libengine_fpenv-1.rmeta"),
-        (test, true, "/t/debug/deps/engine_fpenv-2"),
-    ] {
-        let stem = output
-            .trim_end_matches(".rmeta")
-            .replace("/libengine", "/engine");
+    for (number, command) in (1_usize..).zip(super::loaded_files_commands()) {
+        let tested = number == 2;
+        let stem = format!("/t/debug/deps/engine_fpenv-{number}");
+        let output = if tested {
+            stem.clone()
+        } else {
+            format!("/t/debug/deps/libengine_fpenv-{number}.rmeta")
+        };
         let answer = format!(
             "{registry}\n{}\n{{\"reason\":\"build-finished\",\"success\":true}}\n",
-            artifact("crates/engine-fpenv", "engine_fpenv", tested, output)
+            artifact("crates/engine-fpenv", "engine_fpenv", tested, &output)
         );
         assert!(
             fake.files
-                .insert(format!("capture {}", cmd.line()), answer)
+                .insert(format!("capture {}", command.cmd.line()), answer)
                 .is_none(),
             "fresh fake"
         );
@@ -3779,8 +3780,8 @@ fn runs_every_step_and_reports_success() {
         Ok(()),
         "all green"
     );
-    let (tools, commands, emptied, listed, captured, written) = (10, 58, 14, 26, 41, 4);
-    let read = 2
+    let (tools, commands, emptied, listed, captured, written) = (10, 58, 14, 26, 48, 4);
+    let read = 9
         + 2
         + 13
         + 7
@@ -3815,11 +3816,11 @@ fn runs_every_step_and_reports_success() {
          checks each followed by its Stryker run); fourteen directories are emptied; git lists \
          thirteen kinds of files (the box sources and the text files that cite the roadmap among them), the Rust files again for the test code, test data, untested targets, unviable names and loaded files gates, the TypeScript ones again for the reports and scope gates of \
          each package after the first; the licenses twice and the history three times, the state \
-         of the tree (before, for the proof record and after) six times, the nightly's version and sysroot, the Cargo metadata (for the untested targets, dependency, pin, library and math layer gates), the output of the fused test build and of the two builds of the loaded files gate, the merge base, the merge base of the versions spent and the record listed there, the changed paths, the changes, the \
+         of the tree (before, for the proof record and after) six times, the nightly's version and sysroot, the Cargo metadata (for the untested targets, dependency, pin, library and math layer gates), the output of the fused test build and of the nine builds of the loaded files gate, the merge base, the merge base of the versions spent and the record listed there, the changed paths, the changes, the \
          new Rust files and the list of every mutant once, git's common directory twice, the tree checked out, \
          cargo-mutants' version, rustc's host and build, the linker driver's and git's versions, the status for a push and the hidden files for the mutation step and the proof record; the record spent, the measured base, the diff and the \
          proof record are written once each; the proof record, the measured base and the \
-         toolchain file are read for it; and the gates read the two dep-info files of the loaded files gate, the nine fake test data readers for the unsafe, bypass and vocabulary gates, every Rust file (twelve) for the test code, test data, untested targets and unviable names gates and the reviews of unviable mutants for the last, .node-version and the toolchain file for the preflight, the toolchain file, the four float sources and the float macros of the nightly and clippy.toml for the float gate, fourteen coverage reports, \
+         toolchain file are read for it; and the gates read the nine dep-info files of the loaded files gate, the nine fake test data readers for the unsafe, bypass and vocabulary gates, every Rust file (twelve) for the test code, test data, untested targets and unviable names gates and the reviews of unviable mutants for the last, .node-version and the toolchain file for the preflight, the toolchain file, the four float sources and the float macros of the nightly and clippy.toml for the float gate, fourteen coverage reports, \
          the unviable report and reviews, the register of the pin gate, the 91 text files of the citation gate (the board and the record spent, which the fake lists as tracked, among them), the reviews again against the list of every mutant, six TypeScript sources and their reviews, the nine \
          sources, the twelve Cargo manifests and the register of the bypass gate, the three unsafe files, the Cargo \
          configuration, the six package manifests and the register of the dependency gate, the three \
@@ -7744,6 +7745,7 @@ fn names_each_failed_step_once() {
                 &[super::Loaded {
                     krate: super::RUST_CRATES[0],
                     target: "engine_core".to_owned(),
+                    configuration: None,
                     of_tests: false,
                     files: vec!["spec/x.json".to_owned()],
                 }],
@@ -9473,16 +9475,18 @@ fn reads_the_files_a_dep_info_file_lists() {
 #[test]
 fn tells_each_build_and_its_dep_info_file_from_cargo_s_messages() {
     let core = super::RUST_CRATES[0];
-    let read = |line: &str, test: bool| {
-        super::built_artifact(line, test, &super::RUST_CRATES).map_err(|failure| failure.summary)
+    let read = |line: &str, tests_only: bool| {
+        super::built_artifact(line, tests_only, &super::RUST_CRATES)
+            .map_err(|failure| failure.summary)
     };
-    let found = |target: &str, dep_info: &str| {
-        Ok(Some((
-            core,
-            "/r".to_owned(),
-            target.to_owned(),
-            dep_info.to_owned(),
-        )))
+    let found = |target: &str, dep_info: &str, test: bool| {
+        Ok(Some(super::Artifact {
+            krate: core,
+            root: "/r".to_owned(),
+            target: target.to_owned(),
+            dep_info: dep_info.to_owned(),
+            of_tests: test,
+        }))
     };
     for (output, target, test, dep_info) in [
         (
@@ -9510,18 +9514,18 @@ fn tells_each_build_and_its_dep_info_file_from_cargo_s_messages() {
             "/t/deps/engine_cli-4.d",
         ),
     ] {
-        assert_eq!(
-            read(&artifact(core.dir, target, test, output), test),
-            found(target, dep_info),
-            "{output}"
-        );
+        for tests_only in [false, true] {
+            assert_eq!(
+                read(&artifact(core.dir, target, test, output), tests_only),
+                if test || !tests_only {
+                    found(target, dep_info, test)
+                } else {
+                    Ok(None)
+                },
+                "{output}, only builds of tests read: {tests_only}"
+            );
+        }
     }
-    let built = artifact(core.dir, "engine_core", true, "/t/deps/engine_core-2");
-    assert_eq!(
-        read(&built, false),
-        Ok(None),
-        "a build of tests, when builds without are read"
-    );
     assert_eq!(
         read(r#"{"reason":"build-finished"}"#, false),
         Ok(None),
@@ -9540,8 +9544,9 @@ fn tells_each_build_and_its_dep_info_file_from_cargo_s_messages() {
 #[test]
 fn refuses_a_cargo_message_it_does_not_read() {
     let core = super::RUST_CRATES[0];
-    let read = |line: &str, test: bool| {
-        super::built_artifact(line, test, &super::RUST_CRATES).map_err(|failure| failure.summary)
+    let read = |line: &str, tests_only: bool| {
+        super::built_artifact(line, tests_only, &super::RUST_CRATES)
+            .map_err(|failure| failure.summary)
     };
     let built = artifact(core.dir, "engine_core", true, "/t/deps/engine_core-2");
     let unread =
@@ -9551,6 +9556,10 @@ fn refuses_a_cargo_message_it_does_not_read() {
         (
             "(no package_id)",
             r#"{"reason":"compiler-artifact"}"#.to_owned(),
+        ),
+        (
+            "(no profile)",
+            built.replace(r#""profile":{"test":true},"#, ""),
         ),
         (
             "(no manifest_path)",
@@ -9592,6 +9601,7 @@ fn refuses_a_file_rustc_loads_where_no_gate_looks() {
     let build = |krate: RustCrate, of_tests: bool, files: &[&str]| super::Loaded {
         krate,
         target: krate.name.replace('-', "_"),
+        configuration: None,
         of_tests,
         files: files.iter().map(|file| (*file).to_owned()).collect(),
     };
@@ -9613,13 +9623,12 @@ fn refuses_a_file_rustc_loads_where_no_gate_looks() {
             "crates/engine-core/src/plan_tests.rs",
             "crates/engine-core/tests/laws.rs",
             "conformance/test-matrix.json",
-            "crates/engine-core/tests/data.bin",
         ],
     );
     assert_eq!(
         super::loaded_files_gate(&[library.clone(), tests], &tracked),
         Ok(()),
-        "code, test code, declared test data and a file of the crate"
+        "code, test code and declared test data"
     );
     let gate = |builds: &[super::Loaded]| {
         super::loaded_files_gate(builds, &tracked).map_err(|failure| failure.summary)
@@ -9671,6 +9680,7 @@ fn refuses_a_file_rustc_loads_outside_its_crate_or_git() {
     let build = |krate: RustCrate, of_tests: bool, files: &[&str]| super::Loaded {
         krate,
         target: krate.name.replace('-', "_"),
+        configuration: None,
         of_tests,
         files: files.iter().map(|file| (*file).to_owned()).collect(),
     };
@@ -9717,57 +9727,335 @@ fn refuses_a_file_rustc_loads_outside_its_crate_or_git() {
 }
 
 #[test]
-fn reads_the_files_real_rustc_loads_for_each_build() {
-    let target = scratch("loaded-files");
-    let target_dir = target.display().to_string();
-    let commands = super::loaded_files_commands().map(|mut cmd| {
-        cmd.args
-            .extend(["--target-dir".to_owned(), target_dir.clone()]);
-        cmd
-    });
-    let loaded_crate = RustCrate {
+fn refuses_test_code_and_files_not_rust_in_the_code() {
+    let core = super::RUST_CRATES[0];
+    let build = |of_tests: bool, files: &[&str]| super::Loaded {
+        krate: core,
+        target: "engine_core".to_owned(),
+        configuration: None,
+        of_tests,
+        files: files.iter().map(|file| (*file).to_owned()).collect(),
+    };
+    let tracked: Vec<String> = [
+        "crates/engine-core/src/lib.rs",
+        "crates/engine-core/src/extra_tests.rs",
+        "crates/engine-core/tests/laws.rs",
+    ]
+    .map(str::to_owned)
+    .into();
+    let gate = |builds: &[super::Loaded]| {
+        super::loaded_files_gate(builds, &tracked).map_err(|failure| failure.summary)
+    };
+    let refused = |problem: &str| Err(problem.to_owned());
+    for test_code in [
+        "crates/engine-core/src/extra_tests.rs",
+        "crates/engine-core/tests/laws.rs",
+    ] {
+        assert_eq!(
+            gate(&[build(false, &["crates/engine-core/src/lib.rs", test_code])]),
+            refused(&format!(
+                "{test_code}: read by the build of `engine_core` (engine-core), which builds no \
+                 tests, but named as test code (tests/, a *_tests.rs file): code that every \
+                 rule telling test code by its name skips"
+            )),
+            "test code compiled into the code: {test_code}"
+        );
+        assert_eq!(
+            gate(&[
+                build(false, &["crates/engine-core/src/lib.rs"]),
+                build(true, &["crates/engine-core/src/lib.rs", test_code]),
+            ]),
+            Ok(()),
+            "the same file read by the tests alone: {test_code}"
+        );
+    }
+    for (of_tests, data, what) in [
+        (false, "crates/engine-core/src/blob.inc", "the build"),
+        (true, "crates/engine-core/src/blob.inc", "the test build"),
+        (true, "crates/engine-core/tests/data.bin", "the test build"),
+    ] {
+        assert_eq!(
+            gate(&[
+                build(false, &["crates/engine-core/src/lib.rs"]),
+                build(of_tests, &["crates/engine-core/src/lib.rs", data])
+            ]),
+            refused(&format!(
+                "{data}: read by {what} of `engine_core` (engine-core), not a Rust file: no gate \
+                 reads it as code, and only a build of tests reads data, from its crate's \
+                 declared test data"
+            )),
+            "a file that is not Rust, read by {what}: {data}"
+        );
+    }
+    assert_eq!(
+        gate(&[
+            build(false, &["crates/engine-core/src/lib.rs"]),
+            build(
+                true,
+                &[
+                    "crates/engine-core/src/lib.rs",
+                    "conformance/test-matrix.json"
+                ]
+            )
+        ]),
+        Ok(()),
+        "declared test data read by a build of tests"
+    );
+}
+
+/// The crates of the loaded-files fixture: `configured`, then `loaded`.
+const LOADED_FIXTURE_CRATES: [RustCrate; 2] = [
+    RustCrate {
+        name: "configured",
+        dir: "crates/configured",
+        binary: false,
+        test_data: &[],
+        roles: &[],
+    },
+    RustCrate {
         name: "loaded",
         dir: "crates/loaded",
         binary: false,
         test_data: &[],
         roles: &[],
+    },
+];
+
+/// The host's two builds of the loaded-files fixture, as the gate's first two commands
+/// make them, then its library checked for WebAssembly, all in `target_dir`.
+fn loaded_fixture_commands(target_dir: &str) -> [super::LoadedCommand; 3] {
+    let json = "--message-format=json";
+    let command = |args: &[&str], tests_only: bool, configuration: Option<&'static str>| {
+        let mut cmd = Cmd::new("cargo", args, Dir::Root);
+        cmd.args
+            .extend(["--target-dir".to_owned(), target_dir.to_owned()]);
+        super::LoadedCommand {
+            cmd,
+            tests_only,
+            configuration,
+        }
     };
-    let loaded = super::loaded_files(
-        &mut system(fixture("loaded-files")),
-        &commands,
-        &[loaded_crate],
-    )
-    .expect("built and read");
+    [
+        command(
+            &["check", "--workspace", "--lib", "--bins", "--locked", json],
+            false,
+            None,
+        ),
+        command(
+            &["test", "--workspace", "--locked", "--no-run", json],
+            true,
+            None,
+        ),
+        command(
+            &[
+                "check",
+                "--lib",
+                "--package",
+                "configured",
+                "--locked",
+                "--target",
+                super::WASM_TARGET,
+                json,
+            ],
+            false,
+            Some(super::WASM_TARGET),
+        ),
+    ]
+}
+
+#[test]
+fn reads_the_files_real_rustc_loads_for_each_build() {
+    let target = scratch("loaded-files");
+    let [check, test, wasm] = loaded_fixture_commands(&target.display().to_string());
+    let [configured, loaded_crate] = LOADED_FIXTURE_CRATES;
+    let read = |commands: &[super::LoadedCommand]| {
+        let mut loaded = super::loaded_files(
+            &mut system(fixture("loaded-files")),
+            commands,
+            &LOADED_FIXTURE_CRATES,
+        )
+        .expect("built and read");
+        loaded.sort_by(|one, other| {
+            (one.krate.name, one.of_tests).cmp(&(other.krate.name, other.of_tests))
+        });
+        loaded
+    };
     let [lib, tests] =
         ["src/lib.rs", "src/lib_tests.rs"].map(|file| format!("crates/loaded/{file}"));
     let helper = "crates/loaded/src/lib_tests/helper.rs".to_owned();
+    let [configured_lib, wasm_tests] =
+        ["src/lib.rs", "src/wasm_tests.rs"].map(|file| format!("crates/configured/{file}"));
+    let blob = "crates/configured/src/blob.inc".to_owned();
+    let build = |krate: RustCrate,
+                 configuration: Option<&'static str>,
+                 of_tests: bool,
+                 files: &[&String]| super::Loaded {
+        krate,
+        target: krate.name.to_owned(),
+        configuration,
+        of_tests,
+        files: files.iter().map(|file| (*file).clone()).collect(),
+    };
+    let on_host = read(&[check, test]);
     assert_eq!(
-        loaded,
+        on_host,
         [
-            super::Loaded {
-                krate: loaded_crate,
-                target: "loaded".to_owned(),
-                of_tests: false,
-                files: vec![lib.clone()],
-            },
-            super::Loaded {
-                krate: loaded_crate,
-                target: "loaded".to_owned(),
-                of_tests: true,
-                files: vec![lib.clone(), tests.clone(), helper.clone()],
-            },
+            build(configured, None, false, &[&configured_lib]),
+            build(configured, None, true, &[&configured_lib]),
+            build(loaded_crate, None, false, &[&lib]),
+            build(loaded_crate, None, true, &[&lib, &tests, &helper]),
         ],
-        "the library alone, then its tests with the module the macro brought in"
+        "each library alone, then its tests, with the module the macro brought in"
+    );
+    let tracked = [
+        lib,
+        tests,
+        helper.clone(),
+        configured_lib.clone(),
+        wasm_tests.clone(),
+    ];
+    let gate = |loaded: &[super::Loaded]| {
+        super::loaded_files_gate(loaded, &tracked).map_err(|failure| failure.summary)
+    };
+    let brought_in = format!(
+        "{helper}: read only by the test build of `loaded` (loaded), but not named as test \
+         code (tests/, a *_tests.rs file): a module brought in by a macro or an attribute"
     );
     assert_eq!(
-        super::loaded_files_gate(&loaded, &[lib, tests, helper.clone()])
-            .map_err(|failure| failure.summary),
-        Err(format!(
-            "{helper}: read only by the test build of `loaded` (loaded), \
-             but not named as test code (tests/, a *_tests.rs file): a module brought in by a \
-             macro or an attribute"
-        )),
-        "what the test code gate cannot see"
+        gate(&on_host),
+        Err(brought_in.clone()),
+        "what the test code gate cannot see; on the host, nothing of the WebAssembly build"
+    );
+    let for_wasm = read(&[wasm]);
+    assert_eq!(
+        for_wasm,
+        [build(
+            configured,
+            Some(super::WASM_TARGET),
+            false,
+            &[&configured_lib, &wasm_tests, &blob]
+        )],
+        "the WebAssembly build reads the files of its configuration"
+    );
+    let wasm_build = format!(
+        "the build of `configured` (configured, {})",
+        super::WASM_TARGET
+    );
+    assert_eq!(
+        super::loaded_files_gate(&[on_host, for_wasm].concat(), &tracked)
+            .map_err(|failure| failure.details),
+        Err(vec![
+            brought_in,
+            format!(
+                "{wasm_tests}: read by {wasm_build}, which builds no tests, but named as test \
+                 code (tests/, a *_tests.rs file): code that every rule telling test code by \
+                 its name skips"
+            ),
+            format!(
+                "{blob}: read by {wasm_build}, not a Rust file: no gate reads it as code, and \
+                 only a build of tests reads data, from its crate's declared test data"
+            ),
+        ]),
+        "a test-named file and a file that is not Rust, compiled for WebAssembly only"
+    );
+}
+
+/// What a cargo command builds: the subcommand, the target (none for the host's), the
+/// `--config` and `--target-dir` given, and the packages (`--workspace` as `*`).
+type Built = (String, [Option<String>; 3], Vec<String>);
+
+/// What a cargo command builds ([`Built`]), if it builds.
+fn built_configuration(cmd: &Cmd) -> Option<Built> {
+    let subcommand = cmd.args.first()?;
+    if cmd.program != "cargo"
+        || !["build", "check", "clippy", "test"].contains(&subcommand.as_str())
+    {
+        return None;
+    }
+    let value = |flag: &str| {
+        cmd.args
+            .iter()
+            .skip_while(|arg| *arg != flag)
+            .nth(1)
+            .cloned()
+    };
+    let mut packages: Vec<String> = cmd
+        .args
+        .windows(2)
+        .filter(|pair| pair[0] == "--package")
+        .map(|pair| pair[1].clone())
+        .collect();
+    if cmd.args.iter().any(|arg| arg == "--workspace") {
+        packages.push("*".to_owned());
+    }
+    Some((
+        subcommand.clone(),
+        [value("--target"), value("--config"), value("--target-dir")],
+        packages,
+    ))
+}
+
+#[test]
+fn reads_every_configuration_the_check_builds() {
+    let gate: Vec<_> = super::loaded_files_commands()
+        .iter()
+        .map(|command| built_configuration(&command.cmd).expect("a build"))
+        .collect();
+    let steps: Vec<_> = check_steps(Mode::Full { jobs: FAKE_JOBS })
+        .into_iter()
+        .filter_map(|step| {
+            if let Action::Run(cmd) = &step.action {
+                built_configuration(cmd)
+            } else if step.action == Action::FusedBuild {
+                built_configuration(&super::fused_command())
+            } else {
+                None
+            }
+        })
+        .collect();
+    let configurations = |builds: &[Built]| {
+        let mut found: Vec<[Option<String>; 3]> = builds
+            .iter()
+            .map(|(_, configuration, _)| configuration.clone())
+            .collect();
+        found.sort();
+        found.dedup();
+        found
+    };
+    assert_eq!(
+        configurations(&gate),
+        configurations(&steps),
+        "the gate reads every configuration the check builds, and no other"
+    );
+    for (subcommand, configuration, packages) in &steps {
+        assert!(
+            gate.iter()
+                .any(|(_, read, read_packages)| read == configuration
+                    && (read_packages.contains(&"*".to_owned())
+                        || packages
+                            .iter()
+                            .all(|package| read_packages.contains(package)))),
+            "every package of `cargo {subcommand}` in {configuration:?} read: {packages:?}"
+        );
+    }
+    for (_, [target, _, _], packages) in &gate {
+        assert_eq!(
+            packages.contains(&"engine-wasm".to_owned()),
+            target.as_deref() == Some("wasm32-unknown-unknown"),
+            "the engine's crate for WebAssembly, checked for WebAssembly alone: {target:?}"
+        );
+    }
+    let fused = super::fused_command();
+    let before_harness: Vec<&str> = fused
+        .args
+        .iter()
+        .map(String::as_str)
+        .take_while(|&arg| arg != "--")
+        .collect();
+    assert_eq!(
+        super::loaded_files_commands()[2].cmd.args,
+        [before_harness, vec!["--no-run", "--message-format=json"]].concat(),
+        "the fused build's own units, not run"
     );
 }
 
@@ -9779,7 +10067,8 @@ fn reports_the_builds_and_dep_info_files_it_cannot_read() {
             action: Action::LoadedFilesGate,
         }]
     };
-    let [check, test] = super::loaded_files_commands();
+    let commands = super::loaded_files_commands();
+    let (check, test) = (&commands[0].cmd, &commands[1].cmd);
     let mut broken = passing();
     broken.broken = Some(test.line());
     assert_eq!(

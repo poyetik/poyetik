@@ -522,13 +522,39 @@ pub fn package_jsons() -> Vec<String> {
         .collect()
 }
 
+/// The WebAssembly target: the engine's on the web, [`WASM_PACKAGE`]'s.
+pub const WASM_TARGET: &str = "wasm32-unknown-unknown";
+
 /// Targets the engine core must build for: proof that it depends on no environment.
 pub const PORTABILITY_TARGETS: [&str; 4] = [
     "aarch64-apple-darwin",
     "x86_64-unknown-linux-gnu",
-    "wasm32-unknown-unknown",
+    WASM_TARGET,
     "thumbv7em-none-eabihf",
 ];
+
+/// The crates of the engine core, built for every one of [`PORTABILITY_TARGETS`].
+pub const PORTABILITY_PACKAGES: [&str; 4] = [
+    "engine-core",
+    "engine-objects",
+    "engine-patch",
+    "engine-hash",
+];
+
+/// The engine's crate for WebAssembly, which the engine package builds for [`WASM_TARGET`].
+pub const WASM_PACKAGE: &str = "engine-wasm";
+
+/// The native shell and the library's floating-point mode it uses, whose code differs by
+/// architecture: built for each of [`NATIVE_TARGETS`].
+pub const NATIVE_PACKAGES: [&str; 2] = ["engine-fpenv", "engine-cli"];
+
+/// Cargo's arguments selecting `packages`: `--package <name>` for each, in order.
+fn package_args<'name>(packages: &[&'name str]) -> Vec<&'name str> {
+    packages
+        .iter()
+        .flat_map(|&package| ["--package", package])
+        .collect()
+}
 
 /// Targets of the native shell (`engine-cli`) and of its floating-point mode
 /// (`engine-fpenv`), whose code differs by architecture.
@@ -956,22 +982,18 @@ pub const FUSED_PROOF: &str =
 pub fn fused_command() -> Cmd {
     Cmd::new(
         "cargo",
-        &[
-            "test",
-            "--locked",
-            "--package",
-            "engine-core",
-            "--package",
-            "engine-objects",
-            "--target-dir",
-            FUSED_TARGET,
-            "--config",
-            FUSED_CONFIG,
-            "--",
-            INCLUDE_IGNORED,
-        ],
+        &[fused_args(), vec!["--", INCLUDE_IGNORED]].concat(),
         Dir::Root,
     )
+}
+
+/// The arguments of the fused test build ([`fused_command`]) that choose what it builds,
+/// which the loaded-files gate builds too ([`loaded_files_commands`]).
+fn fused_args() -> Vec<&'static str> {
+    let mut args = vec!["test", "--locked"];
+    args.extend(package_args(&["engine-core", "engine-objects"]));
+    args.extend(["--target-dir", FUSED_TARGET, "--config", FUSED_CONFIG]);
+    args
 }
 
 /// Checks the output of [`fused_command`]: the test only the fused build holds passed
@@ -1000,19 +1022,11 @@ fn portability_steps() -> Vec<Step> {
                 &format!("Engine portability ({target})"),
                 "cargo",
                 &[
-                    "build",
-                    "--package",
-                    "engine-core",
-                    "--package",
-                    "engine-objects",
-                    "--package",
-                    "engine-patch",
-                    "--package",
-                    "engine-hash",
-                    "--locked",
-                    "--target",
-                    target,
-                ],
+                    vec!["build"],
+                    package_args(&PORTABILITY_PACKAGES),
+                    vec!["--locked", "--target", target],
+                ]
+                .concat(),
                 Dir::Root,
             )
         })
@@ -1033,16 +1047,11 @@ fn native_lint_steps() -> Vec<Step> {
             &format!("Native shell lints ({target})"),
             "cargo",
             &[
-                "clippy",
-                "--package",
-                "engine-fpenv",
-                "--package",
-                "engine-cli",
-                "--all-targets",
-                "--locked",
-                "--target",
-                target,
-            ],
+                vec!["clippy"],
+                package_args(&NATIVE_PACKAGES),
+                vec!["--all-targets", "--locked", "--target", target],
+            ]
+            .concat(),
             Dir::Root,
         )
     });
@@ -1051,16 +1060,11 @@ fn native_lint_steps() -> Vec<Step> {
             &format!("Native code of engine-cli and engine-fpenv built, inline assembly included ({target})"),
             "cargo",
             &[
-                "build",
-                "--lib",
-                "--package",
-                "engine-fpenv",
-                "--package",
-                "engine-cli",
-                "--locked",
-                "--target",
-                target,
-            ],
+                vec!["build", "--lib"],
+                package_args(&NATIVE_PACKAGES),
+                vec!["--locked", "--target", target],
+            ]
+            .concat(),
             Dir::Root,
         )
     });
@@ -3968,7 +3972,10 @@ fn in_crate(path: &str) -> Option<(&'static RustCrate, &str)> {
 /// in code no gate reads by its path) nowhere. A `*_tests.rs` file brings in no other file
 /// (a module without a body, `#[path]`, `include!`), which no rule would tell as test code:
 /// its modules are written inline. A module a macro of another file declares in it is no
-/// word of it: [`loaded_files_gate`] sees it, from what rustc read. No file of a crate, `tests/`
+/// word of it: [`loaded_files_gate`] sees it, from what rustc read for every configuration
+/// the check builds, and refuses a file named as test code that a build without tests
+/// reads; what only Miri's, the coverage's or the release build compiles, it does not see,
+/// and there these word rules are the only guard. No file of a crate, `tests/`
 /// included, holds a `path` attribute (`path_attributes`) but in a test declaration, nor
 /// an attribute a macro names by a variable (`variable_attributes`): a module comes from
 /// the file its name gives, never from another crate's file (whose changes would not widen
@@ -10332,38 +10339,89 @@ fn fused_build(runner: &mut dyn Runner) -> Result<(), Failure> {
     fused_gate(&output)
 }
 
-/// The builds whose files [`loaded_files_gate`] reads, as cargo's JSON messages.
+/// A command whose builds [`loaded_files_gate`] reads.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LoadedCommand {
+    /// The command: cargo, writing its JSON messages.
+    pub cmd: Cmd,
+    /// Whether only its builds of tests are read, its other builds being another
+    /// command's.
+    pub tests_only: bool,
+    /// The configuration it builds, as the gate's messages name it: none for the host's
+    /// own.
+    pub configuration: Option<&'static str>,
+}
+
+/// The builds whose files [`loaded_files_gate`] reads: every configuration the check
+/// builds, with no code generated where the check's own step would not reuse it.
 ///
-/// Every library and binary of the workspace without its tests (`cargo check`), then what
-/// the Rust tests step builds (`cargo test --no-run`, its builds reused), of which only the
-/// builds of tests are read.
+/// On the host: every library and binary of the workspace without its tests (`cargo
+/// check`), then what the Rust tests step builds (`cargo test --no-run`, its builds
+/// reused), of which only the builds of tests are read. Then the fused test build's own
+/// builds ([`fused_command`] with `--no-run`, which the fused step reuses), the engine core
+/// for each of [`PORTABILITY_TARGETS`] ([`PORTABILITY_PACKAGES`], with [`WASM_PACKAGE`] for
+/// [`WASM_TARGET`]) and the native crates, their tests included, for each of
+/// [`NATIVE_TARGETS`] ([`NATIVE_PACKAGES`]), each checked (`cargo check`: type-checked, no
+/// code generated), every build of theirs read. So a module only another target, the fused
+/// math layer or a test build compiles is in the compiler's record too.
 #[must_use]
-pub fn loaded_files_commands() -> [Cmd; 2] {
-    [
-        Cmd::new(
-            "cargo",
-            &[
-                "check",
-                "--workspace",
-                "--lib",
-                "--bins",
-                "--locked",
-                "--message-format=json",
-            ],
-            Dir::Root,
+pub fn loaded_files_commands() -> Vec<LoadedCommand> {
+    const JSON: &str = "--message-format=json";
+    let cargo = |args: &[&str], tests_only, configuration| LoadedCommand {
+        cmd: Cmd::new("cargo", args, Dir::Root),
+        tests_only,
+        configuration,
+    };
+    let mut commands = vec![
+        cargo(
+            &["check", "--workspace", "--lib", "--bins", "--locked", JSON],
+            false,
+            None,
         ),
-        Cmd::new(
-            "cargo",
-            &[
-                "test",
-                "--workspace",
-                "--locked",
-                "--no-run",
-                "--message-format=json",
-            ],
-            Dir::Root,
+        cargo(
+            &["test", "--workspace", "--locked", "--no-run", JSON],
+            true,
+            None,
         ),
-    ]
+        cargo(
+            &[fused_args(), vec!["--no-run", JSON]].concat(),
+            false,
+            Some("fused"),
+        ),
+    ];
+    for target in PORTABILITY_TARGETS {
+        let wasm = if target == WASM_TARGET {
+            package_args(&[WASM_PACKAGE])
+        } else {
+            Vec::new()
+        };
+        commands.push(cargo(
+            &[
+                vec!["check", "--lib"],
+                package_args(&PORTABILITY_PACKAGES),
+                wasm,
+                vec!["--locked", "--target", target, JSON],
+            ]
+            .concat(),
+            false,
+            Some(target),
+        ));
+    }
+    for target in NATIVE_TARGETS {
+        commands.push(cargo(
+            &[
+                vec!["check"],
+                package_args(&NATIVE_PACKAGES),
+                vec![
+                    "--lib", "--bins", "--tests", "--locked", "--target", target, JSON,
+                ],
+            ]
+            .concat(),
+            false,
+            Some(target),
+        ));
+    }
+    commands
 }
 
 /// The files rustc read to build one target of a crate, from its dep-info file.
@@ -10373,6 +10431,8 @@ pub struct Loaded {
     krate: RustCrate,
     /// The target's name, as cargo names it.
     target: String,
+    /// The configuration built ([`LoadedCommand::configuration`]).
+    configuration: Option<&'static str>,
     /// Whether it is a build of tests (unit tests or a test target).
     of_tests: bool,
     /// Every file rustc read, relative to the workspace root when below it, with no `.` or
@@ -10380,10 +10440,11 @@ pub struct Loaded {
     files: Vec<String>,
 }
 
-/// The files of each build cargo made running `commands` ([`loaded_files_commands`]): of
-/// the first, every build; of the second, its builds of tests. Each build is of a crate of
-/// `crates`, whose directory below the workspace root its manifest names; each list is
-/// read from the dep-info file rustc wrote beside its first output (`<name>-<hash>.d`).
+/// The files of each build cargo made running `commands` ([`loaded_files_commands`]):
+/// every build of a command, or only its builds of tests when it says so. Each build is of
+/// a crate of `crates`, whose directory below the workspace root its manifest names; each
+/// list is read from the dep-info file rustc wrote beside its first output
+/// (`<name>-<hash>.d`).
 ///
 /// # Errors
 ///
@@ -10391,19 +10452,25 @@ pub struct Loaded {
 /// local package is none of `crates`, or a dep-info file cannot be found or read.
 fn loaded_files(
     runner: &mut dyn Runner,
-    commands: &[Cmd; 2],
+    commands: &[LoadedCommand],
     crates: &[RustCrate],
 ) -> Result<Vec<Loaded>, Failure> {
     let mut loaded = Vec::new();
-    for (cmd, of_tests) in commands.iter().zip([false, true]) {
+    for command in commands {
         let output = runner
-            .capture(cmd)
+            .capture(&command.cmd)
             .map_err(|failure| Failure::from(format!("cannot build: {failure}")))?;
         for line in output.lines() {
-            let Some(artifact) = built_artifact(line, of_tests, crates)? else {
+            let Some(artifact) = built_artifact(line, command.tests_only, crates)? else {
                 continue;
             };
-            let (krate, root, target, dep_info) = artifact;
+            let Artifact {
+                krate,
+                root,
+                target,
+                dep_info,
+                of_tests,
+            } = artifact;
             let text = read_file(runner, &dep_info)?;
             let files = dep_info_files(&text)
                 .map_err(|unread| Failure::from(format!("{dep_info}: {unread}")))?
@@ -10413,6 +10480,7 @@ fn loaded_files(
             loaded.push(Loaded {
                 krate,
                 target,
+                configuration: command.configuration,
                 of_tests,
                 files,
             });
@@ -10421,9 +10489,23 @@ fn loaded_files(
     Ok(loaded)
 }
 
-/// What one line of cargo's JSON messages says of a build of a local package by `of_tests`
-/// (a build of tests or not), if it reports one: its crate among `crates`, the workspace
-/// root its manifest gives, the target's name and the path of its dep-info file.
+/// A build of a local package, as cargo's JSON messages report it ([`built_artifact`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Artifact {
+    /// Its crate.
+    krate: RustCrate,
+    /// The workspace root its manifest gives.
+    root: String,
+    /// The target's name, as cargo names it.
+    target: String,
+    /// The path of its dep-info file.
+    dep_info: String,
+    /// Whether it is a build of tests.
+    of_tests: bool,
+}
+
+/// What one line of cargo's JSON messages says of a build of a local package, if it reports
+/// one (of tests only, when `tests_only`), its crate among `crates`.
 ///
 /// # Errors
 ///
@@ -10431,9 +10513,9 @@ fn loaded_files(
 /// none of `crates`, or why the dep-info file cannot be told from the build's output.
 fn built_artifact(
     line: &str,
-    of_tests: bool,
+    tests_only: bool,
     crates: &[RustCrate],
-) -> Result<Option<(RustCrate, String, String, String)>, Failure> {
+) -> Result<Option<Artifact>, Failure> {
     let unread = |what: &str| Failure::from(format!("cannot read cargo's message {what}: {line}"));
     let message: serde_json::Value =
         serde_json::from_str(line).map_err(|_| unread("(not JSON)"))?;
@@ -10442,11 +10524,14 @@ fn built_artifact(
         || !field("/package_id")
             .ok_or_else(|| unread("(no package_id)"))?
             .starts_with("path+")
-        || message
-            .pointer("/profile/test")
-            .and_then(serde_json::Value::as_bool)
-            != Some(of_tests)
     {
+        return Ok(None);
+    }
+    let of_tests = message
+        .pointer("/profile/test")
+        .and_then(serde_json::Value::as_bool)
+        .ok_or_else(|| unread("(no profile)"))?;
+    if tests_only && !of_tests {
         return Ok(None);
     }
     let manifest = field("/manifest_path").ok_or_else(|| unread("(no manifest_path)"))?;
@@ -10469,12 +10554,13 @@ fn built_artifact(
         .into_iter()
         .find(|stem| stem.starts_with(&format!("{name}-")))
         .ok_or_else(|| unread("(an output not named <crate>-<hash>)"))?;
-    Ok(Some((
+    Ok(Some(Artifact {
         krate,
         root,
-        target.to_owned(),
-        format!("{dir}/{stem}.d"),
-    )))
+        target: target.to_owned(),
+        dep_info: format!("{dir}/{stem}.d"),
+        of_tests,
+    }))
 }
 
 /// The files a dep-info file of rustc lists: one line `<file>:` each (spaces escaped
@@ -10544,21 +10630,36 @@ fn loaded_files_of_the_workspace(runner: &mut dyn Runner) -> Result<(), Failure>
 }
 
 /// Checks the files rustc read for each build (from its dep-info file) against what the
-/// gates that read sources by their path assume.
+/// gates that read sources by their path assume, both ways.
 ///
 /// Every file a build reads is below its crate's directory, or one of the crate's declared
-/// test data ([`RustCrate::test_data`]) read by a build of tests; every Rust file below a
-/// crate that a build reads is tracked by git (`tracked`), so that every gate reading the
-/// tracked files read it; and every Rust file a build of tests reads is read by a build of
-/// the crate without its tests, or is test code by its name (`tests/`, a `*_tests.rs`
-/// file). So a module a macro or an attribute brings in, which no gate reading words sees
-/// (`mod $name;` expanded in a test file), is told by the compiler's own record.
+/// test data ([`RustCrate::test_data`]) read by a build of tests; every file a build reads
+/// below its crate is Rust, but the declared test data a build of tests reads, so that no
+/// code comes from a file no gate reads as code (`include!` of another extension, a
+/// dependency's macro expanding to it); every Rust file below a crate that a build reads is
+/// tracked by git (`tracked`), so that every gate reading the tracked files read it; every
+/// Rust file a build of tests reads is read by a build of the code (a build without its
+/// tests), or is test code by its name (`tests/`, a `*_tests.rs` file); and no build of the
+/// code reads a file named as test code, which every rule telling test code by its name (the
+/// math layer gate, the mutation widening, the proof record's rules) skips. So a module a
+/// macro or an attribute brings in, which no gate reading words sees (`mod $name;` expanded
+/// in a test file), is told by the compiler's own record.
+///
+/// The record is that of every build of [`loaded_files_commands`]: the host's, the fused
+/// math layer's, and each target's the check builds. **Not seen**: what only a build the
+/// check makes in another configuration reads (Miri's `cfg(miri)`, the coverage
+/// instrumentation's, the release profile's `debug_assertions` off for the engine package's
+/// WebAssembly, a feature: none is declared, an example or a benchmark target: none
+/// exists), and what a doc test loads, a crate rustdoc compiles apart that writes no
+/// dep-info; there the word rules of the test code gate ([`test_code_gate`]) are the only
+/// guard.
 ///
 /// # Errors
 ///
-/// Returns every file read outside its crate and declared test data, every Rust file read
-/// that git does not track, and every Rust file only tests read that is not named as test
-/// code, each with the build that read it.
+/// Returns every file read outside its crate and declared test data, every file read that
+/// is not Rust nor declared test data read by tests, every Rust file read that git does not
+/// track, every Rust file only tests read that is not named as test code, and every file
+/// named as test code a build of the code reads, each with the build that read it.
 pub fn loaded_files_gate(loaded: &[Loaded], tracked: &[String]) -> Result<(), Failure> {
     let code: BTreeSet<&str> = loaded
         .iter()
@@ -10568,26 +10669,31 @@ pub fn loaded_files_gate(loaded: &[Loaded], tracked: &[String]) -> Result<(), Fa
     let mut problems = Vec::new();
     for build in loaded {
         let what = format!(
-            "{} of `{}` ({})",
+            "{} of `{}` ({}{})",
             if build.of_tests {
                 "the test build"
             } else {
                 "the build"
             },
             build.target,
-            build.krate.name
+            build.krate.name,
+            build
+                .configuration
+                .map(|configuration| format!(", {configuration}"))
+                .unwrap_or_default()
         );
         for file in &build.files {
             let rust = Path::new(file)
                 .extension()
                 .is_some_and(|extension| extension == "rs");
+            let test_data = build.of_tests
+                && build
+                    .krate
+                    .test_data
+                    .iter()
+                    .any(|root| under_root(file, root));
             match build.krate.holds(file) {
-                None if build.of_tests
-                    && build
-                        .krate
-                        .test_data
-                        .iter()
-                        .any(|root| under_root(file, root)) => {}
+                None if test_data => {}
                 None => problems.push(format!(
                     "{file}: read by {what}, outside its crate{}",
                     if build.of_tests {
@@ -10596,13 +10702,28 @@ pub fn loaded_files_gate(loaded: &[Loaded], tracked: &[String]) -> Result<(), Fa
                         ""
                     }
                 )),
-                Some(_) if rust && !tracked.contains(file) => problems.push(format!(
+                Some(_) if !rust => {
+                    if !test_data {
+                        problems.push(format!(
+                            "{file}: read by {what}, not a Rust file: no gate reads it as code, \
+                             and only a build of tests reads data, from its crate's declared \
+                             test data"
+                        ));
+                    }
+                }
+                Some(_) if !tracked.contains(file) => problems.push(format!(
                     "{file}: read by {what}, but not tracked by git, so no gate read it (git \
                      add it)"
                 )),
+                Some(relative) if !build.of_tests && rust_test_code(relative) => {
+                    problems.push(format!(
+                        "{file}: read by {what}, which builds no tests, but named as test code \
+                         (tests/, a *_tests.rs file): code that every rule telling test code by \
+                         its name skips"
+                    ));
+                }
                 Some(relative)
-                    if rust
-                        && build.of_tests
+                    if build.of_tests
                         && !rust_test_code(relative)
                         && !code.contains(file.as_str()) =>
                 {

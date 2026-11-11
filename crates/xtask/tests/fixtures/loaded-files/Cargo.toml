@@ -1,6 +1,7 @@
 # A workspace of its own, outside the project's: xtask's tests build it with real cargo and
 # read the files rustc loaded for each build, among them a module that a macro of its
-# library brings into its tests, which no gate reading words sees.
+# library brings into its tests, which no gate reading words sees, and files that only a
+# build for WebAssembly reads.
 [workspace]
-members = ["crates/loaded"]
+members = ["crates/configured", "crates/loaded"]
 resolver = "3"
