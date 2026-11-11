@@ -61,7 +61,7 @@ function random(seed: number): () => number {
 }
 
 /** What the user, the browser and the audio thread may do, in any order. */
-const EVENTS = ["start", "stop", "resume", "suspend", "interrupt", "browser resume", "fail", "advance", "flush", "loaded", "load fails"] as const;
+const EVENTS = ["start", "stop", "resume", "suspend", "interrupt", "browser resume", "browser close", "fail", "advance", "flush", "loaded", "load fails"] as const;
 
 /** Every kind of state the player may be in. */
 const KINDS: readonly string[] = ["stopped", "starting", "playing", "suspended", "stopping", "failed"];
@@ -138,6 +138,17 @@ async function explore(seed: number, slower: number): Promise<string[]> {
       case "browser resume":
         become("running");
         break;
+      case "browser close": {
+        // A session whose context the browser closes fails on the device, at once, at
+        // whatever point of its life: its start included.
+        const context = lastContext();
+        const open = context !== undefined && context.state !== "closed";
+        become("closed");
+        if (open) {
+          expect(player.state()).toStrictEqual({ kind: "failed", cause: "device", detail: "Error: the browser closed the audio device" });
+        }
+        break;
+      }
       case "fail":
         workletNode("poyetik-engine")?.onprocessorerror?.();
         break;

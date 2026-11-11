@@ -373,6 +373,11 @@ export class EnginePlayer implements Player {
     const { context, gain } = session;
     // Where the start is: what a failure there is caused by.
     let cause: Failure = "load";
+    // Followed from before the first await: a context the browser closes at any point of
+    // the start fails the session on the device, never later on whatever awaited it.
+    context.onstatechange = () => {
+      this.#follow(session);
+    };
     try {
       const wasm = await this.#module(session);
       await session.until(addProcessors(context, this.#options.worklet));
@@ -393,9 +398,6 @@ export class EnginePlayer implements Player {
         }),
       );
       engine.node.connect(gain).connect(context.destination);
-      context.onstatechange = () => {
-        this.#follow(session);
-      };
       // Awaited before resuming: Chromium, Firefox and WebKit all construct the processor,
       // and so settle `ready`, while the context is still suspended: checked once by hand in
       // Playwright's builds of each (Safari unchecked); an end-to-end test is roadmap #24.

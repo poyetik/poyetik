@@ -2,7 +2,7 @@ import { loadPatch } from "@poyetik/engine-wasm/web";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { SINE_440 } from "../src/patch.ts";
 import { ENGINE_RATES, EnginePlayer, explain, missing, type Environment, type Failure, type Missing } from "../src/player.ts";
-import { CAPABLE, FakeContext, WASM, flush, lastContext, log, playerOptions, processor, resetFakes, signals, stopPlaying, stubFetch, workletNode } from "./fakes.ts";
+import { CAPABLE, FakeContext, WASM, flush, lastContext, log, playerOptions, processor, holdFetch, resetFakes, signals, stopPlaying, stubFetch, workletNode } from "./fakes.ts";
 import { SAMPLE_RATES } from "./matrix.ts";
 
 /** Whether `text` names a lack or a failure the player explains. */
@@ -256,6 +256,34 @@ describe("EnginePlayer", () => {
     await flush();
     expect(player.state()).toStrictEqual({ kind: "failed", cause: "device", detail: "Error: the browser closed the audio device" });
     expect(log).toStrictEqual(["post stop", "disconnect poyetik-engine -> poyetik-tap"]);
+  });
+
+  test("fails on the device when the browser closes the context during the download", async () => {
+    const answer = holdFetch();
+    const player = new EnginePlayer(playerOptions());
+    const starting = player.start();
+    await vi.waitFor(() => {
+      expect(log).toContain("fetch engine.wasm");
+    });
+    lastContext()?.become("closed");
+    expect(player.state()).toStrictEqual({ kind: "failed", cause: "device", detail: "Error: the browser closed the audio device" });
+    answer();
+    await starting;
+    await flush();
+    expect(player.state()).toStrictEqual({ kind: "failed", cause: "device", detail: "Error: the browser closed the audio device" });
+  });
+
+  test("fails on the device when the browser closes the context while the engine gets ready", async () => {
+    processor.answer = undefined;
+    const player = new EnginePlayer(playerOptions());
+    const starting = player.start();
+    await vi.waitFor(() => {
+      expect(workletNode("poyetik-engine")).toBeDefined();
+    });
+    lastContext()?.become("closed");
+    await starting;
+    await flush();
+    expect(player.state()).toStrictEqual({ kind: "failed", cause: "device", detail: "Error: the browser closed the audio device" });
   });
 
   test("ignores the browser while starting: the start decides", async () => {

@@ -274,6 +274,22 @@ export function stubFetch(status: number | "never" = 200): void {
   });
 }
 
+/** Fetch holding every request until the function returned answers them all with the engine module. */
+export function holdFetch(): () => void {
+  const held: ((response: unknown) => void)[] = [];
+  vi.stubGlobal("fetch", (url: string) => {
+    log.push(`fetch ${url}`);
+    return new Promise((resolve) => {
+      held.push(resolve);
+    });
+  });
+  return () => {
+    for (const answer of held.splice(0)) {
+      answer({ ok: true, status: 200, arrayBuffer: () => Promise.resolve(WASM.buffer.slice(WASM.byteOffset, WASM.byteOffset + WASM.byteLength)) });
+    }
+  };
+}
+
 /** The worklet node of this processor, from the last start. */
 export function workletNode(name: string): FakeWorkletNode | undefined {
   return FakeWorkletNode.created.filter((node) => node.name === name).pop();
