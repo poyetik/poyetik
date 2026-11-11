@@ -34,7 +34,7 @@ macOS or Linux (on Windows, use WSL2). `cargo xtask check` checks every tool fir
 ## Checking
 
 ```sh
-cargo xtask check          # every check, in order; mutation testing of the changes only (see below)
+cargo xtask check          # every check, one after another, cheapest first; mutation testing of the changes only (see below)
 cargo xtask check --full   # every check and every mutant
 cargo xtask list           # what they are (`list --full`: those of `check --full`)
 cargo xtask mutants <target>  # every mutant of a crate, a Rust file, a TypeScript package or one of its sources
@@ -48,7 +48,7 @@ The checks build, link and start many test programs (mutation testing builds the
 
 - macOS: keep the Command Line Tools up to date (their recent releases link with Apple's faster linker), and exclude the repository's `target/` folder from Spotlight (System Settings, Spotlight, Search Privacy).
 - Linux: the pinned toolchain already links with its own fast linker on x86_64; exclude `target/` from any file indexer that runs.
-- Windows (WSL2): keep the repository in the WSL2 file system rather than below `/mnt/c`, and exclude the distribution's virtual disk from Microsoft Defender's real-time protection.
+- Windows (WSL2): keep the repository in the WSL2 file system rather than below `/mnt/c`.
 
 A new build of the compiler, or of the C compiler driver `cc` every build links through, is an input of every test program, and xtask's tests run git: the mutation proof record of the default check names the three, so the first default check after an update of one mutates as if there were no record.
 
