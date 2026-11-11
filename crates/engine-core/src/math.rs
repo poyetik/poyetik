@@ -241,8 +241,9 @@ pub(crate) fn to_binary32(value: f64) -> f32 {
     }
 }
 
-/// A constructor of box instances computing in `S`.
-pub type Constructor<S> = fn(SampleRate, &Params) -> Box<dyn Object<S>>;
+/// A constructor of box instances computing in `S`: how a [`Factory`] holds each
+/// precision's, private to the engine.
+pub(crate) type Constructor<S> = fn(SampleRate, &Params) -> Box<dyn Object<S>>;
 
 /// A binary64 value of the engine: a signal sample of a binary64 render, and in both
 /// precisions a parameter value and what boxes derive from it (increments, coefficients,
@@ -428,13 +429,37 @@ impl SubAssign for Binary32 {
 
 /// Hides [`Sample`] and [`host::Delivered`] from implementations outside this crate: the engine
 /// computes in binary64 and binary32 only.
-mod sealed {
+pub(crate) mod sealed {
+    use super::{Constructor, Factory, Sample};
+
     /// The sample types, and the floats a render is given in.
     pub trait Sealed {}
     impl Sealed for super::Binary64 {}
     impl Sealed for super::Binary32 {}
     impl Sealed for f64 {}
     impl Sealed for f32 {}
+
+    /// How a sample type picks its constructor from a [`Factory`]: a supertrait of
+    /// [`Sample`] no other crate can name, so that [`Factory::create`] stays the one way
+    /// to create an instance.
+    pub trait Construct {
+        /// The constructor of `factory` for this type.
+        fn constructor(factory: &Factory) -> Constructor<Self>
+        where
+            Self: Sample;
+    }
+
+    impl Construct for super::Binary64 {
+        fn constructor(factory: &Factory) -> Constructor<Self> {
+            factory.binary64
+        }
+    }
+
+    impl Construct for super::Binary32 {
+        fn constructor(factory: &Factory) -> Constructor<Self> {
+            factory.binary32
+        }
+    }
 }
 
 /// A type the engine computes signals in: [`Binary64`] or [`Binary32`], nothing else. Its
@@ -442,6 +467,7 @@ mod sealed {
 /// `libm`'s; all are the math layer's.
 pub trait Sample:
     sealed::Sealed
+    + sealed::Construct
     + Copy
     + fmt::Debug
     + Send
@@ -493,9 +519,6 @@ pub trait Sample:
     /// A fused multiply-add option (decision 10) changes this function alone.
     #[must_use]
     fn mul_then_add(self, mul: Self, add: Self) -> Self;
-
-    /// The constructor of `factory` for this type.
-    fn constructor(factory: &Factory) -> Constructor<Self>;
 }
 
 impl Sample for Binary64 {
@@ -530,10 +553,6 @@ impl Sample for Binary64 {
         #[cfg(poyetik_math = "fused")]
         let result = Self(libm::fma(self.0, mul.0, add.0));
         result
-    }
-
-    fn constructor(factory: &Factory) -> Constructor<Self> {
-        factory.binary64
     }
 }
 
@@ -580,10 +599,6 @@ impl Sample for Binary32 {
         #[cfg(poyetik_math = "fused")]
         let result = Self(libm::fmaf(self.0, mul.0, add.0));
         result
-    }
-
-    fn constructor(factory: &Factory) -> Constructor<Self> {
-        factory.binary32
     }
 }
 

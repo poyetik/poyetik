@@ -35,8 +35,8 @@ mod render;
 pub use block::{BLOCK_SIZE, Block};
 pub use error::CoreError;
 pub use math::{
-    ArithmeticMode, ArithmeticOption, Binary32, Binary64, Constructor, MODE, Precision,
-    RenderFormat, Sample, UnknownArithmeticOptions, host, ordered_sum,
+    ArithmeticMode, ArithmeticOption, Binary32, Binary64, MODE, Precision, RenderFormat, Sample,
+    UnknownArithmeticOptions, host, ordered_sum,
 };
 pub use object::{
     AlgorithmVersion, Capability, Create, Factory, Instance, Object, ObjectSpec, ParamSpec, Params,

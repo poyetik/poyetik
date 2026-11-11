@@ -8,7 +8,8 @@ use core::fmt;
 use core::num::NonZeroU32;
 use core::ops::Deref;
 
-use crate::{Binary32, Binary64, Block, Constructor, Sample, SampleRate};
+use crate::math::{Constructor, sealed};
+use crate::{Binary32, Binary64, Block, Sample, SampleRate};
 
 /// A capability a box needs from the host platform.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -145,6 +146,22 @@ pub trait Create {
 /// Creates the instances of a box type, in either precision: built only from one generic
 /// [`Create::create`], so that a box type cannot behave differently by precision but
 /// through the [`Sample`] it is given.
+///
+/// How it picks the constructor of a precision is the engine's own: [`Factory::create`]
+/// is the one way to create an instance, and neither the per-precision constructor nor
+/// its type is public:
+///
+/// ```compile_fail,E0599
+/// use engine_core::{Binary64, Factory, Sample};
+///
+/// fn pick(factory: &Factory) {
+///     let _constructor = Binary64::constructor(factory);
+/// }
+/// ```
+///
+/// ```compile_fail,E0432
+/// use engine_core::Constructor;
+/// ```
 #[derive(Debug, Clone, Copy)]
 pub struct Factory {
     /// Creates a binary64 instance.
@@ -167,7 +184,7 @@ impl Factory {
     /// [`Create::create`] receives them.
     #[must_use]
     pub fn create<S: Sample>(&self, rate: SampleRate, params: &Params) -> Box<dyn Object<S>> {
-        S::constructor(self)(rate, params)
+        <S as sealed::Construct>::constructor(self)(rate, params)
     }
 }
 
