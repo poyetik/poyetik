@@ -811,6 +811,48 @@ mod tests {
         );
     }
 
+    /// A box's outlet costs the plan less than two blocks: its bus slot, which the cables
+    /// read, is where the box writes, so a second block per outlet (a copy the box would
+    /// write first) fails here. Checked by adding one cable-free box of one outlet and no
+    /// inlet to plans of 1 and 64 such boxes, in both precisions, on the engine's
+    /// `BuiltIn`: what the box adds beside its slot (its instance and state) is far below
+    /// a block.
+    #[test]
+    fn writes_each_outlet_into_its_bus_slot() {
+        /// The bytes a plan of the engine (`BuiltIn`) computing in `S` keeps on the heap once
+        /// built from `count` unconnected constants.
+        fn kept<S: Sample>(count: u32) -> Result<usize, String> {
+            let nodes: Vec<Node> = (1..=count)
+                .map(|id| Node {
+                    id: NodeId(id),
+                    kind: String::from("const~"),
+                    params: BTreeMap::new(),
+                })
+                .collect();
+            let rate = SampleRate::new(44_100).map_err(|error| error.to_string())?;
+            let patch = Patch::new(nodes, Vec::new()).map_err(|error| error.to_string())?;
+            let (plan, bytes) =
+                heap_bytes_during(|| Plan::<S, BuiltIn<S>>::build(&patch, &REGISTRY, rate))?;
+            plan.map(|_| bytes).map_err(|error| error.to_string())
+        }
+        fn one_more_outlet<S: Sample>(count: u32) -> Result<(), String> {
+            let added = kept::<S>(count + 1)?.saturating_sub(kept::<S>(count)?);
+            let bound = 2 * size_of::<Block<S>>();
+            if added < bound {
+                Ok(())
+            } else {
+                Err(format!(
+                    "a box of one outlet added to {count} costs {added} bytes, not below two \
+                     blocks ({bound} bytes)"
+                ))
+            }
+        }
+        for count in [1, 64] {
+            one_more_outlet::<Binary64>(count).expect("binary64");
+            one_more_outlet::<Binary32>(count).expect("binary32");
+        }
+    }
+
     #[test]
     fn the_reference_renderer_follows_the_spec() {
         // const~ 0.25 and const~ 0.5 into inlet 0 of out~, rate~ into its inlet 1, and

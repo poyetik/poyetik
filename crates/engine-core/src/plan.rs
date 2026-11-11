@@ -21,8 +21,8 @@ use crate::{
     ParamValues, Patch, Sample, SampleRate, flush,
 };
 
-/// One box instance in execution order, held as `I` ([`Dispatch`]), with its own input and
-/// output buffers.
+/// One box instance in execution order, held as `I` ([`Dispatch`]), with its own input
+/// buffers; it writes its outputs straight into its bus slots.
 #[derive(Debug)]
 struct Running<S: Sample, I> {
     /// The box this instance runs.
@@ -32,14 +32,16 @@ struct Running<S: Sample, I> {
     /// Input buffers, one per inlet: a connected inlet is rewritten before every block,
     /// an unconnected one stays silent from the build on.
     inputs: Vec<Block<S>>,
-    /// Output buffers, one per outlet.
-    outputs: Vec<Block<S>>,
     /// For each connected inlet, in inlet order, the inlet and how it is fed from the bus
     /// slots of its cables (in the canonical cable order). An unconnected inlet has none: it
     /// stays silent from the build on.
     feeds: Vec<(usize, Feed<usize>)>,
-    /// First bus slot holding this instance's outputs.
+    /// First bus slot of this instance's outputs: its outlets write the `outlets` slots
+    /// from there on (consecutive, and written by no other instance), which keep their
+    /// blocks between two blocks of processing as the box's own buffers would.
     first_slot: usize,
+    /// Number of outlets of the box.
+    outlets: usize,
 }
 
 /// The sources of a block, in their summing order: the first, then the others. A block with
@@ -374,7 +376,6 @@ impl<S: Sample, I: Dispatch<S>> Plan<S, I> {
                 node: id,
                 object: I::create(resolved.spec, rate, resolved.params.params()),
                 inputs: vec![S::SILENCE; inlets],
-                outputs: vec![S::SILENCE; resolved.spec.outlets.len()],
                 feeds: (0..inlets)
                     .filter_map(|inlet| {
                         sources
@@ -383,6 +384,7 @@ impl<S: Sample, I: Dispatch<S>> Plan<S, I> {
                     })
                     .collect(),
                 first_slot: resolved.first_slot,
+                outlets: resolved.spec.outlets.len(),
             });
         }
         // By box id (like buses, decision 6): the order a channel sums the output boxes in,
@@ -443,16 +445,16 @@ impl<S: Sample, I: Dispatch<S>> Plan<S, I> {
                     feed.write(input, &mut self.lanes, |slot| bus.get(slot));
                 }
             }
-            instance
-                .object
-                .process(&instance.inputs, &mut instance.outputs);
-            for (slot, output) in self
-                .bus
-                .iter_mut()
-                .skip(instance.first_slot)
-                .zip(&instance.outputs)
-            {
-                *slot = *output;
+            // The box's slots are in the bus (`build` gives every box its outlets' slots,
+            // boxes in id order, and sizes the bus for all of them): they are always found,
+            // so the box always runs. Unreachable, and reviewed: a plan built without them
+            // would skip the box, leaving its slots as the last block left them.
+            for slots in Option::into_iter(
+                self.bus
+                    .get_mut(instance.first_slot..)
+                    .and_then(|rest| rest.get_mut(..instance.outlets)),
+            ) {
+                instance.object.process(&instance.inputs, slots);
             }
         }
         let mut feeds = self.channel_feeds.iter();
