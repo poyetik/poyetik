@@ -3870,25 +3870,6 @@ fn system_runner_runs_commands_and_reads_files() {
     let mut runner = SystemRunner {
         root: fixture("coverage-locality"),
     };
-    let ok = Cmd {
-        program: "cargo",
-        args: vec!["--version".to_owned()],
-        dir: Dir::Root,
-    };
-    assert_eq!(runner.run(&ok), Ok(()), "a successful command");
-    let bad = Cmd {
-        program: "cargo",
-        args: vec!["no-such-command".to_owned()],
-        dir: Dir::Root,
-    };
-    assert_eq!(
-        runner.run(&bad).map_err(|failure| failure.failed),
-        Err(Failed::Ended {
-            exit: Exit::Code(101_i32),
-            reason: None
-        }),
-        "a failing command and its code, its error output left on the terminal"
-    );
     let missing = Cmd {
         program: "no-such-program-xyz",
         args: vec![],
@@ -3903,8 +3884,25 @@ fn system_runner_runs_commands_and_reads_files() {
                     .starts_with("cannot run `no-such-program-xyz`: ")),
         "a program that cannot start"
     );
+    // Commands that print nothing, so that the checks' output holds no line of a test.
     #[cfg(unix)]
     {
+        let shell = |script: &str| Cmd {
+            program: "sh",
+            args: vec!["-c".to_owned(), script.to_owned()],
+            dir: Dir::Root,
+        };
+        assert_eq!(runner.run(&shell("true")), Ok(()), "a successful command");
+        assert_eq!(
+            runner
+                .run(&shell("exit 101"))
+                .map_err(|failure| failure.failed),
+            Err(Failed::Ended {
+                exit: Exit::Code(101_i32),
+                reason: None
+            }),
+            "a failing command and its code, its error output left on the terminal"
+        );
         let killed = Cmd {
             program: "sh",
             args: vec!["-c".to_owned(), "kill -9 $$".to_owned()],
