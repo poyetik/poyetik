@@ -2,7 +2,7 @@
 
 extern crate alloc;
 
-use alloc::collections::BTreeMap;
+use alloc::collections::{BTreeMap, BTreeSet};
 use core::fmt::Write as _;
 use core::num::NonZeroUsize;
 use core::time::Duration;
@@ -2593,7 +2593,8 @@ fn gives_each_changed_file_one_section_when_its_crate_is_tested_whole() {
         "said: {said}"
     );
     // A git that wrote the excluded crate's change in place of another's, as many sections
-    // as changed files outside it: the diff would hold the crate's source twice.
+    // as changed files outside it: the diff would hold the crate's source twice, and the
+    // other's change not at all.
     let mut careless = passing();
     let _careless_changes = careless.files.insert(
         format!("capture {}", CHANGES.0),
@@ -2618,9 +2619,9 @@ fn gives_each_changed_file_one_section_when_its_crate_is_tested_whole() {
     assert_eq!(
         run_steps(&rust_mutation_of_changes(), &mut careless, &mut Vec::new()),
         failed(
-            "Rust mutation testing of the changes: the diff for cargo-mutants holds `diff --git \
-             a/crates/engine-core/src/lib.rs b/crates/engine-core/src/lib.rs` twice, whose \
-             mutants it would miss"
+            "Rust mutation testing of the changes: git's diff holds no section for \
+             crates/engine-hash/src/lib.rs, a changed Rust file: it left the change out, whose \
+             mutants would go untested"
         ),
         "refused before cargo-mutants reads it"
     );
@@ -2656,8 +2657,9 @@ fn refuses_a_diff_git_left_a_change_out_of() {
     assert_eq!(
         run_steps(&rust_mutation_of_changes(), &mut lossy, &mut Vec::new()),
         failed(
-            "Rust mutation testing of the changes: git's diff holds 0 section(s) for 1 changed \
-             file(s): it left a change out, whose mutants would go untested"
+            "Rust mutation testing of the changes: git's diff holds no section for \
+             crates/engine-hash/src/lib.rs, a changed Rust file: it left the change out, whose \
+             mutants would go untested"
         ),
         "refused before cargo-mutants reads it"
     );
@@ -2766,6 +2768,59 @@ fn shows_cargo_mutants_the_rust_changes_alone() {
 }
 
 #[test]
+fn tells_a_file_turned_into_a_link_from_a_change_git_left_out() {
+    let dir = scratch("type-change");
+    let (doc, hash, linked) = (
+        "docs/a.md",
+        "crates/engine-hash/src/lib.rs",
+        "crates/engine-hash/src/b.rs",
+    );
+    for path in [doc, hash, linked] {
+        std::fs::create_dir_all(dir.join(path).parent().expect("a parent")).expect("its directory");
+        std::fs::write(dir.join(path), "a\n").expect("a file");
+    }
+    let _init = hermetic_git(&dir, &["init", "--quiet", "--initial-branch=main"]);
+    let _add = hermetic_git(&dir, &["add", "."]);
+    let _commit = hermetic_git(&dir, &["commit", "--quiet", "-m", "first"]);
+    let link = |path: &str| {
+        std::fs::remove_file(dir.join(path)).expect("removed");
+        std::os::unix::fs::symlink("elsewhere", dir.join(path)).expect("a link");
+    };
+    link(doc);
+    std::fs::write(dir.join(hash), "b\n").expect("a change");
+    let mut runner = system(dir.path());
+    let mutated = |git: &mut SystemRunner| {
+        let changed = super::changed_since(git, "HEAD").expect("the changes");
+        super::mutated_diff(
+            git,
+            &mut Vec::new(),
+            "HEAD",
+            (&changed, &[]),
+            Vec::new(),
+            &[],
+        )
+        .map_err(|failure| failure.summary)
+    };
+    assert_eq!(
+        mutated(&mut runner),
+        Ok(format!(
+            "diff --git a/{hash} b/{hash}\nindex 7898192..6178079 100644\n--- a/{hash}\n+++ b/{hash}\n@@ -1 +1 @@\n-a\n+b\n"
+        )),
+        "a document turned into a link is no Rust change"
+    );
+    link(linked);
+    assert_eq!(
+        mutated(&mut runner),
+        Err(format!(
+            "git's diff shows {linked} as two sections, a file deleted then one created: its type \
+             changed (a file turned into a symbolic link, or the reverse), which cargo-mutants \
+             would read as one change"
+        )),
+        "a Rust file turned into a link, said as such"
+    );
+}
+
+#[test]
 fn reads_the_changed_lines_whatever_git_attributes_say() {
     let dir = scratch("binary-attributes");
     let path = "crates/engine-hash/src/lib.rs";
@@ -2787,46 +2842,60 @@ fn reads_the_changed_lines_whatever_git_attributes_say() {
             diff.ends_with("@@ -1 +1 @@\n-a\n+b\n"),
             "{attribute}: the changed line, never `Binary files … differ`: {diff}"
         );
-        assert_eq!(super::incomplete_diff(&diff, 1), None, "{attribute}");
+        assert_eq!(
+            super::incomplete_diff(&diff, &BTreeSet::from([path])),
+            None,
+            "{attribute}"
+        );
     }
 }
 
 #[test]
 fn refuses_a_diff_that_is_not_every_change_in_text() {
-    let one = one_line_change("crates/a/src/b.rs");
-    let two = format!("{one}{}", one_line_change("crates/a/src/c.rs"));
+    let (first, second) = ("crates/a/src/b.rs", "crates/a/src/c.rs");
+    let one = one_line_change(first);
+    let two = format!("{one}{}", one_line_change(second));
+    let incomplete = |diff: &str, expected: &[&str]| {
+        super::incomplete_diff(diff, &expected.iter().copied().collect())
+    };
+    assert_eq!(incomplete(&one, &[first]), None, "one section, one change");
     assert_eq!(
-        super::incomplete_diff(&one, 1),
+        incomplete(&two, &[second, first]),
         None,
-        "one section, one change"
+        "two of each, in any order"
     );
-    assert_eq!(super::incomplete_diff(&two, 2), None, "two of each");
-    assert_eq!(super::incomplete_diff("", 0), None, "none of either");
+    assert_eq!(incomplete("", &[]), None, "none of either");
     assert_eq!(
-        super::incomplete_diff(&one, 2),
-        Some(
-            "git's diff holds 1 section(s) for 2 changed file(s): it left a change out, \
+        incomplete(&one, &[first, second]),
+        Some(format!(
+            "git's diff holds no section for {second}, a changed Rust file: it left the change out, \
              whose mutants would go untested"
-                .to_owned()
-        ),
+        )),
         "a change left out"
     );
     assert_eq!(
-        super::incomplete_diff(&two, 1),
-        Some(
-            "git's diff holds 2 section(s) for 1 changed file(s): it left a change out, \
-             whose mutants would go untested"
-                .to_owned()
-        ),
-        "more sections than changes"
+        incomplete(&two, &[first]),
+        Some(format!(
+            "git's diff holds a section for {second}, which is no changed Rust file outside the \
+             crates left out"
+        )),
+        "a section of a file not changed"
     );
-    let header = "diff --git a/crates/a/src/b.rs b/crates/a/src/b.rs";
+    assert_eq!(
+        incomplete(&one, &[second]),
+        Some(format!(
+            "git's diff holds no section for {second}, a changed Rust file: it left the change out, \
+             whose mutants would go untested"
+        )),
+        "as many sections as changes, but of another file"
+    );
+    let header = format!("diff --git a/{first} b/{first}");
     for binary in [
-        "Binary files a/crates/a/src/b.rs and b/crates/a/src/b.rs differ\n",
-        "GIT binary patch\nliteral 2\n",
+        format!("Binary files a/{first} and b/{first} differ\n"),
+        "GIT binary patch\nliteral 2\n".to_owned(),
     ] {
         assert_eq!(
-            super::incomplete_diff(&format!("{header}\nindex 1..2 100644\n{binary}"), 1),
+            incomplete(&format!("{header}\nindex 1..2 100644\n{binary}"), &[first]),
             Some(format!(
                 "git wrote `{header}` as binary: cargo-mutants would see none of its changed \
                  lines"
@@ -2835,14 +2904,68 @@ fn refuses_a_diff_that_is_not_every_change_in_text() {
         );
     }
     let content = format!(
-        "{header}\n--- a/crates/a/src/b.rs\n+++ b/crates/a/src/b.rs\n@@ -1 +1 @@\n-Binary files\n \
-         GIT binary patch\n+diff --git x\n"
+        "{header}\n--- a/{first}\n+++ b/{first}\n@@ -1,3 +1,3 @@\n-Binary files\n \
+         GIT binary patch\n\n+deleted file mode 100644\n+diff --git x\n"
     );
     assert_eq!(
-        super::incomplete_diff(&content, 1),
+        incomplete(&content, &[first]),
         None,
-        "lines of a file are no binary section, nor a section"
+        "lines of a file, an empty one included, are no binary section, nor a section"
     );
+    let deleted = format!("{header}\ndeleted file mode 100644\n--- a/{first}\n+++ /dev/null\n");
+    let created = format!("{header}\nnew file mode 120000\n--- /dev/null\n+++ b/{first}\n");
+    assert_eq!(
+        incomplete(&format!("{deleted}{created}"), &[first]),
+        Some(format!(
+            "git's diff shows {first} as two sections, a file deleted then one created: its type \
+             changed (a file turned into a symbolic link, or the reverse), which cargo-mutants \
+             would read as one change"
+        )),
+        "a type change"
+    );
+    for twice in [
+        format!("{one}{one}"),
+        format!("{deleted}{}{created}", one_line_change(second)),
+        format!("{one}{deleted}{created}"),
+    ] {
+        assert_eq!(
+            incomplete(&twice, &[first, second]),
+            Some(format!("git's diff shows {first} in two sections")),
+            "not a deletion followed by its creation: {twice}"
+        );
+    }
+}
+
+#[test]
+fn refuses_a_section_header_whose_path_it_cannot_read() {
+    let first = "crates/a/src/b.rs";
+    let incomplete = |diff: &str, expected: &[&str]| {
+        super::incomplete_diff(diff, &expected.iter().copied().collect())
+    };
+    let spaced = "crates/a/src/x b/y.rs";
+    assert_eq!(
+        incomplete(&one_line_change(spaced), &[spaced]),
+        None,
+        "a path holding ` b/`, read by the rule without renames"
+    );
+    for unread in [
+        "diff --git \"a/crates/a/src/caf\\303\\251.rs\" \"b/crates/a/src/caf\\303\\251.rs\"",
+        "diff --git a/crates/a/src/b.rs b/crates/a/src/c.rs",
+        "diff --git a/crates/a/src/b.rs",
+        "diff --git a/x",
+        "diff --git a/",
+        "diff --git a/b.rs c/b.rs",
+        "diff --git a/\u{e9}.rs b/\u{e9}.rs\u{e9}",
+    ] {
+        assert_eq!(
+            incomplete(&format!("{unread}\n"), &[first]),
+            Some(format!(
+                "git wrote `{unread}`, a header whose path cannot be read (quoted, or not \
+                 `a/<path> b/<path>`)"
+            )),
+            "{unread}"
+        );
+    }
 }
 
 #[test]

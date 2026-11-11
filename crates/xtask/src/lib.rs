@@ -9842,22 +9842,50 @@ fn diff_since(
     git_output(runner, &args, "read the changes")
 }
 
-/// Why `diff`, git's diff of the changes outside the crates tested whole or proven, is not
-/// every one of the `changed` files in text, if it is not.
+/// Why `diff`, git's diff of the Rust files changed outside the crates tested whole or
+/// proven, is not exactly one text section for each of the `expected` paths, if it is not.
 ///
 /// Each changed file has exactly one section (`diff --git`), a mode change or an empty file
-/// included, so a count that differs means git left a change out (a configuration or a
-/// variable no gate sees, such as the pathspec variables [`command`] removes); and no
-/// section is binary (`Binary files … differ`, `GIT binary patch`), which `--text` asks git
-/// never to write, whatever the attributes say. A line of a file starts with `+`, `-`, a
-/// space or `\`, so these lines can only be git's.
-fn incomplete_diff(diff: &str, changed: usize) -> Option<String> {
-    let mut sections = 0_usize;
-    let mut header = "";
+/// included, so the paths of the sections are compared with `expected`, as sets: a path
+/// missing means git left a change out (a configuration or a variable no gate sees, such as
+/// the pathspec variables [`command`] removes), a path more that it showed what was not
+/// asked. A path is read from its header by git's rule without renames (`diff --git a/`,
+/// the path, ` b/`, the same path again); a header of another shape is refused, and so is a
+/// quoted one (`core.quotePath` quotes a path holding a byte out of printable ASCII, which
+/// no Rust module's path holds, `#[path]` being refused). A path shown twice is refused: a
+/// file deleted then created is a type change (a file turned into a symbolic link, or the
+/// reverse), which cargo-mutants would read as one change. No section is binary (`Binary
+/// files … differ`, `GIT binary patch`), which `--text` asks git never to write, whatever
+/// the attributes say. A line of a file starts with `+`, `-`, a space or `\`, or is empty
+/// (an empty context line under `diff.suppressBlankEmpty`), so these lines can only be
+/// git's.
+fn incomplete_diff(diff: &str, expected: &BTreeSet<&str>) -> Option<String> {
+    let mut shown: Vec<&str> = Vec::new();
+    let (mut header, mut deleted) = ("", false);
     for line in diff.lines() {
-        if line.starts_with("diff --git ") {
-            sections = sections.saturating_add(1);
+        if let Some(rest) = line.strip_prefix("diff --git ") {
             header = line;
+            let Some(path) = section_path(rest) else {
+                return Some(format!(
+                    "git wrote `{line}`, a header whose path cannot be read (quoted, or not \
+                     `a/<path> b/<path>`)"
+                ));
+            };
+            if shown.contains(&path) {
+                return Some(if deleted && shown.last() == Some(&path) {
+                    format!(
+                        "git's diff shows {path} as two sections, a file deleted then one \
+                         created: its type changed (a file turned into a symbolic link, or the \
+                         reverse), which cargo-mutants would read as one change"
+                    )
+                } else {
+                    format!("git's diff shows {path} in two sections")
+                });
+            }
+            shown.push(path);
+            deleted = false;
+        } else if line.starts_with("deleted file mode ") {
+            deleted = true;
         } else if line.starts_with("Binary files ") || line == "GIT binary patch" {
             return Some(format!(
                 "git wrote `{header}` as binary: cargo-mutants would see none of its changed \
@@ -9865,12 +9893,28 @@ fn incomplete_diff(diff: &str, changed: usize) -> Option<String> {
             ));
         }
     }
-    (sections != changed).then(|| {
+    let shown: BTreeSet<&str> = shown.into_iter().collect();
+    if let Some(missing) = expected.difference(&shown).next() {
+        return Some(format!(
+            "git's diff holds no section for {missing}, a changed Rust file: it left the change \
+             out, whose mutants would go untested"
+        ));
+    }
+    shown.difference(expected).next().map(|more| {
         format!(
-            "git's diff holds {sections} section(s) for {changed} changed file(s): it left a \
-             change out, whose mutants would go untested"
+            "git's diff holds a section for {more}, which is no changed Rust file outside the \
+             crates left out"
         )
     })
+}
+
+/// The path of a section header of git's diff without renames, after `diff --git `: the
+/// path `P` of `a/P b/P`, both halves equal, or `None` (a quoted path, another shape).
+fn section_path(header: &str) -> Option<&str> {
+    let pair = header.strip_prefix("a/")?;
+    let half = pair.len().checked_sub(3)? / 2;
+    let (path, rest) = (pair.get(..half)?, pair.get(half..)?);
+    (rest.strip_prefix(" b/")? == path).then_some(path)
 }
 
 /// The first `diff --git` line `diff` holds twice, if any.
@@ -10047,8 +10091,8 @@ fn in_scope(changed: &[String], reach: &Reach) -> Vec<(RustCrate, MutatedPart)> 
 /// # Errors
 ///
 /// Returns why git cannot show the changes, or shows them other than as one text section
-/// per changed file outside the crates left out ([`incomplete_diff`]), a file cannot be
-/// read, or stdout cannot be written.
+/// per changed Rust file outside the crates left out ([`incomplete_diff`]), a file cannot
+/// be read, or stdout cannot be written.
 fn mutated_diff(
     runner: &mut dyn Runner,
     out: &mut dyn Write,
@@ -10066,11 +10110,12 @@ fn mutated_diff(
         .collect();
     let outside = |path: &str| !left_out.iter().any(|krate| krate.holds(path).is_some());
     let mut diff = diff_since(runner, base, &left_out)?;
-    let shown = changed
+    let expected: BTreeSet<&str> = changed
         .iter()
         .filter(|path| outside(path) && rust_file(path))
-        .count();
-    if let Some(reason) = incomplete_diff(&diff, shown) {
+        .map(String::as_str)
+        .collect();
+    if let Some(reason) = incomplete_diff(&diff, &expected) {
         return Err(Failure::from(reason));
     }
     for path in new.iter().filter(|path| outside(path)) {
