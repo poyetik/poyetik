@@ -670,6 +670,9 @@ pub enum Action {
     /// option ([`fused_command`]), and require the option to have been in force
     /// ([`fused_gate`]).
     FusedBuild,
+    /// Require every function a review of an unviable mutant names to exist
+    /// ([`unviable_names_gate`]).
+    UnviableNamesGate,
     /// Read the files rustc loaded for each build of the workspace ([`loaded_files_commands`])
     /// and require them where the gates reading sources by path assume ([`loaded_files_gate`]).
     LoadedFilesGate,
@@ -1269,6 +1272,10 @@ fn proof_steps(mode: Mode) -> Vec<(Role, Step)> {
         Step {
             name: "Tests turned off only where no test can hide, doc tests kept".to_owned(),
             action: Action::UntestedTargetsGate,
+        },
+        Step {
+            name: "Every function a review of an unviable mutant names exists".to_owned(),
+            action: Action::UnviableNamesGate,
         },
     ];
     steps.extend(tagged(Role::Proof(Part::Gates), gates));
@@ -3703,6 +3710,57 @@ fn unsafe_beside_assembly(sources: &[(String, String)], problems: &mut Vec<Strin
             }
         }
     }
+}
+
+/// Checks that every function a review of an unviable mutant names exists.
+///
+/// A review cites the test that kills its mutant's viable variant by its name, a fact the
+/// test keeps: every word of `reviews` ([`UNVIABLE_REVIEWED`], its comments apart) written
+/// like a function's name of three parts or more (lowercase letters and digits, joined by
+/// `_`) is the name of a `fn` in the code words of `sources` (the tracked Rust files), so
+/// that a test renamed or removed leaves no review citing it.
+///
+/// # Errors
+///
+/// Returns every such word that names no function, with its line.
+pub fn unviable_names_gate(reviews: &str, sources: &[(String, String)]) -> Result<(), Failure> {
+    let mut functions = BTreeSet::new();
+    for (_, text) in sources {
+        let words = code_words(text);
+        for pair in words.windows(2) {
+            if let [(_, keyword, _), (_, name, _)] = pair
+                && keyword == "fn"
+            {
+                let _new = functions.insert(name.clone());
+            }
+        }
+    }
+    let mut problems = Vec::new();
+    for (index, line) in reviews.lines().enumerate() {
+        if line.starts_with('#') {
+            continue;
+        }
+        let named = line
+            .split(|character: char| !(character.is_ascii_alphanumeric() || character == '_'))
+            .filter(|word| {
+                word.starts_with(|first: char| first.is_ascii_lowercase())
+                    && !word.chars().any(|character| character.is_ascii_uppercase())
+                    && word.split('_').filter(|part| !part.is_empty()).count() >= 3
+            });
+        for name in named {
+            if !functions.contains(name) {
+                problems.push(format!(
+                    "{UNVIABLE_REVIEWED}:{}: names `{name}`, which no Rust source defines as a \
+                     function: a review names the test that kills its viable variant as it is now",
+                    index.saturating_add(1)
+                ));
+            }
+        }
+    }
+    verdict(
+        "the functions the reviews of unviable mutants name",
+        problems,
+    )
 }
 
 /// The lines outside test code that may name `test`, each whole, besides the first line of
@@ -9930,6 +9988,10 @@ fn run_action(
         ),
         Action::FusedBuild => fused_build(runner),
         Action::LoadedFilesGate => loaded_files_of_the_workspace(runner),
+        Action::UnviableNamesGate => {
+            let sources = rust_sources(runner)?;
+            unviable_names_gate(&read_file(runner, UNVIABLE_REVIEWED)?, &sources)
+        }
         Action::MathLayerGate => math_layer(runner),
         Action::DependencyGate => dependencies(runner),
         Action::TypeScriptReportsGate(package) => {

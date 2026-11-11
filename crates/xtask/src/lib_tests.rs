@@ -1121,6 +1121,7 @@ fn command_lines(steps: &[Step]) -> Vec<String> {
             Action::CitationGate => "citation gate".to_owned(),
             Action::FusedBuild => "fused build".to_owned(),
             Action::LoadedFilesGate => "loaded files gate".to_owned(),
+            Action::UnviableNamesGate => "unviable names gate".to_owned(),
             Action::MathLayerGate => "math layer gate".to_owned(),
             Action::SupplyChainGate => "supply chain gate".to_owned(),
             Action::Preflight => "preflight".to_owned(),
@@ -1725,9 +1726,8 @@ fn reads_the_float_sources_of_the_toolchain_s_sysroot() {
 
 #[test]
 fn lists_every_check_in_order() {
-    let steps = check_steps(CHANGES_MODE);
     assert_eq!(
-        command_lines(&steps),
+        command_lines(&check_steps(CHANGES_MODE)),
         vec![
             "preflight",
             "tree recorded",
@@ -1741,6 +1741,7 @@ fn lists_every_check_in_order() {
             "test code gate",
             "test data gate",
             "untested targets gate",
+            "unviable names gate",
             "Root: cargo run --package engine-cli --locked --quiet -- check conformance",
             "Root: cargo deny --locked check",
             "dependency gate",
@@ -1837,6 +1838,101 @@ fn builds_and_lints_for_every_target() {
     );
 }
 
+/// The name of each step of the default check, in order.
+const DEFAULT_CHECK_NAMES: &[&str] = &[
+    "Tools and platform",
+    "Working tree recorded",
+    "JavaScript dependencies",
+    "Fresh TypeScript report directories",
+    "Fresh TypeScript build outputs",
+    "TypeScript equivalent mutants reviewed",
+    "Every bypass of coverage or mutation testing reviewed",
+    "Unsafe code confined to the audited files",
+    "Cargo configuration: no build flag, a locked alias",
+    "Test code only in tests/ and declared *_tests.rs files",
+    "The tests of each crate read only its declared test data",
+    "Tests turned off only where no test can hide, doc tests kept",
+    "Every function a review of an unviable mutant names exists",
+    "Conformance (native)",
+    "Rust supply chain",
+    "Every direct dependency reviewed",
+    "Bit-defining dependencies pinned to one exact version",
+    "The audio library depends only on its own crates, its tests also on its test crates; every crate only tests use is shared test code",
+    "Box arithmetic only through the math layer: libm in engine-core and engine-testkit only, no raw float in box code, no iterator reduction outside the math layer",
+    "Supply-chain settings: a week before a release, libm without features",
+    "Packages and crates known to the checks",
+    "Every part described in a README",
+    "Every roadmap step cited exists on the board",
+    "The words of the glossary, not their synonyms",
+    "One version everywhere, changelog well formed",
+    "Commit messages, and a changelog entry for each change of behavior",
+    "CI workflow pinned",
+    "The parts of CI run every check of the full check once",
+    "JavaScript vulnerabilities",
+    "JavaScript licenses",
+    "Stryker configurations hide no mutant",
+    "Rust formatting",
+    "Rust lints",
+    "Float methods of the pinned toolchain banned or reviewed as deterministic",
+    "Rust documentation",
+    "Rust tests",
+    "Files rustc loads: tracked, in their crate, those of tests alone named as test code",
+    "Boxes unchanged under the math layer's fused multiply-add option (a test build)",
+    "Engine portability (aarch64-apple-darwin)",
+    "Engine portability (x86_64-unknown-linux-gnu)",
+    "Engine portability (wasm32-unknown-unknown)",
+    "Engine portability (thumbv7em-none-eabihf)",
+    "Native shell lints (aarch64-apple-darwin)",
+    "Native shell lints (x86_64-unknown-linux-gnu)",
+    "Native code of engine-cli and engine-fpenv built, inline assembly included (aarch64-apple-darwin)",
+    "Native code of engine-cli and engine-fpenv built, inline assembly included (x86_64-unknown-linux-gnu)",
+    "Fresh Rust coverage reports",
+    "Rust coverage counts a crate's own unit tests only",
+    "Rust coverage of engine-core: 100% by its own unit tests",
+    "Rust coverage of engine-objects: 100% by its own unit tests",
+    "Rust coverage of engine-patch: 100% by its own unit tests",
+    "Rust coverage of engine-hash: 100% by its own unit tests",
+    "Rust coverage of engine-alloc-counter: 100% by its own unit tests",
+    "Rust coverage of engine-fpenv: 100% by its own unit tests",
+    "Rust coverage of engine-battery: 100% by its own unit tests",
+    "Rust coverage of engine-testkit: 100% by its own unit tests",
+    "Rust coverage of engine-cli: 100% by its own unit tests",
+    "Rust coverage of engine-wasm: 100% by its own unit tests",
+    "Rust coverage of xtask: 100% by its own unit tests",
+    "Rust coverage of the engine-cli binary: 100% by its tests",
+    "Rust coverage of the xtask binary: 100% by its tests",
+    "Unsafe code under Miri",
+    "Shared TypeScript policy (each rule proven to reject what it forbids)",
+    "Mutation testing of tooling/config (what changed since the last run)",
+    "TypeScript coverage and mutation reports of tooling/config",
+    "Every TypeScript source of tooling/config measured and mutated, or reviewed",
+    "Fresh conformance export directory",
+    "Conformance export (native WAV files)",
+    "Conformance oracle (independent, TypeScript)",
+    "Mutation testing of tooling/oracle (what changed since the last run)",
+    "TypeScript coverage and mutation reports of tooling/oracle",
+    "Every TypeScript source of tooling/oracle measured and mutated, or reviewed",
+    "Engine WASM checks",
+    "Mutation testing of bindings/wasm (what changed since the last run)",
+    "TypeScript coverage and mutation reports of bindings/wasm",
+    "Every TypeScript source of bindings/wasm measured and mutated, or reviewed",
+    "Engine WASM build, for the packages that use it",
+    "Playground checks",
+    "Mutation testing of apps/playground (what changed since the last run)",
+    "TypeScript coverage and mutation reports of apps/playground",
+    "Every TypeScript source of apps/playground measured and mutated, or reviewed",
+    "Roadmap checks",
+    "Mutation testing of apps/roadmap (what changed since the last run)",
+    "TypeScript coverage and mutation reports of apps/roadmap",
+    "Every TypeScript source of apps/roadmap measured and mutated, or reviewed",
+    "Fresh Rust mutation report",
+    "Rust mutation testing of the changes",
+    "Rust unviable mutants reviewed",
+    "Rust unviable mutant reviews all current",
+    "Rust mutation proof recorded for the next default check",
+    "Working tree unchanged by the checks",
+];
+
 #[test]
 fn names_every_check_in_order() {
     let steps = check_steps(CHANGES_MODE);
@@ -1845,98 +1941,7 @@ fn names_every_check_in_order() {
             .iter()
             .map(|step| step.name.as_str())
             .collect::<Vec<_>>(),
-        vec![
-            "Tools and platform",
-            "Working tree recorded",
-            "JavaScript dependencies",
-            "Fresh TypeScript report directories",
-            "Fresh TypeScript build outputs",
-            "TypeScript equivalent mutants reviewed",
-            "Every bypass of coverage or mutation testing reviewed",
-            "Unsafe code confined to the audited files",
-            "Cargo configuration: no build flag, a locked alias",
-            "Test code only in tests/ and declared *_tests.rs files",
-            "The tests of each crate read only its declared test data",
-            "Tests turned off only where no test can hide, doc tests kept",
-            "Conformance (native)",
-            "Rust supply chain",
-            "Every direct dependency reviewed",
-            "Bit-defining dependencies pinned to one exact version",
-            "The audio library depends only on its own crates, its tests also on its test crates; every crate only tests use is shared test code",
-            "Box arithmetic only through the math layer: libm in engine-core and engine-testkit only, no raw float in box code, no iterator reduction outside the math layer",
-            "Supply-chain settings: a week before a release, libm without features",
-            "Packages and crates known to the checks",
-            "Every part described in a README",
-            "Every roadmap step cited exists on the board",
-            "The words of the glossary, not their synonyms",
-            "One version everywhere, changelog well formed",
-            "Commit messages, and a changelog entry for each change of behavior",
-            "CI workflow pinned",
-            "The parts of CI run every check of the full check once",
-            "JavaScript vulnerabilities",
-            "JavaScript licenses",
-            "Stryker configurations hide no mutant",
-            "Rust formatting",
-            "Rust lints",
-            "Float methods of the pinned toolchain banned or reviewed as deterministic",
-            "Rust documentation",
-            "Rust tests",
-            "Files rustc loads: tracked, in their crate, those of tests alone named as test code",
-            "Boxes unchanged under the math layer's fused multiply-add option (a test build)",
-            "Engine portability (aarch64-apple-darwin)",
-            "Engine portability (x86_64-unknown-linux-gnu)",
-            "Engine portability (wasm32-unknown-unknown)",
-            "Engine portability (thumbv7em-none-eabihf)",
-            "Native shell lints (aarch64-apple-darwin)",
-            "Native shell lints (x86_64-unknown-linux-gnu)",
-            "Native code of engine-cli and engine-fpenv built, inline assembly included (aarch64-apple-darwin)",
-            "Native code of engine-cli and engine-fpenv built, inline assembly included (x86_64-unknown-linux-gnu)",
-            "Fresh Rust coverage reports",
-            "Rust coverage counts a crate's own unit tests only",
-            "Rust coverage of engine-core: 100% by its own unit tests",
-            "Rust coverage of engine-objects: 100% by its own unit tests",
-            "Rust coverage of engine-patch: 100% by its own unit tests",
-            "Rust coverage of engine-hash: 100% by its own unit tests",
-            "Rust coverage of engine-alloc-counter: 100% by its own unit tests",
-            "Rust coverage of engine-fpenv: 100% by its own unit tests",
-            "Rust coverage of engine-battery: 100% by its own unit tests",
-            "Rust coverage of engine-testkit: 100% by its own unit tests",
-            "Rust coverage of engine-cli: 100% by its own unit tests",
-            "Rust coverage of engine-wasm: 100% by its own unit tests",
-            "Rust coverage of xtask: 100% by its own unit tests",
-            "Rust coverage of the engine-cli binary: 100% by its tests",
-            "Rust coverage of the xtask binary: 100% by its tests",
-            "Unsafe code under Miri",
-            "Shared TypeScript policy (each rule proven to reject what it forbids)",
-            "Mutation testing of tooling/config (what changed since the last run)",
-            "TypeScript coverage and mutation reports of tooling/config",
-            "Every TypeScript source of tooling/config measured and mutated, or reviewed",
-            "Fresh conformance export directory",
-            "Conformance export (native WAV files)",
-            "Conformance oracle (independent, TypeScript)",
-            "Mutation testing of tooling/oracle (what changed since the last run)",
-            "TypeScript coverage and mutation reports of tooling/oracle",
-            "Every TypeScript source of tooling/oracle measured and mutated, or reviewed",
-            "Engine WASM checks",
-            "Mutation testing of bindings/wasm (what changed since the last run)",
-            "TypeScript coverage and mutation reports of bindings/wasm",
-            "Every TypeScript source of bindings/wasm measured and mutated, or reviewed",
-            "Engine WASM build, for the packages that use it",
-            "Playground checks",
-            "Mutation testing of apps/playground (what changed since the last run)",
-            "TypeScript coverage and mutation reports of apps/playground",
-            "Every TypeScript source of apps/playground measured and mutated, or reviewed",
-            "Roadmap checks",
-            "Mutation testing of apps/roadmap (what changed since the last run)",
-            "TypeScript coverage and mutation reports of apps/roadmap",
-            "Every TypeScript source of apps/roadmap measured and mutated, or reviewed",
-            "Fresh Rust mutation report",
-            "Rust mutation testing of the changes",
-            "Rust unviable mutants reviewed",
-            "Rust unviable mutant reviews all current",
-            "Rust mutation proof recorded for the next default check",
-            "Working tree unchanged by the checks",
-        ],
+        DEFAULT_CHECK_NAMES,
         "step names"
     );
 }
@@ -3688,9 +3693,10 @@ fn runs_every_step_and_reports_success() {
         Ok(()),
         "all green"
     );
-    let (tools, commands, emptied, listed, captured, written) = (10, 58, 14, 25, 39, 3);
+    let (tools, commands, emptied, listed, captured, written) = (10, 58, 14, 26, 39, 3);
     let read = 2
         + 2
+        + 13
         + 7
         + 14
         + 3
@@ -3721,13 +3727,13 @@ fn runs_every_step_and_reports_success() {
          the coverage build, the mutants of the changes, Miri, the \
          conformance check and export, deny, the JavaScript install, audit, the engine build and five package \
          checks each followed by its Stryker run); fourteen directories are emptied; git lists \
-         thirteen kinds of files (the box sources and the text files that cite the roadmap among them), the Rust files again for the test code, test data, untested targets and loaded files gates, the TypeScript ones again for the reports and scope gates of \
+         thirteen kinds of files (the box sources and the text files that cite the roadmap among them), the Rust files again for the test code, test data, untested targets, unviable names and loaded files gates, the TypeScript ones again for the reports and scope gates of \
          each package after the first; the licenses twice and the history three times, the state \
          of the tree (before, for the proof record and after) six times, the nightly's version and sysroot, the Cargo metadata (for the untested targets, dependency, pin, library and math layer gates), the output of the fused test build and of the two builds of the loaded files gate, the merge base, the changed paths, the changes, the \
          new Rust files and the list of every mutant once, git's common directory twice, the tree checked out, \
          cargo-mutants' version, rustc's host and build, the linker driver's and git's versions, the status for a push and the hidden files for the mutation step and the proof record; the measured base, the diff and the \
          proof record are written once each; the proof record, the measured base and the \
-         toolchain file are read for it; and the gates read the two dep-info files of the loaded files gate, the nine fake test data readers for the unsafe, bypass and vocabulary gates, every Rust file (twelve) for the test code, test data and untested targets gates, .node-version and the toolchain file for the preflight, the toolchain file, the four float sources and the float macros of the nightly and clippy.toml for the float gate, fourteen coverage reports, \
+         toolchain file are read for it; and the gates read the two dep-info files of the loaded files gate, the nine fake test data readers for the unsafe, bypass and vocabulary gates, every Rust file (twelve) for the test code, test data, untested targets and unviable names gates and the reviews of unviable mutants for the last, .node-version and the toolchain file for the preflight, the toolchain file, the four float sources and the float macros of the nightly and clippy.toml for the float gate, fourteen coverage reports, \
          the unviable report and reviews, the register of the pin gate, the 90 text files of the citation gate (the board among them), the reviews again against the list of every mutant, six TypeScript sources and their reviews, the nine \
          sources, the twelve Cargo manifests and the register of the bypass gate, the three unsafe files, the Cargo \
          configuration, the six package manifests and the register of the dependency gate, the three \
@@ -3754,15 +3760,15 @@ fn runs_every_step_and_reports_success() {
     );
     let text = String::from_utf8(out).expect("utf-8 output");
     assert!(
-        text.starts_with("▶ [1/90] Tools and platform\n"),
+        text.starts_with("▶ [1/91] Tools and platform\n"),
         "numbered progress: {text}"
     );
     assert!(
-        text.contains("▶ [81/90] Roadmap checks\n  done in 1.5 s\n"),
+        text.contains("▶ [82/91] Roadmap checks\n  done in 1.5 s\n"),
         "last step announced: {text}"
     );
     assert!(
-        text.ends_with("  done in 1.5 s\n✔ all 90 checks passed in 2 min 15 s\n"),
+        text.ends_with("  done in 1.5 s\n✔ all 91 checks passed in 2 min 16 s\n"),
         "summary: {text}"
     );
 }
@@ -4443,7 +4449,8 @@ fn fails_when_unviable_files_are_missing_or_unreviewed() {
     assert_eq!(
         run_steps(&check_steps(CHANGES_MODE), &mut no_reviews, &mut Vec::new()),
         failed(format!(
-            "Rust unviable mutants reviewed: cannot read {UNVIABLE_REVIEWED}: missing"
+            "Every function a review of an unviable mutant names exists: cannot read \
+             {UNVIABLE_REVIEWED}: missing"
         )),
         "missing reviews"
     );
@@ -7015,6 +7022,7 @@ const fn names_its_step(action: &Action) -> bool {
         | Action::FreshDirs(_)
         | Action::FusedBuild
         | Action::LoadedFilesGate
+        | Action::UnviableNamesGate
         | Action::TreeRecorded
         | Action::TreeUnchanged
         | Action::Preflight => false,
@@ -7307,7 +7315,7 @@ fn checks_a_push_then_runs_every_check() {
     assert!(
         String::from_utf8(out)
             .expect("UTF-8")
-            .ends_with("✔ all 90 checks passed in 2 min 15 s\n"),
+            .ends_with("✔ all 91 checks passed in 2 min 16 s\n"),
         "then every check"
     );
     assert!(
@@ -7771,13 +7779,13 @@ fn prints_the_details_of_a_failure_on_stdout_and_one_line_on_stderr() {
     );
     assert_eq!(
         String::from_utf8(err).expect("UTF-8"),
-        "error: 1 of 88 checks failed, listed above\n",
+        "error: 1 of 89 checks failed, listed above\n",
         "one line on stderr, counting the failed steps"
     );
     assert!(
         String::from_utf8(out).expect("UTF-8").ends_with(&format!(
-            "▶ [88/88] Working tree unchanged by the checks\n  done in 1.5 s\n\
-             ✘ 1 of 88 checks failed in 2 min 12 s\n\
+            "▶ [89/89] Working tree unchanged by the checks\n  done in 1.5 s\n\
+             ✘ 1 of 89 checks failed in 2 min 13 s\n\
              not reviewed: crates/a/src/c.rs: replace g -> U with x\n\
              stale review: crates/a/src/b.rs: replace f -> T with Default::default()\n\
              Rust unviable mutants reviewed: unviable mutants must be reviewed in \
@@ -8943,6 +8951,45 @@ fn reports_the_builds_and_dep_info_files_it_cannot_read() {
              (git add it)"
         ),
         "the gate fed with what the builds read"
+    );
+}
+
+#[test]
+fn refuses_a_review_naming_a_function_no_source_holds() {
+    let sources = vec![
+        (
+            "crates/a/src/lib.rs".to_owned(),
+            "fn kills_the_viable_variant() {}\n// fn in_a_comment_only() {}\nconst A: &str = \"fn in_a_string_only\";\nfn r#raw_named_one() {}\n".to_owned(),
+        ),
+        ("crates/b/src/x.rs".to_owned(), "pub(crate) fn other_crate_s_test() {}\n".to_owned()),
+    ];
+    let reviews = "# A comment naming no_such_function_here is prose.\n\ncrates/a/src/lib.rs: replace f -> u8 with 0 -- killed by kills_the_viable_variant and other_crate_s_test\ncrates/a/src/lib.rs: replace g -> u8 with 1 -- killed by raw_named_one, not two_parts\n";
+    assert_eq!(
+        super::unviable_names_gate(reviews, &sources),
+        Ok(()),
+        "every name a function"
+    );
+    let dead = format!(
+        "{reviews}crates/a/src/lib.rs: replace h -> u8 with 2 -- killed by in_a_comment_only\ncrates/a/src/lib.rs: replace i -> u8 with 3 -- killed by in_a_string_only or renamed_since_the_review\n"
+    );
+    assert_eq!(
+        super::unviable_names_gate(&dead, &sources),
+        Err(Failure {
+            summary: "the functions the reviews of unviable mutants name: 3 problems, listed \
+                      above"
+                .to_owned(),
+            details: [
+                (5_usize, "in_a_comment_only"),
+                (6, "in_a_string_only"),
+                (6, "renamed_since_the_review")
+            ]
+            .map(|(line, name)| format!(
+                "{UNVIABLE_REVIEWED}:{line}: names `{name}`, which no Rust source defines as a \
+                 function: a review names the test that kills its viable variant as it is now"
+            ))
+            .into(),
+        }),
+        "names only in prose, and one renamed"
     );
 }
 
@@ -12116,8 +12163,8 @@ fn the_parts_run_every_step_of_the_full_check_once() {
     }
     assert_eq!(
         steps_run,
-        18 * 3 + (88 - 3 - 7 - 2) + 8 * 2 + 1 + 2 + 6 * 3 + 1,
-        "each part's frame (three steps); every other step of the 88 once, but the seven \
+        18 * 3 + (89 - 3 - 7 - 2) + 8 * 2 + 1 + 2 + 6 * 3 + 1,
+        "each part's frame (three steps); every other step of the 89 once, but the seven \
          preparations, the mutation run and its unviable gate; in each of the eight shards, \
          the report emptied and the shard's run; the gate over the shards; the conformance \
          export (two steps) for the oracle; the JavaScript preparation (three steps) for the \
