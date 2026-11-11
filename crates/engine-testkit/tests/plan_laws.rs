@@ -679,15 +679,51 @@ mod tests {
         }
     }
 
-    /// Building a plan reserves one set of scratch lanes (the reduction order's 16 lanes but
-    /// the result's, decision 28 of `spec/engine-design.md`) for all its sums, however many:
-    /// compared with the same boxes fed by one cable per inlet, a plan whose every inlet sums
-    /// `sources` cables keeps at most those lanes and one word per cable more. Checked for
-    /// two terms (summed without lanes), three and seventeen, at a small size and at the
-    /// patch limits, where one set of lanes per sum would reserve about a gigabyte.
+    /// A plan reserves exactly one set of scratch lanes, whatever it sums: a plan of no box
+    /// keeps those lanes and nothing else on the heap, so a set reserved in every plan, or
+    /// lanes moved where the count does not see them, fails here, which no comparison of
+    /// two plans could show.
+    #[test]
+    fn holds_exactly_one_set_of_lanes() {
+        /// The reduction order's lanes but the result's (decision 28 of
+        /// `spec/engine-design.md`: sixteen lanes, the result in the first), in `S`: the one set
+        /// of scratch lanes a plan reserves for all its sums.
+        fn one_set_of_lanes<S: Sample>() -> usize {
+            (16 - 1) * size_of::<Block<S>>()
+        }
+        fn kept<S: Sample>() -> Result<usize, String> {
+            let rate = SampleRate::new(44_100).map_err(|error| error.to_string())?;
+            let patch = Patch::new(Vec::new(), Vec::new()).map_err(|error| error.to_string())?;
+            let (plan, bytes) =
+                heap_bytes_during(|| Plan::<S, BuiltIn<S>>::build(&patch, &REGISTRY, rate))?;
+            plan.map(|_| bytes).map_err(|error| error.to_string())
+        }
+        assert_eq!(
+            kept::<Binary64>(),
+            Ok(one_set_of_lanes::<Binary64>()),
+            "binary64"
+        );
+        assert_eq!(
+            kept::<Binary32>(),
+            Ok(one_set_of_lanes::<Binary32>()),
+            "binary32"
+        );
+    }
+
+    /// Building a plan reserves one set of scratch lanes for all its sums, however many
+    /// (`sums_in_the_lanes_of_the_plan`, with `holds_exactly_one_set_of_lanes`).
+    /// Checked for two terms (summed without lanes), three and seventeen, in both
+    /// precisions at small sizes (one output box, whose plan fed by one cable sums nothing,
+    /// and 64), and at each limit of a patch, where one set of lanes per
+    /// sum would reserve about a gigabyte: the box limit in binary64, the cable limit in
+    /// binary32. The bound depends on the precision only through the size of a block,
+    /// which the small sizes try in both.
     #[test]
     fn reserves_one_set_of_lanes_for_every_sum() {
-        fn extra<S: Sample>(outputs: u32, sources: u32) -> Result<(), String> {
+        /// The bytes a plan of the engine (`BuiltIn`) computing in `S` keeps on the heap once
+        /// built from `outputs` output boxes whose two inlets are each fed by `fed_by` of
+        /// `sources` constants.
+        fn kept_by<S: Sample>(outputs: u32, sources: u32, fed_by: u32) -> Result<usize, String> {
             let node = |id: u32, kind: &str| Node {
                 id: NodeId(id),
                 kind: String::from(kind),
@@ -697,64 +733,81 @@ mod tests {
                 .map(|id| node(id, "const~"))
                 .chain((1..=outputs).map(|output| node(sources + output, "out~")))
                 .collect();
-            let wires = |fed_by: u32| -> Vec<Connection> {
-                (1..=outputs)
-                    .flat_map(|output| {
-                        (0..2).flat_map(move |inlet| {
-                            (1..=fed_by).map(move |from| Connection {
-                                from: NodeId(from),
-                                outlet: 0,
-                                to: NodeId(sources + output),
-                                inlet,
-                            })
+            let wires: Vec<Connection> = (1..=outputs)
+                .flat_map(|output| {
+                    (0..2).flat_map(move |inlet| {
+                        (1..=fed_by).map(move |from| Connection {
+                            from: NodeId(from),
+                            outlet: 0,
+                            to: NodeId(sources + output),
+                            inlet,
                         })
                     })
-                    .collect()
-            };
+                })
+                .collect();
             let rate = SampleRate::new(44_100).map_err(|error| error.to_string())?;
-            let kept = |fed_by: u32| -> Result<usize, String> {
-                let patch =
-                    Patch::new(nodes.clone(), wires(fed_by)).map_err(|error| error.to_string())?;
-                let (plan, bytes) =
-                    heap_bytes_during(|| Plan::<S, BuiltIn<S>>::build(&patch, &REGISTRY, rate))?;
-                plan.map(|_| bytes).map_err(|error| error.to_string())
-            };
-            let (summed, single) = (kept(sources)?, kept(1)?);
+            let patch = Patch::new(nodes, wires).map_err(|error| error.to_string())?;
+            let (plan, bytes) =
+                heap_bytes_during(|| Plan::<S, BuiltIn<S>>::build(&patch, &REGISTRY, rate))?;
+            plan.map(|_| bytes).map_err(|error| error.to_string())
+        }
+
+        /// Checks that a plan whose every inlet sums `sources` cables keeps, compared with the
+        /// same boxes fed by one cable per inlet, at most one word per cable more: its sums
+        /// share the one set of lanes every plan holds (`holds_exactly_one_set_of_lanes`),
+        /// and a second set, even reserved only for sums of three or more, is more than that.
+        fn sums_in_the_lanes_of_the_plan<S: Sample>(
+            outputs: u32,
+            sources: u32,
+        ) -> Result<(), String> {
+            let (summed, single) = (
+                kept_by::<S>(outputs, sources, sources)?,
+                kept_by::<S>(outputs, sources, 1)?,
+            );
             let cables =
                 usize::try_from(outputs * 2 * sources).map_err(|error| error.to_string())?;
-            let lanes = (16 - 1) * size_of::<Block<S>>();
-            let bound = lanes + cables * size_of::<usize>();
+            let bound = cables * size_of::<usize>();
             if summed > single + bound {
                 return Err(format!(
-                    "{outputs} output boxes summing {sources} cables per inlet keep {} bytes \
-                     more than fed by one, beyond one set of lanes and a word per cable \
-                     ({bound} bytes)",
+                    "{outputs} output boxes summing {sources} cables per inlet keep {} bytes more \
+                     than fed by one, beyond a word per cable ({bound} bytes)",
                     summed - single
                 ));
             }
             Ok(())
         }
-        // The largest patches of each kind: 65,536 boxes, or 262,140 cables.
-        let sizes = [(64, 2), (64, 3), (64, 17), (65_534, 2), (43_690, 3)];
-        for precision in PRECISIONS {
-            for (outputs, sources) in sizes {
-                match precision {
-                    Precision::Binary64 => extra::<Binary64>(outputs, sources),
-                    Precision::Binary32 => extra::<Binary32>(outputs, sources),
-                }
-                .expect("one set of lanes per plan");
-            }
+        // One output box: no channel sums, so that the plan fed by one cable per inlet
+        // sums nothing at all; 64: channel sums in both plans.
+        for (outputs, sources) in [(1, 3), (1, 17), (64, 2), (64, 3), (64, 17)] {
+            sums_in_the_lanes_of_the_plan::<Binary64>(outputs, sources)
+                .expect("one set of lanes, binary64");
+            sums_in_the_lanes_of_the_plan::<Binary32>(outputs, sources)
+                .expect("one set of lanes, binary32");
         }
-        assert_eq!(
-            sizes.map(|(outputs, sources)| (outputs + sources, outputs * 2 * sources)),
-            [
-                (66, 256),
-                (67, 384),
-                (81, 2_176),
-                (65_536, 262_136),
-                (43_693, 262_140)
-            ],
-            "within the limits, the largest at them"
+        // The most boxes: two sources and as many output boxes as the limit leaves.
+        let boxes = u32::try_from(Patch::MAX_NODES).expect("a box count") - 2;
+        sums_in_the_lanes_of_the_plan::<Binary64>(boxes, 2).expect("at the box limit");
+        // The most cables of this shape, six per output box (two inlets, three sources):
+        // as many output boxes as the cable limit holds.
+        let cabled = u32::try_from(Patch::MAX_CONNECTIONS / 6).expect("a box count");
+        sums_in_the_lanes_of_the_plan::<Binary32>(cabled, 3).expect("at the cable limit");
+        let (at_boxes, at_cables) = (
+            usize::try_from(boxes + 2).expect("a count"),
+            usize::try_from(cabled * 6).expect("a count"),
+        );
+        assert_eq!(at_boxes, Patch::MAX_NODES, "at the box limit");
+        assert!(
+            Patch::MAX_CONNECTIONS - at_cables < 6,
+            "{at_cables} cables: no more output boxes fit"
+        );
+        // One more of either is refused: these are the limits.
+        assert!(
+            kept_by::<Binary64>(boxes + 1, 2, 1).is_err_and(|error| error.contains("box")),
+            "one box past the limit"
+        );
+        assert!(
+            kept_by::<Binary32>(cabled + 1, 3, 3).is_err_and(|error| error.contains("cable")),
+            "one output box of cables past the limit"
         );
     }
 
