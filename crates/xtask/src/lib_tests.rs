@@ -12911,6 +12911,25 @@ fn proof_record(base: &str) -> super::ProofRecord {
 }
 
 #[test]
+fn compares_the_tools_of_two_records_field_by_field() {
+    let tools = fake_tools();
+    assert_eq!(tools, fake_tools(), "the same tools");
+    let others = [
+        super::ProofTools {
+            mutants: "cargo-mutants 27.1.1".to_owned(),
+            ..fake_tools()
+        },
+        super::ProofTools {
+            git: "git version 2.39.3".to_owned(),
+            ..fake_tools()
+        },
+    ];
+    for other in others {
+        assert_ne!(tools, other, "one field differs: {other:?}");
+    }
+}
+
+#[test]
 fn reads_exactly_the_proof_records_it_writes() {
     let record = proof_record(PROVEN[2]);
     let text = record.text();

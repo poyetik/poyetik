@@ -8754,8 +8754,10 @@ fn proof_record_path(runner: &mut dyn Runner, base: &str) -> Result<String, Fail
 /// which xtask's tests run.
 ///
 /// One type, written, read and compared field by field through [`ProofTools::fields`]
-/// only: a field left out of it is never read, which the compiler refuses (`dead_code`).
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// only, its equality included (written by hand, as [`ProofTools::differing`]): a field
+/// left out of it is never read, which the compiler refuses (`dead_code`, an error for the
+/// workspace; a derived `PartialEq` would read every field and hide it).
+#[derive(Debug, Clone, Eq)]
 struct ProofTools {
     /// `cargo mutants --version`.
     mutants: String,
@@ -8799,6 +8801,13 @@ impl ProofTools {
             .zip(now.fields())
             .find(|((_, recorded), (_, current))| recorded != current)
             .map(|((key, recorded), (_, current))| (key, recorded, current))
+    }
+}
+
+impl PartialEq for ProofTools {
+    /// Equal when no field differs ([`ProofTools::differing`]).
+    fn eq(&self, other: &Self) -> bool {
+        self.differing(other).is_none()
     }
 }
 
