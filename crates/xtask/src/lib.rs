@@ -3748,10 +3748,8 @@ pub fn unviable_names_gate(reviews: &str, sources: &[(String, String)]) -> Resul
     let mut functions = BTreeSet::new();
     for (_, text) in sources {
         let words = code_words(text);
-        for pair in words.windows(2) {
-            if let [(_, keyword, _), (_, name, _)] = pair
-                && keyword == "fn"
-            {
+        for ((_, keyword, _), (_, name, _)) in words.iter().zip(words.iter().skip(1)) {
+            if keyword == "fn" {
                 let _new = functions.insert(name.clone());
             }
         }

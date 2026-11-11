@@ -8734,6 +8734,7 @@ fn reads_the_files_a_dep_info_file_lists() {
         ("crates/../../../x.rs", "../../x.rs"),
         ("/rx/a.rs", "/rx/a.rs"),
         ("/elsewhere/a/../b.rs", "/elsewhere/b.rs"),
+        ("/../x.rs", "/../x.rs"),
     ] {
         assert_eq!(super::normalized(file, "/r"), expected, "{file}");
     }
@@ -9113,7 +9114,7 @@ fn refuses_a_review_naming_a_function_no_source_holds() {
         ),
         ("crates/b/src/x.rs".to_owned(), "pub(crate) fn other_crate_s_test() {}\n".to_owned()),
     ];
-    let reviews = "# A comment naming no_such_function_here is prose.\n\ncrates/a/src/lib.rs: replace f -> u8 with 0 -- killed by kills_the_viable_variant and other_crate_s_test\ncrates/a/src/lib.rs: replace g -> u8 with 1 -- killed by raw_named_one, not two_parts\n";
+    let reviews = "# A comment naming no_such_function_here is prose.\n\ncrates/a/src/lib.rs: replace f -> u8 with 0 -- killed by kills_the_viable_variant and other_crate_s_test\ncrates/a/src/lib.rs: replace g -> u8 with 1 -- killed by raw_named_one, not two_parts nor Not_a_name nor not_A_name\n";
     assert_eq!(
         super::unviable_names_gate(reviews, &sources),
         Ok(()),
