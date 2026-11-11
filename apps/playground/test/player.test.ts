@@ -16,6 +16,8 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  // The player's state handler throws nothing, whenever the browser calls it.
+  expect(FakeContext.reported).toStrictEqual([]);
 });
 
 describe("EnginePlayer", () => {

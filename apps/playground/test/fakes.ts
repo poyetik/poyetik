@@ -165,7 +165,13 @@ export class FakeContext extends EventTarget {
   #handler: (() => void) | null = null;
   /** Calls the current handler: the listener the attribute holds its place with. */
   readonly #invoke = (): void => {
-    this.#handler?.();
+    // A browser reports what a handler throws on the window, never to the code that fired
+    // the event: kept here for the tests to see, rather than crashing their run.
+    try {
+      this.#handler?.();
+    } catch (error) {
+      FakeContext.reported.push(error);
+    }
   };
   /** The event handler attribute: takes its place among the listeners when first set, keeps it when replaced, leaves when cleared. */
   get onstatechange(): (() => void) | null {
@@ -201,6 +207,8 @@ export class FakeContext extends EventTarget {
 
   /** What the fake browser refuses, to check that the player never rejects nor throws. */
   static readonly refuses = new Set<"create" | "resume" | "close" | "fade">();
+  /** What the handlers of every context threw, in order: a browser reports it on the window; emptied before each test. */
+  static readonly reported: unknown[] = [];
   /** When set, `resume` answers only once the test resolves it. */
   static resuming: Promise<undefined> | undefined;
 
@@ -321,6 +329,7 @@ export function resetFakes(): void {
   FakeContext.resumesTo = "running";
   FakeContext.resuming = undefined;
   FakeContext.refuses.clear();
+  FakeContext.reported.length = 0;
   FakeContext.rate = 48_000;
   FakeWorkletNode.created.length = 0;
   vi.stubGlobal("AudioContext", FakeContext);

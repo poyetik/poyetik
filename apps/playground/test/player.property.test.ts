@@ -179,6 +179,7 @@ async function explore(seed: number, slower: number): Promise<string[]> {
     check();
   }
   expect(promises.filter((promise) => !promise.settled)).toStrictEqual([]);
+  expect(FakeContext.reported).toStrictEqual([]);
   return trace;
 }
 
