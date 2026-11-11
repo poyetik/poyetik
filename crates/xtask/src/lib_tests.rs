@@ -9310,10 +9310,35 @@ fn refuses_a_citation_it_cannot_read() {
             "**Step.** \u{23}12 steps 3 to 1.",
             "the range of steps 3 to 1 does not rise",
         ),
+        (
+            "see \u{23}12 item 6",
+            "\u{23}12 item 6 cites no step: write `\u{23}12 step 6`",
+        ),
+        (
+            "\u{23}12 items 6 and 7",
+            "\u{23}12 items 6 cites no step: write `\u{23}12 step 6`",
+        ),
+        (
+            "\u{23}12, task 3",
+            "\u{23}12 task 3 cites no step: write `\u{23}12 step 3`",
+        ),
+        (
+            "(\u{23}12 (tasks 2 to 3",
+            "\u{23}12 tasks 2 cites no step: write `\u{23}12 step 2`",
+        ),
     ] {
         assert_eq!(cite(text), found(CITATIONS, &[at(problem)]), "{text}");
     }
     assert_eq!(cite("\u{23}12 steps 1-x"), Ok(()), "a dash, then no number");
+    for text in [
+        "\u{23}12 itemized 6",
+        "\u{23}12 items x",
+        "\u{23}12 item",
+        "\u{23}12 tasks of it",
+        "every item 6",
+    ] {
+        assert_eq!(cite(text), Ok(()), "not a citation: {text}");
+    }
 }
 
 #[test]

@@ -56,7 +56,7 @@ Public project kanban. The data lives in `apps/roadmap/board.json`, versioned in
 
 - Roadmap changes are made by running the CLI (Claude runs it on the maintainer's request).
 - **Never edit `board.json` by hand**: always use `pnpm roadmap <command>` from `apps/roadmap/` (`list`, `show`, `add`, `move`, `edit`, `rm`, `title`, `step …`, `validate`). Run `pnpm roadmap help` for usage.
-- Every roadmap step a versioned file cites (`#N step M`, `#N steps M and M`, a spec's `**Step.**` line) must exist on the board (checked).
+- Every roadmap step a versioned file cites (`#N step M`, `#N steps M and M`, a spec's `**Step.**` line) must exist on the board, and a step is cited as a step, never as an item or a task (checked).
 - **The roadmap is public: never reference `doc/`** (local, unversioned notes) in a ticket title, description or step. A ticket says what is to be done, in its own words.
 - Columns: `later` (Later), `next` (Next), `doing` (In progress), `done` (Done). Milestones are written like "M1 Engine", "M2 Editor"…
 - Cards have ordered **steps** (`step add|done|undo|edit|rm`). A step is either done or not; **in a card of the `doing` column, the first step that is not done is automatically "In progress"**. A card in any other column has no step in progress, so nothing shows as in progress until the card is moved to `doing`. When a step is finished, run `step done <id>` to tick it, which moves "In progress" to the next step (outside `doing`, give the step number: `step done <id> <n>`).

@@ -4571,7 +4571,8 @@ fn step_list(text: &str) -> Result<(Vec<u64>, &str), String> {
 /// A step is cited as `#N step M` or `#N steps <list>` ([`step_list`]), with a comma,
 /// spaces and an opening parenthesis allowed between them (`#N, step M`, `#N (step M`). On a line of a
 /// spec opening with `**Step.**`, which must cite one, a list after `step` or `steps`
-/// alone cites the card named last before it on the line.
+/// alone cites the card named last before it on the line. A card followed the same way by
+/// `item`, `items`, `task` or `tasks` and a number is refused: a step is cited as a step.
 fn line_citations(line: &str) -> (Vec<(u64, u64)>, Vec<String>) {
     let step_line = line.trim_start().starts_with("**Step.**");
     let mut cited = Vec::new();
@@ -4593,6 +4594,14 @@ fn line_citations(line: &str) -> (Vec<(u64, u64)>, Vec<String>) {
                 .iter()
                 .find_map(|word| follower.strip_prefix(word))
             else {
+                if let Some((word, (step, _))) = ["items ", "item ", "tasks ", "task "]
+                    .iter()
+                    .find_map(|word| Some((word, leading_number(follower.strip_prefix(word)?)?)))
+                {
+                    problems.push(format!(
+                        "#{number} {word}{step} cites no step: write `#{number} step {step}`"
+                    ));
+                }
                 before = '0';
                 rest = after;
                 continue;
@@ -4648,8 +4657,9 @@ fn line_citations(line: &str) -> (Vec<(u64, u64)>, Vec<String>) {
 /// ([`ROADMAP_BOARD`]) among them. A line cites a step as `#N step M` or `#N steps` and a
 /// list (`M, M and M`, `M or M`, `M to M`), a comma, spaces or an opening parenthesis
 /// allowed after the card; on a spec's `**Step.**` line, which must cite one, `step M`
-/// alone cites the card named last before it. A step is cited by its number, so a step or
-/// a card the board does not have means the citation is stale or wrong.
+/// alone cites the card named last before it; `#N item M` (or `items`, `task`, `tasks`)
+/// is refused, never skipped. A step is cited by its number, so a step or a card the board
+/// does not have means the citation is stale or wrong.
 ///
 /// # Errors
 ///
