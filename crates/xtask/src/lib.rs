@@ -13,6 +13,7 @@ extern crate alloc;
 
 use alloc::collections::{BTreeMap, BTreeSet};
 use core::num::NonZeroUsize;
+use core::str::FromStr as _;
 use core::time::Duration;
 use std::ffi::OsString;
 use std::io::{self, Write};
@@ -3587,7 +3588,8 @@ pub fn test_declarations(path: &str, text: &str) -> Vec<(usize, String)> {
 /// its forbid line, every `unsafe` of an assembly file that does not open its assembly call,
 /// every declaration of an assembly file, and every `unsafe` or rebinding of `core` in
 /// another file of its crate.
-pub fn unsafe_gate(sources: &[(String, String)]) -> Result<(), Failure> {
+pub fn unsafe_gate(sources: &[RustSource]) -> Result<(), Failure> {
+    let sources = &texts(sources);
     let lint = format!("{}_{}", "unsafe", "code");
     let forbid = format!("#![forbid({lint})]");
     let exempt = [
@@ -3756,7 +3758,8 @@ fn unsafe_beside_assembly(sources: &[(String, String)], problems: &mut Vec<Strin
 /// # Errors
 ///
 /// Returns every such word that names no function, with its line.
-pub fn unviable_names_gate(reviews: &str, sources: &[(String, String)]) -> Result<(), Failure> {
+pub fn unviable_names_gate(reviews: &str, sources: &[RustSource]) -> Result<(), Failure> {
+    let sources = &texts(sources);
     let mut functions = BTreeSet::new();
     for (_, text) in sources {
         let words = code_words(text);
@@ -3825,7 +3828,8 @@ fn in_crate(path: &str) -> Option<(&'static RustCrate, &str)> {
 /// Returns every other `test` or `include` with its file and line, every file a
 /// `*_tests.rs` file would load, every other `path` attribute, and every `*_tests.rs` file
 /// declared other than once.
-pub fn test_code_gate(sources: &[(String, String)]) -> Result<(), Failure> {
+pub fn test_code_gate(sources: &[RustSource]) -> Result<(), Failure> {
+    let sources = &texts(sources);
     let mut problems = Vec::new();
     let mut declared: BTreeMap<String, usize> = BTreeMap::new();
     let loose_path = |path: &str, line: usize| {
@@ -3995,7 +3999,8 @@ pub const DOC_TESTED_KINDS: [&str; 3] = ["lib", "rlib", "proc-macro"];
 ///
 /// Returns every target or file that breaks one of these, every package or target the
 /// metadata does not describe as expected, or why the metadata cannot be read.
-pub fn untested_targets_gate(metadata: &str, sources: &[(String, String)]) -> Result<(), Failure> {
+pub fn untested_targets_gate(metadata: &str, sources: &[RustSource]) -> Result<(), Failure> {
+    let sources = &texts(sources);
     let root = workspace_root(metadata)?;
     let below_root = |path: &str| -> Option<String> {
         path.strip_prefix(root.as_str())
@@ -4294,7 +4299,8 @@ fn test_data_read<'text>(word: &str, rest: &'text str) -> Read<'text> {
 ///
 /// Returns every read outside the declared data or from code other than tests, every form
 /// without its literal or that the gate cannot follow, and every root no test reads.
-pub fn test_data_gate(sources: &[(String, String)]) -> Result<(), Failure> {
+pub fn test_data_gate(sources: &[RustSource]) -> Result<(), Failure> {
+    let sources = &texts(sources);
     let mut problems = Vec::new();
     let mut read: BTreeSet<(&str, &str)> = BTreeSet::new();
     for (path, text) in sources {
@@ -4984,6 +4990,184 @@ pub const ENGINE_ROOT: &str = "crates/engine-core/src/lib.rs";
 /// them could take a sample's float out with the type inferred, `f64` never written).
 pub const BOX_FORBIDDEN_NAMES: [&str; 6] = ["f32", "f64", "libm", "host", "Delivered", "deliver"];
 
+/// What a token of a Rust source is ([`RustSource`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TokenKind {
+    /// An identifier or a keyword, its text without a raw identifier's `r#` (`r#fn` is
+    /// `fn`), so that a rule naming a word sees it however it is written.
+    Ident,
+    /// A punctuation character, `joint` when the next token is a punctuation character
+    /// written right after it (the first `=` of `==`, but not of `= =`).
+    Punct {
+        /// Whether the next punctuation character follows it with no space.
+        joint: bool,
+    },
+    /// A literal, its text as written: a string, raw or not (quotes, prefix and escapes
+    /// included), a byte or C string, a char, a number with its suffix (`1.0f32`).
+    Literal,
+    /// The opening delimiter of a group, `(`, `[` or `{`.
+    Open,
+    /// The closing delimiter of a group, `)`, `]` or `}`.
+    Close,
+    /// A doc comment (`///`, `/** */`, and `//!`, `/*! */` when `inner`), its text as
+    /// written: prose, never code, whatever it holds.
+    Doc {
+        /// Whether it documents the item it is in (`//!`, `/*! */`).
+        inner: bool,
+    },
+}
+
+/// A token of a Rust source ([`RustSource`]): its kind, its text and the line it starts on.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Token {
+    /// What it is.
+    kind: TokenKind,
+    /// Its text ([`TokenKind`] says which).
+    text: String,
+    /// The line it starts on, from 1.
+    line: usize,
+}
+
+/// A Rust source of the repository, read as rustc reads it: its path, and its tokens.
+///
+/// The one reader of Rust code for the gates that follow it ([`RustSource::parse`]): they
+/// read tokens, never characters or lines, so that a comment (nested ones included), a
+/// string (raw ones included) or a doc comment is never code to them, and code is never
+/// hidden from them by a spelling rustc accepts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RustSource {
+    /// Its path, relative to the root.
+    path: String,
+    /// Its text.
+    text: String,
+    /// Its tokens, in order: a group as its opening delimiter, its tokens, its closing
+    /// delimiter.
+    tokens: Vec<Token>,
+}
+
+impl RustSource {
+    /// Reads the Rust file `path`, whose text is `text`, into its tokens.
+    ///
+    /// The tokenizer is proc-macro2's own lexer of Rust, which nests block comments as rustc
+    /// does and gives each doc comment as one token. It lexes the whole text, so the start
+    /// of a file rustc strips before lexing is refused instead: a shebang (`#!` not
+    /// followed by `[`) and frontmatter (`---`), each after an optional byte order mark
+    /// (which both strip). Every token keeps the line it starts on.
+    ///
+    /// # Errors
+    ///
+    /// Returns, naming the file and the line, a text that starts with a shebang or
+    /// frontmatter, or that does not lex (an unclosed comment or string, an unbalanced
+    /// delimiter, a char literal of two characters …), which rustc refuses too.
+    pub fn parse(path: &str, text: &str) -> Result<Self, Failure> {
+        let body = text.strip_prefix('\u{feff}').unwrap_or(text);
+        if (body.starts_with("#!") && !body.starts_with("#!["))
+            || body.trim_start().starts_with("---")
+        {
+            return Err(Failure::from(format!(
+                "{path}:1: starts with a shebang (`#!` not followed by `[`) or frontmatter \
+                 (`---`), which rustc strips before it lexes: no Rust source of the repository \
+                 holds either"
+            )));
+        }
+        let lexed = proc_macro2::TokenStream::from_str(text)
+            .map(|stream| {
+                let mut tokens = Vec::new();
+                flatten(stream, &mut tokens);
+                tokens
+            })
+            .map_err(|error| {
+                Failure::from(format!(
+                    "{path}:{}: does not lex as Rust ({error}): the gates read the tokens of \
+                     every Rust source",
+                    error.span().start().line
+                ))
+            });
+        // Every span of this thread is now dropped: free their record of the text.
+        proc_macro2::extra::invalidate_current_thread_spans();
+        Ok(Self {
+            path: path.to_owned(),
+            text: text.to_owned(),
+            tokens: lexed?,
+        })
+    }
+
+    /// Its path, relative to the root.
+    #[must_use]
+    pub fn path(&self) -> &str {
+        &self.path
+    }
+}
+
+/// The path and text of each of `sources`.
+fn texts(sources: &[RustSource]) -> Vec<(String, String)> {
+    sources
+        .iter()
+        .map(|source| (source.path.clone(), source.text.clone()))
+        .collect()
+}
+
+/// Appends the tokens of `stream` to `tokens` ([`RustSource`]).
+fn flatten(stream: proc_macro2::TokenStream, tokens: &mut Vec<Token>) {
+    use proc_macro2::{Delimiter, Spacing, TokenTree};
+    // The lexer gives a doc comment as `#`, `!` when inner, and a bracketed group, each
+    // spanning the comment's own text, which starts with `/`.
+    let documents = |tree: &TokenTree| {
+        tree.span()
+            .source_text()
+            .is_some_and(|text| text.starts_with('/'))
+    };
+    let mut trees = stream.into_iter().peekable();
+    while let Some(tree) = trees.next() {
+        let line = tree.span().start().line;
+        let (kind, text) = match tree {
+            TokenTree::Punct(_) if documents(&tree) => {
+                let inner = trees
+                    .next_if(|bang| matches!(bang, TokenTree::Punct(_)) && documents(bang))
+                    .is_some();
+                let _group = trees.next();
+                let text = tree.span().source_text().unwrap_or_default();
+                (TokenKind::Doc { inner }, text)
+            }
+            TokenTree::Group(group) => {
+                // `Delimiter::None` comes only from a procedural macro's input, never from text.
+                let (open, close) = match group.delimiter() {
+                    Delimiter::Brace => ("{", "}"),
+                    Delimiter::Bracket => ("[", "]"),
+                    Delimiter::Parenthesis | Delimiter::None => ("(", ")"),
+                };
+                tokens.push(Token {
+                    kind: TokenKind::Open,
+                    text: open.to_owned(),
+                    line,
+                });
+                flatten(group.stream(), tokens);
+                tokens.push(Token {
+                    kind: TokenKind::Close,
+                    text: close.to_owned(),
+                    line: group.span_close().start().line,
+                });
+                continue;
+            }
+            TokenTree::Ident(ident) => {
+                let text = ident.to_string();
+                let name = text
+                    .strip_prefix("r#")
+                    .map_or_else(|| text.clone(), str::to_owned);
+                (TokenKind::Ident, name)
+            }
+            TokenTree::Punct(punct) => (
+                TokenKind::Punct {
+                    joint: punct.spacing() == Spacing::Joint,
+                },
+                punct.as_char().to_string(),
+            ),
+            TokenTree::Literal(literal) => (TokenKind::Literal, literal.to_string()),
+        };
+        tokens.push(Token { kind, text, line });
+    }
+}
+
 /// The most `#` a raw string literal may open with (rustc refuses more): [`code_words`]
 /// never looks further for them, so that reading a file stays linear in its length.
 const RAW_STRING_HASHES: usize = 255;
@@ -5220,7 +5404,8 @@ fn math_layer_crates(metadata: &str) -> Result<Vec<String>, Failure> {
 /// Returns every other crate that depends on `libm`, every build script, every forbidden
 /// name with its file and line, every missing forbid line, every test file not declared
 /// once, every file it does not read, or why the metadata cannot be read.
-pub fn math_layer_gate(metadata: &str, sources: &[(String, String)]) -> Result<(), Failure> {
+pub fn math_layer_gate(metadata: &str, sources: &[RustSource]) -> Result<(), Failure> {
+    let sources = &texts(sources);
     let mut problems = math_layer_crates(metadata)?;
     let mut declared: BTreeMap<&str, usize> = BTreeMap::new();
     let mut path_lines: BTreeSet<(&str, usize)> = BTreeSet::new();
@@ -9709,10 +9894,17 @@ fn unviable_report(runner: &mut dyn Runner, extent: Extent) -> Result<String, Fa
     }
 }
 
-/// The tracked Rust files, path and text.
-fn rust_sources(runner: &mut dyn Runner) -> Result<Vec<(String, String)>, Failure> {
+/// The tracked Rust files, each read into its tokens ([`RustSource::parse`]).
+///
+/// # Errors
+///
+/// Returns why they cannot be listed or read, or the first that does not lex.
+fn rust_sources(runner: &mut dyn Runner) -> Result<Vec<RustSource>, Failure> {
     let paths = list_tracked(runner, &["*.rs"], "the Rust files")?;
-    read_all(runner, paths)
+    read_all(runner, paths)?
+        .into_iter()
+        .map(|(path, text)| RustSource::parse(&path, &text))
+        .collect()
 }
 
 /// Lists every mutant of the workspace and checks the reviews against them
@@ -10082,7 +10274,11 @@ pub fn loaded_files_gate(loaded: &[Loaded], tracked: &[String]) -> Result<(), Fa
 fn math_layer(runner: &mut dyn Runner) -> Result<(), Failure> {
     let metadata = crates_metadata(runner)?;
     let paths = list_tracked(runner, &MATH_LAYER_SOURCES, "the box and engine sources")?;
-    math_layer_gate(&metadata, &read_all(runner, paths)?)
+    let sources = read_all(runner, paths)?
+        .into_iter()
+        .map(|(path, text)| RustSource::parse(&path, &text))
+        .collect::<Result<Vec<_>, _>>()?;
+    math_layer_gate(&metadata, &sources)
 }
 
 /// Runs one action of a step, saying on `out` what it found when that matters.

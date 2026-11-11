@@ -18,8 +18,47 @@ use super::{
     Step, SystemRunner, UNSAFE_FILES, UNVIABLE_REPORT, UNVIABLE_REVIEWED, USAGE, Version,
     bless_benchmarks_steps, bless_step, check_steps, cli, commit_msg_gate, coverage_gate,
     equivalent_gate, license_gate, membership_gate, package_jsons, preflight_gate, release_gate,
-    run_steps, run_steps_then, ts_coverage_gate, ts_mutation_gate, unsafe_gate, unviable_gate,
+    run_steps, run_steps_then, ts_coverage_gate, ts_mutation_gate, unviable_gate,
 };
+
+/// The Rust sources `sources` (path and text), each read into its tokens as the gates read
+/// them ([`super::RustSource::parse`]).
+fn parsed(sources: &[(String, String)]) -> Vec<super::RustSource> {
+    sources
+        .iter()
+        .map(|(path, text)| super::RustSource::parse(path, text).expect("a Rust source that lexes"))
+        .collect()
+}
+
+/// [`super::unsafe_gate`] on `sources`, read by [`parsed`].
+fn unsafe_gate(sources: &[(String, String)]) -> Result<(), Failure> {
+    super::unsafe_gate(&parsed(sources))
+}
+
+/// [`super::test_code_gate`] on `sources`, read by [`parsed`].
+fn test_code_gate(sources: &[(String, String)]) -> Result<(), Failure> {
+    super::test_code_gate(&parsed(sources))
+}
+
+/// [`super::test_data_gate`] on `sources`, read by [`parsed`].
+fn test_data_gate(sources: &[(String, String)]) -> Result<(), Failure> {
+    super::test_data_gate(&parsed(sources))
+}
+
+/// [`super::untested_targets_gate`] on `metadata` and `sources`, read by [`parsed`].
+fn untested_targets_gate(metadata: &str, sources: &[(String, String)]) -> Result<(), Failure> {
+    super::untested_targets_gate(metadata, &parsed(sources))
+}
+
+/// [`super::unviable_names_gate`] on `reviews` and `sources`, read by [`parsed`].
+fn unviable_names_gate(reviews: &str, sources: &[(String, String)]) -> Result<(), Failure> {
+    super::unviable_names_gate(reviews, &parsed(sources))
+}
+
+/// [`super::math_layer_gate`] on `metadata` and `sources`, read by [`parsed`].
+fn math_layer_gate(metadata: &str, sources: &[(String, String)]) -> Result<(), Failure> {
+    super::math_layer_gate(metadata, &parsed(sources))
+}
 
 /// Runs git in `dir` hermetically, and returns its stdout: no variable of an enclosing git
 /// process (a hook's `GIT_DIR` …) reaches it, nor the user's or the system's configuration,
@@ -7480,26 +7519,26 @@ fn names_each_failed_step_once() {
         ),
         (
             Action::TestCodeGate,
-            vec![refused(super::test_code_gate(&rust(
+            vec![refused(test_code_gate(&rust(
                 "#[cfg(test)]\nmod tests {}\n",
             )))],
         ),
         (
             Action::TestDataGate,
-            vec![refused(super::test_data_gate(&rust(
+            vec![refused(test_data_gate(&rust(
                 "const A: &str = include_str!(\"../../../spec/x.json\");\n",
             )))],
         ),
         (
             Action::UntestedTargetsGate,
-            vec![refused(super::untested_targets_gate(
+            vec![refused(untested_targets_gate(
                 &targets_metadata(&[("lib", "crates/x/src/lib.rs", true, false)]),
                 &[],
             ))],
         ),
         (
             Action::UnviableNamesGate,
-            vec![refused(super::unviable_names_gate(
+            vec![refused(unviable_names_gate(
                 "a: b -- killed by no_such_test\n",
                 &[],
             ))],
@@ -8915,9 +8954,8 @@ fn lets_the_test_modules_of_an_unsafe_file_inherit_its_lifting() {
 
 #[test]
 fn reads_the_lint_forbids_as_no_test_code() {
-    let gate = |text: &str| {
-        super::test_code_gate(&[("crates/engine-core/src/a.rs".to_owned(), text.to_owned())])
-    };
+    let gate =
+        |text: &str| test_code_gate(&[("crates/engine-core/src/a.rs".to_owned(), text.to_owned())]);
     // The two lint forbids that apply outside tests, written whole, the attribute's name
     // apart so that the bypass gate does not read this file as lifting a lint.
     let attribute = format!("{}_{}", "cfg", "attr");
@@ -8951,7 +8989,7 @@ fn refuses_a_path_attribute_outside_a_test_declaration() {
             .iter()
             .map(|(path, text)| ((*path).to_owned(), (*text).to_owned()))
             .collect();
-        super::test_code_gate(&owned)
+        test_code_gate(&owned)
     };
     for (path, text, line) in [
         (
@@ -9420,7 +9458,7 @@ fn refuses_a_review_naming_a_function_no_source_holds() {
     ];
     let reviews = "# A comment naming no_such_function_here is prose.\n\ncrates/a/src/lib.rs: replace f -> u8 with 0 -- killed by kills_the_viable_variant and other_crate_s_test\ncrates/a/src/lib.rs: replace g -> u8 with 1 -- killed by raw_named_one, not two_parts nor Not_a_name nor not_A_name\n";
     assert_eq!(
-        super::unviable_names_gate(reviews, &sources),
+        unviable_names_gate(reviews, &sources),
         Ok(()),
         "every name a function"
     );
@@ -9428,7 +9466,7 @@ fn refuses_a_review_naming_a_function_no_source_holds() {
         "{reviews}crates/a/src/lib.rs: replace h -> u8 with 2 -- killed by in_a_comment_only\ncrates/a/src/lib.rs: replace i -> u8 with 3 -- killed by in_a_string_only or renamed_since_the_review\n"
     );
     assert_eq!(
-        super::unviable_names_gate(&dead, &sources),
+        unviable_names_gate(&dead, &sources),
         Err(Failure {
             summary: "3 problems, listed \
                       above"
@@ -9485,7 +9523,7 @@ fn refuses_a_test_file_that_loads_another() {
             .iter()
             .map(|(path, text)| ((*path).to_owned(), (*text).to_owned()))
             .collect();
-        super::test_code_gate(&owned)
+        test_code_gate(&owned)
     };
     let declared = "#[cfg(test)]\n#[path = \"plan_tests.rs\"]\nmod tests;\n";
     let inline = "the modules of a *_tests.rs file are inline";
@@ -9567,7 +9605,7 @@ fn refuses_test_code_outside_test_files() {
             .iter()
             .map(|(path, text)| ((*path).to_owned(), (*text).to_owned()))
             .collect();
-        super::test_code_gate(&owned)
+        test_code_gate(&owned)
     };
     let declared = "//! test, in prose\nconst A: &str = \"test\";\nconst B: &str = include_str!(\"x.json\");\n#[cfg(test)]\n#[path = \"plan_tests.rs\"]\nmod tests;\n";
     let tests = "#[test]\nfn f() { assert!(cfg!(test)); }\n";
@@ -9650,11 +9688,11 @@ fn refuses_test_code_outside_test_files() {
 #[test]
 fn refuses_test_data_a_crate_does_not_declare() {
     let base = test_data_reader_sources();
-    assert_eq!(super::test_data_gate(&base), Ok(()), "every root read");
+    assert_eq!(test_data_gate(&base), Ok(()), "every root read");
     let with = |path: &str, text: &str| {
         let mut sources = base.clone();
         sources.push((path.to_owned(), text.to_owned()));
-        super::test_data_gate(&sources)
+        test_data_gate(&sources)
     };
     for text in [
         "const A: &str = include_str!(\"../../../spec/render-hash-vectors.json\");\n",
@@ -9694,7 +9732,6 @@ fn refuses_test_data_a_crate_does_not_declare() {
         ("const A: &str = include_str!(PATH);\n", "include_str"),
         ("const A: &str = include_bytes! (\"x\");\n", "include_bytes"),
         ("const A: &str = include_str!(\"x\" );\n", "include_str"),
-        ("const A: &str = include_str!(\"x\n", "include_str"),
         (
             "fn f() { let _ = Path::new(env!(\"CARGO_MANIFEST_DIR\")); }\n",
             "env",
@@ -9734,7 +9771,7 @@ fn refuses_test_data_a_crate_does_not_declare() {
         .cloned()
         .collect();
     assert_eq!(
-        super::test_data_gate(&without),
+        test_data_gate(&without),
         failed(
             "engine-hash: declares `spec/render-hash-vectors.json` as test data, \
              which no test of it reads"
@@ -9753,7 +9790,7 @@ fn refuses_the_reads_of_test_data_it_cannot_follow() {
     let with = |path: &str, text: &str| {
         let mut sources = test_data_reader_sources();
         sources.push((path.to_owned(), text.to_owned()));
-        super::test_data_gate(&sources)
+        test_data_gate(&sources)
     };
     let file = "crates/engine-hash/src/more_tests.rs";
     let manifest = format!("\"{}_{}_{}\"", "CARGO", "MANIFEST", "DIR");
@@ -9847,7 +9884,7 @@ fn leaves_a_binary_entry_point_to_find_its_repository() {
     let with = |path: &str, text: &str| {
         let mut sources = test_data_reader_sources();
         sources.push((path.to_owned(), text.to_owned()));
-        super::test_data_gate(&sources)
+        test_data_gate(&sources)
     };
     let root =
         "fn main() { let _ = PathBuf::from(env!(\"CARGO_MANIFEST_DIR\")).join(\"../..\"); }\n";
@@ -10059,7 +10096,7 @@ const MATH_LAYER: &str = "box arithmetic only through the math layer (engine-cor
 #[test]
 fn refuses_libm_outside_the_math_layer_and_the_measurements() {
     let gate = |dependencies: &str| {
-        super::math_layer_gate(
+        math_layer_gate(
             &format!(
                 r#"{{"packages":[{{"name":"engine-core","dependencies":[{{"name":"libm","kind":null}}]}},{{"name":"engine-testkit","dependencies":[{{"name":"libm","kind":null}}]}},{{"name":"engine-objects","dependencies":{dependencies}}}]}}"#
             ),
@@ -10097,7 +10134,7 @@ fn refuses_libm_outside_the_math_layer_and_the_measurements() {
         Ok(()),
         "another crate"
     );
-    let two = super::math_layer_gate(
+    let two = math_layer_gate(
         r#"{"packages":[{"name":"a","dependencies":[{"name":"libm"}]},{"name":"b","dependencies":[{"name":"libm","kind":"normal"}]}]}"#,
         &[],
     );
@@ -10107,17 +10144,17 @@ fn refuses_libm_outside_the_math_layer_and_the_measurements() {
         "every crate"
     );
     assert!(
-        super::math_layer_gate("[", &[])
+        math_layer_gate("[", &[])
             .is_err_and(|failure| failure.summary.starts_with("invalid cargo metadata: ")),
         "unreadable metadata"
     );
     assert_eq!(
-        super::math_layer_gate("{}", &[]),
+        math_layer_gate("{}", &[]),
         failed("cargo metadata lists no packages"),
         "metadata without packages"
     );
     assert_eq!(
-        super::math_layer_gate(r#"{"packages":[{"dependencies":[{"name":"libm"}]}]}"#, &[]),
+        math_layer_gate(r#"{"packages":[{"dependencies":[{"name":"libm"}]}]}"#, &[]),
         failed("cargo metadata lists a package without a name"),
         "a package without a name is refused, never read as \"\""
     );
@@ -10134,7 +10171,7 @@ fn refuses_libm_outside_the_math_layer_and_the_measurements() {
 #[test]
 fn refuses_raw_floats_libm_and_host_in_box_code() {
     let gate = |text: &str| {
-        super::math_layer_gate(
+        math_layer_gate(
             r#"{"packages":[]}"#,
             &[("crates/engine-objects/src/a.rs".to_owned(), text.to_owned())],
         )
@@ -10207,7 +10244,7 @@ fn refuses_raw_floats_libm_and_host_in_box_code() {
         "the delivery of samples to a host"
     );
     assert_eq!(
-        super::math_layer_gate(
+        math_layer_gate(
             r#"{"packages":[]}"#,
             &[
                 (
@@ -10226,9 +10263,109 @@ fn refuses_raw_floats_libm_and_host_in_box_code() {
 }
 
 #[test]
+fn reads_a_rust_source_into_its_tokens() {
+    use super::{Token, TokenKind};
+    let token = |kind: TokenKind, text: &str, line: usize| Token {
+        kind,
+        text: text.to_owned(),
+        line,
+    };
+    let (ident, literal, open, close) = (
+        TokenKind::Ident,
+        TokenKind::Literal,
+        TokenKind::Open,
+        TokenKind::Close,
+    );
+    let alone = TokenKind::Punct { joint: false };
+    let joint = TokenKind::Punct { joint: true };
+    let text = "//! inner\n/*! block */\nx /* a /* b */ c */ y\n/// outer\n/** block */\n!r#fn \"multi\nline\" 1.0f32 == = ( [ {\n} ] )\n#[doc = \"w\"] '\\'' 'a\n";
+    let source = super::RustSource::parse("crates/a/src/x.rs", text).expect("lexes");
+    assert_eq!(source.path(), "crates/a/src/x.rs", "its path");
+    assert_eq!(
+        source.tokens,
+        [
+            token(TokenKind::Doc { inner: true }, "//! inner", 1),
+            token(TokenKind::Doc { inner: true }, "/*! block */", 2),
+            token(ident, "x", 3),
+            token(ident, "y", 3),
+            token(TokenKind::Doc { inner: false }, "/// outer", 4),
+            token(TokenKind::Doc { inner: false }, "/** block */", 5),
+            token(alone, "!", 6),
+            token(ident, "fn", 6),
+            token(literal, "\"multi\nline\"", 6),
+            token(literal, "1.0f32", 7),
+            token(joint, "=", 7),
+            token(alone, "=", 7),
+            token(alone, "=", 7),
+            token(open, "(", 7),
+            token(open, "[", 7),
+            token(open, "{", 7),
+            token(close, "}", 8),
+            token(close, "]", 8),
+            token(close, ")", 8),
+            token(alone, "#", 9),
+            token(open, "[", 9),
+            token(ident, "doc", 9),
+            token(alone, "=", 9),
+            token(literal, "\"w\"", 9),
+            token(close, "]", 9),
+            token(literal, "'\\''", 9),
+            token(joint, "'", 9),
+            token(ident, "a", 9),
+        ],
+        "nested comments dropped, doc comments as prose, lines where each token starts"
+    );
+    for lexed in [
+        "\u{feff}fn f() {}",
+        "#![forbid(x)]\n",
+        "fn f() {}\n---\n",
+        "",
+    ] {
+        assert!(
+            super::RustSource::parse("a.rs", lexed).is_ok(),
+            "what rustc lexes as it is: {lexed:?}"
+        );
+    }
+    let start = "a.rs:1: starts with a shebang (`#!` not followed by `[`) or frontmatter (`---`), \
+                 which rustc strips before it lexes: no Rust source of the repository holds \
+                 either";
+    for stripped in [
+        "#!/usr/bin/env run\nfn f() {}",
+        "\u{feff}#! \"\nfn f() {}\n// \"",
+        "#! [forbid(x)]",
+        "---\nfn f() {}",
+        "\u{feff}---\n",
+        "\n  ---\n",
+    ] {
+        assert_eq!(
+            super::RustSource::parse("a.rs", stripped).err(),
+            Some(Failure::from(start.to_owned())),
+            "a start rustc strips: {stripped:?}"
+        );
+    }
+    for (unlexed, line) in [
+        ("fn f() {}\n/* unclosed /* */", 2_usize),
+        ("let s = 1;\n\nlet t = \"unclosed", 3_usize),
+        ("let s = r#\"unclosed\"", 1_usize),
+        ("fn f() { (\n}", 2_usize),
+        ("let c = 'ab';", 1_usize),
+        ("let q = '\\", 1_usize),
+    ] {
+        assert_eq!(
+            super::RustSource::parse("a.rs", unlexed).err(),
+            Some(Failure::from(format!(
+                "a.rs:{line}: does not lex as Rust (cannot parse string into token stream): the \
+                 gates read the tokens of every Rust source"
+            ))),
+            "{unlexed:?}"
+        );
+    }
+}
+
+#[test]
 fn reads_char_literals_and_raw_strings_as_prose() {
     let gate = |text: &str| {
-        super::math_layer_gate(
+        math_layer_gate(
             r#"{"packages":[]}"#,
             &[("crates/engine-objects/src/a.rs".to_owned(), text.to_owned())],
         )
@@ -10266,10 +10403,6 @@ fn reads_char_literals_and_raw_strings_as_prose() {
         "let s = r#\"f64 \" libm\"#;",
         "let s = r\"f64\";",
         "let r#type = 1; let s = \"f64\";",
-        "let s = \"unterminated f64",
-        "let q = '\\",
-        "/* unterminated f64",
-        "let s = r#\"unterminated f64",
         "/* a/b f64 */ let a = 1;",
         "/* a* f64 */ let a = 1;",
     ] {
@@ -10280,7 +10413,7 @@ fn reads_char_literals_and_raw_strings_as_prose() {
 #[test]
 fn refuses_sums_outside_the_math_layer() {
     let gate = |path: &str, text: &str| {
-        super::math_layer_gate(r#"{"packages":[]}"#, &[(path.to_owned(), text.to_owned())])
+        math_layer_gate(r#"{"packages":[]}"#, &[(path.to_owned(), text.to_owned())])
     };
     let refused = |path: &str, line: usize, word: &str| {
         Err(Failure::from(format!(
@@ -10353,7 +10486,7 @@ fn refuses_sums_outside_the_math_layer() {
             super::ENGINE_ARITHMETIC_FORBID
         );
         assert_eq!(
-            super::math_layer_gate(
+            math_layer_gate(
                 r#"{"packages":[]}"#,
                 &[
                     (declaring.to_owned(), declaration),
@@ -10382,7 +10515,7 @@ fn requires_the_compiler_to_refuse_float_and_generic_arithmetic() {
             .iter()
             .map(|(path, text)| ((*path).to_owned(), (*text).to_owned()))
             .collect();
-        super::math_layer_gate(none, &owned)
+        math_layer_gate(none, &owned)
     };
     let (float, arithmetic) = (super::BOX_FLOAT_FORBID, super::ENGINE_ARITHMETIC_FORBID);
     assert_eq!(
@@ -10443,7 +10576,7 @@ fn reads_every_source_of_box_and_engine_code() {
             .iter()
             .map(|(path, text)| ((*path).to_owned(), (*text).to_owned()))
             .collect();
-        super::math_layer_gate(metadata, &owned)
+        math_layer_gate(metadata, &owned)
     };
     let none = r#"{"packages":[]}"#;
     let declared = "#[cfg(test)]\n#[path = \"a_tests.rs\"]\nmod tests;\n";
@@ -10544,7 +10677,7 @@ fn reads_every_source_of_box_and_engine_code() {
 fn reads_what_real_cargo_metadata_says_of_libm_and_build_scripts() {
     let (metadata, _) = fixture_metadata();
     assert_eq!(
-        super::math_layer_gate(&metadata, &[]),
+        math_layer_gate(&metadata, &[]),
         found(
             MATH_LAYER,
             &[
@@ -14698,7 +14831,7 @@ fn lets_a_target_without_modules_turn_its_tests_off() {
         ("crates/x/build.rs".to_owned(), "fn main() {}\n".to_owned()),
     ];
     assert_eq!(
-        super::untested_targets_gate(&metadata, &sources),
+        untested_targets_gate(&metadata, &sources),
         Ok(()),
         "a library tested, roots without modules untested, a test target"
     );
@@ -14722,7 +14855,7 @@ fn refuses_a_target_that_turns_off_tests_it_may_hold() {
         ),
     ];
     assert_eq!(
-        super::untested_targets_gate(&metadata, &sources),
+        untested_targets_gate(&metadata, &sources),
         untested_refused(&[
             "crates/x/src/main.rs:4: declares a module, but its target turns its tests off \
              (`test = false`): only a root that is all its code may, so that no test hides in it",
@@ -14766,7 +14899,7 @@ fn refuses_every_way_a_manifest_offers_to_leave_tests_unrun() {
                       (`autotests = false`, a target moved or turned off): its tests would \
                       never run";
     assert_eq!(
-        super::untested_targets_gate(metadata, &sources),
+        untested_targets_gate(metadata, &sources),
         untested_refused(&[
             "crates/x/tests/off.rs: a test target that turns its tests off (`test = false`): \
              they would never run",
@@ -14791,7 +14924,7 @@ fn refuses_a_library_without_doc_tests() {
     for kind in ["lib", "rlib", "proc-macro"] {
         let metadata = targets_metadata(&[(kind, "crates/x/src/lib.rs", true, false)]);
         assert_eq!(
-            super::untested_targets_gate(&metadata, &[]),
+            untested_targets_gate(&metadata, &[]),
             untested_refused(&[
                 "crates/x/src/lib.rs: its doc tests are turned off (`doctest = false`): they \
                  would never run"
@@ -14801,7 +14934,7 @@ fn refuses_a_library_without_doc_tests() {
     }
     let cdylib = targets_metadata(&[("cdylib", "crates/x/src/lib.rs", true, false)]);
     assert_eq!(
-        super::untested_targets_gate(&cdylib, &[]),
+        untested_targets_gate(&cdylib, &[]),
         Ok(()),
         "a C library alone has no doc tests"
     );
@@ -14809,7 +14942,7 @@ fn refuses_a_library_without_doc_tests() {
 
 #[test]
 fn refuses_metadata_it_cannot_read_whole() {
-    let gate = |metadata: &str| super::untested_targets_gate(metadata, &[]);
+    let gate = |metadata: &str| untested_targets_gate(metadata, &[]);
     assert_eq!(
         gate("{"),
         failed("invalid cargo metadata: EOF while parsing an object at line 1 column 1"),
@@ -14881,7 +15014,7 @@ fn reads_the_targets_of_real_cargo_metadata() {
         ),
     ];
     assert_eq!(
-        super::untested_targets_gate(&metadata, &sources),
+        untested_targets_gate(&metadata, &sources),
         untested_refused(&[
             "src/lib.rs: its doc tests are turned off (`doctest = false`): they would never run",
             "src/main.rs:1: declares a module, but its target turns its tests off (`test = \
