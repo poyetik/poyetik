@@ -5095,14 +5095,31 @@ fn bless_benchmarks_counts_and_rewrites_the_baseline() {
 const BLESS_USAGE: &str = "`bless` takes only `--case-changed <name>` (repeatable), \
                            `--battery-changed` and `--from-nothing`";
 
+/// How the fake finds the base of the versions spent, and what it answers: `origin/main`
+/// resolves, to another commit than the upstream of [`MERGE_BASE`].
+const SPENT_BASE: (&str, &str) = (
+    "git merge-base HEAD origin/main",
+    "fed4560000000000000000000000000000000000\n",
+);
+
+/// A passing fake whose spent base resolves ([`SPENT_BASE`]).
+fn blessing() -> Fake {
+    let mut fake = passing();
+    let spent = fake
+        .files
+        .insert(format!("capture {}", SPENT_BASE.0), SPENT_BASE.1.to_owned());
+    assert!(spent.is_none(), "fresh fake");
+    fake
+}
+
 /// How the fake lists the record of the conformance references at its merge base.
 const RECORD_AT_BASE: &str = "capture git ls-tree --name-only \
-                              abc1230000000000000000000000000000000000 -- \
+                              fed4560000000000000000000000000000000000 -- \
                               conformance/algorithms.json";
 
 /// How the fake shows the record of the conformance references at its merge base.
 const SHOW_RECORD: &str =
-    "capture git show abc1230000000000000000000000000000000000:conformance/algorithms.json";
+    "capture git show fed4560000000000000000000000000000000000:conformance/algorithms.json";
 
 /// The command `cargo xtask bless` runs, without options.
 const BLESS_RAN: &str = "cargo run --package engine-cli --locked --quiet -- bless conformance \
@@ -5112,7 +5129,7 @@ const BLESS_RAN: &str = "cargo run --package engine-cli --locked --quiet -- bles
 fn bless_reports_the_failure_of_the_bless_it_runs() {
     let mut fake = Fake {
         fail: Some(BLESS_RAN.to_owned()),
-        ..passing()
+        ..blessing()
     };
     drop(fake.files.insert(RECORD_AT_BASE.to_owned(), String::new()));
     let mut err = Vec::new();
@@ -5136,7 +5153,7 @@ fn bless_reports_the_failure_of_the_bless_it_runs() {
 #[test]
 fn replays_the_result_lines_of_the_bless_on_stdout() {
     let results = "CHANGED sine-1000 (run bless)\nBITS sine-1000 binary32\n";
-    let mut fake = passing();
+    let mut fake = blessing();
     drop(fake.files.insert(RECORD_AT_BASE.to_owned(), String::new()));
     drop(
         fake.files
@@ -5154,7 +5171,7 @@ fn replays_the_result_lines_of_the_bless_on_stdout() {
         "each result line on stdout, as the step's: {said}"
     );
     assert!(err.is_empty(), "nothing on stderr");
-    let mut refused = passing();
+    let mut refused = blessing();
     drop(
         refused
             .files
@@ -5237,7 +5254,7 @@ fn bless_renders_and_rewrites_the_references() {
         [format!("bless {BLESS_RAN}")],
         "blesses with the record at the merge base"
     );
-    let mut fake = passing();
+    let mut fake = blessing();
     drop(fake.files.insert(
         RECORD_AT_BASE.to_owned(),
         "conformance/algorithms.json\n".to_owned(),
@@ -5257,7 +5274,7 @@ fn bless_renders_and_rewrites_the_references() {
         [
             PREFLIGHT_RAN.as_slice(),
             &[
-                "capture git merge-base HEAD @{upstream}",
+                "capture git merge-base HEAD origin/main",
                 RECORD_AT_BASE,
                 SHOW_RECORD,
                 "write target/xtask/spent-algorithms.json",
@@ -5275,11 +5292,11 @@ fn bless_renders_and_rewrites_the_references() {
     assert_eq!(
         String::from_utf8(out).expect("utf-8"),
         "▶ [1/2] Tools and platform\n  done in 1.5 s\n▶ [2/2] Bless conformance references\n  \
-         spent: its versions at abc1230000000000000000000000000000000000 (merge base with \
-         @{upstream})\n  done in 1.5 s\n✔ all 2 checks passed in 3.0 s\n",
+         spent: its versions at fed4560000000000000000000000000000000000 (merge base with \
+         origin/main)\n  done in 1.5 s\n✔ all 2 checks passed in 3.0 s\n",
         "progress"
     );
-    let mut named = passing();
+    let mut named = blessing();
     drop(named.files.insert(RECORD_AT_BASE.to_owned(), String::new()));
     let mut named_out = Vec::new();
     assert_eq!(
@@ -5323,7 +5340,7 @@ fn bless_renders_and_rewrites_the_references() {
     assert!(
         String::from_utf8(named_out)
             .expect("utf-8")
-            .contains("  spent: none at abc1230000000000000000000000000000000000"),
+            .contains("  spent: none at fed4560000000000000000000000000000000000"),
         "said"
     );
 }
@@ -5331,20 +5348,21 @@ fn bless_renders_and_rewrites_the_references() {
 #[test]
 fn blesses_only_with_the_record_at_the_merge_base() {
     let mut cases: Vec<(Fake, &str)> = Vec::new();
-    let mut baseless = passing();
-    let _upstream = baseless.files.remove(&format!("capture {}", MERGE_BASE.0));
+    // The upstream of the branch resolves (MERGE_BASE), neither origin/main nor main: the
+    // versions pushed on the branch are not spent.
     cases.push((
-        baseless,
-        "error: Bless conformance references: no base to measure the changes against",
+        passing(),
+        "error: Bless conformance references: no merge base with origin/main or main to read \
+         the algorithm versions spent from (fetch origin/main, or create main)\n",
     ));
-    let mut unlisted = passing();
+    let mut unlisted = blessing();
     unlisted.broken = Some(RECORD_AT_BASE.trim_start_matches("capture ").to_owned());
     cases.push((
         unlisted,
         "error: Bless conformance references: cannot read conformance/algorithms.json at the \
-         merge base abc1230000000000000000000000000000000000: ",
+         merge base fed4560000000000000000000000000000000000: ",
     ));
-    let mut unshown = passing();
+    let mut unshown = blessing();
     drop(unshown.files.insert(
         RECORD_AT_BASE.to_owned(),
         "conformance/algorithms.json\n".to_owned(),
@@ -5352,9 +5370,9 @@ fn blesses_only_with_the_record_at_the_merge_base() {
     cases.push((
         unshown,
         "error: Bless conformance references: cannot read conformance/algorithms.json at the \
-         merge base abc1230000000000000000000000000000000000: ",
+         merge base fed4560000000000000000000000000000000000: ",
     ));
-    let mut unwritable = passing();
+    let mut unwritable = blessing();
     drop(
         unwritable
             .files
@@ -5381,7 +5399,96 @@ fn blesses_only_with_the_record_at_the_merge_base() {
             !fake.ran.contains(&BLESS_RAN.to_owned()),
             "{said}: nothing blessed"
         );
+        assert!(
+            !fake.ran.contains(&format!("capture {}", MERGE_BASE.0)),
+            "{said}: the upstream never asked"
+        );
     }
+}
+
+#[test]
+fn reads_the_versions_spent_at_origin_main_then_main() {
+    let mut fallen_back = passing();
+    let _main = fallen_back.files.insert(
+        "capture git merge-base HEAD main".to_owned(),
+        "fed4560000000000000000000000000000000000\n".to_owned(),
+    );
+    assert_eq!(
+        super::spent_base(&mut fallen_back).map_err(|failure| failure.summary),
+        Ok((
+            "fed4560000000000000000000000000000000000".to_owned(),
+            "main"
+        )),
+        "main, when origin/main does not resolve"
+    );
+    assert_eq!(
+        fallen_back.ran,
+        [
+            "capture git merge-base HEAD origin/main",
+            "capture git merge-base HEAD main"
+        ],
+        "origin/main first, never the upstream"
+    );
+    assert_eq!(
+        super::spent_base(&mut passing()).map(|_base| ()),
+        failed(
+            "no merge base with origin/main or main to read the algorithm versions spent from \
+             (fetch origin/main, or create main)\n\
+             `git merge-base HEAD origin/main` exited with code 1: failed\n\
+             `git merge-base HEAD main` exited with code 1: failed"
+        ),
+        "neither: why each could not be used"
+    );
+}
+
+#[test]
+fn reads_the_versions_spent_where_real_git_says_main_is() {
+    let dir = scratch("spent-base");
+    let (remote, clone) = (dir.join("remote.git"), dir.join("clone"));
+    std::fs::create_dir_all(&clone).expect("the clone's directory");
+    let _bare = hermetic_git(&dir, &["init", "--quiet", "--bare", "remote.git"]);
+    let _init = hermetic_git(&clone, &["init", "--quiet", "--initial-branch=main"]);
+    let commit = |message: &str| {
+        let _commit = hermetic_git(
+            &clone,
+            &["commit", "--quiet", "--allow-empty", "-m", message],
+        );
+        hermetic_git(&clone, &["rev-parse", "HEAD"])
+            .trim()
+            .to_owned()
+    };
+    let on_main = commit("on main");
+    let _remote = hermetic_git(
+        &clone,
+        &[
+            "remote",
+            "add",
+            "origin",
+            remote.to_str().expect("UTF-8 path"),
+        ],
+    );
+    let _pushed = hermetic_git(&clone, &["push", "--quiet", "origin", "main"]);
+    let _branch = hermetic_git(&clone, &["switch", "--quiet", "-c", "work"]);
+    let pushed = commit("pushed on the branch");
+    let _upstream = hermetic_git(&clone, &["push", "--quiet", "-u", "origin", "work"]);
+    let _local = commit("not pushed");
+    let mut runner = system(clone.clone());
+    assert_eq!(
+        super::mutation_base(&mut runner).map_err(|failure| failure.summary),
+        Ok((pushed, "@{upstream}")),
+        "the changes are measured from the upstream, ahead of main"
+    );
+    assert_eq!(
+        super::spent_base(&mut runner).map_err(|failure| failure.summary),
+        Ok((on_main.clone(), "origin/main")),
+        "the versions spent are those on main, never the upstream's"
+    );
+    let _forgotten = hermetic_git(&clone, &["remote", "remove", "origin"]);
+    assert_eq!(
+        super::spent_base(&mut runner).map_err(|failure| failure.summary),
+        Ok((on_main, "main")),
+        "without origin/main, main"
+    );
 }
 
 #[test]

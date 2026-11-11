@@ -299,6 +299,15 @@ pub const CHANGES_DIFF: &str = "target/xtask/changes.diff";
 /// `--full`.
 pub const MUTATION_BASES: [&str; 3] = ["@{upstream}", "origin/main", "main"];
 
+/// What the algorithm versions spent are read against, in order (`spec/engine-design.md`,
+/// decision 29: a version number is spent when it reaches `main`).
+///
+/// The merge base of `HEAD` with the first of these that git resolves: `main` as the
+/// remote holds it, else as this clone does. Never the branch's upstream, unlike
+/// [`MUTATION_BASES`], which answer another question (what changed): a version pushed on a
+/// branch has not reached `main`, and successive changes on that branch share it.
+pub const SPENT_BASES: [&str; 2] = ["origin/main", "main"];
+
 /// Stryker's incremental file, relative to its package.
 ///
 /// Kept between runs (in the package's ignored `reports/`, outside the report directories
@@ -594,8 +603,8 @@ pub enum Action {
         /// The number of cargo-mutants jobs.
         jobs: NonZeroUsize,
     },
-    /// Bless the conformance references ([`bless_step`]): read the record at the merge base,
-    /// then run `engine-cli bless` with it as the versions spent.
+    /// Bless the conformance references ([`bless_step`]): read the record at the merge base
+    /// of [`SPENT_BASES`], then run `engine-cli bless` with it as the versions spent.
     Bless(BlessOptions),
     /// Record the proof of the Rust mutation step of the default check that passed
     /// ([`ProofRecord`]), when the tree is clean.
@@ -8213,15 +8222,18 @@ fn licenses(runner: &mut dyn Runner) -> Result<(), Failure> {
     license_gate(&shipped?, &all?)
 }
 
-/// The merge base of `HEAD` with the first of [`MUTATION_BASES`] git resolves, and that
-/// base's name.
+/// The merge base of `HEAD` with the first of `bases` git resolves, and that base's name.
 ///
 /// # Errors
 ///
-/// Returns that none could be resolved, with why each could not.
-fn mutation_base(runner: &mut dyn Runner) -> Result<(String, &'static str), Failure> {
+/// Returns `none`, the summary of no base found, with why each could not be resolved.
+fn merge_base(
+    runner: &mut dyn Runner,
+    bases: &[&'static str],
+    none: &str,
+) -> Result<(String, &'static str), Failure> {
     let mut tried = Vec::new();
-    for against in MUTATION_BASES {
+    for against in bases {
         match runner.capture(&Cmd::new(
             "git",
             &["merge-base", "HEAD", against],
@@ -8232,13 +8244,45 @@ fn mutation_base(runner: &mut dyn Runner) -> Result<(String, &'static str), Fail
         }
     }
     Err(Failure {
-        summary: format!(
+        summary: none.to_owned(),
+        details: tried,
+    })
+}
+
+/// The merge base of `HEAD` with the first of [`MUTATION_BASES`] git resolves, and that
+/// base's name.
+///
+/// # Errors
+///
+/// Returns that none could be resolved, with why each could not.
+fn mutation_base(runner: &mut dyn Runner) -> Result<(String, &'static str), Failure> {
+    merge_base(
+        runner,
+        &MUTATION_BASES,
+        &format!(
             "no base to measure the changes against: HEAD shares no history with any of {} \
              (run `cargo xtask check --full`)",
             MUTATION_BASES.join(", ")
         ),
-        details: tried,
-    })
+    )
+}
+
+/// The merge base of `HEAD` with the first of [`SPENT_BASES`] git resolves, and that base's
+/// name: where the algorithm versions spent are read.
+///
+/// # Errors
+///
+/// Returns that none could be resolved, with why each could not.
+fn spent_base(runner: &mut dyn Runner) -> Result<(String, &'static str), Failure> {
+    merge_base(
+        runner,
+        &SPENT_BASES,
+        &format!(
+            "no merge base with {} to read the algorithm versions spent from (fetch \
+             origin/main, or create main)",
+            SPENT_BASES.join(" or ")
+        ),
+    )
 }
 
 /// The diff git would show for `path`, a new file holding `text`, added whole; nothing for
@@ -10520,11 +10564,11 @@ impl BlessOptions {
 /// It rewrites `conformance/references.json`, and what they were blessed under,
 /// [`CONFORMANCE_RECORD`]; `engine-cli bless` refuses a reference changed under the same
 /// versions but for the cases of `--case-changed`, a lower version, a box type's outputs
-/// changed at a version spent (one the record at the merge base of [`MUTATION_BASES`]
-/// holds: successive changes on a branch share one new version), a battery change but
-/// with `--battery-changed`, and a directory without both files but with
-/// `--from-nothing` (`spec/engine-design.md`, decision 29). The commit must explain why
-/// they changed.
+/// changed at a version spent (one the record at the merge base of [`SPENT_BASES`]
+/// holds: successive changes on a branch share one new version until it reaches `main`),
+/// a battery change but with `--battery-changed`, and a directory without both files but
+/// with `--from-nothing` (`spec/engine-design.md`, decision 29). The commit must explain
+/// why they changed.
 #[must_use]
 pub fn bless_step(options: &BlessOptions) -> Step {
     Step {
@@ -10597,7 +10641,7 @@ fn bless(
     out: &mut dyn Write,
     options: &BlessOptions,
 ) -> Result<(), Failure> {
-    let (base, against) = mutation_base(runner)?;
+    let (base, against) = spent_base(runner)?;
     let record = record_at(runner, &base)?;
     let (spent, held) = record.map_or_else(
         || ("null\n".to_owned(), "none"),
