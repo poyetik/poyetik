@@ -89,6 +89,8 @@ test("refuses an unknown precision", async ({ page }) => {
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto("e2e/site/index.html?case=sine-440&precision=binary16");
   await expect.poll(() => errors).toStrictEqual(["unknown precision: binary16"]);
+  // Shown on the page too, for whoever opens it by hand.
+  await expect(page.locator("#error")).toHaveText("Error: unknown precision: binary16");
 });
 
 /**
@@ -137,12 +139,17 @@ test("names the file it could not fetch", async ({ page }) => {
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto("e2e/site/index.html?case=missing-case");
   await expect.poll(() => errors).toStrictEqual(["GET /conformance/cases/missing-case.json: 404"]);
+  await expect(page.locator("#error")).toHaveText("Error: GET /conformance/cases/missing-case.json: 404");
 });
 
-test("explains why a patch is rejected", async ({ page }) => {
+test("explains why a patch is rejected, and shows no stale error after a later success", async ({ page }) => {
   await page.goto("e2e/site/index.html?case=sine-440");
   await page.getByRole("button", { name: "Load an invalid patch" }).click();
   await expect(page.locator("#error")).toContainText("nope~");
+  await page.getByRole("button", { name: "Render offline" }).click();
+  await expect(page.locator("#offline-hash")).toHaveText(reference("sine-440", "binary64-as-binary32"));
+  await expect(page.locator("#error")).toHaveText("");
+  await expect(page.getByRole("button", { name: "Load an invalid patch" })).toBeEnabled();
 });
 
 test("runs in a time zone and a locale of the test matrix, not the machine's", async ({ page }, testInfo) => {

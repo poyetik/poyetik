@@ -1,11 +1,13 @@
 // Test bench page: drives the built package (dist/) and shows results as text, for the
 // end-to-end tests and for Claude in Chrome. The case comes from `?case=<name>`, the
 // precision the engine computes in from `?precision=<binary64|binary32>` (binary64 when
-// absent); the render is given as binary32, as Web Audio takes it.
+// absent); the render is given as binary32, as Web Audio takes it. While a button's action
+// runs, it is disabled and its outputs and the error are cleared (page.ts).
 import { WasmEngine } from "../../dist/engine.js";
 import { interleave, renderHash, STRICT } from "../../dist/hash.js";
-import { addProcessors, captureEngine, createEngineNode, givenAsBinary32, loadPatch, parsePrecision, renderOffline, type LoadedPatch } from "../../dist/web.js";
+import { addProcessors, captureEngine, createEngineNode, givenAsBinary32, loadPatch, parsePrecision, renderOffline, type LoadedPatch, type Precision } from "../../dist/web.js";
 import { fetchOk } from "./fetch.ts";
+import { Action, showFailure } from "./page.ts";
 import { PAGE_CLOCK, renderBlocks, runsOf, timeEach, timeRuns, timed } from "./timing.ts";
 
 /** The built `AudioWorklet` module that registers the engine and tap processors. */
@@ -45,64 +47,89 @@ async function fetchCase(name: string): Promise<Case> {
   return { rate, frames, patch };
 }
 
-/** The bytes of the built engine module, fetched once and shared by every button. */
-const wasm = await (await fetchOk(new URL("../../dist/engine.wasm", import.meta.url))).arrayBuffer();
-/** The case named by `?case=`, sine-440 when absent. */
-const testCase = await fetchCase(new URLSearchParams(location.search).get("case") ?? "sine-440");
-/** The precision named by `?precision=`, binary64 when absent; an unknown one fails the page load. */
-const precision = parsePrecision(new URLSearchParams(location.search).get("precision") ?? "binary64");
-if (precision === undefined) {
-  throw new Error(`unknown precision: ${String(new URLSearchParams(location.search).get("precision"))}`);
+/** What the page loads before its buttons work. */
+interface Loaded {
+  /** The bytes of the built engine module, shared by every button. */
+  readonly wasm: ArrayBuffer;
+  /** The case named by `?case=`. */
+  readonly testCase: Case;
+  /** The precision named by `?precision=`. */
+  readonly precision: Precision;
+  /** The case's patch, already validated by the engine at the case's sample rate. */
+  readonly loaded: LoadedPatch;
 }
+
+/**
+ * Loads what the page needs: the module, the case, its precision and its patch. A missing
+ * file, an unknown precision or a rejected patch fails the page load.
+ */
+async function load(): Promise<Loaded> {
+  const module = await (await fetchOk(new URL("../../dist/engine.wasm", import.meta.url))).arrayBuffer();
+  const asked = await fetchCase(new URLSearchParams(location.search).get("case") ?? "sine-440");
+  const chosen = parsePrecision(new URLSearchParams(location.search).get("precision") ?? "binary64");
+  if (chosen === undefined) {
+    throw new Error(`unknown precision: ${String(new URLSearchParams(location.search).get("precision"))}`);
+  }
+  return { wasm: module, testCase: asked, precision: chosen, loaded: await loadPatch(module, asked.patch, asked.rate, chosen) };
+}
+
+/** Where why the page could not load, or why the last action failed, is shown. */
+const error = element("error", HTMLOutputElement);
+/** What the page loaded; a failed load is shown in {@link error}, then fails the page load. */
+const { wasm, testCase, precision, loaded } = await showFailure(load, error);
 /** The render format of what the page captures: the precision, given as binary32. */
 const format = givenAsBinary32(precision);
-/** The case's patch, already validated by the engine at the case's sample rate: a rejected patch fails the page load. */
-const loaded: LoadedPatch = await loadPatch(wasm, testCase.patch, testCase.rate, precision);
-/** Where the last error is shown; the end-to-end tests expect it empty after a successful render. */
-const error = element("error", HTMLOutputElement);
 
-/** Runs `action` when `button` is clicked, showing any error. */
-function on(button: string, action: () => Promise<void>): void {
+/** Runs `action` when `button` is clicked, as an {@link Action} showing its results in the `outputs` named. */
+function on(button: string, outputs: readonly string[], action: () => Promise<void>): void {
   const target = element(button, HTMLButtonElement);
+  const run = new Action(
+    target,
+    outputs.map((id) => element(id, HTMLOutputElement)),
+    error,
+  );
   target.addEventListener("click", () => {
-    action().catch((reason: unknown) => {
-      error.value = String(reason);
-    });
+    void run.run(action);
   });
   target.disabled = false;
 }
 
-on("offline", async () => {
+on("offline", ["offline-hash"], async () => {
   const channels = await renderOffline(loaded, testCase.frames, PROCESSORS);
   element("offline-hash", HTMLOutputElement).value = await renderHash(loaded.rate, loaded.channels, interleave(channels), format, STRICT);
 });
 
-on("live", async () => {
+on("live", ["live-hash"], async () => {
   const context = new AudioContext({ sampleRate: loaded.rate });
-  await context.suspend();
-  await addProcessors(context, PROCESSORS);
-  const engine = createEngineNode(
-    context,
-    loaded,
-    (failure) => {
-      error.value = String(failure);
-    },
-    true,
-  );
-  const { node, ready } = engine;
-  const captured = captureEngine(context, engine, testCase.frames);
-  // Silent on the speakers: the graph runs for real, the capture reads the engine output
-  // before this gain.
-  const mute = new GainNode(context, { gain: 0 });
-  node.connect(mute).connect(context.destination);
-  await context.resume();
-  await ready;
-  const channels = await captured;
-  await context.close();
+  let channels: Float32Array[];
+  // Closed however the capture ends: a failed one leaves no context running.
+  try {
+    await context.suspend();
+    await addProcessors(context, PROCESSORS);
+    const engine = createEngineNode(
+      context,
+      loaded,
+      (failure) => {
+        error.value = String(failure);
+      },
+      true,
+    );
+    const { node, ready } = engine;
+    const captured = captureEngine(context, engine, testCase.frames);
+    // Silent on the speakers: the graph runs for real, the capture reads the engine output
+    // before this gain.
+    const mute = new GainNode(context, { gain: 0 });
+    node.connect(mute).connect(context.destination);
+    await context.resume();
+    await ready;
+    channels = await captured;
+  } finally {
+    await context.close();
+  }
   element("live-hash", HTMLOutputElement).value = await renderHash(loaded.rate, loaded.channels, interleave(channels), format, STRICT);
 });
 
-on("invalid", async () => {
+on("invalid", [], async () => {
   await loadPatch(wasm, new TextEncoder().encode('{"format":1,"nodes":[{"id":1,"box":"nope~"}],"connections":[]}'), loaded.rate, precision);
 });
 
@@ -113,7 +140,7 @@ on("invalid", async () => {
  * module compiled, instantiated, the patch parsed and its plan built, on the audio
  * thread). Shows each time in milliseconds, separated by spaces.
  */
-on("construction", async () => {
+on("construction", ["construction-ms"], async () => {
   const runs = runsOf(location.search);
   const context = new AudioContext({ sampleRate: loaded.rate });
   try {
