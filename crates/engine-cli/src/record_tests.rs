@@ -501,6 +501,118 @@ fn blesses_a_battery_change_alone() {
 }
 
 #[test]
+fn blesses_a_battery_change_apart_from_the_render_rules_and_hash() {
+    let now = prints(&[("osc~", 1, "new")]);
+    let cases = BTreeMap::from([("a".to_owned(), versions(&[("osc~", 1)]))]);
+    let earlier = references(&[("a", "1")]);
+    let moved = references(&[("a", "2"), ("new", "3")]);
+    let battery = Told {
+        changed: &[],
+        battery_changed: true,
+    };
+    let old_rules = Record {
+        fingerprint_battery: 0,
+        render_rules: 0,
+        ..record(&[("a", versions(&[("osc~", 1)]))], &[("osc~", 1, "new")])
+    };
+    assert_eq!(
+        refused(
+            &old_rules,
+            &earlier,
+            Spent::Replaced,
+            (&now, &cases, &moved),
+            battery
+        ),
+        [
+            "RULES    --battery-changed: the render rules changed too, from version 0 to 1 (a \
+             battery change is a bless of its own)"
+        ],
+        "the render rules moved with the battery: refused, whatever the references did"
+    );
+    let old_hash = Record {
+        render_rules: 1,
+        render_hash: "render-hash/1".to_owned(),
+        ..old_rules
+    };
+    assert_eq!(
+        refused(
+            &old_hash,
+            &earlier,
+            Spent::Replaced,
+            (&now, &cases, &earlier),
+            battery
+        ),
+        [
+            "HASH     --battery-changed: the render hash changed too, from render-hash/1 to \
+             render-hash/2 (a battery change is a bless of its own)"
+        ],
+        "the render hash moved with the battery"
+    );
+    let both = Record {
+        render_rules: 0,
+        ..old_hash
+    };
+    assert_eq!(
+        refused(
+            &both,
+            &earlier,
+            Spent::Replaced,
+            (&now, &cases, &earlier),
+            battery
+        )
+        .len(),
+        2,
+        "each named"
+    );
+    assert_eq!(
+        refused(
+            &both,
+            &earlier,
+            Spent::Replaced,
+            (&now, &cases, &moved),
+            PLAIN
+        ),
+        ["BATTERY  the fingerprints were computed with battery 0, the engine's is 2 (a \
+          battery change: bless --battery-changed, changing no reference and no version)"],
+        "without the flag, only the battery is refused: new rules re-bless every reference"
+    );
+}
+
+#[test]
+fn refuses_render_rules_below_either_record() {
+    let now = prints(&[("osc~", 1, "o")]);
+    let cases = BTreeMap::from([("a".to_owned(), versions(&[("osc~", 1)]))]);
+    let earlier = references(&[("a", "1")]);
+    let old = record(&[("a", versions(&[("osc~", 1)]))], &[("osc~", 1, "o")]);
+    let ahead = Record {
+        render_rules: 2,
+        ..old.clone()
+    };
+    assert_eq!(
+        refused(
+            &old,
+            &earlier,
+            Spent::Base(Some(&ahead)),
+            (&now, &cases, &earlier),
+            PLAIN
+        ),
+        ["LOWER    render rules version 1: below version 2 already recorded"],
+        "below the rules on main, though not below the replaced record's"
+    );
+    assert_eq!(
+        refused(
+            &old,
+            &earlier,
+            Spent::Base(Some(&old)),
+            (&now, &cases, &earlier),
+            PLAIN
+        ),
+        Vec::<String>::new(),
+        "at the rules on main"
+    );
+}
+
+#[test]
 fn refuses_a_reference_whose_case_the_record_does_not_hold() {
     let now = prints(&[("osc~", 1, "o")]);
     let cases = BTreeMap::from([("a".to_owned(), versions(&[("osc~", 1)]))]);

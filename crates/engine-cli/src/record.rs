@@ -317,15 +317,15 @@ fn reference_problems(before: &Before<'_>, now: &Blessing<'_>, told: &Told<'_>) 
 /// What `bless` refuses to write in place of `before`, as `told`:
 /// - a name of `--case-changed` that is no case;
 /// - a box type, or the render rules, at a lower version than recorded (in the replaced
-///   record or the spent one);
+///   record or the one at the spent base);
 /// - a fingerprint changed at a spent version ([`Spent`]);
 /// - a reference of a case that changed while its box types' versions, the render rules
 ///   and the render hash all stayed as recorded, unless the case is named in `--case-changed`;
 /// - a reference of a case the replaced record holds no versions of, unless the case is
 ///   named;
 /// - another battery without `--battery-changed`, and with it, an unchanged battery, a
-///   reference changed, a new case or a version not recorded: a battery change is a bless
-///   of its own.
+///   reference changed, a new case, a version not recorded, or render rules or a render
+///   hash other than the replaced record's: a battery change is a bless of its own.
 pub(crate) fn bless_problems(
     before: &Before<'_>,
     now: &Blessing<'_>,
@@ -333,13 +333,36 @@ pub(crate) fn bless_problems(
 ) -> Vec<String> {
     let old = before.record;
     let mut problems = unknown_cases(told, now.references);
-    if RENDER_RULES_VERSION < old.render_rules {
+    let rules_floor = match before.spent {
+        Spent::Base(Some(base)) => old.render_rules.max(base.render_rules),
+        Spent::Replaced | Spent::Base(None) => old.render_rules,
+    };
+    if RENDER_RULES_VERSION < rules_floor {
         problems.push(format!(
-            "{status} render rules version {RENDER_RULES_VERSION}: below version {} already \
-             recorded",
-            old.render_rules,
+            "{status} render rules version {RENDER_RULES_VERSION}: below version {rules_floor} \
+             already recorded",
             status = Status::Lower
         ));
+    }
+    if told.battery_changed {
+        // A battery change blesses no reference change; under new render rules or a new
+        // render hash every reference may change, so neither may move with it.
+        if old.render_rules != RENDER_RULES_VERSION {
+            problems.push(format!(
+                "{status} --battery-changed: the render rules changed too, from version {} to \
+                 {RENDER_RULES_VERSION} (a battery change is a bless of its own)",
+                old.render_rules,
+                status = Status::Rules
+            ));
+        }
+        if old.render_hash != SCHEME {
+            problems.push(format!(
+                "{status} --battery-changed: the render hash changed too, from {} to {SCHEME} \
+                 (a battery change is a bless of its own)",
+                old.render_hash,
+                status = Status::Hash
+            ));
+        }
     }
     let battery_changed = old.fingerprint_battery != FINGERPRINT_BATTERY;
     match (battery_changed, told.battery_changed) {

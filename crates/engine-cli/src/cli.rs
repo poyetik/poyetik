@@ -41,9 +41,10 @@ usage: engine-cli <command>
                       box type's outputs changed at a spent version (those of
                       <record>, the record at the merge base, `null` for none;
                       else those of <dir>/algorithms.json), another battery
-                      but with --battery-changed (then no reference and no
-                      version may change), and a directory missing either
-                      file but with --from-nothing (neither file then)
+                      but with --battery-changed (then no reference, version,
+                      render rules or render hash may change), and a
+                      directory missing either file but with --from-nothing
+                      (neither file then)
   export <dir> <out>  write the WAV file of every case of <dir>/cases, in every
                       format, to <out>/<case>.<format>.wav
   help                print this help";
