@@ -10394,6 +10394,20 @@ fn follows_the_reads_of_test_data_in_tokens() {
             "fn f() { let _ = Path::new(env!(\"CARGO_MANIFEST_DIR\")).parent(); }\n".to_owned(),
             format!("{file}:1: `env!` without a literal path the gate can follow"),
         ),
+        // The one join follows the path's constructor (its `)`), then `.`, then `join`.
+        (
+            "fn f() { g(env!(\"CARGO_MANIFEST_DIR\") , . join(\"src\")); }\n".to_owned(),
+            format!("{file}:1: `env!` without a literal path the gate can follow"),
+        ),
+        (
+            "fn f() { g(Path::new(env!(\"CARGO_MANIFEST_DIR\")) , join(\"src\")); }\n".to_owned(),
+            format!("{file}:1: `env!` without a literal path the gate can follow"),
+        ),
+        (
+            "fn f() { let _ = Path::new(env!(\"CARGO_MANIFEST_DIR\")).joined(\"src\"); }\n"
+                .to_owned(),
+            format!("{file}:1: `env!` without a literal path the gate can follow"),
+        ),
     ] {
         assert_eq!(with(&text), failed(why), "{text}");
     }
@@ -10404,6 +10418,14 @@ fn follows_the_reads_of_test_data_in_tokens() {
         Ok(()),
         "another variable, through a turbofish"
     );
+    // Only `::<` opens a turbofish, and only `(` a call.
+    for other in [
+        "fn f() { var:(<x>(\"CARGO_MANIFEST_DIR\")); }\n",
+        "fn f() { var x y<z>(\"CARGO_MANIFEST_DIR\"); }\n",
+        "fn f() { let _ = var[\"CARGO_MANIFEST_DIR\"]; }\n",
+    ] {
+        assert_eq!(with(other), Ok(()), "{other}");
+    }
 }
 
 #[test]

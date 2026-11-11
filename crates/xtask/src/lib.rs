@@ -4543,10 +4543,9 @@ fn variable_read<'text>(word: &str, tokens: &'text [Token]) -> Read<'text> {
         }
         _ => tokens,
     };
+    // A string's text is quoted; any other first argument names its variable at run time.
     let argument = match call {
-        [open, literal, ..] if open.opens('(') && literal.kind == TokenKind::Literal => {
-            literal.text.as_str()
-        }
+        [open, first, ..] if open.opens('(') => first.text.as_str(),
         _ => return Read::Other,
     };
     if argument.contains('\\') {
@@ -4613,7 +4612,8 @@ pub fn test_data_gate(sources: &[RustSource]) -> Result<(), Failure> {
         let file_dir = path.rsplit_once('/').map_or("", |(dir, _)| dir);
         for (at, token) in source.tokens.iter().enumerate() {
             let (line, word) = (token.line, token.text.as_str());
-            if token.kind != TokenKind::Ident || !TEST_DATA_WORDS.contains(&word) {
+            // Only an identifier's text is a bare word: a literal's is quoted or a number.
+            if !TEST_DATA_WORDS.contains(&word) {
                 continue;
             }
             let (from, literal) = match test_data_read(&source.tokens, at) {
@@ -5453,7 +5453,11 @@ impl RustSource {
                 [hash, bang, open, ..]
                     if hash.is_punct('#') && bang.is_punct('!') && open.opens('[') =>
                 {
-                    let end = self.close_of(at.saturating_add(2)).saturating_add(1);
+                    // Its closing `]` is past its `#![`, so each attribute moves past the last.
+                    let end = self
+                        .close_of(at.saturating_add(2))
+                        .saturating_add(1)
+                        .max(at.saturating_add(3));
                     attributes.push(at..end);
                     at = end;
                 }
