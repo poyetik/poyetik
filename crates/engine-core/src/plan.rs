@@ -92,10 +92,12 @@ impl<K: Copy> Feed<K> {
     /// instructions against it, for a larger module.
     ///
     /// The lanes reach the sum through `black_box`, an optimization barrier with no effect
-    /// on the result: without it, the compiler computes the addresses of the lanes before
+    /// on the result. Without it, the compiler computes the addresses of the lanes before
     /// the loop over the boxes, which every plan with a box then pays each block, a sum or
-    /// not (measured: 56 more WebAssembly instructions per block in `spec/benchmarks.md`'s
-    /// counts). The benchmarks hold the cost either way.
+    /// not; with it, a sum of three or more and a fed output box pay a little more each
+    /// block. The barrier is the cheaper for every box benchmark, the other side's cost is
+    /// smaller, and both are dated in `spec/benchmarks.md` ("Forms measured on the
+    /// real-time path"); the unconnected `dac~` benchmark fails without it.
     fn write<'source, S: Sample + 'source>(
         &self,
         out: &mut Block<S>,
