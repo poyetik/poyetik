@@ -366,7 +366,7 @@ const MERGE_BASE: (&str, &str) = (
 /// How the fake reads the changes since [`MERGE_BASE`], and what it answers: one changed
 /// line of a Rust file.
 const CHANGES: (&str, &str) = (
-    "git diff --no-color --no-ext-diff --no-textconv --text --no-renames --src-prefix=a/ --dst-prefix=b/ abc1230000000000000000000000000000000000 -- *.rs",
+    "git -c diff.suppressBlankEmpty=false diff --no-color --no-ext-diff --no-textconv --text --no-renames --unified=3 --inter-hunk-context=0 --diff-algorithm=myers --indent-heuristic --src-prefix=a/ --dst-prefix=b/ abc1230000000000000000000000000000000000 -- *.rs",
     "diff --git a/crates/a/src/b.rs b/crates/a/src/b.rs\n--- a/crates/a/src/b.rs\n+++ b/crates/a/src/b.rs\n@@ -1 +1 @@\n-fn f() {}\n+fn f() -> u8 { 1 }\n",
 );
 
@@ -649,12 +649,18 @@ impl Fake {
                     }),
             ),
             [
+                "-c",
+                "diff.suppressBlankEmpty=false",
                 "diff",
                 "--no-color",
                 "--no-ext-diff",
                 "--no-textconv",
                 "--text",
                 "--no-renames",
+                "--unified=3",
+                "--inter-hunk-context=0",
+                "--diff-algorithm=myers",
+                "--indent-heuristic",
                 "--src-prefix=a/",
                 "--dst-prefix=b/",
                 since,
@@ -2262,7 +2268,7 @@ fn mutates_the_changes_since_the_merge_base_with_the_upstream() {
             "read .git/poyetik/rust-mutants-proven/abc1230000000000000000000000000000000000",
             "capture git ls-files -z --others --exclude-standard -- *.rs",
             "capture git diff --no-color --name-only -z --no-renames abc1230000000000000000000000000000000000",
-            "capture git diff --no-color --no-ext-diff --no-textconv --text --no-renames --src-prefix=a/ --dst-prefix=b/ abc1230000000000000000000000000000000000 -- *.rs",
+            "capture git -c diff.suppressBlankEmpty=false diff --no-color --no-ext-diff --no-textconv --text --no-renames --unified=3 --inter-hunk-context=0 --diff-algorithm=myers --indent-heuristic --src-prefix=a/ --dst-prefix=b/ abc1230000000000000000000000000000000000 -- *.rs",
             "write target/xtask/changes.diff",
             "cargo mutants --no-config --output=. --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --workspace --in-diff target/xtask/changes.diff --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored",
             "read mutants.out/unviable.txt",
@@ -2820,6 +2826,100 @@ fn tells_a_file_turned_into_a_link_from_a_change_git_left_out() {
              would read as one change"
         )),
         "a Rust file turned into a link, said as such"
+    );
+}
+
+/// What the git-fed functions of the mutation step and of the tree gates answer in a
+/// repository at `dir` holding two Rust files and a change, after `configure` ran there.
+fn git_answers(dir: &Path, configure: &dyn Fn(&Path)) -> Vec<String> {
+    let (first, second) = (
+        "crates/engine-hash/src/lib.rs",
+        "crates/engine-hash/src/b c.rs",
+    );
+    std::fs::create_dir_all(dir.join("crates/engine-hash/src")).expect("its directory");
+    std::fs::write(dir.join(first), "a\n\nb\nc\n").expect("a file");
+    std::fs::write(dir.join(second), "x\n").expect("a file");
+    let _init = hermetic_git(dir, &["init", "--quiet", "--initial-branch=main"]);
+    let _add = hermetic_git(dir, &["add", "."]);
+    let _commit = hermetic_git(dir, &["commit", "--quiet", "-m", "first"]);
+    configure(dir);
+    std::fs::write(dir.join(first), "a\n\nb\nd\n").expect("a change");
+    std::fs::write(dir.join(second), "y\n").expect("a change");
+    std::fs::write(dir.join("crates/engine-hash/src/new.rs"), "n\n").expect("a new file");
+    let mut runner = system(dir.to_path_buf());
+    let changed = super::changed_since(&mut runner, "HEAD").expect("the changes");
+    let new = super::new_rust_files(&mut runner).expect("the new files");
+    let tree = super::tree_cleanliness(&mut runner).expect("the tree");
+    vec![
+        changed.join("|"),
+        new.join("|"),
+        super::mutated_diff(
+            &mut runner,
+            &mut Vec::new(),
+            "HEAD",
+            (&changed, &[]),
+            Vec::new(),
+            &[],
+        )
+        .map_err(|failure| failure.summary)
+        .unwrap_or_else(|reason| reason),
+        super::unclean(&tree).unwrap_or_default(),
+    ]
+}
+
+#[test]
+fn gives_the_same_answers_under_a_hostile_git_configuration() {
+    let plain = scratch("plain-git");
+    let hostile = scratch("hostile-git");
+    let expected = git_answers(&plain, &|_| {});
+    let answers = git_answers(&hostile, &|dir| {
+        for (key, value) in [
+            ("diff.suppressBlankEmpty", "true"),
+            ("diff.noprefix", "true"),
+            ("diff.mnemonicPrefix", "true"),
+            ("diff.renames", "copies"),
+            ("diff.external", "false"),
+            ("diff.orderFile", "order.txt"),
+            ("diff.context", "0"),
+            ("diff.interHunkContext", "9"),
+            ("diff.algorithm", "histogram"),
+            ("diff.indentHeuristic", "false"),
+            ("diff.relative", "true"),
+            ("color.ui", "always"),
+            ("core.quotePath", "true"),
+            ("status.showUntrackedFiles", "no"),
+            ("status.relativePaths", "true"),
+        ] {
+            let _set = hermetic_git(dir, &["config", key, value]);
+        }
+        std::fs::write(dir.join("order.txt"), "*b*\n").expect("an order file");
+        std::fs::write(
+            dir.join(".git/info/attributes"),
+            "*.rs -diff binary diff=nothing\n",
+        )
+        .expect("attributes no gate reads");
+        std::fs::write(dir.join(".git/info/exclude"), "*.txt\n").expect("excludes");
+    });
+    assert_eq!(
+        answers.get(..2),
+        expected.get(..2),
+        "the changed paths and the new Rust files"
+    );
+    assert_eq!(
+        answers.get(2),
+        expected.get(2),
+        "the diff cargo-mutants reads"
+    );
+    assert_eq!(
+        (
+            expected.get(3).map(String::as_str),
+            answers.get(3).map(String::as_str)
+        ),
+        (
+            Some("` M \"crates/engine-hash/src/b c.rs\"` is not committed"),
+            Some("` M \"crates/engine-hash/src/b c.rs\"` is not committed")
+        ),
+        "the tree is not clean, whatever the configuration"
     );
 }
 
@@ -14985,7 +15085,7 @@ fn proven_tree_command() -> String {
 /// The command reading the changes since `since`.
 fn diff_since(since: &str) -> String {
     format!(
-        "capture git diff --no-color --no-ext-diff --no-textconv --text --no-renames --src-prefix=a/ --dst-prefix=b/ {since} -- *.rs"
+        "capture git -c diff.suppressBlankEmpty=false diff --no-color --no-ext-diff --no-textconv --text --no-renames --unified=3 --inter-hunk-context=0 --diff-algorithm=myers --indent-heuristic --src-prefix=a/ --dst-prefix=b/ {since} -- *.rs"
     )
 }
 

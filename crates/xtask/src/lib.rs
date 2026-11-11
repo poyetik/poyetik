@@ -9905,7 +9905,9 @@ fn new_rust_files(runner: &mut dyn Runner) -> Result<Vec<String>, Failure> {
 /// leaves out (`:(exclude)` pathspecs): so that the diff holds no section of a crate tested
 /// whole or proven, rather than a second one, and none of a file that is not Rust, whose
 /// bytes may not be text. Every file is shown as text (`--text`), whatever its `diff` or
-/// `binary` attribute says, which no gate reads ([`incomplete_diff`]).
+/// `binary` attribute says, which no gate reads ([`incomplete_diff`]), and every option of
+/// git's that changes which lines it writes or how is given, whatever the user's
+/// configuration says (the context, the algorithm, the prefixes, an empty context line).
 ///
 /// # Errors
 ///
@@ -9920,12 +9922,18 @@ fn diff_since(
         .map(|krate| format!(":(exclude){}/", krate.dir))
         .collect();
     let mut args = vec![
+        "-c",
+        "diff.suppressBlankEmpty=false",
         "diff",
         "--no-color",
         "--no-ext-diff",
         "--no-textconv",
         "--text",
         "--no-renames",
+        "--unified=3",
+        "--inter-hunk-context=0",
+        "--diff-algorithm=myers",
+        "--indent-heuristic",
         "--src-prefix=a/",
         "--dst-prefix=b/",
         since,
