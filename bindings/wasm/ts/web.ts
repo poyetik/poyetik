@@ -103,7 +103,10 @@ export function loadPatch(wasm: ArrayBuffer, patch: Uint8Array, rate: number, pr
 export interface EngineNode {
   /** The node: no input, one output with one channel per patch channel. */
   readonly node: AudioWorkletNode;
-  /** Resolves when the processor has loaded the patch; rejects if it could not. */
+  /**
+   * Resolves when the processor has loaded the patch; rejects if it could not, or if the
+   * context closed first (then it never will).
+   */
   readonly ready: Promise<void>;
 }
 
@@ -121,9 +124,18 @@ function engineNode(context: BaseAudioContext, loaded: LoadedPatch, onFailure: (
   // The handlers are installed by the executor, which runs at once: they settle `ready`.
   const ready = new Promise<undefined>((resolve, reject) => {
     let failed = false;
+    // A processor never answers once its context is closed: the wait ends there too,
+    // which is no failure of the engine (`onFailure` is not told).
+    const follow = (): void => {
+      if (context.state === "closed") {
+        context.removeEventListener("statechange", follow);
+        reject(new Error("the context closed before the engine processor was ready"));
+      }
+    };
     const fail = (error: Error): void => {
       if (!failed) {
         failed = true;
+        context.removeEventListener("statechange", follow);
         reject(error);
         onFailure(error);
       }
@@ -138,6 +150,7 @@ function engineNode(context: BaseAudioContext, loaded: LoadedPatch, onFailure: (
       }
       switch (message.type) {
         case "ready":
+          context.removeEventListener("statechange", follow);
           resolve(undefined);
           break;
         case "rejected":
@@ -151,6 +164,8 @@ function engineNode(context: BaseAudioContext, loaded: LoadedPatch, onFailure: (
     node.onprocessorerror = () => {
       fail(new Error("the engine processor failed"));
     };
+    context.addEventListener("statechange", follow);
+    follow();
   });
   // Rejections also reach onFailure: `ready` is only awaited by those who need it.
   ready.catch(() => undefined);
@@ -165,7 +180,7 @@ function engineNode(context: BaseAudioContext, loaded: LoadedPatch, onFailure: (
 export class MarkedEngineNode implements EngineNode {
   /** The node: no input, one output with the patch channels then the marker channel. */
   readonly node: AudioWorkletNode;
-  /** Resolves when the processor has loaded the patch; rejects if it could not. */
+  /** Resolves when the processor has loaded the patch; rejects if it could not, or if the context closed first. */
   readonly ready: Promise<void>;
   /** Number of patch channels, before the marker channel. */
   readonly #channels: number;
@@ -197,7 +212,8 @@ export class MarkedEngineNode implements EngineNode {
  * channel (one silent channel when the patch has none), plus the marker channel when
  * `marker` is set (then a {@link MarkedEngineNode}). `onFailure` receives the first
  * failure of the processor, at load or later (the node is then silent); `ready` also
- * rejects with it when it comes before the patch is loaded.
+ * rejects with it when it comes before the patch is loaded, and rejects when the context
+ * closes first (which `onFailure` is not told: the engine did not fail).
  * @throws {Error} when the context does not run at the rate the patch was checked at.
  */
 export function createEngineNode(context: BaseAudioContext, loaded: LoadedPatch, onFailure: (error: Error) => void, marker?: false): EngineNode;

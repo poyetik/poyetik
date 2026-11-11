@@ -363,6 +363,50 @@ describe("createEngineNode", () => {
     handled.mockRestore();
   });
 
+  test("rejects ready when its context closes first, which is no failure of the engine, and stops following the context", async () => {
+    stubNodes();
+    const failures: Error[] = [];
+    const context = fakeContext(RATE);
+    const { ready } = createEngineNode(asContext(context), await loaded(2), (error) => failures.push(error));
+    expect(context.listeners.size).toBe(1);
+    // A context that only runs or suspends does not end the wait.
+    for (const state of ["running", "suspended"] as const) {
+      context.state = state;
+      context.listeners.forEach((listener) => {
+        listener();
+      });
+      expect(await settled(ready)).toBe("pending");
+    }
+    context.close();
+    expect(await settled(ready)).toStrictEqual(new Error("the context closed before the engine processor was ready"));
+    expect([failures, context.listeners.size]).toStrictEqual([[], 0]);
+    // The processor's later messages still reach onFailure, once.
+    FakeNode.created[0]?.port.deliver({ type: "failed", message: "trap" });
+    expect(failures).toStrictEqual([new Error("the engine failed: trap")]);
+  });
+
+  test("rejects ready at once when its context is already closed", async () => {
+    stubNodes();
+    const context = fakeContext(RATE);
+    context.close();
+    const { ready } = createEngineNode(asContext(context), await loaded(2), () => undefined);
+    expect(await settled(ready)).toStrictEqual(new Error("the context closed before the engine processor was ready"));
+    expect(context.listeners.size).toBe(0);
+  });
+
+  test("stops following the context once ready, or once failed", async () => {
+    stubNodes();
+    const context = fakeContext(RATE);
+    const first = createEngineNode(asContext(context), await loaded(2), () => undefined);
+    const second = createEngineNode(asContext(context), await loaded(2), () => undefined);
+    expect(context.listeners.size).toBe(2);
+    FakeNode.created[0]?.port.deliver({ type: "ready" });
+    FakeNode.created[1]?.onprocessorerror?.();
+    expect(context.listeners.size).toBe(0);
+    context.close();
+    expect([await settled(first.ready), await settled(second.ready)]).toStrictEqual(["resolved", new Error("the engine processor failed")]);
+  });
+
   test("reports a later failure once, and a processor error", async () => {
     stubNodes();
     const failures: Error[] = [];
@@ -670,6 +714,16 @@ describe("renderOffline", () => {
         readonly #channels: number;
         /** Duration of the rendering, in frames. */
         readonly #frames: number;
+        /** Its state: an offline context never closes before its rendering ends here. */
+        readonly state = "suspended";
+        /** Follows nothing: the state never changes. */
+        addEventListener(): void {
+          return undefined;
+        }
+        /** Follows nothing: the state never changes. */
+        removeEventListener(): void {
+          return undefined;
+        }
         /** Records each module added to the worklet and resolves at once. */
         readonly audioWorklet = {
           addModule: (url: string | URL) => {
