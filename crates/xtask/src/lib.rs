@@ -3884,15 +3884,13 @@ pub fn unviable_names_gate(reviews: &str, sources: &[RustSource]) -> Result<(), 
     for source in sources {
         let test_code =
             in_crate(&source.path).is_some_and(|(_, relative)| rust_test_code(relative));
-        for window in source.tokens.windows(2) {
-            if let [keyword, name] = window
-                && keyword.is_ident("fn")
-                && name.kind == TokenKind::Ident
-            {
-                let _new = functions.insert(name.text.as_str());
-                if test_code {
-                    let _test = tests.insert(name.text.as_str());
-                }
+        // The token after `fn` is the function's name, or the `(` of a function pointer
+        // type, which no review's word can be.
+        let named = source.tokens.iter().zip(source.tokens.iter().skip(1));
+        for (_, name) in named.filter(|(keyword, _)| keyword.is_ident("fn")) {
+            let _new = functions.insert(name.text.as_str());
+            if test_code {
+                let _test = tests.insert(name.text.as_str());
             }
         }
     }
@@ -4109,24 +4107,19 @@ fn variable_attributes(source: &RustSource) -> Vec<usize> {
             .filter(|name| name.is_punct('$'))
             .map(|name| name.line)
     });
-    let opened = tokens.windows(3).filter_map(|window| match window {
-        [hash, open, dollar] if hash.is_punct('#') && open.opens('[') && dollar.is_punct('$') => {
-            Some(dollar.line)
-        }
-        _ => None,
+    // A `$` right after the `[` of `#[` or `#![`.
+    let opened = tokens.iter().enumerate().filter_map(|(at, dollar)| {
+        let before = match tokens.get(..at).unwrap_or_default() {
+            [rest @ .., open] if dollar.is_punct('$') && open.opens('[') => rest,
+            _ => return None,
+        };
+        let before = match before {
+            [rest @ .., bang] if bang.is_punct('!') => rest,
+            _ => before,
+        };
+        matches!(before, [.., hash] if hash.is_punct('#')).then_some(dollar.line)
     });
-    let inner = tokens.windows(4).filter_map(|window| match window {
-        [hash, bang, open, dollar]
-            if hash.is_punct('#')
-                && bang.is_punct('!')
-                && open.opens('[')
-                && dollar.is_punct('$') =>
-        {
-            Some(dollar.line)
-        }
-        _ => None,
-    });
-    let mut lines: Vec<usize> = named.chain(opened).chain(inner).collect();
+    let mut lines: Vec<usize> = named.chain(opened).collect();
     lines.sort_unstable();
     lines.dedup();
     lines
@@ -4174,8 +4167,8 @@ fn variable_attribute(path: &str, line: usize) -> String {
 }
 
 /// The problems of `source`, a `*_tests.rs` file, that would load another file: a module
-/// declared without a body (the tokens `mod <identifier> ;`, which rustc reads from a file
-/// beside it), a `#[path]` attribute ([`path_attributes`], [`variable_attributes`]), or the
+/// declared without a body (the tokens `mod <identifier> ;`, the name possibly a macro
+/// variable, `mod $name;`, which rustc reads from a file beside it), a `#[path]` attribute ([`path_attributes`], [`variable_attributes`]), or the
 /// identifier `include` (`include_str` and `include_bytes` are other identifiers, read as
 /// test data by [`test_data_gate`]).
 fn loaded_by_tests(source: &RustSource) -> Vec<String> {
@@ -4190,12 +4183,17 @@ fn loaded_by_tests(source: &RustSource) -> Vec<String> {
             )
         })
         .collect();
-    for window in source.tokens.windows(3) {
-        if let [keyword, module, end] = window
-            && keyword.is_ident("mod")
-            && module.kind == TokenKind::Ident
-            && end.is_punct(';')
-        {
+    for (at, keyword) in source.tokens.iter().enumerate() {
+        // `mod`, its name (an identifier, or a macro variable `$name`), then `;`.
+        let after = source
+            .tokens
+            .get(at.saturating_add(1)..)
+            .unwrap_or_default();
+        let after = match after {
+            [dollar, rest @ ..] if dollar.is_punct('$') => rest,
+            _ => after,
+        };
+        if keyword.is_ident("mod") && matches!(after, [_, end, ..] if end.is_punct(';')) {
             found.push((
                 keyword.line,
                 "declares a module without a body, loaded from another file",
@@ -4444,8 +4442,9 @@ enum Read<'text> {
 /// The text of `token` when it is a plain string literal: quoted, without a prefix and
 /// without an escape, so that its text is the string itself.
 fn plain_string(token: &Token) -> Option<&str> {
+    // Only a literal's text starts and ends with `"`.
     let text = token.text.strip_prefix('"')?.strip_suffix('"')?;
-    (token.kind == TokenKind::Literal && !text.contains('\\')).then_some(text)
+    (!text.contains('\\')).then_some(text)
 }
 
 /// The string of `tokens` when they open with `( "<plain string>" )`: the one argument of a
@@ -5517,10 +5516,8 @@ fn flatten(stream: proc_macro2::TokenStream, tokens: &mut Vec<Token>) {
             // Its own text read only for a `#`: reading every token's is most of the cost.
             TokenTree::Punct(ref hash) if hash.as_char() == '#' && documents(&tree) => {
                 let inner = trees
-                    .next_if(|bang| {
-                        matches!(bang, TokenTree::Punct(punct) if punct.as_char() == '!')
-                            && documents(bang)
-                    })
+                    // A doc comment's `#` is followed by its `!` when inner, else its group.
+                    .next_if(|bang| matches!(bang, TokenTree::Punct(_)))
                     .is_some();
                 let _group = trees.next();
                 let text = tree.span().source_text().unwrap_or_default();
@@ -10226,7 +10223,16 @@ fn unviable_report(runner: &mut dyn Runner, extent: Extent) -> Result<String, Fa
 /// Returns why they cannot be listed or read, or the first that does not lex.
 fn rust_sources(runner: &mut dyn Runner) -> Result<Vec<RustSource>, Failure> {
     let paths = list_tracked(runner, &["*.rs"], "the Rust files")?;
-    read_all(runner, paths)?
+    parse_all(read_all(runner, paths)?)
+}
+
+/// Each of `sources` (path and text) read into its tokens ([`RustSource::parse`]).
+///
+/// # Errors
+///
+/// Returns the first that does not lex.
+fn parse_all(sources: Vec<(String, String)>) -> Result<Vec<RustSource>, Failure> {
+    sources
         .into_iter()
         .map(|(path, text)| RustSource::parse(&path, &text))
         .collect()
@@ -10599,11 +10605,7 @@ pub fn loaded_files_gate(loaded: &[Loaded], tracked: &[String]) -> Result<(), Fa
 fn math_layer(runner: &mut dyn Runner) -> Result<(), Failure> {
     let metadata = crates_metadata(runner)?;
     let paths = list_tracked(runner, &MATH_LAYER_SOURCES, "the box and engine sources")?;
-    let sources = read_all(runner, paths)?
-        .into_iter()
-        .map(|(path, text)| RustSource::parse(&path, &text))
-        .collect::<Result<Vec<_>, _>>()?;
-    math_layer_gate(&metadata, &sources)
+    math_layer_gate(&metadata, &parse_all(read_all(runner, paths)?)?)
 }
 
 /// Runs one action of a step, saying on `out` what it found when that matters.

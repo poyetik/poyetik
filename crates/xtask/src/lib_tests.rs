@@ -9396,6 +9396,12 @@ fn refuses_a_path_attribute_outside_a_test_declaration() {
             "#[cfg(test)]\n#[path = \"plan_tests.rs\"]\nmod tests; #[path = \"h.rs\"] mod h;\n",
             3,
         ),
+        // Read as an attribute's name before a value: any `=` but `==` and `=>`.
+        (
+            "crates/engine-cli/src/cli.rs",
+            "fn f(r: &mut u8) { g(path =*r); }\n",
+            1,
+        ),
     ] {
         assert_eq!(
             gate(&[(path, text)]),
@@ -9871,7 +9877,7 @@ fn refuses_a_review_naming_a_function_no_source_holds() {
     let sources = vec![
         (
             "crates/engine-core/src/lib_tests.rs".to_owned(),
-            "fn kills_the_viable_variant() {}\n// fn in_a_comment_only() {}\nconst A: &str = \"fn in_a_string_only\";\nfn r#raw_named_one() {}\n".to_owned(),
+            "type F = fn(u8) -> u8;\nfn kills_the_viable_variant() {}\n// fn in_a_comment_only() {}\nconst A: &str = \"fn in_a_string_only\";\nfn r#raw_named_one() {}\n".to_owned(),
         ),
         ("crates/engine-hash/tests/x.rs".to_owned(), "pub(crate) fn other_crate_s_test() {}\n".to_owned()),
     ];
@@ -9997,6 +10003,18 @@ fn refuses_a_test_file_that_loads_another() {
         ("mod r#helper;\n", loads(bodyless, 1)),
         ("pub(crate) mod  helper ;\n", loads(bodyless, 1)),
         ("mod helper /* a comment */ ;\n", loads(bodyless, 1)),
+        (
+            "mod helper;\n#[path = \"h.rs\"]\nmod h {}\n",
+            format!(
+                "2 problems, listed above\n{}\n{}",
+                loads(bodyless, 1),
+                loads(path, 2)
+            ),
+        ),
+        (
+            "macro_rules! m {\n    ($n:ident) => { mod $n; };\n}\n",
+            loads(bodyless, 2),
+        ),
         ("/* /* */ \"*/\nmod helper;\n// \"\n", loads(bodyless, 2)),
         (
             "/* /* */ \"*/\ninclude!(\"h.rs\");\n// \"\n",
@@ -10368,11 +10386,21 @@ fn follows_the_reads_of_test_data_in_tokens() {
             "fn f() { let _ = var(\"CARGO_MANIFEST\\x5fDIR\"); }\n".to_owned(),
             format!("{file}:1: `var` of a literal holding an escape, which the gate does not read"),
         ),
+        (
+            "const A: &str = include_str![\"x\"];\n".to_owned(),
+            format!("{file}:1: `include_str!` without a literal path the gate can follow"),
+        ),
+        (
+            "fn f() { let _ = Path::new(env!(\"CARGO_MANIFEST_DIR\")).parent(); }\n".to_owned(),
+            format!("{file}:1: `env!` without a literal path the gate can follow"),
+        ),
     ] {
         assert_eq!(with(&text), failed(why), "{text}");
     }
     assert_eq!(
-        with("fn f() { let _ = var::<&str>(\"HOME\"); let _ = env::args(); }\n"),
+        with(
+            "fn f() { let _ = var::<&str>(\"HOME\"); let _ = env::args(); let var: u8 = 1; var::x(); }\n"
+        ),
         Ok(()),
         "another variable, through a turbofish"
     );
@@ -10895,6 +10923,31 @@ fn reads_a_rust_source_into_its_tokens() {
             "{unlexed:?}"
         );
     }
+}
+
+#[test]
+fn reads_the_leading_inner_attributes_of_a_file() {
+    let leading = |text: &str| {
+        super::RustSource::parse("a.rs", text)
+            .expect("lexes")
+            .leading_attributes()
+    };
+    assert_eq!(
+        leading("//! A.\n#![a(b, [c])]\n/*! B. */\n#![d]\nfn f() {}\n#![e]\n"),
+        [1..13, 14..19],
+        "inner doc comments between them, nested groups, none after an item"
+    );
+    assert_eq!(
+        leading("#![a]\n#!b\n"),
+        core::iter::once(0..5).collect::<Vec<_>>(),
+        "a `#!` opening no attribute ends them"
+    );
+    assert_eq!(
+        leading("/// A.\n#![a]\n"),
+        [],
+        "after an outer doc comment, none"
+    );
+    assert_eq!(leading(""), [], "an empty file");
 }
 
 #[test]
