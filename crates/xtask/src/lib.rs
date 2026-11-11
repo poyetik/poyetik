@@ -94,8 +94,15 @@ impl RustCrate {
     /// of its files.
     #[must_use]
     pub fn holds<'path>(&self, path: &'path str) -> Option<&'path str> {
-        path.strip_prefix(self.dir)?.strip_prefix('/')
+        below(self.dir, path)
     }
+}
+
+/// The path of `path` relative to the directory `dir`, if it lies below it (paths git
+/// names, `/`-separated): `a/b/c` is `c` below `a/b`, while `a/bc` and `a/b` itself are
+/// not below it. The one rule of [`RustCrate::holds`] and of the mutation targets.
+fn below<'path>(dir: &str, path: &'path str) -> Option<&'path str> {
+    path.strip_prefix(dir)?.strip_prefix('/')
 }
 
 /// The crates of the Cargo workspace (checked by [`membership_gate`]): each is measured by
@@ -10323,16 +10330,12 @@ pub fn mutation_target(text: &str) -> Result<Target, String> {
             "{text:?} is not a plain path from the root (no `.`, `..` or empty part)"
         ));
     }
-    let below = |dir: &str| {
-        text.strip_prefix(dir)
-            .and_then(|rest| rest.strip_prefix('/'))
-    };
     if Path::new(text)
         .extension()
         .is_some_and(|extension| extension == "rs")
         && let Some((krate, rel)) = RUST_CRATES
             .iter()
-            .find_map(|krate| below(krate.dir).map(|rel| (krate, rel)))
+            .find_map(|krate| below(krate.dir, text).map(|rel| (krate, rel)))
     {
         if rust_test_code(rel) {
             return Err(format!("{text:?} is test code: name the source it tests"));
@@ -10344,7 +10347,7 @@ pub fn mutation_target(text: &str) -> Result<Target, String> {
     }
     if let Some((package, source)) = PACKAGES
         .iter()
-        .find_map(|package| below(package.dir).map(|source| (*package, source)))
+        .find_map(|package| below(package.dir, text).map(|source| (*package, source)))
         && mutable_source(source)
     {
         if is_test(source) {
