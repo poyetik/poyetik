@@ -1725,7 +1725,7 @@ fn names_every_check_in_order() {
             "Rust supply chain",
             "Every direct dependency reviewed",
             "Bit-defining dependencies pinned to one exact version",
-            "The audio library depends on no other part of the project, and every crate only tests use is shared test code",
+            "The audio library depends only on its own crates, its tests also on its test crates; every crate only tests use is shared test code",
             "Box arithmetic only through the math layer: libm in engine-core and engine-testkit only, no raw float in box code, no iterator reduction outside the math layer",
             "Supply-chain settings: a week before a release, libm without features",
             "Packages and crates known to the checks",
@@ -6551,6 +6551,135 @@ fn names_every_check_alike() {
     }
 }
 
+/// Whether a check step is a gate whose verdict names its step: the summary of a refusal
+/// opens with the step's name, its first letter in lowercase, or with one clause of it
+/// (`; `) for a step running two gates.
+fn opens_with_its_step(step: &str, summary: &str) -> bool {
+    let mut letters = step.chars();
+    let lowered: String = letters
+        .next()
+        .map(|first| first.to_lowercase().chain(letters).collect())
+        .unwrap_or_default();
+    lowered
+        .split("; ")
+        .any(|clause| summary.starts_with(&format!("{clause}: ")))
+}
+
+/// Whether the verdict of a step doing `action` names its step ([`opens_with_its_step`]):
+/// every action is classed here, with no wildcard, so that a new one does not compile
+/// before it is. `false` for a step that is no gate, or for a gate whose verdict names
+/// the register or the files it reads, written before the rule.
+const fn names_its_step(action: &Action) -> bool {
+    match action {
+        Action::TestCodeGate
+        | Action::TestDataGate
+        | Action::UntestedTargetsGate
+        | Action::PinGate
+        | Action::LibraryGate
+        | Action::CitationGate => true,
+        Action::BypassGate
+        | Action::CargoConfigGate
+        | Action::DependencyGate
+        | Action::EquivalentGate
+        | Action::FloatMethodGate
+        | Action::HistoryGate
+        | Action::LicenseGate
+        | Action::MathLayerGate
+        | Action::MembershipGate
+        | Action::PartsGate
+        | Action::ReadmeGate
+        | Action::StrykerConfigGate
+        | Action::SupplyChainGate
+        | Action::TypeScriptMutationGate { .. }
+        | Action::TypeScriptReportsGate(_)
+        | Action::TypeScriptScopeGate(_)
+        | Action::UnsafeGate
+        | Action::UnviableGate(_)
+        | Action::UnviableReviewsCurrent
+        | Action::ShardsUnviableGate(_)
+        | Action::VersionGate
+        | Action::VocabularyGate
+        | Action::WorkflowGate
+        | Action::Run(_)
+        | Action::Coverage(_)
+        | Action::CoverageLocality
+        | Action::RustMutantsOfChanges { .. }
+        | Action::Bless(_)
+        | Action::MutationProofRecorded
+        | Action::FreshDirs(_)
+        | Action::FusedBuild
+        | Action::TreeRecorded
+        | Action::TreeUnchanged
+        | Action::Preflight => false,
+    }
+}
+
+#[test]
+fn names_each_gate_verdict_after_its_step() {
+    let refused = |result: Result<(), Failure>| result.expect_err("refused").summary;
+    let rust = |text: &str| vec![("crates/engine-core/src/a.rs".to_owned(), text.to_owned())];
+    let (real, _) = fixture_metadata();
+    let shared = r#"{"workspace_root":"/r","packages":[{"name":"x","dependencies":[{"name":"engine-core","kind":"dev","path":"/r/crates/engine-core"}]}]}"#;
+    let named = [
+        (
+            Action::TestCodeGate,
+            vec![refused(super::test_code_gate(&rust(
+                "#[cfg(test)]\nmod tests {}\n",
+            )))],
+        ),
+        (
+            Action::TestDataGate,
+            vec![refused(super::test_data_gate(&rust(
+                "const A: &str = include_str!(\"../../../spec/x.json\");\n",
+            )))],
+        ),
+        (
+            Action::UntestedTargetsGate,
+            vec![refused(super::untested_targets_gate(
+                &targets_metadata(&[("lib", "crates/x/src/lib.rs", true, false)]),
+                &[],
+            ))],
+        ),
+        (Action::PinGate, vec![refused(super::pin_gate(&real, ""))]),
+        (
+            Action::LibraryGate,
+            vec![
+                refused(super::library_gate(&real)),
+                refused(super::shared_tests_gate(shared)),
+            ],
+        ),
+        (Action::CitationGate, vec![refused(cite("\u{23}12 step 4"))]),
+    ];
+    let steps = check_steps(Mode::Full { jobs: FAKE_JOBS });
+    let classed: Vec<&Action> = steps
+        .iter()
+        .map(|step| &step.action)
+        .filter(|action| names_its_step(action))
+        .collect();
+    assert_eq!(
+        classed,
+        named.iter().map(|(action, _)| action).collect::<Vec<_>>(),
+        "every gate whose verdict names its step is refused below, in the order of the steps"
+    );
+    for (action, summaries) in named {
+        let step = steps
+            .iter()
+            .find(|step| step.action == action)
+            .unwrap_or_else(|| panic!("{action:?} is a step"));
+        for summary in summaries {
+            assert!(
+                opens_with_its_step(&step.name, &summary),
+                "{}: {summary}",
+                step.name
+            );
+        }
+    }
+    assert!(
+        opens_with_its_step("A b; c d", "c d: x") && !opens_with_its_step("A b", "a b c: x"),
+        "a clause, then a colon"
+    );
+}
+
 #[test]
 fn tells_changes_of_behavior() {
     for (message, expected) in [
@@ -7917,7 +8046,7 @@ fn reads_the_lint_forbids_as_no_test_code() {
     let gate = |text: &str| {
         super::test_code_gate(&[("crates/engine-core/src/a.rs".to_owned(), text.to_owned())])
     };
-    let context = "test code only in tests/ and in declared *_tests.rs files";
+    let context = "test code only in tests/ and declared *_tests.rs files";
     // The two lint forbids that apply outside tests, written whole, the attribute's name
     // apart so that the bypass gate does not read this file as lifting a lint.
     let attribute = format!("{}_{}", "cfg", "attr");
@@ -7953,7 +8082,7 @@ fn refuses_a_test_file_that_loads_another() {
             .collect();
         super::test_code_gate(&owned)
     };
-    let context = "test code only in tests/ and in declared *_tests.rs files";
+    let context = "test code only in tests/ and declared *_tests.rs files";
     let declared = "#[cfg(test)]\n#[path = \"plan_tests.rs\"]\nmod tests;\n";
     let inline = "the modules of a *_tests.rs file are inline";
     let loads = |what: &str, line: usize| {
@@ -8025,7 +8154,7 @@ fn refuses_test_code_outside_test_files() {
             .collect();
         super::test_code_gate(&owned)
     };
-    let context = "test code only in tests/ and in declared *_tests.rs files";
+    let context = "test code only in tests/ and declared *_tests.rs files";
     let declared = "//! test, in prose\nconst A: &str = \"test\";\nconst B: &str = include_str!(\"x.json\");\n#[cfg(test)]\n#[path = \"plan_tests.rs\"]\nmod tests;\n";
     let tests = "#[test]\nfn f() { assert!(cfg!(test)); }\n";
     let fine = [
@@ -9120,7 +9249,8 @@ fn reads_one_exact_version_only() {
 }
 
 /// The context of the library gate's verdict.
-const LIBRARY: &str = "the audio library depends on no other part of the project";
+const LIBRARY: &str =
+    "the audio library depends only on its own crates, its tests also on its test crates";
 
 /// What the library gate says of `library` depending on `name` (`kind`, at `path`).
 fn outside_library(library: &str, name: &str, kind: &str, path: &str) -> String {
@@ -13016,7 +13146,7 @@ fn targets_metadata(targets: &[(&str, &str, bool, bool)]) -> String {
 /// The failure of the untested targets gate with `problems`.
 fn untested_refused(problems: &[&str]) -> Result<(), Failure> {
     found(
-        "every test of a target runs",
+        "tests turned off only where no test can hide, doc tests kept",
         &problems
             .iter()
             .map(|problem| (*problem).to_owned())

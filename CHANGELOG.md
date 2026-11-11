@@ -81,6 +81,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The verdicts of `cargo xtask check`'s gates of test code, untested targets and the audio library now open with their step's name, and the library's says what it checks: the audio library depends only on its own crates, its tests also on its test crates (it said "on no other part of the project"); a test holds every gate classed as naming its step to it.
 - `createEngineNode`'s `ready` (`@poyetik/engine-wasm`, `./web`) rejects when its context closes before the engine processor is ready, where it waited forever, since a processor never answers once its context is closed.
 - A patch refused for a cycle without delay names its boxes as "boxes in it or after it" (`CoreError::Cycle`), where it said "involving": the list holds every box the order could not place, those that only depend on the cycle included.
 - The default `cargo xtask check` refuses a tree in which git hides files (`assume-unchanged` or `skip-worktree`), naming the first and how to clear it: no diff of git shows their changes, so they were silently left unmutated.

@@ -1314,8 +1314,8 @@ fn dependency_steps() -> Vec<Step> {
             action: Action::PinGate,
         },
         Step {
-            name: "The audio library depends on no other part of the project, and every crate \
-                   only tests use is shared test code"
+            name: "The audio library depends only on its own crates, its tests also on its \
+                   test crates; every crate only tests use is shared test code"
                 .to_owned(),
             action: Action::LibraryGate,
         },
@@ -3715,7 +3715,7 @@ pub fn test_code_gate(sources: &[(String, String)]) -> Result<(), Failure> {
         }
     }
     verdict(
-        "test code only in tests/ and in declared *_tests.rs files",
+        "test code only in tests/ and declared *_tests.rs files",
         problems,
     )
 }
@@ -3881,7 +3881,10 @@ pub fn untested_targets_gate(metadata: &str, sources: &[(String, String)]) -> Re
         }
         undiscovered_tests(&dir, sources, &test_roots, &mut problems);
     }
-    verdict("every test of a target runs", problems)
+    verdict(
+        "tests turned off only where no test can hide, doc tests kept",
+        problems,
+    )
 }
 
 /// The problems of the files of `sources` cargo discovers as test targets of the package
@@ -4392,7 +4395,7 @@ pub fn library_gate(metadata: &str) -> Result<(), Failure> {
         }
     }
     verdict(
-        "the audio library depends on no other part of the project",
+        "the audio library depends only on its own crates, its tests also on its test crates",
         problems,
     )
 }
