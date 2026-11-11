@@ -13,13 +13,14 @@
 // - `window.timeRendering(patch, rate, precision, blocks, runs)`: the times of rendering a
 //   patch (JSON text) on the page's own thread, which the per-box end-to-end benchmarks
 //   call (see `timeRendering` below).
-// While a button's action runs, it is disabled and its outputs and the error are cleared
-// (page.ts).
+// While a button's action runs, every button is disabled and its outputs and the error are
+// cleared; a context it opens is closed however it ends, and a live capture shows the
+// engine's own failure first (page.ts).
 import { WasmEngine } from "../../dist/engine.js";
 import { interleave, renderHash, STRICT } from "../../dist/hash.js";
 import { addProcessors, captureEngine, createEngineNode, givenAsBinary32, loadPatch, parsePrecision, renderOffline, type LoadedPatch, type Precision } from "../../dist/web.js";
 import { fetchOk } from "./fetch.ts";
-import { Action, showFailure } from "./page.ts";
+import { Actions, closing, FirstFailure, liveCapture, showFailure } from "./page.ts";
 import { PAGE_CLOCK, renderBlocks, runsOf, timeEach, timeRuns, timed } from "./timing.ts";
 
 /** The built `AudioWorklet` module that registers the engine and tap processors. */
@@ -92,16 +93,18 @@ const { wasm, testCase, precision, loaded } = await showFailure(load, error);
 /** The render format of what the page captures: the precision, given as binary32. */
 const format = givenAsBinary32(precision);
 
-/** Runs `action` when `button` is clicked, as an {@link Action} showing its results in the `outputs` named. */
+/** The actions of the page's buttons: one runs at a time. */
+const actions = new Actions(error);
+
+/** Runs `action` when `button` is clicked, as one of {@link actions}, showing its results in the `outputs` named. */
 function on(button: string, outputs: readonly string[], action: () => Promise<void>): void {
   const target = element(button, HTMLButtonElement);
-  const run = new Action(
+  const run = actions.add(
     target,
     outputs.map((id) => element(id, HTMLOutputElement)),
-    error,
   );
   target.addEventListener("click", () => {
-    void run.run(action);
+    void run(action);
   });
   target.disabled = false;
 }
@@ -112,32 +115,20 @@ on("offline", ["offline-hash"], async () => {
 });
 
 on("live", ["live-hash"], async () => {
-  const context = new AudioContext({ sampleRate: loaded.rate });
-  let channels: Float32Array[];
   // Closed however the capture ends: a failed one leaves no context running.
-  try {
+  const channels = await closing(new AudioContext({ sampleRate: loaded.rate }), async (context) => {
     await context.suspend();
     await addProcessors(context, PROCESSORS);
-    const engine = createEngineNode(
-      context,
-      loaded,
-      (failure) => {
-        error.value = String(failure);
-      },
-      true,
-    );
-    const { node, ready } = engine;
-    const captured = captureEngine(context, engine, testCase.frames);
-    // Silent on the speakers: the graph runs for real, the capture reads the engine output
-    // before this gain.
-    const mute = new GainNode(context, { gain: 0 });
-    node.connect(mute).connect(context.destination);
-    await context.resume();
-    await ready;
-    channels = await captured;
-  } finally {
-    await context.close();
-  }
+    const failure = new FirstFailure();
+    const engine = createEngineNode(context, loaded, failure.report, true);
+    return liveCapture(engine.ready, captureEngine(context, engine, testCase.frames), failure, async () => {
+      // Silent on the speakers: the graph runs for real, the capture reads the engine output
+      // before this gain.
+      const mute = new GainNode(context, { gain: 0 });
+      engine.node.connect(mute).connect(context.destination);
+      await context.resume();
+    });
+  });
   element("live-hash", HTMLOutputElement).value = await renderHash(loaded.rate, loaded.channels, interleave(channels), format, STRICT);
 });
 
@@ -154,8 +145,7 @@ on("invalid", [], async () => {
  */
 on("construction", ["construction-ms"], async () => {
   const runs = runsOf(location.search);
-  const context = new AudioContext({ sampleRate: loaded.rate });
-  try {
+  await closing(new AudioContext({ sampleRate: loaded.rate }), async (context) => {
     await addProcessors(context, PROCESSORS);
     await context.resume();
     const times = await timeEach(
@@ -173,9 +163,7 @@ on("construction", ["construction-ms"], async () => {
       },
     );
     element("construction-ms", HTMLOutputElement).value = times.map((time) => time.toFixed(3)).join(" ");
-  } finally {
-    await context.close();
-  }
+  });
 });
 
 /**

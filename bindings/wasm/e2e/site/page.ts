@@ -28,36 +28,51 @@ export async function showFailure<T>(load: () => Promise<T>, element: Output): P
   }
 }
 
+/** Runs an action of the page; never rejects: a failure is shown. */
+export type Run = (action: () => Promise<void>) => Promise<void>;
+
 /**
- * One button of the page and what it shows: while its action runs, the button is disabled
- * (an action never overlaps itself, which would also distort the times it measures), and
- * its outputs and the page's error are cleared (nothing stale stays shown, whatever ran
- * before); a failure is shown in the error; the button is enabled again however it ends.
+ * The buttons of the page and what they show: while an action runs, every button is
+ * disabled and a start is refused (an action never overlaps another, which would distort
+ * the times they measure and show one's failure under the other), its outputs and the
+ * page's error are cleared (nothing stale stays shown, whatever ran before); a failure is
+ * shown in the error; the buttons are enabled again however it ends.
  */
-export class Action {
-  /** The button. */
-  readonly #control: Control;
-  /** What the action shows when it succeeds. */
-  readonly #outputs: readonly Output[];
+export class Actions {
   /** The page's error output. */
   readonly #error: Output;
+  /** The button of every action. */
+  readonly #controls: Control[] = [];
+  /** Whether an action runs. */
+  #running = false;
 
   /**
-   * An action started by `control`, showing its results in `outputs` and its failure in `error`.
-   * @param control The button.
-   * @param outputs Where the action shows its results.
+   * The actions of a page showing their failures in `error`.
    * @param error The page's error output.
    */
-  constructor(control: Control, outputs: readonly Output[], error: Output) {
-    this.#control = control;
-    this.#outputs = outputs;
+  constructor(error: Output) {
     this.#error = error;
   }
 
-  /** Runs `action` in the states above; never rejects: a failure is shown. */
-  async run(action: () => Promise<void>): Promise<void> {
-    this.#control.disabled = true;
-    for (const output of this.#outputs) {
+  /**
+   * Adds the action `control` starts, showing its results in `outputs`.
+   * @param control The button.
+   * @param outputs Where the action shows its results.
+   * @returns What runs the action, in the states above.
+   */
+  add(control: Control, outputs: readonly Output[]): Run {
+    this.#controls.push(control);
+    return (action) => this.#run(outputs, action);
+  }
+
+  /** Runs `action`, showing its results in `outputs`, unless an action runs. */
+  async #run(outputs: readonly Output[], action: () => Promise<void>): Promise<void> {
+    if (this.#running) {
+      return;
+    }
+    this.#running = true;
+    this.#enable(false);
+    for (const output of outputs) {
       output.value = "";
     }
     this.#error.value = "";
@@ -66,7 +81,79 @@ export class Action {
     } catch (reason) {
       this.#error.value = String(reason);
     } finally {
-      this.#control.disabled = false;
+      this.#running = false;
+      this.#enable(true);
     }
+  }
+
+  /** Enables or disables every button. */
+  #enable(enabled: boolean): void {
+    for (const control of this.#controls) {
+      control.disabled = !enabled;
+    }
+  }
+}
+
+/** What the page closes once its work ends: an `AudioContext`. */
+export interface Closable {
+  /** The state of the context; `"closed"` once closed, by its owner or the browser. */
+  readonly state: string;
+  /** Closes the context; rejects when it is already closed. */
+  close(): Promise<void>;
+}
+
+/**
+ * Runs `work` on `context`, then closes the context unless it is already closed (the
+ * browser may close it, and closing a closed context rejects); a failed close never
+ * replaces the failure of `work`, which is what the page shows.
+ * @throws {unknown} what `work` throws; after a successful work, what the close throws.
+ */
+export async function closing<C extends Closable, T>(context: C, work: (context: C) => Promise<T>): Promise<T> {
+  let result: T;
+  try {
+    result = await work(context);
+  } catch (reason) {
+    if (context.state !== "closed") {
+      await context.close().catch(() => undefined);
+    }
+    throw reason;
+  }
+  if (context.state !== "closed") {
+    await context.close();
+  }
+  return result;
+}
+
+/** The first failure an engine node reports, kept to explain what it caused. */
+export class FirstFailure {
+  /** The failure reported first, if any. */
+  #first: Error | undefined;
+
+  /** Records `failure` unless one came first: an engine node's `onFailure`. */
+  readonly report = (failure: Error): void => {
+    this.#first ??= failure;
+  };
+
+  /** The failure reported first, if any. */
+  get error(): Error | undefined {
+    return this.#first;
+  }
+}
+
+/**
+ * Starts the context with `start`, then awaits the engine's `ready` and its capture
+ * `captured`: `captured` is handled on every path (a failed start or `ready` leaves no
+ * unhandled rejection behind), and a failure the engine reported is thrown in preference
+ * to what it caused (the capture's end, `ready`'s rejection).
+ * @throws {unknown} the engine's first failure, else what `start`, `ready` or `captured` throws.
+ */
+export async function liveCapture<T>(ready: Promise<void>, captured: Promise<T>, failure: FirstFailure, start: () => Promise<void>): Promise<T> {
+  captured.catch(() => undefined);
+  try {
+    await start();
+    await ready;
+    return await captured;
+  } catch (reason) {
+    throw failure.error ?? reason;
   }
 }
