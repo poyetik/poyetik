@@ -1,4 +1,6 @@
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
 import { BASELINE_FILE, benchMain, MODULE_FILE, SUITE, THRESHOLDS_FILE, USAGE, type BenchIo, type Suite } from "../../benchmarks/cli.ts";
 import { BOX_BENCHMARKS, MIX_BENCHMARKS, PLAN_SIZES } from "../../benchmarks/suite.ts";
@@ -203,7 +205,7 @@ describe("benchMain", () => {
     const help = new Fake();
     expect(benchMain(help, ["help"])).toBe(0);
     expect([help.printed, help.errors]).toStrictEqual([[USAGE], []]);
-    expect(USAGE.split("\n")[0]).toBe("usage: benchmarks <check|bless|help>");
+    expect(USAGE.split("\n")[0]).toBe("usage: node scripts/benchmarks.ts <check|bless|help> (in bindings/wasm)");
     for (const [args, reason] of [
       [[], "no command given"],
       [["nope"], 'unknown command "nope"'],
@@ -215,8 +217,18 @@ describe("benchMain", () => {
     ] as const) {
       const fake = new Fake();
       expect(benchMain(fake, args)).toBe(2);
-      expect([fake.printed, fake.errors]).toStrictEqual([[], [`error: ${reason} (see: benchmarks help)`]]);
+      expect([fake.printed, fake.errors]).toStrictEqual([[], [`error: ${reason} (see: node scripts/benchmarks.ts help)`]]);
     }
+  });
+
+  test("names, in a usage error, a command that runs as written in the package and prints the usage", () => {
+    const fake = new Fake();
+    expect(benchMain(fake, [])).toBe(2);
+    const hint = /\(see: (.+)\)$/.exec(fake.errors[0] ?? "")?.[1];
+    expect(hint).toBeDefined();
+    const [program = "", ...args] = (hint ?? "").split(" ");
+    const ran = spawnSync(program, args, { cwd: fileURLToPath(new URL("../..", import.meta.url)), encoding: "utf8" });
+    expect([ran.status, ran.stdout, ran.stderr]).toStrictEqual([0, `${USAGE}\n`, ""]);
   });
 
   test("escapes what it prints of a problem", () => {

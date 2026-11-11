@@ -128,7 +128,7 @@ describe("main", () => {
   });
 
   test("explains its arguments on stdout when asked", () => {
-    expect(USAGE).toBe("usage: oracle <conformance dir> <dir of exported WAV files>\n       oracle help");
+    expect(USAGE).toBe("usage: node src/bin.ts <conformance dir> <dir of exported WAV files>\n       node src/bin.ts help\n(in tooling/oracle)");
     const io = memory({});
     expect(main(["help"], io)).toBe(0);
     expect(io.lines).toStrictEqual([USAGE]);
@@ -149,7 +149,7 @@ describe("main", () => {
   ])("rejects %o with one error line and the reason", (args, count) => {
     const io = memory({});
     expect(main(args, io)).toBe(2);
-    expect(io.errors).toStrictEqual([`error: expected <conformance dir> <dir of exported WAV files>, got ${String(count)} argument(s) (see: oracle help)`]);
+    expect(io.errors).toStrictEqual([`error: expected <conformance dir> <dir of exported WAV files>, got ${String(count)} argument(s) (see: node src/bin.ts help)`]);
     expect(io.lines).toStrictEqual([]);
   });
 });

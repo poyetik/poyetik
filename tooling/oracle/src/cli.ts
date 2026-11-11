@@ -4,8 +4,8 @@ import { join } from "node:path";
 import { oneLine } from "@poyetik/config/one-line";
 import { judge } from "./oracle.ts";
 
-/** Usage of the command, printed on stdout by `oracle help`. */
-export const USAGE = "usage: oracle <conformance dir> <dir of exported WAV files>\n       oracle help";
+/** Usage of the command, printed on stdout by `node src/bin.ts help`, run in tooling/oracle. */
+export const USAGE = "usage: node src/bin.ts <conformance dir> <dir of exported WAV files>\n       node src/bin.ts help\n(in tooling/oracle)";
 
 /** Largest case file, in bytes: 64 KiB, as `engine-cli` reads it (`MAX_CASE_BYTES`). */
 export const MAX_CASE_BYTES = 64 * 1024;
@@ -97,7 +97,7 @@ export function main(args: readonly string[], io: Io): number {
     return 0;
   }
   if (!isPair(args)) {
-    io.err(`error: expected <conformance dir> <dir of exported WAV files>, got ${String(args.length)} argument(s) (see: oracle help)`);
+    io.err(`error: expected <conformance dir> <dir of exported WAV files>, got ${String(args.length)} argument(s) (see: node src/bin.ts help)`);
     return 2;
   }
   const [conformance, wavs] = args;

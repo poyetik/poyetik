@@ -25,6 +25,8 @@ allow nodes as "engine nodes" -- Web Audio nodes running the engine
 allow node as "worklet node" -- a Web Audio `AudioWorkletNode`
 allow nodes as "worklet nodes" -- Web Audio `AudioWorkletNode`s
 allow node as "Web Audio node" -- the browser's audio graph, not a patch
+allow node as "node scripts/benchmarks.ts" -- the Node.js command that runs the benchmark command, named by its usage
+allow node as "node src/bin.ts" -- the Node.js command that runs the oracle, named by its usage
 allow node in bindings/wasm/ts/web.ts -- the main-thread API of Web Audio: every node there is an `AudioNode`, never a box
 allow node in bindings/wasm/ts/worklet/processors.ts -- the processors of Web Audio nodes: the node options are `AudioWorkletNode` options
 allow node in bindings/wasm/test/web.test.ts -- the fake Web Audio nodes the tests of web.ts drive

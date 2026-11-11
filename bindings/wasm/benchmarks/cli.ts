@@ -43,7 +43,7 @@ export const THRESHOLDS_FILE = "spec/benchmark-thresholds.json";
 export const MODULE_FILE = "bindings/wasm/dist/engine.wasm";
 
 /** The usage, printed by `help` only. */
-export const USAGE = `usage: benchmarks <check|bless|help>
+export const USAGE = `usage: node scripts/benchmarks.ts <check|bless|help> (in bindings/wasm)
   check   count the instructions of every benchmark on ${MODULE_FILE}, and its size: fails on a count
           beyond the tolerance of ${THRESHOLDS_FILE} from ${BASELINE_FILE},
           either way, on a benchmark missing from either, or on plans growing faster than n log n
@@ -157,11 +157,11 @@ function bless(io: BenchIo, suite: Suite): number {
 export function benchMain(io: BenchIo, args: readonly string[], suite: Suite = SUITE): number {
   const [command, ...rest] = args;
   if (command !== "check" && command !== "bless" && command !== "help") {
-    io.err(`error: ${command === undefined ? "no command given" : oneLine(`unknown command "${command}"`)} (see: benchmarks help)`);
+    io.err(`error: ${command === undefined ? "no command given" : oneLine(`unknown command "${command}"`)} (see: node scripts/benchmarks.ts help)`);
     return 2;
   }
   if (rest.length > 0) {
-    io.err(`error: \`${command}\` takes no argument (see: benchmarks help)`);
+    io.err(`error: \`${command}\` takes no argument (see: node scripts/benchmarks.ts help)`);
     return 2;
   }
   try {
