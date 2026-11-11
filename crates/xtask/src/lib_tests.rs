@@ -6799,6 +6799,39 @@ fn refuses_an_assembly_file_whose_unsafe_block_could_run_more_than_its_assembly(
             "{shadowable}"
         );
     }
+    assert_eq!(
+        gate(
+            assembly,
+            &canonical.replace(
+                "unsafe {\n        ::core::arch::asm!(",
+                "unsafe /* one call */ {\n        :: core :: arch :: asm ! ("
+            )
+        ),
+        Ok(()),
+        "the same tokens, comments and spaces apart"
+    );
+    let hidden = format!(
+        "{canonical}/* /* */ \"*/\nfn g(p: *const u8) -> u8 {{ unsafe {{ core::ptr::read(p) }} }}\nmod m {{}}\n// \"\n"
+    );
+    assert_eq!(
+        gate(assembly, &hidden),
+        found(
+            "the lint against unsafe code",
+            &[
+                format!(
+                    "{assembly}:{}: `unsafe` not opening `{{ ::core::arch::asm!(`: an assembly \
+                     file holds no other unsafe code, which Miri would not check",
+                    lines + 2
+                ),
+                format!(
+                    "{assembly}:{}: names `mod`: an assembly file declares no module, import, \
+                     crate or macro, through which its paths could resolve elsewhere",
+                    lines + 3
+                ),
+            ]
+        ),
+        "code a nested comment does not hide"
+    );
     for (code, word) in [
         ("mod core {}\n", "mod"),
         ("use crate::m as m;\n", "use"),

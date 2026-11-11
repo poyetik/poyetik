@@ -3597,9 +3597,9 @@ pub fn test_declarations(source: &RustSource) -> Vec<TestDeclaration> {
 /// The lint name is built at run time, so that this file does not name it.
 ///
 /// Every file of [`ASSEMBLY_FILES`], which leaves the Miri step, must still hold inline
-/// assembly, and nothing else unsafe: in its code words (comments
-/// and strings apart), it names `unsafe` at least once, each time opening
-/// [`ASSEMBLY_CALL`], the standard library's `asm!` by a path from the crates' root; it
+/// assembly, and nothing else unsafe: in its tokens ([`RustSource`]), it names `unsafe` at
+/// least once, each time opening [`ASSEMBLY_CALL`], the standard library's `asm!` by a path
+/// from the crates' root; it
 /// holds the line [`ONE_UNSAFE_OPERATION`], so that the compiler keeps each unsafe block
 /// to that one operation (an `asm!` operand's included) whatever a later attribute says;
 /// and it declares no module, import, crate or macro ([`ASSEMBLY_REFUSED_WORDS`]). Neither
@@ -3646,11 +3646,8 @@ pub fn unsafe_gate(parsed: &[RustSource]) -> Result<(), Failure> {
             }))
             .collect();
     for file in ASSEMBLY_FILES {
-        let text = sources
-            .iter()
-            .find(|(path, _)| path == file)
-            .map_or("", |(_, text)| text.as_str());
-        assembly_problems(file, text, &mut problems);
+        let source = parsed.iter().find(|source| source.path == file);
+        assembly_problems(file, source, &mut problems);
     }
     unsafe_beside_assembly(sources, &mut problems);
     let unsafe_tests: BTreeSet<String> = parsed
@@ -3687,47 +3684,55 @@ pub fn unsafe_gate(parsed: &[RustSource]) -> Result<(), Failure> {
 /// operand too.
 pub const ONE_UNSAFE_OPERATION: &str = "#![forbid(clippy::multiple_unsafe_ops_per_block)]";
 
-/// What every `unsafe` of an assembly file opens, its spaces apart: the standard library's
-/// `asm!` by a path that starts at the crates' root (`::core`), which no module of the
-/// file can shadow.
-pub const ASSEMBLY_CALL: &str = "unsafe{::core::arch::asm!(";
+/// What every `unsafe` of an assembly file opens, token by token.
+///
+/// `unsafe { ::core::arch::asm!(`, comments and spaces apart: the standard library's `asm!`
+/// by a path that starts at the crates' root (`::core`), which no module of the file can
+/// shadow.
+pub const ASSEMBLY_CALL: [&str; 13] = [
+    "unsafe", "{", ":", ":", "core", ":", ":", "arch", ":", ":", "asm", "!", "(",
+];
 
-/// The code words an assembly file never holds: each declares a name a path could
+/// The identifiers an assembly file never holds: each declares a name a path could
 /// resolve through, a module (`mod core`), an import, a crate or a macro.
 pub const ASSEMBLY_REFUSED_WORDS: [&str; 4] = ["mod", "use", "extern", "macro_rules"];
 
-/// Adds to `problems` those of `text`, the assembly file `file` ([`unsafe_gate`]): no
-/// [`ONE_UNSAFE_OPERATION`] line, an `unsafe` not opening [`ASSEMBLY_CALL`], none at all, or
-/// a word of [`ASSEMBLY_REFUSED_WORDS`].
-fn assembly_problems(file: &str, text: &str, problems: &mut Vec<String>) {
+/// Adds to `problems` those of `source`, the assembly file `file` ([`unsafe_gate`]), if it
+/// was read: no [`ONE_UNSAFE_OPERATION`] line, an `unsafe` not opening [`ASSEMBLY_CALL`],
+/// none at all, or an identifier of [`ASSEMBLY_REFUSED_WORDS`].
+fn assembly_problems(file: &str, source: Option<&RustSource>, problems: &mut Vec<String>) {
+    let text = source.map_or("", |source| source.text.as_str());
     if !text.lines().any(|line| line.trim() == ONE_UNSAFE_OPERATION) {
         problems.push(format!(
             "{file} does not hold `{ONE_UNSAFE_OPERATION}`: an unsafe block of it could hold \
              more than its assembly call"
         ));
     }
-    let chars: Vec<char> = text.chars().collect();
+    let tokens = source.map_or(&[][..], |source| source.tokens.as_slice());
     let mut unsafe_at = 0_usize;
-    for (line, word, end) in code_words(text) {
-        let start = end.saturating_sub(word.chars().count());
-        if word == "unsafe" {
+    for (at, token) in tokens.iter().enumerate() {
+        let line = token.line;
+        if token.is_ident("unsafe") {
             unsafe_at = unsafe_at.saturating_add(1);
-            let opened = chars
-                .get(start..)
+            let opened = tokens
+                .get(at..)
                 .unwrap_or_default()
                 .iter()
-                .filter(|character| !character.is_whitespace())
+                .map(|opening| opening.text.as_str())
                 .take(ASSEMBLY_CALL.len());
-            if !opened.eq(ASSEMBLY_CALL.chars().collect::<Vec<_>>().iter()) {
+            if !opened.eq(ASSEMBLY_CALL) {
                 problems.push(format!(
                     "{file}:{line}: `unsafe` not opening `{{ ::core::arch::asm!(`: an assembly \
                      file holds no other unsafe code, which Miri would not check"
                 ));
             }
-        } else if ASSEMBLY_REFUSED_WORDS.contains(&word.as_str()) {
+        } else if token.kind == TokenKind::Ident
+            && ASSEMBLY_REFUSED_WORDS.contains(&token.text.as_str())
+        {
             problems.push(format!(
-                "{file}:{line}: names `{word}`: an assembly file declares no module, import, \
-                 crate or macro, through which its paths could resolve elsewhere"
+                "{file}:{line}: names `{}`: an assembly file declares no module, import, \
+                 crate or macro, through which its paths could resolve elsewhere",
+                token.text
             ));
         }
     }
