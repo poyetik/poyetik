@@ -809,9 +809,13 @@ fn canonical(json: &str) -> String {
     )
 }
 
-/// The fingerprint of the registered box type `name`, at its current version.
+/// The fingerprint of the registered box type `name`, at its current version, through the
+/// engine's instances.
 fn fingerprint_of(name: &str) -> String {
-    engine_battery::fingerprint(
+    engine_battery::fingerprint::<
+        engine_objects::BuiltIn<engine_core::Binary64>,
+        engine_objects::BuiltIn<engine_core::Binary32>,
+    >(
         engine_objects::REGISTRY
             .iter()
             .find(|spec| spec.name == name)

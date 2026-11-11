@@ -7,7 +7,7 @@ static ALLOCATOR: engine_testkit::CountingAllocator = engine_testkit::CountingAl
 use alloc::vec;
 use alloc::vec::Vec;
 
-use engine_core::host::{ParamBounds as _, Raw as _};
+use engine_core::host::{ParamBounds as _, Raw};
 use engine_core::{Binary32, Binary64, Block, Dispatch, Object, ObjectSpec, ParamValues, Sample};
 use engine_testkit::matrix::{SPECIAL_INPUTS_BINARY64, sample_rates};
 
@@ -121,6 +121,15 @@ fn inputs<S: Sample>(inlets: usize, block: usize) -> Vec<Block<S>> {
         .collect()
 }
 
+/// The bit pattern of every sample of `blocks`, block by block.
+fn bits<S: Raw>(blocks: &[Block<S>]) -> Vec<u64> {
+    blocks
+        .iter()
+        .flatten()
+        .map(|sample| sample.bits())
+        .collect()
+}
+
 /// The parameter lists `spec` is tried with: its defaults, then each parameter at its
 /// minimum, at its maximum and at three eighths of its range, the others at their default.
 fn param_lists(spec: &ObjectSpec) -> Vec<ParamValues> {
@@ -153,7 +162,7 @@ fn param_lists(spec: &ObjectSpec) -> Vec<ParamValues> {
 /// Checks, at every sample rate and for several parameter lists ([`param_lists`]), that
 /// `spec` held by [`BuiltIn`] gives the same blocks, bit for bit, as its factory's instance,
 /// and that processing performs no heap operation.
-fn same_as_the_factory<S: Sample>(spec: &'static ObjectSpec) {
+fn same_as_the_factory<S: Raw>(spec: &'static ObjectSpec) {
     let params = param_lists(spec);
     for rate in sample_rates() {
         for list in &params {
@@ -169,9 +178,11 @@ fn same_as_the_factory<S: Sample>(spec: &'static ObjectSpec) {
                 .expect("the counting allocator is installed");
                 assert_eq!(operations, 0, "{} allocates while processing", spec.name);
                 reference.process(&given, &mut expected);
-                assert!(
-                    out == expected,
-                    "{} at {rate:?} with {list:?}, block {block}: {out:?}, not {expected:?}",
+                // Bit for bit: equality of the samples would take -0 for +0.
+                assert_eq!(
+                    bits(&out),
+                    bits(&expected),
+                    "{} at {rate:?} with {list:?}, block {block}",
                     spec.name
                 );
             }

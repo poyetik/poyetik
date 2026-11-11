@@ -7,7 +7,6 @@
 //! a seeded random signal. `engine-cli bless` records it per box type and algorithm version
 //! and refuses a change at a recorded version, as `engine-cli check` does.
 
-use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -15,7 +14,8 @@ use core::fmt::Write as _;
 
 use engine_core::host::Raw;
 use engine_core::{
-    BLOCK_SIZE, Binary32, Binary64, Block, Object, ObjectSpec, ParamError, ParamValues, Precision,
+    BLOCK_SIZE, Binary32, Binary64, Block, Dispatch, Object, ObjectSpec, ParamError, ParamValues,
+    Precision,
 };
 use sha2::{Digest, Sha256};
 
@@ -51,12 +51,21 @@ pub const FINGERPRINT_BATTERY: u32 = 2;
 /// does: its bits are those the plan reads from its inlets (the output boxes), which the
 /// conformance cases check.
 ///
+/// Each run creates its instance as a plan holding its boxes as `I64` (binary64) or `I32`
+/// (binary32) does ([`Dispatch::create`]): given the engine's instance type
+/// (`engine_objects::BuiltIn`, as `engine-cli` gives it), the fingerprint measures the
+/// code the engine runs, not only the box type's factory. `spec` is a static: a plan
+/// calls its box types by the specs of its registry, which `BuiltIn` tells apart by
+/// address.
+///
 /// # Errors
 ///
 /// Returns why a parameter set is not one of the box type's ([`ParamValues::of`]): the
 /// sets keep every value within its range, so only a default outside its range (which the
 /// box laws refuse) gives one.
-pub fn fingerprint(spec: &ObjectSpec) -> Result<String, ParamError> {
+pub fn fingerprint<I64: Dispatch<Binary64>, I32: Dispatch<Binary32>>(
+    spec: &'static ObjectSpec,
+) -> Result<String, ParamError> {
     let mut hasher = Sha256::new();
     hasher.update(FINGERPRINT_BATTERY.to_le_bytes());
     let length = BLOCKS
@@ -65,8 +74,12 @@ pub fn fingerprint(spec: &ObjectSpec) -> Result<String, ParamError> {
     let random = seeded_signal(length);
     for precision in PRECISIONS {
         match precision {
-            Precision::Binary64 => battery::<Binary64>(spec, length, &random, &mut hasher)?,
-            Precision::Binary32 => battery::<Binary32>(spec, length, &random, &mut hasher)?,
+            Precision::Binary64 => {
+                battery::<Binary64, I64>(spec, length, &random, &mut hasher)?;
+            }
+            Precision::Binary32 => {
+                battery::<Binary32, I32>(spec, length, &random, &mut hasher)?;
+            }
         }
     }
     Ok(hasher
@@ -79,13 +92,13 @@ pub fn fingerprint(spec: &ObjectSpec) -> Result<String, ParamError> {
         }))
 }
 
-/// Hashes every run of the battery computing in `S`.
+/// Hashes every run of the battery computing in `S`, each instance created as `I`.
 ///
 /// # Errors
 ///
 /// Returns why a parameter set is not one of the box type's.
-fn battery<S: BatterySample>(
-    spec: &ObjectSpec,
+fn battery<S: BatterySample, I: Dispatch<S>>(
+    spec: &'static ObjectSpec,
     length: usize,
     random: &[f64],
     hasher: &mut Sha256,
@@ -105,8 +118,8 @@ fn battery<S: BatterySample>(
                 .collect();
             let wide = ParamValues::of(spec, &values)?;
             for input in &inputs {
-                let mut object: Box<dyn Object<S>> = spec.create.create(rate, wide.params());
-                for block in outputs(object.as_mut(), spec, input) {
+                let mut object = I::create(spec, rate, wide.params());
+                for block in outputs(&mut object, spec, input) {
                     for sample in block {
                         hasher.update(sample.bits().to_le_bytes());
                     }

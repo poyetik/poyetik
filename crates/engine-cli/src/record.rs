@@ -8,11 +8,10 @@ use crate::status::Status;
 use alloc::collections::BTreeMap;
 
 use engine_battery::{FINGERPRINT_BATTERY, fingerprint};
-use engine_core::ObjectSpec;
-use engine_core::RENDER_RULES_VERSION;
+use engine_core::{Binary32, Binary64, ObjectSpec, RENDER_RULES_VERSION};
 use engine_fpenv::DefaultMode;
 use engine_hash::SCHEME;
-use engine_objects::REGISTRY;
+use engine_objects::{BuiltIn, REGISTRY};
 use serde::{Deserialize, Serialize};
 
 /// The reference hashes of a conformance directory: for each case, the hash of each render
@@ -75,7 +74,8 @@ fn fingerprints_of(
                 spec.name.to_owned(),
                 (
                     spec.algorithm_version.get(),
-                    fingerprint(spec).map_err(|error| error.to_string())?,
+                    fingerprint::<BuiltIn<Binary64>, BuiltIn<Binary32>>(spec)
+                        .map_err(|error| error.to_string())?,
                 ),
             ))
         })

@@ -3,8 +3,8 @@
 
 use engine_core::host::{Delivered, Raw};
 use engine_core::{
-    AlgorithmVersion, BLOCK_SIZE, Binary64, Block, Create, Factory, Object, ObjectSpec, ParamSpec,
-    Params, PortSpec, Precision, Sample, SampleRate,
+    AlgorithmVersion, BLOCK_SIZE, Binary32, Binary64, Block, Create, Factory, Object, ObjectSpec,
+    ParamSpec, Params, PortSpec, Precision, Sample, SampleRate,
 };
 
 use super::{FINGERPRINT_BATTERY, fingerprint, seeded_signal, splitmix64};
@@ -22,9 +22,19 @@ const OUT: PortSpec = PortSpec {
 };
 const GAIN: ParamSpec = ParamSpec::new("gain", "gain", 0.5, 0.0, 1.0);
 
-/// The fingerprint of `spec`, whose parameter sets are its own.
+/// Every box through its virtual table: the instance type of these tests, whose box types
+/// are none of the engine's.
+type Virtual<S> = Box<dyn Object<S>>;
+
+/// The fingerprint of `spec`, whose parameter sets are its own, through its factory.
 fn print(spec: &ObjectSpec) -> String {
-    fingerprint(spec).expect("parameter sets within range")
+    fingerprint_of(spec).expect("parameter sets within range")
+}
+
+/// The fingerprint of a copy of `spec`, made a static as a plan's box types are: one small
+/// copy per call, kept for the test process.
+fn fingerprint_of(spec: &ObjectSpec) -> Result<String, ParamError> {
+    fingerprint::<Virtual<Binary64>, Virtual<Binary32>>(Box::leak(Box::new(*spec)))
 }
 
 /// Where a quirk of [`Echo`] changes its output: under one condition only.
@@ -401,7 +411,7 @@ fn pins_the_inputs_of_the_battery() {
     for value in crate::special_input::<Binary64>(8) {
         hasher.update(value.bits().to_le_bytes());
     }
-    for value in crate::special_input::<engine_core::Binary32>(8) {
+    for value in crate::special_input::<Binary32>(8) {
         hasher.update(value.bits().to_le_bytes());
     }
     for spec in [echo(Quirk::None), route::<0>()] {
@@ -439,7 +449,7 @@ fn refuses_a_parameter_set_the_box_type_does_not_take() {
         ..echo(Quirk::None)
     };
     assert_eq!(
-        fingerprint(&wrong),
+        fingerprint_of(&wrong),
         Err(ParamError::OutOfRange {
             kind: "echo~",
             name: "gain",
