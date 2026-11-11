@@ -11,8 +11,8 @@
 # or the values they are computed from: every normal or build dependency of the audio library
 # is one, and each is pinned to one exact version (`=X.Y.Z`, checked for these direct
 # dependencies), its updates following spec/engine-design.md decision 29. The code they reach
-# in turn (sha2's digest, block-buffer, crypto-common, hybrid-array, cpufeatures) is fixed by
-# Cargo.lock, not by a pin, and proven by the render hash vectors, conformance and the
+# in turn (every crate Cargo.lock resolves for them) is fixed by Cargo.lock, not by a pin,
+# and proven by the render hash vectors, conformance and the
 # fingerprints: a change of one of them in Cargo.lock is an update too.
 # `cargo xtask check` fails on any direct dependency not listed, and on any stale entry.
 
