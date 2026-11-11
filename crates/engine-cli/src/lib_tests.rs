@@ -2149,6 +2149,18 @@ fn bounds_the_length_of_an_error_line() {
         ),
         "the message is cut, the prefix kept"
     );
+    for length in [
+        engine_patch::MAX_MESSAGE_CHARS,
+        engine_patch::MAX_MESSAGE_CHARS + 1,
+    ] {
+        let reason = "x".repeat(length);
+        let bounded = engine_patch::safe_message(&reason);
+        assert_eq!(
+            CliError::Usage(reason).line(),
+            format!("error: {bounded} (see: engine-cli help)"),
+            "a usage error keeps the way to its usage, after its reason is bounded ({length})"
+        );
+    }
 }
 
 /// An output whose reader is gone, or that fails another way.

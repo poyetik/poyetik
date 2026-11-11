@@ -48,6 +48,9 @@ usage: engine-cli <command>
                       format, to <out>/<case>.<format>.wav
   help                print this help";
 
+/// What a usage error ends with: where the usage is.
+const USAGE_HINT: &str = " (see: engine-cli help)";
+
 /// Why a command did not succeed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CliError {
@@ -62,14 +65,21 @@ impl CliError {
     /// The error as the one line the tool prints on stderr, without its newline:
     /// `error: ` and the message made safe by [`engine_patch::safe_message`] (every
     /// character that could break the line or drive the terminal escaped, at most
-    /// [`engine_patch::MAX_MESSAGE_CHARS`] characters).
+    /// [`engine_patch::MAX_MESSAGE_CHARS`] characters), then, for a usage error, its
+    /// pointer to the usage, ` (see: engine-cli help)`, appended after the reason is
+    /// bounded, so that no reason can cut it.
     ///
     /// Messages quote untrusted text (box and field names from a patch): this is where
     /// the error line is made safe, whatever produced it; every line on stdout is made
     /// safe the same way, as a `OneLine`.
     #[must_use]
     pub fn line(&self) -> String {
-        format!("error: {}", engine_patch::safe_message(&self.to_string()))
+        match self {
+            Self::Usage(reason) => {
+                format!("error: {}{USAGE_HINT}", engine_patch::safe_message(reason))
+            }
+            Self::Failed(message) => format!("error: {}", engine_patch::safe_message(message)),
+        }
     }
 
     /// The exit code of the process for this error: 2 for a usage error, 1 for a failure.
@@ -85,7 +95,7 @@ impl CliError {
 impl core::fmt::Display for CliError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Self::Usage(reason) => write!(f, "{reason} (see: engine-cli help)"),
+            Self::Usage(reason) => write!(f, "{reason}{USAGE_HINT}"),
             Self::Failed(message) => f.write_str(message),
         }
     }
