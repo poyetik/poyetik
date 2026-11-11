@@ -22,10 +22,15 @@ use crate::matrix::{PRECISIONS, sample_rates};
 
 /// The version of the battery.
 ///
-/// Raised with any change of what [`fingerprint`] renders or hashes, the matrix values it
-/// reads included. It is hashed first, so that a new battery
-/// gives every box type a new fingerprint, which no recorded one is compared with.
-pub const FINGERPRINT_BATTERY: u32 = 1;
+/// Raised with any change of what [`fingerprint`] renders or hashes, the inputs it reads
+/// included (the matrix, the parameter sets, the special inputs, the blocks of a run): a
+/// test pins a digest of those inputs beside this number, so that changing them without
+/// raising it fails. It is hashed first, so that a new battery gives every box type a new
+/// fingerprint, which no recorded one is compared with; `bless --battery-changed` records
+/// them (`spec/engine-design.md`, decision 29).
+///
+/// Battery 2 drops the subnormal parameter set, a value no plan gives a box.
+pub const FINGERPRINT_BATTERY: u32 = 2;
 
 /// The fingerprint of a box type: 64 lowercase hexadecimal digits, the same at every run
 /// and on every target for the same bits of its outputs.
@@ -33,10 +38,14 @@ pub const FINGERPRINT_BATTERY: u32 = 1;
 /// The SHA-256 of [`FINGERPRINT_BATTERY`] (`u32`, little-endian), then of the bit pattern
 /// (`u64`, little-endian, a binary32 sample widened from its bits) of every output sample
 /// of each run, in this order: binary64 then binary32; every sample rate of the matrix;
-/// every parameter set of the box laws; the special inputs of the matrix, then a seeded
-/// random signal in `[-1, 1)` (the same values in both precisions, rounded to binary32
-/// there). Each run is a fresh instance rendering the laws' number of blocks, every inlet
-/// fed the same signal.
+/// every parameter set ([`param_sets`]); the special inputs of the matrix, then a seeded random signal in `[-1, 1)` (the same values in
+/// both precisions, rounded to binary32 there). Each run is a fresh instance rendering
+/// [`BLOCKS`] blocks; the signal is cut into blocks, which feed the inlets in turn (block
+/// by block, inlet by inlet: inlet 0 the first block, inlet 1 the next), so that two
+/// inlets are given different signals; the outputs are hashed block by block, outlet by
+/// outlet. A box type without outlets has the battery's fingerprint alone, whatever it
+/// does: its bits are those the plan reads from its inlets (the output boxes), which the
+/// conformance cases check.
 #[must_use]
 pub fn fingerprint(spec: &ObjectSpec) -> String {
     let mut hasher = Sha256::new();
@@ -93,8 +102,8 @@ fn battery<S: BatterySample>(
     }
 }
 
-/// The outputs of [`BLOCKS`] blocks of `object`, every inlet fed `input` one block after
-/// the other (silence past its end).
+/// The outputs of [`BLOCKS`] blocks of `object`, outlet by outlet at each block, its inlets
+/// fed the successive blocks of `input` in turn (silence past its end).
 fn outputs<S: BatterySample>(
     object: &mut dyn Object<S>,
     spec: &ObjectSpec,

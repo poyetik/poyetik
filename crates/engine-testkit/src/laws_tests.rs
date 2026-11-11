@@ -320,10 +320,10 @@ fn catches_a_release_while_processing() {
 }
 
 #[test]
-fn checks_parameters_at_negative_zero_and_the_smallest_subnormal_and_normal() {
-    // NaN only for a parameter of -0.0, then only for a binary32 subnormal parameter, then
-    // only for the smallest normal binary32: none is a minimum, default, midpoint or maximum.
-    // Parameters reach a box in binary64, as written.
+fn checks_parameters_at_negative_zero_and_the_smallest_normal_and_never_below() {
+    // NaN only for a parameter of -0.0, then only for the smallest normal binary32: none is
+    // a minimum, default, midpoint or maximum. No parameter set holds a nonzero value below
+    // 2^-126, which no plan gives, so a box breaking on one passes.
     let negative_zero = spec_with(factory!(|_, params| {
         if params.first().map(|value| value.to_bits()) == Some((-0.0_f64).to_bits()) {
             Fixture::Nan
@@ -343,8 +343,11 @@ fn checks_parameters_at_negative_zero_and_the_smallest_subnormal_and_normal() {
             Fixture::Gain(1.0)
         }
     }));
-    let failure = check_laws(&subnormal).expect_err("a subnormal is tried");
-    assert!(failure.contains("with parameters [1e-45]"), "{failure}");
+    assert_eq!(
+        check_laws(&subnormal),
+        Ok(()),
+        "no parameter below 2^-126 but zero reaches a box"
+    );
     let normal = spec_with(factory!(|_, params| {
         if params.first().copied() == Some(f64::from(f32::MIN_POSITIVE)) {
             Fixture::Nan
@@ -360,16 +363,16 @@ fn checks_parameters_at_negative_zero_and_the_smallest_subnormal_and_normal() {
 }
 
 #[test]
-fn tries_every_case_at_every_rate_with_seven_parameter_sets() {
+fn tries_every_case_at_every_rate_with_six_parameter_sets() {
     static CREATED: AtomicU16 = AtomicU16::new(0);
     let spec = spec_with(factory!(|_, _| {
         let _: u16 = CREATED.fetch_add(1, Ordering::Relaxed);
         Fixture::Gain(1.0)
     }));
     assert_eq!(check_laws(&spec), Ok(()), "a correct box");
-    // Per precision and rate: (special inputs + 32 random cases) x 7 parameter sets x 2
+    // Per precision and rate: (special inputs + 32 random cases) x 6 parameter sets x 2
     // runs, plus a long run per parameter set.
-    let per_rate = (1_usize + 32) * 7 * 2 + 7;
+    let per_rate = (1_usize + 32) * 6 * 2 + 6;
     let expected = per_rate
         .checked_mul(crate::matrix::SAMPLE_RATES.len())
         .and_then(|count| count.checked_mul(crate::matrix::PRECISIONS.len()));

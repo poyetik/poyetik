@@ -51,7 +51,7 @@ fn prints(boxes: &[(&str, u32, &str)]) -> Fingerprints {
         .collect()
 }
 
-/// A record of render hash 2, render rules 1 and battery 1, with `cases` and the
+/// A record of render hash 2, render rules 1 and battery 2, with `cases` and the
 /// fingerprints `recorded` (box type, version, print).
 fn record(cases: &[(&str, Versions)], recorded: &[(&str, u32, &str)]) -> Record {
     let mut fingerprints: BTreeMap<String, BTreeMap<u32, String>> = BTreeMap::new();
@@ -68,7 +68,7 @@ fn record(cases: &[(&str, Versions)], recorded: &[(&str, u32, &str)]) -> Record 
             .iter()
             .map(|(name, boxes)| ((*name).to_owned(), boxes.clone()))
             .collect(),
-        fingerprint_battery: 1,
+        fingerprint_battery: 2,
         fingerprints,
         render_hash: "render-hash/2".to_owned(),
         render_rules: 1,
@@ -125,7 +125,7 @@ fn records_the_current_engine_and_keeps_the_fingerprints_of_its_battery() {
         "history kept for the box types still registered"
     );
     let other_battery = Record {
-        fingerprint_battery: 2,
+        fingerprint_battery: 3,
         ..earlier
     };
     assert_eq!(
@@ -192,7 +192,7 @@ fn check_refuses_every_difference_from_the_current_engine() {
              render-hash/2 (run bless)",
             "RULES    the references were rendered under render rules version 0, the engine's \
              is 1 (run bless)",
-            "BATTERY  the fingerprints were computed with battery 0, the engine's is 1 (run \
+            "BATTERY  the fingerprints were computed with battery 0, the engine's is 2 (run \
              bless --battery-changed)",
         ],
         "every version named, no fingerprint compared across batteries"
@@ -310,13 +310,13 @@ fn bless_refuses_lower_versions_and_changed_fingerprints() {
         "a changed fingerprint at a recorded version, whatever --case-changed says"
     );
     let other_battery = Record {
-        fingerprint_battery: 2,
+        fingerprint_battery: 3,
         ..old.clone()
     };
     assert_eq!(
         problems(&other_battery, &none, &changed, &cases, &none, &[]),
         [
-            "BATTERY  the fingerprints were computed with battery 2, the engine's is 1 (a \
+            "BATTERY  the fingerprints were computed with battery 3, the engine's is 2 (a \
              battery change: bless --battery-changed, changing no reference and no version)"
         ],
         "fingerprints of another battery are not compared, and the battery change is refused"
@@ -449,7 +449,7 @@ fn blesses_a_battery_change_alone() {
     assert_eq!(
         refused(&old, &earlier, Spent::Replaced, same, PLAIN),
         [
-            "BATTERY  the fingerprints were computed with battery 0, the engine's is 1 (a \
+            "BATTERY  the fingerprints were computed with battery 0, the engine's is 2 (a \
              battery change: bless --battery-changed, changing no reference and no version)"
         ],
         "a battery change, not said"
@@ -461,7 +461,7 @@ fn blesses_a_battery_change_alone() {
     );
     assert_eq!(
         refused(&current, &earlier, Spent::Replaced, same, battery),
-        ["BATTERY  --battery-changed: the battery is unchanged (1)"],
+        ["BATTERY  --battery-changed: the battery is unchanged (2)"],
         "said of an unchanged battery"
     );
     let moved = references(&[("a", "2"), ("new", "3")]);

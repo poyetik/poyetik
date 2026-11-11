@@ -54,12 +54,11 @@ fn within(param: &ParamSpec, value: f32) -> f32 {
 /// Parameter sets every box is tried with.
 ///
 /// All minimums, all defaults, all values away from their default, all maximums, then
-/// special values where the range accepts them:
-/// `-0.0`, the smallest subnormal, `1e-45` (a plan flushes it to zero, but a box must not
-/// break on it), and the smallest normal, `2^-126` (the smallest magnitude above zero a
-/// plan passes on).
+/// special values where the range accepts them: `-0.0`, and the smallest normal binary32
+/// value, `2^-126`, the smallest magnitude above zero a plan gives a box (a plan makes
+/// anything below a zero, so a subnormal is no value a box is given).
 #[must_use]
-pub fn param_sets(spec: &ObjectSpec) -> [Vec<f32>; 7] {
+pub fn param_sets(spec: &ObjectSpec) -> [Vec<f32>; 6] {
     let special = |value: f32| {
         spec.params
             .iter()
@@ -72,7 +71,6 @@ pub fn param_sets(spec: &ObjectSpec) -> [Vec<f32>; 7] {
         spec.params.iter().map(away_from_default).collect(),
         spec.params.iter().map(ParamBounds::maximum).collect(),
         special(-0.0),
-        special(f32::from_bits(1)),
         special(f32::MIN_POSITIVE),
     ]
 }

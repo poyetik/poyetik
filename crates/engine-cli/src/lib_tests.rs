@@ -817,7 +817,7 @@ fn fingerprint_of(name: &str) -> String {
 /// fingerprints of the registered box types at version 1.
 fn record(cases: &str) -> String {
     canonical(&format!(
-        r#"{{"cases":{cases},"fingerprint_battery":1,"fingerprints":{{"dac~":{{"1":"{}"}},"osc~":{{"1":"{}"}}}},"render_hash":"render-hash/2","render_rules":1}}"#,
+        r#"{{"cases":{cases},"fingerprint_battery":2,"fingerprints":{{"dac~":{{"1":"{}"}},"osc~":{{"1":"{}"}}}},"render_hash":"render-hash/2","render_rules":1}}"#,
         fingerprint_of("dac~"),
         fingerprint_of("osc~")
     ))
@@ -1169,7 +1169,7 @@ fn bless_command_writes_sorted_references() {
         memory.text("conf/algorithms.json"),
         format!(
             "{{\n  \"cases\": {{\n    \"a\": {versions},\n    \"sine\": {versions}\n  }},\n  \
-             \"fingerprint_battery\": 1,\n  \"fingerprints\": {{\n    \"dac~\": {{\n      \
+             \"fingerprint_battery\": 2,\n  \"fingerprints\": {{\n    \"dac~\": {{\n      \
              \"1\": \"{}\"\n    }},\n    \"osc~\": {{\n      \"1\": \"{}\"\n    }}\n  }},\n  \
              \"render_hash\": \"render-hash/2\",\n  \"render_rules\": 1\n}}\n",
             fingerprint_of("dac~"),

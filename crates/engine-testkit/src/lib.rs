@@ -10,8 +10,8 @@
 //! Every law is checked in both precisions (binary64 and binary32, [`matrix::PRECISIONS`])
 //! and at every sample rate of the shared [`matrix`], with the
 //! parameters at their minimum, default and maximum, at a value away from the default
-//! (see `away_from_default`), and at `-0.0`, the smallest subnormal and the smallest
-//! normal (where the range accepts them).
+//! (see `engine_battery::param_sets`), and at `-0.0` and the smallest normal binary32 value (where
+//! the range accepts them).
 //!
 //! The laws:
 //! - **metadata**: names and descriptions are present, port and parameter names are

@@ -1,14 +1,15 @@
 //! Tests of the fingerprint: stable for the same bits, changed by a bit of any run of the
 //! battery.
 
-use engine_core::host::Raw;
+use engine_core::host::{Delivered, Raw};
 use engine_core::{
-    AlgorithmVersion, Binary64, Block, Create, Factory, Object, ObjectSpec, ParamSpec, PortSpec,
-    Precision, Sample, SampleRate,
+    AlgorithmVersion, BLOCK_SIZE, Binary64, Block, Create, Factory, Object, ObjectSpec, ParamSpec,
+    PortSpec, Precision, Sample, SampleRate,
 };
 
 use super::{FINGERPRINT_BATTERY, fingerprint, seeded_signal};
-use crate::inputs::param_sets;
+use crate::inputs::{BLOCKS, param_sets};
+use sha2::{Digest, Sha256};
 
 const IN: PortSpec = PortSpec {
     name: "in",
@@ -41,8 +42,8 @@ enum Quirk {
     Special,
 }
 
-/// Multiplies its input by its gain, then adds a quarter to its output where its quirk
-/// says.
+/// Multiplies its input by its gain, then flips the lowest bit of its output, in the
+/// precision of the render, where its quirk says: the least change a battery can see.
 #[derive(Debug)]
 struct Echo {
     /// Its gain.
@@ -52,7 +53,20 @@ struct Echo {
     /// Its quirk.
     quirk: Quirk,
     /// The blocks processed so far.
-    blocks: u32,
+    blocks: usize,
+}
+
+/// `sample` with the lowest bit of its precision flipped.
+fn flip_lowest_bit<S: Sample>(sample: S) -> S {
+    let wide = sample.to_binary64().raw();
+    let flipped = match S::PRECISION {
+        Precision::Binary64 => f64::from_bits(wide.to_bits() ^ 1),
+        Precision::Binary32 => {
+            let narrow = <f32 as Delivered<Binary64>>::deliver(Binary64::from_raw(wide));
+            f64::from(f32::from_bits(narrow.to_bits() ^ 1))
+        }
+    };
+    S::from_binary64(Binary64::from_raw(flipped))
 }
 
 impl<S: Sample> Object<S> for Echo {
@@ -69,17 +83,19 @@ impl<S: Sample> Object<S> for Echo {
                 let flip = self.quirky
                     && match self.quirk {
                         Quirk::Random => wide > 0.5_f64 && wide < 0.75_f64,
-                        Quirk::LastBlock => self.blocks == 8,
+                        Quirk::LastBlock => self.blocks == BLOCKS,
                         Quirk::Special => {
                             wide.to_bits() == f64::MIN_POSITIVE.to_bits()
                                 || wide.to_bits() == f64::from(f32::MIN_POSITIVE).to_bits()
                         }
                         Quirk::None | Quirk::HighestRate | Quirk::Binary32 | Quirk::Maximum => true,
                     };
-                let product = (*value * gain).to_binary64().raw();
-                // A quarter: seen in either precision.
-                let changed = if flip { product + 0.25_f64 } else { product };
-                *out = S::from_binary64(Binary64::from_raw(changed));
+                let product = *value * gain;
+                *out = if flip {
+                    flip_lowest_bit(product)
+                } else {
+                    product
+                };
             }
         }
     }
@@ -169,15 +185,15 @@ fn sees_one_bit_changed_in_any_run_of_the_battery() {
 fn hashes_the_battery_version_first() {
     // A box without outlet renders nothing: its fingerprint is the battery version alone,
     // as an independent SHA-256 of its four little-endian bytes gives it (Python's
-    // hashlib over `01 00 00 00`).
-    assert_eq!(FINGERPRINT_BATTERY, 1, "the first battery");
+    // hashlib over `02 00 00 00`).
+    assert_eq!(FINGERPRINT_BATTERY, 2, "the second battery");
     let silent = ObjectSpec {
         outlets: &[],
         ..echo(Quirk::None)
     };
     assert_eq!(
         fingerprint(&silent),
-        "67abdd721024f0ff4e0b3f4c2fc13bc5bad42d0b7851d456d88d203d15aaa450"
+        "26b25d457597a7b0463f9620f666dd10aa2c4373a505967c7c8d70922a2d6ece"
     );
 }
 
@@ -216,27 +232,18 @@ fn tries_special_parameter_values_only_within_the_range() {
             vec![0.75_f32.to_bits()],
             vec![1.0_f32.to_bits()],
             vec![0x8000_0000],
-            vec![0x0000_0001],
             vec![0x0080_0000],
         ],
-        "[0, 1]: minimum, default, away from the default, maximum, -0.0, 1e-45, 2^-126"
+        "[0, 1]: minimum, default, away from the default, maximum, -0.0, 2^-126"
     );
     assert_eq!(
         bits(&POSITIVE)[4..],
-        [
-            vec![2.0_f32.to_bits()],
-            vec![2.0_f32.to_bits()],
-            vec![2.0_f32.to_bits()]
-        ],
+        [vec![2.0_f32.to_bits()], vec![2.0_f32.to_bits()]],
         "above zero: the default instead"
     );
     assert_eq!(
         bits(&NEGATIVE)[4..],
-        [
-            vec![(-2.0_f32).to_bits()],
-            vec![(-2.0_f32).to_bits()],
-            vec![(-2.0_f32).to_bits()]
-        ],
+        [vec![(-2.0_f32).to_bits()], vec![(-2.0_f32).to_bits()]],
         "below zero: the default instead"
     );
 }
@@ -266,5 +273,121 @@ fn tries_a_value_away_from_the_default() {
         away(&ZERO),
         [0.5_f32.to_bits()],
         "halfway from the default 0 to the maximum"
+    );
+}
+
+/// Copies each inlet to an outlet: inlet 0 to outlet `first`, inlet 1 to the other.
+#[derive(Debug)]
+struct Route {
+    /// The outlet inlet 0 is copied to.
+    first: usize,
+}
+
+impl<S: Sample> Object<S> for Route {
+    fn process(&mut self, inputs: &[Block<S>], outputs: &mut [Block<S>]) {
+        let order = if self.first == 0 { [0, 1] } else { [1, 0] };
+        for (input, outlet) in inputs.iter().zip(order) {
+            if let Some(output) = outputs.get_mut(outlet) {
+                *output = *input;
+            }
+        }
+    }
+}
+
+/// The spec of a [`Route`] of two inlets and two outlets, inlet 0 to outlet `FIRST`.
+fn route<const FIRST: usize>() -> ObjectSpec {
+    /// The box type routing inlet 0 to outlet `FIRST`.
+    struct Routed<const FIRST: usize>;
+    impl<const FIRST: usize> Create for Routed<FIRST> {
+        fn create<S: Sample>(_rate: SampleRate, _params: &[Binary64]) -> Box<dyn Object<S>> {
+            Box::new(Route { first: FIRST })
+        }
+    }
+    ObjectSpec {
+        name: "route~",
+        description: "copies each inlet to an outlet",
+        inlets: &[IN, IN],
+        outlets: &[OUT, OUT],
+        params: &[],
+        capabilities: &[],
+        create: Factory::new::<Routed<FIRST>>(),
+        algorithm_version: AlgorithmVersion::FIRST,
+    }
+}
+
+#[test]
+fn feeds_the_inlets_in_turn_and_hashes_the_outlets_in_order() {
+    // Inlet 0 is given the first block of the signal, inlet 1 the next one, and the outputs
+    // come outlet by outlet at each block.
+    let signal = seeded_signal(BLOCKS * BLOCK_SIZE * 2);
+    let input: Vec<Binary64> = signal
+        .iter()
+        .map(|&value| Binary64::from_raw(value))
+        .collect();
+    let mut straight = Route { first: 0 };
+    let rendered = super::outputs::<Binary64>(&mut straight, &route::<0>(), &input);
+    let (blocks, _) = input.as_chunks::<BLOCK_SIZE>();
+    assert_eq!(rendered.len(), BLOCKS * 2, "two outlets per block");
+    for (index, block) in rendered.iter().enumerate() {
+        assert!(
+            blocks.get(index).is_some_and(|given| given == block),
+            "block {index}: inlet by inlet, then outlet by outlet"
+        );
+    }
+    assert_ne!(
+        rendered.first(),
+        rendered.get(1),
+        "the two inlets are given different signals"
+    );
+    assert_ne!(
+        fingerprint(&route::<0>()),
+        fingerprint(&route::<1>()),
+        "swapping the inlets, or the outlets, is seen"
+    );
+}
+
+#[test]
+fn pins_the_inputs_of_the_battery() {
+    // A digest of every input the battery reads, written for battery 2: changing one of
+    // them without raising FINGERPRINT_BATTERY (and this digest) fails here, rather than
+    // as a box's outputs changed at the same version.
+    let mut hasher = Sha256::new();
+    for precision in crate::matrix::PRECISIONS {
+        hasher.update(precision.bits().to_le_bytes());
+    }
+    for rate in crate::matrix::sample_rates() {
+        hasher.update(rate.hz().to_le_bytes());
+    }
+    for count in [BLOCKS, BLOCK_SIZE] {
+        hasher.update(u64::try_from(count).expect("small").to_le_bytes());
+    }
+    for value in crate::special_input::<Binary64>(8) {
+        hasher.update(value.bits().to_le_bytes());
+    }
+    for value in crate::special_input::<engine_core::Binary32>(8) {
+        hasher.update(value.bits().to_le_bytes());
+    }
+    for spec in [echo(Quirk::None), route::<0>()] {
+        for set in param_sets(&spec) {
+            hasher.update(u64::try_from(set.len()).expect("small").to_le_bytes());
+            for value in set {
+                hasher.update(value.to_bits().to_le_bytes());
+            }
+        }
+    }
+    for value in seeded_signal(BLOCKS * BLOCK_SIZE) {
+        hasher.update(value.to_bits().to_le_bytes());
+    }
+    let digest = hasher
+        .finalize()
+        .iter()
+        .fold(String::new(), |mut text, byte| {
+            let _written = core::fmt::Write::write_fmt(&mut text, format_args!("{byte:02x}"));
+            text
+        });
+    assert_eq!(FINGERPRINT_BATTERY, 2, "the battery this digest is of");
+    assert_eq!(
+        digest, "f3ae291af4c69bc1fc6751206f4817706b7bb1f27b7939af747aa96a4dcabae0",
+        "the battery's inputs changed: raise FINGERPRINT_BATTERY and write this digest"
     );
 }
