@@ -8805,13 +8805,18 @@ fn proof_tools(runner: &mut dyn Runner) -> Result<ProofTools, Failure> {
     let verbose = runner
         .capture(&Cmd::new("rustc", &["-vV"], Dir::Root))
         .map_err(|failure| Failure::from(format!("cannot read the host of rustc: {failure}")))?;
+    // Each key on exactly one line, as rustc writes it: a record is evidence, never a
+    // choice among answers.
     let named = |key: &str| {
-        verbose
+        let mut values = verbose
             .lines()
-            .find_map(|line| line.strip_prefix(key)?.strip_prefix(": "))
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .ok_or_else(|| Failure::from(format!("`rustc -vV` names no {key}")))
+            .filter_map(|line| line.strip_prefix(key)?.strip_prefix(": "))
+            .map(str::trim);
+        match (values.next(), values.next()) {
+            (Some(_), Some(_)) => Err(Failure::from(format!("`rustc -vV` names {key} twice"))),
+            (Some(value), None) if !value.is_empty() => Ok(value),
+            _ => Err(Failure::from(format!("`rustc -vV` names no {key}"))),
+        }
     };
     let host = named("host")?;
     let compiler = format!("{} LLVM {}", named("commit-hash")?, named("LLVM version")?);

@@ -13854,6 +13854,36 @@ fn not_recorded(fake: &mut Fake) -> String {
 }
 
 #[test]
+fn records_nothing_when_rustc_names_a_key_twice() {
+    for (twice, key) in [
+        (
+            "commit-hash: 1\nhost: a b\nhost: c\nLLVM version: 2\n",
+            "host",
+        ),
+        (
+            "commit-hash: 1\ncommit-hash: 1\nhost: a\nLLVM version: 2\n",
+            "commit-hash",
+        ),
+        (
+            "commit-hash: 1\nhost: a\nLLVM version: 2\nLLVM version: 3\n",
+            "LLVM version",
+        ),
+    ] {
+        let mut repeated = measured();
+        drop(
+            repeated
+                .files
+                .insert(format!("capture {}", HOST.0), twice.to_owned()),
+        );
+        assert_eq!(
+            not_recorded(&mut repeated),
+            format!("  not recorded: `rustc -vV` names {key} twice"),
+            "a line rustc never writes twice: {twice}"
+        );
+    }
+}
+
+#[test]
 fn records_nothing_when_it_cannot_read_or_write() {
     for (broken, reason) in [
         (
@@ -13959,7 +13989,7 @@ fn fails_to_record_what_it_would_not_read_back() {
     let mut spaced = measured();
     drop(spaced.files.insert(
         format!("capture {}", HOST.0),
-        "commit-hash: 1\nhost: a b\nhost: c\nLLVM version: 2\n".to_owned(),
+        "commit-hash: 1\nhost: a b\nLLVM version: 2\n".to_owned(),
     ));
     assert_eq!(
         run_steps(&proof_steps(), &mut spaced, &mut Vec::new()),
