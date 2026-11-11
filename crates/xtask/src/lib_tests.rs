@@ -364,7 +364,7 @@ const MERGE_BASE: (&str, &str) = (
 /// How the fake reads the changes since [`MERGE_BASE`], and what it answers: one changed
 /// line of a Rust file.
 const CHANGES: (&str, &str) = (
-    "git diff --no-color --no-ext-diff --no-textconv --text --no-renames --src-prefix=a/ --dst-prefix=b/ abc1230000000000000000000000000000000000",
+    "git diff --no-color --no-ext-diff --no-textconv --text --no-renames --src-prefix=a/ --dst-prefix=b/ abc1230000000000000000000000000000000000 -- *.rs",
     "diff --git a/crates/a/src/b.rs b/crates/a/src/b.rs\n--- a/crates/a/src/b.rs\n+++ b/crates/a/src/b.rs\n@@ -1 +1 @@\n-fn f() {}\n+fn f() -> u8 { 1 }\n",
 );
 
@@ -567,6 +567,12 @@ impl Runner for Fake {
                 cmd.args.first().map(String::as_str),
             ));
         }
+        // The diff a test scripted holds every file; git shows only its Rust files.
+        if cmd.args.last().is_some_and(|arg| arg == "*.rs")
+            && let Some(rust) = self.git_from_its_diff(cmd)
+        {
+            return Ok(rust);
+        }
         self.files
             .get(&format!("capture {line}"))
             .cloned()
@@ -616,8 +622,8 @@ impl Runner for Fake {
 impl Fake {
     /// What git answers to `cmd`, unscripted, from the diff a test scripted for the same
     /// commit ([`diff_since`]), as real git does: the paths of its sections, NUL-separated
-    /// (`diff --name-only -z`), or its sections but those below the directories excluded by
-    /// `:(exclude)<dir>/` pathspecs.
+    /// (`diff --name-only -z`), or the sections of its Rust files (`*.rs`) but those below
+    /// the directories excluded by `:(exclude)<dir>/` pathspecs.
     fn git_from_its_diff(&self, cmd: &Cmd) -> Option<String> {
         let args: Vec<&str> = cmd.args.iter().map(String::as_str).collect();
         if cmd.program != "git" {
@@ -651,6 +657,7 @@ impl Fake {
                 "--dst-prefix=b/",
                 since,
                 "--",
+                "*.rs",
                 excluded @ ..,
             ] => {
                 let dirs: Vec<&str> = excluded
@@ -660,7 +667,12 @@ impl Fake {
                 Some(
                     diff_sections(self.files.get(&diff_since(since))?)
                         .into_iter()
-                        .filter(|(path, _)| !dirs.iter().any(|dir| path.starts_with(dir)))
+                        .filter(|(path, _)| {
+                            Path::new(path)
+                                .extension()
+                                .is_some_and(|extension| extension == "rs")
+                                && !dirs.iter().any(|dir| path.starts_with(dir))
+                        })
                         .map(|(_, section)| section)
                         .collect(),
                 )
@@ -2247,7 +2259,7 @@ fn mutates_the_changes_since_the_merge_base_with_the_upstream() {
             "read .git/poyetik/rust-mutants-proven/abc1230000000000000000000000000000000000",
             "capture git ls-files -z --others --exclude-standard -- *.rs",
             "capture git diff --no-color --name-only -z --no-renames abc1230000000000000000000000000000000000",
-            "capture git diff --no-color --no-ext-diff --no-textconv --text --no-renames --src-prefix=a/ --dst-prefix=b/ abc1230000000000000000000000000000000000",
+            "capture git diff --no-color --no-ext-diff --no-textconv --text --no-renames --src-prefix=a/ --dst-prefix=b/ abc1230000000000000000000000000000000000 -- *.rs",
             "write target/xtask/changes.diff",
             "cargo mutants --no-config --output=. --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --workspace --in-diff target/xtask/changes.diff --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored",
             "read mutants.out/unviable.txt",
@@ -2376,7 +2388,7 @@ fn mutates_a_whole_crate_whose_test_code_changed() {
         );
         assert!(
             fake.ran.contains(&format!(
-                "{} -- :(exclude)crates/engine-core/",
+                "{} :(exclude)crates/engine-core/",
                 diff_since(MERGE_BASE.1.trim())
             )),
             "{test_code}: git leaves the crate out of the diff"
@@ -2420,14 +2432,13 @@ fn mutates_a_whole_crate_whose_test_data_changed() {
         let hash = super::new_file_diff("crates/engine-hash/src/lib.rs", "fn h() {}\n");
         let xtask = super::new_file_diff("crates/xtask/src/lib.rs", "fn x() {}\n");
         let expected = format!(
-            "{}{}{}",
-            one_line_change(data),
+            "{}{}",
             if hash_reads { hash.as_str() } else { "" },
             if xtask_reads { xtask.as_str() } else { "" }
         );
         assert_eq!(
             fake.files.get(CHANGES_DIFF).cloned(),
-            Some(expected),
+            Some(expected).filter(|diff| !diff.is_empty()),
             "{data}: the crates that read it, whole, and no other (xtask's tests read its \
              fixtures and the hooks)"
         );
@@ -2498,16 +2509,28 @@ fn mutates_everything_when_what_every_test_uses_changed() {
         let _changes = fake
             .files
             .insert(format!("capture {}", CHANGES.0), one_line_change(path));
+        let mut out = Vec::new();
         assert_eq!(
-            run_steps(&rust_mutation_of_changes(), &mut fake, &mut Vec::new()),
+            run_steps(&rust_mutation_of_changes(), &mut fake, &mut out),
             Ok(()),
             "{path}"
         );
-        assert!(
+        let rust = Path::new(path)
+            .extension()
+            .is_some_and(|extension| extension == "rs");
+        assert_eq!(
             fake.ran
                 .iter()
                 .any(|line| line.contains("--in-diff target/xtask/changes.diff ")),
-            "{path}: only the changes"
+            rust,
+            "{path}: only the changes, of Rust files"
+        );
+        assert_eq!(
+            String::from_utf8(out)
+                .expect("UTF-8")
+                .contains("  no Rust file changed: no mutant to test\n"),
+            !rust,
+            "{path}: nothing to mutate, said"
         );
     }
     let mut broken = passing();
@@ -2583,7 +2606,7 @@ fn gives_each_changed_file_one_section_when_its_crate_is_tested_whole() {
     );
     let _ignored = careless.files.insert(
         format!(
-            "{} -- :(exclude)crates/engine-core/",
+            "{} :(exclude)crates/engine-core/",
             diff_since(MERGE_BASE.1.trim())
         ),
         one_line_change("crates/engine-core/src/lib.rs"),
@@ -2625,7 +2648,7 @@ fn refuses_a_diff_git_left_a_change_out_of() {
     );
     let _lost = lossy.files.insert(
         format!(
-            "{} -- :(exclude)crates/engine-core/",
+            "{} :(exclude)crates/engine-core/",
             diff_since(MERGE_BASE.1.trim())
         ),
         String::new(),
@@ -2715,6 +2738,30 @@ fn reads_the_paths_real_git_changes_whatever_they_hold() {
             "diff --git a/{hash} b/{hash}\nindex 7898192..6178079 100644\n--- a/{hash}\n+++ b/{hash}\n@@ -1 +1 @@\n-a\n+b\n"
         ),
         "git leaves out the crate excluded"
+    );
+}
+
+#[test]
+fn shows_cargo_mutants_the_rust_changes_alone() {
+    let dir = scratch("binary-change");
+    let (sound, hash) = ("conformance/x.wav", "crates/engine-hash/src/lib.rs");
+    for path in [sound, hash] {
+        std::fs::create_dir_all(dir.join(path).parent().expect("a parent")).expect("its directory");
+    }
+    std::fs::write(dir.join(sound), [0xff_u8, 0xfe, 0x80, 0x81]).expect("a binary file");
+    std::fs::write(dir.join(hash), "a\n").expect("a file");
+    let _init = hermetic_git(&dir, &["init", "--quiet", "--initial-branch=main"]);
+    let _add = hermetic_git(&dir, &["add", "."]);
+    let _commit = hermetic_git(&dir, &["commit", "--quiet", "-m", "first"]);
+    std::fs::write(dir.join(sound), [0xff_u8, 0xfe, 0x80, 0x82, 0x00]).expect("a change");
+    std::fs::write(dir.join(hash), "b\n").expect("a change");
+    let mut runner = system(dir.path());
+    assert_eq!(
+        super::diff_since(&mut runner, "HEAD", &[]).map_err(|failure| failure.summary),
+        Ok(format!(
+            "diff --git a/{hash} b/{hash}\nindex 7898192..6178079 100644\n--- a/{hash}\n+++ b/{hash}\n@@ -1 +1 @@\n-a\n+b\n"
+        )),
+        "the Rust file's section, never the bytes of a file no mutant is made from"
     );
 }
 
@@ -14619,7 +14666,7 @@ fn proven_tree_command() -> String {
 /// The command reading the changes since `since`.
 fn diff_since(since: &str) -> String {
     format!(
-        "capture git diff --no-color --no-ext-diff --no-textconv --text --no-renames --src-prefix=a/ --dst-prefix=b/ {since}"
+        "capture git diff --no-color --no-ext-diff --no-textconv --text --no-renames --src-prefix=a/ --dst-prefix=b/ {since} -- *.rs"
     )
 }
 
@@ -14758,7 +14805,9 @@ fn mutates_nothing_when_every_change_is_proven() {
         assert!(
             said.contains(&proven_line("engine-core"))
                 && said.contains(&proven_line("engine-hash"))
-                && said.contains("  every change is proven: no mutant to test\n"),
+                && said.contains(
+                    "  no Rust file changed outside the crates proven: no mutant to test\n"
+                ),
             "{since_commit}: said: {said}"
         );
         assert!(
@@ -14896,12 +14945,8 @@ fn mutates_every_crate_not_proven_whole_when_what_every_test_uses_changed() {
     );
     assert_eq!(
         diff,
-        format!(
-            "{}{}",
-            one_line_change("Cargo.lock"),
-            super::new_file_diff("crates/engine-hash/src/lib.rs", "fn h() {}\n")
-        ),
-        "every crate is tested whole or proven: git keeps only what no crate holds"
+        super::new_file_diff("crates/engine-hash/src/lib.rs", "fn h() {}\n"),
+        "every crate is tested whole or proven: git keeps only the Rust files no crate holds"
     );
 }
 
@@ -14920,7 +14965,7 @@ fn names_each_proven_crate_the_check_would_otherwise_have_tested() {
         said,
         format!(
             "▶ [1/2] Rust mutation testing of the changes\n  the changes since {} (merge base \
-             with @{{upstream}})\n{}{}  every change is proven: no mutant to test\n  done in \
+             with @{{upstream}})\n{}{}  no Rust file changed outside the crates proven: no mutant to test\n  done in \
              1.5 s\n▶ [2/2] Rust unviable mutants reviewed\n  done in 1.5 s\n✔ all 2 checks \
              passed in 3.0 s\n",
             PROVEN[2],
@@ -15273,7 +15318,8 @@ fn uses_the_proof_record_it_wrote() {
         said.contains(&format!(
             "  engine-core: proven by an earlier check at {}, unchanged since\n",
             CHECKED_OUT[0]
-        )) && said.contains("  every change is proven: no mutant to test\n"),
+        )) && said
+            .contains("  no Rust file changed outside the crates proven: no mutant to test\n"),
         "the record written is the record read: {said}"
     );
 }
@@ -16524,13 +16570,18 @@ fn locked_fake(registry: &[Registered<'_>], changes: &str) -> Fake {
     fake
 }
 
-/// The diff of [`locked_fake`]'s change, unless it is a file of a crate of `whole`, then
-/// the source of each crate of `whole`, added whole, in the order of the workspace.
+/// The diff of [`locked_fake`]'s change, unless it is not of a Rust file or of a file of a
+/// crate of `whole`, then the source of each crate of `whole`, added whole, in the order of
+/// the workspace.
 fn whole_crates(change: &str, whole: &[&str]) -> String {
-    let mut diff = if super::RUST_CRATES
-        .iter()
-        .any(|krate| whole.contains(&krate.name) && change.contains(&format!(" b/{}/", krate.dir)))
-    {
+    let mut diff = if change
+        .lines()
+        .next()
+        .and_then(|header| Path::new(header).extension())
+        .is_none_or(|extension| extension != "rs")
+        || super::RUST_CRATES.iter().any(|krate| {
+            whole.contains(&krate.name) && change.contains(&format!(" b/{}/", krate.dir))
+        }) {
         String::new()
     } else {
         change.to_owned()
@@ -16567,8 +16618,8 @@ fn mutates_the_crates_a_change_of_the_lock_file_reaches() {
     let _quiet = mutate_changes(&mut same);
     assert_eq!(
         same.files.get(CHANGES_DIFF).cloned(),
-        Some(change.clone()),
-        "an entry-for-entry identical lock widens nothing"
+        None,
+        "an entry-for-entry identical lock widens nothing, and is no Rust file to mutate"
     );
     let mut unreadable = locked_fake(&registry, &change);
     drop(unreadable.files.remove("Cargo.lock"));

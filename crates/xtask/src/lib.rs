@@ -8829,6 +8829,14 @@ fn rust_test_code(rel: &str) -> bool {
     in_tests_dir(rel) || unit_test_file(rel)
 }
 
+/// Whether `path` names a Rust file: its extension is `rs`, exactly as git's pathspec
+/// `*.rs` matches it.
+fn rust_file(path: &str) -> bool {
+    Path::new(path)
+        .extension()
+        .is_some_and(|extension| extension == "rs")
+}
+
 /// Whether `path` names a unit test file beside its source (`*_tests.rs`): a path relative
 /// to its crate or to the repository, the suffix being the same in both.
 fn unit_test_file(path: &str) -> bool {
@@ -9798,11 +9806,12 @@ fn new_rust_files(runner: &mut dyn Runner) -> Result<Vec<String>, Failure> {
     Ok(nul_separated(&listed))
 }
 
-/// The diff of the tracked files since `since`, committed or not, but those below the
-/// directories of `left_out`, which git leaves out (`:(exclude)` pathspecs): so that the
-/// diff holds no section of a crate tested whole or proven, rather than a second one.
-/// Every file is shown as text (`--text`), whatever git's attributes say (`-diff`,
-/// `binary`), which no gate reads ([`incomplete_diff`]).
+/// The diff of the tracked Rust files (`*.rs`, the only files cargo-mutants mutates) since
+/// `since`, committed or not, but those below the directories of `left_out`, which git
+/// leaves out (`:(exclude)` pathspecs): so that the diff holds no section of a crate tested
+/// whole or proven, rather than a second one, and none of a file that is not Rust, whose
+/// bytes may not be text. Every file is shown as text (`--text`), whatever its `diff` or
+/// `binary` attribute says, which no gate reads ([`incomplete_diff`]).
 ///
 /// # Errors
 ///
@@ -9826,11 +9835,10 @@ fn diff_since(
         "--src-prefix=a/",
         "--dst-prefix=b/",
         since,
+        "--",
+        "*.rs",
     ];
-    if !excluded.is_empty() {
-        args.push("--");
-        args.extend(excluded.iter().map(String::as_str));
-    }
+    args.extend(excluded.iter().map(String::as_str));
     git_output(runner, &args, "read the changes")
 }
 
@@ -10058,7 +10066,10 @@ fn mutated_diff(
         .collect();
     let outside = |path: &str| !left_out.iter().any(|krate| krate.holds(path).is_some());
     let mut diff = diff_since(runner, base, &left_out)?;
-    let shown = changed.iter().filter(|path| outside(path)).count();
+    let shown = changed
+        .iter()
+        .filter(|path| outside(path) && rust_file(path))
+        .count();
     if let Some(reason) = incomplete_diff(&diff, shown) {
         return Err(Failure::from(reason));
     }
@@ -10182,7 +10193,15 @@ fn rust_mutants_of_changes(
         .collect();
     let diff = mutated_diff(runner, out, &base, (&tracked, &new), tested, &proven)?;
     if diff.is_empty() {
-        return say(out, "  every change is proven: no mutant to test");
+        let outside = if proven.is_empty() {
+            ""
+        } else {
+            " outside the crates proven"
+        };
+        return say(
+            out,
+            &format!("  no Rust file changed{outside}: no mutant to test"),
+        );
     }
     if let Some(header) = repeated_section(&diff) {
         return Err(Failure::from(format!(
@@ -10672,9 +10691,7 @@ pub fn loaded_files_gate(loaded: &[Loaded], tracked: &[String]) -> Result<(), Fa
                 .unwrap_or_default()
         );
         for file in &build.files {
-            let rust = Path::new(file)
-                .extension()
-                .is_some_and(|extension| extension == "rs");
+            let rust = rust_file(file);
             let test_data = build.of_tests
                 && build
                     .krate
