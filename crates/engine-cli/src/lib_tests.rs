@@ -198,8 +198,9 @@ fn widened(rendered: &Rendered) -> Vec<f64> {
 fn renders_a_case_in_every_format() {
     for format in RenderFormat::ALL {
         let rendered = render_case(SINE, PATCH, format).expect("valid case");
-        assert_eq!(rendered.rate, SampleRate::HZ_48000, "rate");
-        assert_eq!(rendered.channels, 2, "dac~ is stereo");
+        assert_eq!(rendered.rate(), SampleRate::HZ_48000, "rate");
+        assert_eq!(rendered.channels(), 2, "dac~ is stereo");
+        assert_eq!(rendered.samples(), &rendered.samples, "its samples");
         assert_eq!(format_of(&rendered), format, "its format");
         let samples = widened(&rendered);
         assert_eq!(samples.len(), 200, "100 frames x 2 channels");

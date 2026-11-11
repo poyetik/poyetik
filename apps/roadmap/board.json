@@ -512,7 +512,7 @@
       "column": "later",
       "milestone": "M0 Foundations",
       "createdAt": "2026-11-08",
-      "updatedAt": "2026-11-10",
+      "updatedAt": "2026-11-11",
       "tasks": [
         {
           "title": "Patch reading: the format version is checked after the whole document parses, so a version-2 patch is reported as an unknown field; read format first. engine-cli and the oracle skip non-.json entries of cases/ and patches/ silently; refuse them",
@@ -527,7 +527,7 @@
           "done": false
         },
         {
-          "title": "Render hash: the three implementations accept different sample rates (whole frames are now refused alike), and engine-cli's Rendered has public fields; align the rate domains, with a refused vector per bound, and make the fields private",
+          "title": "Render hash: the three implementations accept different sample rates (whole frames are now refused alike); align the rate domains, with a refused vector per bound",
           "done": false
         },
         {

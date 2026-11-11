@@ -96,28 +96,61 @@ impl RenderedSamples {
 /// The result of rendering a case, with the header of its WAV file.
 ///
 /// The two come from one prepared case, so a WAV file never pairs a header with other
-/// samples. Only [`Prepared::render`] builds one outside this crate's tests.
+/// samples: only [`Prepared::render`] builds one outside this crate's tests, and its
+/// fields are private, read through [`Rendered::rate`], [`Rendered::channels`] and
+/// [`Rendered::samples`], so that no one changes the samples under their header:
+///
+/// ```compile_fail,E0616
+/// let case = r#"{"sample_rate":48000,"frames":100}"#;
+/// let patch = r#"{"format":1,"nodes":[{"id":1,"box":"osc~"},{"id":2,"box":"dac~"}],
+///   "connections":[{"from":[1,0],"to":[2,0]}]}"#;
+/// let format = engine_core::RenderFormat::Binary64;
+/// engine_fpenv::with_default_mode(|mode| {
+///     let prepared = engine_cli::prepare_case(case, patch, format, mode).expect("a case");
+///     let mut rendered = prepared.render(mode);
+///     rendered.samples = engine_cli::RenderedSamples::Binary32(vec![0.0; 3]);
+///     rendered.wav()
+/// });
+/// ```
 #[derive(Debug, Clone, PartialEq)]
 pub struct Rendered {
     /// Sample rate.
-    pub rate: SampleRate,
+    pub(crate) rate: SampleRate,
     /// Number of interleaved channels.
-    pub channels: usize,
+    pub(crate) channels: usize,
     /// The samples, channels interleaved, in their render format.
-    pub samples: RenderedSamples,
+    pub(crate) samples: RenderedSamples,
     /// Header of the WAV file of these samples, computed when the case was prepared.
     pub(crate) wav_header: [u8; HEADER_LEN],
 }
 
 impl Rendered {
+    /// Its sample rate.
+    #[must_use]
+    pub const fn rate(&self) -> SampleRate {
+        self.rate
+    }
+
+    /// Its number of interleaved channels.
+    #[must_use]
+    pub const fn channels(&self) -> usize {
+        self.channels
+    }
+
+    /// Its samples, channels interleaved, in their render format.
+    #[must_use]
+    pub const fn samples(&self) -> &RenderedSamples {
+        &self.samples
+    }
+
     /// The canonical hash of the render, computed in this build's arithmetic mode
     /// ([`MODE`]).
     ///
     /// # Errors
     ///
     /// Returns [`NotWholeFrames`] when its samples are not whole frames of its channels:
-    /// never for a render of [`Prepared::render`], possibly for one built by hand in this
-    /// crate's tests.
+    /// never outside this crate, where only [`Prepared::render`] builds one; possibly for
+    /// one built by hand in this crate's tests.
     pub fn hash(&self) -> Result<RenderHash, NotWholeFrames> {
         render_hash(self.rate, self.channels, self.samples.as_samples(), MODE)
     }
