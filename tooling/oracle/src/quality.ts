@@ -19,6 +19,13 @@ export interface Levels {
   readonly harmonics: { readonly thd: number | null; readonly aliasing: number | null; readonly snr: number } | string;
 }
 
+/**
+ * Why the harmonic levels of a channel are not measured when its harmonic fit leaves no margin above
+ * the error bound of its expectation: no render, the exact one included, could be held to
+ * them, as for a harmonic fit refused.
+ */
+export const NO_HARMONIC_MARGIN = "its error bound leaves the harmonic fit no margin";
+
 /** Why a channel measures nothing: its expectation has no fundamental to measure. */
 export const UNMEASURED = "no fundamental strictly between DC and Nyquist with a margin above its error bound";
 
@@ -46,7 +53,9 @@ function db(value: number): string {
  * included, and a sine at 2^-126 Hz over a few thousand frames), or when its amplitude
  * leaves its fundamental no margin above that bound, even measured from its exact samples
  * (a binary32 sine just above 2^-126): no level can then tell it from silence, or be held
- * to a bound, which its distance from the ideal sine (`sineError`) already checks.
+ * to a bound, which its distance from the ideal sine (`sineError`) already checks. Likewise,
+ * when the amplitude leaves the harmonic fit no margin, whose conditioning can be worse than
+ * the sine fit's, its levels are not measured ({@link NO_HARMONIC_MARGIN}), and the others are.
  */
 export function judgeQuality(samples: readonly number[], rate: number, sine: Sine, format: RenderFormat): Quality {
   const fundamental = fold(sine.frequency, rate);
@@ -66,7 +75,10 @@ export function judgeQuality(samples: readonly number[], rate: number, sine: Sin
     }
     throw error;
   }
-  return hold(levels, sineBounds(sine.amplitude, bound, levels));
+  // Decided from the expectation alone: the harmonic fit's conditioning depends on its
+  // frequencies and frames, never on the samples.
+  const harmonicMargin = levels.harmonics instanceof MeasureError || hasMargin(sine.amplitude, bound, levels.harmonics.quality.conditioning);
+  return hold(levels, sineBounds(sine.amplitude, bound, levels), harmonicMargin);
 }
 
 /**
@@ -74,8 +86,10 @@ export function judgeQuality(samples: readonly number[], rate: number, sine: Sin
  * under `bound` (its error bound in the format concerned): its fundamental lies strictly
  * between DC and Nyquist, its ideal values rise above that bound somewhere, and its
  * amplitude leaves the fundamental a margin above it, for the conditioning its sine fit has
- * over those frames, from the floor of an exact render (`hasMargin`, the condition the
- * bounds of a level need), so that no expectation is measured that every render would fail.
+ * over those frames, from the floor of any render within that bound (`hasMargin`, the
+ * condition the bounds of a level need), so that no expectation is measured that every
+ * render would fail. The harmonic fit's margin is decided in {@link judgeQuality}, from its
+ * own conditioning: without it, only its levels are not measured.
  * A fit refused whatever the samples is measured, and fails: the expectation is refused
  * when it is read ({@link unmeasurable}).
  */
@@ -113,9 +127,11 @@ export function unmeasurable(sine: Sine, rate: number, frames: number): string |
 /**
  * Holds the levels `measured` to `bounds`: every level within its bound, or the problems;
  * no bounds (no margin for the fundamental) is a problem, and so are no harmonic bounds for
- * a harmonic fit that was not refused.
+ * a harmonic fit that was neither refused nor without a margin by the expectation
+ * (`harmonicMargin` false: its levels are then {@link NO_HARMONIC_MARGIN}), since the
+ * render's own floor took it.
  */
-export function hold(measured: Measurements, bounds: Bounds | null): Quality {
+export function hold(measured: Measurements, bounds: Bounds | null, harmonicMargin: boolean): Quality {
   if (bounds === null) {
     return { kind: "failed", problems: ["its error bound leaves the fundamental no margin to be measured"] };
   }
@@ -127,7 +143,7 @@ export function hold(measured: Measurements, bounds: Bounds | null): Quality {
   };
   check("THD+N", measured.thdPlusN, bounds.thdPlusN, false);
   check("SFDR", measured.sfdr, bounds.sfdr, true);
-  const harmonics = measured.harmonics instanceof MeasureError ? measured.harmonics.message : measured.harmonics;
+  const harmonics = measured.harmonics instanceof MeasureError ? measured.harmonics.message : harmonicMargin ? measured.harmonics : NO_HARMONIC_MARGIN;
   if (typeof harmonics !== "string") {
     if (bounds.harmonics === null) {
       problems.push("its error bound leaves the harmonic fit no margin to be measured");

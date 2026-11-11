@@ -9,12 +9,14 @@ import {
   cycles,
   fft,
   FLOOR,
+  hasMargin,
   HARMONICS,
   JACOBI_ITERATIONS,
   MAX_FRAMES,
   measure,
   MeasureError,
   PADDING,
+  renderFloor,
   sineBounds,
   sineFitRefusal,
   solve,
@@ -714,4 +716,40 @@ describe("sineFitRefusal", () => {
     // Two whole cycles over 1000 frames: orthogonal, no refusal.
     expect(sineFitRefusal(96, 48_000, 1000)).toBeNull();
   });
+});
+
+describe("the floor of a render within an error of a sine", () => {
+  test("bounds the peak and the coefficients, doubled", () => {
+    // 2 · 2^-36 · ((1 + √2)·|A| + (1 + √(2·21) · √(1 + ρ)/(1 - ρ))·ε), computed here by hand.
+    expect(renderFloor(1, 0, 0)).toBe(2 * 2 ** -36 * (1 + Math.SQRT2));
+    expect(renderFloor(-1, 0, 0)).toBe(2 * 2 ** -36 * (1 + Math.SQRT2));
+    expect(renderFloor(0, 1, 0)).toBe(2 * 2 ** -36 * (1 + Math.sqrt(42)));
+    expect(renderFloor(0, 1, 0.5)).toBe(2 * 2 ** -36 * (1 + (Math.sqrt(42) * Math.sqrt(1.5)) / 0.5));
+  });
+
+  test("decides a margin within the floor of the render above the error", () => {
+    // Without the floor, a margin from √2 · error up; with it, about 2^-31.5 of the error
+    // more: an amplitude 2^-33 above √2 has none, one 2^-29 above has one.
+    expect(hasMargin(Math.SQRT2 * (1 + 2 ** -33), 1, 0)).toBe(false);
+    expect(hasMargin(Math.SQRT2 * (1 + 2 ** -29), 1, 0)).toBe(true);
+    expect(hasMargin(0, 0, 0)).toBe(false);
+  });
+
+  test("is never exceeded by the fits of an exact render", () => {
+    for (const [frequency, frames, rate] of [
+      [3001.5, 4800, 48_000],
+      [Math.fround(46.44), 1024, 48_000],
+      [1000.5, 8000, 8000],
+    ] as const) {
+      for (const amplitude of [1, 2 ** -100, 1.5 * 2 ** -126]) {
+        const error = 2 ** -24 * amplitude + 2 ** -149;
+        const samples = Float64Array.from({ length: frames }, (_frame, frame) => Math.fround(amplitude * Math.sin((2 * Math.PI * ((frequency * frame) % rate)) / rate)));
+        const measured = measure(samples, rate, frequency);
+        expect(measured.sine.floor).toBeLessThanOrEqual(renderFloor(amplitude, error, measured.sine.conditioning));
+        if (!(measured.harmonics instanceof MeasureError)) {
+          expect(measured.harmonics.quality.floor).toBeLessThanOrEqual(renderFloor(amplitude, error, measured.harmonics.quality.conditioning));
+        }
+      }
+    }
+  }, 60_000);
 });

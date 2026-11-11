@@ -1,7 +1,7 @@
 import { describe as group, expect, test } from "vitest";
 import { MeasureError, type Bounds, type Measurements } from "../src/measure.ts";
 import { describe, fold, hold, judgeQuality, unmeasurable, worst, type Levels } from "../src/quality.ts";
-import { sineError, sineErrorBound } from "../src/signal.ts";
+import { ideal, sineError, sineErrorBound } from "../src/signal.ts";
 import { sineSamples, sineSamples64 } from "./fixtures.ts";
 
 /** A 1 kHz full-scale sine. */
@@ -118,6 +118,70 @@ group("judgeQuality", () => {
     });
   });
 
+  group("a sine whose harmonic fit has no margin while its sine fit has", () => {
+    /** The binary32 value of the bits `bits`. */
+    const binary32 = (bits: number): number => new Float32Array(new Uint32Array([bits]).buffer)[0] ?? Number.NaN;
+    /** `value` rounded to binary32, then flushed to a zero of its sign below 2^-126, as the engine gives a binary32 sample. */
+    const sample = (value: number): number => {
+      const rounded = Math.fround(value);
+      return Math.abs(rounded) < 2 ** -126 ? rounded * 0 : rounded;
+    };
+    /** The quality of the exact render of `sine` over `frames` frames at 48 kHz, in binary32. */
+    const exactRender = (sine: { readonly frequency: number; readonly amplitude: number; readonly phase: number }, frames: number) =>
+      judgeQuality(
+        Array.from({ length: frames }, (_frame, frame) => sample(ideal(sine, 48_000, frame))),
+        48_000,
+        sine,
+        "binary32",
+      );
+    /** What the harmonic levels say when they are not measured for want of a margin. */
+    const unmargined = "its error bound leaves the harmonic fit no margin";
+
+    // 3001.5 Hz over 4800 frames is not a whole number of cycles: the harmonic fit is worse
+    // conditioned than the sine fit, so their margins differ (each a fact of the expectation).
+    test.each([
+      ["3001.5 Hz, 4800 frames, 1.5 · 2^-126", 3001.5, 4800, 0x00c0_0000],
+      ["46.44 Hz in binary32, 1024 frames, 1.6 · 2^-126", Math.fround(46.44), 1024, 0x00cc_cccd],
+    ])("%s: measured, its harmonic levels not", (_name, frequency, frames, bits) => {
+      const quality = exactRender({ frequency, amplitude: binary32(bits), phase: 0 }, frames);
+      expect(quality.kind).toBe("measured");
+      expect(quality.kind === "measured" ? quality.levels.harmonics : null).toBe(unmargined);
+    });
+
+    test("measures the harmonic levels with both margins", () => {
+      const quality = exactRender({ frequency: 3001.5, amplitude: binary32(0x0180_0000), phase: 0 }, 4800);
+      expect(quality.kind === "measured" ? typeof quality.levels.harmonics : quality.kind).toBe("object");
+    });
+
+    test("measures nothing without either margin", () => {
+      expect(exactRender({ frequency: 3001.5, amplitude: binary32(0x0080_0000), phase: 0 }, 4800).kind).toBe("unmeasured");
+    });
+
+    // The law the margins exist for: the exact render of an expectation the oracle accepts is
+    // never failed, at frequencies that are not whole cycles, every binary32 amplitude near the
+    // thresholds of both fits included.
+    // Every binary32 amplitude from 2^-126 to 2 · 2^-126 in steps of 2^-129, which holds the
+    // thresholds of both fits of both cases, then to 4 · 2^-126 in steps of 2^-127.
+    test("never fails the exact render of an accepted expectation", () => {
+      const amplitudes = [
+        ...Array.from({ length: 17 }, (_step, step) => 0x0080_0000 + step * 0x0008_0000),
+        ...Array.from({ length: 4 }, (_step, step) => 0x0140_0000 + step * 0x0040_0000),
+      ];
+      for (const [frequency, frames] of [
+        [3001.5, 2400],
+        [Math.fround(46.44), 1024],
+      ] as const) {
+        for (const bits of amplitudes) {
+          const sine = { frequency, amplitude: binary32(bits), phase: 0 };
+          expect(unmeasurable(sine, 48_000, frames)).toBeNull();
+          expect([frequency, bits, exactRender(sine, frames).kind]).not.toContain("failed");
+        }
+      }
+      // 42 judgements of up to 2400 frames: about 0.1 s in a plain run, far more under
+      // Stryker's instrumentation of the measurements.
+    }, 60_000);
+  });
+
   test("reports what cannot be measured", () => {
     expect(judgeQuality(new Array<number>(64).fill(0), 8000, SINE, "binary64-as-binary32")).toStrictEqual({
       kind: "failed",
@@ -171,14 +235,14 @@ const BOUNDS: Bounds = { thdPlusN: -140, sfdr: 140, harmonics: { thd: -140, snr:
 
 group("hold", () => {
   test("passes levels within their bounds, at them included", () => {
-    expect(hold(MEASURED, BOUNDS)).toStrictEqual({ kind: "measured", levels: { thdPlusN: -150, sfdr: 150, harmonics: { thd: -150, aliasing: -150, snr: 150 } } });
+    expect(hold(MEASURED, BOUNDS, true)).toStrictEqual({ kind: "measured", levels: { thdPlusN: -150, sfdr: 150, harmonics: { thd: -150, aliasing: -150, snr: 150 } } });
     const atBounds = { ...MEASURED, thdPlusN: -140, sfdr: 140, harmonics: { thd: -140, aliasing: -140, snr: 140, quality: { conditioning: 0, floor: 0 } } };
-    expect(hold(atBounds, BOUNDS).kind).toBe("measured");
+    expect(hold(atBounds, BOUNDS, true).kind).toBe("measured");
   });
 
   test("reports every level out of its bound", () => {
     const out = { ...MEASURED, thdPlusN: -130, sfdr: 130, harmonics: { thd: -120, aliasing: -110, snr: 135, quality: { conditioning: 0, floor: 0 } } };
-    expect(hold(out, BOUNDS)).toStrictEqual({
+    expect(hold(out, BOUNDS, true)).toStrictEqual({
       kind: "failed",
       problems: [
         "THD+N -130.0 dB, above its bound -140.0 dB",
@@ -188,23 +252,31 @@ group("hold", () => {
         "aliasing -110.0 dB, above its bound -140.0 dB",
       ],
     });
-    expect(hold({ ...MEASURED, thdPlusN: Number.NaN }, BOUNDS)).toStrictEqual({ kind: "failed", problems: ["THD+N NaN dB, above its bound -140.0 dB"] });
-    expect(hold({ ...MEASURED, sfdr: Number.NaN }, BOUNDS)).toStrictEqual({ kind: "failed", problems: ["SFDR NaN dB, below its bound 140.0 dB"] });
+    expect(hold({ ...MEASURED, thdPlusN: Number.NaN }, BOUNDS, true)).toStrictEqual({ kind: "failed", problems: ["THD+N NaN dB, above its bound -140.0 dB"] });
+    expect(hold({ ...MEASURED, sfdr: Number.NaN }, BOUNDS, true)).toStrictEqual({ kind: "failed", problems: ["SFDR NaN dB, below its bound 140.0 dB"] });
   });
 
   test("checks no THD or aliasing that does not exist", () => {
     const none = { ...MEASURED, harmonics: { thd: null, aliasing: null, snr: 150, quality: { conditioning: 0, floor: 0 } } };
-    expect(hold(none, { ...BOUNDS, harmonics: { thd: -200, snr: 140 } })).toStrictEqual({ kind: "measured", levels: { thdPlusN: -150, sfdr: 150, harmonics: { thd: null, aliasing: null, snr: 150 } } });
+    expect(hold(none, { ...BOUNDS, harmonics: { thd: -200, snr: 140 } }, true)).toStrictEqual({ kind: "measured", levels: { thdPlusN: -150, sfdr: 150, harmonics: { thd: null, aliasing: null, snr: 150 } } });
   });
 
   test("passes a refused harmonic fit, saying so", () => {
     const refused = { ...MEASURED, harmonics: new MeasureError("Unresolvable", "too close") };
-    expect(hold(refused, { ...BOUNDS, harmonics: null })).toStrictEqual({ kind: "measured", levels: { thdPlusN: -150, sfdr: 150, harmonics: "too close" } });
+    expect(hold(refused, { ...BOUNDS, harmonics: null }, true)).toStrictEqual({ kind: "measured", levels: { thdPlusN: -150, sfdr: 150, harmonics: "too close" } });
+  });
+
+  test("passes harmonic levels without a margin by the expectation, saying so", () => {
+    expect(hold(MEASURED, { ...BOUNDS, harmonics: null }, false)).toStrictEqual({
+      kind: "measured",
+      levels: { thdPlusN: -150, sfdr: 150, harmonics: "its error bound leaves the harmonic fit no margin" },
+    });
+    expect(hold({ ...MEASURED, thdPlusN: -130 }, BOUNDS, false)).toStrictEqual({ kind: "failed", problems: ["THD+N -130.0 dB, above its bound -140.0 dB"] });
   });
 
   test("fails without a margin", () => {
-    expect(hold(MEASURED, null)).toStrictEqual({ kind: "failed", problems: ["its error bound leaves the fundamental no margin to be measured"] });
-    expect(hold(MEASURED, { ...BOUNDS, harmonics: null })).toStrictEqual({ kind: "failed", problems: ["its error bound leaves the harmonic fit no margin to be measured"] });
+    expect(hold(MEASURED, null, true)).toStrictEqual({ kind: "failed", problems: ["its error bound leaves the fundamental no margin to be measured"] });
+    expect(hold(MEASURED, { ...BOUNDS, harmonics: null }, true)).toStrictEqual({ kind: "failed", problems: ["its error bound leaves the harmonic fit no margin to be measured"] });
   });
 });
 

@@ -534,13 +534,33 @@ function margins(amplitude: number, error: number, quality: Quality): [number, n
   return lowest > 0 ? [total, lowest] : null;
 }
 
+/** The most unknowns a fit has: DC, then a cosine and a sine for each order up to {@link HARMONICS}. */
+const MOST_UNKNOWNS = 2 * HARMONICS + 1;
+
 /**
- * Whether a fit of conditioning `conditioning` leaves the fundamental of a render exactly
- * within `error` per sample of a sine of `amplitude` a margin above that error, from the
- * floor of an exact render (zero): the condition {@link sineBounds} needs to bound its levels.
+ * The largest floor a fit of conditioning `conditioning` has over a render within `error`
+ * per sample of a sine of `amplitude` (`spec/measurements.md`, "The oracle"): its floor is
+ * `FLOOR · (peak + Σ|c|)`, the peak at most `|amplitude| + error`, the coefficients those of
+ * the sine (`|c_cos| + |c_sin| ≤ √2·|amplitude|`) plus the fit of the error, whose scaled
+ * coefficients have a norm of at most `√(1 + ρ)/(1 - ρ) · √N · error`, so at most
+ * `√(2m) · √(1 + ρ)/(1 - ρ) · error` in sum over its `m` unknowns, each of weight at least
+ * 1/2; doubled for the computed coefficients' own error, which the floor itself bounds far
+ * below that.
+ */
+export function renderFloor(amplitude: number, error: number, conditioning: number): number {
+  const fitted = (Math.sqrt(2 * MOST_UNKNOWNS) * Math.sqrt(1 + conditioning)) / (1 - conditioning);
+  return 2 * FLOOR * ((1 + Math.SQRT2) * Math.abs(amplitude) + (1 + fitted) * error);
+}
+
+/**
+ * Whether a fit of conditioning `conditioning` leaves the fundamental of every render within
+ * `error` per sample of a sine of `amplitude` a margin above that error, its own floor
+ * included ({@link renderFloor}): the condition {@link sineBounds} needs to bound the levels
+ * of that fit for any such render, the exact one first. It depends on the expectation
+ * alone, never on the samples judged.
  */
 export function hasMargin(amplitude: number, error: number, conditioning: number): boolean {
-  return margins(amplitude, error, { conditioning, floor: 0 }) !== null;
+  return margins(amplitude, error, { conditioning, floor: renderFloor(amplitude, error, conditioning) }) !== null;
 }
 
 /** The bounds of the harmonic fit of quality `quality` (see {@link Bounds}); null without a margin. */
