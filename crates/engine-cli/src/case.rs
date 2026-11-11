@@ -55,7 +55,16 @@ impl core::fmt::Display for CaseError {
 }
 
 /// The samples of a render, channels interleaved, in its render format.
-#[derive(Debug, Clone, PartialEq)]
+///
+/// It has no equality: one on its floats would be IEEE equality (`-0.0 == 0.0`, a NaN never
+/// equal to itself), never the bits a render is compared by; compare renders by their
+/// [`Rendered::hash`] or [`Rendered::wav`] bytes:
+///
+/// ```compile_fail,E0369
+/// let samples = engine_cli::RenderedSamples::Binary64(vec![0.0]);
+/// let _ = samples == engine_cli::RenderedSamples::Binary64(vec![-0.0]);
+/// ```
+#[derive(Debug, Clone)]
 pub enum RenderedSamples {
     /// Computed and given in binary64.
     Binary64(Vec<f64>),
@@ -112,7 +121,20 @@ impl RenderedSamples {
 ///     rendered.wav()
 /// });
 /// ```
-#[derive(Debug, Clone, PartialEq)]
+///
+/// It has no equality, as its samples have none ([`RenderedSamples`]):
+///
+/// ```compile_fail,E0369
+/// let case = r#"{"sample_rate":48000,"frames":100}"#;
+/// let patch = r#"{"format":1,"nodes":[{"id":1,"box":"osc~"},{"id":2,"box":"dac~"}],
+///   "connections":[{"from":[1,0],"to":[2,0]}]}"#;
+/// let format = engine_core::RenderFormat::Binary64;
+/// engine_fpenv::with_default_mode(|mode| {
+///     let render = || engine_cli::prepare_case(case, patch, format, mode).map(|it| it.render(mode));
+///     render().expect("a case") == render().expect("a case")
+/// });
+/// ```
+#[derive(Debug, Clone)]
 pub struct Rendered {
     /// Sample rate.
     pub(crate) rate: SampleRate,

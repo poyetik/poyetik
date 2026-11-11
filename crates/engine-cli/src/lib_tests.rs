@@ -200,7 +200,13 @@ fn renders_a_case_in_every_format() {
         let rendered = render_case(SINE, PATCH, format).expect("valid case");
         assert_eq!(rendered.rate(), SampleRate::HZ_48000, "rate");
         assert_eq!(rendered.channels(), 2, "dac~ is stereo");
-        assert_eq!(rendered.samples(), &rendered.samples, "its samples");
+        assert!(
+            core::ptr::eq(
+                core::ptr::from_ref(rendered.samples()),
+                core::ptr::from_ref(&rendered.samples)
+            ),
+            "its own samples, by address: an equality of floats would not compare bits"
+        );
         assert_eq!(format_of(&rendered), format, "its format");
         let samples = widened(&rendered);
         assert_eq!(samples.len(), 200, "100 frames x 2 channels");
