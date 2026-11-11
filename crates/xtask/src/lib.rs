@@ -6985,9 +6985,13 @@ fn command(program: &str, dir: &Path) -> Command {
 }
 
 impl Runner for SystemRunner {
+    /// Runs `cmd`, its output written to xtask's stderr, both streams: a closed stdout
+    /// (`cargo xtask check | head`) then stops none of the commands xtask starts (CLAUDE.md,
+    /// command-line tools), while each keeps a terminal to write to, colors included.
     fn run(&mut self, cmd: &Cmd) -> Result<(), CommandFailure> {
         let status = command(cmd.program, &cmd.dir.under(&self.root))
             .args(&cmd.args)
+            .stdout(io::stderr())
             .status()
             .map_err(|error| CommandFailure::of(cmd, Failed::NotStarted(error.to_string())))?;
         if status.success() {
