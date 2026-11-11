@@ -4313,19 +4313,7 @@ fn under_root(path: &str, root: &str) -> bool {
         .map_or_else(|| path == root, |dir| path == dir || path.starts_with(root))
 }
 
-/// How much of the text after `include_str`, `include_bytes` or `env` the test data gate
-/// reads to find its literal path.
-const FOLLOWING_CHARS: usize = 400;
-
-/// The literal the text at `rest` opens with, `("<literal>")` with no space, if it does.
-fn literal_argument(rest: &str) -> Option<&str> {
-    let (literal, _) = rest.strip_prefix("(\"")?.split_once('"')?;
-    rest.get(literal.len().saturating_add(3)..)?
-        .starts_with(')')
-        .then_some(literal)
-}
-
-/// The code words [`test_data_gate`] follows: the forms that read a file or name a
+/// The identifiers [`test_data_gate`] follows: the forms that read a file or name a
 /// directory of the repository.
 const TEST_DATA_WORDS: [&str; 6] = [
     "include_str",
@@ -4340,7 +4328,8 @@ const TEST_DATA_WORDS: [&str; 6] = [
 /// Cargo sets for the crate itself, by their prefix.
 const CRATE_VARIABLES: [&str; 2] = ["CARGO_BIN_EXE_", "CARGO_PKG_"];
 
-/// What a word of [`TEST_DATA_WORDS`] reads, by the text that follows it ([`test_data_read`]).
+/// What an identifier of [`TEST_DATA_WORDS`] reads, by the tokens that follow it
+/// ([`test_data_read`]).
 enum Read<'text> {
     /// A file relative to the file that reads it, by its literal if it has one.
     Literal(Option<&'text str>),
@@ -4352,73 +4341,132 @@ enum Read<'text> {
     Refused(String),
 }
 
-/// Whether `compact`, the text after `var` or `var_os` without its spaces, is a call whose
-/// argument is a string literal, raw or not (`r"…"`, `r#"…"#`), naming one of the variables
-/// Cargo sets for the crate's manifest (`CARGO_MANIFEST_DIR`, `CARGO_MANIFEST_PATH` …).
-fn manifest_variable(compact: &str) -> bool {
-    compact
-        .strip_prefix('(')
-        .map(|argument| argument.strip_prefix('r').unwrap_or(argument))
-        .map(|argument| argument.trim_start_matches('#'))
-        .and_then(|argument| argument.strip_prefix('"'))
-        .is_some_and(|name| name.starts_with("CARGO_MANIFEST_"))
+/// The text of `token` when it is a plain string literal: quoted, without a prefix and
+/// without an escape, so that its text is the string itself.
+fn plain_string(token: &Token) -> Option<&str> {
+    let text = token.text.strip_prefix('"')?.strip_suffix('"')?;
+    (token.kind == TokenKind::Literal && !text.contains('\\')).then_some(text)
 }
 
-/// What `word`, a word of [`TEST_DATA_WORDS`], reads, `rest` being the text after it.
-fn test_data_read<'text>(word: &str, rest: &'text str) -> Read<'text> {
-    let manifest_dir = "!(\"CARGO_MANIFEST_DIR\")";
-    let compact: String = rest
-        .chars()
-        .filter(|character| !character.is_whitespace())
-        .take(40)
-        .collect();
+/// The string of `tokens` when they open with `( "<plain string>" )`: the one argument of a
+/// macro call, a plain string literal ([`plain_string`]).
+fn literal_argument(tokens: &[Token]) -> Option<&str> {
+    match tokens {
+        [open, literal, close, ..] if open.opens('(') && close.kind == TokenKind::Close => {
+            plain_string(literal)
+        }
+        _ => None,
+    }
+}
+
+/// What `tokens[at]`, an identifier of [`TEST_DATA_WORDS`], reads, from the tokens after it.
+fn test_data_read(tokens: &[Token], at: usize) -> Read<'_> {
+    let word = tokens.get(at).map_or("", |token| token.text.as_str());
+    let after = |offset: usize| tokens.get(at.saturating_add(offset)..).unwrap_or_default();
+    let called = after(1).first().is_some_and(|bang| bang.is_punct('!'));
     match word {
         "include_str" | "include_bytes" => {
-            Read::Literal(rest.strip_prefix('!').and_then(literal_argument))
+            Read::Literal(literal_argument(after(2)).filter(|_| called))
         }
-        "env" => match rest.strip_prefix(manifest_dir) {
-            Some(after) => {
-                // In a path's constructor: `Path::new(env!(…))`, then the one join.
-                let joined = after
-                    .strip_prefix(')')
-                    .map(str::trim_start)
-                    .and_then(|joined| joined.strip_prefix(".join"));
-                let literal = joined.and_then(literal_argument);
-                let further = joined
-                    .zip(literal)
-                    .and_then(|(joined, literal)| joined.get(literal.len().saturating_add(4)..))
-                    .map(str::trim_start)
-                    .is_some_and(|next| next.starts_with(".join") || next.starts_with(".parent"));
-                if further {
-                    Read::Refused(
-                        "a path joined or left again after the one `.join(\"<literal>\")` the \
-                         gate follows"
-                            .to_owned(),
-                    )
-                } else {
-                    Read::Joined(literal)
-                }
-            }
-            None if !rest.starts_with('!') => Read::Other,
-            None if CRATE_VARIABLES.iter().any(|prefix| {
-                rest.strip_prefix("!(\"")
-                    .is_some_and(|name| name.starts_with(prefix))
-            }) =>
+        "env" if !called => Read::Other,
+        "env" => match literal_argument(after(2)) {
+            Some("CARGO_MANIFEST_DIR") => manifest_join(after(5)),
+            Some(name)
+                if CRATE_VARIABLES
+                    .iter()
+                    .any(|prefix| name.starts_with(prefix)) =>
             {
                 Read::Other
             }
-            None => Read::Refused(
+            _ => Read::Refused(
                 "`env!` of a variable that may name a directory of the repository".to_owned(),
             ),
         },
         "option_env" => {
             Read::Refused("`option_env!`, which may name a directory of the repository".to_owned())
         }
-        _ if manifest_variable(&compact) => Read::Refused(format!(
+        _ => variable_read(word, after(1)),
+    }
+}
+
+/// What `env!("CARGO_MANIFEST_DIR")` reads, `tokens` being those after it: in a path's
+/// constructor (its `)`), then one `.join("<literal>")`, and no further `.join` or
+/// `.parent` ([`test_data_gate`]).
+fn manifest_join(tokens: &[Token]) -> Read<'_> {
+    let joined = match tokens {
+        [close, dot, join, rest @ ..]
+            if close.kind == TokenKind::Close && dot.is_punct('.') && join.is_ident("join") =>
+        {
+            literal_argument(rest).map(|literal| (literal, rest.get(3..).unwrap_or_default()))
+        }
+        _ => None,
+    };
+    match joined {
+        Some((_, [dot, next, ..]))
+            if dot.is_punct('.') && (next.is_ident("join") || next.is_ident("parent")) =>
+        {
+            Read::Refused(
+                "a path joined or left again after the one `.join(\"<literal>\")` the gate \
+                 follows"
+                    .to_owned(),
+            )
+        }
+        _ => Read::Joined(joined.map(|(literal, _)| literal)),
+    }
+}
+
+/// What `word`, `var`, `var_os` or another identifier of [`TEST_DATA_WORDS`] not called as
+/// a macro, reads, `tokens` being those after it: a call, a turbofish apart
+/// (`var::<&str>(…)`), whose argument is a string literal, raw or not, naming one of the
+/// variables Cargo sets for the crate's manifest (`CARGO_MANIFEST_DIR`,
+/// `CARGO_MANIFEST_PATH` …) is refused, and so is one holding an escape, which the gate
+/// does not read.
+fn variable_read<'text>(word: &str, tokens: &'text [Token]) -> Read<'text> {
+    let call = match tokens {
+        [first, second, open, ..]
+            if first.is_punct(':') && second.is_punct(':') && open.is_punct('<') =>
+        {
+            let mut depth = 0_usize;
+            tokens
+                .iter()
+                .enumerate()
+                .skip(2)
+                .find_map(|(index, token)| {
+                    if token.is_punct('<') {
+                        depth = depth.saturating_add(1);
+                    } else if token.is_punct('>') {
+                        depth = depth.saturating_sub(1);
+                    }
+                    (depth == 0).then_some(index.saturating_add(1))
+                })
+                .and_then(|after| tokens.get(after..))
+                .unwrap_or_default()
+        }
+        _ => tokens,
+    };
+    let argument = match call {
+        [open, literal, ..] if open.opens('(') && literal.kind == TokenKind::Literal => {
+            literal.text.as_str()
+        }
+        _ => return Read::Other,
+    };
+    if argument.contains('\\') {
+        return Read::Refused(format!(
+            "`{word}` of a literal holding an escape, which the gate does not read"
+        ));
+    }
+    let name = argument
+        .strip_prefix('r')
+        .unwrap_or(argument)
+        .trim_start_matches('#')
+        .strip_prefix('"');
+    if name.is_some_and(|name| name.starts_with("CARGO_MANIFEST_")) {
+        Read::Refused(format!(
             "`{word}` of a variable naming the crate's manifest, a directory read at run time \
              the gate cannot follow"
-        )),
-        _ => Read::Other,
+        ))
+    } else {
+        Read::Other
     }
 }
 
@@ -4427,8 +4475,9 @@ fn test_data_read<'text>(word: &str, rest: &'text str) -> Read<'text> {
 ///
 /// So a change to that data widens the default check's mutation testing to the crate.
 ///
-/// In every Rust file of a crate (`sources`, path and text), each `include_str!` and
-/// `include_bytes!` takes a literal path, relative to its file, and each
+/// In the tokens of every Rust file of a crate (`sources`), each `include_str!` and
+/// `include_bytes!` takes a literal path, a plain string (no escape, not raw), relative to
+/// its file, and each
 /// `env!("CARGO_MANIFEST_DIR")` is the argument of a path's constructor followed by one
 /// `.join("<literal>")`, relative to the crate, and by no other `.join` or `.parent` (the
 /// forms that name a file of the repository); each must lie in the crate or under one of
@@ -4436,9 +4485,9 @@ fn test_data_read<'text>(word: &str, rest: &'text str) -> Read<'text> {
 /// outside its crate: a library's read would be an input of every crate whose tests build
 /// it, which no crate declares. The other ways to name the crate's directory are refused:
 /// `option_env!`, `env!` of any variable but `CARGO_MANIFEST_DIR` and those Cargo sets for
-/// a crate (`CARGO_BIN_EXE_<name>`, `CARGO_PKG_<field>`), and `var` or `var_os` of a
-/// literal, raw or not, naming a variable of the crate's manifest (`CARGO_MANIFEST_DIR`,
-/// `CARGO_MANIFEST_PATH`). **Review only**: any path computed at run time, which no text
+/// a crate (`CARGO_BIN_EXE_<name>`, `CARGO_PKG_<field>`), and `var` or `var_os` (a
+/// turbofish apart) of a literal, raw or not, naming a variable of the crate's manifest
+/// (`CARGO_MANIFEST_DIR`, `CARGO_MANIFEST_PATH`) or holding an escape. **Review only**: any path computed at run time, which no text
 /// gate tells from any other value: a relative path given to a file API (cargo runs the
 /// tests in the crate's directory), the current directory, the executable's path,
 /// `file!()`, a variable of the environment read by a name not written as a literal or
@@ -4452,10 +4501,10 @@ fn test_data_read<'text>(word: &str, rest: &'text str) -> Read<'text> {
 /// Returns every read outside the declared data or from code other than tests, every form
 /// without its literal or that the gate cannot follow, and every root no test reads.
 pub fn test_data_gate(sources: &[RustSource]) -> Result<(), Failure> {
-    let sources = &texts(sources);
     let mut problems = Vec::new();
     let mut read: BTreeSet<(&str, &str)> = BTreeSet::new();
-    for (path, text) in sources {
+    for source in sources {
+        let path = &source.path;
         let Some((krate, relative)) = in_crate(path) else {
             continue;
         };
@@ -4463,20 +4512,12 @@ pub fn test_data_gate(sources: &[RustSource]) -> Result<(), Failure> {
             continue;
         }
         let file_dir = path.rsplit_once('/').map_or("", |(dir, _)| dir);
-        let chars: Vec<char> = text.chars().collect();
-        for (line, word, end) in code_words(text) {
-            if !TEST_DATA_WORDS.contains(&word.as_str()) {
+        for (at, token) in source.tokens.iter().enumerate() {
+            let (line, word) = (token.line, token.text.as_str());
+            if token.kind != TokenKind::Ident || !TEST_DATA_WORDS.contains(&word) {
                 continue;
             }
-            // Enough of what follows for the longest form: `env!("CARGO_MANIFEST_DIR"))`, a
-            // line break and its indentation, then `.join("<literal>")` and what follows.
-            let rest: String = chars
-                .get(end..)
-                .unwrap_or_default()
-                .iter()
-                .take(FOLLOWING_CHARS)
-                .collect();
-            let (from, literal) = match test_data_read(&word, &rest) {
+            let (from, literal) = match test_data_read(&source.tokens, at) {
                 Read::Literal(literal) => (file_dir, literal),
                 Read::Joined(literal) => (krate.dir, literal),
                 Read::Other => continue,

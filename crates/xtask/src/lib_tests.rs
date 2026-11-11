@@ -9932,8 +9932,12 @@ fn refuses_test_data_a_crate_does_not_declare() {
     }
     for (text, word) in [
         ("const A: &str = include_str!(PATH);\n", "include_str"),
-        ("const A: &str = include_bytes! (\"x\");\n", "include_bytes"),
-        ("const A: &str = include_str!(\"x\" );\n", "include_str"),
+        ("const A: &str = include_bytes!(r\"x\");\n", "include_bytes"),
+        (
+            "const A: &str = include_str!(\"x\\u{2e}rs\");\n",
+            "include_str",
+        ),
+        ("const A: &str = include_str!(\"x\", );\n", "include_str"),
         (
             "fn f() { let _ = Path::new(env!(\"CARGO_MANIFEST_DIR\")); }\n",
             "env",
@@ -10078,6 +10082,51 @@ fn refuses_the_reads_of_test_data_it_cannot_follow() {
              reads `spec/measurement-vectors.json`, outside its crate: only tests read test data"
         ),
         "a library's read is no input any crate declares"
+    );
+}
+
+#[test]
+fn follows_the_reads_of_test_data_in_tokens() {
+    let file = "crates/engine-hash/src/more_tests.rs";
+    let with = |text: &str| {
+        let mut sources = test_data_reader_sources();
+        sources.push((file.to_owned(), text.to_owned()));
+        test_data_gate(&sources)
+    };
+    let manifest = format!("\"{}_{}_{}\"", "CARGO", "MANIFEST", "DIR");
+    let run_time = |word: &str| {
+        format!(
+            "{file}:1: `{word}` of a variable naming the crate's manifest, a directory read at \
+             run time the gate cannot follow"
+        )
+    };
+    for (text, why) in [
+        (
+            "/* /* */ \"*/ const A: &str = include_str!(\"../../../spec/measurement-vectors.json\"); // \"\n".to_owned(),
+            format!(
+                "{file}:1: the tests of engine-hash read `spec/measurement-vectors.json`, which \
+                 is not in its test_data"
+            ),
+        ),
+        (
+            format!("fn f() {{ let _ = std::env::var::<&str>({manifest}); }}\n"),
+            run_time("var"),
+        ),
+        (
+            format!("fn f() {{ let _ = var_os :: < Vec<u8> > ( {manifest} ); }}\n"),
+            run_time("var_os"),
+        ),
+        (
+            "fn f() { let _ = var(\"CARGO_MANIFEST\\x5fDIR\"); }\n".to_owned(),
+            format!("{file}:1: `var` of a literal holding an escape, which the gate does not read"),
+        ),
+    ] {
+        assert_eq!(with(&text), failed(why), "{text}");
+    }
+    assert_eq!(
+        with("fn f() { let _ = var::<&str>(\"HOME\"); let _ = env::args(); }\n"),
+        Ok(()),
+        "another variable, through a turbofish"
     );
 }
 
