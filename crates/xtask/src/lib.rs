@@ -6901,7 +6901,8 @@ pub trait Runner {
     fn fresh_dir(&mut self, path: &str) -> io::Result<()>;
 
     /// The files tracked by git matching any of `patterns` (git pathspecs such as
-    /// `*.ts`), relative to the root.
+    /// `*.ts`), relative to the root, but those deleted from the work tree and not yet from
+    /// the index: no gate can read them, and cargo builds the work tree.
     ///
     /// # Errors
     ///
@@ -7068,17 +7069,23 @@ impl Runner for SystemRunner {
         }
     }
 
+    /// The files of the index (`--cached`) but those deleted from the work tree
+    /// (`--deleted`), each from git.
     fn tracked(&mut self, patterns: &[&str]) -> Result<Vec<String>, CommandFailure> {
         // Separated by NUL, every name as it is: git quotes a name out of ASCII otherwise.
-        let mut args = vec!["ls-files", "-z", "--"];
-        args.extend(patterns);
-        self.capture(&Cmd::new("git", &args, Dir::Root))
-            .map(|text| {
-                text.split('\0')
-                    .filter(|path| !path.is_empty())
-                    .map(str::to_owned)
-                    .collect()
-            })
+        let mut list = |listed: &str| {
+            let mut args = vec!["ls-files", "-z", listed, "--"];
+            args.extend(patterns);
+            self.capture(&Cmd::new("git", &args, Dir::Root))
+                .map(|text| nul_separated(&text))
+        };
+        let deleted = list("--deleted")?;
+        list("--cached").map(|cached| {
+            cached
+                .into_iter()
+                .filter(|path| !deleted.contains(path))
+                .collect()
+        })
     }
 
     fn write(&mut self, path: &str, text: &str) -> io::Result<()> {

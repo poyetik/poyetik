@@ -4495,12 +4495,14 @@ fn system_runner_lists_the_tracked_typescript_files() {
         ("src/c.js", "c"),
         ("d.ts", "d"),
         ("src/naïve.ts", "n"),
+        ("src/gone e.ts", "g"),
     ] {
         std::fs::write(root.join(file), text).expect("source file");
     }
     std::fs::write(root.join("untracked.ts"), "u").expect("untracked file");
     let _init = hermetic_git(&root, &["init", "--quiet"]);
     let _add = hermetic_git(&root, &["add", "src", "d.ts"]);
+    std::fs::remove_file(root.join("src/gone e.ts")).expect("deleted, not staged");
     let files = system(root.path()).tracked(&["*.ts", "*.tsx"]);
     std::fs::remove_dir_all(&root).expect("cleanup");
     assert_eq!(
@@ -4511,7 +4513,8 @@ fn system_runner_lists_the_tracked_typescript_files() {
             "src/b.tsx".to_owned(),
             "src/naïve.ts".to_owned()
         ],
-        "tracked TypeScript only, a name out of ASCII as it is (git quotes it by default)"
+        "tracked TypeScript only, a name out of ASCII as it is (git quotes it by default), \
+         none deleted from the work tree"
     );
     let outside = scratch("no-git");
     let error = system(outside.path()).tracked(&["*.ts", "*.tsx"]);
