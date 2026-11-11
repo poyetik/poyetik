@@ -12,7 +12,7 @@ mod tests {
     use std::process::{Command, Output, Stdio};
 
     /// The first line of the usage.
-    const USAGE: &str = "usage: cargo xtask <check [--full [--part <part>]]|list [--full [--parts]]|mutants <target>|bless [--case-changed <name>]... [--battery-changed] [--from-nothing]|bless-benchmarks|commit-msg <file>|pre-push [pair...]|help>\n";
+    const USAGE: &str = "usage: cargo xtask <check [--full [--part <part>]]|list [--full [--parts]]|mutants <target>|bless [<option>...]|bless-benchmarks|commit-msg <file>|pre-push [pair...]|help>\n";
 
     /// Runs the binary with `args`, its stdout and stderr captured.
     fn xtask(args: &[&str]) -> Output {
@@ -122,6 +122,19 @@ mod tests {
             "one line on stderr, naming the command"
         );
         assert!(output.stdout.is_empty(), "nothing on stdout");
+    }
+
+    #[test]
+    fn refuses_the_record_spent_given_to_bless_before_any_work() {
+        let output = xtask(&["bless", "--spent", "x"]);
+        assert_eq!(output.status.code(), Some(2_i32), "a usage error");
+        assert_eq!(
+            text(&output.stderr),
+            "error: `bless` gives `--spent` itself: the record on main (see: cargo xtask \
+             help)\n",
+            "one line on stderr, naming the option"
+        );
+        assert!(output.stdout.is_empty(), "nothing on stdout: no step ran");
     }
 
     #[cfg(unix)]

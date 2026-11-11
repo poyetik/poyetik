@@ -168,6 +168,7 @@ fn failed(text: impl AsRef<str>) -> Result<(), Failure> {
     Err(Failure {
         summary: lines.next().unwrap_or_default(),
         details: lines.collect(),
+        usage: false,
     })
 }
 
@@ -179,6 +180,7 @@ fn found(context: &str, problems: &[String]) -> Result<(), Failure> {
         _ => Err(Failure {
             summary: format!("{context}: {} problems, listed above", problems.len()),
             details: problems.to_vec(),
+            usage: false,
         }),
     }
 }
@@ -191,6 +193,7 @@ fn step_found(problems: &[String]) -> Result<(), Failure> {
         _ => Err(Failure {
             summary: format!("{} problems, listed above", problems.len()),
             details: problems.to_vec(),
+            usage: false,
         }),
     }
 }
@@ -386,6 +389,8 @@ fn loaded_answers(fake: &mut Fake) {
 struct Fake {
     ran: Vec<String>,
     fail: Option<String>,
+    /// A command that exits with code 2, as a usage error.
+    refuse: Option<String>,
     broken: Option<String>,
     killed: Option<String>,
     /// A command that, when it runs, rewrites a file: (command, file, new text).
@@ -415,6 +420,11 @@ impl Runner for Fake {
         } else if self.killed.as_deref() == Some(line.as_str()) {
             Failed::Ended {
                 exit: Exit::Signal(9_i32),
+                reason: None,
+            }
+        } else if self.refuse.as_deref() == Some(line.as_str()) {
+            Failed::Ended {
+                exit: Exit::Code(2_i32),
                 reason: None,
             }
         } else if self.fail.as_deref() == Some(line.as_str()) {
@@ -5091,10 +5101,6 @@ fn bless_benchmarks_counts_and_rewrites_the_baseline() {
     );
 }
 
-/// What `cargo xtask bless` tells about its options.
-const BLESS_USAGE: &str = "`bless` takes only `--case-changed <name>` (repeatable), \
-                           `--battery-changed` and `--from-nothing`";
-
 /// How the fake finds the base of the versions spent, and what it answers: `origin/main`
 /// resolves, to another commit than the upstream of [`MERGE_BASE`].
 const SPENT_BASE: (&str, &str) = (
@@ -5148,6 +5154,123 @@ fn bless_reports_the_failure_of_the_bless_it_runs() {
         format!("error: Bless conformance references: `{BLESS_RAN}` exited with code 3\n"),
         "the bless's own failure, once"
     );
+}
+
+#[test]
+fn passes_its_options_on_and_tells_a_refused_one_as_a_usage_error() {
+    let options = [
+        "--frm-nothing",
+        "--case-changed",
+        "a",
+        "--case-changed",
+        "a",
+    ];
+    let ran = format!("{BLESS_RAN} {}", options.join(" "));
+    let args: Vec<String> = core::iter::once(&"bless")
+        .chain(&options)
+        .map(|word| (*word).to_owned())
+        .collect();
+    let mut fake = Fake {
+        refuse: Some(ran.clone()),
+        ..blessing()
+    };
+    drop(fake.files.insert(RECORD_AT_BASE.to_owned(), String::new()));
+    drop(
+        fake.files
+            .insert(format!("stdout {ran}"), "OPTION a\n".to_owned()),
+    );
+    let (mut out, mut err) = (Vec::new(), Vec::new());
+    assert_eq!(
+        run_cli(&args, &mut fake, &mut out, &mut err),
+        2,
+        "engine-cli's usage error is xtask's"
+    );
+    assert_eq!(
+        fake.ran.last(),
+        Some(&ran),
+        "every option passed on unread, in its order, a repeated one included"
+    );
+    assert_eq!(
+        String::from_utf8(err).expect("utf-8"),
+        format!(
+            "error: Bless conformance references: `engine-cli bless` refused the options given \
+             to `cargo xtask bless`: `{ran}` exited with code 2 (see: cargo xtask help)\n"
+        ),
+        "one line, pointing to the usage"
+    );
+    assert!(
+        String::from_utf8(out)
+            .expect("utf-8")
+            .contains("  OPTION a\n  failed after"),
+        "what it said on stdout, replayed"
+    );
+    // Another failure of the same command is a failure, exit 1, without the pointer.
+    let mut failing = Fake {
+        fail: Some(ran.clone()),
+        ..blessing()
+    };
+    drop(
+        failing
+            .files
+            .insert(RECORD_AT_BASE.to_owned(), String::new()),
+    );
+    let mut failed_err = Vec::new();
+    assert_eq!(
+        run_cli(&args, &mut failing, &mut Vec::new(), &mut failed_err),
+        1,
+        "a failure"
+    );
+    assert_eq!(
+        String::from_utf8(failed_err).expect("utf-8"),
+        format!("error: Bless conformance references: `{ran}` exited with code 3\n"),
+        "said as a failure"
+    );
+    // A usage error of a command among several steps is still xtask's usage error: the
+    // flag survives the step's summary.
+    let mut refused = Fake {
+        refuse: Some(BLESS_RAN.to_owned()),
+        ..blessing()
+    };
+    drop(
+        refused
+            .files
+            .insert(RECORD_AT_BASE.to_owned(), String::new()),
+    );
+    let mut refused_out = Vec::new();
+    assert_eq!(
+        run_steps(&[bless_step(&[])], &mut refused, &mut refused_out),
+        Err(Failure {
+            summary: format!(
+                "Bless conformance references: `engine-cli bless` refused the options given to \
+                 `cargo xtask bless`: `{BLESS_RAN}` exited with code 2"
+            ),
+            details: Vec::new(),
+            usage: true,
+        }),
+        "a usage error, through the step"
+    );
+}
+
+#[test]
+fn refuses_to_be_given_the_record_spent() {
+    let mut fake = blessing();
+    let mut err = Vec::new();
+    assert_eq!(
+        run_cli(
+            &["bless", "--spent", "x"].map(str::to_owned),
+            &mut fake,
+            &mut Vec::new(),
+            &mut err
+        ),
+        2,
+        "a usage error"
+    );
+    assert_eq!(
+        String::from_utf8(err).expect("utf-8"),
+        "error: `bless` gives `--spent` itself: the record on main (see: cargo xtask help)\n",
+        "said"
+    );
+    assert!(fake.ran.is_empty(), "before anything runs: {:?}", fake.ran);
 }
 
 #[test]
@@ -5247,7 +5370,7 @@ fn runs_a_real_command_for_its_stdout() {
 
 #[test]
 fn bless_renders_and_rewrites_the_references() {
-    let step = bless_step(&super::BlessOptions::default());
+    let step = bless_step(&[]);
     assert_eq!(step.name, "Bless conformance references", "name");
     assert_eq!(
         command_lines(&[step]),
@@ -5322,11 +5445,11 @@ fn bless_renders_and_rewrites_the_references() {
         named.ran.last().map(String::as_str),
         Some(
             format!(
-                "{BLESS_RAN} --case-changed a --case-changed b c --battery-changed --from-nothing"
+                "{BLESS_RAN} --case-changed a --from-nothing --case-changed b c --battery-changed"
             )
             .as_str()
         ),
-        "every option is forwarded, the cases in order"
+        "every option passed on unread, in its order"
     );
     assert!(
         !named.ran.contains(&SHOW_RECORD.to_owned()),
@@ -7409,6 +7532,7 @@ fn checks_every_message_and_the_changelog_of_every_change() {
                 super::commit_scopes().join(", ")
             ),
             details: vec![],
+            usage: false,
         }),
         "a scope held to the registries only after the scopes' boundary"
     );
@@ -7998,6 +8122,7 @@ fn shows_one_problem_inline_and_lists_several() {
         Err(Failure {
             summary: "context: a".to_owned(),
             details: vec![],
+            usage: false,
         }),
         "one problem, in the summary line"
     );
@@ -8006,6 +8131,7 @@ fn shows_one_problem_inline_and_lists_several() {
         Err(Failure {
             summary: "context: 2 problems, listed above".to_owned(),
             details: vec!["a".to_owned(), "b".to_owned()],
+            usage: false,
         }),
         "several problems, counted, then listed"
     );
@@ -8118,29 +8244,9 @@ fn refuses_usage_errors_in_one_line() {
         (vec!["list", "--parts"], LIST_USAGE),
         (vec!["list", "x", "--parts"], LIST_USAGE),
         (vec!["list", "--full", "--parts", "x"], LIST_USAGE),
-        (vec!["bless", "x"], BLESS_USAGE),
-        (vec!["bless", "--case-changed"], BLESS_USAGE),
         (
-            vec!["bless", "--case-changed", "a", "--other", "b"],
-            BLESS_USAGE,
-        ),
-        (
-            vec!["bless", "--from-nothing", "--from-nothing"],
-            BLESS_USAGE,
-        ),
-        (
-            vec![
-                "bless",
-                "--battery-changed",
-                "--case-changed",
-                "a",
-                "--battery-changed",
-            ],
-            BLESS_USAGE,
-        ),
-        (
-            vec!["bless", "--case-changed", "a", "--case-changed"],
-            BLESS_USAGE,
+            vec!["bless", "--case-changed", "a", "--spent", "b"],
+            "`bless` gives `--spent` itself: the record on main",
         ),
         (
             vec!["bless-benchmarks", "x"],
@@ -9246,6 +9352,7 @@ fn refuses_a_review_naming_a_function_no_source_holds() {
                  function: a review names the test that kills its viable variant as it is now"
             ))
             .into(),
+            usage: false,
         }),
         "names only in prose, and one renamed"
     );
@@ -9788,6 +9895,7 @@ fn requires_the_exact_cargo_configuration() {
                     "found:".to_owned(),
                     config.clone(),
                 ],
+                usage: false,
             }),
             "{config}"
         );
@@ -11696,6 +11804,7 @@ fn reads_the_prose_files_and_the_vocabulary() {
             ]
             .map(str::to_owned)
             .to_vec(),
+            usage: false,
         }),
         "the tracked prose against the vocabulary, the JSON of the specifications and the \
          corpus included, the board's apart"

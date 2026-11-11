@@ -604,8 +604,9 @@ pub enum Action {
         jobs: NonZeroUsize,
     },
     /// Bless the conformance references ([`bless_step`]): read the record at the merge base
-    /// of [`SPENT_BASES`], then run `engine-cli bless` with it as the versions spent.
-    Bless(BlessOptions),
+    /// of [`SPENT_BASES`], then run `engine-cli bless` with it as the versions spent and
+    /// these options, as `cargo xtask bless` was given them.
+    Bless(Vec<String>),
     /// Record the proof of the Rust mutation step of the default check that passed
     /// ([`ProofRecord`]), when the tree is clean.
     MutationProofRecorded,
@@ -736,6 +737,9 @@ pub struct Failure {
     pub summary: String,
     /// The details: one problem or hint per line.
     pub details: Vec<String>,
+    /// Whether it is a usage error that a command xtask passed its arguments on to reported
+    /// (`engine-cli bless`, exit code 2): xtask then exits with 2 too, pointing to its usage.
+    pub usage: bool,
 }
 
 impl From<String> for Failure {
@@ -743,6 +747,7 @@ impl From<String> for Failure {
         Self {
             summary,
             details: Vec::new(),
+            usage: false,
         }
     }
 }
@@ -811,6 +816,7 @@ fn verdict(context: &str, problems: Vec<String>) -> Result<(), Failure> {
         _ => Err(Failure {
             summary: format!("{context}: {} problems, listed above", problems.len()),
             details: problems,
+            usage: false,
         }),
     }
 }
@@ -825,6 +831,7 @@ fn step_verdict(problems: Vec<String>) -> Result<(), Failure> {
         _ => Err(Failure {
             summary: format!("{} problems, listed above", problems.len()),
             details: problems,
+            usage: false,
         }),
     }
 }
@@ -5838,6 +5845,7 @@ pub fn cargo_config_gate(config: &str) -> Result<(), Failure> {
             details: ["expected:", CARGO_CONFIG, "found:", config]
                 .map(str::to_owned)
                 .to_vec(),
+            usage: false,
         })
     }
 }
@@ -6800,6 +6808,7 @@ fn conventional(message: &str, registered: bool) -> Result<(), Failure> {
                 "expected: <type>(<scope>)!: <summary>, type one of {}",
                 COMMIT_TYPES.join(", ")
             )],
+            usage: false,
         })
     };
     let Some((prefix, summary)) = header.split_once(": ") else {
@@ -8246,6 +8255,7 @@ fn merge_base(
     Err(Failure {
         summary: none.to_owned(),
         details: tried,
+        usage: false,
     })
 }
 
@@ -10266,7 +10276,7 @@ pub fn run_steps_then(
         say(out, &format!("  failed after {took}"))?;
         let failure = Failure {
             summary: format!("{}: {}", step.name, failure.summary),
-            details: failure.details,
+            ..failure
         };
         if on_failure == OnFailure::Stop {
             let total = duration_text(step_started.saturating_sub(started));
@@ -10301,12 +10311,13 @@ pub fn run_steps_then(
             .into_iter()
             .flat_map(|failure| failure.details.into_iter().chain([failure.summary]))
             .collect(),
+        usage: false,
     })
 }
 
 /// Usage of the `xtask` command, in the order of its first line.
 pub const USAGE: &str = "\
-usage: cargo xtask <check [--full [--part <part>]]|list [--full [--parts]]|mutants <target>|bless [--case-changed <name>]... [--battery-changed] [--from-nothing]|bless-benchmarks|commit-msg <file>|pre-push [pair...]|help>
+usage: cargo xtask <check [--full [--part <part>]]|list [--full [--parts]]|mutants <target>|bless [<option>...]|bless-benchmarks|commit-msg <file>|pre-push [pair...]|help>
   check [--full]        run every quality check, stopping at the first failure;
                         mutation testing covers the changes. Rust: the changes since
                         the merge base with the upstream, origin/main or main; the
@@ -10323,13 +10334,12 @@ usage: cargo xtask <check [--full [--part <part>]]|list [--full [--parts]]|mutan
   mutants <target>      run every mutant of one target: a crate (its name), a Rust file
                         of a crate, a TypeScript package (its directory) or one of its
                         sources (their paths from the root)
-  bless [options]       rewrite conformance/references.json from the current renders,
+  bless [<option>...]   rewrite conformance/references.json from the current renders,
                         and conformance/algorithms.json from the current box types and
-                        engine (decision 29), refusing a reference changed under the
-                        same versions but for each case named by --case-changed <name>
-                        (repeatable), outputs changed at a version spent at the merge
-                        base, a battery change but with --battery-changed, and a first
-                        bless but with --from-nothing
+                        engine (decision 29): runs `engine-cli bless conformance
+                        --spent <record>`, the record on main (at the merge base with
+                        origin/main, else main), then the options as given, every one
+                        but --spent, which `cargo run -p engine-cli -- help` lists
   bless-benchmarks      rewrite spec/benchmark-baseline.json from the current instruction
                         counts of the engine module (spec/benchmarks.md)
   commit-msg <file>     check a commit message (used by the commit-msg hook)
@@ -10513,51 +10523,12 @@ pub const CONFORMANCE_RECORD: &str = "conformance/algorithms.json";
 /// `null` when the merge base has none.
 pub const SPENT_RECORD: &str = "target/xtask/spent-algorithms.json";
 
-/// What `cargo xtask bless` was told, passed on to `engine-cli bless`
-/// (`spec/engine-design.md`, decision 29; each "Review only").
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct BlessOptions {
-    /// The cases whose references changed on purpose (`--case-changed <name>`).
-    pub changed: Vec<String>,
-    /// The fingerprint battery changed, and nothing else (`--battery-changed`).
-    pub battery_changed: bool,
-    /// A first bless, with neither file to compare with (`--from-nothing`).
-    pub from_nothing: bool,
-}
+/// The one option of `engine-cli bless` that `cargo xtask bless` gives itself, and refuses
+/// from its user: the record at the merge base of [`SPENT_BASES`].
+pub const SPENT_OPTION: &str = "--spent";
 
-impl BlessOptions {
-    /// Reads the options of `cargo xtask bless`: `--case-changed <name>` (repeatable),
-    /// `--battery-changed` and `--from-nothing` (each at most once).
-    ///
-    /// # Errors
-    ///
-    /// Returns why the options are not those.
-    pub fn parse(options: &[String]) -> Result<Self, String> {
-        let usage = || {
-            "`bless` takes only `--case-changed <name>` (repeatable), `--battery-changed` and \
-             `--from-nothing`"
-                .to_owned()
-        };
-        let mut parsed = Self::default();
-        let mut rest = options.iter();
-        while let Some(option) = rest.next() {
-            let flag = match option.as_str() {
-                "--case-changed" => {
-                    parsed.changed.push(rest.next().ok_or_else(usage)?.clone());
-                    continue;
-                }
-                "--battery-changed" => &mut parsed.battery_changed,
-                "--from-nothing" => &mut parsed.from_nothing,
-                _ => return Err(usage()),
-            };
-            if *flag {
-                return Err(usage());
-            }
-            *flag = true;
-        }
-        Ok(parsed)
-    }
-}
+/// The exit code of a usage error, in every command-line tool of the repository.
+const USAGE_EXIT: i32 = 2;
 
 /// The only way to change the reference hashes: renders every conformance case.
 ///
@@ -10569,18 +10540,22 @@ impl BlessOptions {
 /// a battery change but with `--battery-changed`, and a directory without both files but
 /// with `--from-nothing` (`spec/engine-design.md`, decision 29). The commit must explain
 /// why they changed.
+///
+/// `options` are passed on to `engine-cli bless` unread, after its `--spent`: its parser
+/// is their one source, so an option it refuses is refused after the preflight and its
+/// build, as a usage error.
 #[must_use]
-pub fn bless_step(options: &BlessOptions) -> Step {
+pub fn bless_step(options: &[String]) -> Step {
     Step {
         name: "Bless conformance references".to_owned(),
-        action: Action::Bless(options.clone()),
+        action: Action::Bless(options.to_vec()),
     }
 }
 
 /// The command [`bless_step`] runs once the record at the merge base is in
-/// [`SPENT_RECORD`].
+/// [`SPENT_RECORD`]: `engine-cli bless`, `options` after its own.
 #[must_use]
-pub fn bless_command(options: &BlessOptions) -> Cmd {
+pub fn bless_command(options: &[String]) -> Cmd {
     let mut args = vec![
         "run",
         "--package",
@@ -10590,18 +10565,10 @@ pub fn bless_command(options: &BlessOptions) -> Cmd {
         "--",
         "bless",
         "conformance",
-        "--spent",
+        SPENT_OPTION,
         SPENT_RECORD,
     ];
-    for name in &options.changed {
-        args.extend(["--case-changed", name]);
-    }
-    if options.battery_changed {
-        args.push("--battery-changed");
-    }
-    if options.from_nothing {
-        args.push("--from-nothing");
-    }
+    args.extend(options.iter().map(String::as_str));
     Cmd::new("cargo", &args, Dir::Root)
 }
 
@@ -10635,12 +10602,10 @@ pub fn record_at(runner: &mut dyn Runner, base: &str) -> Result<Option<String>, 
 /// # Errors
 ///
 /// Returns why there is no merge base, why git cannot give the record there, why it
-/// cannot be written, or why the bless failed.
-fn bless(
-    runner: &mut dyn Runner,
-    out: &mut dyn Write,
-    options: &BlessOptions,
-) -> Result<(), Failure> {
+/// cannot be written, or why the bless failed: a usage error ([`Failure::usage`]) when
+/// `engine-cli` refused the options, exiting with code 2 (cargo's own failures exit with
+/// 101, and the other arguments are xtask's).
+fn bless(runner: &mut dyn Runner, out: &mut dyn Write, options: &[String]) -> Result<(), Failure> {
     let (base, against) = spent_base(runner)?;
     let record = record_at(runner, &base)?;
     let (spent, held) = record.map_or_else(
@@ -10660,7 +10625,20 @@ fn bless(
     for line in result.lines() {
         say(out, &format!("  {line}"))?;
     }
-    ended.map_err(|failure| Failure::from(failure.to_string()))
+    ended.map_err(|failure| match failure.failed {
+        Failed::Ended {
+            exit: Exit::Code(USAGE_EXIT),
+            ..
+        } => Failure {
+            usage: true,
+            ..Failure::from(format!(
+                "`engine-cli bless` refused the options given to `cargo xtask bless`: {failure}"
+            ))
+        },
+        Failed::NotStarted(_) | Failed::Ended { .. } | Failed::NotText => {
+            Failure::from(failure.to_string())
+        }
+    })
 }
 
 /// The only way to change the benchmark baseline: no package script runs the bless.
@@ -10699,8 +10677,8 @@ enum Task {
     ListParts,
     /// Every mutant of one target.
     Mutants(Target),
-    /// Rewrite the reference hashes, as told.
-    Bless(BlessOptions),
+    /// Rewrite the reference hashes, with these options of `engine-cli bless`.
+    Bless(Vec<String>),
     /// Rewrite the benchmark baseline.
     BlessBenchmarks,
     /// Check the commit message in this file.
@@ -10750,7 +10728,12 @@ fn task(args: &[OsString]) -> Result<Task, String> {
                 })
         }
         [command, options @ ..] if command == "bless" => {
-            BlessOptions::parse(options).map(Task::Bless)
+            if options.iter().any(|option| option == SPENT_OPTION) {
+                return Err(format!(
+                    "`bless` gives `{SPENT_OPTION}` itself: the record on main"
+                ));
+            }
+            Ok(Task::Bless(options.to_vec()))
         }
         [command] if command == "bless-benchmarks" => Ok(Task::BlessBenchmarks),
         [command] if command == "help" => Ok(Task::Help),
@@ -10790,7 +10773,8 @@ fn task(args: &[OsString]) -> Result<Task, String> {
 ///
 /// 0 on success. 1 when a check or a command failed: one `error: …` line on `err`, its
 /// details on `out`. 2 for a usage error: one `error: … (see: cargo xtask help)` line on
-/// `err`, nothing on `out`. Only `help` prints the usage, on `out`. The error line and
+/// `err`, nothing on `out`, or, for options `bless` passed on that `engine-cli` refused,
+/// after the steps that ran and their lines on `out`. Only `help` prints the usage, on `out`. The error line and
 /// each line of the details go through [`safe_message`]: escaped, and bounded.
 pub fn cli(
     args: &[OsString],
@@ -10884,8 +10868,20 @@ pub fn cli(
             for line in failure.details.iter().flat_map(|detail| detail.lines()) {
                 drop(writeln!(out, "{}", safe_message(line)));
             }
-            drop(writeln!(err, "error: {}", safe_message(&failure.summary)));
-            1
+            // A usage error a command xtask passed its arguments on to reported is xtask's
+            // usage error: the pointer to the usage after the bounded reason, which no
+            // reason can cut.
+            let (pointer, code) = if failure.usage {
+                (" (see: cargo xtask help)", 2)
+            } else {
+                ("", 1)
+            };
+            drop(writeln!(
+                err,
+                "error: {}{pointer}",
+                safe_message(&failure.summary)
+            ));
+            code
         }
     }
 }
