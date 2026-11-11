@@ -8,6 +8,7 @@ use engine_core::{
 };
 
 use super::{FINGERPRINT_BATTERY, fingerprint, seeded_signal};
+use crate::inputs::param_sets;
 
 const IN: PortSpec = PortSpec {
     name: "in",
@@ -35,6 +36,9 @@ enum Quirk {
     Random,
     /// On the last block only.
     LastBlock,
+    /// On a special input of the matrix only: the smallest normal of either precision,
+    /// which the seeded random signal never is.
+    Special,
 }
 
 /// Multiplies its input by its gain, then adds a quarter to its output where its quirk
@@ -66,6 +70,10 @@ impl<S: Sample> Object<S> for Echo {
                     && match self.quirk {
                         Quirk::Random => wide > 0.5_f64 && wide < 0.75_f64,
                         Quirk::LastBlock => self.blocks == 8,
+                        Quirk::Special => {
+                            wide.to_bits() == f64::MIN_POSITIVE.to_bits()
+                                || wide.to_bits() == f64::from(f32::MIN_POSITIVE).to_bits()
+                        }
                         Quirk::None | Quirk::HighestRate | Quirk::Binary32 | Quirk::Maximum => true,
                     };
                 let product = (*value * gain).to_binary64().raw();
@@ -91,7 +99,7 @@ fn echo(quirk: Quirk) -> ObjectSpec {
                         Quirk::HighestRate => rate.hz() == 384_000,
                         Quirk::Binary32 => S::PRECISION == Precision::Binary32,
                         Quirk::Maximum => gain.to_bits() == 1.0_f64.to_bits(),
-                        Quirk::Random | Quirk::LastBlock => true,
+                        Quirk::Random | Quirk::LastBlock | Quirk::Special => true,
                     };
                     Box::new(Echo {
                         gain,
@@ -111,6 +119,7 @@ fn echo(quirk: Quirk) -> ObjectSpec {
         Quirk::Maximum => with!(Quirk::Maximum),
         Quirk::Random => with!(Quirk::Random),
         Quirk::LastBlock => with!(Quirk::LastBlock),
+        Quirk::Special => with!(Quirk::Special),
     };
     ObjectSpec {
         name: "echo~",
@@ -147,6 +156,7 @@ fn sees_one_bit_changed_in_any_run_of_the_battery() {
         Quirk::Maximum,
         Quirk::Random,
         Quirk::LastBlock,
+        Quirk::Special,
     ] {
         let changed = fingerprint(&echo(quirk));
         assert_ne!(changed, plain, "{quirk:?}");
@@ -185,4 +195,76 @@ fn draws_the_seeded_signal_of_splitmix64_from_zero() {
         ]
     );
     assert!(seeded_signal(0).is_empty(), "none");
+}
+
+#[test]
+fn tries_special_parameter_values_only_within_the_range() {
+    const POSITIVE: ParamSpec = ParamSpec::new("gain", "gain", 2.0, 1.0, 3.0);
+    const NEGATIVE: ParamSpec = ParamSpec::new("gain", "gain", -2.0, -3.0, -1.0);
+    let bits = |param: &'static ParamSpec| {
+        param_sets(&ObjectSpec {
+            params: core::slice::from_ref(param),
+            ..echo(Quirk::None)
+        })
+        .map(|set| set.iter().map(|value| value.to_bits()).collect::<Vec<_>>())
+    };
+    assert_eq!(
+        bits(&GAIN),
+        [
+            vec![0.0_f32.to_bits()],
+            vec![0.5_f32.to_bits()],
+            vec![0.75_f32.to_bits()],
+            vec![1.0_f32.to_bits()],
+            vec![0x8000_0000],
+            vec![0x0000_0001],
+            vec![0x0080_0000],
+        ],
+        "[0, 1]: minimum, default, away from the default, maximum, -0.0, 1e-45, 2^-126"
+    );
+    assert_eq!(
+        bits(&POSITIVE)[4..],
+        [
+            vec![2.0_f32.to_bits()],
+            vec![2.0_f32.to_bits()],
+            vec![2.0_f32.to_bits()]
+        ],
+        "above zero: the default instead"
+    );
+    assert_eq!(
+        bits(&NEGATIVE)[4..],
+        [
+            vec![(-2.0_f32).to_bits()],
+            vec![(-2.0_f32).to_bits()],
+            vec![(-2.0_f32).to_bits()]
+        ],
+        "below zero: the default instead"
+    );
+}
+
+#[test]
+fn tries_a_value_away_from_the_default() {
+    // The midpoint of the range, unless it is the default: then halfway from the default
+    // to the maximum.
+    const QUARTER: ParamSpec = ParamSpec::new("gain", "gain", 0.25, 0.0, 1.0);
+    const CENTERED: ParamSpec = ParamSpec::new("gain", "gain", 0.5, -1.0, 1.0);
+    const ZERO: ParamSpec = ParamSpec::new("gain", "gain", 0.0, -1.0, 1.0);
+    let away = |param: &'static ParamSpec| {
+        let [_, _, away, ..] = param_sets(&ObjectSpec {
+            params: core::slice::from_ref(param),
+            ..echo(Quirk::None)
+        });
+        away.iter().map(|value| value.to_bits()).collect::<Vec<_>>()
+    };
+    assert_eq!(away(&QUARTER), [0.5_f32.to_bits()], "the midpoint");
+    assert_eq!(
+        away(&GAIN),
+        [0.75_f32.to_bits()],
+        "the default is the midpoint"
+    );
+    assert_eq!(away(&CENTERED), [0.0_f32.to_bits()], "midpoint of [-1, 1]");
+    assert_eq!(
+        away(&ZERO),
+        [0.5_f32.to_bits()],
+        "halfway from the default 0 to the maximum"
+    );
 }

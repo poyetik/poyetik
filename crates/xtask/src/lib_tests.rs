@@ -891,7 +891,7 @@ const READMES: [(&str, &str); 10] = [
     (
         "crates/README.md",
         "`engine-core` `engine-objects` `engine-patch` `engine-hash` `engine-alloc-counter` \
-         `engine-fpenv` `engine-testkit` `engine-cli` `xtask`",
+         `engine-fpenv` `engine-battery` `engine-testkit` `engine-cli` `xtask`",
     ),
     ("apps/README.md", "| `roadmap/` | | `playground/` |"),
     ("bindings/README.md", "- [`wasm/`](wasm/)"),
@@ -1637,6 +1637,7 @@ fn lists_every_check_in_order() {
             "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-hash/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-hash.json -- --include-ignored",
             "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-alloc-counter/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-alloc-counter.json -- --include-ignored",
             "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-fpenv/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-fpenv.json -- --include-ignored",
+            "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-battery/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-battery.json -- --include-ignored",
             "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-testkit/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-testkit.json -- --include-ignored",
             "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-cli/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-cli.json -- --include-ignored",
             "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path bindings/wasm/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-wasm.json -- --include-ignored",
@@ -1752,6 +1753,7 @@ fn names_every_check_in_order() {
             "Rust coverage of engine-hash: 100% by its own unit tests",
             "Rust coverage of engine-alloc-counter: 100% by its own unit tests",
             "Rust coverage of engine-fpenv: 100% by its own unit tests",
+            "Rust coverage of engine-battery: 100% by its own unit tests",
             "Rust coverage of engine-testkit: 100% by its own unit tests",
             "Rust coverage of engine-cli: 100% by its own unit tests",
             "Rust coverage of engine-wasm: 100% by its own unit tests",
@@ -3337,10 +3339,10 @@ fn runs_every_step_and_reports_success() {
         Ok(()),
         "all green"
     );
-    let (tools, commands, emptied, listed, captured, written) = (10, 56, 14, 24, 36, 3);
+    let (tools, commands, emptied, listed, captured, written) = (10, 58, 14, 24, 36, 3);
     let read = 2
         + 7
-        + 13
+        + 14
         + 3
         + 7
         + 21
@@ -3348,24 +3350,24 @@ fn runs_every_step_and_reports_success() {
         + 1
         + 7
         + 3
-        + 11
+        + 12
         + 10
         + 21
         + 8
         + 2
-        + 11
+        + 12
         + 40
         + 20
         + 3
-        + 3 * 8
-        + 3 * 11
+        + 3 * 9
+        + 3 * 12
         + 1
-        + 87;
+        + 90;
     assert_eq!(
         fake.ran.len(),
         tools + commands + emptied + listed + captured + written + read,
-        "the preflight asks ten tools; 56 commands run (formatting, lints, documentation, \
-         tests, four portability builds, the native shell's lints and the build of its libraries for its two architectures, thirteen coverage measurements each after emptying \
+        "the preflight asks ten tools; 58 commands run (formatting, lints, documentation, \
+         tests, four portability builds, the native shell's lints and the build of its libraries for its two architectures, fourteen coverage measurements each after emptying \
          the coverage build, the mutants of the changes, Miri, the \
          conformance check and export, deny, the JavaScript install, audit, the engine build and five package \
          checks each followed by its Stryker run); fourteen directories are emptied; git lists \
@@ -3375,11 +3377,11 @@ fn runs_every_step_and_reports_success() {
          new Rust files and the list of every mutant once, git's common directory twice, the tree checked out, \
          cargo-mutants' version, rustc's host and build, the linker driver's and git's versions, the status for a push and the hidden files for the mutation step and the proof record; the measured base, the diff and the \
          proof record are written once each; the proof record, the measured base and the \
-         toolchain file are read for it; and the gates read the eight fake test data readers for the unsafe, bypass and vocabulary gates, every Rust file (eleven) for the test code, test data and untested targets gates, .node-version and the toolchain file for the preflight, the toolchain file, the four float sources and the float macros of the nightly and clippy.toml for the float gate, thirteen coverage reports, \
-         the unviable report and reviews, the register of the pin gate, the 87 text files of the citation gate (the board among them), the reviews again against the list of every mutant, six TypeScript sources and their reviews, the nine \
-         sources, the eleven Cargo manifests and the register of the bypass gate, the three unsafe files, the Cargo \
+         toolchain file are read for it; and the gates read the nine fake test data readers for the unsafe, bypass and vocabulary gates, every Rust file (twelve) for the test code, test data and untested targets gates, .node-version and the toolchain file for the preflight, the toolchain file, the four float sources and the float macros of the nightly and clippy.toml for the float gate, fourteen coverage reports, \
+         the unviable report and reviews, the register of the pin gate, the 90 text files of the citation gate (the board among them), the reviews again against the list of every mutant, six TypeScript sources and their reviews, the nine \
+         sources, the twelve Cargo manifests and the register of the bypass gate, the three unsafe files, the Cargo \
          configuration, the six package manifests and the register of the dependency gate, the three \
-         supply-chain configurations, eleven crate manifests, ten READMEs, the changelog, ten READMEs, three Rust and six TypeScript sources and the vocabulary of the vocabulary gate, eight version files, the workflow and \
+         supply-chain configurations, twelve crate manifests, ten READMEs, the changelog, ten READMEs, three Rust and six TypeScript sources and the vocabulary of the vocabulary gate, eight version files, the workflow and \
          .node-version, five Stryker configurations and the six package manifests, and for each of the five \
          packages, the six TypeScript sources and two reports of its reports gate, then its \
          Stryker configuration, coverage summary, mutation report and the register of its \
@@ -3402,15 +3404,15 @@ fn runs_every_step_and_reports_success() {
     );
     let text = String::from_utf8(out).expect("utf-8 output");
     assert!(
-        text.starts_with("▶ [1/88] Tools and platform\n"),
+        text.starts_with("▶ [1/89] Tools and platform\n"),
         "numbered progress: {text}"
     );
     assert!(
-        text.contains("▶ [79/88] Roadmap checks\n  done in 1.5 s\n"),
+        text.contains("▶ [80/89] Roadmap checks\n  done in 1.5 s\n"),
         "last step announced: {text}"
     );
     assert!(
-        text.ends_with("  done in 1.5 s\n✔ all 88 checks passed in 2 min 12 s\n"),
+        text.ends_with("  done in 1.5 s\n✔ all 89 checks passed in 2 min 13 s\n"),
         "summary: {text}"
     );
 }
@@ -6532,7 +6534,7 @@ fn checks_a_push_then_runs_every_check() {
     assert!(
         String::from_utf8(out)
             .expect("UTF-8")
-            .ends_with("✔ all 88 checks passed in 2 min 12 s\n"),
+            .ends_with("✔ all 89 checks passed in 2 min 13 s\n"),
         "then every check"
     );
     assert!(
@@ -6988,12 +6990,12 @@ fn prints_the_details_of_a_failure_on_stdout_and_one_line_on_stderr() {
     );
     assert_eq!(
         String::from_utf8(err).expect("UTF-8"),
-        "error: 1 of 86 checks failed, listed above\n",
+        "error: 1 of 87 checks failed, listed above\n",
         "one line on stderr, counting the failed steps"
     );
     assert!(
         String::from_utf8(out).expect("UTF-8").ends_with(&format!(
-            "▶ [86/86] Working tree unchanged by the checks\n  done in 1.5 s\n\
+            "▶ [87/87] Working tree unchanged by the checks\n  done in 1.5 s\n\
              not reviewed: crates/a/src/c.rs: replace g -> U with x\n\
              stale review: crates/a/src/b.rs: replace f -> T with Default::default()\n\
              Rust unviable mutants reviewed: unviable mutants must be reviewed in \
@@ -9392,7 +9394,7 @@ fn empties_the_coverage_build_before_every_measurement() {
         .collect();
     assert_eq!(
         measurements.len(),
-        12 + 1,
+        13 + 1,
         "every crate and binary measured, and the locality fixture"
     );
     for index in measurements {
@@ -10753,8 +10755,8 @@ fn the_parts_run_every_step_of_the_full_check_once() {
     }
     assert_eq!(
         steps_run,
-        18 * 3 + (86 - 3 - 7 - 2) + 8 * 2 + 1 + 2 + 6 * 3 + 1,
-        "each part's frame (three steps); every other step of the 86 once, but the seven \
+        18 * 3 + (87 - 3 - 7 - 2) + 8 * 2 + 1 + 2 + 6 * 3 + 1,
+        "each part's frame (three steps); every other step of the 87 once, but the seven \
          preparations, the mutation run and its unviable gate; in each of the eight shards, \
          the report emptied and the shard's run; the gate over the shards; the conformance \
          export (two steps) for the oracle; the JavaScript preparation (three steps) for the \
@@ -11909,6 +11911,7 @@ fn mutates_every_crate_not_proven_whole_when_what_every_test_uses_changed() {
         "engine-patch",
         "engine-alloc-counter",
         "engine-fpenv",
+        "engine-battery",
         "engine-testkit",
         "engine-cli",
         "engine-wasm",
@@ -13076,8 +13079,8 @@ fn takes_for_shared_test_code_every_crate_only_tests_use() {
 fn derives_each_list_of_crates_from_their_roles() {
     assert_eq!(
         super::crates_in(super::CrateRole::SharedTests),
-        ["engine-alloc-counter", "engine-testkit"],
-        "the counting allocator and the test kit"
+        ["engine-alloc-counter", "engine-battery", "engine-testkit"],
+        "the counting allocator, the fingerprint battery and the test kit"
     );
     for krate in super::RUST_CRATES {
         for role in krate.roles {
@@ -13324,7 +13327,7 @@ fn reads_a_lock_file_only_as_cargo_writes_it() {
     assert!(super::lock_entries(&lock).is_ok(), "as written");
     assert_eq!(
         super::lock_entries(&lock).map(|entries| entries.len()),
-        Ok(15),
+        Ok(16),
         "every crate of the workspace and every package"
     );
     let first = "it does not start with `version = 4` after its comments";
@@ -13337,19 +13340,19 @@ fn reads_a_lock_file_only_as_cargo_writes_it() {
                 "\n[[package]]\nnamee = \"libm\"",
                 1,
             ),
-            "line 59 is not `name = \"…\"`",
+            "line 63 is not `name = \"…\"`",
         ),
         (
             lock.replacen("version = \"0.2.16\"", "version = 0.2.16", 1),
-            "line 60 is not `version = \"…\"`",
+            "line 64 is not `version = \"…\"`",
         ),
         (
             lock.replacen("checksum = \"c1\"", "checksum = c1", 1),
-            "line 62 is not `checksum = \"…\"`",
+            "line 66 is not `checksum = \"…\"`",
         ),
         (
             lock.replacen("checksum = \"c1\"", "checksum = \"c1\"\nyanked = true", 1),
-            "line 63 is not the blank line ending an entry",
+            "line 67 is not the blank line ending an entry",
         ),
         (
             lock.replacen(" \"libm\",", "  \"libm\",", 1),
@@ -13375,17 +13378,17 @@ fn reads_a_lock_file_only_as_cargo_writes_it() {
                 "\n[[package]]\nname = \"libm\"",
                 1,
             ),
-            "line 57 is not the blank line ending an entry",
+            "line 61 is not the blank line ending an entry",
         ),
         (
             format!("{lock}\n[metadata]\n"),
-            "line 94 is not `[[package]]`",
+            "line 98 is not `[[package]]`",
         ),
         (
             format!(
                 "{lock}\n[[package]]\nname = \"libm\"\nversion = \"0.2.16\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"c1\"\n"
             ),
-            "the entry of line 94 repeats an earlier one",
+            "the entry of line 98 repeats an earlier one",
         ),
         (
             format!("{lock}\n[[package]]\nname = \"a\"\n"),
@@ -13401,7 +13404,7 @@ fn reads_a_lock_file_only_as_cargo_writes_it() {
                 "source = registry",
                 1,
             ),
-            "line 61 is not `source = \"…\"`",
+            "line 65 is not `source = \"…\"`",
         ),
     ] {
         assert_eq!(

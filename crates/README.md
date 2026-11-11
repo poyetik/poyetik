@@ -6,7 +6,8 @@ The **engine core** and the project tooling, as Rust crates of one Cargo workspa
 |---|---|
 | `engine-core` | Box contract, strong types, the math layer (the sample type, binary64 or binary32, and the math functions every box computes with), deterministic execution plan (`no_std`, no `unsafe`) |
 | `engine-objects` | The boxes (`osc~`, `dac~`), each written once for both precisions, and their registry (`no_std`, no `unsafe`, no math function but the math layer's) |
-| `engine-testkit` | Test bench: the laws every registered box must respect, and the objective measurements of a signal (`spec/measurements.md`) (no `unsafe`) |
+| `engine-battery` | The fingerprint battery (`spec/engine-design.md`, decision 29): the shared test matrix, the parameter sets and special inputs every box is tried with, and the fingerprint of a box type's outputs over them, which `engine-cli` records and the box laws share (no `unsafe`) |
+| `engine-testkit` | Test bench, for tests only: the laws every registered box must respect, and the objective measurements of a signal (`spec/measurements.md`) (no `unsafe`) |
 | `engine-alloc-counter` | The global allocator counting heap operations (allocations and releases) in tests: the only `unsafe` of the test bench, audited and checked by Miri |
 | `engine-fpenv` | Runs native engine calls in the default floating-point mode of the processor (no flush-to-zero, round to nearest) whatever mode the host set, restoring the host's mode after: native only (`x86_64`, aarch64), its one `unsafe` file reads and writes the control register with inline assembly, proven by its tests and audited (Miri cannot run assembly) |
 | `engine-patch` | Reads the JSON patch format (`spec/patch-format.md`) (`no_std`, no `unsafe`) |

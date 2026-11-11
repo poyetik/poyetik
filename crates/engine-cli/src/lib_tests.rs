@@ -804,7 +804,7 @@ fn canonical(json: &str) -> String {
 
 /// The fingerprint of the registered box type `name`, at its current version.
 fn fingerprint_of(name: &str) -> String {
-    engine_testkit::fingerprint(
+    engine_battery::fingerprint(
         engine_objects::REGISTRY
             .iter()
             .find(|spec| spec.name == name)

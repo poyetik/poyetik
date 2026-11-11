@@ -13,10 +13,10 @@ categories = ["development-tools::testing"]
 
 [dependencies]
 engine-alloc-counter = { path = "../engine-alloc-counter" }
+engine-battery = { path = "../engine-battery" }
 engine-core = { path = "../engine-core" }
 libm = { workspace = true }
 proptest = { version = "1", default-features = false, features = ["std"] }
-sha2 = { workspace = true }
 
 [dev-dependencies]
 # The patch reader and the real boxes, for the laws of reading patches (tests/parse_laws.rs).

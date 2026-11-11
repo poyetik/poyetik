@@ -4,19 +4,18 @@ use alloc::collections::BTreeSet;
 
 use engine_core::host::{ParamBounds, Raw};
 use engine_core::{
-    BLOCK_SIZE, Binary32, Binary64, Block, Object, ObjectSpec, ParamSpec, Precision, SampleRate,
+    BLOCK_SIZE, Binary32, Binary64, Block, Object, ObjectSpec, Precision, SampleRate,
 };
 use proptest::collection::vec;
 use proptest::test_runner::TestCaseError;
 
+use engine_battery::{BLOCKS, BatterySample, param_sets, special_input};
+
 use crate::heap_operations_during;
-use crate::matrix::{PRECISIONS, SPECIAL_INPUTS, SPECIAL_INPUTS_BINARY64, sample_rates};
+use crate::matrix::{PRECISIONS, sample_rates};
 
 /// What the laws read of a sample, in either precision.
-pub(crate) trait LawSample: Raw {
-    /// The special inputs of the matrix in this precision.
-    fn special_inputs() -> [Self; 8];
-
+trait LawSample: BatterySample {
     /// Whether it is neither NaN nor infinite.
     fn finite(self) -> bool;
 
@@ -25,10 +24,6 @@ pub(crate) trait LawSample: Raw {
 }
 
 impl LawSample for Binary64 {
-    fn special_inputs() -> [Self; 8] {
-        SPECIAL_INPUTS_BINARY64.map(Self::from_raw)
-    }
-
     fn finite(self) -> bool {
         self.raw().is_finite()
     }
@@ -39,10 +34,6 @@ impl LawSample for Binary64 {
 }
 
 impl LawSample for Binary32 {
-    fn special_inputs() -> [Self; 8] {
-        SPECIAL_INPUTS.map(Self::from_raw)
-    }
-
     fn finite(self) -> bool {
         self.raw().is_finite()
     }
@@ -51,9 +42,6 @@ impl LawSample for Binary32 {
         self.raw().is_subnormal()
     }
 }
-
-/// Blocks rendered per run.
-pub(crate) const BLOCKS: usize = 8;
 
 /// Blocks rendered by the long run of each sample rate and parameter set: 65,536 frames,
 /// 1.4 s at 48 kHz and 0.17 s at 384 kHz. Enough to reveal state that overflows, becomes
@@ -184,51 +172,6 @@ fn bits<S: LawSample>(blocks: &[Block<S>]) -> Vec<u64> {
         .collect()
 }
 
-/// A value of the range that differs from the default whenever the range allows it: the
-/// midpoint, or the point halfway between the default and the maximum when the default
-/// is the midpoint. So that a box hard-coding its default cannot pass.
-fn away_from_default(param: &ParamSpec) -> f32 {
-    let midpoint = param.minimum() / 2.0 + param.maximum() / 2.0;
-    if midpoint.to_bits() == param.default_value().to_bits() {
-        param.default_value() / 2.0 + param.maximum() / 2.0
-    } else {
-        midpoint
-    }
-}
-
-/// `value` when the range of `param` accepts it (bit for bit, `-0.0` included), else
-/// the default, which another set already tries.
-fn within(param: &ParamSpec, value: f32) -> f32 {
-    if param.accepts(value) {
-        value
-    } else {
-        param.default_value()
-    }
-}
-
-/// Parameter sets every law is checked with: all minimums, all defaults, all values away
-/// from their default, all maximums, then special values where the range accepts them:
-/// `-0.0`, the smallest subnormal, `1e-45` (a plan flushes it to zero, but a box must not
-/// break on it), and the smallest normal, `2^-126` (the smallest magnitude above zero a
-/// plan passes on).
-pub(crate) fn param_sets(spec: &ObjectSpec) -> [Vec<f32>; 7] {
-    let special = |value: f32| {
-        spec.params
-            .iter()
-            .map(|param| within(param, value))
-            .collect()
-    };
-    [
-        spec.params.iter().map(ParamBounds::minimum).collect(),
-        spec.params.iter().map(ParamBounds::default_value).collect(),
-        spec.params.iter().map(away_from_default).collect(),
-        spec.params.iter().map(ParamBounds::maximum).collect(),
-        special(-0.0),
-        special(f32::from_bits(1)),
-        special(f32::MIN_POSITIVE),
-    ]
-}
-
 /// Checks that rendered blocks are finite and hold no subnormal, and that rendering made
 /// no heap operation (no allocation, reallocation or release).
 fn check_rendered<S: LawSample>(
@@ -276,17 +219,6 @@ fn check_long_run<S: LawSample>(spec: &ObjectSpec, rate: SampleRate) -> Result<(
             .map_err(|problem| format!("long run: {problem}"))?;
     }
     Ok(())
-}
-
-/// The special inputs of the matrix in the precision `S`, repeated to fill every inlet for
-/// every block.
-pub(crate) fn special_input<S: LawSample>(length: usize) -> Vec<S> {
-    S::special_inputs()
-        .iter()
-        .copied()
-        .cycle()
-        .take(length)
-        .collect()
 }
 
 /// Checks every law at one sample rate, computing in `S`.

@@ -13,6 +13,8 @@
 # spec/engine-design.md decision 29.
 # `cargo xtask check` fails on any direct dependency not listed, and on any stale entry.
 
+engine-battery: serde_json (dev) -- reads the shared test matrix, conformance/test-matrix.json, which the TypeScript tests read too
+engine-battery: sha2 (normal) -- bit-defining: hashes a box type's outputs over the fixed battery into its fingerprint, recorded beside the conformance references
 engine-cli: serde (normal) -- reads the conformance case files into typed values, refusing unknown fields
 engine-cli: serde_json (normal) -- parses the case files and writes the reference hashes
 engine-core: libm (normal) -- bit-defining: the math functions of the engine's math layer (sine, floor), deterministic and portable, identical on every target where std's are not; boxes reach them only through the layer
@@ -26,8 +28,7 @@ engine-patch: serde (normal) -- bit-defining: reads the patch format into typed 
 engine-patch: serde_json (normal) -- bit-defining: parses patch documents, and so the parameter values a render computes from
 engine-testkit: libm (normal) -- deterministic math functions (sine, cosine, logarithm) for the measurements, identical on every target where std's are not
 engine-testkit: proptest (normal) -- property tests of the box and plan laws, from a fixed seed
-engine-testkit: serde_json (dev) -- reads the shared test matrix, conformance/test-matrix.json
-engine-testkit: sha2 (normal) -- bit-defining: hashes a box type's outputs over the fixed battery into its fingerprint
+engine-testkit: serde_json (dev) -- reads the shared known-answer vectors of spec/measurement-vectors.json
 xtask: serde_json (normal) -- reads the coverage, mutation and license reports, the Cargo metadata and the package manifests
 
 apps/playground: react (dependencies) -- the user interface

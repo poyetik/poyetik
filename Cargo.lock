@@ -79,15 +79,24 @@ name = "engine-alloc-counter"
 version = "0.1.0"
 
 [[package]]
+name = "engine-battery"
+version = "0.1.0"
+dependencies = [
+ "engine-core",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "engine-cli"
 version = "0.1.0"
 dependencies = [
+ "engine-battery",
  "engine-core",
  "engine-fpenv",
  "engine-hash",
  "engine-objects",
  "engine-patch",
- "engine-testkit",
  "serde",
  "serde_json",
 ]
@@ -144,13 +153,13 @@ name = "engine-testkit"
 version = "0.1.0"
 dependencies = [
  "engine-alloc-counter",
+ "engine-battery",
  "engine-core",
  "engine-objects",
  "engine-patch",
  "libm",
  "proptest",
  "serde_json",
- "sha2",
 ]
 
 [[package]]

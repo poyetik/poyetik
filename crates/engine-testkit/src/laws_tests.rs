@@ -360,50 +360,6 @@ fn checks_parameters_at_negative_zero_and_the_smallest_subnormal_and_normal() {
 }
 
 #[test]
-fn tries_special_parameter_values_only_within_the_range() {
-    const POSITIVE: ParamSpec = ParamSpec::new("gain", "gain", 2.0, 1.0, 3.0);
-    const NEGATIVE: ParamSpec = ParamSpec::new("gain", "gain", -2.0, -3.0, -1.0);
-    let bits = |param: &'static ParamSpec| {
-        super::param_sets(&ObjectSpec {
-            params: core::slice::from_ref(param),
-            ..GOOD
-        })
-        .map(|set| set.iter().map(|value| value.to_bits()).collect::<Vec<_>>())
-    };
-    assert_eq!(
-        bits(&GAIN),
-        [
-            vec![0.0_f32.to_bits()],
-            vec![0.5_f32.to_bits()],
-            vec![0.75_f32.to_bits()],
-            vec![1.0_f32.to_bits()],
-            vec![0x8000_0000],
-            vec![0x0000_0001],
-            vec![0x0080_0000],
-        ],
-        "[0, 1]: minimum, default, away from the default, maximum, -0.0, 1e-45, 2^-126"
-    );
-    assert_eq!(
-        bits(&POSITIVE)[4..],
-        [
-            vec![2.0_f32.to_bits()],
-            vec![2.0_f32.to_bits()],
-            vec![2.0_f32.to_bits()]
-        ],
-        "above zero: the default instead"
-    );
-    assert_eq!(
-        bits(&NEGATIVE)[4..],
-        [
-            vec![(-2.0_f32).to_bits()],
-            vec![(-2.0_f32).to_bits()],
-            vec![(-2.0_f32).to_bits()]
-        ],
-        "below zero: the default instead"
-    );
-}
-
-#[test]
 fn tries_every_case_at_every_rate_with_seven_parameter_sets() {
     static CREATED: AtomicU16 = AtomicU16::new(0);
     let spec = spec_with(factory!(|_, _| {
@@ -561,18 +517,6 @@ fn checks_parameters_away_from_their_default() {
     }));
     let failure = check_laws(&shifted).expect_err("a value away from the default");
     assert!(failure.contains("with parameters [0.75]"), "{failure}");
-    // A range not starting at zero: the midpoint of [-1, 1] is 0.
-    let centered = ParamSpec::new("gain", "gain", 0.5, -1.0, 1.0);
-    assert_eq!(
-        super::away_from_default(&centered).to_bits(),
-        0.0_f32.to_bits(),
-        "midpoint of [-1, 1]"
-    );
-    assert_eq!(
-        super::away_from_default(&ParamSpec::new("gain", "gain", 0.0, -1.0, 1.0)),
-        0.5,
-        "halfway from the default 0 to the maximum"
-    );
 }
 
 /// Fixtures for the metadata cases.

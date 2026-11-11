@@ -100,7 +100,7 @@ impl RustCrate {
 
 /// The crates of the Cargo workspace (checked by [`membership_gate`]): each is measured by
 /// its own unit tests, and each binary by the crate's tests.
-pub const RUST_CRATES: [RustCrate; 10] = [
+pub const RUST_CRATES: [RustCrate; 11] = [
     RustCrate {
         name: "engine-core",
         dir: "crates/engine-core",
@@ -147,13 +147,17 @@ pub const RUST_CRATES: [RustCrate; 10] = [
         roles: &[CrateRole::Library],
     },
     RustCrate {
+        name: "engine-battery",
+        dir: "crates/engine-battery",
+        binary: false,
+        test_data: &["conformance/test-matrix.json"],
+        roles: &[CrateRole::SharedTests],
+    },
+    RustCrate {
         name: "engine-testkit",
         dir: "crates/engine-testkit",
         binary: false,
-        test_data: &[
-            "conformance/test-matrix.json",
-            "spec/measurement-vectors.json",
-        ],
+        test_data: &["spec/measurement-vectors.json"],
         roles: &[
             CrateRole::LibraryTests,
             CrateRole::Libm,
@@ -4396,8 +4400,9 @@ pub fn library_gate(metadata: &str) -> Result<(), Failure> {
 /// [`metadata_command`]) depends on, only as a development dependency or from such a crate
 /// (the largest such set): a change to it can weaken the tests of every crate using it, so
 /// the default check widens to them, and a crate left without the role would be left out
-/// of that widening. A crate may hold the role though code depends on it too (the test kit,
-/// whose fingerprint battery `engine-cli` runs): it then widens more, never less.
+/// of that widening. A crate may hold the role though code depends on it too (the
+/// fingerprint battery, whose test matrix the tests read and which `engine-cli` runs): it
+/// then widens more, never less.
 ///
 /// # Errors
 ///

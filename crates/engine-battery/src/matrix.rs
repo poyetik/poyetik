@@ -4,6 +4,8 @@
 //! `conformance/test-matrix.json` holds the same values for the TypeScript tests; a test
 //! checks that both stay equal.
 
+use alloc::vec::Vec;
+
 use engine_core::{Precision, SampleRate};
 
 /// The precisions a render computes in (`spec/engine-design.md`, decision 10): every one,

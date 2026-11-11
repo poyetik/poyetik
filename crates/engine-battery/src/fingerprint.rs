@@ -3,17 +3,21 @@
 //!
 //! The conformance cases see a bit change only where their patches reach; a fingerprint
 //! sees one wherever the battery reaches: both precisions, every sample rate of the
-//! [`crate::matrix`], the parameter sets of the box laws, the matrix's special inputs and
+//! [`crate::matrix`], the parameter sets every box is tried with, the matrix's special inputs and
 //! a seeded random signal. `engine-cli bless` records it per box type and algorithm version
 //! and refuses a change at a recorded version, as `engine-cli check` does.
 
+use alloc::boxed::Box;
+use alloc::string::String;
+use alloc::vec;
+use alloc::vec::Vec;
 use core::fmt::Write as _;
 
 use engine_core::host::Raw;
 use engine_core::{BLOCK_SIZE, Binary32, Binary64, Block, Object, ObjectSpec, Precision};
 use sha2::{Digest, Sha256};
 
-use crate::laws::{BLOCKS, LawSample, param_sets, special_input};
+use crate::inputs::{BLOCKS, BatterySample, param_sets, special_input};
 use crate::matrix::{PRECISIONS, sample_rates};
 
 /// The version of the battery.
@@ -58,7 +62,12 @@ pub fn fingerprint(spec: &ObjectSpec) -> String {
 }
 
 /// Hashes every run of the battery computing in `S`.
-fn battery<S: LawSample>(spec: &ObjectSpec, length: usize, random: &[f64], hasher: &mut Sha256) {
+fn battery<S: BatterySample>(
+    spec: &ObjectSpec,
+    length: usize,
+    random: &[f64],
+    hasher: &mut Sha256,
+) {
     let inputs = [
         special_input::<S>(length),
         random
@@ -86,7 +95,7 @@ fn battery<S: LawSample>(spec: &ObjectSpec, length: usize, random: &[f64], hashe
 
 /// The outputs of [`BLOCKS`] blocks of `object`, every inlet fed `input` one block after
 /// the other (silence past its end).
-fn outputs<S: LawSample>(
+fn outputs<S: BatterySample>(
     object: &mut dyn Object<S>,
     spec: &ObjectSpec,
     input: &[S],
