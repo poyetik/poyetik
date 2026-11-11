@@ -88,8 +88,9 @@ fn instance() -> MutexGuard<'static, Instance> {
 
 /// Largest patch the engine reads, in bytes.
 ///
-/// It is [`engine_patch::MAX_PATCH_BYTES`], the limit of the patch format. The caller refuses a longer patch before calling [`engine_input`],
-/// which would grow the module memory (never given back) to hold it.
+/// It is [`engine_patch::MAX_PATCH_BYTES`], the limit of the patch format. The caller refuses a
+/// longer patch before calling [`engine_input`], which would grow the module memory (never given
+/// back) to hold it.
 #[unsafe(no_mangle)]
 pub const extern "C" fn engine_max_patch_bytes() -> usize {
     engine_patch::MAX_PATCH_BYTES

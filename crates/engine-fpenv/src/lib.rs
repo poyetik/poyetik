@@ -17,7 +17,10 @@
 //! native host API makes it a type (roadmap #32). The proof cannot be built anywhere else:
 //!
 //! ```compile_fail,E0451
-//! let forged = engine_fpenv::DefaultMode { scope: core::marker::PhantomData, thread: core::marker::PhantomData };
+//! let forged = engine_fpenv::DefaultMode {
+//!     scope: core::marker::PhantomData,
+//!     thread: core::marker::PhantomData,
+//! };
 //! ```
 //!
 //! nor kept after its call:
@@ -93,8 +96,8 @@ impl Drop for Restore {
 /// Review only: foreign code called inside `body` (assembly, a C function) must not change
 /// the mode, since the proof `body` holds would be false from then on; safe Rust cannot
 /// change it. The two writes break the letter of Rust's floating-point rule (RFC 3514), on
-/// purpose and for the reasons the audit of the control-register file gives. Detecting such a change and reporting it is roadmap #24's, with the first
-/// plugin shell.
+/// purpose and for the reasons the audit of the control-register file gives. Detecting such a
+/// change and reporting it is roadmap #24's, with the first plugin shell.
 ///
 /// Rust has no strict floating-point mode: the compiler orders the register's writes with
 /// memory and `core::hint::black_box`, not with float arithmetic on values in registers.

@@ -130,7 +130,8 @@ impl RenderedSamples {
 ///   "connections":[{"from":[1,0],"to":[2,0]}]}"#;
 /// let format = engine_core::RenderFormat::Binary64;
 /// engine_fpenv::with_default_mode(|mode| {
-///     let render = || engine_cli::prepare_case(case, patch, format, mode).map(|it| it.render(mode));
+///     let render =
+///         || engine_cli::prepare_case(case, patch, format, mode).map(|it| it.render(mode));
 ///     render().expect("a case") == render().expect("a case")
 /// });
 /// ```

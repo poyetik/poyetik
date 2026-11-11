@@ -1372,7 +1372,8 @@ fn bless_command_refuses_files_it_cannot_compare_with() {
     let mut memory = conformance(&format!(r#"{{"sine":{}}}"#, sine_references()));
     let algorithms = memory.text("conf/algorithms.json");
     let references = memory.text("conf/references.json");
-    // An invalid record and the hints of every refusal: every_hint_leads_to_a_directory_that_checks.
+    // An invalid record and the hints of every refusal:
+    // every_hint_leads_to_a_directory_that_checks.
     memory.unreadable = Some(PathBuf::from("conf/references.json"));
     assert_eq!(
         run_with(&mut memory, &["bless", "conf"]).0,

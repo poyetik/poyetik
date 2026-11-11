@@ -1145,8 +1145,9 @@ pub const MUTANT_TIMEOUT_FLOOR: usize = 20;
 /// slower than alone at most (a model, not a bound: a timeout it gets wrong fails the
 /// check, never passes it). Without
 /// it, a mutant caught by a fast test but whose binary still runs its slow tests to the end
-/// was reported as a timeout under load (engine-testkit's `config` mutants). A mutant that really hangs is still stopped and reported as a timeout,
-/// which fails the check: the timeout only bounds how long that failing run takes.
+/// was reported as a timeout under load (engine-testkit's `config` mutants). A mutant that really
+/// hangs is still stopped and reported as a timeout, which fails the check: the timeout only bounds
+/// how long that failing run takes.
 #[must_use]
 pub fn mutant_timeout_args(jobs: NonZeroUsize) -> [String; 6] {
     [
@@ -1864,8 +1865,8 @@ pub fn part_steps(part: Part, jobs: NonZeroUsize) -> Vec<Step> {
 /// The arguments that make a cargo-mutants command run one shard: `--shard <k>/<n>`, written
 /// as cargo-mutants reads it (no sign, no leading zero), then round-robin sharding.
 ///
-/// Returns the command without them, the shard's index and the count of shards, or `None` if `cmd` holds no such
-/// arguments.
+/// Returns the command without them, the shard's index and the count of shards, or `None` if `cmd`
+/// holds no such arguments.
 fn unsharded(cmd: &Cmd) -> Option<(Cmd, usize, usize)> {
     let at = cmd.args.iter().position(|arg| arg == "--shard")?;
     let [_, value, sharding, ..] = cmd.args.get(at..)? else {
@@ -2521,9 +2522,9 @@ pub fn stryker_config_gate(package: &str, config: &str) -> Result<(), Failure> {
 /// skipped mutant, an ignored or focused test. Built at run time, so that this file does
 /// not hold them; each with the extensions of the files where it acts.
 ///
-/// A `cfg` that a coverage build sets (`coverage`, and the one of the nightly build) is an unexpected
-/// `cfg` in every other build, which the workspace lints refuse; so is any lifting of that
-/// lint, and any declaration of an expected `cfg` (in a manifest or a build script), are
+/// A `cfg` that a coverage build sets (`coverage`, and the one of the nightly build) is an
+/// unexpected `cfg` in every other build, which the workspace lints refuse; so is any lifting of
+/// that lint, and any declaration of an expected `cfg` (in a manifest or a build script), are
 /// refused here.
 fn bypass_tokens() -> Vec<(String, &'static [&'static str])> {
     let rust: &[&str] = &["rs"];
@@ -2907,10 +2908,10 @@ fn parse_scope(scope: &Scope) -> Result<[serde_json::Value; 3], String> {
 /// mutated, or reviewed.
 ///
 /// `tracked` are the files tracked with an extension of [`TS_SOURCES`]; `scopes` what each
-/// package checked (one, or several, of [`PACKAGES`]) measures (its coverage summary) and mutates (the `mutate` globs of
-/// its Stryker configuration, of which only `*` and `**` are understood). The sources of a
-/// package are its tracked files but its tests (`test/`, `*.test.ts`, `*.spec.ts`). Each
-/// source must be measured and mutated; one measured but not mutated is a
+/// package checked (one, or several, of [`PACKAGES`]) measures (its coverage summary) and mutates
+/// (the `mutate` globs of its Stryker configuration, of which only `*` and `**` are understood).
+/// The sources of a package are its tracked files but its tests (`test/`, `*.test.ts`,
+/// `*.spec.ts`). Each source must be measured and mutated; one measured but not mutated is a
 /// `<source>: measured, not mutated` occurrence, one neither measured nor mutated a
 /// `<source>: not measured` occurrence, and one mutated, measured with statements (or with
 /// no count of them) but absent from the package's mutation report (which a check makes
@@ -2919,8 +2920,9 @@ fn parse_scope(scope: &Scope) -> Result<[serde_json::Value; 3], String> {
 /// [`STRYKER_CONFIG`]. Each is to be reviewed in `reviewed`
 /// ([`BYPASSES_REVIEWED`], whose other reviews are [`bypass_gate`]'s), every review of a
 /// file of these packages current (a review of a file in no package is the bypass gate's
-/// to refuse, so that each package can be checked alone). So the coverage `include` and the Stryker `mutate` of a package select the same
-/// sources, but for reviewed differences, and no source escapes both unseen.
+/// to refuse, so that each package can be checked alone). So the coverage `include` and the Stryker
+/// `mutate` of a package select the same sources, but for reviewed differences, and no source
+/// escapes both unseen.
 ///
 /// # Errors
 ///
@@ -3197,7 +3199,8 @@ pub fn unviable_gate(report: &str, extent: Extent, reviewed: &str) -> Result<(),
 }
 
 /// The command listing every mutant of the workspace without building or testing any
-/// (`cargo mutants --list`), with the file selection of every run (the arguments of every cargo-mutants command).
+/// (`cargo mutants --list`), with the file selection of every run (the arguments of every
+/// cargo-mutants command).
 #[must_use]
 pub fn mutants_list_command() -> Cmd {
     Cmd::new(
@@ -3811,10 +3814,10 @@ fn in_crate(path: &str) -> Option<(&'static RustCrate, &str)> {
 /// in code no gate reads by its path) nowhere. A `*_tests.rs` file brings in no other file
 /// (a module without a body, `#[path]`, `include!`), which no rule would tell as test code:
 /// its modules are written inline. A module a macro of another file declares in it is no
-/// word of it: [`loaded_files_gate`] sees it, from what rustc read. No file of a crate, `tests/` included, holds a `path`
-/// attribute (`path_attributes`) but on the second line of a test declaration: a module
-/// comes from the file its name gives, never from another crate's file (whose changes
-/// would not widen this crate) nor from a file that is not `.rs` (which no gate reads).
+/// word of it: [`loaded_files_gate`] sees it, from what rustc read. No file of a crate, `tests/`
+/// included, holds a `path` attribute (`path_attributes`) but on the second line of a test
+/// declaration: a module comes from the file its name gives, never from another crate's file (whose
+/// changes would not widen this crate) nor from a file that is not `.rs` (which no gate reads).
 ///
 /// # Errors
 ///
@@ -4754,8 +4757,8 @@ fn step_list(text: &str) -> Result<(Vec<u64>, &str), String> {
 /// The roadmap steps `line` cites, each (card, step), and what in it the gate cannot read.
 ///
 /// A step is cited as `#N step M` or `#N steps <list>` ([`step_list`]), with a comma,
-/// spaces and an opening parenthesis allowed between them (`#N, step M`, `#N (step M`). On a line of a
-/// spec opening with `**Step.**`, which must cite one, a list after `step` or `steps`
+/// spaces and an opening parenthesis allowed between them (`#N, step M`, `#N (step M`). On a line
+/// of a spec opening with `**Step.**`, which must cite one, a list after `step` or `steps`
 /// alone cites the card named last before it on the line. A card followed the same way by
 /// `item`, `items`, `task` or `tasks` and a number is refused: a step is cited as a step.
 fn line_citations(line: &str) -> (Vec<(u64, u64)>, Vec<String>) {
@@ -4988,8 +4991,8 @@ const RAW_STRING_HASHES: usize = 255;
 /// digits and `_`, outside comments (line and block), string literals (raw ones included,
 /// `r#"…"#`, `br"…"`, `cr"…"`) and char literals (`'"'`, `'\''`), which are prose. A
 /// lifetime (`'a`) is code, as is a raw identifier (`r#f64` is the word `f64`, with no
-/// `r`). Every literal or comment left open runs to the end of the text. Each word comes with the index of the
-/// character after it, in `text.chars()`.
+/// `r`). Every literal or comment left open runs to the end of the text. Each word comes with the
+/// index of the character after it, in `text.chars()`.
 fn code_words(text: &str) -> Vec<(usize, String, usize)> {
     let chars: Vec<char> = text.chars().collect();
     let at = |index: usize| chars.get(index).copied();
@@ -5410,8 +5413,8 @@ pub const FLOAT_ITEM_MACROS: [(&str, &str); 1] = [(
 
 /// The stable float methods reviewed as giving the same result on every target.
 ///
-/// For `f32` and `f64` alike, with the reason. Every other stable method of the pinned toolchain must
-/// be banned in [`CLIPPY_TOML`] ([`float_gate`]).
+/// For `f32` and `f64` alike, with the reason. Every other stable method of the pinned toolchain
+/// must be banned in [`CLIPPY_TOML`] ([`float_gate`]).
 pub const DETERMINISTIC_FLOAT_METHODS: [(&str, &str); 32] = [
     ("abs", "clears the sign bit"),
     ("ceil", "exact: an integer value, rounded toward +infinity"),
@@ -5680,14 +5683,15 @@ fn banned_float_methods(clippy: &str) -> BTreeSet<String> {
 
 /// Checks that every stable float method of the pinned release is banned or reviewed.
 ///
-/// A method must give the same result on every target or be banned: each is banned in `clippy` (the text of [`CLIPPY_TOML`]) or
-/// reviewed in [`DETERMINISTIC_FLOAT_METHODS`], never both, and never reviewed when its own
-/// documentation says its result may differ; every ban and every review names a method
-/// that exists. So a new toolchain cannot bring a method no one classified.
+/// A method must give the same result on every target or be banned: each is banned in `clippy` (the
+/// text of [`CLIPPY_TOML`]) or reviewed in [`DETERMINISTIC_FLOAT_METHODS`], never both, and never
+/// reviewed when its own documentation says its result may differ; every ban and every review names
+/// a method that exists. So a new toolchain cannot bring a method no one classified.
 ///
 /// `sources` holds the path and text of each file of [`FLOAT_SOURCES`] and of
-/// [`FLOAT_ITEM_MACROS`] (each audited by [`audit_float_macro`]), read from a toolchain whose `rustc --version` is `sources_version`; `release` is the pinned release:
-/// its stable methods are those stabilized in it or before.
+/// [`FLOAT_ITEM_MACROS`] (each audited by [`audit_float_macro`]), read from a toolchain whose
+/// `rustc --version` is `sources_version`; `release` is the pinned release: its stable methods are
+/// those stabilized in it or before.
 ///
 /// # Errors
 ///
@@ -6398,15 +6402,15 @@ fn job_problems(workflow: &str) -> Vec<String> {
 /// using an action pins it to a full commit hash, whatever its form (`- uses:`, a flow
 /// mapping); nothing of [`WORKFLOW_REFUSED`] appears; the only conditions are those of
 /// [`WORKFLOW_CONDITIONS`]; the triggers, the token's permissions and the concurrency are
-/// exactly [`WORKFLOW_TRIGGERS`], [`WORKFLOW_PERMISSIONS`] and [`workflow_concurrency`]; every nightly toolchain named is
-/// [`NIGHTLY_TOOLCHAIN`]; the checkout keeps no credential; the Cargo tools are
-/// [`PINNED_TOOLS`]; Node.js is the release in `.node-version` (at [`NODE_FLOOR`] or later);
-/// the runner is an OS release (never `-latest`); the whole history is fetched for the
+/// exactly [`WORKFLOW_TRIGGERS`], [`WORKFLOW_PERMISSIONS`] and [`workflow_concurrency`]; every
+/// nightly toolchain named is [`NIGHTLY_TOOLCHAIN`]; the checkout keeps no credential; the Cargo
+/// tools are [`PINNED_TOOLS`]; Node.js is the release in `.node-version` (at [`NODE_FLOOR`] or
+/// later); the runner is an OS release (never `-latest`); the whole history is fetched for the
 /// history gate; the jobs get an audio output, as [`AUDIO_SINK`] says; the workflow runs
-/// every part of `cargo xtask check --full`, as [`workflow_parts`] says; every job, written `  <name>:` below `jobs:`, holds the `[ci]` condition at the
-/// indentation of its keys (any other line at the indentation of a job is refused); its Rust
-/// cache is saved even when the run fails; and a failed run uploads every
-/// [`failure_uploads`] path.
+/// every part of `cargo xtask check --full`, as [`workflow_parts`] says; every job, written
+/// `  <name>:` below `jobs:`, holds the `[ci]` condition at the indentation of its keys (any other
+/// line at the indentation of a job is refused); its Rust cache is saved even when the run fails;
+/// and a failed run uploads every [`failure_uploads`] path.
 ///
 /// # Errors
 ///
@@ -6602,8 +6606,8 @@ fn released_heading(heading: &str) -> Option<Version> {
 ///
 /// The workspace version and the version of every package manifest must be equal, valid semantic
 /// versions, and not older than the latest release in the changelog; every package manifest
-/// supports Node.js from [`NODE_FLOOR`] on (`"engines": { "node": ">=22.18" }`). The changelog starts with
-/// `# Changelog`, has `## [Unreleased]` first, then releases `## [X.Y.Z] - YYYY-MM-DD`
+/// supports Node.js from [`NODE_FLOOR`] on (`"engines": { "node": ">=22.18" }`). The changelog
+/// starts with `# Changelog`, has `## [Unreleased]` first, then releases `## [X.Y.Z] - YYYY-MM-DD`
 /// in strictly decreasing order.
 ///
 /// # Errors
@@ -6966,8 +6970,9 @@ pub fn history_gate(messages: &str, files: &str, scoped: &str) -> Result<(), Fai
 ///
 /// The working tree has nothing uncommitted (`status`, from `git status --porcelain
 /// --untracked-files=all --ignore-submodules=none`) nor hidden from git status (`listed`,
-/// from `git ls-files -v`; see [`unclean`]), and every commit pushed (`pushed`, each object the hook received peeled to its commit) is
-/// `head`, the commit checked out. A deleted branch (all zeros) pushes nothing.
+/// from `git ls-files -v`; see [`unclean`]), and every commit pushed (`pushed`, each object the
+/// hook received peeled to its commit) is `head`, the commit checked out. A deleted branch (all
+/// zeros) pushes nothing.
 ///
 /// # Errors
 ///
@@ -7228,8 +7233,8 @@ pub const LOCAL_GIT_VARIABLES: [&str; 15] = [
 /// xtask's pathspecs (`*.rs`, `:(exclude)<dir>/`) are its own, written for git's default
 /// reading: under `GIT_LITERAL_PATHSPECS` they match nothing, under `GIT_GLOB_PATHSPECS`
 /// `*.rs` matches the files at the root only, and under `GIT_NOGLOB_PATHSPECS` nothing; a
-/// gate given no file may pass vacuously. `GIT_ICASE_PATHSPECS` only widens a match, and is removed with
-/// them. Git does not list them among its local variables ([`LOCAL_GIT_VARIABLES`]).
+/// gate given no file may pass vacuously. `GIT_ICASE_PATHSPECS` only widens a match, and is removed
+/// with them. Git does not list them among its local variables ([`LOCAL_GIT_VARIABLES`]).
 pub const PATHSPEC_GIT_VARIABLES: [&str; 4] = [
     "GIT_LITERAL_PATHSPECS",
     "GIT_GLOB_PATHSPECS",
@@ -7237,10 +7242,10 @@ pub const PATHSPEC_GIT_VARIABLES: [&str; 4] = [
     "GIT_ICASE_PATHSPECS",
 ];
 
-/// A command for `program` in `dir`, with the variables of `env`, without the variables of [`LOCAL_GIT_VARIABLES`] and
-/// [`PATHSPEC_GIT_VARIABLES`], nor `RUSTUP_TOOLCHAIN`, reading no input (a command waiting
-/// for an answer fails instead of blocking the check), and for git with `LC_ALL=C` (its
-/// messages untranslated, as [`error_reason`] reads them).
+/// A command for `program` in `dir`, with the variables of `env`, without the variables of
+/// [`LOCAL_GIT_VARIABLES`] and [`PATHSPEC_GIT_VARIABLES`], nor `RUSTUP_TOOLCHAIN`, reading no input
+/// (a command waiting for an answer fails instead of blocking the check), and for git with
+/// `LC_ALL=C` (its messages untranslated, as [`error_reason`] reads them).
 ///
 /// Rustup sets that variable for xtask itself, to the toolchain it chose for it (`cargo
 /// +beta xtask`, `RUSTUP_TOOLCHAIN=stable`): inherited, it would replace the toolchain of
@@ -8116,10 +8121,10 @@ fn wordings(vocabulary: &str, problems: &mut Vec<String>) -> Vec<Wording> {
 ///
 /// `sources` are the tracked files of [`VOCABULARY_SOURCES`] (path and text); their prose
 /// is the text of Markdown outside code blocks, the comments and string literals of Rust
-/// and TypeScript, and the string values of JSON (`json_prose`), code spans (between backquotes), link targets, Rust format
-/// placeholders, template substitutions and literals of a single word (a key, a program
-/// name) apart. `vocabulary` ([`VOCABULARY`]) lists the refused synonyms, each with what to
-/// say instead and where it applies, and the contexts where one is allowed: a file or a
+/// and TypeScript, and the string values of JSON (`json_prose`), code spans (between backquotes),
+/// link targets, Rust format placeholders, template substitutions and literals of a single word (a
+/// key, a program name) apart. `vocabulary` ([`VOCABULARY`]) lists the refused synonyms, each with
+/// what to say instead and where it applies, and the contexts where one is allowed: a file or a
 /// directory, or a phrase holding it. A term is matched case-sensitively, as a whole word,
 /// never inside a name (`engine-objects`, `.node-version`, `Node.js`). Every allowance must
 /// still allow something, so that the list stays current.
@@ -10816,8 +10821,8 @@ fn task(args: &[OsString]) -> Result<Task, String> {
 /// 0 on success. 1 when a check or a command failed: one `error: …` line on `err`, its
 /// details on `out`. 2 for a usage error: one `error: … (see: cargo xtask help)` line on
 /// `err`, nothing on `out`, or, for options `bless` passed on that `engine-cli` refused,
-/// after the steps that ran and their lines on `out`. Only `help` prints the usage, on `out`. The error line and
-/// each line of the details go through [`safe_message`]: escaped, and bounded.
+/// after the steps that ran and their lines on `out`. Only `help` prints the usage, on `out`. The
+/// error line and each line of the details go through [`safe_message`]: escaped, and bounded.
 pub fn cli(
     args: &[OsString],
     runner: &mut dyn Runner,

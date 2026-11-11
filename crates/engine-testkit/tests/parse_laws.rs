@@ -3,9 +3,10 @@
 //!
 //! Whatever the bytes, `parse_patch` then `Plan::build` (with the real registry, its boxes
 //! called directly as the engine calls them) return `Ok` or `Err`, never panic; every
-//! plan they accept renders finite samples without a heap operation. The documents mix arbitrary text with patches built from valid parts and
-//! hostile ones: wrong types, extreme ids, ports and numbers, unknown and repeated keys,
-//! deep nesting, every box type with random parameters and cables.
+//! plan they accept renders finite samples without a heap operation. The documents mix arbitrary
+//! text with patches built from valid parts and hostile ones: wrong types, extreme ids, ports and
+//! numbers, unknown and repeated keys, deep nesting, every box type with random parameters and
+//! cables.
 
 #![forbid(unsafe_code)]
 

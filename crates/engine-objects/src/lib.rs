@@ -2,9 +2,10 @@
 //!
 //! Each box type lives in its own module and depends only on the `engine-core`
 //! contract, written once for both precisions: generic over `engine_core::Sample`, its
-//! arithmetic through the engine's math layer (this crate does not depend on `libm`). [`REGISTRY`] lists every box type; being in the registry is enough for a
-//! box to be checked against the generic laws of `engine-testkit`. [`BuiltIn`] is how the
-//! engine's plans hold them, so that a built-in box is called with no indirect call.
+//! arithmetic through the engine's math layer (this crate does not depend on `libm`). [`REGISTRY`]
+//! lists every box type; being in the registry is enough for a box to be checked against the
+//! generic laws of `engine-testkit`. [`BuiltIn`] is how the engine's plans hold them, so that a
+//! built-in box is called with no indirect call.
 //!
 //! Like the core, this crate is `no_std` and forbids `unsafe`; outside its tests it also
 //! forbids float arithmetic (Clippy's `float_arithmetic`): a box computes with the sample
