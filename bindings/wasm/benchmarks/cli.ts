@@ -47,7 +47,8 @@ export const USAGE = `usage: node scripts/benchmarks.ts <check|bless|help> (in b
   check   count the instructions of every benchmark on ${MODULE_FILE}, and its size: fails on a count
           beyond the tolerance of ${THRESHOLDS_FILE} from ${BASELINE_FILE},
           either way, on a benchmark missing from either, or on plans growing faster than n log n
-  bless   rewrite ${BASELINE_FILE} from the counts (through cargo xtask bless-benchmarks)
+  bless   rewrite ${BASELINE_FILE} from the counts: run only by cargo xtask bless-benchmarks,
+          after its preflight; run that instead
   help    show this help`;
 
 /**
@@ -129,14 +130,14 @@ function check(io: BenchIo, suite: Suite): number {
   const baseline = parsed(io, BASELINE_FILE, parseBaseline);
   const counts = measured(io, suite);
   report(io, counts);
-  return verdict(io, [...regressions(counts, baseline, thresholds.tolerancePercent), ...nLogNProblems(counts.plans)], "the benchmarks moved beyond their thresholds");
+  return verdict(io, [...regressions(counts, baseline, thresholds.tolerancePercent), ...nLogNProblems(counts.plans)], `the benchmarks of ${MODULE_FILE} moved beyond the thresholds of ${THRESHOLDS_FILE} from ${BASELINE_FILE}`);
 }
 
 /** `bless`: rewrites the baseline, unless the plans break the n log n law. */
 function bless(io: BenchIo, suite: Suite): number {
   const counts = measured(io, suite);
   report(io, counts);
-  const status = verdict(io, nLogNProblems(counts.plans), "no baseline written: building plans breaks its law");
+  const status = verdict(io, nLogNProblems(counts.plans), `no ${BASELINE_FILE} written: the plans of ${MODULE_FILE} break the n log n law`);
   if (status !== 0) {
     return status;
   }

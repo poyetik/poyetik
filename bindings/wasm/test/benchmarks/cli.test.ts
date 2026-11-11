@@ -119,7 +119,7 @@ describe("benchMain", () => {
     fake.files.set(path, new TextEncoder().encode(fake.text(path).replace(/"instructions": (\d+)/, (_all, count: string) => `"instructions": ${String(Math.round(Number(count) * 1.03))}`)));
     expect(benchMain(fake, ["check"], SMALL)).toBe(1);
     expect(fake.printed.at(-1)).toMatch(/^osc~ 440 Hz at 48 kHz in binary64: \d+ instructions, baseline \d+ \(-2\.9\d%, beyond ±2%\)$/);
-    expect(fake.errors).toStrictEqual(["error: the benchmarks moved beyond their thresholds (1 problem(s); see spec/benchmarks.md)"]);
+    expect(fake.errors).toStrictEqual(["error: the benchmarks of bindings/wasm/dist/engine.wasm moved beyond the thresholds of spec/benchmark-thresholds.json from spec/benchmark-baseline.json (1 problem(s); see spec/benchmarks.md)"]);
   });
 
   test("fails a check when the engine module's size moved beyond the tolerance", () => {
@@ -136,11 +136,11 @@ describe("benchMain", () => {
     const fake = blessed({ boxes: [], mixes: [], sizes: [3] });
     expect(benchMain(fake, ["check"], decreasing)).toBe(1);
     expect(fake.printed.filter((line) => line === "the n log n law needs plans in increasing size: 3 oscillators after 5")).toHaveLength(1);
-    expect(fake.errors).toStrictEqual(["error: the benchmarks moved beyond their thresholds (2 problem(s); see spec/benchmarks.md)"]);
+    expect(fake.errors).toStrictEqual(["error: the benchmarks of bindings/wasm/dist/engine.wasm moved beyond the thresholds of spec/benchmark-thresholds.json from spec/benchmark-baseline.json (2 problem(s); see spec/benchmarks.md)"]);
     const before = fake.text(`/repo/${BASELINE_FILE}`);
     fake.errors.length = 0;
     expect(benchMain(fake, ["bless"], decreasing)).toBe(1);
-    expect(fake.errors).toStrictEqual(["error: no baseline written: building plans breaks its law (1 problem(s); see spec/benchmarks.md)"]);
+    expect(fake.errors).toStrictEqual(["error: no spec/benchmark-baseline.json written: the plans of bindings/wasm/dist/engine.wasm break the n log n law (1 problem(s); see spec/benchmarks.md)"]);
     expect(fake.text(`/repo/${BASELINE_FILE}`)).toBe(before);
   });
 
