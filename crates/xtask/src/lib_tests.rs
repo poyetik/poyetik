@@ -82,11 +82,8 @@ fn hermetic_git(dir: &Path, args: &[&str]) -> String {
 }
 
 /// The configuration of git for every command a test runs, as [`hermetic_git`] or through
-/// [`system`]: neither the system's nor the user's (their attributes, aliases, hooks path).
-const HERMETIC: [(&str, &str); 2] = [
-    ("GIT_CONFIG_NOSYSTEM", "1"),
-    ("GIT_CONFIG_GLOBAL", "/dev/null"),
-];
+/// [`system`]: none of the machine's ([`super::HERMETIC_GIT`]).
+const HERMETIC: [(&str, &str); 4] = super::HERMETIC_GIT;
 
 /// A real runner at `root` whose commands read no git configuration of the machine
 /// ([`HERMETIC`]).
@@ -2975,12 +2972,59 @@ fn refuses_a_section_header_whose_path_it_cannot_read() {
 }
 
 #[test]
+fn keeps_the_user_s_git_files_from_a_test_s_git() {
+    let dir = scratch("user-git-files");
+    let repository = dir.join("repository");
+    let home = dir.join("home");
+    std::fs::create_dir_all(repository.join("x.d")).expect("a directory");
+    std::fs::create_dir_all(home.join(".config/git")).expect("the user's git directory");
+    std::fs::write(repository.join("x.d/f"), "f\n").expect("a file");
+    std::fs::write(home.join(".config/git/ignore"), "*.d\n").expect("the user's ignore file");
+    let _init = hermetic_git(&repository, &["init", "--quiet", "--initial-branch=main"]);
+    let status = |hermetic: bool| {
+        let mut command = Command::new("git");
+        let _hermetic = command
+            .args(["status", "--porcelain", "--untracked-files=all"])
+            .current_dir(&repository)
+            .envs(HERMETIC)
+            .env("HOME", &home);
+        if !hermetic {
+            let _user = command.env_remove("XDG_CONFIG_HOME");
+        }
+        for variable in super::LOCAL_GIT_VARIABLES {
+            let _without = command.env_remove(variable);
+        }
+        let output = command.output().expect("git runs");
+        String::from_utf8(output.stdout).expect("UTF-8")
+    };
+    assert_eq!(
+        status(false),
+        "",
+        "the user's ignore file, read below HOME without XDG_CONFIG_HOME, hides the file"
+    );
+    assert_eq!(
+        status(true),
+        "?? x.d/f\n",
+        "a test's git reads no file of the user's"
+    );
+}
+
+#[test]
 fn starts_a_test_runner_s_commands_without_the_machine_s_git_configuration() {
     let runner = system(Path::new(".").to_path_buf());
     let set = |env: &[(&str, &str)]| -> Vec<(OsString, Option<OsString>)> {
         super::command("cargo", &runner.root, env)
             .get_envs()
-            .filter(|(name, _)| *name == "GIT_CONFIG_NOSYSTEM" || *name == "GIT_CONFIG_GLOBAL")
+            .filter(|(name, _)| {
+                [
+                    "GIT_CONFIG_NOSYSTEM",
+                    "GIT_CONFIG_GLOBAL",
+                    "GIT_ATTR_NOSYSTEM",
+                    "XDG_CONFIG_HOME",
+                ]
+                .iter()
+                .any(|hermetic| name == hermetic)
+            })
             .map(|(name, value)| (name.to_owned(), value.map(OsString::from)))
             .collect()
     };
@@ -2988,6 +3032,8 @@ fn starts_a_test_runner_s_commands_without_the_machine_s_git_configuration() {
     for (name, value) in [
         ("GIT_CONFIG_NOSYSTEM", "1"),
         ("GIT_CONFIG_GLOBAL", "/dev/null"),
+        ("GIT_ATTR_NOSYSTEM", "1"),
+        ("XDG_CONFIG_HOME", "/dev/null"),
     ] {
         assert!(
             hermetic.contains(&(OsString::from(name), Some(OsString::from(value)))),

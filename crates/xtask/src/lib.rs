@@ -7711,6 +7711,22 @@ pub struct SystemRunner {
     pub env: &'static [(&'static str, &'static str)],
 }
 
+/// The variables under which a test runs git without the machine's configuration.
+///
+/// Neither the system's configuration nor the user's (`GIT_CONFIG_NOSYSTEM`, `GIT_CONFIG_GLOBAL`:
+/// their aliases, hooks path, `core.attributesFile`, `core.excludesFile`), nor the system's
+/// attributes (`GIT_ATTR_NOSYSTEM`), nor the user's attributes, ignore file and
+/// configuration that git reads below `XDG_CONFIG_HOME`, or `$HOME/.config` when it is not
+/// set (`XDG_CONFIG_HOME` pointed at `/dev/null`, below which no file can be). The checks
+/// keep the user's configuration ([`SystemRunner::env`]); xtask's tests, the hooks' ones
+/// included, set every one of these.
+pub const HERMETIC_GIT: [(&str, &str); 4] = [
+    ("GIT_CONFIG_NOSYSTEM", "1"),
+    ("GIT_CONFIG_GLOBAL", "/dev/null"),
+    ("GIT_ATTR_NOSYSTEM", "1"),
+    ("XDG_CONFIG_HOME", "/dev/null"),
+];
+
 /// The variables git sets for a hook that name one repository.
 ///
 /// They are listed by `git rev-parse --local-env-vars`. A command inheriting them acts on
@@ -9605,7 +9621,7 @@ fn usable_proof(
     }
 }
 
-/// What git says of the work tree, for [`unclean`] ([`tree_cleanliness`]).
+/// What git says of the work tree, for [`unclean`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TreeView {
     /// `git status --porcelain --untracked-files=all --ignore-submodules=none`.

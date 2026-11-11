@@ -284,7 +284,7 @@ mod hooks {
     use std::path::Path;
     use std::process::Command;
 
-    use xtask::LOCAL_GIT_VARIABLES;
+    use xtask::{HERMETIC_GIT, LOCAL_GIT_VARIABLES};
 
     /// The variables of `received` (the stub's record, one `NAME=value` per line) that describe a
     /// repository: none may reach the check.
@@ -302,8 +302,9 @@ mod hooks {
         super::tests::scratch(&format!("hooks-{name}"))
     }
 
-    /// Runs git in `dir`, hermetically: no variable of an enclosing git process leaks in.
-    fn git(dir: &Path, args: &[&str], path: &str) {
+    /// Git run in `dir`, hermetically: no variable of an enclosing git process leaks in, nor
+    /// the machine's configuration ([`HERMETIC_GIT`]), its home being `dir`.
+    fn git_command(dir: &Path, args: &[&str], path: &str) -> Command {
         let mut command = Command::new("git");
         let _same = command
             .args(args)
@@ -313,13 +314,33 @@ mod hooks {
             .env("GIT_AUTHOR_EMAIL", "test@example.invalid")
             .env("GIT_COMMITTER_NAME", "Test")
             .env("GIT_COMMITTER_EMAIL", "test@example.invalid")
-            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .envs(HERMETIC_GIT)
             .env("HOME", dir);
         for variable in LOCAL_GIT_VARIABLES {
             let _without = command.env_remove(variable);
         }
-        let status = command.status().expect("git runs");
+        command
+    }
+
+    /// Runs git in `dir`, hermetically ([`git_command`]).
+    fn git(dir: &Path, args: &[&str], path: &str) {
+        let status = git_command(dir, args, path).status().expect("git runs");
         assert!(status.success(), "git {args:?} in {}", dir.display());
+    }
+
+    #[test]
+    fn runs_the_hooks_git_without_the_machine_s_configuration() {
+        let command = git_command(Path::new("."), &["status"], "/usr/bin");
+        let set: Vec<(&std::ffi::OsStr, Option<&std::ffi::OsStr>)> = command.get_envs().collect();
+        for (name, value) in HERMETIC_GIT {
+            assert!(
+                set.contains(&(
+                    std::ffi::OsStr::new(name),
+                    Some(std::ffi::OsStr::new(value))
+                )),
+                "{name}={value}: {set:?}"
+            );
+        }
     }
 
     /// A stand-in for `cargo` that writes the git variables it received to `record`.
@@ -327,7 +348,7 @@ mod hooks {
         fs::create_dir_all(bin).expect("bin created");
         let script = bin.join("cargo");
         let body = format!(
-            "#!/bin/sh\nenv | grep '^GIT_' | grep -v -e '^GIT_AUTHOR' -e '^GIT_COMMITTER' -e '^GIT_CONFIG_NOSYSTEM' > '{record}'\necho \"ARGS $*\" >> '{record}'\nexit 0\n",
+            "#!/bin/sh\nenv | grep '^GIT_' | grep -v -e '^GIT_AUTHOR' -e '^GIT_COMMITTER' -e '^GIT_CONFIG_NOSYSTEM=' -e '^GIT_CONFIG_GLOBAL=' -e '^GIT_ATTR_NOSYSTEM=' > '{record}'\necho \"ARGS $*\" >> '{record}'\nexit 0\n",
             record = record.display()
         );
         fs::write(&script, body).expect("stub written");

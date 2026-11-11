@@ -652,7 +652,7 @@
           "done": false
         },
         {
-          "title": "Hermetic tests: the hooks test has a hard-coded PATH and no GIT_CONFIG_GLOBAL, the list of local git variables misses one of git rev-parse --local-env-vars, and tests use predictable temporary paths (removed whatever the outcome by a guard); one hermetic helper asserted against git's list, and CARGO_TARGET_TMPDIR for the paths",
+          "title": "Hermetic tests: the hooks test has a hard-coded PATH, the list of local git variables misses one of git rev-parse --local-env-vars, and tests use predictable temporary paths (removed whatever the outcome by a guard); the local variables asserted against git's list, and CARGO_TARGET_TMPDIR for the paths",
           "done": false
         },
         {
