@@ -169,6 +169,54 @@ export const MIX_BENCHMARKS: readonly MixBenchmark[] = [
 ];
 
 /**
+ * The cost of playing one whole patch at one setting: the instructions of {@link BLOCKS}
+ * blocks of it, nothing subtracted. So it counts everything the engine does each block,
+ * the work every patch pays whatever its boxes included (the engine's and the plan's own
+ * per-block work outside the boxes), which every box and mixing benchmark cancels by its
+ * difference.
+ */
+export interface PatchBenchmark {
+  /** The setting, in words: what the patch holds, and the rate. */
+  readonly setting: string;
+  /** The sample rate, in hertz. */
+  readonly rate: number;
+  /** The patch. */
+  readonly patch: Patch;
+}
+
+/**
+ * A patch of `outputs` output boxes, each fed by `oscillators` oscillators of its own: each
+ * `dac~` is followed by its oscillators (ids counted from 1 in that order, each oscillator at
+ * 100 Hz plus its id), all of them into its left inlet, the first also into its right. So
+ * with three oscillators each, every left inlet sums three terms, and each output channel
+ * sums one term per output box.
+ */
+export function summingPatch(outputs: number, oscillators: number): Patch {
+  const group = oscillators + 1;
+  const ids = Array.from({ length: outputs * group }, (_entry, index) => index + 1);
+  const outputOf = (id: number): number => id - ((id - 1) % group);
+  return {
+    format: 1,
+    nodes: ids.map((id) => (outputOf(id) === id ? { id, box: "dac~" } : { id, box: "osc~", params: { frequency: 100 + id } })),
+    connections: ids
+      .filter((id) => outputOf(id) !== id)
+      .flatMap((id) => [{ from: [id, 0] as const, to: [outputOf(id), 0] as const }, ...(id === outputOf(id) + 1 ? [{ from: [id, 0] as const, to: [outputOf(id), 1] as const }] : [])]),
+  };
+}
+
+/**
+ * Every whole-patch benchmark: the empty patch, whose count is the engine's fixed cost of a
+ * block (a per-block cost that every patch pays shows there whole), and a heavy summing
+ * patch, 16 output boxes each fed by 3 oscillators (16 sums of three terms into the left
+ * inlets, two output channels of 16 terms each), whose count shows a cost that grows with
+ * the patch, by its boxes, its cables or its sums (spec/benchmarks.md, "What is measured").
+ */
+export const PATCH_BENCHMARKS: readonly PatchBenchmark[] = [
+  { setting: "an empty patch at 48 kHz", rate: 48_000, patch: { format: 1, nodes: [], connections: [] } },
+  { setting: "16 output boxes each fed by 3 oscillators at 48 kHz", rate: 48_000, patch: summingPatch(16, 3) },
+];
+
+/**
  * The precision the plans are built in: the default, given as binary32 as in the
  * `AudioWorklet`. Building a plan does the same work in both precisions but for the size of
  * its buffers.
@@ -204,6 +252,8 @@ export interface Counts {
   readonly boxes: readonly { readonly box: string; readonly precision: Precision; readonly setting: string; readonly instructions: number }[];
   /** Each mixing benchmark in each precision: precision, setting and instructions. */
   readonly mixes: readonly { readonly precision: Precision; readonly setting: string; readonly instructions: number }[];
+  /** Each whole-patch benchmark in each precision: precision, setting and instructions. */
+  readonly patches: readonly { readonly precision: Precision; readonly setting: string; readonly instructions: number }[];
   /** Each plan built: its size in oscillators, and the instructions of loading it. */
   readonly plans: readonly { readonly oscillators: number; readonly instructions: number }[];
   /** The size of the engine module, in bytes: what a page downloads and compiles before it plays. */
@@ -269,17 +319,22 @@ function firstRepeat(names: readonly string[]): number {
 }
 
 /**
- * Runs the benchmarks on a counted engine module: `boxes` then `mixes` in every precision
- * (each benchmark in binary64 then in binary32), then plans of `sizes`, and takes the size
- * of the module.
+ * Runs the benchmarks on a counted engine module: `boxes`, `mixes` then `patches` in every
+ * precision (each benchmark in binary64 then in binary32), then plans of `sizes`, and takes
+ * the size of the module.
  * @throws {RangeError} when two benchmarks have one name (box and setting, mixing setting,
- * plan size), or when a box or a mix costs less than nothing (the patch without it costs
- * more), naming it.
+ * whole-patch setting, plan size), or when a box or a mix costs less than nothing (the
+ * patch without it costs more), naming it.
  * @throws {CountError} naming the benchmark when the engine refuses a patch.
  */
-export function measure(engine: CountedEngine, boxes: readonly BoxBenchmark[], mixes: readonly MixBenchmark[], sizes: readonly number[]): Counts {
+export function measure(engine: CountedEngine, boxes: readonly BoxBenchmark[], mixes: readonly MixBenchmark[], patches: readonly PatchBenchmark[], sizes: readonly number[]): Counts {
   const { module } = engine;
-  const names = [...boxes.map((benchmark) => `${benchmark.box} ${benchmark.setting}`), ...mixes.map((benchmark) => `mixing ${benchmark.setting}`), ...sizes.map(planName)];
+  const names = [
+    ...boxes.map((benchmark) => `${benchmark.box} ${benchmark.setting}`),
+    ...mixes.map((benchmark) => `mixing ${benchmark.setting}`),
+    ...patches.map((benchmark) => `playing ${benchmark.setting}`),
+    ...sizes.map(planName),
+  ];
   const repeated = names[firstRepeat(names)];
   if (repeated !== undefined) {
     throw new RangeError(`${repeated} is measured twice`);
@@ -295,6 +350,12 @@ export function measure(engine: CountedEngine, boxes: readonly BoxBenchmark[], m
       PRECISIONS.map((precision) => {
         const entry = { precision, setting: benchmark.setting };
         return { ...entry, instructions: difference(module, benchmark, precision, mixName(entry)) };
+      }),
+    ),
+    patches: patches.flatMap((benchmark) =>
+      PRECISIONS.map((precision) => {
+        const entry = { precision, setting: benchmark.setting };
+        return { ...entry, instructions: exact(forBenchmark(patchName(entry), () => blocksOf(module, benchmark.patch, benchmark.rate, precision))) };
       }),
     ),
     plans: sizes.map((oscillators) => ({
@@ -315,6 +376,11 @@ export function mixName(entry: { readonly precision: Precision; readonly setting
   return `mixing ${entry.setting} in ${entry.precision}`;
 }
 
+/** The name of a whole-patch benchmark in the reports: `playing an empty patch at 48 kHz in binary32`. */
+export function patchName(entry: { readonly precision: Precision; readonly setting: string }): string {
+  return `playing ${entry.setting} in ${entry.precision}`;
+}
+
 /** The name of a plan benchmark in the reports: `loading a plan of 256 oscillators`. */
 export function planName(oscillators: number): string {
   return `loading a plan of ${String(oscillators)} oscillators`;
@@ -325,6 +391,7 @@ function named(counts: Counts): Map<string, number> {
   return new Map([
     ...counts.boxes.map((entry): [string, number] => [boxName(entry), entry.instructions]),
     ...counts.mixes.map((entry): [string, number] => [mixName(entry), entry.instructions]),
+    ...counts.patches.map((entry): [string, number] => [patchName(entry), entry.instructions]),
     ...counts.plans.map((entry): [string, number] => [planName(entry.oscillators), entry.instructions]),
   ]);
 }
@@ -443,8 +510,15 @@ export function parseBaseline(text: string): Counts {
   } catch (error) {
     throw new BenchmarkFileError(`not JSON: ${String(error)}`);
   }
-  if (!hasExactly(json, ["boxes", "mixes", "plans", "module_bytes"]) || !Array.isArray(json["boxes"]) || !Array.isArray(json["mixes"]) || !Array.isArray(json["plans"]) || !isCount(json["module_bytes"])) {
-    throw new BenchmarkFileError('expected {"boxes": [...], "mixes": [...], "plans": [...], "module_bytes": <whole>}');
+  if (
+    !hasExactly(json, ["boxes", "mixes", "patches", "plans", "module_bytes"]) ||
+    !Array.isArray(json["boxes"]) ||
+    !Array.isArray(json["mixes"]) ||
+    !Array.isArray(json["patches"]) ||
+    !Array.isArray(json["plans"]) ||
+    !isCount(json["module_bytes"])
+  ) {
+    throw new BenchmarkFileError('expected {"boxes": [...], "mixes": [...], "patches": [...], "plans": [...], "module_bytes": <whole>}');
   }
   const moduleBytes = json["module_bytes"];
   const boxes = json["boxes"].map((entry: unknown, index) => {
@@ -453,12 +527,8 @@ export function parseBaseline(text: string): Counts {
     }
     return { box: entry["box"], precision: precisionOf(entry["precision"], `boxes[${String(index)}]`), setting: entry["setting"], instructions: entry["instructions"] };
   });
-  const mixes = json["mixes"].map((entry: unknown, index) => {
-    if (!hasExactly(entry, ["precision", "setting", "instructions"]) || typeof entry["setting"] !== "string" || !isCount(entry["instructions"])) {
-      throw new BenchmarkFileError(`mixes[${String(index)}] is not {"precision", "setting", "instructions"} with a whole count`);
-    }
-    return { precision: precisionOf(entry["precision"], `mixes[${String(index)}]`), setting: entry["setting"], instructions: entry["instructions"] };
-  });
+  const mixes = json["mixes"].map((entry: unknown, index) => settingEntry(entry, `mixes[${String(index)}]`));
+  const patches = json["patches"].map((entry: unknown, index) => settingEntry(entry, `patches[${String(index)}]`));
   const plans = json["plans"].map((entry: unknown, index) => {
     if (!hasExactly(entry, ["oscillators", "instructions"]) || !isCount(entry["oscillators"]) || !isCount(entry["instructions"])) {
       throw new BenchmarkFileError(`plans[${String(index)}] is not {"oscillators", "instructions"} with whole numbers`);
@@ -468,6 +538,7 @@ export function parseBaseline(text: string): Counts {
   for (const [section, names] of [
     ["boxes", boxes.map(boxName)],
     ["mixes", mixes.map(mixName)],
+    ["patches", patches.map(patchName)],
     ["plans", plans.map((entry) => planName(entry.oscillators))],
   ] as const) {
     const index = firstRepeat(names);
@@ -476,7 +547,19 @@ export function parseBaseline(text: string): Counts {
       throw new BenchmarkFileError(`${section}[${String(index)}] repeats "${repeated}"`);
     }
   }
-  return { boxes, mixes, plans, moduleBytes };
+  return { boxes, mixes, patches, plans, moduleBytes };
+}
+
+/**
+ * Reads an entry of a section that names its benchmark by precision and setting (`mixes`,
+ * `patches`), the entry at `where`.
+ * @throws {BenchmarkFileError} naming it when it is not that shape with a whole count.
+ */
+function settingEntry(entry: unknown, where: string): Counts["mixes"][number] {
+  if (!hasExactly(entry, ["precision", "setting", "instructions"]) || typeof entry["setting"] !== "string" || !isCount(entry["instructions"])) {
+    throw new BenchmarkFileError(`${where} is not {"precision", "setting", "instructions"} with a whole count`);
+  }
+  return { precision: precisionOf(entry["precision"], where), setting: entry["setting"], instructions: entry["instructions"] };
 }
 
 /**
@@ -493,7 +576,7 @@ function precisionOf(written: unknown, where: string): Precision {
 
 /** Writes a baseline as its file holds it: two-space indents, a final line break. */
 export function formatBaseline(counts: Counts): string {
-  return `${JSON.stringify({ boxes: counts.boxes, mixes: counts.mixes, plans: counts.plans, module_bytes: counts.moduleBytes }, null, 2)}\n`;
+  return `${JSON.stringify({ boxes: counts.boxes, mixes: counts.mixes, patches: counts.patches, plans: counts.plans, module_bytes: counts.moduleBytes }, null, 2)}\n`;
 }
 
 /** The browser engines the construction of the engine processor is timed on, as Playwright names them. */

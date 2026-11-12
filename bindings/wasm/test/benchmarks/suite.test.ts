@@ -18,6 +18,8 @@ import {
   nLogNProblems,
   parseBaseline,
   parseThresholds,
+  PATCH_BENCHMARKS,
+  patchName,
   PLAN_PRECISION,
   PLAN_RATE,
   PLAN_SIZES,
@@ -26,9 +28,11 @@ import {
   patchBytes,
   regressions,
   signedPercent,
+  summingPatch,
   type Counts,
 } from "../../benchmarks/suite.ts";
 import { rethrow, SPEC, wasmBytes } from "../fixtures.ts";
+import { assemble, I32_GLOBAL } from "./assemble.ts";
 
 /** The built engine module, instrumented and compiled at the first use (a mutant that breaks it fails a test, not the file). */
 let compiled: CountedEngine | undefined;
@@ -94,6 +98,30 @@ describe("the benchmarks", () => {
     }
   });
 
+  test("play whole patches: the empty patch, and 16 output boxes each fed by 3 oscillators", () => {
+    const text = (patch: Parameters<typeof patchBytes>[0]): string => new TextDecoder().decode(patchBytes(patch));
+    expect(PATCH_BENCHMARKS.map(({ setting, rate, patch }) => [setting, rate, text(patch)])).toStrictEqual([
+      ["an empty patch at 48 kHz", 48_000, '{"format":1,"nodes":[],"connections":[]}'],
+      ["16 output boxes each fed by 3 oscillators at 48 kHz", 48_000, text(summingPatch(16, 3))],
+    ]);
+    expect(text(summingPatch(2, 2))).toBe(
+      '{"format":1,"nodes":[{"id":1,"box":"dac~"},{"id":2,"box":"osc~","params":{"frequency":102}},{"id":3,"box":"osc~","params":{"frequency":103}},' +
+        '{"id":4,"box":"dac~"},{"id":5,"box":"osc~","params":{"frequency":105}},{"id":6,"box":"osc~","params":{"frequency":106}}],' +
+        '"connections":[{"from":[2,0],"to":[1,0]},{"from":[2,0],"to":[1,1]},{"from":[3,0],"to":[1,0]},{"from":[5,0],"to":[4,0]},{"from":[5,0],"to":[4,1]},{"from":[6,0],"to":[4,0]}]}',
+    );
+    const heavy = summingPatch(16, 3);
+    expect([heavy.nodes.length, heavy.nodes.filter((node) => node.box === "dac~").length, heavy.connections.length]).toStrictEqual([64, 16, 64]);
+    expect(heavy.nodes.at(-1)).toStrictEqual({ id: 64, box: "osc~", params: { frequency: 164 } });
+    expect(heavy.connections.slice(-4)).toStrictEqual([
+      { from: [62, 0], to: [61, 0] },
+      { from: [62, 0], to: [61, 1] },
+      { from: [63, 0], to: [61, 0] },
+      { from: [64, 0], to: [61, 0] },
+    ]);
+    expect(text(summingPatch(1, 0))).toBe('{"format":1,"nodes":[{"id":1,"box":"dac~"}],"connections":[]}');
+    expect(text(summingPatch(0, 3))).toBe('{"format":1,"nodes":[],"connections":[]}');
+  });
+
   test("build plans of oscillators feeding both inlets of one output in turn", () => {
     expect(new TextDecoder().decode(patchBytes(planPatch(3)))).toBe(
       '{"format":1,"nodes":[{"id":0,"box":"dac~"},{"id":1,"box":"osc~","params":{"frequency":100}},{"id":2,"box":"osc~","params":{"frequency":101}},{"id":3,"box":"osc~","params":{"frequency":102}}],' +
@@ -103,7 +131,7 @@ describe("the benchmarks", () => {
     expect([frequencies[1000], frequencies[1001], frequencies[1999]]).toStrictEqual([1099, 100, 1098]);
   });
 
-  test("count a box as its patch minus the patch without it, in each precision given as binary32, and a plan as its load", () => {
+  test("count a box as its patch minus the patch without it, in each precision given as binary32, a whole patch as it is, and a plan as its load", () => {
     const blocks = (patch: Uint8Array, rate: number, format: "binary64-as-binary32" | "binary32"): bigint => {
       const instance = new CountedInstance(counted().module);
       instance.load(patch, rate, format);
@@ -119,7 +147,16 @@ describe("the benchmarks", () => {
       throw new Error("no mixing benchmark");
     }
     const mixing = (format: "binary64-as-binary32" | "binary32"): number => Number(blocks(patchBytes(mix.patch), 48_000, format) - blocks(patchBytes(mix.without), 48_000, format));
-    const counts = measure(counted(), [first], [mix], [3, 5]);
+    const [, heavy] = PATCH_BENCHMARKS;
+    if (heavy === undefined) {
+      throw new Error("no whole-patch benchmark");
+    }
+    const counts = measure(counted(), [first], [mix], [heavy], [3, 5]);
+    expect(counts.patches).toStrictEqual([
+      { precision: "binary64", setting: "16 output boxes each fed by 3 oscillators at 48 kHz", instructions: Number(blocks(patchBytes(heavy.patch), 48_000, "binary64-as-binary32")) },
+      { precision: "binary32", setting: "16 output boxes each fed by 3 oscillators at 48 kHz", instructions: Number(blocks(patchBytes(heavy.patch), 48_000, "binary32")) },
+    ]);
+    expect(counts.patches[0]?.instructions).not.toBe(counts.patches[1]?.instructions);
     expect(counts.mixes).toStrictEqual([
       { precision: "binary64", setting: "2 cables into one inlet at 48 kHz", instructions: mixing("binary64-as-binary32") },
       { precision: "binary32", setting: "2 cables into one inlet at 48 kHz", instructions: mixing("binary32") },
@@ -142,11 +179,11 @@ describe("the benchmarks", () => {
     if (mix === undefined) {
       throw new Error("no mixing benchmark");
     }
-    expect(() => measure(counted(), [], [{ ...mix, patch: mix.without, without: mix.patch }], [])).toThrow(
+    expect(() => measure(counted(), [], [{ ...mix, patch: mix.without, without: mix.patch }], [], [])).toThrow(
       /^mixing 2 cables into one inlet at 48 kHz in binary64: the patch without it costs \d+ instructions more than the patch holding it$/,
     );
-    expect(() => measure(counted(), [], [{ ...mix, rate: 7 }], [])).toThrow(CountError);
-    expect(() => measure(counted(), [], [{ ...mix, rate: 7 }], [])).toThrow(/^mixing 2 cables into one inlet at 48 kHz in binary64: the engine refused the patch: ./);
+    expect(() => measure(counted(), [], [{ ...mix, rate: 7 }], [], [])).toThrow(CountError);
+    expect(() => measure(counted(), [], [{ ...mix, rate: 7 }], [], [])).toThrow(/^mixing 2 cables into one inlet at 48 kHz in binary64: the engine refused the patch: ./);
   });
 
   test("refuse a box that costs less than nothing", () => {
@@ -154,8 +191,8 @@ describe("the benchmarks", () => {
     if (first === undefined) {
       throw new Error("no benchmark");
     }
-    expect(() => measure(counted(), [{ ...first, patch: first.without, without: first.patch }], [], [])).toThrow(RangeError);
-    expect(() => measure(counted(), [{ ...first, patch: first.without, without: first.patch }], [], [])).toThrow(
+    expect(() => measure(counted(), [{ ...first, patch: first.without, without: first.patch }], [], [], [])).toThrow(RangeError);
+    expect(() => measure(counted(), [{ ...first, patch: first.without, without: first.patch }], [], [], [])).toThrow(
       /^osc~ 440 Hz at 48 kHz in binary64: the patch without it costs \d+ instructions more than the patch holding it$/,
     );
   });
@@ -166,10 +203,16 @@ describe("the benchmarks", () => {
     if (first === undefined || mix === undefined) {
       throw new Error("no benchmark");
     }
-    expect(() => measure(counted(), [first, { ...first, rate: 8000 }], [], [])).toThrow(new RangeError("osc~ 440 Hz at 48 kHz is measured twice"));
-    expect(() => measure(counted(), [], [mix, mix], [])).toThrow(new RangeError("mixing 2 cables into one inlet at 48 kHz is measured twice"));
-    expect(() => measure(counted(), [], [], [3, 5, 3])).toThrow(new RangeError("loading a plan of 3 oscillators is measured twice"));
-    expect(measure(counted(), [first, { ...first, setting: "other" }], [], [3, 5]).boxes).toHaveLength(4);
+    expect(() => measure(counted(), [first, { ...first, rate: 8000 }], [], [], [])).toThrow(new RangeError("osc~ 440 Hz at 48 kHz is measured twice"));
+    expect(() => measure(counted(), [], [mix, mix], [], [])).toThrow(new RangeError("mixing 2 cables into one inlet at 48 kHz is measured twice"));
+    expect(() => measure(counted(), [], [], [], [3, 5, 3])).toThrow(new RangeError("loading a plan of 3 oscillators is measured twice"));
+    const [empty] = PATCH_BENCHMARKS;
+    if (empty === undefined) {
+      throw new Error("no whole-patch benchmark");
+    }
+    expect(() => measure(counted(), [], [], [empty, { ...empty, rate: 8000 }], [])).toThrow(new RangeError("playing an empty patch at 48 kHz is measured twice"));
+    expect(measure(counted(), [], [], [empty, { ...empty, setting: "other" }], []).patches).toHaveLength(4);
+    expect(measure(counted(), [first, { ...first, setting: "other" }], [], [], [3, 5]).boxes).toHaveLength(4);
   });
 
   test("name the benchmark whose measurement fails, keeping the cause", () => {
@@ -187,7 +230,7 @@ describe("the benchmarks", () => {
     expect(failure instanceof CountError && failure.cause).toBe(cause);
     expect(() => forBenchmark("b", () => rethrow("busy"))).toThrow(new CountError("b: busy"));
     expect(forBenchmark("b", () => 3)).toBe(3);
-    expect(() => measure(counted(), [], [], [2 ** 32])).toThrow(new CountError("loading a plan of 4294967296 oscillators: Invalid array length"));
+    expect(() => measure(counted(), [], [], [], [2 ** 32])).toThrow(new CountError("loading a plan of 4294967296 oscillators: Invalid array length"));
   });
 
   test("hold a count JSON keeps exactly, and refuse a larger one", () => {
@@ -199,6 +242,7 @@ describe("the benchmarks", () => {
   test("name each benchmark as the reports do", () => {
     expect(boxName({ box: "osc~", precision: "binary32", setting: "s" })).toBe("osc~ s in binary32");
     expect(planName(256)).toBe("loading a plan of 256 oscillators");
+    expect(patchName({ precision: "binary64", setting: "p" })).toBe("playing p in binary64");
   });
 
   test("accept a box that costs nothing", () => {
@@ -206,7 +250,7 @@ describe("the benchmarks", () => {
     if (first === undefined) {
       throw new Error("no benchmark");
     }
-    expect(measure(counted(), [{ ...first, patch: first.without }], [], []).boxes.map((entry) => entry.instructions)).toStrictEqual([0, 0]);
+    expect(measure(counted(), [{ ...first, patch: first.without }], [], [], []).boxes.map((entry) => entry.instructions)).toStrictEqual([0, 0]);
   });
 
   test("refuse a patch the engine refuses", () => {
@@ -214,22 +258,79 @@ describe("the benchmarks", () => {
     if (first === undefined) {
       throw new Error("no benchmark");
     }
-    expect(() => measure(counted(), [{ ...first, rate: 7 }], [], [])).toThrow(CountError);
-    expect(() => measure(counted(), [], [], [0])).not.toThrow();
+    expect(() => measure(counted(), [{ ...first, rate: 7 }], [], [], [])).toThrow(CountError);
+    expect(() => measure(counted(), [], [], [], [0])).not.toThrow();
+    const [empty] = PATCH_BENCHMARKS;
+    if (empty === undefined) {
+      throw new Error("no whole-patch benchmark");
+    }
+    expect(() => measure(counted(), [], [], [{ ...empty, rate: 7 }], [])).toThrow(new CountError("playing an empty patch at 48 kHz in binary64: the engine refused the patch: invalid sample rate: 7 Hz (supported: 8000 to 384000 Hz)"));
   });
 
   test("measure the committed baseline, within its tolerance, and build plans within n log n", () => {
     const baseline = parseBaseline(readFileSync(new URL("benchmark-baseline.json", SPEC), "utf8"));
     const thresholds = parseThresholds(readFileSync(new URL("benchmark-thresholds.json", SPEC), "utf8"));
-    const counts = measure(counted(), BOX_BENCHMARKS, MIX_BENCHMARKS, PLAN_SIZES);
+    const counts = measure(counted(), BOX_BENCHMARKS, MIX_BENCHMARKS, PATCH_BENCHMARKS, PLAN_SIZES);
     expect(regressions(counts, baseline, thresholds.tolerancePercent)).toStrictEqual([]);
     expect(nLogNProblems(counts.plans)).toStrictEqual([]);
   });
 });
 
+/**
+ * A stand-in engine module, assembled by hand, of the engine's interface: `engine_input`
+ * keeps the length of the patch, `engine_load` accepts it, and each `engine_process` runs
+ * `fixed` `nop`s, then a loop of one pass per byte of the patch. So a block costs a part
+ * that grows with the patch, which differences see, plus `fixed` instructions every patch
+ * pays, which they cancel.
+ */
+function standIn(fixed: number): CountedEngine {
+  const constant = (bytes: readonly number[]): readonly number[] => [0x41, ...bytes, 0x0b];
+  const func = (exported: string, params: number, code: readonly number[], locals: readonly number[] = [0x00]): Parameters<typeof assemble>[0]["functions"][number] => ({ params, result: true, locals, code, exported });
+  const pass = [0x03, 0x40, 0x20, 0x00, 0x45, 0x0d, 0x01, 0x20, 0x00, 0x41, 0x01, 0x6b, 0x21, 0x00, 0x0c, 0x00, 0x0b];
+  const wasm = assemble({
+    functions: [
+      // 0x5059_0003 in signed LEB128: the interface's identity and version.
+      func("engine_abi_version", 0, constant([0x83, 0x80, 0xe4, 0x82, 0x05])),
+      func("engine_input", 1, [0x20, 0x00, 0x24, 0x00, ...constant([0x00])]),
+      func("engine_load", 2, constant([0x01])),
+      func("engine_message_ptr", 0, constant([0x00])),
+      func("engine_message_len", 0, constant([0x00])),
+      func("engine_channels", 0, constant([0x02])),
+      func("engine_block_size", 0, constant([0x10])),
+      func("engine_process", 0, [...Array<number>(fixed).fill(0x01), 0x23, 0x00, 0x21, 0x00, 0x02, 0x40, ...pass, 0x0b, ...constant([0x00])], [0x01, 0x01, 0x7f]),
+      func("engine_max_patch_bytes", 0, constant([0x00])),
+    ],
+    globals: [I32_GLOBAL],
+    exports: [["memory", 0x02, 0]],
+  });
+  return countedEngine(wasm);
+}
+
+test("the whole-patch benchmarks see a cost every patch pays each block, which every difference cancels", () => {
+  const suite = [BOX_BENCHMARKS, MIX_BENCHMARKS, PATCH_BENCHMARKS, [2, 4]] as const;
+  const without = measure(standIn(0), ...suite);
+  const fixed = measure(standIn(5), ...suite);
+  // The positive control: the patches' counts differ by the 5 instructions of each block.
+  expect(fixed.patches).toStrictEqual(without.patches.map((entry) => ({ ...entry, instructions: entry.instructions + 5 * BLOCKS })));
+  // And the differences do not see them.
+  expect([fixed.boxes, fixed.mixes, fixed.plans]).toStrictEqual([without.boxes, without.mixes, without.plans]);
+  expect(without.boxes.every((entry) => entry.instructions > 0) && without.mixes.every((entry) => entry.instructions > 0)).toBe(true);
+  // Nothing subtracted: the empty patch's 40 bytes cost 8 instructions a pass, plus 2 before
+  // the loop, 3 in its last test and 1 for the result, in each of the 64 blocks.
+  const [empty, , heavy] = without.patches;
+  expect(empty).toStrictEqual({ precision: "binary64", setting: "an empty patch at 48 kHz", instructions: 64 * (8 * 40 + 6) });
+  expect((heavy?.instructions ?? 0) > (empty?.instructions ?? 0)).toBe(true);
+});
+
 /** Counts of one box benchmark and one plan. */
-function countsOf(box: number, plan: number, mix = 100, moduleBytes = 300_000): Counts {
-  return { boxes: [{ box: "osc~", precision: "binary32", setting: "s", instructions: box }], mixes: [{ precision: "binary64", setting: "m", instructions: mix }], plans: [{ oscillators: 4, instructions: plan }], moduleBytes };
+function countsOf(box: number, plan: number, mix = 100, moduleBytes = 300_000, patch = 5000): Counts {
+  return {
+    boxes: [{ box: "osc~", precision: "binary32", setting: "s", instructions: box }],
+    mixes: [{ precision: "binary64", setting: "m", instructions: mix }],
+    patches: [{ precision: "binary32", setting: "p", instructions: patch }],
+    plans: [{ oscillators: 4, instructions: plan }],
+    moduleBytes,
+  };
 }
 
 describe("regressions", () => {
@@ -249,6 +350,9 @@ describe("regressions", () => {
       "loading a plan of 4 oscillators: 4899 instructions, baseline 5000 (-2.02%, beyond ±2%)",
     ]);
     expect(regressions(countsOf(1000, 5000, 103), countsOf(1000, 5000, 100), 2)).toStrictEqual(["mixing m in binary64: 103 instructions, baseline 100 (+3.00%, beyond ±2%)"]);
+    expect(regressions(countsOf(1000, 5000, 100, 300_000, 5101), countsOf(1000, 5000), 2)).toStrictEqual(["playing p in binary32: 5101 instructions, baseline 5000 (+2.02%, beyond ±2%)"]);
+    expect(regressions(countsOf(1000, 5000, 100, 300_000, 4899), countsOf(1000, 5000), 2)).toStrictEqual(["playing p in binary32: 4899 instructions, baseline 5000 (-2.02%, beyond ±2%)"]);
+    expect(regressions(countsOf(1000, 5000, 100, 300_000, 5100), countsOf(1000, 5000), 2)).toStrictEqual([]);
     expect(regressions(countsOf(1100, 5000), countsOf(1000, 5000), 15)).toStrictEqual([]);
     expect(regressions(countsOf(1000, 5000), countsOf(1100, 5000), 0.5)).toStrictEqual(["osc~ s in binary32: 1000 instructions, baseline 1100 (-9.09%, beyond ±0.5%)"]);
   });
@@ -262,10 +366,17 @@ describe("regressions", () => {
   });
 
   test("refuse a benchmark missing from the baseline, and a baseline entry nothing measures", () => {
-    const other: Counts = { boxes: [{ box: "dac~", precision: "binary64", setting: "s", instructions: 7 }], mixes: [{ precision: "binary32", setting: "m", instructions: 100 }], plans: [{ oscillators: 8, instructions: 9 }], moduleBytes: 300_000 };
+    const other: Counts = {
+      boxes: [{ box: "dac~", precision: "binary64", setting: "s", instructions: 7 }],
+      mixes: [{ precision: "binary32", setting: "m", instructions: 100 }],
+      patches: [{ precision: "binary64", setting: "p", instructions: 5000 }],
+      plans: [{ oscillators: 8, instructions: 9 }],
+      moduleBytes: 300_000,
+    };
     const sameBoxOtherPrecision: Counts = {
       boxes: [{ box: "osc~", precision: "binary64", setting: "s", instructions: 1 }],
       mixes: [{ precision: "binary64", setting: "m", instructions: 100 }],
+      patches: [{ precision: "binary32", setting: "p", instructions: 5000 }],
       plans: [{ oscillators: 4, instructions: 2 }],
       moduleBytes: 300_000,
     };
@@ -273,9 +384,11 @@ describe("regressions", () => {
     expect(regressions(countsOf(1, 2), other, 2)).toStrictEqual([
       "osc~ s in binary32: 1 instructions, not in the baseline",
       "mixing m in binary64: 100 instructions, not in the baseline",
+      "playing p in binary32: 5000 instructions, not in the baseline",
       "loading a plan of 4 oscillators: 2 instructions, not in the baseline",
       "dac~ s in binary64: in the baseline, measured by no benchmark",
       "mixing m in binary32: in the baseline, measured by no benchmark",
+      "playing p in binary64: in the baseline, measured by no benchmark",
       "loading a plan of 8 oscillators: in the baseline, measured by no benchmark",
     ]);
   });
@@ -355,14 +468,15 @@ describe("the baseline file", () => {
   const valid: Counts = {
     boxes: [{ box: "osc~", precision: "binary32", setting: "s", instructions: 12 }],
     mixes: [{ precision: "binary64", setting: "m", instructions: 3 }],
+    patches: [{ precision: "binary32", setting: "p", instructions: 7 }],
     plans: [{ oscillators: 4, instructions: 0 }],
     moduleBytes: 327_000,
   };
 
   test("is read in its exact shape, and written as it is read", () => {
-    expect(parseBaseline('{"boxes":[{"box":"osc~","precision":"binary32","setting":"s","instructions":12}],"mixes":[{"precision":"binary64","setting":"m","instructions":3}],"plans":[{"oscillators":4,"instructions":0}],"module_bytes":327000}')).toStrictEqual(valid);
+    expect(parseBaseline('{"boxes":[{"box":"osc~","precision":"binary32","setting":"s","instructions":12}],"mixes":[{"precision":"binary64","setting":"m","instructions":3}],"patches":[{"precision":"binary32","setting":"p","instructions":7}],"plans":[{"oscillators":4,"instructions":0}],"module_bytes":327000}')).toStrictEqual(valid);
     expect(formatBaseline(valid)).toBe(
-      '{\n  "boxes": [\n    {\n      "box": "osc~",\n      "precision": "binary32",\n      "setting": "s",\n      "instructions": 12\n    }\n  ],\n  "mixes": [\n    {\n      "precision": "binary64",\n      "setting": "m",\n      "instructions": 3\n    }\n  ],\n  "plans": [\n    {\n      "oscillators": 4,\n      "instructions": 0\n    }\n  ],\n  "module_bytes": 327000\n}\n',
+      '{\n  "boxes": [\n    {\n      "box": "osc~",\n      "precision": "binary32",\n      "setting": "s",\n      "instructions": 12\n    }\n  ],\n  "mixes": [\n    {\n      "precision": "binary64",\n      "setting": "m",\n      "instructions": 3\n    }\n  ],\n  "patches": [\n    {\n      "precision": "binary32",\n      "setting": "p",\n      "instructions": 7\n    }\n  ],\n  "plans": [\n    {\n      "oscillators": 4,\n      "instructions": 0\n    }\n  ],\n  "module_bytes": 327000\n}\n',
     );
     expect(parseBaseline(formatBaseline(valid))).toStrictEqual(valid);
     const committed = readFileSync(new URL("benchmark-baseline.json", SPEC), "utf8");
@@ -375,17 +489,19 @@ describe("the baseline file", () => {
     const [box] = valid.boxes;
     const [mix] = valid.mixes;
     const [plan] = valid.plans;
-    if (box === undefined || mix === undefined || plan === undefined) {
+    const [patch] = valid.patches;
+    if (box === undefined || mix === undefined || plan === undefined || patch === undefined) {
       throw new Error("no entry");
     }
     expect(() => parseBaseline(formatBaseline({ ...valid, boxes: [box, { ...box, instructions: 1 }] }))).toThrow(new BenchmarkFileError('boxes[1] repeats "osc~ s in binary32"'));
     expect(() => parseBaseline(formatBaseline({ ...valid, mixes: [mix, mix] }))).toThrow(new BenchmarkFileError('mixes[1] repeats "mixing m in binary64"'));
+    expect(() => parseBaseline(formatBaseline({ ...valid, patches: [patch, { ...patch, precision: "binary64" }, { ...patch, instructions: 1 }] }))).toThrow(new BenchmarkFileError('patches[2] repeats "playing p in binary32"'));
     expect(() => parseBaseline(formatBaseline({ ...valid, plans: [plan, { oscillators: 8, instructions: 1 }, plan] }))).toThrow(new BenchmarkFileError('plans[2] repeats "loading a plan of 4 oscillators"'));
   });
 
   test("refuses a key named __proto__, which JSON.parse keeps as its own", () => {
-    expect(() => parseBaseline('{"boxes":[],"mixes":[],"plans":[],"module_bytes":1,"__proto__":{"x":1}}')).toThrow(new BenchmarkFileError('expected {"boxes": [...], "mixes": [...], "plans": [...], "module_bytes": <whole>}'));
-    expect(() => parseBaseline('{"boxes":[],"mixes":[],"plans":[{"oscillators":4,"instructions":1,"__proto__":1}],"module_bytes":1}')).toThrow(
+    expect(() => parseBaseline('{"boxes":[],"mixes":[],"patches":[],"plans":[],"module_bytes":1,"__proto__":{"x":1}}')).toThrow(new BenchmarkFileError('expected {"boxes": [...], "mixes": [...], "patches": [...], "plans": [...], "module_bytes": <whole>}'));
+    expect(() => parseBaseline('{"boxes":[],"mixes":[],"patches":[],"plans":[{"oscillators":4,"instructions":1,"__proto__":1}],"module_bytes":1}')).toThrow(
       new BenchmarkFileError('plans[0] is not {"oscillators", "instructions"} with whole numbers'),
     );
   });
@@ -396,18 +512,20 @@ describe("the baseline file", () => {
     };
     expect(() => parseBaseline("{")).toThrow(BenchmarkFileError);
     expect(() => parseBaseline("{")).toThrow(/^not JSON: SyntaxError/);
-    const top = 'expected {"boxes": [...], "mixes": [...], "plans": [...], "module_bytes": <whole>}';
-    const empty = { boxes: [], mixes: [], plans: [], module_bytes: 1 };
+    const top = 'expected {"boxes": [...], "mixes": [...], "patches": [...], "plans": [...], "module_bytes": <whole>}';
+    const empty = { boxes: [], mixes: [], patches: [], plans: [], module_bytes: 1 };
     for (const value of [
       null,
       [],
       3,
       {},
       { boxes: [] },
-      { boxes: [], mixes: [], plans: [] },
+      { boxes: [], mixes: [], patches: [], plans: [] },
+      { boxes: [], mixes: [], plans: [], module_bytes: 1 },
       { ...empty, extra: 1 },
       { ...empty, boxes: {} },
       { ...empty, mixes: {} },
+      { ...empty, patches: {} },
       { ...empty, plans: {} },
       { ...empty, module_bytes: -1 },
       { ...empty, module_bytes: 1.5 },
@@ -417,14 +535,22 @@ describe("the baseline file", () => {
     }
     const mix = 'mixes[0] is not {"precision", "setting", "instructions"} with a whole count';
     for (const entry of [null, {}, { setting: 1, instructions: 1 }, { setting: "m", instructions: -1 }, { setting: "m", instructions: 1.5 }, { setting: "m", instructions: 1, more: 1 }, { setting: "m" }]) {
-      refused({ boxes: [], mixes: [entry], plans: [], module_bytes: 1 }, mix);
+      refused({ boxes: [], mixes: [entry], patches: [], plans: [], module_bytes: 1 }, mix);
       if (entry !== null) {
-        refused({ boxes: [], mixes: [{ ...entry, precision: "binary32" }], plans: [], module_bytes: 1 }, mix);
+        refused({ boxes: [], mixes: [{ ...entry, precision: "binary32" }], patches: [], plans: [], module_bytes: 1 }, mix);
       }
     }
     for (const precision of ["binary16", 64, null]) {
-      refused({ boxes: [], mixes: [{ precision, setting: "m", instructions: 1 }], plans: [], module_bytes: 1 }, "mixes[0].precision is not one of binary64, binary32");
+      refused({ boxes: [], mixes: [{ precision, setting: "m", instructions: 1 }], patches: [], plans: [], module_bytes: 1 }, "mixes[0].precision is not one of binary64, binary32");
     }
+    const patch = 'patches[0] is not {"precision", "setting", "instructions"} with a whole count';
+    for (const entry of [null, {}, { setting: 1, instructions: 1 }, { setting: "p", instructions: -1 }, { setting: "p", instructions: 1, more: 1 }]) {
+      refused({ boxes: [], mixes: [], patches: [entry], plans: [], module_bytes: 1 }, patch);
+      if (entry !== null) {
+        refused({ boxes: [], mixes: [], patches: [{ ...entry, precision: "binary64" }], plans: [], module_bytes: 1 }, patch);
+      }
+    }
+    refused({ boxes: [], mixes: [], patches: [{ precision: "binary16", setting: "p", instructions: 1 }], plans: [], module_bytes: 1 }, "patches[0].precision is not one of binary64, binary32");
     const box = 'boxes[0] is not {"box", "precision", "setting", "instructions"} with a whole count';
     const entries = [
       null,
@@ -438,18 +564,18 @@ describe("the baseline file", () => {
       { box: "b", setting: "s", instructions: 1, more: 1 },
     ];
     for (const entry of entries) {
-      refused({ boxes: [entry], mixes: [], plans: [], module_bytes: 1 }, box);
+      refused({ boxes: [entry], mixes: [], patches: [], plans: [], module_bytes: 1 }, box);
       if (entry !== null) {
-        refused({ boxes: [{ ...entry, precision: "binary64" }], mixes: [], plans: [], module_bytes: 1 }, box);
+        refused({ boxes: [{ ...entry, precision: "binary64" }], mixes: [], patches: [], plans: [], module_bytes: 1 }, box);
       }
     }
-    refused({ boxes: [{ box: "b", setting: "s", instructions: 1 }], mixes: [], plans: [], module_bytes: 1 }, box);
+    refused({ boxes: [{ box: "b", setting: "s", instructions: 1 }], mixes: [], patches: [], plans: [], module_bytes: 1 }, box);
     for (const precision of ["binary16", 64, null]) {
-      refused({ boxes: [{ box: "b", precision, setting: "s", instructions: 1 }], mixes: [], plans: [], module_bytes: 1 }, "boxes[0].precision is not one of binary64, binary32");
+      refused({ boxes: [{ box: "b", precision, setting: "s", instructions: 1 }], mixes: [], patches: [], plans: [], module_bytes: 1 }, "boxes[0].precision is not one of binary64, binary32");
     }
     const plan = 'plans[1] is not {"oscillators", "instructions"} with whole numbers';
     for (const entry of [{}, { oscillators: -1, instructions: 1 }, { oscillators: 1, instructions: -1 }, { oscillators: 1 }, { oscillators: 1, instructions: 1, more: 1 }]) {
-      refused({ boxes: [], mixes: [], plans: [{ oscillators: 1, instructions: 1 }, entry], module_bytes: 1 }, plan);
+      refused({ boxes: [], mixes: [], patches: [], plans: [{ oscillators: 1, instructions: 1 }, entry], module_bytes: 1 }, plan);
     }
   });
 

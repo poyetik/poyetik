@@ -10,7 +10,7 @@ What the engine's cost benchmarks measure, how their thresholds are derived, wha
 
 Two kinds of measurement, with opposite properties:
 
-1. **Instruction counts** of the engine's WebAssembly module, for each box at representative settings, for the plan's own sums, and for building plans of several sizes, with the size of the module itself: deterministic, identical on every machine, compared exactly with the baseline. `pnpm benchmarks:check` in `bindings/wasm` (part of its `pnpm check`, so of `cargo xtask check`).
+1. **Instruction counts** of the engine's WebAssembly module, for each box at representative settings, for the plan's own sums, for whole patches played, and for building plans of several sizes, with the size of the module itself: deterministic, identical on every machine, compared exactly with the baseline. `pnpm benchmarks:check` in `bindings/wasm` (part of its `pnpm check`, so of `cargo xtask check`).
 2. **Wall time** of constructing the engine processor, and of rendering each box in both precisions, in Chromium, Firefox and WebKit: noisy, asserted only as upper bounds with a wide margin. End-to-end tests of `bindings/wasm` (`pnpm test:e2e`, part of the same check).
 
 ## Instruction counts
@@ -42,6 +42,8 @@ So a count catches what changes the work done (an algorithm, a loop, an approxim
 
 **The plan's sums, in both precisions** (`MIX_BENCHMARKS` in `benchmarks/suite.ts`, under `mixes` in the baseline, named `mixing <setting> in <precision>`): what the plan does per block to add up several terms in the reduction order (`engine-design.md`, decision 28), which no box benchmark sees. Each is the instructions of `BLOCKS` blocks of a patch summing several terms into one place, minus those of the same boxes summing one (which the plan feeds by a plain copy, decided when it is built: so each difference is the sum against a copy), each in a fresh instance, computed in that precision and given as binary32: n oscillators into one inlet of a `dac~` minus the same oscillators with only the first cable, for n = 2 (one addition), 3 (a partial tree), 16 (the full tree) and 17 (a lane holding two terms); and two `dac~` fed by one oscillator on the same channels minus one `dac~` (whose difference also holds the second box's own work, which its box benchmark counts).
 
+**Whole patches, in both precisions** (`PATCH_BENCHMARKS` in `benchmarks/suite.ts`, under `patches` in the baseline, named `playing <setting> in <precision>`): the instructions of `BLOCKS` blocks of a patch, in a fresh instance, computed in that precision and given as binary32, nothing subtracted. Every box and mixing benchmark is a difference, so a cost every patch pays each block whatever its boxes (the engine's and the plan's own work outside the boxes) cancels from all of them; these two show it. The empty patch is the engine's fixed cost of a block: a per-block cost added for every patch shows there whole, against the smallest count of the suite. The heavy patch, 16 `dac~` each fed by 3 oscillators into its left inlet, the first also into its right (`summingPatch`: 16 sums of three terms into inlets, two output channels of 16 terms each, 64 boxes and 64 cables), shows a cost that grows with the patch (by its boxes, its cables or its sums) beyond the tolerance of the whole. A unit test proves both sides on a stand-in module whose blocks cost a fixed number of instructions more: the whole-patch counts rise by exactly that number per block, every difference stays the same.
+
 **Building plans** (`PLAN_SIZES`, at `PLAN_RATE`): the instructions of loading a patch of n oscillators feeding the two inlets of one `dac~` in turn (n + 1 boxes, n cables), copying the patch into the module, parsing it and building its plan included: what the engine processor does when it is constructed (`engine-design.md`, decision 15).
 
 **The size of the engine module** (`module_bytes` in the baseline, reported as `engine module: <n> bytes`): the bytes of `bindings/wasm/dist/engine.wasm` as built, before instrumentation. What a page downloads and compiles before it plays, and what the engine processor compiles on the audio thread (decision 15): the deterministic proxy of load time, as instruction counts are of CPU time, deterministic for the same reason (the build is reproducible). It is compared with the same tolerance, either way; the absolute budget of the module and a committed digest of its bytes are roadmap #11's.
@@ -60,6 +62,8 @@ Today's boxes have either no inlet (`osc~`) or no outlet (`dac~`), so the plans 
 
 - **above**: a regression of a box, of the plan's sums, of plan building or of the module's size by more than the tolerance fails the check. A smaller drift (a refactoring of the plan's per-block work, a compiler upgrade reordering code) passes, so that unrelated work does not force a re-bless at every commit; drifts do not accumulate unseen, since the baseline only moves through a reviewed bless and each change is compared with it.
 - **below**: a count that fell by more than the tolerance also fails, so that the baseline stays tight: an improvement is recorded by a bless, and a later regression is measured from it, not from the old count.
+
+What the tolerance cannot see is a trade smaller than it on every benchmark: a change that costs a few instructions per block on light patches and saves a few per sum on heavy ones moves the heavy patch by a fraction of a percent. Such a trade is decided by a dated entry of "Measured design choices", measured at one and at many of the things it scales with (boxes, sums, channels), with its break-even; the check holds it only within the tolerance.
 
 So the tolerance is positive and below 100 (the reader refuses any other): a count cannot fall by 100% or more, so a wider tolerance could never refuse a fall. The baseline's reader also refuses any key it does not name and an entry repeated (the comparison is by name, so a second entry would hide the first), and `measure` refuses two benchmarks of one name.
 
@@ -161,5 +165,7 @@ For a new box type (its registration in `engine-objects`' `REGISTRY` requires on
 2. Update the literal list of settings in `test/benchmarks/suite.test.ts`.
 3. If the box type keeps a state, measure it both held inline in `engine_objects::BuiltIn` and on the heap, keep the faster per block, and record both in "Measured design choices" above.
 4. Run `cargo xtask bless-benchmarks`, and commit the new baseline with the box, saying that a box was added.
+
+For a heavier patch or a new whole-patch setting: add it to `PATCH_BENCHMARKS` and to the literal list of settings in `test/benchmarks/suite.test.ts`, then bless.
 
 For a new kind of benchmark (an engine component, a topology): add it to `benchmarks/suite.ts` and to the shape of the baseline (`parseBaseline`, `formatBaseline`), with its tests, then bless. For a new scaling claim, state it as a law like the n log n law, with a unit test that it refuses a cost that breaks it.

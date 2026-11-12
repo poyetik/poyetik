@@ -125,6 +125,28 @@
       "instructions": 133504
     }
   ],
+  "patches": [
+    {
+      "precision": "binary64",
+      "setting": "an empty patch at 48 kHz",
+      "instructions": 7040
+    },
+    {
+      "precision": "binary32",
+      "setting": "an empty patch at 48 kHz",
+      "instructions": 5888
+    },
+    {
+      "precision": "binary64",
+      "setting": "16 output boxes each fed by 3 oscillators at 48 kHz",
+      "instructions": 41095649
+    },
+    {
+      "precision": "binary32",
+      "setting": "16 output boxes each fed by 3 oscillators at 48 kHz",
+      "instructions": 28447550
+    }
+  ],
   "plans": [
     {
       "oscillators": 256,

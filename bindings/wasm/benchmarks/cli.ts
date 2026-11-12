@@ -4,7 +4,27 @@
 // it touches is injected, so that it is tested; the entry point wires the real process.
 import { oneLine } from "@poyetik/config/one-line";
 import { countedEngine } from "./counter.ts";
-import { BOX_BENCHMARKS, boxName, formatBaseline, measure, MIX_BENCHMARKS, mixName, MODULE_NAME, nLogNProblems, parseBaseline, parseThresholds, planName, PLAN_SIZES, regressions, type BoxBenchmark, type Counts, type MixBenchmark } from "./suite.ts";
+import {
+  BOX_BENCHMARKS,
+  boxName,
+  formatBaseline,
+  measure,
+  MIX_BENCHMARKS,
+  mixName,
+  MODULE_NAME,
+  nLogNProblems,
+  parseBaseline,
+  parseThresholds,
+  PATCH_BENCHMARKS,
+  patchName,
+  planName,
+  PLAN_SIZES,
+  regressions,
+  type BoxBenchmark,
+  type Counts,
+  type MixBenchmark,
+  type PatchBenchmark,
+} from "./suite.ts";
 
 /** What the command needs from the outside world. */
 export interface BenchIo {
@@ -20,18 +40,20 @@ export interface BenchIo {
   readonly err: (line: string) => void;
 }
 
-/** What is measured: the box benchmarks, the mixing benchmarks, and the sizes of the plans built. */
+/** What is measured: the box benchmarks, the mixing benchmarks, the whole-patch benchmarks, and the sizes of the plans built. */
 export interface Suite {
   /** The box benchmarks. */
   readonly boxes: readonly BoxBenchmark[];
   /** The mixing benchmarks. */
   readonly mixes: readonly MixBenchmark[];
+  /** The whole-patch benchmarks. */
+  readonly patches: readonly PatchBenchmark[];
   /** The plan sizes, in oscillators, increasing. */
   readonly sizes: readonly number[];
 }
 
 /** The benchmarks `check` and `bless` run. */
-export const SUITE: Suite = { boxes: BOX_BENCHMARKS, mixes: MIX_BENCHMARKS, sizes: PLAN_SIZES };
+export const SUITE: Suite = { boxes: BOX_BENCHMARKS, mixes: MIX_BENCHMARKS, patches: PATCH_BENCHMARKS, sizes: PLAN_SIZES };
 
 /** The baseline, from the repository root. */
 export const BASELINE_FILE = "spec/benchmark-baseline.json";
@@ -92,7 +114,7 @@ function measured(io: BenchIo, suite: Suite): Counts {
     failed(`cannot read ${MODULE_FILE}`, error);
   }
   try {
-    return measure(countedEngine(wasm), suite.boxes, suite.mixes, suite.sizes);
+    return measure(countedEngine(wasm), suite.boxes, suite.mixes, suite.patches, suite.sizes);
   } catch (error) {
     failed(MODULE_FILE, error);
   }
@@ -105,6 +127,9 @@ function report(io: BenchIo, counts: Counts): void {
   }
   for (const entry of counts.mixes) {
     io.out(`${mixName(entry)}: ${String(entry.instructions)} instructions`);
+  }
+  for (const entry of counts.patches) {
+    io.out(`${patchName(entry)}: ${String(entry.instructions)} instructions`);
   }
   for (const entry of counts.plans) {
     io.out(`${planName(entry.oscillators)}: ${String(entry.instructions)} instructions`);
