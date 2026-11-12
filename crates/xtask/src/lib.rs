@@ -6975,7 +6975,7 @@ pub fn workflow_text() -> Vec<String> {
 /// commit hash in lowercase, then nothing or a comment naming its tag (` # <tag>`, as
 /// Dependabot writes it).
 fn workflow_line(expected: &str, found: &str) -> bool {
-    if !(expected.ends_with('@') && expected.trim_start().starts_with("- uses: ")) {
+    if !expected.ends_with('@') {
         return found == expected;
     }
     found
@@ -10053,17 +10053,6 @@ fn section_path(header: &str) -> Option<&str> {
     (rest.strip_prefix(" b/")? == path).then_some(path)
 }
 
-/// The first `diff --git` line `diff` holds twice, if any.
-///
-/// cargo-mutants joins the changed lines of every section of one path in one list it does
-/// not sort, then searches it as sorted: a path with two sections loses mutants silently.
-fn repeated_section(diff: &str) -> Option<&str> {
-    let mut seen = BTreeSet::new();
-    diff.lines()
-        .filter(|line| line.starts_with("diff --git "))
-        .find(|line| !seen.insert(*line))
-}
-
 /// The crates of the workspace each crate of [`RUST_CRATES`] depends on, at any depth and
 /// of any kind (normal, build, development), itself included, from `metadata` (the output
 /// of [`metadata_command`]): what its tests compile.
@@ -10398,11 +10387,6 @@ fn rust_mutants_of_changes(
             out,
             &format!("  no Rust file changed{outside}: no mutant to test"),
         );
-    }
-    if let Some(header) = repeated_section(&diff) {
-        return Err(Failure::from(format!(
-            "the diff for cargo-mutants holds `{header}` twice, whose mutants it would miss"
-        )));
     }
     runner
         .write(CHANGES_DIFF, &diff)

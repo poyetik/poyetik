@@ -2641,34 +2641,6 @@ fn refuses_a_diff_git_left_a_change_out_of() {
 }
 
 #[test]
-fn finds_a_section_written_twice() {
-    let twice = format!(
-        "{}{}",
-        one_line_change("crates/a/src/b.rs"),
-        super::new_file_diff("crates/a/src/b.rs", "fn f() {}\n")
-    );
-    assert_eq!(
-        super::repeated_section(&twice),
-        Some("diff --git a/crates/a/src/b.rs b/crates/a/src/b.rs"),
-        "a change and the whole file"
-    );
-    let once = format!(
-        "{}{}",
-        one_line_change("crates/a/src/b.rs"),
-        super::new_file_diff(
-            "crates/a/src/c.rs",
-            "diff --git a/crates/a/src/b.rs b/crates/a/src/b.rs\n"
-        )
-    );
-    assert_eq!(
-        super::repeated_section(&once),
-        None,
-        "a header as a line of a file is no section"
-    );
-    assert_eq!(super::repeated_section(""), None, "no section");
-}
-
-#[test]
 fn reads_the_paths_real_git_changes_whatever_they_hold() {
     let dir = scratch("changed-paths");
     let quoted = "crates/engine-core/tests/caf\u{e9}.json";
@@ -2989,6 +2961,7 @@ fn refuses_a_diff_that_is_not_every_change_in_text() {
         format!("{one}{one}"),
         format!("{deleted}{}{created}", one_line_change(second)),
         format!("{one}{deleted}{created}"),
+        format!("{one}diff --git a/{second} b/{second}\ndeleted file mode 100644\n{one}"),
     ] {
         assert_eq!(
             incomplete(&twice, &[first, second]),
@@ -8949,6 +8922,12 @@ fn derives_the_workflow_s_lists_and_reads_its_node_release() {
         "every report a failed run leaves, derived from where xtask reads them"
     );
     let parts = super::workflow_text();
+    for line in parts.iter().filter(|line| line.ends_with('@')) {
+        assert!(
+            line.starts_with("      - uses: "),
+            "only a line using an action ends with `@`: {line}"
+        );
+    }
     assert!(
         parts.contains(&concat!(
             "        part: [rust, coverage, mutation-0, mutation-1, mutation-2, mutation-3, ",
@@ -10477,6 +10456,30 @@ fn refuses_test_code_and_files_not_rust_in_the_code() {
             "a file that is not Rust, read by {what}: {data}"
         );
     }
+    let in_crate = RustCrate {
+        test_data: &["crates/engine-core/tests/data/"],
+        ..core
+    };
+    assert_eq!(
+        super::loaded_files_gate(
+            &[
+                build(false, &["crates/engine-core/src/lib.rs"]),
+                super::Loaded {
+                    krate: in_crate,
+                    ..build(
+                        true,
+                        &[
+                            "crates/engine-core/src/lib.rs",
+                            "crates/engine-core/tests/data/a.bin"
+                        ]
+                    )
+                },
+            ],
+            &tracked
+        ),
+        Ok(()),
+        "declared test data below the crate, read by a build of tests"
+    );
     assert_eq!(
         gate(&[
             build(false, &["crates/engine-core/src/lib.rs"]),
