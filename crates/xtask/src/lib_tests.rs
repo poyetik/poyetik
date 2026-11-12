@@ -12349,25 +12349,6 @@ fn reads_every_source_of_box_and_engine_code() {
             );
         }
     }
-    let build = |name: &str| {
-        format!(
-            r#"{{"packages":[{{"name":"{name}","dependencies":[],"targets":[{{"kind":["lib"]}},{{"kind":["custom-build"]}}]}}]}}"#
-        )
-    };
-    for name in ["engine-objects", "engine-core"] {
-        assert_eq!(
-            gate(&build(name), &[]),
-            failed(format!(
-                "{MATH_LAYER}: {name} has a build script: code the math layer gate does not read"
-            )),
-            "{name}"
-        );
-    }
-    assert_eq!(
-        gate(&build("engine-cli"), &[]),
-        Ok(()),
-        "another crate may build"
-    );
 }
 
 #[test]
@@ -12412,22 +12393,20 @@ fn refuses_in_box_code_a_path_attribute_however_it_is_written() {
 }
 
 #[test]
-fn reads_what_real_cargo_metadata_says_of_libm_and_build_scripts() {
+fn reads_what_real_cargo_metadata_says_of_libm() {
     let (metadata, _) = fixture_metadata();
     assert_eq!(
         math_layer_gate(&metadata, &[]),
         found(
             MATH_LAYER,
             &[
-                "engine-objects has a build script: code the math layer gate does not read"
-                    .to_owned(),
                 "engine-cli depends on libm: its arithmetic must go through the math layer of \
-                 engine-core"
-                    .to_owned(),
+               engine-core"
+                    .to_owned()
             ]
         ),
-        "a dependency renamed, a build script; libm in the core and the measurements, and in \
-         the tests of the boxes"
+        "a dependency renamed; libm in the core and the measurements, and in the tests of the \
+         boxes (a build script is the untested targets gate's)"
     );
 }
 #[test]
@@ -16440,7 +16419,7 @@ fn lets_a_target_without_modules_turn_its_tests_off() {
     let metadata = targets_metadata(&[
         ("lib", "crates/x/src/lib.rs", true, true),
         ("bin", "crates/x/src/main.rs", false, false),
-        ("custom-build", "crates/x/build.rs", false, false),
+        ("bin", "crates/x/src/bin/c.rs", false, false),
         ("test", "crates/x/tests/a.rs", true, false),
     ]);
     let sources = [
@@ -16453,7 +16432,7 @@ fn lets_a_target_without_modules_turn_its_tests_off() {
             "// The module of a comment, \"mod\" of a string.\nfn main() { let _module = \"mod a;\"; }\n"
                 .to_owned(),
         ),
-        ("crates/x/build.rs".to_owned(), "fn main() {}\n".to_owned()),
+        ("crates/x/src/bin/c.rs".to_owned(), "fn main() {}\n".to_owned()),
     ];
     assert_eq!(
         untested_targets_gate(&metadata, &sources),
@@ -16554,7 +16533,7 @@ fn refuses_every_way_a_manifest_offers_to_leave_tests_unrun() {
 
 #[test]
 fn refuses_a_library_without_doc_tests() {
-    for kind in ["lib", "rlib", "proc-macro"] {
+    for kind in ["lib", "rlib"] {
         let metadata = targets_metadata(&[(kind, "crates/x/src/lib.rs", true, false)]);
         assert_eq!(
             untested_targets_gate(&metadata, &[]),
@@ -16570,6 +16549,85 @@ fn refuses_a_library_without_doc_tests() {
         untested_targets_gate(&cdylib, &[]),
         Ok(()),
         "a C library alone has no doc tests"
+    );
+}
+
+/// The problem of the untested targets gate with a target of `kind` rooted at `root`.
+fn refused_kind(root: &str, kind: &str) -> String {
+    format!(
+        "{root}: a `{kind}` target, a kind outside `TARGET_KINDS`: the checks prove only \
+         those (what a procedural macro or a build script generates or runs at build time no \
+         gate reads)"
+    )
+}
+
+#[test]
+fn refuses_a_target_of_a_kind_the_workspace_does_not_build() {
+    for (kind, root) in [
+        ("proc-macro", "crates/x/src/lib.rs"),
+        ("custom-build", "crates/x/build.rs"),
+        ("staticlib", "crates/x/src/lib.rs"),
+        ("bench", "crates/x/benches/b.rs"),
+    ] {
+        let metadata = targets_metadata(&[
+            ("lib", "crates/x/src/lib.rs", true, true),
+            (kind, root, false, false),
+        ]);
+        assert_eq!(
+            untested_targets_gate(&metadata, &[]),
+            untested_refused(&[&refused_kind(root, kind)]),
+            "{kind}"
+        );
+    }
+    let metadata = r#"{"workspace_root":"/r","packages":[{"name":"x","manifest_path":"/r/crates/x/Cargo.toml","targets":[
+        {"kind":["cdylib","rlib","dylib"],"src_path":"/r/crates/x/src/lib.rs","test":true,"doctest":true}
+    ]}]}"#;
+    assert_eq!(
+        untested_targets_gate(metadata, &[]),
+        untested_refused(&[&refused_kind("crates/x/src/lib.rs", "dylib")]),
+        "a kind beside accepted ones"
+    );
+}
+
+#[test]
+fn refuses_a_procedural_macro_and_a_build_script_cargo_reports() {
+    let dir = scratch("target-kinds");
+    for (path, text) in [
+        (
+            "Cargo.toml",
+            "[workspace]\nmembers = [\"m\", \"b\"]\nresolver = \"3\"\n",
+        ),
+        (
+            "m/Cargo.toml",
+            "[package]\nname = \"m\"\nversion = \"0.0.0\"\nedition = \"2024\"\n\n[lib]\nproc-macro = true\n",
+        ),
+        ("m/src/lib.rs", "//! M.\n"),
+        (
+            "b/Cargo.toml",
+            "[package]\nname = \"b\"\nversion = \"0.0.0\"\nedition = \"2024\"\n",
+        ),
+        ("b/build.rs", "fn main() {}\n"),
+        ("b/src/lib.rs", "//! B.\n"),
+    ] {
+        let file = dir.join(path);
+        std::fs::create_dir_all(file.parent().expect("parent")).expect("directory");
+        std::fs::write(file, text).expect("file");
+    }
+    let metadata = system(dir.path())
+        .capture(&super::metadata_command())
+        .expect("cargo metadata");
+    let sources = [
+        ("m/src/lib.rs".to_owned(), "//! M.\n".to_owned()),
+        ("b/src/lib.rs".to_owned(), "//! B.\n".to_owned()),
+        ("b/build.rs".to_owned(), "fn main() {}\n".to_owned()),
+    ];
+    assert_eq!(
+        untested_targets_gate(&metadata, &sources),
+        untested_refused(&[
+            &refused_kind("m/src/lib.rs", "proc-macro"),
+            &refused_kind("b/build.rs", "custom-build"),
+        ]),
+        "both kinds as cargo reports them"
     );
 }
 

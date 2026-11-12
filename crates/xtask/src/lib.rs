@@ -71,7 +71,7 @@ pub enum CrateRole {
     /// math layer's. A test may use `libm` directly (a development dependency), for
     /// references computed apart from the code under test.
     Libm,
-    /// A crate whose sources the math layer gate reads, which may have no build script.
+    /// A crate whose sources the math layer gate reads.
     MathLayer,
     /// Code for tests: a change below its directory can let a mutant of any crate whose
     /// tests use it survive, so it widens the default check to all of them. Every crate the
@@ -3612,7 +3612,10 @@ pub fn test_declarations(source: &RustSource) -> Vec<TestDeclaration> {
 /// belong to it, under its lifting (and under Miri with it), and lift nothing themselves.
 ///
 /// rustc does not lint code expanded from another crate's macro, so a macro of a crate
-/// that forbids unsafe code can still bring it into another: no Rust file but those and the
+/// that forbids unsafe code can still bring it into another. The workspace holds no
+/// procedural macro, whose expansion no gate reads (its tokens can come from strings), and
+/// no build script ([`TARGET_KINDS`], [`untested_targets_gate`]), so only `macro_rules!`
+/// macros and third-party macros expand into its code: no Rust file but those and the
 /// unit tests they declare names the keyword `unsafe` in its tokens, prose and strings
 /// apart, and no Rust file at all names an identifier of [`REFUSED_ASSEMBLY`]. A macro of a
 /// third-party dependency is outside this gate: dependencies are reviewed
@@ -4239,7 +4242,16 @@ fn loaded_by_tests(source: &RustSource) -> Vec<String> {
 }
 
 /// The kinds of target whose documentation rustdoc tests.
-pub const DOC_TESTED_KINDS: [&str; 3] = ["lib", "rlib", "proc-macro"];
+pub const DOC_TESTED_KINDS: [&str; 2] = ["lib", "rlib"];
+
+/// The kinds of target the workspace may hold, as cargo metadata names them.
+///
+/// Libraries (a C library for the WebAssembly module included), binaries and tests. Every
+/// other kind is refused ([`untested_targets_gate`]): a procedural macro (`proc-macro`) or a build
+/// script (`custom-build`) generates or runs code at build time that no gate reads (the
+/// keyword `unsafe` in a procedural macro's expansion, which rustc does not lint, or a file
+/// a build script reads), and the checks prove no other kind.
+pub const TARGET_KINDS: [&str; 5] = ["lib", "rlib", "cdylib", "bin", "test"];
 
 /// Checks that no target of the workspace leaves its tests unrun.
 ///
@@ -4256,7 +4268,9 @@ pub const DOC_TESTED_KINDS: [&str; 3] = ["lib", "rlib", "proc-macro"];
 /// - every file cargo discovers as a test target (`tests/<name>.rs`, `tests/<name>/main.rs`
 ///   of a package) is the root of a test target, so that `autotests = false` or a target
 ///   moved elsewhere leaves none of them unbuilt;
-/// - a library keeps its doc tests ([`DOC_TESTED_KINDS`]).
+/// - a library keeps its doc tests ([`DOC_TESTED_KINDS`]);
+/// - every target is of a kind of [`TARGET_KINDS`], so that the workspace holds no
+///   procedural macro and no build script.
 ///
 /// The `harness` key, which cargo metadata does not report and which can replace a
 /// target's tests by its own `main`, is refused by [`bypass_gate`] in every manifest.
@@ -4314,6 +4328,14 @@ pub fn untested_targets_gate(metadata: &str, sources: &[RustSource]) -> Result<(
                 ));
                 continue;
             };
+            if let Some(kind) = kinds.iter().find(|kind| !TARGET_KINDS.contains(kind)) {
+                problems.push(format!(
+                    "{source}: a `{kind}` target, a kind outside `TARGET_KINDS`: the checks \
+                     prove only those (what a procedural macro or a build script generates or \
+                     runs at build time no gate reads)"
+                ));
+                continue;
+            }
             let test_kind = kinds.contains(&"test");
             if test_kind && tested {
                 test_roots.push(source.clone());
@@ -5630,8 +5652,8 @@ fn dependencies_of(package: &serde_json::Value) -> impl Iterator<Item = &serde_j
 }
 
 /// What the math layer gate finds in the crates (`metadata`, the output of
-/// [`metadata_command`]): a dependency on `libm` outside [`CrateRole::Libm`], a build script in
-/// [`CrateRole::MathLayer`].
+/// [`metadata_command`]): a dependency on `libm` outside [`CrateRole::Libm`] (no crate has a
+/// build script: [`TARGET_KINDS`]).
 ///
 /// # Errors
 ///
@@ -5653,19 +5675,6 @@ fn math_layer_crates(metadata: &str) -> Result<Vec<String>, Failure> {
             problems.push(format!(
                 "{name} depends on libm: its arithmetic must go through the math layer of \
                  engine-core"
-            ));
-        }
-        let builds = krate
-            .get("targets")
-            .and_then(serde_json::Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(|target| target.get("kind").and_then(serde_json::Value::as_array))
-            .flatten()
-            .any(|kind| kind.as_str() == Some("custom-build"));
-        if builds && crates_in(CrateRole::MathLayer).contains(&name) {
-            problems.push(format!(
-                "{name} has a build script: code the math layer gate does not read"
             ));
         }
     }
@@ -5701,8 +5710,8 @@ fn brought_in(source: &RustSource, declared: &[TestDeclaration]) -> Vec<String> 
 /// math layer's reduces through an iterator.
 ///
 /// No crate but those of [`CrateRole::Libm`] depends on `libm`, as a normal or a build
-/// dependency, under any name it is renamed to, and no crate of [`CrateRole::MathLayer`] has a
-/// build script; box code names none of [`BOX_FORBIDDEN_NAMES`], nor a float literal
+/// dependency, under any name it is renamed to (no crate has a build script:
+/// [`TARGET_KINDS`]); box code names none of [`BOX_FORBIDDEN_NAMES`], nor a float literal
 /// suffixed `f32` or `f64`, and its root holds [`BOX_FLOAT_FORBID`]; box code and the
 /// engine core outside [`MATH_LAYER_FILE`] name none of [`REDUCTION_NAMES`]; the engine core
 /// outside it names none of [`ENGINE_FORBIDDEN_NAMES`] but in its leading inner attribute
@@ -5724,7 +5733,7 @@ fn brought_in(source: &RustSource, declared: &[TestDeclaration]) -> Vec<String> 
 ///
 /// # Errors
 ///
-/// Returns every other crate that depends on `libm`, every build script, every forbidden
+/// Returns every other crate that depends on `libm`, every forbidden
 /// name with its file and line, every missing forbid, every file it does not read, or why
 /// the metadata cannot be read.
 pub fn math_layer_gate(metadata: &str, sources: &[RustSource]) -> Result<(), Failure> {
