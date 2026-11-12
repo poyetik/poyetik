@@ -4531,50 +4531,21 @@ fn manifest_join(tokens: &[Token]) -> Read<'_> {
 }
 
 /// What `word`, `var`, `var_os` or another identifier of [`TEST_DATA_WORDS`] not called as
-/// a macro, reads, `tokens` being those after it: a call, a turbofish apart
-/// (`var::<&str>(…)`), whose argument is a string literal, raw or not, naming one of the
-/// variables Cargo sets for the crate's manifest (`CARGO_MANIFEST_DIR`,
-/// `CARGO_MANIFEST_PATH` …) is refused, and so is one holding an escape, which the gate
-/// does not read.
+/// a macro, reads, `tokens` being those after it: a call whose first argument is a plain
+/// string literal naming one of the variables Cargo sets for the crate's manifest
+/// (`CARGO_MANIFEST_DIR`, `CARGO_MANIFEST_PATH` …) is refused. A turbofish, a raw string or
+/// an escape naming that variable is outside the gate's scope: only a deliberate evasion
+/// writes it (`CLAUDE.md`, "A gate guards against honest mistakes").
 fn variable_read<'text>(word: &str, tokens: &'text [Token]) -> Read<'text> {
-    let call = match tokens {
-        [first, second, open, ..]
-            if first.is_punct(':') && second.is_punct(':') && open.is_punct('<') =>
-        {
-            let mut depth = 0_usize;
-            tokens
-                .iter()
-                .enumerate()
-                .skip(2)
-                .find_map(|(index, token)| {
-                    if token.is_punct('<') {
-                        depth = depth.saturating_add(1);
-                    } else if token.is_punct('>') {
-                        depth = depth.saturating_sub(1);
-                    }
-                    (depth == 0).then_some(index.saturating_add(1))
-                })
-                .and_then(|after| tokens.get(after..))
-                .unwrap_or_default()
-        }
-        _ => tokens,
-    };
     // A string's text is quoted; any other first argument names its variable at run time.
-    let argument = match call {
+    let argument = match tokens {
         [open, first, ..] if open.opens('(') => first.text.as_str(),
         _ => return Read::Other,
     };
-    if argument.contains('\\') {
-        return Read::Refused(format!(
-            "`{word}` of a literal holding an escape, which the gate does not read"
-        ));
-    }
-    let name = argument
-        .strip_prefix('r')
-        .unwrap_or(argument)
-        .trim_start_matches('#')
-        .strip_prefix('"');
-    if name.is_some_and(|name| name.starts_with("CARGO_MANIFEST_")) {
+    if argument
+        .strip_prefix('"')
+        .is_some_and(|name| name.starts_with("CARGO_MANIFEST_"))
+    {
         Read::Refused(format!(
             "`{word}` of a variable naming the crate's manifest, a directory read at run time \
              the gate cannot follow"
@@ -4599,11 +4570,13 @@ fn variable_read<'text>(word: &str, tokens: &'text [Token]) -> Read<'text> {
 /// outside its crate: a library's read would be an input of every crate whose tests build
 /// it, which no crate declares. The other ways to name the crate's directory are refused:
 /// `option_env!`, `env!` of any variable but `CARGO_MANIFEST_DIR` and those Cargo sets for
-/// a crate (`CARGO_BIN_EXE_<name>`, `CARGO_PKG_<field>`), and `var` or `var_os` (a
-/// turbofish apart) of a literal, raw or not, naming a variable of the crate's manifest
-/// (`CARGO_MANIFEST_DIR`, `CARGO_MANIFEST_PATH`) or holding an escape. **Review only**: any path computed at run time, which no text
-/// gate tells from any other value: a relative path given to a file API (cargo runs the
-/// tests in the crate's directory), the current directory, the executable's path,
+/// a crate (`CARGO_BIN_EXE_<name>`, `CARGO_PKG_<field>`), and `var` or `var_os` of a plain
+/// string literal naming a variable of the crate's manifest (`CARGO_MANIFEST_DIR`,
+/// `CARGO_MANIFEST_PATH`); a turbofish, a raw string or an escape naming it is outside the
+/// gate's scope, written only on purpose. **Review only**: any path computed at run time,
+/// which no text gate tells from any other value: a relative path given to a file API
+/// (cargo runs the tests in the crate's directory), the current directory, the executable's
+/// path,
 /// `file!()`, a variable of the environment read by a name not written as a literal or
 /// through `vars()`, and a path held in a variable, then joined again (xtask's fixtures,
 /// below its `tests/fixtures/`). A binary's entry point (`src/main.rs` of a

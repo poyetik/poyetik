@@ -11391,10 +11391,7 @@ fn refuses_the_reads_of_test_data_it_cannot_follow() {
              the gate cannot follow"
         )
     };
-    let (variable, path) = (
-        format!("{}_{}_", "CARGO", "MANIFEST"),
-        format!("\"{}_{}_{}\"", "CARGO", "MANIFEST", "PATH"),
-    );
+    let path = format!("\"{}_{}_{}\"", "CARGO", "MANIFEST", "PATH");
     for (text, why) in [
         (
             format!("fn f() {{ let _ = std::env::var_os({manifest}); }}\n"),
@@ -11403,14 +11400,6 @@ fn refuses_the_reads_of_test_data_it_cannot_follow() {
         (
             format!("fn f() {{ let _ = var ( {manifest} ); }}\n"),
             run_time("var"),
-        ),
-        (
-            format!("fn f() {{ let _ = var(r{manifest}); }}\n"),
-            run_time("var"),
-        ),
-        (
-            format!("fn f() {{ let _ = var_os(r#\"{variable}DIR\"#); }}\n"),
-            run_time("var_os"),
         ),
         (
             format!("fn f() {{ let _ = var({path}); }}\n"),
@@ -11479,12 +11468,6 @@ fn follows_the_reads_of_test_data_in_tokens() {
         test_data_gate(&sources)
     };
     let manifest = format!("\"{}_{}_{}\"", "CARGO", "MANIFEST", "DIR");
-    let run_time = |word: &str| {
-        format!(
-            "{file}:1: `{word}` of a variable naming the crate's manifest, a directory read at \
-             run time the gate cannot follow"
-        )
-    };
     for (text, why) in [
         (
             "/* /* */ \"*/ const A: &str = include_str!(\"../../../spec/measurement-vectors.json\"); // \"\n".to_owned(),
@@ -11492,18 +11475,6 @@ fn follows_the_reads_of_test_data_in_tokens() {
                 "{file}:1: the tests of engine-hash read `spec/measurement-vectors.json`, which \
                  is not in its test_data"
             ),
-        ),
-        (
-            format!("fn f() {{ let _ = std::env::var::<&str>({manifest}); }}\n"),
-            run_time("var"),
-        ),
-        (
-            format!("fn f() {{ let _ = var_os :: < Vec<u8> > ( {manifest} ); }}\n"),
-            run_time("var_os"),
-        ),
-        (
-            "fn f() { let _ = var(\"CARGO_MANIFEST\\x5fDIR\"); }\n".to_owned(),
-            format!("{file}:1: `var` of a literal holding an escape, which the gate does not read"),
         ),
         (
             "const A: &str = include_str![\"x\"];\n".to_owned(),
@@ -11530,20 +11501,21 @@ fn follows_the_reads_of_test_data_in_tokens() {
     ] {
         assert_eq!(with(&text), failed(why), "{text}");
     }
+    // Only `(` opens a call.
     assert_eq!(
-        with(
-            "fn f() { let _ = var::<&str>(\"HOME\"); let _ = env::args(); let var: u8 = 1; var::x(); }\n"
-        ),
+        with("fn f() { let _ = var[\"CARGO_MANIFEST_DIR\"]; let var: u8 = 1; var::x(); }\n"),
         Ok(()),
-        "another variable, through a turbofish"
+        "no call"
     );
-    // Only `::<` opens a turbofish, and only `(` a call.
-    for other in [
-        "fn f() { var:(<x>(\"CARGO_MANIFEST_DIR\")); }\n",
-        "fn f() { var x y<z>(\"CARGO_MANIFEST_DIR\"); }\n",
-        "fn f() { let _ = var[\"CARGO_MANIFEST_DIR\"]; }\n",
+    // Outside the gate's scope: "a turbofish, a raw string or an escape naming it is outside
+    // the gate's scope, written only on purpose" (`test_data_gate`'s doc).
+    for evasion in [
+        format!("fn f() {{ let _ = std::env::var::<&str>({manifest}); }}\n"),
+        format!("fn f() {{ let _ = var(r{manifest}); }}\n"),
+        "fn f() { let _ = var_os(r#\"CARGO_MANIFEST_DIR\"#); }\n".to_owned(),
+        "fn f() { let _ = var(\"CARGO_MANIFEST\\x5fDIR\"); }\n".to_owned(),
     ] {
-        assert_eq!(with(other), Ok(()), "{other}");
+        assert_eq!(with(&evasion), Ok(()), "{evasion}");
     }
 }
 
