@@ -10895,10 +10895,12 @@ pub struct LoadedCommand {
 /// [`WASM_TARGET`]) and the native crates, their tests included, for each of
 /// [`NATIVE_TARGETS`] ([`NATIVE_PACKAGES`]), each checked (`cargo check`: type-checked, no
 /// code generated), every build of theirs read. So a module only another target, the fused
-/// math layer or a test build compiles is in the compiler's record too.
+/// math layer or a test build compiles is in the compiler's record too. Cargo's messages
+/// are JSON on stdout, the compiler's diagnostics rendered on stderr, so that a build that
+/// fails shows them (the loaded-files gate, [`loaded_files_gate`]).
 #[must_use]
 pub fn loaded_files_commands() -> Vec<LoadedCommand> {
-    const JSON: &str = "--message-format=json";
+    const JSON: &str = "--message-format=json-render-diagnostics";
     let cargo = |args: &[&str], tests_only, configuration| LoadedCommand {
         cmd: Cmd::new("cargo", args, Dir::Root),
         tests_only,
@@ -10980,7 +10982,8 @@ pub struct Loaded {
 ///
 /// # Errors
 ///
-/// Returns why a command failed, its output is not cargo's JSON messages as read here, a
+/// Returns why a command failed (with what it wrote on stderr, the compiler's rendered
+/// diagnostics, as its details), its output is not cargo's JSON messages as read here, a
 /// local package is none of `crates`, or a dep-info file cannot be found or read.
 fn loaded_files(
     runner: &mut dyn Runner,
@@ -10989,10 +10992,16 @@ fn loaded_files(
 ) -> Result<Vec<Loaded>, Failure> {
     let mut loaded = Vec::new();
     for command in commands {
-        let output = runner
-            .capture(&command.cmd)
-            .map_err(|failure| Failure::from(format!("cannot build: {failure}")))?;
-        for line in output.lines() {
+        let Ran {
+            stdout,
+            stderr,
+            ended,
+        } = runner.run_for_stdout(&command.cmd);
+        ended.map_err(|failure| Failure {
+            details: stderr.lines().map(str::to_owned).collect(),
+            ..Failure::from(format!("cannot build: {failure}"))
+        })?;
+        for line in stdout.lines() {
             let Some(artifact) = built_artifact(line, command.tests_only, crates)? else {
                 continue;
             };

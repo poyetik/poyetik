@@ -416,7 +416,7 @@ fn loaded_answers(fake: &mut Fake) {
         );
         assert!(
             fake.files
-                .insert(format!("capture {}", command.cmd.line()), answer)
+                .insert(format!("stdout {}", command.cmd.line()), answer)
                 .is_none(),
             "fresh fake"
         );
@@ -10754,7 +10754,7 @@ const LOADED_FIXTURE_CRATES: [RustCrate; 2] = [
 /// The host's two builds of the loaded-files fixture, as the gate's first two commands
 /// make them, then its library checked for WebAssembly, all in `target_dir`.
 fn loaded_fixture_commands(target_dir: &str) -> [super::LoadedCommand; 3] {
-    let json = "--message-format=json";
+    let json = "--message-format=json-render-diagnostics";
     let command = |args: &[&str], tests_only: bool, configuration: Option<&'static str>| {
         let mut cmd = Cmd::new("cargo", args, Dir::Root);
         cmd.args
@@ -10984,8 +10984,53 @@ fn reads_every_configuration_the_check_builds() {
         .collect();
     assert_eq!(
         super::loaded_files_commands()[2].cmd.args,
-        [before_harness, vec!["--no-run", "--message-format=json"]].concat(),
+        [
+            before_harness,
+            vec!["--no-run", "--message-format=json-render-diagnostics"]
+        ]
+        .concat(),
         "the fused build's own units, not run"
+    );
+}
+
+#[test]
+fn shows_the_compiler_s_diagnostic_of_a_build_that_fails() {
+    let dir = scratch("loaded-failing");
+    std::fs::create_dir_all(dir.join("src")).expect("src");
+    std::fs::write(
+        dir.join("Cargo.toml"),
+        "[package]\nname = \"p\"\nversion = \"0.0.0\"\nedition = \"2024\"\n",
+    )
+    .expect("manifest");
+    std::fs::write(dir.join("src/lib.rs"), "pub fn f() -> u8 { \"x\" }\n").expect("source");
+    let mut cmd = super::loaded_files_commands()[0].cmd.clone();
+    cmd.args.retain(|arg| arg != "--locked");
+    cmd.args.extend([
+        "--target-dir".to_owned(),
+        dir.join("target").display().to_string(),
+    ]);
+    let failure = super::loaded_files(
+        &mut system(dir.path()),
+        &[super::LoadedCommand {
+            cmd,
+            tests_only: false,
+            configuration: None,
+        }],
+        &LOADED_FIXTURE_CRATES,
+    )
+    .expect_err("a type error");
+    assert!(
+        failure
+            .summary
+            .ends_with("exited with code 101: error[E0308]: mismatched types"),
+        "the compiler's error line: {failure:?}"
+    );
+    assert!(
+        failure
+            .details
+            .iter()
+            .any(|line| line.trim() == "--> src/lib.rs:1:20"),
+        "the file and line it names: {failure:?}"
     );
 }
 
@@ -11007,7 +11052,24 @@ fn reports_the_builds_and_dep_info_files_it_cannot_read() {
             "Loaded: cannot build: cannot run `{}`: not found",
             test.line()
         )),
-        "a build that fails"
+        "a build that cannot start"
+    );
+    let mut failing = passing();
+    failing.fail = Some(check.line());
+    let rendered = "    Checking engine-fpenv v0.1.0\nerror[E0308]: mismatched types\n --> \
+                    crates/engine-fpenv/src/lib.rs:1:20\nerror: could not compile \
+                    `engine-fpenv` (lib) due to 1 previous error";
+    let _rendered = failing
+        .files
+        .insert(format!("stderr {}", check.line()), format!("{rendered}\n"));
+    assert_eq!(
+        run_steps(&step(), &mut failing, &mut Vec::new()),
+        failed(format!(
+            "Loaded: cannot build: `{}` exited with code 3: error[E0308]: mismatched types\n\
+             {rendered}",
+            check.line()
+        )),
+        "a build that fails, with the compiler's rendered diagnostic"
     );
     let mut missing = passing();
     let _gone = missing.files.remove("/t/debug/deps/engine_fpenv-1.d");
@@ -11029,7 +11091,7 @@ fn reports_the_builds_and_dep_info_files_it_cannot_read() {
     let mut noise = passing();
     let _noise = noise
         .files
-        .insert(format!("capture {}", check.line()), "warning\n".to_owned());
+        .insert(format!("stdout {}", check.line()), "warning\n".to_owned());
     assert_eq!(
         run_steps(&step(), &mut noise, &mut Vec::new()),
         failed("Loaded: cannot read cargo's message (not JSON): warning"),
