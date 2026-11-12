@@ -1,5 +1,5 @@
 import { describe as group, expect, test } from "vitest";
-import { MeasureError, type Bounds, type Measurements } from "../src/measure.ts";
+import { MeasureError, hasMargin, measure, sineFitConditioning, type Bounds, type Measurements } from "../src/measure.ts";
 import { describe, fold, hold, judgeQuality, unmeasurable, worst, type Levels } from "../src/quality.ts";
 import { ideal, sineError, sineErrorBound } from "../src/signal.ts";
 import { sineSamples, sineSamples64 } from "./fixtures.ts";
@@ -157,28 +157,72 @@ group("judgeQuality", () => {
       expect(exactRender({ frequency: 3001.5, amplitude: binary32(0x0080_0000), phase: 0 }, 4800).kind).toBe("unmeasured");
     });
 
-    // The law the margins exist for: the exact render of an expectation the oracle accepts is
-    // never failed, at frequencies that are not whole cycles, every binary32 amplitude near the
-    // thresholds of both fits included.
-    // Every binary32 amplitude from 2^-126 to 2 · 2^-126 in steps of 2^-129, which holds the
-    // thresholds of both fits of both cases, then to 4 · 2^-126 in steps of 2^-127.
-    test("never fails the exact render of an accepted expectation", () => {
-      const amplitudes = [
-        ...Array.from({ length: 17 }, (_step, step) => 0x0080_0000 + step * 0x0008_0000),
-        ...Array.from({ length: 4 }, (_step, step) => 0x0140_0000 + step * 0x0040_0000),
-      ];
-      for (const [frequency, frames] of [
-        [3001.5, 2400],
-        [Math.fround(46.44), 1024],
-      ] as const) {
-        for (const bits of amplitudes) {
-          const sine = { frequency, amplitude: binary32(bits), phase: 0 };
-          expect(unmeasurable(sine, 48_000, frames)).toBeNull();
-          expect([frequency, bits, exactRender(sine, frames).kind]).not.toContain("failed");
+    /**
+     * The first binary32 amplitude, by its bits, from 2^-126 to 4 · 2^-126, whose exact render
+     * over `frames` frames leaves a fit of `conditioning` a margin ({@link hasMargin}, under
+     * the binary32 error bound): found by bisection, after checking that the first amplitude
+     * has none and the last one has one, the margin growing with the amplitude between them.
+     */
+    const threshold = (conditioning: number, frames: number): number => {
+      const margined = (bits: number): boolean => hasMargin(binary32(bits), sineErrorBound(binary32(bits), frames, "binary32"), conditioning);
+      let [low, high] = [0x0080_0000, 0x0200_0000];
+      expect([margined(low), margined(high)]).toStrictEqual([false, true]);
+      while (high - low > 1) {
+        const middle = Math.floor((low + high) / 2);
+        if (margined(middle)) {
+          high = middle;
+        } else {
+          low = middle;
         }
       }
-      // 42 judgements of up to 2400 frames: about 0.1 s in a plain run, far more under
-      // Stryker's instrumentation of the measurements.
+      return high;
+    };
+
+    // The law the margins exist for: the exact render of an expectation the oracle accepts is
+    // never failed, at frequencies that are not whole cycles. Each threshold, where a fit
+    // first has a margin, is found from the code and pinned to its bits, measured once by a
+    // bisection over the oracle's verdict: one binary32 step below it, at it and one above,
+    // the render is judged in the regime of its side, never failed; and so are amplitudes
+    // between and beyond the thresholds.
+    test.each([
+      ["3001.5 Hz, 2400 frames", 3001.5, 2400, 0x00b5_5af2, 0x0101_ffe6],
+      ["46.44 Hz in binary32, 1024 frames", Math.fround(46.44), 1024, 0x00bb_7389, 0x00ff_e4bb],
+      ["3001.5 Hz, 4800 frames", 3001.5, 4800, 0x00b5_5cff, 0x00ea_39c9],
+    ])("%s: never fails the exact render of an accepted expectation, on each side of each threshold", (_name, frequency, frames, sineThreshold, harmonicThreshold) => {
+      const at = (bits: number) => exactRender({ frequency, amplitude: binary32(bits), phase: 0 }, frames);
+      // The harmonic fit's conditioning, a fact of the frequency and the frames, read from a
+      // render with both margins.
+      const sine = { frequency, amplitude: binary32(0x0200_0000), phase: 0 };
+      const measured = measure(Float64Array.from(Array.from({ length: frames }, (_frame, frame) => sample(ideal(sine, 48_000, frame)))), 48_000, fold(frequency, 48_000));
+      if (measured.harmonics instanceof MeasureError) {
+        throw measured.harmonics;
+      }
+      const sineConditioning = sineFitConditioning(fold(frequency, 48_000), 48_000, frames);
+      if (sineConditioning instanceof MeasureError) {
+        throw sineConditioning;
+      }
+      expect([threshold(sineConditioning, frames), threshold(measured.harmonics.quality.conditioning, frames)]).toStrictEqual([sineThreshold, harmonicThreshold]);
+      /** The regime of a judgement: unmeasured, measured without harmonic levels, or with them; else what failed. */
+      const regime = (bits: number): string => {
+        expect(unmeasurable({ frequency, amplitude: binary32(bits), phase: 0 }, 48_000, frames)).toBeNull();
+        const quality = at(bits);
+        if (quality.kind !== "measured") {
+          return quality.kind === "failed" ? `failed: ${quality.problems.join("; ")}` : quality.kind;
+        }
+        return quality.levels.harmonics === unmargined ? "no harmonics" : typeof quality.levels.harmonics === "object" ? "harmonics" : quality.levels.harmonics;
+      };
+      expect([sineThreshold - 1, sineThreshold, sineThreshold + 1, harmonicThreshold - 1, harmonicThreshold, harmonicThreshold + 1].map(regime)).toStrictEqual([
+        "unmeasured",
+        "no harmonics",
+        "no harmonics",
+        "no harmonics",
+        "harmonics",
+        "harmonics",
+      ]);
+      // Between and beyond the thresholds: 1, 1.5, 2.5, 3, 4 and 8 · 2^-126.
+      expect([0x0080_0000, 0x00c0_0000, 0x0120_0000, 0x0140_0000, 0x0180_0000, 0x0200_0000].map(regime)).not.toContainEqual(expect.stringMatching(/^failed/));
+      // 12 judgements of up to 4800 frames: well under a second in a plain run, far more
+      // under Stryker's instrumentation of the measurements.
     }, 60_000);
   });
 
