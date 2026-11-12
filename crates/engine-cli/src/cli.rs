@@ -35,7 +35,7 @@ usage: engine-cli <command>
                       in every format, with <dir>/references.json, and
                       the algorithm versions of its box types, with
                       <dir>/algorithms.json, whose fingerprints must be those of
-                      <record>, the record on main, at the versions both hold
+                      <record>, the spent record, at the versions both hold
   bless <dir> [--case-changed <name>]... [--spent <record>]
         [--battery-changed] [--from-nothing]
                       rewrite <dir>/references.json from the current renders,
@@ -43,7 +43,7 @@ usage: engine-cli <command>
                       engine; refuses a reference changed under the same
                       versions but for each case named, a lower version, a
                       box type's outputs changed at a spent version (those of
-                      <record>, the record on main, which `cargo xtask bless`
+                      <record>, the spent record, which `cargo xtask bless`
                       writes: a file holding null when main has none; else
                       those of <dir>/algorithms.json), another battery
                       but with --battery-changed (then no reference, version,
@@ -576,7 +576,7 @@ fn format_line(
 
 /// `check <dir> [--spent <record>]`: renders every case and reports each one on `out`, a
 /// case that fails to render included, so that one run lists every problem; with `spent`,
-/// the record on `main`, also each version spent there given other bits.
+/// the spent record, also each version spent there given other bits.
 ///
 /// `bless` and `export`, by contrast, stop at the first failing case: a partial set of
 /// references or renders would be wrong.
@@ -975,7 +975,7 @@ fn read_earlier<T: DeserializeOwned>(
     }
 }
 
-/// Reads `path`, the spent record (`--spent`): the record on `main`, or `null` when `main`
+/// Reads `path`, the spent record (`--spent`): `algorithms.json` as `main` holds it, or `null` when `main`
 /// has none, as `writer`, the command of `cargo xtask` that runs this one, writes it first.
 ///
 /// # Errors

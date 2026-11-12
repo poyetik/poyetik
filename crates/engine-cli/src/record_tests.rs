@@ -172,7 +172,7 @@ fn records_the_current_engine_and_keeps_the_fingerprints_of_its_battery() {
     assert_eq!(
         blessed(cases, &now, Some(&branch), Some(&main_other_battery)).fingerprints,
         record(&[], &[("osc~", 1, "other"), ("osc~", 2, "new")]).fingerprints,
-        "a record on main of another battery gives no print"
+        "a spent record of another battery gives no print"
     );
 }
 
@@ -952,10 +952,10 @@ fn refuses_other_bits_than_main_at_a_version_both_records_hold() {
     assert_eq!(
         spent_problems(&resolved, Some(&main)),
         [
-            "BITS     dac~ 1: other bits than the record on main holds at this spent version (a \
-             new version of dac~, then run `cargo xtask bless`)",
-            "BITS     osc~ 2: other bits than the record on main holds at this spent version (a \
-             new version of osc~, then run `cargo xtask bless`)",
+            "BITS     dac~ 1: other bits than the spent record holds at this version (a new \
+             version of dac~, then run `cargo xtask bless`)",
+            "BITS     osc~ 2: other bits than the spent record holds at this version (a new \
+             version of osc~, then run `cargo xtask bless`)",
         ],
         "each version given other bits, by box type then version"
     );
@@ -971,7 +971,7 @@ fn refuses_other_bits_than_main_at_a_version_both_records_hold() {
     assert_eq!(
         spent_problems(&resolved, None),
         Vec::<String>::new(),
-        "no record on main"
+        "no spent record"
     );
 }
 
@@ -985,12 +985,12 @@ fn says_when_the_record_on_main_cannot_be_compared_with() {
     assert_eq!(
         spent_skipped(&here, Some(&older)),
         Some(
-            "skipped  the record on main: its fingerprints were computed with battery 1, these \
+            "skipped  the spent record: its fingerprints were computed with battery 1, these \
              with battery 2 (compared once the battery change reaches main)"
                 .to_owned()
         ),
         "another battery on main"
     );
     assert_eq!(spent_skipped(&here, Some(&here)), None, "the same battery");
-    assert_eq!(spent_skipped(&here, None), None, "no record on main");
+    assert_eq!(spent_skipped(&here, None), None, "no spent record");
 }

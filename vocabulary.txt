@@ -28,6 +28,9 @@ forbid Engine library -> Audio library -- GLOSSARY.md: the crates of the audio l
 forbid Engine libraries -> Audio libraries -- GLOSSARY.md: the crates of the audio library, under one name
 
 forbid record spent -> spent record -- GLOSSARY.md: the record of the versions spent on `main`
+forbid Record spent -> Spent record -- GLOSSARY.md: the record of the versions spent on `main`
+forbid record on main -> spent record -- GLOSSARY.md: the record of the versions spent on `main`, one noun
+forbid Record on main -> Spent record -- GLOSSARY.md: the record of the versions spent on `main`, one noun
 
 forbid node -> box -- GLOSSARY.md: one processing unit of a patch is a box (the code's `Node` keeps its name until roadmap #32)
 forbid nodes -> boxes -- GLOSSARY.md: one processing unit of a patch is a box

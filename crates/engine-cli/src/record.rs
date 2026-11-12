@@ -67,7 +67,7 @@ pub(crate) fn current_fingerprints(_mode: DefaultMode<'_>) -> Fingerprints {
 
 /// The record `bless` writes: the versions of the current engine, `cases`, and the
 /// fingerprints of `earlier` (the record it replaces) computed with the same battery, those
-/// of `base` (the record on `main`, `--spent`) at the versions it spent replacing them, for
+/// of `base` (the spent record, `--spent`) at the versions it spent replacing them, for
 /// the box types still registered, with `now`'s added.
 ///
 /// A version spent on `main` keeps `main`'s bits (`spec/engine-design.md`, decision 29), so
@@ -226,7 +226,7 @@ pub(crate) fn record_problems(
     problems
 }
 
-/// The problems `check` reports of `record` against `base`, the record on `main`: a box
+/// The problems `check` reports of `record` against `base`, the spent record: a box
 /// type whose fingerprint differs from the one `base` holds at the same version, a version
 /// spent on `main` given other bits (`spec/engine-design.md`, decision 29), whatever way
 /// `record` was written (a conflict resolved by hand included). None when `base` is none or
@@ -251,8 +251,8 @@ pub(crate) fn spent_problems(record: &Record, base: Option<&Record>) -> Vec<Stri
                 })
                 .map(move |(version, _)| {
                     format!(
-                        "{status} {name} {version}: other bits than the record on main holds at \
-                         this spent version ({hint})",
+                        "{status} {name} {version}: other bits than the spent record holds at \
+                         this version ({hint})",
                         status = Status::Bits,
                         hint = Hint::SpentBits { name }
                     )
@@ -269,7 +269,7 @@ pub(crate) fn spent_skipped(record: &Record, base: Option<&Record>) -> Option<St
     base.filter(|base| base.fingerprint_battery != record.fingerprint_battery)
         .map(|base| {
             format!(
-                "{status} the record on main: its fingerprints were computed with battery {}, \
+                "{status} the spent record: its fingerprints were computed with battery {}, \
                  these with battery {} (compared once the battery change reaches main)",
                 base.fingerprint_battery,
                 record.fingerprint_battery,
@@ -514,7 +514,7 @@ fn battery_apart(before: &Before<'_>, now: &Blessing<'_>) -> (Vec<String>, Vec<S
 /// What `bless` refuses to write in place of `before`, as `told`:
 /// - a name of `--case-changed` that is no case;
 /// - a box type, or the render rules, at a lower version than recorded (in the replaced
-///   record or the one at the spent base);
+///   record or the spent record);
 /// - a fingerprint changed at a spent version ([`Spent`]);
 /// - a reference of a case that changed while its box types' versions, the render rules
 ///   and the render hash all stayed as recorded, unless the case is named in `--case-changed`;

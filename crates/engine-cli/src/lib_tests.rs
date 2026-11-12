@@ -66,7 +66,7 @@ struct Memory {
     dirs: Vec<PathBuf>,
     /// How many times each path was read.
     reads: BTreeMap<PathBuf, usize>,
-    /// The record on main, when not the committed one ([`main_record`]).
+    /// The spent record, when not the committed one ([`main_record`]).
     main: Option<Vec<u8>>,
 }
 
@@ -1518,7 +1518,7 @@ fn committed() -> Memory {
     conformance(&format!(r#"{{"sine":{}}}"#, sine_references()))
 }
 
-/// The record on main: the one `memory` holds there, else the committed one.
+/// The spent record: the one `memory` holds there, else the committed one.
 fn main_record(memory: &Memory) -> Vec<u8> {
     memory
         .main
@@ -1527,7 +1527,7 @@ fn main_record(memory: &Memory) -> Vec<u8> {
 }
 
 /// What `cargo xtask <command> <options>` runs: `engine-cli <command> conf --spent
-/// spent.json`, the record on main ([`main_record`]) written to `spent.json` first, then the
+/// spent.json`, the spent record ([`main_record`]) written to `spent.json` first, then the
 /// options.
 fn xtask(memory: &mut Memory, command: &str, options: &[&str]) -> (Result<(), String>, String) {
     let main = main_record(memory);
@@ -1551,7 +1551,7 @@ fn edited(record: &[u8], edit: fn(&mut serde_json::Value)) -> Vec<u8> {
     format!("{value:#}\n").into_bytes()
 }
 
-/// Edits the record of `conf` and the record on main alike: how a test makes or undoes a
+/// Edits the record of `conf` and the spent record alike: how a test makes or undoes a
 /// change of the engine, which it cannot make. The engine moving from one value to
 /// another (a version, the render rules, the render hash, the battery) is both records
 /// holding the value it moves from.
@@ -2320,8 +2320,8 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
                 memory.main = Some(edited(&main_record(memory), other_osc_bits));
                 xtask(memory, "check", &[])
             },
-            "BITS     osc~ 1: other bits than the record on main holds at this spent version (a \
-             new version of osc~, then run `cargo xtask bless`)",
+            "BITS     osc~ 1: other bits than the spent record holds at this version (a new \
+             version of osc~, then run `cargo xtask bless`)",
             0,
             new_version,
         )],
@@ -2650,7 +2650,7 @@ fn check_names_once_a_case_whose_references_changed_with_the_battery() {
 
 /// Every state a command refuses with a hint, for every kind of hint: the line asserted as
 /// written, holding its hint, then the alternative followed, after which the directory
-/// checks against the record on main; between them, the states of a kind follow every
+/// checks against the spent record; between them, the states of a kind follow every
 /// alternative of its hint.
 #[test]
 fn every_hint_is_followed_from_a_state_that_gives_it() {
@@ -2719,7 +2719,7 @@ fn check_command_compares_the_fingerprints_with_the_record_on_main() {
     assert_eq!(
         xtask(&mut memory, "check", &[]).0,
         Ok(()),
-        "the record on main itself"
+        "the spent record itself"
     );
     drop(
         memory
@@ -2729,7 +2729,7 @@ fn check_command_compares_the_fingerprints_with_the_record_on_main() {
     assert_eq!(
         run_with(&mut memory, &["check", "conf", "--spent", "null.json"]).0,
         Ok(()),
-        "no record on main"
+        "no spent record"
     );
     let osc = fingerprint_of("osc~");
     let main = record(&format!("{{{}}}", sine_algorithms("sine"))).replace(&osc, "0000");
@@ -2746,8 +2746,8 @@ fn check_command_compares_the_fingerprints_with_the_record_on_main() {
     );
     assert!(
         out.ends_with(
-            "BITS     osc~ 1: other bits than the record on main holds at this spent version (a \
-             new version of osc~, then run `cargo xtask bless`)\n"
+            "BITS     osc~ 1: other bits than the spent record holds at this version (a new \
+             version of osc~, then run `cargo xtask bless`)\n"
         ),
         "{out}"
     );
@@ -2758,7 +2758,7 @@ fn check_command_compares_the_fingerprints_with_the_record_on_main() {
              it: run that)"
                 .to_owned()
         ),
-        "a record on main to read"
+        "a spent record to read"
     );
     for words in [
         &["check", "conf", "--spent"][..],
@@ -2780,7 +2780,7 @@ fn check_command_compares_the_fingerprints_with_the_record_on_main() {
     }
 }
 
-/// A record on main of another battery cannot be compared with: check says so, in a line
+/// A spent record of another battery cannot be compared with: check says so, in a line
 /// that is no problem, and says nothing when it compares.
 #[test]
 fn check_command_says_when_it_cannot_compare_with_the_record_on_main() {
@@ -2801,7 +2801,7 @@ fn check_command_says_when_it_cannot_compare_with_the_record_on_main() {
         (
             Ok(()),
             format!(
-                "{ok}skipped  the record on main: its fingerprints were computed with battery 1, \
+                "{ok}skipped  the spent record: its fingerprints were computed with battery 1, \
                  these with battery 2 (compared once the battery change reaches main)\n"
             )
         ),
@@ -2820,7 +2820,7 @@ fn check_command_says_when_it_cannot_compare_with_the_record_on_main() {
     assert_eq!(
         run_with(&mut memory, &["check", "conf", "--spent", "null.json"]),
         (Ok(()), ok),
-        "no record on main: nothing to compare with, nothing said"
+        "no spent record: nothing to compare with, nothing said"
     );
 }
 

@@ -312,7 +312,7 @@ pub const MUTATION_BASES: [&str; 3] = ["@{upstream}", "origin/main", "main"];
 /// remote holds it, else as this clone does. Never the branch's upstream, unlike
 /// [`MUTATION_BASES`], which answer another question (what changed): a version pushed on a
 /// branch has not reached `main`, and successive changes on that branch share it.
-pub const SPENT_BASES: [&str; 2] = ["origin/main", "main"];
+pub const MAIN_BASES: [&str; 2] = ["origin/main", "main"];
 
 /// Stryker's incremental file, relative to its package.
 ///
@@ -636,11 +636,11 @@ pub enum Action {
         jobs: NonZeroUsize,
     },
     /// Check the conformance references natively: read the record at the merge base of
-    /// [`SPENT_BASES`], then run [`conformance_command`], which also compares the
+    /// [`MAIN_BASES`], then run [`conformance_command`], which also compares the
     /// fingerprints with it.
     Conformance,
     /// Bless the conformance references ([`bless_step`]): read the record at the merge base
-    /// of [`SPENT_BASES`], then run `engine-cli bless` with it as the versions spent and
+    /// of [`MAIN_BASES`], then run `engine-cli bless` with it as the versions spent and
     /// these options, as `cargo xtask bless` was given them.
     Bless(Vec<String>),
     /// Record the proof of the Rust mutation step of the default check that passed
@@ -8971,7 +8971,7 @@ fn mutation_base(runner: &mut dyn Runner) -> Result<(String, &'static str), Fail
     )
 }
 
-/// The merge base of `HEAD` with the first of [`SPENT_BASES`] git resolves, and that base's
+/// The merge base of `HEAD` with the first of [`MAIN_BASES`] git resolves, and that base's
 /// name: where what reached `main` is read, `reading` (said when there is none).
 ///
 /// # Errors
@@ -8980,10 +8980,10 @@ fn mutation_base(runner: &mut dyn Runner) -> Result<(String, &'static str), Fail
 fn main_base(runner: &mut dyn Runner, reading: &str) -> Result<(String, &'static str), Failure> {
     merge_base(
         runner,
-        &SPENT_BASES,
+        &MAIN_BASES,
         &format!(
             "no merge base with {} to read {reading} from (fetch or create one of them)",
-            SPENT_BASES.join(" or ")
+            MAIN_BASES.join(" or ")
         ),
     )
 }
@@ -11613,7 +11613,7 @@ usage: cargo xtask <check [--full [--part <part>]]|list [--full [--parts]]|mutan
   bless [<option>...]   rewrite conformance/references.json from the current renders,
                         and conformance/algorithms.json from the current box types and
                         engine (decision 29): runs `engine-cli bless conformance
-                        --spent <record>`, the record on main (at the merge base with
+                        --spent <record>`, the spent record (at the merge base with
                         origin/main, else main), then the options as given, every one
                         but --spent, which `cargo run -p engine-cli -- help` lists
   bless-benchmarks      rewrite spec/benchmark-baseline.json from the current instruction
@@ -11796,12 +11796,12 @@ pub fn mutants_steps(target: &Target, jobs: NonZeroUsize) -> Vec<Step> {
 pub const CONFORMANCE_RECORD: &str = "conformance/algorithms.json";
 
 /// Where [`bless_step`] and the conformance check write the record at the merge base of
-/// [`SPENT_BASES`], for `engine-cli bless --spent` and `engine-cli check --spent`:
+/// [`MAIN_BASES`], for `engine-cli bless --spent` and `engine-cli check --spent`:
 /// `null` when the merge base has none.
 pub const SPENT_RECORD: &str = "target/xtask/spent-algorithms.json";
 
 /// The one option of `engine-cli bless` that `cargo xtask bless` gives itself, and refuses
-/// from its user: the record at the merge base of [`SPENT_BASES`].
+/// from its user: the record at the merge base of [`MAIN_BASES`].
 pub const SPENT_OPTION: &str = "--spent";
 
 /// The exit code of a usage error, in every command-line tool of the repository.
@@ -11812,7 +11812,7 @@ const USAGE_EXIT: i32 = 2;
 /// It rewrites `conformance/references.json`, and what they were blessed under,
 /// [`CONFORMANCE_RECORD`]; `engine-cli bless` refuses a reference changed under the same
 /// versions but for the cases of `--case-changed`, a lower version, a box type's outputs
-/// changed at a version spent (one the record at the merge base of [`SPENT_BASES`]
+/// changed at a version spent (one the record at the merge base of [`MAIN_BASES`]
 /// holds: successive changes on a branch share one new version until it reaches `main`),
 /// a battery change but with `--battery-changed`, and a directory without both files but
 /// with `--from-nothing` (`spec/engine-design.md`, decision 29). The commit must explain
@@ -11867,7 +11867,7 @@ pub fn file_at(runner: &mut dyn Runner, base: &str, path: &str) -> Result<Option
     git_output(runner, &["show", &format!("{base}:{path}")], &doing).map(Some)
 }
 
-/// Writes the record at the merge base of [`SPENT_BASES`] to [`SPENT_RECORD`] (`null` when
+/// Writes the record at the merge base of [`MAIN_BASES`] to [`SPENT_RECORD`] (`null` when
 /// the merge base has none), and says where it was read.
 ///
 /// # Errors
@@ -11891,7 +11891,7 @@ fn write_spent(runner: &mut dyn Runner, out: &mut dyn Write) -> Result<(), Failu
 }
 
 /// The command of the native conformance check, once the record at the merge base of
-/// [`SPENT_BASES`] is in [`SPENT_RECORD`].
+/// [`MAIN_BASES`] is in [`SPENT_RECORD`].
 ///
 /// It checks every case against its reference, and every fingerprint against that record's
 /// at the versions both hold, so that a record written other than by bless (a conflict
@@ -12052,7 +12052,7 @@ fn task(args: &[OsString]) -> Result<Task, String> {
         [command, options @ ..] if command == "bless" => {
             if options.iter().any(|option| option == SPENT_OPTION) {
                 return Err(format!(
-                    "`bless` gives `{SPENT_OPTION}` itself: the record on main"
+                    "`bless` gives `{SPENT_OPTION}` itself: the spent record"
                 ));
             }
             Ok(Task::Bless(options.to_vec()))

@@ -294,7 +294,7 @@ const GIT_ANSWERS: [(&str, &str); 16] = [
     TREE_DIFF,
     TREE_HEAD,
     MERGE_BASE,
-    SPENT_BASE,
+    MAIN_BASE,
     SPENT_LISTED,
     CHANGELOG_LISTED,
     CHANGES,
@@ -2265,7 +2265,7 @@ fn falls_back_to_origin_main_then_main() {
     ] {
         let mut fake = passing();
         let _upstream = fake.files.remove(&format!("capture {}", MERGE_BASE.0));
-        let _main = fake.files.remove(&format!("capture {}", SPENT_BASE.0));
+        let _main = fake.files.remove(&format!("capture {}", MAIN_BASE.0));
         for base in &resolved {
             let _base = fake.files.insert(
                 format!("capture git merge-base HEAD {base}"),
@@ -2300,7 +2300,7 @@ fn falls_back_to_origin_main_then_main() {
     }
     let mut none = passing();
     let _upstream = none.files.remove(&format!("capture {}", MERGE_BASE.0));
-    let _main = none.files.remove(&format!("capture {}", SPENT_BASE.0));
+    let _main = none.files.remove(&format!("capture {}", MAIN_BASE.0));
     assert_eq!(
         run_steps(&rust_mutation_of_changes(), &mut none, &mut Vec::new()),
         failed(
@@ -5605,7 +5605,7 @@ fn bless_benchmarks_counts_and_rewrites_the_baseline() {
 
 /// How the fake finds the base of the versions spent, and what it answers: `origin/main`
 /// resolves, to another commit than the upstream of [`MERGE_BASE`].
-const SPENT_BASE: (&str, &str) = (
+const MAIN_BASE: (&str, &str) = (
     "git merge-base HEAD origin/main",
     "fed4560000000000000000000000000000000000\n",
 );
@@ -5625,7 +5625,7 @@ const CHANGELOG_LISTED: (&str, &str) = (
     "",
 );
 
-/// A passing fake: its spent base resolves ([`SPENT_BASE`]).
+/// A passing fake: its spent base resolves ([`MAIN_BASE`]).
 fn blessing() -> Fake {
     passing()
 }
@@ -5785,7 +5785,7 @@ fn refuses_to_be_given_the_record_spent() {
     );
     assert_eq!(
         String::from_utf8(err).expect("utf-8"),
-        "error: `bless` gives `--spent` itself: the record on main (see: cargo xtask help)\n",
+        "error: `bless` gives `--spent` itself: the spent record (see: cargo xtask help)\n",
         "said"
     );
     assert!(fake.ran.is_empty(), "before anything runs: {:?}", fake.ran);
@@ -6089,7 +6089,7 @@ fn blesses_only_with_the_record_at_the_merge_base() {
     // The upstream of the branch resolves (MERGE_BASE), neither origin/main nor main: the
     // versions pushed on the branch are not spent.
     let mut baseless = passing();
-    let _main = baseless.files.remove(&format!("capture {}", SPENT_BASE.0));
+    let _main = baseless.files.remove(&format!("capture {}", MAIN_BASE.0));
     cases.push((
         baseless,
         "error: Bless conformance references: no merge base with origin/main or main to read \
@@ -6151,7 +6151,7 @@ fn reads_the_versions_spent_at_origin_main_then_main() {
     let mut fallen_back = passing();
     let _origin = fallen_back
         .files
-        .remove(&format!("capture {}", SPENT_BASE.0));
+        .remove(&format!("capture {}", MAIN_BASE.0));
     let _main = fallen_back.files.insert(
         "capture git merge-base HEAD main".to_owned(),
         "fed4560000000000000000000000000000000000\n".to_owned(),
@@ -6173,7 +6173,7 @@ fn reads_the_versions_spent_at_origin_main_then_main() {
         "origin/main first, never the upstream"
     );
     let mut neither = passing();
-    let _unresolved = neither.files.remove(&format!("capture {}", SPENT_BASE.0));
+    let _unresolved = neither.files.remove(&format!("capture {}", MAIN_BASE.0));
     assert_eq!(
         super::spent_base(&mut neither).map(|_base| ()),
         failed(
@@ -6270,7 +6270,7 @@ fn checks_the_conformance_against_the_record_on_main() {
             "write target/xtask/spent-algorithms.json",
             CONFORMANCE_RAN,
         ],
-        "the record on main written, then the check given it"
+        "the spent record written, then the check given it"
     );
     assert_eq!(
         fake.files.get(super::SPENT_RECORD).map(String::as_str),
@@ -6296,14 +6296,14 @@ fn checks_the_conformance_against_the_record_on_main() {
         "the check's failure"
     );
     let mut baseless = passing();
-    let _main = baseless.files.remove(&format!("capture {}", SPENT_BASE.0));
+    let _main = baseless.files.remove(&format!("capture {}", MAIN_BASE.0));
     assert!(
         run_steps(core::slice::from_ref(&step), &mut baseless, &mut Vec::new()).is_err_and(
             |failure| failure.summary
                 == "Conformance (native): no merge base with origin/main or main to read the \
                     algorithm versions spent from (fetch or create one of them)"
         ),
-        "no record on main to compare with: the step fails"
+        "no spent record to compare with: the step fails"
     );
     assert!(
         !baseless.ran.contains(&CONFORMANCE_RAN.to_owned()),
@@ -9697,7 +9697,7 @@ fn names_in_the_usage_the_bases_xtask_reads_against() {
     );
     let spent = format!(
         "at the merge base with {})",
-        super::SPENT_BASES.map(named).join(", else ")
+        super::MAIN_BASES.map(named).join(", else ")
     );
     for phrase in [changes, spent] {
         assert!(words.contains(&phrase), "{phrase}");
@@ -9738,7 +9738,7 @@ fn refuses_usage_errors_in_one_line() {
         (vec!["list", "--full", "--parts", "x"], LIST_USAGE),
         (
             vec!["bless", "--case-changed", "a", "--spent", "b"],
-            "`bless` gives `--spent` itself: the record on main",
+            "`bless` gives `--spent` itself: the spent record",
         ),
         (
             vec!["bless-benchmarks", "x"],
@@ -14219,7 +14219,7 @@ fn reads_the_released_sections_against_main() {
         "the changelog against the one at the merge base with main"
     );
     let mut baseless = passing();
-    let _main = baseless.files.remove(&format!("capture {}", SPENT_BASE.0));
+    let _main = baseless.files.remove(&format!("capture {}", MAIN_BASE.0));
     let _local = baseless.files.remove("capture git merge-base HEAD main");
     assert!(
         run_steps(&step, &mut baseless, &mut Vec::new()).is_err_and(|failure| failure

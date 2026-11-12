@@ -130,7 +130,7 @@ mod tests {
         assert_eq!(output.status.code(), Some(2_i32), "a usage error");
         assert_eq!(
             text(&output.stderr),
-            "error: `bless` gives `--spent` itself: the record on main (see: cargo xtask \
+            "error: `bless` gives `--spent` itself: the spent record (see: cargo xtask \
              help)\n",
             "one line on stderr, naming the option"
         );

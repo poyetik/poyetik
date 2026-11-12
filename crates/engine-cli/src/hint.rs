@@ -97,7 +97,7 @@ macro_rules! with_hints {
                 /// whose reference changed under the same algorithm versions.
                 changed: &'a [String],
             },
-            /// `check`: other bits than the record on `main` at a version spent there.
+            /// `check`: other bits than the spent record at a version spent there.
             SpentBits {
                 /// The box type.
                 name: &'a str,
