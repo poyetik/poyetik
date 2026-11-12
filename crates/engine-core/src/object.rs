@@ -279,7 +279,9 @@ impl ParamValues {
     /// The parameter values `values` of the box type `spec`: one per parameter, in order,
     /// each nonzero one below 2^-126 in magnitude made a zero of its sign, then checked
     /// against its parameter's range widened to binary64 (exactly, as a plan checks a
-    /// patch's value against it in binary32); every other value keeps its bits.
+    /// patch's value against it in binary32); every other value keeps its bits. So it also
+    /// accepts binary64 values no binary32 parameter holds, which a plan never gives while
+    /// patch parameters are binary32 (`spec/engine-design.md`, decision 10).
     ///
     /// # Errors
     ///

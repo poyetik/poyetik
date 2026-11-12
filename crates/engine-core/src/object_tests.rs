@@ -218,6 +218,13 @@ fn takes_values_within_their_range_only_flushed_first() {
         Ok(vec![0x8000_0000_0000_0000, 0x8000_0000_0000_0000]),
         "below 2^-126, zeros of their sign"
     );
+    // A binary64 value no binary32 parameter holds, 1 + 2^-40, keeps its bits.
+    let between = f64::from_bits(0x3ff0_0000_0000_1000);
+    assert_eq!(
+        ParamValues::of(&TWO, &wide([between, 0.0_f64])).map(|values| bits(&values)),
+        Ok(vec![0x3ff0_0000_0000_1000, 0]),
+        "1 + 2^-40, kept"
+    );
     // The smallest normal binary32 value is not flushed: below a range starting at 0.
     let smallest = f64::from(f32::MIN_POSITIVE);
     for (first, second, name, refused) in [
