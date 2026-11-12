@@ -9042,10 +9042,11 @@ fn in_tests_dir(rel: &str) -> bool {
 /// What every Rust test depends on, at the root: the default check mutates everything when
 /// one changes.
 ///
-/// The pinned toolchain: a change to it can let any mutant survive. The workspace's
-/// manifest ([`CARGO_TOML`]) widens to everything too, but for a change of its shared
-/// dependencies or its lints alone (`manifest_widened`).
-pub const MUTATE_EVERYTHING_WHEN: [&str; 1] = [RUST_TOOLCHAIN_FILE];
+/// The pinned toolchain, and the repository's Cargo configuration ([`CARGO_CONFIG_FILE`]),
+/// whose `[env]` or `[build]` table would reach every cargo command: a change to either can
+/// let any mutant survive. The workspace's manifest ([`CARGO_TOML`]) widens to everything
+/// too, but for a change of its shared dependencies or its lints alone (`manifest_widened`).
+pub const MUTATE_EVERYTHING_WHEN: [&str; 2] = [RUST_TOOLCHAIN_FILE, CARGO_CONFIG_FILE];
 
 /// The header of the table of the workspace's shared dependencies, which its crates
 /// inherit (`<name>.workspace = true`), as the workspace's manifest writes it.

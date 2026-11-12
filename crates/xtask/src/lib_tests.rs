@@ -2436,6 +2436,7 @@ fn mutates_everything_when_what_every_test_uses_changed() {
         "Cargo.toml",
         "Cargo.lock",
         "rust-toolchain.toml",
+        ".cargo/config.toml",
         "tooling/x/Cargo.toml",
         "doc/Cargo.lock",
         "apps/a/rust-toolchain.toml",
@@ -17275,6 +17276,8 @@ fn widens_each_kind_of_shared_input_as_far_as_it_reaches() {
     for (path, expected) in [
         ("Cargo.toml", Some(Widening::Workspace)),
         ("rust-toolchain.toml", Some(Widening::Everything)),
+        (".cargo/config.toml", Some(Widening::Everything)),
+        ("crates/engine-core/.cargo/config.toml", None),
         ("Cargo.lock", Some(Widening::Lock)),
         (
             "crates/engine-core/Cargo.toml",
