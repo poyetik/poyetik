@@ -1087,7 +1087,7 @@
           "done": false
         },
         {
-          "title": "Musical time hook: per-sample transport position, tempo and time signature for boxes, tempo changes sample-accurate, through a transport box in the audio library that calls the standalone time crate (the time map and its exact evaluation: closed form and exact incremental step) instead of containing it; transports as exact time maps (tempo curves, recorded beats, irregular and additive meters, grooves, several transports, unpulsed time), the transport controls and the master clock in the coordinating layer",
+          "title": "Musical time hook: per-sample transport position, tempo and time signature for boxes, tempo changes sample-accurate, through a transport box in the audio library that calls the standalone time crate of #37 (the time map and its exact evaluation: closed form and exact incremental step) instead of containing it; transports as exact time maps (tempo curves, recorded beats, irregular and additive meters, grooves, several transports, unpulsed time), the transport controls and the master clock in the coordinating layer",
           "done": false
         },
         {
