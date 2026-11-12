@@ -83,17 +83,35 @@ fn fingerprints_of(
 }
 
 /// The record `bless` writes: the versions of the current engine, `cases`, and the
-/// fingerprints of `earlier` (the record it replaces) computed with the same battery,
-/// for the box types still registered, with `now`'s added.
+/// fingerprints of `earlier` (the record it replaces) computed with the same battery, those
+/// of `base` (the record on `main`, `--spent`) at the versions it spent replacing them, for
+/// the box types still registered, with `now`'s added.
+///
+/// A version spent on `main` keeps `main`'s bits (`spec/engine-design.md`, decision 29), so
+/// a replaced record that gave one other bits (a conflict resolved by hand) is mended by the
+/// bless of the new version that change needs, which `check` then accepts against `main`.
 pub(crate) fn blessed(
     cases: BTreeMap<String, Versions>,
     now: &Fingerprints,
     earlier: Option<&Record>,
+    base: Option<&Record>,
 ) -> Record {
+    let of_this_battery = |record: &&Record| record.fingerprint_battery == FINGERPRINT_BATTERY;
     let mut fingerprints: BTreeMap<String, BTreeMap<u32, String>> = earlier
-        .filter(|record| record.fingerprint_battery == FINGERPRINT_BATTERY)
+        .filter(of_this_battery)
         .map(|record| record.fingerprints.clone())
         .unwrap_or_default();
+    for (name, versions) in base
+        .filter(of_this_battery)
+        .iter()
+        .flat_map(|base| &base.fingerprints)
+    {
+        fingerprints.entry(name.clone()).or_default().extend(
+            versions
+                .iter()
+                .map(|(version, print)| (*version, print.clone())),
+        );
+    }
     fingerprints.retain(|name, _| now.contains_key(name));
     for (name, (version, print)) in now {
         drop(

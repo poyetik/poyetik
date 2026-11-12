@@ -108,7 +108,7 @@ fn fingerprints_every_registered_box_type_at_its_version() {
 fn records_the_current_engine_and_keeps_the_fingerprints_of_its_battery() {
     let now = prints(&[("osc~", 2, "new")]);
     let cases = BTreeMap::from([("a".to_owned(), versions(&[("osc~", 2)]))]);
-    let fresh = blessed(cases.clone(), &now, None);
+    let fresh = blessed(cases.clone(), &now, None, None);
     assert_eq!(
         fresh,
         record(&[("a", versions(&[("osc~", 2)]))], &[("osc~", 2, "new")]),
@@ -121,7 +121,7 @@ fn records_the_current_engine_and_keeps_the_fingerprints_of_its_battery() {
         &[("osc~", 1, "old"), ("osc~", 2, "stale"), ("gone~", 1, "x")],
     );
     assert_eq!(
-        blessed(cases.clone(), &now, Some(&earlier)).fingerprints,
+        blessed(cases.clone(), &now, Some(&earlier), None).fingerprints,
         record(&[], &[("osc~", 1, "old"), ("osc~", 2, "new")]).fingerprints,
         "history kept for the box types still registered"
     );
@@ -130,9 +130,34 @@ fn records_the_current_engine_and_keeps_the_fingerprints_of_its_battery() {
         ..earlier
     };
     assert_eq!(
-        blessed(cases, &now, Some(&other_battery)).fingerprints,
+        blessed(cases.clone(), &now, Some(&other_battery), None).fingerprints,
         record(&[], &[("osc~", 2, "new")]).fingerprints,
         "another battery's fingerprints are not kept"
+    );
+    // A version spent on main keeps main's print: a record that gave it other bits (a
+    // conflict resolved by hand) is mended by the bless of the new version, which check
+    // then accepts against main.
+    let branch = record(&[], &[("osc~", 1, "other")]);
+    let main = record(&[], &[("osc~", 1, "spent"), ("gone~", 1, "x")]);
+    let mended = blessed(cases.clone(), &now, Some(&branch), Some(&main));
+    assert_eq!(
+        mended.fingerprints,
+        record(&[], &[("osc~", 1, "spent"), ("osc~", 2, "new")]).fingerprints,
+        "main's prints at the versions it spent, for the box types still registered"
+    );
+    assert_eq!(
+        spent_problems(&mended, Some(&main)),
+        Vec::<String>::new(),
+        "then nothing to refuse against main"
+    );
+    let main_other_battery = Record {
+        fingerprint_battery: 1,
+        ..main
+    };
+    assert_eq!(
+        blessed(cases, &now, Some(&branch), Some(&main_other_battery)).fingerprints,
+        record(&[], &[("osc~", 1, "other"), ("osc~", 2, "new")]).fingerprints,
+        "a record on main of another battery gives no print"
     );
 }
 

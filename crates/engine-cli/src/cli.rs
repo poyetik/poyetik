@@ -747,15 +747,6 @@ fn bless(
         cases: &versions,
         references: &actual,
     };
-    let missing = |what: &Path, other: &Path| {
-        format!(
-            "{status} {}: missing beside {} (restore {} from git: bless compares with both)",
-            what.display(),
-            other.display(),
-            what.display(),
-            status = Status::Missing
-        )
-    };
     let problems = match (&old, &earlier, options.from_nothing) {
         (Some(record), Some(references), false) => bless_problems(
             &Before {
@@ -783,8 +774,8 @@ fn bless(
             versions_path.display(),
             status = Status::Option
         )],
-        (Some(_), None, _) => vec![missing(&path, &versions_path)],
-        (None, Some(_), _) => vec![missing(&versions_path, &path)],
+        (Some(_), None, _) => vec![missing_beside(&path, &versions_path)],
+        (None, Some(_), _) => vec![missing_beside(&versions_path, &path)],
     };
     if !problems.is_empty() {
         for problem in &problems {
@@ -796,7 +787,12 @@ fn bless(
             problems.len()
         ));
     }
-    let record = blessed(versions, &now, old.as_ref());
+    let record = blessed(
+        versions,
+        &now,
+        old.as_ref(),
+        base.as_ref().and_then(Option::as_ref),
+    );
     files
         .write(&path, blessed_text(&actual).as_bytes())
         .map_err(|error| format!("cannot write {}: {error}", path.display()))?;
@@ -824,6 +820,18 @@ fn bless(
             path.display(),
             versions_path.display()
         )),
+    )
+}
+
+/// The line of `bless` for a directory holding `other` without `what`: it compares with
+/// both.
+fn missing_beside(what: &Path, other: &Path) -> String {
+    format!(
+        "{status} {}: missing beside {} (restore {} from git: bless compares with both)",
+        what.display(),
+        other.display(),
+        what.display(),
+        status = Status::Missing
     )
 }
 
