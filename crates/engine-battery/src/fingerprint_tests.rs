@@ -3,8 +3,8 @@
 
 use engine_core::host::{Delivered, Raw};
 use engine_core::{
-    AlgorithmVersion, BLOCK_SIZE, Binary32, Binary64, Block, Create, Dispatch, Factory, Object,
-    ObjectSpec, ParamSpec, ParamValues, Params, PortSpec, Precision, Sample, SampleRate,
+    AlgorithmVersion, BLOCK_SIZE, Binary32, Binary64, Block, Create, Dispatch, Object, ObjectSpec,
+    ParamSpec, ParamValues, Params, PortSpec, Precision, Sample, SampleRate,
 };
 
 use core::convert::Infallible;
@@ -29,8 +29,8 @@ type Virtual<S> = Box<dyn Object<S>>;
 
 /// The fingerprint of a copy of `spec`, made a static as a plan's box types are: one small
 /// copy per call, kept for the test process, through its factory.
-fn print(spec: &ObjectSpec) -> String {
-    fingerprint::<Virtual<Binary64>, Virtual<Binary32>>(Box::leak(Box::new(*spec)))
+fn print(spec: ObjectSpec) -> String {
+    fingerprint::<Virtual<Binary64>, Virtual<Binary32>>(Box::leak(Box::new(spec)))
 }
 
 /// Where a quirk of [`Echo`] changes its output: under one condition only.
@@ -121,11 +121,18 @@ impl<S: Sample> Object<S> for Echo {
 
 /// The spec of an [`Echo`] with `quirk`.
 fn echo(quirk: Quirk) -> ObjectSpec {
+    echo_to(quirk, &[OUT])
+}
+
+/// The spec of an [`Echo`] with `quirk` and the outlets `outlets`.
+fn echo_to(quirk: Quirk, outlets: &'static [PortSpec]) -> ObjectSpec {
     macro_rules! with {
         ($quirk:expr) => {{
             /// The box type of one quirk.
             struct Chosen;
             impl Create for Chosen {
+                const PARAMS: &'static [ParamSpec] = &[GAIN];
+
                 fn create<S: Sample>(rate: SampleRate, params: Params<'_>) -> Box<dyn Object<S>> {
                     let gain = params.first().map_or(0.0_f64, |param| param.raw());
                     let quirky = match $quirk {
@@ -146,10 +153,17 @@ fn echo(quirk: Quirk) -> ObjectSpec {
                     })
                 }
             }
-            Factory::new::<Chosen>()
+            ObjectSpec::new::<Chosen>(
+                "echo~",
+                "multiplies by a gain",
+                &[IN],
+                outlets,
+                &[],
+                AlgorithmVersion::FIRST,
+            )
         }};
     }
-    let create = match quirk {
+    match quirk {
         Quirk::None => with!(Quirk::None),
         Quirk::HighestRate => with!(Quirk::HighestRate),
         Quirk::Binary32 => with!(Quirk::Binary32),
@@ -158,22 +172,32 @@ fn echo(quirk: Quirk) -> ObjectSpec {
         Quirk::LastBlock => with!(Quirk::LastBlock),
         Quirk::Special => with!(Quirk::Special),
         Quirk::SubnormalGain => with!(Quirk::SubnormalGain),
-    };
-    ObjectSpec {
-        name: "echo~",
-        description: "multiplies by a gain",
-        inlets: &[IN],
-        outlets: &[OUT],
-        params: &[GAIN],
-        capabilities: &[],
-        create,
-        algorithm_version: AlgorithmVersion::FIRST,
     }
+}
+
+/// A box type `$name` of the one parameter `$param`, creating a plain [`Echo`].
+macro_rules! gain_of {
+    ($name:ident, $param:expr) => {
+        /// A box type of one parameter of its own.
+        struct $name;
+        impl Create for $name {
+            const PARAMS: &'static [ParamSpec] = &[$param];
+
+            fn create<S: Sample>(_rate: SampleRate, params: Params<'_>) -> Box<dyn Object<S>> {
+                Box::new(Echo {
+                    gain: params.first().map_or(0.0_f64, |param| param.raw()),
+                    quirky: false,
+                    quirk: Quirk::None,
+                    blocks: 0,
+                })
+            }
+        }
+    };
 }
 
 #[test]
 fn is_64_lowercase_hex_digits_the_same_at_every_run() {
-    let first = print(&echo(Quirk::None));
+    let first = print(echo(Quirk::None));
     assert_eq!(first.len(), 64, "{first}");
     assert!(
         first
@@ -181,12 +205,12 @@ fn is_64_lowercase_hex_digits_the_same_at_every_run() {
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
         "{first}"
     );
-    assert_eq!(first, print(&echo(Quirk::None)), "deterministic");
+    assert_eq!(first, print(echo(Quirk::None)), "deterministic");
 }
 
 #[test]
 fn sees_one_bit_changed_in_any_run_of_the_battery() {
-    let plain = print(&echo(Quirk::None));
+    let plain = print(echo(Quirk::None));
     let mut seen = vec![plain.clone()];
     for quirk in [
         Quirk::HighestRate,
@@ -196,7 +220,7 @@ fn sees_one_bit_changed_in_any_run_of_the_battery() {
         Quirk::LastBlock,
         Quirk::Special,
     ] {
-        let changed = print(&echo(quirk));
+        let changed = print(echo(quirk));
         assert_ne!(changed, plain, "{quirk:?}");
         assert!(!seen.contains(&changed), "{quirk:?}: its own fingerprint");
         seen.push(changed);
@@ -209,12 +233,9 @@ fn hashes_the_battery_version_first() {
     // as an independent SHA-256 of its four little-endian bytes gives it (Python's
     // hashlib over `02 00 00 00`).
     assert_eq!(FINGERPRINT_BATTERY, 2, "the second battery");
-    let silent = ObjectSpec {
-        outlets: &[],
-        ..echo(Quirk::None)
-    };
+    let silent = echo_to(Quirk::None, &[]);
     assert_eq!(
-        print(&silent),
+        print(silent),
         "26b25d457597a7b0463f9620f666dd10aa2c4373a505967c7c8d70922a2d6ece"
     );
 }
@@ -249,10 +270,12 @@ fn draws_the_seeded_signal_of_splitmix64_from_zero() {
 fn tries_special_parameter_values_only_within_the_range() {
     const POSITIVE: ParamSpec = engine_core::param!("gain", "gain", 2.0, 1.0, 3.0);
     const NEGATIVE: ParamSpec = engine_core::param!("gain", "gain", -2.0, -3.0, -1.0);
-    let bits = |param: &'static ParamSpec| given_sets(core::slice::from_ref(param));
+    gain_of!(Gain, GAIN);
+    gain_of!(Positive, POSITIVE);
+    gain_of!(Negative, NEGATIVE);
     let wide = |value: f32| vec![f64::from(value).to_bits()];
     assert_eq!(
-        bits(&GAIN),
+        given_sets::<Gain>(),
         [
             wide(0.0_f32),
             wide(0.5_f32),
@@ -264,12 +287,12 @@ fn tries_special_parameter_values_only_within_the_range() {
         "[0, 1]: minimum, default, away from the default, maximum, -0.0, 2^-126"
     );
     assert_eq!(
-        bits(&POSITIVE)[4..],
+        given_sets::<Positive>()[4..],
         [wide(2.0_f32), wide(2.0_f32)],
         "above zero: the default instead"
     );
     assert_eq!(
-        bits(&NEGATIVE)[4..],
+        given_sets::<Negative>()[4..],
         [wide(-2.0_f32), wide(-2.0_f32)],
         "below zero: the default instead"
     );
@@ -282,19 +305,24 @@ fn tries_a_value_away_from_the_default() {
     const QUARTER: ParamSpec = engine_core::param!("gain", "gain", 0.25, 0.0, 1.0);
     const CENTERED: ParamSpec = engine_core::param!("gain", "gain", 0.5, -1.0, 1.0);
     const ZERO: ParamSpec = engine_core::param!("gain", "gain", 0.0, -1.0, 1.0);
-    let away = |param: &'static ParamSpec| {
-        let sets: [Vec<u64>; 6] = given_sets(core::slice::from_ref(param))
-            .try_into()
-            .expect("six sets");
-        let [_, _, away, ..] = sets;
-        away
-    };
+    gain_of!(Quarter, QUARTER);
+    gain_of!(Gain, GAIN);
+    gain_of!(Centered, CENTERED);
+    gain_of!(Zero, ZERO);
     let wide = |value: f64| vec![value.to_bits()];
-    assert_eq!(away(&QUARTER), wide(0.5_f64), "the midpoint");
-    assert_eq!(away(&GAIN), wide(0.75_f64), "the default is the midpoint");
-    assert_eq!(away(&CENTERED), wide(0.0_f64), "midpoint of [-1, 1]");
+    assert_eq!(given_sets::<Quarter>()[2], wide(0.5_f64), "the midpoint");
     assert_eq!(
-        away(&ZERO),
+        given_sets::<Gain>()[2],
+        wide(0.75_f64),
+        "the default is the midpoint"
+    );
+    assert_eq!(
+        given_sets::<Centered>()[2],
+        wide(0.0_f64),
+        "midpoint of [-1, 1]"
+    );
+    assert_eq!(
+        given_sets::<Zero>()[2],
         wide(0.5_f64),
         "halfway from the default 0 to the maximum"
     );
@@ -310,8 +338,14 @@ fn tries_only_values_of_the_range_just_above_the_smallest_normal() {
     const THREE: f32 = f32::from_bits(0x0080_0003);
     const NARROW: ParamSpec =
         engine_core::param!("gain", "gain", THREE, f32::from_bits(0x0080_0002), THREE);
-    for (param, default_value) in [(&DEGENERATE, ONE), (&NEGATIVE, -ONE), (&NARROW, THREE)] {
-        let sets = given_sets(core::slice::from_ref(param));
+    gain_of!(Degenerate, DEGENERATE);
+    gain_of!(Negative, NEGATIVE);
+    gain_of!(Narrow, NARROW);
+    for (sets, default_value) in [
+        (given_sets::<Degenerate>(), ONE),
+        (given_sets::<Negative>(), -ONE),
+        (given_sets::<Narrow>(), THREE),
+    ] {
         for set in &sets {
             assert_eq!(set.len(), 1, "one value per parameter");
         }
@@ -323,13 +357,17 @@ fn tries_only_values_of_the_range_just_above_the_smallest_normal() {
     }
 }
 
-/// The bits of every parameter set the battery gives a box of the parameters `params`, as
-/// the box is given them.
-fn given_sets(params: &'static [ParamSpec]) -> Vec<Vec<u64>> {
-    let spec: &'static ObjectSpec = Box::leak(Box::new(ObjectSpec {
-        params,
-        ..echo(Quirk::None)
-    }));
+/// The bits of every parameter set the battery gives a box of the box type `T`, as the box
+/// is given them.
+fn given_sets<T: Create>() -> Vec<Vec<u64>> {
+    let spec: &'static ObjectSpec = Box::leak(Box::new(ObjectSpec::new::<T>(
+        "echo~",
+        "multiplies by a gain",
+        &[IN],
+        &[OUT],
+        &[],
+        AlgorithmVersion::FIRST,
+    )));
     param_sets(spec)
         .iter()
         .map(|set| {
@@ -345,8 +383,8 @@ fn gives_the_parameters_as_a_plan_does() {
     // A box that changes only for a nonzero gain below 2^-126, which no parameter given as
     // `Params` is: no plan can reach that change, so its fingerprint is the plain one.
     assert_eq!(
-        print(&echo(Quirk::SubnormalGain)),
-        print(&echo(Quirk::None)),
+        print(echo(Quirk::SubnormalGain)),
+        print(echo(Quirk::None)),
         "no parameter below 2^-126 but zero"
     );
 }
@@ -374,20 +412,20 @@ fn route<const FIRST: usize>() -> ObjectSpec {
     /// The box type routing inlet 0 to outlet `FIRST`.
     struct Routed<const FIRST: usize>;
     impl<const FIRST: usize> Create for Routed<FIRST> {
+        const PARAMS: &'static [ParamSpec] = &[];
+
         fn create<S: Sample>(_rate: SampleRate, _params: Params<'_>) -> Box<dyn Object<S>> {
             Box::new(Route { first: FIRST })
         }
     }
-    ObjectSpec {
-        name: "route~",
-        description: "copies each inlet to an outlet",
-        inlets: &[IN, IN],
-        outlets: &[OUT, OUT],
-        params: &[],
-        capabilities: &[],
-        create: Factory::new::<Routed<FIRST>>(),
-        algorithm_version: AlgorithmVersion::FIRST,
-    }
+    ObjectSpec::new::<Routed<FIRST>>(
+        "route~",
+        "copies each inlet to an outlet",
+        &[IN, IN],
+        &[OUT, OUT],
+        &[],
+        AlgorithmVersion::FIRST,
+    )
 }
 
 #[test]
@@ -424,8 +462,8 @@ fn feeds_the_inlets_in_turn_and_hashes_the_outlets_in_order() {
         "the two inlets are given different signals"
     );
     assert_ne!(
-        print(&route::<0>()),
-        print(&route::<1>()),
+        print(route::<0>()),
+        print(route::<1>()),
         "swapping the inlets, or the outlets, is seen"
     );
 }

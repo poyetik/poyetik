@@ -3,7 +3,7 @@
 use alloc::boxed::Box;
 
 use engine_core::{
-    AlgorithmVersion, Binary64, Block, Create, Factory, Object, ObjectSpec, Params, PortSpec,
+    AlgorithmVersion, Binary64, Block, Create, Object, ObjectSpec, ParamSpec, Params, PortSpec,
     Sample, SampleRate, param,
 };
 
@@ -58,10 +58,12 @@ impl Osc {
     /// An oscillator from its frequency parameter, as [`Create::create`] receives it: the
     /// one constructor of both its factory and [`crate::BuiltIn`].
     ///
-    /// Both are given the values of [`OSC`] only (values carry the spec they were checked
-    /// against, `engine_core::ParamValues`), so the frequency is always there and the
-    /// fallback below is never taken; it goes with the typed access to parameter values
-    /// that cannot be missing (roadmap #12 step 14).
+    /// Both are given values checked against a spec of this type only (values carry the
+    /// spec they were checked against, `engine_core::ParamValues`, and a spec takes its
+    /// parameters from the type that creates its instances, `engine_core::ObjectSpec::new`),
+    /// so the frequency is always there: the fallback below is unreachable by construction,
+    /// and goes with the typed access to parameter values that cannot be missing (roadmap #12
+    /// step 14).
     #[inline]
     pub(crate) fn of(rate: SampleRate, params: &[Binary64]) -> Self {
         let frequency = params.first().copied().unwrap_or(Binary64::new(440.0));
@@ -70,6 +72,14 @@ impl Osc {
 }
 
 impl Create for Osc {
+    const PARAMS: &'static [ParamSpec] = &[param!(
+        "frequency",
+        "Frequency, in hertz",
+        440.0,
+        0.0,
+        20_000.0,
+    )];
+
     /// An oscillator from its frequency parameter.
     fn create<S: Sample>(rate: SampleRate, params: Params<'_>) -> Box<dyn Object<S>> {
         Box::new(Self::of(rate, &params))
@@ -77,25 +87,17 @@ impl Create for Osc {
 }
 
 /// The `osc~` box type.
-pub static OSC: ObjectSpec = ObjectSpec {
-    name: "osc~",
-    description: "Sine oscillator with a full-scale amplitude (-1 to 1), starting at phase 0.",
-    inlets: &[],
-    outlets: &[PortSpec {
+pub static OSC: ObjectSpec = ObjectSpec::new::<Osc>(
+    "osc~",
+    "Sine oscillator with a full-scale amplitude (-1 to 1), starting at phase 0.",
+    &[],
+    &[PortSpec {
         name: "out",
         description: "The sine wave",
     }],
-    params: &[param!(
-        "frequency",
-        "Frequency, in hertz",
-        440.0,
-        0.0,
-        20_000.0,
-    )],
-    capabilities: &[],
-    create: Factory::new::<Osc>(),
-    algorithm_version: AlgorithmVersion::FIRST,
-};
+    &[],
+    AlgorithmVersion::FIRST,
+);
 
 #[cfg(test)]
 #[path = "osc_tests.rs"]

@@ -6,7 +6,7 @@
 #[cfg(test)]
 mod tests {
     use engine_core::{
-        AlgorithmVersion, Block, Create, Factory, Object, ObjectSpec, Params, Sample, SampleRate,
+        AlgorithmVersion, Block, Create, Object, ObjectSpec, ParamSpec, Params, Sample, SampleRate,
     };
 
     #[derive(Debug)]
@@ -15,21 +15,21 @@ mod tests {
         fn process(&mut self, _inputs: &[Block<S>], _outputs: &mut [Block<S>]) {}
     }
     impl Create for Silent {
+        const PARAMS: &'static [ParamSpec] = &[];
+
         fn create<S: Sample>(_rate: SampleRate, _params: Params<'_>) -> Box<dyn Object<S>> {
             Box::new(Self)
         }
     }
 
-    static SILENT: ObjectSpec = ObjectSpec {
-        name: "silent~",
-        description: "does nothing",
-        inlets: &[],
-        outlets: &[],
-        params: &[],
-        capabilities: &[],
-        create: Factory::new::<Silent>(),
-        algorithm_version: AlgorithmVersion::FIRST,
-    };
+    static SILENT: ObjectSpec = ObjectSpec::new::<Silent>(
+        "silent~",
+        "does nothing",
+        &[],
+        &[],
+        &[],
+        AlgorithmVersion::FIRST,
+    );
 
     #[test]
     fn refuses_to_check_without_the_counting_allocator() {

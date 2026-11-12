@@ -856,7 +856,7 @@ fn fingerprint_of(name: &str) -> String {
     >(
         engine_objects::REGISTRY
             .iter()
-            .find(|spec| spec.name == name)
+            .find(|spec| spec.name() == name)
             .expect("a registered box type"),
     )
 }

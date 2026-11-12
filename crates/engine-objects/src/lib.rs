@@ -81,8 +81,10 @@ impl<S: Sample> Object<S> for BuiltIn<S> {
 
 impl<S: Sample> Dispatch<S> for BuiltIn<S> {
     /// The box type is told by the address of the spec the values carry, the registry's
-    /// statics being the only specs of the built-in box types: a copy of one is another box
-    /// type, created through its factory.
+    /// statics being the specs of the built-in box types: a spec is built only from its box
+    /// type's own parameters and instances (`engine_core::ObjectSpec::new`), and the types
+    /// of the built-in boxes are private to this crate, so another spec at another address
+    /// is another box type, created through its factory.
     #[inline]
     fn create(rate: SampleRate, values: &ParamValues) -> Self {
         let spec = values.spec();

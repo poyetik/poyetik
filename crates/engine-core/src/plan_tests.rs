@@ -13,8 +13,8 @@ use crate::Params;
 use crate::host::{Delivered, Raw};
 use crate::{
     AlgorithmVersion, BLOCK_SIZE, Binary32, Binary64, Block, Capability, Connection, CoreError,
-    Create, Factory, Node, NodeId, Object, ObjectSpec, Patch, Plan, PortSpec, Precision, Renderer,
-    Sample, SampleRate,
+    Create, Node, NodeId, Object, ObjectSpec, ParamSpec, Patch, Plan, PortSpec, Precision,
+    Renderer, Sample, SampleRate,
 };
 
 /// How these tests' plans hold their box instances: every box type through its virtual
@@ -48,21 +48,40 @@ impl<S: Sample> Object<S> for Const {
         }
     }
 }
-impl Create for Const {
-    fn create<S: Sample>(_rate: SampleRate, params: Params<'_>) -> Box<dyn Object<S>> {
-        Box::new(Self(params.first().copied().unwrap_or(Binary64::ONE)))
-    }
+/// A box type creating [`Const`] instances, `$name`, of the parameters `$params`.
+macro_rules! constant {
+    ($name:ident, $params:expr) => {
+        /// Creates a [`Const`] of its first parameter.
+        struct $name;
+        impl Create for $name {
+            const PARAMS: &'static [ParamSpec] = $params;
+
+            fn create<S: Sample>(_rate: SampleRate, params: Params<'_>) -> Box<dyn Object<S>> {
+                Box::new(Const(params.first().copied().unwrap_or(Binary64::ONE)))
+            }
+        }
+    };
 }
-static CONST: ObjectSpec = ObjectSpec {
-    name: "const~",
-    description: "constant",
-    inlets: &[],
-    outlets: &[PORT],
-    params: &[crate::param!("value", "value", 1.0, -10.0, 10.0)],
-    capabilities: &[],
-    create: Factory::new::<Const>(),
-    algorithm_version: AlgorithmVersion::FIRST,
-};
+constant!(
+    ConstValue,
+    &[crate::param!("value", "value", 1.0, -10.0, 10.0)]
+);
+constant!(
+    ConstLevel,
+    &[crate::param!("level", "level", 1.0e-45, 0.0, 1.0)]
+);
+constant!(
+    ConstAbove,
+    &[crate::param!("value", "value", 1.0, 1.0, 2.0)]
+);
+static CONST: ObjectSpec = ObjectSpec::new::<ConstValue>(
+    "const~",
+    "constant",
+    &[],
+    &[PORT],
+    &[],
+    AlgorithmVersion::FIRST,
+);
 
 /// Outputs 0, 1, 2… continuing across blocks: checks that state is kept.
 #[derive(Debug)]
@@ -78,20 +97,14 @@ impl<S: Sample> Object<S> for Ramp {
     }
 }
 impl Create for Ramp {
+    const PARAMS: &'static [ParamSpec] = &[];
+
     fn create<S: Sample>(_rate: SampleRate, _params: Params<'_>) -> Box<dyn Object<S>> {
         Box::new(Self(0.0))
     }
 }
-static RAMP: ObjectSpec = ObjectSpec {
-    name: "ramp~",
-    description: "ramp",
-    inlets: &[],
-    outlets: &[PORT],
-    params: &[],
-    capabilities: &[],
-    create: Factory::new::<Ramp>(),
-    algorithm_version: AlgorithmVersion::FIRST,
-};
+static RAMP: ObjectSpec =
+    ObjectSpec::new::<Ramp>("ramp~", "ramp", &[], &[PORT], &[], AlgorithmVersion::FIRST);
 
 /// Outputs on outlet 0 the sum of its inlets, and on outlet 1 ten times that sum.
 #[derive(Debug)]
@@ -120,20 +133,20 @@ impl<S: Sample> Object<S> for Add {
     }
 }
 impl Create for Add {
+    const PARAMS: &'static [ParamSpec] = &[];
+
     fn create<S: Sample>(_rate: SampleRate, _params: Params<'_>) -> Box<dyn Object<S>> {
         Box::new(Self)
     }
 }
-static ADD: ObjectSpec = ObjectSpec {
-    name: "add~",
-    description: "sum",
-    inlets: &[PORT, PORT],
-    outlets: &[PORT, PORT],
-    params: &[],
-    capabilities: &[],
-    create: Factory::new::<Add>(),
-    algorithm_version: AlgorithmVersion::FIRST,
-};
+static ADD: ObjectSpec = ObjectSpec::new::<Add>(
+    "add~",
+    "sum",
+    &[PORT, PORT],
+    &[PORT, PORT],
+    &[],
+    AlgorithmVersion::FIRST,
+);
 
 /// Sends its two inlets to the engine output.
 #[derive(Debug)]
@@ -142,32 +155,30 @@ impl<S: Sample> Object<S> for Out {
     fn process(&mut self, _inputs: &[Block<S>], _outputs: &mut [Block<S>]) {}
 }
 impl Create for Out {
+    const PARAMS: &'static [ParamSpec] = &[];
+
     fn create<S: Sample>(_rate: SampleRate, _params: Params<'_>) -> Box<dyn Object<S>> {
         Box::new(Self)
     }
 }
-static OUT: ObjectSpec = ObjectSpec {
-    name: "out~",
-    description: "output",
-    inlets: &[PORT, PORT],
-    outlets: &[],
-    params: &[],
-    capabilities: &[Capability::AudioOutput],
-    create: Factory::new::<Out>(),
-    algorithm_version: AlgorithmVersion::FIRST,
-};
+static OUT: ObjectSpec = ObjectSpec::new::<Out>(
+    "out~",
+    "output",
+    &[PORT, PORT],
+    &[],
+    &[Capability::AudioOutput],
+    AlgorithmVersion::FIRST,
+);
 
 /// A mono output, to check the channel count.
-static MONO_OUT: ObjectSpec = ObjectSpec {
-    name: "mono~",
-    description: "mono output",
-    inlets: &[PORT],
-    outlets: &[],
-    params: &[],
-    capabilities: &[Capability::AudioOutput],
-    create: Factory::new::<Out>(),
-    algorithm_version: AlgorithmVersion::FIRST,
-};
+static MONO_OUT: ObjectSpec = ObjectSpec::new::<Out>(
+    "mono~",
+    "mono output",
+    &[PORT],
+    &[],
+    &[Capability::AudioOutput],
+    AlgorithmVersion::FIRST,
+);
 
 /// Records the sample rate it was created with on its outlet.
 #[derive(Debug)]
@@ -180,20 +191,20 @@ impl<S: Sample> Object<S> for Rate {
     }
 }
 impl Create for Rate {
+    const PARAMS: &'static [ParamSpec] = &[];
+
     fn create<S: Sample>(rate: SampleRate, _params: Params<'_>) -> Box<dyn Object<S>> {
         Box::new(Self(f64::from(rate.hz() / 10)))
     }
 }
-static RATE: ObjectSpec = ObjectSpec {
-    name: "rate~",
-    description: "sample rate",
-    inlets: &[],
-    outlets: &[PORT],
-    params: &[],
-    capabilities: &[],
-    create: Factory::new::<Rate>(),
-    algorithm_version: AlgorithmVersion::FIRST,
-};
+static RATE: ObjectSpec = ObjectSpec::new::<Rate>(
+    "rate~",
+    "sample rate",
+    &[],
+    &[PORT],
+    &[],
+    AlgorithmVersion::FIRST,
+);
 
 /// Copies its inlet to its outlet, bit for bit.
 #[derive(Debug)]
@@ -206,40 +217,41 @@ impl<S: Sample> Object<S> for Pass {
     }
 }
 impl Create for Pass {
+    const PARAMS: &'static [ParamSpec] = &[];
+
     fn create<S: Sample>(_rate: SampleRate, _params: Params<'_>) -> Box<dyn Object<S>> {
         Box::new(Self)
     }
 }
-static PASS: ObjectSpec = ObjectSpec {
-    name: "pass~",
-    description: "identity",
-    inlets: &[PORT],
-    outlets: &[PORT],
-    params: &[],
-    capabilities: &[],
-    create: Factory::new::<Pass>(),
-    algorithm_version: AlgorithmVersion::FIRST,
-};
+static PASS: ObjectSpec = ObjectSpec::new::<Pass>(
+    "pass~",
+    "identity",
+    &[PORT],
+    &[PORT],
+    &[],
+    AlgorithmVersion::FIRST,
+);
 
 /// Outputs its level, which cannot be negative, with the smallest subnormal as default: a
 /// spec no real box should have, to show that defaults are flushed too.
-static LEVEL: ObjectSpec = ObjectSpec {
-    name: "level~",
-    description: "a constant level",
-    inlets: &[],
-    outlets: &[PORT],
-    params: &[crate::param!("level", "level", 1.0e-45, 0.0, 1.0)],
-    capabilities: &[],
-    create: Factory::new::<Const>(),
-    algorithm_version: AlgorithmVersion::FIRST,
-};
+static LEVEL: ObjectSpec = ObjectSpec::new::<ConstLevel>(
+    "level~",
+    "a constant level",
+    &[],
+    &[PORT],
+    &[],
+    AlgorithmVersion::FIRST,
+);
 
 /// A constant whose range excludes zero: a subnormal written for it is refused.
-static ABOVE: ObjectSpec = ObjectSpec {
-    name: "above~",
-    params: &[crate::param!("value", "value", 1.0, 1.0, 2.0)],
-    ..CONST
-};
+static ABOVE: ObjectSpec = ObjectSpec::new::<ConstAbove>(
+    "above~",
+    "constant",
+    &[],
+    &[PORT],
+    &[],
+    AlgorithmVersion::FIRST,
+);
 
 static REGISTRY: [&ObjectSpec; 8] = [&CONST, &RAMP, &ADD, &OUT, &MONO_OUT, &RATE, &PASS, &LEVEL];
 
@@ -1151,6 +1163,8 @@ impl<S: Sample> Object<S> for ProductThenSum {
     }
 }
 impl Create for ProductThenSum {
+    const PARAMS: &'static [ParamSpec] = &[];
+
     fn create<S: Sample>(_rate: SampleRate, _params: Params<'_>) -> Box<dyn Object<S>> {
         Box::new(Self)
     }
@@ -1175,16 +1189,14 @@ const PRODUCT_THEN_SUM: [u64; 2] = [0x3e50_0000_0100_0000, 0x3a00_0400];
 fn renders_a_product_then_a_sum_in_the_mode_of_the_build<S: Bits>() {
     // The positive control of the arithmetic mode: a box's `mul_then_add`, rendered through
     // a plan, gives what the mode of the build says, and only that function changes it.
-    static PRODUCT: ObjectSpec = ObjectSpec {
-        name: "product~",
-        description: "a product then a sum",
-        inlets: &[],
-        outlets: &[PORT],
-        params: &[],
-        capabilities: &[],
-        create: Factory::new::<ProductThenSum>(),
-        algorithm_version: AlgorithmVersion::FIRST,
-    };
+    static PRODUCT: ObjectSpec = ObjectSpec::new::<ProductThenSum>(
+        "product~",
+        "a product then a sum",
+        &[],
+        &[PORT],
+        &[],
+        AlgorithmVersion::FIRST,
+    );
     let patch = Patch::new(
         vec![node(1, "product~"), node(2, "mono~")],
         vec![wire(1, 0, 2, 0)],

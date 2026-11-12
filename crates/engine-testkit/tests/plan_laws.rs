@@ -26,7 +26,7 @@ mod tests {
     use engine_core::host::{Delivered, ParamBounds, Raw};
     use engine_core::{
         AlgorithmVersion, BLOCK_SIZE, Binary32, Binary64, Block, Capability, Connection, CoreError,
-        Create, Dispatch, Factory, Node, NodeId, Object, ObjectSpec, ParamValues, Params, Patch,
+        Create, Dispatch, Node, NodeId, Object, ObjectSpec, ParamSpec, ParamValues, Params, Patch,
         Plan, PortSpec, Precision, Renderer, Sample, SampleRate,
     };
     use engine_objects::BuiltIn;
@@ -71,20 +71,21 @@ mod tests {
         }
     }
     impl Create for Const {
+        const PARAMS: &'static [ParamSpec] =
+            &[engine_core::param!("value", "value", 0.5, -1.0, 1.0)];
+
         fn create<S: Sample>(_rate: SampleRate, params: Params<'_>) -> Box<dyn Object<S>> {
             Box::new(Self(params.first().map_or(0.0, |param| param.raw())))
         }
     }
-    static CONST: ObjectSpec = ObjectSpec {
-        name: "const~",
-        description: "constant",
-        inlets: &[],
-        outlets: &[PORT],
-        params: &[engine_core::param!("value", "value", 0.5, -1.0, 1.0)],
-        capabilities: &[],
-        create: Factory::new::<Const>(),
-        algorithm_version: AlgorithmVersion::FIRST,
-    };
+    static CONST: ObjectSpec = ObjectSpec::new::<Const>(
+        "const~",
+        "constant",
+        &[],
+        &[PORT],
+        &[],
+        AlgorithmVersion::FIRST,
+    );
 
     /// Outputs on both outlets a running count of its samples (state across blocks),
     /// scaled down, plus its inputs halved: stateful and order-revealing.
@@ -112,20 +113,20 @@ mod tests {
         }
     }
     impl Create for Mix {
+        const PARAMS: &'static [ParamSpec] = &[];
+
         fn create<S: Sample>(_rate: SampleRate, _params: Params<'_>) -> Box<dyn Object<S>> {
             Box::new(Self(0.0))
         }
     }
-    static MIX: ObjectSpec = ObjectSpec {
-        name: "mix~",
-        description: "stateful mix",
-        inlets: &[PORT, PORT],
-        outlets: &[PORT, PORT],
-        params: &[],
-        capabilities: &[],
-        create: Factory::new::<Mix>(),
-        algorithm_version: AlgorithmVersion::FIRST,
-    };
+    static MIX: ObjectSpec = ObjectSpec::new::<Mix>(
+        "mix~",
+        "stateful mix",
+        &[PORT, PORT],
+        &[PORT, PORT],
+        &[],
+        AlgorithmVersion::FIRST,
+    );
 
     /// Sends its two inlets to the engine output.
     #[derive(Debug)]
@@ -134,20 +135,20 @@ mod tests {
         fn process(&mut self, _inputs: &[Block<S>], _outputs: &mut [Block<S>]) {}
     }
     impl Create for Out {
+        const PARAMS: &'static [ParamSpec] = &[];
+
         fn create<S: Sample>(_rate: SampleRate, _params: Params<'_>) -> Box<dyn Object<S>> {
             Box::new(Self)
         }
     }
-    static OUT: ObjectSpec = ObjectSpec {
-        name: "out~",
-        description: "output",
-        inlets: &[PORT, PORT],
-        outlets: &[],
-        params: &[],
-        capabilities: &[Capability::AudioOutput],
-        create: Factory::new::<Out>(),
-        algorithm_version: AlgorithmVersion::FIRST,
-    };
+    static OUT: ObjectSpec = ObjectSpec::new::<Out>(
+        "out~",
+        "output",
+        &[PORT, PORT],
+        &[],
+        &[Capability::AudioOutput],
+        AlgorithmVersion::FIRST,
+    );
 
     /// Outputs a tenth of the sample rate it was created with: a plan handing boxes a
     /// wrong rate changes the samples.
@@ -161,20 +162,20 @@ mod tests {
         }
     }
     impl Create for Rate {
+        const PARAMS: &'static [ParamSpec] = &[];
+
         fn create<S: Sample>(rate: SampleRate, _params: Params<'_>) -> Box<dyn Object<S>> {
             Box::new(Self(f64::from(rate.hz() / 10)))
         }
     }
-    static RATE: ObjectSpec = ObjectSpec {
-        name: "rate~",
-        description: "sample rate",
-        inlets: &[],
-        outlets: &[PORT],
-        params: &[],
-        capabilities: &[],
-        create: Factory::new::<Rate>(),
-        algorithm_version: AlgorithmVersion::FIRST,
-    };
+    static RATE: ObjectSpec = ObjectSpec::new::<Rate>(
+        "rate~",
+        "sample rate",
+        &[],
+        &[PORT],
+        &[],
+        AlgorithmVersion::FIRST,
+    );
 
     static REGISTRY: [&ObjectSpec; 4] = [&CONST, &MIX, &OUT, &RATE];
 
@@ -323,14 +324,14 @@ mod tests {
             REGISTRY
                 .iter()
                 .copied()
-                .find(|spec| spec.name == node.kind)
+                .find(|spec| spec.name() == node.kind)
                 .expect("a registered box")
         };
         let by_id: BTreeMap<NodeId, &Node> = nodes.iter().map(|node| (node.id, node)).collect();
         let mut boxes: BTreeMap<NodeId, Box<dyn Object<S>>> = BTreeMap::new();
         for node in nodes {
             let values: Vec<Binary64> = spec(node)
-                .params
+                .params()
                 .iter()
                 .map(|param| {
                     Binary64::new(f64::from(
@@ -347,11 +348,11 @@ mod tests {
                 <Box<dyn Object<S>> as Dispatch<S>>::create(rate, &params),
             ));
         }
-        let is_output = |node: &Node| spec(node).capabilities.contains(&Capability::AudioOutput);
+        let is_output = |node: &Node| spec(node).capabilities().contains(&Capability::AudioOutput);
         let channels = nodes
             .iter()
             .filter(|node| is_output(node))
-            .map(|node| spec(node).inlets.len())
+            .map(|node| spec(node).inlets().len())
             .max()
             .unwrap_or(0);
         let cables: BTreeSet<Connection> = connections.iter().copied().collect();
@@ -361,7 +362,7 @@ mod tests {
             let mut fed: BTreeMap<NodeId, Vec<Block<S>>> = BTreeMap::new();
             for id in order {
                 let node = by_id[id];
-                let inputs: Vec<Block<S>> = (0..spec(node).inlets.len())
+                let inputs: Vec<Block<S>> = (0..spec(node).inlets().len())
                     .map(|inlet| {
                         let sources: Vec<Block<S>> = cables
                             .iter()
@@ -374,7 +375,7 @@ mod tests {
                 // Fresh buffers every block: a box writes every sample of every outlet, so
                 // what its outputs hold on entry is no part of the reference
                 // (`Object::process`, which the box laws hold every box to).
-                let mut produced = vec![S::SILENCE; spec(node).outlets.len()];
+                let mut produced = vec![S::SILENCE; spec(node).outlets().len()];
                 boxes
                     .get_mut(id)
                     .expect("created")
@@ -935,20 +936,20 @@ mod tests {
         }
     }
     impl Create for Freeing {
+        const PARAMS: &'static [ParamSpec] = &[];
+
         fn create<S: Sample>(_rate: SampleRate, _params: Params<'_>) -> Box<dyn Object<S>> {
             Box::new(Self(Some(vec![0.0; 8])))
         }
     }
-    static FREEING: ObjectSpec = ObjectSpec {
-        name: "free~",
-        description: "frees memory on its first call",
-        inlets: &[],
-        outlets: &[PORT],
-        params: &[],
-        capabilities: &[],
-        create: Factory::new::<Freeing>(),
-        algorithm_version: AlgorithmVersion::FIRST,
-    };
+    static FREEING: ObjectSpec = ObjectSpec::new::<Freeing>(
+        "free~",
+        "frees memory on its first call",
+        &[],
+        &[PORT],
+        &[],
+        AlgorithmVersion::FIRST,
+    );
 
     #[test]
     fn counts_heap_operations() {

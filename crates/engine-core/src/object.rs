@@ -457,17 +457,24 @@ impl Deref for Params<'_> {
     }
 }
 
-/// A box type's way of creating its instances, written once for every precision: the
-/// plan calls [`Create::create`] with the [`Sample`] type of the render.
+/// A box type's parameters and its way of creating its instances, written once for every
+/// precision: the plan calls [`Create::create`] with the [`Sample`] type of the render.
+///
+/// Both belong to the type implementing it, of which a type has one implementation: a
+/// spec takes its parameters and its factory from the same type ([`ObjectSpec::new`]), so
+/// that a box is created only from values checked against its own parameters.
 pub trait Create {
+    /// The parameters of the box type, in order: those of every spec built from this type,
+    /// against which every value [`Create::create`] receives was checked.
+    const PARAMS: &'static [ParamSpec];
+
     /// Creates an instance computing in `S`, from a sample rate and its parameter values.
     ///
-    /// The values come as [`Params`] says: one per parameter, in order, each within its
-    /// range, in binary64, none below 2^-126 but zero. The engine calls it only through the
-    /// box type's [`Factory`], from values checked against the box type's own spec
-    /// ([`Dispatch::create`]); a box type keeps the type implementing it private, so that no
-    /// other caller can give it the values of another box type (the engine's own box types
-    /// do).
+    /// The values come as [`Params`] says: one per parameter of [`Create::PARAMS`], in
+    /// order, each within its range, in binary64, none below 2^-126 but zero. The engine
+    /// calls it only through the box type's [`Factory`], from values checked against a spec
+    /// of this type ([`Dispatch::create`]), whose parameters are this type's by construction
+    /// ([`ObjectSpec::new`]).
     fn create<S: Sample>(rate: SampleRate, params: Params<'_>) -> Box<dyn Object<S>>;
 }
 
@@ -499,7 +506,30 @@ pub trait Create {
 /// ```compile_fail,E0432
 /// use engine_core::Constructor;
 /// ```
-#[derive(Debug, Clone, Copy)]
+///
+/// Nor is its constructor, so a factory exists only inside the spec of its box type, with
+/// that type's parameters ([`ObjectSpec::new`]), and is neither cloned nor copied out of it:
+///
+/// ```compile_fail,E0624
+/// use engine_core::{Create, Factory, Object, ParamSpec, Params, Sample, SampleRate};
+///
+/// struct Silent;
+///
+/// impl Create for Silent {
+///     const PARAMS: &'static [ParamSpec] = &[];
+///
+///     fn create<S: Sample>(_rate: SampleRate, _params: Params<'_>) -> Box<dyn Object<S>> {
+///         unimplemented!()
+///     }
+/// }
+///
+/// fn factory() -> Factory {
+///     Factory::new::<Silent>()
+/// }
+/// ```
+///
+/// (The same box type builds its spec, the control: [`ObjectSpec`]'s examples.)
+#[derive(Debug)]
 pub struct Factory {
     /// Creates a binary64 instance.
     pub(crate) binary64: Constructor<Binary64>,
@@ -508,9 +538,10 @@ pub struct Factory {
 }
 
 impl Factory {
-    /// The factory of the box type `T`.
+    /// The factory of the box type `T`: crate-private, so that it is built only by the spec
+    /// of `T` ([`ObjectSpec::new`]), with `T`'s parameters.
     #[must_use]
-    pub const fn new<T: Create>() -> Self {
+    pub(crate) const fn new<T: Create>() -> Self {
         Self {
             binary64: T::create::<Binary64>,
             binary32: T::create::<Binary32>,
@@ -580,25 +611,151 @@ impl fmt::Display for AlgorithmVersion {
 
 /// Static description of a box type: everything the editor, the AI assistant, the
 /// documentation and the plan builder need to know about it.
-#[derive(Debug, Clone, Copy)]
+///
+/// Built only by [`ObjectSpec::new`], from the type implementing [`Create`], which gives
+/// both its parameters and its factory: no spec pairs a factory with parameters other
+/// than its own type's, so a box is created only from values checked against its own
+/// parameters. A box type is its spec, a static: neither cloned nor copied. A box type
+/// whose creation and parameters are written once:
+///
+/// ```
+/// use engine_core::{
+///     AlgorithmVersion, Create, Object, ObjectSpec, ParamSpec, Params, Sample, SampleRate,
+/// };
+///
+/// struct Silent;
+///
+/// impl Create for Silent {
+///     const PARAMS: &'static [ParamSpec] = &[];
+///
+///     fn create<S: Sample>(_rate: SampleRate, _params: Params<'_>) -> Box<dyn Object<S>> {
+///         unimplemented!()
+///     }
+/// }
+///
+/// fn copy() -> ObjectSpec {
+///     ObjectSpec::new::<Silent>("copy~", "silence", &[], &[], &[], AlgorithmVersion::FIRST)
+/// }
+/// ```
+///
+/// Its fields are private, so another box type's parameters cannot be paired with its
+/// factory by a struct update:
+///
+/// ```compile_fail,E0451
+/// use engine_core::{
+///     AlgorithmVersion, Create, Object, ObjectSpec, ParamSpec, Params, Sample, SampleRate,
+/// };
+///
+/// struct Silent;
+///
+/// impl Create for Silent {
+///     const PARAMS: &'static [ParamSpec] = &[];
+///
+///     fn create<S: Sample>(_rate: SampleRate, _params: Params<'_>) -> Box<dyn Object<S>> {
+///         unimplemented!()
+///     }
+/// }
+///
+/// fn copy() -> ObjectSpec {
+///     ObjectSpec {
+///         name: "copy~",
+///         ..ObjectSpec::new::<Silent>("silent~", "silence", &[], &[], &[], AlgorithmVersion::FIRST)
+///     }
+/// }
+/// ```
+#[derive(Debug)]
 pub struct ObjectSpec {
     /// Name used in patches, for example `osc~`.
-    pub name: &'static str,
+    name: &'static str,
     /// What the box does.
-    pub description: &'static str,
+    description: &'static str,
     /// Inlets, in order.
-    pub inlets: &'static [PortSpec],
+    inlets: &'static [PortSpec],
     /// Outlets, in order.
-    pub outlets: &'static [PortSpec],
-    /// Parameters, in order.
-    pub params: &'static [ParamSpec],
+    outlets: &'static [PortSpec],
+    /// Parameters, in order: those of the type its factory creates ([`Create::PARAMS`]).
+    params: &'static [ParamSpec],
     /// Capabilities the box needs from the host platform.
-    pub capabilities: &'static [Capability],
+    capabilities: &'static [Capability],
     /// Creates its instances, in either precision.
-    pub create: Factory,
+    create: Factory,
     /// The version of its algorithm (decision 29): a new one for any change that can
     /// change a bit of its output.
-    pub algorithm_version: AlgorithmVersion,
+    algorithm_version: AlgorithmVersion,
+}
+
+impl ObjectSpec {
+    /// The box type `name`, described by `description`, with the ports `inlets` and
+    /// `outlets`, the `capabilities` it needs and the version of its algorithm
+    /// `algorithm_version`, whose parameters and instances are those of `T`
+    /// ([`Create::PARAMS`], [`Create::create`]).
+    ///
+    /// A `const fn`, so that a box type is a static. Its metadata (names and descriptions
+    /// present, port and parameter names unique) is checked by the box laws
+    /// (`engine_testkit::check_metadata`).
+    #[must_use]
+    pub const fn new<T: Create>(
+        name: &'static str,
+        description: &'static str,
+        inlets: &'static [PortSpec],
+        outlets: &'static [PortSpec],
+        capabilities: &'static [Capability],
+        algorithm_version: AlgorithmVersion,
+    ) -> Self {
+        Self {
+            name,
+            description,
+            inlets,
+            outlets,
+            params: T::PARAMS,
+            capabilities,
+            create: Factory::new::<T>(),
+            algorithm_version,
+        }
+    }
+
+    /// Name used in patches, for example `osc~`.
+    #[must_use]
+    pub const fn name(&self) -> &'static str {
+        self.name
+    }
+
+    /// What the box does.
+    #[must_use]
+    pub const fn description(&self) -> &'static str {
+        self.description
+    }
+
+    /// Inlets, in order.
+    #[must_use]
+    pub const fn inlets(&self) -> &'static [PortSpec] {
+        self.inlets
+    }
+
+    /// Outlets, in order.
+    #[must_use]
+    pub const fn outlets(&self) -> &'static [PortSpec] {
+        self.outlets
+    }
+
+    /// Parameters, in order: those of the type that creates its instances.
+    #[must_use]
+    pub const fn params(&self) -> &'static [ParamSpec] {
+        self.params
+    }
+
+    /// Capabilities the box needs from the host platform.
+    #[must_use]
+    pub const fn capabilities(&self) -> &'static [Capability] {
+        self.capabilities
+    }
+
+    /// The version of its algorithm (decision 29): a new one for any change that can
+    /// change a bit of its output.
+    #[must_use]
+    pub const fn algorithm_version(&self) -> AlgorithmVersion {
+        self.algorithm_version
+    }
 }
 
 /// A box instance, processing audio one block at a time, in the samples `S` of its render.

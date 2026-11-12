@@ -3,7 +3,7 @@
 use alloc::boxed::Box;
 
 use engine_core::{
-    AlgorithmVersion, Block, Capability, Create, Factory, Object, ObjectSpec, Params, PortSpec,
+    AlgorithmVersion, Block, Capability, Create, Object, ObjectSpec, ParamSpec, Params, PortSpec,
     Sample, SampleRate,
 };
 
@@ -17,16 +17,18 @@ impl<S: Sample> Object<S> for Dac {
 }
 
 impl Create for Dac {
+    const PARAMS: &'static [ParamSpec] = &[];
+
     fn create<S: Sample>(_rate: SampleRate, _params: Params<'_>) -> Box<dyn Object<S>> {
         Box::new(Self)
     }
 }
 
 /// The `dac~` box type.
-pub static DAC: ObjectSpec = ObjectSpec {
-    name: "dac~",
-    description: "Audio output: left and right channels sent to the speakers or the host.",
-    inlets: &[
+pub static DAC: ObjectSpec = ObjectSpec::new::<Dac>(
+    "dac~",
+    "Audio output: left and right channels sent to the speakers or the host.",
+    &[
         PortSpec {
             name: "left",
             description: "Left channel",
@@ -36,9 +38,7 @@ pub static DAC: ObjectSpec = ObjectSpec {
             description: "Right channel",
         },
     ],
-    outlets: &[],
-    params: &[],
-    capabilities: &[Capability::AudioOutput],
-    create: Factory::new::<Dac>(),
-    algorithm_version: AlgorithmVersion::FIRST,
-};
+    &[],
+    &[Capability::AudioOutput],
+    AlgorithmVersion::FIRST,
+);

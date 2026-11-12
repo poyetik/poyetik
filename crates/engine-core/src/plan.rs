@@ -207,14 +207,14 @@ fn resolve<'patch>(
     let spec = registry
         .iter()
         .copied()
-        .find(|spec| spec.name == node.kind)
+        .find(|spec| spec.name() == node.kind)
         .ok_or_else(|| CoreError::UnknownObject {
             node: node.id,
             kind: node.kind.clone(),
         })?;
     for (name, &value) in &node.params {
         let param = spec
-            .params
+            .params()
             .iter()
             .find(|param| param.name == name)
             .ok_or_else(|| CoreError::UnknownParam {
@@ -233,7 +233,7 @@ fn resolve<'patch>(
     }
     let params = ParamValues::flushed(
         spec,
-        spec.params
+        spec.params()
             .iter()
             .map(|param| {
                 Binary64::new(f64::from(flush::binary32(
@@ -263,13 +263,13 @@ fn source_slot(
     let to = nodes
         .get(&connection.to)
         .ok_or(CoreError::UnknownNode(connection.to))?;
-    if connection.outlet >= from.params.spec().outlets.len() {
+    if connection.outlet >= from.params.spec().outlets().len() {
         return Err(CoreError::InvalidOutlet {
             node: connection.from,
             outlet: connection.outlet,
         });
     }
-    if connection.inlet >= to.params.spec().inlets.len() {
+    if connection.inlet >= to.params.spec().inlets().len() {
         return Err(CoreError::InvalidInlet {
             node: connection.to,
             inlet: connection.inlet,
@@ -345,7 +345,7 @@ impl<S: Sample, I: Dispatch<S>> Plan<S, I> {
         let mut bus_len = 0_usize;
         for node in patch.nodes() {
             let resolved = resolve(node, registry, bus_len)?;
-            bus_len = bus_len.saturating_add(resolved.params.spec().outlets.len());
+            bus_len = bus_len.saturating_add(resolved.params.spec().outlets().len());
             // Ids are unique in a `Patch`: nothing is replaced.
             drop(nodes.insert(node.id, resolved));
         }
@@ -370,11 +370,11 @@ impl<S: Sample, I: Dispatch<S>> Plan<S, I> {
         // Every id of the order is a resolved box: `remove` always finds it.
         for resolved in order.iter().filter_map(|id| nodes.remove(id)) {
             let id = resolved.node.id;
-            let inlets = resolved.params.spec().inlets.len();
+            let inlets = resolved.params.spec().inlets().len();
             if resolved
                 .params
                 .spec()
-                .capabilities
+                .capabilities()
                 .contains(&Capability::AudioOutput)
             {
                 outputs.push((id, instances.len(), inlets));
@@ -391,7 +391,7 @@ impl<S: Sample, I: Dispatch<S>> Plan<S, I> {
                     })
                     .collect(),
                 first_slot: resolved.first_slot,
-                outlets: resolved.params.spec().outlets.len(),
+                outlets: resolved.params.spec().outlets().len(),
             });
         }
         // By box id (like buses, decision 6): the order a channel sums the output boxes in,

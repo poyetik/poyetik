@@ -79,21 +79,21 @@ fn unique_names(what: &str, names: &mut dyn Iterator<Item = &str>) -> Result<(),
 /// port or parameter names. A parameter's range and default need no law: a
 /// `engine_core::ParamSpec` is built only with a finite range holding its default.
 pub fn check_metadata(spec: &ObjectSpec) -> Result<(), String> {
-    if spec.name.trim().is_empty() || spec.name.contains(char::is_whitespace) {
-        return Err(format!("invalid box name \"{}\"", spec.name));
+    if spec.name().trim().is_empty() || spec.name().contains(char::is_whitespace) {
+        return Err(format!("invalid box name \"{}\"", spec.name()));
     }
-    if spec.description.trim().is_empty() {
+    if spec.description().trim().is_empty() {
         return Err("missing description".to_owned());
     }
-    unique_names("inlet", &mut spec.inlets.iter().map(|port| port.name))?;
-    unique_names("outlet", &mut spec.outlets.iter().map(|port| port.name))?;
-    unique_names("parameter", &mut spec.params.iter().map(ParamSpec::name))?;
-    for port in spec.inlets.iter().chain(spec.outlets) {
+    unique_names("inlet", &mut spec.inlets().iter().map(|port| port.name))?;
+    unique_names("outlet", &mut spec.outlets().iter().map(|port| port.name))?;
+    unique_names("parameter", &mut spec.params().iter().map(ParamSpec::name))?;
+    for port in spec.inlets().iter().chain(spec.outlets()) {
         if port.description.trim().is_empty() {
             return Err(format!("port \"{}\" has no description", port.name));
         }
     }
-    for param in spec.params {
+    for param in spec.params() {
         if param.description().trim().is_empty() {
             return Err(format!("parameter \"{}\" has no description", param.name()));
         }
@@ -107,9 +107,9 @@ pub fn check_metadata(spec: &ObjectSpec) -> Result<(), String> {
 ///
 /// Returns the first problem found, prefixed by the box name.
 pub fn check_registry(registry: &[&ObjectSpec]) -> Result<(), String> {
-    unique_names("box", &mut registry.iter().map(|spec| spec.name))?;
+    unique_names("box", &mut registry.iter().map(|spec| spec.name()))?;
     for spec in registry {
-        check_metadata(spec).map_err(|problem| format!("{}: {problem}", spec.name))?;
+        check_metadata(spec).map_err(|problem| format!("{}: {problem}", spec.name()))?;
     }
     Ok(())
 }
@@ -276,7 +276,7 @@ pub fn check_laws(spec: &'static ObjectSpec) -> Result<(), String> {
     check_metadata(spec)?;
     let length = BLOCKS
         .saturating_mul(BLOCK_SIZE)
-        .saturating_mul(spec.inlets.len());
+        .saturating_mul(spec.inlets().len());
     for precision in PRECISIONS {
         match precision {
             Precision::Binary64 => check_precision::<Binary64>(spec, length),

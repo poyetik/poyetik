@@ -7,7 +7,7 @@ use alloc::vec::Vec;
 
 use super::to_binary32;
 use crate::host::{Delivered, Raw};
-use crate::{AlgorithmVersion, ObjectSpec, ParamValues, Params};
+use crate::{AlgorithmVersion, ObjectSpec, ParamSpec, ParamValues, Params};
 use crate::{
     ArithmeticMode, ArithmeticOption, BLOCK_SIZE, Binary32, Binary64, Block, Create, Factory, MODE,
     Object, Precision, RenderFormat, Sample, SampleRate, UnknownArithmeticOptions,
@@ -610,6 +610,8 @@ impl<S: Sample> Object<S> for Width {
 }
 
 impl Create for Width {
+    const PARAMS: &'static [ParamSpec] = &[];
+
     fn create<S: Sample>(rate: SampleRate, params: Params<'_>) -> Box<dyn Object<S>> {
         let sum = params.iter().map(|param| param.raw()).sum::<f64>();
         Box::new(Self(sum + f64::from(rate.hz()) / 1e6_f64))
@@ -617,16 +619,14 @@ impl Create for Width {
 }
 
 /// The box type of [`Width`], whose values these tests give unchecked.
-static WIDTH: ObjectSpec = ObjectSpec {
-    name: "width~",
-    description: "the width of its samples",
-    inlets: &[],
-    outlets: &[],
-    params: &[],
-    capabilities: &[],
-    create: Factory::new::<Width>(),
-    algorithm_version: AlgorithmVersion::FIRST,
-};
+static WIDTH: ObjectSpec = ObjectSpec::new::<Width>(
+    "width~",
+    "the width of its samples",
+    &[],
+    &[],
+    &[],
+    AlgorithmVersion::FIRST,
+);
 
 #[test]
 fn a_factory_creates_instances_in_either_precision() {

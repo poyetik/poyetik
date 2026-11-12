@@ -263,8 +263,8 @@ fn algorithms(case: &CaseFiles) -> Result<Versions, String> {
         .map(|node| {
             REGISTRY
                 .iter()
-                .find(|spec| spec.name == node.kind)
-                .map(|spec| (node.kind.clone(), spec.algorithm_version.get()))
+                .find(|spec| spec.name() == node.kind)
+                .map(|spec| (node.kind.clone(), spec.algorithm_version().get()))
                 .ok_or_else(|| {
                     format!(
                         "{}: unknown box type \"{}\"",

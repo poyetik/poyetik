@@ -9,10 +9,13 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use engine_core::host::{ParamBounds as _, Raw};
-use engine_core::{Binary32, Binary64, Block, Dispatch, Object, ObjectSpec, ParamValues, Sample};
+use engine_core::{
+    AlgorithmVersion, Binary32, Binary64, Block, Dispatch, Object, ObjectSpec, ParamValues,
+    PortSpec, Sample,
+};
 use engine_testkit::matrix::{SPECIAL_INPUTS_BINARY64, sample_rates};
 
-use super::{BuiltIn, Kind, OSC, REGISTRY};
+use super::{BuiltIn, Kind, REGISTRY};
 
 #[test]
 fn every_box_passes_the_generic_laws() {
@@ -21,7 +24,7 @@ fn every_box_passes_the_generic_laws() {
             engine_testkit::check_laws(spec),
             Ok(()),
             "{} breaks a law",
-            spec.name
+            spec.name()
         );
     }
 }
@@ -33,7 +36,7 @@ fn the_registry_is_consistent() {
         Ok(()),
         "unique, valid names"
     );
-    let names: Vec<&str> = REGISTRY.iter().map(|spec| spec.name).collect();
+    let names: Vec<&str> = REGISTRY.iter().map(|spec| spec.name()).collect();
     assert_eq!(names, ["osc~", "dac~"], "registered boxes");
 }
 
@@ -43,7 +46,7 @@ fn every_box_type_declares_its_algorithm_version() {
     // takes a new one, and the conformance check refuses references blessed with another.
     let versions: Vec<(&str, u32)> = REGISTRY
         .iter()
-        .map(|spec| (spec.name, spec.algorithm_version.get()))
+        .map(|spec| (spec.name(), spec.algorithm_version().get()))
         .collect();
     assert_eq!(versions, [("osc~", 1), ("dac~", 1)], "registered versions");
 }
@@ -61,18 +64,27 @@ fn every_box_type_has_a_benchmark_and_every_benchmark_a_box_type() {
         .map(|entry| entry["box"].as_str().expect("a box type"))
         .collect();
     let registered: alloc::collections::BTreeSet<&str> =
-        REGISTRY.iter().map(|spec| spec.name).collect();
+        REGISTRY.iter().map(|spec| spec.name()).collect();
     assert_eq!(
         measured, registered,
         "the box types of spec/benchmark-baseline.json are those of the registry"
     );
 }
 
-/// A box type outside the registry: `osc~`'s spec under another name, at another address.
-static COPY: ObjectSpec = ObjectSpec {
-    name: "copy~",
-    ..OSC
-};
+/// A box type outside the registry: a second spec of `osc~`'s type, the one copy its own
+/// crate can write (its type, private, is named nowhere else), under another name, at
+/// another address: its parameters and instances are still `osc~`'s.
+static COPY: ObjectSpec = ObjectSpec::new::<crate::osc::Osc>(
+    "copy~",
+    "a second spec of the sine oscillator",
+    &[],
+    &[PortSpec {
+        name: "out",
+        description: "The sine wave",
+    }],
+    &[],
+    AlgorithmVersion::FIRST,
+);
 
 /// How [`BuiltIn`] holds an instance of `spec`: `"osc~"`, `"dac~"`, or `"other"` for the
 /// virtual table.
@@ -89,7 +101,7 @@ fn held_as(spec: &'static ObjectSpec) -> &'static str {
 fn calls_every_box_type_of_the_registry_directly() {
     let held: Vec<(&str, &str)> = REGISTRY
         .iter()
-        .map(|spec| (spec.name, held_as(spec)))
+        .map(|spec| (spec.name(), held_as(spec)))
         .collect();
     assert_eq!(
         held,
@@ -135,12 +147,12 @@ fn bits<S: Raw>(blocks: &[Block<S>]) -> Vec<u64> {
 /// minimum, at its maximum and at three eighths of its range, the others at their default.
 fn param_lists(spec: &'static ObjectSpec) -> Vec<ParamValues> {
     let defaults: Vec<Binary64> = spec
-        .params
+        .params()
         .iter()
         .map(|param| Binary64::from_raw(f64::from(param.default_value())))
         .collect();
     let mut lists = vec![ParamValues::defaults(spec)];
-    for (index, param) in spec.params.iter().enumerate() {
+    for (index, param) in spec.params().iter().enumerate() {
         let (low, high) = (f64::from(param.minimum()), f64::from(param.maximum()));
         for value in [low, high, low + (high - low) * 0.375_f64] {
             let values: Vec<Binary64> = defaults
@@ -170,21 +182,21 @@ fn same_as_the_factory<S: Raw>(spec: &'static ObjectSpec) {
             let mut direct = BuiltIn::<S>::create(rate, list);
             let mut reference = <Box<dyn Object<S>> as Dispatch<S>>::create(rate, list);
             for block in 0..3 {
-                let given = inputs::<S>(spec.inlets.len(), block);
-                let mut out = vec![S::SILENCE; spec.outlets.len()];
+                let given = inputs::<S>(spec.inlets().len(), block);
+                let mut out = vec![S::SILENCE; spec.outlets().len()];
                 let mut expected = out.clone();
                 let ((), operations) = engine_testkit::heap_operations_during(|| {
                     direct.process(&given, &mut out);
                 })
                 .expect("the counting allocator is installed");
-                assert_eq!(operations, 0, "{} allocates while processing", spec.name);
+                assert_eq!(operations, 0, "{} allocates while processing", spec.name());
                 reference.process(&given, &mut expected);
                 // Bit for bit: equality of the samples would take -0 for +0.
                 assert_eq!(
                     bits(&out),
                     bits(&expected),
                     "{} at {rate:?} with {list:?}, block {block}",
-                    spec.name
+                    spec.name()
                 );
             }
         }

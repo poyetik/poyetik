@@ -63,7 +63,7 @@ pub fn fingerprint<I64: Dispatch<Binary64>, I32: Dispatch<Binary32>>(
     hasher.update(FINGERPRINT_BATTERY.to_le_bytes());
     let length = BLOCKS
         .saturating_mul(BLOCK_SIZE)
-        .saturating_mul(spec.inlets.len());
+        .saturating_mul(spec.inlets().len());
     let random = seeded_signal(length);
     for precision in PRECISIONS {
         match precision {
@@ -142,9 +142,9 @@ pub fn run_blocks<S: BatterySample, E>(
 ) -> Result<Vec<Block<S>>, E> {
     let (chunked, _remainder) = input.as_chunks::<BLOCK_SIZE>();
     let mut chunks = chunked.iter();
-    let mut inputs = vec![S::SILENCE; spec.inlets.len()];
-    let mut outputs = vec![S::SILENCE; spec.outlets.len()];
-    let mut rendered = Vec::with_capacity(blocks.saturating_mul(spec.outlets.len()));
+    let mut inputs = vec![S::SILENCE; spec.inlets().len()];
+    let mut outputs = vec![S::SILENCE; spec.outlets().len()];
+    let mut rendered = Vec::with_capacity(blocks.saturating_mul(spec.outlets().len()));
     for _ in 0..blocks {
         for block in &mut inputs {
             for (sample, value) in block.iter_mut().zip(chunks.next().unwrap_or(&S::SILENCE)) {

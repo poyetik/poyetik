@@ -55,9 +55,9 @@ pub(crate) fn current_fingerprints(_mode: DefaultMode<'_>) -> Fingerprints {
         .iter()
         .map(|spec| {
             (
-                spec.name.to_owned(),
+                spec.name().to_owned(),
                 (
-                    spec.algorithm_version.get(),
+                    spec.algorithm_version().get(),
                     fingerprint::<BuiltIn<Binary64>, BuiltIn<Binary32>>(spec),
                 ),
             )

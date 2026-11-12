@@ -7,8 +7,8 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use super::{
-    AlgorithmVersion, Create, Dispatch, Factory, Object, ObjectSpec, ParamError, ParamSpec,
-    ParamSpecError, ParamValues, Params,
+    AlgorithmVersion, Capability, Create, Dispatch, Object, ObjectSpec, ParamError, ParamSpec,
+    ParamSpecError, ParamValues, Params, PortSpec,
 };
 use crate::host::{ParamBounds, Raw as _};
 use crate::{Binary32, Binary64, Block, Sample, SampleRate};
@@ -123,53 +123,59 @@ fn names_and_describes_a_parameter() {
     );
 }
 
-/// A box type that outputs nothing, for the specs of these tests.
-#[derive(Debug)]
-struct Mute;
+/// A box type of the parameters `$params` that outputs nothing, `$name`, for the specs of
+/// these tests.
+macro_rules! mute {
+    ($name:ident, $params:expr) => {
+        /// A box type that outputs nothing, of its own parameters.
+        #[derive(Debug)]
+        struct $name;
 
-impl<S: Sample> Object<S> for Mute {
-    fn process(&mut self, _inputs: &[Block<S>], _outputs: &mut [Block<S>]) {}
+        impl<S: Sample> Object<S> for $name {
+            fn process(&mut self, _inputs: &[Block<S>], _outputs: &mut [Block<S>]) {}
+        }
+
+        impl Create for $name {
+            const PARAMS: &'static [ParamSpec] = $params;
+
+            fn create<S: Sample>(_rate: SampleRate, _params: Params<'_>) -> Box<dyn Object<S>> {
+                Box::new(Self)
+            }
+        }
+    };
 }
 
-impl Create for Mute {
-    fn create<S: Sample>(_rate: SampleRate, _params: Params<'_>) -> Box<dyn Object<S>> {
-        Box::new(Self)
-    }
+/// The spec `name` of the box type `T`, without ports.
+const fn mute<T: Create>(name: &'static str) -> ObjectSpec {
+    ObjectSpec::new::<T>(name, "parameters", &[], &[], &[], AlgorithmVersion::FIRST)
 }
+
+mute!(
+    Two,
+    &[
+        crate::param!("a", "a", 0.5, -1.0, 2.0),
+        crate::param!("b", "b", 440.0, 0.0, 20_000.0),
+    ]
+);
+mute!(Tiny, &[crate::param!("t", "t", -1e-40, -1.0, 1.0)]);
+mute!(Five, &[WIDE, WIDE, WIDE, WIDE, WIDE]);
+mute!(Silent, &[]);
 
 /// A box type of two parameters: `a` from -1 to 2 (default 0.5), `b` from 0 to 20,000
 /// (default 440).
-static TWO: ObjectSpec = ObjectSpec {
-    name: "two~",
-    description: "two parameters",
-    inlets: &[],
-    outlets: &[],
-    params: &[
-        crate::param!("a", "a", 0.5, -1.0, 2.0),
-        crate::param!("b", "b", 440.0, 0.0, 20_000.0),
-    ],
-    capabilities: &[],
-    create: Factory::new::<Mute>(),
-    algorithm_version: AlgorithmVersion::FIRST,
-};
+static TWO: ObjectSpec = mute::<Two>("two~");
 
-/// [`TWO`] with one parameter whose default is below 2^-126.
-static TINY: ObjectSpec = ObjectSpec {
-    params: &[crate::param!("t", "t", -1e-40, -1.0, 1.0)],
-    ..TWO
-};
+/// A box type of one parameter whose default is below 2^-126.
+static TINY: ObjectSpec = mute::<Tiny>("tiny~");
 
-/// [`TWO`] with five parameters, each accepting -1,000 to 1,000.
-static FIVE: ObjectSpec = ObjectSpec {
-    params: &[WIDE, WIDE, WIDE, WIDE, WIDE],
-    ..TWO
-};
+/// A box type of five parameters, each accepting -1,000 to 1,000.
+static FIVE: ObjectSpec = mute::<Five>("five~");
 
 /// A parameter accepting -1,000 to 1,000.
 const WIDE: ParamSpec = crate::param!("w", "w", 0.0, -1_000.0, 1_000.0);
 
-/// [`TWO`] without parameters.
-static NONE: ObjectSpec = ObjectSpec { params: &[], ..TWO };
+/// A box type without parameters.
+static NONE: ObjectSpec = mute::<Silent>("none~");
 
 /// The bits of `values`, as a box is given them.
 fn bits(values: &ParamValues) -> Vec<u64> {
@@ -486,6 +492,8 @@ impl<S: Sample> Object<S> for Told {
 }
 
 impl Create for Told {
+    const PARAMS: &'static [ParamSpec] = &[crate::param!("v", "v", 1.0, 0.0, 1_000.0)];
+
     fn create<S: Sample>(rate: SampleRate, params: Params<'_>) -> Box<dyn Object<S>> {
         let first = params.first().map_or(-1.0_f64, |value| value.raw());
         Box::new(Self([first, f64::from(rate.hz())]))
@@ -493,12 +501,7 @@ impl Create for Told {
 }
 
 /// The box type of [`Told`], of one parameter from 0 to 1,000.
-static TOLD: ObjectSpec = ObjectSpec {
-    name: "told~",
-    params: &[crate::param!("v", "v", 1.0, 0.0, 1_000.0)],
-    create: Factory::new::<Told>(),
-    ..TWO
-};
+static TOLD: ObjectSpec = mute::<Told>("told~");
 
 /// The first two frames of the instance computing in `S` that `values` create, at 8 kHz,
 /// through the virtual table.
@@ -508,6 +511,53 @@ fn created<S: crate::host::Raw>(values: &ParamValues) -> [u64; 2] {
     <Box<dyn Object<S>> as Dispatch<S>>::create(rate, values).process(&[], &mut out);
     let [first, second, ..] = out[0];
     [first.bits(), second.bits()]
+}
+
+#[test]
+fn takes_its_parameters_and_instances_from_its_type() {
+    const IN: PortSpec = PortSpec {
+        name: "in",
+        description: "a signal",
+    };
+    const OUT: PortSpec = PortSpec {
+        name: "out",
+        description: "the signal",
+    };
+    // Built at run time, not in a static, so that the constructor runs in the tests.
+    let spec: &'static ObjectSpec = Box::leak(Box::new(ObjectSpec::new::<Told>(
+        "told2~",
+        "tells its value",
+        &[IN],
+        &[OUT, IN],
+        &[Capability::AudioOutput],
+        AlgorithmVersion::FIRST.next(),
+    )));
+    assert_eq!(
+        (spec.name(), spec.description()),
+        ("told2~", "tells its value"),
+        "name and description as given"
+    );
+    assert_eq!(
+        (spec.inlets(), spec.outlets()),
+        (&[IN][..], &[OUT, IN][..]),
+        "ports as given, in order"
+    );
+    assert_eq!(
+        spec.capabilities(),
+        [Capability::AudioOutput],
+        "capabilities"
+    );
+    assert_eq!(spec.algorithm_version().get(), 2, "its version");
+    assert_eq!(
+        spec.params(),
+        [crate::param!("v", "v", 1.0, 0.0, 1_000.0)],
+        "the parameters of its type"
+    );
+    assert_eq!(
+        created::<Binary64>(&ParamValues::of(spec, &wide([250.0_f64])).expect("within range")),
+        [250.0_f64.to_bits(), 8_000.0_f64.to_bits()],
+        "the instances of its type"
+    );
 }
 
 #[test]

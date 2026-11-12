@@ -5,8 +5,8 @@ use core::sync::atomic::{AtomicU16, Ordering};
 
 use engine_core::host::Raw;
 use engine_core::{
-    AlgorithmVersion, Block, Create, Factory, Object, ObjectSpec, ParamSpec, Params, PortSpec,
-    Precision, Sample, SampleRate,
+    AlgorithmVersion, Block, Create, Object, ObjectSpec, ParamSpec, Params, PortSpec, Precision,
+    Sample, SampleRate,
 };
 
 use super::{check_laws, check_metadata, check_registry};
@@ -174,33 +174,66 @@ fn subnormal_in<S: Sample>(value: f64) -> bool {
     value != 0.0 && value.abs() < smallest
 }
 
-/// A [`Factory`] from a function of the sample rate and the parameters that chooses the
-/// [`Fixture`] to create, in either precision.
-macro_rules! factory {
-    (|$rate:pat_param, $params:pat_param| $body:expr) => {{
-        /// The fixture's box type.
-        struct Chosen;
-        impl Create for Chosen {
+/// The box type `$name` of the parameters `$params`, whose instance is the [`Fixture`] a
+/// function of the sample rate and the parameters chooses, in either precision.
+macro_rules! box_type {
+    ($name:ident, $params:expr, |$rate:pat_param, $given:pat_param| $body:expr) => {
+        /// A fixture's box type.
+        struct $name;
+        impl Create for $name {
+            const PARAMS: &'static [ParamSpec] = $params;
+
             fn create<S: Sample>($rate: SampleRate, given: Params<'_>) -> Box<dyn Object<S>> {
                 let raw: Vec<f64> = given.iter().map(|param| param.raw()).collect();
-                let $params: &[f64] = &raw;
+                let $given: &[f64] = &raw;
                 Box::new($body)
             }
         }
-        Factory::new::<Chosen>()
-    }};
+    };
 }
 
-const GOOD: ObjectSpec = ObjectSpec {
-    name: "gain~",
-    description: "multiplies by a gain",
-    inlets: &[PORT],
-    outlets: &[OUT],
-    params: &[GAIN],
-    capabilities: &[],
-    create: factory!(|_, params| Fixture::Gain(params.first().copied().unwrap_or(1.0))),
-    algorithm_version: AlgorithmVersion::FIRST,
-};
+/// A `gain~` spec, as [`GOOD`]'s metadata but for the parameters and ports given (by
+/// default [`GAIN`], [`PORT`] and [`OUT`]), whose instance is the [`Fixture`] a function of
+/// the sample rate and the parameters chooses: a static of its own box type.
+macro_rules! gain {
+    ($(params: $params:expr,)? $(inlets: $inlets:expr,)? $(outlets: $outlets:expr,)?
+     |$rate:pat_param, $given:pat_param| $body:expr) => {{
+        box_type!(Chosen, gain!(@or $($params)? ; &[GAIN]), |$rate, $given| $body);
+        leaked(good::<Chosen>(
+            "gain~",
+            GAIN_DESCRIPTION,
+            gain!(@or $($inlets)? ; &[PORT]),
+            gain!(@or $($outlets)? ; &[OUT]),
+        ))
+    }};
+    (@or $value:expr ; $default:expr) => { $value };
+    (@or ; $default:expr) => { $default };
+}
+
+/// The spec `name` of the box type `T`, described by `description`, with the ports `inlets`
+/// and `outlets`, needing no capability, at the first algorithm version.
+const fn good<T: Create>(
+    name: &'static str,
+    description: &'static str,
+    inlets: &'static [PortSpec],
+    outlets: &'static [PortSpec],
+) -> ObjectSpec {
+    ObjectSpec::new::<T>(
+        name,
+        description,
+        inlets,
+        outlets,
+        &[],
+        AlgorithmVersion::FIRST,
+    )
+}
+
+box_type!(Good, &[GAIN], |_, params| Fixture::Gain(
+    params.first().copied().unwrap_or(1.0)
+));
+
+/// A correct box: multiplies its input by its gain.
+static GOOD: ObjectSpec = good::<Good>("gain~", GAIN_DESCRIPTION, &[PORT], &[OUT]);
 
 static INSTANCES: AtomicU16 = AtomicU16::new(0);
 
@@ -210,26 +243,16 @@ fn leaked(spec: ObjectSpec) -> &'static ObjectSpec {
     Box::leak(Box::new(spec))
 }
 
-/// [`GOOD`] with the factory `create`.
-fn spec_with(create: Factory) -> &'static ObjectSpec {
-    leaked(ObjectSpec { create, ..GOOD })
-}
-
 #[test]
 fn a_correct_box_passes_every_law() {
     assert_eq!(check_laws(&GOOD), Ok(()), "gain~ respects the laws");
-    let no_ports = leaked(ObjectSpec {
-        inlets: &[],
-        outlets: &[],
-        params: &[],
-        ..GOOD
-    });
+    let no_ports = gain!(params: &[], inlets: &[], outlets: &[], |_, _| Fixture::Gain(1.0));
     assert_eq!(check_laws(no_ports), Ok(()), "a box without ports");
 }
 
 #[test]
 fn catches_non_finite_output() {
-    let error = check_laws(spec_with(factory!(|_, _| Fixture::Nan))).expect_err("NaN is caught");
+    let error = check_laws(gain!(|_, _| Fixture::Nan)).expect_err("NaN is caught");
     assert!(
         error.starts_with(
             "binary64, at 8000 Hz: special inputs: non-finite output with parameters [0.0]"
@@ -241,10 +264,10 @@ fn catches_non_finite_output() {
 #[test]
 fn catches_a_broken_law_in_either_precision() {
     for precision in [Precision::Binary64, Precision::Binary32] {
-        let spec = spec_with(match precision {
-            Precision::Binary64 => factory!(|_, _| Fixture::NanIn(Precision::Binary64)),
-            Precision::Binary32 => factory!(|_, _| Fixture::NanIn(Precision::Binary32)),
-        });
+        let spec = match precision {
+            Precision::Binary64 => gain!(|_, _| Fixture::NanIn(Precision::Binary64)),
+            Precision::Binary32 => gain!(|_, _| Fixture::NanIn(Precision::Binary32)),
+        };
         let error = check_laws(spec).expect_err("NaN in one precision");
         assert!(
             error.starts_with(&format!(
@@ -261,25 +284,20 @@ fn catches_subnormal_output() {
     // The smallest subnormal of each precision: finite and deterministic, but not flushed.
     // Each precision is checked against its own smallest normal: 2^-149 is subnormal in
     // binary32 and normal in binary64, where 2^-1074 is subnormal.
-    let error = check_laws(spec_with(factory!(|_, _| Fixture::Subnormal)))
-        .expect_err("a subnormal is caught");
+    let error = check_laws(gain!(|_, _| Fixture::Subnormal)).expect_err("a subnormal is caught");
     assert!(
         error.starts_with(
             "binary64, at 8000 Hz: special inputs: subnormal output with parameters [0.0]"
         ),
         "{error}"
     );
-    let narrow = spec_with(factory!(|_, _| Fixture::Constant(f64::from(
-        f32::from_bits(1)
-    ))));
+    let narrow = gain!(|_, _| Fixture::Constant(f64::from(f32::from_bits(1))));
     let caught = check_laws(narrow).expect_err("a binary32 subnormal is caught");
     assert!(
         caught.starts_with("binary32, at 8000 Hz: special inputs: subnormal output"),
         "{caught}"
     );
-    let negative = spec_with(factory!(|_, _| Fixture::Constant(f64::from(
-        f32::from_bits(0x8040_0000)
-    ))));
+    let negative = gain!(|_, _| Fixture::Constant(f64::from(f32::from_bits(0x8040_0000))));
     let failure = check_laws(negative).expect_err("a negative subnormal is caught");
     assert!(
         failure.contains("subnormal output with parameters [0.0]"),
@@ -287,47 +305,41 @@ fn catches_subnormal_output() {
     );
     // The smallest normal and zeros of both signs are not subnormal.
     let not_subnormal = [
-        factory!(|_, _| Fixture::Constant(f64::from(f32::MIN_POSITIVE))),
-        factory!(|_, _| Fixture::Constant(-f64::from(f32::MIN_POSITIVE))),
-        factory!(|_, _| Fixture::Constant(0.0)),
-        factory!(|_, _| Fixture::Constant(-0.0)),
+        gain!(params: &[], inlets: &[], |_, _| Fixture::Constant(f64::from(f32::MIN_POSITIVE))),
+        gain!(params: &[], inlets: &[], |_, _| Fixture::Constant(-f64::from(f32::MIN_POSITIVE))),
+        gain!(params: &[], inlets: &[], |_, _| Fixture::Constant(0.0)),
+        gain!(params: &[], inlets: &[], |_, _| Fixture::Constant(-0.0)),
     ];
-    for create in not_subnormal {
-        let spec = leaked(ObjectSpec {
-            inlets: &[],
-            params: &[],
-            create,
-            ..GOOD
-        });
+    for spec in not_subnormal {
         assert_eq!(check_laws(spec), Ok(()), "not subnormal");
     }
 }
 
 #[test]
 fn catches_non_deterministic_output() {
-    let spec = spec_with(factory!(|_, _| {
+    let spec = gain!(|_, _| {
         let instance = INSTANCES.fetch_add(1, Ordering::Relaxed);
         Fixture::Constant(f64::from(instance % 1000))
-    }));
+    });
     let error = check_laws(spec).expect_err("instances differ");
     assert!(
         error.contains("not deterministic with parameters [0.0]"),
         "{error}"
     );
     // In each precision on its own: the other one is silent, hence deterministic.
-    let wide = spec_with(factory!(|_, _| {
+    let wide = gain!(|_, _| {
         let instance = INSTANCES.fetch_add(1, Ordering::Relaxed);
         Fixture::ConstantIn(Precision::Binary64, f64::from(instance % 1000))
-    }));
+    });
     let in_wide = check_laws(wide).expect_err("binary64 instances differ");
     assert!(
         in_wide.starts_with("binary64, at 8000 Hz: special inputs: not deterministic"),
         "{in_wide}"
     );
-    let narrow = spec_with(factory!(|_, _| {
+    let narrow = gain!(|_, _| {
         let instance = INSTANCES.fetch_add(1, Ordering::Relaxed);
         Fixture::ConstantIn(Precision::Binary32, f64::from(instance % 1000))
-    }));
+    });
     let in_narrow = check_laws(narrow).expect_err("binary32 instances differ");
     assert!(
         in_narrow.starts_with("binary32, at 8000 Hz: special inputs: not deterministic"),
@@ -338,10 +350,10 @@ fn catches_non_deterministic_output() {
 #[test]
 fn catches_a_box_reading_its_outputs_in_either_precision() {
     for precision in [Precision::Binary64, Precision::Binary32] {
-        let spec = spec_with(match precision {
-            Precision::Binary64 => factory!(|_, _| Fixture::ReadsOutputsIn(Precision::Binary64)),
-            Precision::Binary32 => factory!(|_, _| Fixture::ReadsOutputsIn(Precision::Binary32)),
-        });
+        let spec = match precision {
+            Precision::Binary64 => gain!(|_, _| Fixture::ReadsOutputsIn(Precision::Binary64)),
+            Precision::Binary32 => gain!(|_, _| Fixture::ReadsOutputsIn(Precision::Binary32)),
+        };
         let error = check_laws(spec).expect_err("its outputs on entry are read");
         assert!(
             error.starts_with(&format!(
@@ -357,8 +369,7 @@ fn catches_a_box_reading_its_outputs_in_either_precision() {
 fn catches_a_box_leaving_samples_of_its_outputs_unwritten() {
     // The first block is written, then every other one: an outputs fill set once before
     // the first block would not see it.
-    let error = check_laws(spec_with(factory!(|_, _| Fixture::Skips(0))))
-        .expect_err("unwritten blocks are seen");
+    let error = check_laws(gain!(|_, _| Fixture::Skips(0))).expect_err("unwritten blocks are seen");
     assert!(
         error.starts_with(
             "binary64, at 8000 Hz: special inputs: reads its outputs or leaves some of their samples unwritten, with parameters [0.0]"
@@ -369,8 +380,7 @@ fn catches_a_box_leaving_samples_of_its_outputs_unwritten() {
 
 #[test]
 fn catches_allocation_while_processing() {
-    let error =
-        check_laws(spec_with(factory!(|_, _| Fixture::Allocating))).expect_err("allocation");
+    let error = check_laws(gain!(|_, _| Fixture::Allocating)).expect_err("allocation");
     assert!(
         error.contains("uses the heap while processing (16 heap operations)"),
         "{error}"
@@ -379,7 +389,7 @@ fn catches_allocation_while_processing() {
 
 #[test]
 fn catches_a_release_while_processing() {
-    let spec = spec_with(factory!(|_, _| Fixture::Freeing(Some(vec![0_u8; 8]))));
+    let spec = gain!(|_, _| Fixture::Freeing(Some(vec![0_u8; 8])));
     let error = check_laws(spec).expect_err("a release");
     assert!(
         error.contains("uses the heap while processing (1 heap operations)"),
@@ -392,16 +402,16 @@ fn checks_parameters_at_negative_zero_and_the_smallest_normal_and_never_below() 
     // NaN only for a parameter of -0.0, then only for the smallest normal binary32: none is
     // a minimum, default, midpoint or maximum. Parameters reach a box as `Params`, so a
     // box breaking on a nonzero parameter below 2^-126 passes: no plan can give it one.
-    let negative_zero = spec_with(factory!(|_, params| {
+    let negative_zero = gain!(|_, params| {
         if params.first().map(|value| value.to_bits()) == Some((-0.0_f64).to_bits()) {
             Fixture::Nan
         } else {
             Fixture::Gain(1.0)
         }
-    }));
+    });
     let error = check_laws(negative_zero).expect_err("-0.0 is tried");
     assert!(error.contains("with parameters [-0.0]"), "{error}");
-    let subnormal = spec_with(factory!(|_, params| {
+    let subnormal = gain!(|_, params| {
         if params
             .first()
             .is_some_and(|value| *value != 0.0_f64 && value.abs() < f64::from(f32::MIN_POSITIVE))
@@ -410,19 +420,19 @@ fn checks_parameters_at_negative_zero_and_the_smallest_normal_and_never_below() 
         } else {
             Fixture::Gain(1.0)
         }
-    }));
+    });
     assert_eq!(
         check_laws(subnormal),
         Ok(()),
         "no parameter below 2^-126 but zero reaches a box"
     );
-    let normal = spec_with(factory!(|_, params| {
+    let normal = gain!(|_, params| {
         if params.first().copied() == Some(f64::from(f32::MIN_POSITIVE)) {
             Fixture::Nan
         } else {
             Fixture::Gain(1.0)
         }
-    }));
+    });
     let smallest = check_laws(normal).expect_err("the smallest normal is tried");
     assert!(
         smallest.contains("with parameters [1.1754944e-38]"),
@@ -433,10 +443,10 @@ fn checks_parameters_at_negative_zero_and_the_smallest_normal_and_never_below() 
 #[test]
 fn tries_every_case_at_every_rate_with_six_parameter_sets() {
     static CREATED: AtomicU16 = AtomicU16::new(0);
-    let spec = spec_with(factory!(|_, _| {
+    let spec = gain!(|_, _| {
         let _: u16 = CREATED.fetch_add(1, Ordering::Relaxed);
         Fixture::Gain(1.0)
-    }));
+    });
     assert_eq!(check_laws(spec), Ok(()), "a correct box");
     // Per precision and rate: (special inputs + 32 random cases) x 6 parameter sets x 2
     // runs, plus a long run per parameter set.
@@ -454,21 +464,20 @@ fn tries_every_case_at_every_rate_with_six_parameter_sets() {
 #[test]
 fn feeds_inputs_across_the_whole_range() {
     // NaN as soon as an input is negative: the law must try negative inputs.
-    let error =
-        check_laws(spec_with(factory!(|_, _| Fixture::NegativeIsNan))).expect_err("negatives");
+    let error = check_laws(gain!(|_, _| Fixture::NegativeIsNan)).expect_err("negatives");
     assert!(error.contains("non-finite output"), "{error}");
 }
 
 #[test]
 fn checks_parameters_at_minimum_default_and_maximum() {
     // NaN only at the maximum gain: the law must try the maximum too.
-    let spec = spec_with(factory!(|_, params| {
+    let spec = gain!(|_, params| {
         if params.first().copied() == Some(1.0) {
             Fixture::Nan
         } else {
             Fixture::Gain(1.0)
         }
-    }));
+    });
     let error = check_laws(spec).expect_err("maximum is checked");
     assert!(
         error.contains("non-finite output with parameters [1.0]"),
@@ -489,13 +498,7 @@ fn feeds_inputs_to_every_inlet_and_reads_every_outlet() {
             description: "b",
         },
     ];
-    let spec = leaked(ObjectSpec {
-        inlets: &TWO,
-        outlets: &TWO,
-        params: &[],
-        create: factory!(|_, _| Fixture::SecondInlet),
-        ..GOOD
-    });
+    let spec = gain!(params: &[], inlets: &TWO, outlets: &TWO, |_, _| Fixture::SecondInlet);
     let error = check_laws(spec).expect_err("the second inlet and outlet are exercised");
     assert!(error.contains("non-finite output"), "{error}");
 }
@@ -503,19 +506,18 @@ fn feeds_inputs_to_every_inlet_and_reads_every_outlet() {
 #[test]
 fn checks_every_sample_rate_of_the_matrix() {
     // NaN at every rate but 48 kHz: the laws must try the other rates.
-    let spec = spec_with(factory!(|rate, _| {
-        Fixture::Constant(if rate.hz() == 48_000 { 0.0 } else { f64::NAN })
-    }));
+    let spec =
+        gain!(|rate, _| { Fixture::Constant(if rate.hz() == 48_000 { 0.0 } else { f64::NAN }) });
     let error = check_laws(spec).expect_err("other rates are checked");
     assert!(error.starts_with("binary64, at 8000 Hz: "), "{error}");
     for hz in crate::matrix::SAMPLE_RATES {
-        let only = spec_with(factory!(|rate, _| {
+        let only = gain!(|rate, _| {
             Fixture::Constant(if rate.hz() == ONLY.load(Ordering::Relaxed) {
                 f64::NAN
             } else {
                 0.0
             })
-        }));
+        });
         ONLY.store(hz, Ordering::Relaxed);
         let failure = check_laws(only).expect_err("each rate is checked");
         assert!(
@@ -532,8 +534,7 @@ static ONLY: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(
 fn feeds_the_special_inputs() {
     // NaN only on a negative zero or a subnormal input of the precision: random inputs never
     // hit them, in either precision.
-    let error =
-        check_laws(spec_with(factory!(|_, _| Fixture::Special))).expect_err("special inputs");
+    let error = check_laws(gain!(|_, _| Fixture::Special)).expect_err("special inputs");
     assert!(
         error.starts_with("binary64, at 8000 Hz: special inputs: non-finite output"),
         "{error}"
@@ -544,7 +545,7 @@ fn feeds_the_special_inputs() {
 fn feeds_random_inputs() {
     // NaN only on inputs strictly between 0.25 and 0.75: no special input, no silence,
     // only the random inputs reach it.
-    let error = check_laws(spec_with(factory!(|_, _| Fixture::Middle))).expect_err("random inputs");
+    let error = check_laws(gain!(|_, _| Fixture::Middle)).expect_err("random inputs");
     assert!(error.starts_with("binary64, at 8000 Hz: "), "{error}");
     assert!(error.contains("non-finite output"), "{error}");
     assert!(
@@ -556,7 +557,7 @@ fn feeds_random_inputs() {
 #[test]
 fn runs_long_enough_to_reveal_late_failures() {
     // Breaks only after 512 blocks: the short runs never see it.
-    let error = check_laws(spec_with(factory!(|_, _| Fixture::Drifts(0)))).expect_err("long run");
+    let error = check_laws(gain!(|_, _| Fixture::Drifts(0))).expect_err("long run");
     assert!(error.contains("long run: non-finite output"), "{error}");
 }
 
@@ -564,27 +565,23 @@ fn runs_long_enough_to_reveal_late_failures() {
 fn checks_parameters_away_from_their_default() {
     // NaN only at 0.5, away from the default 0.25 and from both limits.
     const QUARTER: ParamSpec = engine_core::param!("gain", "gain", 0.25, 0.0, 1.0);
-    let spec = leaked(ObjectSpec {
-        params: &[QUARTER],
-        create: factory!(|_, params| {
-            if params.first().copied() == Some(0.5) {
-                Fixture::Nan
-            } else {
-                Fixture::Gain(1.0)
-            }
-        }),
-        ..GOOD
+    let spec = gain!(params: &[QUARTER], |_, params| {
+        if params.first().copied() == Some(0.5) {
+            Fixture::Nan
+        } else {
+            Fixture::Gain(1.0)
+        }
     });
     let error = check_laws(spec).expect_err("the midpoint is checked");
     assert!(error.contains("with parameters [0.5]"), "{error}");
     // With the default at the midpoint (GAIN: 0.5 in [0, 1]), 0.75 is tried instead.
-    let shifted = spec_with(factory!(|_, params| {
+    let shifted = gain!(|_, params| {
         if params.first().copied() == Some(0.75) {
             Fixture::Nan
         } else {
             Fixture::Gain(1.0)
         }
-    }));
+    });
     let failure = check_laws(shifted).expect_err("a value away from the default");
     assert!(failure.contains("with parameters [0.75]"), "{failure}");
 }
@@ -601,70 +598,56 @@ static EMPTY_PORT: [PortSpec; 1] = [PortSpec {
     description: "x",
 }];
 
+box_type!(DupParams, &DUP_PARAMS, |_, _| Fixture::Gain(1.0));
+box_type!(
+    Undescribed,
+    &[engine_core::param!("gain", "", 0.5, 0.0, 1.0)],
+    |_, _| Fixture::Gain(1.0)
+);
+
+/// The description of [`GOOD`].
+const GAIN_DESCRIPTION: &str = "multiplies by a gain";
+
 /// Specs with one metadata problem each, and the expected message.
 static INVALID_METADATA: [(ObjectSpec, &str); 10] = [
-    (ObjectSpec { name: "", ..GOOD }, "invalid box name \"\""),
     (
-        ObjectSpec {
-            name: "two words",
-            ..GOOD
-        },
+        good::<Good>("", GAIN_DESCRIPTION, &[PORT], &[OUT]),
+        "invalid box name \"\"",
+    ),
+    (
+        good::<Good>("two words", GAIN_DESCRIPTION, &[PORT], &[OUT]),
         "invalid box name \"two words\"",
     ),
     (
-        ObjectSpec {
-            description: "  ",
-            ..GOOD
-        },
+        good::<Good>("gain~", "  ", &[PORT], &[OUT]),
         "missing description",
     ),
     (
-        ObjectSpec {
-            inlets: &DUP_PORTS,
-            ..GOOD
-        },
+        good::<Good>("gain~", GAIN_DESCRIPTION, &DUP_PORTS, &[OUT]),
         "duplicate inlet \"in\"",
     ),
     (
-        ObjectSpec {
-            outlets: &DUP_PORTS,
-            ..GOOD
-        },
+        good::<Good>("gain~", GAIN_DESCRIPTION, &[PORT], &DUP_PORTS),
         "duplicate outlet \"in\"",
     ),
     (
-        ObjectSpec {
-            inlets: &EMPTY_PORT,
-            ..GOOD
-        },
+        good::<Good>("gain~", GAIN_DESCRIPTION, &EMPTY_PORT, &[OUT]),
         "inlet with an empty name",
     ),
     (
-        ObjectSpec {
-            params: &DUP_PARAMS,
-            ..GOOD
-        },
+        good::<DupParams>("gain~", GAIN_DESCRIPTION, &[PORT], &[OUT]),
         "duplicate parameter \"gain\"",
     ),
     (
-        ObjectSpec {
-            inlets: &UNDOCUMENTED_PORT,
-            ..GOOD
-        },
+        good::<Good>("gain~", GAIN_DESCRIPTION, &UNDOCUMENTED_PORT, &[OUT]),
         "port \"x\" has no description",
     ),
     (
-        ObjectSpec {
-            outlets: &UNDOCUMENTED_PORT,
-            ..GOOD
-        },
+        good::<Good>("gain~", GAIN_DESCRIPTION, &[PORT], &UNDOCUMENTED_PORT),
         "port \"x\" has no description",
     ),
     (
-        ObjectSpec {
-            params: &[engine_core::param!("gain", "", 0.5, 0.0, 1.0)],
-            ..GOOD
-        },
+        good::<Undescribed>("gain~", GAIN_DESCRIPTION, &[PORT], &[OUT]),
         "parameter \"gain\" has no description",
     ),
 ];
@@ -688,10 +671,7 @@ fn rejects_invalid_metadata() {
 
 #[test]
 fn checks_a_registry() {
-    let other = ObjectSpec {
-        name: "other~",
-        ..GOOD
-    };
+    let other = good::<Good>("other~", GAIN_DESCRIPTION, &[PORT], &[OUT]);
     assert_eq!(check_registry(&[&GOOD, &other]), Ok(()), "valid registry");
     assert_eq!(check_registry(&[]), Ok(()), "empty registry");
     assert_eq!(
@@ -699,10 +679,7 @@ fn checks_a_registry() {
         Err("duplicate box \"gain~\"".to_owned()),
         "unique names"
     );
-    let bad = ObjectSpec {
-        description: "",
-        ..other
-    };
+    let bad = good::<Good>("other~", "", &[PORT], &[OUT]);
     assert_eq!(
         check_registry(&[&GOOD, &bad]),
         Err("other~: missing description".to_owned()),
