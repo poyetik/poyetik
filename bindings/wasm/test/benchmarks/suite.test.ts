@@ -319,7 +319,8 @@ test("the whole-patch benchmarks see a cost every patch pays each block, which e
   // the loop, 3 in its last test and 1 for the result, in each of the 64 blocks.
   const [empty, , heavy] = without.patches;
   expect(empty).toStrictEqual({ precision: "binary64", setting: "an empty patch at 48 kHz", instructions: 64 * (8 * 40 + 6) });
-  expect((heavy?.instructions ?? 0) > (empty?.instructions ?? 0)).toBe(true);
+  // And the heavy patch's 4,569 bytes, at the same 8 instructions a pass.
+  expect(heavy).toStrictEqual({ precision: "binary64", setting: "16 output boxes each fed by 3 oscillators at 48 kHz", instructions: 64 * (8 * 4569 + 6) });
 });
 
 /** Counts of one box benchmark and one plan. */

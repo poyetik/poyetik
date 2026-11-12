@@ -219,8 +219,17 @@ group("judgeQuality", () => {
         "harmonics",
         "harmonics",
       ]);
-      // Between and beyond the thresholds: 1, 1.5, 2.5, 3, 4 and 8 · 2^-126.
-      expect([0x0080_0000, 0x00c0_0000, 0x0120_0000, 0x0140_0000, 0x0180_0000, 0x0200_0000].map(regime)).not.toContainEqual(expect.stringMatching(/^failed/));
+      // Between and beyond the thresholds: 1, 1.5, 2.5, 3, 4 and 8 · 2^-126, each in the regime
+      // of its side of the thresholds pinned above (1 · 2^-126 below every sine threshold,
+      // 1.5 · 2^-126 between the two of each case, the others above every harmonic one).
+      expect([0x0080_0000, 0x00c0_0000, 0x0120_0000, 0x0140_0000, 0x0180_0000, 0x0200_0000].map(regime)).toStrictEqual([
+        "unmeasured",
+        "no harmonics",
+        "harmonics",
+        "harmonics",
+        "harmonics",
+        "harmonics",
+      ]);
       // 12 judgements of up to 4800 frames: well under a second in a plain run, far more
       // under Stryker's instrumentation of the measurements.
     }, 60_000);
