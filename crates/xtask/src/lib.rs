@@ -1526,7 +1526,12 @@ fn typescript_steps(mode: Mode) -> Vec<(Role, Step)> {
         ),
         (
             gates,
-            run("JavaScript vulnerabilities", "pnpm", &["audit"], Dir::Root),
+            run(
+                "JavaScript vulnerabilities",
+                "pnpm",
+                &["audit", "--audit-level=low"],
+                Dir::Root,
+            ),
         ),
         (
             gates,

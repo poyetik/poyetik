@@ -1825,7 +1825,7 @@ fn lists_every_check_in_order() {
             "history gate",
             "workflow gate",
             "parts gate",
-            "Root: pnpm audit",
+            "Root: pnpm audit --audit-level=low",
             "license gate",
             "stryker config gate",
             "Root: cargo fmt --all --check",
