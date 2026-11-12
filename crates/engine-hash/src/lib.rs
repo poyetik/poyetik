@@ -47,7 +47,23 @@ impl fmt::Display for RenderHash {
 /// The width the hash records is always that of the samples given (64 bits for binary64,
 /// 32 otherwise): a hash cannot claim binary64 samples for binary32 ones. The precision it
 /// records for binary32 samples is the caller's statement of which render made them.
-#[derive(Debug, Clone, Copy, PartialEq)]
+///
+/// It has no equality: one on its floats would be IEEE equality (`-0.0 == 0.0`, a NaN never
+/// equal to itself), never the bits a render is compared by; compare renders by their
+/// [`render_hash`]:
+///
+/// ```compile_fail,E0369
+/// let samples = engine_hash::Samples::Binary64(&[0.0]);
+/// let _ = samples == engine_hash::Samples::Binary64(&[-0.0]);
+/// ```
+///
+/// Its render format compares, so the equality of the samples is the only error above:
+///
+/// ```
+/// let samples = engine_hash::Samples::Binary64(&[0.0]);
+/// let _ = samples.format() == engine_hash::Samples::Binary64(&[-0.0]).format();
+/// ```
+#[derive(Debug, Clone, Copy)]
 pub enum Samples<'render> {
     /// Computed and given in binary64.
     Binary64(&'render [f64]),
