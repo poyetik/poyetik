@@ -1,7 +1,7 @@
 {
   "version": 1,
   "title": "Poyetik",
-  "nextId": 37,
+  "nextId": 38,
   "cards": [
     {
       "id": 3,
@@ -1359,6 +1359,49 @@
         },
         {
           "title": "Catalogue: the full battery across WebAssembly engines, continuous fuzzing, reproducible builds proving a module comes from its published source",
+          "done": false
+        }
+      ]
+    },
+    {
+      "id": 37,
+      "title": "Time crate: exact musical time shared by the audio and visual libraries",
+      "description": "A tiny standalone no_std crate holding the time map and its exact evaluation, which the audio library, the visual library and the coordinating layer all depend on, so that every domain places a beat on the same frame, bit for bit, on every machine (spec/engine-design.md, decision 17). Its results are bit-defining and versioned (decision 29).",
+      "column": "later",
+      "milestone": "M1 Engine",
+      "createdAt": "2026-11-13",
+      "updatedAt": "2026-11-13",
+      "tasks": [
+        {
+          "title": "An exact time base: a tempo unit that represents every stated tempo exactly, and positions kept in exact integers (beats scaled by the frame rate), with no division on the path of a step",
+          "done": false
+        },
+        {
+          "title": "The time map and its segment kinds: constant tempo, tempo curves linear in tempo or exponential, recorded beat positions, jumps (locate, loop), each boundary rounded to a frame by decision 19's rule",
+          "done": false
+        },
+        {
+          "title": "Exact evaluation, by closed form at any frame and by incremental integer step, with the law that the closed form at frame n equals n steps, bit for bit, for every segment kind: a property test over random segments and frames, and the corners",
+          "done": false
+        },
+        {
+          "title": "Exponential tempo curves in fixed point: knots in closed form on 128-bit integers, an exact cubic stepped by integer additions between them, the knot spacing chosen per segment from its rate so that the curve stays within 2^-12 frame of the mathematical one, proven against a high-precision reference; no curve refused for its steepness",
+          "done": false
+        },
+        {
+          "title": "The tempo range and the register widths proven: each register's maximum derived from the stated range and checked by a test at every corner, every value out of range refused at its edge and one past it, never rounded silently",
+          "done": false
+        },
+        {
+          "title": "The evaluation version under decision 29: any change of the crate's results takes a new version, old versions kept; each time map records its version, and one naming an unsupported version is refused with its reason",
+          "done": false
+        },
+        {
+          "title": "Known-answer vectors: exact integer results per evaluation version, shared by every implementation and target",
+          "done": false
+        },
+        {
+          "title": "A standalone no_std crate, published like the libraries: the library gate gains its role (the only crate outside the audio library the library's crates may depend on), with its own coverage, mutation, benchmarks and conformance",
           "done": false
         }
       ]
