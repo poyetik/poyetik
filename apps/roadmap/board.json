@@ -948,7 +948,7 @@
       "column": "doing",
       "milestone": "M1 Engine",
       "createdAt": "2026-11-07",
-      "updatedAt": "2026-11-12",
+      "updatedAt": "2026-11-13",
       "tasks": [
         {
           "title": "Engine design decisions, recorded before any code that depends on them: messages, event scheduling, feedback, polyphony, multichannel, rates, parallelism, hot swap, latency, state; including the Nyquist policy of oscillators, an exact integer phase accumulator, the output stage (headroom, non-finite samples), the input domain of boxes, and compiling, instantiating, parsing and building plans off the audio thread, or bounding and measuring what must stay there (the construction of the engine processor), hot swap included",
@@ -995,7 +995,7 @@
           "done": false
         },
         {
-          "title": "Execution modes: live, offline and build give the same bits; every box type declares itself live-capable or offline-only, the real-time rules proven on every live-capable box, and a live plan refusing an offline-only box",
+          "title": "Execution modes: live, offline and build give the same bits; every box type declares itself live-capable or offline-only, the real-time rules proven on every live-capable box, and a live plan refusing an offline-only box; then the end of this block (steps 9 to 12): a deep review, its decided fixes, and a pull request whose full check is green",
           "done": false
         },
         {
@@ -1007,7 +1007,7 @@
           "done": false
         },
         {
-          "title": "Messages and rates: every parameter driven by messages or by an audio-rate signal; a total order of messages within a frame; MIDI input as timestamped events (MIDI 2.0 packets, MPE)",
+          "title": "Messages and rates: every parameter driven by messages or by an audio-rate signal; a total order of messages within a frame; MIDI input as timestamped events (MIDI 2.0 packets, MPE); then the end of this block (steps 13 to 15): a deep review, its decided fixes, and a pull request whose full check is green",
           "done": false
         },
         {
@@ -1019,7 +1019,7 @@
           "done": false
         },
         {
-          "title": "Seeded randomness: the seed in the patch, per-box streams from stable box paths, a counter-based generator addressed by frame, exact conversion to floats, a live new-seed mode that logs its seed; its laws; then the end of this block (steps 9 to 18): a deep review, its decided fixes, and a pull request whose full check is green",
+          "title": "Seeded randomness: the seed in the patch, per-box streams from stable box paths, a counter-based generator addressed by frame, exact conversion to floats, a live new-seed mode that logs its seed; its laws; then the end of this block (steps 16 to 18): a deep review, its decided fixes, and a pull request whose full check is green",
           "done": false
         },
         {
@@ -1035,7 +1035,7 @@
           "done": false
         },
         {
-          "title": "Real-time cost: estimate a patch's cost per block before it runs and report its load, so that a valid patch too heavy for real time is flagged (after the benchmarks); measure the real CPU load during playback too: the time per block in the AudioWorklet on the three browser engines and natively, on realistic patches, against the block's time budget, reported as a percentage; measure the copy of every outlet into the bus each block and remove it if it costs; break down the per-sample rounding of a binary64 render to binary32 for delivery (dac~'s binary64 count over its binary32 one) and make it cheaper if a form with the same bits costs less",
+          "title": "Real-time cost: estimate a patch's cost per block before it runs and report its load, so that a valid patch too heavy for real time is flagged (after the benchmarks); measure the real CPU load during playback too: the time per block in the AudioWorklet on the three browser engines and natively, on realistic patches, against the block's time budget, reported as a percentage; measure the copy of every outlet into the bus each block and remove it if it costs; break down the per-sample rounding of a binary64 render to binary32 for delivery (dac~'s binary64 count over its binary32 one) and make it cheaper if a form with the same bits costs less; then the end of this block (steps 19 to 22): a deep review, its decided fixes, and a pull request whose full check is green",
           "done": false
         },
         {
@@ -1055,7 +1055,7 @@
           "done": false
         },
         {
-          "title": "Latency declared by boxes and compensated automatically, events aligned with the compensated audio",
+          "title": "Latency declared by boxes and compensated automatically, events aligned with the compensated audio; then the end of this block (steps 23 to 27): a deep review, its decided fixes, and a pull request whose full check is green",
           "done": false
         },
         {
@@ -1071,7 +1071,7 @@
           "done": false
         },
         {
-          "title": "Resources: content-addressed by SHA-256, immutable, decoded and resampled off the audio thread with the same code on every target, swapped at a frame, read through handles whether in memory or streamed, underruns logged; then the end of this block (steps 19 to 31): a deep review, its decided fixes, and a pull request whose full check is green",
+          "title": "Resources: content-addressed by SHA-256, immutable, decoded and resampled off the audio thread with the same code on every target, swapped at a frame, read through handles whether in memory or streamed, underruns logged; then the end of this block (steps 28 to 31): a deep review, its decided fixes, and a pull request whose full check is green",
           "done": false
         },
         {
@@ -1083,7 +1083,7 @@
           "done": false
         },
         {
-          "title": "Render-ahead hooks: future events, plan parts marked live or ahead, invalidation from a frame by restoring state; a render with render-ahead identical to one without",
+          "title": "Render-ahead hooks: future events, plan parts marked live or ahead, invalidation from a frame by restoring state; a render with render-ahead identical to one without; then the end of this block (steps 32 to 34): a deep review, its decided fixes, and a pull request whose full check is green",
           "done": false
         },
         {
@@ -1099,7 +1099,7 @@
           "done": false
         },
         {
-          "title": "Clean the specification and the documentation once the engine is complete: spec/ keeps what and why (decisions, rules, laws, formats, acceptance tests), without planning (the Step and Order lines, the implementation order, what is implemented when, a section named after the ticket); the documentation describes the finished engine; then the end of this block (steps 32 to 38): a deep review, its decided fixes, and a pull request whose full check is green",
+          "title": "Clean the specification and the documentation once the engine is complete: spec/ keeps what and why (decisions, rules, laws, formats, acceptance tests), without planning (the Step and Order lines, the implementation order, what is implemented when, a section named after the ticket); the documentation describes the finished engine; then the end of this block (steps 35 to 38): a deep review, its decided fixes, and a pull request whose full check is green",
           "done": false
         }
       ]
