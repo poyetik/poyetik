@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
-import { BASELINE_FILE, benchMain, MODULE_FILE, SUITE, THRESHOLDS_FILE, USAGE, type BenchIo, type Suite } from "../../benchmarks/cli.ts";
+import { BASELINE_FILE, benchMain, BUILD_SCRIPT, MODULE_FILE, SUITE, THRESHOLDS_FILE, USAGE, type BenchIo, type Suite } from "../../benchmarks/cli.ts";
 import { BOX_BENCHMARKS, MIX_BENCHMARKS, PATCH_BENCHMARKS, PLAN_SIZES } from "../../benchmarks/suite.ts";
 import { rethrow, wasmBytes } from "../fixtures.ts";
 import { assemble } from "./assemble.ts";
@@ -161,7 +161,7 @@ describe("benchMain", () => {
     const noModule = new Fake();
     noModule.files.delete(`/repo/${MODULE_FILE}`);
     expect(benchMain(noModule, ["bless"], SMALL)).toBe(1);
-    expect(noModule.errors).toStrictEqual(["error: cannot read bindings/wasm/dist/engine.wasm: ENOENT: /repo/bindings/wasm/dist/engine.wasm"]);
+    expect(noModule.errors).toStrictEqual(["error: cannot read bindings/wasm/dist/engine.wasm (build it: pnpm build:wasm, in bindings/wasm): ENOENT: /repo/bindings/wasm/dist/engine.wasm"]);
   });
 
   test("names the module when it cannot be instrumented, compiled or driven, or a box costs less than nothing", () => {
@@ -249,5 +249,15 @@ describe("benchMain", () => {
     expect(SUITE).toStrictEqual({ boxes: BOX_BENCHMARKS, mixes: MIX_BENCHMARKS, patches: PATCH_BENCHMARKS, sizes: PLAN_SIZES });
     expect([BASELINE_FILE, THRESHOLDS_FILE, MODULE_FILE]).toStrictEqual(["spec/benchmark-baseline.json", "spec/benchmark-thresholds.json", "bindings/wasm/dist/engine.wasm"]);
     expect(readFileSync(new URL("../../package.json", import.meta.url), "utf8")).toMatch(/"benchmarks:check": "[a-z]+ scripts\/benchmarks\.ts check"/);
+  });
+
+  test("names, when the module is missing, the package script that writes it", () => {
+    // The hint is followed by construction, not run (it builds the engine with cargo): the
+    // script exists, runs the build command, and that command writes dist/engine.wasm of
+    // this package (its own tests: test/build-scripts.test.ts), which is MODULE_FILE.
+    expect(BUILD_SCRIPT).toBe("build:wasm");
+    expect(readFileSync(new URL("../../package.json", import.meta.url), "utf8")).toMatch(/"build:wasm": "[a-z]+ scripts\/build-wasm\.ts"/);
+    expect(readFileSync(new URL("../../scripts/build-wasm.ts", import.meta.url), "utf8")).toContain('buildMain(PROCESS_IO, fileURLToPath(new URL("../dist/", import.meta.url)))');
+    expect(MODULE_FILE).toBe("bindings/wasm/dist/engine.wasm");
   });
 });

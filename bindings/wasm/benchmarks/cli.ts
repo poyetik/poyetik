@@ -61,8 +61,11 @@ export const BASELINE_FILE = "spec/benchmark-baseline.json";
 /** The thresholds, from the repository root. */
 export const THRESHOLDS_FILE = "spec/benchmark-thresholds.json";
 
-/** The engine module measured, from the repository root (`pnpm build` writes it). */
+/** The engine module measured, from the repository root (the package script {@link BUILD_SCRIPT} writes it). */
 export const MODULE_FILE = "bindings/wasm/dist/engine.wasm";
+
+/** The script of this package that builds {@link MODULE_FILE}, named when it cannot be read. */
+export const BUILD_SCRIPT = "build:wasm";
 
 /** The usage, printed by `help` only. */
 export const USAGE = `usage: node scripts/benchmarks.ts <check|bless|help> (in bindings/wasm)
@@ -111,7 +114,7 @@ function measured(io: BenchIo, suite: Suite): Counts {
   try {
     wasm = io.read(`${io.repository}/${MODULE_FILE}`);
   } catch (error) {
-    failed(`cannot read ${MODULE_FILE}`, error);
+    failed(`cannot read ${MODULE_FILE} (build it: pnpm ${BUILD_SCRIPT}, in bindings/wasm)`, error);
   }
   try {
     return measure(countedEngine(wasm), suite.boxes, suite.mixes, suite.patches, suite.sizes);
