@@ -16,7 +16,7 @@ use engine_core::{
 ///
 /// The increment is reduced to `[0, 1)` cycle per sample, so that one subtraction always
 /// wraps the phase, at any frequency and sample rate. Above Nyquist the output aliases
-/// (the policy there is decided with roadmap #12).
+/// (the policy there is decided with #12 step 14).
 ///
 /// Subnormal outputs are flushed to zero (`spec/engine-design.md`, decision 11): at the
 /// smallest frequencies, the first frames of a binary32 sine are below 2^-126 and come out
@@ -62,8 +62,8 @@ impl Osc {
     /// spec they were checked against, `engine_core::ParamValues`, and a spec takes its
     /// parameters from the type that creates its instances, `engine_core::ObjectSpec::new`),
     /// so the frequency is always there: the fallback below is unreachable by construction,
-    /// and goes with the typed access to parameter values that cannot be missing (roadmap #12
-    /// step 14).
+    /// and goes with the typed access to parameter values that cannot be missing
+    /// (#12 step 14).
     #[inline]
     pub(crate) fn of(rate: SampleRate, params: &[Binary64]) -> Self {
         let frequency = params.first().copied().unwrap_or(Binary64::new(440.0));

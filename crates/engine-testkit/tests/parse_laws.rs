@@ -1,5 +1,5 @@
 //! Laws of reading patches, over random and mutated documents: the deterministic start
-//! of fuzzing (coverage-guided fuzzing comes with roadmap #3).
+//! of fuzzing (coverage-guided fuzzing comes with #3 step 4).
 //!
 //! Whatever the bytes, `parse_patch` then `Plan::build` (with the real registry, its boxes
 //! called directly as the engine calls them) return `Ok` or `Err`, never panic; every

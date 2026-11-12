@@ -19,8 +19,8 @@ const UNLINTED: ReadonlyMap<string, string> = new Map([
   ["tooling/config/test/compiler/", "compiler fixtures, each breaking a setting on purpose: the policy test compiles them"],
   ["bindings/wasm/test/types/", "compiler fixtures, some wrong on purpose: bindings/wasm/test/types.test.ts compiles them"],
   // Their frontmatter only calls the linted code of src/lib (Board's `Props` is declared there).
-  ["apps/roadmap/src/components/Board.astro", "an Astro component: `astro check` type-checks it; ESLint reads none until eslint-plugin-astro (roadmap #15)"],
-  ["apps/roadmap/src/pages/index.astro", "an Astro page: `astro check` type-checks it; ESLint reads none until eslint-plugin-astro (roadmap #15)"],
+  ["apps/roadmap/src/components/Board.astro", "an Astro component: `astro check` type-checks it; ESLint reads none until eslint-plugin-astro (#15 step 1)"],
+  ["apps/roadmap/src/pages/index.astro", "an Astro page: `astro check` type-checks it; ESLint reads none until eslint-plugin-astro (#15 step 1)"],
 ]);
 
 /** The root of the repository, found by walking up: the tests also run from a copy of the package, deeper in it. */

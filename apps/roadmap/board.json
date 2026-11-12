@@ -10,7 +10,7 @@
       "column": "next",
       "milestone": "M1 Engine",
       "createdAt": "2026-11-07",
-      "updatedAt": "2026-11-10",
+      "updatedAt": "2026-11-12",
       "tasks": [
         {
           "title": "Version 1: boxes, parameters and cables (spec/patch-format.md, read by engine-patch)",
@@ -38,6 +38,10 @@
         },
         {
           "title": "Patch format version 2: parameter values in binary64 (the nearest binary64 to the JSON number), the algorithm version of every box and the render rules version of the patch (spec/engine-design.md decision 29); the engine plays the versions a patch names, a box type providing every version it still supports, and refuses a version it does not support with its reason; a documented, tested migration from version 1 (binary32 values kept exactly, the current versions recorded), version 1 test files kept and migrated in CI",
+          "done": false
+        },
+        {
+          "title": "The format of each engine decision that adds to a patch, with the step that builds it (spec/engine-design.md, each decision's Consequences): subpatches with their block, overlap and resampling; message cables, the order of an outlet's cables and message contents; the event quantum; channel layouts; box state; the seed; external references and resources; cables between discontinuity ports; time maps, meters, grooves and transports",
           "done": false
         }
       ]
@@ -194,11 +198,11 @@
     {
       "id": 29,
       "title": "Publish the engine as an open-source library",
-      "description": "Once roadmap #12 is closed, the audio engine (core, boxes, DSP toolkit, WebAssembly binding) is published as an open-source library with its proofs (conformance, independent oracle, gates, CI), so that Rust, web and other developers can use it on its own; daily work stays in the monorepo, and the application uses the engine through its public API like any other user.",
+      "description": "Once #12 is closed, the audio engine (core, boxes, DSP toolkit, WebAssembly binding) is published as an open-source library with its proofs (conformance, independent oracle, gates, CI), so that Rust, web and other developers can use it on its own; daily work stays in the monorepo, and the application uses the engine through its public API like any other user.",
       "column": "next",
       "milestone": "",
       "createdAt": "2026-11-09",
-      "updatedAt": "2026-11-09",
+      "updatedAt": "2026-11-12",
       "tasks": [
         {
           "title": "License chosen by the maintainer",
@@ -466,8 +470,13 @@
       "column": "later",
       "milestone": "M1 Engine",
       "createdAt": "2026-11-08",
-      "updatedAt": "2026-11-08",
-      "tasks": []
+      "updatedAt": "2026-11-12",
+      "tasks": [
+        {
+          "title": "A macOS job in the workflow, defined by xtask like every job: the native checks on aarch64 (conformance against the committed references, the floating-point mode's tests) and the browser tests in Safari, so that no claim needing aarch64 or Safari rests on the pre-push check of a Mac",
+          "done": false
+        }
+      ]
     },
     {
       "id": 21,
@@ -908,7 +917,7 @@
       "column": "later",
       "milestone": "M0 Foundations",
       "createdAt": "2026-11-08",
-      "updatedAt": "2026-11-08",
+      "updatedAt": "2026-11-12",
       "tasks": [
         {
           "title": "Decide the author email of the history: keep it, or rewrite every commit to the GitHub noreply address before the switch (every SHA and the v0.1.0 tag change; force-push while the repository is still private), and set git to the chosen address for future commits",
@@ -923,7 +932,7 @@
           "done": false
         },
         {
-          "title": "Decide what a public repository without a license means for contributors, or choose the license first (ticket #6)",
+          "title": "Decide what a public repository without a license means for contributors, or choose the license first (#6 step 1)",
           "done": false
         },
         {

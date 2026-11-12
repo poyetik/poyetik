@@ -1,7 +1,7 @@
 /**
  * The engine WebAssembly module, driven from JavaScript: in an `AudioWorklet`, on the
  * main thread or in Node (the package exports no Node entry point yet: it comes with the
- * SDK, roadmap #32; the tests import this module directly). See `bindings/wasm/src/ffi.rs` for the exported interface.
+ * SDK, #32 step 15; the tests import this module directly). See `bindings/wasm/src/ffi.rs` for the exported interface.
  */
 import { ModuleError, readExports, type Exports } from "./abi.ts";
 
@@ -73,7 +73,7 @@ const BINARY32: Layout = {
 /**
  * Thrown when the engine refuses to load a patch: the patch is invalid or cannot be
  * planned, but also when it is not UTF-8 or when the engine does not support the sample
- * rate (separate errors are planned with the public API, roadmap #32). `detail` is the
+ * rate (separate errors are planned with the public API, #32 step 12). `detail` is the
  * UTF-8 explanation: decode it where a `TextDecoder` is available (an `AudioWorklet` may
  * not have one).
  */

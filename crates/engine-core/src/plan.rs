@@ -2,7 +2,7 @@
 //!
 //! A plan is built from a [`Patch`] outside the audio thread, with one known deviation:
 //! in the browser, the engine processor builds its plan on the audio thread, once, before
-//! it renders (roadmap #12). The patch is validated, its boxes are sorted in a
+//! it renders (#12 step 30). The patch is validated, its boxes are sorted in a
 //! deterministic execution order and every box instance is created (all memory is
 //! reserved here). Running the plan then only reads and writes buffers that already
 //! exist.
@@ -440,7 +440,7 @@ impl<S: Sample, I: Dispatch<S>> Plan<S, I> {
     /// Does not use the heap. The samples are written as the boxes computed them: never
     /// clipped to ±1, scaled or sanitized, so that every target renders the same bits. The
     /// final output stage (limiting, clipping, handling non-finite values) belongs to the
-    /// host, until the engine defines its own output policy (roadmap ticket #12).
+    /// host, until the engine defines its own output policy (#12 step 9).
     pub fn process(&mut self, out: &mut [Block<S>]) {
         for instance in &mut self.instances {
             let bus: &[Block<S>] = &self.bus;

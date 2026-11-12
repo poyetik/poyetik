@@ -27,8 +27,8 @@ test.each(HOST_BUFFER_SIZES.filter((size) => size % BLOCK === 0))("processing qu
 });
 
 // A known deviation, recorded in CLAUDE.md: the tap processor copies every render quantum
-// it posts, which the playground's oscilloscope runs while it plays, until roadmap #12
-// (step 21) replaces it. This test fails, and the record must change, the day it stops.
+// it posts, which the playground's oscilloscope runs while it plays, until #12 step 21
+// replaces it. This test fails, and the record must change, the day it stops.
 test("the tap processor allocates: 22 500 quanta of 128 frames collect", async () => {
   expect(await tapping(22_500)).toBeGreaterThan(0);
 });

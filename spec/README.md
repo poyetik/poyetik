@@ -15,4 +15,4 @@ The specifications every implementation follows: the **patch format**, the contr
 | [`benchmark-thresholds.json`](benchmark-thresholds.json) | The tolerance of the counts and the measured construction times the browser bounds derive from |
 | [`engine-design.md`](engine-design.md) | The engine design decisions: what the engine will do (events, block sizes, precision, multichannel, polyphony, latency, hot swap, the control boundary, payloads, randomness, the box contract, resources…), why, and in what order; the formats above change with the steps that implement them |
 
-The format grows incrementally (roadmap ticket #3): only what the engine actually supports is specified.
+The format grows incrementally, step by step of #3: only what the engine actually supports is specified.

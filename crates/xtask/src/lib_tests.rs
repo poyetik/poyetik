@@ -13057,6 +13057,79 @@ fn reads_the_board_as_the_roadmap_writes_it() {
     );
 }
 
+#[test]
+fn refuses_a_card_named_as_roadmap_work_without_its_step() {
+    let named = |number: u64| {
+        format!(
+            "x.md:1: cites \u{23}{number} without the step that ends it: write \
+             `\u{23}{number} step M`"
+        )
+    };
+    for (text, problems) in [
+        ("until roadmap \u{23}12.", vec![named(12)]),
+        ("(roadmap \u{23}3)", vec![named(3)]),
+        ("roadmap ticket \u{23}3", vec![named(3)]),
+        ("in ticket \u{23}12, later", vec![named(12)]),
+        (
+            "Roadmap \u{23}12 and Ticket \u{23}3",
+            vec![named(12), named(3)],
+        ),
+        (
+            "roadmap \u{23}3 item 1",
+            vec!["x.md:1: \u{23}3 item 1 cites no step: write `\u{23}3 step 1`".to_owned()],
+        ),
+    ] {
+        let problems: Vec<String> = problems;
+        assert_eq!(cite(text), step_found(&problems), "{text}");
+    }
+    for text in [
+        "roadmap \u{23}12 step 1",
+        "roadmap \u{23}12, step 1",
+        "ticket \u{23}3 (step 1",
+        "roadmap \u{23}12 steps 1 and 2",
+        "\u{23}12 is later work, \u{23}3 too",
+        "the roadmap: \u{23}12",
+        "roadmaps \u{23}12, aticket \u{23}3, roadmap\u{23}12",
+        "\u{20ac}12345 \u{23}12",
+    ] {
+        assert_eq!(cite(text), Ok(()), "{text}");
+    }
+    let changelog = |text: &str| {
+        super::citation_gate(&[
+            (super::ROADMAP_BOARD.to_owned(), BOARD.to_owned()),
+            ("CHANGELOG.md".to_owned(), text.to_owned()),
+        ])
+    };
+    assert_eq!(
+        changelog(
+            "# Changelog\n\n## [Unreleased]\n\n- roadmap \u{23}3 step 1\n\n## [0.1.0] - \
+             2026-11-08\n\n- roadmap \u{23}12\n- \u{23}12 step 9\n"
+        ),
+        step_found(&[
+            "CHANGELOG.md:10: cites \u{23}12 step 9, but \u{23}12 has 3 steps: cite one of them, \
+             or add it (`pnpm roadmap step add 12 …`)"
+                .to_owned()
+        ]),
+        "a released section is as it was released, its steps still read"
+    );
+    assert_eq!(
+        changelog("## [Unreleased]\n\n- roadmap \u{23}12\n\n## [0.1.0] - 2026-11-08\n"),
+        step_found(&[named(12).replace("x.md:1:", "CHANGELOG.md:3:")]),
+        "the unreleased section is read"
+    );
+    assert_eq!(
+        super::citation_gate(&[
+            (super::ROADMAP_BOARD.to_owned(), BOARD.to_owned()),
+            (
+                "a/CHANGELOG.md".to_owned(),
+                "## [0.1.0] - 2026-11-08\n- roadmap \u{23}12\n".to_owned(),
+            ),
+        ]),
+        step_found(&[named(12).replace("x.md:1:", "a/CHANGELOG.md:2:")]),
+        "only the root changelog is released"
+    );
+}
+
 /// A pnpm workspace configuration as xtask accepts it: its four keys, with comments, blank
 /// lines and values.
 const PNPM: &str = "packages:\n  - \"apps/*\"\n\n# A comment.\nminimumReleaseAge: 10080\n\noverrides:\n  \"qs\": \"^6.16.1\"\n\ncatalog:\n  \"vitest\": \"^5.1.0\"\n";

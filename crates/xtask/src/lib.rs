@@ -4948,7 +4948,9 @@ fn step_list(text: &str) -> Result<(Vec<u64>, &str), String> {
 /// of a spec opening with `**Step.**`, which must cite one, a list after `step` or `steps`
 /// alone cites the card named last before it on the line. A card followed the same way by
 /// `item`, `items`, `task` or `tasks` and a number is refused: a step is cited as a step.
-fn line_citations(line: &str) -> (Vec<(u64, u64)>, Vec<String>) {
+/// Unless `released`, a card named as roadmap work ([`WORK_WORDS`] before it) and followed
+/// by no step is refused too: a "not yet" names the step that ends it.
+fn line_citations(line: &str, released: bool) -> (Vec<(u64, u64)>, Vec<String>) {
     let step_line = line.trim_start().starts_with("**Step.**");
     let mut cited = Vec::new();
     let mut problems = Vec::new();
@@ -4975,6 +4977,10 @@ fn line_citations(line: &str) -> (Vec<(u64, u64)>, Vec<String>) {
                 {
                     problems.push(format!(
                         "#{number} {word}{step} cites no step: write `#{number} step {step}`"
+                    ));
+                } else if !released && named_as_work(line, rest) {
+                    problems.push(format!(
+                        "cites #{number} without the step that ends it: write `#{number} step M`"
                     ));
                 }
                 before = '0';
@@ -5026,6 +5032,27 @@ fn line_citations(line: &str) -> (Vec<(u64, u64)>, Vec<String>) {
     (cited, problems)
 }
 
+/// The words that name a card as roadmap work, each followed by a space: such a card is
+/// cited with the step that ends the work ([`line_citations`]).
+const WORK_WORDS: [&str; 2] = ["roadmap ", "ticket "];
+
+/// Whether the card at `rest`, a suffix of `line`, follows one of [`WORK_WORDS`] as a
+/// whole word, in any case.
+fn named_as_work(line: &str, rest: &str) -> bool {
+    let lead = line
+        .get(..line.len().saturating_sub(rest.len()))
+        .unwrap_or_default();
+    WORK_WORDS.iter().any(|word| {
+        lead.len()
+            .checked_sub(word.len())
+            .and_then(|start| Some((lead.get(start..)?, lead.get(..start)?)))
+            .is_some_and(|(tail, before)| {
+                tail.eq_ignore_ascii_case(word)
+                    && !before.ends_with(|letter: char| letter.is_alphanumeric())
+            })
+    })
+}
+
 /// Checks that every roadmap step a tracked file cites exists on the board.
 ///
 /// `sources` are the tracked files of [`CITATION_SOURCES`] (path and text), the board
@@ -5033,8 +5060,13 @@ fn line_citations(line: &str) -> (Vec<(u64, u64)>, Vec<String>) {
 /// list (`M, M and M`, `M or M`, `M to M`), a comma, spaces or an opening parenthesis
 /// allowed after the card; on a spec's `**Step.**` line, which must cite one, `step M`
 /// alone cites the card named last before it; `#N item M` (or `items`, `task`, `tasks`)
-/// is refused, never skipped. A step is cited by its number, so a step or a card the board
-/// does not have means the citation is stale or wrong.
+/// is refused, never skipped; so is a card named as roadmap work (`roadmap #N`, `ticket
+/// #N`, the word and the card on one line) with no step, but in the released sections of
+/// [`CHANGELOG`] (from its first heading `## [X.Y.Z] - YYYY-MM-DD` on, as
+/// [`vocabulary_gate`] reads it), kept as released. A step is cited by its number, so a
+/// step or a card the board does not have means the citation is stale or wrong. A card
+/// written `#N` alone names no work and is not read: it is how tests and the board name
+/// cards.
 ///
 /// # Errors
 ///
@@ -5049,9 +5081,11 @@ pub fn citation_gate(sources: &[(String, String)]) -> Result<(), Failure> {
     let steps = board_steps(board)?;
     let mut problems = Vec::new();
     for (path, text) in sources {
+        let mut released = false;
         for (index, line) in text.lines().enumerate() {
+            released |= path == CHANGELOG && released_heading(line).is_some();
             let at = format!("{path}:{}", index.saturating_add(1));
-            let (cited, unread) = line_citations(line);
+            let (cited, unread) = line_citations(line, released);
             problems.extend(unread.into_iter().map(|problem| format!("{at}: {problem}")));
             for (card, step) in cited {
                 match steps.get(&card) {
@@ -5927,7 +5961,7 @@ pub const DETERMINISTIC_FLOAT_METHODS: [(&str, &str); 32] = [
     ("classify", "reads the bits"),
     (
         "copysign",
-        "copies a sign bit; a NaN's bits, which arithmetic may set differently per target, are outside this audit (roadmap #12, output stage)",
+        "copies a sign bit; a NaN's bits, which arithmetic may set differently per target, are outside this audit (#12 step 9, the output stage)",
     ),
     (
         "div_euclid",
@@ -5944,11 +5978,11 @@ pub const DETERMINISTIC_FLOAT_METHODS: [(&str, &str); 32] = [
     ("is_normal", "reads the bits"),
     (
         "is_sign_negative",
-        "reads the sign bit; a NaN's bits, which arithmetic may set differently per target, are outside this audit (roadmap #12, output stage)",
+        "reads the sign bit; a NaN's bits, which arithmetic may set differently per target, are outside this audit (#12 step 9, the output stage)",
     ),
     (
         "is_sign_positive",
-        "reads the sign bit; a NaN's bits, which arithmetic may set differently per target, are outside this audit (roadmap #12, output stage)",
+        "reads the sign bit; a NaN's bits, which arithmetic may set differently per target, are outside this audit (#12 step 9, the output stage)",
     ),
     ("is_subnormal", "reads the bits"),
     (
@@ -5975,7 +6009,7 @@ pub const DETERMINISTIC_FLOAT_METHODS: [(&str, &str); 32] = [
     ("to_be_bytes", "a bit copy in a fixed byte order"),
     (
         "to_bits",
-        "a bit copy; a NaN's bits, which arithmetic may set differently per target, are outside this audit (roadmap #12, output stage)",
+        "a bit copy; a NaN's bits, which arithmetic may set differently per target, are outside this audit (#12 step 9, the output stage)",
     ),
     (
         "to_int_unchecked",

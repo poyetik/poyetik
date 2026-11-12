@@ -14,7 +14,7 @@
 //! `engine-core`'s entry points (`Plan::build`, `Plan::process`, `Renderer`) take none,
 //! since `engine-core` also builds for WebAssembly, whose floats have no mode: a native
 //! caller calls them inside [`with_default_mode`], a precondition stated in prose until the
-//! native host API makes it a type (roadmap #32). The proof cannot be built anywhere else:
+//! native host API makes it a type (#32 step 17). The proof cannot be built anywhere else:
 //!
 //! ```compile_fail,E0451
 //! let forged = engine_fpenv::DefaultMode {
@@ -98,7 +98,7 @@ impl Drop for Restore {
 /// the mode, since the proof `body` holds would be false from then on; safe Rust cannot
 /// change it. The two writes break the letter of Rust's floating-point rule (RFC 3514), on
 /// purpose and for the reasons the audit of the control-register file gives. Detecting such a
-/// change and reporting it is roadmap #24's, with the first plugin shell.
+/// change and reporting it is #24 steps 76 and 77, with the first plugin shell.
 ///
 /// Rust has no strict floating-point mode: the compiler orders the register's writes with
 /// memory and `core::hint::black_box`, not with float arithmetic on values in registers.

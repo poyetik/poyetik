@@ -48,8 +48,7 @@ impl LawSample for Binary32 {
 /// Blocks rendered by the long run of each sample rate and parameter set: 65,536 frames,
 /// 1.4 s at 48 kHz and 0.17 s at 384 kHz. Enough to reveal state that overflows, becomes
 /// non-finite or uses the heap late; the run is compared with no reference, so slow drift
-/// is not detected here (a drift check against the exact phase is planned with roadmap
-/// #12).
+/// is not detected here (a drift check against the exact phase is #12 step 20).
 const LONG_RUN_BLOCKS: usize = 1024;
 
 /// Random input cases tried per law.

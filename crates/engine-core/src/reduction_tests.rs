@@ -131,7 +131,7 @@ fn follows<F: Float>(terms: &[F], summed: u64) -> bool {
 /// may change between a debug and a release build). Its sign is not compared: it may change
 /// in the same way, and WebAssembly leaves it open, where any quiet NaN may come from a NaN
 /// term that is not canonical: a run of these tests in WebAssembly would accept any quiet
-/// NaN there (roadmap #24).
+/// NaN there (#24 step 2).
 fn check<S: Raw>(terms: &[S::Float]) -> Result<(), alloc::string::String>
 where
     S::Float: Float,

@@ -17,7 +17,7 @@ function environment(index: number): { timezoneId: string; locale: string } {
 }
 
 // The engine runs in all three browser engines: Chromium, Firefox and Playwright's
-// WebKit, at desktop and iPhone sizes; Playwright's WebKit is not Safari (roadmap #18 and #20).
+// WebKit, at desktop and iPhone sizes; Playwright's WebKit is not Safari (#18 step 5 and #20 step 1).
 // Chromium renders to a fake audio output, which runs the AudioContext normally without
 // opening the sound card of the machine. Firefox and WebKit have no such option that keeps
 // live audio running: they open the sound card, muted by the pages under test.

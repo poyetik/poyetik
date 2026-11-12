@@ -46,7 +46,7 @@ So a count catches what changes the work done (an algorithm, a loop, an approxim
 
 **Building plans** (`PLAN_SIZES`, at `PLAN_RATE`): the instructions of loading a patch of n oscillators feeding the two inlets of one `dac~` in turn (n + 1 boxes, n cables), copying the patch into the module, parsing it and building its plan included: what the engine processor does when it is constructed (`engine-design.md`, decision 15).
 
-**The size of the engine module** (`module_bytes` in the baseline, reported as `engine module: <n> bytes`): the bytes of `bindings/wasm/dist/engine.wasm` as built, before instrumentation. What a page downloads and compiles before it plays, and what the engine processor compiles on the audio thread (decision 15): the deterministic proxy of load time, as instruction counts are of CPU time, deterministic for the same reason (the build is reproducible). It is compared with the same tolerance, either way; the absolute budget of the module and a committed digest of its bytes are roadmap #11's.
+**The size of the engine module** (`module_bytes` in the baseline, reported as `engine module: <n> bytes`): the bytes of `bindings/wasm/dist/engine.wasm` as built, before instrumentation. What a page downloads and compiles before it plays, and what the engine processor compiles on the audio thread (decision 15): the deterministic proxy of load time, as instruction counts are of CPU time, deterministic for the same reason (the build is reproducible). It is compared with the same tolerance, either way; the absolute budget of the module and a committed digest of its bytes are #11 step 3's.
 
 ### The n log n law
 

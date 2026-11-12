@@ -41,9 +41,9 @@ bindings/wasm/e2e/serve.ts: not measured -- the bench server, wiring node:http t
 bindings/wasm/e2e/site/harness.ts: not measured -- the bench page, which runs only in a browser (top-level awaits on fetched files, Web Audio); every end-to-end test drives it; it wires the page to fetch.ts (fetching), page.ts (a failed load shown, every button disabled and the running action's outputs and the error cleared while one runs, its failure shown, a context closed however its work ends without hiding the work's failure, a live capture's own failure shown first and its capture handled on every path) and timing.ts (what is timed, how many runs, the warm-up, the quanta rendered, the clock), all measured and mutated
 apps/roadmap/e2e/keyboard.ts: not measured -- tabTo, a Playwright helper that needs a browser page; the end-to-end tests that reach targets with Tab run it, and fail if it never does
 
-# Measured, not mutated: Stryker does not mutate Astro templates (roadmap #15).
-apps/roadmap/src/components/Board.astro: measured, not mutated -- an Astro template: its coverage is measured, but Stryker has no mutator for .astro files until roadmap #15
-apps/roadmap/src/pages/index.astro: measured, not mutated -- an Astro template: its coverage is measured, but Stryker has no mutator for .astro files until roadmap #15
+# Measured, not mutated: Stryker does not mutate Astro templates (#15 step 2).
+apps/roadmap/src/components/Board.astro: measured, not mutated -- an Astro template: its coverage is measured, but Stryker has no mutator for .astro files until #15 step 2
+apps/roadmap/src/pages/index.astro: measured, not mutated -- an Astro template: its coverage is measured, but Stryker has no mutator for .astro files until #15 step 2
 
 # Mutated, no mutant reported: constants Stryker has no mutator for.
 apps/playground/src/settings.ts: mutated, no mutant reported -- three numeric constants, and Stryker has no mutator for a number; test/settings.test.ts pins each value

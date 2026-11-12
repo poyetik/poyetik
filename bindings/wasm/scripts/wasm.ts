@@ -2,7 +2,7 @@
 // inside, so that two clean builds give the same bytes. What is proven: two builds on one
 // machine, in two fresh target directories (pnpm test:reproducible, which prints the
 // SHA-256 of the module); across machines, only by comparing that digest by hand (a
-// committed digest is planned, roadmap #11). Pure functions, tested; cli.ts runs them.
+// committed digest is planned, #11 step 3). Pure functions, tested; cli.ts runs them.
 
 /** The cargo arguments building the engine module, its JSON messages on stdout. */
 export const CARGO_ARGS = [

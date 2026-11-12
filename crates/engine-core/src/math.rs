@@ -722,7 +722,7 @@ fn reduce<L: Summand, T: Borrow<L>>(
 /// payload included), and two give their sum. The payload and sign of a NaN result are not
 /// reproducible: natively the payload of one of the NaN terms (quieted) or the default NaN,
 /// in WebAssembly any quiet NaN when a NaN term is not canonical, and either may change
-/// with the build (the compiler may swap the operands of an addition); roadmap #24 decides
+/// with the build (the compiler may swap the operands of an addition); #24 step 2 decides
 /// how sums treat NaN.
 ///
 /// No other sum of samples is offered: the sample types implement neither `Sum` nor

@@ -14,7 +14,7 @@ import { ENGINE_PROCESSOR, MARKER_PERIOD, TAP_PROCESSOR, parseEngineMessage, par
  * A patch checked by the engine, ready to run in engine nodes. Only {@link loadPatch} or
  * {@link LoadedPatch.load} makes one: holding a `LoadedPatch` proves the engine accepted this patch at this rate,
  * in this precision, for a precision of the type (a plain-JavaScript caller passing another
- * value is not checked here: roadmap #32 decides those checks for every exported function).
+ * value is not checked here: #32 step 7 decides those checks for every exported function).
  * It keeps its own copies of the bytes, so changing the arrays given to `loadPatch`
  * afterwards changes nothing.
  */

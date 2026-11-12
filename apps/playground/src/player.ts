@@ -400,7 +400,7 @@ export class EnginePlayer implements Player {
       engine.node.connect(gain).connect(context.destination);
       // Awaited before resuming: Chromium, Firefox and WebKit all construct the processor,
       // and so settle `ready`, while the context is still suspended: checked once by hand in
-      // Playwright's builds of each (Safari unchecked); an end-to-end test is roadmap #24.
+      // Playwright's builds of each (Safari unchecked); an end-to-end test is #24 step 54.
       await session.until(engine.ready);
       cause = "device";
       await session.until(context.resume());
