@@ -1808,6 +1808,50 @@ fn check_command_compares_the_fingerprints_with_the_record_on_main() {
     }
 }
 
+/// A record on main of another battery cannot be compared with: check says so, in a line
+/// that is no problem, and says nothing when it compares.
+#[test]
+fn check_command_says_when_it_cannot_compare_with_the_record_on_main() {
+    let mut memory = committed();
+    let ok = RenderFormat::ALL
+        .map(|format| format!("ok       sine {format} {}\n", sine_hash(format)))
+        .concat();
+    let older = memory
+        .text("conf/algorithms.json")
+        .replace(r#""fingerprint_battery": 2"#, r#""fingerprint_battery": 1"#);
+    drop(
+        memory
+            .files
+            .insert(PathBuf::from("main.json"), older.into_bytes()),
+    );
+    assert_eq!(
+        run_with(&mut memory, &["check", "conf", "--spent", "main.json"]),
+        (
+            Ok(()),
+            format!(
+                "{ok}skipped  the record on main: its fingerprints were computed with battery 1, \
+                 these with battery 2 (compared once the battery change reaches main)\n"
+            )
+        ),
+        "another battery on main: not compared, and said"
+    );
+    assert_eq!(
+        xtask(&mut memory, "check", &[]),
+        (Ok(()), ok.clone()),
+        "the same battery: compared, nothing said"
+    );
+    drop(
+        memory
+            .files
+            .insert(PathBuf::from("null.json"), b"null\n".to_vec()),
+    );
+    assert_eq!(
+        run_with(&mut memory, &["check", "conf", "--spent", "null.json"]),
+        (Ok(()), ok),
+        "no record on main: nothing to compare with, nothing said"
+    );
+}
+
 #[test]
 fn check_command_names_a_mismatch_under_other_render_rules_as_such() {
     // Under other render rules, a mismatch is not said to be bits changed without a new

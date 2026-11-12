@@ -5,6 +5,7 @@ use alloc::collections::BTreeMap;
 use super::{
     Before, Blessing, Fingerprints, Record, References, Spent, Told, Versions, bless_problems,
     blessed, current_fingerprints, fingerprints_of, record_problems, same_rules, spent_problems,
+    spent_skipped,
 };
 
 /// What `bless` refuses replacing `old` and `earlier`, every version of `old` spent, as
@@ -698,4 +699,24 @@ fn says_why_the_battery_cannot_fingerprint_a_box_type() {
         Err("parameter \"f\" of box type \"wrong~\": 0 is outside its range".to_owned()),
         "a minimum below 2^-126, flushed out of its range, in words"
     );
+}
+
+#[test]
+fn says_when_the_record_on_main_cannot_be_compared_with() {
+    let here = record(&[], &[("osc~", 1, "one")]);
+    let older = Record {
+        fingerprint_battery: 1,
+        ..here.clone()
+    };
+    assert_eq!(
+        spent_skipped(&here, Some(&older)),
+        Some(
+            "skipped  the record on main: its fingerprints were computed with battery 1, these \
+             with battery 2 (compared once the battery change reaches main)"
+                .to_owned()
+        ),
+        "another battery on main"
+    );
+    assert_eq!(spent_skipped(&here, Some(&here)), None, "the same battery");
+    assert_eq!(spent_skipped(&here, None), None, "no record on main");
 }

@@ -183,7 +183,8 @@ pub(crate) fn record_problems(record: &Record, now: &Fingerprints) -> Vec<String
 /// type whose fingerprint differs from the one `base` holds at the same version, a version
 /// spent on `main` given other bits (`spec/engine-design.md`, decision 29), whatever way
 /// `record` was written (a conflict resolved by hand included). None when `base` is none or
-/// its fingerprints were computed with another battery: a battery change is blessed apart.
+/// its fingerprints were computed with another battery: a battery change is blessed apart
+/// (and [`spent_skipped`] says so).
 pub(crate) fn spent_problems(record: &Record, base: Option<&Record>) -> Vec<String> {
     let Some(base) = base.filter(|base| base.fingerprint_battery == record.fingerprint_battery)
     else {
@@ -211,6 +212,23 @@ pub(crate) fn spent_problems(record: &Record, base: Option<&Record>) -> Vec<Stri
                 })
         })
         .collect()
+}
+
+/// The line `check` prints when it cannot compare `record` with `base`, the record on
+/// `main`: their fingerprints were computed with other batteries, so no version can be
+/// compared, until the battery change reaches `main` (`spec/engine-design.md`, decision
+/// 29). It reports no problem: it says that this comparison did not run.
+pub(crate) fn spent_skipped(record: &Record, base: Option<&Record>) -> Option<String> {
+    base.filter(|base| base.fingerprint_battery != record.fingerprint_battery)
+        .map(|base| {
+            format!(
+                "{status} the record on main: its fingerprints were computed with battery {}, \
+                 these with battery {} (compared once the battery change reaches main)",
+                base.fingerprint_battery,
+                record.fingerprint_battery,
+                status = Status::Skipped
+            )
+        })
 }
 
 /// The line of a box type whose outputs changed at algorithm version `version`.

@@ -14,7 +14,8 @@ use engine_objects::REGISTRY;
 
 use crate::record::{
     Before, Blessing, Record, References, Spent, Told, Versions, bless_problems, blessed,
-    current_fingerprints, record_problems, same_rules, spent_problems, unknown_cases,
+    current_fingerprints, record_problems, same_rules, spent_problems, spent_skipped,
+    unknown_cases,
 };
 use crate::{Files, Prepared, Rendered, prepare_case};
 use engine_hash::RenderHash;
@@ -596,11 +597,15 @@ fn check(
             report(out, false, line)?;
         }
     }
+    let base = base.flatten();
     for line in record_problems(&record, &current_fingerprints(mode)?)
         .into_iter()
-        .chain(spent_problems(&record, base.flatten().as_ref()))
+        .chain(spent_problems(&record, base.as_ref()))
     {
         report(out, false, line)?;
+    }
+    if let Some(line) = spent_skipped(&record, base.as_ref()) {
+        report(out, true, line)?;
     }
     for name in expected
         .keys()

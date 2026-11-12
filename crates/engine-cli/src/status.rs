@@ -34,6 +34,8 @@ pub(crate) enum Status {
     Changed,
     /// A file written.
     Wrote,
+    /// A comparison that could not be made, and why: no problem.
+    Skipped,
 }
 
 impl Status {
@@ -55,6 +57,7 @@ impl Status {
             Self::Lower => "LOWER",
             Self::Changed => "CHANGED",
             Self::Wrote => "wrote",
+            Self::Skipped => "skipped",
         }
     }
 }
