@@ -49,7 +49,7 @@
       "column": "next",
       "milestone": "M1 Engine",
       "createdAt": "2026-11-09",
-      "updatedAt": "2026-11-11",
+      "updatedAt": "2026-11-12",
       "tasks": [
         {
           "title": "An API specification in spec/, completed at each step of #12 that adds a piece (host settings, events, the return path, state, hot swap, the box contract)",
@@ -104,7 +104,7 @@
           "done": false
         },
         {
-          "title": "The public API tracked by cargo public-api: no change goes unnoticed",
+          "title": "The public surface tracked, so that no change goes unnoticed: the Rust crates by cargo public-api, and the names and types each TypeScript package exports through every entry point its package.json declares, each compared with the last version, every name added or removed named in [Unreleased]",
           "done": false
         },
         {
@@ -112,7 +112,7 @@
           "done": false
         },
         {
-          "title": "Box registries valid by construction: a registry from outside the engine is checked (unique names, complete metadata, finite ranges) before any plan uses it",
+          "title": "Box registries valid by construction: a registry from outside the engine is checked (unique names, complete metadata) before any plan uses it; a parameter's finite range holding its default already holds by construction (ParamSpec::new)",
           "done": false
         },
         {
