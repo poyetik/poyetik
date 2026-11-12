@@ -11,8 +11,8 @@ export { PRECISIONS, givenAsBinary32, parsePrecision, type Precision } from "./e
 import { ENGINE_PROCESSOR, MARKER_PERIOD, TAP_PROCESSOR, parseEngineMessage, parseTapMessage, type EngineOptions, type TapMessage } from "./protocol.ts";
 
 /**
- * A patch checked by the engine, ready to run in engine nodes. Only {@link loadPatch}
- * makes one: holding a `LoadedPatch` proves the engine accepted this patch at this rate,
+ * A patch checked by the engine, ready to run in engine nodes. Only {@link loadPatch} or
+ * {@link LoadedPatch.load} makes one: holding a `LoadedPatch` proves the engine accepted this patch at this rate,
  * in this precision, for a precision of the type (a plain-JavaScript caller passing another
  * value is not checked here: roadmap #32 decides those checks for every exported function).
  * It keeps its own copies of the bytes, so changing the arrays given to `loadPatch`
@@ -50,7 +50,7 @@ export class LoadedPatch {
    * Checks `patch` with the engine at `rate` hertz in `precision` (binary64 by default, a
    * host setting; the render is given to Web Audio as binary32), on this thread: errors are thrown here
    * with the explanation of the engine, rather than in the audio thread. What it rejects
-   * with, told apart by `name` (the error classes are not exported yet, roadmap #32):
+   * with, told apart by `name` (the error classes are not exported yet, roadmap #32 step 12):
    * @throws {RangeError} when `rate` is not a whole number of hertz that fits 32 bits.
    * @throws {Error} named `ModuleError` ("not an engine module: …") when `wasm` is not an
    * engine module of this version.
