@@ -1939,7 +1939,7 @@ const DEFAULT_CHECK_NAMES: &[&str] = &[
     "The words of the glossary, not their synonyms",
     "One version everywhere, changelog well formed, released sections as on main",
     "Commit messages, and a changelog entry for each change of behavior",
-    "CI workflow pinned",
+    "CI runs exactly the workflow xtask defines",
     "The parts of CI run every check of the full check once",
     "JavaScript vulnerabilities",
     "JavaScript licenses",
@@ -9039,11 +9039,7 @@ fn says_where_the_workflow_differs_from_xtask_s() {
         super::workflow_gate(&workflows, workflow, node)
     };
     let only = [super::WORKFLOW];
-    let refused = |problem: &str| {
-        failed(format!(
-            "CI must run exactly the workflow xtask writes: {problem}"
-        ))
-    };
+    let refused = |problem: &str| failed(problem);
     let line_of = |workflow: &str, text: &str| {
         workflow
             .lines()
@@ -9099,17 +9095,25 @@ fn says_where_the_workflow_differs_from_xtask_s() {
         "no final line break"
     );
     let control = quality_with("runs-on: ubuntu-24.04", "runs-on: ubuntu-24.04\u{1b}[2J");
+    let mut fake = passing();
+    let _control = fake
+        .files
+        .insert(super::WORKFLOW.to_owned(), control.clone());
+    let steps: Vec<Step> = check_steps(CHANGES_MODE)
+        .into_iter()
+        .filter(|step| step.action == Action::WorkflowGate)
+        .collect();
     assert_eq!(
         super::safe_message(
-            &gate(&only, &control, "22.23.4")
+            &run_steps(&steps, &mut fake, &mut Vec::new())
                 .expect_err("refused")
                 .summary
         ),
         format!(
-            "CI must run exactly the workflow xtask writes: .github/workflows/quality.yml:{}: `    runs-on: ubuntu-24.04\\u{{1b}}[2J`, where xtask's workflow has `    runs-on: ubuntu-24.04`",
+            "CI runs exactly the workflow xtask defines: .github/workflows/quality.yml:{}: `    runs-on: ubuntu-24.04\\u{{1b}}[2J`, where xtask's workflow has `    runs-on: ubuntu-24.04`",
             line_of(&control, "    runs-on: ubuntu-24.04\u{1b}[2J")
         ),
-        "a control character escaped, as the user reads it"
+        "a control character escaped, as the user reads it after the step's name"
     );
     assert_eq!(
         gate(
@@ -9118,7 +9122,7 @@ fn says_where_the_workflow_differs_from_xtask_s() {
             "22"
         ),
         failed(
-            "CI must run exactly the workflow xtask writes: 2 problems, listed above\n\
+            "2 problems, listed above\n\
              .github/workflows/other.yml: the only workflow is .github/workflows/quality.yml, which xtask checks\n\
              .node-version must pin one Node.js release, 22.18 or later (X.Y.Z): found \"22\""
         ),

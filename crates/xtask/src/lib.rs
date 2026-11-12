@@ -735,7 +735,7 @@ pub enum Action {
     MathLayerGate,
     /// Require the supply-chain configuration xtask defines ([`supply_chain_gate`]).
     SupplyChainGate,
-    /// Require the CI workflow to pin every action, tool and runtime.
+    /// Require CI to run exactly the workflow xtask defines ([`workflow_gate`]).
     WorkflowGate,
     /// Require the parts of the full check to run every step of it once ([`parts_gate`]).
     PartsGate,
@@ -1470,7 +1470,7 @@ fn consistency_steps() -> Vec<(Role, Step)> {
             action: Action::HistoryGate,
         },
         Step {
-            name: "CI workflow pinned".to_owned(),
+            name: "CI runs exactly the workflow xtask defines".to_owned(),
             action: Action::WorkflowGate,
         },
         Step {
@@ -7018,14 +7018,22 @@ fn workflow_difference(workflow: &str) -> Option<String> {
     })
 }
 
-/// Checks that CI runs exactly the workflow xtask writes, so that it can neither change
+/// Checks that CI runs exactly the workflow xtask defines, so that it can neither change
 /// without a commit to xtask nor pass without checking.
 ///
 /// `workflows` are the workflow files tracked by git: only [`WORKFLOW`]. Its lines, its
 /// blank lines and comment lines apart, are those of [`workflow_text`], in order, each
-/// action pinned to a full commit hash in lowercase, then nothing or ` # <tag>`; so every setting is xtask's,
-/// and any other (a default shell, a condition, a step, a runner, a credential kept) is
-/// refused. `.node-version` pins one Node.js release, [`NODE_FLOOR`] or later.
+/// action pinned to a full commit hash in lowercase, then nothing or ` # <tag>`; so every
+/// setting is xtask's, and any other (a default shell, a condition, a step, a runner, a
+/// credential kept) is refused. `.node-version` pins one Node.js release, [`NODE_FLOOR`] or
+/// later.
+///
+/// Outside the gate's scope, written only on purpose (`CLAUDE.md`, "A gate guards against
+/// honest mistakes"): comment lines are told by `lines()`, which breaks at a line feed only
+/// (a carriage return before it included), so a line break YAML may read elsewhere inside a
+/// comment (a lone carriage return, NEL, a line or paragraph separator) is not seen; and
+/// which commit a pinned hash names is Dependabot's and the reviewer's, so a hash of a
+/// commit outside the action's own repository (a fork's) is not seen either.
 ///
 /// # Errors
 ///
@@ -7050,7 +7058,7 @@ pub fn workflow_gate(
             node_version.trim()
         ));
     }
-    verdict("CI must run exactly the workflow xtask writes", problems)
+    step_verdict(problems)
 }
 
 /// The project manifest holding the workspace version.
