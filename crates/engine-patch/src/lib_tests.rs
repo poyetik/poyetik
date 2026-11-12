@@ -219,6 +219,29 @@ fn parses_numbers_with_correct_rounding() {
 }
 
 #[test]
+fn rounds_an_integer_below_minus_two_to_the_63_through_binary64() {
+    // -(2^63 + 2^39 + 1): the nearest binary32 is -(2^63 + 2^40), just past the midpoint.
+    // Written as an integer below -2^63 and above -2^64, serde_json reads it as binary64
+    // first, onto the midpoint, which then rounds to even: the one exception
+    // spec/patch-format.md states. Written with a fraction, or positive, it is rounded once.
+    // One past the range, -(2^64 + 2^40 + 1) is read straight to binary32: rounded once, to
+    // -(2^64 + 2^41), where binary64 first would give -2^64 (0xdf80_0000).
+    for (text, bits) in [
+        ("-9223372586610589697", 0xdf00_0000_u32),
+        ("-9223372586610589697.0", 0xdf00_0001),
+        ("9223372586610589697", 0x5f00_0001),
+        ("-18446745173221179393", 0xdf80_0001),
+    ] {
+        let patch = parse_patch(&format!(
+            r#"{{"format":1,"nodes":[{{"id":1,"box":"x","params":{{"a":{text}}}}}],"connections":[]}}"#
+        ))
+        .expect("valid patch");
+        let params = &patch.nodes().next().expect("one box").params;
+        assert_eq!(params["a"].to_bits(), bits, "{text} reads as {bits:#010x}");
+    }
+}
+
+#[test]
 fn rejects_other_format_versions() {
     for version in [0_u32, 2, 99] {
         let json = format!(r#"{{"format": {version}, "nodes": [], "connections": []}}"#);
