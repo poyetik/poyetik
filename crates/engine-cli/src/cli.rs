@@ -935,7 +935,7 @@ fn read_earlier<T: DeserializeOwned>(
     }
 }
 
-/// Reads `path`, the record spent (`--spent`): the record on `main`, or `null` when `main`
+/// Reads `path`, the spent record (`--spent`): the record on `main`, or `null` when `main`
 /// has none, as `writer`, the command of `cargo xtask` that runs this one, writes it first.
 ///
 /// # Errors
