@@ -7662,6 +7662,20 @@ fn exit_of(status: std::process::ExitStatus) -> Exit {
         .map_or_else(|| Exit::Signal(signal.unwrap_or_default()), Exit::Code)
 }
 
+/// What a command [`Runner::run_for_stdout`] ran wrote, and how it ended.
+#[derive(Debug)]
+pub struct Ran {
+    /// What it wrote on stdout, its result: empty when the command did not start or wrote
+    /// what is not text.
+    pub stdout: String,
+    /// What it wrote on stderr, bytes that are not UTF-8 replaced: empty when it did not
+    /// start.
+    pub stderr: String,
+    /// Why the command could not be started, did not succeed (with the reason it wrote on
+    /// stderr, [`error_reason`]), or wrote on stdout what is not text.
+    pub ended: Result<(), CommandFailure>,
+}
+
 /// Executes commands and reads files on behalf of [`run_steps`].
 pub trait Runner {
     /// Runs a command, its output going to the terminal.
@@ -7702,15 +7716,12 @@ pub trait Runner {
     /// it wrote on stderr.
     fn capture(&mut self, cmd: &Cmd) -> Result<String, CommandFailure>;
 
-    /// Runs a command whose stdout is its result: returns what it wrote there, whether it
-    /// succeeded or not, and how it ended; its stderr is xtask's, so its progress and its
-    /// errors show as they come.
-    ///
-    /// # Errors
-    ///
-    /// The second value is why the command could not be started, did not succeed, or wrote
-    /// on stdout what is not text (then the first is empty).
-    fn run_for_stdout(&mut self, cmd: &Cmd) -> (String, Result<(), CommandFailure>);
+    /// Runs a command whose stdout is its result: returns what it wrote there and on stderr,
+    /// whether it succeeded or not, and how it ended, the reason it wrote on stderr
+    /// included ([`Ran`]). Both are read whole once it ends, so that a caller can show them
+    /// in the order the command wrote its result and its summary: nothing shows while it
+    /// runs.
+    fn run_for_stdout(&mut self, cmd: &Cmd) -> Ran;
 
     /// Writes `text` to a file below the repository root, creating its directory if needed.
     ///
@@ -7880,22 +7891,30 @@ impl Runner for SystemRunner {
         }
     }
 
-    /// The files of the index (`--cached`) but those deleted from the work tree
-    /// (`--deleted`), each from git.
-    fn run_for_stdout(&mut self, cmd: &Cmd) -> (String, Result<(), CommandFailure>) {
-        let output = command(cmd.program, &cmd.dir.under(&self.root), self.env)
+    fn run_for_stdout(&mut self, cmd: &Cmd) -> Ran {
+        let output = match command(cmd.program, &cmd.dir.under(&self.root), self.env)
             .args(&cmd.args)
-            .stderr(Stdio::inherit())
-            .output();
-        let output = match output {
+            .output()
+        {
             Ok(output) => output,
             Err(error) => {
-                let failure = CommandFailure::of(cmd, Failed::NotStarted(error.to_string()));
-                return (String::new(), Err(failure));
+                return Ran {
+                    stdout: String::new(),
+                    stderr: String::new(),
+                    ended: Err(CommandFailure::of(
+                        cmd,
+                        Failed::NotStarted(error.to_string()),
+                    )),
+                };
             }
         };
-        let Ok(text) = String::from_utf8(output.stdout) else {
-            return (String::new(), Err(CommandFailure::of(cmd, Failed::NotText)));
+        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+        let Ok(stdout) = String::from_utf8(output.stdout) else {
+            return Ran {
+                stdout: String::new(),
+                stderr,
+                ended: Err(CommandFailure::of(cmd, Failed::NotText)),
+            };
         };
         let ended = if output.status.success() {
             Ok(())
@@ -7904,11 +7923,15 @@ impl Runner for SystemRunner {
                 cmd,
                 Failed::Ended {
                     exit: exit_of(output.status),
-                    reason: None,
+                    reason: error_reason(&output.stderr),
                 },
             ))
         };
-        (text, ended)
+        Ran {
+            stdout,
+            stderr,
+            ended,
+        }
     }
 
     fn tracked(&mut self, patterns: &[&str]) -> Result<Vec<String>, CommandFailure> {
@@ -11515,12 +11538,15 @@ fn conformance(runner: &mut dyn Runner, out: &mut dyn Write) -> Result<(), Failu
 fn bless(runner: &mut dyn Runner, out: &mut dyn Write, options: &[String]) -> Result<(), Failure> {
     write_spent(runner, out)?;
     // Its result lines (CHANGED, BITS, what it wrote, or what it refuses) are xtask's
-    // result too: on xtask's stdout, so that `cargo xtask bless > log` keeps them.
-    let (result, ended) = runner.run_for_stdout(&bless_command(options));
-    for line in result.lines() {
+    // result too: on xtask's stdout, so that `cargo xtask bless > log` keeps them; then what
+    // it wrote on stderr (its summary, cargo's errors), in the order it wrote them, so that a
+    // summary never comes before the lines it counts, and xtask's own `error:` line, with the
+    // child's reason, is the last.
+    let ran = runner.run_for_stdout(&bless_command(options));
+    for line in ran.stdout.lines().chain(ran.stderr.lines()) {
         say(out, &format!("  {line}"))?;
     }
-    ended.map_err(|failure| match failure.failed {
+    ran.ended.map_err(|failure| match failure.failed {
         Failed::Ended {
             exit: Exit::Code(USAGE_EXIT),
             ..

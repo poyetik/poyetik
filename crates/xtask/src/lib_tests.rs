@@ -14,9 +14,9 @@ use std::process::Command;
 use super::{
     Action, BestEffort, CARGO_TOML, CHANGELOG, CHANGES_DIFF, COMMIT_HEADER_MAX, Cmd,
     CommandFailure, Coverage, Dir, EQUIVALENT_REVIEWED, Exit, Extent, Failed, Failure, MUTANTS_OUT,
-    Measured, Mode, NATIVE_TARGETS, OnFailure, PACKAGES, PORTABILITY_TARGETS, Runner, RustCrate,
-    Step, SystemRunner, UNSAFE_FILES, UNVIABLE_REPORT, UNVIABLE_REVIEWED, USAGE, Version,
-    bless_benchmarks_steps, bless_step, check_steps, cli, commit_msg_gate, coverage_gate,
+    Measured, Mode, NATIVE_TARGETS, OnFailure, PACKAGES, PORTABILITY_TARGETS, Ran, Runner,
+    RustCrate, Step, SystemRunner, UNSAFE_FILES, UNVIABLE_REPORT, UNVIABLE_REVIEWED, USAGE,
+    Version, bless_benchmarks_steps, bless_step, check_steps, cli, commit_msg_gate, coverage_gate,
     equivalent_gate, license_gate, membership_gate, package_jsons, preflight_gate, release_gate,
     run_steps, run_steps_then, ts_coverage_gate, ts_mutation_gate, unviable_gate,
 };
@@ -485,15 +485,33 @@ impl Runner for Fake {
     }
 
     /// Runs `cmd` as [`Runner::run`] does, its stdout the file named `stdout <command
-    /// line>`, or nothing.
-    fn run_for_stdout(&mut self, cmd: &Cmd) -> (String, Result<(), CommandFailure>) {
+    /// line>` and its stderr the file `stderr <command line>`, or nothing; a command that
+    /// ends with a code gives the reason its stderr holds, as a real one does.
+    fn run_for_stdout(&mut self, cmd: &Cmd) -> Ran {
+        let line = cmd.line();
         let ended = self.run(cmd);
-        let stdout = self
-            .files
-            .get(&format!("stdout {}", cmd.line()))
-            .cloned()
-            .unwrap_or_default();
-        (stdout, ended)
+        let read = |stream: &str| {
+            self.files
+                .get(&format!("{stream} {line}"))
+                .cloned()
+                .unwrap_or_default()
+        };
+        let (stdout, stderr) = (read("stdout"), read("stderr"));
+        let ended = ended.map_err(|failure| match failure.failed {
+            Failed::Ended { exit, .. } => CommandFailure {
+                failed: Failed::Ended {
+                    exit,
+                    reason: super::error_reason(stderr.as_bytes()),
+                },
+                ..failure
+            },
+            Failed::NotStarted(_) | Failed::NotText => failure,
+        });
+        Ran {
+            stdout,
+            stderr,
+            ended,
+        }
     }
 
     /// Answers with the file, fails as absent, or as not UTF-8 when the test breaks
@@ -3462,7 +3480,7 @@ impl Runner for Unreadable {
     fn capture(&mut self, cmd: &Cmd) -> Result<String, CommandFailure> {
         self.0.capture(cmd)
     }
-    fn run_for_stdout(&mut self, cmd: &Cmd) -> (String, Result<(), CommandFailure>) {
+    fn run_for_stdout(&mut self, cmd: &Cmd) -> Ran {
         self.0.run_for_stdout(cmd)
     }
     fn write(&mut self, path: &str, text: &str) -> io::Result<()> {
@@ -5547,6 +5565,10 @@ fn passes_its_options_on_and_tells_a_refused_one_as_a_usage_error() {
         fake.files
             .insert(format!("stdout {ran}"), "OPTION a\n".to_owned()),
     );
+    drop(fake.files.insert(
+        format!("stderr {ran}"),
+        "error: unknown option \"--frm-nothing\" (see: engine-cli help)\n".to_owned(),
+    ));
     let (mut out, mut err) = (Vec::new(), Vec::new());
     assert_eq!(
         run_cli(&args, &mut fake, &mut out, &mut err),
@@ -5562,15 +5584,17 @@ fn passes_its_options_on_and_tells_a_refused_one_as_a_usage_error() {
         String::from_utf8(err).expect("utf-8"),
         format!(
             "error: Bless conformance references: `engine-cli bless` refused the options given \
-             to `cargo xtask bless`: `{ran}` exited with code 2 (see: cargo xtask help)\n"
+             to `cargo xtask bless`: `{ran}` exited with code 2: error: unknown option \
+             \"--frm-nothing\" (see: engine-cli help) (see: cargo xtask help)\n"
         ),
-        "one line, pointing to the usage"
+        "one line, with the child's reason, pointing to the usage"
     );
     assert!(
-        String::from_utf8(out)
-            .expect("utf-8")
-            .contains("  OPTION a\n  failed after"),
-        "what it said on stdout, replayed"
+        String::from_utf8(out).expect("utf-8").contains(
+            "  OPTION a\n  error: unknown option \"--frm-nothing\" (see: engine-cli help)\n  \
+             failed after"
+        ),
+        "what it said on stdout, then on stderr, replayed in that order"
     );
     // Another failure of the same command is a failure, exit 1, without the pointer.
     let mut failing = Fake {
@@ -5694,45 +5718,142 @@ fn replays_the_result_lines_of_the_bless_on_stdout() {
 }
 
 #[test]
-fn runs_a_real_command_for_its_stdout() {
+fn runs_a_real_command_for_its_stdout_and_its_stderr() {
     let mut runner = system(fixture("coverage-locality"));
-    let (version, ended) = runner.run_for_stdout(&Cmd::new("git", &["--version"], Dir::Root));
-    assert!(
-        ended.is_ok() && version.starts_with("git version "),
-        "{version}"
-    );
-    let (nothing, refused) =
-        runner.run_for_stdout(&Cmd::new("git", &["no-such-command"], Dir::Root));
+    let shown = |ran: Ran| {
+        (
+            ran.stdout,
+            ran.stderr,
+            ran.ended.map_err(|failure| failure.to_string()),
+        )
+    };
+    let script = "echo result; echo 'note: first' >&2; echo 'error: why' >&2; exit 2";
     assert_eq!(
+        shown(runner.run_for_stdout(&Cmd::new("sh", &["-c", script], Dir::Root))),
         (
-            nothing.as_str(),
-            refused.map_err(|failure| failure.to_string())
+            "result\n".to_owned(),
+            "note: first\nerror: why\n".to_owned(),
+            Err(format!("`sh -c {script}` exited with code 2: error: why"))
         ),
-        (
-            "",
-            Err("`git no-such-command` exited with code 1".to_owned())
-        ),
-        "a command that fails, its stderr shown as it comes"
+        "both streams kept, the reason of the failure from its stderr"
     );
-    let (none, missing) = runner.run_for_stdout(&Cmd::new("no-such-program-xtask", &[], Dir::Root));
+    assert_eq!(
+        shown(runner.run_for_stdout(&Cmd::new("sh", &["-c", "exit 3"], Dir::Root))),
+        (
+            String::new(),
+            String::new(),
+            Err("`sh -c exit 3` exited with code 3".to_owned())
+        ),
+        "a failure that says nothing"
+    );
+    assert_eq!(
+        shown(runner.run_for_stdout(&Cmd::new("sh", &["-c", "printf '\\377' >&2"], Dir::Root))),
+        (String::new(), "\u{fffd}".to_owned(), Ok(())),
+        "a stderr that is not text, replaced"
+    );
+    let missing = runner.run_for_stdout(&Cmd::new("no-such-program-xtask", &[], Dir::Root));
     assert!(
-        none.is_empty()
-            && missing.is_err_and(|failure| failure
+        missing.stdout.is_empty()
+            && missing.stderr.is_empty()
+            && missing.ended.is_err_and(|failure| failure
                 .to_string()
                 .starts_with("cannot run `no-such-program-xtask`: ")),
         "a program that does not start"
     );
-    let (bytes, garbled) = runner.run_for_stdout(&Cmd::new("printf", &["\\377"], Dir::Root));
     assert_eq!(
+        shown(runner.run_for_stdout(&Cmd::new(
+            "sh",
+            &["-c", "printf '\\377'; echo 'error: kept' >&2"],
+            Dir::Root
+        ))),
         (
-            bytes.as_str(),
-            garbled.map_err(|failure| failure.to_string())
-        ),
-        (
-            "",
-            Err("`printf \\377` wrote output that is not UTF-8 text".to_owned())
+            String::new(),
+            "error: kept\n".to_owned(),
+            Err("`sh -c printf '\\377'; echo 'error: kept' >&2` wrote output that is not UTF-8 text"
+                .to_owned())
         ),
         "stdout that is not text"
+    );
+}
+
+/// `cargo xtask bless` through real processes: real git in a scratch repository whose main
+/// holds no record, and a stand-in for `cargo` that refuses an option as `engine-cli` does,
+/// with a result line on stdout and its error line on stderr. The step fails as a usage
+/// error, its last line carrying the child's reason, after the child's lines in their order.
+/// That cargo passes on the exit code of `engine-cli` is its documented behavior, review
+/// only.
+#[cfg(unix)]
+#[test]
+fn tells_a_refused_option_of_a_real_bless_as_a_usage_error_with_its_reason() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let root = scratch("bless-usage");
+    let _init = hermetic_git(&root, &["init", "-q", "-b", "main"]);
+    std::fs::write(root.join("a.txt"), "a\n").expect("file written");
+    let _add = hermetic_git(&root, &["add", "a.txt"]);
+    let _commit = hermetic_git(&root, &["commit", "-q", "-m", "docs: start"]);
+    let bin = root.join("bin");
+    std::fs::create_dir_all(&bin).expect("bin created");
+    let stub = bin.join("cargo");
+    std::fs::write(
+        &stub,
+        "#!/bin/sh\necho 'OPTION   --bogus'\necho 'error: unknown option \"--bogus\" (see: engine-cli \
+         help)' >&2\nexit 2\n",
+    )
+    .expect("stub written");
+    std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755))
+        .expect("stub executable");
+    let path: &'static str = Box::leak(
+        format!(
+            "{}:{}",
+            bin.display(),
+            std::env::var("PATH").expect("a PATH")
+        )
+        .into_boxed_str(),
+    );
+    let env: &'static [(&'static str, &'static str)] = Box::leak(
+        HERMETIC
+            .into_iter()
+            .chain([("PATH", path)])
+            .collect::<Vec<_>>()
+            .into_boxed_slice(),
+    );
+    let mut runner = SystemRunner {
+        root: root.to_path_buf(),
+        env,
+    };
+    let mut out = Vec::new();
+    let failure = run_steps(
+        &[bless_step(&["--bogus".to_owned()])],
+        &mut runner,
+        &mut out,
+    )
+    .expect_err("refused");
+    assert_eq!(
+        (failure.usage, failure.summary),
+        (
+            true,
+            format!(
+                "Bless conformance references: `engine-cli bless` refused the options given to \
+                 `cargo xtask bless`: `{}` exited with code 2: error: unknown option \"--bogus\" \
+                 (see: engine-cli help)",
+                super::bless_command(&["--bogus".to_owned()]).line()
+            )
+        ),
+        "a usage error, with the reason the child gave"
+    );
+    let shown = String::from_utf8(out).expect("UTF-8");
+    assert!(
+        shown.contains(
+            "  OPTION   --bogus\n  error: unknown option \"--bogus\" (see: engine-cli help)\n"
+        ),
+        "the child's result line, then its error line: {shown}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.join(super::SPENT_RECORD))
+            .ok()
+            .as_deref(),
+        Some("null\n"),
+        "the record at the merge base, none"
     );
 }
 
