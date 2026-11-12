@@ -9038,9 +9038,14 @@ fn in_tests_dir(rel: &str) -> bool {
 /// What every Rust test depends on, at the root: the default check mutates everything when
 /// one changes.
 ///
-/// The workspace's manifest (its lints, profiles and shared dependencies) and the pinned
-/// toolchain: a change to either can let any mutant survive.
-pub const MUTATE_EVERYTHING_WHEN: [&str; 2] = [CARGO_TOML, RUST_TOOLCHAIN_FILE];
+/// The pinned toolchain: a change to it can let any mutant survive. The workspace's
+/// manifest ([`CARGO_TOML`]) widens to everything too, but for a change of its shared
+/// dependencies alone (`manifest_widened`).
+pub const MUTATE_EVERYTHING_WHEN: [&str; 1] = [RUST_TOOLCHAIN_FILE];
+
+/// The header of the table of the workspace's shared dependencies, which its crates
+/// inherit (`<name>.workspace = true`), as the workspace's manifest writes it.
+pub const WORKSPACE_DEPENDENCIES: &str = "[workspace.dependencies]";
 
 /// The resolved dependencies of the workspace: a change mutates every crate whose build
 /// reaches a changed entry (`lock_widened`).
@@ -9058,6 +9063,10 @@ enum Widening {
     Everything,
     /// The crates whose build reaches a changed entry of [`LOCK_FILE`].
     Lock,
+    /// The crates whose build includes a crate that declares a changed entry of the
+    /// workspace's shared dependencies ([`WORKSPACE_DEPENDENCIES`] in [`CARGO_TOML`]), or
+    /// every crate when anything else of it changed ([`manifest_widened`]).
+    Workspace,
     /// The crate whose manifest it is, and every crate whose build includes it.
     Manifest(&'static str),
     /// Every crate whose tests use this crate of shared test code ([`CrateRole::SharedTests`]).
@@ -9074,6 +9083,9 @@ fn widening(path: &str) -> Option<Widening> {
     }
     if path == LOCK_FILE {
         return Some(Widening::Lock);
+    }
+    if path == CARGO_TOML {
+        return Some(Widening::Workspace);
     }
     let name = path.rsplit_once('/').map_or(path, |(_, name)| name);
     match in_crate(path) {
@@ -9289,6 +9301,30 @@ fn lock_widened(before: &str, lock: &str) -> Result<BTreeSet<&'static str>, Stri
     Ok(widened)
 }
 
+/// The file at `path` in the commit `since`, then in the work tree.
+///
+/// # Errors
+///
+/// Returns why either cannot be read: git's error (a file missing there included), or the
+/// system's.
+fn file_changes(
+    runner: &mut dyn Runner,
+    since: &str,
+    path: &str,
+) -> Result<(String, String), String> {
+    let before = runner
+        .capture(&Cmd::new(
+            "git",
+            &["show", &format!("{since}:{path}")],
+            Dir::Root,
+        ))
+        .map_err(|failure| failure.to_string())?;
+    let now = runner
+        .read(path)
+        .map_err(|error| format!("cannot read it: {error}"))?;
+    Ok((before, now))
+}
+
 /// The crates whose build reaches an entry of [`LOCK_FILE`] changed since `since`
 /// ([`lock_widened`]).
 ///
@@ -9297,17 +9333,150 @@ fn lock_widened(before: &str, lock: &str) -> Result<BTreeSet<&'static str>, Stri
 /// Returns why every crate may build differently: the file cannot be read there or here,
 /// or the crates cannot be found from it.
 fn lock_changes(runner: &mut dyn Runner, since: &str) -> Result<BTreeSet<&'static str>, String> {
-    let before = runner
-        .capture(&Cmd::new(
-            "git",
-            &["show", &format!("{since}:{LOCK_FILE}")],
-            Dir::Root,
-        ))
-        .map_err(|failure| failure.to_string())?;
-    let lock = runner
-        .read(LOCK_FILE)
-        .map_err(|error| format!("cannot read it: {error}"))?;
+    let (before, lock) = file_changes(runner, since, LOCK_FILE)?;
     lock_widened(&before, &lock)
+}
+
+/// Whether `value`, what follows `=` on the line of an entry, holds one whole value on that
+/// line, before an optional comment: its basic strings (`"…"`) closed, every inline table
+/// and array it opens closed in order. A backslash (an escape) or an apostrophe outside a
+/// basic string (a literal string, where a bracket or a quote is text) is refused, never
+/// read.
+fn one_line_value(value: &str) -> bool {
+    let mut open: Vec<char> = Vec::new();
+    let mut quoted = false;
+    for character in value.chars() {
+        match (quoted, character) {
+            (false, '#') => break,
+            (_, '\\') | (false, '\'') => return false,
+            (_, '"') => quoted = !quoted,
+            (false, '{') => open.push('}'),
+            (false, '[') => open.push(']'),
+            (false, '}' | ']') if open.pop() != Some(character) => return false,
+            _ => {}
+        }
+    }
+    !quoted && open.is_empty()
+}
+
+/// The name of the entry of shared dependencies `line` writes (`<name> = <value>`, leading
+/// blanks apart), if it is one whole entry on one line: a bare key ([`one_line_value`]).
+fn dependency_entry(line: &str) -> Option<&str> {
+    let (name, value) = line.trim_start_matches([' ', '\t']).split_once('=')?;
+    let name = name.trim_end_matches([' ', '\t']);
+    (!name.is_empty()
+        && name
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || "-_".contains(character))
+        && one_line_value(value))
+    .then_some(name)
+}
+
+/// The workspace's manifest `manifest` but the lines of its shared dependencies, and each of
+/// those entries by its name ([`dependency_entry`]), its whole line.
+///
+/// Read only as far as it can be read soundly, so that a manifest it accepts holds exactly
+/// those entries in that table: no multi-line string (in which a line could look like a
+/// table), exactly one line [`WORKSPACE_DEPENDENCIES`] (the table, which every other line
+/// beginning with `[` ends), each line of the table blank, a comment or one entry, no name
+/// twice. An entry the rest of the manifest writes elsewhere in the table (a key of
+/// `[workspace]`, a table of its own) is in the rest, compared whole.
+///
+/// # Errors
+///
+/// Returns what it does not read: a multi-line string, the table not exactly once, or the
+/// line of the table that is not an entry, or repeats one.
+fn shared_dependencies(manifest: &str) -> Result<(String, BTreeMap<&str, &str>), String> {
+    if manifest.contains("\"\"\"") || manifest.contains("'''") {
+        return Err("it holds a multi-line string".to_owned());
+    }
+    let lines: Vec<&str> = manifest.split('\n').collect();
+    let mut headers = lines
+        .iter()
+        .zip(1_usize..)
+        .filter(|(line, _)| **line == WORKSPACE_DEPENDENCIES);
+    let (Some((_, start)), None) = (headers.next(), headers.next()) else {
+        return Err(format!(
+            "it does not hold exactly one line `{WORKSPACE_DEPENDENCIES}`"
+        ));
+    };
+    let table: Vec<(&str, usize)> = lines
+        .iter()
+        .copied()
+        .zip(1_usize..)
+        .skip(start)
+        .take_while(|(line, _)| !line.trim_start().starts_with('['))
+        .collect();
+    let mut entries = BTreeMap::new();
+    for (line, number) in &table {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let name = dependency_entry(line).ok_or_else(|| {
+            format!("line {number} is not one entry `<name> = <value>` on one line")
+        })?;
+        if entries.insert(name, *line).is_some() {
+            return Err(format!("line {number} repeats an entry"));
+        }
+    }
+    let rest: Vec<&str> = lines
+        .iter()
+        .take(start)
+        .chain(lines.iter().skip(start.saturating_add(table.len())))
+        .copied()
+        .collect();
+    Ok((rest.join("\n"), entries))
+}
+
+/// The names of the entries of the workspace's shared dependencies that differ between
+/// `manifest` (the workspace's manifest) and `before` (the same file at an earlier
+/// commit): added, removed or changed, a comment apart ([`shared_dependencies`]).
+///
+/// An entry reaches only the crates that declare it (`<name>.workspace = true`); what it
+/// resolves to is in the lock file, widened on its own ([`lock_widened`]).
+///
+/// # Errors
+///
+/// Returns why every crate may build differently: either file is not read, or anything
+/// else of the manifest changed (its profiles, lints, patches, members, package fields),
+/// which no entry names.
+fn manifest_widened(before: &str, manifest: &str) -> Result<BTreeSet<String>, String> {
+    let (old_rest, old) =
+        shared_dependencies(before).map_err(|reason| format!("its earlier version: {reason}"))?;
+    let (rest, new) = shared_dependencies(manifest)?;
+    if old_rest != rest {
+        return Err(format!(
+            "it changed outside the entries of `{WORKSPACE_DEPENDENCIES}`"
+        ));
+    }
+    Ok(old
+        .keys()
+        .chain(new.keys())
+        .filter(|name| old.get(*name) != new.get(*name))
+        .map(|name| (*name).to_owned())
+        .collect())
+}
+
+/// The crates whose build includes a crate that declares an entry of the shared
+/// dependencies changed since `since` ([`manifest_widened`], `builds`).
+///
+/// # Errors
+///
+/// Returns why every crate may build differently: the manifest cannot be read there or
+/// here, or what changed is not entries alone.
+fn manifest_changes(
+    runner: &mut dyn Runner,
+    since: &str,
+    builds: &Builds,
+) -> Result<BTreeSet<&'static str>, String> {
+    let (before, manifest) = file_changes(runner, since, CARGO_TOML)?;
+    Ok(manifest_widened(&before, &manifest)?
+        .iter()
+        .filter_map(|name| builds.declaring.get(name))
+        .flatten()
+        .flat_map(|krate| crates_building(&builds.closures, krate))
+        .collect())
 }
 
 /// The crates of [`RUST_CRATES`] whose closure ([`crate_closures`]) holds `name`.
@@ -9323,12 +9492,22 @@ fn crates_building(closures: &Closures, name: &str) -> BTreeSet<&'static str> {
 /// its name, in the order of [`RUST_CRATES`] ([`crate_closures`]).
 type Closures = BTreeMap<&'static str, Vec<&'static RustCrate>>;
 
+/// What the crates of [`RUST_CRATES`] build, from `cargo metadata` ([`crate_builds`]).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct Builds {
+    /// What each compiles for its tests.
+    closures: Closures,
+    /// The crates declaring a dependency, by the name their manifest gives it (its key:
+    /// cargo's `rename`, else its `name`), the one an entry of the shared dependencies has.
+    declaring: BTreeMap<String, BTreeSet<&'static str>>,
+}
+
 /// What the changes since a commit widen the default check's mutation testing to, beyond
 /// their lines ([`reach`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Reach {
     /// Every crate, by the first path that widens to it, and why it could not be narrowed
-    /// to some crates, if it could have been ([`LOCK_FILE`]).
+    /// to some crates, if it could have been ([`LOCK_FILE`], [`CARGO_TOML`]).
     Everything {
         /// The path.
         path: String,
@@ -9348,48 +9527,47 @@ fn unnarrowed_text(why: Option<&str>) -> String {
 }
 
 /// Whether one of `changed` widens through the builds of crates (a manifest, the shared
-/// test crate), which needs the [`Closures`].
+/// test crate), which needs the [`Builds`].
 fn needs_closures<'path>(mut changed: impl Iterator<Item = &'path str>) -> bool {
     changed.any(|path| {
         matches!(
             widening(path),
-            Some(Widening::Manifest(_) | Widening::SharedTests(_))
+            Some(Widening::Manifest(_) | Widening::SharedTests(_) | Widening::Workspace)
         )
     })
 }
 
 /// What the paths of `changed`, changed since `since`, widen the default check's mutation
 /// testing to ([`widening`], [`Reach`]): the one decision both the run and a proof record
-/// take, `closures` holding what each crate builds when [`needs_closures`].
+/// take, `builds` holding what each crate builds when [`needs_closures`].
 ///
-/// A lock file that cannot be compared entry by entry widens to every crate.
+/// A lock file that cannot be compared entry by entry, or a workspace manifest whose change
+/// is not of its shared dependencies alone, widens to every crate.
 fn reach<'path>(
     runner: &mut dyn Runner,
     since: &str,
     changed: impl IntoIterator<Item = &'path str>,
-    closures: &Closures,
+    builds: &Builds,
 ) -> Reach {
     let mut widened: BTreeMap<&'static str, String> = BTreeMap::new();
     for path in changed {
-        let crates = match widening(path) {
+        // The crates it reaches, or why it could not be narrowed, if it could have been.
+        let narrowed = match widening(path) {
             None => continue,
-            Some(Widening::Everything) => {
+            Some(Widening::Everything) => Err(None),
+            Some(Widening::Lock) => lock_changes(runner, since).map_err(Some),
+            Some(Widening::Workspace) => manifest_changes(runner, since, builds).map_err(Some),
+            Some(Widening::Manifest(name) | Widening::SharedTests(name)) => {
+                Ok(crates_building(&builds.closures, name))
+            }
+        };
+        let crates = match narrowed {
+            Ok(crates) => crates,
+            Err(unnarrowed) => {
                 return Reach::Everything {
                     path: path.to_owned(),
-                    unnarrowed: None,
+                    unnarrowed,
                 };
-            }
-            Some(Widening::Lock) => match lock_changes(runner, since) {
-                Err(why) => {
-                    return Reach::Everything {
-                        path: path.to_owned(),
-                        unnarrowed: Some(why),
-                    };
-                }
-                Ok(crates) => crates,
-            },
-            Some(Widening::Manifest(name) | Widening::SharedTests(name)) => {
-                crates_building(closures, name)
             }
         };
         for krate in crates {
@@ -10231,10 +10409,42 @@ fn crate_closures(metadata: &str) -> Result<Closures, Failure> {
         .collect())
 }
 
+/// What the crates of [`RUST_CRATES`] build ([`Builds`]), from `metadata` (the output of
+/// [`metadata_command`]): their closures ([`crate_closures`]) and the name each dependency
+/// has in their manifests, every kind and target included.
+///
+/// # Errors
+///
+/// Returns why the metadata cannot be read, or that a dependency has no name.
+fn crate_builds(metadata: &str) -> Result<Builds, Failure> {
+    let mut declaring: BTreeMap<String, BTreeSet<&'static str>> = BTreeMap::new();
+    for (name, package) in cargo_packages(metadata)? {
+        let Some(krate) = RUST_CRATES.iter().find(|krate| krate.name == name) else {
+            continue;
+        };
+        for dependency in dependencies_of(&package) {
+            let key = ["rename", "name"]
+                .iter()
+                .find_map(|field| dependency.get(field).and_then(serde_json::Value::as_str))
+                .ok_or_else(|| {
+                    Failure::from("cargo metadata lists a dependency without a name".to_owned())
+                })?;
+            let _new = declaring
+                .entry(key.to_owned())
+                .or_default()
+                .insert(krate.name);
+        }
+    }
+    Ok(Builds {
+        closures: crate_closures(metadata)?,
+        declaring,
+    })
+}
+
 /// The crates the proof record `record` still proves: those whose inputs are unchanged
 /// since its commit ([`ProofRecord`]), none when what every test depends on or the mutation
 /// rules changed since (said on `out`). Its changes widen as the run's do ([`reach`]); a
-/// change of any crate a crate builds (`closures`) is a change of its inputs.
+/// change of any crate a crate builds (`builds`) is a change of its inputs.
 ///
 /// # Errors
 ///
@@ -10244,7 +10454,7 @@ fn proven_crates(
     runner: &mut dyn Runner,
     out: &mut dyn Write,
     record: &ProofRecord,
-    closures: &Closures,
+    builds: &Builds,
 ) -> Result<Vec<RustCrate>, Failure> {
     let tracked = changed_since(runner, &record.commit)?;
     let untracked = git_output(
@@ -10260,7 +10470,7 @@ fn proven_crates(
         .collect();
     let voiding = match changed.iter().find(|path| mutation_rule(path)) {
         Some(path) => format!("{path} changed since, the mutation rules"),
-        None => match reach(runner, &record.commit, changed.iter().copied(), closures) {
+        None => match reach(runner, &record.commit, changed.iter().copied(), builds) {
             Reach::Everything { path, unnarrowed } => format!(
                 "{path} changed since{}, what every test depends on",
                 unnarrowed_text(unnarrowed.as_deref())
@@ -10272,7 +10482,7 @@ fn proven_crates(
                         !reached.contains_key(krate.name)
                             && !changed
                                 .iter()
-                                .any(|path| inputs_changed(krate, path, closures))
+                                .any(|path| inputs_changed(krate, path, &builds.closures))
                     })
                     .collect());
             }
@@ -10458,16 +10668,16 @@ fn rust_mutants_of_changes(
     }
     say(out, &format!("  the changes since {measured}"))?;
     // What every crate builds, read once, for the run and the record alike.
-    let closures = if proof.is_some() || needs_closures(changed.iter().map(String::as_str)) {
-        crate_closures(&crates_metadata(runner)?)?
+    let builds = if proof.is_some() || needs_closures(changed.iter().map(String::as_str)) {
+        crate_builds(&crates_metadata(runner)?)?
     } else {
-        Closures::new()
+        Builds::default()
     };
     let proven = match &proof {
-        Some(record) => proven_crates(runner, out, record, &closures)?,
+        Some(record) => proven_crates(runner, out, record, &builds)?,
         None => Vec::new(),
     };
-    let reach = reach(runner, &base, changed.iter().map(String::as_str), &closures);
+    let reach = reach(runner, &base, changed.iter().map(String::as_str), &builds);
     let scoped = in_scope(&changed, &reach);
     // Each proven crate the check would otherwise have tested is named.
     let skipped: Vec<&RustCrate> = scoped

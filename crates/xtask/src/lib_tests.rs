@@ -2471,17 +2471,19 @@ fn mutates_everything_when_what_every_test_uses_changed() {
             "{path}: every mutant of the workspace, no diff: {:?}",
             fake.ran
         );
-        let unnarrowed = if path == "Cargo.lock" {
-            " and cannot be narrowed (`git show abc1230000000000000000000000000000000000:Cargo.lock` \
-             exited with code 1: failed)"
+        let unnarrowed = if ["Cargo.lock", "Cargo.toml"].contains(&path) {
+            format!(
+                " and cannot be narrowed (`git show abc1230000000000000000000000000000000000:{path}` \
+                 exited with code 1: failed)"
+            )
         } else {
-            ""
+            String::new()
         };
         assert!(
             String::from_utf8(out).expect("UTF-8").contains(&format!(
                 "  {path} changed{unnarrowed}: every Rust mutant\n"
             )),
-            "{path}: said, with why a lock file is not narrowed"
+            "{path}: said, with why a lock file or the workspace's manifest is not narrowed"
         );
     }
     for path in [
@@ -15765,7 +15767,12 @@ fn ignores_a_proof_record_when_its_rules_or_shared_inputs_changed() {
             true,
         ),
         ("rust-toolchain.toml", "what every test depends on", true),
-        ("Cargo.toml", "what every test depends on", true),
+        (
+            "Cargo.toml",
+            "and cannot be narrowed (`git show 1111111111111111111111111111111111111111:Cargo.toml` \
+             exited with code 1: failed), what every test depends on",
+            true,
+        ),
     ] {
         let mut fake = if tracked {
             proven_fake(&proof_record(PROVEN[2]), &one_line_change(path))
@@ -16854,7 +16861,7 @@ fn derives_each_list_of_crates_from_their_roles() {
 fn widens_each_kind_of_shared_input_as_far_as_it_reaches() {
     use super::Widening;
     for (path, expected) in [
-        ("Cargo.toml", Some(Widening::Everything)),
+        ("Cargo.toml", Some(Widening::Workspace)),
         ("rust-toolchain.toml", Some(Widening::Everything)),
         ("Cargo.lock", Some(Widening::Lock)),
         (
@@ -17449,4 +17456,398 @@ fn ignores_a_proof_record_of_another_compiler_or_linker() {
         );
         ignored(&mut unnamed, "`cc --version` names no version");
     }
+}
+
+/// A workspace manifest shaped as the project's: members, package fields, shared
+/// dependencies with a comment, lints and a profile.
+const MANIFEST: &str = "[workspace]\nresolver = \"3\"\nmembers = [\"crates/*\"]\n\n[workspace.package]\nversion = \"0.1.0\"\n\n[workspace.dependencies]\n# Pinned.\nlibm = { version = \"=0.2.16\", default-features = false }\nsha2 = { version = \"=0.11.1\", default-features = false }\n\n[workspace.lints.rust]\nunsafe_code = \"deny\"\n\n[profile.release]\nlto = \"fat\"\n";
+
+/// [`MANIFEST`] with `from` replaced by `to`, which it holds.
+fn manifest_with(from: &str, to: &str) -> String {
+    assert!(MANIFEST.contains(from), "{from}");
+    MANIFEST.replacen(from, to, 1)
+}
+
+/// What [`super::manifest_widened`] finds from [`MANIFEST`] to `manifest`, names sorted.
+fn widened_entries(manifest: &str) -> Result<Vec<String>, String> {
+    super::manifest_widened(MANIFEST, manifest).map(|names| names.into_iter().collect())
+}
+
+#[test]
+fn finds_the_shared_dependencies_a_workspace_manifest_changes() {
+    let libm = "libm = { version = \"=0.2.16\", default-features = false }";
+    let sha2 = "sha2 = { version = \"=0.11.1\", default-features = false }";
+    for (manifest, expected, what) in [
+        (MANIFEST.to_owned(), &[][..], "unchanged"),
+        (
+            manifest_with("# Pinned.\n", "# Pinned exactly.\n\n  # Twice.\n"),
+            &[],
+            "a comment or a blank line of the table",
+        ),
+        (
+            manifest_with(&format!("{libm}\n{sha2}"), &format!("{sha2}\n{libm}")),
+            &[],
+            "the same entries in another order",
+        ),
+        (
+            manifest_with("=0.2.16", "=0.2.17"),
+            &["libm"],
+            "an entry changed",
+        ),
+        (
+            manifest_with(
+                "default-features = false }\nsha2",
+                "default-features = true }\nsha2",
+            ),
+            &["libm"],
+            "its features",
+        ),
+        (
+            manifest_with(libm, &format!("\t {libm} # {{ it's \"")),
+            &["libm"],
+            "indented, with a comment holding anything",
+        ),
+        (
+            manifest_with(
+                "# Pinned.\n",
+                "engine-core = { path = \"crates/engine-core\" }\na_b  =\t[\"x\", { y = \"#{[\" }]\n",
+            ),
+            &["a_b", "engine-core"],
+            "entries added, names with a dash or an underscore, any value on one line",
+        ),
+        (
+            manifest_with(
+                "sha2 = { version = \"=0.11.1\", default-features = false }\n",
+                "",
+            ),
+            &["sha2"],
+            "an entry removed",
+        ),
+    ] {
+        assert_eq!(
+            widened_entries(&manifest),
+            Ok(expected.iter().map(|name| (*name).to_owned()).collect()),
+            "{what}"
+        );
+    }
+}
+
+#[test]
+fn widens_to_everything_a_workspace_manifest_changed_elsewhere_or_unread() {
+    let outside = "it changed outside the entries of `[workspace.dependencies]`".to_owned();
+    for (manifest, what) in [
+        (
+            manifest_with("lto = \"fat\"", "lto = \"thin\""),
+            "a profile",
+        ),
+        (
+            manifest_with("unsafe_code = \"deny\"", "unsafe_code = \"forbid\""),
+            "a lint",
+        ),
+        (
+            manifest_with("[\"crates/*\"]", "[\"crates/*\", \"x\"]"),
+            "the members",
+        ),
+        (
+            manifest_with("resolver = \"3\"", "resolver = \"2\""),
+            "the resolver",
+        ),
+        (manifest_with("0.1.0", "0.2.0"), "a package field"),
+        (
+            format!("{MANIFEST}\n[patch.crates-io]\nlibm = {{ path = \"x\" }}\n"),
+            "a patch",
+        ),
+        (
+            format!("{MANIFEST}\n[replace]\n\"libm:0.2.16\" = {{ path = \"x\" }}\n"),
+            "a replacement",
+        ),
+        (
+            manifest_with(
+                "\n[workspace.lints.rust]",
+                "[workspace.dependencies.serde]\nversion = \"1\"\n\n[workspace.lints.rust]",
+            ),
+            "an entry written as a table of its own",
+        ),
+        (
+            manifest_with("[workspace]\n", "[workspace]\nx = 1\n"),
+            "a key not understood",
+        ),
+        (format!("{MANIFEST}\n"), "the last line"),
+    ] {
+        assert_eq!(widened_entries(&manifest), Err(outside.clone()), "{what}");
+    }
+    let one_header = "it does not hold exactly one line `[workspace.dependencies]`".to_owned();
+    let not_entry =
+        |line: usize| format!("line {line} is not one entry `<name> = <value>` on one line");
+    for (manifest, expected, what) in [
+        (
+            "not a manifest {{{".to_owned(),
+            one_header.clone(),
+            "unparsable",
+        ),
+        (
+            manifest_with("[workspace.dependencies]", "[workspace.dependencies] # x"),
+            one_header.clone(),
+            "a header written otherwise",
+        ),
+        (
+            format!("{MANIFEST}[workspace.dependencies]\n"),
+            one_header,
+            "the table twice",
+        ),
+        (
+            manifest_with("version = \"0.1.0\"", "description = \"\"\"\nx\"\"\""),
+            "it holds a multi-line string".to_owned(),
+            "a multi-line basic string",
+        ),
+        (
+            manifest_with("version = \"0.1.0\"", "description = '''\nx'''"),
+            "it holds a multi-line string".to_owned(),
+            "a multi-line literal string",
+        ),
+        (
+            manifest_with("sha2", "libm"),
+            "line 11 repeats an entry".to_owned(),
+            "an entry twice",
+        ),
+    ] {
+        assert_eq!(widened_entries(&manifest), Err(expected), "{what}");
+    }
+    for refused in [
+        "libm.version = \"1\"",
+        "\"libm\" = \"1\"",
+        "= \"1\"",
+        "libm \"1\"",
+        "libm = {",
+        "libm = { version = \"1\", features = [",
+        "libm = { version = \"1\" # }",
+        "libm = \"1",
+        "libm = \"\\\\\"",
+        "libm = 'x'",
+        "libm = { a = [1 }",
+        "libm = { a = [1 } ]",
+        "libm = 1 }",
+        "libm = ]",
+        "lïbm = \"1\"",
+    ] {
+        assert_eq!(
+            widened_entries(&manifest_with("# Pinned.", refused)),
+            Err(not_entry(9)),
+            "{refused}"
+        );
+    }
+    assert_eq!(
+        super::manifest_widened("[workspace]\n", MANIFEST),
+        Err(
+            "its earlier version: it does not hold exactly one line `[workspace.dependencies]`"
+                .to_owned()
+        ),
+        "the earlier version, said as such"
+    );
+}
+
+/// What the crates of the manifest tests declare: the engine core `libm`, the render hash
+/// `sha2`, xtask `serde_json` under the name `json`; the boxes build the engine core.
+const DECLARING_METADATA: &str = r#"{"workspace_root":"/r","packages":[{"name":"engine-core","dependencies":[{"name":"libm","kind":null,"rename":null}]},{"name":"engine-hash","dependencies":[{"name":"sha2","kind":null}]},{"name":"engine-objects","dependencies":[{"name":"engine-core","kind":null,"path":"/r/crates/engine-core"}]},{"name":"xtask","dependencies":[{"name":"serde_json","kind":null,"rename":"json"}]},{"name":"other","dependencies":[{"name":"libm","kind":null}]}]}"#;
+
+#[test]
+fn reads_the_name_each_crate_gives_its_dependencies() {
+    let builds = super::crate_builds(DECLARING_METADATA).expect("valid metadata");
+    let declaring: Vec<(&str, Vec<&str>)> = builds
+        .declaring
+        .iter()
+        .map(|(name, crates)| (name.as_str(), crates.iter().copied().collect()))
+        .collect();
+    assert_eq!(
+        declaring,
+        [
+            ("engine-core", vec!["engine-objects"]),
+            ("json", vec!["xtask"]),
+            ("libm", vec!["engine-core"]),
+            ("sha2", vec!["engine-hash"]),
+        ],
+        "by its name in the manifest, a crate outside the workspace apart"
+    );
+    assert_eq!(
+        builds.closures,
+        super::crate_closures(DECLARING_METADATA).expect("valid metadata"),
+        "and the closures"
+    );
+    assert!(
+        super::crate_builds(
+            r#"{"workspace_root":"/r","packages":[{"name":"engine-hash","dependencies":[{"rename":null}]}]}"#
+        )
+        .is_err_and(|failure| failure.summary == "cargo metadata lists a dependency without a name"),
+        "a dependency without a name"
+    );
+    assert!(
+        super::crate_builds("not json")
+            .is_err_and(|failure| failure.summary.starts_with("invalid cargo metadata: ")),
+        "not JSON"
+    );
+}
+
+#[test]
+fn narrows_a_change_of_the_workspace_manifest_real_git_shows() {
+    let dir = scratch("workspace-manifest");
+    std::fs::write(dir.join("Cargo.toml"), MANIFEST).expect("a manifest");
+    let _init = hermetic_git(&dir, &["init", "--quiet", "--initial-branch=main"]);
+    let _add = hermetic_git(&dir, &["add", "."]);
+    let _commit = hermetic_git(&dir, &["commit", "--quiet", "-m", "base"]);
+    let base = hermetic_git(&dir, &["rev-parse", "HEAD"]);
+    let builds = super::crate_builds(DECLARING_METADATA).expect("valid metadata");
+    let reach = |manifest: Option<&str>| {
+        match manifest {
+            Some(text) => std::fs::write(dir.join("Cargo.toml"), text).expect("written"),
+            None => std::fs::remove_file(dir.join("Cargo.toml")).expect("removed"),
+        }
+        super::reach(
+            &mut system(dir.path()),
+            base.trim(),
+            ["Cargo.toml"],
+            &builds,
+        )
+    };
+    let crates = |names: &[&'static str]| {
+        super::Reach::Crates(
+            names
+                .iter()
+                .map(|name| (*name, "Cargo.toml".to_owned()))
+                .collect(),
+        )
+    };
+    let everything = |why: &str| super::Reach::Everything {
+        path: "Cargo.toml".to_owned(),
+        unnarrowed: Some(why.to_owned()),
+    };
+    assert_eq!(
+        reach(Some(&manifest_with("=0.2.16", "=0.2.17"))),
+        crates(&["engine-core", "engine-objects"]),
+        "an entry changed: the crate declaring it, and every crate building that one"
+    );
+    assert_eq!(
+        reach(Some(&manifest_with(
+            "sha2 = { version = \"=0.11.1\", default-features = false }\n",
+            ""
+        ))),
+        crates(&["engine-hash"]),
+        "an entry removed"
+    );
+    assert_eq!(
+        reach(Some(&manifest_with(
+            "# Pinned.\n",
+            "json = { package = \"serde_json\", version = \"1\" }\nserde = \"1\"\n"
+        ))),
+        crates(&["xtask"]),
+        "entries added: one declared under its name, one by no crate"
+    );
+    assert_eq!(
+        reach(Some(&manifest_with("# Pinned.", "# Pinned exactly."))),
+        crates(&[]),
+        "a comment: nothing"
+    );
+    let outside = "it changed outside the entries of `[workspace.dependencies]`";
+    assert_eq!(
+        reach(Some(&manifest_with("lto = \"fat\"", "lto = \"thin\""))),
+        everything(outside),
+        "a profile: every Rust mutant, said why"
+    );
+    assert_eq!(
+        reach(Some(&manifest_with(
+            "unsafe_code = \"deny\"",
+            "unsafe_code = \"forbid\""
+        ))),
+        everything(outside),
+        "a lint"
+    );
+    assert_eq!(
+        reach(Some(&manifest_with("=0.2.16\"", "=0.2.16"))),
+        everything("line 10 is not one entry `<name> = <value>` on one line"),
+        "unparsable"
+    );
+    assert!(
+        matches!(
+            reach(None),
+            super::Reach::Everything { unnarrowed: Some(why), .. }
+                if why.starts_with("cannot read it: ")
+        ),
+        "a manifest that cannot be read"
+    );
+    std::fs::write(dir.join("Cargo.toml"), MANIFEST).expect("restored");
+    let unrooted = super::reach(
+        &mut system(dir.path()),
+        "0000000000000000000000000000000000000000",
+        ["Cargo.toml"],
+        &builds,
+    );
+    assert!(
+        matches!(
+            &unrooted,
+            super::Reach::Everything { unnarrowed: Some(why), .. }
+                if why.starts_with("`git show 0000000000000000000000000000000000000000:Cargo.toml` exited with code ")
+        ),
+        "a commit git cannot show it at: {unrooted:?}"
+    );
+}
+
+#[test]
+fn mutates_the_crates_a_change_of_the_workspace_manifest_reaches() {
+    let change = one_line_change("Cargo.toml");
+    let removed = manifest_with(
+        "sha2 = { version = \"=0.11.1\", default-features = false }\n",
+        "",
+    );
+    let manifest_fake = |base: &str, manifest: &str| {
+        let mut fake = locked_fake(&LOCKED_REGISTRY, &change);
+        for (key, value) in [
+            (
+                format!("capture git show {base}:Cargo.toml"),
+                MANIFEST.to_owned(),
+            ),
+            ("Cargo.toml".to_owned(), manifest.to_owned()),
+        ] {
+            drop(fake.files.insert(key, value));
+        }
+        fake
+    };
+    let mut fake = manifest_fake(MERGE_BASE.1.trim(), &removed);
+    let said = mutate_changes(&mut fake);
+    assert_eq!(
+        fake.files.get(CHANGES_DIFF).cloned(),
+        Some(whole_crates(&change, &["engine-hash"])),
+        "the render hash alone, whole"
+    );
+    assert!(
+        said.contains("  Cargo.toml changed: every mutant of engine-hash\n")
+            && !said.contains("every Rust mutant"),
+        "said: {said}"
+    );
+    let mut profile = manifest_fake(
+        MERGE_BASE.1.trim(),
+        &manifest_with("lto = \"fat\"", "lto = \"thin\""),
+    );
+    assert!(
+        mutate_changes(&mut profile).contains(
+            "  Cargo.toml changed and cannot be narrowed (it changed outside the entries of \
+             `[workspace.dependencies]`): every Rust mutant\n"
+        ),
+        "a profile widens to everything, saying why"
+    );
+    let mut record = proven_fake(&proof_record(PROVEN[2]), &change);
+    for (key, value) in [
+        (
+            format!("capture git show {}:Cargo.toml", PROVEN[0]),
+            MANIFEST.to_owned(),
+        ),
+        ("Cargo.toml".to_owned(), removed),
+    ] {
+        drop(record.files.insert(key, value));
+    }
+    let kept = mutate_changes(&mut record);
+    assert!(
+        kept.contains(&proven_line("engine-core"))
+            && !kept.contains(&proven_line("engine-hash"))
+            && !kept.contains("ignored the mutation proof record"),
+        "a record still proves what the change does not reach: {kept}"
+    );
 }
