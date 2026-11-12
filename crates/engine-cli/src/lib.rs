@@ -19,6 +19,8 @@ extern crate alloc;
 mod case;
 mod cli;
 mod files;
+#[macro_use]
+mod hint;
 mod record;
 mod status;
 mod wav;

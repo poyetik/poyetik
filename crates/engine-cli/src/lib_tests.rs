@@ -8,10 +8,46 @@ use engine_core::{RenderFormat, SampleRate};
 
 use engine_fpenv::with_default_mode;
 
+use crate::hint::Hint;
+
 use super::{
     CaseError, CliError, Disk, Files, HEADER_LEN, Rendered, RenderedSamples, USAGE, arguments, run,
     wav_header,
 };
+
+/// Declares the kinds of hint, `HintKind`, from the list that declares [`Hint`]
+/// (`with_hints`), with every one of them in `HintKind::ALL`, and `Hint::kind`.
+macro_rules! declare_kinds {
+    ($(
+        $(#[doc = $doc:literal])+
+        $name:ident $({ $($(#[doc = $field_doc:literal])+ $field:ident: $type:ty),+ $(,)? })?
+    ),+ $(,)?) => {
+        /// The kind of a [`Hint`], without what it names.
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        enum HintKind {
+            $(
+                $(#[doc = $doc])+
+                $name,
+            )+
+        }
+
+        impl HintKind {
+            /// Every kind, in the order of their declaration.
+            const ALL: &[Self] = &[$(Self::$name),+];
+        }
+
+        impl Hint<'_> {
+            /// The kind of the hint.
+            const fn kind(&self) -> HintKind {
+                match self {
+                    $(Self::$name { .. } => HintKind::$name,)+
+                }
+            }
+        }
+    };
+}
+
+with_hints!(declare_kinds);
 
 const SINE: &str = r#"{"sample_rate":48000,"frames":100}"#;
 
@@ -30,6 +66,8 @@ struct Memory {
     dirs: Vec<PathBuf>,
     /// How many times each path was read.
     reads: BTreeMap<PathBuf, usize>,
+    /// The record on main, when not the committed one ([`main_record`]).
+    main: Option<Vec<u8>>,
 }
 
 impl Memory {
@@ -980,7 +1018,7 @@ fn check_command_refuses_algorithm_versions_other_than_blessed() {
         none_out,
         format!(
             "{ok}MISSING  sine: no algorithm versions (`cargo xtask bless --case-changed sine`, or \
-             restore the record from git)\n"
+             restore conf/algorithms.json from git)\n"
         ),
         "explained"
     );
@@ -1018,7 +1056,7 @@ fn check_command_refuses_algorithm_versions_other_than_blessed() {
             "{algorithms}"
         );
     }
-    // A missing record: every_hint_leads_to_a_directory_that_checks.
+    // A missing record: every_hint_is_followed_from_a_state_that_gives_it.
 }
 
 #[test]
@@ -1238,8 +1276,8 @@ fn bless_command_refuses_bits_changed_without_a_new_version() {
     );
     assert_eq!(
         out,
-        "CHANGED  sine binary32: its reference changed under the same algorithm versions (a \
-         new version, or `cargo xtask bless --case-changed sine`)\n",
+        "CHANGED  sine binary32: its reference changed under the same algorithm versions (a new \
+         version, then run `cargo xtask bless`, or `cargo xtask bless --case-changed sine`)\n",
         "named"
     );
     assert_eq!(
@@ -1273,8 +1311,8 @@ fn bless_command_refuses_bits_changed_without_a_new_version() {
         PathBuf::from("conf/algorithms.json"),
         changed.as_bytes().to_vec(),
     ));
-    let bits = "BITS     osc~ 1: its outputs changed at the same algorithm version (a new version \
-                needed)\n";
+    let bits = "BITS     osc~ 1: its outputs changed at the same algorithm version (a new \
+                version of osc~, then run `cargo xtask bless`)\n";
     let (checked, checked_out) = run_with(&mut memory, &["check", "conf"]);
     assert_eq!(
         checked,
@@ -1303,8 +1341,8 @@ fn bless_command_spends_only_the_versions_of_the_merge_base() {
         PathBuf::from("conf/algorithms.json"),
         changed.as_bytes().to_vec(),
     ));
-    let bits = "BITS     osc~ 1: its outputs changed at the same algorithm version (a new version \
-                needed)\n";
+    let bits = "BITS     osc~ 1: its outputs changed at the same algorithm version (a new \
+                version of osc~, then run `cargo xtask bless`)\n";
     // A version the merge base did not spend may take other bits; one it spent may not.
     drop(
         memory
@@ -1373,7 +1411,7 @@ fn bless_command_refuses_files_it_cannot_compare_with() {
     let algorithms = memory.text("conf/algorithms.json");
     let references = memory.text("conf/references.json");
     // An invalid record and the hints of every refusal:
-    // every_hint_leads_to_a_directory_that_checks.
+    // every_hint_is_followed_from_a_state_that_gives_it.
     memory.unreadable = Some(PathBuf::from("conf/references.json"));
     assert_eq!(
         run_with(&mut memory, &["bless", "conf"]).0,
@@ -1466,14 +1504,20 @@ fn committed() -> Memory {
     conformance(&format!(r#"{{"sine":{}}}"#, sine_references()))
 }
 
+/// The record on main: the one `memory` holds there, else the committed one.
+fn main_record(memory: &Memory) -> Vec<u8> {
+    memory
+        .main
+        .clone()
+        .unwrap_or_else(|| committed().files[Path::new("conf/algorithms.json")].clone())
+}
+
 /// What `cargo xtask <command> <options>` runs: `engine-cli <command> conf --spent
-/// spent.json`, the record on main written to `spent.json` first (here, the committed one),
-/// then the options.
+/// spent.json`, the record on main ([`main_record`]) written to `spent.json` first, then the
+/// options.
 fn xtask(memory: &mut Memory, command: &str, options: &[&str]) -> (Result<(), String>, String) {
-    drop(memory.files.insert(
-        PathBuf::from("spent.json"),
-        committed().files[Path::new("conf/algorithms.json")].clone(),
-    ));
+    let main = main_record(memory);
+    drop(memory.files.insert(PathBuf::from("spent.json"), main));
     let words: Vec<&str> = [command, "conf", "--spent", "spent.json"]
         .into_iter()
         .chain(options.iter().copied())
@@ -1486,40 +1530,129 @@ fn xtask_bless(memory: &mut Memory, options: &[&str]) -> (Result<(), String>, St
     xtask(memory, "bless", options)
 }
 
-/// Does what `line` says to do, the first of its alternatives: run the `cargo xtask`
-/// command it names (after removing the file it says to remove first), or restore the file
-/// it names from git (its committed contents).
-fn follow(memory: &mut Memory, line: &str) {
-    let command = line.find("`cargo xtask ");
-    let restore = line.find("restore ");
-    if let Some(start) = command.filter(|start| restore.is_none_or(|other| *start < other)) {
-        if let Some((_, removed)) = line.split_once("remove ") {
-            let path = removed.split(',').next().expect("a path");
+/// `record`, a record as bless writes it, edited by `edit`, as bless writes it.
+fn edited(record: &[u8], edit: fn(&mut serde_json::Value)) -> Vec<u8> {
+    let mut value: serde_json::Value = serde_json::from_slice(record).expect("a record");
+    edit(&mut value);
+    format!("{value:#}\n").into_bytes()
+}
+
+/// Edits the record of `conf` and the record on main alike: how a test makes or undoes a
+/// change of the engine, which it cannot make. The engine moving from one value to
+/// another (a version, the render rules, the render hash, the battery) is both records
+/// holding the value it moves from.
+fn edit_records(memory: &mut Memory, edit: fn(&mut serde_json::Value)) {
+    memory.main = Some(edited(&main_record(memory), edit));
+    let here = edited(&memory.files[Path::new("conf/algorithms.json")], edit);
+    drop(
+        memory
+            .files
+            .insert(PathBuf::from("conf/algorithms.json"), here),
+    );
+}
+
+/// Moves every version of osc~ in `record` by `by`: down by one, the engine's osc~ at a new
+/// version; up by one, back.
+fn move_osc(record: &mut serde_json::Value, by: i64) {
+    let shift = |version: &serde_json::Value| {
+        version
+            .as_i64()
+            .and_then(|version| version.checked_add(by))
+            .expect("a version")
+    };
+    if let Some(cases) = record["cases"].as_object_mut() {
+        for boxes in cases.values_mut() {
+            if let Some(version) = boxes.get_mut("osc~") {
+                *version = shift(version).into();
+            }
+        }
+    }
+    let prints = record["fingerprints"]["osc~"].take();
+    let moved: serde_json::Map<String, serde_json::Value> = prints
+        .as_object()
+        .expect("the fingerprints of osc~")
+        .iter()
+        .map(|(version, print)| {
+            let version: serde_json::Value = version.parse::<i64>().expect("a version").into();
+            (shift(&version).to_string(), print.clone())
+        })
+        .collect();
+    record["fingerprints"]["osc~"] = moved.into();
+}
+
+/// The engine's osc~ at a new version ([`move_osc`]).
+fn osc_newer(record: &mut serde_json::Value) {
+    move_osc(record, -1);
+}
+
+/// The engine's osc~ back at its version ([`move_osc`]).
+fn osc_older(record: &mut serde_json::Value) {
+    move_osc(record, 1);
+}
+
+/// The battery the engine had before its current one, 1.
+fn older_battery(record: &mut serde_json::Value) {
+    record["fingerprint_battery"] = 1_u32.into();
+}
+
+/// The render rules the engine had before its current ones, 0.
+fn older_rules(record: &mut serde_json::Value) {
+    record["render_rules"] = 0_u32.into();
+}
+
+/// The engine's render rules, 1.
+fn current_rules(record: &mut serde_json::Value) {
+    record["render_rules"] = 1_u32.into();
+}
+
+/// The render hash the engine had before its current one.
+fn older_hash(record: &mut serde_json::Value) {
+    record["render_hash"] = "render-hash/1".into();
+}
+
+/// The engine's render hash.
+fn current_hash(record: &mut serde_json::Value) {
+    record["render_hash"] = "render-hash/2".into();
+}
+
+/// The fingerprint of osc~ at version 1 the engine had before a change of its code.
+fn other_osc_bits(record: &mut serde_json::Value) {
+    record["fingerprints"]["osc~"]["1"] = "0000".into();
+}
+
+/// The steps of the alternatives of `hint`, as [`crate::hint`] writes them: alternatives
+/// separated by `, or ` or `; `, the steps of each by `, then `.
+fn alternatives(hint: &str) -> Vec<Vec<&str>> {
+    hint.split(", or ")
+        .flat_map(|alternative| alternative.split("; "))
+        .map(|alternative| alternative.split(", then ").collect())
+        .collect()
+}
+
+/// Does the steps of an alternative of a hint: runs the `cargo xtask` command a step names,
+/// removes the file it says to remove, restores the file it says to restore from git (its
+/// committed contents); a step of the code or a review, said in words, is `change`'s.
+fn follow(memory: &mut Memory, steps: &[&str], change: Change) {
+    for step in steps {
+        if let Some((_, command)) = step.split_once("`cargo xtask ") {
+            let named = command.split('`').next().expect("a closed command");
+            let words: Vec<&str> = named.split_whitespace().collect();
+            let (task, options) = words.split_first().expect("a command of xtask");
+            assert_eq!(xtask(memory, task, options).0, Ok(()), "{step}: followed");
+        } else if let Some(path) = step.strip_prefix("remove ") {
             assert!(
                 memory.files.remove(Path::new(path)).is_some(),
-                "{line}: {path} to remove"
+                "{step}: {path} to remove"
             );
+        } else if let Some((_, restored)) = step.split_once("restore ") {
+            let path = restored.split(' ').next().expect("a path");
+            drop(memory.files.insert(
+                PathBuf::from(path),
+                committed().files[Path::new(path)].clone(),
+            ));
+        } else {
+            change(memory, step);
         }
-        let named = line
-            .get(start..)
-            .and_then(|from| from.split('`').nth(1))
-            .expect("a closed command");
-        let words: Vec<&str> = named.split_whitespace().skip(2).collect();
-        let (task, options) = words.split_first().expect("a command of xtask");
-        assert_eq!(xtask(memory, task, options).0, Ok(()), "{line}: followed");
-    } else {
-        let start = restore.expect("a hint");
-        let path = line
-            .get(start..)
-            .expect("the hint")
-            .trim_start_matches("restore ")
-            .split(' ')
-            .next()
-            .expect("a path");
-        drop(memory.files.insert(
-            PathBuf::from(path),
-            committed().files[Path::new(path)].clone(),
-        ));
     }
 }
 
@@ -1527,217 +1660,879 @@ fn follow(memory: &mut Memory, line: &str) {
 /// refuses it: what it returned and printed.
 type Setup = fn(&mut Memory) -> (Result<(), String>, String);
 
-/// Every state a command refuses with a hint: its name, how it is reached, and the end of
-/// the line that gives the hint, exactly.
-const HINTED: [(&str, Setup, &str); 15] = [
-    (
-        "references missing",
+/// How a test makes a step of a hint said in words: a change of the code, which it
+/// emulates on the records ([`edit_records`]), or a review, which changes nothing.
+type Change = fn(&mut Memory, &str);
+
+/// A step in words where a hint should have none.
+fn no_change(_: &mut Memory, step: &str) {
+    panic!("{step}: a step in words");
+}
+
+/// "check the renders of the new version": a review.
+fn review(_: &mut Memory, step: &str) {
+    assert_eq!(step, "check the renders of the new version", "a review");
+}
+
+/// "a new version of osc~" (or "a new version", in a case that only uses osc~ and dac~,
+/// whose code did not change).
+fn new_version(memory: &mut Memory, step: &str) {
+    assert!(
+        ["a new version of osc~", "a new version"].contains(&step),
+        "{step}: a new version"
+    );
+    edit_records(memory, osc_newer);
+}
+
+/// The steps in words of a battery change blessed alone, the other change made by `redo`
+/// and undone by `undo`.
+fn battery_alone(memory: &mut Memory, step: &str, undo: fn(&mut Memory), redo: fn(&mut Memory)) {
+    match step {
+        "bless the battery change alone first: set the other changes aside" => undo(memory),
+        "commit" => {}
+        "bring the other changes back" => redo(memory),
+        other => panic!("{other}: not a step of a battery change"),
+    }
+}
+
+/// The render rules changed with the battery.
+fn rules_apart(memory: &mut Memory, step: &str) {
+    battery_alone(
+        memory,
+        step,
+        |memory| edit_records(memory, current_rules),
+        |memory| edit_records(memory, older_rules),
+    );
+}
+
+/// The render hash changed with the battery.
+fn hash_apart(memory: &mut Memory, step: &str) {
+    battery_alone(
+        memory,
+        step,
+        |memory| edit_records(memory, current_hash),
+        |memory| edit_records(memory, older_hash),
+    );
+}
+
+/// The version of osc~ changed with the battery.
+fn version_apart(memory: &mut Memory, step: &str) {
+    battery_alone(
+        memory,
+        step,
+        |memory| edit_records(memory, osc_older),
+        |memory| edit_records(memory, osc_newer),
+    );
+}
+
+/// The binary32 render of the case changed with the battery.
+fn reference_apart(memory: &mut Memory, step: &str) {
+    battery_alone(
+        memory,
+        step,
         |memory| {
-            drop(memory.files.remove(Path::new("conf/references.json")));
-            run_with(memory, &["check", "conf"])
-        },
-        "cannot read conf/references.json: no such file (restore conf/references.json \
-         from git; a new directory: `cargo xtask bless --from-nothing`)",
-    ),
-    (
-        "record missing",
-        |memory| {
-            drop(memory.files.remove(Path::new("conf/algorithms.json")));
-            run_with(memory, &["check", "conf"])
-        },
-        "cannot read conf/algorithms.json: no such file (restore conf/algorithms.json \
-         from git; a new directory: `cargo xtask bless --from-nothing`)",
-    ),
-    (
-        "both missing, at bless",
-        |memory| {
-            drop(memory.files.remove(Path::new("conf/references.json")));
-            drop(memory.files.remove(Path::new("conf/algorithms.json")));
-            xtask_bless(memory, &[])
-        },
-        "MISSING  conf/references.json and conf/algorithms.json: none to compare with (a \
-         first bless: `cargo xtask bless --from-nothing`)",
-    ),
-    (
-        "references alone missing, at bless",
-        |memory| {
-            drop(memory.files.remove(Path::new("conf/references.json")));
-            xtask_bless(memory, &[])
-        },
-        "MISSING  conf/references.json: missing beside conf/algorithms.json (restore \
-         conf/references.json from git: bless compares with both)",
-    ),
-    (
-        "invalid references",
-        |memory| {
-            drop(
-                memory
-                    .files
-                    .insert(PathBuf::from("conf/references.json"), b"[1".to_vec()),
-            );
-            run_with(memory, &["check", "conf"])
-        },
-        "(restore conf/references.json from git)",
-    ),
-    (
-        "invalid record, at bless",
-        |memory| {
-            drop(
-                memory
-                    .files
-                    .insert(PathBuf::from("conf/algorithms.json"), b"[1".to_vec()),
-            );
-            xtask_bless(memory, &[])
-        },
-        "(bless compares with it: restore conf/algorithms.json from git)",
-    ),
-    (
-        "references not as bless writes them",
-        |memory| {
-            let text = format!("{} ", memory.text("conf/references.json"));
-            drop(
-                memory
-                    .files
-                    .insert(PathBuf::from("conf/references.json"), text.into_bytes()),
-            );
-            run_with(memory, &["check", "conf"])
-        },
-        "conf/references.json is not as bless writes it (run `cargo xtask bless`)",
-    ),
-    (
-        "a case with references and no versions",
-        |memory| {
-            drop(memory.files.insert(
-                PathBuf::from("conf/algorithms.json"),
-                record("{}").into_bytes(),
-            ));
-            run_with(memory, &["check", "conf"])
-        },
-        "MISSING  sine: no algorithm versions (`cargo xtask bless --case-changed sine`, or \
-         restore the record from git)",
-    ),
-    (
-        "a new case: no references and no versions",
-        |memory| {
-            drop(memory.files.insert(
-                PathBuf::from("conf/algorithms.json"),
-                record("{}").into_bytes(),
-            ));
-            drop(
-                memory
-                    .files
-                    .insert(PathBuf::from("conf/references.json"), b"{}\n".to_vec()),
-            );
-            run_with(memory, &["check", "conf"])
-        },
-        "MISSING  sine: no algorithm versions (run `cargo xtask bless`)",
-    ),
-    (
-        "a format without a reference",
-        |memory| {
-            let references = canonical(&format!(
-                r#"{{"sine":{}}}"#,
-                sine_references().replace(
-                    &format!(r#","binary32":"{}""#, sine_hash(RenderFormat::Binary32)),
-                    ""
-                )
-            ));
             drop(memory.files.insert(
                 PathBuf::from("conf/references.json"),
-                references.into_bytes(),
+                committed().files[Path::new("conf/references.json")].clone(),
             ));
-            run_with(memory, &["check", "conf"])
         },
-        "MISSING  sine binary32: no reference hash (run `cargo xtask bless`)",
-    ),
-    (
-        "another battery",
-        |memory| {
-            let text = memory
-                .text("conf/algorithms.json")
-                .replace(r#""fingerprint_battery": 2"#, r#""fingerprint_battery": 1"#);
-            drop(
-                memory
-                    .files
-                    .insert(PathBuf::from("conf/algorithms.json"), text.into_bytes()),
-            );
-            run_with(memory, &["check", "conf"])
-        },
-        "BATTERY  the fingerprints were computed with battery 1, the engine's is 2 (run \
-         `cargo xtask bless --battery-changed`)",
-    ),
-    (
-        "a first bless that wrote the references alone",
-        |memory| {
-            drop(memory.files.remove(Path::new("conf/references.json")));
-            drop(memory.files.remove(Path::new("conf/algorithms.json")));
-            memory.unwritable = Some(PathBuf::from("conf/algorithms.json"));
-            let refused = xtask_bless(memory, &["--from-nothing"]);
-            memory.unwritable = None;
-            refused
-        },
-        "cannot write conf/algorithms.json: read-only (conf/references.json was written: \
-         remove conf/references.json, then run `cargo xtask bless --from-nothing`)",
-    ),
-    (
-        "a bless that wrote the references alone",
-        |memory| {
-            memory.unwritable = Some(PathBuf::from("conf/algorithms.json"));
-            let refused = xtask_bless(memory, &[]);
-            memory.unwritable = None;
-            refused
-        },
-        "cannot write conf/algorithms.json: read-only (conf/references.json was written: \
-         run `cargo xtask bless` again)",
-    ),
-    (
-        "an invalid spent record",
-        |memory| {
-            drop(
-                memory
-                    .files
-                    .insert(PathBuf::from("spent.json"), b"[1".to_vec()),
-            );
-            run_with(memory, &["bless", "conf", "--spent", "spent.json"])
-        },
-        "(`cargo xtask bless` writes it: run that)",
-    ),
-    (
-        "an invalid spent record, at check",
-        |memory| {
-            drop(
-                memory
-                    .files
-                    .insert(PathBuf::from("spent.json"), b"null ]".to_vec()),
-            );
-            run_with(memory, &["check", "conf", "--spent", "spent.json"])
-        },
-        "(`cargo xtask check` writes it: run that)",
-    ),
-];
+        old_binary32,
+    );
+}
 
-/// Every state a command refuses with a hint, the hint asserted as written, then followed:
-/// what it says to run or restore succeeds, and the directory checks again.
-#[test]
-fn every_hint_leads_to_a_directory_that_checks() {
-    for (state, setup, hint) in HINTED {
-        let mut memory = committed();
-        let (result, out) = setup(&mut memory);
-        let said: Vec<String> = result
-            .err()
-            .into_iter()
-            .chain(out.lines().map(str::to_owned))
-            .collect();
-        let line = said
-            .iter()
-            .find(|line| line.ends_with(hint))
-            .unwrap_or_else(|| panic!("{state}: {hint} in {said:?}"));
-        follow(&mut memory, line);
-        assert_eq!(
-            run_with(&mut memory, &["check", "conf"]).0,
-            Ok(()),
-            "{state}: checks once followed"
+/// A case added with the battery change.
+fn case_apart(memory: &mut Memory, step: &str) {
+    battery_alone(memory, step, remove_new_case, add_new_case);
+}
+
+/// The references as before a change of the binary32 render of the case.
+fn old_binary32(memory: &mut Memory) {
+    let references = canonical(&format!(
+        r#"{{"sine":{}}}"#,
+        sine_references().replace(&sine_hash(RenderFormat::Binary32), "0000")
+    ));
+    drop(memory.files.insert(
+        PathBuf::from("conf/references.json"),
+        references.into_bytes(),
+    ));
+}
+
+/// A second case, `new`, added to the corpus.
+fn add_new_case(memory: &mut Memory) {
+    for (path, text) in [
+        ("conf/cases/new.json", SINE),
+        ("conf/patches/new.json", PATCH),
+    ] {
+        drop(
+            memory
+                .files
+                .insert(PathBuf::from(path), text.as_bytes().to_vec()),
         );
+    }
+}
+
+/// The case `new` removed from the corpus.
+fn remove_new_case(memory: &mut Memory) {
+    for path in ["conf/cases/new.json", "conf/patches/new.json"] {
+        assert!(memory.files.remove(Path::new(path)).is_some(), "{path}");
+    }
+}
+
+/// A state a command refuses with a hint, and which alternative of it the test follows.
+struct Hinted {
+    /// What the state is.
+    state: &'static str,
+    /// The hint it gives, as the test writes it.
+    hint: Hint<'static>,
+    /// How it is reached.
+    setup: Setup,
+    /// The end of the line that gives the hint, exactly.
+    line: String,
+    /// The alternative of the hint followed, counted from 0.
+    alternative: usize,
+    /// How the steps in words are made.
+    change: Change,
+}
+
+/// The record of `conf`, edited by `edit`, then `command` run.
+fn with_record(
+    memory: &mut Memory,
+    edit: fn(&mut serde_json::Value),
+    command: &[&str],
+) -> (Result<(), String>, String) {
+    let text = edited(&memory.files[Path::new("conf/algorithms.json")], edit);
+    drop(
+        memory
+            .files
+            .insert(PathBuf::from("conf/algorithms.json"), text),
+    );
+    run_with(memory, command)
+}
+
+/// The battery and the render rules changed together.
+fn battery_and_rules(memory: &mut Memory) {
+    edit_records(memory, older_battery);
+    edit_records(memory, older_rules);
+}
+
+/// Where the record of the corpus lives.
+const RECORD: &str = "conf/algorithms.json";
+
+/// What `bless` names when one or both of its writes fail.
+const REFERENCES: &str = "conf/references.json";
+
+/// Every state of `kind` a command refuses with its hint: each state names its hint, and
+/// between them they follow every alternative of it. An exhaustive `match`: a hint without
+/// a state does not compile.
+#[expect(clippy::too_many_lines, reason = "one table, one row per state")]
+fn hinted(kind: HintKind) -> Vec<Hinted> {
+    let record_file = Path::new(RECORD);
+    let references = Path::new(REFERENCES);
+    match kind {
+        HintKind::CaseChangedOrRestore => [0, 1]
+            .map(|alternative| {
+                row(
+                    "a case with references and no versions",
+                    Hint::CaseChangedOrRestore {
+                        case: "sine",
+                        record: record_file,
+                    },
+                    |memory| {
+                        drop(
+                            memory
+                                .files
+                                .insert(PathBuf::from(RECORD), record("{}").into_bytes()),
+                        );
+                        run_with(memory, &["check", "conf"])
+                    },
+                    "MISSING  sine: no algorithm versions (`cargo xtask bless --case-changed \
+                     sine`, or restore conf/algorithms.json from git)",
+                    alternative,
+                    no_change,
+                )
+            })
+            .into(),
+        HintKind::NewCase => vec![row(
+            "a new case: no references and no versions",
+            Hint::NewCase,
+            |memory| {
+                drop(
+                    memory
+                        .files
+                        .insert(PathBuf::from(RECORD), record("{}").into_bytes()),
+                );
+                drop(
+                    memory
+                        .files
+                        .insert(PathBuf::from(REFERENCES), b"{}\n".to_vec()),
+                );
+                run_with(memory, &["check", "conf"])
+            },
+            "MISSING  sine: no algorithm versions (run `cargo xtask bless`)",
+            0,
+            no_change,
+        )],
+        HintKind::NewVersion => vec![row(
+            "osc~ at a new version",
+            Hint::NewVersion,
+            |memory| {
+                edit_records(memory, osc_newer);
+                xtask(memory, "check", &[])
+            },
+            "VERSION  sine osc~: at algorithm version 1, the references were blessed with \
+             version 0 (check the renders of the new version, then run `cargo xtask bless`)",
+            0,
+            review,
+        )],
+        HintKind::UnversionedBox => vec![row(
+            "a box type of a case without its version",
+            Hint::UnversionedBox,
+            |memory| {
+                with_record(
+                    memory,
+                    |record| {
+                        drop(
+                            record["cases"]["sine"]
+                                .as_object_mut()
+                                .map(|boxes| boxes.remove("dac~")),
+                        );
+                    },
+                    &["check", "conf"],
+                )
+            },
+            "MISSING  sine dac~: no algorithm version (run `cargo xtask bless`)",
+            0,
+            no_change,
+        )],
+        HintKind::NoReference => vec![row(
+            "a format without a reference",
+            Hint::NoReference,
+            |memory| {
+                let without = canonical(&format!(
+                    r#"{{"sine":{}}}"#,
+                    sine_references().replace(
+                        &format!(r#","binary32":"{}""#, sine_hash(RenderFormat::Binary32)),
+                        ""
+                    )
+                ));
+                drop(
+                    memory
+                        .files
+                        .insert(PathBuf::from(REFERENCES), without.into_bytes()),
+                );
+                run_with(memory, &["check", "conf"])
+            },
+            "MISSING  sine binary32: no reference hash (run `cargo xtask bless`)",
+            0,
+            no_change,
+        )],
+        HintKind::RestoreBeside => vec![
+            row(
+                "references alone missing, at bless",
+                Hint::RestoreBeside { file: references },
+                |memory| {
+                    drop(memory.files.remove(Path::new(REFERENCES)));
+                    xtask_bless(memory, &[])
+                },
+                "MISSING  conf/references.json: missing beside conf/algorithms.json (restore \
+                 conf/references.json from git: bless compares with both)",
+                0,
+                no_change,
+            ),
+            row(
+                "record alone missing, at bless",
+                Hint::RestoreBeside { file: record_file },
+                |memory| {
+                    drop(memory.files.remove(Path::new(RECORD)));
+                    xtask_bless(memory, &[])
+                },
+                "MISSING  conf/algorithms.json: missing beside conf/references.json (restore \
+                 conf/algorithms.json from git: bless compares with both)",
+                0,
+                no_change,
+            ),
+        ],
+        HintKind::FirstBless => vec![row(
+            "both missing, at bless",
+            Hint::FirstBless,
+            |memory| {
+                drop(memory.files.remove(Path::new(REFERENCES)));
+                drop(memory.files.remove(Path::new(RECORD)));
+                xtask_bless(memory, &[])
+            },
+            "MISSING  conf/references.json and conf/algorithms.json: none to compare with (a \
+             first bless: `cargo xtask bless --from-nothing`)",
+            0,
+            no_change,
+        )],
+        HintKind::WithoutFromNothing => vec![row(
+            "--from-nothing with both files",
+            Hint::WithoutFromNothing,
+            |memory| xtask_bless(memory, &["--from-nothing"]),
+            "OPTION   --from-nothing: conf/references.json and conf/algorithms.json exist, to \
+             compare with (run `cargo xtask bless` without it)",
+            0,
+            no_change,
+        )],
+        HintKind::RemoveThenFirstBless => vec![row(
+            "a first bless that wrote the references alone",
+            Hint::RemoveThenFirstBless {
+                written: references,
+            },
+            |memory| {
+                drop(memory.files.remove(Path::new(REFERENCES)));
+                drop(memory.files.remove(Path::new(RECORD)));
+                memory.unwritable = Some(PathBuf::from(RECORD));
+                let refused = xtask_bless(memory, &["--from-nothing"]);
+                memory.unwritable = None;
+                refused
+            },
+            "cannot write conf/algorithms.json: read-only (conf/references.json was written: \
+             remove conf/references.json, then run `cargo xtask bless --from-nothing`)",
+            0,
+            no_change,
+        )],
+        HintKind::BlessAgain => vec![
+            row(
+                "a bless that wrote the references alone",
+                Hint::BlessAgain {
+                    changed: &[],
+                    battery_changed: false,
+                },
+                |memory| {
+                    memory.unwritable = Some(PathBuf::from(RECORD));
+                    let refused = xtask_bless(memory, &[]);
+                    memory.unwritable = None;
+                    refused
+                },
+                "cannot write conf/algorithms.json: read-only (conf/references.json was \
+                 written: run `cargo xtask bless` again)",
+                0,
+                no_change,
+            ),
+            row(
+                "a bless of a battery change that wrote the references alone",
+                Hint::BlessAgain {
+                    changed: &[],
+                    battery_changed: true,
+                },
+                |memory| {
+                    edit_records(memory, older_battery);
+                    memory.unwritable = Some(PathBuf::from(RECORD));
+                    let refused = xtask_bless(memory, &["--battery-changed"]);
+                    memory.unwritable = None;
+                    refused
+                },
+                "cannot write conf/algorithms.json: read-only (conf/references.json was \
+                 written: run `cargo xtask bless --battery-changed` again)",
+                0,
+                no_change,
+            ),
+            row(
+                "a bless of a case changed that wrote the references alone",
+                Hint::BlessAgain {
+                    changed: named_sine(),
+                    battery_changed: false,
+                },
+                |memory| {
+                    old_binary32(memory);
+                    memory.unwritable = Some(PathBuf::from(RECORD));
+                    let refused = xtask_bless(memory, &["--case-changed", "sine"]);
+                    memory.unwritable = None;
+                    refused
+                },
+                "cannot write conf/algorithms.json: read-only (conf/references.json was \
+                 written: run `cargo xtask bless --case-changed sine` again)",
+                0,
+                no_change,
+            ),
+        ],
+        HintKind::RestoreOrFirstBless => vec![
+            row(
+                "references missing",
+                Hint::RestoreOrFirstBless { file: references },
+                |memory| {
+                    drop(memory.files.remove(Path::new(REFERENCES)));
+                    run_with(memory, &["check", "conf"])
+                },
+                "cannot read conf/references.json: no such file (restore \
+                 conf/references.json from git; a new directory: `cargo xtask bless \
+                 --from-nothing`)",
+                0,
+                no_change,
+            ),
+            row(
+                "record missing",
+                Hint::RestoreOrFirstBless { file: record_file },
+                |memory| {
+                    drop(memory.files.remove(Path::new(RECORD)));
+                    run_with(memory, &["check", "conf"])
+                },
+                "cannot read conf/algorithms.json: no such file (restore \
+                 conf/algorithms.json from git; a new directory: `cargo xtask bless \
+                 --from-nothing`)",
+                0,
+                no_change,
+            ),
+            row(
+                "a new directory",
+                Hint::RestoreOrFirstBless { file: references },
+                |memory| {
+                    drop(memory.files.remove(Path::new(REFERENCES)));
+                    drop(memory.files.remove(Path::new(RECORD)));
+                    run_with(memory, &["check", "conf"])
+                },
+                "cannot read conf/references.json: no such file (restore \
+                 conf/references.json from git; a new directory: `cargo xtask bless \
+                 --from-nothing`)",
+                1,
+                no_change,
+            ),
+        ],
+        HintKind::RestoreInvalid => vec![
+            row(
+                "invalid references, at check",
+                Hint::RestoreInvalid { file: references },
+                |memory| {
+                    drop(
+                        memory
+                            .files
+                            .insert(PathBuf::from(REFERENCES), b"[1".to_vec()),
+                    );
+                    run_with(memory, &["check", "conf"])
+                },
+                "(restore conf/references.json from git)",
+                0,
+                no_change,
+            ),
+            row(
+                "invalid record, at check",
+                Hint::RestoreInvalid { file: record_file },
+                |memory| {
+                    drop(memory.files.insert(PathBuf::from(RECORD), b"[1".to_vec()));
+                    run_with(memory, &["check", "conf"])
+                },
+                "(restore conf/algorithms.json from git)",
+                0,
+                no_change,
+            ),
+        ],
+        HintKind::Rewrite => vec![row(
+            "references not as bless writes them",
+            Hint::Rewrite,
+            |memory| {
+                let text = format!("{} ", memory.text(REFERENCES));
+                drop(
+                    memory
+                        .files
+                        .insert(PathBuf::from(REFERENCES), text.into_bytes()),
+                );
+                run_with(memory, &["check", "conf"])
+            },
+            "conf/references.json is not as bless writes it (run `cargo xtask bless`)",
+            0,
+            no_change,
+        )],
+        HintKind::RestoreCompared => vec![row(
+            "invalid record, at bless",
+            Hint::RestoreCompared { file: record_file },
+            |memory| {
+                drop(memory.files.insert(PathBuf::from(RECORD), b"[1".to_vec()));
+                xtask_bless(memory, &[])
+            },
+            "(bless compares with it: restore conf/algorithms.json from git)",
+            0,
+            no_change,
+        )],
+        HintKind::WriteSpent => vec![
+            row(
+                "an invalid spent record",
+                Hint::WriteSpent {
+                    writer: "cargo xtask bless",
+                },
+                |memory| {
+                    drop(
+                        memory
+                            .files
+                            .insert(PathBuf::from("spent.json"), b"[1".to_vec()),
+                    );
+                    run_with(memory, &["bless", "conf", "--spent", "spent.json"])
+                },
+                "(`cargo xtask bless` writes it: run that)",
+                0,
+                no_change,
+            ),
+            row(
+                "an invalid spent record, at check",
+                Hint::WriteSpent {
+                    writer: "cargo xtask check",
+                },
+                |memory| {
+                    drop(
+                        memory
+                            .files
+                            .insert(PathBuf::from("spent.json"), b"null ]".to_vec()),
+                    );
+                    run_with(memory, &["check", "conf", "--spent", "spent.json"])
+                },
+                "(`cargo xtask check` writes it: run that)",
+                0,
+                no_change,
+            ),
+            row(
+                "a missing spent record, at check",
+                Hint::WriteSpent {
+                    writer: "cargo xtask check",
+                },
+                |memory| run_with(memory, &["check", "conf", "--spent", "spent.json"]),
+                "cannot read the spent record spent.json: no such file (`cargo xtask check` \
+                 writes it: run that)",
+                0,
+                no_change,
+            ),
+        ],
+        HintKind::Hash => vec![row(
+            "another render hash",
+            Hint::Hash,
+            |memory| {
+                edit_records(memory, older_hash);
+                xtask(memory, "check", &[])
+            },
+            "HASH     the references were hashed with render-hash/1, the engine with \
+             render-hash/2 (run `cargo xtask bless`)",
+            0,
+            no_change,
+        )],
+        HintKind::Rules => vec![row(
+            "other render rules",
+            Hint::Rules,
+            |memory| {
+                edit_records(memory, older_rules);
+                xtask(memory, "check", &[])
+            },
+            "RULES    the references were rendered under render rules version 0, the engine's \
+             is 1 (run `cargo xtask bless`)",
+            0,
+            no_change,
+        )],
+        HintKind::NoFingerprint => vec![row(
+            "no fingerprint at the current version",
+            Hint::NoFingerprint,
+            |memory| {
+                with_record(
+                    memory,
+                    |record| {
+                        drop(
+                            record["fingerprints"]
+                                .as_object_mut()
+                                .map(|prints| prints.remove("osc~")),
+                        );
+                    },
+                    &["check", "conf"],
+                )
+            },
+            "MISSING  osc~: no fingerprint at algorithm version 1 (run `cargo xtask bless`)",
+            0,
+            no_change,
+        )],
+        HintKind::Battery => vec![row(
+            "another battery",
+            Hint::Battery,
+            |memory| {
+                edit_records(memory, older_battery);
+                xtask(memory, "check", &[])
+            },
+            "BATTERY  the fingerprints were computed with battery 1, the engine's is 2 (run \
+             `cargo xtask bless --battery-changed`)",
+            0,
+            no_change,
+        )],
+        HintKind::BatteryAlone => battery_alone_rows(),
+        HintKind::SpentBits => vec![row(
+            "other bits than main at a spent version",
+            Hint::SpentBits { name: "osc~" },
+            |memory| {
+                memory.main = Some(edited(&main_record(memory), other_osc_bits));
+                xtask(memory, "check", &[])
+            },
+            "BITS     osc~ 1: other bits than the record on main holds at this spent version (a \
+             new version of osc~, then run `cargo xtask bless`)",
+            0,
+            new_version,
+        )],
+        HintKind::BitsChanged => vec![row(
+            "the outputs of osc~ changed at its version, at check",
+            Hint::BitsChanged { name: "osc~" },
+            |memory| {
+                edit_records(memory, other_osc_bits);
+                xtask(memory, "check", &[])
+            },
+            "BITS     osc~ 1: its outputs changed at the same algorithm version (a new version \
+             of osc~, then run `cargo xtask bless`)",
+            0,
+            new_version,
+        )],
+        HintKind::BitsKept => vec![row(
+            "the outputs of osc~ changed at its version, at bless",
+            Hint::BitsKept { name: "osc~" },
+            |memory| {
+                edit_records(memory, other_osc_bits);
+                xtask_bless(memory, &[])
+            },
+            "BITS     osc~ 1: its outputs changed at the same algorithm version (a new version \
+             of osc~, then run `cargo xtask bless`)",
+            0,
+            new_version,
+        )],
+        HintKind::NoVersionsAtBless => [0, 1]
+            .map(|alternative| {
+                row(
+                    "a case with references and no versions, at bless",
+                    Hint::NoVersionsAtBless {
+                        case: "sine",
+                        record: record_file,
+                    },
+                    |memory: &mut Memory| {
+                        drop(
+                            memory
+                                .files
+                                .insert(PathBuf::from(RECORD), record("{}").into_bytes()),
+                        );
+                        xtask_bless(memory, &[])
+                    },
+                    "MISSING  sine: a reference but no versions recorded in the record bless \
+                     replaces (`cargo xtask bless --case-changed sine`, or restore \
+                     conf/algorithms.json from git)",
+                    alternative,
+                    no_change,
+                )
+            })
+            .into(),
+        HintKind::ChangedReference => {
+            let changes: [(usize, Change); 2] = [(0, new_version), (1, no_change)];
+            changes
+                .map(|(alternative, change)| {
+                    row(
+                        "a reference changed under the same versions",
+                        Hint::ChangedReference { case: "sine" },
+                        |memory: &mut Memory| {
+                            old_binary32(memory);
+                            xtask_bless(memory, &[])
+                        },
+                        "CHANGED  sine binary32: its reference changed under the same algorithm \
+                     versions (a new version, then run `cargo xtask bless`, or `cargo xtask \
+                     bless --case-changed sine`)",
+                        alternative,
+                        change,
+                    )
+                })
+                .into()
+        }
+    }
+}
+
+/// The procedure that blesses a battery change alone first: `then`, the end of the hint
+/// after `--battery-changed`'s bless.
+const ALONE: &str = "(bless the battery change alone first: set the other changes aside, then \
+                     run `cargo xtask bless --battery-changed`, then commit, then bring the \
+                     other changes back, then run `cargo xtask bless`)";
+
+/// `["sine"]`, for the whole test run: the cases named in a hint the test writes.
+fn named_sine() -> &'static [String] {
+    Vec::leak(vec!["sine".to_owned()])
+}
+
+/// A state a command refuses with a hint ([`Hinted`]).
+fn row(
+    state: &'static str,
+    hint: Hint<'static>,
+    setup: Setup,
+    line: &str,
+    alternative: usize,
+    change: Change,
+) -> Hinted {
+    Hinted {
+        state,
+        hint,
+        setup,
+        line: line.to_owned(),
+        alternative,
+        change,
+    }
+}
+
+/// Every state where a battery change comes with another change: check's line of the
+/// battery, bless's without `--battery-changed`, and each refusal of bless with it.
+#[expect(clippy::too_many_lines, reason = "one table, one row per state")]
+fn battery_alone_rows() -> Vec<Hinted> {
+    let alone = Hint::BatteryAlone { changed: &[] };
+    let battery = "BATTERY  the fingerprints were computed with battery 1, the engine's is 2";
+    let named = Hint::BatteryAlone {
+        changed: named_sine(),
+    };
+    let rows: [(&str, Hint<'static>, Setup, String, Change); 8] = [
+        (
+            "the battery and the version of osc~ changed, at check",
+            alone,
+            |memory| {
+                edit_records(memory, older_battery);
+                edit_records(memory, osc_newer);
+                xtask(memory, "check", &[])
+            },
+            format!("{battery} {ALONE}"),
+            version_apart,
+        ),
+        (
+            "the battery and the render rules changed, at check",
+            alone,
+            |memory| {
+                battery_and_rules(memory);
+                xtask(memory, "check", &[])
+            },
+            format!("{battery} {ALONE}"),
+            rules_apart,
+        ),
+        (
+            "the battery and the render rules changed, at bless",
+            alone,
+            |memory| {
+                battery_and_rules(memory);
+                xtask_bless(memory, &[])
+            },
+            format!("{battery}, and a battery change blesses no reference and no version {ALONE}"),
+            rules_apart,
+        ),
+        (
+            "the battery and the render rules changed, at bless --battery-changed",
+            alone,
+            |memory| {
+                battery_and_rules(memory);
+                xtask_bless(memory, &["--battery-changed"])
+            },
+            format!(
+                "RULES    --battery-changed: the render rules changed too, from version 0 to 1 \
+                 {ALONE}"
+            ),
+            rules_apart,
+        ),
+        (
+            "the battery and the render hash changed, at bless --battery-changed",
+            alone,
+            |memory| {
+                edit_records(memory, older_battery);
+                edit_records(memory, older_hash);
+                xtask_bless(memory, &["--battery-changed"])
+            },
+            format!(
+                "HASH     --battery-changed: the render hash changed too, from render-hash/1 to \
+                 render-hash/2 {ALONE}"
+            ),
+            hash_apart,
+        ),
+        (
+            "the battery and the version of osc~ changed, at bless --battery-changed",
+            alone,
+            |memory| {
+                edit_records(memory, older_battery);
+                edit_records(memory, osc_newer);
+                xtask_bless(memory, &["--battery-changed"])
+            },
+            format!("VERSION  osc~: version 1 is not recorded {ALONE}"),
+            version_apart,
+        ),
+        (
+            "the battery and a render changed, at bless --battery-changed",
+            named,
+            |memory| {
+                edit_records(memory, older_battery);
+                old_binary32(memory);
+                xtask_bless(memory, &["--battery-changed", "--case-changed", "sine"])
+            },
+            format!(
+                "CHANGED  sine binary32: its reference changed {}",
+                ALONE.replace(
+                    "run `cargo xtask bless`)",
+                    "run `cargo xtask bless --case-changed sine`)"
+                )
+            ),
+            reference_apart,
+        ),
+        (
+            "the battery changed and a case added, at bless --battery-changed",
+            alone,
+            |memory| {
+                edit_records(memory, older_battery);
+                add_new_case(memory);
+                xtask_bless(memory, &["--battery-changed"])
+            },
+            format!("CHANGED  new: a case the record bless replaces does not hold {ALONE}"),
+            case_apart,
+        ),
+    ];
+    rows.into_iter()
+        .map(|(state, hint, setup, line, change)| Hinted {
+            state,
+            hint,
+            setup,
+            line,
+            alternative: 0,
+            change,
+        })
+        .collect()
+}
+
+/// Every state a command refuses with a hint, for every kind of hint: the line asserted as
+/// written, holding its hint, then the alternative followed, after which the directory
+/// checks against the record on main; between them, the states of a kind follow every
+/// alternative of its hint.
+#[test]
+fn every_hint_is_followed_from_a_state_that_gives_it() {
+    for kind in HintKind::ALL {
+        let rows = hinted(*kind);
+        let mut followed = alloc::collections::BTreeSet::new();
+        let mut count = None;
+        for row in rows {
+            let state = row.state;
+            let hint = row.hint.to_string();
+            assert_eq!(row.hint.kind(), *kind, "{state}: a hint of its kind");
+            assert!(
+                row.line.ends_with(&format!("{hint})")),
+                "{state}: {hint} in {}",
+                row.line
+            );
+            let mut memory = committed();
+            let (result, out) = (row.setup)(&mut memory);
+            let said: Vec<String> = result
+                .err()
+                .into_iter()
+                .chain(out.lines().map(str::to_owned))
+                .collect();
+            assert!(
+                said.iter().any(|line| line.ends_with(&row.line)),
+                "{state}: {} in {said:?}",
+                row.line
+            );
+            let alternatives = alternatives(&hint);
+            follow(&mut memory, &alternatives[row.alternative], row.change);
+            assert_eq!(
+                xtask(&mut memory, "check", &[]).0,
+                Ok(()),
+                "{state}: checks once followed"
+            );
+            let _first = followed.insert(row.alternative);
+            assert!(
+                count
+                    .replace(alternatives.len())
+                    .is_none_or(|count| count == alternatives.len()),
+                "{state}: as many alternatives as the other states of {kind:?}"
+            );
+        }
+        assert_eq!(
+            followed,
+            (0..count.unwrap_or_default()).collect(),
+            "{kind:?}: a state for each alternative"
+        );
+        assert!(count.is_some(), "{kind:?}: a state");
     }
 }
 

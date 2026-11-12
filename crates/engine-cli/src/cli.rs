@@ -1,5 +1,6 @@
 //! The `engine-cli` commands.
 
+use crate::hint::Hint;
 use crate::status::Status;
 use alloc::collections::BTreeMap;
 use std::ffi::OsString;
@@ -443,6 +444,7 @@ fn version_problems(
     current: Option<&Versions>,
     recorded: Option<&Versions>,
     referenced: bool,
+    record: &Path,
 ) -> Vec<String> {
     let Some(current) = current else {
         return Vec::new();
@@ -451,9 +453,9 @@ fn version_problems(
         // A case with references but no versions is one bless refuses unless it is named
         // (`bless_problems`): the hint names it.
         let hint = if referenced {
-            format!("`cargo xtask bless --case-changed {name}`, or restore the record from git")
+            Hint::CaseChangedOrRestore { case: name, record }
         } else {
-            "run `cargo xtask bless`".to_owned()
+            Hint::NewCase
         };
         return vec![format!(
             "{status} {name}: no algorithm versions ({hint})",
@@ -466,13 +468,14 @@ fn version_problems(
             Some(blessed) if blessed == version => None,
             Some(blessed) => Some(format!(
                 "{status} {name} {kind}: at algorithm version {version}, the references were \
-             blessed with version {blessed} (check the renders of the new version, then \
-             run `cargo xtask bless`)",
-                status = Status::Version
+             blessed with version {blessed} ({hint})",
+                status = Status::Version,
+                hint = Hint::NewVersion
             )),
             None => Some(format!(
-                "{status} {name} {kind}: no algorithm version (run `cargo xtask bless`)",
-                status = Status::Missing
+                "{status} {name} {kind}: no algorithm version ({hint})",
+                status = Status::Missing,
+                hint = Hint::UnversionedBox
             )),
         });
     let stale = recorded
@@ -524,8 +527,9 @@ fn format_line(
             None => (
                 false,
                 format!(
-                    "{status} {name} {format}: no reference hash (run `cargo xtask bless`)",
-                    status = Status::Missing
+                    "{status} {name} {format}: no reference hash ({hint})",
+                    status = Status::Missing,
+                    hint = Hint::NoReference
                 ),
             ),
         },
@@ -561,9 +565,9 @@ fn check(
     let blessed = &record.cases;
     let rules = same_rules(&record);
     let mut failures = 0_usize;
-    let mut report = |stdout: &mut dyn Write, passed: bool, line: String| {
+    let report = |stdout: &mut dyn Write, count: &mut usize, passed: bool, line: String| {
         if !passed {
-            failures = failures.saturating_add(1);
+            *count = count.saturating_add(1);
         }
         say(stdout, &OneLine::new(&line))
     };
@@ -577,7 +581,7 @@ fn check(
         let same_versions = rules && current.is_some() && current.as_ref() == recorded;
         for format in RenderFormat::ALL {
             let (passed, line) = format_line(case, format, references, same_versions, mode);
-            report(out, passed, line)?;
+            report(out, &mut failures, passed, line)?;
         }
         for unknown in references
             .into_iter()
@@ -586,6 +590,7 @@ fn check(
         {
             report(
                 out,
+                &mut failures,
                 false,
                 format!(
                     "{status} {name} {unknown}: reference of no render format",
@@ -593,19 +598,26 @@ fn check(
                 ),
             )?;
         }
-        for line in version_problems(name, current.as_ref(), recorded, references.is_some()) {
-            report(out, false, line)?;
+        for line in version_problems(
+            name,
+            current.as_ref(),
+            recorded,
+            references.is_some(),
+            &algorithms_path(dir),
+        ) {
+            report(out, &mut failures, false, line)?;
         }
     }
     let base = base.flatten();
-    for line in record_problems(&record, &current_fingerprints(mode)?)
+    // A problem of a case: a battery change cannot be blessed with it.
+    for line in record_problems(&record, &current_fingerprints(mode)?, failures > 0)
         .into_iter()
         .chain(spent_problems(&record, base.as_ref()))
     {
-        report(out, false, line)?;
+        report(out, &mut failures, false, line)?;
     }
     if let Some(line) = spent_skipped(&record, base.as_ref()) {
-        report(out, true, line)?;
+        report(out, &mut failures, true, line)?;
     }
     for name in expected
         .keys()
@@ -613,6 +625,7 @@ fn check(
     {
         report(
             out,
+            &mut failures,
             false,
             format!(
                 "{status} {name}: reference without a case",
@@ -626,6 +639,7 @@ fn check(
     {
         report(
             out,
+            &mut failures,
             false,
             format!(
                 "{status} {name}: algorithm versions without a case",
@@ -751,6 +765,7 @@ fn bless(
         (Some(record), Some(references), false) => bless_problems(
             &Before {
                 record,
+                path: &versions_path,
                 references,
                 spent: base
                     .as_ref()
@@ -761,18 +776,18 @@ fn bless(
         ),
         (None, None, true) => unknown_cases(&told, &actual),
         (None, None, false) => vec![format!(
-            "{status} {} and {}: none to compare with (a first bless: `cargo xtask bless \
-             --from-nothing`)",
+            "{status} {} and {}: none to compare with ({hint})",
             path.display(),
             versions_path.display(),
-            status = Status::Missing
+            status = Status::Missing,
+            hint = Hint::FirstBless
         )],
         (Some(_), Some(_), true) => vec![format!(
-            "{status} --from-nothing: {} and {} exist, to compare with (run `cargo xtask \
-             bless` without it)",
+            "{status} --from-nothing: {} and {} exist, to compare with ({hint})",
             path.display(),
             versions_path.display(),
-            status = Status::Option
+            status = Status::Option,
+            hint = Hint::WithoutFromNothing
         )],
         (Some(_), None, _) => vec![missing_beside(&path, &versions_path)],
         (None, Some(_), _) => vec![missing_beside(&versions_path, &path)],
@@ -800,18 +815,7 @@ fn bless(
     // versions to bless again, never a reference changed without a new version.
     files
         .write(&versions_path, blessed_text(&record).as_bytes())
-        .map_err(|error| {
-            let (written, unwritten) = (path.display(), versions_path.display());
-            // A first bless that wrote only the references leaves a directory that neither
-            // bless accepts: the way out is to remove what it wrote. Otherwise the record
-            // it replaces is compared with again.
-            let hint = if options.from_nothing {
-                format!("remove {written}, then run `cargo xtask bless --from-nothing`")
-            } else {
-                "run `cargo xtask bless` again".to_owned()
-            };
-            format!("cannot write {unwritten}: {error} ({written} was written: {hint})")
-        })?;
+        .map_err(|error| unwritten_record(&error, &path, &versions_path, options))?;
     say(
         out,
         &OneLine::new(&format!(
@@ -823,15 +827,41 @@ fn bless(
     )
 }
 
+/// Why `bless` failed when it could write the references at `written` and not the record at
+/// `unwritten`, because of `error`, with what succeeds then, as `options` told it.
+fn unwritten_record(
+    error: &std::io::Error,
+    written: &Path,
+    unwritten: &Path,
+    options: &BlessOptions,
+) -> String {
+    // A first bless that wrote only the references leaves a directory that neither bless
+    // accepts: the way out is to remove what it wrote. Otherwise the record it replaces is
+    // compared with again, by the same command.
+    let hint = if options.from_nothing {
+        Hint::RemoveThenFirstBless { written }
+    } else {
+        Hint::BlessAgain {
+            changed: &options.changed,
+            battery_changed: options.battery_changed,
+        }
+    };
+    format!(
+        "cannot write {}: {error} ({} was written: {hint})",
+        unwritten.display(),
+        written.display()
+    )
+}
+
 /// The line of `bless` for a directory holding `other` without `what`: it compares with
 /// both.
 fn missing_beside(what: &Path, other: &Path) -> String {
     format!(
-        "{status} {}: missing beside {} (restore {} from git: bless compares with both)",
+        "{status} {}: missing beside {} ({hint})",
         what.display(),
         other.display(),
-        what.display(),
-        status = Status::Missing
+        status = Status::Missing,
+        hint = Hint::RestoreBeside { file: what }
     )
 }
 
@@ -859,22 +889,24 @@ fn read_blessed<T: Serialize + DeserializeOwned>(
     let shown = path.display();
     let text = files.read(path, limit).map_err(|error| {
         let hint = if error.kind() == std::io::ErrorKind::NotFound {
-            format!(
-                " (restore {shown} from git; a new directory: `cargo xtask bless \
-                 --from-nothing`)"
-            )
+            format!(" ({})", Hint::RestoreOrFirstBless { file: path })
         } else {
             String::new()
         };
         format!("cannot read {shown}: {error}{hint}")
     })?;
-    let value: T = serde_json::from_str(&text)
-        .map_err(|error| format!("invalid {shown}: {error} (restore {shown} from git)"))?;
+    let value: T = serde_json::from_str(&text).map_err(|error| {
+        format!(
+            "invalid {shown}: {error} ({})",
+            Hint::RestoreInvalid { file: path }
+        )
+    })?;
     if blessed_text(&value) == text {
         Ok(value)
     } else {
         Err(format!(
-            "{shown} is not as bless writes it (run `cargo xtask bless`)"
+            "{shown} is not as bless writes it ({})",
+            Hint::Rewrite
         ))
     }
 }
@@ -893,9 +925,9 @@ fn read_earlier<T: DeserializeOwned>(
     match files.read(path, limit) {
         Ok(text) => serde_json::from_str(&text).map(Some).map_err(|error| {
             format!(
-                "invalid {}: {error} (bless compares with it: restore {} from git)",
+                "invalid {}: {error} ({})",
                 path.display(),
-                path.display()
+                Hint::RestoreCompared { file: path }
             )
         }),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
@@ -911,7 +943,7 @@ fn read_earlier<T: DeserializeOwned>(
 /// Returns why it cannot be read or is not a record or `null`, naming `writer`.
 fn read_spent(files: &mut dyn Files, path: &Path, writer: &str) -> Result<Option<Record>, String> {
     let shown = path.display();
-    let hint = format!("(`{writer}` writes it: run that)");
+    let hint = format!("({})", Hint::WriteSpent { writer });
     let text = files
         .read(path, MAX_RECORD_BYTES)
         .map_err(|error| format!("cannot read the spent record {shown}: {error} {hint}"))?;
