@@ -2538,7 +2538,7 @@ struct WithBattery {
     apart: Change,
     /// The line of `bless` that refuses it, without a hint, with the option or without.
     cause: &'static str,
-    /// The line of `check` that says it, with its hint for the bless after the battery's.
+    /// The line of `check` that says it, without a hint: its command would be refused.
     at_check: fn() -> String,
     /// Whether the last bless of the procedure names the case `sine`.
     named: bool,
@@ -2571,7 +2571,7 @@ const WITH_BATTERY: [WithBattery; 7] = [
         cause: "RULES    --battery-changed: the render rules changed too, from version 0 to 1",
         at_check: || {
             "RULES    the references were rendered under render rules version 0, the engine's \
-             is 1 (run `cargo xtask bless`)"
+             is 1"
                 .to_owned()
         },
         named: false,
@@ -2584,7 +2584,7 @@ const WITH_BATTERY: [WithBattery; 7] = [
                 render-hash/2",
         at_check: || {
             "HASH     the references were hashed with render-hash/1, the engine with \
-             render-hash/2 (run `cargo xtask bless`)"
+             render-hash/2"
                 .to_owned()
         },
         named: false,
@@ -2608,9 +2608,7 @@ const WITH_BATTERY: [WithBattery; 7] = [
         make: no_binary32,
         apart: missing_apart,
         cause: "CHANGED  sine binary32: no reference in the references bless replaces",
-        at_check: || {
-            "MISSING  sine binary32: no reference hash (run `cargo xtask bless`)".to_owned()
-        },
+        at_check: || "MISSING  sine binary32: no reference hash".to_owned(),
         named: false,
     },
     WithBattery {
@@ -2618,7 +2616,7 @@ const WITH_BATTERY: [WithBattery; 7] = [
         make: add_new_case,
         apart: case_apart,
         cause: "CHANGED  new: a case the record bless replaces does not hold",
-        at_check: || "MISSING  new: no algorithm versions (run `cargo xtask bless`)".to_owned(),
+        at_check: || "MISSING  new: no algorithm versions".to_owned(),
         named: false,
     },
 ];
@@ -2673,6 +2671,58 @@ fn battery_alone_rows() -> Vec<Hinted> {
             })
         })
         .collect()
+}
+
+/// A stale entry made in a file: the file, and the edit.
+type StaleEdit = (&'static str, fn(&mut serde_json::Value));
+
+/// At check, while the battery differs, no line but the battery's names a command: every
+/// other one would be refused until the battery change is blessed, so each is said
+/// without its hint, whatever came with the battery (stale entries included).
+#[test]
+fn check_names_no_refused_command_while_the_battery_differs() {
+    let stale: [StaleEdit; 5] = [
+        (RECORD, |record| {
+            record["fingerprints"]["old~"] = serde_json::json!({ "1": "0000" });
+        }),
+        (RECORD, |record| {
+            record["cases"]["sine"]["old~"] = 1_u32.into();
+        }),
+        (RECORD, |record| {
+            record["cases"]["gone"] = serde_json::json!({ "osc~": 1_u32 });
+        }),
+        (REFERENCES, |hashes| {
+            hashes["sine"]["binary16"] = "0000".into();
+        }),
+        (REFERENCES, |hashes| {
+            hashes["gone"] = serde_json::json!({ "binary64": "0000" });
+        }),
+    ];
+    let refuses = |what: &str, make: &dyn Fn(&mut Memory)| {
+        let mut memory = committed();
+        edit_records(&mut memory, older_battery);
+        make(&mut memory);
+        let (result, out) = xtask(&mut memory, "check", &[]);
+        assert!(result.is_err(), "{what}: refused");
+        let commands: Vec<&str> = out
+            .lines()
+            .filter(|line| !line.starts_with("BATTERY") && line.contains("cargo xtask"))
+            .collect();
+        assert_eq!(commands, Vec::<&str>::new(), "{what}: {out}");
+        assert_eq!(
+            out.lines()
+                .filter(|line| line.starts_with("BATTERY"))
+                .count(),
+            1,
+            "{what}: the battery's line, with its hint: {out}"
+        );
+    };
+    for with in &WITH_BATTERY {
+        refuses(with.what, &with.make);
+    }
+    for (path, edit) in stale {
+        refuses(path, &|memory| edit_json(memory, path, edit));
+    }
 }
 
 /// At bless, with `--battery-changed` or without, a change made with a battery change is

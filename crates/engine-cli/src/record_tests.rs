@@ -230,16 +230,16 @@ fn check_refuses_every_difference_from_the_current_engine() {
         record_problems(&other, &now, NO_OTHERS),
         [
             "HASH     the references were hashed with render-hash/1, the engine with \
-             render-hash/2 (run `cargo xtask bless`)",
+             render-hash/2",
             "RULES    the references were rendered under render rules version 0, the engine's \
-             is 1 (run `cargo xtask bless`)",
+             is 1",
             "BATTERY  the fingerprints were computed with battery 0, the engine's is 2 (bless \
              the battery change alone first: set the other changes aside, then run `cargo \
              xtask bless --battery-changed`, then commit, then bring the other changes back, \
              then run `cargo xtask bless`)",
         ],
-        "every version named, no fingerprint compared across batteries, the battery change \
-         blessed alone"
+        "every version named without a hint while the battery differs, no fingerprint compared \
+         across batteries, the battery change blessed alone"
     );
     let battery = Record {
         fingerprint_battery: 0,
@@ -325,7 +325,7 @@ fn check_blesses_a_battery_change_alone_as_bless_would() {
             vec![
                 "VERSION  dac~: version 1 is not recorded",
                 alone,
-                "STALE    old~: fingerprint of no box type (run `cargo xtask bless`)",
+                "STALE    old~: fingerprint of no box type",
             ],
         ),
     ] {
@@ -962,6 +962,19 @@ fn refuses_other_bits_than_main_at_a_version_both_records_hold() {
              version of osc~, then run `cargo xtask bless`)",
         ],
         "each version given other bits, by box type then version"
+    );
+    let both_older = |record: &Record| Record {
+        fingerprint_battery: 1,
+        ..record.clone()
+    };
+    assert_eq!(
+        spent_problems(&both_older(&resolved), Some(&both_older(&main))),
+        [
+            "BITS     dac~ 1: other bits than the spent record holds at this version",
+            "BITS     osc~ 2: other bits than the spent record holds at this version",
+        ],
+        "both at a battery the engine no longer has: said without a hint, which the battery \
+         change would refuse"
     );
     let other_battery = Record {
         fingerprint_battery: 1,

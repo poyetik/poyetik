@@ -4,7 +4,7 @@
 //! algorithm version of every box type each case uses. From it, what `check` and `bless`
 //! refuse.
 
-use crate::hint::Hint;
+use crate::hint::{Hint, said};
 use crate::status::Status;
 use alloc::collections::BTreeMap;
 use std::path::Path;
@@ -154,28 +154,30 @@ pub(crate) struct Others<'cases> {
 /// change with a problem of a case (`others`), other render rules, another render hash or
 /// a version the record does not hold ([`unrecorded`], each said on a line without a hint)
 /// is blessed alone first, as a bless changing the battery would refuse
-/// ([`battery_apart`]).
+/// ([`battery_apart`]). While the battery differs, no line but the battery's gives a hint
+/// ([`said`]): every other bless is refused then.
 pub(crate) fn record_problems(
     record: &Record,
     now: &Fingerprints,
     others: Others<'_>,
 ) -> Vec<String> {
     let mut problems = Vec::new();
+    let hints = record.fingerprint_battery == FINGERPRINT_BATTERY;
     if record.render_hash != SCHEME {
         problems.push(format!(
-            "{status} the references were hashed with {}, the engine with {SCHEME} ({hint})",
+            "{status} the references were hashed with {}, the engine with {SCHEME}{hint}",
             record.render_hash,
             status = Status::Hash,
-            hint = Hint::Hash
+            hint = said(Hint::Hash, hints)
         ));
     }
     if record.render_rules != RENDER_RULES_VERSION {
         problems.push(format!(
             "{status} the references were rendered under render rules version {}, the \
-             engine's is {RENDER_RULES_VERSION} ({hint})",
+             engine's is {RENDER_RULES_VERSION}{hint}",
             record.render_rules,
             status = Status::Rules,
-            hint = Hint::Rules
+            hint = said(Hint::Rules, hints)
         ));
     }
     if record.fingerprint_battery == FINGERPRINT_BATTERY {
@@ -224,9 +226,9 @@ pub(crate) fn record_problems(
             .filter(|name| !now.contains_key(*name))
             .map(|name| {
                 format!(
-                    "{status} {name}: fingerprint of no box type ({hint})",
+                    "{status} {name}: fingerprint of no box type{hint}",
                     status = Status::Stale,
-                    hint = Hint::Stale
+                    hint = said(Hint::Stale, hints)
                 )
             }),
     );
@@ -259,9 +261,12 @@ pub(crate) fn spent_problems(record: &Record, base: Option<&Record>) -> Vec<Stri
                 .map(move |(version, _)| {
                     format!(
                         "{status} {name} {version}: other bits than the spent record holds at \
-                         this version ({hint})",
+                         this version{hint}",
                         status = Status::Bits,
-                        hint = Hint::SpentBits { name }
+                        hint = said(
+                            Hint::SpentBits { name },
+                            record.fingerprint_battery == FINGERPRINT_BATTERY
+                        )
                     )
                 })
         })

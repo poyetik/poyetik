@@ -1,12 +1,13 @@
 //! The `engine-cli` commands.
 
-use crate::hint::Hint;
+use crate::hint::{Hint, said};
 use crate::status::Status;
 use alloc::collections::BTreeMap;
 use std::ffi::OsString;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+use engine_battery::FINGERPRINT_BATTERY;
 use engine_core::RenderFormat;
 use engine_fpenv::{DefaultMode, with_default_mode};
 use engine_patch::MAX_PATCH_BYTES;
@@ -453,13 +454,14 @@ fn render(
 /// a box type the patch does not use; `referenced` says whether the case has references,
 /// which a bless replaces only when the case is named. The lines of the box types the
 /// patch does not use come apart, second: stale entries, which a bless changing the
-/// battery drops.
+/// battery drops. Each line gives its hint when `hints` ([`said`]).
 fn version_problems(
     name: &str,
     current: Option<&Versions>,
     recorded: Option<&Versions>,
     referenced: bool,
     record: &Path,
+    hints: bool,
 ) -> (Vec<String>, Vec<String>) {
     let Some(current) = current else {
         return (Vec::new(), Vec::new());
@@ -474,8 +476,9 @@ fn version_problems(
         };
         return (
             vec![format!(
-                "{status} {name}: no algorithm versions ({hint})",
-                status = Status::Missing
+                "{status} {name}: no algorithm versions{hint}",
+                status = Status::Missing,
+                hint = said(hint, hints)
             )],
             Vec::new(),
         );
@@ -486,14 +489,14 @@ fn version_problems(
             Some(blessed) if blessed == version => None,
             Some(blessed) => Some(format!(
                 "{status} {name} {kind}: at algorithm version {version}, the references were \
-             blessed with version {blessed} ({hint})",
+             blessed with version {blessed}{hint}",
                 status = Status::Version,
-                hint = Hint::NewVersion
+                hint = said(Hint::NewVersion, hints)
             )),
             None => Some(format!(
-                "{status} {name} {kind}: no algorithm version ({hint})",
+                "{status} {name} {kind}: no algorithm version{hint}",
                 status = Status::Missing,
-                hint = Hint::UnversionedBox
+                hint = said(Hint::UnversionedBox, hints)
             )),
         });
     let stale = recorded
@@ -501,10 +504,10 @@ fn version_problems(
         .filter(|kind| !current.contains_key(*kind))
         .map(|kind| {
             format!(
-                "{status} {name} {kind}: algorithm version of a box type the case does not use \
-                 ({hint})",
+                "{status} {name} {kind}: algorithm version of a box type the case does not \
+                 use{hint}",
                 status = Status::Stale,
-                hint = Hint::Stale
+                hint = said(Hint::Stale, hints)
             )
         });
     (changed.collect(), stale.collect())
@@ -530,6 +533,7 @@ fn format_line(
     format: RenderFormat,
     references: Option<&BTreeMap<String, String>>,
     same_versions: bool,
+    hints: bool,
     mode: DefaultMode<'_>,
 ) -> (Verdict, String) {
     let name = &case.name;
@@ -563,9 +567,9 @@ fn format_line(
             None => (
                 Verdict::Failed,
                 format!(
-                    "{status} {name} {format}: no reference hash ({hint})",
+                    "{status} {name} {format}: no reference hash{hint}",
                     status = Status::Missing,
-                    hint = Hint::NoReference
+                    hint = said(Hint::NoReference, hints)
                 ),
             ),
         },
@@ -600,6 +604,9 @@ fn check(
         .transpose()?;
     let blessed = &record.cases;
     let rules = same_rules(&record);
+    // While the battery differs, every bless but the battery's is refused: no line but the
+    // battery's gives a hint.
+    let hints = record.fingerprint_battery == FINGERPRINT_BATTERY;
     let mut failures = 0_usize;
     // The lines of a case's stale entries, which a bless changing the battery drops.
     let mut stale = 0_usize;
@@ -619,7 +626,7 @@ fn check(
         let recorded = blessed.get(name);
         let same_versions = rules && current.is_some() && current.as_ref() == recorded;
         for format in RenderFormat::ALL {
-            let (verdict, line) = format_line(case, format, references, same_versions, mode);
+            let (verdict, line) = format_line(case, format, references, same_versions, hints, mode);
             if verdict == Verdict::Changed && !changed.contains(name) {
                 changed.push(name.clone());
             }
@@ -635,9 +642,9 @@ fn check(
                 &mut failures,
                 false,
                 format!(
-                    "{status} {name} {unknown}: reference of no render format ({hint})",
+                    "{status} {name} {unknown}: reference of no render format{hint}",
                     status = Status::Stale,
-                    hint = Hint::Stale
+                    hint = said(Hint::Stale, hints)
                 ),
             )?;
             stale = stale.saturating_add(1);
@@ -648,6 +655,7 @@ fn check(
             recorded,
             references.is_some(),
             &algorithms_path(dir),
+            hints,
         );
         for line in problems {
             report(out, &mut failures, false, line)?;
@@ -672,7 +680,7 @@ fn check(
     if let Some(line) = spent_skipped(&record, base.as_ref()) {
         report(out, &mut failures, true, line)?;
     }
-    for line in without_a_case(&expected, blessed, &cases) {
+    for line in without_a_case(&expected, blessed, &cases, hints) {
         report(out, &mut failures, false, line)?;
     }
     if failures == 0 {
@@ -686,25 +694,27 @@ fn check(
 }
 
 /// The lines of `check` for what `expected`, the references, and `blessed`, the versions of
-/// the record, hold of no case of `cases`, which a bless drops.
+/// the record, hold of no case of `cases`, which a bless drops, each with its hint when
+/// `hints` ([`said`]).
 fn without_a_case(
     expected: &References,
     blessed: &BTreeMap<String, Versions>,
     cases: &[CaseFiles],
+    hints: bool,
 ) -> Vec<String> {
     let stale = |name: &&String| !cases.iter().any(|case| case.name == **name);
     let references = expected.keys().filter(stale).map(|name| {
         format!(
-            "{status} {name}: reference without a case ({hint})",
+            "{status} {name}: reference without a case{hint}",
             status = Status::Stale,
-            hint = Hint::Stale
+            hint = said(Hint::Stale, hints)
         )
     });
     let versions = blessed.keys().filter(stale).map(|name| {
         format!(
-            "{status} {name}: algorithm versions without a case ({hint})",
+            "{status} {name}: algorithm versions without a case{hint}",
             status = Status::Stale,
-            hint = Hint::Stale
+            hint = said(Hint::Stale, hints)
         )
     });
     references.chain(versions).collect()

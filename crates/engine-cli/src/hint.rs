@@ -161,6 +161,24 @@ fn bless_command(changed: &[String], battery_changed: bool) -> String {
     command
 }
 
+/// A hint after the problem it answers, ` (hint)`, or nothing while the command it names
+/// would be refused: `check` gives none while the battery differs, since every bless but
+/// the battery's is refused then, and the battery's line gives the procedure ([`said`]).
+pub(crate) struct Said<'a>(Option<Hint<'a>>);
+
+/// `hint` said after its problem when `shown`, else nothing ([`Said`]).
+pub(crate) const fn said(hint: Hint<'_>, shown: bool) -> Said<'_> {
+    Said(if shown { Some(hint) } else { None })
+}
+
+impl core::fmt::Display for Said<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        self.0
+            .as_ref()
+            .map_or(Ok(()), |hint| write!(f, " ({hint})"))
+    }
+}
+
 impl core::fmt::Display for Hint<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
