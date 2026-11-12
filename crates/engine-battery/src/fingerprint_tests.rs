@@ -3,8 +3,8 @@
 
 use engine_core::host::{Delivered, Raw};
 use engine_core::{
-    AlgorithmVersion, BLOCK_SIZE, Binary32, Binary64, Block, Create, Factory, Object, ObjectSpec,
-    ParamSpec, Params, PortSpec, Precision, Sample, SampleRate,
+    AlgorithmVersion, BLOCK_SIZE, Binary32, Binary64, Block, Create, Dispatch, Factory, Object,
+    ObjectSpec, ParamSpec, ParamValues, Params, PortSpec, Precision, Sample, SampleRate,
 };
 
 use core::convert::Infallible;
@@ -466,6 +466,51 @@ fn ends_a_run_at_the_first_error() {
         "the error of the second block"
     );
     assert_eq!(calls, 2, "no block after it");
+}
+
+/// An instance type that creates every box through its factory, then flips the lowest bit
+/// of the first sample of its first outlet at every block: an instance type that behaves
+/// otherwise than the factory's, as a built-in arm could.
+#[derive(Debug)]
+struct Altered<S: Sample>(Box<dyn Object<S>>);
+
+impl<S: Sample> Object<S> for Altered<S> {
+    fn process(&mut self, inputs: &[Block<S>], outputs: &mut [Block<S>]) {
+        self.0.process(inputs, outputs);
+        for sample in outputs.iter_mut().flatten().take(1) {
+            *sample = flip_lowest_bit(*sample);
+        }
+    }
+}
+
+impl<S: Sample> Dispatch<S> for Altered<S> {
+    fn create(rate: SampleRate, values: &ParamValues) -> Self {
+        Self(<Box<dyn Object<S>> as Dispatch<S>>::create(rate, values))
+    }
+}
+
+#[test]
+fn measures_the_instances_of_each_precision() {
+    // Each precision through the instance type given for it: an instance type behaving
+    // otherwise in one precision is seen there, so a fingerprint taken through the factory
+    // for one precision, whatever the instance type given, would fail here.
+    let spec: &'static ObjectSpec = Box::leak(Box::new(echo(Quirk::None)));
+    let through = |altered: [bool; 2]| match altered {
+        [false, false] => fingerprint::<Virtual<Binary64>, Virtual<Binary32>>(spec),
+        [true, false] => fingerprint::<Altered<Binary64>, Virtual<Binary32>>(spec),
+        [false, true] => fingerprint::<Virtual<Binary64>, Altered<Binary32>>(spec),
+        [true, true] => fingerprint::<Altered<Binary64>, Altered<Binary32>>(spec),
+    };
+    let prints: Vec<String> = [[false, false], [true, false], [false, true], [true, true]]
+        .into_iter()
+        .map(|altered| through(altered).expect("parameter sets within range"))
+        .collect();
+    let distinct: alloc::collections::BTreeSet<&String> = prints.iter().collect();
+    assert_eq!(
+        distinct.len(),
+        4,
+        "binary64 and binary32 each measured through their own instance type: {prints:?}"
+    );
 }
 
 #[test]
