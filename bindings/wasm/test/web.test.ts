@@ -1,3 +1,4 @@
+import { getEventListeners } from "node:events";
 import { runInNewContext } from "node:vm";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { EngineTrap, ModuleError, PatchError } from "../ts/engine.ts";
@@ -72,57 +73,57 @@ function fakeSource(): { connect: (node: unknown) => void; disconnect: (node: un
   };
 }
 
-/** A fake context: a fake worklet recording the modules added, and a state the tests change. */
-interface FakeContext {
+/**
+ * A fake context, built on `EventTarget` as a real one is, so that its listeners follow the
+ * platform's event model (options, `handleEvent` objects, an `Event` argument): a fake
+ * worklet recording the modules added, and a state the tests change.
+ */
+class FakeContext extends EventTarget {
   /** The rate the context runs at, in hertz. */
   readonly sampleRate: number;
-  /** Its worklet, recording the modules added. */
-  readonly audioWorklet: { addModule: (url: string | URL) => Promise<void> };
   /** Every module added, in order. */
-  readonly modules: (string | URL)[];
-  /** Its state, as `close` changes it. */
-  state: AudioContextState;
-  /** The `statechange` listeners installed and not removed yet. */
-  readonly listeners: Set<() => void>;
-  /** Installs a `statechange` listener. */
-  addEventListener: (type: string, listener: () => void) => void;
-  /** Removes a `statechange` listener. */
-  removeEventListener: (type: string, listener: () => void) => void;
-  /** Closes the context, telling its `statechange` listeners, as a real one does. */
-  close: () => void;
+  readonly modules: (string | URL)[] = [];
+  /** Its state: suspended, as a new one is; {@link FakeContext.become} and {@link FakeContext.close} change it. */
+  state: AudioContextState = "suspended";
+  /** Its worklet, recording the modules added. */
+  readonly audioWorklet = {
+    addModule: (url: string | URL): Promise<void> => {
+      this.modules.push(url);
+      return Promise.resolve();
+    },
+  };
+
+  /** A context running at `sampleRate` hertz. */
+  constructor(sampleRate: number) {
+    super();
+    this.sampleRate = sampleRate;
+  }
+
+  /** Moves to `state` and fires `statechange`, as the browser's task that changes it does: the test acts as that task. */
+  become(state: AudioContextState): void {
+    this.state = state;
+    this.dispatchEvent(new Event("statechange"));
+  }
+
+  /** Closes the context as a real one does: rejects on a closed one; otherwise fires `statechange` after returning, before its promise settles. */
+  close(): Promise<void> {
+    if (this.state === "closed") {
+      return Promise.reject(new DOMException("already closed", "InvalidStateError"));
+    }
+    this.state = "closed";
+    queueMicrotask(() => this.dispatchEvent(new Event("statechange")));
+    return Promise.resolve();
+  }
 }
 
 /** A fake context running at `sampleRate` hertz, suspended as a new one is. */
 function fakeContext(sampleRate: number): FakeContext {
-  const modules: (string | URL)[] = [];
-  const listeners = new Set<() => void>();
-  const fake: FakeContext = {
-    sampleRate,
-    modules,
-    state: "suspended",
-    listeners,
-    audioWorklet: {
-      addModule: (url) => {
-        modules.push(url);
-        return Promise.resolve();
-      },
-    },
-    addEventListener: (type, listener) => {
-      expect(type).toBe("statechange");
-      listeners.add(listener);
-    },
-    removeEventListener: (type, listener) => {
-      expect(type).toBe("statechange");
-      listeners.delete(listener);
-    },
-    close: () => {
-      fake.state = "closed";
-      listeners.forEach((listener) => {
-        listener();
-      });
-    },
-  };
-  return fake;
+  return new FakeContext(sampleRate);
+}
+
+/** How many `statechange` listeners `context` holds, counted by the platform. */
+function statechangeListeners(context: EventTarget): number {
+  return getEventListeners(context, "statechange").length;
 }
 
 /** A patch loaded by the engine: the sine (2 channels) or a patch without output. */
@@ -192,6 +193,23 @@ function asNode(fake: unknown): AudioNode {
   }
   return fake;
 }
+
+describe("the fake context", () => {
+  test("closes as a real one does: statechange fires after close returns, before its promise settles, and a second close rejects", async () => {
+    const context = fakeContext(RATE);
+    const seen: string[] = [];
+    context.addEventListener("statechange", (event: Event) => {
+      seen.push(`${event.type} ${context.state}`);
+    });
+    const closing = context.close();
+    seen.push("returned");
+    await closing;
+    seen.push("settled");
+    expect(seen).toStrictEqual(["returned", "statechange closed", "settled"]);
+    await expect(context.close()).rejects.toThrow(new DOMException("already closed", "InvalidStateError"));
+    expect(seen).toHaveLength(3);
+  });
+});
 
 describe("addProcessors", () => {
   test("adds the processors module to the worklet", async () => {
@@ -371,18 +389,15 @@ describe("createEngineNode", () => {
     const failures: Error[] = [];
     const context = fakeContext(RATE);
     const { ready } = createEngineNode(asContext(context), await loaded(2), (error) => failures.push(error));
-    expect(context.listeners.size).toBe(1);
+    expect(statechangeListeners(context)).toBe(1);
     // A context that only runs or suspends does not end the wait.
     for (const state of ["running", "suspended"] as const) {
-      context.state = state;
-      context.listeners.forEach((listener) => {
-        listener();
-      });
+      context.become(state);
       expect(await settled(ready)).toBe("pending");
     }
-    context.close();
+    await context.close();
     expect(await settled(ready)).toStrictEqual(new ContextClosed("the context closed before the engine processor was ready"));
-    expect([failures, context.listeners.size]).toStrictEqual([[], 0]);
+    expect([failures, statechangeListeners(context)]).toStrictEqual([[], 0]);
     // The processor's later messages still reach onFailure, once.
     FakeNode.created[0]?.port.deliver({ type: "failed", message: "trap" });
     expect(failures).toStrictEqual([new Error("the engine failed: trap")]);
@@ -396,10 +411,10 @@ describe("createEngineNode", () => {
   test("rejects ready at once when its context is already closed", async () => {
     stubNodes();
     const context = fakeContext(RATE);
-    context.close();
+    await context.close();
     const { ready } = createEngineNode(asContext(context), await loaded(2), () => undefined);
     expect(await settled(ready)).toStrictEqual(new ContextClosed("the context closed before the engine processor was ready"));
-    expect(context.listeners.size).toBe(0);
+    expect(statechangeListeners(context)).toBe(0);
   });
 
   test("stops following the context once ready, or once failed", async () => {
@@ -407,11 +422,11 @@ describe("createEngineNode", () => {
     const context = fakeContext(RATE);
     const first = createEngineNode(asContext(context), await loaded(2), () => undefined);
     const second = createEngineNode(asContext(context), await loaded(2), () => undefined);
-    expect(context.listeners.size).toBe(2);
+    expect(statechangeListeners(context)).toBe(2);
     FakeNode.created[0]?.port.deliver({ type: "ready" });
     FakeNode.created[1]?.onprocessorerror?.();
-    expect(context.listeners.size).toBe(0);
-    context.close();
+    expect(statechangeListeners(context)).toBe(0);
+    await context.close();
     expect([await settled(first.ready), await settled(second.ready)]).toStrictEqual(["resolved", new Error("the engine processor failed")]);
   });
 
@@ -500,7 +515,7 @@ describe("capture", () => {
     await expect(captured).rejects.toThrow(new Error("the source stopped before the end of the capture"));
     expect(tapNode?.port.posted).toStrictEqual(["stop"]);
     expect(source.log).toStrictEqual([`connect ${TAP_PROCESSOR}`, `disconnect ${TAP_PROCESSOR}`]);
-    expect(context.listeners.size).toBe(0);
+    expect(statechangeListeners(context)).toBe(0);
   });
 
   test("fails when the context closes before the end, but not while it is suspended", async () => {
@@ -508,28 +523,26 @@ describe("capture", () => {
     const source = fakeSource();
     const context = fakeContext(RATE);
     const captured = capture(asContext(context), asNode(source), 1, 4);
-    expect(context.listeners.size).toBe(1);
+    expect(statechangeListeners(context)).toBe(1);
     // A capture starts before its context runs: a suspended context is no failure.
-    context.listeners.forEach((listener) => {
-      listener();
-    });
+    context.become("suspended");
     expect(await settled(captured)).toBe("pending");
-    context.close();
+    await context.close();
     await expect(captured).rejects.toStrictEqual(new ContextClosed("the context closed before the end of the capture"));
     expect(FakeNode.created[0]?.port.posted).toStrictEqual(["stop"]);
     expect(source.log).toStrictEqual([`connect ${TAP_PROCESSOR}`, `disconnect ${TAP_PROCESSOR}`]);
-    expect(context.listeners.size).toBe(0);
+    expect(statechangeListeners(context)).toBe(0);
   });
 
   test("fails at once in a closed context, without a tap", async () => {
     stubNodes();
     const source = fakeSource();
     const context = fakeContext(RATE);
-    context.close();
+    await context.close();
     await expect(capture(asContext(context), asNode(source), 1, 4)).rejects.toStrictEqual(new ContextClosed("the context closed before the end of the capture"));
     expect(FakeNode.created).toHaveLength(0);
     expect(source.log).toStrictEqual([]);
-    expect(context.listeners.size).toBe(0);
+    expect(statechangeListeners(context)).toBe(0);
   });
 
   test("stops following the context once complete", async () => {
@@ -538,7 +551,7 @@ describe("capture", () => {
     const captured = capture(asContext(context), asNode(fakeSource()), 1, 1);
     FakeNode.created[0]?.port.deliver([new Float32Array([1])]);
     expect(await captured).toStrictEqual([new Float32Array([1])]);
-    expect(context.listeners.size).toBe(0);
+    expect(statechangeListeners(context)).toBe(0);
   });
 
   test("fills channels missing from a block with silence", async () => {
