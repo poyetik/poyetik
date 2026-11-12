@@ -886,6 +886,10 @@
         {
           "title": "Vocabulary gate on Rust prose from the tokenizer: its own scan of Rust comments and strings (code_prose) does not nest block comments as rustc does, so a nested comment can hide a refused synonym from it or show code as prose; read the prose of a Rust file from RustSource instead (its string literals and doc comments, and the source between tokens, which is exactly its comments), keeping its TypeScript reading, with fixtures of nested comments and raw strings it must refuse",
           "done": false
+        },
+        {
+          "title": "Exact values where a test asserts only the state of a Result: about 35 test sites assert a result with is_ok() or is_err() (most in xtask's and engine-cli's tests) where the exact value or message is known; assert it, and add a gate that refuses assert!(x.is_ok()) and assert!(x.is_err()) in test code unless reviewed, since Clippy's assertions_on_result_states only sees an assertion without a message, which missing_assert_message forbids here",
+          "done": false
         }
       ]
     },
