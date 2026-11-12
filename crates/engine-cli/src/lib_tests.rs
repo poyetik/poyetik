@@ -847,18 +847,32 @@ fn canonical(json: &str) -> String {
     )
 }
 
-/// The fingerprint of the registered box type `name`, at its current version, through the
-/// engine's instances.
-fn fingerprint_of(name: &str) -> String {
-    engine_battery::fingerprint::<
-        engine_objects::BuiltIn<engine_core::Binary64>,
-        engine_objects::BuiltIn<engine_core::Binary32>,
-    >(
+/// The fingerprint of every registered box type at its current version, through the
+/// engine's instances, by name: computed once for the whole test binary, since the battery
+/// is the slowest part of these tests and gives the same value whichever test asks first.
+static FINGERPRINTS: std::sync::LazyLock<BTreeMap<&'static str, String>> =
+    std::sync::LazyLock::new(|| {
         engine_objects::REGISTRY
             .iter()
-            .find(|spec| spec.name() == name)
-            .expect("a registered box type"),
-    )
+            .map(|spec| {
+                (
+                    spec.name(),
+                    engine_battery::fingerprint::<
+                        engine_objects::BuiltIn<engine_core::Binary64>,
+                        engine_objects::BuiltIn<engine_core::Binary32>,
+                    >(spec),
+                )
+            })
+            .collect()
+    });
+
+/// The fingerprint of the registered box type `name`, at its current version, through the
+/// engine's instances ([`FINGERPRINTS`]).
+fn fingerprint_of(name: &str) -> String {
+    FINGERPRINTS
+        .get(name)
+        .expect("a registered box type")
+        .clone()
 }
 
 /// The record bless writes for the algorithm versions `cases` (a JSON object of each
