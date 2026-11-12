@@ -2773,8 +2773,13 @@ fn tells_a_file_turned_into_a_link_from_a_change_git_left_out() {
 }
 
 /// What the git-fed functions of the mutation step and of the tree gates answer in a
-/// repository at `dir` holding two Rust files and a change, after `configure` ran there.
-fn git_answers(dir: &Path, configure: &dyn Fn(&Path)) -> Vec<String> {
+/// repository at `dir` holding two Rust files and a change, after `configure` ran there,
+/// their git started with the variables of `env`.
+fn git_answers(
+    dir: &Path,
+    env: &'static [(&'static str, &'static str)],
+    configure: &dyn Fn(&Path),
+) -> Vec<String> {
     let (first, second) = (
         "crates/engine-hash/src/lib.rs",
         "crates/engine-hash/src/b c.rs",
@@ -2789,7 +2794,10 @@ fn git_answers(dir: &Path, configure: &dyn Fn(&Path)) -> Vec<String> {
     std::fs::write(dir.join(first), "a\n\nb\nd\n").expect("a change");
     std::fs::write(dir.join(second), "y\n").expect("a change");
     std::fs::write(dir.join("crates/engine-hash/src/new.rs"), "n\n").expect("a new file");
-    let mut runner = system(dir.to_path_buf());
+    let mut runner = SystemRunner {
+        root: dir.to_path_buf(),
+        env,
+    };
     let changed = super::changed_since(&mut runner, "HEAD").expect("the changes");
     let new = super::new_rust_files(&mut runner).expect("the new files");
     let tree = super::tree_cleanliness(&mut runner).expect("the tree");
@@ -2814,8 +2822,13 @@ fn git_answers(dir: &Path, configure: &dyn Fn(&Path)) -> Vec<String> {
 fn gives_the_same_answers_under_a_hostile_git_configuration() {
     let plain = scratch("plain-git");
     let hostile = scratch("hostile-git");
-    let expected = git_answers(&plain, &|_| {});
-    let answers = git_answers(&hostile, &|dir| {
+    let expected = git_answers(&plain, &HERMETIC, &|_| {});
+    assert_eq!(
+        expected.get(..3),
+        Some(PLAIN_GIT_ANSWERS.map(str::to_owned).as_slice()),
+        "the plain run's answers, as known"
+    );
+    let answers = git_answers(&hostile, &HERMETIC, &|dir| {
         for (key, value) in [
             ("diff.suppressBlankEmpty", "true"),
             ("diff.noprefix", "true"),
@@ -2863,6 +2876,50 @@ fn gives_the_same_answers_under_a_hostile_git_configuration() {
             Some("` M \"crates/engine-hash/src/b c.rs\"` is not committed")
         ),
         "the tree is not clean, whatever the configuration"
+    );
+}
+
+/// The changed paths, the new Rust files and the diff [`git_answers`] gives with no
+/// configuration of git's: the reference every other configuration's answers must equal.
+const PLAIN_GIT_ANSWERS: [&str; 3] = [
+    "crates/engine-hash/src/b c.rs|crates/engine-hash/src/lib.rs",
+    "crates/engine-hash/src/new.rs",
+    "diff --git a/crates/engine-hash/src/b c.rs b/crates/engine-hash/src/b c.rs\n\
+     index 587be6b..975fbec 100644\n\
+     --- a/crates/engine-hash/src/b c.rs\t\n\
+     +++ b/crates/engine-hash/src/b c.rs\t\n\
+     @@ -1 +1 @@\n\
+     -x\n\
+     +y\n\
+     diff --git a/crates/engine-hash/src/lib.rs b/crates/engine-hash/src/lib.rs\n\
+     index 068025d..6b37b6d 100644\n\
+     --- a/crates/engine-hash/src/lib.rs\n\
+     +++ b/crates/engine-hash/src/lib.rs\n\
+     @@ -1,4 +1,4 @@\n\
+     \x20a\n\
+     \x20\n\
+     \x20b\n\
+     -c\n\
+     +d\n",
+];
+
+/// The variables of a test's git, and a user's `GIT_DIFF_OPTS` asking for diffs without
+/// context, which git applies after the options of its command line.
+static TERSE_DIFFS: [(&str, &str); 5] = [
+    HERMETIC[0],
+    HERMETIC[1],
+    HERMETIC[2],
+    HERMETIC[3],
+    ("GIT_DIFF_OPTS", "--unified=0"),
+];
+
+#[test]
+fn gives_the_same_diff_under_a_user_s_diff_options() {
+    let dir = scratch("terse-git");
+    assert_eq!(
+        git_answers(&dir, &TERSE_DIFFS, &|_| {}).get(..3),
+        Some(PLAIN_GIT_ANSWERS.map(str::to_owned).as_slice()),
+        "the changed paths, the new Rust files and the diff with its context"
     );
 }
 
@@ -3092,13 +3149,14 @@ fn starts_a_test_runner_s_commands_without_the_machine_s_git_configuration() {
 }
 
 #[test]
-fn starts_git_without_the_variables_that_change_its_pathspecs() {
+fn starts_git_without_the_variables_that_change_its_pathspecs_and_its_diffs() {
     let git = super::command("git", Path::new("."), &[]);
     for variable in [
         "GIT_LITERAL_PATHSPECS",
         "GIT_GLOB_PATHSPECS",
         "GIT_NOGLOB_PATHSPECS",
         "GIT_ICASE_PATHSPECS",
+        "GIT_DIFF_OPTS",
     ] {
         assert!(
             git.get_envs()

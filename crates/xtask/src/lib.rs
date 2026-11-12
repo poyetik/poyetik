@@ -7896,8 +7896,17 @@ pub const PATHSPEC_GIT_VARIABLES: [&str; 4] = [
     "GIT_ICASE_PATHSPECS",
 ];
 
+/// The variable whose diff options git applies after those of its command line:
+/// `GIT_DIFF_OPTS=-u0`, a profile's wish for terse diffs, would drop the context lines
+/// cargo-mutants reads to find the changed functions, whatever [`diff_since`] asks for.
+///
+/// `GIT_EXTERNAL_DIFF` is overridden by `--no-ext-diff`; `GIT_ATTR_SOURCE`, which reads the
+/// attributes from another tree, is out of scope: no honest change sets it for a check.
+const DIFF_GIT_VARIABLES: [&str; 1] = ["GIT_DIFF_OPTS"];
+
 /// A command for `program` in `dir`, with the variables of `env`, without the variables of
-/// [`LOCAL_GIT_VARIABLES`] and [`PATHSPEC_GIT_VARIABLES`], nor `RUSTUP_TOOLCHAIN`, reading no input
+/// [`LOCAL_GIT_VARIABLES`], [`PATHSPEC_GIT_VARIABLES`] and [`DIFF_GIT_VARIABLES`], nor
+/// `RUSTUP_TOOLCHAIN`, reading no input
 /// (a command waiting for an answer fails instead of blocking the check), and for git with
 /// `LC_ALL=C` (its messages untranslated, as [`error_reason`] reads them).
 ///
@@ -7918,6 +7927,7 @@ fn command(program: &str, dir: &Path, env: &[(&str, &str)]) -> Command {
     for variable in LOCAL_GIT_VARIABLES
         .into_iter()
         .chain(PATHSPEC_GIT_VARIABLES)
+        .chain(DIFF_GIT_VARIABLES)
     {
         let _without = command.env_remove(variable);
     }
@@ -10243,7 +10253,8 @@ fn new_rust_files(runner: &mut dyn Runner) -> Result<Vec<String>, Failure> {
 /// bytes may not be text. Every file is shown as text (`--text`), whatever its `diff` or
 /// `binary` attribute says, which no gate reads ([`incomplete_diff`]), and every option of
 /// git's that changes which lines it writes or how is given, whatever the user's
-/// configuration says (the context, the algorithm, the prefixes, an empty context line).
+/// configuration or environment says (the context, the algorithm, the prefixes, an empty
+/// context line; [`DIFF_GIT_VARIABLES`]).
 ///
 /// # Errors
 ///
