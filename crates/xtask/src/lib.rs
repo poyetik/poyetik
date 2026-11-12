@@ -9044,7 +9044,7 @@ fn in_tests_dir(rel: &str) -> bool {
 ///
 /// The pinned toolchain: a change to it can let any mutant survive. The workspace's
 /// manifest ([`CARGO_TOML`]) widens to everything too, but for a change of its shared
-/// dependencies alone (`manifest_widened`).
+/// dependencies or its lints alone (`manifest_widened`).
 pub const MUTATE_EVERYTHING_WHEN: [&str; 1] = [RUST_TOOLCHAIN_FILE];
 
 /// The header of the table of the workspace's shared dependencies, which its crates
@@ -9068,8 +9068,9 @@ enum Widening {
     /// The crates whose build reaches a changed entry of [`LOCK_FILE`].
     Lock,
     /// The crates whose build includes a crate that declares a changed entry of the
-    /// workspace's shared dependencies ([`WORKSPACE_DEPENDENCIES`] in [`CARGO_TOML`]), or
-    /// every crate when anything else of it changed ([`manifest_widened`]).
+    /// workspace's shared dependencies ([`WORKSPACE_DEPENDENCIES`] in [`CARGO_TOML`]), none
+    /// for its lint tables, or every crate when anything else of it changed
+    /// ([`manifest_widened`]).
     Workspace,
     /// The crate whose manifest it is, and every crate whose build includes it.
     Manifest(&'static str),
@@ -9363,21 +9364,41 @@ fn one_line_value(value: &str) -> bool {
     !quoted && open.is_empty()
 }
 
+/// Whether `key` is a bare key of TOML: ASCII letters, digits, `-` and `_`, at least one.
+fn bare_key(key: &str) -> bool {
+    !key.is_empty()
+        && key
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || "-_".contains(character))
+}
+
 /// The name of the entry of shared dependencies `line` writes (`<name> = <value>`, leading
 /// blanks apart), if it is one whole entry on one line: a bare key ([`one_line_value`]).
 fn dependency_entry(line: &str) -> Option<&str> {
     let (name, value) = line.trim_start_matches([' ', '\t']).split_once('=')?;
     let name = name.trim_end_matches([' ', '\t']);
-    (!name.is_empty()
-        && name
-            .chars()
-            .all(|character| character.is_ascii_alphanumeric() || "-_".contains(character))
-        && one_line_value(value))
-    .then_some(name)
+    (bare_key(name) && one_line_value(value)).then_some(name)
 }
 
-/// The workspace's manifest `manifest` but the lines of its shared dependencies, and each of
-/// those entries by its name ([`dependency_entry`]), its whole line.
+/// The header of the workspace's lint table, which its crates inherit (`[lints]`,
+/// `workspace = true`), as the workspace's manifest may write it.
+const WORKSPACE_LINTS: &str = "[workspace.lints]";
+
+/// Whether `line` is exactly the header of a table of the workspace's lints:
+/// [`WORKSPACE_LINTS`] or `[workspace.lints.<tool>]`, a bare key ([`bare_key`]). A header
+/// written otherwise (spaces, quotes, a comment after it, a carriage return) is none, so
+/// its table is compared whole.
+fn lints_header(line: &str) -> bool {
+    line == WORKSPACE_LINTS
+        || line
+            .strip_prefix("[workspace.lints.")
+            .and_then(|tool| tool.strip_suffix(']'))
+            .is_some_and(bare_key)
+}
+
+/// The workspace's manifest `manifest` but the lines of its shared dependencies and of its
+/// lint tables, and each of those entries by its name ([`dependency_entry`]), its whole
+/// line.
 ///
 /// Read only as far as it can be read soundly, so that a manifest it accepts holds exactly
 /// those entries in that table: no multi-line string (in which a line could look like a
@@ -9385,6 +9406,13 @@ fn dependency_entry(line: &str) -> Option<&str> {
 /// beginning with `[` ends), each line of the table blank, a comment or one entry, no name
 /// twice. An entry the rest of the manifest writes elsewhere in the table (a key of
 /// `[workspace]`, a table of its own) is in the rest, compared whole.
+///
+/// The lines of a lint table ([`lints_header`]), its header included, are left out up to
+/// the next line beginning with `[`: a key there can only be a lint of that table (TOML has
+/// no way out of a table but a header), and a line of a value beginning with `[` ends what
+/// is left out early, the rest then compared. A change of lint levels changes no mutant's
+/// outcome: every build cargo-mutants makes caps lints ([`MUTANTS_ARGS`]), and the
+/// measurements behind it are in `crates/xtask/README.md`.
 ///
 /// # Errors
 ///
@@ -9424,18 +9452,27 @@ fn shared_dependencies(manifest: &str) -> Result<(String, BTreeMap<&str, &str>),
             return Err(format!("line {number} repeats an entry"));
         }
     }
+    let mut in_lints = false;
     let rest: Vec<&str> = lines
         .iter()
         .take(start)
         .chain(lines.iter().skip(start.saturating_add(table.len())))
         .copied()
+        .filter(|line| {
+            if line.trim_start().starts_with('[') {
+                in_lints = lints_header(line);
+            }
+            !in_lints
+        })
         .collect();
     Ok((rest.join("\n"), entries))
 }
 
 /// The names of the entries of the workspace's shared dependencies that differ between
 /// `manifest` (the workspace's manifest) and `before` (the same file at an earlier
-/// commit): added, removed or changed, a comment apart ([`shared_dependencies`]).
+/// commit): added, removed or changed, comment lines and lint tables apart
+/// ([`shared_dependencies`]); an entry's trailing comment is part of its line, so changing
+/// it widens that entry.
 ///
 /// An entry reaches only the crates that declare it (`<name>.workspace = true`); what it
 /// resolves to is in the lock file, widened on its own ([`lock_widened`]).
@@ -9443,8 +9480,8 @@ fn shared_dependencies(manifest: &str) -> Result<(String, BTreeMap<&str, &str>),
 /// # Errors
 ///
 /// Returns why every crate may build differently: either file is not read, or anything
-/// else of the manifest changed (its profiles, lints, patches, members, package fields),
-/// which no entry names.
+/// else of the manifest but its lints changed (its profiles, patches, members, package
+/// fields), which no entry names.
 fn manifest_widened(before: &str, manifest: &str) -> Result<BTreeSet<String>, String> {
     let (old_rest, old) =
         shared_dependencies(before).map_err(|reason| format!("its earlier version: {reason}"))?;

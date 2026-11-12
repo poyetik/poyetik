@@ -17945,16 +17945,89 @@ fn finds_the_shared_dependencies_a_workspace_manifest_changes() {
 }
 
 #[test]
+fn leaves_out_a_change_of_the_workspace_lints_alone() {
+    let lint =
+        |manifest: &str| manifest.replacen("unsafe_code = \"deny\"", "unsafe_code = \"forbid\"", 1);
+    for (manifest, expected, what) in [
+        (lint(MANIFEST), &[][..], "a lint level changed"),
+        (
+            manifest_with(
+                "[profile.release]",
+                "[workspace.lints.rustdoc]\nbroken_intra_doc_links = \"deny\"\n\n[profile.release]",
+            ),
+            &[],
+            "a lint table added",
+        ),
+        (
+            manifest_with(
+                "[workspace.lints.rust]\nunsafe_code = \"deny\"\n",
+                "[workspace.lints.rust]\nunsafe_code = \"deny\"\ncheck = [\n  \"x\",\n]\n",
+            ),
+            &[],
+            "a lint written on several lines",
+        ),
+        (
+            lint(&manifest_with("=0.2.16", "=0.2.17")),
+            &["libm"],
+            "a lint and an entry changed: the entry",
+        ),
+    ] {
+        assert_eq!(
+            widened_entries(&manifest),
+            Ok(expected.iter().map(|name| (*name).to_owned()).collect()),
+            "{what}"
+        );
+    }
+    let outside = "it changed outside the entries of `[workspace.dependencies]`".to_owned();
+    let under = |header: &str| {
+        let before = manifest_with("[workspace.lints.rust]", header);
+        let after = lint(&before);
+        super::manifest_widened(&before, &after)
+    };
+    for header in [
+        "[workspace.lints.rust]",
+        "[workspace.lints]",
+        "[workspace.lints.a-b_9]",
+    ] {
+        assert_eq!(under(header), Ok(BTreeSet::new()), "{header}");
+    }
+    for header in [
+        "[workspace.lints.rust] # x",
+        "[workspace.lints.rust]\r",
+        "[workspace.lintsx]",
+        "[workspace.lints.]",
+        "[workspace.lints.rust.x]",
+        "[workspace.lints.\"rust\"]",
+        "[ workspace.lints.rust ]",
+        " [workspace.lints.rust]",
+        "[[workspace.lints.rust]]",
+        "[workspace.lints.r\u{fc}st]",
+    ] {
+        assert_eq!(under(header), Err(outside.clone()), "{header:?}");
+    }
+    let continued = manifest_with(
+        "unsafe_code = \"deny\"\n",
+        "unsafe_code = \"deny\"\nx = [\n[\"a\"],\n]\ny = 1\n",
+    );
+    assert_eq!(
+        super::manifest_widened(&continued, &continued.replacen("y = 1", "y = 2", 1)),
+        Err(outside.clone()),
+        "a line of a lint's value beginning with `[` ends what is left out"
+    );
+    assert_eq!(
+        widened_entries(&lint(&manifest_with("lto = \"fat\"", "lto = \"thin\""))),
+        Err(outside),
+        "a lint and a profile changed: the profile"
+    );
+}
+
+#[test]
 fn widens_to_everything_a_workspace_manifest_changed_elsewhere_or_unread() {
     let outside = "it changed outside the entries of `[workspace.dependencies]`".to_owned();
     for (manifest, what) in [
         (
             manifest_with("lto = \"fat\"", "lto = \"thin\""),
             "a profile",
-        ),
-        (
-            manifest_with("unsafe_code = \"deny\"", "unsafe_code = \"forbid\""),
-            "a lint",
         ),
         (
             manifest_with("[\"crates/*\"]", "[\"crates/*\", \"x\"]"),
@@ -18169,8 +18242,8 @@ fn narrows_a_change_of_the_workspace_manifest_real_git_shows() {
             "unsafe_code = \"deny\"",
             "unsafe_code = \"forbid\""
         ))),
-        everything(outside),
-        "a lint"
+        crates(&[]),
+        "a lint: nothing"
     );
     assert_eq!(
         reach(Some(&manifest_with("=0.2.16\"", "=0.2.16"))),
@@ -18245,6 +18318,18 @@ fn mutates_the_crates_a_change_of_the_workspace_manifest_reaches() {
         ),
         "a profile widens to everything, saying why"
     );
+    let mut lints = manifest_fake(
+        MERGE_BASE.1.trim(),
+        &manifest_with("unsafe_code = \"deny\"", "unsafe_code = \"forbid\""),
+    );
+    let linted = mutate_changes(&mut lints);
+    assert!(
+        linted.contains("  no Rust file changed: no mutant to test\n")
+            && !linted.contains("Cargo.toml changed")
+            && !linted.contains("every Rust mutant"),
+        "a lint widens to nothing: {linted}"
+    );
+    assert_eq!(lints.files.get(CHANGES_DIFF), None, "nothing mutated");
     let mut record = proven_fake(&proof_record(PROVEN[2]), &change);
     for (key, value) in [
         (
