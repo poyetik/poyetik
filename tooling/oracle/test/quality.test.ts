@@ -158,10 +158,13 @@ group("judgeQuality", () => {
     });
 
     /**
-     * The first binary32 amplitude, by its bits, from 2^-126 to 4 · 2^-126, whose exact render
-     * over `frames` frames leaves a fit of `conditioning` a margin ({@link hasMargin}, under
-     * the binary32 error bound): found by bisection, after checking that the first amplitude
-     * has none and the last one has one, the margin growing with the amplitude between them.
+     * The first binary32 amplitude, by its bits, from 2^-126 to 8 · 2^-126 (bits 0x0080_0000
+     * to 0x0200_0000), whose exact render over `frames` frames leaves a fit of `conditioning`
+     * a margin ({@link hasMargin}, under the binary32 error bound): found by bisection, after
+     * checking that the first amplitude has none and the last one has one. The bisection
+     * finds the first one only if the margin grows with the amplitude in that range: assumed,
+     * not checked here (a scan of every amplitude of the range is too slow for a unit test);
+     * the regimes asserted at six more amplitudes below check it there.
      */
     const threshold = (conditioning: number, frames: number): number => {
       const margined = (bits: number): boolean => hasMargin(binary32(bits), sineErrorBound(binary32(bits), frames, "binary32"), conditioning);
@@ -233,6 +236,49 @@ group("judgeQuality", () => {
       // 12 judgements of up to 4800 frames: well under a second in a plain run, far more
       // under Stryker's instrumentation of the measurements.
     }, 60_000);
+  });
+
+  group("a binary32 subnormal amplitude, which the parser accepts", () => {
+    /** The binary32 value of the bits `bits`. */
+    const binary32 = (bits: number): number => new Float32Array(new Uint32Array([bits]).buffer)[0] ?? Number.NaN;
+    /** The regime of the exact render of `sine` over 4800 frames at 48 kHz in `format`: binary64 as computed, or rounded to binary32, its subnormals kept. */
+    const regime = (sine: { readonly frequency: number; readonly amplitude: number; readonly phase: number }, format: "binary64" | "binary64-as-binary32"): string => {
+      expect(unmeasurable(sine, 48_000, 4800)).toBeNull();
+      const samples = Array.from({ length: 4800 }, (_frame, frame) => {
+        const value = ideal(sine, 48_000, frame);
+        return format === "binary64" ? value : Math.fround(value);
+      });
+      const quality = judgeQuality(samples, 48_000, sine, format);
+      if (quality.kind !== "measured") {
+        return quality.kind === "failed" ? `failed: ${quality.problems.join("; ")}` : quality.kind;
+      }
+      return typeof quality.levels.harmonics === "object" ? "harmonics" : quality.levels.harmonics;
+    };
+
+    // The law at the parser's smallest amplitudes: the exact render of an accepted
+    // expectation is never failed, and here every one is measured with its harmonic levels,
+    // derived apart from the oracle's verdict. A fit has a margin when the amplitude a
+    // exceeds the error per sample (with the fit's floor, 2^-36 times about 3·a) times
+    // √(2(1 + ρ))/(1 − ρ), ρ its conditioning: at most about 1.83 here, the factor of the
+    // harmonic fit at 3001.5 Hz over 4800 frames (its threshold 0x00ea_39c9 above, 1.83 ·
+    // 2^-126, under an error of 2^-126 and a little more), less at whole cycles. The error
+    // is the bound of the format: in binary64, 2^(e - 54) + a·acc, below 2^-37·a; given as
+    // binary32, 2^-150 + a·acc for every amplitude below 2^-125 (half a step of the
+    // subnormal grid), a/2 at bits 0x1 and 2^-24·a at 0x7fffff. Even a/2 times 1.83 stays
+    // below a: both fits have a margin in every case.
+    test.each([
+      [0x0000_0001, "binary64"],
+      [0x0000_0001, "binary64-as-binary32"],
+      [0x007f_ffff, "binary64"],
+      [0x007f_ffff, "binary64-as-binary32"],
+    ] as const)("bits %i in %s: measured with its harmonic levels, at whole cycles or not, at two phases", (bits, format) => {
+      const amplitude = binary32(bits);
+      expect(amplitude).toBeLessThan(2 ** -126);
+      expect(sineErrorBound(amplitude, 4800, format) / amplitude).toBeLessThan(bits === 1 && format === "binary64-as-binary32" ? 0.5 + 2 ** -36 : 2 ** -23);
+      expect(
+        [3001.5, 1000].flatMap((frequency) => [0, 1].map((phase) => regime({ frequency, amplitude, phase }, format))),
+      ).toStrictEqual(["harmonics", "harmonics", "harmonics", "harmonics"]);
+    });
   });
 
   test("reports what cannot be measured", () => {
