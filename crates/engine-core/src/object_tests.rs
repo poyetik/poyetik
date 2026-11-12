@@ -202,14 +202,23 @@ fn takes_one_value_per_parameter_of_the_box_type() {
 #[test]
 fn takes_values_within_their_range_only_flushed_first() {
     let subnormal = f64::from_bits(f64::from(f32::MIN_POSITIVE).to_bits() - 1);
-    for (first, second) in [
-        (-1.0_f64, 0.0_f64),
-        (2.0_f64, 20_000.0_f64),
-        (-0.0_f64, -subnormal),
-        (subnormal, 1e-300_f64),
+    for (first, second, kept) in [
+        (-1.0_f64, 0.0_f64, [0xbff0_0000_0000_0000, 0]),
+        (
+            2.0_f64,
+            20_000.0_f64,
+            [0x4000_0000_0000_0000, 0x40d3_8800_0000_0000],
+        ),
+        (
+            -0.0_f64,
+            -subnormal,
+            [0x8000_0000_0000_0000, 0x8000_0000_0000_0000],
+        ),
+        (subnormal, 1e-300_f64, [0, 0]),
     ] {
-        assert!(
-            ParamValues::of(&TWO, &wide([first, second])).is_ok(),
+        assert_eq!(
+            ParamValues::of(&TWO, &wide([first, second])).map(|values| bits(&values)),
+            Ok(kept.to_vec()),
             "{first} and {second}: within range once flushed"
         );
     }

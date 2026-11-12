@@ -728,7 +728,7 @@ fn renders_only_with_the_parameters_of_the_box_type() {
         Err("box type \"gain~\" takes 1 parameter value(s), not 0".to_owned()),
         "the wrong count"
     );
-    assert!(
+    assert_eq!(
         super::render::<engine_core::Binary64>(
             &GOOD,
             rate,
@@ -737,7 +737,8 @@ fn renders_only_with_the_parameters_of_the_box_type() {
             1,
             engine_core::Binary64::ZERO
         )
-        .is_ok(),
-        "its own"
+        .map(|(rendered, operations)| (super::bits(&rendered), operations)),
+        Ok((vec![0_u64; 64], 0)),
+        "its own: one block of +0 from silence, without the heap"
     );
 }

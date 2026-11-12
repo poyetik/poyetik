@@ -807,12 +807,14 @@ mod tests {
             "{at_cables} cables: no more output boxes fit"
         );
         // One more of either is refused: these are the limits.
-        assert!(
-            kept_by::<Binary64>(boxes + 1, 2, 1).is_err_and(|error| error.contains("box")),
+        assert_eq!(
+            kept_by::<Binary64>(boxes + 1, 2, 1),
+            Err("too many boxes: 65537 (at most 65536)".to_owned()),
             "one box past the limit"
         );
-        assert!(
-            kept_by::<Binary32>(cabled + 1, 3, 3).is_err_and(|error| error.contains("cable")),
+        assert_eq!(
+            kept_by::<Binary32>(cabled + 1, 3, 3),
+            Err("too many cables: 262146 (at most 262144)".to_owned()),
             "one output box of cables past the limit"
         );
     }
