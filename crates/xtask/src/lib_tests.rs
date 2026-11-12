@@ -250,12 +250,6 @@ const TREE_HEAD: (&str, &str) = (
     "abc1230000000000000000000000000000000000\nrefs/heads/main\n",
 );
 
-/// A Dependabot configuration whose two ecosystems wait a week.
-const DEPENDABOT: &str = "version: 2\nupdates:\n  - package-ecosystem: cargo\n    cooldown:\n      default-days: 7\n  - package-ecosystem: npm\n    cooldown:\n      default-days: 7\n";
-
-/// A cargo-deny configuration holding libm to no feature.
-const DENY: &str = "[bans]\n\n[[bans.features]]\ncrate = \"libm\"\nexact = true\nallow = []\n";
-
 /// The Cargo metadata of a workspace at `/r` whose crate `x`, a tested library, depends on
 /// another crate of the workspace and on one third-party crate, beside the crates of the
 /// audio library, which depend on nothing but the boxes' tests on the test kit, and the
@@ -971,12 +965,9 @@ fn passing() -> Fake {
         (super::CARGO_CONFIG_FILE.to_owned(), super::CARGO_CONFIG),
         (super::ROADMAP_BOARD.to_owned(), BOARD),
         (super::VOCABULARY.to_owned(), FAKE_WORDS),
-        (super::DEPENDABOT.to_owned(), DEPENDABOT),
-        (
-            super::PNPM_WORKSPACE.to_owned(),
-            "minimumReleaseAge: 10080\n",
-        ),
-        (super::DENY_TOML.to_owned(), DENY),
+        (super::DEPENDABOT.to_owned(), super::DEPENDABOT_CONFIG),
+        (super::PNPM_WORKSPACE.to_owned(), PNPM),
+        (super::DENY_TOML.to_owned(), super::DENY_CONFIG),
         (
             super::DEPENDENCIES_REVIEWED.to_owned(),
             "x: serde_json (normal) -- reads JSON\n",
@@ -1941,7 +1932,7 @@ const DEFAULT_CHECK_NAMES: &[&str] = &[
     "Bit-defining dependencies pinned to one exact version",
     "The audio library depends only on its own crates, its tests also on its test crates; every crate only tests use is shared test code",
     "Box arithmetic only through the math layer: libm in engine-core and engine-testkit only, no raw float in box code, no iterator reduction outside the math layer",
-    "Supply-chain settings: a week before a release, libm without features",
+    "Supply-chain configuration as xtask defines it",
     "Packages and crates known to the checks",
     "Every part described in a README",
     "Every roadmap step cited exists on the board",
@@ -4117,7 +4108,7 @@ fn runs_every_step_and_reports_success() {
         Ok(()),
         "all green"
     );
-    let (tools, commands, emptied, listed, captured, written) = (10, 58, 14, 26, 52, 4);
+    let (tools, commands, emptied, listed, captured, written) = (10, 58, 14, 27, 52, 4);
     let read = 9
         + 2
         + 13
@@ -4142,6 +4133,7 @@ fn runs_every_step_and_reports_success() {
         + 3 * 9
         + 3 * 12
         + 1
+        + 1
         + 91;
     assert_eq!(
         fake.ran.len(),
@@ -4151,7 +4143,7 @@ fn runs_every_step_and_reports_success() {
          the coverage build, the mutants of the changes, Miri, the \
          conformance check and export, deny, the JavaScript install, audit, the engine build and five package \
          checks each followed by its Stryker run); fourteen directories are emptied; git lists \
-         thirteen kinds of files (the box sources and the text files that cite the roadmap among them), the Rust files again for the test code, test data, untested targets, unviable names and loaded files gates, the TypeScript ones again for the reports and scope gates of \
+         fourteen kinds of files (the box sources, the text files that cite the roadmap and the npm configuration files among them), the Rust files again for the test code, test data, untested targets, unviable names and loaded files gates, the TypeScript ones again for the reports and scope gates of \
          each package after the first; the licenses twice and the history three times, the state \
          of the tree (before, for the proof record and after) six times, the nightly's version and sysroot, the Cargo metadata (for the untested targets, dependency, pin, library and math layer gates), the output of the fused test build and of the nine builds of the loaded files gate, the merge base, the merge base with main twice and the record of the versions spent and the changelog listed there, the changed paths, the changes, the \
          new Rust files and the list of every mutant once, git's common directory twice, the tree checked out, \
@@ -4160,8 +4152,8 @@ fn runs_every_step_and_reports_success() {
          toolchain file are read for it; and the gates read the nine dep-info files of the loaded files gate, the nine fake test data readers for the unsafe, bypass and vocabulary gates, every Rust file (twelve) for the test code, test data, untested targets and unviable names gates and the reviews of unviable mutants for the last, .node-version and the toolchain file for the preflight, the toolchain file, the four float sources and the float macros of the nightly and clippy.toml for the float gate, fourteen coverage reports, \
          the unviable report and reviews, the register of the pin gate, the 91 text files of the citation gate (the board and the spent record, which the fake lists as tracked, among them), the reviews again against the list of every mutant, six TypeScript sources and their reviews, the nine \
          sources, the twelve Cargo manifests and the register of the bypass gate, the three unsafe files, the Cargo \
-         configuration, the six package manifests and the register of the dependency gate, the three \
-         supply-chain configurations, twelve crate manifests, ten READMEs, the changelog, ten READMEs, three Rust and six TypeScript sources and the vocabulary of the vocabulary gate, eight version files, the workflow and \
+         configuration, the six package manifests and the register of the dependency gate, the four \
+         supply-chain files, twelve crate manifests, ten READMEs, the changelog, ten READMEs, three Rust and six TypeScript sources and the vocabulary of the vocabulary gate, eight version files, the workflow and \
          .node-version, five Stryker configurations and the six package manifests, and for each of the five \
          packages, the six TypeScript sources and two reports of its reports gate, then its \
          Stryker configuration, coverage summary, mutation report and the register of its \
@@ -12843,37 +12835,215 @@ fn reads_the_board_as_the_roadmap_writes_it() {
     );
 }
 
+/// A pnpm workspace configuration as xtask accepts it: its four keys, with comments, blank
+/// lines and values.
+const PNPM: &str = "packages:\n  - \"apps/*\"\n\n# A comment.\nminimumReleaseAge: 10080\n\noverrides:\n  \"qs\": \"^6.16.1\"\n\ncatalog:\n  \"vitest\": \"^5.1.0\"\n";
+
+/// The texts of the supply-chain files, in the order of `SUPPLY_CHAIN_FILES`.
+fn supply_texts(deny: &str, dependabot: &str, pnpm: &str, package: &str) -> [String; 4] {
+    [deny, dependabot, pnpm, package].map(str::to_owned)
+}
+
 #[test]
-fn requires_a_week_before_a_release_and_libm_without_features() {
-    let files = |dependabot: &str, pnpm: &str, deny: &str| {
-        [dependabot, pnpm, deny].map(str::to_owned).to_vec()
-    };
+fn requires_the_supply_chain_configuration_xtask_defines() {
+    let accepted = supply_texts(super::DENY_CONFIG, super::DEPENDABOT_CONFIG, PNPM, PACKAGE);
     assert_eq!(
-        super::supply_chain_gate(&files(DEPENDABOT, "minimumReleaseAge: 10080\n", DENY)),
+        super::supply_chain_gate(&accepted, &[]),
         Ok(()),
-        "every setting"
+        "xtask's files, the pnpm keys with comments and values"
+    );
+    let line_after = |text: &str, line: &str| {
+        text.lines()
+            .position(|found| found == line)
+            .expect("the line")
+            .saturating_add(2)
+    };
+    let policy = "the file is xtask's, so a change of its policy (an exception included) is \
+                  a change of xtask";
+    let yanked = "yanked = \"deny\"";
+    let ignored = super::DENY_CONFIG.replacen(
+        yanked,
+        &format!("{yanked}\nignore = [\"RUSTSEC-2099-0001\"]"),
+        1,
+    );
+    let cooldown = "      default-days: 7";
+    let shortened = super::DEPENDABOT_CONFIG.replacen(
+        cooldown,
+        &format!("{cooldown}\n      semver-patch-days: 0"),
+        1,
     );
     assert_eq!(
-        super::supply_chain_gate(&files(
-            &DEPENDABOT.replacen("    cooldown:\n      default-days: 7\n", "", 1),
-            "minimumReleaseAge: 1440\n",
-            &DENY.replace("exact = true\n", "")
-        )),
+        super::supply_chain_gate(&supply_texts(&ignored, &shortened, PNPM, PACKAGE), &[]),
         found(
-            "the supply-chain settings",
+            "the supply-chain configuration",
             &[
-                ".github/dependabot.yml (cargo) lacks `cooldown: default-days: 7`".to_owned(),
-                "pnpm-workspace.yaml lacks `minimumReleaseAge: 10080`".to_owned(),
-                "deny.toml lacks `[[bans.features]] crate = \"libm\" exact = true allow = []`"
-                    .to_owned(),
+                format!(
+                    "deny.toml:{}: `ignore = [\"RUSTSEC-2099-0001\"]`, where xtask's \
+                     `DENY_CONFIG` has an empty line: {policy}",
+                    line_after(super::DENY_CONFIG, yanked)
+                ),
+                format!(
+                    ".github/dependabot.yml:{}: `      semver-patch-days: 0`, where xtask's \
+                     `DEPENDABOT_CONFIG` has `    commit-message:`: {policy}",
+                    line_after(super::DEPENDABOT_CONFIG, cooldown)
+                ),
             ]
         ),
-        "an ecosystem without its cooldown, a shorter age, features allowed"
+        "an advisory ignored, a cooldown shortened"
+    );
+    let actions = "  - package-ecosystem: github-actions";
+    let without = super::DEPENDABOT_CONFIG
+        .split_once(actions)
+        .map(|(kept, _)| kept)
+        .expect("the ecosystem");
+    let lines = |text: &str| text.split('\n').count();
+    assert_eq!(
+        super::supply_chain_gate(
+            &supply_texts(
+                &format!("{}\n", super::DENY_CONFIG),
+                without.trim_end_matches('\n'),
+                PNPM,
+                PACKAGE
+            ),
+            &[]
+        ),
+        found(
+            "the supply-chain configuration",
+            &[
+                format!(
+                    "deny.toml:{}: an empty line, where xtask's `DENY_CONFIG` has the end: \
+                     {policy}",
+                    lines(super::DENY_CONFIG).saturating_add(1)
+                ),
+                format!(
+                    ".github/dependabot.yml:{}: the end, where xtask's `DEPENDABOT_CONFIG` has \
+                     `{actions}`: {policy}",
+                    lines(without)
+                ),
+            ]
+        ),
+        "a line more, an ecosystem removed"
+    );
+}
+
+#[test]
+fn reads_the_pnpm_workspace_by_its_top_level_keys() {
+    let pnpm = |text: &str| {
+        super::supply_chain_gate(
+            &supply_texts(super::DENY_CONFIG, super::DEPENDABOT_CONFIG, text, PACKAGE),
+            &[],
+        )
+    };
+    let not_accepted = |line: usize, text: &str| {
+        format!(
+            "pnpm-workspace.yaml:{line}: `{text}`, not a top-level key xtask accepts (packages, \
+             minimumReleaseAge, overrides, catalog): a setting of pnpm is a change of xtask"
+        )
+    };
+    assert_eq!(
+        pnpm(&format!(
+            "{PNPM}minimumReleaseAgeExclude:\n  - \"x\"\n\"auditConfig\": {{}}\n"
+        )),
+        found(
+            "the supply-chain configuration",
+            &[
+                not_accepted(12, "minimumReleaseAgeExclude:"),
+                not_accepted(14, "\"auditConfig\": {}"),
+            ]
+        ),
+        "a key xtask has not reviewed, quoted or not"
     );
     assert_eq!(
-        super::supply_chain_gate(&files("version: 2\n", "minimumReleaseAge: 10080\n", DENY)),
-        failed("the supply-chain settings: .github/dependabot.yml configures nothing"),
-        "no ecosystem"
+        pnpm(&format!("{PNPM}- \"tooling/*\"\n")),
+        failed(format!(
+            "the supply-chain configuration: {}",
+            not_accepted(12, "- \"tooling/*\"")
+        )),
+        "a line of no key at column 0"
+    );
+    assert_eq!(
+        pnpm(&PNPM.replace(
+            "minimumReleaseAge: 10080\n",
+            "minimumReleaseAge: 0\ncatalog: {}\n"
+        )),
+        found(
+            "the supply-chain configuration",
+            &[
+                "pnpm-workspace.yaml:5: `minimumReleaseAge: 0`, where xtask requires \
+                 `minimumReleaseAge: 10080`"
+                    .to_owned(),
+                "pnpm-workspace.yaml:11: `catalog` a second time".to_owned(),
+            ]
+        ),
+        "a shorter age, a key twice"
+    );
+    assert_eq!(
+        pnpm(
+            &PNPM
+                .replace("minimumReleaseAge: 10080\n", "")
+                .replace("catalog:\n", "catalog:\n  minimumReleaseAge: 10080\n")
+        ),
+        failed(
+            "the supply-chain configuration: pnpm-workspace.yaml lacks the top-level key \
+             `minimumReleaseAge`"
+        ),
+        "the age moved under another key"
+    );
+    assert_eq!(
+        pnpm("{packages: [], minimumReleaseAge: 10080, overrides: {}, catalog: {}}\n"),
+        found(
+            "the supply-chain configuration",
+            &[
+                not_accepted(
+                    1,
+                    "{packages: [], minimumReleaseAge: 10080, overrides: {}, catalog: {}}"
+                ),
+                "pnpm-workspace.yaml lacks the top-level key `packages`".to_owned(),
+                "pnpm-workspace.yaml lacks the top-level key `minimumReleaseAge`".to_owned(),
+                "pnpm-workspace.yaml lacks the top-level key `overrides`".to_owned(),
+                "pnpm-workspace.yaml lacks the top-level key `catalog`".to_owned(),
+            ]
+        ),
+        "a flow mapping"
+    );
+}
+
+#[test]
+fn refuses_pnpm_settings_outside_the_pnpm_workspace() {
+    let package = |text: &str, npm_configs: &[String]| {
+        super::supply_chain_gate(
+            &supply_texts(super::DENY_CONFIG, super::DEPENDABOT_CONFIG, PNPM, text),
+            npm_configs,
+        )
+    };
+    assert_eq!(
+        package(r#"{"name": "x", "pnpm": {"overrides": {}}}"#, &[]),
+        failed(
+            "the supply-chain configuration: package.json holds a `pnpm` key, from which pnpm \
+             reads settings: they go in pnpm-workspace.yaml, whose keys xtask checks"
+        ),
+        "settings in the root manifest"
+    );
+    for not_an_object in ["[]", "{"] {
+        assert_eq!(
+            package(not_an_object, &[]),
+            failed("the supply-chain configuration: package.json is not a JSON object"),
+            "{not_an_object}"
+        );
+    }
+    assert_eq!(
+        package(PACKAGE, &[".npmrc".to_owned(), "apps/x/.npmrc".to_owned()]),
+        found(
+            "the supply-chain configuration",
+            &[".npmrc", "apps/x/.npmrc"].map(|path| {
+                format!(
+                    "{path}: an npm configuration file, from which pnpm reads settings \
+                     (`minimum-release-age-exclude` …): they go in pnpm-workspace.yaml, whose \
+                     keys xtask checks"
+                )
+            })
+        ),
+        "every npm configuration file"
     );
 }
 
@@ -13013,15 +13183,27 @@ fn stops_when_the_coverage_build_cannot_be_emptied() {
 }
 
 #[test]
-fn fails_when_a_supply_chain_setting_cannot_be_read() {
+fn fails_when_a_supply_chain_file_cannot_be_read() {
+    for path in super::SUPPLY_CHAIN_FILES {
+        let mut fake = passing();
+        let _removed = fake.files.remove(path);
+        let failure =
+            run_steps(&check_steps(CHANGES_MODE), &mut fake, &mut Vec::new()).expect_err("stops");
+        assert!(
+            failure.summary.contains(path),
+            "names the file: {}",
+            failure.summary
+        );
+    }
     let mut fake = passing();
-    let (path, _) = super::SUPPLY_CHAIN_SETTINGS[1];
-    let _removed = fake.files.remove(path);
+    let _npmrc = fake.files.insert("apps/x/.npmrc".to_owned(), String::new());
     let failure =
         run_steps(&check_steps(CHANGES_MODE), &mut fake, &mut Vec::new()).expect_err("stops");
     assert!(
-        failure.summary.contains(path),
-        "names the file: {}",
+        failure
+            .summary
+            .contains("apps/x/.npmrc: an npm configuration file"),
+        "the tracked npm configuration files: {}",
         failure.summary
     );
 }

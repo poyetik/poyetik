@@ -1,4 +1,5 @@
-# Supply-chain policy (cargo-deny).
+# Supply-chain policy (cargo-deny). Exactly xtask's `DENY_CONFIG`: a change, an exception
+# included, is made in both.
 [graph]
 all-features = true
 

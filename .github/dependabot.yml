@@ -1,4 +1,5 @@
 # Proposes dependency updates; every proposal goes through the full Quality workflow.
+# Exactly xtask's `DEPENDABOT_CONFIG`: a change is made in both.
 version: 2
 updates:
   - package-ecosystem: cargo

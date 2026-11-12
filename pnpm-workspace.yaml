@@ -4,8 +4,9 @@ packages:
   - "tooling/*"
 
 # A package version is installable only once it is a week old (in minutes), so that a
-# hijacked release is likely found and yanked first; an urgent fix is excluded case by case
-# with minimumReleaseAgeExclude.
+# hijacked release is likely found and yanked first. The top-level keys are xtask's
+# (`PNPM_WORKSPACE_KEYS`): another setting, an exclusion from that age included, is a change
+# of xtask.
 minimumReleaseAge: 10080
 
 # Versions forced for transitive development dependencies with known vulnerabilities,
