@@ -1103,11 +1103,15 @@ const MUTANTS_ARGS: [&str; 7] = [
     MUTANT_BUILD_CONFIG,
 ];
 
-/// The one build setting of cargo-mutants' builds that differs from the other builds of the
-/// checks: no debug information in the test profile.
+/// The one profile setting of cargo-mutants' builds that differs from the other builds of
+/// the checks: no debug information in the test profile.
 ///
 /// Every build `cargo test` makes uses that profile; without debug information, Cargo's
-/// default also strips it.
+/// default also strips it. The other difference of those builds is the lint cap of
+/// `MUTANTS_ARGS` (`--cap-lints`, which caps `forbid` too: a mutant replaces a body by a
+/// value or an operator by another, never writing `unsafe`), which changes no generated code
+/// either (reviewed); they also build a copy of the tree, without its ignored files, at
+/// another path.
 ///
 /// It changes what the compiler is told only by its debug information options
 /// (`-C debuginfo`, `-C split-debuginfo`, `-C strip=debuginfo`) and the hashes Cargo names
@@ -9411,11 +9415,8 @@ pub const PROOF_RECORD_TAG: &str = "poyetik rust-mutants-proven";
 /// The format of the mutation proof records this xtask writes and reads, after
 /// [`PROOF_RECORD_TAG`] on their first line.
 ///
-/// Version 1, which reused lines rather than crates, version 2, which named neither the
-/// compiler's build nor the linker, and version 3, which did not name git and was written
-/// when the default check could give a path two sections in its diff (so that cargo-mutants
-/// missed some of its mutants), are never read: a record of another format is ignored, its
-/// format said.
+/// A record of another format is ignored, its format said. Raised whenever what a record
+/// holds or means changes, so that no record written under other rules is read.
 pub const PROOF_RECORD_FORMAT: u32 = 4;
 
 /// What decides how the default check scopes its mutation testing, beside the tools.
