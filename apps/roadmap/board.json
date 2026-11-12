@@ -517,7 +517,7 @@
       "column": "later",
       "milestone": "M0 Foundations",
       "createdAt": "2026-11-08",
-      "updatedAt": "2026-11-11",
+      "updatedAt": "2026-11-12",
       "tasks": [
         {
           "title": "Patch reading: the format version is checked after the whole document parses, so a version-2 patch is reported as an unknown field; read format first. engine-cli and the oracle skip non-.json entries of cases/ and patches/ silently; refuse them",
@@ -629,7 +629,7 @@
         },
         {
           "title": "Workflow gate: raw lines are tested against a deny-list, so quoted keys, \"if :\", a misplaced if: failure(), shell: and defaults:, toolchain or flag variables in env, secrets[...] and job-level permissions all pass; compare the whole file with a generated text or a strict grammar, one fixture per probe",
-          "done": false
+          "done": true
         },
         {
           "title": "Supply chain: the gate trims indentation and ignores exclusions (release-age and cooldown excludes, the Dependabot split, .npmrc, deny.toml ignores); the dependency gate exempts any path dependency and ignores [patch] and npm: overrides; the legacy extensionless .cargo/config is not refused; refuse each",

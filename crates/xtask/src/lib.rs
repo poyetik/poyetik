@@ -192,10 +192,11 @@ pub const RUST_CRATES: [RustCrate; 11] = [
         name: "xtask",
         dir: "crates/xtask",
         binary: true,
-        // Its tests read fixtures of their own, under its directory, and the repository's
-        // hooks, which they run; the gates that read the rest of the repository are steps
-        // of every check, not tests that kill its mutants.
-        test_data: &[".githooks/"],
+        // Its tests read fixtures of their own, under its directory, the repository's
+        // hooks, which they run, and the workflow, the one file whose whole text a gate
+        // decides; the gates that read the rest of the repository are steps of every
+        // check, not tests that kill its mutants.
+        test_data: &[".githooks/", ".github/workflows/quality.yml"],
         roles: &[],
     },
 ];
@@ -6451,7 +6452,7 @@ pub const TOOLS: [Tool; 10] = [
         program: "cargo",
         args: &[NIGHTLY_TOOLCHAIN, "--version"],
         need: Need::Present,
-        install: Install::Nightly(&["llvm-tools-preview", "miri", "rust-src"]),
+        install: Install::Nightly(&NIGHTLY_COMPONENTS),
     },
     Tool {
         program: "cargo",
@@ -6706,11 +6707,16 @@ pub const NODE_VERSION_FILE: &str = ".node-version";
 /// its bytes can be compared with a local build.
 pub const WASM_MODULE: &str = "bindings/wasm/dist/engine.wasm";
 
+/// What Playwright leaves in a package after its browser tests: its report, and the traces
+/// and screenshots of the failed tests.
+pub const PLAYWRIGHT_OUTPUTS: [&str; 2] = ["playwright-report", "test-results"];
+
 /// What a failed CI run uploads.
 ///
 /// Every report a gate of xtask reads (the mutants, the Rust coverage, the coverage and
-/// mutation reports of every TypeScript package, as one glob per folder of parts) and the
-/// WebAssembly module.
+/// mutation reports of every TypeScript package, as one glob per folder of parts), the
+/// WebAssembly module, then Playwright's outputs ([`PLAYWRIGHT_OUTPUTS`]) of every folder
+/// of parts.
 #[must_use]
 pub fn failure_uploads() -> Vec<String> {
     let mut uploads: Vec<String> = [
@@ -6729,22 +6735,17 @@ pub fn failure_uploads() -> Vec<String> {
             uploads.push(glob);
         }
     }
+    for package in PACKAGES {
+        let folder = package.dir.split('/').next().unwrap_or_default();
+        for output in PLAYWRIGHT_OUTPUTS {
+            let glob = format!("{folder}/*/{output}");
+            if !uploads.contains(&glob) {
+                uploads.push(glob);
+            }
+        }
+    }
     uploads
 }
-
-/// Workflow settings that would let CI pass without checking, or expose its token.
-///
-/// A step allowed to fail, triggers that run with write access on code from a fork,
-/// secrets, build flags that could lift lints, and a matrix exclusion, which could drop a
-/// part of the full check.
-pub const WORKFLOW_REFUSED: [&str; 6] = [
-    "continue-on-error",
-    "pull_request_target",
-    "workflow_run",
-    "secrets.",
-    "RUSTFLAGS",
-    "exclude:",
-];
 
 /// The exact triggers of the workflow: every push, every pull request, and by hand.
 pub const WORKFLOW_TRIGGERS: [&str; 4] =
@@ -6753,13 +6754,15 @@ pub const WORKFLOW_TRIGGERS: [&str; 4] =
 /// The exact permissions of the workflow's token: reading the repository.
 pub const WORKFLOW_PERMISSIONS: [&str; 2] = ["permissions:", "  contents: read"];
 
-/// Whether the lines of `workflow` hold `block` as consecutive lines.
-fn holds_block(workflow: &str, block: &[&str]) -> bool {
-    let lines: Vec<&str> = workflow.lines().map(str::trim_end).collect();
+/// Whether the lines of `text` hold `block` as consecutive lines, their trailing spaces
+/// apart.
+fn holds_block(text: &str, block: &[&str]) -> bool {
+    let lines: Vec<&str> = text.lines().map(str::trim_end).collect();
     lines.windows(block.len()).any(|window| window == block)
 }
 
-/// The commands that give every job of the check an audio output, in this order.
+/// The commands that give each job of the check's matrix an audio output, in this order:
+/// every part but the final one, which plays nothing.
 ///
 /// The runner has no sound card, and Firefox plays live only through an audio server
 /// (Chromium runs with its audio output disabled, and Playwright's `WebKit` on Linux plays
@@ -6778,21 +6781,6 @@ pub const AUDIO_SINK: [&str; 6] = [
     "pactl set-default-sink null",
     "pactl get-default-sink | grep --quiet --line-regexp null || { echo \"::error::no audio sink: Firefox cannot play live (the runner has no sound card)\"; exit 1; }",
 ];
-
-/// The problem of `workflow` if its lines, trimmed, do not hold [`AUDIO_SINK`] as
-/// consecutive lines.
-fn audio_sink_problem(workflow: &str) -> Option<String> {
-    let lines: Vec<&str> = workflow.lines().map(str::trim).collect();
-    let held = lines
-        .windows(AUDIO_SINK.len())
-        .any(|window| window == AUDIO_SINK);
-    (!held).then(|| {
-        format!(
-            "{WORKFLOW} lacks the audio sink, these lines in this order: `{}`",
-            AUDIO_SINK.join("` `")
-        )
-    })
-}
 
 /// The only conditions the workflow may hold, exactly.
 ///
@@ -6823,106 +6811,237 @@ pub fn workflow_concurrency() -> [String; 3] {
     ]
 }
 
-/// The lines that make the workflow run the parts of the full check ([`full_parts`]).
+/// The release of the OS every job of the workflow runs on.
 ///
-/// A job `check` runs every part but the final one, one per job of its matrix (all of them
-/// whatever fails, as the full check runs every step); each uploads the unviable mutants of
-/// its shard, if it ran one, as the artifact `unviable-<part>`. A job that needs it
-/// downloads them below [`SHARD_REPORTS`] and runs the final part, which reviews them
-/// together ([`shard_unviable_report`]).
+/// Never `-latest`, which moves to a new release without a commit. The runner image itself still receives GitHub's
+/// weekly updates, which no workflow can pin.
+pub const RUNNER: &str = "ubuntu-24.04";
+
+/// The timeout of each job of the check's matrix, then of the final job, in minutes: a
+/// guard against a hung job, set from the longest part of the latest green run.
+pub const JOB_TIMEOUTS: [u32; 2] = [90, 30];
+
+/// The components of the [`NIGHTLY_TOOLCHAIN`]: branch coverage and Miri.
+pub const NIGHTLY_COMPONENTS: [&str; 3] = ["llvm-tools-preview", "miri", "rust-src"];
+
+/// The steps that install the tools of a job: the checkout (the whole history, for the
+/// history gate, and no credential kept), the pinned toolchains, the Rust cache (`keyed`
+/// by the part, for the check's matrix, and saved even when the run fails), the Cargo tools
+/// of [`PINNED_TOOLS`], pnpm and Node.js (its packages cached, for the check's matrix).
+fn tool_steps(keyed: bool) -> Vec<String> {
+    let nightly = NIGHTLY_TOOLCHAIN.trim_start_matches('+');
+    let tools = PINNED_TOOLS
+        .iter()
+        .map(|(name, version)| format!("{name}@{version}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    let mut steps = vec![
+        "      - uses: actions/checkout@".to_owned(),
+        "        with:".to_owned(),
+        "          fetch-depth: 0".to_owned(),
+        "          persist-credentials: false".to_owned(),
+        "      - name: Install Rust toolchains".to_owned(),
+        "        run: |".to_owned(),
+        "          rustup toolchain install".to_owned(),
+        format!(
+            "          rustup toolchain install {nightly} --profile minimal --component {}",
+            NIGHTLY_COMPONENTS.join(",")
+        ),
+        "      - uses: Swatinem/rust-cache@".to_owned(),
+        "        with:".to_owned(),
+    ];
+    if keyed {
+        steps.push("          key: ${{ matrix.part }}".to_owned());
+    }
+    steps.extend([
+        "          cache-on-failure: true".to_owned(),
+        "      - uses: taiki-e/install-action@".to_owned(),
+        "        with:".to_owned(),
+        format!("          tool: {tools}"),
+        "      - uses: pnpm/action-setup@".to_owned(),
+        "      - uses: actions/setup-node@".to_owned(),
+        "        with:".to_owned(),
+        format!("          node-version-file: {NODE_VERSION_FILE}"),
+    ]);
+    if keyed {
+        steps.push("          cache: pnpm".to_owned());
+    }
+    steps
+}
+
+/// The one workflow CI may run, line by line, without its comments and blank lines: each
+/// line using an action ends with `@`, where the workflow pins a full commit hash
+/// ([`workflow_gate`]).
+///
+/// Built from what xtask owns: the triggers, the token's permissions and the concurrency
+/// ([`WORKFLOW_TRIGGERS`], [`WORKFLOW_PERMISSIONS`], [`workflow_concurrency`]), the
+/// conditions ([`WORKFLOW_CONDITIONS`]: every job holds the `[ci]` one), the [`RUNNER`] and
+/// the [`JOB_TIMEOUTS`], the tools (the checkout, the toolchains with
+/// [`NIGHTLY_COMPONENTS`], the Rust cache, [`PINNED_TOOLS`], pnpm and Node.js). A job `check` runs every part of the
+/// full check but the final one ([`full_parts`]), one per job of its matrix and all of them
+/// whatever fails, after the browsers and the audio output ([`AUDIO_SINK`]) its live tests
+/// need; each uploads the unviable mutants of its shard, if it ran one, as the artifact
+/// `unviable-<part>` ([`UNVIABLE_ARTIFACT`]), and, when it failed, every report
+/// ([`failure_uploads`]). The job `final` needs every one, downloads their unviable mutants
+/// below [`SHARD_REPORTS`] and runs the final part, which reviews them together.
 #[must_use]
-pub fn workflow_parts() -> Vec<String> {
-    let matrix: Vec<String> = full_parts()
+pub fn workflow_text() -> Vec<String> {
+    let [failure, ci] = WORKFLOW_CONDITIONS;
+    let [check_timeout, final_timeout] = JOB_TIMEOUTS;
+    let each = "${{ matrix.part }}";
+    let parts: Vec<String> = full_parts()
         .into_iter()
         .filter(|part| *part != Part::Final)
         .map(Part::name)
         .collect();
-    let each = "${{ matrix.part }}";
-    vec![
-        "fail-fast: false".to_owned(),
-        format!("part: [{}]", matrix.join(", ")),
-        format!("run: cargo xtask check --full --part {each}"),
-        format!("name: {UNVIABLE_ARTIFACT}{each}"),
-        format!("path: {UNVIABLE_REPORT}"),
-        "needs: check".to_owned(),
-        format!("pattern: {UNVIABLE_ARTIFACT}*"),
-        format!("path: {SHARD_REPORTS}"),
+    let mut lines = vec!["name: Quality".to_owned()];
+    lines.extend(WORKFLOW_TRIGGERS.map(str::to_owned));
+    lines.extend(WORKFLOW_PERMISSIONS.map(str::to_owned));
+    lines.extend(workflow_concurrency());
+    lines.extend([
+        "jobs:".to_owned(),
+        "  check:".to_owned(),
+        format!("    name: cargo xtask check --full --part {each}"),
+        format!("    {ci}"),
+        format!("    runs-on: {RUNNER}"),
+        format!("    timeout-minutes: {check_timeout}"),
+        "    strategy:".to_owned(),
+        "      fail-fast: false".to_owned(),
+        "      matrix:".to_owned(),
+        format!("        part: [{}]", parts.join(", ")),
+        "    steps:".to_owned(),
+    ]);
+    lines.extend(tool_steps(true));
+    lines.extend([
+        "      - name: Install Playwright browsers".to_owned(),
+        "        run: |".to_owned(),
+        "          pnpm install --frozen-lockfile".to_owned(),
+        "          pnpm --dir apps/roadmap exec playwright install --with-deps chromium firefox \
+         webkit"
+            .to_owned(),
+        "      - name: Start an audio server with a null sink".to_owned(),
+        "        run: |".to_owned(),
+    ]);
+    lines.extend(AUDIO_SINK.map(|line| format!("          {line}")));
+    lines.extend([
+        "      - name: One part of the full check".to_owned(),
+        format!("        run: cargo xtask check --full --part {each}"),
+        "      - uses: actions/upload-artifact@".to_owned(),
+        "        with:".to_owned(),
+        format!("          name: {UNVIABLE_ARTIFACT}{each}"),
+        format!("          path: {UNVIABLE_REPORT}"),
+        "          if-no-files-found: ignore".to_owned(),
+        "      - uses: actions/upload-artifact@".to_owned(),
+        format!("        {failure}"),
+        "        with:".to_owned(),
+        format!("          name: reports-{each}"),
+        "          path: |".to_owned(),
+    ]);
+    lines.extend(
+        failure_uploads()
+            .into_iter()
+            .map(|path| format!("            {path}")),
+    );
+    lines.extend([
+        "          if-no-files-found: ignore".to_owned(),
+        "  final:".to_owned(),
         format!(
-            "run: cargo xtask check --full --part {}",
+            "    name: cargo xtask check --full --part {}",
             Part::Final.name()
         ),
-    ]
+        "    needs: check".to_owned(),
+        format!("    {ci}"),
+        format!("    runs-on: {RUNNER}"),
+        format!("    timeout-minutes: {final_timeout}"),
+        "    steps:".to_owned(),
+    ]);
+    lines.extend(tool_steps(false));
+    lines.extend([
+        "      - uses: actions/download-artifact@".to_owned(),
+        "        with:".to_owned(),
+        format!("          pattern: {UNVIABLE_ARTIFACT}*"),
+        format!("          path: {SHARD_REPORTS}"),
+        "      - name: The unviable mutants of every shard, reviewed together".to_owned(),
+        format!(
+            "        run: cargo xtask check --full --part {}",
+            Part::Final.name()
+        ),
+    ]);
+    lines
 }
 
-/// The problems of the jobs of `workflow`: every job, written `  <name>:` below `jobs:`,
-/// must hold the `[ci]` condition of [`WORKFLOW_CONDITIONS`] (at the indentation of its
-/// keys), so that a push skips them all or none; any other line at the indentation of a job
-/// is refused rather than skipped.
-fn job_problems(workflow: &str) -> Vec<String> {
-    let [_, condition] = WORKFLOW_CONDITIONS;
-    let held = format!("    {condition}");
-    let mut problems = Vec::new();
-    let mut jobs: Vec<(&str, bool)> = Vec::new();
-    let mut in_jobs = false;
-    for line in workflow.lines().map(str::trim_end) {
-        if line == "jobs:" {
-            in_jobs = true;
-            continue;
+/// Whether `found`, a line of the workflow, is `expected`, a line of [`workflow_text`]: the
+/// same text, but that a line using an action (ending with `@`) is followed by a full
+/// commit hash in lowercase, then nothing or a comment naming its tag (` # <tag>`, as
+/// Dependabot writes it).
+fn workflow_line(expected: &str, found: &str) -> bool {
+    if !(expected.ends_with('@') && expected.trim_start().starts_with("- uses: ")) {
+        return found == expected;
+    }
+    found
+        .strip_prefix(expected)
+        .and_then(|reference| reference.split_at_checked(40))
+        .is_some_and(|(commit, tag)| {
+            commit
+                .bytes()
+                .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+                && (tag.is_empty()
+                    || tag
+                        .strip_prefix(" # ")
+                        .is_some_and(|tag| !tag.trim().is_empty()))
+        })
+}
+
+/// The first line where `workflow` is not [`workflow_text`], said with its number, if
+/// there is one: its blank lines and the lines holding only a comment apart, which execute
+/// nothing (a `#` line of a `run` block is a comment of the shell).
+fn workflow_difference(workflow: &str) -> Option<String> {
+    if !workflow.ends_with('\n') {
+        return Some(format!("{WORKFLOW} does not end with a line break"));
+    }
+    let shown = |expected: &str| {
+        if expected.ends_with('@') {
+            format!("{expected}<full commit hash> # <tag>")
+        } else {
+            expected.to_owned()
         }
-        if !line.is_empty() && !line.starts_with(' ') {
-            in_jobs = false;
-        }
-        if !in_jobs || line.is_empty() || line.trim_start().starts_with('#') {
-            continue;
-        }
-        if line.starts_with("   ") {
-            if line == held
-                && let Some(job) = jobs.last_mut()
-            {
-                job.1 = true;
-            }
-            continue;
-        }
-        match line
-            .strip_prefix("  ")
-            .and_then(|rest| rest.strip_suffix(':'))
-            .filter(|name| {
-                !name.is_empty()
-                    && name
-                        .bytes()
-                        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
-            }) {
-            Some(name) => jobs.push((name, false)),
-            None => problems.push(format!("`{}`: a job is written `  <name>:`", line.trim())),
+    };
+    let mut found = workflow.lines().zip(1_usize..).filter(|(line, _)| {
+        let text = line.trim_start();
+        !text.is_empty() && !text.starts_with('#')
+    });
+    for expected in workflow_text() {
+        let Some((line, number)) = found.next() else {
+            return Some(format!(
+                "{WORKFLOW} ends where xtask's workflow goes on with `{}`",
+                shown(&expected)
+            ));
+        };
+        if !workflow_line(&expected, line) {
+            return Some(format!(
+                "{WORKFLOW}:{number}: `{line}`, where xtask's workflow has `{}`",
+                shown(&expected)
+            ));
         }
     }
-    problems.extend(
-        jobs.into_iter()
-            .filter(|(_, conditioned)| !conditioned)
-            .map(|(name, _)| format!("job `{name}` lacks `{condition}`, which every job holds")),
-    );
-    problems
+    found.next().map(|(line, number)| {
+        format!("{WORKFLOW}:{number}: `{line}`, after the end of xtask's workflow")
+    })
 }
 
-/// Checks that CI cannot change under the project's feet, nor pass without checking.
+/// Checks that CI runs exactly the workflow xtask writes, so that it can neither change
+/// without a commit to xtask nor pass without checking.
 ///
-/// `workflows` are the workflow files tracked by git: only [`WORKFLOW`]. In it, every line
-/// using an action pins it to a full commit hash, whatever its form (`- uses:`, a flow
-/// mapping); nothing of [`WORKFLOW_REFUSED`] appears; the only conditions are those of
-/// [`WORKFLOW_CONDITIONS`]; the triggers, the token's permissions and the concurrency are
-/// exactly [`WORKFLOW_TRIGGERS`], [`WORKFLOW_PERMISSIONS`] and [`workflow_concurrency`]; every
-/// nightly toolchain named is [`NIGHTLY_TOOLCHAIN`]; the checkout keeps no credential; the Cargo
-/// tools are [`PINNED_TOOLS`]; Node.js is the release in `.node-version` (at [`NODE_FLOOR`] or
-/// later); the runner is an OS release (never `-latest`); the whole history is fetched for the
-/// history gate; the jobs get an audio output, as [`AUDIO_SINK`] says; the workflow runs
-/// every part of `cargo xtask check --full`, as [`workflow_parts`] says; every job, written
-/// `  <name>:` below `jobs:`, holds the `[ci]` condition at the indentation of its keys (any other
-/// line at the indentation of a job is refused); its Rust cache is saved even when the run fails;
-/// and a failed run uploads every [`failure_uploads`] path.
+/// `workflows` are the workflow files tracked by git: only [`WORKFLOW`]. Its lines, its
+/// blank lines and comment lines apart, are those of [`workflow_text`], in order, each
+/// action pinned to a full commit hash in lowercase, then nothing or ` # <tag>`; so every setting is xtask's,
+/// and any other (a default shell, a condition, a step, a runner, a credential kept) is
+/// refused. `.node-version` pins one Node.js release, [`NODE_FLOOR`] or later.
 ///
 /// # Errors
 ///
-/// Returns every unpinned action, refused setting and missing pin.
+/// Returns every other workflow, the first line where the workflow differs from xtask's,
+/// and a loose Node.js release.
 pub fn workflow_gate(
     workflows: &[String],
     workflow: &str,
@@ -6933,89 +7052,7 @@ pub fn workflow_gate(
         .filter(|path| *path != WORKFLOW)
         .map(|path| format!("{path}: the only workflow is {WORKFLOW}, which xtask checks"))
         .collect();
-    for line in workflow.lines().map(str::trim) {
-        if let Some((_, used)) = line.split_once("uses:") {
-            let action = used.trim().trim_end_matches(['}', ' ']);
-            let reference = action
-                .split_once('@')
-                .map_or("", |(_, reference)| reference);
-            let commit = reference
-                .split([' ', '}', ',', '"', '\''])
-                .next()
-                .unwrap_or_default();
-            if commit.len() != 40 || !commit.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-                problems.push(format!("{action} is not pinned to a full commit hash"));
-            }
-        }
-        problems.extend(
-            WORKFLOW_REFUSED
-                .iter()
-                .filter(|refused| line.contains(*refused))
-                .map(|refused| format!("`{line}`: `{refused}` is not allowed")),
-        );
-        if line.contains("if:") && !WORKFLOW_CONDITIONS.contains(&line) {
-            problems.push(format!(
-                "`{line}`: the only conditions are `{}`",
-                WORKFLOW_CONDITIONS.join("` and `")
-            ));
-        }
-        if line.starts_with("runs-on:") && line.ends_with("-latest") {
-            problems.push(format!(
-                "`{line}` moves to a new OS release without a commit: name the release"
-            ));
-        }
-        let nightly = NIGHTLY_TOOLCHAIN.trim_start_matches('+');
-        problems.extend(
-            line.split(|character: char| character.is_whitespace() || character == ',')
-                .map(|word| word.trim_start_matches('+'))
-                .filter(|word| word.starts_with("nightly-") && *word != nightly)
-                .map(|word| format!("`{word}` is not the pinned nightly, {nightly}")),
-        );
-    }
-    let concurrency = workflow_concurrency();
-    let concurrency: Vec<&str> = concurrency.iter().map(String::as_str).collect();
-    for (block, what) in [
-        (&WORKFLOW_TRIGGERS[..], "triggers"),
-        (&WORKFLOW_PERMISSIONS[..], "permissions"),
-        (&concurrency[..], "concurrency"),
-    ] {
-        if !holds_block(workflow, block) {
-            problems.push(format!("{WORKFLOW} lacks the {what} `{}`", block.join(" ")));
-        }
-    }
-    let declared = |key: &str| {
-        workflow
-            .lines()
-            .filter(|line| line.trim_start().starts_with(key))
-            .count()
-    };
-    if declared("on:") != 1 || declared("permissions:") != 1 {
-        problems.push(format!(
-            "{WORKFLOW} declares triggers and permissions once, for the whole workflow"
-        ));
-    }
-    let tools = PINNED_TOOLS
-        .iter()
-        .map(|(name, version)| format!("{name}@{version}"))
-        .collect::<Vec<_>>()
-        .join(",");
-    for expected in [
-        format!("tool: {tools}"),
-        "node-version-file: .node-version".to_owned(),
-        "fetch-depth: 0".to_owned(),
-        "persist-credentials: false".to_owned(),
-        "cache-on-failure: true".to_owned(),
-    ]
-    .into_iter()
-    .chain(workflow_parts())
-    .chain(failure_uploads())
-    {
-        if !workflow.lines().any(|line| line.trim() == expected) {
-            problems.push(format!("{WORKFLOW} lacks `{expected}`"));
-        }
-    }
-    problems.extend(audio_sink_problem(workflow));
-    problems.extend(job_problems(workflow));
+    problems.extend(workflow_difference(workflow));
     if !node_release(node_version).is_some_and(supported) {
         problems.push(format!(
             "{NODE_VERSION_FILE} must pin one Node.js release, {}.{} or later (X.Y.Z): found {:?}",
@@ -7024,10 +7061,7 @@ pub fn workflow_gate(
             node_version.trim()
         ));
     }
-    verdict(
-        &format!("{WORKFLOW} can change CI without a commit"),
-        problems,
-    )
+    verdict("CI must run exactly the workflow xtask writes", problems)
 }
 
 /// The project manifest holding the workspace version.
@@ -10817,7 +10851,7 @@ fn loaded_files_of_the_workspace(runner: &mut dyn Runner) -> Result<(), Failure>
 ///
 /// The record is that of every build of [`loaded_files_commands`]: the host's, the fused
 /// math layer's, and each target's the check builds. **Not seen**: what only a build the
-/// check makes in another configuration reads (Miri's `cfg(miri)`, the coverage
+/// check makes in another configuration reads (Miri's own `cfg`, the coverage
 /// instrumentation's, the release profile's `debug_assertions` off for the engine package's
 /// WebAssembly, a feature: none is declared, an example or a benchmark target: none
 /// exists), and what a doc test loads, a crate rustdoc compiles apart that writes no

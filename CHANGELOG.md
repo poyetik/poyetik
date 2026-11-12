@@ -80,6 +80,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `spec/engine-design.md`, decision 19: a trace stream, the engine's only hook for debugging tools: every delivered message and selected box values through the return path, chosen when the plan is built, free when disabled, and never changing a bit (a law); stepping, slow motion, breakpoints and rewinding are host features on top of it (roadmap #10).
 - Clippy's `suboptimal_flops` and `imprecise_flops` are allowed for the whole workspace: they suggest `mul_add`, `hypot` and other methods `clippy.toml` bans, whose results differ between targets.
 
+- The workflow gate compares the CI workflow line by line with the one xtask writes (`workflow_text`, built from the triggers, permissions, concurrency, conditions, runner, timeouts, toolchains, pinned tools, audio sink, parts and uploads xtask owns), up to comments, blank lines and each action's commit hash and tag comment, where it refused a list of forms and required some lines anywhere: a default shell that runs nothing, a quoted or spaced condition, a credential kept or a shallow history in the final job, a runner given as a list, an expression or with a comment, an added step (a `cargo` that does nothing put first on the path), the check replaced while its line stayed as text, and the audio sink moved to the final job all passed. The first differing line is named with its number; a failed run also uploads Playwright's reports and test results of every folder of parts.
+
 ### Removed
 
 - **Breaking:** `engine_core::SILENCE`: a block of silence is `Sample::SILENCE`, in the precision of the render.

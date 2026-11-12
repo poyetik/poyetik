@@ -919,7 +919,7 @@ fn passing() -> Fake {
         assert!(logged.is_none(), "fresh fake");
     }
     for (path, text) in [
-        (super::WORKFLOW, PINNED_WORKFLOW),
+        (super::WORKFLOW, QUALITY),
         (super::NODE_VERSION_FILE, "22.23.4\n"),
         (super::RUST_TOOLCHAIN_FILE, TOOLCHAIN),
     ] {
@@ -1073,47 +1073,6 @@ const CLEAN: super::Environment = super::Environment {
 
 /// A toolchain file pinning the release the fake's `rustc` answers.
 const TOOLCHAIN: &str = "# Pinned.\n[toolchain]\nchannel = \"1.99.1\"\nprofile = \"minimal\"\n";
-
-/// The condition every job of the workflow holds: a push runs it only when asked with `[ci]`.
-const CI_CONDITION: &str =
-    "if: github.event_name != 'push' || contains(github.event.head_commit.message, '[ci]')";
-
-/// A workflow that pins everything, as the workflow gate requires.
-const PINNED_WORKFLOW: &str = concat!(
-    "on:\n  push:\n  pull_request:\n  workflow_dispatch:\n\npermissions:\n  contents: read\n\n",
-    "concurrency:\n  group: ${{ (github.event_name != 'push' || contains(github.event.head_commit.message, '[ci]')) && format('quality-{0}', github.ref) || format('skipped-{0}', github.run_id) }}\n  cancel-in-progress: true\n\n",
-    "jobs:\n",
-    "  check:\n",
-    "    if: github.event_name != 'push' || contains(github.event.head_commit.message, '[ci]')\n",
-    "    runs-on: ubuntu-24.04\n",
-    "    strategy:\n      fail-fast: false\n      matrix:\n",
-    "        part: [rust, coverage, mutation-0, mutation-1, mutation-2, mutation-3, mutation-4, mutation-5, mutation-6, mutation-7, ",
-    "miri",
-    ", gates, tooling-config, tooling-oracle, bindings-wasm, apps-playground, apps-roadmap]\n",
-    "    steps:\n",
-    "      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n        with:\n          fetch-depth: 0\n          persist-credentials: false\n",
-    "      - name: Install Rust toolchains\n        run: rustup toolchain install nightly-2026-11-01 --profile minimal\n",
-    "      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39\n        with:\n          tool: cargo-llvm-cov@0.9.1,cargo-mutants@27.1.0,cargo-deny@0.20.2\n",
-    "      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0\n        with:\n          node-version-file: .node-version\n",
-    "      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3\n        with:\n          cache-on-failure: true\n",
-    "      - name: Start an audio server with a null sink\n        run: |\n",
-    "          sudo apt-get update\n",
-    "          sudo apt-get install --yes --no-install-recommends pulseaudio=1:16.1+dfsg1-2ubuntu10.1\n",
-    "          pulseaudio --start --exit-idle-time=-1\n",
-    "          pactl load-module module-null-sink sink_name=null\n",
-    "          pactl set-default-sink null\n",
-    "          pactl get-default-sink | grep --quiet --line-regexp null || { echo \"::error::no audio sink: Firefox cannot play live (the runner has no sound card)\"; exit 1; }\n",
-    "      - name: One part of the full check\n        run: cargo xtask check --full --part ${{ matrix.part }}\n",
-    "      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2\n        with:\n          name: unviable-${{ matrix.part }}\n          path: mutants.out/unviable.txt\n",
-    "      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2\n        if: failure()\n        with:\n          path: |\n            mutants.out\n            target/coverage\n            bindings/wasm/dist/engine.wasm\n            apps/*/coverage\n            apps/*/reports\n            bindings/*/coverage\n            bindings/*/reports\n            tooling/*/coverage\n            tooling/*/reports\n",
-    "  final:\n",
-    "    needs: check\n",
-    "    if: github.event_name != 'push' || contains(github.event.head_commit.message, '[ci]')\n",
-    "    runs-on: ubuntu-24.04\n",
-    "    steps:\n",
-    "      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2\n        with:\n          pattern: unviable-*\n          path: mutants.out/shards\n",
-    "      - name: The final part\n        run: cargo xtask check --full --part final\n",
-);
 
 /// A history whose two commits follow the convention, the change of behavior with its
 /// changelog entry, as `git log` writes it for the history gate.
@@ -8612,62 +8571,362 @@ fn refuses_cargo_tools_at_other_versions() {
     );
 }
 
+/// The repository's workflow, as the workflow gate reads it.
+const QUALITY: &str = include_str!("../../../.github/workflows/quality.yml");
+
+/// [`QUALITY`] with the last occurrence of `from` replaced by `to`, `from` being there.
+fn quality_with_last(from: &str, to: &str) -> String {
+    let (before, after) = QUALITY.rsplit_once(from).expect("the edit applies");
+    format!("{before}{to}{after}")
+}
+
+/// [`QUALITY`] with the first occurrence of `from` replaced by `to`, `from` being there.
+fn quality_with(from: &str, to: &str) -> String {
+    assert!(QUALITY.contains(from), "the edit applies: {from}");
+    QUALITY.replacen(from, to, 1)
+}
+
+/// Workflows that differ from [`QUALITY`] in one way each, with what differs: the forms a
+/// list of refused forms let pass, and more.
+fn workflow_probes() -> Vec<(&'static str, String)> {
+    let sink = "      - name: Start an audio server with a null sink\n        run: |\n          sudo apt-get update\n          sudo apt-get install --yes --no-install-recommends pulseaudio=1:16.1+dfsg1-2ubuntu10.1\n          pulseaudio --start --exit-idle-time=-1\n          pactl load-module module-null-sink sink_name=null\n          pactl set-default-sink null\n          pactl get-default-sink | grep --quiet --line-regexp null || { echo \"::error::no audio sink: Firefox cannot play live (the runner has no sound card)\"; exit 1; }\n";
+    let check = "      - name: One part of the full check\n        run: cargo xtask check --full --part ${{ matrix.part }}\n";
+    let final_check = "      - name: The unviable mutants of every shard, reviewed together\n";
+    vec![
+        (
+            "a default shell that runs nothing",
+            quality_with(
+                "permissions:\n  contents: read\n",
+                "permissions:\n  contents: read\n\ndefaults:\n  run:\n    shell: true {0}\n",
+            ),
+        ),
+        (
+            "a quoted condition",
+            quality_with(
+                check,
+                &check.replace("        run:", "        \"if\": false\n        run:"),
+            ),
+        ),
+        (
+            "a condition spaced before its colon",
+            quality_with(
+                check,
+                &check.replace("        run:", "        if : false\n        run:"),
+            ),
+        ),
+        (
+            "credentials kept by the final job's checkout",
+            quality_with_last("          persist-credentials: false\n", ""),
+        ),
+        (
+            "a shallow history in the final job",
+            quality_with_last("          fetch-depth: 0\n", ""),
+        ),
+        (
+            "the final job's cache lost on failure",
+            quality_with_last("        with:\n          cache-on-failure: true\n", ""),
+        ),
+        (
+            "a runner in a list",
+            quality_with("runs-on: ubuntu-24.04", "runs-on: [ubuntu-latest]"),
+        ),
+        (
+            "a runner in an expression",
+            quality_with("runs-on: ubuntu-24.04", "runs-on: ${{ 'ubuntu-latest' }}"),
+        ),
+        (
+            "a runner with a comment",
+            quality_with("runs-on: ubuntu-24.04", "runs-on: ubuntu-latest # x"),
+        ),
+        (
+            "the check replaced, its line kept as text",
+            quality_with(
+                check,
+                "      - name: One part of the full check\n        env:\n          NOTE: |\n            run: cargo xtask check --full --part ${{ matrix.part }}\n        run: echo skipped\n",
+            ),
+        ),
+        (
+            "a cargo that does nothing, put first on the path",
+            quality_with(
+                check,
+                &format!(
+                    "      - name: Tools\n        run: mkdir -p shim && printf '#!/bin/sh\\n' > shim/cargo && chmod +x shim/cargo && echo \"$PWD/shim\" >> \"$GITHUB_PATH\"\n{check}"
+                ),
+            ),
+        ),
+        (
+            "the audio sink in the final job",
+            quality_with(sink, "").replace(final_check, &format!("{sink}{final_check}")),
+        ),
+    ]
+}
+
+/// Workflows that differ from [`QUALITY`] in one way each, with what differs: the pins,
+/// the steps, the end of the file, and the forms of the gate this one replaced.
+fn workflow_more_probes() -> Vec<(&'static str, String)> {
+    let check = "      - name: One part of the full check\n        run: cargo xtask check --full --part ${{ matrix.part }}\n";
+    vec![
+        (
+            "a short commit",
+            quality_with(
+                "checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+                "checkout@3d3c42e",
+            ),
+        ),
+        (
+            "a tag",
+            quality_with(
+                "checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+                "checkout@v7",
+            ),
+        ),
+        (
+            "another action",
+            quality_with("actions/checkout@", "someone/checkout@"),
+        ),
+        (
+            "a commit in capitals",
+            quality_with(
+                "checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+                "checkout@3D3C42E5AAC5BA805825DA76410C181273BA90B1",
+            ),
+        ),
+        (
+            "an empty tag comment",
+            quality_with(
+                "3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1",
+                "3d3c42e5aac5ba805825da76410c181273ba90b1 #",
+            ),
+        ),
+        (
+            "a step more",
+            quality_with(
+                check,
+                &format!("      - name: More\n        run: echo more\n{check}"),
+            ),
+        ),
+        (
+            "no final newline",
+            QUALITY
+                .strip_suffix('\n')
+                .expect("a final newline")
+                .to_owned(),
+        ),
+        ("a line more at the end", format!("{QUALITY}  other:\n")),
+    ]
+}
+
+/// Workflows that differ from [`QUALITY`] in one of the forms the gate this one replaced
+/// refused, each.
+fn workflow_former_probes() -> Vec<(&'static str, String)> {
+    vec![
+        (
+            "a step allowed to fail",
+            quality_with_last(
+                "        run: cargo xtask check --full --part final\n",
+                "        run: cargo xtask check --full --part final\n        continue-on-error: true\n",
+            ),
+        ),
+        (
+            "another nightly",
+            quality_with("nightly-2026-11-01", "nightly-2020-01-01"),
+        ),
+        (
+            "build flags",
+            quality_with_last(
+                "        run: cargo xtask check --full --part final\n",
+                "        run: cargo xtask check --full --part final\n        env:\n          RUSTFLAGS: -Aunsafe\n",
+            ),
+        ),
+        (
+            "fork code run with the token",
+            quality_with("  pull_request:\n", "  pull_request_target:\n"),
+        ),
+        (
+            "a token that writes",
+            quality_with("  contents: read", "  contents: write"),
+        ),
+        ("a shard missing", quality_with(", mutation-7", "")),
+        (
+            "the final part in the matrix",
+            quality_with("apps-roadmap]", "apps-roadmap, final]"),
+        ),
+        (
+            "a part stopping the others",
+            quality_with("fail-fast: false", "fail-fast: true"),
+        ),
+        (
+            "a part excluded",
+            quality_with(
+                "        part: [",
+                concat!(
+                    "        exclude:\n          - part: ",
+                    "miri",
+                    "\n        part: ["
+                ),
+            ),
+        ),
+        (
+            "another cargo-mutants",
+            quality_with("cargo-mutants@27.1.0", "cargo-mutants"),
+        ),
+        (
+            "the concurrency's group",
+            quality_with("  cancel-in-progress: true\n", ""),
+        ),
+        (
+            "a line less at the end",
+            quality_with_last("        run: cargo xtask check --full --part final\n", ""),
+        ),
+    ]
+}
+
 #[test]
-fn requires_a_workflow_that_pins_everything() {
+fn refuses_every_workflow_but_xtask_s() {
+    for (probe, workflow) in [
+        workflow_probes(),
+        workflow_more_probes(),
+        workflow_former_probes(),
+    ]
+    .concat()
+    {
+        assert!(
+            super::workflow_gate(&[super::WORKFLOW.to_owned()], &workflow, "22.23.4").is_err(),
+            "{probe}: refused"
+        );
+    }
+}
+
+#[test]
+fn accepts_xtask_s_workflow_up_to_comments_and_pins() {
+    let gate =
+        |workflow: &str| super::workflow_gate(&[super::WORKFLOW.to_owned()], workflow, "22.23.4");
+    assert_eq!(gate(QUALITY), Ok(()), "the repository's workflow");
+    for (edit, workflow) in [
+        (
+            "a comment changed",
+            quality_with("# Quality: runs", "# Quality, which runs"),
+        ),
+        (
+            "a comment and a blank line more",
+            quality_with("jobs:\n", "\n# More prose.\n   # Indented.\njobs:\n"),
+        ),
+        (
+            "an action updated as Dependabot does",
+            quality_with(
+                "checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1",
+                "checkout@0123456789abcdef0123456789abcdef01234567 # v7.1.0",
+            ),
+        ),
+        (
+            "an action pinned without its tag",
+            quality_with(
+                "checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1",
+                "checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+            ),
+        ),
+    ] {
+        assert_eq!(gate(&workflow), Ok(()), "{edit}");
+    }
+}
+
+#[test]
+fn says_where_the_workflow_differs_from_xtask_s() {
+    let gate = |workflows: &[&str], workflow: &str, node: &str| {
+        let workflows: Vec<String> = workflows.iter().map(|path| (*path).to_owned()).collect();
+        super::workflow_gate(&workflows, workflow, node)
+    };
+    let only = [super::WORKFLOW];
+    let refused = |problem: &str| {
+        failed(format!(
+            "CI must run exactly the workflow xtask writes: {problem}"
+        ))
+    };
+    let line_of = |workflow: &str, text: &str| {
+        workflow
+            .lines()
+            .position(|line| line == text)
+            .map(|at| at + 1)
+            .expect("the line")
+    };
+    let runner = quality_with("runs-on: ubuntu-24.04", "runs-on: ubuntu-latest");
     assert_eq!(
-        super::workflow_gate(&[super::WORKFLOW.to_owned()], PINNED_WORKFLOW, "22.23.4\n"),
-        Ok(()),
-        "pinned"
+        gate(&only, &runner, "22.23.4"),
+        refused(&format!(
+            ".github/workflows/quality.yml:{}: `    runs-on: ubuntu-latest`, where xtask's workflow has `    runs-on: ubuntu-24.04`",
+            line_of(&runner, "    runs-on: ubuntu-latest")
+        )),
+        "the first line that differs, with its number"
     );
-    let loose = PINNED_WORKFLOW
-        .replace(
-            "checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1",
-            "checkout@v7",
-        )
-        .replace(
-            "setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
-            "setup-node@949feb2413d6458794dcd2491c4babbbce0c15cz",
-        )
-        .replace(
-            "taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39",
-            "taiki-e/install-action",
-        )
-        .replace("cargo-mutants@27.1.0", "cargo-mutants")
-        .replace("fetch-depth: 0", "fetch-depth: 1")
-        .replace("node-version-file: .node-version", "node-version: 22")
-        .replace("run: cargo xtask check --full", "run: cargo xtask check");
+    let tagged = quality_with(
+        "checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+        "checkout@v7",
+    );
     assert_eq!(
-        super::workflow_gate(&[super::WORKFLOW.to_owned()], &loose, "22"),
+        gate(&only, &tagged, "22.23.4"),
+        refused(&format!(
+            ".github/workflows/quality.yml:{}: `      - uses: actions/checkout@v7 # v7.0.1`, where xtask's workflow has `      - uses: actions/checkout@<full commit hash> # <tag>`",
+            line_of(&tagged, "      - uses: actions/checkout@v7 # v7.0.1")
+        )),
+        "an action not pinned"
+    );
+    let shorter = quality_with_last("        run: cargo xtask check --full --part final\n", "");
+    assert_eq!(
+        gate(&only, &shorter, "22.23.4"),
+        refused(
+            ".github/workflows/quality.yml ends where xtask's workflow goes on with `        run: cargo xtask check --full --part final`"
+        ),
+        "a line less"
+    );
+    let longer = format!("{QUALITY}  other:\n");
+    assert_eq!(
+        gate(&only, &longer, "22.23.4"),
+        refused(&format!(
+            ".github/workflows/quality.yml:{}: `  other:`, after the end of xtask's workflow",
+            longer.lines().count()
+        )),
+        "a line more"
+    );
+    assert_eq!(
+        gate(
+            &only,
+            QUALITY.strip_suffix('\n').expect("a line break"),
+            "22.23.4"
+        ),
+        refused(".github/workflows/quality.yml does not end with a line break"),
+        "no final line break"
+    );
+    let control = quality_with("runs-on: ubuntu-24.04", "runs-on: ubuntu-24.04\u{1b}[2J");
+    assert_eq!(
+        super::safe_message(
+            &gate(&only, &control, "22.23.4")
+                .expect_err("refused")
+                .summary
+        ),
+        format!(
+            "CI must run exactly the workflow xtask writes: .github/workflows/quality.yml:{}: `    runs-on: ubuntu-24.04\\u{{1b}}[2J`, where xtask's workflow has `    runs-on: ubuntu-24.04`",
+            line_of(&control, "    runs-on: ubuntu-24.04\u{1b}[2J")
+        ),
+        "a control character escaped, as the user reads it"
+    );
+    assert_eq!(
+        gate(
+            &[super::WORKFLOW, ".github/workflows/other.yml"],
+            QUALITY,
+            "22"
+        ),
         failed(
-            ".github/workflows/quality.yml can change CI without a commit: 9 problems, listed above\n\
-             actions/checkout@v7 is not pinned to a full commit hash\n\
-             taiki-e/install-action is not pinned to a full commit hash\n\
-             actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15cz # v7.1.0 is not pinned to a full commit hash\n\
-             .github/workflows/quality.yml lacks `tool: cargo-llvm-cov@0.9.1,cargo-mutants@27.1.0,cargo-deny@0.20.2`\n\
-             .github/workflows/quality.yml lacks `node-version-file: .node-version`\n\
-             .github/workflows/quality.yml lacks `fetch-depth: 0`\n\
-             .github/workflows/quality.yml lacks `run: cargo xtask check --full --part ${{ matrix.part }}`\n\
-             .github/workflows/quality.yml lacks `run: cargo xtask check --full --part final`\n\
+            "CI must run exactly the workflow xtask writes: 2 problems, listed above\n\
+             .github/workflows/other.yml: the only workflow is .github/workflows/quality.yml, which xtask checks\n\
              .node-version must pin one Node.js release, 22.18 or later (X.Y.Z): found \"22\""
         ),
-        "every kind of loose pin"
+        "a second workflow, which nothing checks, and a loose Node.js release"
     );
-    let unkept = PINNED_WORKFLOW
-        .replacen("runs-on: ubuntu-24.04", "runs-on: ubuntu-latest", 1)
-        .replace("cache-on-failure: true", "cache-on-failure: false")
-        .replace("            tooling/*/coverage\n", "")
-        .replace("            target/coverage\n", "");
-    assert_eq!(
-        super::workflow_gate(&[super::WORKFLOW.to_owned()], &unkept, "22.23.4"),
-        failed(
-            ".github/workflows/quality.yml can change CI without a commit: 4 problems, listed above\n\
-             `runs-on: ubuntu-latest` moves to a new OS release without a commit: name the release\n\
-             .github/workflows/quality.yml lacks `cache-on-failure: true`\n\
-             .github/workflows/quality.yml lacks `target/coverage`\n\
-             .github/workflows/quality.yml lacks `tooling/*/coverage`"
-        ),
-        "a moving runner, a cache lost on failure, reports not uploaded"
-    );
+}
+
+#[test]
+fn derives_the_workflow_s_lists_and_reads_its_node_release() {
+    let gate = |node: &str| super::workflow_gate(&[super::WORKFLOW.to_owned()], QUALITY, node);
     assert_eq!(
         super::failure_uploads(),
         vec![
@@ -8680,8 +8939,24 @@ fn requires_a_workflow_that_pins_everything() {
             "bindings/*/reports",
             "apps/*/coverage",
             "apps/*/reports",
+            "tooling/*/playwright-report",
+            "tooling/*/test-results",
+            "bindings/*/playwright-report",
+            "bindings/*/test-results",
+            "apps/*/playwright-report",
+            "apps/*/test-results",
         ],
         "every report a failed run leaves, derived from where xtask reads them"
+    );
+    let parts = super::workflow_text();
+    assert!(
+        parts.contains(&concat!(
+            "        part: [rust, coverage, mutation-0, mutation-1, mutation-2, mutation-3, ",
+            "mutation-4, mutation-5, mutation-6, mutation-7, ",
+            "miri",
+            ", gates, tooling-config, tooling-oracle, bindings-wasm, apps-playground, apps-roadmap]"
+        ).to_owned()),
+        "the matrix, derived from the parts"
     );
     for (node, accepted) in [
         ("22.18.0", true),
@@ -8693,59 +8968,8 @@ fn requires_a_workflow_that_pins_everything() {
         ("22.x.1", false),
         ("22.23.4.1", false),
     ] {
-        assert_eq!(
-            super::workflow_gate(&[super::WORKFLOW.to_owned()], PINNED_WORKFLOW, node).is_ok(),
-            accepted,
-            "{node:?}"
-        );
+        assert_eq!(gate(node).is_ok(), accepted, "{node:?}");
     }
-}
-
-#[test]
-fn requires_an_audio_sink_for_firefox() {
-    let gate =
-        |workflow: &str| super::workflow_gate(&[super::WORKFLOW.to_owned()], workflow, "22.23.4");
-    let lacks = failed(
-        ".github/workflows/quality.yml can change CI without a commit: \
-         .github/workflows/quality.yml lacks the audio sink, these lines in this order: \
-         `sudo apt-get update` `sudo apt-get install --yes --no-install-recommends \
-         pulseaudio=1:16.1+dfsg1-2ubuntu10.1` `pulseaudio --start --exit-idle-time=-1` \
-         `pactl load-module module-null-sink sink_name=null` `pactl set-default-sink null` \
-         `pactl get-default-sink | grep --quiet --line-regexp null || { echo \"::error::no audio \
-         sink: Firefox cannot play live (the runner has no sound card)\"; exit 1; }`",
-    );
-    let guard = "          pactl get-default-sink | grep --quiet --line-regexp null || { echo \"::error::no audio sink: Firefox cannot play live (the runner has no sound card)\"; exit 1; }\n";
-    for (case, workflow) in [
-        (
-            "no audio server",
-            PINNED_WORKFLOW.replace("          pulseaudio --start --exit-idle-time=-1\n", ""),
-        ),
-        (
-            "a package at whatever version the archive holds",
-            PINNED_WORKFLOW.replace("pulseaudio=1:16.1+dfsg1-2ubuntu10.1", "pulseaudio"),
-        ),
-        (
-            "with its recommends",
-            PINNED_WORKFLOW.replace(" --no-install-recommends", ""),
-        ),
-        ("no guard", PINNED_WORKFLOW.replace(guard, "")),
-        (
-            "the sink chosen after the guard",
-            PINNED_WORKFLOW
-                .replace("          pactl set-default-sink null\n", "")
-                .replace(
-                    guard,
-                    &format!("{guard}          pactl set-default-sink null\n"),
-                ),
-        ),
-    ] {
-        assert_eq!(gate(&workflow), lacks, "{case}");
-    }
-    assert_eq!(
-        gate(&PINNED_WORKFLOW.replace("          sudo", "      sudo")),
-        Ok(()),
-        "lines read trimmed, as the other required lines"
-    );
 }
 
 #[test]
@@ -9304,7 +9528,7 @@ fn reads_node_releases_alike_everywhere() {
             .collect();
         assert_eq!(
             preflight_gate("linux", &answers, text, TOOLCHAIN, &CLEAN).is_ok(),
-            super::workflow_gate(&[super::WORKFLOW.to_owned()], PINNED_WORKFLOW, text).is_ok(),
+            super::workflow_gate(&[super::WORKFLOW.to_owned()], QUALITY, text).is_ok(),
             "{text:?}: the same verdict from the preflight and the workflow gate"
         );
     }
@@ -12529,107 +12753,6 @@ fn reads_the_board_as_the_roadmap_writes_it() {
 }
 
 #[test]
-fn refuses_workflows_that_could_pass_without_checking() {
-    let gate = |workflows: &[&str], workflow: &str| {
-        let workflows: Vec<String> = workflows.iter().map(|path| (*path).to_owned()).collect();
-        super::workflow_gate(&workflows, workflow, "22.23.4")
-    };
-    let only = [super::WORKFLOW];
-    let refused = |workflow: &str, problem: &str| {
-        assert_eq!(
-            gate(&only, workflow),
-            failed(format!(
-                ".github/workflows/quality.yml can change CI without a commit: {problem}"
-            )),
-            "{problem}"
-        );
-    };
-    refused(
-        &PINNED_WORKFLOW.replace(
-            "      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3",
-            "      -   uses: Swatinem/rust-cache@main",
-        ),
-        "Swatinem/rust-cache@main is not pinned to a full commit hash",
-    );
-    refused(
-        &PINNED_WORKFLOW.replace(
-            "      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3",
-            "      - { uses: Swatinem/rust-cache@main }",
-        ),
-        "Swatinem/rust-cache@main is not pinned to a full commit hash",
-    );
-    refused(
-        &PINNED_WORKFLOW.replace(
-            "        run: cargo xtask check --full --part final\n",
-            "        run: cargo xtask check --full --part final\n        continue-on-error: true\n",
-        ),
-        "`continue-on-error: true`: `continue-on-error` is not allowed",
-    );
-    refused(
-        &PINNED_WORKFLOW.replace(
-            "      - name: The final part\n",
-            "      - name: The final part\n        if: false\n",
-        ),
-        "`if: false`: the only conditions are `if: failure()` and `if: github.event_name != \'push\' || contains(github.event.head_commit.message, \'[ci]\')`",
-    );
-    refused(
-        &PINNED_WORKFLOW.replace("nightly-2026-11-01", "nightly-2020-01-01"),
-        "`nightly-2020-01-01` is not the pinned nightly, nightly-2026-11-01",
-    );
-    refused(
-        &PINNED_WORKFLOW.replace(
-            "        run: cargo xtask check --full --part final\n",
-            "        run: cargo xtask check --full --part final\n        env:\n          RUSTFLAGS: -Aunsafe\n",
-        ),
-        "`RUSTFLAGS: -Aunsafe`: `RUSTFLAGS` is not allowed",
-    );
-    refused(
-        &PINNED_WORKFLOW.replace("          persist-credentials: false\n", ""),
-        ".github/workflows/quality.yml lacks `persist-credentials: false`",
-    );
-    assert_eq!(
-        gate(
-            &only,
-            &PINNED_WORKFLOW
-                .replace("  pull_request:\n", "  pull_request_target:\n")
-                .replace("  contents: read", "  contents: write")
-        ),
-        failed(
-            ".github/workflows/quality.yml can change CI without a commit: 3 problems, listed above\n\
-             `pull_request_target:`: `pull_request_target` is not allowed\n\
-             .github/workflows/quality.yml lacks the triggers `on:   push:   pull_request:   workflow_dispatch:`\n\
-             .github/workflows/quality.yml lacks the permissions `permissions:   contents: read`"
-        ),
-        "a trigger running fork code with the token, a token that writes"
-    );
-    assert_eq!(
-        gate(
-            &only,
-            &format!(
-                "{PINNED_WORKFLOW}  other:\n    {CI_CONDITION}\n    permissions:\n      contents: write\n"
-            )
-        ),
-        failed(
-            ".github/workflows/quality.yml can change CI without a commit: .github/workflows/quality.yml \
-             declares triggers and permissions once, for the whole workflow"
-        ),
-        "a job that widens the permissions"
-    );
-    assert_eq!(
-        gate(
-            &[super::WORKFLOW, ".github/workflows/other.yml"],
-            PINNED_WORKFLOW
-        ),
-        failed(
-            ".github/workflows/quality.yml can change CI without a commit: \
-             .github/workflows/other.yml: the only workflow is .github/workflows/quality.yml, \
-             which xtask checks"
-        ),
-        "a second workflow, which nothing checks"
-    );
-}
-
-#[test]
 fn requires_a_week_before_a_release_and_libm_without_features() {
     let files = |dependabot: &str, pnpm: &str, deny: &str| {
         [dependabot, pnpm, deny].map(str::to_owned).to_vec()
@@ -12905,20 +13028,6 @@ fn the_math_layer_gate_fails_when_the_crates_cannot_be_listed() {
         run_steps(&steps, &mut passing(), &mut Vec::new()),
         Ok(()),
         "the fake's metadata has no libm"
-    );
-}
-
-#[test]
-fn refuses_a_second_place_declaring_triggers() {
-    let workflow =
-        format!("{PINNED_WORKFLOW}  other:\n    {CI_CONDITION}\n    on:\n      schedule:\n");
-    assert_eq!(
-        super::workflow_gate(&[super::WORKFLOW.to_owned()], &workflow, "22.23.4"),
-        failed(
-            ".github/workflows/quality.yml can change CI without a commit: .github/workflows/quality.yml \
-             declares triggers and permissions once, for the whole workflow"
-        ),
-        "triggers declared twice"
     );
 }
 
@@ -13523,39 +13632,6 @@ fn reads_odd_sources_without_losing_prose() {
 }
 
 #[test]
-fn accepts_exactly_the_conditions_decided() {
-    for condition in super::WORKFLOW_CONDITIONS {
-        let workflow = PINNED_WORKFLOW.replace(
-            "    runs-on: ubuntu-24.04\n",
-            &format!("    {condition}\n    runs-on: ubuntu-24.04\n"),
-        );
-        assert!(
-            workflow.contains(condition),
-            "the fixture holds the condition"
-        );
-        assert_eq!(
-            super::workflow_gate(&[super::WORKFLOW.to_owned()], &workflow, "22.23.4"),
-            Ok(()),
-            "{condition}"
-        );
-    }
-    for variant in [
-        "if: github.event_name != 'push' || contains(github.event.head_commit.message, 'ci')",
-        "if: false",
-        "if: github.event_name == 'pull_request'",
-    ] {
-        let workflow = PINNED_WORKFLOW.replace(
-            "    runs-on: ubuntu-24.04\n",
-            &format!("    {variant}\n    runs-on: ubuntu-24.04\n"),
-        );
-        assert!(
-            super::workflow_gate(&[super::WORKFLOW.to_owned()], &workflow, "22.23.4").is_err(),
-            "{variant}"
-        );
-    }
-}
-
-#[test]
 fn keeps_a_run_skipped_by_the_ci_condition_from_cancelling_a_check() {
     let [_, condition] = super::WORKFLOW_CONDITIONS;
     let group = super::workflow_concurrency()
@@ -13568,35 +13644,6 @@ fn keeps_a_run_skipped_by_the_ci_condition_from_cancelling_a_check() {
             condition.strip_prefix("if: ").unwrap_or_default()
         )),
         "the group follows the condition of the check: {group}"
-    );
-    let gate =
-        |workflow: &str| super::workflow_gate(&[super::WORKFLOW.to_owned()], workflow, "22.23.4");
-    let lacks = |line: &str| {
-        failed(format!(
-            ".github/workflows/quality.yml can change CI without a commit: \
-             .github/workflows/quality.yml lacks the concurrency `{line}`"
-        ))
-    };
-    let expected = lacks(&super::workflow_concurrency().join(" "));
-    let unconditional = PINNED_WORKFLOW.replace(&group, "  group: quality-${{ github.ref }}");
-    assert_ne!(
-        unconditional, PINNED_WORKFLOW,
-        "the fixture holds the group"
-    );
-    assert_eq!(
-        gate(&unconditional),
-        expected,
-        "a run the condition skips would join the group of the check and cancel it"
-    );
-    assert_eq!(
-        gate(&PINNED_WORKFLOW.replace("  cancel-in-progress: true\n", "")),
-        expected,
-        "a superseded check is cancelled"
-    );
-    assert_eq!(
-        gate(&PINNED_WORKFLOW.replace("\nconcurrency:\n", "\n  concurrency:\n")),
-        expected,
-        "for the whole workflow"
     );
 }
 
@@ -14689,173 +14736,6 @@ fn lists_and_runs_the_parts_of_the_full_check() {
         String::from_utf8(err).expect("UTF-8"),
         "error: 1 of 4 checks failed, listed above\n",
         "every failure counted"
-    );
-}
-
-#[test]
-fn requires_the_workflow_to_run_every_part_of_the_full_check() {
-    let gate =
-        |workflow: &str| super::workflow_gate(&[super::WORKFLOW.to_owned()], workflow, "22.23.4");
-    let lacks = |line: &str| {
-        failed(format!(
-            ".github/workflows/quality.yml can change CI without a commit: \
-             .github/workflows/quality.yml lacks `{line}`"
-        ))
-    };
-    let matrix = concat!(
-        "part: [rust, coverage, mutation-0, mutation-1, mutation-2, mutation-3, mutation-4, ",
-        "mutation-5, mutation-6, mutation-7, ",
-        "miri",
-        ", gates, tooling-config, tooling-oracle, bindings-wasm, apps-playground, apps-roadmap]"
-    );
-    assert_eq!(
-        gate(&PINNED_WORKFLOW.replace(", mutation-7", "")),
-        lacks(matrix),
-        "a shard missing from the matrix"
-    );
-    assert_eq!(
-        gate(&PINNED_WORKFLOW.replace("apps-roadmap]", "apps-roadmap, final]")),
-        lacks(matrix),
-        "the final part, run before the shards it reads"
-    );
-    for (line, instead) in [
-        ("fail-fast: false", "fail-fast: true"),
-        (
-            "run: cargo xtask check --full --part ${{ matrix.part }}",
-            "run: cargo xtask check --full --part rust",
-        ),
-        ("name: unviable-${{ matrix.part }}", "name: unviable"),
-        (
-            "path: mutants.out/unviable.txt",
-            "path: mutants.out/caught.txt",
-        ),
-        ("needs: check", "needs: other"),
-        ("pattern: unviable-*", "pattern: unviable-mutation-0"),
-        ("path: mutants.out/shards", "path: mutants.out"),
-        (
-            "run: cargo xtask check --full --part final",
-            "run: cargo xtask check --full --part gates",
-        ),
-    ] {
-        let changed = PINNED_WORKFLOW.replace(line, instead);
-        assert_ne!(changed, PINNED_WORKFLOW, "the fixture holds {line}");
-        assert_eq!(gate(&changed), lacks(line), "{instead}");
-    }
-    assert_eq!(
-        gate(&PINNED_WORKFLOW.replace(
-            "        part: [",
-            concat!(
-                "        exclude:\n          - part: ",
-                "miri",
-                "\n        part: ["
-            )
-        )),
-        failed(
-            ".github/workflows/quality.yml can change CI without a commit: \
-             `exclude:`: `exclude:` is not allowed"
-        ),
-        "a part excluded from the matrix"
-    );
-    assert_eq!(
-        super::workflow_parts().get(1),
-        Some(&matrix.to_owned()),
-        "the matrix, derived from the parts"
-    );
-}
-
-#[test]
-fn requires_the_ci_condition_on_every_job() {
-    let gate =
-        |workflow: &str| super::workflow_gate(&[super::WORKFLOW.to_owned()], workflow, "22.23.4");
-    let refused = |problem: &str| {
-        failed(format!(
-            ".github/workflows/quality.yml can change CI without a commit: {problem}"
-        ))
-    };
-    let unconditioned = PINNED_WORKFLOW.replacen(&format!("    {CI_CONDITION}\n"), "", 1);
-    assert_eq!(
-        gate(&unconditioned),
-        refused(&format!(
-            "job `check` lacks `{CI_CONDITION}`, which every job holds"
-        )),
-        "a part a push would run without being asked"
-    );
-    let last = PINNED_WORKFLOW
-        .rfind(&format!("    {CI_CONDITION}\n"))
-        .expect("the final job's condition");
-    let mut final_unconditioned = PINNED_WORKFLOW.to_owned();
-    final_unconditioned.replace_range(last..last + CI_CONDITION.len() + 5, "");
-    assert_eq!(
-        gate(&final_unconditioned),
-        refused(&format!(
-            "job `final` lacks `{CI_CONDITION}`, which every job holds"
-        )),
-        "the final job too"
-    );
-    assert_eq!(
-        gate(&PINNED_WORKFLOW.replacen(
-            &format!("    {CI_CONDITION}\n"),
-            &format!("      {CI_CONDITION}\n"),
-            1
-        )),
-        refused(&format!(
-            "job `check` lacks `{CI_CONDITION}`, which every job holds"
-        )),
-        "a condition deeper than the job's keys is not the job's"
-    );
-    assert_eq!(
-        gate(&PINNED_WORKFLOW.replace("  final:\n", "  final: # the last\n")),
-        refused("`final: # the last`: a job is written `  <name>:`"),
-        "a job header the gate does not read is refused, not skipped"
-    );
-    assert_eq!(
-        gate(&PINNED_WORKFLOW.replace("  final:\n", "  :\n")),
-        refused("`:`: a job is written `  <name>:`"),
-        "a job without a name"
-    );
-    assert_eq!(
-        gate(&unconditioned.replace("jobs:\n", &format!("jobs:\n    {CI_CONDITION}\n"))),
-        refused(&format!(
-            "job `check` lacks `{CI_CONDITION}`, which every job holds"
-        )),
-        "a condition before any job is no job's"
-    );
-    let named = |name: &str| {
-        gate(&format!(
-            "{PINNED_WORKFLOW}  {name}:\n    {CI_CONDITION}\n    runs-on: ubuntu-24.04\n"
-        ))
-    };
-    assert_eq!(
-        named("a-b_C9"),
-        Ok(()),
-        "a job named with letters, digits, - and _"
-    );
-    assert_eq!(
-        named("a.b"),
-        refused("`a.b:`: a job is written `  <name>:`"),
-        "any other character"
-    );
-    assert_eq!(
-        gate(&final_unconditioned.replace("  final:\n", "\n  final:\n")),
-        refused(&format!(
-            "job `final` lacks `{CI_CONDITION}`, which every job holds"
-        )),
-        "a blank line does not end the jobs"
-    );
-    assert_eq!(
-        gate(&format!(
-            "{PINNED_WORKFLOW}defaults:\n  run:\n    shell: bash\n"
-        )),
-        Ok(()),
-        "a top-level key ends the jobs"
-    );
-    let commented = PINNED_WORKFLOW
-        .replace("  final:\n", "  # The final job.\n\n  final:\n")
-        .replace("jobs:\n", "jobs:\n # one space\n");
-    assert_eq!(
-        gate(&commented),
-        Ok(()),
-        "comments and blank lines between jobs"
     );
 }
 

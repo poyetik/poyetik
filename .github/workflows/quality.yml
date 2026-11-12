@@ -5,6 +5,9 @@
 # On demand, because the full check is long and commits are frequent: on a push only when the
 # last commit's message holds [ci] alone on a line (xtask refuses it anywhere else), on every
 # pull request, and by hand (Run workflow).
+# Every line of this file but its comments and blank lines is xtask's (`workflow_text`): the
+# workflow gate refuses any other, an action's commit hash and its tag comment apart, which
+# Dependabot updates. A change of CI is a change of xtask.
 name: Quality
 
 on:
@@ -40,8 +43,7 @@ jobs:
       # Every part runs whatever the others find, as the full check runs every step.
       fail-fast: false
       matrix:
-        # The parts of `cargo xtask list --full --parts` but the final one, exactly (the
-        # workflow gate derives this line from xtask).
+        # The parts of `cargo xtask list --full --parts` but the final one, exactly.
         part: [rust, coverage, mutation-0, mutation-1, mutation-2, mutation-3, mutation-4, mutation-5, mutation-6, mutation-7, miri, gates, tooling-config, tooling-oracle, bindings-wasm, apps-playground, apps-roadmap]
     # Every action is pinned to a full commit (the tag it was taken from is in the comment)
     # and every tool to an exact version: a moved tag or a new release of an action or a
@@ -88,7 +90,7 @@ jobs:
       # (Chromium runs with its audio output disabled, WebKitGTK plays without one).
       # PulseAudio, which the image does not hold, at an exact version of the OS release:
       # an Ubuntu update of it fails here until the version is changed in xtask's
-      # AUDIO_SINK, which the workflow gate requires exactly. The last line names the
+      # AUDIO_SINK. The last line names the
       # cause if the job is left without a default sink.
       - name: Start an audio server with a null sink
         run: |
@@ -118,16 +120,18 @@ jobs:
             mutants.out
             target/coverage
             bindings/wasm/dist/engine.wasm
-            apps/*/coverage
-            apps/*/reports
-            apps/*/playwright-report
-            apps/*/test-results
-            bindings/*/coverage
-            bindings/*/reports
-            bindings/*/playwright-report
-            bindings/*/test-results
             tooling/*/coverage
             tooling/*/reports
+            bindings/*/coverage
+            bindings/*/reports
+            apps/*/coverage
+            apps/*/reports
+            tooling/*/playwright-report
+            tooling/*/test-results
+            bindings/*/playwright-report
+            bindings/*/test-results
+            apps/*/playwright-report
+            apps/*/test-results
           if-no-files-found: ignore
 
   final:
