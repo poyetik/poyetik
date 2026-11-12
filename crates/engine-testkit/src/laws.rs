@@ -7,6 +7,7 @@ use engine_core::{
     BLOCK_SIZE, Binary32, Binary64, Block, Dispatch, Object, ObjectSpec, ParamSpec, ParamValues,
     Precision, SampleRate,
 };
+use proptest::array::uniform;
 use proptest::collection::vec;
 use proptest::test_runner::TestCaseError;
 
@@ -127,7 +128,7 @@ pub fn check_registry(registry: &[&ObjectSpec]) -> Result<(), String> {
 fn render<S: LawSample>(
     params: &ParamValues,
     rate: SampleRate,
-    input: &[S],
+    input: &[Block<S>],
     blocks: usize,
     entry: S,
 ) -> Result<(Vec<Block<S>>, usize), String> {
@@ -211,7 +212,7 @@ fn entry<S: LawSample>() -> S {
 fn check_input<S: LawSample>(
     spec: &'static ObjectSpec,
     rate: SampleRate,
-    input: &[S],
+    input: &[Block<S>],
 ) -> Result<(), String> {
     for params in param_sets(spec) {
         let (first, operations) = render(&params, rate, input, BLOCKS, S::ZERO)?;
@@ -259,26 +260,29 @@ fn check_long_run<S: LawSample>(spec: &'static ObjectSpec, rate: SampleRate) -> 
 fn check_rate<S: LawSample>(
     spec: &'static ObjectSpec,
     rate: SampleRate,
-    length: usize,
+    blocks: usize,
 ) -> Result<(), String> {
-    check_input(spec, rate, &special_input::<S>(length))
+    check_input(spec, rate, &special_input::<S>(blocks))
         .map_err(|problem| format!("special inputs: {problem}"))?;
     check_long_run::<S>(spec, rate)?;
     crate::runner::runner(CASES)
-        .run(&vec(-1.0_f64..=1.0_f64, length), |input| {
-            let samples: Vec<S> = input
-                .into_iter()
-                .map(|value| S::from_binary64(Binary64::from_raw(value)))
-                .collect();
-            check_input(spec, rate, &samples).map_err(TestCaseError::fail)
-        })
+        .run(
+            &vec(uniform::<_, BLOCK_SIZE>(-1.0_f64..=1.0_f64), blocks),
+            |input| {
+                let samples: Vec<Block<S>> = input
+                    .iter()
+                    .map(|block| block.map(|value| S::from_binary64(Binary64::from_raw(value))))
+                    .collect();
+                check_input(spec, rate, &samples).map_err(TestCaseError::fail)
+            },
+        )
         .map_err(|error| error.to_string())
 }
 
 /// Checks every law at every sample rate of the [`crate::matrix`], computing in `S`.
-fn check_precision<S: LawSample>(spec: &'static ObjectSpec, length: usize) -> Result<(), String> {
+fn check_precision<S: LawSample>(spec: &'static ObjectSpec, blocks: usize) -> Result<(), String> {
     for rate in sample_rates() {
-        check_rate::<S>(spec, rate, length)
+        check_rate::<S>(spec, rate, blocks)
             .map_err(|problem| format!("at {} Hz: {problem}", rate.hz()))?;
     }
     Ok(())
@@ -297,13 +301,11 @@ fn check_precision<S: LawSample>(spec: &'static ObjectSpec, length: usize) -> Re
 pub fn check_laws(spec: &'static ObjectSpec) -> Result<(), String> {
     let ((), _) = heap_operations_during(|| ())?;
     check_metadata(spec)?;
-    let length = BLOCKS
-        .saturating_mul(BLOCK_SIZE)
-        .saturating_mul(spec.inlets().len());
+    let blocks = BLOCKS.saturating_mul(spec.inlets().len());
     for precision in PRECISIONS {
         match precision {
-            Precision::Binary64 => check_precision::<Binary64>(spec, length),
-            Precision::Binary32 => check_precision::<Binary32>(spec, length),
+            Precision::Binary64 => check_precision::<Binary64>(spec, blocks),
+            Precision::Binary32 => check_precision::<Binary32>(spec, blocks),
         }
         .map_err(|problem| format!("binary{}, {problem}", precision.bits()))?;
     }

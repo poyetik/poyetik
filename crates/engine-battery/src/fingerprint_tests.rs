@@ -254,15 +254,19 @@ fn draws_splitmix64_from_its_published_values() {
 fn draws_the_seeded_signal_of_splitmix64_from_zero() {
     // The first outputs of SplitMix64 from the seed 0, their top 32 bits scaled to
     // [-1, 1): computed with Python, apart from this code.
+    let signal = seeded_signal(1);
     assert_eq!(
-        seeded_signal(4),
-        [
-            0.766_621_616_203_337_9_f64,
-            -0.136_944_006_197_154_52_f64,
-            -0.947_132_457_047_700_9_f64,
-            0.941_763_956_099_748_6_f64,
-        ]
+        signal.first().and_then(|block| block.get(..4)),
+        Some(
+            &[
+                0.766_621_616_203_337_9_f64,
+                -0.136_944_006_197_154_52_f64,
+                -0.947_132_457_047_700_9_f64,
+                0.941_763_956_099_748_6_f64,
+            ][..]
+        )
     );
+    assert_eq!(signal.len(), 1, "one block");
     assert!(seeded_signal(0).is_empty(), "none");
 }
 
@@ -432,10 +436,9 @@ fn route<const FIRST: usize>() -> ObjectSpec {
 fn feeds_the_inlets_in_turn_and_hashes_the_outlets_in_order() {
     // Inlet 0 is given the first block of the signal, inlet 1 the next one, and the outputs
     // come outlet by outlet at each block.
-    let signal = seeded_signal(BLOCKS * BLOCK_SIZE * 2);
-    let input: Vec<Binary64> = signal
+    let input: Vec<Block<Binary64>> = seeded_signal(BLOCKS * 2)
         .iter()
-        .map(|&value| Binary64::from_raw(value))
+        .map(|block| block.map(Binary64::from_raw))
         .collect();
     let mut straight = Route { first: 0 };
     let Ok(rendered) = run_blocks::<Binary64, Infallible>(
@@ -448,11 +451,10 @@ fn feeds_the_inlets_in_turn_and_hashes_the_outlets_in_order() {
             Ok(())
         },
     );
-    let (blocks, _) = input.as_chunks::<BLOCK_SIZE>();
     assert_eq!(rendered.len(), BLOCKS * 2, "two outlets per block");
     for (index, block) in rendered.iter().enumerate() {
         assert!(
-            blocks.get(index).is_some_and(|given| given == block),
+            input.get(index).is_some_and(|given| given == block),
             "block {index}: inlet by inlet, then outlet by outlet"
         );
     }
@@ -473,8 +475,13 @@ fn sets_every_output_on_entry_to_every_block() {
     // Each outlet adds its inlet to what it holds on entry: 7 plus the inlet at every block,
     // never what the block before left. Inlet 0 is fed the first block of the input,
     // inlet 1 the next, then silence.
-    let input: Vec<Binary64> = (0..3 * BLOCK_SIZE)
-        .map(|index| Binary64::from_raw(f64::from(u32::try_from(index).expect("small"))))
+    let input: Vec<Block<Binary64>> = (0..3)
+        .map(|block| {
+            core::array::from_fn(|frame| {
+                let index = block * BLOCK_SIZE + frame;
+                Binary64::from_raw(f64::from(u32::try_from(index).expect("small")))
+            })
+        })
         .collect();
     let mut calls = 0_usize;
     let rendered = run_blocks::<Binary64, Infallible>(
@@ -592,10 +599,10 @@ fn pins_the_inputs_of_the_battery() {
     for count in [BLOCKS, BLOCK_SIZE] {
         hasher.update(u64::try_from(count).expect("small").to_le_bytes());
     }
-    for value in crate::special_input::<Binary64>(8) {
+    for value in crate::special_input::<Binary64>(1)[0].iter().take(8) {
         hasher.update(value.bits().to_le_bytes());
     }
-    for value in crate::special_input::<Binary32>(8) {
+    for value in crate::special_input::<Binary32>(1)[0].iter().take(8) {
         hasher.update(value.bits().to_le_bytes());
     }
     for spec in [echo(Quirk::None), route::<0>()] {
@@ -612,7 +619,7 @@ fn pins_the_inputs_of_the_battery() {
             }
         }
     }
-    for value in seeded_signal(BLOCKS * BLOCK_SIZE) {
+    for value in seeded_signal(BLOCKS).iter().flatten() {
         hasher.update(value.to_bits().to_le_bytes());
     }
     let digest = hasher

@@ -61,17 +61,15 @@ pub fn fingerprint<I64: Dispatch<Binary64>, I32: Dispatch<Binary32>>(
 ) -> String {
     let mut hasher = Sha256::new();
     hasher.update(FINGERPRINT_BATTERY.to_le_bytes());
-    let length = BLOCKS
-        .saturating_mul(BLOCK_SIZE)
-        .saturating_mul(spec.inlets().len());
-    let random = seeded_signal(length);
+    let blocks = BLOCKS.saturating_mul(spec.inlets().len());
+    let random = seeded_signal(blocks);
     for precision in PRECISIONS {
         match precision {
             Precision::Binary64 => {
-                battery::<Binary64, I64>(spec, length, &random, &mut hasher);
+                battery::<Binary64, I64>(spec, blocks, &random, &mut hasher);
             }
             Precision::Binary32 => {
-                battery::<Binary32, I32>(spec, length, &random, &mut hasher);
+                battery::<Binary32, I32>(spec, blocks, &random, &mut hasher);
             }
         }
     }
@@ -88,15 +86,15 @@ pub fn fingerprint<I64: Dispatch<Binary64>, I32: Dispatch<Binary32>>(
 /// Hashes every run of the battery computing in `S`, each instance created as `I`.
 fn battery<S: BatterySample, I: Dispatch<S>>(
     spec: &'static ObjectSpec,
-    length: usize,
-    random: &[f64],
+    blocks: usize,
+    random: &[[f64; BLOCK_SIZE]],
     hasher: &mut Sha256,
 ) {
     let inputs = [
-        special_input::<S>(length),
+        special_input::<S>(blocks),
         random
             .iter()
-            .map(|&value| S::from_binary64(Binary64::from_raw(value)))
+            .map(|block| block.map(|value| S::from_binary64(Binary64::from_raw(value))))
             .collect(),
     ];
     for rate in sample_rates() {
@@ -122,8 +120,8 @@ fn battery<S: BatterySample, I: Dispatch<S>>(
 /// block, each block processed by `process`.
 ///
 /// `process` is given the block's inputs and outputs: its inlets fed the successive blocks
-/// of `input` in turn (silence past its end), every sample of its outputs set to `entry`
-/// before every block. One run for the battery and the box laws (`engine-testkit`), so
+/// of `input` in turn (silence past its end; whole blocks by type, so no part of a block
+/// is left out), every sample of its outputs set to `entry` before every block. One run for the battery and the box laws (`engine-testkit`), so
 /// that both feed a box alike.
 ///
 /// The box contract leaves what the outputs hold on entry unspecified, since a box writes
@@ -136,21 +134,18 @@ fn battery<S: BatterySample, I: Dispatch<S>>(
 /// Returns the first error of `process`, which ends the run.
 pub fn run_blocks<S: BatterySample, E>(
     spec: &ObjectSpec,
-    input: &[S],
+    input: &[Block<S>],
     blocks: usize,
     entry: S,
     mut process: impl FnMut(&[Block<S>], &mut [Block<S>]) -> Result<(), E>,
 ) -> Result<Vec<Block<S>>, E> {
-    let (chunked, _remainder) = input.as_chunks::<BLOCK_SIZE>();
-    let mut chunks = chunked.iter();
+    let mut chunks = input.iter();
     let mut inputs = vec![S::SILENCE; spec.inlets().len()];
     let mut outputs = vec![S::SILENCE; spec.outlets().len()];
     let mut rendered = Vec::with_capacity(blocks.saturating_mul(spec.outlets().len()));
     for _ in 0..blocks {
         for block in &mut inputs {
-            for (sample, value) in block.iter_mut().zip(chunks.next().unwrap_or(&S::SILENCE)) {
-                *sample = *value;
-            }
+            *block = *chunks.next().unwrap_or(&S::SILENCE);
         }
         for output in &mut outputs {
             output.fill(entry);
@@ -176,15 +171,18 @@ pub const fn splitmix64(state: &mut u64) -> u64 {
     mixed ^ mixed.wrapping_shr(31)
 }
 
-/// `length` values in `[-1, 1)` from a fixed seed: [`splitmix64`] from the state 0, the top
-/// 32 bits of each draw scaled.
-fn seeded_signal(length: usize) -> Vec<f64> {
+/// `blocks` blocks of values in `[-1, 1)` from a fixed seed: [`splitmix64`] from the state
+/// 0, the top 32 bits of each draw scaled, drawn sample by sample in order, block after
+/// block.
+fn seeded_signal(blocks: usize) -> Vec<[f64; BLOCK_SIZE]> {
     let mut state = 0_u64;
-    (0..length)
+    (0..blocks)
         .map(|_| {
-            let [first, second, third, fourth, ..] = splitmix64(&mut state).to_be_bytes();
-            f64::from(u32::from_be_bytes([first, second, third, fourth])) / 2_147_483_648.0_f64
-                - 1.0_f64
+            core::array::from_fn(|_| {
+                let [first, second, third, fourth, ..] = splitmix64(&mut state).to_be_bytes();
+                f64::from(u32::from_be_bytes([first, second, third, fourth])) / 2_147_483_648.0_f64
+                    - 1.0_f64
+            })
         })
         .collect()
 }

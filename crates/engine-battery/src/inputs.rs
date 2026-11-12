@@ -4,7 +4,7 @@
 use alloc::vec::Vec;
 
 use engine_core::host::{ParamBounds, Raw};
-use engine_core::{Binary32, Binary64, ObjectSpec, ParamSpec, ParamValues};
+use engine_core::{Binary32, Binary64, Block, ObjectSpec, ParamSpec, ParamValues};
 
 use crate::matrix::{SPECIAL_INPUTS, SPECIAL_INPUTS_BINARY64};
 
@@ -63,14 +63,18 @@ pub fn param_sets(spec: &'static ObjectSpec) -> [ParamValues; 6] {
     ]
 }
 
-/// The special inputs of the matrix in the precision `S`, repeated to fill every inlet for
-/// every block: `length` samples.
+/// The special inputs of the matrix in the precision `S`, repeated to fill `blocks` blocks
+/// (every inlet for every block of a run), the cycle running on from one block to the next.
 #[must_use]
-pub fn special_input<S: BatterySample>(length: usize) -> Vec<S> {
-    S::special_inputs()
-        .iter()
-        .copied()
-        .cycle()
-        .take(length)
+pub fn special_input<S: BatterySample>(blocks: usize) -> Vec<Block<S>> {
+    let mut cycle = S::special_inputs().into_iter().cycle();
+    (0..blocks)
+        .map(|_| {
+            let mut block = S::SILENCE;
+            for (sample, value) in block.iter_mut().zip(&mut cycle) {
+                *sample = value;
+            }
+            block
+        })
         .collect()
 }
