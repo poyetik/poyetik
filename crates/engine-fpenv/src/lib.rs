@@ -98,7 +98,7 @@ impl Drop for Restore {
 /// the mode, since the proof `body` holds would be false from then on; safe Rust cannot
 /// change it. The two writes break the letter of Rust's floating-point rule (RFC 3514), on
 /// purpose and for the reasons the audit of the control-register file gives. Detecting such a
-/// change and reporting it is #24 steps 76 and 77, with the first plugin shell.
+/// change and reporting it is #24 step 76, with the first plugin shell.
 ///
 /// Rust has no strict floating-point mode: the compiler orders the register's writes with
 /// memory and `core::hint::black_box`, not with float arithmetic on values in registers.
