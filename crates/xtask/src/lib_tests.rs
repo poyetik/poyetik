@@ -5708,11 +5708,8 @@ fn passes_its_options_on_and_tells_a_refused_one_as_a_usage_error() {
     );
     assert_eq!(
         String::from_utf8(err).expect("utf-8"),
-        format!(
-            "error: Bless conformance references: `engine-cli bless` refused the options given \
-             to `cargo xtask bless`: `{ran}` exited with code 2: error: unknown option \
-             \"--frm-nothing\" (see: engine-cli help) (see: cargo xtask help)\n"
-        ),
+        "error: Bless conformance references: `engine-cli bless` refused the options given to \
+         `cargo xtask bless`: unknown option \"--frm-nothing\" (see: cargo xtask help)\n",
         "one line, with the child's reason, pointing to the usage"
     );
     assert!(
@@ -5758,10 +5755,9 @@ fn passes_its_options_on_and_tells_a_refused_one_as_a_usage_error() {
     assert_eq!(
         run_steps(&[bless_step(&[])], &mut refused, &mut refused_out),
         Err(Failure {
-            summary: format!(
-                "Bless conformance references: `engine-cli bless` refused the options given to \
-                 `cargo xtask bless`: `{BLESS_RAN}` exited with code 2"
-            ),
+            summary: "Bless conformance references: `engine-cli bless` refused the options \
+                      given to `cargo xtask bless`"
+                .to_owned(),
             details: Vec::new(),
             usage: true,
         }),
@@ -5958,12 +5954,9 @@ fn tells_a_refused_option_of_a_real_bless_as_a_usage_error_with_its_reason() {
         (failure.usage, failure.summary),
         (
             true,
-            format!(
-                "Bless conformance references: `engine-cli bless` refused the options given to \
-                 `cargo xtask bless`: `{}` exited with code 2: error: unknown option \"--bogus\" \
-                 (see: engine-cli help)",
-                super::bless_command(&["--bogus".to_owned()]).line()
-            )
+            "Bless conformance references: `engine-cli bless` refused the options given to \
+             `cargo xtask bless`: unknown option \"--bogus\""
+                .to_owned()
         ),
         "a usage error, with the reason the child gave"
     );

@@ -11929,13 +11929,28 @@ fn conformance(runner: &mut dyn Runner, out: &mut dyn Write) -> Result<(), Failu
         .map_err(|failure| Failure::from(failure.to_string()))
 }
 
+/// What `engine-cli` ends a usage error with: where its own usage is, which a user of
+/// `cargo xtask bless` reads in `cargo xtask help` instead.
+const ENGINE_CLI_USAGE_POINTER: &str = " (see: engine-cli help)";
+
+/// The reason of `line`, the error line of `engine-cli`'s usage error, without its
+/// `error: ` and its pointer to its usage ([`ENGINE_CLI_USAGE_POINTER`]), so that the line
+/// of `cargo xtask bless` says the reason once, with its own pointer.
+fn child_usage_reason(line: &str) -> &str {
+    let reason = line.strip_prefix("error: ").unwrap_or(line);
+    reason
+        .strip_suffix(ENGINE_CLI_USAGE_POINTER)
+        .unwrap_or(reason)
+}
+
 /// Writes the record at the merge base ([`write_spent`]), then blesses with it.
 ///
 /// # Errors
 ///
 /// Returns why the record could not be written, or why the bless failed: a usage error
 /// ([`Failure::usage`]) when `engine-cli` refused the options, exiting with code 2
-/// (cargo's own failures exit with 101, and the other arguments are xtask's).
+/// (cargo's own failures exit with 101, and the other arguments are xtask's), with the
+/// reason `engine-cli` gave ([`child_usage_reason`]).
 fn bless(runner: &mut dyn Runner, out: &mut dyn Write, options: &[String]) -> Result<(), Failure> {
     write_spent(runner, out)?;
     // Its result lines (CHANGED, BITS, what it wrote, or what it refuses) are xtask's
@@ -11950,11 +11965,15 @@ fn bless(runner: &mut dyn Runner, out: &mut dyn Write, options: &[String]) -> Re
     ran.ended.map_err(|failure| match failure.failed {
         Failed::Ended {
             exit: Exit::Code(USAGE_EXIT),
-            ..
+            reason,
         } => Failure {
             usage: true,
             ..Failure::from(format!(
-                "`engine-cli bless` refused the options given to `cargo xtask bless`: {failure}"
+                "`engine-cli bless` refused the options given to `cargo xtask bless`{}",
+                reason.as_deref().map_or_else(String::new, |reason| format!(
+                    ": {}",
+                    child_usage_reason(reason)
+                ))
             ))
         },
         Failed::NotStarted(_) | Failed::Ended { .. } | Failed::NotText => {
