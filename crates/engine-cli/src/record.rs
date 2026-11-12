@@ -152,8 +152,9 @@ pub(crate) struct Others<'cases> {
 /// fingerprints are `now`: another render hash, render rules or battery version, a
 /// fingerprint missing or changed at a recorded version, or one of no box type. A battery
 /// change with a problem of a case (`others`), other render rules, another render hash or
-/// a version the record does not hold ([`unrecorded`]) is blessed alone first, as a bless
-/// changing the battery would refuse ([`battery_apart`]).
+/// a version the record does not hold ([`unrecorded`], each said on a line without a hint)
+/// is blessed alone first, as a bless changing the battery would refuse
+/// ([`battery_apart`]).
 pub(crate) fn record_problems(
     record: &Record,
     now: &Fingerprints,
@@ -194,8 +195,14 @@ pub(crate) fn record_problems(
             }
         }
     } else {
-        let alone =
-            others.failed || !same_rules(record) || unrecorded(record, now).next().is_some();
+        let said = problems.len();
+        problems.extend(unrecorded(record, now).map(|(name, version)| {
+            format!(
+                "{status} {name}: version {version} is not recorded",
+                status = Status::Version
+            )
+        }));
+        let alone = others.failed || !same_rules(record) || problems.len() > said;
         problems.push(format!(
             "{status} the fingerprints were computed with battery {}, the engine's is \
              {FINGERPRINT_BATTERY} ({hint})",
@@ -521,10 +528,13 @@ fn battery_apart(before: &Before<'_>, now: &Blessing<'_>) -> (Vec<String>, Vec<S
 /// - a reference of a case the replaced record holds no versions of, unless the case is
 ///   named;
 /// - another battery without `--battery-changed`, and with it, an unchanged battery or
-///   what [`battery_apart`] refuses: a battery change is a bless of its own. The battery's
-///   line says how to bless it alone first when the option is refused, or would be: once,
-///   after the lines of what changed with it, its last bless naming the cases of
-///   `--case-changed` and those whose reference changed under the same versions.
+///   what [`battery_apart`] refuses: a battery change is a bless of its own. With another
+///   battery, the lines of what [`battery_apart`] refuses are given, without a hint, with
+///   the option or without, in place of the references' lines above, whose hints would be
+///   refused too. The battery's line says how to bless it alone first when the option is
+///   refused, or would be: once, after those lines, its last bless naming the cases of
+///   `--case-changed` that are cases and those whose reference changed under the same
+///   versions.
 pub(crate) fn bless_problems(
     before: &Before<'_>,
     now: &Blessing<'_>,
@@ -555,15 +565,18 @@ pub(crate) fn bless_problems(
     } else {
         let (apart, also_named) = battery_apart(before, now);
         let alone = !apart.is_empty();
-        let mut named = told.changed.to_vec();
+        let mut named: Vec<String> = told
+            .changed
+            .iter()
+            .filter(|case| now.references.contains_key(*case))
+            .cloned()
+            .collect();
         named.extend(
             also_named
                 .into_iter()
                 .filter(|case| !told.changed.contains(case)),
         );
-        if told.battery_changed {
-            problems.extend(apart);
-        }
+        problems.extend(apart);
         if alone || !told.battery_changed {
             problems.push(format!(
                 "{status} the fingerprints were computed with battery {}, the engine's is \
@@ -600,7 +613,7 @@ pub(crate) fn bless_problems(
             problems.push(changed_bits(name, *version, Hint::BitsKept { name }));
         }
     }
-    if same_rules(old) && !told.battery_changed {
+    if same_rules(old) && old.fingerprint_battery == FINGERPRINT_BATTERY && !told.battery_changed {
         problems.extend(reference_problems(before, now, told.changed));
     }
     problems

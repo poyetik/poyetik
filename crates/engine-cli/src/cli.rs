@@ -451,16 +451,18 @@ fn render(
 /// blessed with. A box type at another version than its references were blessed with is
 /// refused (a new version needs new references), as are a missing record and the record of
 /// a box type the patch does not use; `referenced` says whether the case has references,
-/// which a bless replaces only when the case is named.
+/// which a bless replaces only when the case is named. The lines of the box types the
+/// patch does not use come apart, second: stale entries, which a bless changing the
+/// battery drops.
 fn version_problems(
     name: &str,
     current: Option<&Versions>,
     recorded: Option<&Versions>,
     referenced: bool,
     record: &Path,
-) -> Vec<String> {
+) -> (Vec<String>, Vec<String>) {
     let Some(current) = current else {
-        return Vec::new();
+        return (Vec::new(), Vec::new());
     };
     let Some(recorded) = recorded else {
         // A case with references but no versions is one bless refuses unless it is named
@@ -470,10 +472,13 @@ fn version_problems(
         } else {
             Hint::NewCase
         };
-        return vec![format!(
-            "{status} {name}: no algorithm versions ({hint})",
-            status = Status::Missing
-        )];
+        return (
+            vec![format!(
+                "{status} {name}: no algorithm versions ({hint})",
+                status = Status::Missing
+            )],
+            Vec::new(),
+        );
     };
     let changed = current
         .iter()
@@ -502,7 +507,7 @@ fn version_problems(
                 hint = Hint::Stale
             )
         });
-    changed.chain(stale).collect()
+    (changed.collect(), stale.collect())
 }
 
 /// How the line of `check` for one case in one render format ended.
@@ -596,6 +601,8 @@ fn check(
     let blessed = &record.cases;
     let rules = same_rules(&record);
     let mut failures = 0_usize;
+    // The lines of a case's stale entries, which a bless changing the battery drops.
+    let mut stale = 0_usize;
     let mut changed = Vec::new();
     let report = |stdout: &mut dyn Write, count: &mut usize, passed: bool, line: String| {
         if !passed {
@@ -633,21 +640,27 @@ fn check(
                     hint = Hint::Stale
                 ),
             )?;
+            stale = stale.saturating_add(1);
         }
-        for line in version_problems(
+        let (problems, unused) = version_problems(
             name,
             current.as_ref(),
             recorded,
             references.is_some(),
             &algorithms_path(dir),
-        ) {
+        );
+        for line in problems {
             report(out, &mut failures, false, line)?;
+        }
+        for line in unused {
+            report(out, &mut failures, false, line)?;
+            stale = stale.saturating_add(1);
         }
     }
     let base = base.flatten();
-    // A problem of a case: a battery change cannot be blessed with it.
+    // A problem of a case but a stale entry: a battery change cannot be blessed with it.
     let others = Others {
-        failed: failures > 0,
+        failed: failures > stale,
         changed: &changed,
     };
     for line in record_problems(&record, &current_fingerprints(mode), others)

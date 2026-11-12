@@ -309,14 +309,24 @@ fn check_blesses_a_battery_change_alone_as_bless_would() {
         ],
         "with a reference changed under the same versions, which the last bless names"
     );
-    for (state, recorded) in [
+    let alone = "BATTERY  the fingerprints were computed with battery 0, the engine's is 2 (bless \
+                 the battery change alone first: set the other changes aside, then run `cargo \
+                 xtask bless --battery-changed`, then commit, then bring the other changes \
+                 back, then run `cargo xtask bless`)";
+    for (state, recorded, said) in [
         (
             "a box type at a version the record does not hold",
             [("dac~", 1, "d"), ("osc~", 0, "o")],
+            vec!["VERSION  osc~: version 1 is not recorded", alone],
         ),
         (
             "a box type the record does not hold",
             [("osc~", 1, "o"), ("old~", 1, "x")],
+            vec![
+                "VERSION  dac~: version 1 is not recorded",
+                alone,
+                "STALE    old~: fingerprint of no box type (run `cargo xtask bless`)",
+            ],
         ),
     ] {
         let unrecorded = Record {
@@ -324,17 +334,10 @@ fn check_blesses_a_battery_change_alone_as_bless_would() {
             ..record(&[], &recorded)
         };
         assert_eq!(
-            record_problems(&unrecorded, &now, NO_OTHERS)
-                .first()
-                .map(String::as_str),
-            Some(
-                "BATTERY  the fingerprints were computed with battery 0, the engine's is 2 \
-                 (bless the battery change alone first: set the other changes aside, then run \
-                 `cargo xtask bless --battery-changed`, then commit, then bring the other \
-                 changes back, then run `cargo xtask bless`)"
-            ),
-            "{state}, no problem of a case: the battery change is blessed alone, as bless \
-             --battery-changed would refuse it"
+            record_problems(&unrecorded, &now, NO_OTHERS),
+            said,
+            "{state}, no problem of a case: the version said without a hint, then the battery \
+             change blessed alone, as bless --battery-changed would refuse it"
         );
     }
 }
@@ -456,6 +459,7 @@ fn bless_refuses_lower_versions_and_changed_fingerprints() {
     assert_eq!(
         problems(&other_battery, &none, &changed, &cases, &none, &[]),
         [
+            "VERSION  osc~: version 3 is not recorded",
             "BATTERY  the fingerprints were computed with battery 3, the engine's is 2, and a \
              battery change blesses no reference and no version (bless the battery change alone first: set the other changes aside, then run `cargo xtask \
              bless --battery-changed`, then commit, then bring the other changes back, then run \
@@ -693,16 +697,16 @@ fn says_once_how_to_bless_a_battery_change_alone() {
             PLAIN
         ),
         [
+            "CHANGED  a binary64: its reference changed",
+            "CHANGED  new: a case the record bless replaces does not hold",
             "BATTERY  the fingerprints were computed with battery 0, the engine's is 2, and a \
              battery change blesses no reference and no version (bless the battery change alone \
              first: set the other changes aside, then run `cargo xtask bless --battery-changed`, \
              then commit, then bring the other changes back, then run `cargo xtask bless \
              --case-changed a`)",
-            "CHANGED  a binary64: its reference changed under the same algorithm versions (a new \
-             version, then run `cargo xtask bless`, or `cargo xtask bless --case-changed a`)",
         ],
-        "unnamed, without the option: the last bless names the case whose reference changed \
-         under the same versions"
+        "unnamed, without the option: each change said without a hint, then the procedure, \
+         whose last bless names the case whose reference changed under the same versions"
     );
     let mut two = references(&[("a", "2"), ("b", "4")]);
     for hashes in two.values_mut() {
@@ -859,13 +863,13 @@ fn blesses_a_battery_change_apart_from_the_render_rules_and_hash() {
             PLAIN
         ),
         [
-            "BATTERY  the fingerprints were computed with battery 0, the engine's is 2, and a \
-             battery change blesses no reference and no version (bless the battery change alone first: set the other changes aside, then run `cargo xtask \
-             bless --battery-changed`, then commit, then bring the other changes back, then run \
-             `cargo xtask bless`)"
+            "RULES    --battery-changed: the render rules changed too, from version 0 to 1",
+            "HASH     --battery-changed: the render hash changed too, from render-hash/1 to \
+             render-hash/2",
+            BATTERY_ALONE,
         ],
-        "without the flag, only the battery is refused, to be blessed alone: new rules \
-         re-bless every reference"
+        "without the flag, each change said, then the procedure: new rules re-bless every \
+         reference, so no reference is said"
     );
 }
 

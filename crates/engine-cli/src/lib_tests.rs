@@ -2300,18 +2300,47 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
             0,
             no_change,
         )],
-        HintKind::Battery => vec![row(
-            "another battery",
-            Hint::Battery,
-            |memory| {
-                edit_records(memory, older_battery);
-                xtask(memory, "check", &[])
-            },
-            "BATTERY  the fingerprints were computed with battery 1, the engine's is 2 (run \
-             `cargo xtask bless --battery-changed`)",
-            0,
-            no_change,
-        )],
+        HintKind::Battery => vec![
+            row(
+                "another battery",
+                Hint::Battery,
+                |memory| {
+                    edit_records(memory, older_battery);
+                    xtask(memory, "check", &[])
+                },
+                BATTERY_ONLY,
+                0,
+                no_change,
+            ),
+            row(
+                "another battery and a version of a box type the case does not use",
+                Hint::Battery,
+                |memory| {
+                    edit_records(memory, older_battery);
+                    edit_json(memory, RECORD, |record| {
+                        record["cases"]["sine"]["old~"] = 1_u32.into();
+                    });
+                    xtask(memory, "check", &[])
+                },
+                BATTERY_ONLY,
+                0,
+                no_change,
+            ),
+            row(
+                "another battery and a reference of no render format",
+                Hint::Battery,
+                |memory| {
+                    edit_records(memory, older_battery);
+                    edit_json(memory, REFERENCES, |hashes| {
+                        hashes["sine"]["binary16"] = "0000".into();
+                    });
+                    xtask(memory, "check", &[])
+                },
+                BATTERY_ONLY,
+                0,
+                no_change,
+            ),
+        ],
         HintKind::BatteryAlone => battery_alone_rows(),
         HintKind::SpentBits => vec![row(
             "other bits than main at a spent version",
@@ -2463,6 +2492,11 @@ fn stale_rows() -> Vec<Hinted> {
         .collect()
 }
 
+/// The line of check for a battery change that comes with nothing a bless changing the
+/// battery refuses.
+const BATTERY_ONLY: &str = "BATTERY  the fingerprints were computed with battery 1, the engine's \
+                            is 2 (run `cargo xtask bless --battery-changed`)";
+
 /// The procedure that blesses a battery change alone first: `then`, the end of the hint
 /// after `--battery-changed`'s bless.
 const ALONE: &str = "(bless the battery change alone first: set the other changes aside, then \
@@ -2502,8 +2536,10 @@ struct WithBattery {
     make: fn(&mut Memory),
     /// How its steps in words are made.
     apart: Change,
-    /// The line of `bless --battery-changed` that refuses it.
+    /// The line of `bless` that refuses it, without a hint, with the option or without.
     cause: &'static str,
+    /// The line of `check` that says it, with its hint for the bless after the battery's.
+    at_check: fn() -> String,
     /// Whether the last bless of the procedure names the case `sine`.
     named: bool,
 }
@@ -2517,6 +2553,7 @@ const WITH_BATTERY: [WithBattery; 7] = [
         make: |memory| edit_records(memory, osc_newer),
         apart: version_apart,
         cause: "VERSION  osc~: version 1 is not recorded",
+        at_check: || "VERSION  osc~: version 1 is not recorded".to_owned(),
         named: false,
     },
     WithBattery {
@@ -2524,6 +2561,7 @@ const WITH_BATTERY: [WithBattery; 7] = [
         make: |memory| edit_records(memory, without_dac),
         apart: dac_apart,
         cause: "VERSION  dac~: version 1 is not recorded",
+        at_check: || "VERSION  dac~: version 1 is not recorded".to_owned(),
         named: false,
     },
     WithBattery {
@@ -2531,6 +2569,11 @@ const WITH_BATTERY: [WithBattery; 7] = [
         make: |memory| edit_records(memory, older_rules),
         apart: rules_apart,
         cause: "RULES    --battery-changed: the render rules changed too, from version 0 to 1",
+        at_check: || {
+            "RULES    the references were rendered under render rules version 0, the engine's \
+             is 1 (run `cargo xtask bless`)"
+                .to_owned()
+        },
         named: false,
     },
     WithBattery {
@@ -2539,6 +2582,11 @@ const WITH_BATTERY: [WithBattery; 7] = [
         apart: hash_apart,
         cause: "HASH     --battery-changed: the render hash changed too, from render-hash/1 to \
                 render-hash/2",
+        at_check: || {
+            "HASH     the references were hashed with render-hash/1, the engine with \
+             render-hash/2 (run `cargo xtask bless`)"
+                .to_owned()
+        },
         named: false,
     },
     WithBattery {
@@ -2546,6 +2594,13 @@ const WITH_BATTERY: [WithBattery; 7] = [
         make: old_binary32,
         apart: reference_apart,
         cause: "CHANGED  sine binary32: its reference changed",
+        at_check: || {
+            format!(
+                "MISMATCH sine binary32: expected 0000, got {} (the same algorithm versions: its \
+                 bits changed without a new version)",
+                sine_hash(RenderFormat::Binary32)
+            )
+        },
         named: true,
     },
     WithBattery {
@@ -2553,6 +2608,9 @@ const WITH_BATTERY: [WithBattery; 7] = [
         make: no_binary32,
         apart: missing_apart,
         cause: "CHANGED  sine binary32: no reference in the references bless replaces",
+        at_check: || {
+            "MISSING  sine binary32: no reference hash (run `cargo xtask bless`)".to_owned()
+        },
         named: false,
     },
     WithBattery {
@@ -2560,13 +2618,15 @@ const WITH_BATTERY: [WithBattery; 7] = [
         make: add_new_case,
         apart: case_apart,
         cause: "CHANGED  new: a case the record bless replaces does not hold",
+        at_check: || "MISSING  new: no algorithm versions (run `cargo xtask bless`)".to_owned(),
         named: false,
     },
 ];
 
 /// Every state where a battery change comes with another change ([`WITH_BATTERY`]), each
 /// at check, at bless and at bless with `--battery-changed`: the line of the battery gives
-/// the procedure once, after the line of the other change under the option.
+/// the procedure once, after the line of the other change, which bless gives without a
+/// hint, with the option or without.
 fn battery_alone_rows() -> Vec<Hinted> {
     let battery = "BATTERY  the fingerprints were computed with battery 1, the engine's is 2";
     let at_bless = format!("{battery}, and a battery change blesses no reference and no version");
@@ -2602,17 +2662,55 @@ fn battery_alone_rows() -> Vec<Hinted> {
                         xtask(memory, command, options)
                     }),
                     line: format!("{line} {alone}"),
-                    causes: if options.is_empty() {
-                        Vec::new()
+                    causes: vec![if command == "check" {
+                        (with.at_check)()
                     } else {
-                        vec![with.cause.to_owned()]
-                    },
+                        with.cause.to_owned()
+                    }],
                     alternative: 0,
                     change: with.apart,
                 }
             })
         })
         .collect()
+}
+
+/// At bless, with `--battery-changed` or without, a change made with a battery change is
+/// said once, without a hint, before the procedure; a name of `--case-changed` that is no
+/// case is said on its own line, never in the procedure's command.
+#[test]
+fn bless_says_what_came_with_the_battery_without_a_hint() {
+    let battery = "BATTERY  the fingerprints were computed with battery 1, the engine's is 2, \
+                   and a battery change blesses no reference and no version";
+    let named = ALONE.replace(
+        "run `cargo xtask bless`)",
+        "run `cargo xtask bless --case-changed sine`)",
+    );
+    for with in &WITH_BATTERY {
+        for options in [&[][..], &["--battery-changed"]] {
+            let mut memory = committed();
+            edit_records(&mut memory, older_battery);
+            (with.make)(&mut memory);
+            let alone = if with.named { &named } else { ALONE };
+            assert_eq!(
+                xtask(&mut memory, "bless", options).1,
+                format!("{}\n{battery} {alone}\n", with.cause),
+                "{}, {options:?}",
+                with.what
+            );
+        }
+    }
+    let mut memory = committed();
+    edit_records(&mut memory, older_battery);
+    old_binary32(&mut memory);
+    assert_eq!(
+        xtask(&mut memory, "bless", &["--case-changed", "a$(touch x) b"]).1,
+        format!(
+            "UNKNOWN  --case-changed a$(touch x) b: no such case\nCHANGED  sine binary32: its \
+             reference changed\n{battery} {named}\n"
+        ),
+        "a name that is no case"
+    );
 }
 
 #[test]
