@@ -2229,10 +2229,7 @@ fn refuses_files_larger_than_their_limit() {
         " ".repeat(super::MAX_REFERENCES_BYTES - hashes.len())
     );
     let recorded = record(&format!("{{{}}}", sine_algorithms("c")));
-    let algorithms = format!(
-        "{recorded}{}",
-        " ".repeat(super::MAX_REFERENCES_BYTES - recorded.len())
-    );
+    let algorithms = format!("{recorded}{}", " ".repeat(1_048_576 - recorded.len()));
     let mut memory = Memory::with(&[
         ("c.json", &case),
         ("p.json", &patch),
@@ -2279,11 +2276,7 @@ fn refuses_files_larger_than_their_limit() {
             super::MAX_REFERENCES_BYTES,
             &references,
         ),
-        (
-            "conf/algorithms.json",
-            super::MAX_REFERENCES_BYTES,
-            &algorithms,
-        ),
+        ("conf/algorithms.json", 1_048_576, &algorithms),
     ] {
         let mut over = Memory::with(&[
             ("conf/cases/c.json", &case),
@@ -2299,6 +2292,37 @@ fn refuses_files_larger_than_their_limit() {
             run_with(&mut over, &["check", "conf"]).0,
             Err(format!("cannot read {file}: larger than {limit} bytes")),
             "{file}: one byte over"
+        );
+    }
+}
+
+/// The spent record, an `algorithms.json` read from git: read at 1 MiB, refused one byte
+/// past it.
+#[test]
+fn refuses_a_spent_record_larger_than_its_limit() {
+    let spent = record(&format!("{{{}}}", sine_algorithms("sine")));
+    let at_limit = format!("{spent}{}", " ".repeat(1_048_576 - spent.len()));
+    for (text, result) in [
+        (at_limit.clone(), Ok(())),
+        (
+            format!("{at_limit} "),
+            Err(
+                "cannot read the spent record spent.json: larger than 1048576 bytes \
+                 (`cargo xtask check` writes it: run that)"
+                    .to_owned(),
+            ),
+        ),
+    ] {
+        let mut memory = committed();
+        drop(
+            memory
+                .files
+                .insert(PathBuf::from("spent.json"), text.into_bytes()),
+        );
+        assert_eq!(
+            run_with(&mut memory, &["check", "conf", "--spent", "spent.json"]).0,
+            result,
+            "the spent record at its limit, then one byte past"
         );
     }
 }

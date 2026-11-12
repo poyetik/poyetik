@@ -162,8 +162,12 @@ fn unless_closed<T>(result: std::io::Result<T>, done: T) -> std::io::Result<T> {
 /// Largest case file read, in bytes (64 KiB): a case holds two numbers.
 pub const MAX_CASE_BYTES: usize = 64 * 1024;
 
-/// Largest `references.json` or `algorithms.json` read, in bytes (1 MiB).
+/// Largest `references.json` read, in bytes (1 MiB).
 pub const MAX_REFERENCES_BYTES: usize = 1024 * 1024;
+
+/// Largest record read, in bytes (1 MiB): `algorithms.json`, and the spent record, an
+/// `algorithms.json` read from git.
+const MAX_RECORD_BYTES: usize = 1024 * 1024;
 
 /// Reads a file of at most `limit` bytes, naming it on failure.
 fn read(files: &mut dyn Files, path: &Path, limit: usize) -> Result<String, String> {
@@ -548,8 +552,8 @@ fn check(
     mode: DefaultMode<'_>,
 ) -> Result<(), String> {
     let cases = cases(files, dir)?;
-    let expected: References = read_blessed(files, &references_path(dir))?;
-    let record: Record = read_blessed(files, &algorithms_path(dir))?;
+    let expected: References = read_blessed(files, &references_path(dir), MAX_REFERENCES_BYTES)?;
+    let record: Record = read_blessed(files, &algorithms_path(dir), MAX_RECORD_BYTES)?;
     let base = spent
         .map(|path| read_spent(files, path, "cargo xtask check"))
         .transpose()?;
@@ -707,8 +711,8 @@ fn bless(
     let actual = hashes(&cases, mode)?;
     let path = references_path(dir);
     let versions_path = algorithms_path(dir);
-    let earlier: Option<References> = read_earlier(files, &path)?;
-    let old: Option<Record> = read_earlier(files, &versions_path)?;
+    let earlier: Option<References> = read_earlier(files, &path, MAX_REFERENCES_BYTES)?;
+    let old: Option<Record> = read_earlier(files, &versions_path, MAX_RECORD_BYTES)?;
     let base: Option<Option<Record>> = options
         .spent
         .as_ref()
@@ -810,7 +814,7 @@ fn blessed_text<T: Serialize>(value: &T) -> String {
     format!("{:#}\n", serde_json::json!(value))
 }
 
-/// Reads `path`, a file only `bless` writes, refusing it unless it is exactly as `bless`
+/// Reads `path`, a file only `bless` writes, of at most `limit` bytes, refusing it unless it is exactly as `bless`
 /// writes it (a repeated key or a hand edit included): its contents decide what `check`
 /// accepts.
 ///
@@ -823,9 +827,10 @@ fn blessed_text<T: Serialize>(value: &T) -> String {
 fn read_blessed<T: Serialize + DeserializeOwned>(
     files: &mut dyn Files,
     path: &Path,
+    limit: usize,
 ) -> Result<T, String> {
     let shown = path.display();
-    let text = files.read(path, MAX_REFERENCES_BYTES).map_err(|error| {
+    let text = files.read(path, limit).map_err(|error| {
         let hint = if error.kind() == std::io::ErrorKind::NotFound {
             format!(
                 " (restore {shown} from git; a new directory: `cargo xtask bless \
@@ -847,7 +852,7 @@ fn read_blessed<T: Serialize + DeserializeOwned>(
     }
 }
 
-/// Reads `path`, a file `bless` is about to replace: none when it is missing (a first
+/// Reads `path`, a file `bless` is about to replace, of at most `limit` bytes: none when it is missing (a first
 /// bless), else its contents, in any JSON form.
 ///
 /// # Errors
@@ -856,8 +861,9 @@ fn read_blessed<T: Serialize + DeserializeOwned>(
 fn read_earlier<T: DeserializeOwned>(
     files: &mut dyn Files,
     path: &Path,
+    limit: usize,
 ) -> Result<Option<T>, String> {
-    match files.read(path, MAX_REFERENCES_BYTES) {
+    match files.read(path, limit) {
         Ok(text) => serde_json::from_str(&text).map(Some).map_err(|error| {
             format!(
                 "invalid {}: {error} (bless compares with it: restore {} from git)",
@@ -880,7 +886,7 @@ fn read_spent(files: &mut dyn Files, path: &Path, writer: &str) -> Result<Option
     let shown = path.display();
     let hint = format!("(`{writer}` writes it: run that)");
     let text = files
-        .read(path, MAX_REFERENCES_BYTES)
+        .read(path, MAX_RECORD_BYTES)
         .map_err(|error| format!("cannot read the spent record {shown}: {error} {hint}"))?;
     serde_json::from_str(&text)
         .map_err(|error| format!("invalid spent record {shown}: {error} {hint}"))
