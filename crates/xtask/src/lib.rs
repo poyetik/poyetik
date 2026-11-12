@@ -4008,8 +4008,8 @@ fn in_crate(path: &str) -> Option<(&'static RustCrate, &str)> {
 /// from what rustc read for every configuration the check builds, and refuses a file
 /// outside its crate (whose changes would not widen this crate), one that is not `.rs`
 /// (which no gate reads), one named as test code that a build without tests reads, and one
-/// only tests read not named as test code; the configurations it does not build are refused
-/// at their source (its doc lists them). **Review only**: what a doc test loads
+/// only tests read not named as test code; the configurations its doc lists are refused at
+/// their source, and the rest is stated there. **Review only**: what a doc test loads
 /// (`include!`, `#[path]`, `include_str!` in a code block of a doc comment), which is prose
 /// to every gate and which no build the loaded-files gate reads compiles; the compiler
 /// refuses unsafe code there ([`DOC_TESTS_FORBID_UNSAFE_CODE`]).
@@ -9091,8 +9091,10 @@ fn in_tests_dir(rel: &str) -> bool {
 ///
 /// The pinned toolchain, and the repository's Cargo configuration ([`CARGO_CONFIG_FILE`]),
 /// whose `[env]` or `[build]` table would reach every cargo command: a change to either can
-/// let any mutant survive. The workspace's manifest ([`CARGO_TOML`]) widens to everything
-/// too, but for a change of its shared dependencies or its lints alone (`manifest_widened`).
+/// let any mutant survive (the legacy `.cargo/config` beside it is refused by the preflight
+/// whenever it exists, [`cargo_config_candidates`]). The workspace's manifest
+/// ([`CARGO_TOML`]) widens to everything too, but for a change of its shared dependencies or
+/// its lints alone (`manifest_widened`).
 pub const MUTATE_EVERYTHING_WHEN: [&str; 2] = [RUST_TOOLCHAIN_FILE, CARGO_CONFIG_FILE];
 
 /// The header of the table of the workspace's shared dependencies, which its crates
