@@ -105,13 +105,21 @@ class FakeContext extends EventTarget {
     this.dispatchEvent(new Event("statechange"));
   }
 
-  /** Closes the context as a real one does: rejects on a closed one; otherwise fires `statechange` after returning, before its promise settles. */
+  /**
+   * Closes the context as browsers do (measured in Chrome 157 and Firefox 134, 2026-11-12;
+   * the Web Audio specification queues it so): rejects on a closed one; otherwise its
+   * promise settles first, and `statechange` fires in a later task, `setImmediate` here,
+   * which runs before a later `setImmediate` of the test. Its state reads "closed" as soon
+   * as it returns, as in Chrome and the specification (Firefox changes it only when the
+   * promise settles). WebKit is read from its source, not measured, until a browser test of
+   * this order (roadmap #24 step 94).
+   */
   close(): Promise<void> {
     if (this.state === "closed") {
       return Promise.reject(new DOMException("already closed", "InvalidStateError"));
     }
     this.state = "closed";
-    queueMicrotask(() => this.dispatchEvent(new Event("statechange")));
+    setImmediate(() => this.dispatchEvent(new Event("statechange")));
     return Promise.resolve();
   }
 }
@@ -195,7 +203,7 @@ function asNode(fake: unknown): AudioNode {
 }
 
 describe("the fake context", () => {
-  test("closes as a real one does: statechange fires after close returns, before its promise settles, and a second close rejects", async () => {
+  test("closes as browsers do (measured in Chrome 157 and Firefox 134, 2026-11-12, and as the Web Audio specification queues it): its promise settles, then statechange fires in a later task, and a second close rejects", async () => {
     const context = fakeContext(RATE);
     const seen: string[] = [];
     context.addEventListener("statechange", (event: Event) => {
@@ -205,7 +213,8 @@ describe("the fake context", () => {
     seen.push("returned");
     await closing;
     seen.push("settled");
-    expect(seen).toStrictEqual(["returned", "statechange closed", "settled"]);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(seen).toStrictEqual(["returned", "settled", "statechange closed"]);
     await expect(context.close()).rejects.toThrow(new DOMException("already closed", "InvalidStateError"));
     expect(seen).toHaveLength(3);
   });

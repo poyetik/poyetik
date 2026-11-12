@@ -222,14 +222,22 @@ export class FakeContext extends EventTarget {
     return FakeContext.resuming ?? Promise.resolve();
   }
 
-  /** Rejects on a closed context, like browsers, or when the fake browser refuses. */
+  /**
+   * Rejects on a closed context, like browsers, or when the fake browser refuses; otherwise
+   * closes as browsers do (measured in Chrome 157 and Firefox 134, 2026-11-12; the Web Audio
+   * specification queues it so): its promise settles first, and `statechange` fires in a
+   * later task, `setImmediate` here, which runs before a later `setImmediate` of the test.
+   * Its state reads "closed" as soon as it returns, as in Chrome and the specification
+   * (Firefox changes it only when the promise settles). WebKit is read from its source,
+   * not measured, until a browser test of this order (roadmap #24 step 94).
+   */
   close(): Promise<void> {
     if (this.state === "closed" || FakeContext.refuses.has("close")) {
       return Promise.reject(new DOMException("already closed", "InvalidStateError"));
     }
     log.push("close");
     this.state = "closed";
-    queueMicrotask(() => this.dispatchEvent(new Event("statechange")));
+    setImmediate(() => this.dispatchEvent(new Event("statechange")));
     return Promise.resolve();
   }
 
