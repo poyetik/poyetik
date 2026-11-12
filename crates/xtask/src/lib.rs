@@ -7261,7 +7261,9 @@ fn unreleased(changelog: &str) -> &str {
 ///
 /// `at_base` is the changelog at the merge base with `main`: a released section is never
 /// edited, so that the release notes of a version are what reached `main` (a section a
-/// version commit adds is new, and accepted). `base` names the merge base in the messages.
+/// version commit adds is new, and accepted). `base` is the merge base's commit and the
+/// branch it was found with, named in the messages with the command that shows the
+/// sections as released.
 ///
 /// # Errors
 ///
@@ -7270,14 +7272,16 @@ fn unreleased(changelog: &str) -> &str {
 pub fn released_sections_gate(
     at_base: Option<&str>,
     changelog: &str,
-    base: &str,
+    (base, against): (&str, &str),
 ) -> Result<(), Failure> {
     let now = released_section_texts(changelog);
+    let restore = format!("restore it from `git show {base}:{CHANGELOG}`");
     let mut problems = Vec::new();
     for (version, _, released) in released_section_texts(at_base.unwrap_or_default()) {
         match now.iter().find(|(held, ..)| *held == version) {
             None => problems.push(format!(
-                "{CHANGELOG}: the released section [{version}] of {base} is missing"
+                "{CHANGELOG}: the released section [{version}] of {base} (merge base with \
+                 {against}) is missing: {restore}"
             )),
             Some((_, first, text)) if *text != released => {
                 let same = text
@@ -7287,7 +7291,8 @@ pub fn released_sections_gate(
                     .count();
                 problems.push(format!(
                     "{CHANGELOG}:{}: the released section [{version}] differs from the one at \
-                     {base}: a released section is never edited",
+                     {base} (merge base with {against}): a released section is never edited: \
+                     {restore}",
                     first.saturating_add(same)
                 ));
             }
@@ -7307,11 +7312,7 @@ pub fn released_sections_gate(
 fn released_sections(runner: &mut dyn Runner, changelog: &str) -> Result<(), Failure> {
     let (base, against) = main_base(runner, "the released changelog sections")?;
     let at_base = file_at(runner, &base, CHANGELOG)?;
-    released_sections_gate(
-        at_base.as_deref(),
-        changelog,
-        &format!("{base} (merge base with {against})"),
-    )
+    released_sections_gate(at_base.as_deref(), changelog, (&base, against))
 }
 
 /// Commit types allowed by the Conventional Commits rule of the project.

@@ -14012,7 +14012,9 @@ const RELEASED: &str = "# Changelog\n\n## [Unreleased]\n\n- next.\n\n## [0.2.0] 
 
 #[test]
 fn keeps_every_released_section_byte_for_byte() {
+    let at = ("fed4560", "origin/main");
     let base = "fed4560 (merge base with origin/main)";
+    let restore = "restore it from `git show fed4560:CHANGELOG.md`";
     let context = "the released changelog sections";
     for (changelog, why) in [
         (RELEASED.to_owned(), "unchanged"),
@@ -14029,21 +14031,21 @@ fn keeps_every_released_section_byte_for_byte() {
         ),
     ] {
         assert_eq!(
-            super::released_sections_gate(Some(RELEASED), &changelog, base),
+            super::released_sections_gate(Some(RELEASED), &changelog, at),
             Ok(()),
             "{why}"
         );
     }
     assert_eq!(
-        super::released_sections_gate(None, "anything\n", base),
+        super::released_sections_gate(None, "anything\n", at),
         Ok(()),
         "no changelog at the base: nothing released"
     );
     assert_eq!(
-        super::released_sections_gate(Some(RELEASED), &RELEASED.replace("- one.", "- One."), base),
+        super::released_sections_gate(Some(RELEASED), &RELEASED.replace("- one.", "- One."), at),
         failed(format!(
             "{context}: CHANGELOG.md:13: the released section [0.1.0] differs from the one at {base}: \
-             a released section is never edited"
+             a released section is never edited: {restore}"
         )),
         "a released section edited, its first differing line named"
     );
@@ -14062,7 +14064,7 @@ fn keeps_every_released_section_byte_for_byte() {
         ),
     ] {
         assert!(
-            super::released_sections_gate(Some(RELEASED), &changelog, base).is_err_and(|failure| {
+            super::released_sections_gate(Some(RELEASED), &changelog, at).is_err_and(|failure| {
                 failure
                     .summary
                     .contains("the released section [0.1.0] differs")
@@ -14076,14 +14078,14 @@ fn keeps_every_released_section_byte_for_byte() {
             &RELEASED
                 .replace("2026-11-09", "2026-11-10")
                 .replace("- one.\n", ""),
-            base
+            at
         ),
         failed(format!(
             "{context}: 2 problems, listed above\n\
              CHANGELOG.md:7: the released section [0.2.0] differs from the one at {base}: a released \
-             section is never edited\n\
+             section is never edited: {restore}\n\
              CHANGELOG.md:13: the released section [0.1.0] differs from the one at {base}: a released \
-             section is never edited"
+             section is never edited: {restore}"
         )),
         "a heading's date changed, a line removed: each section named"
     );
@@ -14091,10 +14093,10 @@ fn keeps_every_released_section_byte_for_byte() {
         super::released_sections_gate(
             Some(RELEASED),
             &RELEASED.replace("## [0.1.0] - 2026-11-08\n\n- one.\n", ""),
-            base
+            at
         ),
         failed(format!(
-            "{context}: CHANGELOG.md: the released section [0.1.0] of {base} is missing"
+            "{context}: CHANGELOG.md: the released section [0.1.0] of {base} is missing: {restore}"
         )),
         "a released section removed"
     );
@@ -14130,10 +14132,16 @@ fn reads_the_changelog_real_git_holds_at_the_merge_base_with_main() {
             .map_err(|failure| failure.summary),
         Err(format!(
             "the released changelog sections: CHANGELOG.md:13: the released section [0.1.0] \
-             differs from the one at {} (merge base with main): a released section is never edited",
-            with.trim()
+             differs from the one at {with} (merge base with main): a released section is never \
+             edited: restore it from `git show {with}:CHANGELOG.md`",
+            with = with.trim()
         )),
         "a changelog against main's at the merge base"
+    );
+    assert_eq!(
+        hermetic_git(&dir, &["show", &format!("{}:CHANGELOG.md", with.trim())]),
+        RELEASED,
+        "the command given shows the sections as released"
     );
     assert_eq!(
         super::released_sections(&mut runner, RELEASED).map_err(|failure| failure.summary),
@@ -14170,7 +14178,8 @@ fn reads_the_released_sections_against_main() {
                 .map(|(line, version)| {
                     format!(
                         "CHANGELOG.md:{line}: the released section [{version}] differs from the one \
-                         at {base}: a released section is never edited"
+                         at {base}: a released section is never edited: restore it from `git show \
+                         fed4560000000000000000000000000000000000:CHANGELOG.md`"
                     )
                 })
                 .to_vec(),
