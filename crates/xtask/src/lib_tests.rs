@@ -311,12 +311,7 @@ const PUSH_STATUS: (&str, &str) = (
 );
 
 /// How the fake lists the tracked files with their tags, and what it answers: none hidden.
-const HIDDEN: (&str, &str) = (
-    "git ls-files -v",
-    "H Cargo.toml
-H crates/a/src/b.rs
-",
-);
+const HIDDEN: (&str, &str) = ("git ls-files -v -z", "H Cargo.toml\0H crates/a/src/b.rs\0");
 
 /// How the fake lists the tracked files for their filters, and what it answers: none, so
 /// that no filter is asked ([`super::filtered`]).
@@ -2229,7 +2224,7 @@ fn mutates_the_changes_since_the_merge_base_with_the_upstream() {
     assert_eq!(
         fake.ran,
         vec![
-            "capture git ls-files -v",
+            "capture git ls-files -v -z",
             "capture git ls-files -z",
             "capture git merge-base HEAD @{upstream}",
             "write target/xtask/mutants-base",
@@ -3290,8 +3285,9 @@ fn refuses_to_mutate_a_tree_where_a_filter_may_hide_changes() {
         failed(
             "Rust mutation testing of the changes: `crates/a/src/b.rs` passes through git's \
              `hide` filter, whose clean driver may hide a change from git (status, diff): the \
-             tree checked may not be the one committed: its changes may not be mutated (remove \
-             the attribute)"
+             tree checked may not be the one committed: remove its `filter` attribute (from \
+             `.gitattributes`, `info/attributes` in the directory `git rev-parse \
+             --git-common-dir` names or the file `core.attributesFile` names)"
         ),
         "a filtered file"
     );
@@ -3327,12 +3323,17 @@ fn refuses_to_mutate_a_tree_where_a_filter_may_hide_changes() {
 
 #[test]
 fn refuses_to_mutate_a_tree_where_git_hides_files() {
-    for (listed, file) in [
+    for (listed, file, flag) in [
         (
-            "H Cargo.toml\nh crates/engine-core/src/plan.rs\n",
+            "H Cargo.toml\0h crates/engine-core/src/plan.rs\0",
             "crates/engine-core/src/plan.rs",
+            "--no-assume-unchanged",
         ),
-        ("S crates/a/src/b.rs\n", "crates/a/src/b.rs"),
+        (
+            "S crates/a/src/b.rs\0",
+            "crates/a/src/b.rs",
+            "--no-skip-worktree",
+        ),
     ] {
         let mut fake = passing();
         drop(
@@ -3343,8 +3344,8 @@ fn refuses_to_mutate_a_tree_where_git_hides_files() {
             run_steps(&rust_mutation_of_changes(), &mut fake, &mut Vec::new()),
             failed(format!(
                 "Rust mutation testing of the changes: `{file}` is hidden from git status \
-                 (assume-unchanged or skip-worktree): its changes would not be mutated (clear it \
-                 with `git update-index --no-assume-unchanged --no-skip-worktree <file>`)"
+                 (assume-unchanged or skip-worktree), so no diff of git shows its changes: clear \
+                 it with `git update-index {flag} -- '{file}'`"
             )),
             "{listed}"
         );
@@ -8606,7 +8607,10 @@ fn refuses_a_tracked_file_git_passes_through_a_filter() {
             super::filtered(tracked, &answer("unspecified", value)),
             Some(format!(
                 "`{path}` passes through git's `{value}` filter, whose clean driver may hide a \
-                 change from git (status, diff): the tree checked may not be the one committed"
+                 change from git (status, diff): the tree checked may not be the one committed: \
+                 remove its `filter` attribute (from `.gitattributes`, `info/attributes` in the \
+                 directory `git rev-parse --git-common-dir` names or the file \
+                 `core.attributesFile` names)"
             )),
             "{value}"
         );
@@ -8662,10 +8666,79 @@ fn sees_a_change_a_clean_filter_hides_from_git() {
         unclean(),
         Some(format!(
             "`{path}` passes through git's `hide` filter, whose clean driver may hide a change \
-             from git (status, diff): the tree checked may not be the one committed"
+             from git (status, diff): the tree checked may not be the one committed: remove its \
+             `filter` attribute (from `.gitattributes`, `info/attributes` in the directory \
+             `git rev-parse --git-common-dir` names or the file `core.attributesFile` names)"
         )),
         "the file the filter hides a change of"
     );
+}
+
+#[test]
+fn says_how_to_clear_a_file_real_git_hides() {
+    for (name, path, quoted) in [
+        (
+            "hidden-file",
+            "crates/engine-hash/src/lib.rs",
+            "crates/engine-hash/src/lib.rs",
+        ),
+        (
+            "hidden-quoted",
+            "crates/it's \u{e9}.rs",
+            "crates/it'\\''s \u{e9}.rs",
+        ),
+    ] {
+        clears_a_file_real_git_hides(name, path, quoted);
+    }
+}
+
+/// Hides `path` from real git by each mark, then checks that the reason names it and that
+/// its commands, the name written `quoted` there, clear it when a POSIX shell runs them.
+fn clears_a_file_real_git_hides(name: &str, path: &str, quoted: &str) {
+    let dir = scratch(name);
+    std::fs::create_dir_all(dir.join("crates/engine-hash/src")).expect("its directory");
+    std::fs::write(dir.join(path), "a\n").expect("a file");
+    let _init = hermetic_git(&dir, &["init", "--quiet", "--initial-branch=main"]);
+    let _add = hermetic_git(&dir, &["add", "."]);
+    let _commit = hermetic_git(&dir, &["commit", "--quiet", "-m", "first"]);
+    let mut runner = system(dir.path());
+    let clear = |flag: &str| format!("`git update-index {flag} -- '{quoted}'`");
+    for (marks, commands) in [
+        (&["--assume-unchanged"][..], clear("--no-assume-unchanged")),
+        (&["--skip-worktree"][..], clear("--no-skip-worktree")),
+        (
+            &["--assume-unchanged", "--skip-worktree"][..],
+            format!(
+                "{} then {}",
+                clear("--no-assume-unchanged"),
+                clear("--no-skip-worktree")
+            ),
+        ),
+    ] {
+        for mark in marks {
+            let _hide = hermetic_git(&dir, &["update-index", mark, path]);
+        }
+        let tree = super::tree_cleanliness(&mut runner).expect("the tree");
+        assert_eq!(
+            super::unclean(&tree),
+            Some(format!(
+                "`{path}` is hidden from git status (assume-unchanged or skip-worktree), so no \
+                 diff of git shows its changes: clear it with {commands}"
+            )),
+            "{marks:?}"
+        );
+        for command in commands.split(" then ") {
+            let script = command.trim_matches('`');
+            let ran = runner.run_for_stdout(&Cmd::new("sh", &["-c", script], Dir::Root));
+            assert!(ran.ended.is_ok(), "{script}: {}", ran.stderr);
+        }
+        let cleared = super::tree_cleanliness(&mut runner).expect("the tree");
+        assert_eq!(
+            super::unclean(&cleared),
+            None,
+            "{marks:?}: the commands clear it"
+        );
+    }
 }
 
 /// What git says of a work tree whose status is `status`, whose files with their tags are
@@ -8690,21 +8763,25 @@ fn pushes_only_what_was_checked() {
     assert_eq!(
         super::pre_push_gate(
             head,
-            &view("", "H a.rs\nH b.rs\n"),
+            &view("", "H a.rs\0H b.rs\0"),
             &pushed(&["1111111111111111111111111111111111111111"])
         ),
         Ok(()),
         "the checked-out commit"
     );
-    for (hidden, path) in [("h a.rs\n", "a.rs"), ("H b.rs\nS c d.rs\n", "c d.rs")] {
+    for (hidden, path, flag) in [
+        ("h a.rs\0", "a.rs", "--no-assume-unchanged"),
+        ("H b.rs\0S c d.rs\0", "c d.rs", "--no-skip-worktree"),
+    ] {
         assert_eq!(
             super::pre_push_gate(head, &view("", hidden), &[]),
             failed(format!(
                 "the push cannot be checked: the working tree may differ from what is \
                  committed, which the check would include: `{path}` is hidden from git status \
-                 (assume-unchanged or skip-worktree)"
+                 (assume-unchanged or skip-worktree), so no diff of git shows its changes: clear \
+                 it with `git update-index {flag} -- '{path}'`"
             )),
-            "{hidden}"
+            "{hidden:?}"
         );
     }
     assert_eq!(
@@ -8724,7 +8801,7 @@ fn pushes_only_what_was_checked() {
     assert_eq!(
         super::pre_push_gate(
             head,
-            &view(" M src/a.rs\n?? notes.txt\n", "h hidden.rs\n"),
+            &view(" M src/a.rs\n?? notes.txt\n", "h hidden.rs\0"),
             &pushed(&["2222222222222222222222222222222222222222"])
         ),
         failed(
@@ -16268,13 +16345,17 @@ fn records_no_proof_of_a_tree_not_clean() {
         ),
         (
             "",
-            "H Cargo.toml\nh crates/engine-core/src/plan.rs\n",
-            "`crates/engine-core/src/plan.rs` is hidden from git status (assume-unchanged or skip-worktree)",
+            "H Cargo.toml\0h crates/engine-core/src/plan.rs\0",
+            "`crates/engine-core/src/plan.rs` is hidden from git status (assume-unchanged or \
+             skip-worktree), so no diff of git shows its changes: clear it with `git update-index \
+             --no-assume-unchanged -- 'crates/engine-core/src/plan.rs'`",
         ),
         (
             "",
-            "S crates/engine-core/src/plan.rs\n",
-            "`crates/engine-core/src/plan.rs` is hidden from git status (assume-unchanged or skip-worktree)",
+            "S crates/engine-core/src/plan.rs\0",
+            "`crates/engine-core/src/plan.rs` is hidden from git status (assume-unchanged or \
+             skip-worktree), so no diff of git shows its changes: clear it with `git update-index \
+             --no-skip-worktree -- 'crates/engine-core/src/plan.rs'`",
         ),
     ] {
         let mut dirty = measured();
@@ -16420,8 +16501,8 @@ fn records_nothing_when_it_cannot_read_or_write() {
             "cannot read the host of rustc: cannot run `rustc -vV`: not found".to_owned(),
         ),
         (
-            "git ls-files -v".to_owned(),
-            "cannot read the work tree: cannot run `git ls-files -v`: not found".to_owned(),
+            "git ls-files -v -z".to_owned(),
+            "cannot read the work tree: cannot run `git ls-files -v -z`: not found".to_owned(),
         ),
         (
             PUSH_STATUS.0.to_owned(),

@@ -9977,7 +9977,7 @@ fn usable_proof(
 pub struct TreeView {
     /// `git status --porcelain --untracked-files=all --ignore-submodules=none`.
     pub status: String,
-    /// `git ls-files -v`: each tracked file with its tag.
+    /// `git ls-files -v -z`: each tracked file with its tag.
     pub listed: String,
     /// Why a tracked file passes through a filter, if one does ([`filtered`]).
     pub filtered: Option<String>,
@@ -10039,29 +10039,44 @@ pub fn filtered(tracked: &str, attributes: &str) -> Option<String> {
             (!["unspecified", "unset"].contains(&value)).then(|| {
                 format!(
                     "`{path}` passes through git's `{value}` filter, whose clean driver may hide a \
-                 change from git (status, diff): the tree checked may not be the one committed"
+                     change from git (status, diff): the tree checked may not be the one \
+                     committed: remove its `filter` attribute (from `.gitattributes`, \
+                     `info/attributes` in the directory `git rev-parse --git-common-dir` names \
+                     or the file `core.attributesFile` names)"
                 )
             })
         })
 }
 
-/// The first file `listed` (`git ls-files -v`) shows git hiding from its status and its
-/// diffs (`assume-unchanged`, a lowercase tag, or `skip-worktree`, `S`), said as a reason.
+/// The first file `listed` (`git ls-files -v -z`) shows git hiding, said as a reason.
+///
+/// Git hides from its status and its diffs a file marked `assume-unchanged` (a lowercase
+/// tag) or `skip-worktree` (`S`; both, `s`). The reason gives the commands that clear the
+/// marks: one `git update-index` per mark, since git applies only one of
+/// `--no-assume-unchanged` and `--no-skip-worktree` given together, the name as git wrote
+/// it, unquoted with `-z`, quoted for a POSIX shell.
 #[must_use]
 pub fn hidden(listed: &str) -> Option<String> {
-    listed
-        .lines()
-        .find(|line| {
-            line.chars()
-                .next()
-                .is_some_and(|tag| tag.is_ascii_lowercase() || tag == 'S')
-        })
-        .map(|line| {
+    listed.split('\0').find_map(|entry| {
+        let tag = entry.chars().next()?;
+        let path = entry.get(2..).unwrap_or_default();
+        let quoted = path.replace('\'', r"'\''");
+        let commands: Vec<String> = [
+            (tag.is_ascii_lowercase(), "--no-assume-unchanged"),
+            (tag.eq_ignore_ascii_case(&'S'), "--no-skip-worktree"),
+        ]
+        .into_iter()
+        .filter(|&(marked, _)| marked)
+        .map(|(_, flag)| format!("`git update-index {flag} -- '{quoted}'`"))
+        .collect();
+        (!commands.is_empty()).then(|| {
             format!(
-                "`{}` is hidden from git status (assume-unchanged or skip-worktree)",
-                line.get(2..).unwrap_or_default()
+                "`{path}` is hidden from git status (assume-unchanged or skip-worktree), so no \
+                 diff of git shows its changes: clear it with {}",
+                commands.join(" then ")
             )
         })
+    })
 }
 
 /// The status, the hidden files and the filtered files of the tree, for [`unclean`].
@@ -10082,7 +10097,7 @@ fn tree_cleanliness(runner: &mut dyn Runner) -> Result<TreeView, Failure> {
         ],
         "read the work tree",
     )?;
-    let listed = git_output(runner, &["ls-files", "-v"], "read the work tree")?;
+    let listed = git_output(runner, &["ls-files", "-v", "-z"], "read the work tree")?;
     Ok(TreeView {
         status,
         listed,
@@ -10626,18 +10641,11 @@ fn mutated_diff(
 ///
 /// Returns the first such file, or why git cannot list them.
 fn shown_whole(runner: &mut dyn Runner) -> Result<(), Failure> {
-    let listed = git_output(runner, &["ls-files", "-v"], "read the work tree")?;
+    let listed = git_output(runner, &["ls-files", "-v", "-z"], "read the work tree")?;
     if let Some(reason) = hidden(&listed) {
-        return Err(Failure::from(format!(
-            "{reason}: its changes would not be mutated (clear it with `git update-index \
-             --no-assume-unchanged --no-skip-worktree <file>`)"
-        )));
+        return Err(Failure::from(reason));
     }
-    filtered_files(runner)?.map_or(Ok(()), |reason| {
-        Err(Failure::from(format!(
-            "{reason}: its changes may not be mutated (remove the attribute)"
-        )))
-    })
+    filtered_files(runner)?.map_or(Ok(()), |reason| Err(Failure::from(reason)))
 }
 
 /// Runs cargo-mutants on what changed since the merge base ([`Action::RustMutantsOfChanges`]):
