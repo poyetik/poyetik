@@ -1899,13 +1899,32 @@ fn rejects_unknown_commands() {
         (&["bless", "a", "b"][..], "unknown option \"b\""),
         (
             &["bless", "a", "--case-changed", "x", "--case-changed"][..],
-            "bless expects <dir> [--case-changed <name>]... [--spent <record>] \
-             [--battery-changed] [--from-nothing]",
+            "option \"--case-changed\" needs a value",
         ),
         (
             &["bless", "a", "--spent"][..],
-            "bless expects <dir> [--case-changed <name>]... [--spent <record>] \
-             [--battery-changed] [--from-nothing]",
+            "option \"--spent\" needs a value",
+        ),
+        // A value is never one of the options: each option given as the value of another.
+        (
+            &["bless", "a", "--case-changed", "--battery-changed"][..],
+            "option \"--case-changed\" needs a value",
+        ),
+        (
+            &["bless", "a", "--case-changed", "--from-nothing"][..],
+            "option \"--case-changed\" needs a value",
+        ),
+        (
+            &["bless", "a", "--case-changed", "--spent", "x"][..],
+            "option \"--case-changed\" needs a value",
+        ),
+        (
+            &["bless", "a", "--spent", "--case-changed", "x"][..],
+            "option \"--spent\" needs a value",
+        ),
+        (
+            &["bless", "a", "--spent", "--battery-changed"][..],
+            "option \"--spent\" needs a value",
         ),
         (
             &["bless", "a", "--case", "x"][..],

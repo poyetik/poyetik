@@ -655,32 +655,46 @@ struct BlessOptions {
     from_nothing: bool,
 }
 
+/// The options of `bless`.
+const BLESS_OPTIONS: [&str; 4] = [
+    "--case-changed",
+    "--spent",
+    "--battery-changed",
+    "--from-nothing",
+];
+
 impl BlessOptions {
-    /// Reads `options`, every one at most once but `--case-changed`.
+    /// Reads `options`, every one at most once but `--case-changed`, each value one that
+    /// is not an option (`--case-changed --battery-changed` names no case).
     ///
     /// # Errors
     ///
-    /// Returns the option that is unknown or repeated, or `None` when one lacks its value.
-    fn parse(options: &[String]) -> Result<Self, Option<String>> {
+    /// Returns the option that is unknown, repeated, or lacks its value.
+    fn parse(options: &[String]) -> Result<Self, String> {
         let mut parsed = Self::default();
         let mut rest = options.iter();
         while let Some(option) = rest.next() {
             let once = |given: bool| {
                 if given {
-                    Err(Some(format!("option \"{option}\" given twice")))
+                    Err(format!("option \"{option}\" given twice"))
                 } else {
                     Ok(true)
                 }
             };
+            let mut value = || {
+                rest.next()
+                    .filter(|value| !BLESS_OPTIONS.contains(&value.as_str()))
+                    .ok_or_else(|| format!("option \"{option}\" needs a value"))
+            };
             match option.as_str() {
-                "--case-changed" => parsed.changed.push(rest.next().ok_or(None)?.clone()),
+                "--case-changed" => parsed.changed.push(value()?.clone()),
                 "--spent" => {
                     let _once = once(parsed.spent.is_some())?;
-                    parsed.spent = Some(PathBuf::from(rest.next().ok_or(None)?));
+                    parsed.spent = Some(PathBuf::from(value()?));
                 }
                 "--battery-changed" => parsed.battery_changed = once(parsed.battery_changed)?,
                 "--from-nothing" => parsed.from_nothing = once(parsed.from_nothing)?,
-                _ => return Err(Some(format!("unknown option \"{option}\""))),
+                _ => return Err(format!("unknown option \"{option}\"")),
             }
         }
         Ok(parsed)
@@ -967,9 +981,7 @@ fn dispatch(
             mode,
         )?),
         ("bless", [dir, options @ ..]) => {
-            let options = BlessOptions::parse(options).map_err(|problem| {
-                CliError::Usage(problem.unwrap_or_else(|| format!("{command} expects {BLESS}")))
-            })?;
+            let options = BlessOptions::parse(options).map_err(CliError::Usage)?;
             Ok(bless(files, out, Path::new(dir), &options, mode)?)
         }
         ("export", [dir, target]) => {
