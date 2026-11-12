@@ -278,7 +278,9 @@ group("judgeQuality", () => {
       expect(
         [3001.5, 1000].flatMap((frequency) => [0, 1].map((phase) => regime({ frequency, amplitude, phase }, format))),
       ).toStrictEqual(["harmonics", "harmonics", "harmonics", "harmonics"]);
-    });
+      // 4 judgements of 4800 frames: about 0.1 s in a plain run, over 5 s under Stryker's
+      // instrumentation of the measurements.
+    }, 60_000);
   });
 
   test("reports what cannot be measured", () => {
