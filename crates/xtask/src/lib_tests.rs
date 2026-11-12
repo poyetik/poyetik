@@ -290,7 +290,7 @@ const CHANGES_MODE: Mode = Mode::Changes { jobs: FAKE_JOBS };
 
 /// What the fake's git answers about its tree and its changes, and its compiler and linker
 /// driver about themselves.
-const GIT_ANSWERS: [(&str, &str); 15] = [
+const GIT_ANSWERS: [(&str, &str); 16] = [
     TREE_STATUS,
     PUSH_STATUS,
     HIDDEN,
@@ -302,6 +302,7 @@ const GIT_ANSWERS: [(&str, &str); 15] = [
     MERGE_BASE,
     SPENT_BASE,
     SPENT_LISTED,
+    CHANGELOG_LISTED,
     CHANGES,
     NEW_RUST_FILES,
     COMMON_DIR,
@@ -1945,7 +1946,7 @@ const DEFAULT_CHECK_NAMES: &[&str] = &[
     "Every part described in a README",
     "Every roadmap step cited exists on the board",
     "The words of the glossary, not their synonyms",
-    "One version everywhere, changelog well formed",
+    "One version everywhere, changelog well formed, released sections as on main",
     "Commit messages, and a changelog entry for each change of behavior",
     "CI workflow pinned",
     "The parts of CI run every check of the full check once",
@@ -3134,22 +3135,27 @@ fn reads_the_record_real_git_holds_at_a_commit() {
     let with = hermetic_git(&dir, &["rev-parse", "HEAD"]);
     let mut runner = system(dir.path());
     assert_eq!(
-        super::record_at(&mut runner, without.trim()).map_err(|failure| failure.summary),
+        super::file_at(&mut runner, without.trim(), super::CONFORMANCE_RECORD)
+            .map_err(|failure| failure.summary),
         Ok(None),
         "none at a commit without it, whatever names begin like it"
     );
     assert_eq!(
-        super::record_at(&mut runner, with.trim()).map_err(|failure| failure.summary),
+        super::file_at(&mut runner, with.trim(), super::CONFORMANCE_RECORD)
+            .map_err(|failure| failure.summary),
         Ok(Some("{\n  \"a\": 1\n}\n".to_owned())),
         "its bytes at a commit with it"
     );
     assert!(
-        super::record_at(&mut runner, "0000000000000000000000000000000000000000").is_err_and(
-            |failure| failure.summary.starts_with(
-                "cannot read conformance/algorithms.json at the merge base \
+        super::file_at(
+            &mut runner,
+            "0000000000000000000000000000000000000000",
+            super::CONFORMANCE_RECORD,
+        )
+        .is_err_and(|failure| failure.summary.starts_with(
+            "cannot read conformance/algorithms.json at the merge base \
                  0000000000000000000000000000000000000000: "
-            )
-        ),
+        )),
         "a commit git does not have"
     );
 }
@@ -4109,7 +4115,7 @@ fn runs_every_step_and_reports_success() {
         Ok(()),
         "all green"
     );
-    let (tools, commands, emptied, listed, captured, written) = (10, 58, 14, 26, 50, 4);
+    let (tools, commands, emptied, listed, captured, written) = (10, 58, 14, 26, 52, 4);
     let read = 9
         + 2
         + 13
@@ -4145,7 +4151,7 @@ fn runs_every_step_and_reports_success() {
          checks each followed by its Stryker run); fourteen directories are emptied; git lists \
          thirteen kinds of files (the box sources and the text files that cite the roadmap among them), the Rust files again for the test code, test data, untested targets, unviable names and loaded files gates, the TypeScript ones again for the reports and scope gates of \
          each package after the first; the licenses twice and the history three times, the state \
-         of the tree (before, for the proof record and after) six times, the nightly's version and sysroot, the Cargo metadata (for the untested targets, dependency, pin, library and math layer gates), the output of the fused test build and of the nine builds of the loaded files gate, the merge base, the merge base of the versions spent and the record listed there, the changed paths, the changes, the \
+         of the tree (before, for the proof record and after) six times, the nightly's version and sysroot, the Cargo metadata (for the untested targets, dependency, pin, library and math layer gates), the output of the fused test build and of the nine builds of the loaded files gate, the merge base, the merge base with main twice and the record of the versions spent and the changelog listed there, the changed paths, the changes, the \
          new Rust files and the list of every mutant once, git's common directory twice, the tree checked out, \
          cargo-mutants' version, rustc's host and build, the linker driver's and git's versions, the status for a push and the hidden files and the tracked files (for their filters) for the mutation step and the proof record; the record spent, the measured base, the diff and the \
          proof record are written once each; the proof record, the measured base and the \
@@ -5390,9 +5396,9 @@ fn release_gate_runs_on_the_real_files() {
     assert!(replaced.is_some(), "changelog replaced");
     assert!(
         run_steps(&check_steps(CHANGES_MODE), &mut fake, &mut Vec::new()).is_err_and(|error| {
-            error
-                .summary
-                .starts_with("One version everywhere, changelog well formed: ")
+            error.summary.starts_with(
+                "One version everywhere, changelog well formed, released sections as on main: ",
+            )
         }),
         "release gate failure is named"
     );
@@ -5411,7 +5417,8 @@ fn release_gate_runs_on_the_real_files() {
         assert_eq!(
             run_steps(&release, &mut without, &mut Vec::new()),
             failed(format!(
-                "One version everywhere, changelog well formed: cannot read {path}: missing"
+                "One version everywhere, changelog well formed, released sections as on main: \
+                 cannot read {path}: missing"
             )),
             "missing {path}"
         );
@@ -5496,6 +5503,13 @@ const SPENT_BASE: (&str, &str) = (
 const SPENT_LISTED: (&str, &str) = (
     "git ls-tree --name-only fed4560000000000000000000000000000000000 -- \
      conformance/algorithms.json",
+    "",
+);
+
+/// How the fake lists the changelog at the merge base with `main`, and what it answers:
+/// none, nothing released.
+const CHANGELOG_LISTED: (&str, &str) = (
+    "git ls-tree --name-only fed4560000000000000000000000000000000000 -- CHANGELOG.md",
     "",
 );
 
@@ -13629,6 +13643,228 @@ fn refuses_the_synonyms_the_glossary_replaces() {
     assert!(
         !super::within("web/c.ts", "web"),
         "a file is not a directory"
+    );
+}
+
+#[test]
+fn leaves_the_released_sections_of_the_changelog_as_they_were_released() {
+    let changelog = "# Changelog\n\n## [Unreleased]\n\n- a node.\n\n## [0.2.0] - 2026-1-01\n\n\
+                     - a node.\n\n## [0.1.0] - 2026-11-08\n\n- a node.\n\n## [0.0.1] - 2026-11-01\n\
+                     \n- a node.\n";
+    let sources: Vec<(String, String)> = [
+        ("CHANGELOG.md", changelog),
+        ("docs/CHANGELOG.md", changelog),
+    ]
+    .map(|(path, text)| (path.to_owned(), text.to_owned()))
+    .to_vec();
+    assert_eq!(
+        super::vocabulary_gate(&sources, FAKE_WORDS),
+        failed(
+            "words the glossary replaces (reviewed in vocabulary.txt): 6 problems, listed above\n\
+             CHANGELOG.md:5: \"node\": say \"box\" (the glossary)\n\
+             CHANGELOG.md:9: \"node\": say \"box\" (the glossary)\n\
+             docs/CHANGELOG.md:5: \"node\": say \"box\" (the glossary)\n\
+             docs/CHANGELOG.md:9: \"node\": say \"box\" (the glossary)\n\
+             docs/CHANGELOG.md:13: \"node\": say \"box\" (the glossary)\n\
+             docs/CHANGELOG.md:17: \"node\": say \"box\" (the glossary)"
+        ),
+        "the root changelog's prose read up to its first released heading, a malformed one \
+         opening nothing; any other file read whole"
+    );
+}
+
+/// A changelog with two released sections, as the merge base holds it.
+const RELEASED: &str = "# Changelog\n\n## [Unreleased]\n\n- next.\n\n## [0.2.0] - 2026-11-09\n\n\
+                        - two.\n\n## [0.1.0] - 2026-11-08\n\n- one.\n";
+
+#[test]
+fn keeps_every_released_section_byte_for_byte() {
+    let base = "fed4560 (merge base with origin/main)";
+    let context = "the released changelog sections";
+    for (changelog, why) in [
+        (RELEASED.to_owned(), "unchanged"),
+        (
+            RELEASED.replace("- next.", "- next, reworded."),
+            "the unreleased section edited",
+        ),
+        (
+            RELEASED.replace(
+                "## [0.2.0]",
+                "## [0.3.0] - 2026-11-10\n\n- three.\n\n## [0.2.0]",
+            ),
+            "a version added",
+        ),
+    ] {
+        assert_eq!(
+            super::released_sections_gate(Some(RELEASED), &changelog, base),
+            Ok(()),
+            "{why}"
+        );
+    }
+    assert_eq!(
+        super::released_sections_gate(None, "anything\n", base),
+        Ok(()),
+        "no changelog at the base: nothing released"
+    );
+    assert_eq!(
+        super::released_sections_gate(Some(RELEASED), &RELEASED.replace("- one.", "- One."), base),
+        failed(format!(
+            "{context}: CHANGELOG.md:13: the released section [0.1.0] differs from the one at {base}: \
+             a released section is never edited"
+        )),
+        "a released section edited, its first differing line named"
+    );
+    for (changelog, why) in [
+        (
+            RELEASED.replace("- one.\n", "- one.\n\n"),
+            "a line added at its end",
+        ),
+        (
+            RELEASED.replace("- one.\n", "- one."),
+            "its last line break removed",
+        ),
+        (
+            RELEASED.replace("- one.\n", "- one.\r\n"),
+            "a line ending changed",
+        ),
+    ] {
+        assert!(
+            super::released_sections_gate(Some(RELEASED), &changelog, base).is_err_and(|failure| {
+                failure
+                    .summary
+                    .contains("the released section [0.1.0] differs")
+            }),
+            "{why}"
+        );
+    }
+    assert_eq!(
+        super::released_sections_gate(
+            Some(RELEASED),
+            &RELEASED
+                .replace("2026-11-09", "2026-11-10")
+                .replace("- one.\n", ""),
+            base
+        ),
+        failed(format!(
+            "{context}: 2 problems, listed above\n\
+             CHANGELOG.md:7: the released section [0.2.0] differs from the one at {base}: a released \
+             section is never edited\n\
+             CHANGELOG.md:13: the released section [0.1.0] differs from the one at {base}: a released \
+             section is never edited"
+        )),
+        "a heading's date changed, a line removed: each section named"
+    );
+    assert_eq!(
+        super::released_sections_gate(
+            Some(RELEASED),
+            &RELEASED.replace("## [0.1.0] - 2026-11-08\n\n- one.\n", ""),
+            base
+        ),
+        failed(format!(
+            "{context}: CHANGELOG.md: the released section [0.1.0] of {base} is missing"
+        )),
+        "a released section removed"
+    );
+}
+
+#[test]
+fn reads_the_changelog_real_git_holds_at_the_merge_base_with_main() {
+    let dir = scratch("released-sections");
+    let _init = hermetic_git(&dir, &["init", "--quiet", "--initial-branch=main"]);
+    std::fs::write(dir.join("README.md"), "x\n").expect("a file");
+    let _add = hermetic_git(&dir, &["add", "."]);
+    let _first = hermetic_git(&dir, &["commit", "--quiet", "-m", "without"]);
+    let without = hermetic_git(&dir, &["rev-parse", "HEAD"]);
+    std::fs::write(dir.join("CHANGELOG.md"), RELEASED).expect("a changelog");
+    let _add_log = hermetic_git(&dir, &["add", "."]);
+    let _second = hermetic_git(&dir, &["commit", "--quiet", "-m", "with"]);
+    let with = hermetic_git(&dir, &["rev-parse", "HEAD"]);
+    let mut runner = system(dir.path());
+    assert_eq!(
+        super::file_at(&mut runner, without.trim(), "CHANGELOG.md")
+            .map_err(|failure| failure.summary),
+        Ok(None),
+        "none at a commit without it"
+    );
+    assert_eq!(
+        super::file_at(&mut runner, with.trim(), "CHANGELOG.md").map_err(|failure| failure.summary),
+        Ok(Some(RELEASED.to_owned())),
+        "its bytes at a commit with it"
+    );
+    let _branch = hermetic_git(&dir, &["checkout", "--quiet", "-b", "work"]);
+    assert_eq!(
+        super::released_sections(&mut runner, &RELEASED.replace("- one.", "- One."))
+            .map_err(|failure| failure.summary),
+        Err(format!(
+            "the released changelog sections: CHANGELOG.md:13: the released section [0.1.0] \
+             differs from the one at {} (merge base with main): a released section is never edited",
+            with.trim()
+        )),
+        "a changelog against main's at the merge base"
+    );
+    assert_eq!(
+        super::released_sections(&mut runner, RELEASED).map_err(|failure| failure.summary),
+        Ok(()),
+        "as released"
+    );
+}
+
+#[test]
+fn reads_the_released_sections_against_main() {
+    let step: Vec<Step> = check_steps(CHANGES_MODE)
+        .into_iter()
+        .filter(|step| step.action == Action::VersionGate)
+        .collect();
+    let mut fake = passing();
+    let listed = fake.files.insert(
+        format!("capture {}", CHANGELOG_LISTED.0),
+        "CHANGELOG.md\n".to_owned(),
+    );
+    assert!(listed.is_some(), "the changelog listed at the base");
+    let shown = fake.files.insert(
+        "capture git show fed4560000000000000000000000000000000000:CHANGELOG.md".to_owned(),
+        LOG.replace("2026", "2025"),
+    );
+    assert!(shown.is_none(), "fresh fake");
+    let base = "fed4560000000000000000000000000000000000 (merge base with origin/main)";
+    assert_eq!(
+        run_steps(&step, &mut fake, &mut Vec::new()),
+        Err(Failure {
+            summary: "One version everywhere, changelog well formed, released sections as on \
+                      main: the released changelog sections: 3 problems, listed above"
+                .to_owned(),
+            details: [(11_u8, "0.2.0"), (13, "0.1.10"), (15, "0.1.2")]
+                .map(|(line, version)| {
+                    format!(
+                        "CHANGELOG.md:{line}: the released section [{version}] differs from the one \
+                         at {base}: a released section is never edited"
+                    )
+                })
+                .to_vec(),
+            usage: false,
+        }),
+        "the changelog against the one at the merge base with main"
+    );
+    let mut baseless = passing();
+    let _main = baseless.files.remove(&format!("capture {}", SPENT_BASE.0));
+    let _local = baseless.files.remove("capture git merge-base HEAD main");
+    assert!(
+        run_steps(&step, &mut baseless, &mut Vec::new()).is_err_and(|failure| failure
+            .summary
+            .starts_with(
+                "One version everywhere, changelog well formed, released sections as on main: \
+                 no merge base with origin/main or main to read the released changelog \
+                 sections from (fetch origin/main, or create main)"
+            )),
+        "no base"
+    );
+    let mut unreadable = passing();
+    unreadable.broken = Some(CHANGELOG_LISTED.0.to_owned());
+    assert!(
+        run_steps(&step, &mut unreadable, &mut Vec::new()).is_err_and(|failure| failure
+            .summary
+            .contains("cannot read CHANGELOG.md at the merge base fed4560")),
+        "git cannot list it"
     );
 }
 

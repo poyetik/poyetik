@@ -303,9 +303,11 @@ pub const CHANGES_DIFF: &str = "target/xtask/changes.diff";
 /// `--full`.
 pub const MUTATION_BASES: [&str; 3] = ["@{upstream}", "origin/main", "main"];
 
-/// What the algorithm versions spent are read against, in order (`spec/engine-design.md`,
-/// decision 29: a version number is spent when it reaches `main`).
+/// What reached `main` is read against, in order.
 ///
+/// What reached `main`: the algorithm versions spent (`spec/engine-design.md`, decision 29:
+/// a version number is spent when it reaches `main`) and the released sections of the
+/// changelog ([`released_sections_gate`]).
 /// The merge base of `HEAD` with the first of these that git resolves: `main` as the
 /// remote holds it, else as this clone does. Never the branch's upstream, unlike
 /// [`MUTATION_BASES`], which answer another question (what changed): a version pushed on a
@@ -662,7 +664,8 @@ pub enum Action {
     /// current.
     EquivalentGate,
     /// Require one project version everywhere, consistent with a well-formed changelog
-    /// (its format; the changelog entry of each change is the [`Action::HistoryGate`]'s).
+    /// (its format; the changelog entry of each change is the [`Action::HistoryGate`]'s),
+    /// whose released sections are as `main` holds them ([`released_sections_gate`]).
     VersionGate,
     /// Empty each of these directories (relative to the root), creating them if needed:
     /// what a later step reads there is then produced by this run only.
@@ -1455,7 +1458,8 @@ fn consistency_steps() -> Vec<(Role, Step)> {
             action: Action::VocabularyGate,
         },
         Step {
-            name: "One version everywhere, changelog well formed".to_owned(),
+            name: "One version everywhere, changelog well formed, released sections as on main"
+                .to_owned(),
             action: Action::VersionGate,
         },
         Step {
@@ -7227,6 +7231,96 @@ pub fn release_gate(
     verdict("the versions and the changelog", problems)
 }
 
+/// The released sections of a changelog: from each heading [`released_heading`] reads to
+/// the next heading of its level, each with the number of its first line and its bytes, line
+/// endings included.
+fn released_section_texts(changelog: &str) -> Vec<(Version, usize, String)> {
+    let mut sections = Vec::new();
+    let mut open: Option<(Version, usize, String)> = None;
+    for (index, line) in changelog.split_inclusive('\n').enumerate() {
+        if line.starts_with("## ") {
+            sections.extend(open.take());
+            open = released_heading(line.trim_end_matches(['\n', '\r']))
+                .map(|version| (version, index.saturating_add(1), String::new()));
+        }
+        if let Some((_, _, text)) = open.as_mut() {
+            text.push_str(line);
+        }
+    }
+    sections.extend(open);
+    sections
+}
+
+/// The part of a changelog before its first released section (the first heading
+/// [`released_heading`] reads): the whole changelog when it has none.
+fn unreleased(changelog: &str) -> &str {
+    let mut end = 0_usize;
+    for line in changelog.split_inclusive('\n') {
+        if released_heading(line.trim_end_matches(['\n', '\r'])).is_some() {
+            break;
+        }
+        end = end.saturating_add(line.len());
+    }
+    changelog.get(..end).unwrap_or(changelog)
+}
+
+/// Checks that every section released in `at_base` is in `changelog` byte for byte.
+///
+/// `at_base` is the changelog at the merge base with `main`: a released section is never
+/// edited, so that the release notes of a version are what reached `main` (a section a
+/// version commit adds is new, and accepted). `base` names the merge base in the messages.
+///
+/// # Errors
+///
+/// Returns every released section of `at_base` missing from `changelog`, and every one
+/// that differs, with the first line where it does.
+pub fn released_sections_gate(
+    at_base: Option<&str>,
+    changelog: &str,
+    base: &str,
+) -> Result<(), Failure> {
+    let now = released_section_texts(changelog);
+    let mut problems = Vec::new();
+    for (version, _, released) in released_section_texts(at_base.unwrap_or_default()) {
+        match now.iter().find(|(held, ..)| *held == version) {
+            None => problems.push(format!(
+                "{CHANGELOG}: the released section [{version}] of {base} is missing"
+            )),
+            Some((_, first, text)) if *text != released => {
+                let same = text
+                    .split_inclusive('\n')
+                    .zip(released.split_inclusive('\n'))
+                    .take_while(|(line, kept)| line == kept)
+                    .count();
+                problems.push(format!(
+                    "{CHANGELOG}:{}: the released section [{version}] differs from the one at \
+                     {base}: a released section is never edited",
+                    first.saturating_add(same)
+                ));
+            }
+            Some(_) => {}
+        }
+    }
+    verdict("the released changelog sections", problems)
+}
+
+/// Reads the changelog at the merge base with `main` ([`main_base`]), then checks that
+/// `changelog` keeps its released sections ([`released_sections_gate`]).
+///
+/// # Errors
+///
+/// Returns why there is no merge base, why git cannot give the changelog there, or a
+/// released section edited.
+fn released_sections(runner: &mut dyn Runner, changelog: &str) -> Result<(), Failure> {
+    let (base, against) = main_base(runner, "the released changelog sections")?;
+    let at_base = file_at(runner, &base, CHANGELOG)?;
+    released_sections_gate(
+        at_base.as_deref(),
+        changelog,
+        &format!("{base} (merge base with {against})"),
+    )
+}
+
 /// Commit types allowed by the Conventional Commits rule of the project.
 pub const COMMIT_TYPES: [&str; 11] = [
     "feat", "fix", "docs", "test", "refactor", "perf", "build", "ci", "chore", "style", "revert",
@@ -8706,7 +8800,9 @@ fn wordings(vocabulary: &str, problems: &mut Vec<String>) -> Vec<Wording> {
 /// what to say instead and where it applies, and the contexts where one is allowed: a file or a
 /// directory, or a phrase holding it. A term is matched case-sensitively, as a whole word,
 /// never inside a name (`engine-objects`, `.node-version`, `Node.js`). Every allowance must
-/// still allow something, so that the list stays current.
+/// still allow something, so that the list stays current. The released sections of
+/// [`CHANGELOG`] (from its first heading `## [X.Y.Z] - YYYY-MM-DD` on) are not read: they keep
+/// the words they were released with, byte for byte ([`released_sections_gate`]).
 ///
 /// # Errors
 ///
@@ -8737,6 +8833,13 @@ pub fn vocabulary_gate(sources: &[(String, String)], vocabulary: &str) -> Result
     for (path, text) in sources {
         let Some(language) = language(path) else {
             continue;
+        };
+        // Released history keeps the words it was released with: the changelog's prose
+        // stops at its first released section ([`released_sections_gate`] keeps them).
+        let text = if path == CHANGELOG {
+            unreleased(text)
+        } else {
+            text
         };
         let prose = match language {
             Language::Markdown => markdown_prose(text),
@@ -8854,21 +8957,29 @@ fn mutation_base(runner: &mut dyn Runner) -> Result<(String, &'static str), Fail
 }
 
 /// The merge base of `HEAD` with the first of [`SPENT_BASES`] git resolves, and that base's
-/// name: where the algorithm versions spent are read.
+/// name: where what reached `main` is read, `reading` (said when there is none).
+///
+/// # Errors
+///
+/// Returns that none could be resolved, with why each could not.
+fn main_base(runner: &mut dyn Runner, reading: &str) -> Result<(String, &'static str), Failure> {
+    merge_base(
+        runner,
+        &SPENT_BASES,
+        &format!(
+            "no merge base with {} to read {reading} from (fetch origin/main, or create main)",
+            SPENT_BASES.join(" or ")
+        ),
+    )
+}
+
+/// The merge base where the algorithm versions spent are read ([`main_base`]).
 ///
 /// # Errors
 ///
 /// Returns that none could be resolved, with why each could not.
 fn spent_base(runner: &mut dyn Runner) -> Result<(String, &'static str), Failure> {
-    merge_base(
-        runner,
-        &SPENT_BASES,
-        &format!(
-            "no merge base with {} to read the algorithm versions spent from (fetch \
-             origin/main, or create main)",
-            SPENT_BASES.join(" or ")
-        ),
-    )
+    main_base(runner, "the algorithm versions spent")
 }
 
 /// The diff git would show for `path`, a new file holding `text`, added whole; nothing for
@@ -10976,7 +11087,9 @@ fn run_action(
         Action::VersionGate => {
             let cargo = read_file(runner, CARGO_TOML)?;
             let packages = read_all(runner, package_jsons())?;
-            release_gate(&cargo, &packages, &read_file(runner, CHANGELOG)?)
+            let changelog = read_file(runner, CHANGELOG)?;
+            release_gate(&cargo, &packages, &changelog)?;
+            released_sections(runner, &changelog)
         }
         Action::FreshDirs(paths) => paths.iter().try_for_each(|path| fresh(runner, path)),
         Action::MembershipGate => membership(runner),
@@ -11442,28 +11555,22 @@ pub fn bless_command(options: &[String]) -> Cmd {
     Cmd::new("cargo", &args, Dir::Root)
 }
 
-/// The record of the conformance references at `base`, as git gives it, or `None` when
-/// `base` holds none.
+/// The file at `path` in `base`, as git gives it, or `None` when `base` holds none.
 ///
 /// # Errors
 ///
 /// Returns why git cannot list or show it.
-pub fn record_at(runner: &mut dyn Runner, base: &str) -> Result<Option<String>, Failure> {
-    let doing = format!("read {CONFORMANCE_RECORD} at the merge base {base}");
+pub fn file_at(runner: &mut dyn Runner, base: &str, path: &str) -> Result<Option<String>, Failure> {
+    let doing = format!("read {path} at the merge base {base}");
     let listed = git_output(
         runner,
-        &["ls-tree", "--name-only", base, "--", CONFORMANCE_RECORD],
+        &["ls-tree", "--name-only", base, "--", path],
         &doing,
     )?;
     if listed.trim().is_empty() {
         return Ok(None);
     }
-    git_output(
-        runner,
-        &["show", &format!("{base}:{CONFORMANCE_RECORD}")],
-        &doing,
-    )
-    .map(Some)
+    git_output(runner, &["show", &format!("{base}:{path}")], &doing).map(Some)
 }
 
 /// Writes the record at the merge base of [`SPENT_BASES`] to [`SPENT_RECORD`] (`null` when
@@ -11475,7 +11582,7 @@ pub fn record_at(runner: &mut dyn Runner, base: &str) -> Result<Option<String>, 
 /// cannot be written.
 fn write_spent(runner: &mut dyn Runner, out: &mut dyn Write) -> Result<(), Failure> {
     let (base, against) = spent_base(runner)?;
-    let record = record_at(runner, &base)?;
+    let record = file_at(runner, &base, CONFORMANCE_RECORD)?;
     let (spent, held) = record.map_or_else(
         || ("null\n".to_owned(), "none"),
         |text| (text, "its versions"),
