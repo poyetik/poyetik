@@ -13,7 +13,7 @@ use alloc::collections::btree_map::Entry;
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec;
 use alloc::vec::Vec;
-use core::{hint, iter};
+use core::iter;
 
 use crate::math::{Lanes, add_two, sum_blocks};
 use crate::{
@@ -92,12 +92,13 @@ impl<K: Copy> Feed<K> {
     /// costs single and two-term feeds more than the skip, and saves sums of three or more
     /// instructions against it, for a larger module.
     ///
-    /// The lanes reach the sum through `black_box`, an optimization barrier with no effect
-    /// on the result. Without it, the compiler computes the addresses of the lanes before
-    /// the loop over the boxes, which every plan with a box then pays each block, a sum or
-    /// not; with it, a sum of three or more and a fed output box pay a little more each
-    /// block, less than a box saves. Both sides are dated in `spec/benchmarks.md` ("Measured
-    /// design choices"); the unconnected `dac~` benchmark fails without the barrier.
+    /// The lanes reach the sum directly. The compiler then computes their addresses once
+    /// per block, before the loop over the boxes: a cost per plan, which every plan with a
+    /// box pays each block, a sum or not. An optimization barrier on them would make every
+    /// sum of three or more pay a little each block instead: from two summing points on, the
+    /// plan without the barrier does less work per block, saving more the more it sums, and
+    /// its cost falls on the lightest patches, where the deadline is far (both sides dated
+    /// in `spec/benchmarks.md`, "The lanes' barrier").
     fn write<'source, S: Sample + 'source>(
         &self,
         out: &mut Block<S>,
@@ -121,7 +122,7 @@ impl<K: Copy> Feed<K> {
                 let silence = S::SILENCE;
                 sum_blocks(
                     out,
-                    hint::black_box(lanes),
+                    lanes,
                     sources
                         .iter()
                         .map(|&source| read(source).unwrap_or(&silence)),
