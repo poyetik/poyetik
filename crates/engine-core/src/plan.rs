@@ -221,7 +221,7 @@ fn resolve<'patch>(
                 node: node.id,
                 name: name.clone(),
             })?;
-        if !param.accepts(flush::binary32(value)) {
+        if !param.accepts(value) {
             return Err(CoreError::ParamOutOfRange {
                 node: node.id,
                 name: name.clone(),

@@ -793,15 +793,21 @@ fn refuses_other_bits_than_main_at_a_version_both_records_hold() {
 
 #[test]
 fn says_why_the_battery_cannot_fingerprint_a_box_type() {
+    /// A range of one value just above 2^-126, whose value away from the default is not in it.
+    const ONE: f32 = f32::from_bits(0x0080_0001);
     static WRONG: engine_core::ObjectSpec = engine_core::ObjectSpec {
         name: "wrong~",
-        params: &[engine_core::param!("f", "f", 440.0, 1e-40, 20_000.0)],
+        params: &[engine_core::param!("f", "f", ONE, ONE, ONE)],
         ..engine_objects::OSC
     };
     assert_eq!(
         engine_fpenv::with_default_mode(|mode| fingerprints_of(&[&WRONG], mode)),
-        Err("parameter \"f\" of box type \"wrong~\": 0 is outside [0.0000000000000000000000000000000000000001, 20000]".to_owned()),
-        "a minimum below 2^-126, flushed out of its range, in words"
+        Err("parameter \"f\" of box type \"wrong~\": \
+             0.000000000000000000000000000000000000011754943508222875 is outside \
+             [0.000000000000000000000000000000000000011754945, \
+             0.000000000000000000000000000000000000011754945]"
+            .to_owned()),
+        "a value away from the default outside its range, in words"
     );
 }
 

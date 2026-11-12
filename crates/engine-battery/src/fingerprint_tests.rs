@@ -561,12 +561,12 @@ fn pins_the_inputs_of_the_battery() {
 
 #[test]
 fn refuses_a_parameter_set_the_box_type_does_not_take() {
-    // A minimum below 2^-126, which the box laws refuse: flushed, it is +0, below its
-    // range, so the battery's set of minimums is no set of the box type's, and no
-    // fingerprint is computed from it.
-    const TINY: ParamSpec = engine_core::param!("gain", "gain", 0.5, 1e-40, 1.0);
+    // A range of one value just above 2^-126: the value away from its default, halfway to
+    // the maximum, is the one below, outside the range, so no fingerprint is computed.
+    const ONE: f32 = f32::from_bits(0x0080_0001);
+    const NARROW: ParamSpec = engine_core::param!("gain", "gain", ONE, ONE, ONE);
     let wrong = ObjectSpec {
-        params: &[TINY],
+        params: &[NARROW],
         ..echo(Quirk::None)
     };
     assert_eq!(
@@ -574,10 +574,10 @@ fn refuses_a_parameter_set_the_box_type_does_not_take() {
         Err(ParamError::OutOfRange {
             kind: "echo~",
             name: "gain",
-            bits: 0,
-            minimum: 1e-40,
-            maximum: 1.0,
+            bits: f64::from(f32::MIN_POSITIVE).to_bits(),
+            minimum: ONE,
+            maximum: ONE,
         }),
-        "its minimum refused, flushed"
+        "its value away from the default refused"
     );
 }

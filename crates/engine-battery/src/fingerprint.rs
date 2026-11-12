@@ -60,10 +60,9 @@ pub const FINGERPRINT_BATTERY: u32 = 2;
 ///
 /// # Errors
 ///
-/// Returns why a parameter set is not one of the box type's ([`ParamValues::of`]): the
-/// sets keep every value within its range, so only a bound below 2^-126 in magnitude, which
-/// [`ParamValues::of`] flushes out of the range before checking it (the box laws refuse such
-/// a box type), gives one.
+/// Returns why a parameter set is not one of the box type's ([`ParamValues::of`]): only the
+/// value away from the default can be, in a range of a few binary32 values just above
+/// 2^-126, where halving its bounds rounds out of it.
 pub fn fingerprint<I64: Dispatch<Binary64>, I32: Dispatch<Binary32>>(
     spec: &'static ObjectSpec,
 ) -> Result<String, ParamError> {

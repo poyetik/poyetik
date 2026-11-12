@@ -77,8 +77,11 @@ impl ParamSpec {
     ///
     /// # Errors
     ///
-    /// Returns [`ParamSpecError::InvalidRange`] unless `minimum` and `maximum` are finite and
-    /// `minimum` is at most `maximum`, and [`ParamSpecError::DefaultOutsideRange`] unless
+    /// Returns [`ParamSpecError::InvalidRange`] unless `minimum` and `maximum` are finite,
+    /// `minimum` is at most `maximum` and neither is below 2^-126 in magnitude but zero (a
+    /// value there is a zero once flushed, so no value would reach such a bound, and every
+    /// comparison with the range is of normal numbers or zeros, which no floating-point mode
+    /// of a host changes), and [`ParamSpecError::DefaultOutsideRange`] unless
     /// `default_value`, flushed as a plan flushes it (a subnormal is a zero of its sign), is
     /// within them, so that every parameter of every box type has a finite range holding its
     /// default, as a plan, the box laws and the fingerprint battery give it.
@@ -89,7 +92,12 @@ impl ParamSpec {
         minimum: f32,
         maximum: f32,
     ) -> Result<Self, ParamSpecError> {
-        if !(minimum.is_finite() && maximum.is_finite() && minimum <= maximum) {
+        if !(minimum.is_finite()
+            && maximum.is_finite()
+            && minimum <= maximum
+            && Self::reachable(minimum)
+            && Self::reachable(maximum))
+        {
             return Err(ParamSpecError::InvalidRange { name });
         }
         let flushed = flush::binary32(default_value);
@@ -106,6 +114,12 @@ impl ParamSpec {
         }
     }
 
+    /// Whether a value can be `bound` once flushed: a zero, or at least 2^-126 in magnitude,
+    /// told by its bits, which [`flush::binary32`] leaves as they are.
+    const fn reachable(bound: f32) -> bool {
+        flush::binary32(bound).to_bits() == bound.to_bits()
+    }
+
     /// Its name, used in patches.
     #[must_use]
     pub const fn name(&self) -> &'static str {
@@ -118,10 +132,12 @@ impl ParamSpec {
         self.description
     }
 
-    /// Whether `value` is within range. Always `false` for NaN.
+    /// Whether `value`, flushed as a plan flushes it (below 2^-126 in magnitude, a zero of
+    /// its sign, decided from its bits), is within range. Always `false` for NaN.
     #[must_use]
     pub fn accepts(&self, value: f32) -> bool {
-        self.minimum <= value && value <= self.maximum
+        let flushed = flush::binary32(value);
+        self.minimum <= flushed && flushed <= self.maximum
     }
 }
 
@@ -153,10 +169,23 @@ impl ParamSpec {
 /// ```
 ///
 /// ```compile_fail,E0080
-/// static TINY: engine_core::ParamSpec = engine_core::param!("t", "", 1e-40, 1e-41, 1.0);
+/// static TINY: engine_core::ParamSpec =
+///     engine_core::param!("t", "", 1e-40, f32::MIN_POSITIVE, 1.0);
 /// ```
 ///
-/// Nor does a range that is not finite, nor one whose minimum is above its maximum:
+/// Nor does a range that is not finite, one whose minimum is above its maximum, or one with
+/// a bound below 2^-126 in magnitude but zero, which no value reaches (flushed, a value
+/// there is zero):
+///
+/// ```compile_fail,E0080
+/// static SUBNORMAL: engine_core::ParamSpec = engine_core::param!("t", "", 0.5, 1e-40, 1.0);
+/// ```
+///
+/// The same range from zero compiles, so its subnormal minimum is the only error above:
+///
+/// ```
+/// static ZERO: engine_core::ParamSpec = engine_core::param!("t", "", 0.5, 0.0, 1.0);
+/// ```
 ///
 /// ```compile_fail,E0080
 /// static OPEN: engine_core::ParamSpec =
@@ -174,7 +203,8 @@ macro_rules! param {
                 ::core::result::Result::Ok(spec) => spec,
                 ::core::result::Result::Err($crate::ParamSpecError::InvalidRange { .. }) => {
                     ::core::panic!(
-                        "a parameter's range is not finite, or its minimum is above its maximum"
+                        "a parameter's range is not finite, its minimum is above its maximum, \
+                         or a bound is below 2^-126 but not zero"
                     )
                 }
                 ::core::result::Result::Err($crate::ParamSpecError::DefaultOutsideRange {
@@ -217,8 +247,8 @@ pub struct ParamValues {
 /// Why a parameter is refused ([`ParamSpec::new`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ParamSpecError {
-    /// A parameter whose minimum or maximum is not finite, or whose minimum is above its
-    /// maximum.
+    /// A parameter whose minimum or maximum is not finite or below 2^-126 in magnitude but
+    /// zero, or whose minimum is above its maximum.
     InvalidRange {
         /// The parameter.
         name: &'static str,
@@ -235,7 +265,8 @@ impl fmt::Display for ParamSpecError {
         match *self {
             Self::InvalidRange { name } => write!(
                 f,
-                "parameter \"{name}\": its range is not finite, or its minimum is above its maximum"
+                "parameter \"{name}\": its range is not finite, its minimum is above its maximum, \
+                 or a bound is below 2^-126 but not zero"
             ),
             Self::DefaultOutsideRange { name } => write!(
                 f,
@@ -356,6 +387,32 @@ impl ParamValues {
                 .params
                 .iter()
                 .map(|param| Binary64::new(f64::from(param.default_value)).as_parameter())
+                .collect(),
+        }
+    }
+
+    /// The parameter values of the box type `spec` that `pick` picks, one per parameter in
+    /// order: each value its parameter's range accepts ([`ParamSpec::accepts`]), else the
+    /// parameter's default, which no range refuses, each flushed as a plan flushes it and
+    /// widened exactly. So that a caller trying values of every range (the box laws, the
+    /// fingerprint battery) is given values of the box type whatever it picks, with no
+    /// error to handle: a value picked outside a range is its default, tried anyway.
+    #[must_use]
+    pub fn within(spec: &'static ObjectSpec, pick: impl Fn(&ParamSpec) -> f32) -> Self {
+        Self {
+            spec,
+            values: spec
+                .params
+                .iter()
+                .map(|param| {
+                    let picked = pick(param);
+                    let value = if param.accepts(picked) {
+                        picked
+                    } else {
+                        param.default_value
+                    };
+                    Binary64::new(f64::from(flush::binary32(value)))
+                })
                 .collect(),
         }
     }
