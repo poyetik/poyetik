@@ -7265,6 +7265,11 @@ fn unreleased(changelog: &str) -> &str {
 /// branch it was found with, named in the messages with the command that shows the
 /// sections as released.
 ///
+/// A section crafted below the oldest release with no blank line before its heading reads as
+/// part of that release and passes; it is out of scope, since no honest edit writes one. The
+/// changelog takes no link-reference footer: the oldest section runs to the end of the file,
+/// so a footer added later is refused as an edit of it.
+///
 /// # Errors
 ///
 /// Returns every released section of `at_base` missing from `changelog`, and every one
