@@ -610,7 +610,7 @@ fn check(
     }
     let base = base.flatten();
     // A problem of a case: a battery change cannot be blessed with it.
-    for line in record_problems(&record, &current_fingerprints(mode)?, failures > 0)
+    for line in record_problems(&record, &current_fingerprints(mode), failures > 0)
         .into_iter()
         .chain(spent_problems(&record, base.as_ref()))
     {
@@ -751,7 +751,7 @@ fn bless(
         .as_ref()
         .map(|spent| read_spent(files, spent, "cargo xtask bless"))
         .transpose()?;
-    let now = current_fingerprints(mode)?;
+    let now = current_fingerprints(mode);
     let told = Told {
         changed: &options.changed,
         battery_changed: options.battery_changed,

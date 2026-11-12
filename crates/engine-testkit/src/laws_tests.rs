@@ -711,33 +711,15 @@ fn checks_a_registry() {
 }
 
 #[test]
-fn renders_only_with_the_parameters_of_the_box_type() {
-    // The laws give each box type its own parameter sets, within range: a set that is not
-    // one of its own is refused, never given to the box.
+fn renders_a_fresh_instance_of_the_box_type_of_its_values() {
+    // The laws give each box type its own parameter sets, as `ParamValues`: values of
+    // another box type cannot be given (`engine_core::Dispatch`).
     let rate = SampleRate::new(48_000).expect("valid rate");
+    let values = engine_core::ParamValues::of(&GOOD, &[engine_core::Binary64::new(0.5)])
+        .expect("within range");
     assert_eq!(
-        super::render::<engine_core::Binary64>(
-            &GOOD,
-            rate,
-            &[],
-            &[],
-            1,
-            engine_core::Binary64::ZERO
-        )
-        .map(|_rendered| ()),
-        Err("box type \"gain~\" takes 1 parameter value(s), not 0".to_owned()),
-        "the wrong count"
-    );
-    assert_eq!(
-        super::render::<engine_core::Binary64>(
-            &GOOD,
-            rate,
-            &[0.5],
-            &[],
-            1,
-            engine_core::Binary64::ZERO
-        )
-        .map(|(rendered, operations)| (super::bits(&rendered), operations)),
+        super::render::<engine_core::Binary64>(&values, rate, &[], 1, engine_core::Binary64::ZERO)
+            .map(|(rendered, operations)| (super::bits(&rendered), operations)),
         Ok((vec![0_u64; 64], 0)),
         "its own: one block of +0 from silence, without the heap"
     );

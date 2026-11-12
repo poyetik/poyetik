@@ -5,8 +5,7 @@ use std::path::Path;
 
 use super::{
     Before, Blessing, Fingerprints, Record, References, Spent, Told, Versions, bless_problems,
-    blessed, current_fingerprints, fingerprints_of, record_problems, same_rules, spent_problems,
-    spent_skipped,
+    blessed, current_fingerprints, record_problems, same_rules, spent_problems, spent_skipped,
 };
 
 /// What `bless` refuses replacing `old` and `earlier`, every version of `old` spent, as
@@ -93,7 +92,7 @@ fn references(cases: &[(&str, &str)]) -> References {
 
 #[test]
 fn fingerprints_every_registered_box_type_at_its_version() {
-    let now = engine_fpenv::with_default_mode(current_fingerprints).expect("registered box types");
+    let now = engine_fpenv::with_default_mode(current_fingerprints);
     assert_eq!(
         now.keys().map(String::as_str).collect::<Vec<_>>(),
         ["dac~", "osc~"],
@@ -788,26 +787,6 @@ fn refuses_other_bits_than_main_at_a_version_both_records_hold() {
         spent_problems(&resolved, None),
         Vec::<String>::new(),
         "no record on main"
-    );
-}
-
-#[test]
-fn says_why_the_battery_cannot_fingerprint_a_box_type() {
-    /// A range of one value just above 2^-126, whose value away from the default is not in it.
-    const ONE: f32 = f32::from_bits(0x0080_0001);
-    static WRONG: engine_core::ObjectSpec = engine_core::ObjectSpec {
-        name: "wrong~",
-        params: &[engine_core::param!("f", "f", ONE, ONE, ONE)],
-        ..engine_objects::OSC
-    };
-    assert_eq!(
-        engine_fpenv::with_default_mode(|mode| fingerprints_of(&[&WRONG], mode)),
-        Err("parameter \"f\" of box type \"wrong~\": \
-             0.000000000000000000000000000000000000011754943508222875 is outside \
-             [0.000000000000000000000000000000000000011754945, \
-             0.000000000000000000000000000000000000011754945]"
-            .to_owned()),
-        "a value away from the default outside its range, in words"
     );
 }
 

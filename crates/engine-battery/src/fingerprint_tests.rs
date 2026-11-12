@@ -11,7 +11,6 @@ use core::convert::Infallible;
 
 use super::{FINGERPRINT_BATTERY, fingerprint, run_blocks, seeded_signal, splitmix64};
 use crate::inputs::{BLOCKS, param_sets};
-use engine_core::ParamError;
 use sha2::{Digest, Sha256};
 
 const IN: PortSpec = PortSpec {
@@ -28,14 +27,9 @@ const GAIN: ParamSpec = engine_core::param!("gain", "gain", 0.5, 0.0, 1.0);
 /// are none of the engine's.
 type Virtual<S> = Box<dyn Object<S>>;
 
-/// The fingerprint of `spec`, whose parameter sets are its own, through its factory.
-fn print(spec: &ObjectSpec) -> String {
-    fingerprint_of(spec).expect("parameter sets within range")
-}
-
 /// The fingerprint of a copy of `spec`, made a static as a plan's box types are: one small
-/// copy per call, kept for the test process.
-fn fingerprint_of(spec: &ObjectSpec) -> Result<String, ParamError> {
+/// copy per call, kept for the test process, through its factory.
+fn print(spec: &ObjectSpec) -> String {
     fingerprint::<Virtual<Binary64>, Virtual<Binary32>>(Box::leak(Box::new(*spec)))
 }
 
@@ -255,33 +249,28 @@ fn draws_the_seeded_signal_of_splitmix64_from_zero() {
 fn tries_special_parameter_values_only_within_the_range() {
     const POSITIVE: ParamSpec = engine_core::param!("gain", "gain", 2.0, 1.0, 3.0);
     const NEGATIVE: ParamSpec = engine_core::param!("gain", "gain", -2.0, -3.0, -1.0);
-    let bits = |param: &'static ParamSpec| {
-        param_sets(&ObjectSpec {
-            params: core::slice::from_ref(param),
-            ..echo(Quirk::None)
-        })
-        .map(|set| set.iter().map(|value| value.to_bits()).collect::<Vec<_>>())
-    };
+    let bits = |param: &'static ParamSpec| given_sets(core::slice::from_ref(param));
+    let wide = |value: f32| vec![f64::from(value).to_bits()];
     assert_eq!(
         bits(&GAIN),
         [
-            vec![0.0_f32.to_bits()],
-            vec![0.5_f32.to_bits()],
-            vec![0.75_f32.to_bits()],
-            vec![1.0_f32.to_bits()],
-            vec![0x8000_0000],
-            vec![0x0080_0000],
+            wide(0.0_f32),
+            wide(0.5_f32),
+            wide(0.75_f32),
+            wide(1.0_f32),
+            vec![0x8000_0000_0000_0000],
+            vec![0x3810_0000_0000_0000],
         ],
         "[0, 1]: minimum, default, away from the default, maximum, -0.0, 2^-126"
     );
     assert_eq!(
         bits(&POSITIVE)[4..],
-        [vec![2.0_f32.to_bits()], vec![2.0_f32.to_bits()]],
+        [wide(2.0_f32), wide(2.0_f32)],
         "above zero: the default instead"
     );
     assert_eq!(
         bits(&NEGATIVE)[4..],
-        [vec![(-2.0_f32).to_bits()], vec![(-2.0_f32).to_bits()]],
+        [wide(-2.0_f32), wide(-2.0_f32)],
         "below zero: the default instead"
     );
 }
@@ -294,24 +283,61 @@ fn tries_a_value_away_from_the_default() {
     const CENTERED: ParamSpec = engine_core::param!("gain", "gain", 0.5, -1.0, 1.0);
     const ZERO: ParamSpec = engine_core::param!("gain", "gain", 0.0, -1.0, 1.0);
     let away = |param: &'static ParamSpec| {
-        let [_, _, away, ..] = param_sets(&ObjectSpec {
-            params: core::slice::from_ref(param),
-            ..echo(Quirk::None)
-        });
-        away.iter().map(|value| value.to_bits()).collect::<Vec<_>>()
+        let sets: [Vec<u64>; 6] = given_sets(core::slice::from_ref(param))
+            .try_into()
+            .expect("six sets");
+        let [_, _, away, ..] = sets;
+        away
     };
-    assert_eq!(away(&QUARTER), [0.5_f32.to_bits()], "the midpoint");
-    assert_eq!(
-        away(&GAIN),
-        [0.75_f32.to_bits()],
-        "the default is the midpoint"
-    );
-    assert_eq!(away(&CENTERED), [0.0_f32.to_bits()], "midpoint of [-1, 1]");
+    let wide = |value: f64| vec![value.to_bits()];
+    assert_eq!(away(&QUARTER), wide(0.5_f64), "the midpoint");
+    assert_eq!(away(&GAIN), wide(0.75_f64), "the default is the midpoint");
+    assert_eq!(away(&CENTERED), wide(0.0_f64), "midpoint of [-1, 1]");
     assert_eq!(
         away(&ZERO),
-        [0.5_f32.to_bits()],
+        wide(0.5_f64),
         "halfway from the default 0 to the maximum"
     );
+}
+
+#[test]
+fn tries_only_values_of_the_range_just_above_the_smallest_normal() {
+    // Halving bounds a few units of the last place above 2^-126 rounds: the value away from
+    // the default can fall outside such a range, by either of its two forms.
+    const ONE: f32 = f32::from_bits(0x0080_0001);
+    const DEGENERATE: ParamSpec = engine_core::param!("gain", "gain", ONE, ONE, ONE);
+    const NEGATIVE: ParamSpec = engine_core::param!("gain", "gain", -ONE, -ONE, -ONE);
+    const THREE: f32 = f32::from_bits(0x0080_0003);
+    const NARROW: ParamSpec =
+        engine_core::param!("gain", "gain", THREE, f32::from_bits(0x0080_0002), THREE);
+    for (param, default_value) in [(&DEGENERATE, ONE), (&NEGATIVE, -ONE), (&NARROW, THREE)] {
+        let sets = given_sets(core::slice::from_ref(param));
+        for set in &sets {
+            assert_eq!(set.len(), 1, "one value per parameter");
+        }
+        assert_eq!(
+            sets[2],
+            [f64::from(default_value).to_bits()],
+            "{default_value:e}: no other value of the range, its default"
+        );
+    }
+}
+
+/// The bits of every parameter set the battery gives a box of the parameters `params`, as
+/// the box is given them.
+fn given_sets(params: &'static [ParamSpec]) -> Vec<Vec<u64>> {
+    let spec: &'static ObjectSpec = Box::leak(Box::new(ObjectSpec {
+        params,
+        ..echo(Quirk::None)
+    }));
+    param_sets(spec)
+        .iter()
+        .map(|set| {
+            let given = ParamValues::of(spec, &set.params()).expect("a set of the box type");
+            assert!(core::ptr::eq(set.spec(), spec), "of the box type");
+            given.params().iter().map(|value| value.bits()).collect()
+        })
+        .collect()
 }
 
 #[test]
@@ -503,7 +529,7 @@ fn measures_the_instances_of_each_precision() {
     };
     let prints: Vec<String> = [[false, false], [true, false], [false, true], [true, true]]
         .into_iter()
-        .map(|altered| through(altered).expect("parameter sets within range"))
+        .map(through)
         .collect();
     let distinct: alloc::collections::BTreeSet<&String> = prints.iter().collect();
     assert_eq!(
@@ -535,10 +561,16 @@ fn pins_the_inputs_of_the_battery() {
         hasher.update(value.bits().to_le_bytes());
     }
     for spec in [echo(Quirk::None), route::<0>()] {
-        for set in param_sets(&spec) {
-            hasher.update(u64::try_from(set.len()).expect("small").to_le_bytes());
-            for value in set {
-                hasher.update(value.to_bits().to_le_bytes());
+        for set in param_sets(Box::leak(Box::new(spec))) {
+            hasher.update(
+                u64::try_from(set.params().len())
+                    .expect("small")
+                    .to_le_bytes(),
+            );
+            for &value in set.params().iter() {
+                // Each a binary32 value widened exactly: hashed as its binary32 bits.
+                let narrow = u32::try_from(Binary32::from_binary64(value).bits()).expect("32 bits");
+                hasher.update(narrow.to_le_bytes());
             }
         }
     }
@@ -556,28 +588,5 @@ fn pins_the_inputs_of_the_battery() {
     assert_eq!(
         digest, "f3ae291af4c69bc1fc6751206f4817706b7bb1f27b7939af747aa96a4dcabae0",
         "the battery's inputs changed: raise FINGERPRINT_BATTERY and write this digest"
-    );
-}
-
-#[test]
-fn refuses_a_parameter_set_the_box_type_does_not_take() {
-    // A range of one value just above 2^-126: the value away from its default, halfway to
-    // the maximum, is the one below, outside the range, so no fingerprint is computed.
-    const ONE: f32 = f32::from_bits(0x0080_0001);
-    const NARROW: ParamSpec = engine_core::param!("gain", "gain", ONE, ONE, ONE);
-    let wrong = ObjectSpec {
-        params: &[NARROW],
-        ..echo(Quirk::None)
-    };
-    assert_eq!(
-        fingerprint_of(&wrong),
-        Err(ParamError::OutOfRange {
-            kind: "echo~",
-            name: "gain",
-            bits: f64::from(f32::MIN_POSITIVE).to_bits(),
-            minimum: ONE,
-            maximum: ONE,
-        }),
-        "its value away from the default refused"
     );
 }

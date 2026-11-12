@@ -123,24 +123,17 @@ pub fn check_registry(registry: &[&ObjectSpec]) -> Result<(), String> {
 ///
 /// # Errors
 ///
-/// Returns why the parameters are not those of the box type ([`ParamValues::of`]), or why
-/// the heap operations cannot be counted.
+/// Returns why the heap operations cannot be counted.
 fn render<S: LawSample>(
-    spec: &'static ObjectSpec,
+    params: &ParamValues,
     rate: SampleRate,
-    params: &[f32],
     input: &[S],
     blocks: usize,
     entry: S,
 ) -> Result<(Vec<Block<S>>, usize), String> {
-    let values: Vec<Binary64> = params
-        .iter()
-        .map(|&param| Binary64::from_raw(f64::from(param)))
-        .collect();
-    let wide = ParamValues::of(spec, &values).map_err(|error| error.to_string())?;
-    let mut object = <Box<dyn Object<S>> as Dispatch<S>>::create(rate, &wide);
+    let mut object = <Box<dyn Object<S>> as Dispatch<S>>::create(rate, params);
     let mut operations = 0_usize;
-    let rendered = run_blocks(spec, input, blocks, entry, |given, outputs| {
+    let rendered = run_blocks(params.spec(), input, blocks, entry, |given, outputs| {
         let ((), count) = heap_operations_during(|| object.process(given, outputs))?;
         operations = operations.saturating_add(count);
         Ok::<(), String>(())
@@ -157,13 +150,24 @@ fn bits<S: LawSample>(blocks: &[Block<S>]) -> Vec<u64> {
         .collect()
 }
 
+/// The parameter values `params`, as the laws name them: each a binary32 value widened
+/// exactly ([`ParamValues::within`]), so said in binary32.
+fn shown(params: &ParamValues) -> Vec<f32> {
+    params
+        .params()
+        .iter()
+        .map(|&value| <Binary32 as engine_core::Sample>::from_binary64(value).raw())
+        .collect()
+}
+
 /// Checks that rendered blocks are finite and hold no subnormal, and that rendering made
 /// no heap operation (no allocation, reallocation or release).
 fn check_rendered<S: LawSample>(
     rendered: &[Block<S>],
     operations: usize,
-    params: &[f32],
+    params: &ParamValues,
 ) -> Result<(), String> {
+    let params = shown(params);
     if rendered.iter().flatten().any(|sample| !sample.finite()) {
         return Err(format!("non-finite output with parameters {params:?}"));
     }
@@ -201,16 +205,16 @@ fn check_input<S: LawSample>(
 ) -> Result<(), String> {
     let entry = S::from_binary64(Binary64::from_raw(f64::from_bits(ENTRY_BITS)));
     for params in param_sets(spec) {
-        let (first, operations) = render(spec, rate, &params, input, BLOCKS, S::ZERO)?;
-        let (second, _) = render(spec, rate, &params, input, BLOCKS, entry)?;
+        let (first, operations) = render(&params, rate, input, BLOCKS, S::ZERO)?;
+        let (second, _) = render(&params, rate, input, BLOCKS, entry)?;
         if bits(&first) != bits(&second) {
-            let (third, _) = render(spec, rate, &params, input, BLOCKS, S::ZERO)?;
+            let (third, _) = render(&params, rate, input, BLOCKS, S::ZERO)?;
             let cause = if bits(&first) == bits(&third) {
                 "reads its outputs or leaves some of their samples unwritten,"
             } else {
                 "not deterministic"
             };
-            return Err(format!("{cause} with parameters {params:?}"));
+            return Err(format!("{cause} with parameters {:?}", shown(&params)));
         }
         check_rendered(&first, operations, &params)?;
     }
@@ -221,8 +225,7 @@ fn check_input<S: LawSample>(
 /// and without heap operations.
 fn check_long_run<S: LawSample>(spec: &'static ObjectSpec, rate: SampleRate) -> Result<(), String> {
     for params in param_sets(spec) {
-        let (rendered, operations) =
-            render::<S>(spec, rate, &params, &[], LONG_RUN_BLOCKS, S::ZERO)?;
+        let (rendered, operations) = render::<S>(&params, rate, &[], LONG_RUN_BLOCKS, S::ZERO)?;
         check_rendered(&rendered, operations, &params)
             .map_err(|problem| format!("long run: {problem}"))?;
     }

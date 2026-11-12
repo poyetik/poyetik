@@ -859,7 +859,6 @@ fn fingerprint_of(name: &str) -> String {
             .find(|spec| spec.name == name)
             .expect("a registered box type"),
     )
-    .expect("its parameter sets")
 }
 
 /// The record bless writes for the algorithm versions `cases` (a JSON object of each

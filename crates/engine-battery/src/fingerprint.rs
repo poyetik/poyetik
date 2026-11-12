@@ -14,9 +14,7 @@ use core::convert::Infallible;
 use core::fmt::Write as _;
 
 use engine_core::host::Raw;
-use engine_core::{
-    BLOCK_SIZE, Binary32, Binary64, Block, Dispatch, ObjectSpec, ParamError, ParamValues, Precision,
-};
+use engine_core::{BLOCK_SIZE, Binary32, Binary64, Block, Dispatch, ObjectSpec, Precision};
 use sha2::{Digest, Sha256};
 
 use crate::inputs::{BLOCKS, BatterySample, param_sets, special_input};
@@ -57,15 +55,10 @@ pub const FINGERPRINT_BATTERY: u32 = 2;
 /// code the engine runs, not only the box type's factory. `spec` is a static: a plan
 /// calls its box types by the specs of its registry, which `BuiltIn` tells apart by
 /// address.
-///
-/// # Errors
-///
-/// Returns why a parameter set is not one of the box type's ([`ParamValues::of`]): only the
-/// value away from the default can be, in a range of a few binary32 values just above
-/// 2^-126, where halving its bounds rounds out of it.
+#[must_use]
 pub fn fingerprint<I64: Dispatch<Binary64>, I32: Dispatch<Binary32>>(
     spec: &'static ObjectSpec,
-) -> Result<String, ParamError> {
+) -> String {
     let mut hasher = Sha256::new();
     hasher.update(FINGERPRINT_BATTERY.to_le_bytes());
     let length = BLOCKS
@@ -75,34 +68,30 @@ pub fn fingerprint<I64: Dispatch<Binary64>, I32: Dispatch<Binary32>>(
     for precision in PRECISIONS {
         match precision {
             Precision::Binary64 => {
-                battery::<Binary64, I64>(spec, length, &random, &mut hasher)?;
+                battery::<Binary64, I64>(spec, length, &random, &mut hasher);
             }
             Precision::Binary32 => {
-                battery::<Binary32, I32>(spec, length, &random, &mut hasher)?;
+                battery::<Binary32, I32>(spec, length, &random, &mut hasher);
             }
         }
     }
-    Ok(hasher
+    hasher
         .finalize()
         .iter()
         .fold(String::with_capacity(64), |mut text, byte| {
             // Writing to a `String` never fails.
             let _written = write!(text, "{byte:02x}");
             text
-        }))
+        })
 }
 
 /// Hashes every run of the battery computing in `S`, each instance created as `I`.
-///
-/// # Errors
-///
-/// Returns why a parameter set is not one of the box type's.
 fn battery<S: BatterySample, I: Dispatch<S>>(
     spec: &'static ObjectSpec,
     length: usize,
     random: &[f64],
     hasher: &mut Sha256,
-) -> Result<(), ParamError> {
+) {
     let inputs = [
         special_input::<S>(length),
         random
@@ -112,13 +101,8 @@ fn battery<S: BatterySample, I: Dispatch<S>>(
     ];
     for rate in sample_rates() {
         for params in param_sets(spec) {
-            let values: Vec<Binary64> = params
-                .iter()
-                .map(|&param| Binary64::from_raw(f64::from(param)))
-                .collect();
-            let wide = ParamValues::of(spec, &values)?;
             for input in &inputs {
-                let mut object = I::create(rate, &wide);
+                let mut object = I::create(rate, &params);
                 let Ok(rendered) =
                     run_blocks::<S, Infallible>(spec, input, BLOCKS, S::ZERO, |given, outputs| {
                         object.process(given, outputs);
@@ -132,7 +116,6 @@ fn battery<S: BatterySample, I: Dispatch<S>>(
             }
         }
     }
-    Ok(())
 }
 
 /// The outputs of `blocks` blocks of a box of the box type `spec`, outlet by outlet at each
