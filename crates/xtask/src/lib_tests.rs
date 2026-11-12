@@ -6093,7 +6093,7 @@ fn blesses_only_with_the_record_at_the_merge_base() {
     cases.push((
         baseless,
         "error: Bless conformance references: no merge base with origin/main or main to read \
-         the algorithm versions spent from (fetch origin/main, or create main)\n",
+         the algorithm versions spent from (fetch or create one of them)\n",
     ));
     let mut unlisted = blessing();
     unlisted.broken = Some(RECORD_AT_BASE.trim_start_matches("capture ").to_owned());
@@ -6178,7 +6178,7 @@ fn reads_the_versions_spent_at_origin_main_then_main() {
         super::spent_base(&mut neither).map(|_base| ()),
         failed(
             "no merge base with origin/main or main to read the algorithm versions spent from \
-             (fetch origin/main, or create main)\n\
+             (fetch or create one of them)\n\
              `git merge-base HEAD origin/main` exited with code 1: failed\n\
              `git merge-base HEAD main` exited with code 1: failed"
         ),
@@ -6301,7 +6301,7 @@ fn checks_the_conformance_against_the_record_on_main() {
         run_steps(core::slice::from_ref(&step), &mut baseless, &mut Vec::new()).is_err_and(
             |failure| failure.summary
                 == "Conformance (native): no merge base with origin/main or main to read the \
-                    algorithm versions spent from (fetch origin/main, or create main)"
+                    algorithm versions spent from (fetch or create one of them)"
         ),
         "no record on main to compare with: the step fails"
     );
@@ -9671,6 +9671,37 @@ fn aligns_the_usage_in_the_order_of_its_first_line() {
         columns.windows(2).all(|pair| pair[0] == pair[1]),
         "every description starts at the same column: {columns:?}"
     );
+}
+
+#[test]
+fn names_in_the_usage_the_bases_xtask_reads_against() {
+    let words = USAGE.split_whitespace().collect::<Vec<_>>().join(" ");
+    let named = |base: &str| {
+        if base == "@{upstream}" {
+            "the upstream".to_owned()
+        } else {
+            base.to_owned()
+        }
+    };
+    let (last, first) = super::MUTATION_BASES
+        .split_last()
+        .expect("at least one base");
+    let changes = format!(
+        "the merge base with {} or {};",
+        first
+            .iter()
+            .map(|base| named(base))
+            .collect::<Vec<_>>()
+            .join(", "),
+        named(last)
+    );
+    let spent = format!(
+        "at the merge base with {})",
+        super::SPENT_BASES.map(named).join(", else ")
+    );
+    for phrase in [changes, spent] {
+        assert!(words.contains(&phrase), "{phrase}");
+    }
 }
 
 /// The usage error of `check` with other arguments than it takes.
@@ -14196,7 +14227,7 @@ fn reads_the_released_sections_against_main() {
             .starts_with(
                 "One version everywhere, changelog well formed, released sections as on main: \
                  no merge base with origin/main or main to read the released changelog \
-                 sections from (fetch origin/main, or create main)"
+                 sections from (fetch or create one of them)"
             )),
         "no base"
     );

@@ -8982,7 +8982,7 @@ fn main_base(runner: &mut dyn Runner, reading: &str) -> Result<(String, &'static
         runner,
         &SPENT_BASES,
         &format!(
-            "no merge base with {} to read {reading} from (fetch origin/main, or create main)",
+            "no merge base with {} to read {reading} from (fetch or create one of them)",
             SPENT_BASES.join(" or ")
         ),
     )
