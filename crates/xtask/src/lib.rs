@@ -2541,7 +2541,10 @@ pub fn stryker_config_gate(package: &str, config: &str) -> Result<(), Failure> {
 /// A `cfg` that a coverage build sets (`coverage`, and the one of the nightly build) is an
 /// unexpected `cfg` in every other build, which the workspace lints refuse; so is any lifting of
 /// that lint, and any declaration of an expected `cfg` (in a manifest or a build script), are
-/// refused here.
+/// refused here. So is the `cfg` of debug assertions, under which code differs between the
+/// release build of the engine package's WebAssembly and every build the checks lint, cover,
+/// mutate or read the files of ([`rust_hints`] and [`manifest_hints`] add the `cfg` of doc
+/// tests and documentation, and a crate's features).
 fn bypass_tokens() -> Vec<(String, &'static [&'static str])> {
     let rust: &[&str] = &["rs"];
     let rust_or_manifest: &[&str] = &["rs", "toml"];
@@ -2551,6 +2554,7 @@ fn bypass_tokens() -> Vec<(String, &'static [&'static str])> {
         (format!("{}(off)", "coverage"), rust),
         (format!("cfg({}", "coverage"), rust),
         (format!("{}_{}", "coverage", "nightly"), rust),
+        (format!("{}_{}", "debug", "assertions"), rust),
         (format!("{}_{}", "unexpected", "cfgs"), rust_or_manifest),
         (format!("{}-{}", "check", "cfg"), rust_or_manifest),
         (format!(".{}(", "only"), typescript),
@@ -2565,22 +2569,35 @@ fn bypass_tokens() -> Vec<(String, &'static [&'static str])> {
 /// What ignores a Rust test or makes an attribute conditional, as rustc accepts it: an
 /// `ignore` attribute, written with any whitespace or as a raw identifier, and any
 /// conditional attribute (its condition may name the coverage build or Miri, where the
-/// ignored tests run, and it may ignore a test there). Built at run time, like
-/// [`bypass_tokens`]; [`bypass_gate`] seeks them in a whole file, without case or whitespace.
+/// ignored tests run, and it may ignore a test there); and the `cfg` of doc tests and of
+/// documentation as a condition's first, last or middle term (rustc accepts both silently,
+/// and code under them is compiled only by rustdoc, whose builds the checks neither lint nor
+/// cover). Built at run time, like [`bypass_tokens`]; [`bypass_gate`] seeks them in a whole
+/// file, without case or whitespace.
 fn rust_hints() -> Vec<String> {
-    vec![
+    let mut hints = vec![
         format!("#[{}", "ignore"),
         format!("r#{}", "ignore"),
         format!("{}_{}", "cfg", "attr"),
-    ]
+    ];
+    for name in [format!("{}{}", "doc", "test"), "doc".to_owned()] {
+        hints.extend([
+            format!("({name})"),
+            format!("({name},"),
+            format!(",{name})"),
+            format!(",{name},"),
+        ]);
+    }
+    hints
 }
 
 /// What replaces a Cargo target's tests by a program of its own, unseen by cargo metadata:
-/// the `harness` key of a target, in any spelling of its whitespace or case. Built at run
-/// time, like [`bypass_tokens`]; [`bypass_gate`] seeks them in a whole manifest, without case
-/// or whitespace.
+/// the `harness` key of a target, in any spelling of its whitespace or case; and a crate's
+/// features table, since code under a feature off by default is built by no check. Built
+/// at run time, like [`bypass_tokens`]; [`bypass_gate`] seeks them in a whole manifest,
+/// without case or whitespace.
 fn manifest_hints() -> Vec<String> {
-    vec![format!("{}{}", "har", "ness")]
+    vec![format!("{}{}", "har", "ness"), format!("[{}]", "features")]
 }
 
 /// The `cfg` Miri sets: a test that names it can leave the Miri run ([`miri_command`]), so
@@ -3986,8 +4003,8 @@ fn in_crate(path: &str) -> Option<(&'static RustCrate, &str)> {
 /// its modules are written inline. A module a macro of another file declares in it is no
 /// word of it: [`loaded_files_gate`] sees it, from what rustc read for every configuration
 /// the check builds, and refuses a file named as test code that a build without tests
-/// reads; what only Miri's, the coverage's or the release build compiles, it does not see,
-/// and there these word rules are the only guard. No file of a crate, `tests/`
+/// reads; the configurations it does not build are refused at their source (its doc lists
+/// them). No file of a crate, `tests/`
 /// included, holds a `path` attribute (`path_attributes`) but in a test declaration, nor
 /// an attribute a macro names by a variable (`variable_attributes`): a module comes from
 /// the file its name gives, never from another crate's file (whose changes would not widen
@@ -11161,13 +11178,15 @@ fn loaded_files_of_the_workspace(runner: &mut dyn Runner) -> Result<(), Failure>
 /// in a test file), is told by the compiler's own record.
 ///
 /// The record is that of every build of [`loaded_files_commands`]: the host's, the fused
-/// math layer's, and each target's the check builds. **Not seen**: what only a build the
-/// check makes in another configuration reads (Miri's own `cfg`, the coverage
-/// instrumentation's, the release profile's `debug_assertions` off for the engine package's
-/// WebAssembly, a feature: none is declared, an example or a benchmark target: none
-/// exists), and what a doc test loads, a crate rustdoc compiles apart that writes no
-/// dep-info; there the word rules of the test code gate ([`test_code_gate`]) are the only
-/// guard.
+/// math layer's, and each target's the check builds. What only a build the check makes in
+/// another configuration would read is refused at its source: Miri's own `cfg` and the
+/// coverage instrumentation's by [`bypass_gate`] and the compiler (an unexpected `cfg`);
+/// debug assertions off (the release build of the engine package's WebAssembly), the `cfg`
+/// of doc tests and of documentation, and a crate's features by [`bypass_gate`], unless
+/// reviewed in [`BYPASSES_REVIEWED`]; an example or a benchmark target by
+/// [`untested_targets_gate`] ([`TARGET_KINDS`]). **Review only**: what a doc test loads, a
+/// crate rustdoc compiles apart that writes no dep-info (the compiler refuses unsafe code
+/// there: [`DOC_TESTS_FORBID_UNSAFE_CODE`]).
 ///
 /// # Errors
 ///

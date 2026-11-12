@@ -1236,7 +1236,7 @@ fn float_source(float: &str, methods: &[(&str, bool, &str)]) -> String {
     let mut text = format!(
         "//! Floats.\n\npub mod consts {{}}\n\nimpl {float} {{\n    pub const RADIX: u32 = 2;\n\n    float_impl! {{\n        Self = {float},\n    }}\n\n"
     );
-    for (name, stable, doc) in methods {
+    for (name, stable, documented) in methods {
         let attribute = if *stable {
             "#[stable(feature = \"rust1\", since = \"1.0.0\")]"
         } else {
@@ -1244,7 +1244,7 @@ fn float_source(float: &str, methods: &[(&str, bool, &str)]) -> String {
         };
         let _written = writeln!(
             text,
-            "    /// {doc}\n    ///\n    /// ```\n    /// let x = 1.0;\n    /// ```\n    {attribute}\n    #[inline]\n    pub const fn {name}(self) -> {float} {{\n        debug_assert!(true);\n        self\n    }}\n"
+            "    /// {documented}\n    ///\n    /// ```\n    /// let x = 1.0;\n    /// ```\n    {attribute}\n    #[inline]\n    pub const fn {name}(self) -> {float} {{\n        debug_assert!(true);\n        self\n    }}\n"
         );
     }
     text.push_str("}\n\nfn outside() {}\n");
@@ -2731,12 +2731,12 @@ fn shows_cargo_mutants_the_rust_changes_alone() {
 #[test]
 fn tells_a_file_turned_into_a_link_from_a_change_git_left_out() {
     let dir = scratch("type-change");
-    let (doc, hash, linked) = (
+    let (markdown, hash, linked) = (
         "docs/a.md",
         "crates/engine-hash/src/lib.rs",
         "crates/engine-hash/src/b.rs",
     );
-    for path in [doc, hash, linked] {
+    for path in [markdown, hash, linked] {
         std::fs::create_dir_all(dir.join(path).parent().expect("a parent")).expect("its directory");
         std::fs::write(dir.join(path), "a\n").expect("a file");
     }
@@ -2747,7 +2747,7 @@ fn tells_a_file_turned_into_a_link_from_a_change_git_left_out() {
         std::fs::remove_file(dir.join(path)).expect("removed");
         std::os::unix::fs::symlink("elsewhere", dir.join(path)).expect("a link");
     };
-    link(doc);
+    link(markdown);
     std::fs::write(dir.join(hash), "b\n").expect("a change");
     let mut runner = system(dir.path());
     let mutated = |git: &mut SystemRunner| {
@@ -6608,6 +6608,106 @@ fn refuses_every_form_of_a_rust_bypass() {
             check_cfg,
         ),
     ]);
+}
+
+#[test]
+fn refuses_what_only_a_build_no_check_makes_compiles() {
+    let assertions = format!("{}_{}", "debug", "assertions");
+    let doc = "doc";
+    let doc_test = format!("{doc}{}", "test");
+    assert_refused(vec![
+        (
+            "crates/a/src/lib.rs",
+            format!("#[cfg(not({assertions}))]\n"),
+            assertions.clone(),
+        ),
+        (
+            "crates/a/src/lib.rs",
+            format!("if cfg!({assertions}) {{\n"),
+            assertions,
+        ),
+        (
+            "crates/a/src/lib.rs",
+            format!("#[cfg({doc_test})]\n"),
+            format!("({doc_test})"),
+        ),
+        (
+            "crates/a/src/lib.rs",
+            format!("#[cfg(any({doc_test} , unix))]\n"),
+            format!("({doc_test},"),
+        ),
+        (
+            "crates/a/src/lib.rs",
+            format!("#[cfg(any(unix, {doc_test}))]\n"),
+            format!(",{doc_test})"),
+        ),
+        (
+            "crates/a/src/lib.rs",
+            format!("#[cfg(any(unix,\n    {doc_test},\n    windows,\n))]\n"),
+            format!(",{doc_test},"),
+        ),
+        (
+            "crates/a/src/lib.rs",
+            format!("#[cfg(not( {doc} ))]\n"),
+            format!("({doc})"),
+        ),
+        (
+            "crates/a/src/lib.rs",
+            format!("#[cfg(any({doc}, unix))]\n"),
+            format!("({doc},"),
+        ),
+        (
+            "crates/a/src/lib.rs",
+            format!("#[cfg(any(unix, {}))]\n", doc.to_uppercase()),
+            format!(",{doc})"),
+        ),
+        (
+            "crates/a/src/lib.rs",
+            format!("#[cfg(any(unix, {doc}, windows))]\n"),
+            format!(",{doc},"),
+        ),
+    ]);
+    let features = format!("[{}]", "features");
+    for manifest in [
+        format!("{features}\nx = []\n"),
+        format!("[ {} ]\nx = []\n", "features"),
+    ] {
+        assert_eq!(
+            bypass_gate_text(&[("crates/a/Cargo.toml".to_owned(), manifest.clone())], ""),
+            failed(format!(
+                "bypasses of coverage or mutation testing must be reviewed in \
+                 proof-bypasses.txt: not reviewed: crates/a/Cargo.toml: {features} at {}",
+                manifest.lines().next().unwrap_or_default()
+            )),
+            "{manifest}"
+        );
+    }
+    for (path, text) in [
+        (
+            "crates/a/src/lib.rs",
+            format!(
+                "#[{doc}(hidden)]\nfn f() {{ debug_assert!(true); }}\n// the {doc} tests\n\
+                 let {doc}_tested = ({doc}s, x);\n"
+            ),
+        ),
+        (
+            "crates/a/Cargo.toml",
+            format!(
+                "[dependencies]\nx = {{ version = \"1\", {} = [\"a\"] }}\n",
+                "features"
+            ),
+        ),
+        (
+            "crates/a/README.md",
+            format!("#[cfg({doc_test})] {features}\n"),
+        ),
+    ] {
+        assert_eq!(
+            bypass_gate_text(&[(path.to_owned(), text.clone())], ""),
+            Ok(()),
+            "{path}: {text:?} is no bypass"
+        );
+    }
 }
 
 #[test]
@@ -11216,7 +11316,7 @@ fn refuses_test_code_outside_test_files() {
         ("#[cfg_attr(test, derive(Debug))]\nstruct S;\n", 1),
         ("fn f() -> bool { cfg!(test) }\n", 1),
         ("#[cfg(test)]\nmod tests;\n", 1),
-        ("#[cfg(any(test, doc))]\nfn f() {}\n", 1),
+        ("#[cfg(any(test, unix))]\nfn f() {}\n", 1),
     ] {
         assert_eq!(
             gate(&[("crates/engine-core/src/a.rs", text)]),
@@ -16392,9 +16492,9 @@ fn shares_proof_records_between_the_worktrees_of_real_git() {
 fn targets_metadata(targets: &[(&str, &str, bool, bool)]) -> String {
     let targets: Vec<String> = targets
         .iter()
-        .map(|(kind, root, test, doctest)| {
+        .map(|(kind, root, test, doc_tested)| {
             format!(
-                r#"{{"kind":["{kind}"],"src_path":"/r/{root}","test":{test},"doctest":{doctest}}}"#
+                r#"{{"kind":["{kind}"],"src_path":"/r/{root}","test":{test},"doctest":{doc_tested}}}"#
             )
         })
         .collect();
