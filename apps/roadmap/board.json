@@ -648,7 +648,7 @@
           "done": false
         },
         {
-          "title": "Check speed, measured first: a clean before each of the 12 coverage measurements rebuilds the workspace 12 times (one target directory per crate), engine.wasm ships its name section (strip it, after checking that what an engine trap reports, and the browsers' stack traces that name functions from that section, keep what they need), and the hash is updated once per sample (chunk it); the mutation jobs stay half the threads, since a slice of 115 mutants ran as fast with 3 to 6 jobs: measure the knee on a larger slice, with the memory of each job",
+          "title": "Check speed, measured first: a clean before each of the 12 coverage measurements rebuilds the workspace 12 times (one target directory per crate), engine.wasm ships its name section (strip it, after checking that what an engine trap reports, and the browsers' stack traces that name functions from that section, keep what they need), and the hash is updated once per sample (chunk it); the mutation jobs stay half the threads, since a slice of 115 mutants ran as fast with 3 to 6 jobs: measure the knee on a larger slice, with the memory of each job; proc-macro2 optimized in the development profile (the opt-level override measured in crates/xtask/README.md, about 1 s per check), made alone after the block merges, since a profile change widens every default check to every Rust mutant",
           "done": false
         },
         {
@@ -880,7 +880,7 @@
           "done": false
         },
         {
-          "title": "Plan lanes only when a sum needs them: every plan reserves 15 scratch blocks (7,680 bytes in binary64, 3,840 in binary32) whether it sums three or more terms or not. Measured on 2026-11-11 (lanes held as an Option, made only when the plan has such a sum): sum-free plans unchanged per block, but every sum of three or more 2 instructions per block dearer, loading 0.08% to 0.09% dearer and the module 491 bytes larger, so deferred. Decide against a real memory budget once a bare-metal player exists (or with lanes from a host's plan arena), measuring again; a failing test first: a sum-free plan keeps less than 15 blocks",
+          "title": "Plan lanes only when a sum needs them: every plan reserves 15 scratch blocks (7,680 bytes in binary64, 3,840 in binary32) whether it sums three or more terms or not. Measured on 2026-11-11 with the lanes' barrier, removed since (spec/benchmarks.md, \"Lanes only in plans that sum three or more terms\"), so deferred. Decide against a real memory budget once a bare-metal player exists (or with lanes from a host's plan arena), measuring again; a failing test first: a sum-free plan keeps less than 15 blocks",
           "done": false
         },
         {
