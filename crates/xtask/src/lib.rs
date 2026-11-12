@@ -10008,7 +10008,9 @@ pub fn unclean(view: &TreeView) -> Option<String> {
 /// A filter's clean driver rewrites what git reads of the file, so git's status, its diffs
 /// and its index can miss a change the work tree holds, which cargo builds and tests: no
 /// option of git's turns it off. Only `unspecified` and `unset` mean no filter; an answer
-/// that is not one entry per tracked file, in their order, is refused as unread.
+/// that is not one entry per tracked file, in their order, is refused as unread. Git's other
+/// clean-side conversions (`ident`, which collapses `$Id: … $`, and `working-tree-encoding`)
+/// are out of scope: no honest edit writes code inside an `$Id$` keyword.
 #[must_use]
 pub fn filtered(tracked: &str, attributes: &str) -> Option<String> {
     let paths = nul_separated(tracked);
