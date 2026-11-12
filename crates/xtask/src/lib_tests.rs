@@ -2431,7 +2431,7 @@ fn mutates_a_whole_crate_whose_test_data_changed() {
 
 #[test]
 fn mutates_everything_when_what_every_test_uses_changed() {
-    // The fake's git shows no lock file at the base: every crate may build differently.
+    // The fake's git cannot list the lock file at the base: every crate may build differently.
     for path in [
         "Cargo.toml",
         "Cargo.lock",
@@ -2460,8 +2460,9 @@ fn mutates_everything_when_what_every_test_uses_changed() {
         );
         let unnarrowed = if ["Cargo.lock", "Cargo.toml"].contains(&path) {
             format!(
-                " and cannot be narrowed (`git show abc1230000000000000000000000000000000000:{path}` \
-                 exited with code 1: failed)"
+                " and cannot be narrowed (cannot read {path} at the merge base \
+                 abc1230000000000000000000000000000000000: `git ls-tree --name-only \
+                 abc1230000000000000000000000000000000000 -- {path}` exited with code 1: failed)"
             )
         } else {
             String::new()
@@ -15927,10 +15928,11 @@ fn mutates_every_crate_not_proven_whole_when_what_every_test_uses_changed() {
         everything_said,
         format!(
             "▶ [1/2] Rust mutation testing of the changes\n  the changes since {} (merge base \
-             with @{{upstream}})\n  Cargo.lock changed and cannot be narrowed (`git show {}:Cargo.lock` \
-             exited with code 1: failed): every Rust mutant but the crates proven below\n{proven}  done in 1.5 s\n▶ [2/2] Rust unviable mutants reviewed\n  done in \
+             with @{{upstream}})\n  Cargo.lock changed and cannot be narrowed (cannot read Cargo.lock at \
+             the merge base {}: `git ls-tree --name-only {} -- Cargo.lock` exited with code 1: \
+             failed): every Rust mutant but the crates proven below\n{proven}  done in 1.5 s\n▶ [2/2] Rust unviable mutants reviewed\n  done in \
              1.5 s\n✔ all 2 checks passed in 3.0 s\n",
-            PROVEN[2], PROVEN[2]
+            PROVEN[2], PROVEN[2], PROVEN[2]
         ),
         "every crate proven named, the render hash mutated whole"
     );
@@ -16092,15 +16094,19 @@ fn ignores_a_proof_record_when_its_rules_or_shared_inputs_changed() {
         (".cargo/mutants.toml", "the mutation rules", false),
         (
             "Cargo.lock",
-            "and cannot be narrowed (`git show 1111111111111111111111111111111111111111:Cargo.lock` \
-             exited with code 1: failed), what every test depends on",
+            "and cannot be narrowed (cannot read Cargo.lock at the merge base \
+             1111111111111111111111111111111111111111: `git ls-tree --name-only \
+             1111111111111111111111111111111111111111 -- Cargo.lock` exited with code 1: failed), what \
+             every test depends on",
             true,
         ),
         ("rust-toolchain.toml", "what every test depends on", true),
         (
             "Cargo.toml",
-            "and cannot be narrowed (`git show 1111111111111111111111111111111111111111:Cargo.toml` \
-             exited with code 1: failed), what every test depends on",
+            "and cannot be narrowed (cannot read Cargo.toml at the merge base \
+             1111111111111111111111111111111111111111: `git ls-tree --name-only \
+             1111111111111111111111111111111111111111 -- Cargo.toml` exited with code 1: failed), what \
+             every test depends on",
             true,
         ),
     ] {
@@ -17628,6 +17634,13 @@ fn locked_fake(registry: &[Registered<'_>], changes: &str) -> Fake {
     for (key, value) in [
         (format!("capture {}", CHANGES.0), changes.to_owned()),
         (
+            format!(
+                "capture git ls-tree --name-only {} -- Cargo.lock",
+                MERGE_BASE.1.trim()
+            ),
+            "Cargo.lock\n".to_owned(),
+        ),
+        (
             format!("capture git show {}:Cargo.lock", MERGE_BASE.1.trim()),
             lock_text(&LOCKED_WORKSPACE, &LOCKED_REGISTRY),
         ),
@@ -17775,6 +17788,13 @@ fn keeps_the_crates_a_record_proves_that_a_lock_change_does_not_reach() {
     let mut fake = proven_fake(&proof_record(PROVEN[2]), &one_line_change("Cargo.lock"));
     for (key, value) in [
         (
+            format!(
+                "capture git ls-tree --name-only {} -- Cargo.lock",
+                PROVEN[0]
+            ),
+            "Cargo.lock\n".to_owned(),
+        ),
+        (
             format!("capture git show {}:Cargo.lock", PROVEN[0]),
             lock_text(&LOCKED_WORKSPACE, &LOCKED_REGISTRY),
         ),
@@ -17796,6 +17816,13 @@ fn keeps_the_crates_a_record_proves_that_a_lock_change_does_not_reach() {
     let mut reaching = LOCKED_REGISTRY.to_vec();
     reaching[0] = ("libm", "0.2.16", "c9", &[]);
     for (key, value) in [
+        (
+            format!(
+                "capture git ls-tree --name-only {} -- Cargo.lock",
+                PROVEN[0]
+            ),
+            "Cargo.lock\n".to_owned(),
+        ),
         (
             format!("capture git show {}:Cargo.lock", PROVEN[0]),
             lock_text(&LOCKED_WORKSPACE, &LOCKED_REGISTRY),
@@ -18272,9 +18299,34 @@ fn narrows_a_change_of_the_workspace_manifest_real_git_shows() {
         matches!(
             &unrooted,
             super::Reach::Everything { unnarrowed: Some(why), .. }
-                if why.starts_with("`git show 0000000000000000000000000000000000000000:Cargo.toml` exited with code ")
+                if why.starts_with("cannot read Cargo.toml at the merge base 0000000000000000000000000000000000000000: `git ls-tree --name-only 0000000000000000000000000000000000000000 -- Cargo.toml` exited with code ")
         ),
         "a commit git cannot show it at: {unrooted:?}"
+    );
+}
+
+#[test]
+fn says_a_shared_input_the_base_lacks_is_missing_there() {
+    let dir = scratch("missing-at-base");
+    std::fs::write(dir.join("Cargo.toml"), MANIFEST).expect("a manifest");
+    let _init = hermetic_git(&dir, &["init", "--quiet", "--initial-branch=main"]);
+    let _add = hermetic_git(&dir, &["add", "."]);
+    let _commit = hermetic_git(&dir, &["commit", "--quiet", "-m", "base"]);
+    let base = hermetic_git(&dir, &["rev-parse", "HEAD"]);
+    std::fs::write(dir.join("Cargo.lock"), "version = 4\n").expect("a lock file");
+    let builds = super::crate_builds(DECLARING_METADATA).expect("valid metadata");
+    assert_eq!(
+        super::reach(
+            &mut system(dir.path()),
+            base.trim(),
+            ["Cargo.lock"],
+            &builds
+        ),
+        super::Reach::Everything {
+            path: "Cargo.lock".to_owned(),
+            unnarrowed: Some(format!("missing at {}", base.trim())),
+        },
+        "a file the base lacks, said as such"
     );
 }
 
@@ -18288,6 +18340,10 @@ fn mutates_the_crates_a_change_of_the_workspace_manifest_reaches() {
     let manifest_fake = |base: &str, manifest: &str| {
         let mut fake = locked_fake(&LOCKED_REGISTRY, &change);
         for (key, value) in [
+            (
+                format!("capture git ls-tree --name-only {base} -- Cargo.toml"),
+                "Cargo.toml\n".to_owned(),
+            ),
             (
                 format!("capture git show {base}:Cargo.toml"),
                 MANIFEST.to_owned(),
@@ -18335,6 +18391,13 @@ fn mutates_the_crates_a_change_of_the_workspace_manifest_reaches() {
     assert_eq!(lints.files.get(CHANGES_DIFF), None, "nothing mutated");
     let mut record = proven_fake(&proof_record(PROVEN[2]), &change);
     for (key, value) in [
+        (
+            format!(
+                "capture git ls-tree --name-only {} -- Cargo.toml",
+                PROVEN[0]
+            ),
+            "Cargo.toml\n".to_owned(),
+        ),
         (
             format!("capture git show {}:Cargo.toml", PROVEN[0]),
             MANIFEST.to_owned(),

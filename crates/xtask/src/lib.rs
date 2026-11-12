@@ -9307,24 +9307,19 @@ fn lock_widened(before: &str, lock: &str) -> Result<BTreeSet<&'static str>, Stri
     Ok(widened)
 }
 
-/// The file at `path` in the commit `since`, then in the work tree.
+/// The file at `path` in the commit `since` ([`file_at`]), then in the work tree.
 ///
 /// # Errors
 ///
-/// Returns why either cannot be read: git's error (a file missing there included), or the
-/// system's.
+/// Returns why either cannot be read: missing at `since`, git's error, or the system's.
 fn file_changes(
     runner: &mut dyn Runner,
     since: &str,
     path: &str,
 ) -> Result<(String, String), String> {
-    let before = runner
-        .capture(&Cmd::new(
-            "git",
-            &["show", &format!("{since}:{path}")],
-            Dir::Root,
-        ))
-        .map_err(|failure| failure.to_string())?;
+    let before = file_at(runner, since, path)
+        .map_err(|failure| failure.summary)?
+        .ok_or_else(|| format!("missing at {since}"))?;
     let now = runner
         .read(path)
         .map_err(|error| format!("cannot read it: {error}"))?;
