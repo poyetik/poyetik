@@ -120,12 +120,45 @@ pub(crate) fn same_rules(record: &Record) -> bool {
     record.render_hash == SCHEME && record.render_rules == RENDER_RULES_VERSION
 }
 
+/// The box types of `now` whose current version `record` holds no fingerprint of, with
+/// that version: the one test of a new version both `check` and a bless changing the
+/// battery make, so that both choose the same hint.
+fn unrecorded<'now>(
+    record: &'now Record,
+    now: &'now Fingerprints,
+) -> impl Iterator<Item = (&'now str, u32)> {
+    now.iter()
+        .filter(|(name, (version, _))| {
+            !record
+                .fingerprints
+                .get(*name)
+                .is_some_and(|versions| versions.contains_key(version))
+        })
+        .map(|(name, (version, _))| (name.as_str(), *version))
+}
+
+/// What `check` found besides the record: whether a case had a problem, and the cases
+/// whose reference changed under the same algorithm versions, which the last bless of a
+/// battery change blessed alone must name.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Others<'cases> {
+    /// Whether check found a problem of a case.
+    pub(crate) failed: bool,
+    /// The cases whose reference changed under the same algorithm versions.
+    pub(crate) changed: &'cases [String],
+}
+
 /// The problems `check` reports of `record` against the current engine, whose
 /// fingerprints are `now`: another render hash, render rules or battery version, a
-/// fingerprint missing or changed at a recorded version, or one of no box type. `others`
-/// says whether check found a problem of a case: a battery change with it, or with other
-/// render rules or another render hash, is blessed alone first.
-pub(crate) fn record_problems(record: &Record, now: &Fingerprints, others: bool) -> Vec<String> {
+/// fingerprint missing or changed at a recorded version, or one of no box type. A battery
+/// change with a problem of a case (`others`), other render rules, another render hash or
+/// a version the record does not hold ([`unrecorded`]) is blessed alone first, as a bless
+/// changing the battery would refuse ([`battery_apart`]).
+pub(crate) fn record_problems(
+    record: &Record,
+    now: &Fingerprints,
+    others: Others<'_>,
+) -> Vec<String> {
     let mut problems = Vec::new();
     if record.render_hash != SCHEME {
         problems.push(format!(
@@ -161,14 +194,17 @@ pub(crate) fn record_problems(record: &Record, now: &Fingerprints, others: bool)
             }
         }
     } else {
-        let others = others || !same_rules(record);
+        let alone =
+            others.failed || !same_rules(record) || unrecorded(record, now).next().is_some();
         problems.push(format!(
             "{status} the fingerprints were computed with battery {}, the engine's is \
              {FINGERPRINT_BATTERY} ({hint})",
             record.fingerprint_battery,
             status = Status::Battery,
-            hint = if others {
-                Hint::BatteryAlone { changed: &[] }
+            hint = if alone {
+                Hint::BatteryAlone {
+                    changed: others.changed,
+                }
             } else {
                 Hint::Battery
             }
@@ -181,8 +217,9 @@ pub(crate) fn record_problems(record: &Record, now: &Fingerprints, others: bool)
             .filter(|name| !now.contains_key(*name))
             .map(|name| {
                 format!(
-                    "{status} {name}: fingerprint of no box type",
-                    status = Status::Stale
+                    "{status} {name}: fingerprint of no box type ({hint})",
+                    status = Status::Stale,
+                    hint = Hint::Stale
                 )
             }),
     );
@@ -377,24 +414,16 @@ fn reference_problems(before: &Before<'_>, now: &Blessing<'_>, changed: &[String
         if Some(recorded) != now.cases.get(case) || named {
             continue;
         }
-        problems.extend(changed_references(
-            before,
-            (case, hashes),
-            " under the same algorithm versions",
-            Hint::ChangedReference { case },
-        ));
+        problems.extend(changed_references(before, (case, hashes)));
     }
     problems
 }
 
 /// The line of each render format of `case` whose reference, among `hashes`, differs from
-/// the one `before` holds, saying it changed, then `under` (the condition that makes it a
-/// problem), then what to do, `hint`.
+/// the one `before` holds, under the same algorithm versions, with what to do.
 fn changed_references(
     before: &Before<'_>,
     (case, hashes): (&str, &BTreeMap<String, String>),
-    under: &str,
-    hint: Hint<'_>,
 ) -> Vec<String> {
     hashes
         .iter()
@@ -407,65 +436,79 @@ fn changed_references(
         })
         .map(|(format, _)| {
             format!(
-                "{status} {case} {format}: its reference changed{under} ({hint})",
-                status = Status::Changed
+                "{status} {case} {format}: its reference changed under the same algorithm \
+                 versions ({hint})",
+                status = Status::Changed,
+                hint = Hint::ChangedReference { case }
             )
         })
         .collect()
 }
 
-/// What a bless changing the battery refuses besides what every bless refuses: render rules
-/// or a render hash other than the replaced record's, a version it does not record, a
-/// reference changed (at any version), or a new case, each with the procedure that blesses the battery
-/// change alone first, `changed` being the cases named. Under new render rules or a new
-/// render hash every reference may change, so neither may move with the battery; and a
+/// What a bless changing the battery refuses besides what every bless refuses, one line
+/// each: render rules or a render hash other than the replaced record's, a version it does
+/// not record ([`unrecorded`]), a reference changed (at any version) or missing from the
+/// replaced references, or a new case; and the cases whose reference changed under the
+/// same algorithm versions, which the bless after it must name. Under new render rules or a
+/// new render hash every reference may change, so neither may move with the battery; and a
 /// battery change replaces every fingerprint, so the references are the only guard left in
-/// that bless (`spec/engine-design.md`, decision 29).
-fn battery_apart(before: &Before<'_>, now: &Blessing<'_>, changed: &[String]) -> Vec<String> {
+/// that bless, which therefore writes none it does not compare (`spec/engine-design.md`,
+/// decision 29). The procedure that blesses the battery change alone first is said once,
+/// by [`bless_problems`].
+fn battery_apart(before: &Before<'_>, now: &Blessing<'_>) -> (Vec<String>, Vec<String>) {
     let old = before.record;
-    let hint = Hint::BatteryAlone { changed };
     let mut problems = Vec::new();
+    let mut named = Vec::new();
     if old.render_rules != RENDER_RULES_VERSION {
         problems.push(format!(
             "{status} --battery-changed: the render rules changed too, from version {} to \
-             {RENDER_RULES_VERSION} ({hint})",
+             {RENDER_RULES_VERSION}",
             old.render_rules,
             status = Status::Rules
         ));
     }
     if old.render_hash != SCHEME {
         problems.push(format!(
-            "{status} --battery-changed: the render hash changed too, from {} to {SCHEME} \
-             ({hint})",
+            "{status} --battery-changed: the render hash changed too, from {} to {SCHEME}",
             old.render_hash,
             status = Status::Hash
         ));
     }
-    for (name, (version, _)) in now.fingerprints {
-        if !old
-            .fingerprints
-            .get(name)
-            .is_some_and(|versions| versions.contains_key(version))
-        {
-            problems.push(format!(
-                "{status} {name}: version {version} is not recorded ({hint})",
-                status = Status::Version
-            ));
-        }
-    }
+    problems.extend(unrecorded(old, now.fingerprints).map(|(name, version)| {
+        format!(
+            "{status} {name}: version {version} is not recorded",
+            status = Status::Version
+        )
+    }));
     if same_rules(old) {
         for (case, hashes) in now.references {
-            if old.cases.contains_key(case) {
-                problems.extend(changed_references(before, (case, hashes), "", hint));
-            } else {
+            if !old.cases.contains_key(case) {
                 problems.push(format!(
-                    "{status} {case}: a case the record bless replaces does not hold ({hint})",
+                    "{status} {case}: a case the record bless replaces does not hold",
+                    status = Status::Changed
+                ));
+                continue;
+            }
+            let earlier = before.references.get(case);
+            for (format, hash) in hashes {
+                let line = match earlier.and_then(|earlier| earlier.get(format)) {
+                    Some(earlier) if earlier == hash => continue,
+                    Some(_) => {
+                        if old.cases.get(case) == now.cases.get(case) && !named.contains(case) {
+                            named.push(case.clone());
+                        }
+                        "its reference changed"
+                    }
+                    None => "no reference in the references bless replaces",
+                };
+                problems.push(format!(
+                    "{status} {case} {format}: {line}",
                     status = Status::Changed
                 ));
             }
         }
     }
-    problems
+    (problems, named)
 }
 
 /// What `bless` refuses to write in place of `before`, as `told`:
@@ -478,9 +521,10 @@ fn battery_apart(before: &Before<'_>, now: &Blessing<'_>, changed: &[String]) ->
 /// - a reference of a case the replaced record holds no versions of, unless the case is
 ///   named;
 /// - another battery without `--battery-changed`, and with it, an unchanged battery or
-///   what [`battery_apart`] refuses: a battery change is a bless of its own. Without the
-///   option, the battery's line says how to bless it alone first when the option would be
-///   refused too.
+///   what [`battery_apart`] refuses: a battery change is a bless of its own. The battery's
+///   line says how to bless it alone first when the option is refused, or would be: once,
+///   after the lines of what changed with it, its last bless naming the cases of
+///   `--case-changed` and those whose reference changed under the same versions.
 pub(crate) fn bless_problems(
     before: &Before<'_>,
     now: &Blessing<'_>,
@@ -499,31 +543,41 @@ pub(crate) fn bless_problems(
             status = Status::Lower
         ));
     }
-    let apart = battery_apart(before, now, told.changed);
-    let battery_changed = old.fingerprint_battery != FINGERPRINT_BATTERY;
-    match (battery_changed, told.battery_changed) {
-        (true, false) => problems.push(format!(
-            "{status} the fingerprints were computed with battery {}, the engine's is \
-             {FINGERPRINT_BATTERY}, and a battery change blesses no reference and no version \
-             ({hint})",
-            old.fingerprint_battery,
-            status = Status::Battery,
-            hint = if apart.is_empty() {
-                Hint::Battery
-            } else {
-                Hint::BatteryAlone {
-                    changed: told.changed,
+    if old.fingerprint_battery == FINGERPRINT_BATTERY {
+        if told.battery_changed {
+            problems.push(format!(
+                "{status} --battery-changed: the battery is unchanged ({FINGERPRINT_BATTERY}) \
+                 ({hint})",
+                status = Status::Battery,
+                hint = Hint::WithoutBatteryChanged
+            ));
+        }
+    } else {
+        let (apart, also_named) = battery_apart(before, now);
+        let alone = !apart.is_empty();
+        let mut named = told.changed.to_vec();
+        named.extend(
+            also_named
+                .into_iter()
+                .filter(|case| !told.changed.contains(case)),
+        );
+        if told.battery_changed {
+            problems.extend(apart);
+        }
+        if alone || !told.battery_changed {
+            problems.push(format!(
+                "{status} the fingerprints were computed with battery {}, the engine's is \
+                 {FINGERPRINT_BATTERY}, and a battery change blesses no reference and no \
+                 version ({hint})",
+                old.fingerprint_battery,
+                status = Status::Battery,
+                hint = if alone {
+                    Hint::BatteryAlone { changed: &named }
+                } else {
+                    Hint::Battery
                 }
-            }
-        )),
-        (false, true) => problems.push(format!(
-            "{status} --battery-changed: the battery is unchanged ({FINGERPRINT_BATTERY})",
-            status = Status::Battery
-        )),
-        (true, true) | (false, false) => {}
-    }
-    if told.battery_changed {
-        problems.extend(apart);
+            ));
+        }
     }
     for (name, (version, print)) in now.fingerprints {
         let spent = match before.spent {

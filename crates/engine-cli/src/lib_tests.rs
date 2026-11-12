@@ -950,8 +950,8 @@ fn check_command_reports_every_problem() {
              bits changed without a new version)\n\
              MISSING  sine binary64-as-binary32: no reference hash (run `cargo xtask bless`)\n\
              ok       sine binary32 {binary32}\n\
-             STALE    sine binary16: reference of no render format\n\
-             STALE    gone: reference without a case\n",
+             STALE    sine binary16: reference of no render format (run `cargo xtask bless`)\n\
+             STALE    gone: reference without a case (run `cargo xtask bless`)\n",
             sine_hash(RenderFormat::Binary64)
         ),
         "mismatch, missing format, reference of no format and stale case"
@@ -1016,8 +1016,9 @@ fn check_command_refuses_algorithm_versions_other_than_blessed() {
         partial_out,
         format!(
             "{ok}MISSING  sine dac~: no algorithm version (run `cargo xtask bless`)\n\
-             STALE    sine env~: algorithm version of a box type the case does not use\n\
-             STALE    gone: algorithm versions without a case\n"
+             STALE    sine env~: algorithm version of a box type the case does not use (run \
+             `cargo xtask bless`)\n\
+             STALE    gone: algorithm versions without a case (run `cargo xtask bless`)\n"
         ),
         "each named"
     );
@@ -1671,7 +1672,7 @@ fn follow(memory: &mut Memory, steps: &[&str], change: Change) {
 
 /// How a test brings a conformance directory into a state and runs the command that
 /// refuses it: what it returned and printed.
-type Setup = fn(&mut Memory) -> (Result<(), String>, String);
+type Setup = Box<dyn Fn(&mut Memory) -> (Result<(), String>, String)>;
 
 /// How a test makes a step of a hint said in words: a change of the code, which it
 /// emulates on the records ([`edit_records`]), or a review, which changes nothing.
@@ -1738,19 +1739,64 @@ fn version_apart(memory: &mut Memory, step: &str) {
     );
 }
 
-/// The binary32 render of the case changed with the battery.
-fn reference_apart(memory: &mut Memory, step: &str) {
+/// No fingerprint of dac~ at its version: the engine's dac~ at a version no record holds,
+/// which no case fails on, since the case's versions do not move.
+fn without_dac(record: &mut serde_json::Value) {
+    drop(
+        record["fingerprints"]
+            .as_object_mut()
+            .expect("the fingerprints")
+            .remove("dac~"),
+    );
+}
+
+/// The fingerprint of dac~ at its version back.
+fn with_dac(record: &mut serde_json::Value) {
+    record["fingerprints"]["dac~"] = serde_json::json!({ "1": fingerprint_of("dac~") });
+}
+
+/// A version of dac~ the record does not hold, with the battery.
+fn dac_apart(memory: &mut Memory, step: &str) {
     battery_alone(
         memory,
         step,
-        |memory| {
-            drop(memory.files.insert(
-                PathBuf::from("conf/references.json"),
-                committed().files[Path::new("conf/references.json")].clone(),
-            ));
-        },
-        old_binary32,
+        |memory| edit_records(memory, with_dac),
+        |memory| edit_records(memory, without_dac),
     );
+}
+
+/// The references without the binary32 one of the case: a reference lost, in a merge.
+fn no_binary32(memory: &mut Memory) {
+    let mut references: serde_json::Value =
+        serde_json::from_slice(&memory.files[Path::new(REFERENCES)]).expect("references");
+    drop(
+        references["sine"]
+            .as_object_mut()
+            .expect("the references of sine")
+            .remove("binary32"),
+    );
+    drop(memory.files.insert(
+        PathBuf::from(REFERENCES),
+        format!("{references:#}\n").into_bytes(),
+    ));
+}
+
+/// The references back as committed.
+fn restore_references(memory: &mut Memory) {
+    drop(memory.files.insert(
+        PathBuf::from(REFERENCES),
+        committed().files[Path::new(REFERENCES)].clone(),
+    ));
+}
+
+/// The binary32 reference of the case lost with the battery change.
+fn missing_apart(memory: &mut Memory, step: &str) {
+    battery_alone(memory, step, restore_references, no_binary32);
+}
+
+/// The binary32 render of the case changed with the battery.
+fn reference_apart(memory: &mut Memory, step: &str) {
+    battery_alone(memory, step, restore_references, old_binary32);
 }
 
 /// A case added with the battery change.
@@ -1801,6 +1847,8 @@ struct Hinted {
     setup: Setup,
     /// The end of the line that gives the hint, exactly.
     line: String,
+    /// Other lines the command prints, exactly: what a battery change came with.
+    causes: Vec<String>,
     /// The alternative of the hint followed, counted from 0.
     alternative: usize,
     /// How the steps in words are made.
@@ -1820,12 +1868,6 @@ fn with_record(
             .insert(PathBuf::from("conf/algorithms.json"), text),
     );
     run_with(memory, command)
-}
-
-/// The battery and the render rules changed together.
-fn battery_and_rules(memory: &mut Memory) {
-    edit_records(memory, older_battery);
-    edit_records(memory, older_rules);
 }
 
 /// Where the record of the corpus lives.
@@ -1987,6 +2029,16 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
             0,
             no_change,
         )],
+        HintKind::WithoutBatteryChanged => vec![row(
+            "--battery-changed with the battery unchanged",
+            Hint::WithoutBatteryChanged,
+            |memory| xtask_bless(memory, &["--battery-changed"]),
+            "BATTERY  --battery-changed: the battery is unchanged (2) (run `cargo xtask bless` \
+             without it)",
+            0,
+            no_change,
+        )],
+        HintKind::Stale => stale_rows(),
         HintKind::RemoveThenFirstBless => vec![row(
             "a first bless that wrote the references alone",
             Hint::RemoveThenFirstBless {
@@ -2344,6 +2396,73 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
     }
 }
 
+/// `edit` made to the JSON document `path` of `memory`, written as bless writes it.
+fn edit_json(memory: &mut Memory, path: &str, edit: fn(&mut serde_json::Value)) {
+    let text = edited(&memory.files[Path::new(path)], edit);
+    drop(memory.files.insert(PathBuf::from(path), text));
+}
+
+/// A state of check with something stale: what it is, the file edited, the line check
+/// gives without its hint, and the edit.
+type Stale = (
+    &'static str,
+    &'static str,
+    &'static str,
+    fn(&mut serde_json::Value),
+);
+
+/// Every state of check where something is recorded that nothing has, which a bless drops.
+fn stale_rows() -> Vec<Hinted> {
+    let stale: [Stale; 5] = [
+        (
+            "a fingerprint of no box type",
+            RECORD,
+            "STALE    old~: fingerprint of no box type",
+            |record| record["fingerprints"]["old~"] = serde_json::json!({ "1": "0000" }),
+        ),
+        (
+            "a version of a box type the case does not use",
+            RECORD,
+            "STALE    sine old~: algorithm version of a box type the case does not use",
+            |record| record["cases"]["sine"]["old~"] = 1_u32.into(),
+        ),
+        (
+            "versions without a case",
+            RECORD,
+            "STALE    gone: algorithm versions without a case",
+            |record| record["cases"]["gone"] = serde_json::json!({ "osc~": 1_u32 }),
+        ),
+        (
+            "a reference of no render format",
+            REFERENCES,
+            "STALE    sine binary16: reference of no render format",
+            |references| references["sine"]["binary16"] = "0000".into(),
+        ),
+        (
+            "a reference without a case",
+            REFERENCES,
+            "STALE    gone: reference without a case",
+            |references| references["gone"] = serde_json::json!({ "binary64": "0000" }),
+        ),
+    ];
+    stale
+        .into_iter()
+        .map(|(state, path, line, edit)| {
+            row(
+                state,
+                Hint::Stale,
+                move |memory| {
+                    edit_json(memory, path, edit);
+                    xtask(memory, "check", &[])
+                },
+                &format!("{line} (run `cargo xtask bless`)"),
+                0,
+                no_change,
+            )
+        })
+        .collect()
+}
+
 /// The procedure that blesses a battery change alone first: `then`, the end of the hint
 /// after `--battery-changed`'s bless.
 const ALONE: &str = "(bless the battery change alone first: set the other changes aside, then \
@@ -2359,7 +2478,7 @@ fn named_sine() -> &'static [String] {
 fn row(
     state: &'static str,
     hint: Hint<'static>,
-    setup: Setup,
+    setup: impl Fn(&mut Memory) -> (Result<(), String>, String) + 'static,
     line: &str,
     alternative: usize,
     change: Change,
@@ -2367,131 +2486,166 @@ fn row(
     Hinted {
         state,
         hint,
-        setup,
+        setup: Box::new(setup),
         line: line.to_owned(),
+        causes: Vec::new(),
         alternative,
         change,
     }
 }
 
-/// Every state where a battery change comes with another change: check's line of the
-/// battery, bless's without `--battery-changed`, and each refusal of bless with it.
-#[expect(clippy::too_many_lines, reason = "one table, one row per state")]
+/// A change made with a battery change, which no one bless accepts with it.
+struct WithBattery {
+    /// What it is.
+    what: &'static str,
+    /// How it is made, after the battery change.
+    make: fn(&mut Memory),
+    /// How its steps in words are made.
+    apart: Change,
+    /// The line of `bless --battery-changed` that refuses it.
+    cause: &'static str,
+    /// Whether the last bless of the procedure names the case `sine`.
+    named: bool,
+}
+
+/// Every kind of change that can come with a battery change: a new version of a box type
+/// a case uses, of one no case uses, other render rules, another render hash, a reference
+/// changed under the same versions, a reference missing, a new case.
+const WITH_BATTERY: [WithBattery; 7] = [
+    WithBattery {
+        what: "the version of osc~",
+        make: |memory| edit_records(memory, osc_newer),
+        apart: version_apart,
+        cause: "VERSION  osc~: version 1 is not recorded",
+        named: false,
+    },
+    WithBattery {
+        what: "a version of dac~ no case fails on",
+        make: |memory| edit_records(memory, without_dac),
+        apart: dac_apart,
+        cause: "VERSION  dac~: version 1 is not recorded",
+        named: false,
+    },
+    WithBattery {
+        what: "the render rules",
+        make: |memory| edit_records(memory, older_rules),
+        apart: rules_apart,
+        cause: "RULES    --battery-changed: the render rules changed too, from version 0 to 1",
+        named: false,
+    },
+    WithBattery {
+        what: "the render hash",
+        make: |memory| edit_records(memory, older_hash),
+        apart: hash_apart,
+        cause: "HASH     --battery-changed: the render hash changed too, from render-hash/1 to \
+                render-hash/2",
+        named: false,
+    },
+    WithBattery {
+        what: "a render",
+        make: old_binary32,
+        apart: reference_apart,
+        cause: "CHANGED  sine binary32: its reference changed",
+        named: true,
+    },
+    WithBattery {
+        what: "a reference lost",
+        make: no_binary32,
+        apart: missing_apart,
+        cause: "CHANGED  sine binary32: no reference in the references bless replaces",
+        named: false,
+    },
+    WithBattery {
+        what: "a case added",
+        make: add_new_case,
+        apart: case_apart,
+        cause: "CHANGED  new: a case the record bless replaces does not hold",
+        named: false,
+    },
+];
+
+/// Every state where a battery change comes with another change ([`WITH_BATTERY`]), each
+/// at check, at bless and at bless with `--battery-changed`: the line of the battery gives
+/// the procedure once, after the line of the other change under the option.
 fn battery_alone_rows() -> Vec<Hinted> {
-    let alone = Hint::BatteryAlone { changed: &[] };
     let battery = "BATTERY  the fingerprints were computed with battery 1, the engine's is 2";
-    let named = Hint::BatteryAlone {
-        changed: named_sine(),
-    };
-    let rows: [(&str, Hint<'static>, Setup, String, Change); 8] = [
-        (
-            "the battery and the version of osc~ changed, at check",
-            alone,
-            |memory| {
-                edit_records(memory, older_battery);
-                edit_records(memory, osc_newer);
-                xtask(memory, "check", &[])
-            },
-            format!("{battery} {ALONE}"),
-            version_apart,
-        ),
-        (
-            "the battery and the render rules changed, at check",
-            alone,
-            |memory| {
-                battery_and_rules(memory);
-                xtask(memory, "check", &[])
-            },
-            format!("{battery} {ALONE}"),
-            rules_apart,
-        ),
-        (
-            "the battery and the render rules changed, at bless",
-            alone,
-            |memory| {
-                battery_and_rules(memory);
-                xtask_bless(memory, &[])
-            },
-            format!("{battery}, and a battery change blesses no reference and no version {ALONE}"),
-            rules_apart,
-        ),
-        (
-            "the battery and the render rules changed, at bless --battery-changed",
-            alone,
-            |memory| {
-                battery_and_rules(memory);
-                xtask_bless(memory, &["--battery-changed"])
-            },
-            format!(
-                "RULES    --battery-changed: the render rules changed too, from version 0 to 1 \
-                 {ALONE}"
-            ),
-            rules_apart,
-        ),
-        (
-            "the battery and the render hash changed, at bless --battery-changed",
-            alone,
-            |memory| {
-                edit_records(memory, older_battery);
-                edit_records(memory, older_hash);
-                xtask_bless(memory, &["--battery-changed"])
-            },
-            format!(
-                "HASH     --battery-changed: the render hash changed too, from render-hash/1 to \
-                 render-hash/2 {ALONE}"
-            ),
-            hash_apart,
-        ),
-        (
-            "the battery and the version of osc~ changed, at bless --battery-changed",
-            alone,
-            |memory| {
-                edit_records(memory, older_battery);
-                edit_records(memory, osc_newer);
-                xtask_bless(memory, &["--battery-changed"])
-            },
-            format!("VERSION  osc~: version 1 is not recorded {ALONE}"),
-            version_apart,
-        ),
-        (
-            "the battery and a render changed, at bless --battery-changed",
-            named,
-            |memory| {
-                edit_records(memory, older_battery);
-                old_binary32(memory);
-                xtask_bless(memory, &["--battery-changed", "--case-changed", "sine"])
-            },
-            format!(
-                "CHANGED  sine binary32: its reference changed {}",
-                ALONE.replace(
-                    "run `cargo xtask bless`)",
-                    "run `cargo xtask bless --case-changed sine`)"
-                )
-            ),
-            reference_apart,
-        ),
-        (
-            "the battery changed and a case added, at bless --battery-changed",
-            alone,
-            |memory| {
-                edit_records(memory, older_battery);
-                add_new_case(memory);
-                xtask_bless(memory, &["--battery-changed"])
-            },
-            format!("CHANGED  new: a case the record bless replaces does not hold {ALONE}"),
-            case_apart,
-        ),
+    let at_bless = format!("{battery}, and a battery change blesses no reference and no version");
+    let commands: [(&str, &[&str], &str); 3] = [
+        ("check", &[], battery),
+        ("bless", &[], &at_bless),
+        ("bless", &["--battery-changed"], &at_bless),
     ];
-    rows.into_iter()
-        .map(|(state, hint, setup, line, change)| Hinted {
-            state,
-            hint,
-            setup,
-            line,
-            alternative: 0,
-            change,
+    WITH_BATTERY
+        .iter()
+        .flat_map(|with| {
+            commands.map(|(command, options, line)| {
+                let (hint, alone) = if with.named {
+                    (
+                        Hint::BatteryAlone {
+                            changed: named_sine(),
+                        },
+                        ALONE.replace(
+                            "run `cargo xtask bless`)",
+                            "run `cargo xtask bless --case-changed sine`)",
+                        ),
+                    )
+                } else {
+                    (Hint::BatteryAlone { changed: &[] }, ALONE.to_owned())
+                };
+                let make = with.make;
+                Hinted {
+                    state: with.what,
+                    hint,
+                    setup: Box::new(move |memory| {
+                        edit_records(memory, older_battery);
+                        make(memory);
+                        xtask(memory, command, options)
+                    }),
+                    line: format!("{line} {alone}"),
+                    causes: if options.is_empty() {
+                        Vec::new()
+                    } else {
+                        vec![with.cause.to_owned()]
+                    },
+                    alternative: 0,
+                    change: with.apart,
+                }
+            })
         })
         .collect()
+}
+
+#[test]
+fn check_names_once_a_case_whose_references_changed_with_the_battery() {
+    let mut memory = committed();
+    edit_records(&mut memory, older_battery);
+    let references = canonical(&format!(
+        r#"{{"sine":{}}}"#,
+        sine_references()
+            .replace(&sine_hash(RenderFormat::Binary32), "0000")
+            .replace(&sine_hash(RenderFormat::Binary64), "1111")
+    ));
+    drop(
+        memory
+            .files
+            .insert(PathBuf::from(REFERENCES), references.into_bytes()),
+    );
+    let (result, out) = xtask(&mut memory, "check", &[]);
+    assert_eq!(
+        result,
+        Err("conformance failed in conf: 3 problem(s)".to_owned()),
+        "two mismatches and the battery"
+    );
+    assert!(
+        out.ends_with(&format!(
+            "{}\n",
+            ALONE.replace(
+                "run `cargo xtask bless`)",
+                "run `cargo xtask bless --case-changed sine`)"
+            )
+        )),
+        "two references of the case changed, the case named once: {out}"
+    );
 }
 
 /// Every state a command refuses with a hint, for every kind of hint: the line asserted as
@@ -2524,6 +2678,16 @@ fn every_hint_is_followed_from_a_state_that_gives_it() {
                 said.iter().any(|line| line.ends_with(&row.line)),
                 "{state}: {} in {said:?}",
                 row.line
+            );
+            for cause in &row.causes {
+                assert!(said.contains(cause), "{state}: {cause} in {said:?}");
+            }
+            assert!(
+                said.iter()
+                    .filter(|line| line.contains(" first: set the other changes aside"))
+                    .count()
+                    <= 1,
+                "{state}: the procedure said once at most in {said:?}"
             );
             let alternatives = alternatives(&hint);
             follow(&mut memory, &alternatives[row.alternative], row.change);

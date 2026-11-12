@@ -14,7 +14,7 @@ use engine_patch::MAX_PATCH_BYTES;
 use engine_objects::REGISTRY;
 
 use crate::record::{
-    Before, Blessing, Record, References, Spent, Told, Versions, bless_problems, blessed,
+    Before, Blessing, Others, Record, References, Spent, Told, Versions, bless_problems, blessed,
     current_fingerprints, record_problems, same_rules, spent_problems, spent_skipped,
     unknown_cases,
 };
@@ -483,23 +483,37 @@ fn version_problems(
         .filter(|kind| !current.contains_key(*kind))
         .map(|kind| {
             format!(
-                "{status} {name} {kind}: algorithm version of a box type the case does not use",
-                status = Status::Stale
+                "{status} {name} {kind}: algorithm version of a box type the case does not use \
+                 ({hint})",
+                status = Status::Stale,
+                hint = Hint::Stale
             )
         });
     changed.chain(stale).collect()
 }
 
-/// The line `check` prints for `case` in `format`, and whether it passed: its render
-/// against its reference among `references`, `same_versions` saying whether the case's
-/// algorithm versions and render rules are those its references were blessed with.
+/// How the line of `check` for one case in one render format ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Verdict {
+    /// The render is its reference.
+    Passed,
+    /// The render differs from its reference under the algorithm versions and render rules
+    /// it was blessed with: a bless names the case, or a new version comes first.
+    Changed,
+    /// Any other failure.
+    Failed,
+}
+
+/// The line `check` prints for `case` in `format`, and how it ended: its render against
+/// its reference among `references`, `same_versions` saying whether the case's algorithm
+/// versions and render rules are those its references were blessed with.
 fn format_line(
     case: &CaseFiles,
     format: RenderFormat,
     references: Option<&BTreeMap<String, String>>,
     same_versions: bool,
     mode: DefaultMode<'_>,
-) -> (bool, String) {
+) -> (Verdict, String) {
     let name = &case.name;
     match case
         .prepare(format, mode)
@@ -508,11 +522,15 @@ fn format_line(
     {
         Ok(hash) => match references.and_then(|hashes| hashes.get(format.name())) {
             Some(reference) if *reference == hash => (
-                true,
+                Verdict::Passed,
                 format!("{status} {name} {format} {hash}", status = Status::Ok),
             ),
             Some(reference) => (
-                false,
+                if same_versions {
+                    Verdict::Changed
+                } else {
+                    Verdict::Failed
+                },
                 format!(
                     "{status} {name} {format}: expected {reference}, got {hash}{}",
                     if same_versions {
@@ -525,7 +543,7 @@ fn format_line(
                 ),
             ),
             None => (
-                false,
+                Verdict::Failed,
                 format!(
                     "{status} {name} {format}: no reference hash ({hint})",
                     status = Status::Missing,
@@ -534,7 +552,7 @@ fn format_line(
             ),
         },
         Err(reason) => (
-            false,
+            Verdict::Failed,
             format!(
                 "{status} {name} {format}: {reason}",
                 status = Status::Failed
@@ -565,6 +583,7 @@ fn check(
     let blessed = &record.cases;
     let rules = same_rules(&record);
     let mut failures = 0_usize;
+    let mut changed = Vec::new();
     let report = |stdout: &mut dyn Write, count: &mut usize, passed: bool, line: String| {
         if !passed {
             *count = count.saturating_add(1);
@@ -580,8 +599,11 @@ fn check(
         let recorded = blessed.get(name);
         let same_versions = rules && current.is_some() && current.as_ref() == recorded;
         for format in RenderFormat::ALL {
-            let (passed, line) = format_line(case, format, references, same_versions, mode);
-            report(out, &mut failures, passed, line)?;
+            let (verdict, line) = format_line(case, format, references, same_versions, mode);
+            if verdict == Verdict::Changed && !changed.contains(name) {
+                changed.push(name.clone());
+            }
+            report(out, &mut failures, verdict == Verdict::Passed, line)?;
         }
         for unknown in references
             .into_iter()
@@ -593,8 +615,9 @@ fn check(
                 &mut failures,
                 false,
                 format!(
-                    "{status} {name} {unknown}: reference of no render format",
-                    status = Status::Stale
+                    "{status} {name} {unknown}: reference of no render format ({hint})",
+                    status = Status::Stale,
+                    hint = Hint::Stale
                 ),
             )?;
         }
@@ -610,7 +633,11 @@ fn check(
     }
     let base = base.flatten();
     // A problem of a case: a battery change cannot be blessed with it.
-    for line in record_problems(&record, &current_fingerprints(mode), failures > 0)
+    let others = Others {
+        failed: failures > 0,
+        changed: &changed,
+    };
+    for line in record_problems(&record, &current_fingerprints(mode), others)
         .into_iter()
         .chain(spent_problems(&record, base.as_ref()))
     {
@@ -619,33 +646,8 @@ fn check(
     if let Some(line) = spent_skipped(&record, base.as_ref()) {
         report(out, &mut failures, true, line)?;
     }
-    for name in expected
-        .keys()
-        .filter(|name| !cases.iter().any(|case| case.name == **name))
-    {
-        report(
-            out,
-            &mut failures,
-            false,
-            format!(
-                "{status} {name}: reference without a case",
-                status = Status::Stale
-            ),
-        )?;
-    }
-    for name in blessed
-        .keys()
-        .filter(|name| !cases.iter().any(|case| case.name == **name))
-    {
-        report(
-            out,
-            &mut failures,
-            false,
-            format!(
-                "{status} {name}: algorithm versions without a case",
-                status = Status::Stale
-            ),
-        )?;
+    for line in without_a_case(&expected, blessed, &cases) {
+        report(out, &mut failures, false, line)?;
     }
     if failures == 0 {
         Ok(())
@@ -655,6 +657,31 @@ fn check(
             dir.display()
         ))
     }
+}
+
+/// The lines of `check` for what `expected`, the references, and `blessed`, the versions of
+/// the record, hold of no case of `cases`, which a bless drops.
+fn without_a_case(
+    expected: &References,
+    blessed: &BTreeMap<String, Versions>,
+    cases: &[CaseFiles],
+) -> Vec<String> {
+    let stale = |name: &&String| !cases.iter().any(|case| case.name == **name);
+    let references = expected.keys().filter(stale).map(|name| {
+        format!(
+            "{status} {name}: reference without a case ({hint})",
+            status = Status::Stale,
+            hint = Hint::Stale
+        )
+    });
+    let versions = blessed.keys().filter(stale).map(|name| {
+        format!(
+            "{status} {name}: algorithm versions without a case ({hint})",
+            status = Status::Stale,
+            hint = Hint::Stale
+        )
+    });
+    references.chain(versions).collect()
 }
 
 /// The arguments `bless` expects after its command.

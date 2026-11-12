@@ -43,6 +43,8 @@ macro_rules! with_hints {
             FirstBless,
             /// `bless --from-nothing` with both files there.
             WithoutFromNothing,
+            /// `bless --battery-changed` with the battery unchanged.
+            WithoutBatteryChanged,
             /// `bless --from-nothing` that wrote the references and not the record.
             RemoveThenFirstBless {
                 /// The references, written.
@@ -67,6 +69,9 @@ macro_rules! with_hints {
             },
             /// `check`: a file only bless writes, valid, but not as bless writes it.
             Rewrite,
+            /// `check`: something recorded that no case, box type or render format has, which
+            /// a bless drops.
+            Stale,
             /// `bless`: a file it replaces that is not valid.
             RestoreCompared {
                 /// The file.
@@ -85,11 +90,11 @@ macro_rules! with_hints {
             NoFingerprint,
             /// `check`: fingerprints of another battery, and nothing else changed.
             Battery,
-            /// A battery change with another change, which no one bless accepts: `check`'s line of
-            /// the battery, `bless`'s without `--battery-changed`, and each refusal of `bless
-            /// --battery-changed`.
+            /// A battery change with another change, which no one bless accepts: the line of the
+            /// battery of `check` and of `bless`, with or without `--battery-changed`.
             BatteryAlone {
-                /// The cases of `--case-changed` given, which the last bless needs again.
+                /// The cases the last bless names: those of `--case-changed` given, and those
+                /// whose reference changed under the same algorithm versions.
                 changed: &'a [String],
             },
             /// `check`: other bits than the record on `main` at a version spent there.
@@ -169,6 +174,7 @@ impl core::fmt::Display for Hint<'_> {
             | Self::UnversionedBox
             | Self::NoReference
             | Self::Rewrite
+            | Self::Stale
             | Self::Hash
             | Self::Rules
             | Self::NoFingerprint => f.write_str("run `cargo xtask bless`"),
@@ -181,7 +187,9 @@ impl core::fmt::Display for Hint<'_> {
                 file.display()
             ),
             Self::FirstBless => f.write_str("a first bless: `cargo xtask bless --from-nothing`"),
-            Self::WithoutFromNothing => f.write_str("run `cargo xtask bless` without it"),
+            Self::WithoutFromNothing | Self::WithoutBatteryChanged => {
+                f.write_str("run `cargo xtask bless` without it")
+            }
             Self::RemoveThenFirstBless { written } => write!(
                 f,
                 "remove {}, then run `cargo xtask bless --from-nothing`",
