@@ -9020,12 +9020,11 @@ fn rust_test_code(rel: &str) -> bool {
     in_tests_dir(rel) || unit_test_file(rel)
 }
 
-/// Whether `path` names a Rust file: its extension is `rs`, exactly as git's pathspec
-/// `*.rs` matches it.
+/// Whether `path` names a Rust file: it ends with `.rs`, exactly as git's pathspec `*.rs`
+/// matches it (`*` matching any prefix, `/` and the empty string included: `dir/.rs`), in
+/// that case only (`X.RS` is none, as for git).
 fn rust_file(path: &str) -> bool {
-    Path::new(path)
-        .extension()
-        .is_some_and(|extension| extension == "rs")
+    path.as_bytes().ends_with(b".rs")
 }
 
 /// Whether `path` names a unit test file beside its source (`*_tests.rs`): a path relative

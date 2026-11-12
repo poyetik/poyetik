@@ -2696,6 +2696,36 @@ fn reads_the_paths_real_git_changes_whatever_they_hold() {
 }
 
 #[test]
+fn takes_every_file_git_s_rust_pathspec_matches_for_rust() {
+    let dir = scratch("dot-rs");
+    let path = "crates/engine-hash/src/.rs";
+    std::fs::create_dir_all(dir.join("crates/engine-hash/src")).expect("its directory");
+    std::fs::write(dir.join(path), "a\n").expect("a file named `.rs`");
+    let _init = hermetic_git(&dir, &["init", "--quiet", "--initial-branch=main"]);
+    let _add = hermetic_git(&dir, &["add", "."]);
+    let _commit = hermetic_git(&dir, &["commit", "--quiet", "-m", "first"]);
+    std::fs::write(dir.join(path), "b\n").expect("a change");
+    let mut runner = system(dir.path());
+    let changed = super::changed_since(&mut runner, "HEAD").expect("the changes");
+    assert_eq!(
+        super::mutated_diff(
+            &mut runner,
+            &mut Vec::new(),
+            "HEAD",
+            (&changed, &[]),
+            Vec::new(),
+            &[],
+        )
+        .map_err(|failure| failure.summary),
+        Ok(format!(
+            "diff --git a/{path} b/{path}\nindex 7898192..6178079 100644\n--- a/{path}\n+++ \
+             b/{path}\n@@ -1 +1 @@\n-a\n+b\n"
+        )),
+        "`.rs`, which git's `*.rs` matches, is a changed Rust file"
+    );
+}
+
+#[test]
 fn shows_cargo_mutants_the_rust_changes_alone() {
     let dir = scratch("binary-change");
     let (sound, hash) = ("conformance/x.wav", "crates/engine-hash/src/lib.rs");
