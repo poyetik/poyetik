@@ -3167,6 +3167,33 @@ fn starts_git_without_the_variables_that_change_its_pathspecs_and_its_diffs() {
 }
 
 #[test]
+fn reads_the_commits_objects_whatever_a_replace_ref_says() {
+    let dir = scratch("replace-ref");
+    let path = "crates/engine-hash/src/lib.rs";
+    std::fs::create_dir_all(dir.join("crates/engine-hash/src")).expect("its directory");
+    std::fs::write(dir.join(path), "a\n").expect("a file");
+    let _init = hermetic_git(&dir, &["init", "--quiet", "--initial-branch=main"]);
+    let _add = hermetic_git(&dir, &["add", "."]);
+    let _base = hermetic_git(&dir, &["commit", "--quiet", "-m", "base"]);
+    let base = hermetic_git(&dir, &["rev-parse", "HEAD"]);
+    std::fs::write(dir.join(path), "b\n").expect("a change");
+    let _change = hermetic_git(&dir, &["commit", "--quiet", "-am", "change"]);
+    let tree = hermetic_git(&dir, &["rev-parse", "HEAD:"]);
+    let lookalike = hermetic_git(&dir, &["commit-tree", "-m", "lookalike", tree.trim()]);
+    let _replace = hermetic_git(&dir, &["replace", base.trim(), lookalike.trim()]);
+    assert_eq!(
+        hermetic_git(&dir, &["diff", "--name-only", base.trim()]),
+        "",
+        "the replace ref is in force for git"
+    );
+    assert_eq!(
+        super::changed_since(&mut system(dir.path()), base.trim()).expect("the changes"),
+        vec![path.to_owned()],
+        "xtask's git reads the base's own tree"
+    );
+}
+
+#[test]
 fn reads_the_record_real_git_holds_at_a_commit() {
     let dir = scratch("record-at");
     std::fs::create_dir_all(dir.join("conformance/algorithms.json.d")).expect("a directory");

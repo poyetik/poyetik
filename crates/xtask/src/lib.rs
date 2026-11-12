@@ -7863,8 +7863,9 @@ pub const HERMETIC_GIT: [(&str, &str); 4] = [
 ///
 /// They are listed by `git rev-parse --local-env-vars`. A command inheriting them acts on
 /// that repository whatever its working directory, so every command xtask runs is started
-/// without them: its working directory alone says which repository it works on.
-pub const LOCAL_GIT_VARIABLES: [&str; 15] = [
+/// without them: its working directory alone says which repository it works on. The list's
+/// `GIT_NO_REPLACE_OBJECTS` is not among them: xtask sets it for git instead.
+pub const LOCAL_GIT_VARIABLES: [&str; 14] = [
     "GIT_ALTERNATE_OBJECT_DIRECTORIES",
     "GIT_CONFIG",
     "GIT_CONFIG_PARAMETERS",
@@ -7875,7 +7876,6 @@ pub const LOCAL_GIT_VARIABLES: [&str; 15] = [
     "GIT_IMPLICIT_WORK_TREE",
     "GIT_GRAFT_FILE",
     "GIT_INDEX_FILE",
-    "GIT_NO_REPLACE_OBJECTS",
     "GIT_REPLACE_REF_BASE",
     "GIT_PREFIX",
     "GIT_SHALLOW_FILE",
@@ -7908,7 +7908,11 @@ const DIFF_GIT_VARIABLES: [&str; 1] = ["GIT_DIFF_OPTS"];
 /// [`LOCAL_GIT_VARIABLES`], [`PATHSPEC_GIT_VARIABLES`] and [`DIFF_GIT_VARIABLES`], nor
 /// `RUSTUP_TOOLCHAIN`, reading no input
 /// (a command waiting for an answer fails instead of blocking the check), and for git with
-/// `LC_ALL=C` (its messages untranslated, as [`error_reason`] reads them).
+/// `LC_ALL=C` (its messages untranslated, as [`error_reason`] reads them) and
+/// `GIT_NO_REPLACE_OBJECTS=1`: git reads each commit as it is, never a replacement a local
+/// ref gives it, so a replace ref cannot give the merge base or `HEAD` another tree. Other
+/// ways of showing git another history (a grafts file, a shallow boundary edited by hand)
+/// are out of scope: no honest change rewrites the history it is compared with.
 ///
 /// Rustup sets that variable for xtask itself, to the toolchain it chose for it (`cargo
 /// +beta xtask`, `RUSTUP_TOOLCHAIN=stable`): inherited, it would replace the toolchain of
@@ -7921,7 +7925,9 @@ fn command(program: &str, dir: &Path, env: &[(&str, &str)]) -> Command {
         .stdin(Stdio::null())
         .envs(env.iter().copied());
     if program == "git" {
-        let _untranslated = command.env("LC_ALL", "C");
+        let _untranslated = command
+            .env("LC_ALL", "C")
+            .env("GIT_NO_REPLACE_OBJECTS", "1");
     }
     let _pinned = command.env_remove("RUSTUP_TOOLCHAIN");
     for variable in LOCAL_GIT_VARIABLES
