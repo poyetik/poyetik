@@ -269,7 +269,7 @@ const LICENSE_LINES: [&str; 2] = [
 const HISTORY_LINES: [&str; 3] = [
     "git log --format=%x1e%H%x1f%B HEAD",
     "git log --format=%x1e%H --name-only 8182fda87a1c631295548ff52eeb4ea08335fa36..HEAD",
-    "git log --format=%H abb3bb6f37e23ab4addd534ec4bc1fc3aca9477f..HEAD",
+    "git log --format=%H 5f3abfee9e4b5b58cf50972cc3ff04eaf290b687..HEAD",
 ];
 
 /// The threads of the fake's machine: six, so that the jobs of a full check (three) differ
@@ -284,7 +284,7 @@ const CHANGES_MODE: Mode = Mode::Changes { jobs: FAKE_JOBS };
 
 /// What the fake's git answers about its tree and its changes, and its compiler and linker
 /// driver about themselves.
-const GIT_ANSWERS: [(&str, &str); 16] = [
+const GIT_ANSWERS: [(&str, &str); 17] = [
     TREE_STATUS,
     PUSH_STATUS,
     HIDDEN,
@@ -295,6 +295,7 @@ const GIT_ANSWERS: [(&str, &str); 16] = [
     TREE_HEAD,
     MERGE_BASE,
     MAIN_BASE,
+    PINS_LISTED,
     SPENT_LISTED,
     CHANGELOG_LISTED,
     CHANGES,
@@ -4226,7 +4227,7 @@ fn runs_every_step_and_reports_success() {
         Ok(()),
         "all green"
     );
-    let (tools, commands, emptied, listed, captured, written) = (10, 58, 14, 27, 52, 4);
+    let (tools, commands, emptied, listed, captured, written) = (10, 58, 14, 27, 54, 4);
     let read = 9
         + 2
         + 13
@@ -4262,8 +4263,8 @@ fn runs_every_step_and_reports_success() {
          conformance check and export, deny, the JavaScript install, audit, the engine build and five package \
          checks each followed by its Stryker run); fourteen directories are emptied; git lists \
          fourteen kinds of files (the box sources, the text files that cite the roadmap and the npm configuration files among them), the Rust files again for the test code, test data, untested targets, unviable names and loaded files gates, the TypeScript ones again for the reports and scope gates of \
-         each package after the first; the licenses twice and the history three times, the state \
-         of the tree (before, for the proof record and after) six times, the nightly's version and sysroot, the Cargo metadata (for the untested targets, dependency, pin, library and math layer gates), the output of the fused test build and of the nine builds of the loaded files gate, the merge base, the merge base with main twice and the record of the versions spent and the changelog listed there, the changed paths, the changes, the \
+         each package after the first; the licenses twice, the history of main and the history three times, the state \
+         of the tree (before, for the proof record and after) six times, the nightly's version and sysroot, the Cargo metadata (for the untested targets, dependency, pin, library and math layer gates), the output of the fused test build and of the nine builds of the loaded files gate, the merge base, the merge base with main three times and the record of the versions spent and the changelog listed there, the changed paths, the changes, the \
          new Rust files and the list of every mutant once, git's common directory twice, the tree checked out, \
          cargo-mutants' version, rustc's host and build, the linker driver's and git's versions, the status for a push and the hidden files and the tracked files (for their filters) for the mutation step and the proof record; the spent record, the measured base, the diff and the \
          proof record are written once each; the proof record, the measured base and the \
@@ -5608,6 +5609,30 @@ fn bless_benchmarks_counts_and_rewrites_the_baseline() {
 const MAIN_BASE: (&str, &str) = (
     "git merge-base HEAD origin/main",
     "fed4560000000000000000000000000000000000\n",
+);
+
+/// The commits the history gate is pinned to, written out: `SCOPES_SINCE`,
+/// `CHANGELOG_SINCE`, then the one commit of `CI_MARKER_EXEMPT`.
+const PINS: [(&str, &str); 3] = [
+    ("SCOPES_SINCE", "5f3abfee9e4b5b58cf50972cc3ff04eaf290b687"),
+    (
+        "CHANGELOG_SINCE",
+        "8182fda87a1c631295548ff52eeb4ea08335fa36",
+    ),
+    (
+        "CI_MARKER_EXEMPT",
+        "baa21644eeb1ec9354743fe07ef69f21a173f685",
+    ),
+];
+
+/// How the fake lists the history of [`MAIN_BASE`], and what it answers: a commit of its
+/// own, then every pin of [`PINS`].
+const PINS_LISTED: (&str, &str) = (
+    "git log --format=%H fed4560000000000000000000000000000000000",
+    "fed4560000000000000000000000000000000000\n\
+     5f3abfee9e4b5b58cf50972cc3ff04eaf290b687\n\
+     baa21644eeb1ec9354743fe07ef69f21a173f685\n\
+     8182fda87a1c631295548ff52eeb4ea08335fa36\n",
 );
 
 /// How the fake lists the record of the conformance references at the base of the
@@ -8569,6 +8594,170 @@ fn checks_every_message_and_the_changelog_of_every_change() {
         "a record without a message"
     );
     assert_eq!(super::CHANGELOG_SINCE.len(), 40, "a full commit hash");
+}
+
+#[test]
+fn pins_the_history_gate_to_exactly() {
+    assert_eq!(
+        super::history_pins(),
+        PINS.to_vec(),
+        "the scopes' boundary, the changelog's, then each exempt marker"
+    );
+    assert_eq!(
+        super::pins_command("fed456").line(),
+        "git log --format=%H fed456",
+        "the base's history, one full hash per line"
+    );
+}
+
+#[test]
+fn refuses_a_pin_main_does_not_hold() {
+    let base = ("fed4560", "origin/main");
+    let held = "aaaaaaaaaa\nbbbbbbbbbb\ncccccccccc\n";
+    let pins = [
+        ("FIRST", "aaaaaaaaaa"),
+        ("SECOND", "bbbbbbbbbb"),
+        ("THIRD", "cccccccccc"),
+    ];
+    assert_eq!(
+        super::pins_gate(&pins, held, base),
+        Ok(()),
+        "every pin held"
+    );
+    assert_eq!(super::pins_gate(&[], "", base), Ok(()), "no pin");
+    for missing in 0..pins.len() {
+        let mut shown = pins;
+        shown[missing].1 = "dddddddddd";
+        assert_eq!(
+            super::pins_gate(&shown, held, base),
+            failed(format!(
+                "the history gate is pinned to commits main does not hold: {} names \
+                 dddddddddd, which is not in the history of fed4560 (merge base with \
+                 origin/main): pin a commit main holds",
+                pins[missing].0
+            )),
+            "{}: named by its constant",
+            pins[missing].0
+        );
+    }
+    assert_eq!(
+        super::pins_gate(&pins, "aaaaaaaaaa\n", base),
+        found(
+            "the history gate is pinned to commits main does not hold",
+            &[
+                "SECOND names bbbbbbbbbb, which is not in the history of fed4560 (merge base \
+                 with origin/main): pin a commit main holds"
+                    .to_owned(),
+                "THIRD names cccccccccc, which is not in the history of fed4560 (merge base \
+                 with origin/main): pin a commit main holds"
+                    .to_owned()
+            ]
+        ),
+        "every pin missing, each on its line"
+    );
+    assert_eq!(
+        super::pins_gate(
+            &[("FIRST", "aaaaaaaaaa")],
+            "aaaaaaaaaab\nbaaaaaaaaaa\n",
+            base
+        ),
+        failed(
+            "the history gate is pinned to commits main does not hold: FIRST names \
+             aaaaaaaaaa, which is not in the history of fed4560 (merge base with \
+             origin/main): pin a commit main holds"
+        ),
+        "a whole line, never a part of one"
+    );
+}
+
+#[test]
+fn checks_the_pins_in_the_history_of_main() {
+    let mut unpinned = passing();
+    let listed = unpinned.files.insert(
+        format!("capture {}", PINS_LISTED.0),
+        "fed4560000000000000000000000000000000000\n\
+             8182fda87a1c631295548ff52eeb4ea08335fa36\n\
+             baa21644eeb1ec9354743fe07ef69f21a173f685\n"
+            .to_owned(),
+    );
+    assert!(listed.is_some(), "the passing fake lists the pins");
+    assert_eq!(
+        run_steps(&check_steps(CHANGES_MODE), &mut unpinned, &mut Vec::new()),
+        failed(
+            "Commit messages, and a changelog entry for each change of behavior: the history \
+             gate is pinned to commits main does not hold: SCOPES_SINCE names \
+             5f3abfee9e4b5b58cf50972cc3ff04eaf290b687, which is not in the history of \
+             fed4560000000000000000000000000000000000 (merge base with origin/main): pin a \
+             commit main holds"
+        ),
+        "a branch-only pin, refused before the merge rewrites it"
+    );
+    let mut unread = passing();
+    let _removed = unread.files.remove(&format!("capture {}", PINS_LISTED.0));
+    assert_eq!(
+        run_steps(&check_steps(CHANGES_MODE), &mut unread, &mut Vec::new()),
+        failed(
+            "Commit messages, and a changelog entry for each change of behavior: cannot read \
+             the history of origin/main: `git log --format=%H \
+             fed4560000000000000000000000000000000000` exited with code 1: failed"
+        ),
+        "a history git cannot list"
+    );
+}
+
+#[test]
+fn checks_the_pins_git_really_lists() {
+    let repo = scratch("pins");
+    let _init = hermetic_git(&repo, &["init", "--quiet", "--initial-branch=main"]);
+    let commit = |message: &str| {
+        let _commit = hermetic_git(
+            &repo,
+            &["commit", "--quiet", "--allow-empty", "-m", message],
+        );
+        hermetic_git(&repo, &["rev-parse", "HEAD"])
+            .trim()
+            .to_owned()
+    };
+    let on_main = commit("docs: on main");
+    let _branch = hermetic_git(&repo, &["checkout", "--quiet", "-b", "work"]);
+    let rewritten = commit("docs: on the branch");
+    let _amend = hermetic_git(
+        &repo,
+        &[
+            "commit",
+            "--quiet",
+            "--amend",
+            "--allow-empty",
+            "-m",
+            "docs: amended",
+        ],
+    );
+    let only_branch = commit("docs: on the branch only");
+    let mut runner = system(repo.path());
+    let base = runner
+        .capture(&Cmd::new("git", &["merge-base", "HEAD", "main"], Dir::Root))
+        .expect("merge base");
+    let ancestors = runner
+        .capture(&super::pins_command(base.trim()))
+        .expect("git log");
+    let at = (base.trim(), "main");
+    assert_eq!(
+        super::pins_gate(&[("MAIN", &on_main)], &ancestors, at),
+        Ok(()),
+        "a commit of main"
+    );
+    for (name, pin) in [("REWRITTEN", &rewritten), ("BRANCH", &only_branch)] {
+        assert_eq!(
+            super::pins_gate(&[(name, pin)], &ancestors, at),
+            failed(format!(
+                "the history gate is pinned to commits main does not hold: {name} names \
+                 {pin}, which is not in the history of {} (merge base with main): pin a \
+                 commit main holds",
+                base.trim()
+            )),
+            "{name}: its object still exists, but main does not hold it"
+        );
+    }
 }
 
 #[test]

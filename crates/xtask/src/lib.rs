@@ -7408,9 +7408,12 @@ pub fn commit_scopes() -> Vec<&'static str> {
     scopes
 }
 
-/// The last commit whose scope the history gate does not hold to [`commit_scopes`]: the
-/// scopes were free text before it, and the published history is not rewritten.
-pub const SCOPES_SINCE: &str = "abb3bb6f37e23ab4addd534ec4bc1fc3aca9477f";
+/// The last commit whose scope the history gate does not hold to [`commit_scopes`].
+///
+/// The scopes were free text up to it, and the published history is not rewritten. It is
+/// the commit of `main` the branch that brought the rule started from, as every pin of the
+/// history gate is a commit of `main` ([`history_pins`]).
+pub const SCOPES_SINCE: &str = "5f3abfee9e4b5b58cf50972cc3ff04eaf290b687";
 
 /// Longest allowed commit header, in characters.
 pub const COMMIT_HEADER_MAX: usize = 72;
@@ -7534,6 +7537,61 @@ fn conventional(message: &str, registered: bool) -> Result<(), Failure> {
 /// this commit: this commit and 81509cf, before it, added their entries in later commits,
 /// and the history is not rewritten to move them.
 pub const CHANGELOG_SINCE: &str = "8182fda87a1c631295548ff52eeb4ea08335fa36";
+
+/// The commits the history gate is pinned to, each with the constant naming it:
+/// [`SCOPES_SINCE`], [`CHANGELOG_SINCE`], then each of [`CI_MARKER_EXEMPT`].
+///
+/// Each must be a commit of `main` ([`pins_gate`]): the repository merges by rebase, which
+/// rewrites every commit of a branch, so a pin to a commit only a branch holds would name,
+/// after the merge, a commit the history of `main` does not hold.
+#[must_use]
+pub fn history_pins() -> Vec<(&'static str, &'static str)> {
+    [
+        ("SCOPES_SINCE", SCOPES_SINCE),
+        ("CHANGELOG_SINCE", CHANGELOG_SINCE),
+    ]
+    .into_iter()
+    .chain(CI_MARKER_EXEMPT.map(|hash| ("CI_MARKER_EXEMPT", hash)))
+    .collect()
+}
+
+/// Lists the history of `base`, one full hash per line: what [`pins_gate`] reads.
+#[must_use]
+pub fn pins_command(base: &str) -> Cmd {
+    Cmd::new("git", &["log", "--format=%H", base], Dir::Root)
+}
+
+/// Checks that every pin of `pins` (a constant's name, its commit) is a commit of
+/// `ancestors`, the history of `base`, the merge base of `HEAD` with `against`, one of
+/// [`MAIN_BASES`] (the output of [`pins_command`]).
+///
+/// A pin a branch alone holds is refused on that branch, before the rebase merge rewrites
+/// it ([`history_pins`]), and so is a pin no longer in the history at all.
+///
+/// # Errors
+///
+/// Returns one line per pin that is not a commit of `ancestors`, naming its constant.
+pub fn pins_gate(
+    pins: &[(&str, &str)],
+    ancestors: &str,
+    (base, against): (&str, &str),
+) -> Result<(), Failure> {
+    let ancestors: Vec<&str> = ancestors.lines().collect();
+    let problems = pins
+        .iter()
+        .filter(|(_, hash)| !ancestors.contains(hash))
+        .map(|(name, hash)| {
+            format!(
+                "{name} names {hash}, which is not in the history of {base} (merge base \
+                 with {against}): pin a commit main holds"
+            )
+        })
+        .collect();
+    verdict(
+        "the history gate is pinned to commits main does not hold",
+        problems,
+    )
+}
 
 /// The three history listings the history gate reads.
 ///
@@ -8186,8 +8244,14 @@ fn is_deletion(object: &str) -> bool {
     [40, 64].contains(&object.len()) && object.bytes().all(|byte| byte == b'0')
 }
 
-/// Reads the history, then checks it.
+/// Reads the history of `main` and checks the gate's pins in it ([`pins_gate`]), then
+/// reads the history of `HEAD` and checks it.
 fn history(runner: &mut dyn Runner) -> Result<(), Failure> {
+    let (base, against) = main_base(runner, "the commits the history gate is pinned to")?;
+    let ancestors = runner.capture(&pins_command(&base)).map_err(|failure| {
+        Failure::from(format!("cannot read the history of {against}: {failure}"))
+    })?;
+    pins_gate(&history_pins(), &ancestors, (&base, against))?;
     let [messages, files, scoped] = history_commands(CHANGELOG_SINCE, SCOPES_SINCE).map(|cmd| {
         runner
             .capture(&cmd)
