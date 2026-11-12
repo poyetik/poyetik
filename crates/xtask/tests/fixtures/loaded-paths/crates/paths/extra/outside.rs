@@ -1,0 +1,1 @@
+//! Read from outside `src/`.

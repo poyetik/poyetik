@@ -1,0 +1,6 @@
+# A workspace of its own, outside the project's: xtask's tests build it with real cargo and
+# read the files rustc loaded for each build, among them files `path` attributes load from
+# outside a crate's `src/`, from another crate, and a Rust file of the declared test data.
+[workspace]
+members = ["crates/paths"]
+resolver = "3"

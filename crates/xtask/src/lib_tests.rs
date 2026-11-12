@@ -10249,104 +10249,6 @@ fn reads_the_lint_forbids_as_no_test_code() {
 }
 
 #[test]
-fn refuses_a_path_attribute_outside_a_test_declaration() {
-    let gate = |sources: &[(&str, &str)]| {
-        let owned: Vec<(String, String)> = sources
-            .iter()
-            .map(|(path, text)| ((*path).to_owned(), (*text).to_owned()))
-            .collect();
-        test_code_gate(&owned)
-    };
-    for (path, text, line) in [
-        (
-            "crates/engine-fpenv/src/word.rs",
-            "#[path = \"x.inc\"]\nmod x;\n",
-            1_usize,
-        ),
-        (
-            "crates/engine-cli/tests/binary.rs",
-            "//! Tests.\n#[path = \"../../engine-core/src/h.rs\"]\nmod h;\n",
-            2,
-        ),
-        (
-            "crates/engine-cli/src/cli.rs",
-            "#[cfg_attr(all(), path = \"../../engine-core/src/h.rs\")]\nmod h;\n",
-            1,
-        ),
-        (
-            "crates/engine-cli/src/cli.rs",
-            "#[cfg_attr(path = \"h.rs\")]\nmod h;\n",
-            1,
-        ),
-        ("crates/engine-core/src/plan.rs", "#![path = \"h.rs\"]\n", 1),
-        (
-            "crates/engine-core/src/plan.rs",
-            "# [\n  path\n = \"h.rs\"]\nmod h;\n",
-            2,
-        ),
-        (
-            "crates/engine-fpenv/src/word.rs",
-            "#[path/**/= \"body.inc\"]\nmod body;\n",
-            1,
-        ),
-        (
-            "crates/engine-fpenv/src/word.rs",
-            "/* /* */ \"*/\n#[path = \"body.inc\"]\nmod body;\n// \"\n",
-            2,
-        ),
-        (
-            "crates/engine-cli/src/cli.rs",
-            "#[cfg_attr(all(), path /* a */ = \"h.inc\")]\nmod h;\n",
-            1,
-        ),
-        (
-            "crates/engine-core/src/plan.rs",
-            "#[cfg(test)]\n#[path = \"plan_tests.rs\"]\nmod tests; #[path = \"h.rs\"] mod h;\n",
-            3,
-        ),
-        // Read as an attribute's name before a value: any `=` but `==` and `=>`.
-        (
-            "crates/engine-cli/src/cli.rs",
-            "fn f(r: &mut u8) { g(path =*r); }\n",
-            1,
-        ),
-    ] {
-        assert_eq!(
-            gate(&[(path, text)]),
-            failed(format!(
-                "{path}:{line}: holds a `path` attribute outside a test declaration, \
-                 which loads a file no rule tells by its path: code is brought in by `mod` from \
-                 the file its name gives"
-            )),
-            "{path}: {text}"
-        );
-    }
-    let declared = "#[cfg(test)]\n#[path = \"plan_tests.rs\"]\nmod tests;\n";
-    assert_eq!(
-        gate(&[
-            ("crates/engine-core/src/plan.rs", declared),
-            ("crates/engine-core/src/plan_tests.rs", "fn t() {}\n"),
-            (
-                "crates/engine-cli/src/cli.rs",
-                "macro_rules! m {\n    ($a:ident, $b:expr) => { v[$a] = $b; f($b) };\n}\nfn g() { match x { path => 1 }; let _ = (path == path); }\n",
-            ),
-            (
-                "crates/engine-cli/tests/binary.rs",
-                "fn f(path: &str) {\n    let path = path;\n    g(path, path.len());\n    \
-                 let _ = [path];\n    h(path == path, (path >= path));\n}\n// #[path = \"h.rs\"]\nconst A: &str = \"#[path = \\\"h.rs\\\"]\";\n"
-            ),
-        ]),
-        Ok(()),
-        "the test declaration, `path` as a name, and in prose and strings"
-    );
-    assert_eq!(
-        gate(&[("tools/x/src/lib.rs", "#[path = \"h.rs\"]\nmod h;\n")]),
-        Ok(()),
-        "a file of no crate of the workspace"
-    );
-}
-
-#[test]
 fn reads_the_files_a_dep_info_file_lists() {
     let text = "/t/deps/x-1.d: a/src/lib.rs a/src/my\\ file.rs ../../spec/v.json\n\n/t/deps/x-1: a/src/lib.rs a/src/my\\ file.rs ../../spec/v.json\n\na/src/lib.rs:\na/src/my\\ file.rs:\n../../spec/v.json:\n\n# env-dep:CARGO_MANIFEST_DIR=/r/a\n# checksum:x\n";
     assert_eq!(
@@ -10890,6 +10792,58 @@ fn reads_the_files_real_rustc_loads_for_each_build() {
     );
 }
 
+/// The crate of the loaded-paths fixture, whose tests declare `data/` as their test data.
+const PATHS_FIXTURE_CRATE: RustCrate = RustCrate {
+    name: "paths",
+    dir: "crates/paths",
+    binary: false,
+    test_data: &["data/"],
+    roles: &[],
+};
+
+#[test]
+fn refuses_what_path_attributes_load_from_outside_src() {
+    let target = scratch("loaded-paths");
+    let [check, test, _] = loaded_fixture_commands(&target.display().to_string());
+    let loaded = super::loaded_files(
+        &mut system(fixture("loaded-paths")),
+        &[check, test],
+        &[PATHS_FIXTURE_CRATE],
+    )
+    .expect("built and read");
+    let tracked = [
+        "crates/paths/src/lib.rs",
+        "crates/paths/src/lib_tests.rs",
+        "crates/paths/extra/outside.rs",
+        "crates/other/src/lib.rs",
+        "data/case.rs",
+    ]
+    .map(str::to_owned);
+    let (build, test_build) = (
+        "the build of `paths` (paths)",
+        "the test build of `paths` (paths)",
+    );
+    assert_eq!(
+        super::loaded_files_gate(&loaded, &tracked).map_err(|failure| failure.details),
+        Err(vec![
+            format!(
+                "crates/paths/extra/outside.rs: read by {build}, which builds no tests, \
+                 outside its crate's src/: the gates that read code by its path read src/"
+            ),
+            format!("crates/other/src/lib.rs: read by {build}, outside its crate"),
+            format!(
+                "crates/other/src/lib.rs: read by {test_build}, outside its crate and its \
+                 declared test data"
+            ),
+            format!(
+                "data/case.rs: read by {test_build}, a Rust file of its declared test data: \
+                 code comes from its crate alone"
+            ),
+        ]),
+        "a module outside src/, another crate's file, a Rust file of the test data"
+    );
+}
+
 /// What a cargo command builds: the subcommand, the target (none for the host's), the
 /// `--config` and `--target-dir` given, and the packages (`--workspace` as `*`).
 type Built = (String, [Option<String>; 3], Vec<String>);
@@ -11221,44 +11175,6 @@ fn reads_a_raw_identifier_as_its_name() {
 }
 
 #[test]
-fn refuses_an_attribute_a_macro_variable_names() {
-    let gate = |path: &str, text: &str| test_code_gate(&[(path.to_owned(), text.to_owned())]);
-    for (path, text, line) in [
-        (
-            "crates/engine-fpenv/src/lib.rs",
-            "macro_rules! load {\n    ($a:ident) => { #[$a = \"body.inc\"] mod body; };\n}\nload!(path);\n",
-            2_usize,
-        ),
-        (
-            "crates/engine-fpenv/src/lib.rs",
-            "macro_rules! load {\n    ($m:meta) => { #[$m] mod body; };\n}\n",
-            2,
-        ),
-        (
-            "crates/engine-cli/tests/binary.rs",
-            "macro_rules! load {\n    ($m:meta) => { #![$m] };\n}\n",
-            2,
-        ),
-        (
-            "crates/engine-cli/src/cli.rs",
-            "macro_rules! load {\n    ($a:ident) => { #[cfg_attr(all(), $a = \"h.inc\")] mod h; };\n}\n",
-            2,
-        ),
-    ] {
-        let found = gate(path, text);
-        assert!(
-            found.as_ref().is_err_and(|failure| {
-                failure.summary.contains(&format!(
-                "{path}:{line}: names an attribute by a macro variable (`#[$…]`, `$<name> = …`), \
-                 which could be `path`: an attribute is written by its name"
-            ))
-            }),
-            "{text}: {found:?}"
-        );
-    }
-}
-
-#[test]
 fn refuses_a_test_file_that_loads_another() {
     let gate = |sources: &[(&str, &str)]| {
         let owned: Vec<(String, String)> = sources
@@ -11269,9 +11185,9 @@ fn refuses_a_test_file_that_loads_another() {
     };
     let declared = "#[cfg(test)]\n#[path = \"plan_tests.rs\"]\nmod tests;\n";
     let inline = "the modules of a *_tests.rs file are inline";
-    let (bodyless, path) = (
+    let (bodyless, includes) = (
         "declares a module without a body, loaded from another file",
-        "holds a `#[path]` attribute, which loads another file",
+        "names `include`, which loads another file",
     );
     let loads = |what: &str, line: usize| {
         format!(
@@ -11285,11 +11201,11 @@ fn refuses_a_test_file_that_loads_another() {
         ("pub(crate) mod  helper ;\n", loads(bodyless, 1)),
         ("mod helper /* a comment */ ;\n", loads(bodyless, 1)),
         (
-            "mod helper;\n#[path = \"h.rs\"]\nmod h {}\n",
+            "include!(\"h.rs\");\nmod helper;\n",
             format!(
                 "2 problems, listed above\n{}\n{}",
-                loads(bodyless, 1),
-                loads(path, 2)
+                loads(includes, 1),
+                loads(bodyless, 2)
             ),
         ),
         (
@@ -11299,30 +11215,7 @@ fn refuses_a_test_file_that_loads_another() {
         ("/* /* */ \"*/\nmod helper;\n// \"\n", loads(bodyless, 2)),
         (
             "/* /* */ \"*/\ninclude!(\"h.rs\");\n// \"\n",
-            loads("names `include`, which loads another file", 2),
-        ),
-        ("#[path = \"h.rs\"]\nmod h {}\n", loads(path, 1)),
-        ("# [\n  path = \"h.rs\"]\nmod h {}\n", loads(path, 2)),
-        ("#![path = \"h.rs\"]\n", loads(path, 1)),
-        (
-            "#[cfg_attr(test, path = \"h.rs\")]\nmod h {}\n",
-            loads(path, 1),
-        ),
-        ("#[path/**/= \"h.rs\"]\nmod h {}\n", loads(path, 1)),
-        (
-            "/* /* */ \"*/\n#[path = \"h.rs\"]\nmod h {}\n// \"\n",
-            loads(path, 2),
-        ),
-        (
-            "macro_rules! load {\n    ($m:meta) => { #[$m] mod h {} };\n}\n",
-            "crates/engine-core/src/plan_tests.rs:2: names an attribute by a macro variable \
-             (`#[$…]`, `$<name> = …`), which could be `path`: an attribute is written by its \
-             name"
-                .to_owned(),
-        ),
-        (
-            "include!(\"h.rs\");\n",
-            loads("names `include`, which loads another file", 1),
+            loads(includes, 2),
         ),
     ] {
         assert_eq!(
@@ -11339,11 +11232,12 @@ fn refuses_a_test_file_that_loads_another() {
             ("crates/engine-core/src/plan.rs", declared),
             (
                 "crates/engine-core/src/plan_tests.rs",
-                "mod inner {\n    #[test]\n    fn t() { let path = include_str!(\"x.json\"); }\n}\n// mod helper;\nconst M: &str = \"mod helper;\";\nfn f(path: &str) -> &str { path }\n#[derive(Debug)] struct S;\n",
+                "mod inner {\n    #[test]\n    fn t() { let path = include_str!(\"x.json\"); }\n}\n// mod helper;\nconst M: &str = \"mod helper;\";\nfn f(path: &str) -> &str { path }\n#[derive(Debug)] struct S;\n#[path = \"h.rs\"]\nmod h {}\n",
             ),
         ]),
         Ok(()),
-        "{inline}; a word `path`, a module in prose and test data are no loading"
+        "{inline}; a word `path`, a module in prose and test data are no loading; what a \
+         `path` attribute loads is the loaded-files gate's"
     );
 }
 
@@ -12452,22 +12346,7 @@ fn reads_every_source_of_box_and_engine_code() {
     let boxes = "crates/engine-objects/src/a.rs";
     for (text, line, word) in [
         ("fn f() {}\ninclude!(\"../../x.rs\");\n", 2, "include"),
-        ("#[path = \"other.rs\"]\nmod other;\n", 1, "path"),
-        (
-            "#[cfg_attr(test, path = \"a_tests.rs\")]\nmod tests;\n",
-            1,
-            "path",
-        ),
-        (
-            "#[cfg(not(test))]\n#[path = \"a_tests.rs\"]\nmod tests;\n",
-            2,
-            "path",
-        ),
-        (
-            "#[cfg(test)]\n#[path = \"../x/a_tests.rs\"]\nmod tests;\n",
-            2,
-            "path",
-        ),
+        ("include!(\"../../x.rs\");\n", 1, "include"),
     ] {
         assert_eq!(
             gate(none, &[(boxes, text)]),
@@ -12511,47 +12390,6 @@ fn reads_every_source_of_box_and_engine_code() {
             );
         }
     }
-}
-
-#[test]
-fn refuses_in_box_code_a_path_attribute_however_it_is_written() {
-    let boxes = "crates/engine-objects/src/a.rs";
-    for (text, line, word) in [
-        ("#[path/**/= \"other.inc\"]\nmod other;\n", 1_usize, "path"),
-        (
-            "/* /* */ \"*/\n#[path = \"other.inc\"]\nmod other;\n// \"\n",
-            2,
-            "path",
-        ),
-        (
-            "#[cfg(test)]\n#[path = \"a_tests.rs\"]\nmod tests; #[path = \"b.rs\"] mod b;\n",
-            3,
-            "path",
-        ),
-    ] {
-        assert_eq!(
-            math_layer_gate(r#"{"packages":[]}"#, &[(boxes.to_owned(), text.to_owned())]),
-            failed(format!(
-                "{MATH_LAYER}: {boxes}:{line}: names `{word}` outside a test declaration: code \
-                 comes into these crates by `mod` alone, from files the gate reads"
-            )),
-            "{text}"
-        );
-    }
-    assert_eq!(
-        math_layer_gate(
-            r#"{"packages":[]}"#,
-            &[(
-                boxes.to_owned(),
-                "macro_rules! load {\n    ($m:meta) => { #[$m] mod body; };\n}\n".to_owned()
-            )]
-        ),
-        failed(format!(
-            "{MATH_LAYER}: {boxes}:2: names an attribute by a macro variable (`#[$…]`, \
-             `$<name> = …`), which could be `path`: an attribute is written by its name"
-        )),
-        "an attribute a macro variable names"
-    );
 }
 
 #[test]

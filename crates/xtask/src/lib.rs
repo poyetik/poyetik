@@ -3999,16 +3999,14 @@ fn in_crate(path: &str) -> Option<(&'static RustCrate, &str)> {
 /// `cfg_attr(test, …)`, `cfg!(test)`, `mod test`…) appears only in a test declaration or in
 /// a leading inner attribute of [`NOT_TEST_ATTRIBUTES`], and `include` (`include!`, which brings
 /// in code no gate reads by its path) nowhere. A `*_tests.rs` file brings in no other file
-/// (a module without a body, `#[path]`, `include!`), which no rule would tell as test code:
-/// its modules are written inline. A module a macro of another file declares in it is no
-/// word of it: [`loaded_files_gate`] sees it, from what rustc read for every configuration
-/// the check builds, and refuses a file named as test code that a build without tests
-/// reads; the configurations it does not build are refused at their source (its doc lists
-/// them). No file of a crate, `tests/`
-/// included, holds a `path` attribute (`path_attributes`) but in a test declaration, nor
-/// an attribute a macro names by a variable (`variable_attributes`): a module comes from
-/// the file its name gives, never from another crate's file (whose changes would not widen
-/// this crate) nor from a file that is not `.rs` (which no gate reads). **Review only**: what
+/// (a module without a body, `include!`), which no rule would tell as test code: its
+/// modules are written inline. What a `path` attribute or a macro of another file loads is
+/// no word of a file: [`loaded_files_gate`] sees it, from what rustc read for every
+/// configuration the check builds, and refuses a file outside its crate (whose changes
+/// would not widen this crate), one that is not `.rs` (which no gate reads), one named as
+/// test code that a build without tests reads, and one only tests read not named as test
+/// code; the configurations it does not build are refused at their source (its doc lists
+/// them). **Review only**: what
 /// a doc test loads (`include!`, `#[path]`, `include_str!` in a code block of a doc
 /// comment), which is prose to every gate and which no build the loaded-files gate reads
 /// compiles; the compiler refuses unsafe code there ([`DOC_TESTS_FORBID_UNSAFE_CODE`]).
@@ -4016,34 +4014,10 @@ fn in_crate(path: &str) -> Option<(&'static RustCrate, &str)> {
 /// # Errors
 ///
 /// Returns every other `test` or `include` with its file and line, every file a
-/// `*_tests.rs` file would load, every other `path` attribute, and every `*_tests.rs` file
-/// declared other than once.
+/// `*_tests.rs` file would load, and every `*_tests.rs` file declared other than once.
 pub fn test_code_gate(sources: &[RustSource]) -> Result<(), Failure> {
     let mut problems = Vec::new();
     let mut declared: BTreeMap<String, usize> = BTreeMap::new();
-    let loose_path = |path: &str, line: usize| {
-        format!(
-            "{path}:{line}: holds a `path` attribute outside a test declaration, which loads a \
-             file no rule tells by its path: code is brought in by `mod` from the file its \
-             name gives"
-        )
-    };
-    let in_tests = sources.iter().filter(|source| {
-        in_crate(&source.path).is_some_and(|(_, relative)| in_tests_dir(relative))
-    });
-    for source in in_tests {
-        problems.extend(
-            path_attributes(source)
-                .into_iter()
-                .filter_map(|at| source.tokens.get(at))
-                .map(|name| loose_path(&source.path, name.line)),
-        );
-        problems.extend(
-            variable_attributes(source)
-                .into_iter()
-                .map(|line| variable_attribute(&source.path, line)),
-        );
-    }
     let crate_sources = sources.iter().filter(|source| {
         in_crate(&source.path).is_some_and(|(_, relative)| !in_tests_dir(relative))
     });
@@ -4054,18 +4028,6 @@ pub fn test_code_gate(sources: &[RustSource]) -> Result<(), Failure> {
             continue;
         }
         let declarations = test_declarations(source);
-        problems.extend(
-            path_attributes(source)
-                .into_iter()
-                .filter(|at| !declarations.iter().any(|found| found.tokens.contains(at)))
-                .filter_map(|at| source.tokens.get(at))
-                .map(|name| loose_path(path, name.line)),
-        );
-        problems.extend(
-            variable_attributes(source)
-                .into_iter()
-                .map(|line| variable_attribute(path, line)),
-        );
         let exempt: Vec<core::ops::Range<usize>> = declarations
             .iter()
             .map(|declaration| declaration.tokens.clone())
@@ -4110,115 +4072,15 @@ pub fn test_code_gate(sources: &[RustSource]) -> Result<(), Failure> {
     step_verdict(problems)
 }
 
-/// The tokens of `source` that name a `path` attribute, which makes rustc load a module from
-/// the file it names, by their index: the identifier `path` (raw or not) right after `[`,
-/// `(` or `,` and right before a `=` that does not open `==` or `=>` (`#[path = …]`,
-/// `#![path = …]`, and a conditional attribute's `(<condition>, path = …)`), comments
-/// anywhere between.
-///
-/// The one rule of the gates that tell code by its path (the test code gate, the math
-/// layer gate); `path` as a name (`let path = …`, `f(path)`, `path == x`) is not one. An
-/// attribute a macro builds from a variable is [`variable_attributes`].
-fn path_attributes(source: &RustSource) -> Vec<usize> {
-    named_attributes(source)
-        .into_iter()
-        .filter(|&at| {
-            source
-                .tokens
-                .get(at)
-                .is_some_and(|name| name.is_ident("path"))
-        })
-        .collect()
-}
-
-/// The lines of `source` where a macro names an attribute by a variable, which could be
-/// `path` ([`path_attributes`]): `#[$…`, `#![$…`, or `$<name>` where `path` would stand
-/// (`#[$a = …]`, a conditional attribute's `(…, $a = …)`). Refused everywhere: an attribute is written by
-/// its name.
-fn variable_attributes(source: &RustSource) -> Vec<usize> {
-    let tokens = &source.tokens;
-    let named = named_attributes(source).into_iter().filter_map(|at| {
-        tokens
-            .get(at)
-            .filter(|name| name.is_punct('$'))
-            .map(|name| name.line)
-    });
-    // A `$` right after the `[` of `#[` or `#![`.
-    let opened = tokens.iter().enumerate().filter_map(|(at, dollar)| {
-        let before = match tokens.get(..at).unwrap_or_default() {
-            [rest @ .., open] if dollar.is_punct('$') && open.opens('[') => rest,
-            _ => return None,
-        };
-        let before = match before {
-            [rest @ .., bang] if bang.is_punct('!') => rest,
-            _ => before,
-        };
-        matches!(before, [.., hash] if hash.is_punct('#')).then_some(dollar.line)
-    });
-    let mut lines: Vec<usize> = named.chain(opened).collect();
-    lines.sort_unstable();
-    lines.dedup();
-    lines
-}
-
-/// The tokens of `source` in the place of an attribute's name before its value, by their
-/// index: right after `[`, `(` or `,`, and right before a `=` that opens neither `==` nor
-/// `=>`; a macro variable (`$a`) by its `$`.
-fn named_attributes(source: &RustSource) -> Vec<usize> {
-    let tokens = &source.tokens;
-    let assigns = |at: usize| match tokens.get(at..).unwrap_or_default() {
-        [equals, next, ..] if equals.is_punct('=') => {
-            !(equals.kind == (TokenKind::Punct { joint: true })
-                && (next.is_punct('=') || next.is_punct('>')))
-        }
-        _ => false,
-    };
-    (1..tokens.len())
-        .filter(|&at| {
-            let opens = tokens.get(at.saturating_sub(1)).is_some_and(|before| {
-                before.opens('[') || before.opens('(') || before.is_punct(',')
-            });
-            let name = tokens.get(at);
-            let after = if name.is_some_and(|name| name.is_punct('$')) {
-                tokens
-                    .get(at.saturating_add(1))
-                    .is_some_and(|variable| variable.kind == TokenKind::Ident)
-                    .then_some(at.saturating_add(2))
-            } else {
-                name.filter(|name| name.kind == TokenKind::Ident)
-                    .map(|_| at.saturating_add(1))
-            };
-            opens && after.is_some_and(assigns)
-        })
-        .collect()
-}
-
-/// The message for an attribute a macro names by a variable in `path`, at `line`
-/// ([`variable_attributes`]).
-fn variable_attribute(path: &str, line: usize) -> String {
-    format!(
-        "{path}:{line}: names an attribute by a macro variable (`#[$…]`, `$<name> = …`), which \
-         could be `path`: an attribute is written by its name"
-    )
-}
-
 /// The problems of `source`, a `*_tests.rs` file, that would load another file: a module
 /// declared without a body (the tokens `mod <identifier> ;`, the name possibly a macro
-/// variable, `mod $name;`, which rustc reads from a file beside it), a `#[path]` attribute ([`path_attributes`], [`variable_attributes`]), or the
-/// identifier `include` (`include_str` and `include_bytes` are other identifiers, read as
-/// test data by [`test_data_gate`]).
+/// variable, `mod $name;`, which rustc reads from a file beside it), or the identifier
+/// `include` (`include_str` and `include_bytes` are other identifiers, read as test data by
+/// [`test_data_gate`]). A file a `path` attribute loads is the loaded-files gate's
+/// ([`loaded_files_gate`]).
 fn loaded_by_tests(source: &RustSource) -> Vec<String> {
     let path = source.path.as_str();
-    let mut found: Vec<(usize, &str)> = path_attributes(source)
-        .into_iter()
-        .filter_map(|at| source.tokens.get(at))
-        .map(|name| {
-            (
-                name.line,
-                "holds a `#[path]` attribute, which loads another file",
-            )
-        })
-        .collect();
+    let mut found: Vec<(usize, &str)> = Vec::new();
     for (at, keyword) in source.tokens.iter().enumerate() {
         // `mod`, its name (an identifier, or a macro variable `$name`), then `;`.
         let after = source
@@ -4250,11 +4112,6 @@ fn loaded_by_tests(source: &RustSource) -> Vec<String> {
                  writes its modules inline"
             )
         })
-        .chain(
-            variable_attributes(source)
-                .into_iter()
-                .map(|line| variable_attribute(path, line)),
-        )
         .collect()
 }
 
@@ -5698,31 +5555,6 @@ fn math_layer_crates(metadata: &str) -> Result<Vec<String>, Failure> {
     Ok(problems)
 }
 
-/// The problems of `source`, a source the math layer gate reads, whose test declarations
-/// are `declared`, that bring code in other than by `mod`: a `path` attribute outside a
-/// test declaration ([`path_attributes`]), an attribute a macro names by a variable
-/// ([`variable_attributes`]).
-fn brought_in(source: &RustSource, declared: &[TestDeclaration]) -> Vec<String> {
-    let path = &source.path;
-    path_attributes(source)
-        .into_iter()
-        .filter(|at| !declared.iter().any(|one| one.tokens.contains(at)))
-        .filter_map(|at| source.tokens.get(at))
-        .map(|name| {
-            format!(
-                "{path}:{}: names `path` outside a test declaration: code comes into these \
-                 crates by `mod` alone, from files the gate reads",
-                name.line
-            )
-        })
-        .chain(
-            variable_attributes(source)
-                .into_iter()
-                .map(|line| variable_attribute(path, line)),
-        )
-        .collect()
-}
-
 /// Checks that box arithmetic can only go through the math layer, and that no code but the
 /// math layer's reduces through an iterator.
 ///
@@ -5733,17 +5565,16 @@ fn brought_in(source: &RustSource, declared: &[TestDeclaration]) -> Vec<String> 
 /// engine core outside [`MATH_LAYER_FILE`] name none of [`REDUCTION_NAMES`]; the engine core
 /// outside it names none of [`ENGINE_FORBIDDEN_NAMES`] but in its leading inner attribute
 /// [`ENGINE_ARITHMETIC_FORBID`], which every module of it but [`ENGINE_ROOT`] holds; and no
-/// source names `include` (`include!`), nor holds a `path` attribute but in a test
-/// declaration (`path_attributes`), nor an attribute a macro names by a variable
-/// (`variable_attributes`).
+/// source names `include` (`include!`).
 ///
 /// `metadata` is the output of [`metadata_command`]; `sources` the files of
 /// [`MATH_LAYER_SOURCES`] (read into their tokens), of which the `*_tests.rs` files are test
 /// code, not read (the test code gate, [`test_code_gate`], proves each declared once beside
 /// its source, and the loaded-files gate, [`loaded_files_gate`], that no build of the code
 /// reads one, both steps of every check), and [`MATH_LAYER_FILE`] is the math layer, read
-/// only for `include` and `path`; any other file is refused. So code
-/// reaches these crates only through `mod`, from files the gate reads; a box crate,
+/// only for `include`; any other file is refused. So code reaches these crates only
+/// through modules of their `src/`, from files the gate reads (the loaded-files gate refuses
+/// a build of the code reading any other file); a box crate,
 /// `no_std` and without `libm`, computes with the engine's sample types alone, whose
 /// operators and math functions are the math layer's; and no iterator sums samples but the
 /// math layer's `ordered_sum`. A loop or a chain of `+` that sums is reviewed.
@@ -5755,11 +5586,6 @@ fn brought_in(source: &RustSource, declared: &[TestDeclaration]) -> Vec<String> 
 /// the metadata cannot be read.
 pub fn math_layer_gate(metadata: &str, sources: &[RustSource]) -> Result<(), Failure> {
     let mut problems = math_layer_crates(metadata)?;
-    let declarations: BTreeMap<&str, Vec<TestDeclaration>> = sources
-        .iter()
-        .filter(|source| !unit_test_file(&source.path))
-        .map(|source| (source.path.as_str(), test_declarations(source)))
-        .collect();
     for source in sources {
         let path = &source.path;
         if unit_test_file(path) {
@@ -5782,10 +5608,6 @@ pub fn math_layer_gate(metadata: &str, sources: &[RustSource]) -> Result<(), Fai
         if let Some(missing) = required.filter(|_| forbid.is_none()) {
             problems.push(format!("{path} does not hold `{missing}`"));
         }
-        problems.extend(brought_in(
-            source,
-            declarations.get(path.as_str()).map_or(&[], Vec::as_slice),
-        ));
         for (at, token) in source.tokens.iter().enumerate() {
             let (line, word) = (token.line, token.text.as_str());
             if token.is_ident("include") {
@@ -11174,10 +10996,12 @@ fn loaded_files_of_the_workspace(runner: &mut dyn Runner) -> Result<(), Failure>
 /// gates that read sources by their path assume, both ways.
 ///
 /// Every file a build reads is below its crate's directory, or one of the crate's declared
-/// test data ([`RustCrate::test_data`]) read by a build of tests; every file a build reads
-/// below its crate is Rust, but the declared test data a build of tests reads, so that no
-/// code comes from a file no gate reads as code (`include!` of another extension, a
-/// dependency's macro expanding to it); every Rust file below a crate that a build reads is
+/// test data ([`RustCrate::test_data`]) read by a build of tests, which is not Rust; every
+/// file a build reads below its crate is Rust, but the declared test data a build of tests
+/// reads, so that no code comes from a file no gate reads as code (`include!` of another
+/// extension, a dependency's macro expanding to it); a build of the code reads only files
+/// below its crate's `src/`, which the gates reading code by its path read (the math layer
+/// gate's [`MATH_LAYER_SOURCES`]); every Rust file below a crate that a build reads is
 /// tracked by git (`tracked`), so that every gate reading the tracked files read it; every
 /// Rust file a build of tests reads is read by a build of the code (a build without its
 /// tests), or is test code by its name (`tests/`, a `*_tests.rs` file); and no build of the
@@ -11193,16 +11017,20 @@ fn loaded_files_of_the_workspace(runner: &mut dyn Runner) -> Result<(), Failure>
 /// debug assertions off (the release build of the engine package's WebAssembly), the `cfg`
 /// of doc tests and of documentation, and a crate's features by [`bypass_gate`], unless
 /// reviewed in [`BYPASSES_REVIEWED`]; an example or a benchmark target by
-/// [`untested_targets_gate`] ([`TARGET_KINDS`]). **Review only**: what a doc test loads, a
-/// crate rustdoc compiles apart that writes no dep-info (the compiler refuses unsafe code
-/// there: [`DOC_TESTS_FORBID_UNSAFE_CODE`]).
+/// [`untested_targets_gate`] ([`TARGET_KINDS`]). **Not seen**: code under a `cfg` of a
+/// target the check does not build (`windows`, an operating system no build targets),
+/// which no check compiles at all. **Review only**: what a doc test loads, a crate rustdoc
+/// compiles apart that writes no dep-info (the compiler refuses unsafe code there:
+/// [`DOC_TESTS_FORBID_UNSAFE_CODE`]).
 ///
 /// # Errors
 ///
-/// Returns every file read outside its crate and declared test data, every file read that
-/// is not Rust nor declared test data read by tests, every Rust file read that git does not
-/// track, every Rust file only tests read that is not named as test code, and every file
-/// named as test code a build of the code reads, each with the build that read it.
+/// Returns every file read outside its crate and declared test data, every Rust file of
+/// the declared test data, every file read that is not Rust nor declared test data read by
+/// tests, every Rust file read that git does not track, every file named as test code a
+/// build of the code reads, every other file such a build reads outside its crate's `src/`,
+/// and every Rust file only tests read that is not named as test code, each with the build
+/// that read it.
 pub fn loaded_files_gate(loaded: &[Loaded], tracked: &[String]) -> Result<(), Failure> {
     let code: BTreeSet<&str> = loaded
         .iter()
@@ -11234,6 +11062,10 @@ pub fn loaded_files_gate(loaded: &[Loaded], tracked: &[String]) -> Result<(), Fa
                     .iter()
                     .any(|root| under_root(file, root));
             match build.krate.holds(file) {
+                None if test_data && rust => problems.push(format!(
+                    "{file}: read by {what}, a Rust file of its declared test data: code comes \
+                     from its crate alone"
+                )),
                 None if test_data => {}
                 None => problems.push(format!(
                     "{file}: read by {what}, outside its crate{}",
@@ -11261,6 +11093,12 @@ pub fn loaded_files_gate(loaded: &[Loaded], tracked: &[String]) -> Result<(), Fa
                         "{file}: read by {what}, which builds no tests, but named as test code \
                          (tests/, a *_tests.rs file): code that every rule telling test code by \
                          its name skips"
+                    ));
+                }
+                Some(relative) if !build.of_tests && !relative.starts_with("src/") => {
+                    problems.push(format!(
+                        "{file}: read by {what}, which builds no tests, outside its crate's \
+                         src/: the gates that read code by its path read src/"
                     ));
                 }
                 Some(relative)
