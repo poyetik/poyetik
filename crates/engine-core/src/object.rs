@@ -209,8 +209,8 @@ pub struct ParamValues {
     values: Vec<Binary64>,
 }
 
-/// Why parameter values are not those of a box type ([`ParamValues::of`]), or a parameter's
-/// description is refused ([`ParamSpec::new`]).
+/// Why parameter values are not those of a box type ([`ParamValues::of`]), or a parameter is
+/// refused ([`ParamSpec::new`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ParamError {
     /// Not one value per parameter of the box type.
@@ -330,11 +330,10 @@ impl ParamValues {
     }
 
     /// The parameter values `values` of the box type `spec`, which the plan has checked
-    /// against their ranges and
-    /// flushed as [`ParamValues::of`] would (each a binary32 value flushed by
-    /// [`crate::flush::binary32`], widened exactly): taken as they are, so that a patch's
-    /// parameters are read with no second flush (the plan tests check what a box is given,
-    /// and the flush tests that [`ParamValues::of`] gives a binary32 value the same).
+    /// against their ranges and flushed as [`ParamValues::of`] would (each a binary32 value
+    /// flushed by [`crate::flush::binary32`], widened exactly): taken as they are, so that a
+    /// patch's parameters are read with no second flush (the plan tests check what a box is
+    /// given, and the flush tests that [`ParamValues::of`] gives a binary32 value the same).
     pub(crate) const fn flushed(spec: &'static ObjectSpec, values: Vec<Binary64>) -> Self {
         Self { spec, values }
     }
