@@ -4,7 +4,7 @@ The **conformance corpus**: every target and every SDK must reproduce these rend
 
 | Path | Contents |
 |---|---|
-| `cases/<name>.json` | Reference cases: a sample rate and a duration, from 1 to 2^29 (536,870,912) frames |
+| `cases/<name>.json` | Reference cases: a sample rate and a duration, from 1 to 2^29 (536,870,912) frames. A case's name is lowercase ASCII letters, digits, dots and hyphens, starting with a letter or a digit, so that a command naming it needs no quoting in any shell: the engine CLI and the oracle refuse any other `.json` file in `cases/` (and the engine CLI in `patches/`) |
 | `patches/<name>.json` | The patch of each case, in the patch format. Every runner (native, Node, browsers) gives the engine the bytes of this file unchanged, never a parsed and rewritten copy |
 | `invalid/cases/<name>.json` | Case files every reader must reject, one fault each (a duration of 0 frames or above 2^29, or not an integer; a sample rate below the engine's range, above 32 bits, or written as a string; an unknown field; a file above 64 KiB): the shared rejection corpus, which the tests of the engine CLI and of the oracle each read whole through their size-limited file reading, refusing every file |
 | `test-matrix.json` | The shared test matrix: the values each dimension of the environment is tested across (the precisions, by their widths in bits, among them), read by the Rust and TypeScript tests |

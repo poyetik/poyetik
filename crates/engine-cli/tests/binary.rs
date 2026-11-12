@@ -377,9 +377,9 @@ mod tests {
         );
         let forged_box = r#"{"format":1,"nodes":[{"id":1,"box":"y\nok       sine-440 0\u001b[2K\u202e"}],"connections":[]}"#;
         for (name, text) in [
-            ("a\nok       a 0", forged_box),
-            ("b\u{1b}[2J", patch.as_str()),
-            ("c\u{202e}", huge_box.as_str()),
+            ("a", forged_box),
+            ("b", patch.as_str()),
+            ("c", huge_box.as_str()),
         ] {
             std::fs::write(dir.join("cases").join(format!("{name}.json")), &case).expect("case");
             std::fs::write(dir.join("patches").join(format!("{name}.json")), text).expect("patch");
@@ -387,14 +387,14 @@ mod tests {
         std::fs::write(
             dir.join("references.json"),
             canonical(
-                "{\"b\\u001b[2J\":{\"binary64\":\"0\\nok       forged\\u001b[31m\\u202e\"},\
+                "{\"b\":{\"binary64\":\"0\\nok       forged\\u001b[31m\\u202e\"},\
                  \"gone\\nok       gone\\u0007\":{}}",
             ),
         )
         .expect("references");
         std::fs::write(
             dir.join("algorithms.json"),
-            record(r#"{"b\u001b[2J":{"dac~":1,"osc~":1}}"#),
+            record(r#"{"b":{"dac~":1,"osc~":1}}"#),
         )
         .expect("algorithm versions");
         let output = engine_cli(&[std::ffi::OsStr::new("check"), dir.as_os_str()]);
@@ -425,6 +425,19 @@ mod tests {
                 line.chars().count()
             );
         }
+        let named = dir.join("cases").join("d\nok       d 0\u{1b}[2J.json");
+        std::fs::write(&named, &case).expect("case");
+        let refused = engine_cli(&[std::ffi::OsStr::new("check"), dir.as_os_str()]);
+        assert_eq!(refused.status.code(), Some(1_i32), "a failure");
+        assert_eq!(
+            String::from_utf8_lossy(&refused.stderr),
+            format!(
+                "error: {}/d\\u{{a}}ok       d 0\\u{{1b}}[2J.json: not a case name (lowercase \
+                 ASCII letters, digits, dots and hyphens, starting with a letter or a digit)\n",
+                dir.join("cases").display()
+            ),
+            "a file name that is no case name refused, escaped, on one line"
+        );
     }
 
     #[cfg(unix)]

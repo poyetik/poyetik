@@ -116,6 +116,22 @@ describe("main", () => {
     expect(missing.errors).toStrictEqual(["error: ENOENT: conf/references.json"]);
   });
 
+  test("reads only case names, as engine-cli does: lowercase ASCII letters, digits, dots and hyphens, starting with a letter or a digit", () => {
+    for (const name of ["a", "0", "z9", "a.b-c", "sine-1.1754944e-38-at-8k", "9-.", "0.-"]) {
+      const io = memory({ ...corpus({ tone: HASHES }), [`conf/cases/${name}.json`]: JSON.stringify({ sample_rate: 8000, frames: 32 }) });
+      expect(main(["conf", "wav"], io)).toBe(1);
+      expect(io.errors).toStrictEqual(["error: oracle failed on conf against wav: 1 problem(s)"]);
+    }
+    for (const name of ["A", "sinE", "my case", "-x", ".x", "a_b", "é", "a$(b)", "a\u0000", ".."]) {
+      const io = memory({ ...corpus({ tone: HASHES }), [`conf/cases/${name}.json`]: "{}" });
+      expect(main(["conf", "wav"], io)).toBe(1);
+      expect(io.lines).toStrictEqual([]);
+      expect(io.errors).toStrictEqual([
+        `error: conf/cases/${name.replace("\u0000", "\\u{0}")}.json: not a case name (lowercase ASCII letters, digits, dots and hyphens, starting with a letter or a digit)`,
+      ]);
+    }
+  });
+
   test("reports what is thrown even when it is not an Error of this realm", () => {
     // An Error of another realm is not an `instanceof Error` here.
     const io = { ...memory(corpus({})), list: (): readonly string[] => {

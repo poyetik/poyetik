@@ -3421,10 +3421,52 @@ fn check_command_rejects_case_names_that_are_not_utf8() {
     let error = run_with(&mut memory, &["check", "conf"])
         .0
         .expect_err("invalid name");
-    assert!(
-        error.starts_with("invalid case file name: conf/cases/bad"),
-        "{error}"
-    );
+    assert!(error.starts_with("conf/cases/bad"), "{error}");
+    assert!(error.ends_with(&format!(": {NOT_A_CASE_NAME}")), "{error}");
+}
+
+/// What `check` says of a case or patch file whose name is not a case name.
+const NOT_A_CASE_NAME: &str = "not a case name (lowercase ASCII letters, digits, dots and \
+                               hyphens, starting with a letter or a digit)";
+
+#[test]
+fn reads_only_case_names_a_command_can_hold_unquoted() {
+    for name in [
+        "a",
+        "0",
+        "z9",
+        "a.b-c",
+        "sine-1.1754944e-38-at-8k",
+        "9-.",
+        "0.-",
+    ] {
+        let mut memory = Memory::with(&[
+            (&format!("conf/cases/{name}.json"), SINE),
+            (&format!("conf/patches/{name}.json"), PATCH),
+        ]);
+        let said = run_with(&mut memory, &["check", "conf"]).0;
+        assert!(
+            said.as_ref()
+                .is_err_and(|error| error.starts_with("cannot read conf/references.json: ")),
+            "{name}: read as a case, {said:?}"
+        );
+    }
+    for name in [
+        "A", "sinE", "my case", "-x", ".x", "a_b", "é", "a$(b)", "a\u{0}", "..",
+    ] {
+        for (case, patch) in [(name, "a"), ("a", name)] {
+            let mut memory = Memory::with(&[
+                (&format!("conf/cases/{case}.json"), SINE),
+                (&format!("conf/patches/{patch}.json"), PATCH),
+            ]);
+            let folder = if case == name { "cases" } else { "patches" };
+            assert_eq!(
+                run_with(&mut memory, &["check", "conf"]).0,
+                Err(format!("conf/{folder}/{name}.json: {NOT_A_CASE_NAME}")),
+                "{name:?} in {folder}"
+            );
+        }
+    }
 }
 
 /// Two cases, `a` and `b`, the second one an octave up.
@@ -3756,8 +3798,8 @@ fn assert_safe_lines(out: &str, lines: usize) {
 /// Box type of a patch, crafted to forge a verdict line and drive the terminal.
 const FORGED_BOX: &str = "y\\nok       sine-440 0\\u001b[2K\\u202e";
 
-/// A conformance directory whose untrusted text attacks the output: case names (file
-/// names), a box type quoted by an error, a 2 MB box type, and the keys and values of
+/// A conformance directory whose untrusted text attacks the output (case names are case
+/// names, refused otherwise where they are read): a box type quoted by an error, a 2 MB box type, and the keys and values of
 /// `references.json`. Six problems: two failed renders, a mismatch, a missing
 /// reference and two stale ones.
 fn hostile_corpus() -> Memory {
@@ -3768,18 +3810,18 @@ fn hostile_corpus() -> Memory {
     let forged_box =
         format!(r#"{{"format":1,"nodes":[{{"id":1,"box":"{FORGED_BOX}"}}],"connections":[]}}"#);
     let references = "{\"b\\u001b[2J\\nok       b\":{},\
-         \"b\\u001b[2J\":{\"binary64\":\"0\\nok       forged\\u001b[31m\\u202e\",\
+         \"b\":{\"binary64\":\"0\\nok       forged\\u001b[31m\\u202e\",\
          \"\\u001b[2Jbinary16\\nok\":\"0\"},\
          \"gone\\nok       gone\\u0007\":{}}";
     Memory::with(&[
-        ("conf/cases/a\nok       a 0.json", SINE),
-        ("conf/patches/a\nok       a 0.json", &forged_box),
-        ("conf/cases/b\u{1b}[2J.json", SINE),
-        ("conf/patches/b\u{1b}[2J.json", PATCH),
-        ("conf/cases/c\u{202e}.json", SINE),
-        ("conf/patches/c\u{202e}.json", &huge_box),
-        ("conf/cases/d\u{1b}]0;title\u{7}.json", SINE),
-        ("conf/patches/d\u{1b}]0;title\u{7}.json", PATCH),
+        ("conf/cases/a.json", SINE),
+        ("conf/patches/a.json", &forged_box),
+        ("conf/cases/b.json", SINE),
+        ("conf/patches/b.json", PATCH),
+        ("conf/cases/c.json", SINE),
+        ("conf/patches/c.json", &huge_box),
+        ("conf/cases/d.json", SINE),
+        ("conf/patches/d.json", PATCH),
         ("conf/references.json", &canonical(references)),
         (
             "conf/algorithms.json",
@@ -3798,9 +3840,13 @@ fn check_command_prints_one_safe_line_per_problem() {
         "every problem counted, in every format"
     );
     assert_safe_lines(&out, 18);
-    assert!(
-        out.contains("FAILED   a\\u{a}ok       a 0 binary64: "),
-        "the case name is escaped: {out}"
+    let mut named = Memory::with(&[("conf/cases/a\nok       a 0\u{1b}[2J.json", SINE)]);
+    assert_eq!(
+        run(&args(&["check", "conf"]), &mut named, &mut Vec::new()).map_err(|error| error.line()),
+        Err(format!(
+            "error: conf/cases/a\\u{{a}}ok       a 0\\u{{1b}}[2J.json: {NOT_A_CASE_NAME}"
+        )),
+        "a name that is no case name is escaped in its refusal"
     );
     assert!(
         out.contains("unknown box type \"y\\u{a}ok       sine-440 0\\u{1b}[2K\\u{202e}\""),
@@ -3808,15 +3854,13 @@ fn check_command_prints_one_safe_line_per_problem() {
     );
     assert!(
         out.contains(&format!(
-            "MISMATCH b\\u{{1b}}[2J binary64: expected 0\\u{{a}}ok       forged\\u{{1b}}[31m\\u{{202e}}, got {}",
+            "MISMATCH b binary64: expected 0\\u{{a}}ok       forged\\u{{1b}}[31m\\u{{202e}}, got {}",
             sine_hash(RenderFormat::Binary64)
         )),
         "the reference is escaped: {out}"
     );
     assert!(
-        out.contains(
-            "STALE    b\\u{1b}[2J \\u{1b}[2Jbinary16\\u{a}ok: reference of no render format"
-        ),
+        out.contains("STALE    b \\u{1b}[2Jbinary16\\u{a}ok: reference of no render format"),
         "the name of a format is escaped: {out}"
     );
     assert!(
@@ -3832,8 +3876,8 @@ fn check_command_prints_one_safe_line_per_problem() {
 #[test]
 fn bless_and_export_print_safe_lines() {
     let mut memory = Memory::with(&[
-        ("conf\u{1b}[2J/cases/a\n\u{202e}.json", SINE),
-        ("conf\u{1b}[2J/patches/a\n\u{202e}.json", PATCH),
+        ("conf\u{1b}[2J/cases/a.json", SINE),
+        ("conf\u{1b}[2J/patches/a.json", PATCH),
     ]);
     let (blessed, bless_out) = run_with(&mut memory, &["bless", "conf\u{1b}[2J", "--from-nothing"]);
     assert_eq!(blessed, Ok(()), "blessed");
@@ -3842,12 +3886,13 @@ fn bless_and_export_print_safe_lines() {
         "blessed 1 case(s) in conf\\u{1b}[2J/references.json and conf\\u{1b}[2J/algorithms.json\n",
         "the directory is escaped"
     );
-    let (exported, export_out) = run_with(&mut memory, &["export", "conf\u{1b}[2J", "out"]);
+    let (exported, export_out) =
+        run_with(&mut memory, &["export", "conf\u{1b}[2J", "out\n\u{202e}"]);
     assert_eq!(exported, Ok(()), "exported");
     let lines = RenderFormat::ALL
         .map(|format| {
             format!(
-                "wrote    out/a\\u{{a}}\\u{{202e}}.{format}.wav {}\n",
+                "wrote    out\\u{{a}}\\u{{202e}}/a.{format}.wav {}\n",
                 sine_hash(format)
             )
         })

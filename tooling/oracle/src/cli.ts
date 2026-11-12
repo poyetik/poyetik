@@ -38,6 +38,26 @@ export interface Io {
   readonly err: (line: string) => void;
 }
 
+/**
+ * What a case name may hold, as `engine-cli` reads it (`conformance/README.md`), so that both
+ * readers of the corpus accept the same files.
+ */
+const CASE_NAME = /^[a-z0-9][a-z0-9.-]*$/u;
+
+/**
+ * The case files of `dir`, by name, each read by `read`.
+ * @throws {Error} Naming the first file whose name is not a case name.
+ */
+function caseFiles(io: Io, dir: string, read: (path: string) => string): Map<string, string> {
+  const files = byName(io, dir, ".json", (path) => path);
+  for (const [name, path] of files) {
+    if (!CASE_NAME.test(name)) {
+      throw new Error(`${path}: not a case name (lowercase ASCII letters, digits, dots and hyphens, starting with a letter or a digit)`);
+    }
+  }
+  return new Map([...files].map(([name, path]) => [name, read(path)]));
+}
+
 /** The files of `dir` with `extension`, by name without it. */
 function byName<T>(io: Io, dir: string, extension: string, read: (path: string) => T): Map<string, T> {
   return new Map(
@@ -103,7 +123,7 @@ export function main(args: readonly string[], io: Io): number {
   const [conformance, wavs] = args;
   try {
     const verdict = judge({
-      cases: byName(io, join(conformance, "cases"), ".json", (path) => readText(io, path, MAX_CASE_BYTES)),
+      cases: caseFiles(io, join(conformance, "cases"), (path) => readText(io, path, MAX_CASE_BYTES)),
       references: readJson(io, join(conformance, "references.json"), MAX_REFERENCES_BYTES),
       expectations: readJson(io, join(conformance, "expectations.json"), MAX_EXPECTATIONS_BYTES),
       wavs: byName(io, wavs, ".wav", (path) => io.readBytes(path, MAX_WAV_BYTES)),

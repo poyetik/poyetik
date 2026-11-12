@@ -276,7 +276,20 @@ fn algorithms(case: &CaseFiles) -> Result<Versions, String> {
         .collect()
 }
 
-/// The names of the `.json` files of `dir`, sorted, with their paths.
+/// What a case name may hold, as an error says: so that a hint can paste it into a command
+/// unquoted, in any shell (`conformance/README.md`).
+const CASE_NAME: &str =
+    "lowercase ASCII letters, digits, dots and hyphens, starting with a letter or a digit";
+
+/// Whether `name` is a case name ([`CASE_NAME`]).
+fn case_name(name: &str) -> bool {
+    let mut bytes = name.bytes();
+    let word = |byte: u8| byte.is_ascii_lowercase() || byte.is_ascii_digit();
+    bytes.next().is_some_and(word) && bytes.all(|byte| word(byte) || byte == b'.' || byte == b'-')
+}
+
+/// The names of the `.json` files of `dir`, sorted, with their paths: each a case name
+/// ([`CASE_NAME`]), refused where it is read.
 fn json_files(files: &mut dyn Files, dir: &Path) -> Result<Vec<(String, PathBuf)>, String> {
     let mut entries = files
         .list(dir)
@@ -291,9 +304,9 @@ fn json_files(files: &mut dyn Files, dir: &Path) -> Result<Vec<(String, PathBuf)
         .map(|path| {
             path.file_stem()
                 .and_then(|stem| stem.to_str())
-                .map(str::to_owned)
-                .map(|name| (name, path.clone()))
-                .ok_or_else(|| format!("invalid case file name: {}", path.display()))
+                .filter(|name| case_name(name))
+                .map(|name| (name.to_owned(), path.clone()))
+                .ok_or_else(|| format!("{}: not a case name ({CASE_NAME})", path.display()))
         })
         .collect()
 }
