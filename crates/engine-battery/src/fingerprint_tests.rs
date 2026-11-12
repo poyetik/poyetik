@@ -7,7 +7,9 @@ use engine_core::{
     ParamSpec, Params, PortSpec, Precision, Sample, SampleRate,
 };
 
-use super::{FINGERPRINT_BATTERY, fingerprint, seeded_signal, splitmix64};
+use core::convert::Infallible;
+
+use super::{FINGERPRINT_BATTERY, fingerprint, run_blocks, seeded_signal, splitmix64};
 use crate::inputs::{BLOCKS, param_sets};
 use engine_core::ParamError;
 use sha2::{Digest, Sha256};
@@ -372,7 +374,16 @@ fn feeds_the_inlets_in_turn_and_hashes_the_outlets_in_order() {
         .map(|&value| Binary64::from_raw(value))
         .collect();
     let mut straight = Route { first: 0 };
-    let rendered = super::outputs::<Binary64>(&mut straight, &route::<0>(), &input);
+    let Ok(rendered) = run_blocks::<Binary64, Infallible>(
+        &route::<0>(),
+        &input,
+        BLOCKS,
+        Binary64::ZERO,
+        |given, outputs| {
+            straight.process(given, outputs);
+            Ok(())
+        },
+    );
     let (blocks, _) = input.as_chunks::<BLOCK_SIZE>();
     assert_eq!(rendered.len(), BLOCKS * 2, "two outlets per block");
     for (index, block) in rendered.iter().enumerate() {
@@ -391,6 +402,70 @@ fn feeds_the_inlets_in_turn_and_hashes_the_outlets_in_order() {
         print(&route::<1>()),
         "swapping the inlets, or the outlets, is seen"
     );
+}
+
+#[test]
+fn sets_every_output_on_entry_to_every_block() {
+    // Each outlet adds its inlet to what it holds on entry: 7 plus the inlet at every block,
+    // never what the block before left. Inlet 0 is fed the first block of the input,
+    // inlet 1 the next, then silence.
+    let input: Vec<Binary64> = (0..3 * BLOCK_SIZE)
+        .map(|index| Binary64::from_raw(f64::from(u32::try_from(index).expect("small"))))
+        .collect();
+    let mut calls = 0_usize;
+    let rendered = run_blocks::<Binary64, Infallible>(
+        &route::<0>(),
+        &input,
+        3,
+        Binary64::from_raw(7.0_f64),
+        |given, outputs| {
+            calls = calls.saturating_add(1);
+            for (output, inlet) in outputs.iter_mut().zip(given) {
+                for (out, value) in output.iter_mut().zip(inlet) {
+                    *out = Binary64::from_raw(out.raw() + value.raw());
+                }
+            }
+            Ok(())
+        },
+    );
+    let expected: Vec<Vec<u64>> = [7.0_f64, 71.0_f64, 135.0_f64, 7.0_f64, 7.0_f64, 7.0_f64]
+        .iter()
+        .zip([1.0_f64, 1.0_f64, 1.0_f64, 0.0_f64, 0.0_f64, 0.0_f64])
+        .map(|(&first, step)| {
+            (0..BLOCK_SIZE)
+                .map(|frame| {
+                    (first + step * f64::from(u32::try_from(frame).expect("small"))).to_bits()
+                })
+                .collect()
+        })
+        .collect();
+    assert_eq!(
+        rendered.map(|blocks| {
+            blocks
+                .iter()
+                .map(|block| block.iter().map(|sample| sample.bits()).collect())
+                .collect::<Vec<Vec<u64>>>()
+        }),
+        Ok(expected),
+        "7 on entry to each of the 3 blocks, inlet by inlet, then outlet by outlet"
+    );
+    assert_eq!(calls, 3, "one call per block");
+}
+
+#[test]
+fn ends_a_run_at_the_first_error() {
+    let mut calls = 0_usize;
+    let rendered =
+        run_blocks::<Binary32, usize>(&echo(Quirk::None), &[], BLOCKS, Binary32::ZERO, |_, _| {
+            calls = calls.saturating_add(1);
+            if calls == 2 { Err(calls) } else { Ok(()) }
+        });
+    assert_eq!(
+        rendered.map(|blocks| blocks.len()),
+        Err(2),
+        "the error of the second block"
+    );
+    assert_eq!(calls, 2, "no block after it");
 }
 
 #[test]

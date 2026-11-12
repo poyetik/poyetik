@@ -17,5 +17,5 @@ mod fingerprint;
 mod inputs;
 pub mod matrix;
 
-pub use fingerprint::{FINGERPRINT_BATTERY, fingerprint, splitmix64};
+pub use fingerprint::{FINGERPRINT_BATTERY, fingerprint, run_blocks, splitmix64};
 pub use inputs::{BLOCKS, BatterySample, param_sets, special_input};

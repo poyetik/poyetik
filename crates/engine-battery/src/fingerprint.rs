@@ -10,12 +10,12 @@
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
+use core::convert::Infallible;
 use core::fmt::Write as _;
 
 use engine_core::host::Raw;
 use engine_core::{
-    BLOCK_SIZE, Binary32, Binary64, Block, Dispatch, Object, ObjectSpec, ParamError, ParamValues,
-    Precision,
+    BLOCK_SIZE, Binary32, Binary64, Block, Dispatch, ObjectSpec, ParamError, ParamValues, Precision,
 };
 use sha2::{Digest, Sha256};
 
@@ -46,8 +46,8 @@ pub const FINGERPRINT_BATTERY: u32 = 2;
 /// both precisions, rounded to binary32 there). Each run is a fresh instance rendering
 /// [`BLOCKS`] blocks; the signal is cut into blocks, which feed the inlets in turn (block
 /// by block, inlet by inlet: inlet 0 the first block, inlet 1 the next), so that two
-/// inlets are given different signals; the outputs are hashed block by block, outlet by
-/// outlet. A box type without outlets has the battery's fingerprint alone, whatever it
+/// inlets are given different signals ([`run_blocks`], the outputs +0 on entry to every
+/// block); the outputs are hashed block by block, outlet by outlet. A box type without outlets has the battery's fingerprint alone, whatever it
 /// does: its bits are those the plan reads from its inlets (the output boxes), which the
 /// conformance cases check.
 ///
@@ -120,7 +120,12 @@ fn battery<S: BatterySample, I: Dispatch<S>>(
             let wide = ParamValues::of(spec, &values)?;
             for input in &inputs {
                 let mut object = I::create(rate, &wide);
-                for block in outputs(&mut object, spec, input) {
+                let Ok(rendered) =
+                    run_blocks::<S, Infallible>(spec, input, BLOCKS, S::ZERO, |given, outputs| {
+                        object.process(given, outputs);
+                        Ok(())
+                    });
+                for block in rendered {
                     for sample in block {
                         hasher.update(sample.bits().to_le_bytes());
                     }
@@ -131,28 +136,46 @@ fn battery<S: BatterySample, I: Dispatch<S>>(
     Ok(())
 }
 
-/// The outputs of [`BLOCKS`] blocks of `object`, outlet by outlet at each block, its inlets
-/// fed the successive blocks of `input` in turn (silence past its end).
-fn outputs<S: BatterySample>(
-    object: &mut dyn Object<S>,
+/// The outputs of `blocks` blocks of a box of the box type `spec`, outlet by outlet at each
+/// block, each block processed by `process`.
+///
+/// `process` is given the block's inputs and outputs: its inlets fed the successive blocks
+/// of `input` in turn (silence past its end), every sample of its outputs set to `entry`
+/// before every block. One run for the battery and the box laws (`engine-testkit`), so
+/// that both feed a box alike.
+///
+/// The box contract leaves what the outputs hold on entry unspecified, since a box writes
+/// every sample of every outlet (`engine_core::Object::process`): the battery gives +0,
+/// the box laws also a NaN, and a box that follows the contract gives the same bits.
+///
+/// # Errors
+///
+/// Returns the first error of `process`, which ends the run.
+pub fn run_blocks<S: BatterySample, E>(
     spec: &ObjectSpec,
     input: &[S],
-) -> Vec<Block<S>> {
+    blocks: usize,
+    entry: S,
+    mut process: impl FnMut(&[Block<S>], &mut [Block<S>]) -> Result<(), E>,
+) -> Result<Vec<Block<S>>, E> {
     let (chunked, _remainder) = input.as_chunks::<BLOCK_SIZE>();
     let mut chunks = chunked.iter();
     let mut inputs = vec![S::SILENCE; spec.inlets.len()];
     let mut outputs = vec![S::SILENCE; spec.outlets.len()];
-    let mut rendered = Vec::with_capacity(BLOCKS.saturating_mul(spec.outlets.len()));
-    for _ in 0..BLOCKS {
+    let mut rendered = Vec::with_capacity(blocks.saturating_mul(spec.outlets.len()));
+    for _ in 0..blocks {
         for block in &mut inputs {
             for (sample, value) in block.iter_mut().zip(chunks.next().unwrap_or(&S::SILENCE)) {
                 *sample = *value;
             }
         }
-        object.process(&inputs, &mut outputs);
+        for output in &mut outputs {
+            output.fill(entry);
+        }
+        process(&inputs, &mut outputs)?;
         rendered.extend_from_slice(&outputs);
     }
-    rendered
+    Ok(rendered)
 }
 
 /// The next 64 bits of `SplitMix64` (Steele, Lea and Flood, 2014, as `spec/measurements.md`

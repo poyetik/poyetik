@@ -521,6 +521,12 @@ pub trait Object<S: Sample>: Send + fmt::Debug {
     /// `inputs` holds one block per inlet and `outputs` one block per outlet, in the
     /// order declared by the box's [`ObjectSpec`]. Must not allocate or free memory, lock
     /// or block.
+    ///
+    /// A box writes every sample of every outlet at every block: what `outputs` holds on
+    /// entry is unspecified (`spec/engine-design.md`, decision 25), so that no box's bits
+    /// depend on how the engine keeps its buffers; a box that needs its last output keeps it
+    /// as its own state. The box laws give the outputs two different values on entry and
+    /// require the same bits (`engine_testkit::check_laws`).
     fn process(&mut self, inputs: &[Block<S>], outputs: &mut [Block<S>]);
 }
 

@@ -52,6 +52,11 @@ enum Fixture {
     Middle,
     /// Infinity after 512 blocks.
     Drifts(u32),
+    /// In one precision, adds a millionth of its input to what its outputs hold on entry;
+    /// silence in the other.
+    ReadsOutputsIn(Precision),
+    /// Writes silence to its outputs on every other block only, from its first.
+    Skips(u32),
 }
 
 impl<S: Sample> Object<S> for Fixture {
@@ -90,13 +95,20 @@ impl<S: Sample> Object<S> for Fixture {
                     Precision::Binary32 => f64::from(f32::from_bits(1)),
                 }),
             ),
-            Self::Allocating => drop(black_box(Vec::<u8>::with_capacity(8))),
-            Self::Freeing(memory) => drop(black_box(memory.take())),
+            Self::Allocating => {
+                drop(black_box(Vec::<u8>::with_capacity(8)));
+                fill(outputs, S::ZERO);
+            }
+            Self::Freeing(memory) => {
+                drop(black_box(memory.take()));
+                fill(outputs, S::ZERO);
+            }
             Self::NegativeIsNan => fill(outputs, either(inputs_any(&|sample| sample < 0.0_f64))),
             Self::SecondInlet => {
                 let second = inputs
                     .get(1)
                     .is_some_and(|block| block.iter().any(|sample| widen(*sample) != 0.0_f64));
+                fill(outputs, S::ZERO);
                 for output in outputs.iter_mut().skip(1) {
                     output.fill(either(second));
                 }
@@ -119,6 +131,23 @@ impl<S: Sample> Object<S> for Fixture {
                     0.0_f64
                 };
                 fill(outputs, of::<S>(value));
+            }
+            Self::ReadsOutputsIn(precision) => {
+                if *precision == S::PRECISION {
+                    for (output, input) in outputs.iter_mut().zip(inputs) {
+                        for (out, value) in output.iter_mut().zip(input) {
+                            *out = (*out + *value * of::<S>(1e-6)).flush();
+                        }
+                    }
+                } else {
+                    fill(outputs, S::ZERO);
+                }
+            }
+            Self::Skips(blocks) => {
+                if *blocks % 2 == 0 {
+                    fill(outputs, S::ZERO);
+                }
+                *blocks = blocks.saturating_add(1);
             }
         }
     }
@@ -303,6 +332,38 @@ fn catches_non_deterministic_output() {
     assert!(
         in_narrow.starts_with("binary32, at 8000 Hz: special inputs: not deterministic"),
         "{in_narrow}"
+    );
+}
+
+#[test]
+fn catches_a_box_reading_its_outputs_in_either_precision() {
+    for precision in [Precision::Binary64, Precision::Binary32] {
+        let spec = spec_with(match precision {
+            Precision::Binary64 => factory!(|_, _| Fixture::ReadsOutputsIn(Precision::Binary64)),
+            Precision::Binary32 => factory!(|_, _| Fixture::ReadsOutputsIn(Precision::Binary32)),
+        });
+        let error = check_laws(spec).expect_err("its outputs on entry are read");
+        assert!(
+            error.starts_with(&format!(
+                "binary{}, at 8000 Hz: special inputs: reads its outputs or leaves some of their samples unwritten, with parameters [0.0]",
+                precision.bits()
+            )),
+            "{error}"
+        );
+    }
+}
+
+#[test]
+fn catches_a_box_leaving_samples_of_its_outputs_unwritten() {
+    // The first block is written, then every other one: an outputs fill set once before
+    // the first block would not see it.
+    let error = check_laws(spec_with(factory!(|_, _| Fixture::Skips(0))))
+        .expect_err("unwritten blocks are seen");
+    assert!(
+        error.starts_with(
+            "binary64, at 8000 Hz: special inputs: reads its outputs or leaves some of their samples unwritten, with parameters [0.0]"
+        ),
+        "{error}"
     );
 }
 
@@ -655,12 +716,28 @@ fn renders_only_with_the_parameters_of_the_box_type() {
     // one of its own is refused, never given to the box.
     let rate = SampleRate::new(48_000).expect("valid rate");
     assert_eq!(
-        super::render::<engine_core::Binary64>(&GOOD, rate, &[], &[], 1).map(|_rendered| ()),
+        super::render::<engine_core::Binary64>(
+            &GOOD,
+            rate,
+            &[],
+            &[],
+            1,
+            engine_core::Binary64::ZERO
+        )
+        .map(|_rendered| ()),
         Err("box type \"gain~\" takes 1 parameter value(s), not 0".to_owned()),
         "the wrong count"
     );
     assert!(
-        super::render::<engine_core::Binary64>(&GOOD, rate, &[0.5], &[], 1).is_ok(),
+        super::render::<engine_core::Binary64>(
+            &GOOD,
+            rate,
+            &[0.5],
+            &[],
+            1,
+            engine_core::Binary64::ZERO
+        )
+        .is_ok(),
         "its own"
     );
 }

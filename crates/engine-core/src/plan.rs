@@ -37,8 +37,9 @@ struct Running<S: Sample, I> {
     /// stays silent from the build on.
     feeds: Vec<(usize, Feed<usize>)>,
     /// First bus slot of this instance's outputs: its outlets write the `outlets` slots
-    /// from there on (consecutive, and written by no other instance), which keep their
-    /// blocks between two blocks of processing as the box's own buffers would.
+    /// from there on (consecutive, and written by no other instance), handed to the box as
+    /// the last block left them, which the box may not rely on (`Object::process`: it
+    /// writes every sample).
     first_slot: usize,
     /// Number of outlets of the box.
     outlets: usize,

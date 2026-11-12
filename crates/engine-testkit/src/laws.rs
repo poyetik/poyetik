@@ -10,7 +10,7 @@ use engine_core::{
 use proptest::collection::vec;
 use proptest::test_runner::TestCaseError;
 
-use engine_battery::{BLOCKS, BatterySample, param_sets, special_input};
+use engine_battery::{BLOCKS, BatterySample, param_sets, run_blocks, special_input};
 
 use crate::heap_operations_during;
 use crate::matrix::{PRECISIONS, sample_rates};
@@ -115,8 +115,9 @@ pub fn check_registry(registry: &[&ObjectSpec]) -> Result<(), String> {
 }
 
 /// Renders `blocks` blocks of a fresh instance computing in `S`, feeding consecutive input
-/// blocks taken from `input` (then silence). Returns the outputs and the heap operations
-/// made while processing.
+/// blocks taken from `input` (then silence), every output sample set to `entry` before every
+/// block ([`run_blocks`]). Returns the outputs and the heap operations made while
+/// processing.
 ///
 /// The parameters are given as a plan gives them, as `engine_core::Params`.
 ///
@@ -130,6 +131,7 @@ fn render<S: LawSample>(
     params: &[f32],
     input: &[S],
     blocks: usize,
+    entry: S,
 ) -> Result<(Vec<Block<S>>, usize), String> {
     let values: Vec<Binary64> = params
         .iter()
@@ -137,23 +139,13 @@ fn render<S: LawSample>(
         .collect();
     let wide = ParamValues::of(spec, &values).map_err(|error| error.to_string())?;
     let mut object = <Box<dyn Object<S>> as Dispatch<S>>::create(rate, &wide);
-    let (chunked, _remainder) = input.as_chunks::<BLOCK_SIZE>();
-    let mut chunks = chunked.iter();
-    let mut inputs = vec![S::SILENCE; spec.inlets.len()];
-    let mut outputs = vec![S::SILENCE; spec.outlets.len()];
-    let mut rendered = Vec::with_capacity(blocks.saturating_mul(spec.outlets.len()));
     let mut operations = 0_usize;
-    for _ in 0..blocks {
-        for block in &mut inputs {
-            for (sample, value) in block.iter_mut().zip(chunks.next().unwrap_or(&S::SILENCE)) {
-                *sample = *value;
-            }
-        }
-        let ((), count) = heap_operations_during(|| object.process(&inputs, &mut outputs))?;
+    let rendered = run_blocks(spec, input, blocks, entry, |given, outputs| {
+        let ((), count) = heap_operations_during(|| object.process(given, outputs))?;
         operations = operations.saturating_add(count);
-        rendered.extend_from_slice(&outputs);
-    }
-    Ok((rendered, operations))
+        Ok::<(), String>(())
+    });
+    Ok((rendered?, operations))
 }
 
 /// Bit patterns of rendered samples, so that `-0.0` and NaN payloads are compared exactly.
@@ -186,17 +178,39 @@ fn check_rendered<S: LawSample>(
     Ok(())
 }
 
-/// Checks one input against the determinism, finite-output, no-subnormal and no-heap laws.
+/// What the second render of [`check_input`] sets every output sample to before every
+/// block, where the first sets +0: a quiet NaN with a payload of its own, as close to no
+/// value a box computes as a sample can be.
+const ENTRY_BITS: u64 = 0x7ff8_0000_dead_beef;
+
+/// Checks one input against the determinism, outputs-on-entry, finite-output,
+/// no-subnormal and no-heap laws.
+///
+/// The determinism law renders each case twice, from two fresh instances: the first with
+/// its outputs +0 on entry to every block, the second with them [`ENTRY_BITS`], which the
+/// box contract leaves unspecified (a box writes every sample of every outlet,
+/// `engine_core::Object::process`), so the two must give the same bits. Only when they do
+/// not, a third render with +0 tells a box that is not deterministic from one that reads
+/// its outputs or leaves samples unwritten. A box reading its outputs through a function
+/// that maps both values alike (the larger of the output and its input, which NaN and +0
+/// can both lose to) escapes the law: review only.
 fn check_input<S: LawSample>(
     spec: &'static ObjectSpec,
     rate: SampleRate,
     input: &[S],
 ) -> Result<(), String> {
+    let entry = S::from_binary64(Binary64::from_raw(f64::from_bits(ENTRY_BITS)));
     for params in param_sets(spec) {
-        let (first, operations) = render(spec, rate, &params, input, BLOCKS)?;
-        let (second, _) = render(spec, rate, &params, input, BLOCKS)?;
+        let (first, operations) = render(spec, rate, &params, input, BLOCKS, S::ZERO)?;
+        let (second, _) = render(spec, rate, &params, input, BLOCKS, entry)?;
         if bits(&first) != bits(&second) {
-            return Err(format!("not deterministic with parameters {params:?}"));
+            let (third, _) = render(spec, rate, &params, input, BLOCKS, S::ZERO)?;
+            let cause = if bits(&first) == bits(&third) {
+                "reads its outputs or leaves some of their samples unwritten,"
+            } else {
+                "not deterministic"
+            };
+            return Err(format!("{cause} with parameters {params:?}"));
         }
         check_rendered(&first, operations, &params)?;
     }
@@ -207,7 +221,8 @@ fn check_input<S: LawSample>(
 /// and without heap operations.
 fn check_long_run<S: LawSample>(spec: &'static ObjectSpec, rate: SampleRate) -> Result<(), String> {
     for params in param_sets(spec) {
-        let (rendered, operations) = render::<S>(spec, rate, &params, &[], LONG_RUN_BLOCKS)?;
+        let (rendered, operations) =
+            render::<S>(spec, rate, &params, &[], LONG_RUN_BLOCKS, S::ZERO)?;
         check_rendered(&rendered, operations, &params)
             .map_err(|problem| format!("long run: {problem}"))?;
     }

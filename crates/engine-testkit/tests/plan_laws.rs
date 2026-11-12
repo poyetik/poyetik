@@ -371,6 +371,9 @@ mod tests {
                         reduce(&sources)
                     })
                     .collect();
+                // Fresh buffers every block: a box writes every sample of every outlet, so
+                // what its outputs hold on entry is no part of the reference
+                // (`Object::process`, which the box laws hold every box to).
                 let mut produced = vec![S::SILENCE; spec(node).outlets.len()];
                 boxes
                     .get_mut(id)
