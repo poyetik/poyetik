@@ -272,6 +272,9 @@ impl fmt::Display for ParamError {
     }
 }
 
+/// An error of its own, with no cause: a host passes it on as any other.
+impl core::error::Error for ParamError {}
+
 impl ParamValues {
     /// The parameter values `values` of the box type `spec`: one per parameter, in order,
     /// each nonzero one below 2^-126 in magnitude made a zero of its sign, then checked

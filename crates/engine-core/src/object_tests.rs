@@ -414,3 +414,14 @@ fn creates_the_box_type_of_its_values() {
         "its default"
     );
 }
+
+#[test]
+fn is_an_error_of_its_own() {
+    let error: Box<dyn core::error::Error> = Box::new(ParamError::Default { name: "gain" });
+    assert!(error.source().is_none(), "no cause of its own");
+    assert_eq!(
+        format!("{error}"),
+        "parameter \"gain\": its default is outside its range",
+        "said as it displays"
+    );
+}
