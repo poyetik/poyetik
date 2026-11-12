@@ -690,14 +690,12 @@ fn refuses_other_bits_than_main_at_a_version_both_records_hold() {
 fn says_why_the_battery_cannot_fingerprint_a_box_type() {
     static WRONG: engine_core::ObjectSpec = engine_core::ObjectSpec {
         name: "wrong~",
-        params: &[engine_core::ParamSpec::new(
-            "f", "f", 30_000.0, 0.0, 20_000.0,
-        )],
+        params: &[engine_core::param!("f", "f", 440.0, 1e-40, 20_000.0)],
         ..engine_objects::OSC
     };
     assert_eq!(
         engine_fpenv::with_default_mode(|mode| fingerprints_of(&[&WRONG], mode)),
-        Err("parameter \"f\" of box type \"wrong~\": 30000 is outside its range".to_owned()),
-        "a default outside its range, in words"
+        Err("parameter \"f\" of box type \"wrong~\": 0 is outside its range".to_owned()),
+        "a minimum below 2^-126, flushed out of its range, in words"
     );
 }

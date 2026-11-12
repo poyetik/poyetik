@@ -25,7 +25,7 @@ use alloc::boxed::Box;
 use core::ptr;
 
 use engine_core::{
-    Block, Dispatch, Object, ObjectSpec, Params, Plan, Renderer, Sample, SampleRate,
+    Block, Dispatch, Object, ObjectSpec, ParamValues, Plan, Renderer, Sample, SampleRate,
 };
 
 pub use dac::DAC;
@@ -80,17 +80,18 @@ impl<S: Sample> Object<S> for BuiltIn<S> {
 }
 
 impl<S: Sample> Dispatch<S> for BuiltIn<S> {
-    /// The box type is told by the address of its spec, the registry's statics being the
-    /// only specs of the built-in box types: a copy of one is another box type, created
-    /// through its factory.
+    /// The box type is told by the address of the spec the values carry, the registry's
+    /// statics being the only specs of the built-in box types: a copy of one is another box
+    /// type, created through its factory.
     #[inline]
-    fn create(spec: &'static ObjectSpec, rate: SampleRate, params: Params<'_>) -> Self {
+    fn create(rate: SampleRate, values: &ParamValues) -> Self {
+        let spec = values.spec();
         Self(if ptr::eq(spec, &raw const OSC) {
-            Kind::Osc(Box::new(osc::Osc::of(rate, &params)))
+            Kind::Osc(Box::new(osc::Osc::of(rate, &values.params())))
         } else if ptr::eq(spec, &raw const DAC) {
             Kind::Dac(dac::Dac)
         } else {
-            Kind::Other(spec.create.create(rate, params))
+            Kind::Other(<Box<dyn Object<S>> as Dispatch<S>>::create(rate, values))
         })
     }
 }

@@ -20,7 +20,7 @@ const OUT: PortSpec = PortSpec {
     name: "out",
     description: "a signal",
 };
-const GAIN: ParamSpec = ParamSpec::new("gain", "gain", 0.5, 0.0, 1.0);
+const GAIN: ParamSpec = engine_core::param!("gain", "gain", 0.5, 0.0, 1.0);
 
 /// Every box through its virtual table: the instance type of these tests, whose box types
 /// are none of the engine's.
@@ -251,8 +251,8 @@ fn draws_the_seeded_signal_of_splitmix64_from_zero() {
 
 #[test]
 fn tries_special_parameter_values_only_within_the_range() {
-    const POSITIVE: ParamSpec = ParamSpec::new("gain", "gain", 2.0, 1.0, 3.0);
-    const NEGATIVE: ParamSpec = ParamSpec::new("gain", "gain", -2.0, -3.0, -1.0);
+    const POSITIVE: ParamSpec = engine_core::param!("gain", "gain", 2.0, 1.0, 3.0);
+    const NEGATIVE: ParamSpec = engine_core::param!("gain", "gain", -2.0, -3.0, -1.0);
     let bits = |param: &'static ParamSpec| {
         param_sets(&ObjectSpec {
             params: core::slice::from_ref(param),
@@ -288,9 +288,9 @@ fn tries_special_parameter_values_only_within_the_range() {
 fn tries_a_value_away_from_the_default() {
     // The midpoint of the range, unless it is the default: then halfway from the default
     // to the maximum.
-    const QUARTER: ParamSpec = ParamSpec::new("gain", "gain", 0.25, 0.0, 1.0);
-    const CENTERED: ParamSpec = ParamSpec::new("gain", "gain", 0.5, -1.0, 1.0);
-    const ZERO: ParamSpec = ParamSpec::new("gain", "gain", 0.0, -1.0, 1.0);
+    const QUARTER: ParamSpec = engine_core::param!("gain", "gain", 0.25, 0.0, 1.0);
+    const CENTERED: ParamSpec = engine_core::param!("gain", "gain", 0.5, -1.0, 1.0);
+    const ZERO: ParamSpec = engine_core::param!("gain", "gain", 0.0, -1.0, 1.0);
     let away = |param: &'static ParamSpec| {
         let [_, _, away, ..] = param_sets(&ObjectSpec {
             params: core::slice::from_ref(param),
@@ -441,11 +441,12 @@ fn pins_the_inputs_of_the_battery() {
 
 #[test]
 fn refuses_a_parameter_set_the_box_type_does_not_take() {
-    // A default outside its range, which the box laws refuse: the battery's set of
-    // defaults is no set of the box type's, and no fingerprint is computed from it.
-    const LOUD: ParamSpec = ParamSpec::new("gain", "gain", 1.5, 0.0, 1.0);
+    // A minimum below 2^-126, which the box laws refuse: flushed, it is +0, below its
+    // range, so the battery's set of minimums is no set of the box type's, and no
+    // fingerprint is computed from it.
+    const TINY: ParamSpec = engine_core::param!("gain", "gain", 0.5, 1e-40, 1.0);
     let wrong = ObjectSpec {
-        params: &[LOUD],
+        params: &[TINY],
         ..echo(Quirk::None)
     };
     assert_eq!(
@@ -453,8 +454,8 @@ fn refuses_a_parameter_set_the_box_type_does_not_take() {
         Err(ParamError::OutOfRange {
             kind: "echo~",
             name: "gain",
-            bits: 1.5_f64.to_bits()
+            bits: 0
         }),
-        "its default refused"
+        "its minimum refused, flushed"
     );
 }

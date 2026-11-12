@@ -7,11 +7,11 @@ use alloc::vec::Vec;
 
 use super::to_binary32;
 use crate::host::{Delivered, Raw};
+use crate::{AlgorithmVersion, ObjectSpec, ParamValues, Params};
 use crate::{
     ArithmeticMode, ArithmeticOption, BLOCK_SIZE, Binary32, Binary64, Block, Create, Factory, MODE,
     Object, Precision, RenderFormat, Sample, SampleRate, UnknownArithmeticOptions,
 };
-use crate::{ParamValues, Params};
 
 /// The nearest binary32 to the binary64 `bits`, worked out in integers from IEEE 754 alone
 /// (round to nearest, ties to even; NaN by the rule of [`to_binary32`]): a reference
@@ -616,6 +616,18 @@ impl Create for Width {
     }
 }
 
+/// The box type of [`Width`], whose values these tests give unchecked.
+static WIDTH: ObjectSpec = ObjectSpec {
+    name: "width~",
+    description: "the width of its samples",
+    inlets: &[],
+    outlets: &[],
+    params: &[],
+    capabilities: &[],
+    create: Factory::new::<Width>(),
+    algorithm_version: AlgorithmVersion::FIRST,
+};
+
 #[test]
 fn a_factory_creates_instances_in_either_precision() {
     let factory = Factory::new::<Width>();
@@ -624,13 +636,16 @@ fn a_factory_creates_instances_in_either_precision() {
     factory
         .create::<Binary64>(
             rate,
-            ParamValues::flushed(vec![wide(0.25), wide(0.5)]).params(),
+            ParamValues::flushed(&WIDTH, vec![wide(0.25), wide(0.5)]).params(),
         )
         .process(&[], &mut out64);
     assert_eq!(out64[0][0].bits(), 64.758_f64.to_bits(), "binary64");
     let mut out32 = [Binary32::SILENCE];
     factory
-        .create::<Binary32>(rate, ParamValues::flushed(vec![wide(0.25)]).params())
+        .create::<Binary32>(
+            rate,
+            ParamValues::flushed(&WIDTH, vec![wide(0.25)]).params(),
+        )
         .process(&[], &mut out32);
     assert_eq!(
         out32[0][0].bits(),

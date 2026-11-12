@@ -26,8 +26,8 @@ mod tests {
     use engine_core::host::{Delivered, ParamBounds, Raw};
     use engine_core::{
         AlgorithmVersion, BLOCK_SIZE, Binary32, Binary64, Block, Capability, Connection, CoreError,
-        Create, Dispatch, Factory, Node, NodeId, Object, ObjectSpec, ParamSpec, ParamValues,
-        Params, Patch, Plan, PortSpec, Precision, Renderer, Sample, SampleRate,
+        Create, Dispatch, Factory, Node, NodeId, Object, ObjectSpec, ParamValues, Params, Patch,
+        Plan, PortSpec, Precision, Renderer, Sample, SampleRate,
     };
     use engine_objects::BuiltIn;
     use engine_testkit::matrix::{HOST_BUFFER_SIZES, PRECISIONS, sample_rates};
@@ -80,7 +80,7 @@ mod tests {
         description: "constant",
         inlets: &[],
         outlets: &[PORT],
-        params: &[ParamSpec::new("value", "value", 0.5, -1.0, 1.0)],
+        params: &[engine_core::param!("value", "value", 0.5, -1.0, 1.0)],
         capabilities: &[],
         create: Factory::new::<Const>(),
         algorithm_version: AlgorithmVersion::FIRST,
@@ -342,7 +342,10 @@ mod tests {
                 })
                 .collect();
             let params = ParamValues::of(spec(node), &values).expect("values the plan accepted");
-            drop(boxes.insert(node.id, spec(node).create.create(rate, params.params())));
+            drop(boxes.insert(
+                node.id,
+                <Box<dyn Object<S>> as Dispatch<S>>::create(rate, &params),
+            ));
         }
         let is_output = |node: &Node| spec(node).capabilities.contains(&Capability::AudioOutput);
         let channels = nodes

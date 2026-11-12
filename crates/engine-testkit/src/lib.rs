@@ -15,7 +15,8 @@
 //!
 //! The laws:
 //! - **metadata**: names and descriptions are present, port and parameter names are
-//!   unique, parameter ranges are finite and contain their default;
+//!   unique (a parameter's range is finite and holds its default by construction:
+//!   `engine_core::ParamSpec::new`);
 //! - **determinism**: two fresh instances fed the same inputs produce bit-identical
 //!   outputs;
 //! - **finite output**: never NaN or infinity, for random inputs in `[-1, 1]`, the

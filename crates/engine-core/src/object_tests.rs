@@ -7,13 +7,13 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use super::{
-    AlgorithmVersion, Create, Factory, Object, ObjectSpec, ParamError, ParamSpec, ParamValues,
-    Params,
+    AlgorithmVersion, Create, Dispatch, Factory, Object, ObjectSpec, ParamError, ParamSpec,
+    ParamValues, Params,
 };
 use crate::host::{ParamBounds, Raw as _};
-use crate::{Binary64, Block, Sample, SampleRate};
+use crate::{Binary32, Binary64, Block, Sample, SampleRate};
 
-const PARAM: ParamSpec = ParamSpec::new("p", "p", 0.0, -1.0, 2.0);
+const PARAM: ParamSpec = crate::param!("p", "p", 0.0, -1.0, 2.0);
 
 #[test]
 fn accepts_values_within_range_inclusive() {
@@ -31,7 +31,7 @@ fn rejects_values_outside_range_and_nan() {
 
 #[test]
 fn gives_hosts_its_values_as_written() {
-    let param = ParamSpec::new("q", "a q", 0.25, -1.5, 2.5);
+    let param = crate::param!("q", "a q", 0.25, -1.5, 2.5);
     assert_eq!(
         (param.name, param.description),
         ("q", "a q"),
@@ -96,7 +96,7 @@ fn gives_parameters_in_order_none_below_the_smallest_normal_binary32() {
 
 #[test]
 fn names_and_describes_a_parameter() {
-    const GAIN: ParamSpec = ParamSpec::new("gain", "how loud", 0.5, 0.0, 1.0);
+    const GAIN: ParamSpec = crate::param!("gain", "how loud", 0.5, 0.0, 1.0);
     assert_eq!(
         (GAIN.name(), GAIN.description()),
         ("gain", "how loud"),
@@ -126,8 +126,8 @@ static TWO: ObjectSpec = ObjectSpec {
     inlets: &[],
     outlets: &[],
     params: &[
-        ParamSpec::new("a", "a", 0.5, -1.0, 2.0),
-        ParamSpec::new("b", "b", 440.0, 0.0, 20_000.0),
+        crate::param!("a", "a", 0.5, -1.0, 2.0),
+        crate::param!("b", "b", 440.0, 0.0, 20_000.0),
     ],
     capabilities: &[],
     create: Factory::new::<Mute>(),
@@ -136,7 +136,7 @@ static TWO: ObjectSpec = ObjectSpec {
 
 /// [`TWO`] with one parameter whose default is below 2^-126.
 static TINY: ObjectSpec = ObjectSpec {
-    params: &[ParamSpec::new("t", "t", -1e-40, -1.0, 1.0)],
+    params: &[crate::param!("t", "t", -1e-40, -1.0, 1.0)],
     ..TWO
 };
 
@@ -147,7 +147,7 @@ static FIVE: ObjectSpec = ObjectSpec {
 };
 
 /// A parameter accepting -1,000 to 1,000.
-const WIDE: ParamSpec = ParamSpec::new("w", "w", 0.0, -1_000.0, 1_000.0);
+const WIDE: ParamSpec = crate::param!("w", "w", 0.0, -1_000.0, 1_000.0);
 
 /// [`TWO`] without parameters.
 static NONE: ObjectSpec = ObjectSpec { params: &[], ..TWO };
@@ -264,5 +264,153 @@ fn gives_the_defaults_of_the_box_type() {
         bits(&ParamValues::defaults(&TINY)),
         [0x8000_0000_0000_0000],
         "flushed as a plan flushes it"
+    );
+}
+
+/// What [`ParamSpec::new`] gives for a default `default_value` and the range `minimum` to
+/// `maximum`: the bits of the three as kept, or the error.
+fn checked(default_value: f32, minimum: f32, maximum: f32) -> Result<[u32; 3], ParamError> {
+    ParamSpec::new("p", "p", default_value, minimum, maximum)
+        .map(|param| [param.default_value, param.minimum, param.maximum].map(f32::to_bits))
+}
+
+#[test]
+fn takes_a_default_within_its_finite_range_only() {
+    for (default_value, minimum, maximum) in [
+        (-1.0_f32, -1.0_f32, 2.0_f32),
+        (2.0_f32, -1.0_f32, 2.0_f32),
+        (0.5_f32, 0.5_f32, 0.5_f32),
+        (-0.0_f32, 0.0_f32, 1.0_f32),
+        (f32::MAX, f32::MIN, f32::MAX),
+    ] {
+        assert_eq!(
+            checked(default_value, minimum, maximum),
+            Ok([default_value, minimum, maximum].map(f32::to_bits)),
+            "{default_value} in [{minimum}, {maximum}], kept as written"
+        );
+    }
+    // Flushed, as a plan flushes it: a subnormal default is a zero of its sign, kept as
+    // written for hosts.
+    let subnormal = f32::from_bits(1);
+    assert_eq!(
+        checked(subnormal, 0.0_f32, 1.0_f32),
+        Ok([1, 0, 1.0_f32.to_bits()]),
+        "a subnormal default, zero once flushed, in a range from 0"
+    );
+    assert_eq!(
+        checked(-subnormal, -1.0_f32, 0.0_f32),
+        Ok([0x8000_0001, (-1.0_f32).to_bits(), 0]),
+        "a negative one, -0 once flushed, in a range up to 0"
+    );
+    for (default_value, minimum, maximum) in [
+        ((-1.0_f32).next_down(), -1.0_f32, 2.0_f32),
+        (2.0_f32.next_up(), -1.0_f32, 2.0_f32),
+        (f32::NAN, -1.0_f32, 2.0_f32),
+        (subnormal, f32::from_bits(2), 1.0_f32),
+        (-subnormal, -1.0_f32, -f32::from_bits(2)),
+        (f32::INFINITY, -1.0_f32, 2.0_f32),
+    ] {
+        assert_eq!(
+            checked(default_value, minimum, maximum),
+            Err(ParamError::Default { name: "p" }),
+            "{default_value} outside [{minimum}, {maximum}] once flushed"
+        );
+    }
+    for (minimum, maximum) in [
+        (f32::NEG_INFINITY, 1.0_f32),
+        (0.0_f32, f32::INFINITY),
+        (f32::NAN, 1.0_f32),
+        (0.0_f32, f32::NAN),
+        (1.0_f32, 1.0_f32.next_down()),
+    ] {
+        assert_eq!(
+            checked(1.0_f32, minimum, maximum),
+            Err(ParamError::Range { name: "p" }),
+            "[{minimum}, {maximum}]"
+        );
+    }
+    assert_eq!(
+        format!("{}", ParamError::Default { name: "gain" }),
+        "parameter \"gain\": its default is outside its range",
+        "said"
+    );
+    assert_eq!(
+        format!("{}", ParamError::Range { name: "gain" }),
+        "parameter \"gain\": its range is not finite, or its minimum is above its maximum",
+        "said"
+    );
+}
+
+#[test]
+fn keeps_the_box_type_its_values_were_checked_against() {
+    let given = ParamValues::of(&TWO, &wide([0.25_f64, 1000.0_f64])).expect("within range");
+    assert!(core::ptr::eq(given.spec(), &raw const TWO), "of");
+    assert!(
+        core::ptr::eq(ParamValues::defaults(&FIVE).spec(), &raw const FIVE),
+        "defaults"
+    );
+    assert!(
+        core::ptr::eq(ParamValues::flushed(&NONE, vec![]).spec(), &raw const NONE),
+        "flushed"
+    );
+}
+
+/// A box type whose instance outputs its first parameter value then the sample rate in
+/// hertz, frame by frame, so that a test sees what it was created with.
+#[derive(Debug)]
+struct Told([f64; 2]);
+
+impl<S: Sample> Object<S> for Told {
+    fn process(&mut self, _inputs: &[Block<S>], outputs: &mut [Block<S>]) {
+        for output in outputs {
+            for (sample, &value) in output.iter_mut().zip(self.0.iter()) {
+                *sample = S::from_binary64(Binary64::new(value));
+            }
+        }
+    }
+}
+
+impl Create for Told {
+    fn create<S: Sample>(rate: SampleRate, params: Params<'_>) -> Box<dyn Object<S>> {
+        let first = params.first().map_or(-1.0_f64, |value| value.raw());
+        Box::new(Self([first, f64::from(rate.hz())]))
+    }
+}
+
+/// The box type of [`Told`], of one parameter from 0 to 1,000.
+static TOLD: ObjectSpec = ObjectSpec {
+    name: "told~",
+    params: &[crate::param!("v", "v", 1.0, 0.0, 1_000.0)],
+    create: Factory::new::<Told>(),
+    ..TWO
+};
+
+/// The first two frames of the instance computing in `S` that `values` create, at 8 kHz,
+/// through the virtual table.
+fn created<S: crate::host::Raw>(values: &ParamValues) -> [u64; 2] {
+    let rate = SampleRate::new(8_000).expect("valid rate");
+    let mut out = [S::SILENCE];
+    <Box<dyn Object<S>> as Dispatch<S>>::create(rate, values).process(&[], &mut out);
+    let [first, second, ..] = out[0];
+    [first.bits(), second.bits()]
+}
+
+#[test]
+fn creates_the_box_type_of_its_values() {
+    let given = ParamValues::of(&TOLD, &wide([250.0_f64])).expect("within range");
+    assert_eq!(
+        created::<Binary64>(&given),
+        [250.0_f64.to_bits(), 8_000.0_f64.to_bits()],
+        "binary64: its factory, its value and the rate"
+    );
+    assert_eq!(
+        created::<Binary32>(&given),
+        [250.0_f32.to_bits(), 8_000.0_f32.to_bits()].map(u64::from),
+        "binary32"
+    );
+    assert_eq!(
+        created::<Binary64>(&ParamValues::defaults(&TOLD)),
+        [1.0_f64.to_bits(), 8_000.0_f64.to_bits()],
+        "its default"
     );
 }

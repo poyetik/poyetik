@@ -5,9 +5,11 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::f64::consts::TAU;
 
+use alloc::boxed::Box;
 use engine_core::host::{Delivered, ParamBounds, Raw};
+
 use engine_core::{
-    BLOCK_SIZE, Binary32, Binary64, Block, Object as _, ParamValues, RenderFormat, Sample,
+    BLOCK_SIZE, Binary32, Binary64, Block, Dispatch, Object, ParamValues, RenderFormat, Sample,
     SampleRate,
 };
 
@@ -286,9 +288,7 @@ fn follows_its_frequency_parameter() {
 /// Renders one block into a first outlet and an extra buffer, which must stay as it was.
 fn leaves_extra_buffers<S: Sample>() {
     let rate = SampleRate::new(48_000).expect("valid rate");
-    let mut osc = OSC
-        .create
-        .create::<S>(rate, ParamValues::defaults(&OSC).params());
+    let mut osc = <Box<dyn Object<S>> as Dispatch<S>>::create(rate, &ParamValues::defaults(&OSC));
     let seven = [S::from_binary64(param(7.0)); BLOCK_SIZE];
     let mut out: [Block<S>; 2] = [S::SILENCE, seven];
     osc.process(&[], &mut out);
@@ -321,7 +321,7 @@ fn keeps_its_phase_within_one_cycle_at_every_rate() {
             let mut osc = super::Osc::new(rate, param(frequency));
             let mut out: [Block<Binary64>; 1] = [Binary64::SILENCE];
             for _ in 0_u16..200_u16 {
-                engine_core::Object::process(&mut osc, &[], &mut out);
+                Object::process(&mut osc, &[], &mut out);
                 assert!(
                     (0.0_f64..1.0_f64).contains(&osc.phase.raw()),
                     "phase {} at {frequency} Hz and {} Hz",
@@ -487,7 +487,7 @@ fn keeps_its_phase_zero_or_normal() {
             let mut osc = super::Osc::new(rate, param(f64::from(frequency)));
             let mut out: [Block<Binary32>; 1] = [Binary32::SILENCE];
             for _ in 0_u16..64_u16 {
-                engine_core::Object::process(&mut osc, &[], &mut out);
+                Object::process(&mut osc, &[], &mut out);
                 assert!(
                     matches!(
                         osc.phase.raw().classify(),
@@ -513,11 +513,10 @@ fn stays_below_four_cycles_per_sample() {
 /// Checks that an oscillator computing in `S` given the defaults of its box type plays 440 Hz.
 fn defaults_to_440_hz_in<S: Sample>() {
     let rate = SampleRate::new(48_000).expect("valid rate");
-    let mut with_default = OSC
-        .create
-        .create::<S>(rate, ParamValues::defaults(&OSC).params());
+    let mut with_default =
+        <Box<dyn Object<S>> as Dispatch<S>>::create(rate, &ParamValues::defaults(&OSC));
     let explicit = ParamValues::of(&OSC, &[param(440.0)]).expect("440 Hz within range");
-    let mut with_440 = OSC.create.create::<S>(rate, explicit.params());
+    let mut with_440 = <Box<dyn Object<S>> as Dispatch<S>>::create(rate, &explicit);
     let (mut default_out, mut explicit_out) = ([S::SILENCE], [S::SILENCE]);
     with_default.process(&[], &mut default_out);
     with_440.process(&[], &mut explicit_out);

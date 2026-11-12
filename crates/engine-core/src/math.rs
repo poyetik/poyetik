@@ -440,8 +440,8 @@ pub(crate) mod sealed {
     impl Sealed for f32 {}
 
     /// How a sample type picks its constructor from a [`Factory`]: a supertrait of
-    /// [`Sample`] no other crate can name, so that [`Factory::create`] stays the one way
-    /// to create an instance.
+    /// [`Sample`] no other crate can name, so that `Dispatch::create`, through the
+    /// factory's own creation, stays the one way to create an instance.
     pub trait Construct {
         /// The constructor of `factory` for this type.
         fn constructor(factory: &Factory) -> Constructor<Self>

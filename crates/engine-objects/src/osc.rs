@@ -3,8 +3,8 @@
 use alloc::boxed::Box;
 
 use engine_core::{
-    AlgorithmVersion, Binary64, Block, Create, Factory, Object, ObjectSpec, ParamSpec, Params,
-    PortSpec, Sample, SampleRate,
+    AlgorithmVersion, Binary64, Block, Create, Factory, Object, ObjectSpec, Params, PortSpec,
+    Sample, SampleRate, param,
 };
 
 /// Sine oscillator, written once for both precisions. The phase is accumulated in binary64
@@ -57,6 +57,11 @@ impl Osc {
 
     /// An oscillator from its frequency parameter, as [`Create::create`] receives it: the
     /// one constructor of both its factory and [`crate::BuiltIn`].
+    ///
+    /// Both are given the values of [`OSC`] only (values carry the spec they were checked
+    /// against, `engine_core::ParamValues`), so the frequency is always there and the
+    /// fallback below is never taken; it goes with the typed access to parameter values
+    /// that cannot be missing (roadmap #12 step 14).
     #[inline]
     pub(crate) fn of(rate: SampleRate, params: &[Binary64]) -> Self {
         let frequency = params.first().copied().unwrap_or(Binary64::new(440.0));
@@ -80,7 +85,7 @@ pub static OSC: ObjectSpec = ObjectSpec {
         name: "out",
         description: "The sine wave",
     }],
-    params: &[ParamSpec::new(
+    params: &[param!(
         "frequency",
         "Frequency, in hertz",
         440.0,

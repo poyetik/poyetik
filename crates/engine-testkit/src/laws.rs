@@ -2,10 +2,10 @@
 
 use alloc::collections::BTreeSet;
 
-use engine_core::host::{ParamBounds, Raw};
+use engine_core::host::Raw;
 use engine_core::{
-    BLOCK_SIZE, Binary32, Binary64, Block, Object, ObjectSpec, ParamSpec, ParamValues, Precision,
-    SampleRate,
+    BLOCK_SIZE, Binary32, Binary64, Block, Dispatch, Object, ObjectSpec, ParamSpec, ParamValues,
+    Precision, SampleRate,
 };
 use proptest::collection::vec;
 use proptest::test_runner::TestCaseError;
@@ -76,7 +76,8 @@ fn unique_names(what: &str, names: &mut dyn Iterator<Item = &str>) -> Result<(),
 /// # Errors
 ///
 /// Returns the first problem found: missing name or description, empty or duplicate
-/// port or parameter names, a non-finite range, or a default outside its range.
+/// port or parameter names. A parameter's range and default need no law: a
+/// `engine_core::ParamSpec` is built only with a finite range holding its default.
 pub fn check_metadata(spec: &ObjectSpec) -> Result<(), String> {
     if spec.name.trim().is_empty() || spec.name.contains(char::is_whitespace) {
         return Err(format!("invalid box name \"{}\"", spec.name));
@@ -95,16 +96,6 @@ pub fn check_metadata(spec: &ObjectSpec) -> Result<(), String> {
     for param in spec.params {
         if param.description().trim().is_empty() {
             return Err(format!("parameter \"{}\" has no description", param.name()));
-        }
-        let finite = param.minimum().is_finite() && param.maximum().is_finite();
-        if !finite || !param.accepts(param.default_value()) {
-            return Err(format!(
-                "parameter \"{}\": default {} outside finite range [{}, {}]",
-                param.name(),
-                param.default_value(),
-                param.minimum(),
-                param.maximum()
-            ));
         }
     }
     Ok(())
@@ -134,7 +125,7 @@ pub fn check_registry(registry: &[&ObjectSpec]) -> Result<(), String> {
 /// Returns why the parameters are not those of the box type ([`ParamValues::of`]), or why
 /// the heap operations cannot be counted.
 fn render<S: LawSample>(
-    spec: &ObjectSpec,
+    spec: &'static ObjectSpec,
     rate: SampleRate,
     params: &[f32],
     input: &[S],
@@ -145,7 +136,7 @@ fn render<S: LawSample>(
         .map(|&param| Binary64::from_raw(f64::from(param)))
         .collect();
     let wide = ParamValues::of(spec, &values).map_err(|error| error.to_string())?;
-    let mut object: Box<dyn Object<S>> = spec.create.create(rate, wide.params());
+    let mut object = <Box<dyn Object<S>> as Dispatch<S>>::create(rate, &wide);
     let (chunked, _remainder) = input.as_chunks::<BLOCK_SIZE>();
     let mut chunks = chunked.iter();
     let mut inputs = vec![S::SILENCE; spec.inlets.len()];
@@ -197,7 +188,7 @@ fn check_rendered<S: LawSample>(
 
 /// Checks one input against the determinism, finite-output, no-subnormal and no-heap laws.
 fn check_input<S: LawSample>(
-    spec: &ObjectSpec,
+    spec: &'static ObjectSpec,
     rate: SampleRate,
     input: &[S],
 ) -> Result<(), String> {
@@ -214,7 +205,7 @@ fn check_input<S: LawSample>(
 
 /// Checks a long run of silence-fed blocks, per parameter set: finite, without subnormal
 /// and without heap operations.
-fn check_long_run<S: LawSample>(spec: &ObjectSpec, rate: SampleRate) -> Result<(), String> {
+fn check_long_run<S: LawSample>(spec: &'static ObjectSpec, rate: SampleRate) -> Result<(), String> {
     for params in param_sets(spec) {
         let (rendered, operations) = render::<S>(spec, rate, &params, &[], LONG_RUN_BLOCKS)?;
         check_rendered(&rendered, operations, &params)
@@ -225,7 +216,7 @@ fn check_long_run<S: LawSample>(spec: &ObjectSpec, rate: SampleRate) -> Result<(
 
 /// Checks every law at one sample rate, computing in `S`.
 fn check_rate<S: LawSample>(
-    spec: &ObjectSpec,
+    spec: &'static ObjectSpec,
     rate: SampleRate,
     length: usize,
 ) -> Result<(), String> {
@@ -244,7 +235,7 @@ fn check_rate<S: LawSample>(
 }
 
 /// Checks every law at every sample rate of the [`crate::matrix`], computing in `S`.
-fn check_precision<S: LawSample>(spec: &ObjectSpec, length: usize) -> Result<(), String> {
+fn check_precision<S: LawSample>(spec: &'static ObjectSpec, length: usize) -> Result<(), String> {
     for rate in sample_rates() {
         check_rate::<S>(spec, rate, length)
             .map_err(|problem| format!("at {} Hz: {problem}", rate.hz()))?;
@@ -262,7 +253,7 @@ fn check_precision<S: LawSample>(spec: &ObjectSpec, length: usize) -> Result<(),
 /// Returns a description of the first broken law, prefixed by the precision and the sample
 /// rate (`binary32, at 8000 Hz: …`). Also fails when [`crate::CountingAllocator`] is not
 /// installed, since the no-heap law could not be checked.
-pub fn check_laws(spec: &ObjectSpec) -> Result<(), String> {
+pub fn check_laws(spec: &'static ObjectSpec) -> Result<(), String> {
     let ((), _) = heap_operations_during(|| ())?;
     check_metadata(spec)?;
     let length = BLOCKS

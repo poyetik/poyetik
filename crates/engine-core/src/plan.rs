@@ -182,10 +182,8 @@ pub struct Plan<S: Sample, I> {
 struct Resolved<'patch> {
     /// The box from the patch.
     node: &'patch Node,
-    /// Its box type.
-    spec: &'static ObjectSpec,
-    /// Its parameter values, in spec order ([`ParamValues`]): a parameter of format 1 is its
-    /// binary32 value, exact in binary64.
+    /// Its parameter values, in spec order, with its box type ([`ParamValues::spec`]): a
+    /// parameter of format 1 is its binary32 value, exact in binary64.
     params: ParamValues,
     /// First bus slot of its outlets (outlets occupy consecutive slots, boxes in id
     /// order).
@@ -230,6 +228,7 @@ fn resolve<'patch>(
         }
     }
     let params = ParamValues::flushed(
+        spec,
         spec.params
             .iter()
             .map(|param| {
@@ -244,7 +243,6 @@ fn resolve<'patch>(
     );
     Ok(Resolved {
         node,
-        spec,
         params,
         first_slot,
     })
@@ -261,13 +259,13 @@ fn source_slot(
     let to = nodes
         .get(&connection.to)
         .ok_or(CoreError::UnknownNode(connection.to))?;
-    if connection.outlet >= from.spec.outlets.len() {
+    if connection.outlet >= from.params.spec().outlets.len() {
         return Err(CoreError::InvalidOutlet {
             node: connection.from,
             outlet: connection.outlet,
         });
     }
-    if connection.inlet >= to.spec.inlets.len() {
+    if connection.inlet >= to.params.spec().inlets.len() {
         return Err(CoreError::InvalidInlet {
             node: connection.to,
             inlet: connection.inlet,
@@ -343,7 +341,7 @@ impl<S: Sample, I: Dispatch<S>> Plan<S, I> {
         let mut bus_len = 0_usize;
         for node in patch.nodes() {
             let resolved = resolve(node, registry, bus_len)?;
-            bus_len = bus_len.saturating_add(resolved.spec.outlets.len());
+            bus_len = bus_len.saturating_add(resolved.params.spec().outlets.len());
             // Ids are unique in a `Patch`: nothing is replaced.
             drop(nodes.insert(node.id, resolved));
         }
@@ -368,9 +366,10 @@ impl<S: Sample, I: Dispatch<S>> Plan<S, I> {
         // Every id of the order is a resolved box: `remove` always finds it.
         for resolved in order.iter().filter_map(|id| nodes.remove(id)) {
             let id = resolved.node.id;
-            let inlets = resolved.spec.inlets.len();
+            let inlets = resolved.params.spec().inlets.len();
             if resolved
-                .spec
+                .params
+                .spec()
                 .capabilities
                 .contains(&Capability::AudioOutput)
             {
@@ -378,7 +377,7 @@ impl<S: Sample, I: Dispatch<S>> Plan<S, I> {
             }
             instances.push(Running {
                 node: id,
-                object: I::create(resolved.spec, rate, resolved.params.params()),
+                object: I::create(rate, &resolved.params),
                 inputs: vec![S::SILENCE; inlets],
                 feeds: (0..inlets)
                     .filter_map(|inlet| {
@@ -388,7 +387,7 @@ impl<S: Sample, I: Dispatch<S>> Plan<S, I> {
                     })
                     .collect(),
                 first_slot: resolved.first_slot,
-                outlets: resolved.spec.outlets.len(),
+                outlets: resolved.params.spec().outlets.len(),
             });
         }
         // By box id (like buses, decision 6): the order a channel sums the output boxes in,
