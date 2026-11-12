@@ -12052,22 +12052,22 @@ fn reads_a_rust_source_into_its_tokens() {
         "#![forbid(x)]\n",
         "fn f() {}\n---\n",
         "",
+        // Frontmatter, which the pinned rustc refuses to compile (E0658).
+        "---\nfn f() {}",
+        "\u{feff}---\n",
     ] {
         assert!(
             super::RustSource::parse("a.rs", lexed).is_ok(),
-            "what rustc lexes as it is: {lexed:?}"
+            "what rustc lexes as it is, or refuses: {lexed:?}"
         );
     }
-    let start = "a.rs:1: starts with a shebang (`#!` not followed by `[`) or frontmatter (`---`), \
-                 which rustc strips before it lexes: no Rust source of the repository holds \
-                 either";
+    let start = "a.rs:1: starts with `#!` not directly followed by `[`, which rustc may strip \
+                 as a shebang before it lexes: an inner attribute is written `#![`, and no Rust \
+                 source of the repository holds a shebang";
     for stripped in [
         "#!/usr/bin/env run\nfn f() {}",
         "\u{feff}#! \"\nfn f() {}\n// \"",
         "#! [forbid(x)]",
-        "---\nfn f() {}",
-        "\u{feff}---\n",
-        "\n  ---\n",
     ] {
         assert_eq!(
             super::RustSource::parse("a.rs", stripped).err(),

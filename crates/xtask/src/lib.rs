@@ -5255,24 +5255,23 @@ impl RustSource {
     ///
     /// The tokenizer is proc-macro2's own lexer of Rust, which nests block comments as rustc
     /// does and gives each doc comment as one token. It lexes the whole text, so the start
-    /// of a file rustc strips before lexing is refused instead: a shebang (`#!` not
-    /// followed by `[`) and frontmatter (`---`), each after an optional byte order mark
-    /// (which both strip). Every token keeps the line it starts on.
+    /// of a file rustc may strip before lexing is refused instead: `#!` not directly
+    /// followed by `[` (a shebang), after an optional byte order mark (which rustc strips).
+    /// Frontmatter (`---`), which rustc would strip too, the pinned rustc refuses to
+    /// compile (E0658). Every token keeps the line it starts on.
     ///
     /// # Errors
     ///
-    /// Returns, naming the file and the line, a text that starts with a shebang or
-    /// frontmatter, or that does not lex (an unclosed comment or string, an unbalanced
+    /// Returns, naming the file and the line, a text that starts with `#!` not directly
+    /// followed by `[`, or that does not lex (an unclosed comment or string, an unbalanced
     /// delimiter, a char literal of two characters …), which rustc refuses too.
     pub fn parse(path: &str, text: &str) -> Result<Self, Failure> {
         let body = text.strip_prefix('\u{feff}').unwrap_or(text);
-        if (body.starts_with("#!") && !body.starts_with("#!["))
-            || body.trim_start().starts_with("---")
-        {
+        if body.starts_with("#!") && !body.starts_with("#![") {
             return Err(Failure::from(format!(
-                "{path}:1: starts with a shebang (`#!` not followed by `[`) or frontmatter \
-                 (`---`), which rustc strips before it lexes: no Rust source of the repository \
-                 holds either"
+                "{path}:1: starts with `#!` not directly followed by `[`, which rustc may strip \
+                 as a shebang before it lexes: an inner attribute is written `#![`, and no Rust \
+                 source of the repository holds a shebang"
             )));
         }
         let lexed = proc_macro2::TokenStream::from_str(text)
