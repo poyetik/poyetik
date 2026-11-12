@@ -554,7 +554,7 @@ Sub-decisions:
 
 **Consequences.** Engine: the contract as an ABI with its version; the Rust trait as its binding; aligned and padded buffers; routing resolution in the planner; NaN made canonical at the boundary. Patch format: external references by hash and name (ticket #3). Hash: unchanged. Tests: every built-in box run directly and through the ABI form (hosted in a test harness by a WebAssembly runtime added at this step, with its entry in the dependency register), giving the same bits; the box laws on both; a module of an unsupported version, an invalid metadata or a forbidden feature refused with its reason; every buffer handed to a box aligned and padded, its padding zero; routes by name resolved before the first frame; the law that generated code equals the plan lands with the build's compiler, on a later card.
 
-**Step.** #12 step 13. **Order:** 6, first: the contract is shaped with events, before boxes are written against it.
+**Step.** #12 step 13; outputs on entry and its box law hold from #12 step 8. **Order:** 6, first: the contract is shaped with events, before boxes are written against it.
 
 ## 26. Resources
 

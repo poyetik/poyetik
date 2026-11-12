@@ -490,7 +490,11 @@ pub trait Create {
 /// ```compile_fail,E0624
 /// use engine_core::{Binary64, Factory, Object, ParamValues, SampleRate};
 ///
-/// fn create(factory: &Factory, rate: SampleRate, values: &ParamValues) -> Box<dyn Object<Binary64>> {
+/// fn create(
+///     factory: &Factory,
+///     rate: SampleRate,
+///     values: &ParamValues,
+/// ) -> Box<dyn Object<Binary64>> {
 ///     factory.create(rate, values.params())
 /// }
 /// ```
@@ -659,7 +663,14 @@ impl fmt::Display for AlgorithmVersion {
 /// fn copy() -> ObjectSpec {
 ///     ObjectSpec {
 ///         name: "copy~",
-///         ..ObjectSpec::new::<Silent>("silent~", "silence", &[], &[], &[], AlgorithmVersion::FIRST)
+///         ..ObjectSpec::new::<Silent>(
+///             "silent~",
+///             "silence",
+///             &[],
+///             &[],
+///             &[],
+///             AlgorithmVersion::FIRST,
+///         )
 ///     }
 /// }
 /// ```
@@ -791,7 +802,11 @@ impl<S: Sample, T: Object<S> + ?Sized> Object<S> for Box<T> {
 /// ```compile_fail,E0061
 /// use engine_core::{Binary64, Dispatch, Object, ObjectSpec, ParamValues, SampleRate};
 ///
-/// fn create(spec: &'static ObjectSpec, rate: SampleRate, values: &ParamValues) -> Box<dyn Object<Binary64>> {
+/// fn create(
+///     spec: &'static ObjectSpec,
+///     rate: SampleRate,
+///     values: &ParamValues,
+/// ) -> Box<dyn Object<Binary64>> {
 ///     <Box<dyn Object<Binary64>> as Dispatch<Binary64>>::create(spec, rate, values.params())
 /// }
 /// ```

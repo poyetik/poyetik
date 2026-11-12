@@ -33,7 +33,7 @@ engine-patch: serde_json (normal) -- bit-defining: parses patch documents, and s
 engine-testkit: libm (normal) -- deterministic math functions (sine, cosine, logarithm) for the measurements, identical on every target where std's are not
 engine-testkit: proptest (normal) -- property tests of the box and plan laws, from a fixed seed
 engine-testkit: serde_json (dev) -- reads the shared known-answer vectors of spec/measurement-vectors.json
-xtask: proc-macro2 (normal) -- the Rust tokenizer of the gates that read Rust code (comments nested as rustc nests them, doc comments as prose, every literal whole), its own lexer only: no compiler probed, no procedural macro; already in the lock through serde_derive
+xtask: proc-macro2 (normal) -- the Rust tokenizer of the gates that read Rust code (comments nested as rustc nests them, doc comments as prose, every literal whole), its own lexer only: its build script reads only `rustc --version`, no compile probe, no procedural macro; already in the lock through serde_derive
 xtask: serde_json (normal) -- reads the coverage, mutation and license reports, the Cargo metadata and the package manifests
 
 apps/playground: react (dependencies) -- the user interface

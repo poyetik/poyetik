@@ -297,10 +297,9 @@ pub const CHANGES_DIFF: &str = "target/xtask/changes.diff";
 /// What the changes of the default check are measured against, in order.
 ///
 /// The merge base of `HEAD` with the first of these that git resolves: the branch's
-/// upstream first, so that
-/// before a push the changes are what the push adds; then `origin/main`, then `main`, for a
-/// branch without an upstream. With none of them, the check fails and says to run
-/// `--full`.
+/// upstream first, so that before a push the changes are what the push adds; then
+/// `origin/main`, then `main`, for a branch without an upstream. With none of them, the
+/// check fails and says to run `--full`.
 pub const MUTATION_BASES: [&str; 3] = ["@{upstream}", "origin/main", "main"];
 
 /// What reached `main` is read against, in order.
@@ -3747,8 +3746,8 @@ pub const UNSAFE_CODE_KEPT: [&str; 5] = [
 
 /// Whether `source` names the lint against unsafe code (the identifier `unsafe_code`)
 /// outside every attribute of [`UNSAFE_CODE_KEPT`]: rustc reads lint names in tokens, so
-/// any other use of the identifier can lift it (`allow`, `expect`, `warn`, a conditional attribute, a
-/// macro writing the attribute).
+/// any other use of the identifier can lift it (`allow`, `expect`, `warn`, a conditional
+/// attribute, a macro writing the attribute).
 fn lifts_unsafe_code(source: &RustSource) -> bool {
     let kept: Vec<core::ops::Range<usize>> = UNSAFE_CODE_KEPT
         .into_iter()
@@ -3993,22 +3992,22 @@ fn in_crate(path: &str) -> Option<(&'static RustCrate, &str)> {
 /// So every rule that tells test code by its path (the mutation widening, the math layer
 /// gate) sees all of it.
 ///
-/// `sources` are the Rust files, read into their tokens ([`RustSource`]). In a crate of [`RUST_CRATES`], outside
-/// `tests/` and the `*_tests.rs` files, the identifier `test` (`#[cfg(test)]`, `#[test]`,
-/// `cfg_attr(test, …)`, `cfg!(test)`, `mod test`…) appears only in a test declaration or in
-/// a leading inner attribute of [`NOT_TEST_ATTRIBUTES`], and `include` (`include!`, which brings
-/// in code no gate reads by its path) nowhere. A `*_tests.rs` file brings in no other file
-/// (a module without a body, `include!`), which no rule would tell as test code: its
-/// modules are written inline. What a `path` attribute or a macro of another file loads is
-/// no word of a file: [`loaded_files_gate`] sees it, from what rustc read for every
-/// configuration the check builds, and refuses a file outside its crate (whose changes
-/// would not widen this crate), one that is not `.rs` (which no gate reads), one named as
-/// test code that a build without tests reads, and one only tests read not named as test
-/// code; the configurations it does not build are refused at their source (its doc lists
-/// them). **Review only**: what
-/// a doc test loads (`include!`, `#[path]`, `include_str!` in a code block of a doc
-/// comment), which is prose to every gate and which no build the loaded-files gate reads
-/// compiles; the compiler refuses unsafe code there ([`DOC_TESTS_FORBID_UNSAFE_CODE`]).
+/// `sources` are the Rust files, read into their tokens ([`RustSource`]). In a crate of
+/// [`RUST_CRATES`], outside `tests/` and the `*_tests.rs` files, the identifier `test`
+/// (`#[cfg(test)]`, `#[test]`, `cfg_attr(test, …)`, `cfg!(test)`, `mod test`…) appears only
+/// in a test declaration or in a leading inner attribute of [`NOT_TEST_ATTRIBUTES`], and
+/// `include` (`include!`, which brings in code no gate reads by its path) nowhere. A
+/// `*_tests.rs` file brings in no other file (a module without a body, `include!`), which
+/// no rule would tell as test code: its modules are written inline. What a `path` attribute
+/// or a macro of another file loads is no word of a file: [`loaded_files_gate`] sees it,
+/// from what rustc read for every configuration the check builds, and refuses a file
+/// outside its crate (whose changes would not widen this crate), one that is not `.rs`
+/// (which no gate reads), one named as test code that a build without tests reads, and one
+/// only tests read not named as test code; the configurations it does not build are refused
+/// at their source (its doc lists them). **Review only**: what a doc test loads
+/// (`include!`, `#[path]`, `include_str!` in a code block of a doc comment), which is prose
+/// to every gate and which no build the loaded-files gate reads compiles; the compiler
+/// refuses unsafe code there ([`DOC_TESTS_FORBID_UNSAFE_CODE`]).
 ///
 /// # Errors
 ///
@@ -4129,8 +4128,8 @@ pub const TARGET_KINDS: [&str; 5] = ["lib", "rlib", "cdylib", "bin", "test"];
 /// Checks that no target of the workspace leaves its tests unrun.
 ///
 /// `metadata` is the output of [`metadata_command`], `sources` the Rust files (their paths
-/// relative to the root, read into their tokens). Every way a manifest offers to keep `cargo test` from
-/// running a target's tests is refused, but one:
+/// relative to the root, read into their tokens). Every way a manifest offers to keep
+/// `cargo test` from running a target's tests is refused, but one:
 /// - a target may turn its unit tests off (`test = false` in its manifest, which spares the
 ///   compiler and the linker a test harness at every build of a mutant; cargo's default for
 ///   a build script) only if its root is all its code: it declares no module (no `mod` in
@@ -5672,8 +5671,9 @@ pub const SUPPLY_CHAIN_FILES: [&str; 4] =
 /// The cargo-deny configuration, exactly.
 ///
 /// Licenses, advisories (no advisory ignored), bans (no duplicate crate skipped, `libm`
-/// with no feature, as the engine uses it) and sources. Only developers edit [`DENY_TOML`], so its whole text is xtask's: an exception (an
-/// advisory ignored, a crate skipped, a license allowed) is a change of xtask.
+/// with no feature, as the engine uses it) and sources. Only developers edit [`DENY_TOML`],
+/// so its whole text is xtask's: an exception (an advisory ignored, a crate skipped, a
+/// license allowed) is a change of xtask.
 pub const DENY_CONFIG: &str = r#"# Supply-chain policy (cargo-deny). Exactly xtask's `DENY_CONFIG`: a change, an exception
 # included, is made in both.
 [graph]
@@ -5715,7 +5715,8 @@ allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 /// The Dependabot configuration, exactly.
 ///
 /// Each ecosystem waits a week before it proposes a release (`cooldown`), so that a
-/// hijacked one is likely found and yanked first. Only developers edit [`DEPENDABOT`], so its whole text is xtask's.
+/// hijacked one is likely found and yanked first. Only developers edit [`DEPENDABOT`], so
+/// its whole text is xtask's.
 pub const DEPENDABOT_CONFIG: &str = r"# Proposes dependency updates; every proposal goes through the full Quality workflow.
 # Exactly xtask's `DEPENDABOT_CONFIG`: a change is made in both.
 version: 2
@@ -5754,9 +5755,9 @@ updates:
 
 /// The top-level keys of [`PNPM_WORKSPACE`], each exactly once.
 ///
-/// Dependabot edits the values of `overrides` and `catalog`, so the file is read by its keys, not compared whole; any
-/// other key (`minimumReleaseAgeExclude`, an audit setting …) is a setting xtask has not
-/// reviewed.
+/// Dependabot edits the values of `overrides` and `catalog`, so the file is read by its
+/// keys, not compared whole; any other key (`minimumReleaseAgeExclude`, an audit setting …)
+/// is a setting xtask has not reviewed.
 pub const PNPM_WORKSPACE_KEYS: [&str; 4] =
     ["packages", "minimumReleaseAge", "overrides", "catalog"];
 
@@ -6802,8 +6803,8 @@ pub fn workflow_concurrency() -> [String; 3] {
 
 /// The release of the OS every job of the workflow runs on.
 ///
-/// Never `-latest`, which moves to a new release without a commit. The runner image itself still receives GitHub's
-/// weekly updates, which no workflow can pin.
+/// Never `-latest`, which moves to a new release without a commit. The runner image itself
+/// still receives GitHub's weekly updates, which no workflow can pin.
 pub const RUNNER: &str = "ubuntu-24.04";
 
 /// The timeout of each job of the check's matrix, then of the final job, in minutes: a
@@ -6866,13 +6867,14 @@ fn tool_steps(keyed: bool) -> Vec<String> {
 /// ([`WORKFLOW_TRIGGERS`], [`WORKFLOW_PERMISSIONS`], [`workflow_concurrency`]), the
 /// conditions ([`WORKFLOW_CONDITIONS`]: every job holds the `[ci]` one), the [`RUNNER`] and
 /// the [`JOB_TIMEOUTS`], the tools (the checkout, the toolchains with
-/// [`NIGHTLY_COMPONENTS`], the Rust cache, [`PINNED_TOOLS`], pnpm and Node.js). A job `check` runs every part of the
-/// full check but the final one ([`full_parts`]), one per job of its matrix and all of them
-/// whatever fails, after the browsers and the audio output ([`AUDIO_SINK`]) its live tests
-/// need; each uploads the unviable mutants of its shard, if it ran one, as the artifact
-/// `unviable-<part>` ([`UNVIABLE_ARTIFACT`]), and, when it failed, every report
-/// ([`failure_uploads`]). The job `final` needs every one, downloads their unviable mutants
-/// below [`SHARD_REPORTS`] and runs the final part, which reviews them together.
+/// [`NIGHTLY_COMPONENTS`], the Rust cache, [`PINNED_TOOLS`], pnpm and Node.js). A job
+/// `check` runs every part of the full check but the final one ([`full_parts`]), one per
+/// job of its matrix and all of them whatever fails, after the browsers and the audio
+/// output ([`AUDIO_SINK`]) its live tests need; each uploads the unviable mutants of its
+/// shard, if it ran one, as the artifact `unviable-<part>` ([`UNVIABLE_ARTIFACT`]), and,
+/// when it failed, every report ([`failure_uploads`]). The job `final` needs every one,
+/// downloads their unviable mutants below [`SHARD_REPORTS`] and runs the final part, which
+/// reviews them together.
 #[must_use]
 pub fn workflow_text() -> Vec<String> {
     let [failure, ci] = WORKFLOW_CONDITIONS;

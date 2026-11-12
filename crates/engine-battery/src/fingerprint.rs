@@ -45,9 +45,9 @@ pub const FINGERPRINT_BATTERY: u32 = 2;
 /// [`BLOCKS`] blocks; the signal is cut into blocks, which feed the inlets in turn (block
 /// by block, inlet by inlet: inlet 0 the first block, inlet 1 the next), so that two
 /// inlets are given different signals ([`run_blocks`], the outputs +0 on entry to every
-/// block); the outputs are hashed block by block, outlet by outlet. A box type without outlets has the battery's fingerprint alone, whatever it
-/// does: its bits are those the plan reads from its inlets (the output boxes), which the
-/// conformance cases check.
+/// block); the outputs are hashed block by block, outlet by outlet. A box type without
+/// outlets has the battery's fingerprint alone, whatever it does: its bits are those the
+/// plan reads from its inlets (the output boxes), which the conformance cases check.
 ///
 /// Each run creates its instance as a plan holding its boxes as `I64` (binary64) or `I32`
 /// (binary32) does ([`Dispatch::create`]): given the engine's instance type
@@ -121,8 +121,8 @@ fn battery<S: BatterySample, I: Dispatch<S>>(
 ///
 /// `process` is given the block's inputs and outputs: its inlets fed the successive blocks
 /// of `input` in turn (silence past its end; whole blocks by type, so no part of a block
-/// is left out), every sample of its outputs set to `entry` before every block. One run for the battery and the box laws (`engine-testkit`), so
-/// that both feed a box alike.
+/// is left out), every sample of its outputs set to `entry` before every block. One run for
+/// the battery and the box laws (`engine-testkit`), so that both feed a box alike.
 ///
 /// The box contract leaves what the outputs hold on entry unspecified, since a box writes
 /// every sample of every outlet (`engine_core::Object::process`): the battery gives +0,

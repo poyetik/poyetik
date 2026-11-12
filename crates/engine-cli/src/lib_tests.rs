@@ -3799,9 +3799,9 @@ fn assert_safe_lines(out: &str, lines: usize) {
 const FORGED_BOX: &str = "y\\nok       sine-440 0\\u001b[2K\\u202e";
 
 /// A conformance directory whose untrusted text attacks the output (case names are case
-/// names, refused otherwise where they are read): a box type quoted by an error, a 2 MB box type, and the keys and values of
-/// `references.json`. Six problems: two failed renders, a mismatch, a missing
-/// reference and two stale ones.
+/// names, refused otherwise where they are read): a box type quoted by an error, a 2 MB box
+/// type, and the keys and values of `references.json`. Six problems: two failed renders, a
+/// mismatch, a missing reference and two stale ones.
 fn hostile_corpus() -> Memory {
     let huge_box = format!(
         r#"{{"format":1,"nodes":[{{"id":1,"box":"{}"}}],"connections":[]}}"#,

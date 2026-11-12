@@ -911,9 +911,9 @@ fn blessed_text<T: Serialize>(value: &T) -> String {
     format!("{:#}\n", serde_json::json!(value))
 }
 
-/// Reads `path`, a file only `bless` writes, of at most `limit` bytes, refusing it unless it is exactly as `bless`
-/// writes it (a repeated key or a hand edit included): its contents decide what `check`
-/// accepts.
+/// Reads `path`, a file only `bless` writes, of at most `limit` bytes, refusing it unless
+/// it is exactly as `bless` writes it (a repeated key or a hand edit included): its
+/// contents decide what `check` accepts.
 ///
 /// # Errors
 ///
@@ -951,8 +951,8 @@ fn read_blessed<T: Serialize + DeserializeOwned>(
     }
 }
 
-/// Reads `path`, a file `bless` is about to replace, of at most `limit` bytes: none when it is missing (a first
-/// bless), else its contents, in any JSON form.
+/// Reads `path`, a file `bless` is about to replace, of at most `limit` bytes: none when it
+/// is missing (a first bless), else its contents, in any JSON form.
 ///
 /// # Errors
 ///
@@ -975,8 +975,9 @@ fn read_earlier<T: DeserializeOwned>(
     }
 }
 
-/// Reads `path`, the spent record (`--spent`): `algorithms.json` as `main` holds it, or `null` when `main`
-/// has none, as `writer`, the command of `cargo xtask` that runs this one, writes it first.
+/// Reads `path`, the spent record (`--spent`): `algorithms.json` as `main` holds it, or
+/// `null` when `main` has none, as `writer`, the command of `cargo xtask` that runs this
+/// one, writes it first.
 ///
 /// # Errors
 ///
