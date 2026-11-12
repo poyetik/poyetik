@@ -128,7 +128,8 @@ fn battery<S: BatterySample, I: Dispatch<S>>(
 ///
 /// The box contract leaves what the outputs hold on entry unspecified, since a box writes
 /// every sample of every outlet (`engine_core::Object::process`): the battery gives +0,
-/// the box laws also a NaN, and a box that follows the contract gives the same bits.
+/// the box laws also a NaN (their long run, a NaN only), and a box that follows the
+/// contract gives the same bits.
 ///
 /// # Errors
 ///

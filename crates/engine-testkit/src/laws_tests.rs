@@ -57,6 +57,9 @@ enum Fixture {
     ReadsOutputsIn(Precision),
     /// Writes silence to its outputs on every other block only, from its first.
     Skips(u32),
+    /// Leaves its outputs as they are when every input sample of the block is a zero, and
+    /// writes 0.25 to every sample otherwise: a box that skips its work in silence.
+    SkipsWhenSilent,
 }
 
 impl<S: Sample> Object<S> for Fixture {
@@ -148,6 +151,11 @@ impl<S: Sample> Object<S> for Fixture {
                     fill(outputs, S::ZERO);
                 }
                 *blocks = blocks.saturating_add(1);
+            }
+            Self::SkipsWhenSilent => {
+                if inputs_any(&|sample| sample != 0.0_f64) {
+                    fill(outputs, of::<S>(0.25));
+                }
             }
         }
     }
@@ -354,13 +362,14 @@ fn catches_a_box_reading_its_outputs_in_either_precision() {
             Precision::Binary64 => gain!(|_, _| Fixture::ReadsOutputsIn(Precision::Binary64)),
             Precision::Binary32 => gain!(|_, _| Fixture::ReadsOutputsIn(Precision::Binary32)),
         };
-        let error = check_laws(spec).expect_err("its outputs on entry are read");
-        assert!(
-            error.starts_with(&format!(
-                "binary{}, at 8000 Hz: special inputs: reads its outputs or leaves some of their samples unwritten, with parameters [0.0]",
+        assert_eq!(
+            check_laws(spec),
+            Err(format!(
+                "binary{}, at 8000 Hz: special inputs: reads its outputs, leaves some of their \
+                 samples unwritten, or differs between instances, with parameters [0.0]",
                 precision.bits()
             )),
-            "{error}"
+            "its outputs on entry are read"
         );
     }
 }
@@ -369,12 +378,50 @@ fn catches_a_box_reading_its_outputs_in_either_precision() {
 fn catches_a_box_leaving_samples_of_its_outputs_unwritten() {
     // The first block is written, then every other one: an outputs fill set once before
     // the first block would not see it.
-    let error = check_laws(gain!(|_, _| Fixture::Skips(0))).expect_err("unwritten blocks are seen");
-    assert!(
-        error.starts_with(
-            "binary64, at 8000 Hz: special inputs: reads its outputs or leaves some of their samples unwritten, with parameters [0.0]"
+    assert_eq!(
+        check_laws(gain!(|_, _| Fixture::Skips(0))),
+        Err(
+            "binary64, at 8000 Hz: special inputs: reads its outputs, leaves some of their \
+             samples unwritten, or differs between instances, with parameters [0.0]"
+                .to_owned()
         ),
-        "{error}"
+        "unwritten blocks are seen"
+    );
+}
+
+/// The instances created by [`names_no_cause_its_renders_cannot_tell`], alone.
+static PARITY: AtomicU16 = AtomicU16::new(0);
+
+#[test]
+fn names_no_cause_its_renders_cannot_tell() {
+    // Every other instance outputs another constant: the first and third renders agree,
+    // the second differs, as for a box reading its outputs, though this one never does.
+    let spec = gain!(|_, _| {
+        let instance = PARITY.fetch_add(1, Ordering::Relaxed);
+        Fixture::Constant(f64::from(instance % 2) / 2.0)
+    });
+    assert_eq!(
+        check_laws(spec),
+        Err(
+            "binary64, at 8000 Hz: special inputs: reads its outputs, leaves some of their \
+             samples unwritten, or differs between instances, with parameters [0.0]"
+                .to_owned()
+        ),
+        "every cause the renders allow"
+    );
+}
+
+#[test]
+fn catches_a_box_leaving_its_outputs_unwritten_in_silence() {
+    // Every block of the special and random inputs holds a nonzero sample, so only a run
+    // fed silence sees the box skip its work: the long run, its outputs NaN on entry.
+    let error = check_laws(gain!(|_, _| Fixture::SkipsWhenSilent))
+        .expect_err("outputs left unwritten in silence are seen");
+    assert_eq!(
+        error,
+        "binary64, at 8000 Hz: long run: non-finite output, or outputs read or left \
+         unwritten (a NaN on entry), with parameters [0.0]",
+        "the long run's entry"
     );
 }
 

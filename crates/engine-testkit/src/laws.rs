@@ -161,15 +161,17 @@ fn shown(params: &ParamValues) -> Vec<f32> {
 }
 
 /// Checks that rendered blocks are finite and hold no subnormal, and that rendering made
-/// no heap operation (no allocation, reallocation or release).
+/// no heap operation (no allocation, reallocation or release). A sample that is not finite
+/// is said as `non_finite`, which names every cause the render allows.
 fn check_rendered<S: LawSample>(
     rendered: &[Block<S>],
     operations: usize,
     params: &ParamValues,
+    non_finite: &str,
 ) -> Result<(), String> {
     let params = shown(params);
     if rendered.iter().flatten().any(|sample| !sample.finite()) {
-        return Err(format!("non-finite output with parameters {params:?}"));
+        return Err(format!("{non_finite} with parameters {params:?}"));
     }
     if rendered.iter().flatten().any(|sample| sample.subnormal()) {
         return Err(format!("subnormal output with parameters {params:?}"));
@@ -182,10 +184,15 @@ fn check_rendered<S: LawSample>(
     Ok(())
 }
 
-/// What the second render of [`check_input`] sets every output sample to before every
-/// block, where the first sets +0: a quiet NaN with a payload of its own, as close to no
-/// value a box computes as a sample can be.
+/// What the second render of [`check_input`] and the long run ([`check_long_run`]) set
+/// every output sample to before every block, where the first render sets +0: a quiet NaN
+/// with a payload of its own, as close to no value a box computes as a sample can be.
 const ENTRY_BITS: u64 = 0x7ff8_0000_dead_beef;
+
+/// [`ENTRY_BITS`] in the precision `S`.
+fn entry<S: LawSample>() -> S {
+    S::from_binary64(Binary64::from_raw(f64::from_bits(ENTRY_BITS)))
+}
 
 /// Checks one input against the determinism, outputs-on-entry, finite-output,
 /// no-subnormal and no-heap laws.
@@ -194,8 +201,11 @@ const ENTRY_BITS: u64 = 0x7ff8_0000_dead_beef;
 /// its outputs +0 on entry to every block, the second with them [`ENTRY_BITS`], which the
 /// box contract leaves unspecified (a box writes every sample of every outlet,
 /// `engine_core::Object::process`), so the two must give the same bits. Only when they do
-/// not, a third render with +0 tells a box that is not deterministic from one that reads
-/// its outputs or leaves samples unwritten. A box reading its outputs through a function
+/// not, a third render with +0, from a third instance, tells a box whose renders differ
+/// with their entry alone from one that is not deterministic: when the third matches the
+/// first, the box reads its outputs, leaves some of their samples unwritten, or differs
+/// between instances in a way three renders cannot tell from those (every other instance
+/// alike), and the law names the three. A box reading its outputs through a function
 /// that maps both values alike (the larger of the output and its input, which NaN and +0
 /// can both lose to) escapes the law: review only.
 fn check_input<S: LawSample>(
@@ -203,31 +213,44 @@ fn check_input<S: LawSample>(
     rate: SampleRate,
     input: &[S],
 ) -> Result<(), String> {
-    let entry = S::from_binary64(Binary64::from_raw(f64::from_bits(ENTRY_BITS)));
     for params in param_sets(spec) {
         let (first, operations) = render(&params, rate, input, BLOCKS, S::ZERO)?;
-        let (second, _) = render(&params, rate, input, BLOCKS, entry)?;
+        let (second, _) = render(&params, rate, input, BLOCKS, entry::<S>())?;
         if bits(&first) != bits(&second) {
             let (third, _) = render(&params, rate, input, BLOCKS, S::ZERO)?;
             let cause = if bits(&first) == bits(&third) {
-                "reads its outputs or leaves some of their samples unwritten,"
+                "reads its outputs, leaves some of their samples unwritten, or differs between \
+                 instances,"
             } else {
                 "not deterministic"
             };
             return Err(format!("{cause} with parameters {:?}", shown(&params)));
         }
-        check_rendered(&first, operations, &params)?;
+        check_rendered(&first, operations, &params, "non-finite output")?;
     }
     Ok(())
 }
 
 /// Checks a long run of silence-fed blocks, per parameter set: finite, without subnormal
 /// and without heap operations.
+///
+/// Every output sample is [`ENTRY_BITS`] on entry to every block, so that a box that stops
+/// writing its outputs once fed silence (one skipping its work in silence, a tail ended),
+/// which no block of the inputs [`check_input`] renders shows, leaves a NaN the finite law
+/// sees: a box writing every sample of every outlet at every block gives the same bits
+/// whatever its outputs hold on entry (`engine_core::Object::process`). A NaN found is said
+/// with both causes it can have.
 fn check_long_run<S: LawSample>(spec: &'static ObjectSpec, rate: SampleRate) -> Result<(), String> {
     for params in param_sets(spec) {
-        let (rendered, operations) = render::<S>(&params, rate, &[], LONG_RUN_BLOCKS, S::ZERO)?;
-        check_rendered(&rendered, operations, &params)
-            .map_err(|problem| format!("long run: {problem}"))?;
+        let (rendered, operations) =
+            render::<S>(&params, rate, &[], LONG_RUN_BLOCKS, entry::<S>())?;
+        check_rendered(
+            &rendered,
+            operations,
+            &params,
+            "non-finite output, or outputs read or left unwritten (a NaN on entry),",
+        )
+        .map_err(|problem| format!("long run: {problem}"))?;
     }
     Ok(())
 }

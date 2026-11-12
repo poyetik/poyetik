@@ -21,7 +21,8 @@
 //! - **determinism**: two fresh instances fed the same inputs produce bit-identical
 //!   outputs, the second with its outputs set to a NaN on entry to every block where the
 //!   first has +0: a box writes every sample of every outlet, whatever they hold on entry
-//!   (`engine_core::Object::process`);
+//!   (`engine_core::Object::process`); the long run gives them a NaN on entry too, so that a
+//!   box that stops writing once fed silence leaves a NaN the finite law sees;
 //! - **finite output**: never NaN or infinity, for random inputs in `[-1, 1]`, the
 //!   special inputs of the [`matrix`] and a long run (which reveals late overflow, not
 //!   slow drift: it has no reference);

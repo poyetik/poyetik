@@ -770,7 +770,8 @@ pub trait Object<S: Sample>: Send + fmt::Debug {
     /// entry is unspecified (`spec/engine-design.md`, decision 25), so that no box's bits
     /// depend on how the engine keeps its buffers; a box that needs its last output keeps it
     /// as its own state. The box laws give the outputs two different values on entry and
-    /// require the same bits (`engine_testkit::check_laws`).
+    /// require the same bits, and a NaN on entry through a long run of silence, which an
+    /// output left unwritten keeps (`engine_testkit::check_laws`).
     fn process(&mut self, inputs: &[Block<S>], outputs: &mut [Block<S>]);
 }
 
