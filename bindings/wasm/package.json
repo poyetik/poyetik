@@ -1,7 +1,7 @@
 {
   "name": "@poyetik/engine-wasm",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "description": "Poyetik engine in the browser (AudioWorklet): the WebAssembly module and its TypeScript glue. A Node entry point comes with the SDK (#32 step 15).",
   "exports": {

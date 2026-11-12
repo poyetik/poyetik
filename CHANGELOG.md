@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-13
+
 ### Added
 
 - `cargo xtask check` refuses the keyword `unsafe` in every Rust file but those of `UNSAFE_FILES` and the unit tests they declare (`unsafe_gate`, in tokens, prose and strings apart): rustc does not lint code expanded from another crate's macro, so a macro of a crate that forbids unsafe code could bring unsafe code into another unseen by the compiler and Miri; the workspace holds no procedural macro or build script (the untested targets gate), so only its `macro_rules!` macros and third-party macros expand into its code. No Rust file names `global_asm!` or `naked_asm!`, assembly outside an `unsafe` block that neither Miri nor the assembly file's one-operation rule sees. Every library root holds `#![doc(test(attr(forbid(unsafe_code))))]`, so that the compiler refuses unsafe code in its doc tests, which are crates of their own; what a doc test loads is review only. A macro of a third-party dependency is left to the dependency review.
