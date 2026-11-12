@@ -46,6 +46,10 @@ pub enum CoreError {
         name: String,
         /// The rejected value.
         value: f32,
+        /// The parameter's lowest accepted value.
+        minimum: f32,
+        /// The parameter's highest accepted value.
+        maximum: f32,
     },
     /// A connection refers to a box that does not exist.
     UnknownNode(NodeId),
@@ -93,9 +97,16 @@ impl fmt::Display for CoreError {
             }
             Self::UnknownObject { node, kind } => write!(f, "{node}: unknown box type \"{kind}\""),
             Self::UnknownParam { node, name } => write!(f, "{node}: unknown parameter \"{name}\""),
-            Self::ParamOutOfRange { node, name, value } => {
-                write!(f, "{node}: parameter \"{name}\" out of range: {value}")
-            }
+            Self::ParamOutOfRange {
+                node,
+                name,
+                value,
+                minimum,
+                maximum,
+            } => write!(
+                f,
+                "{node}: parameter \"{name}\": {value} is outside [{minimum}, {maximum}]"
+            ),
             Self::UnknownNode(node) => {
                 write!(f, "a cable refers to {node}, which does not exist")
             }

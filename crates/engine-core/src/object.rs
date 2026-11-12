@@ -77,20 +77,20 @@ impl ParamSpec {
     ///
     /// # Errors
     ///
-    /// Returns [`ParamError::Range`] unless `minimum` and `maximum` are finite and `minimum`
-    /// is at most `maximum`, and [`ParamError::Default`] unless `default_value`, flushed as a
-    /// plan flushes it (a subnormal is a zero of its sign), is within them, so that every
-    /// parameter of every box type has a finite range holding its default, as a plan, the
-    /// box laws and the fingerprint battery give it.
+    /// Returns [`ParamSpecError::InvalidRange`] unless `minimum` and `maximum` are finite and
+    /// `minimum` is at most `maximum`, and [`ParamSpecError::DefaultOutsideRange`] unless
+    /// `default_value`, flushed as a plan flushes it (a subnormal is a zero of its sign), is
+    /// within them, so that every parameter of every box type has a finite range holding its
+    /// default, as a plan, the box laws and the fingerprint battery give it.
     pub const fn new(
         name: &'static str,
         description: &'static str,
         default_value: f32,
         minimum: f32,
         maximum: f32,
-    ) -> Result<Self, ParamError> {
+    ) -> Result<Self, ParamSpecError> {
         if !(minimum.is_finite() && maximum.is_finite() && minimum <= maximum) {
-            return Err(ParamError::Range { name });
+            return Err(ParamSpecError::InvalidRange { name });
         }
         let flushed = flush::binary32(default_value);
         if minimum <= flushed && flushed <= maximum {
@@ -102,7 +102,7 @@ impl ParamSpec {
                 maximum,
             })
         } else {
-            Err(ParamError::Default { name })
+            Err(ParamSpecError::DefaultOutsideRange { name })
         }
     }
 
@@ -128,8 +128,9 @@ impl ParamSpec {
 /// A [`ParamSpec`] checked when the program is compiled.
 ///
 /// [`ParamSpec::new`] evaluated in a `const` block, so that a parameter whose range is not
-/// finite, or whose default lies outside it, does not compile. The way to write the
-/// parameters of a static box type:
+/// finite, or whose default lies outside it, does not compile, the compiler's error saying
+/// which of the two ([`ParamSpecError`]). The way to write the parameters of a static box
+/// type:
 ///
 /// ```
 /// static FREQUENCY: engine_core::ParamSpec =
@@ -171,10 +172,14 @@ macro_rules! param {
         const {
             match $crate::ParamSpec::new($name, $description, $default_value, $minimum, $maximum) {
                 ::core::result::Result::Ok(spec) => spec,
-                ::core::result::Result::Err(_) => ::core::panic!(
-                    "a parameter's range is not finite, or its default lies outside it \
-                     (`engine_core::ParamSpec::new` says which)"
-                ),
+                ::core::result::Result::Err($crate::ParamSpecError::InvalidRange { .. }) => {
+                    ::core::panic!(
+                        "a parameter's range is not finite, or its minimum is above its maximum"
+                    )
+                }
+                ::core::result::Result::Err($crate::ParamSpecError::DefaultOutsideRange {
+                    ..
+                }) => ::core::panic!("a parameter's default, flushed, is outside its range"),
             }
         }
     };
@@ -209,9 +214,42 @@ pub struct ParamValues {
     values: Vec<Binary64>,
 }
 
-/// Why parameter values are not those of a box type ([`ParamValues::of`]), or a parameter is
-/// refused ([`ParamSpec::new`]).
+/// Why a parameter is refused ([`ParamSpec::new`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParamSpecError {
+    /// A parameter whose minimum or maximum is not finite, or whose minimum is above its
+    /// maximum.
+    InvalidRange {
+        /// The parameter.
+        name: &'static str,
+    },
+    /// A parameter whose default, flushed, is outside its range or not a number.
+    DefaultOutsideRange {
+        /// The parameter.
+        name: &'static str,
+    },
+}
+
+impl fmt::Display for ParamSpecError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::InvalidRange { name } => write!(
+                f,
+                "parameter \"{name}\": its range is not finite, or its minimum is above its maximum"
+            ),
+            Self::DefaultOutsideRange { name } => write!(
+                f,
+                "parameter \"{name}\": its default, flushed, is outside its range"
+            ),
+        }
+    }
+}
+
+/// An error of its own, with no cause: a host passes it on as any other.
+impl core::error::Error for ParamSpecError {}
+
+/// Why parameter values are not those of a box type ([`ParamValues::of`]).
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ParamError {
     /// Not one value per parameter of the box type.
     Count {
@@ -230,18 +268,10 @@ pub enum ParamError {
         name: &'static str,
         /// The bits of the binary64 value refused.
         bits: u64,
-    },
-    /// A parameter whose minimum or maximum is not finite, or whose minimum is above its
-    /// maximum ([`ParamSpec::new`]).
-    Range {
-        /// The parameter.
-        name: &'static str,
-    },
-    /// A parameter whose default, flushed, is outside its range or not a number
-    /// ([`ParamSpec::new`]).
-    Default {
-        /// The parameter.
-        name: &'static str,
+        /// The parameter's lowest accepted value.
+        minimum: f32,
+        /// The parameter's highest accepted value.
+        maximum: f32,
     },
 }
 
@@ -256,18 +286,17 @@ impl fmt::Display for ParamError {
                 f,
                 "box type \"{kind}\" takes {expected} parameter value(s), not {given}"
             ),
-            Self::OutOfRange { kind, name, bits } => write!(
+            Self::OutOfRange {
+                kind,
+                name,
+                bits,
+                minimum,
+                maximum,
+            } => write!(
                 f,
-                "parameter \"{name}\" of box type \"{kind}\": {} is outside its range",
+                "parameter \"{name}\" of box type \"{kind}\": {} is outside [{minimum}, {maximum}]",
                 f64::from_bits(bits)
             ),
-            Self::Range { name } => write!(
-                f,
-                "parameter \"{name}\": its range is not finite, or its minimum is above its maximum"
-            ),
-            Self::Default { name } => {
-                write!(f, "parameter \"{name}\": its default is outside its range")
-            }
         }
     }
 }
@@ -308,6 +337,8 @@ impl ParamValues {
                         kind: spec.name,
                         name: param.name,
                         bits: wide.to_bits(),
+                        minimum: param.minimum,
+                        maximum: param.maximum,
                     })
                 }
             })

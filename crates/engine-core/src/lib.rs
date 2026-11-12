@@ -41,7 +41,7 @@ pub use math::{
 };
 pub use object::{
     AlgorithmVersion, Capability, Create, Dispatch, Factory, Object, ObjectSpec, ParamError,
-    ParamSpec, ParamValues, Params, PortSpec, RENDER_RULES_VERSION,
+    ParamSpec, ParamSpecError, ParamValues, Params, PortSpec, RENDER_RULES_VERSION,
 };
 pub use patch::{Connection, Node, NodeId, Patch};
 pub use plan::Plan;

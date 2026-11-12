@@ -58,8 +58,10 @@ fn describes_every_error() {
                 node: NodeId(5),
                 name: String::from("gain"),
                 value: 1.5,
+                minimum: -0.25,
+                maximum: 1.0,
             },
-            "box 5: parameter \"gain\" out of range: 1.5",
+            "box 5: parameter \"gain\": 1.5 is outside [-0.25, 1]",
         ),
         (
             CoreError::UnknownNode(NodeId(6)),

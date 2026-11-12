@@ -800,7 +800,7 @@ fn says_why_the_battery_cannot_fingerprint_a_box_type() {
     };
     assert_eq!(
         engine_fpenv::with_default_mode(|mode| fingerprints_of(&[&WRONG], mode)),
-        Err("parameter \"f\" of box type \"wrong~\": 0 is outside its range".to_owned()),
+        Err("parameter \"f\" of box type \"wrong~\": 0 is outside [0.0000000000000000000000000000000000000001, 20000]".to_owned()),
         "a minimum below 2^-126, flushed out of its range, in words"
     );
 }

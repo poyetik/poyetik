@@ -226,6 +226,8 @@ fn resolve<'patch>(
                 node: node.id,
                 name: name.clone(),
                 value,
+                minimum: param.minimum,
+                maximum: param.maximum,
             });
         }
     }

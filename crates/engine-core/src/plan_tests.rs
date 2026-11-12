@@ -526,7 +526,9 @@ fn rejects_out_of_range_parameters<S: Bits>() {
             Err(CoreError::ParamOutOfRange {
                 node: NodeId(1),
                 name: String::from("value"),
-                value
+                value,
+                minimum: -10.0,
+                maximum: 10.0,
             }),
             "{value} is out of range"
         );
@@ -605,6 +607,8 @@ fn treats_subnormal_parameters_as_zero<S: Bits>() {
             node: NodeId(1),
             name: String::from("value"),
             value: 1.0e-40,
+            minimum: 1.0,
+            maximum: 2.0,
         }),
         "zero is below the range"
     );

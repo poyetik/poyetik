@@ -8,7 +8,7 @@ use alloc::vec::Vec;
 
 use super::{
     AlgorithmVersion, Create, Dispatch, Factory, Object, ObjectSpec, ParamError, ParamSpec,
-    ParamValues, Params,
+    ParamSpecError, ParamValues, Params,
 };
 use crate::host::{ParamBounds, Raw as _};
 use crate::{Binary32, Binary64, Block, Sample, SampleRate};
@@ -245,12 +245,19 @@ fn takes_values_within_their_range_only_flushed_first() {
         (0.0_f64, f64::INFINITY, "b", f64::INFINITY),
         (f64::NEG_INFINITY, f64::NAN, "a", f64::NEG_INFINITY),
     ] {
+        let (minimum, maximum) = if name == "a" {
+            (-1.0_f32, 2.0_f32)
+        } else {
+            (0.0_f32, 20_000.0_f32)
+        };
         assert_eq!(
             ParamValues::of(&TWO, &wide([first, second])).map(|values| bits(&values)),
             Err(ParamError::OutOfRange {
                 kind: "two~",
                 name,
-                bits: refused.to_bits()
+                bits: refused.to_bits(),
+                minimum,
+                maximum,
             }),
             "{first} and {second}"
         );
@@ -261,10 +268,12 @@ fn takes_values_within_their_range_only_flushed_first() {
             ParamError::OutOfRange {
                 kind: "two~",
                 name: "b",
-                bits: 20_000.5_f64.to_bits()
+                bits: 20_000.5_f64.to_bits(),
+                minimum: -0.5,
+                maximum: 20_000.0,
             }
         ),
-        "parameter \"b\" of box type \"two~\": 20000.5 is outside its range",
+        "parameter \"b\" of box type \"two~\": 20000.5 is outside [-0.5, 20000]",
         "said"
     );
 }
@@ -285,7 +294,7 @@ fn gives_the_defaults_of_the_box_type() {
 
 /// What [`ParamSpec::new`] gives for a default `default_value` and the range `minimum` to
 /// `maximum`: the bits of the three as kept, or the error.
-fn checked(default_value: f32, minimum: f32, maximum: f32) -> Result<[u32; 3], ParamError> {
+fn checked(default_value: f32, minimum: f32, maximum: f32) -> Result<[u32; 3], ParamSpecError> {
     ParamSpec::new("p", "p", default_value, minimum, maximum)
         .map(|param| [param.default_value, param.minimum, param.maximum].map(f32::to_bits))
 }
@@ -328,7 +337,7 @@ fn takes_a_default_within_its_finite_range_only() {
     ] {
         assert_eq!(
             checked(default_value, minimum, maximum),
-            Err(ParamError::Default { name: "p" }),
+            Err(ParamSpecError::DefaultOutsideRange { name: "p" }),
             "{default_value} outside [{minimum}, {maximum}] once flushed"
         );
     }
@@ -341,17 +350,17 @@ fn takes_a_default_within_its_finite_range_only() {
     ] {
         assert_eq!(
             checked(1.0_f32, minimum, maximum),
-            Err(ParamError::Range { name: "p" }),
+            Err(ParamSpecError::InvalidRange { name: "p" }),
             "[{minimum}, {maximum}]"
         );
     }
     assert_eq!(
-        format!("{}", ParamError::Default { name: "gain" }),
-        "parameter \"gain\": its default is outside its range",
+        format!("{}", ParamSpecError::DefaultOutsideRange { name: "gain" }),
+        "parameter \"gain\": its default, flushed, is outside its range",
         "said"
     );
     assert_eq!(
-        format!("{}", ParamError::Range { name: "gain" }),
+        format!("{}", ParamSpecError::InvalidRange { name: "gain" }),
         "parameter \"gain\": its range is not finite, or its minimum is above its maximum",
         "said"
     );
@@ -432,12 +441,24 @@ fn creates_the_box_type_of_its_values() {
 }
 
 #[test]
-fn is_an_error_of_its_own() {
-    let error: Box<dyn core::error::Error> = Box::new(ParamError::Default { name: "gain" });
-    assert!(error.source().is_none(), "no cause of its own");
+fn are_errors_of_their_own() {
+    let errors: [Box<dyn core::error::Error>; 2] = [
+        Box::new(ParamSpecError::DefaultOutsideRange { name: "gain" }),
+        Box::new(ParamError::Count {
+            kind: "two~",
+            expected: 2,
+            given: 1,
+        }),
+    ];
+    for error in &errors {
+        assert!(error.source().is_none(), "{error}: no cause of its own");
+    }
     assert_eq!(
-        format!("{error}"),
-        "parameter \"gain\": its default is outside its range",
-        "said as it displays"
+        errors.map(|error| format!("{error}")),
+        [
+            "parameter \"gain\": its default, flushed, is outside its range",
+            "box type \"two~\" takes 2 parameter value(s), not 1",
+        ],
+        "said as they display"
     );
 }

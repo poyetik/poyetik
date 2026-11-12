@@ -574,7 +574,9 @@ fn refuses_a_parameter_set_the_box_type_does_not_take() {
         Err(ParamError::OutOfRange {
             kind: "echo~",
             name: "gain",
-            bits: 0
+            bits: 0,
+            minimum: 1e-40,
+            maximum: 1.0,
         }),
         "its minimum refused, flushed"
     );
