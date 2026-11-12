@@ -980,7 +980,7 @@
         },
         {
           "title": "Box algorithm versions, engine side: every box type declares its algorithm version, any change of bits takes a new one, the conformance references record the versions, the render rules version and the box fingerprints they were blessed with, and check and bless refuse bits changed without a new version (the versions in the patch, playing older versions and migrating them: #3 step 7); then the end of this block (steps 6 to 8): a deep review, its decided fixes, and a pull request whose full check is green",
-          "done": false
+          "done": true
         },
         {
           "title": "Output stage: raw and protected (safety limiter) modes; non-finite samples always replaced and reported; the playground protected by default",
