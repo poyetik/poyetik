@@ -421,6 +421,9 @@ describe("createEngineNode", () => {
     stubNodes();
     const context = fakeContext(RATE);
     await context.close();
+    // Its `statechange` has fired before the node exists: no later event can end the wait,
+    // only the node's own look at the state.
+    await new Promise((resolve) => setImmediate(resolve));
     const { ready } = createEngineNode(asContext(context), await loaded(2), () => undefined);
     expect(await settled(ready)).toStrictEqual(new ContextClosed("the context closed before the engine processor was ready"));
     expect(statechangeListeners(context)).toBe(0);
