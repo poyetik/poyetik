@@ -103,11 +103,12 @@ test("derives the error bound term by term", () => {
   expect(sineErrorBound(0.75, 0, GIVEN)).toBe(2 ** -25 + 0.75 * 2 ** -48);
   expect(sineErrorBound(1.5, 0, GIVEN)).toBe(2 ** -24 + 1.5 * 2 ** -48);
   expect(sineErrorBound(0, 1000, GIVEN)).toBe(0);
-  // Below 2^-125, binary32 samples are subnormal: their spacing stays 2^-149, so the
-  // output rounding stays 2^-150 however small the amplitude.
-  expect(sineErrorBound(2 ** -125, 0, GIVEN)).toBe(2 ** -150 + 2 ** -125 * 2 ** -48);
-  expect(sineErrorBound(2 ** -140, 0, GIVEN)).toBe(2 ** -150 + 2 ** -140 * 2 ** -48);
-  expect(sineErrorBound(2 ** -124, 0, GIVEN)).toBe(2 ** -149 + 2 ** -124 * 2 ** -48);
+  // Below 2^-126, samples rounded to binary32 are subnormal, which delivery flushes to zero:
+  // an error up to 2^-126, however small the amplitude; from 2^-100 on, half an ulp again.
+  expect(sineErrorBound(2 ** -125, 0, GIVEN)).toBe(2 ** -126 + 2 ** -125 * 2 ** -48);
+  expect(sineErrorBound(2 ** -140, 0, GIVEN)).toBe(2 ** -126 + 2 ** -140 * 2 ** -48);
+  expect(sineErrorBound(2 ** -101, 0, GIVEN)).toBe(2 ** -126 + 2 ** -101 * 2 ** -48);
+  expect(sineErrorBound(2 ** -100, 0, GIVEN)).toBe(2 ** -125 + 2 ** -100 * 2 ** -48);
   expect(sineErrorBound(1, 2 ** 29, GIVEN) - sineErrorBound(1, 0, GIVEN)).toBeCloseTo(2 * Math.PI * 2 ** -23, 20);
 });
 

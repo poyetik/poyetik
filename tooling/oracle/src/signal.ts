@@ -62,8 +62,9 @@ export function sineError(samples: readonly number[], rate: number, sine: Sine):
  *     2^(e − 54); values below 2^-1022 are flushed to zero, an error up to 2^-1022, which
  *     the exponent's floor of −968 keeps;
  *   - binary64 given as binary32: the binary64 sine rounded to binary32, half an ulp,
- *     2^(e − 25), and never below 2^-150: under 2^-125 the samples are binary32 subnormals,
- *     spaced 2^-149 however small a is;
+ *     2^(e − 25); a value that rounds below 2^-126 is a binary32 subnormal, which delivery
+ *     flushes to zero (`spec/engine-design.md`, decision 11), an error below 2^-126, which
+ *     the exponent's floor of −101 keeps;
  *   - binary32: the angle 2π · phase, below 8, rounded to binary32 within 2^-22, which moves
  *     the sine by as much; `sinf` within 2^-33 of the sine of that angle before its result
  *     is rounded to binary32, half an ulp of the sine, 2^-25; these scale with |a|; then a
@@ -119,7 +120,7 @@ export function sineErrorBound(amplitude: number, frames: number, format: Render
     case "binary64":
       return 2 ** (Math.max(exponent, -968) - 54) + magnitude * accumulated;
     case "binary64-as-binary32":
-      return 2 ** (Math.max(exponent, -125) - 25) + magnitude * accumulated;
+      return 2 ** (Math.max(exponent, -101) - 25) + magnitude * accumulated;
     case "binary32":
       return 2 ** (Math.max(exponent, -101) - 25) + magnitude * (2 ** -22 + 2 ** -25 + 2 ** -33 + accumulated);
   }

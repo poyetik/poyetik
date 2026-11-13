@@ -394,11 +394,11 @@
       "bound": 0.0
     },
     {
-      "description": "a subnormal amplitude: the rounding of subnormal samples, 2^-150, dominates",
+      "description": "a subnormal amplitude: its binary32 samples, subnormal, flushed at delivery: an error up to 2^-126 dominates",
       "format": "binary64-as-binary32",
       "amplitude": 7.174648137343064e-43,
       "frames": 8000,
-      "bound": 7.006492401727108e-46
+      "bound": 1.1754943508222883e-38
     },
     {
       "description": "above full scale: an ulp of 2^-23",
