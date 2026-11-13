@@ -48,7 +48,7 @@ The hash is the SHA-256 (FIPS 180-4) of these bytes, in this order, every number
 | 35 | 8 | The **sample count** (frames × channels), unsigned |
 | 43 | 8 or 4 per sample | The bit pattern of every sample, as an unsigned integer of the sample width, in the interleaved order |
 
-Samples are hashed by their bits, never by their value: `0` and `-0` differ, every NaN payload is kept, a subnormal is hashed as it is. No sample is clipped, rounded, sanitized or reordered before hashing; a `binary64-as-binary32` render is hashed after its rounding to binary32, which is part of the render.
+Samples are hashed by their bits, never by their value: `0` and `-0` differ, every NaN payload is kept, a subnormal is hashed as it is (a render delivers none: delivery flushes them, `engine-design.md` decision 11, but the hash takes any bits). No sample is clipped, rounded, sanitized or reordered before hashing; a `binary64-as-binary32` render is hashed after its rounding to binary32, which is part of the render.
 
 The hash is written as 64 lowercase hexadecimal digits, the first byte of the digest first.
 
