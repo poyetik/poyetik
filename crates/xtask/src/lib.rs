@@ -6846,9 +6846,11 @@ pub fn workflow_concurrency() -> [String; 3] {
 /// still receives GitHub's weekly updates, which no workflow can pin.
 pub const RUNNER: &str = "ubuntu-24.04";
 
-/// The timeout of each job of the check's matrix, then of the final job, in minutes: a
-/// guard against a hung job, set from the longest part of the latest green run.
-pub const JOB_TIMEOUTS: [u32; 2] = [90, 30];
+/// The timeout of each job of the check's matrix, then of the final job, in minutes.
+///
+/// A guard against a hung job. The matrix's is temporarily wide, above the slowest measured
+/// run of its longest part (the oracle's mutation testing), until that part is split.
+pub const JOB_TIMEOUTS: [u32; 2] = [300, 30];
 
 /// The components of the [`NIGHTLY_TOOLCHAIN`]: branch coverage and Miri.
 pub const NIGHTLY_COMPONENTS: [&str; 3] = ["llvm-tools-preview", "miri", "rust-src"];
