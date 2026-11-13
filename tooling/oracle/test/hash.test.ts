@@ -4,7 +4,7 @@ import { expect, test } from "vitest";
 import { RENDER_FORMATS, sampleBits, type RenderFormat } from "../src/format.ts";
 import { KNOWN_OPTIONS, renderHash, STRICT } from "../src/hash.ts";
 import { parseWav, type Wav } from "../src/wav.ts";
-import { makeWav } from "./fixtures.ts";
+import { makeWav, once } from "./fixtures.ts";
 
 /**
  * The known-answer vectors of the specification, found by walking up from this file: the
@@ -113,27 +113,30 @@ function input(vector: unknown): Pick<Vector, "name" | "wav" | "format" | "mode"
   };
 }
 
-/** Every vector of the specification. */
-const VECTORS: readonly Vector[] = list(SPEC, "vectors").map((vector) => ({
-  ...input(vector),
-  bytes: Buffer.from(text(vector, "bytes"), "hex"),
-  sha256: text(vector, "sha256"),
-}));
+/** The vector `vector` of the specification, read. */
+function read(vector: unknown): Vector {
+  return { ...input(vector), bytes: Buffer.from(text(vector, "bytes"), "hex"), sha256: text(vector, "sha256") };
+}
+
+/** Every vector of the specification, read on first use (see `once`). */
+const vectors = once((): readonly Vector[] => list(SPEC, "vectors").map(read));
 
 test("reads every known-answer vector of the specification, in every render format, and every kind of refusal", () => {
   expect(Object.keys(typeof SPEC === "object" && SPEC !== null ? SPEC : {}).sort()).toStrictEqual(["refused_modes", "refused_shapes", "scheme", "vectors"]);
   expect(text(SPEC, "scheme")).toBe("render-hash/2");
-  expect(VECTORS.length).toBeGreaterThanOrEqual(8);
-  expect(new Set(VECTORS.map((vector) => vector.format))).toStrictEqual(new Set(RENDER_FORMATS));
+  expect(vectors().length).toBeGreaterThanOrEqual(8);
+  expect(new Set(vectors().map((vector) => vector.format))).toStrictEqual(new Set(RENDER_FORMATS));
   expect(list(SPEC, "refused_modes").length).toBeGreaterThanOrEqual(4);
   expect(list(SPEC, "refused_shapes").length).toBeGreaterThanOrEqual(2);
 });
 
-test.each(list(SPEC, "refused_shapes").map((shape) => ({ ...input(shape), reason: text(shape, "reason") })))("refuses the shape $name, which is not whole frames", (shape) => {
+test.each(list(SPEC, "refused_shapes").map((raw) => ({ name: text(raw, "name"), raw })))("refuses the shape $name, which is not whole frames", ({ raw }) => {
+  const shape = { ...input(raw), reason: text(raw, "reason") };
   expect(() => renderHash(shape.wav, shape.format, shape.mode)).toThrow(new RangeError(shape.reason));
 });
 
-test.each(VECTORS)("reproduces the known-answer vector $name", (vector) => {
+test.each(list(SPEC, "vectors").map((raw) => ({ name: text(raw, "name"), raw })))("reproduces the known-answer vector $name", ({ raw }) => {
+  const vector = read(raw);
   expect(renderHash(vector.wav, vector.format, vector.mode)).toBe(vector.sha256);
   // The vector is consistent: its bytes give its hash.
   expect(createHash("sha256").update(vector.bytes).digest("hex")).toBe(vector.sha256);
@@ -142,7 +145,7 @@ test.each(VECTORS)("reproduces the known-answer vector $name", (vector) => {
 test.each(list(SPEC, "refused_modes").map((refused) => ({ name: text(refused, "name"), mode: mode(refused), unknown: text(refused, "unknown_flags") })))(
   "refuses the unknown mode $name, naming the unknown flags alone",
   ({ mode: refused, unknown }) => {
-    const [vector] = VECTORS;
+    const [vector] = vectors();
     if (vector === undefined) {
       throw new Error("no vector");
     }
@@ -163,7 +166,7 @@ test("accepts every known option and the strict mode, and refuses what is not a 
 
 test("hashes the WAV data it reads, in its format", () => {
   const stereo = parseWav(makeWav({ rate: 48_000, channels: 2, samples: [0, 0.5, -0.5, 1], bits: 64 }));
-  const vector = VECTORS.find((candidate) => candidate.name === "stereo-48000");
+  const vector = vectors().find((candidate) => candidate.name === "stereo-48000");
   expect(renderHash(stereo, "binary64", STRICT)).toBe(vector?.sha256);
   const narrow = parseWav(makeWav({ rate: 48_000, channels: 2, samples: [0, 0.5, -0.5, 1] }));
   expect(renderHash(narrow, "binary32", STRICT)).not.toBe(renderHash(narrow, "binary64-as-binary32", STRICT));

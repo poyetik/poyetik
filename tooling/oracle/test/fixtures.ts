@@ -118,3 +118,16 @@ export function renders(channels: number, frames: number, rate: number, frequenc
     hashes: { binary64: hash("binary64"), "binary64-as-binary32": hash("binary64-as-binary32"), binary32: hash("binary32") },
   };
 }
+
+/**
+ * `make`, called once, on first use: a fixture computed at a test file's top level would run
+ * while the module loads, before any test, so Stryker could not tell which tests use the code
+ * it calls and would run every test, reloading the modules, for each of its mutants.
+ */
+export function once<T>(make: () => T): () => T {
+  let made: { readonly value: T } | undefined;
+  return () => {
+    made ??= { value: make() };
+    return made.value;
+  };
+}
