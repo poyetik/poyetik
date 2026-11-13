@@ -1107,45 +1107,151 @@ where
     );
 }
 
-fn keeps_the_subnormals_of_sums_and_of_delivery<S: Bits>()
+fn flushes_the_subnormals_of_sums_at_delivery<S: Bits>()
 where
     f32: Delivered<S>,
 {
-    // Neither the plan's sums nor delivery flush (decision 11): 1.5 · 2^-126 and -2^-126,
-    // both normal, sum exactly to 2^-127, a binary32 subnormal, summed into one inlet or
-    // onto one channel from two output boxes, and given to a binary32 host as it is, in
-    // both precisions.
-    let (high, low) = (f32::from_bits(0x00c0_0000), f32::from_bits(0x8080_0000));
-    let consts = || {
-        vec![
-            with_param(node(1, "const~"), "value", high),
-            with_param(node(2, "const~"), "value", low),
-        ]
-    };
-    let into_one_inlet = build::<S>(
-        [consts(), vec![node(3, "mono~")]].concat(),
-        vec![wire(1, 0, 3, 0), wire(2, 0, 3, 0)],
-    )
-    .expect("valid patch");
-    let onto_one_channel = build::<S>(
-        [consts(), vec![node(3, "mono~"), node(4, "mono~")]].concat(),
-        vec![wire(1, 0, 3, 0), wire(2, 0, 4, 0)],
-    )
-    .expect("valid patch");
-    for (plan, place) in [
-        (into_one_inlet, "into one inlet"),
-        (onto_one_channel, "onto one channel"),
+    // The plan's sums do not flush, delivery does (decision 11): ±1.5 · 2^-126 and ∓2^-126,
+    // both normal, sum exactly to ±2^-127, a binary32 subnormal, summed into one inlet or
+    // onto one channel from two output boxes. Given as binary32, in both precisions, it is
+    // a zero of its sign; a binary64 render given as binary64 keeps it, a normal binary64
+    // value (bits 0x3800_0000_0000_0000), which shows the sum itself was not flushed.
+    for (high, low, zero, wide) in [
+        (
+            0x00c0_0000_u32,
+            0x8080_0000_u32,
+            0_u32,
+            0x3800_0000_0000_0000_u64,
+        ),
+        (0x80c0_0000, 0x0080_0000, 0x8000_0000, 0xb800_0000_0000_0000),
     ] {
-        let delivered: Vec<f32> = Renderer::new(plan).render(2).expect("small render");
-        assert_eq!(
-            delivered
-                .iter()
-                .map(|sample| sample.to_bits())
-                .collect::<Vec<_>>(),
-            [0x0040_0000; 2],
-            "2^-127 summed {place}, delivered as it is"
-        );
+        let consts = || {
+            vec![
+                with_param(node(1, "const~"), "value", f32::from_bits(high)),
+                with_param(node(2, "const~"), "value", f32::from_bits(low)),
+            ]
+        };
+        let into_one_inlet = || {
+            build::<S>(
+                [consts(), vec![node(3, "mono~")]].concat(),
+                vec![wire(1, 0, 3, 0), wire(2, 0, 3, 0)],
+            )
+            .expect("valid patch")
+        };
+        let onto_one_channel = || {
+            build::<S>(
+                [consts(), vec![node(3, "mono~"), node(4, "mono~")]].concat(),
+                vec![wire(1, 0, 3, 0), wire(2, 0, 4, 0)],
+            )
+            .expect("valid patch")
+        };
+        for (plan, place) in [
+            (into_one_inlet(), "into one inlet"),
+            (onto_one_channel(), "onto one channel"),
+        ] {
+            let delivered: Vec<f32> = Renderer::new(plan).render(2).expect("small render");
+            assert_eq!(
+                delivered
+                    .iter()
+                    .map(|sample| sample.to_bits())
+                    .collect::<Vec<_>>(),
+                [zero; 2],
+                "{high:#x} + {low:#x} summed {place}, given as binary32"
+            );
+        }
+        for (plan, place) in [
+            (into_one_inlet(), "into one inlet"),
+            (onto_one_channel(), "onto one channel"),
+        ] {
+            let own: Vec<S::Float> = Renderer::new(plan).render(2).expect("small render");
+            let bits: Vec<u64> = own
+                .into_iter()
+                .map(|float| S::from_raw(float).bits())
+                .collect();
+            let expected = match S::PRECISION {
+                Precision::Binary64 => wide,
+                Precision::Binary32 => u64::from(zero),
+            };
+            assert_eq!(
+                bits, [expected; 2],
+                "{high:#x} + {low:#x} summed {place}, given in its own precision"
+            );
+        }
     }
+}
+
+fn flushes_in_place_only_the_channels_that_are_sums<S: Bits>() {
+    // Channel 0 sums two cables into one inlet, channel 1 reads one cable: given blocks
+    // holding the smallest negative subnormal of the precision, only channel 0 becomes -0;
+    // channel 1 and a block beyond the plan's channels are left as they are.
+    let plan = build::<S>(
+        vec![
+            with_param(node(1, "const~"), "value", 0.5),
+            with_param(node(2, "const~"), "value", 0.25),
+            node(3, "out~"),
+        ],
+        vec![wire(1, 0, 3, 0), wire(2, 0, 3, 0), wire(1, 0, 3, 1)],
+    )
+    .expect("valid patch");
+    let (subnormal, zero) = match S::PRECISION {
+        Precision::Binary64 => (0x8000_0000_0000_0001_u64, 0x8000_0000_0000_0000_u64),
+        Precision::Binary32 => (0x8000_0001, 0x8000_0000),
+    };
+    let smallest = match S::PRECISION {
+        Precision::Binary64 => f64::from_bits(subnormal),
+        Precision::Binary32 => f64::from(f32::from_bits(0x8000_0001)),
+    };
+    let mut out = vec![[of::<S>(smallest); BLOCK_SIZE]; 3];
+    plan.flush_sums(&mut out);
+    let bits: Vec<Vec<u64>> = out
+        .iter()
+        .map(|block| block.iter().map(|sample| sample.bits()).collect())
+        .collect();
+    assert_eq!(
+        bits,
+        [
+            vec![zero; BLOCK_SIZE],
+            vec![subnormal; BLOCK_SIZE],
+            vec![subnormal; BLOCK_SIZE]
+        ],
+        "only the sum flushed"
+    );
+}
+
+fn decides_which_channels_are_sums_when_built<S: Bits>() {
+    // A channel is a sum when it reads several output boxes or one inlet fed by several
+    // cables; one cable, an unconnected inlet (silence) and a channel beyond the plan's are
+    // not.
+    let sums = |nodes: Vec<Node>, wires: Vec<Connection>| {
+        let plan = build::<S>(nodes, wires).expect("valid patch");
+        (0..4)
+            .map(|channel| plan.channel_is_sum(channel))
+            .collect::<Vec<_>>()
+    };
+    let one = || with_param(node(1, "const~"), "value", 0.5);
+    let two = || with_param(node(2, "const~"), "value", 0.25);
+    assert_eq!(
+        sums(vec![one(), node(3, "out~")], vec![wire(1, 0, 3, 0)]),
+        [false; 4],
+        "one cable into the left inlet, the right one unconnected"
+    );
+    assert_eq!(
+        sums(
+            vec![one(), two(), node(3, "out~")],
+            vec![wire(1, 0, 3, 0), wire(2, 0, 3, 0), wire(2, 0, 3, 1)]
+        ),
+        [true, false, false, false],
+        "two cables into the left inlet, one into the right"
+    );
+    assert_eq!(
+        sums(
+            vec![one(), node(3, "out~"), node(4, "mono~")],
+            vec![wire(1, 0, 3, 1)]
+        ),
+        [true, false, false, false],
+        "two output boxes on the left channel, even unconnected; one on the right"
+    );
+    assert_eq!(sums(vec![one()], vec![]), [false; 4], "no channel");
 }
 
 /// Outputs `a × a - 1` through the math layer's `mul_then_add`, with `a` chosen per
@@ -1488,7 +1594,9 @@ in_both_precisions!(
     several_output_boxes_are_summed_starting_from_the_first,
     sums_output_boxes_in_box_id_order_whatever_the_execution_order,
     delivers_a_binary64_render_rounded_to_binary32,
-    keeps_the_subnormals_of_sums_and_of_delivery,
+    flushes_the_subnormals_of_sums_at_delivery,
+    decides_which_channels_are_sums_when_built,
+    flushes_in_place_only_the_channels_that_are_sums,
     renders_a_product_then_a_sum_in_the_mode_of_the_build,
     sums_three_cables_and_three_outputs_in_the_reduction_order,
     sums_seventeen_cables_and_seventeen_outputs_in_the_reduction_order,

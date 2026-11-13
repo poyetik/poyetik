@@ -172,6 +172,13 @@ pub struct Plan<S: Sample, I> {
     /// channel `c` reads the inlets `c` of those that have one, by box id, as
     /// `(instance index, inlet)`.
     channel_feeds: Vec<Feed<(usize, usize)>>,
+    /// For each engine output channel, whether its block can hold a subnormal sample in
+    /// the plan's precision: whether it is a sum, of several output boxes or of several
+    /// cables into the one output box inlet it reads. A channel that is not reads one box
+    /// output through one cable, or silence, which never hold one (decision 11: every box
+    /// flushes its outputs, the box law that no box outputs a subnormal), so delivery
+    /// skips the flush there ([`Plan::channel_is_sum`]).
+    channel_sums: Vec<bool>,
     /// The scratch lanes of every sum of three or more blocks (decision 28 of
     /// `spec/engine-design.md`), one set for the whole plan: reserved when it is built, so
     /// that summing never allocates, and reached only by such a sum, so that a plan without
@@ -410,10 +417,25 @@ impl<S: Sample, I: Dispatch<S>> Plan<S, I> {
                 }
             }
         }
+        // A channel is a sum when it reads several output boxes, or one output box inlet fed
+        // by several cables; one cable, or none (silence), is not.
+        let channel_sums = channels
+            .iter()
+            .map(|((index, inlet), rest)| {
+                !rest.is_empty()
+                    || instances.get(*index).is_some_and(|instance| {
+                        instance
+                            .feeds
+                            .iter()
+                            .any(|(fed, feed)| fed == inlet && !matches!(feed, Feed::Single(_)))
+                    })
+            })
+            .collect();
         Ok(Self {
             instances,
             bus: vec![S::SILENCE; bus_len],
             channel_feeds: channels.into_iter().map(Feed::new).collect(),
+            channel_sums,
             lanes: Lanes::new(),
         })
     }
@@ -423,6 +445,36 @@ impl<S: Sample, I: Dispatch<S>> Plan<S, I> {
     #[must_use]
     pub const fn channels(&self) -> usize {
         self.channel_feeds.len()
+    }
+
+    /// Whether output channel `channel` can hold a subnormal sample in the plan's
+    /// precision, decided when the plan is built: `true` when it is a sum, of several output
+    /// boxes or of several cables into the output box inlet it reads, which the plan does
+    /// not flush (decision 11 of `spec/engine-design.md`); `false` when it reads one box
+    /// output through one cable, flushed by its box (the box law that no box outputs a
+    /// subnormal), or silence, and for a channel beyond [`Plan::channels`], which is
+    /// silence. Delivery flushes a channel only where this is `true`, or where it rounds
+    /// to binary32 ([`crate::host::Delivered`]): skipping the flush elsewhere changes no
+    /// bit.
+    #[must_use]
+    pub fn channel_is_sum(&self, channel: usize) -> bool {
+        self.channel_sums.get(channel).copied().unwrap_or(false)
+    }
+
+    /// Flushes, in place, the channels of `out` that are sums ([`Plan::channel_is_sum`]):
+    /// a block [`Plan::process`] wrote, given to a host in the plan's own precision
+    /// without a copy, as [`crate::host::Delivered::deliver`] gives each of its samples (a
+    /// subnormal becomes a zero of its sign, decision 11 of `spec/engine-design.md`); the
+    /// other channels are left as they are, where the flush would change no bit. A block
+    /// beyond the plan's channels is silence, left as it is.
+    pub fn flush_sums(&self, out: &mut [Block<S>]) {
+        for (channel, block) in out.iter_mut().enumerate() {
+            if self.channel_is_sum(channel) {
+                for sample in block.iter_mut() {
+                    *sample = sample.flush();
+                }
+            }
+        }
     }
 
     /// The boxes in execution order.

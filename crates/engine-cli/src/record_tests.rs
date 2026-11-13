@@ -87,7 +87,7 @@ fn record(cases: &[(&str, Versions)], recorded: &[(&str, u32, &str)]) -> Record 
         fingerprint_battery: 2,
         fingerprints,
         render_hash: "render-hash/2".to_owned(),
-        render_rules: 1,
+        render_rules: 2,
     }
 }
 
@@ -181,7 +181,7 @@ fn compares_references_only_under_the_same_render_rules_and_hash() {
     let base = record(&[], &[]);
     assert!(same_rules(&base), "the current ones");
     let rules = Record {
-        render_rules: 2,
+        render_rules: 3,
         ..base.clone()
     };
     assert!(!same_rules(&rules), "other render rules");
@@ -232,7 +232,7 @@ fn check_refuses_every_difference_from_the_current_engine() {
             "HASH     the references were hashed with render-hash/1, the engine with \
              render-hash/2",
             "RULES    the references were rendered under render rules version 0, the engine's \
-             is 1",
+             is 2",
             "BATTERY  the fingerprints were computed with battery 0, the engine's is 2 (bless \
              the battery change alone first: set the other changes aside, then run `cargo \
              xtask bless --battery-changed`, then commit, then bring the other changes back, \
@@ -269,7 +269,7 @@ fn check_refuses_every_difference_from_the_current_engine() {
         ],
         "with another problem check found"
     );
-    for (hash, rules) in [("render-hash/1", 1), ("render-hash/2", 0)] {
+    for (hash, rules) in [("render-hash/1", 2), ("render-hash/2", 0)] {
         let with = Record {
             render_hash: hash.to_owned(),
             render_rules: rules,
@@ -469,13 +469,13 @@ fn bless_refuses_lower_versions_and_changed_fingerprints() {
          to be blessed alone: osc~ 3 is a version the record does not hold"
     );
     let later_rules = Record {
-        render_rules: 2,
+        render_rules: 3,
         ..old
     };
     assert_eq!(
         problems(&later_rules, &none, &changed, &cases, &none, &[]),
         [
-            "LOWER    render rules version 1: below version 2 already recorded",
+            "LOWER    render rules version 2: below version 3 already recorded",
             "BITS     dac~ 1: its outputs changed at the same algorithm version (a new version \
              of dac~, then run `cargo xtask bless`)",
         ],
@@ -813,13 +813,13 @@ fn blesses_a_battery_change_apart_from_the_render_rules_and_hash() {
             battery
         ),
         [
-            "RULES    --battery-changed: the render rules changed too, from version 0 to 1",
+            "RULES    --battery-changed: the render rules changed too, from version 0 to 2",
             BATTERY_ALONE,
         ],
         "the render rules moved with the battery: refused, whatever the references did"
     );
     let old_hash = Record {
-        render_rules: 1,
+        render_rules: 2,
         render_hash: "render-hash/1".to_owned(),
         ..old_rules
     };
@@ -863,7 +863,7 @@ fn blesses_a_battery_change_apart_from_the_render_rules_and_hash() {
             PLAIN
         ),
         [
-            "RULES    --battery-changed: the render rules changed too, from version 0 to 1",
+            "RULES    --battery-changed: the render rules changed too, from version 0 to 2",
             "HASH     --battery-changed: the render hash changed too, from render-hash/1 to \
              render-hash/2",
             BATTERY_ALONE,
@@ -880,7 +880,7 @@ fn refuses_render_rules_below_either_record() {
     let earlier = references(&[("a", "1")]);
     let old = record(&[("a", versions(&[("osc~", 1)]))], &[("osc~", 1, "o")]);
     let ahead = Record {
-        render_rules: 2,
+        render_rules: 3,
         ..old.clone()
     };
     assert_eq!(
@@ -891,7 +891,7 @@ fn refuses_render_rules_below_either_record() {
             (&now, &cases, &earlier),
             PLAIN
         ),
-        ["LOWER    render rules version 1: below version 2 already recorded"],
+        ["LOWER    render rules version 2: below version 3 already recorded"],
         "below the rules on main, though not below the replaced record's"
     );
     assert_eq!(

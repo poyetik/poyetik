@@ -570,10 +570,10 @@ impl Factory {
 /// The render rules are the bits of a render that no box type owns (the plan's sums and
 /// their order, when events take effect, flush points, the output stage, delivery). Any
 /// change of them that can change a bit of a render takes a new one; version 1 is the
-/// rules of the reduction order
-/// (decision 28). The conformance references record it, and bless refuses a changed
+/// rules of the reduction order (decision 28), version 2 adds delivery as a flush point
+/// (decision 11). The conformance references record it, and bless refuses a changed
 /// reference under the same one.
-pub const RENDER_RULES_VERSION: u32 = 1;
+pub const RENDER_RULES_VERSION: u32 = 2;
 
 /// The version of a box type's algorithm (`spec/engine-design.md`, decision 29).
 ///

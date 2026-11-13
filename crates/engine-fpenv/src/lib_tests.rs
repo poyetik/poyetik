@@ -423,11 +423,23 @@ fn needs_the_default_mode_to_give_the_references() {
 }
 
 #[test]
-fn needs_the_default_mode_to_give_the_references_under_a_flushing_host() {
-    // The control of the flushing comparison: without the default mode, a flushing host
-    // changes the render of the subnormal case given as binary32 (the rounding of its
-    // binary64 samples to binary32 gives subnormals, which the hardware flushes); inside it,
-    // the reference comes back.
+fn keeps_subnormals_inside_the_default_mode_under_a_flushing_host() {
+    // The control of the flushing comparison: a flushing host flushes subnormal operands
+    // and results; inside the default mode, both are kept again.
+    let (set, (unguarded, guarded)) = as_host(FLUSHING, || {
+        (subnormals_kept(), with_default_mode(|_| subnormals_kept()))
+    });
+    assert_eq!(set & FLUSH_TO_ZERO, FLUSH_TO_ZERO, "flush-to-zero set");
+    assert_eq!(unguarded, (false, false), "flushed by the host");
+    assert_eq!(guarded, (true, true), "kept inside the default mode");
+}
+
+#[test]
+fn gives_the_subnormal_case_its_reference_under_a_flushing_host_even_unguarded() {
+    // Delivery flushes every sample subnormal in the format given (decision 11), so the
+    // case whose binary64 samples round to binary32 subnormals renders its reference given
+    // as binary32 under a flushing host, with or without the default mode: the hardware's
+    // flush has nothing left to change at delivery.
     let (case, patch, references) = subnormal_case();
     let format = RenderFormat::Binary64AsBinary32;
     let (set, (unguarded, guarded)) = as_host(FLUSHING, || {
@@ -438,8 +450,11 @@ fn needs_the_default_mode_to_give_the_references_under_a_flushing_host() {
     });
     assert_eq!(set & FLUSH_TO_ZERO, FLUSH_TO_ZERO, "flush-to-zero set");
     let expected = reference(&references, format);
-    assert_ne!(unguarded, expected, "flushing changes the render");
-    assert_eq!(guarded, expected, "the default mode gives it back");
+    assert_eq!(
+        unguarded, expected,
+        "a flushing host changes no delivered bit"
+    );
+    assert_eq!(guarded, expected, "nor does the default mode");
 }
 
 #[test]

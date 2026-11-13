@@ -106,6 +106,9 @@ mod tests {
             for total in &mut sum {
                 *total += of::<S>(self.0);
                 self.0 += 1.0e-3_f64;
+                // Every box flushes its outputs (decision 11, the box law that no box outputs
+                // a subnormal), which delivery relies on where a channel is no sum.
+                *total = total.flush();
             }
             for output in outputs {
                 *output = sum;
@@ -313,7 +316,7 @@ mod tests {
     /// the output boxes, by box id, and is silent without one, every sum in the
     /// reduction order ([`reduce`]); there are as many channels as the widest output box
     /// has inlets.
-    fn reference_render<S: Sample>(
+    fn reference_render<S: Bits>(
         nodes: &[Node],
         connections: &[Connection],
         order: &[NodeId],
@@ -396,11 +399,28 @@ mod tests {
                 })
                 .collect();
             for frame in 0..BLOCK_SIZE {
-                samples.extend(summed.iter().map(|channel| channel[frame]));
+                samples.extend(summed.iter().map(|channel| delivered(channel[frame])));
             }
         }
         samples.truncate(frames.saturating_mul(channels));
         samples
+    }
+
+    /// `sample` as a host is given it in its own precision: delivery is a flush point
+    /// (decision 11), every sample subnormal in `S` given as a zero of its sign, written
+    /// here from the bits, apart from the engine's flush and from its choice of the
+    /// channels it may skip.
+    fn delivered<S: Bits>(sample: S) -> S {
+        let (exponent, sign) = match S::PRECISION {
+            Precision::Binary64 => (0x7ff0_0000_0000_0000_u64, 0x8000_0000_0000_0000_u64),
+            Precision::Binary32 => (0x7f80_0000, 0x8000_0000),
+        };
+        let bits = sample.bits();
+        if bits & exponent == 0 && bits & !sign != 0 {
+            S::from_binary64(Binary64::new(if bits & sign == 0 { 0.0 } else { -0.0 }))
+        } else {
+            sample
+        }
     }
 
     /// Renders `frames` frames of a fresh plan at once: no heap operation from its very
@@ -860,6 +880,84 @@ mod tests {
             one_more_outlet::<Binary64>(count).expect("binary64");
             one_more_outlet::<Binary32>(count).expect("binary32");
         }
+    }
+
+    /// Outputs the smallest subnormal of its precision: a box breaking the box law that no
+    /// box outputs a subnormal, the cheat the delivery's skip trusts that law against.
+    #[derive(Debug)]
+    struct Leaky;
+    impl<S: Sample> Object<S> for Leaky {
+        fn process(&mut self, _inputs: &[Block<S>], outputs: &mut [Block<S>]) {
+            let smallest = match S::PRECISION {
+                Precision::Binary64 => f64::from_bits(1),
+                Precision::Binary32 => f64::from(f32::from_bits(1)),
+            };
+            for output in outputs {
+                output.fill(of::<S>(smallest));
+            }
+        }
+    }
+    impl Create for Leaky {
+        const PARAMS: &'static [ParamSpec] = &[];
+
+        fn create<S: Sample>(_rate: SampleRate, _params: Params<'_>) -> Box<dyn Object<S>> {
+            Box::new(Self)
+        }
+    }
+    static LEAKY: ObjectSpec = ObjectSpec::new::<Leaky>(
+        "leaky~",
+        "outputs a subnormal",
+        &[],
+        &[PORT],
+        &[],
+        AlgorithmVersion::FIRST,
+    );
+
+    #[test]
+    fn delivery_skips_the_flush_only_where_the_box_law_makes_it_change_no_bit() {
+        // The cheat: a box that outputs a subnormal. The box law refuses it, so no box the
+        // engine ships does this; the plan's skip trusts that law: through one cable alone
+        // on its channel, the subnormal is delivered in its own precision as it is (what the
+        // law forbids would reach the host), while two of them summed on a channel, a sum
+        // the plan does not flush, are flushed at delivery, in both precisions.
+        fn delivered_bits<S: Bits>(outputs: u32) -> Result<Vec<u64>, String> {
+            let registry: [&ObjectSpec; 2] = [&LEAKY, &OUT];
+            let node = |id: u32, kind: &str| Node {
+                id: NodeId(id),
+                kind: String::from(kind),
+                params: BTreeMap::new(),
+            };
+            let mut nodes = vec![node(1, "leaky~")];
+            let mut connections = Vec::new();
+            for output in 2..outputs.saturating_add(2) {
+                nodes.push(node(output, "out~"));
+                connections.push(Connection {
+                    from: NodeId(1),
+                    outlet: 0,
+                    to: NodeId(output),
+                    inlet: 0,
+                });
+            }
+            let patch = Patch::new(nodes, connections).map_err(|error| error.to_string())?;
+            let rate = SampleRate::new(48_000).map_err(|error| error.to_string())?;
+            let plan = Plan::<S, Virtual<S>>::build(&patch, &registry, rate)
+                .map_err(|error| error.to_string())?;
+            let floats: Vec<S::Float> = Renderer::new(plan)
+                .render(2)
+                .map_err(|error| error.to_string())?;
+            Ok(bits(&read_back::<S>(&floats)))
+        }
+        assert!(
+            engine_testkit::check_laws(&LEAKY).is_err(),
+            "the box law refuses a box that outputs a subnormal"
+        );
+        // One output box: left channel the subnormal as it is, right channel silence.
+        assert_eq!(delivered_bits::<Binary64>(1), Ok(vec![1, 0, 1, 0]));
+        assert_eq!(delivered_bits::<Binary32>(1), Ok(vec![1, 0, 1, 0]));
+        // Two output boxes summed on the left channel: 2 · the smallest subnormal, still
+        // subnormal, flushed to +0.
+        assert_eq!(delivered_bits::<Binary64>(2), Ok(vec![0; 4]));
+        assert_eq!(delivered_bits::<Binary32>(2), Ok(vec![0; 4]));
     }
 
     #[test]

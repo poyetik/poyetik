@@ -129,8 +129,17 @@ impl<S: Sample, I: Dispatch<S>> Renderer<S, I> {
                 .min(rest.len().checked_div(channels).unwrap_or(0));
             for (offset, block) in self.last.iter().enumerate() {
                 let samples = rest.iter_mut().skip(offset).step_by(channels);
-                for (sample, value) in samples.zip(block.iter().skip(self.used)).take(count) {
-                    *sample = D::deliver(*value);
+                let values = samples.zip(block.iter().skip(self.used)).take(count);
+                // Decided once per channel, when the plan was built: only a sum can hold a
+                // subnormal in the plan's precision (`Delivered::deliver_unsummed`).
+                if self.plan.channel_is_sum(offset) {
+                    for (sample, value) in values {
+                        *sample = D::deliver(*value);
+                    }
+                } else {
+                    for (sample, value) in values {
+                        *sample = D::deliver_unsummed(*value);
+                    }
                 }
             }
             self.used = self.used.saturating_add(count);

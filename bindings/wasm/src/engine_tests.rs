@@ -69,12 +69,24 @@ fn expected(
     }
 }
 
+/// Two sines summed into the left channel of one `dac~`, the first alone on the right: a
+/// channel that is a sum, flushed at delivery, and one that is not.
+const SUMMED: &str = r#"{"format":1,"nodes":[{"id":1,"box":"osc~"},{"id":2,"box":"osc~","params":{"frequency":1000}},
+    {"id":3,"box":"dac~"}],"connections":[{"from":[1,0],"to":[3,0]},{"from":[2,0],"to":[3,0]},{"from":[1,0],"to":[3,1]}]}"#;
+
 #[test]
 fn renders_exactly_like_the_plan_in_every_format_at_every_rate() {
-    let patch = engine_patch::parse_patch(SINE).expect("valid patch");
+    for text in [SINE, SUMMED] {
+        renders_like_the_renderer(text);
+    }
+}
+
+/// Renders `text` in every format at every rate of the matrix, as the renderer does.
+fn renders_like_the_renderer(text: &str) {
+    let patch = engine_patch::parse_patch(text).expect("valid patch");
     for format in RenderFormat::ALL {
         for rate in engine_testkit::matrix::sample_rates() {
-            let mut engine = Engine::new(SINE.as_bytes(), rate.hz(), format).expect("valid patch");
+            let mut engine = Engine::new(text.as_bytes(), rate.hz(), format).expect("valid patch");
             assert_eq!(engine.channels(), 2, "stereo");
             let blocks = 10_usize;
             let mut actual = Vec::new();
@@ -88,6 +100,42 @@ fn renders_exactly_like_the_plan_in_every_format_at_every_rate() {
                 rate.hz()
             );
         }
+    }
+}
+
+/// A sine at 2^-126 Hz, the smallest normal binary32 frequency, at 8 kHz on both channels
+/// (the conformance case `sine-1.1754944e-38-at-8k`): its first frames, about n · 2^-136,
+/// are normal in binary64 and binary32 subnormals.
+const SUBNORMAL_SINE: &str = r#"{"format":1,"nodes":[{"id":1,"box":"osc~","params":{"frequency":1.1754944e-38}},
+    {"id":2,"box":"dac~"}],"connections":[{"from":[1,0],"to":[2,0]},{"from":[1,0],"to":[2,1]}]}"#;
+
+#[test]
+fn delivers_no_subnormal_in_any_format() {
+    // Delivery is a flush point (decision 11), after the rounding to binary32: given as
+    // binary32, the first block is all +0 (the binary32 box flushes its own outputs, the
+    // binary64 render is flushed once rounded); binary64 keeps its normal samples; each
+    // like the renderer.
+    let patch = engine_patch::parse_patch(SUBNORMAL_SINE).expect("valid patch");
+    let rate = SampleRate::new(8_000).expect("a supported rate");
+    for format in RenderFormat::ALL {
+        let mut engine =
+            Engine::new(SUBNORMAL_SINE.as_bytes(), 8_000, format).expect("valid patch");
+        let actual = interleaved(engine.process());
+        let zeros = actual.iter().filter(|bits| **bits == 0).count();
+        assert_eq!(
+            zeros,
+            if format == RenderFormat::Binary64 {
+                2
+            } else {
+                2 * BLOCK_SIZE
+            },
+            "{format}: +0 at frame 0 only in binary64, everywhere given as binary32"
+        );
+        assert_eq!(
+            actual,
+            expected(&patch, rate, format, BLOCK_SIZE),
+            "{format}, like the renderer"
+        );
     }
 }
 

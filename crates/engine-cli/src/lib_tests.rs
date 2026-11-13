@@ -880,7 +880,7 @@ fn fingerprint_of(name: &str) -> String {
 /// fingerprints of the registered box types at version 1.
 fn record(cases: &str) -> String {
     canonical(&format!(
-        r#"{{"cases":{cases},"fingerprint_battery":2,"fingerprints":{{"dac~":{{"1":"{}"}},"osc~":{{"1":"{}"}}}},"render_hash":"render-hash/2","render_rules":1}}"#,
+        r#"{{"cases":{cases},"fingerprint_battery":2,"fingerprints":{{"dac~":{{"1":"{}"}},"osc~":{{"1":"{}"}}}},"render_hash":"render-hash/2","render_rules":2}}"#,
         fingerprint_of("dac~"),
         fingerprint_of("osc~")
     ))
@@ -1236,7 +1236,7 @@ fn bless_command_writes_sorted_references() {
             "{{\n  \"cases\": {{\n    \"a\": {versions},\n    \"sine\": {versions}\n  }},\n  \
              \"fingerprint_battery\": 2,\n  \"fingerprints\": {{\n    \"dac~\": {{\n      \
              \"1\": \"{}\"\n    }},\n    \"osc~\": {{\n      \"1\": \"{}\"\n    }}\n  }},\n  \
-             \"render_hash\": \"render-hash/2\",\n  \"render_rules\": 1\n}}\n",
+             \"render_hash\": \"render-hash/2\",\n  \"render_rules\": 2\n}}\n",
             fingerprint_of("dac~"),
             fingerprint_of("osc~")
         ),
@@ -1616,7 +1616,7 @@ fn older_rules(record: &mut serde_json::Value) {
 
 /// The engine's render rules, 1.
 fn current_rules(record: &mut serde_json::Value) {
-    record["render_rules"] = 1_u32.into();
+    record["render_rules"] = 2_u32.into();
 }
 
 /// The render hash the engine had before its current one.
@@ -2276,7 +2276,7 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
                 xtask(memory, "check", &[])
             },
             "RULES    the references were rendered under render rules version 0, the engine's \
-             is 1 (run `cargo xtask bless`)",
+             is 2 (run `cargo xtask bless`)",
             0,
             no_change,
         )],
@@ -2568,10 +2568,10 @@ const WITH_BATTERY: [WithBattery; 7] = [
         what: "the render rules",
         make: |memory| edit_records(memory, older_rules),
         apart: rules_apart,
-        cause: "RULES    --battery-changed: the render rules changed too, from version 0 to 1",
+        cause: "RULES    --battery-changed: the render rules changed too, from version 0 to 2",
         at_check: || {
             "RULES    the references were rendered under render rules version 0, the engine's \
-             is 1"
+             is 2"
                 .to_owned()
         },
         named: false,
@@ -2982,7 +2982,7 @@ fn check_command_names_a_mismatch_under_other_render_rules_as_such() {
     ));
     let record = memory
         .text("conf/algorithms.json")
-        .replace("\"render_rules\": 1", "\"render_rules\": 0");
+        .replace("\"render_rules\": 2", "\"render_rules\": 0");
     drop(
         memory
             .files
@@ -3004,7 +3004,7 @@ fn check_command_names_a_mismatch_under_other_render_rules_as_such() {
     assert!(
         out.ends_with(
             "RULES    the references were rendered under render rules version 0, the engine's is \
-             1 (run `cargo xtask bless`)\n"
+             2 (run `cargo xtask bless`)\n"
         ),
         "{out}"
     );

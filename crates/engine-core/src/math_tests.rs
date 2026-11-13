@@ -595,6 +595,77 @@ fn delivers_a_render_as_it_is_or_rounded_to_binary32() {
     );
 }
 
+#[test]
+fn delivers_no_subnormal_in_any_format() {
+    // Decision 11: delivery is a flush point, decided after the rounding to binary32, each
+    // subnormal given as a zero of its sign; the smallest normal value of each format kept.
+    let binary64 =
+        |bits: u64| <f64 as Delivered<Binary64>>::deliver(wide(f64::from_bits(bits))).to_bits();
+    assert_eq!(
+        [
+            0x0000_0000_0000_0001,
+            0x800f_ffff_ffff_ffff,
+            0x0010_0000_0000_0000,
+            0x8010_0000_0000_0000,
+        ]
+        .map(binary64),
+        [
+            0,
+            0x8000_0000_0000_0000,
+            0x0010_0000_0000_0000,
+            0x8010_0000_0000_0000
+        ],
+        "binary64: subnormals flushed, the smallest normals kept"
+    );
+    let binary32 =
+        |bits: u32| <f32 as Delivered<Binary32>>::deliver(narrow(f32::from_bits(bits))).to_bits();
+    assert_eq!(
+        [0x0000_0001, 0x807f_ffff, 0x0080_0000, 0x8080_0000].map(binary32),
+        [0, 0x8000_0000, 0x0080_0000, 0x8080_0000],
+        "binary32: subnormals flushed, the smallest normals kept"
+    );
+    let rounded =
+        |bits: u64| <f32 as Delivered<Binary64>>::deliver(wide(f64::from_bits(bits))).to_bits();
+    assert_eq!(
+        [
+            // The largest binary32 subnormal, exact in binary64, and 0.75 · 2^-126.
+            0x380f_ffff_c000_0000,
+            0xb808_0000_0000_0000,
+            // Just below the midpoint between the largest binary32 subnormal and 2^-126:
+            // rounds down to the subnormal, flushed.
+            0x380f_ffff_dfff_ffff,
+            // The midpoint, a tie to the even 2^-126, and the largest binary64 below
+            // 2^-126: both round up to 2^-126, a normal value, kept.
+            0x380f_ffff_e000_0000,
+            0xb80f_ffff_ffff_ffff,
+            // 2^-143, normal in binary64, a binary32 subnormal once rounded: flushed.
+            0x3700_0000_0000_0000,
+        ]
+        .map(rounded),
+        [0, 0x8000_0000, 0, 0x0080_0000, 0x8080_0000, 0],
+        "binary64 given as binary32: flushed after the rounding"
+    );
+    // A sample known not to be subnormal in its precision (a channel that is no sum) is
+    // given as it is in the same precision, so a subnormal there would pass (the box law
+    // keeps it out); rounded to binary32, it is still flushed.
+    assert_eq!(
+        <f64 as Delivered<Binary64>>::deliver_unsummed(wide(f64::from_bits(1))).to_bits(),
+        1,
+        "binary64 as it is"
+    );
+    assert_eq!(
+        <f32 as Delivered<Binary32>>::deliver_unsummed(narrow(f32::from_bits(1))).to_bits(),
+        1,
+        "binary32 as it is"
+    );
+    assert_eq!(
+        <f32 as Delivered<Binary64>>::deliver_unsummed(wide(f64::from_bits(0xb808_0000_0000_0000)))
+            .to_bits(),
+        0x8000_0000,
+        "binary64 given as binary32: flushed after the rounding"
+    );
+}
+
 /// A box that outputs the width of the precision it computes in, and how many parameters
 /// it was given: what its factory gave it.
 #[derive(Debug)]

@@ -6,6 +6,7 @@ use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
 
+use engine_core::host::{Delivered, Raw};
 use engine_core::{Binary32, Binary64, Block, Plan, RenderFormat, Sample, SampleRate};
 use engine_objects::{EnginePlan, REGISTRY};
 
@@ -134,27 +135,32 @@ impl Engine {
     }
 
     /// Renders the next block and returns it, one block per output channel, in the render
-    /// format: a binary64 render given as binary32 is rounded sample by sample
-    /// ([`Sample::from_binary64`]).
+    /// format, each sample given as [`Delivered`] gives it: a binary64 render given as
+    /// binary32 is rounded sample by sample, and no sample is subnormal in the format given
+    /// (delivery is a flush point, `spec/engine-design.md`, decision 11). A binary64 or
+    /// binary32 block is handed over in place, only its channels that are sums flushed
+    /// ([`Plan::flush_sums`]), where flushing could change a bit.
     ///
     /// Does not use the heap (no allocation or release).
     pub fn process(&mut self) -> Blocks<'_> {
         match &mut self.rendering {
             Rendering::Binary64 { plan, out } => {
                 plan.process(out);
+                plan.flush_sums(out);
                 Blocks::Binary64(out)
             }
             Rendering::Binary64AsBinary32 { plan, out, given } => {
                 plan.process(out);
                 for (narrow, wide) in given.iter_mut().zip(out.iter()) {
                     for (sample, value) in narrow.iter_mut().zip(wide) {
-                        *sample = Binary32::from_binary64(*value);
+                        *sample = Binary32::from_raw(<f32 as Delivered<Binary64>>::deliver(*value));
                     }
                 }
                 Blocks::Binary32(given)
             }
             Rendering::Binary32 { plan, out } => {
                 plan.process(out);
+                plan.flush_sums(out);
                 Blocks::Binary32(out)
             }
         }

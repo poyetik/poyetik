@@ -215,7 +215,7 @@ pub const MODE: ArithmeticMode = ArithmeticMode(ArithmeticOption::FusedMultiplyA
 ///
 /// A number is rounded to nearest, ties to even (IEEE 754, which the conversion follows on
 /// every target; a subnormal result is kept, under the default floating-point mode the
-/// native shells set). A NaN, whose conversion IEEE 754 leaves open in its payload (and
+/// native shells set, and flushed by delivery, [`host::Delivered`]). A NaN, whose conversion IEEE 754 leaves open in its payload (and
 /// WebAssembly too), is converted from its bits: its sign, the quiet bit set, and the top 22
 /// bits of its payload.
 #[must_use]
@@ -790,7 +790,10 @@ pub mod host {
     /// How a render of samples `S` is given to its host, as floats of this type.
     ///
     /// A binary64 render as binary64 or rounded to the nearest binary32 (ties to even; a NaN
-    /// by its bits), a binary32 render as binary32. A binary32 render cannot be given as
+    /// by its bits), a binary32 render as binary32. Delivery is a flush point
+    /// (`spec/engine-design.md`, decision 11): a sample that is subnormal in the delivered
+    /// type, after the rounding, is given as a zero of its sign, so that a host's
+    /// flush-to-zero or denormals-are-zero mode, which would read it as zero, changes no bit. A binary32 render cannot be given as
     /// binary64: no [`RenderFormat`](super::RenderFormat) is one. A host concern, here so
     /// that box code, which may not name this module, cannot take a sample's float out
     /// through it. It is not reachable from the crate root:
@@ -799,25 +802,47 @@ pub mod host {
     /// use engine_core::Delivered;
     /// ```
     pub trait Delivered<S: Sample>: super::sealed::Sealed + Copy {
-        /// `sample`, given as this type.
+        /// `sample`, given as this type: rounded if this type is narrower, then flushed.
         fn deliver(sample: S) -> Self;
+
+        /// `sample`, known not to be subnormal in its own precision (a channel that is not a
+        /// sum, [`crate::Plan::channel_is_sum`]), given as this type: what [`deliver`] gives
+        /// for it, without the flush where it cannot change a bit. In the same precision
+        /// the sample is given as it is (flushing a value that is not subnormal leaves it
+        /// unchanged); rounded to binary32, it is flushed as [`deliver`] does, since the
+        /// rounding can make any value below 2^-126 subnormal.
+        ///
+        /// [`deliver`]: Delivered::deliver
+        fn deliver_unsummed(sample: S) -> Self;
     }
 
     impl Delivered<Binary64> for f64 {
         fn deliver(sample: Binary64) -> Self {
+            crate::flush::binary64(sample.0)
+        }
+
+        fn deliver_unsummed(sample: Binary64) -> Self {
             sample.0
         }
     }
 
     impl Delivered<Binary32> for f32 {
         fn deliver(sample: Binary32) -> Self {
+            crate::flush::binary32(sample.0)
+        }
+
+        fn deliver_unsummed(sample: Binary32) -> Self {
             sample.0
         }
     }
 
     impl Delivered<Binary64> for f32 {
         fn deliver(sample: Binary64) -> Self {
-            super::to_binary32(sample.0)
+            crate::flush::binary32(super::to_binary32(sample.0))
+        }
+
+        fn deliver_unsummed(sample: Binary64) -> Self {
+            Self::deliver(sample)
         }
     }
 
