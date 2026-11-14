@@ -163,7 +163,7 @@ pub enum Action {
     /// Require every bit-defining dependency to be pinned to one exact version
     /// ([`pin_gate`](crate::dependencies::pin_gate)).
     PinGate,
-    /// The rules of [`library_gate`](crate::dependencies::library_gate) (what the audio library may depend on) and of
+    /// The rules of [`library_gate`](crate::dependencies::library_gate) (what each library may depend on) and of
     /// [`shared_tests_gate`](crate::dependencies::shared_tests_gate) (which crates only tests use).
     LibraryGate,
     /// Require every part to be under the license of its folder, and no open part to depend
@@ -845,8 +845,8 @@ pub(crate) fn dependency_steps() -> Vec<Step> {
             action: Action::PinGate,
         },
         Step {
-            name: "The audio library depends only on its own crates, its tests also on its \
-                   test crates; every crate only tests use is shared test code"
+            name: "Each library depends only on its own crates, its tests also on its test \
+                   crates; every crate only tests use is shared test code"
                 .to_owned(),
             action: Action::LibraryGate,
         },

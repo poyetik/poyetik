@@ -20,7 +20,7 @@ The visual library mirrors the audio engine's design principles (`engine-design.
 
 ## 1. A standalone library
 
-**Decision.** The visual library is usable on its own: it depends on no other part of the project, the audio engine included (its tests use the workspace's counting allocator, a test-only crate). What spans sound and image (a clock shared with the audio engine, a scene with sound sources) lives in a layer above both libraries, which uses each only through its public interface.
+**Decision.** The visual library is usable on its own: it depends on no other part of the project, the audio engine included (its tests use the workspace's counting allocator, a test-only crate), as `spec/engine-design.md` decision 32 requires of every library. xtask's library gate checks it: the crates holding `CrateRole::VisualLibrary` depend, within the project, only on each other, and their tests also on `visual-testkit` and the counting allocator; its third-party dependencies are reviewed and, all being bit-defining, pinned exactly, as the audio library's are. Exact musical time will come from the shared time crate (#37), the one other crate it may depend on. What spans sound and image (a clock shared with the audio engine, a scene with sound sources) lives in a layer above both libraries, which uses each only through its public interface.
 
 **Why.** Each library is released as open source, ready to use as is. A shared layer above costs nothing at run time: one program, one WebAssembly binary, the compiler sees through the crates; benchmarks are to prove it (#35 step 3).
 

@@ -47,6 +47,13 @@ pub enum CrateRole {
     /// A crate the tests of the audio library may use beside it (a development dependency),
     /// never its code ([`library_gate`](crate::dependencies::library_gate)).
     LibraryTests,
+    /// A crate of the visual library: a sibling library standing alone the same way as the
+    /// audio library (`spec/engine-design.md`, decision 32; `spec/visual-design.md`,
+    /// decision 1; [`library_gate`]).
+    VisualLibrary,
+    /// A crate the tests of the visual library may use beside it (a development
+    /// dependency), never its code ([`library_gate`]).
+    VisualLibraryTests,
     /// A crate that may depend on `libm` outside its tests (`spec/engine-design.md`,
     /// decision 10; [`math_layer_gate`](crate::math_layer::math_layer_gate)): the engine core, whose math layer is the only
     /// path from box arithmetic to a math function, and the test kit, whose measurements
@@ -131,35 +138,35 @@ pub const RUST_CRATES: [RustCrate; 15] = [
         dir: "crates/visual-core",
         binary: false,
         test_data: &[],
-        roles: &[],
+        roles: &[CrateRole::VisualLibrary],
     },
     RustCrate {
         name: "visual-boxes",
         dir: "crates/visual-boxes",
         binary: false,
         test_data: &[],
-        roles: &[],
+        roles: &[CrateRole::VisualLibrary],
     },
     RustCrate {
         name: "visual-hash",
         dir: "crates/visual-hash",
         binary: false,
         test_data: &["spec/image-hash-vectors.json"],
-        roles: &[],
+        roles: &[CrateRole::VisualLibrary],
     },
     RustCrate {
         name: "visual-testkit",
         dir: "crates/visual-testkit",
         binary: false,
         test_data: &["conformance/visual/test-matrix.json"],
-        roles: &[],
+        roles: &[CrateRole::VisualLibraryTests, CrateRole::SharedTests],
     },
     RustCrate {
         name: "alloc-counter",
         dir: "crates/alloc-counter",
         binary: false,
         test_data: &[],
-        roles: &[CrateRole::SharedTests],
+        roles: &[CrateRole::SharedTests, CrateRole::VisualLibraryTests],
     },
     RustCrate {
         name: "audio-fpenv",
@@ -538,6 +545,17 @@ pub fn package_jsons() -> Vec<String> {
 
 /// The WebAssembly target: the engine's on the web, [`WASM_PACKAGE`]'s.
 pub const WASM_TARGET: &str = "wasm32-unknown-unknown";
+
+/// The libraries of the project, each standing alone (`spec/engine-design.md`, decision
+/// 32): the role of its crates, the role of the crates its tests may also use, and its name.
+pub const LIBRARIES: [(CrateRole, CrateRole, &str); 2] = [
+    (CrateRole::Library, CrateRole::LibraryTests, "audio library"),
+    (
+        CrateRole::VisualLibrary,
+        CrateRole::VisualLibraryTests,
+        "visual library",
+    ),
+];
 
 /// Targets the engine core must build for: proof that it depends on no environment.
 pub const PORTABILITY_TARGETS: [&str; 4] = [

@@ -6,7 +6,7 @@ use crate::{
     math_layer::{cargo_packages, dependencies_of, workspace_dependency, workspace_root},
     reviews::{compare_reviews, count},
     steps::{Cmd, Dir, Failure, step_verdict, verdict},
-    workspace::{CrateRole, Extent, crates_in},
+    workspace::{CrateRole, Extent, LIBRARIES, crates_in},
 };
 
 /// The exact Cargo configuration of the repository: an alias, nothing else.
@@ -128,11 +128,11 @@ pub(crate) fn exact_version(req: &str) -> bool {
 /// Checks that every bit-defining dependency is pinned to one exact version.
 ///
 /// A dependency is bit-defining when its review in `reviewed` ([`DEPENDENCIES_REVIEWED`])
-/// gives a reason starting with [`BIT_DEFINING`]; every normal or build dependency of the
-/// audio library ([`CrateRole::Library`]) must be reviewed so, since its code runs in the
-/// library's. Each must be required as `=X.Y.Z` in its crate's manifest (as `metadata`, the
-/// output of [`metadata_command`], gives it), so that an update, which can move bits, is
-/// a decision of its own and never a side effect of another.
+/// gives a reason starting with [`BIT_DEFINING`]; every normal or build dependency of one
+/// of the [`LIBRARIES`] must be reviewed so, since its code runs in the library's. Each
+/// must be required as `=X.Y.Z` in its crate's manifest (as `metadata`, the output of
+/// [`metadata_command`], gives it), so that an update, which can move bits, is a decision
+/// of its own and never a side effect of another.
 ///
 /// # Errors
 ///
@@ -159,16 +159,20 @@ pub fn pin_gate(metadata: &str, reviewed: &str) -> Result<(), Failure> {
             let text = |key: &str| dependency.get(key).and_then(serde_json::Value::as_str);
             let kind = text("kind").unwrap_or("normal");
             let key = format!("{name}: {} ({kind})", text("name").unwrap_or_default());
-            let library = crates_in(CrateRole::Library).contains(&name.as_str()) && kind != "dev";
+            let library = LIBRARIES
+                .iter()
+                .find(|(role, _, _)| crates_in(*role).contains(&name.as_str()))
+                .filter(|_| kind != "dev")
+                .map(|(_, _, what)| *what);
             let bits = marked.contains(key.as_str());
-            if library && !bits {
+            if let Some(what) = library.filter(|_| !bits) {
                 problems.push(format!(
-                    "{key}: its code runs in the audio library's: review it in \
+                    "{key}: its code runs in the {what}'s: review it in \
                      {DEPENDENCIES_REVIEWED} with a reason starting `{BIT_DEFINING}`"
                 ));
             }
             let req = text("req").unwrap_or_default();
-            if (library || bits) && !exact_version(req) {
+            if (library.is_some() || bits) && !exact_version(req) {
                 problems.push(format!(
                     "{key} is required as `{req}`: pin it to one version, `=X.Y.Z`, in its \
                      Cargo.toml, so that an update, which can move bits, is decided alone \
@@ -180,9 +184,11 @@ pub fn pin_gate(metadata: &str, reviewed: &str) -> Result<(), Failure> {
     step_verdict(problems)
 }
 
-/// Checks that the audio library ([`CrateRole::Library`]) stands alone: each of its crates
-/// depends, among the crates of the project, only on its own, and its tests also on
-/// [`CrateRole::LibraryTests`].
+/// Checks that each of the [`LIBRARIES`] stands alone.
+///
+/// Each of its crates depends, among the crates of the project, only on its own, and its
+/// tests also on the crates of its tests' role ([`CrateRole::LibraryTests`] for the audio
+/// library, [`CrateRole::VisualLibraryTests`] for the visual one).
 ///
 /// `metadata` is the output of [`metadata_command`]; a dependency of the project is one
 /// with a `path`, and it is allowed only as a crate of [`RUST_CRATES`](crate::workspace::RUST_CRATES) it names and places
@@ -197,34 +203,34 @@ pub fn library_gate(metadata: &str) -> Result<(), Failure> {
     let packages = cargo_packages(metadata)?;
     let root = workspace_root(metadata)?;
     let mut problems = Vec::new();
-    let (library_crates, test_crates) = (
-        crates_in(CrateRole::Library),
-        crates_in(CrateRole::LibraryTests),
-    );
-    for library in library_crates.iter().copied() {
-        let Some((_, krate)) = packages.iter().find(|(name, _)| name == library) else {
-            problems.push(format!(
-                "{library}: not in the cargo metadata, so its dependencies cannot be checked"
-            ));
-            continue;
-        };
-        for dependency in dependencies_of(krate) {
-            let known = workspace_dependency(dependency, &root)?;
-            let text = |key: &str| dependency.get(key).and_then(serde_json::Value::as_str);
-            let Some(path) = text("path") else {
+    for (role, tests_role, what) in LIBRARIES {
+        let (library_crates, test_crates) = (crates_in(role), crates_in(tests_role));
+        for library in library_crates.iter().copied() {
+            let Some((_, krate)) = packages.iter().find(|(name, _)| name == library) else {
+                problems.push(format!(
+                    "{library}: not in the cargo metadata, so its dependencies cannot be checked"
+                ));
                 continue;
             };
-            let name = text("name").unwrap_or_default();
-            let kind = text("kind").unwrap_or("normal");
-            let allowed = |crates: &[&str]| known.is_some_and(|known| crates.contains(&known.name));
-            if !(allowed(&library_crates) || (kind == "dev" && allowed(&test_crates))) {
-                problems.push(format!(
-                    "{library} depends on {name} ({kind}, {path}): the audio library depends \
-                     only on its own crates ({}), its tests also on {}; move what it needs \
-                     into the library, or the dependency out of it",
-                    library_crates.join(", "),
-                    test_crates.join(", ")
-                ));
+            for dependency in dependencies_of(krate) {
+                let known = workspace_dependency(dependency, &root)?;
+                let text = |key: &str| dependency.get(key).and_then(serde_json::Value::as_str);
+                let Some(path) = text("path") else {
+                    continue;
+                };
+                let name = text("name").unwrap_or_default();
+                let kind = text("kind").unwrap_or("normal");
+                let allowed =
+                    |crates: &[&str]| known.is_some_and(|known| crates.contains(&known.name));
+                if !(allowed(&library_crates) || (kind == "dev" && allowed(&test_crates))) {
+                    problems.push(format!(
+                        "{library} depends on {name} ({kind}, {path}): the {what} depends \
+                         only on its own crates ({}), its tests also on {}; move what it \
+                         needs into the library, or the dependency out of it",
+                        library_crates.join(", "),
+                        test_crates.join(", ")
+                    ));
+                }
             }
         }
     }

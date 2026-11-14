@@ -1,0 +1,15 @@
+[package]
+name = "visual-boxes"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[lib]
+path = "lib.rs"
+
+# Allowed: the visual library's own crates, and its test kit in its tests.
+[dependencies]
+visual-core = { path = "../visual-core" }
+
+[dev-dependencies]
+visual-testkit = { path = "../visual-testkit" }
