@@ -428,3 +428,7 @@ pub fn workflow_gate(
     }
     step_verdict(problems)
 }
+
+#[cfg(test)]
+#[path = "workflow_tests.rs"]
+mod tests;

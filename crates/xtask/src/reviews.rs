@@ -1039,3 +1039,7 @@ pub fn membership_gate(
     );
     verdict("the manifests differ from what xtask knows", problems)
 }
+
+#[cfg(test)]
+#[path = "reviews_tests.rs"]
+mod tests;

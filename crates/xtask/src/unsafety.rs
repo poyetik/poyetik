@@ -406,3 +406,7 @@ pub(crate) fn unsafe_outside(
         }
     }
 }
+
+#[cfg(test)]
+#[path = "unsafety_tests.rs"]
+mod tests;

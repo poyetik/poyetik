@@ -296,3 +296,7 @@ pub fn shared_tests_gate(metadata: &str) -> Result<(), Failure> {
         .collect();
     step_verdict(problems)
 }
+
+#[cfg(test)]
+#[path = "dependencies_tests.rs"]
+mod tests;

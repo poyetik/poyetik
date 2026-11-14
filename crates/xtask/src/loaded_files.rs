@@ -440,3 +440,7 @@ pub fn loaded_files_gate(loaded: &[Loaded], tracked: &[String]) -> Result<(), Fa
     }
     step_verdict(problems)
 }
+
+#[cfg(test)]
+#[path = "loaded_files_tests.rs"]
+mod tests;

@@ -233,3 +233,7 @@ pub fn supply_chain_gate(texts: &[String; 4], npm_configs: &[String]) -> Result<
     }));
     verdict("the supply-chain configuration", problems)
 }
+
+#[cfg(test)]
+#[path = "supply_chain_tests.rs"]
+mod tests;

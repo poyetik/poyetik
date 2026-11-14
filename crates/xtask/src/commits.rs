@@ -310,3 +310,7 @@ pub(crate) fn conventional(message: &str, registered: bool) -> Result<(), Failur
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "commits_tests.rs"]
+mod tests;

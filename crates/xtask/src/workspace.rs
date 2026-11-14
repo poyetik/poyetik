@@ -544,3 +544,7 @@ pub(crate) fn package_args<'name>(packages: &[&'name str]) -> Vec<&'name str> {
 /// Each is linted for both, whatever the machine, so that CI (`x86_64` Linux) compiles the
 /// aarch64 code and a Mac the `x86_64` code.
 pub const NATIVE_TARGETS: [&str; 2] = ["aarch64-apple-darwin", "x86_64-unknown-linux-gnu"];
+
+#[cfg(test)]
+#[path = "workspace_tests.rs"]
+mod tests;

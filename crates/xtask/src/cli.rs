@@ -704,3 +704,7 @@ impl<W: Write> Write for BestEffort<W> {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "cli_tests.rs"]
+mod tests;

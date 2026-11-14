@@ -477,3 +477,7 @@ impl Runner for SystemRunner {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "runner_tests.rs"]
+mod tests;

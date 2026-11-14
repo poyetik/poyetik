@@ -413,3 +413,7 @@ pub fn preparation_steps() -> Vec<String> {
     .map(|(_, step)| step.name)
     .collect()
 }
+
+#[cfg(test)]
+#[path = "parts_tests.rs"]
+mod tests;

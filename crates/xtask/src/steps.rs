@@ -1176,3 +1176,7 @@ pub(crate) fn full_order(mode: Mode) -> Vec<(Role, Step)> {
 pub fn check_steps(mode: Mode) -> Vec<Step> {
     roles(mode).into_iter().map(|(_, step)| step).collect()
 }
+
+#[cfg(test)]
+#[path = "steps_tests.rs"]
+mod tests;
