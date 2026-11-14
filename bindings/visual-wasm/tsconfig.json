@@ -1,0 +1,10 @@
+{
+  "extends": "@poyetik/config/tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2024", "DOM"],
+    "types": ["node"],
+    "allowJs": true
+  },
+  "include": ["**/*.ts", "**/*.js"],
+  "exclude": ["dist", "coverage", "reports", ".stryker-tmp", "node_modules"]
+}
