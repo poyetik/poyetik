@@ -2,7 +2,7 @@ import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { WasmEngine, givenAsBinary32 } from "../ts/engine.ts";
 import { ENGINE_PROCESSOR, MARKER_PERIOD, SOURCE_STOPPED, TAP_PROCESSOR } from "../ts/protocol.ts";
 import { Counted, created } from "./counted.ts";
-import { engineFunctions, handMadeBytes, PRECISION_NAMES, SAMPLE_RATES, SILENT_PATCH, SINE_PATCH, UNKNOWN_BOX, wasmBytes } from "./fixtures.ts";
+import { engineFunctions, handMadeBytes, PRECISION_NAMES, READY, SAMPLE_RATES, SILENT_PATCH, SINE_PATCH, UNKNOWN_BOX, wasmBytes } from "./fixtures.ts";
 import { loadProcessors, processorClass, type ProcessorClass } from "./worklet.ts";
 
 /** The sample rate of the fake worklet scope, in hertz, restored after a test changes it. */
@@ -145,7 +145,16 @@ describe("engine processor", () => {
   test("tells the main thread it is ready", () => {
     const Engine = processor(ENGINE_PROCESSOR);
     const node = new Engine({ processorOptions: { wasm: wasmBytes(), patch: SINE_PATCH, marker: false, precision: "binary64" } });
-    expect(node.port.posted).toStrictEqual([{ type: "ready" }]);
+    expect(node.port.posted).toStrictEqual([READY]);
+  });
+
+  test("tells the main thread what the module observed of subnormals on its thread", () => {
+    // A module observing code 0b1001: binary32 operands and binary64 results kept, the rest flushed.
+    const functions = engineFunctions().map((func) => (func.name === "engine_subnormals" ? { ...func, body: { i32: 0b1001 } } : func));
+    const node = new (processor(ENGINE_PROCESSOR))({ processorOptions: { wasm: handMadeBytes({ memory: true, functions }).buffer, patch: SINE_PATCH, marker: false, precision: "binary64" } });
+    expect(node.port.posted).toStrictEqual([
+      { type: "ready", subnormals: { binary32: { operands: true, results: false }, binary64: { operands: false, results: true } } },
+    ]);
   });
 
   test("reports invalid options, then outputs silence and stops", () => {
@@ -172,7 +181,7 @@ describe("engine processor", () => {
     // Outputs of different lengths make the engine refuse to render.
     expect(node.process([], [[new Float32Array(2), new Float32Array(3)]])).toBe(false);
     expect(node.port.posted).toStrictEqual([
-      { type: "ready" },
+      READY,
       { type: "failed", message: "RangeError: every output must have the same length: 3 instead of 2" },
     ]);
     expect(node.process([], [[new Float32Array(2)]])).toBe(false);
@@ -195,7 +204,7 @@ describe("engine processor traps", () => {
     const node = new (processor(ENGINE_PROCESSOR))({ processorOptions: { wasm: trapping("engine_process"), patch: SINE_PATCH, marker: false, precision: "binary64" } });
     expect(node.process([], [[new Float32Array(128)]])).toBe(false);
     expect(node.port.posted).toStrictEqual([
-      { type: "ready" },
+      READY,
       { type: "failed", message: "EngineTrap: the engine module trapped and cannot be used again (RuntimeError: unreachable)" },
     ]);
   });

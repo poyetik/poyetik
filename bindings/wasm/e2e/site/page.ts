@@ -147,7 +147,7 @@ export class FirstFailure {
  * to what it caused (the capture's end, `ready`'s rejection).
  * @throws {unknown} the engine's first failure, else what `start`, `ready` or `captured` throws.
  */
-export async function liveCapture<T>(ready: Promise<void>, captured: Promise<T>, failure: FirstFailure, start: () => Promise<void>): Promise<T> {
+export async function liveCapture<T>(ready: Promise<unknown>, captured: Promise<T>, failure: FirstFailure, start: () => Promise<void>): Promise<T> {
   captured.catch(() => undefined);
   try {
     await start();

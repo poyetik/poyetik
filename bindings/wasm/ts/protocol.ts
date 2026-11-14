@@ -1,6 +1,6 @@
 /** What the main thread and the `AudioWorklet` processors agree on. */
 
-import { PRECISIONS, parsePrecision, type Precision } from "./engine.ts";
+import { PRECISIONS, parsePrecision, type Precision, type SubnormalArithmetic, type SubnormalsKept } from "./engine.ts";
 
 /** Name of the processor running the engine. */
 export const ENGINE_PROCESSOR = "poyetik-engine";
@@ -118,12 +118,39 @@ export function parseTapMessage(value: unknown): TapMessage {
  * (`ready`) or why not, then, after `ready`, at most one failure while rendering.
  */
 export type EngineMessage =
-  /** The patch is loaded: the processor renders it. */
-  | { readonly type: "ready" }
+  /**
+   * The patch is loaded: the processor renders it. `subnormals` is what the arithmetic of
+   * the audio thread does with subnormals, observed by the module when it was loaded.
+   */
+  | { readonly type: "ready"; readonly subnormals: SubnormalArithmetic }
   /** The engine rejected the patch; `detail` is its UTF-8 explanation. */
   | { readonly type: "rejected"; readonly detail: Uint8Array }
   /** Anything else went wrong (invalid options, a trap): the processor is silent. */
   | { readonly type: "failed"; readonly message: string };
+
+/** Checks what subnormals a format keeps, in an engine message; `format` names it in the error. */
+function parseSubnormalsKept(value: unknown, format: string): SubnormalsKept {
+  if (typeof value !== "object" || value === null) {
+    throw new MessageError(`${format} subnormals are not an object`);
+  }
+  const operands: unknown = Reflect.get(value, "operands");
+  const results: unknown = Reflect.get(value, "results");
+  if (typeof operands !== "boolean" || typeof results !== "boolean") {
+    throw new MessageError(`${format} subnormals are not two booleans`);
+  }
+  return { operands, results };
+}
+
+/** Checks the subnormal arithmetic of a `ready` message. */
+function parseSubnormalArithmetic(value: unknown): SubnormalArithmetic {
+  if (typeof value !== "object" || value === null) {
+    throw new MessageError("subnormal arithmetic is not an object");
+  }
+  return {
+    binary32: parseSubnormalsKept(Reflect.get(value, "binary32"), "binary32"),
+    binary64: parseSubnormalsKept(Reflect.get(value, "binary64"), "binary64"),
+  };
+}
 
 /** Checks a message posted by the engine processor. */
 export function parseEngineMessage(value: unknown): EngineMessage {
@@ -132,7 +159,7 @@ export function parseEngineMessage(value: unknown): EngineMessage {
   }
   const type: unknown = Reflect.get(value, "type");
   if (type === "ready") {
-    return { type };
+    return { type, subnormals: parseSubnormalArithmetic(Reflect.get(value, "subnormals")) };
   }
   if (type === "rejected") {
     const detail: unknown = Reflect.get(value, "detail");

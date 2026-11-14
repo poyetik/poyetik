@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `engine_core::SubnormalArithmetic::observe` computes subnormal numbers on the calling thread and reports, for binary32 and binary64, whether a subnormal operand is used as it is (no denormals-are-zero) and a subnormal result kept (no flush-to-zero), each probe kept only when it gives its exact IEEE bits (`SubnormalArithmetic::IEEE`, `is_ieee`; `spec/engine-design.md`, decision 11). `engine-fpenv`'s tests prove it under every flush mode forced on the processor (`x86_64` in CI, aarch64 on a Mac), so the probe sees each mode its target has.
+- **Breaking (engine-wasm interface, version 4, `0x5059_0004`):** the module exports `engine_subnormals`, that observation of the calling thread as four bits (1 binary32 operands, 2 binary32 results, 4 binary64 operands, 8 binary64 results kept; 15 is IEEE). `WasmEngine` reads it when it is created (`WasmEngine.subnormals`, a `ModuleError` for a code that is none), the engine processor sends it on the audio thread in its `ready` message, and an engine node's `ready` resolves with it (`SubnormalArithmetic`, `SubnormalsKept`, from `./web`): whether a browser's hardware flush mode reaches the engine's arithmetic. The browser tests assert IEEE arithmetic live in every browser engine.
 
 ## [0.2.0] - 2026-11-13
 

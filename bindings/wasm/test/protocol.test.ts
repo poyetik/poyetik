@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { IEEE_SUBNORMALS, READY } from "./fixtures.ts";
 import { ENGINE_PROCESSOR, MessageError, OptionsError, TAP_PROCESSOR, parseEngineMessage, parseEngineOptions, parseTapMessage, SOURCE_STOPPED } from "../ts/protocol.ts";
 
 describe("parseEngineOptions", () => {
@@ -57,7 +58,9 @@ test("names the processors: a contract with every page that loads them", () => {
 describe("parseEngineMessage", () => {
   test("accepts the three messages of the engine processor", () => {
     const detail = new Uint8Array([1]);
-    expect(parseEngineMessage({ type: "ready" })).toStrictEqual({ type: "ready" });
+    expect(parseEngineMessage(READY)).toStrictEqual(READY);
+    const mixed = { binary32: { operands: false, results: true }, binary64: { operands: true, results: false } };
+    expect(parseEngineMessage({ type: "ready", subnormals: mixed })).toStrictEqual({ type: "ready", subnormals: mixed });
     expect(parseEngineMessage({ type: "rejected", detail })).toStrictEqual({ type: "rejected", detail });
     expect(parseEngineMessage({ type: "failed", message: "x" })).toStrictEqual({ type: "failed", message: "x" });
   });
@@ -68,6 +71,15 @@ describe("parseEngineMessage", () => {
     [{ type: "rejected", detail: [1] }, "rejection detail is not a Uint8Array"],
     [{ type: "failed", message: 1 }, "failure message is not a string"],
     [{ type: "other" }, "unknown engine message"],
+    [{ type: "ready" }, "subnormal arithmetic is not an object"],
+    [{ type: "ready", subnormals: null }, "subnormal arithmetic is not an object"],
+    [{ type: "ready", subnormals: 15 }, "subnormal arithmetic is not an object"],
+    [{ type: "ready", subnormals: { binary64: IEEE_SUBNORMALS.binary64 } }, "binary32 subnormals are not an object"],
+    [{ type: "ready", subnormals: { binary32: IEEE_SUBNORMALS.binary32 } }, "binary64 subnormals are not an object"],
+    [{ type: "ready", subnormals: { ...IEEE_SUBNORMALS, binary32: null } }, "binary32 subnormals are not an object"],
+    [{ type: "ready", subnormals: { ...IEEE_SUBNORMALS, binary32: { operands: 1, results: true } } }, "binary32 subnormals are not two booleans"],
+    [{ type: "ready", subnormals: { ...IEEE_SUBNORMALS, binary32: { operands: true } } }, "binary32 subnormals are not two booleans"],
+    [{ type: "ready", subnormals: { ...IEEE_SUBNORMALS, binary64: { operands: true, results: "yes" } } }, "binary64 subnormals are not two booleans"],
     [{}, "unknown engine message"],
   ])("rejects %o", (value, detail) => {
     expect(() => parseEngineMessage(value)).toThrow(new MessageError(detail));

@@ -12,9 +12,6 @@ import { ENGINE_PROCESSOR, MARKER_PERIOD, SOURCE_STOPPED, TAP_PROCESSOR, parseEn
 /** The outputs of a node without output: one shared, frozen, empty list. */
 const NO_OUTPUT: readonly Float32Array[] = Object.freeze([]);
 
-/** The message telling the main thread the patch is loaded: one shared, frozen object. */
-const READY: EngineMessage = Object.freeze({ type: "ready" });
-
 /**
  * The message describing a failure: the rejection detail of the engine, or a message.
  * The message keeps the cause of the error, when it is an error: for an `EngineTrap`, the trap of the
@@ -45,7 +42,8 @@ class EngineProcessor extends AudioWorkletProcessor {
 
   /**
    * Loads the patch given in the node options (`processorOptions`, see `EngineOptions`), to
-   * render in their precision, given to Web Audio as binary32.
+   * render in their precision, given to Web Audio as binary32, and tells the main thread
+   * what the audio thread's arithmetic does with subnormals.
    * @param options The node options.
    * @param options.processorOptions The patch, the engine module and the precision.
    */
@@ -53,8 +51,11 @@ class EngineProcessor extends AudioWorkletProcessor {
     super();
     try {
       const { wasm, patch, marker, precision } = parseEngineOptions(options.processorOptions);
-      this.#running = { engine: WasmEngine.create(new WebAssembly.Module(wasm), patch, sampleRate, givenAsBinary32(precision)), marker };
-      this.port.postMessage(READY);
+      const engine = WasmEngine.create(new WebAssembly.Module(wasm), patch, sampleRate, givenAsBinary32(precision));
+      // Observed when it was created, here on the audio thread, in the browser's mode.
+      const ready: EngineMessage = { type: "ready", subnormals: engine.subnormals };
+      this.#running = { engine, marker };
+      this.port.postMessage(ready);
     } catch (error) {
       this.port.postMessage(failure(error));
     }

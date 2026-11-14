@@ -2,7 +2,7 @@ import { loadPatch } from "@poyetik/engine-wasm/web";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { SINE_440 } from "../src/patch.ts";
 import { ENGINE_RATES, EnginePlayer, explain, missing, type Environment, type Failure, type Missing } from "../src/player.ts";
-import { CAPABLE, FakeContext, WASM, flush, lastContext, log, playerOptions, processor, holdFetch, resetFakes, signals, stopPlaying, stubFetch, workletNode } from "./fakes.ts";
+import { CAPABLE, FakeContext, READY, WASM, flush, lastContext, log, playerOptions, processor, holdFetch, resetFakes, signals, stopPlaying, stubFetch, workletNode } from "./fakes.ts";
 import { SAMPLE_RATES } from "./matrix.ts";
 
 /** Whether `text` names a lack or a failure the player explains. */
@@ -298,7 +298,7 @@ describe("EnginePlayer", () => {
     lastContext()?.become("running");
     lastContext()?.become("suspended");
     expect(player.state()).toStrictEqual({ kind: "starting" });
-    workletNode("poyetik-engine")?.port.deliver({ type: "ready" });
+    workletNode("poyetik-engine")?.port.deliver(READY);
     await starting;
     expect(player.state()).toStrictEqual({ kind: "playing" });
   });
@@ -449,7 +449,7 @@ describe("EnginePlayer", () => {
       expect(workletNode("poyetik-tap")).toBeDefined();
     });
     workletNode("poyetik-tap")?.port.deliver("garbage");
-    workletNode("poyetik-engine")?.port.deliver({ type: "ready" });
+    workletNode("poyetik-engine")?.port.deliver(READY);
     await starting;
     expect(player.state()).toStrictEqual({ kind: "failed", cause: "engine", detail: "MessageError: invalid message from the processor: render quantum is not an array" });
   });

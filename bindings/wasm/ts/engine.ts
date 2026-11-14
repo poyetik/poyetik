@@ -26,6 +26,43 @@ export const PRECISIONS = ["binary64", "binary32"] as const;
 /** The precision a render computes in: binary64 by default, binary32 for performance. */
 export type Precision = (typeof PRECISIONS)[number];
 
+/** Whether subnormals survive in one format: as the operands of an operation, and as its result. */
+export interface SubnormalsKept {
+  /** A subnormal operand is used as it is, not as zero (no denormals-are-zero). */
+  readonly operands: boolean;
+  /** A subnormal result is given as it is, not as zero (no flush-to-zero). */
+  readonly results: boolean;
+}
+
+/**
+ * What the arithmetic of a thread does with subnormal numbers, in each format, as the
+ * module observed it (`engine_core::SubnormalArithmetic`). Every subnormal kept is IEEE
+ * arithmetic, the engine's own; a browser may run its audio thread in a hardware flush
+ * mode, which this shows when it reaches the module's arithmetic.
+ */
+export interface SubnormalArithmetic {
+  /** In binary32. */
+  readonly binary32: SubnormalsKept;
+  /** In binary64. */
+  readonly binary64: SubnormalsKept;
+}
+
+/** The largest code of `engine_subnormals`: its four bits set, IEEE arithmetic. */
+const SUBNORMAL_CODES = 0b1111;
+
+/**
+ * Reads the code of `engine_subnormals` (`subnormals_code` in `ffi.rs`): four bits, each set
+ * when subnormals are kept, 1 binary32 operands, 2 binary32 results, 4 binary64 operands,
+ * 8 binary64 results; `undefined` for anything else.
+ */
+export function subnormalArithmetic(code: number): SubnormalArithmetic | undefined {
+  if (!Number.isInteger(code) || code < 0 || code > SUBNORMAL_CODES) {
+    return undefined;
+  }
+  const kept = (shift: number): SubnormalsKept => ({ operands: ((code >> shift) & 1) === 1, results: ((code >> (shift + 1)) & 1) === 1 });
+  return { binary32: kept(0), binary64: kept(2) };
+}
+
 /**
  * The render format of a render computed in `precision` and given to a host that takes
  * binary32 (Web Audio): a binary64 render is rounded to binary32, a binary32 one given as it
@@ -149,6 +186,12 @@ function guarded<T>(action: () => T): T {
 export class WasmEngine<A extends Samples> {
   /** Number of output channels of the patch. */
   readonly channels: number;
+  /**
+   * What the arithmetic of the thread that created the engine does with subnormals, as the
+   * module observed it then (`engine_subnormals`): on an audio thread, whether the
+   * browser's flush mode reaches the engine.
+   */
+  readonly subnormals: SubnormalArithmetic;
   /** The module instance. */
   readonly #exports: Exports;
   /** Frames per block. */
@@ -217,12 +260,19 @@ export class WasmEngine<A extends Samples> {
    * Wraps an instance with a patch loaded.
    * @param exports The instance, with a patch loaded.
    * @param layout How its samples are laid out.
-   * @throws {ModuleError} when its blocks have no frame: rendering would never end.
+   * @throws {ModuleError} when its blocks have no frame: rendering would never end; or when
+   * its observation of subnormals is not a code of `engine_subnormals`.
    */
   private constructor(exports: Exports, layout: Layout) {
     this.#exports = exports;
     this.#layout = layout;
     this.channels = exports.channels();
+    const code = exports.subnormals();
+    const subnormals = subnormalArithmetic(code);
+    if (subnormals === undefined) {
+      throw new ModuleError(`engine_subnormals returned ${String(code)}, not a code from 0 to ${String(SUBNORMAL_CODES)}`);
+    }
+    this.subnormals = subnormals;
     this.#blockSize = exports.blockSize();
     if (this.#blockSize === 0) {
       throw new ModuleError("engine_block_size returned 0: a block has at least one frame");
@@ -236,8 +286,8 @@ export class WasmEngine<A extends Samples> {
    * hertz, rendering in `format`: binary64 renders into `Float64Array`s, the two binary32
    * formats into `Float32Array`s.
    * @throws {RangeError} when `rate` is not a whole number of hertz that fits 32 bits.
-   * @throws {ModuleError} when `module` is not an engine module of this version, or
-   * gives blocks of 0 frames.
+   * @throws {ModuleError} when `module` is not an engine module of this version, gives
+   * blocks of 0 frames, or observes subnormals in a code that is not one.
    * @throws {PatchError} when the engine rejects the patch, its bytes or the rate; a patch
    * longer than the engine reads is refused before it is copied into the module, whose
    * memory never shrinks again, with the words of the engine.

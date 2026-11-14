@@ -45,6 +45,13 @@ function reference(name: string, format: string): string {
 /** A SHA-256 hash in lowercase hex, as the bench page shows it once a render finished. */
 const HASH = /^[0-9a-f]{64}$/;
 
+/**
+ * What the live page shows when the audio thread keeps every subnormal (IEEE arithmetic),
+ * written as a literal: the engine's arithmetic, which the browser's flush mode, if it
+ * reached the module, would change.
+ */
+const IEEE_SUBNORMALS = '{"binary32":{"operands":true,"results":true},"binary64":{"operands":true,"results":true}}';
+
 test("covers the whole corpus, with a reference for every case", () => {
   expect(CASES.length).toBeGreaterThan(1);
   for (const name of [...CASES, ...LIVE]) {
@@ -73,6 +80,7 @@ for (const { precision, format } of PRECISIONS) {
       await page.getByRole("button", { name: "Capture live" }).click();
       await expect(page.locator("#live-hash")).toHaveText(HASH, { timeout: 15_000 });
       await expect(page.locator("#live-hash")).toHaveText(reference(name, format));
+      await expect(page.locator("#live-subnormals")).toHaveText(IEEE_SUBNORMALS);
       await expect(page.locator("#error")).toHaveText("");
     });
   }
