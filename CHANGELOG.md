@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-14
+
 ### Added
 
 - The checks run each script of a TypeScript package's `check` as a step of its own, which says its time (`Package::checks`), and a gate refuses a package whose `check` script runs other scripts than those (`package_check_gate`).
