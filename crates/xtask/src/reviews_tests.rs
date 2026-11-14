@@ -1324,10 +1324,12 @@ fn ties_each_package_check_to_the_scripts_the_checks_run() {
         "each script through pnpm, in order"
     );
     let checks = ["typecheck", "lint"];
+    let context = "a/package.json: the checks run and time `pnpm typecheck && pnpm lint` \
+                   (`Package::checks` in xtask's workspace.rs, which changes with the manifest)";
     assert_eq!(
         package_check_gate(
             "a/package.json",
-            r#"{"scripts": {"check": "pnpm typecheck && pnpm lint"}}"#,
+            r#"{"scripts": {"check": "pnpm typecheck && pnpm lint", "test": "vitest"}}"#,
             &checks
         ),
         Ok(()),
@@ -1336,36 +1338,54 @@ fn ties_each_package_check_to_the_scripts_the_checks_run() {
     for (manifest, problem) in [
         (
             r#"{"scripts": {"check": "pnpm lint && pnpm typecheck"}}"#,
-            "a/package.json: its `check` script runs `pnpm lint && pnpm typecheck`, not the \
-             scripts the checks run and time: `pnpm typecheck && pnpm lint`",
+            "its `check` script runs `pnpm lint && pnpm typecheck`",
         ),
         (
             r#"{"scripts": {"check": "pnpm typecheck && pnpm lint && pnpm test"}}"#,
-            "a/package.json: its `check` script runs `pnpm typecheck && pnpm lint && pnpm test`, \
-             not the scripts the checks run and time: `pnpm typecheck && pnpm lint`",
+            "its `check` script runs `pnpm typecheck && pnpm lint && pnpm test`",
+        ),
+        (
+            r#"{"scripts": {"check": "pnpm run typecheck && pnpm run lint"}}"#,
+            "its `check` script runs `pnpm run typecheck && pnpm run lint`",
         ),
         (
             r#"{"scripts": {"test": "vitest"}}"#,
-            "a/package.json: no `check` script, where the checks run and time `pnpm typecheck \
-             && pnpm lint`",
+            "it has no `check` script",
+        ),
+        (r#"{"scripts": {"check": 1}}"#, "it has no `check` script"),
+        ("{}", "it has no `check` script"),
+        (
+            r#"{"scripts": {"check": "pnpm typecheck && pnpm lint", "precheck": "x"}}"#,
+            "it has a `precheck` script, which the checks would not run",
         ),
         (
-            r#"{"scripts": {"check": 1}}"#,
-            "a/package.json: no `check` script, where the checks run and time `pnpm typecheck \
-             && pnpm lint`",
-        ),
-        (
-            "{}",
-            "a/package.json: no `check` script, where the checks run and time `pnpm typecheck \
-             && pnpm lint`",
+            r#"{"scripts": {"check": "pnpm typecheck && pnpm lint", "postcheck": "x"}}"#,
+            "it has a `postcheck` script, which the checks would not run",
         ),
     ] {
         assert_eq!(
             package_check_gate("a/package.json", manifest, &checks),
-            Err(Failure::from(problem.to_owned())),
+            Err(Failure::from(format!("{context}: {problem}"))),
             "{manifest}"
         );
     }
+    assert_eq!(
+        package_check_gate(
+            "a/package.json",
+            r#"{"scripts": {"precheck": "x", "postcheck": "y"}}"#,
+            &checks
+        ),
+        Err(Failure {
+            summary: format!("{context}: 3 problems, listed above"),
+            details: vec![
+                "it has no `check` script".to_owned(),
+                "it has a `precheck` script, which the checks would not run".to_owned(),
+                "it has a `postcheck` script, which the checks would not run".to_owned(),
+            ],
+            usage: false,
+        }),
+        "every problem"
+    );
     assert!(
         package_check_gate("a/package.json", "{", &checks).is_err_and(|failure| failure
             .summary
@@ -1398,16 +1418,17 @@ fn reads_the_manifest_of_every_package_for_the_package_check_gate() {
     assert_eq!(
         run_steps(&step, &mut fake, &mut Vec::new()),
         failed(
-            "Package checks: apps/roadmap/package.json: its `check` script runs `pnpm test`, not \
-             the scripts the checks run and time: `pnpm typecheck && pnpm lint && pnpm test && \
-             pnpm build && pnpm test:e2e`"
+            "Package checks: apps/roadmap/package.json: the checks run and time `pnpm typecheck \
+             && pnpm lint && pnpm test && pnpm build && pnpm test:e2e` (`Package::checks` in \
+             xtask's workspace.rs, which changes with the manifest): its `check` script runs \
+             `pnpm test`"
         )
     );
     let mut unreadable = passing();
     unreadable.broken = Some("read tooling/config/package.json".to_owned());
-    assert!(
-        run_steps(&step, &mut unreadable, &mut Vec::new())
-            .is_err_and(|failure| failure.summary.contains("tooling/config/package.json")),
+    assert_eq!(
+        run_steps(&step, &mut unreadable, &mut Vec::new()),
+        failed("Package checks: cannot read tooling/config/package.json: not UTF-8"),
         "an unreadable manifest"
     );
 }

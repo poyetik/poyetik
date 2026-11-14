@@ -63,7 +63,7 @@ usage: cargo xtask <check [--full [--part <part>]]|list [--full [--parts]]|mutan
                         of <message> asks for on a push (used by the workflow)
   help                  show this help";
 
-/// What `cargo xtask mutants` mutates, every mutant of it.
+/// What `cargo xtask mutants` mutates: every mutant of a target, or the lines changed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Target {
     /// A crate of [`RUST_CRATES`], named (`cargo mutants --package`).
@@ -114,9 +114,11 @@ pub(crate) fn mutable_source(path: &str) -> bool {
         .any(|extension| path.ends_with(extension))
 }
 
-/// Reads the target of `cargo xtask mutants`: a crate name, a package directory, or the
-/// path of a file below one, relative to the root and written plainly (no `.`, `..` or
-/// empty part).
+/// Reads the target of `cargo xtask mutants`.
+///
+/// A crate name, a package directory, the path of a file below one, relative to the root
+/// and written plainly (no `.`, `..` or empty part), or `--changed`
+/// ([`Target::ChangedLines`]).
 ///
 /// # Errors
 ///
@@ -169,7 +171,7 @@ pub fn mutation_target(text: &str) -> Result<Target, String> {
         });
     }
     Err(format!(
-        "{text:?} is no crate, Rust file of a crate, TypeScript package or source of one"
+        "{text:?} is no crate, Rust file of a crate, TypeScript package or source of one, nor `--changed`"
     ))
 }
 

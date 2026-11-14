@@ -616,8 +616,15 @@ impl Runner for Fake {
             .files
             .keys()
             .filter(|path| !path.starts_with("capture "))
-            // Files outside the repository (the toolchain's) are never tracked.
+            // Files outside the repository (the toolchain's) are never tracked, nor the new
+            // files the scripted answer of git lists as untracked.
             .filter(|path| !path.starts_with('/'))
+            .filter(|path| {
+                !self
+                    .files
+                    .get(&format!("capture {}", NEW_RUST_FILES.0))
+                    .is_some_and(|new| new.split('\0').any(|listed| listed == path.as_str()))
+            })
             .filter(|path| {
                 patterns
                     .iter()
@@ -633,7 +640,8 @@ impl Fake {
     /// What git answers to `cmd`, unscripted, from the diff a test scripted for the same
     /// commit ([`diff_since`]), as real git does: the paths of its sections, NUL-separated
     /// (`diff --name-only -z`), or the sections of its Rust files (`*.rs`) but those below
-    /// the directories excluded by `:(exclude)<dir>/` pathspecs.
+    /// the directories excluded by `:(exclude)<dir>/` pathspecs and the files excluded by
+    /// `:(exclude,literal)<file>` ones.
     fn git_from_its_diff(&self, cmd: &Cmd) -> Option<String> {
         let args: Vec<&str> = cmd.args.iter().map(String::as_str).collect();
         if cmd.program != "git" {
@@ -676,9 +684,20 @@ impl Fake {
                 "*.rs",
                 excluded @ ..,
             ] => {
-                let dirs: Vec<&str> = excluded
+                // A directory excluded by `:(exclude)<dir>/`, a file by
+                // `:(exclude,literal)<file>`, exactly.
+                let excluded: Vec<(&str, bool)> = excluded
                     .iter()
-                    .map(|pathspec| pathspec.strip_prefix(":(exclude)"))
+                    .map(|pathspec| {
+                        pathspec
+                            .strip_prefix(":(exclude)")
+                            .map(|dir| (dir, false))
+                            .or_else(|| {
+                                pathspec
+                                    .strip_prefix(":(exclude,literal)")
+                                    .map(|file| (file, true))
+                            })
+                    })
                     .collect::<Option<_>>()?;
                 Some(
                     diff_sections(self.files.get(&diff_since(since))?)
@@ -687,7 +706,13 @@ impl Fake {
                             Path::new(path)
                                 .extension()
                                 .is_some_and(|extension| extension == "rs")
-                                && !dirs.iter().any(|dir| path.starts_with(dir))
+                                && !excluded.iter().any(|(spec, literal)| {
+                                    if *literal {
+                                        path == spec
+                                    } else {
+                                        path.starts_with(spec)
+                                    }
+                                })
                         })
                         .map(|(_, section)| section)
                         .collect(),
