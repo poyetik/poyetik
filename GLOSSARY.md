@@ -37,6 +37,21 @@ The words of the project, with the name each one takes in the patch format and i
 | **render** | The output of a patch over a duration at a sample rate, offline | — | `Renderer` (`audio-core`), `audio-cli`, `renderOffline` (browser) |
 | **render hash** | The SHA-256 of a render in canonical form: render format, arithmetic mode, rate, channels and every sample's bits; equal hashes mean identical renders (`spec/render-hash.md`) | — | `render_hash` (`audio-hash`), `renderHash` (`@poyetik/audio-wasm/hash`, and the oracle's own) |
 
+## Visuals
+
+The visual library, standalone (it depends on no other part); its design decisions are in `spec/visual-design.md`.
+
+| Word | Meaning | Code |
+|---|---|---|
+| **image** | One picture of a visual render, at one instant; never called a frame, which is audio's | `Image` (`visual-core`) |
+| **image rate** | Images per second, an exact reduced fraction (`24000/1001`), 1 to 1000 | `ImageRate` |
+| **image index** | The position of an image in a sequence, from 0; image `n` is at `n / rate` seconds exactly | `ImageIndex` |
+| **visual box** | One processing unit of a visual patch: renders an image as a pure function of its index | `VisualBox` |
+| **subpixel unit** | 1/4096 of a pixel side, the unit of every coordinate of an image | `SUBPIXELS`, `SubpixelPoint` |
+| **coverage** | The area of a pixel a shape covers, an integer from 0 to 2²⁴, converted exactly to light intensity | `coverage_to_intensity` |
+| **image hash** | The SHA-256 of a sequence of images in canonical form: rate, size, encoding, every value's bits and the number of images; equal hashes mean identical sequences (`spec/image-hash.md`) | `ImageHasher`, `ImageHash` (`visual-hash`) |
+| **trace** | What produced a point of a box's output (a shape, the background, or not declared): how a gesture on an output finds what it touched | `Trace`, `VisualBox::trace` |
+
 ## Proof
 
 | Word | Meaning | Where |
