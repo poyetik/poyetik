@@ -382,11 +382,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2c754d6c33795a1c324727428e5a7dedb5b06195f9890bdbcba760d3e246563"
 
 [[package]]
-name = "visual-core"
+name = "visual-boxes"
 version = "0.5.0"
 dependencies = [
- "alloc-counter",
+ "visual-core",
+ "visual-testkit",
 ]
+
+[[package]]
+name = "visual-core"
+version = "0.5.0"
 
 [[package]]
 name = "visual-hash"
@@ -394,6 +399,15 @@ version = "0.5.0"
 dependencies = [
  "serde_json",
  "sha2",
+ "visual-core",
+]
+
+[[package]]
+name = "visual-testkit"
+version = "0.5.0"
+dependencies = [
+ "alloc-counter",
+ "serde_json",
  "visual-core",
 ]
 

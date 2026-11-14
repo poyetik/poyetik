@@ -3,7 +3,7 @@
 use crate::VisualError;
 
 /// Greatest common divisor, by Euclid's algorithm.
-pub(crate) const fn gcd(mut first: u64, mut second: u64) -> u64 {
+const fn gcd(mut first: u64, mut second: u64) -> u64 {
     // `checked_rem` is `None` exactly when `second` is 0, which ends the algorithm.
     while let Some(rest) = first.checked_rem(second) {
         first = second;
@@ -71,6 +71,53 @@ impl ImageRate {
     }
 }
 
+/// A duration: `numerator / denominator` seconds, an exact, reduced, nonzero fraction, so
+/// that one duration has one representation (a cycle of 1001/1000 s is exact).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Seconds {
+    /// Seconds, times `denominator`.
+    numerator: u32,
+    /// Divides `numerator`.
+    denominator: u32,
+}
+
+impl Seconds {
+    /// Creates a duration of `numerator / denominator` seconds.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`VisualError::InvalidSeconds`] unless both terms are nonzero and the
+    /// fraction is reduced.
+    pub fn new(numerator: u32, denominator: u32) -> Result<Self, VisualError> {
+        if numerator == 0
+            || denominator == 0
+            || gcd(u64::from(numerator), u64::from(denominator)) != 1
+        {
+            Err(VisualError::InvalidSeconds {
+                numerator,
+                denominator,
+            })
+        } else {
+            Ok(Self {
+                numerator,
+                denominator,
+            })
+        }
+    }
+
+    /// Seconds, times [`Seconds::denominator`].
+    #[must_use]
+    pub const fn numerator(self) -> u32 {
+        self.numerator
+    }
+
+    /// Divides [`Seconds::numerator`].
+    #[must_use]
+    pub const fn denominator(self) -> u32 {
+        self.denominator
+    }
+}
+
 /// The index of an image in a sequence, from 0. Image `n` is shown at the exact instant
 /// `n / rate` seconds: `n × denominator / numerator`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -78,7 +125,7 @@ pub struct ImageIndex(pub u64);
 
 #[cfg(test)]
 mod tests {
-    use super::{ImageRate, gcd};
+    use super::{ImageRate, Seconds, gcd};
     use crate::VisualError;
 
     #[test]
@@ -145,5 +192,27 @@ mod tests {
             ImageRate::new(u32::MAX, u32::MAX - 1).is_ok(),
             "largest terms, just over 1 per second"
         );
+    }
+
+    #[test]
+    fn accepts_only_reduced_nonzero_durations() {
+        for (numerator, denominator) in [(1, 1), (1001, 1000), (u32::MAX, 1), (1, u32::MAX)] {
+            let seconds = Seconds::new(numerator, denominator);
+            assert_eq!(
+                seconds.map(|accepted| (accepted.numerator(), accepted.denominator())),
+                Ok((numerator, denominator)),
+                "{numerator}/{denominator}"
+            );
+        }
+        for (numerator, denominator) in [(0, 1), (1, 0), (0, 0), (2, 4), (6, 3)] {
+            assert_eq!(
+                Seconds::new(numerator, denominator),
+                Err(VisualError::InvalidSeconds {
+                    numerator,
+                    denominator
+                }),
+                "{numerator}/{denominator}"
+            );
+        }
     }
 }

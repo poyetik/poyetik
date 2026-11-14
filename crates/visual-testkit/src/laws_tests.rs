@@ -1,0 +1,268 @@
+use core::sync::atomic::{AtomicU32, Ordering};
+
+use visual_core::{Image, ImageIndex, ImageRate, SubpixelPoint, Trace, VisualBox};
+
+use super::check_laws;
+
+/// A correct box: every value derived from the image index and the rate, alpha 1.
+#[derive(Debug)]
+struct Good {
+    /// The rate, which the value depends on.
+    rate: ImageRate,
+}
+
+impl VisualBox for Good {
+    fn render(&mut self, index: ImageIndex, output: &mut Image) {
+        let value = f32::from(u8::try_from(index.0 % 7).unwrap_or(0)) / 8.0
+            + f32::from(u8::try_from(self.rate.denominator() % 3).unwrap_or(0)) / 32.0;
+        for row in output.rows_mut() {
+            for pixel in row.as_chunks_mut::<{ Image::CHANNELS }>().0 {
+                *pixel = [value, value, value, 1.0];
+            }
+        }
+    }
+
+    fn trace(&self, index: ImageIndex, _output: &Image, point: SubpixelPoint) -> Trace {
+        if point.x > point.y {
+            Trace::Shape(u32::try_from(index.0 % 5).unwrap_or(0))
+        } else {
+            Trace::Background
+        }
+    }
+}
+
+/// Creates a [`Good`] box.
+fn good(rate: ImageRate) -> Box<dyn VisualBox> {
+    Box::new(Good { rate })
+}
+
+/// What a faulty box gets wrong.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Fault {
+    /// Its images depend on how many it rendered before.
+    Stateful,
+    /// Each instance renders differently.
+    PerInstance,
+    /// It allocates while rendering, from image 2 on.
+    Allocates,
+    /// It renders a NaN at image 59, in the channel given (0 red, 1 green, 2 blue, 3
+    /// alpha) of the first pixel.
+    NotANumber(usize),
+    /// It renders an infinity at image 59.
+    Infinite,
+    /// Its alpha is above 1.
+    AlphaAbove,
+    /// Its alpha is negative.
+    AlphaBelow,
+    /// It leaves the first value of every image as it was.
+    KeepsAValue,
+    /// Its trace depends on how many times it traced.
+    ImpureTrace,
+    /// Its trace depends on how many times it traced, at the exact center of the image only.
+    ImpureTraceAtCenter,
+    /// Its trace changes once it has rendered an image.
+    TraceAfterRendering,
+    /// Its trace changes once it has rendered six images.
+    TraceAfterSixImages,
+}
+
+/// A box with one fault, otherwise like [`Good`].
+#[derive(Debug)]
+struct Faulty {
+    /// Its fault.
+    fault: Fault,
+    /// The correct box it otherwise behaves like.
+    good: Good,
+    /// Images rendered so far.
+    rendered: u32,
+    /// The number of this instance.
+    instance: u32,
+    /// Traces so far.
+    traced: AtomicU32,
+}
+
+/// Instances created so far, to number them.
+static INSTANCES: AtomicU32 = AtomicU32::new(0);
+
+impl VisualBox for Faulty {
+    fn render(&mut self, index: ImageIndex, output: &mut Image) {
+        let kept = output.values().first().copied();
+        self.good.render(index, output);
+        self.rendered = self.rendered.saturating_add(1);
+        let channel = match self.fault {
+            Fault::NotANumber(channel) => channel,
+            Fault::Stateful
+            | Fault::PerInstance
+            | Fault::Allocates
+            | Fault::Infinite
+            | Fault::AlphaAbove
+            | Fault::AlphaBelow
+            | Fault::KeepsAValue
+            | Fault::ImpureTrace
+            | Fault::ImpureTraceAtCenter
+            | Fault::TraceAfterRendering
+            | Fault::TraceAfterSixImages => 0,
+        };
+        let first = output
+            .rows_mut()
+            .next()
+            .and_then(|row| row.get_mut(channel));
+        let changed = match self.fault {
+            Fault::Stateful => Some(f32::from(u16::try_from(self.rendered).unwrap_or(0))),
+            Fault::PerInstance => Some(f32::from(u16::try_from(self.instance).unwrap_or(0))),
+            Fault::Allocates => {
+                if index.0 >= 2 {
+                    drop(core::hint::black_box(vec![0_u8; 16]));
+                }
+                None
+            }
+            Fault::NotANumber(_) => (index.0 == 59).then_some(f32::NAN),
+            Fault::Infinite => (index.0 == 59).then_some(f32::INFINITY),
+            Fault::KeepsAValue => kept,
+            Fault::AlphaAbove
+            | Fault::AlphaBelow
+            | Fault::ImpureTrace
+            | Fault::ImpureTraceAtCenter
+            | Fault::TraceAfterRendering
+            | Fault::TraceAfterSixImages => None,
+        };
+        if let (Some(value), Some(slot)) = (changed, first) {
+            *slot = value;
+        }
+        let alpha = match self.fault {
+            Fault::AlphaAbove => Some(1.5),
+            Fault::AlphaBelow => Some(-0.25),
+            Fault::Stateful
+            | Fault::PerInstance
+            | Fault::Allocates
+            | Fault::NotANumber(_)
+            | Fault::Infinite
+            | Fault::KeepsAValue
+            | Fault::ImpureTrace
+            | Fault::ImpureTraceAtCenter
+            | Fault::TraceAfterRendering
+            | Fault::TraceAfterSixImages => None,
+        };
+        if let Some(value) = alpha
+            && let Some(slot) = output.rows_mut().last().and_then(|row| row.last_mut())
+        {
+            *slot = value;
+        }
+    }
+
+    fn trace(&self, index: ImageIndex, output: &Image, point: SubpixelPoint) -> Trace {
+        let count = self.traced.fetch_add(1, Ordering::Relaxed);
+        match self.fault {
+            Fault::ImpureTrace => Trace::Shape(count),
+            Fault::ImpureTraceAtCenter => {
+                let unit = u64::from(visual_core::SUBPIXELS);
+                let size = output.size();
+                let center = SubpixelPoint {
+                    x: u64::from(size.width()).saturating_mul(unit) / 2,
+                    y: u64::from(size.height()).saturating_mul(unit) / 2,
+                };
+                if point == center {
+                    Trace::Shape(count)
+                } else {
+                    self.good.trace(index, output, point)
+                }
+            }
+            Fault::TraceAfterRendering => Trace::Shape(u32::from(self.rendered > 0)),
+            Fault::TraceAfterSixImages => Trace::Shape(u32::from(self.rendered >= 6)),
+            Fault::Stateful
+            | Fault::PerInstance
+            | Fault::Allocates
+            | Fault::NotANumber(_)
+            | Fault::Infinite
+            | Fault::AlphaAbove
+            | Fault::AlphaBelow
+            | Fault::KeepsAValue => self.good.trace(index, output, point),
+        }
+    }
+}
+
+/// The laws' verdict on a box with `fault`.
+fn verdict(fault: Fault) -> Result<(), String> {
+    check_laws(&move |rate| -> Box<dyn VisualBox> {
+        Box::new(Faulty {
+            fault,
+            good: Good { rate },
+            rendered: 0,
+            instance: INSTANCES.fetch_add(1, Ordering::Relaxed),
+            traced: AtomicU32::new(0),
+        })
+    })
+}
+
+#[test]
+fn a_correct_box_passes_every_law() {
+    assert_eq!(check_laws(&good), Ok(()), "every law holds");
+}
+
+#[test]
+fn catches_each_broken_law() {
+    for (fault, law) in [
+        (
+            Fault::Stateful,
+            "random access: rendering other images first changes the bits at rate 1/1, size 1x1, image 18446744073709551615",
+        ),
+        (
+            Fault::PerInstance,
+            "determinism: two fresh instances differ at rate 1/1, size 1x1, image 0",
+        ),
+        (
+            Fault::Allocates,
+            "no heap operation: 2 while rendering at rate 1/1, size 1x1, image 2",
+        ),
+        (
+            Fault::NotANumber(0),
+            "finite values: a value is NaN or infinite at rate 1/1, size 1x1, image 59",
+        ),
+        (
+            Fault::NotANumber(1),
+            "finite values: a value is NaN or infinite at rate 1/1, size 1x1, image 59",
+        ),
+        (
+            Fault::NotANumber(2),
+            "finite values: a value is NaN or infinite at rate 1/1, size 1x1, image 59",
+        ),
+        (
+            Fault::NotANumber(3),
+            "finite values: a value is NaN or infinite at rate 1/1, size 1x1, image 59",
+        ),
+        (
+            Fault::Infinite,
+            "finite values: a value is NaN or infinite at rate 1/1, size 1x1, image 59",
+        ),
+        (
+            Fault::AlphaAbove,
+            "finite values: alpha 1.5 outside [0, 1] at rate 1/1, size 1x1, image 0",
+        ),
+        (
+            Fault::AlphaBelow,
+            "finite values: alpha -0.25 outside [0, 1] at rate 1/1, size 1x1, image 0",
+        ),
+        (
+            Fault::KeepsAValue,
+            "overwrite: a value kept from before rendering at rate 1/1, size 1x1, image 0",
+        ),
+        (
+            Fault::ImpureTrace,
+            "pure trace: (0, 0) traces differently at rate 1/1, size 1x1, image 18446744073709551615",
+        ),
+        (
+            Fault::ImpureTraceAtCenter,
+            "pure trace: (2048, 2048) traces differently at rate 1/1, size 1x1, image 18446744073709551615",
+        ),
+        (
+            Fault::TraceAfterRendering,
+            "pure trace: (0, 0) traces differently at rate 1/1, size 1x1, image 18446744073709551615",
+        ),
+        (
+            Fault::TraceAfterSixImages,
+            "pure trace: (0, 0) traces differently at rate 1/1, size 1x1, image 18446744073709551615",
+        ),
+    ] {
+        assert_eq!(verdict(fault), Err(law.to_owned()), "{fault:?}");
+    }
+}

@@ -34,6 +34,8 @@ The visual library mirrors the audio engine's design principles (`engine-design.
 
 **Rejected.** Floating-point time; a per-image accumulator, which drifts and forbids random access.
 
+Durations (a cycle, later a cue) are exact reduced fractions of seconds too (`Seconds`).
+
 **Consequences.** The square computes its position from the image index in 128-bit integer arithmetic: exact for every index up to 2⁶⁴ − 1. Boxes with state (feedback, particles) will need checkpoints to keep random access (#35).
 
 ## 3. Images
@@ -76,7 +78,13 @@ A square wider than the image does not move and is clipped on the right. Its tra
 
 **Why.** The smallest shape that tests everything: exact coverage at every subpixel position, exact time, random access. It will follow the phase of an audio oscillator through the layer above both libraries (#34, step 5).
 
-## 7. The exact CPU reference renderer
+## 7. Structure and laws, as for sound
+
+**Decision.** The visual library is split like the audio engine: `visual-core` (the contract, images, exact time, the reference renderer), `visual-boxes` (the boxes), `visual-hash` (the image hash) and `visual-testkit` (the laws). Every visual box passes the **visual box laws** of `visual-testkit` at every image rate, size and index of the shared visual test matrix (`conformance/visual/test-matrix.json`): determinism (two fresh instances give the same bits), random access (an instance that rendered other images first, in any order, gives the same bits), overwrite (rendering overwrites every value), finite values (no NaN or infinity, alpha within [0, 1]), no heap operation while rendering, and a pure trace. Each law is proven to catch a box that breaks it.
+
+**Why.** A new box cannot escape the laws, and a law that cannot fail proves nothing.
+
+## 8. The exact CPU reference renderer
 
 **Decision.** The visual library's core is `no_std` and forbids `unsafe`, like the audio engine's: it cannot reach the OS, the clock, threads or the GPU, and it builds for every portability target (`cargo xtask check`), a microcontroller included. It renders sequences of images exactly (`render_sequence`); every other renderer, the GPU one included, is measured against it.
 
