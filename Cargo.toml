@@ -8,7 +8,7 @@ edition = "2024"
 rust-version = "1.99"
 publish = false
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/cgXai/poyetik"
+repository = "https://github.com/poyetik/poyetik"
 
 [workspace.dependencies]
 # Exactly pinned: its functions decide the bits of every box that calls them, so an update
