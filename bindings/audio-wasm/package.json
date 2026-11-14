@@ -1,0 +1,49 @@
+{
+  "name": "@poyetik/audio-wasm",
+  "private": true,
+  "license": "MIT OR Apache-2.0",
+  "version": "0.2.0",
+  "type": "module",
+  "description": "Poyetik engine in the browser (AudioWorklet): the WebAssembly module and its TypeScript glue. A Node entry point comes with the SDK (#32 step 15).",
+  "exports": {
+    "./web": {
+      "types": "./dist/web.d.ts",
+      "default": "./dist/web.js"
+    },
+    "./hash": {
+      "types": "./dist/hash.d.ts",
+      "default": "./dist/hash.js"
+    },
+    "./worklet": "./dist/worklet/processors.js",
+    "./engine.wasm": "./dist/engine.wasm"
+  },
+  "scripts": {
+    "build:wasm": "node scripts/build-wasm.ts",
+    "build": "pnpm build:wasm && tsc -p tsconfig.build.json && tsc -p ts/worklet/tsconfig.build.json",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p ts/worklet",
+    "lint": "eslint . --max-warnings 0",
+    "test": "vitest run --coverage",
+    "test:reproducible": "node scripts/reproducible.ts",
+    "test:allocation": "vitest run --config vitest.allocation.config.ts",
+    "bench": "tsc -p e2e/site/tsconfig.build.json && node e2e/serve.ts",
+    "test:e2e": "playwright test",
+    "check": "pnpm build && pnpm typecheck && pnpm lint && pnpm test && pnpm benchmarks:check && pnpm test:allocation && pnpm test:reproducible && pnpm test:e2e",
+    "benchmarks:check": "node scripts/benchmarks.ts check"
+  },
+  "devDependencies": {
+    "@poyetik/config": "workspace:*",
+    "@poyetik/oracle": "workspace:*",
+    "@playwright/test": "catalog:",
+    "@stryker-mutator/core": "catalog:",
+    "@stryker-mutator/vitest-runner": "catalog:",
+    "@types/audioworklet": "0.0.100",
+    "@types/node": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
+    "eslint": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "engines": {
+    "node": ">=22.18"
+  }
+}

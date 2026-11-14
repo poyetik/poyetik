@@ -1,0 +1,17 @@
+[package]
+name = "audio-boxes"
+version = "0.0.0"
+edition = "2024"
+publish = false
+build = "build.rs"
+[lib]
+path = "lib.rs"
+
+# Refused: the library depends on the native shell; a box crate has a build script.
+[dependencies]
+audio-core = { path = "../audio-core" }
+audio-cli = { path = "../audio-cli" }
+
+[dev-dependencies]
+audio-testkit = { path = "../audio-testkit" }
+libm = "0.2"

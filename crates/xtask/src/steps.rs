@@ -90,7 +90,7 @@ pub enum Action {
     /// fingerprints with it.
     Conformance,
     /// Bless the conformance references ([`bless_step`](crate::cli::bless_step)): read the record at the merge base
-    /// of [`MAIN_BASES`](crate::workspace::MAIN_BASES), then run `engine-cli bless` with it as the versions spent and
+    /// of [`MAIN_BASES`](crate::workspace::MAIN_BASES), then run `audio-cli bless` with it as the versions spent and
     /// these options, as `cargo xtask bless` was given them.
     Bless(Vec<String>),
     /// Record the proof of the Rust mutation step of the default check that passed
@@ -227,7 +227,7 @@ pub struct Failure {
     /// The details: one problem or hint per line.
     pub details: Vec<String>,
     /// Whether it is a usage error that a command xtask passed its arguments on to reported
-    /// (`engine-cli bless`, exit code 2): xtask then exits with 2 too, pointing to its usage.
+    /// (`audio-cli bless`, exit code 2): xtask then exits with 2 too, pointing to its usage.
     pub usage: bool,
 }
 
@@ -242,7 +242,7 @@ impl From<String> for Failure {
 }
 
 /// Longest line [`safe_message`] returns, in characters after escaping: the same bound as
-/// `engine_patch::MAX_MESSAGE_CHARS`.
+/// `audio_patch::MAX_MESSAGE_CHARS`.
 pub const MAX_MESSAGE_CHARS: usize = 1_000;
 
 /// Whether `character` must not reach a terminal as is: control characters (a newline
@@ -266,7 +266,7 @@ pub(crate) const fn needs_escape(character: char) -> bool {
 ///
 /// Every character that could break the line or drive a terminal is escaped as `\u{..}`;
 /// past [`MAX_MESSAGE_CHARS`] characters (escapes counted whole, never split), the text is
-/// cut and marked with `…`. The algorithm of `engine_patch::safe_message`, copied: xtask
+/// cut and marked with `…`. The algorithm of `audio_patch::safe_message`, copied: xtask
 /// depends on no engine crate. The messages of xtask quote untrusted text (a commit
 /// message, a file, an argument), so [`cli`](crate::cli::cli) passes every line it writes through it.
 #[must_use]
@@ -448,7 +448,7 @@ pub fn fused_command() -> Cmd {
 /// which the loaded-files gate builds too ([`loaded_files_commands`](crate::loaded_files::loaded_files_commands)).
 pub(crate) fn fused_args() -> Vec<&'static str> {
     let mut args = vec!["test", "--locked"];
-    args.extend(package_args(&["engine-core", "engine-objects"]));
+    args.extend(package_args(&["audio-core", "audio-boxes"]));
     args.extend(["--target-dir", FUSED_TARGET, "--config", FUSED_CONFIG]);
     args
 }
@@ -490,8 +490,8 @@ pub(crate) fn portability_steps() -> Vec<Step> {
         .collect()
 }
 
-/// The native shell (`engine-cli`) and the library's floating-point mode it uses
-/// (`engine-fpenv`), whose code differs by architecture, linted then built for each of
+/// The native shell (`audio-cli`) and the library's floating-point mode it uses
+/// (`audio-fpenv`), whose code differs by architecture, linted then built for each of
 /// [`NATIVE_TARGETS`].
 ///
 /// Clippy type-checks every target of theirs, tests included, without generating code, so
@@ -514,7 +514,7 @@ pub(crate) fn native_lint_steps() -> Vec<Step> {
     });
     let builds = NATIVE_TARGETS.iter().map(|&target| {
         run(
-            &format!("Native code of engine-cli and engine-fpenv built, inline assembly included ({target})"),
+            &format!("Native code of audio-cli and audio-fpenv built, inline assembly included ({target})"),
             "cargo",
             &[
                 vec!["build", "--lib"],
@@ -613,7 +613,7 @@ pub const MUTANT_TIMEOUT_FLOOR: usize = 20;
 /// slower than alone at most (a model, not a bound: a timeout it gets wrong fails the
 /// check, never passes it). Without
 /// it, a mutant caught by a fast test but whose binary still runs its slow tests to the end
-/// was reported as a timeout under load (engine-testkit's `config` mutants). A mutant that really
+/// was reported as a timeout under load (audio-testkit's `config` mutants). A mutant that really
 /// hangs is still stopped and reported as a timeout, which fails the check: the timeout only bounds
 /// how long that failing run takes.
 #[must_use]
@@ -878,7 +878,7 @@ pub(crate) fn consistency_steps() -> Vec<(Role, Step)> {
             &[
                 "run",
                 "--package",
-                "engine-cli",
+                "audio-cli",
                 "--locked",
                 "--quiet",
                 "--",
@@ -892,8 +892,8 @@ pub(crate) fn consistency_steps() -> Vec<(Role, Step)> {
     let mut gates = dependency_steps();
     gates.extend([
         Step {
-            name: "Box arithmetic only through the math layer: libm in engine-core and \
-                   engine-testkit only, no raw float in box code, no iterator reduction \
+            name: "Box arithmetic only through the math layer: libm in audio-core and \
+                   audio-testkit only, no raw float in box code, no iterator reduction \
                    outside the math layer"
                 .to_owned(),
             action: Action::MathLayerGate,

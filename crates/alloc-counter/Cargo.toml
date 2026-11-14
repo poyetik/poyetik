@@ -1,0 +1,15 @@
+[package]
+name = "alloc-counter"
+description = "Poyetik test support: a global allocator counting heap operations per thread, the only unsafe code of the test bench"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+readme = false
+repository.workspace = true
+keywords = ["allocator", "testing"]
+categories = ["development-tools::testing"]
+
+[lints]
+workspace = true

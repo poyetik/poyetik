@@ -44,10 +44,10 @@ usage: cargo xtask <check [--full [--part <part>]]|list [--full [--parts]]|mutan
                         sources (their paths from the root)
   bless [<option>...]   rewrite conformance/references.json from the current renders,
                         and conformance/algorithms.json from the current box types and
-                        engine (decision 29): runs `engine-cli bless conformance
+                        engine (decision 29): runs `audio-cli bless conformance
                         --spent <record>`, the spent record (at the merge base with
                         origin/main, else main), then the options as given, every one
-                        but --spent, which `cargo run -p engine-cli -- help` lists
+                        but --spent, which `cargo run -p audio-cli -- help` lists
   bless-benchmarks      rewrite spec/benchmark-baseline.json from the current instruction
                         counts of the engine module (spec/benchmarks.md)
   commit-msg <file>     check a commit message (used by the commit-msg hook)
@@ -233,11 +233,11 @@ pub fn mutants_steps(target: &Target, jobs: NonZeroUsize) -> Vec<Step> {
 pub const CONFORMANCE_RECORD: &str = "conformance/algorithms.json";
 
 /// Where [`bless_step`] and the conformance check write the record at the merge base of
-/// [`MAIN_BASES`](crate::workspace::MAIN_BASES), for `engine-cli bless --spent` and `engine-cli check --spent`:
+/// [`MAIN_BASES`](crate::workspace::MAIN_BASES), for `audio-cli bless --spent` and `audio-cli check --spent`:
 /// `null` when the merge base has none.
 pub const SPENT_RECORD: &str = "target/xtask/spent-algorithms.json";
 
-/// The one option of `engine-cli bless` that `cargo xtask bless` gives itself, and refuses
+/// The one option of `audio-cli bless` that `cargo xtask bless` gives itself, and refuses
 /// from its user: the record at the merge base of [`MAIN_BASES`](crate::workspace::MAIN_BASES).
 pub const SPENT_OPTION: &str = "--spent";
 
@@ -247,7 +247,7 @@ pub(crate) const USAGE_EXIT: i32 = 2;
 /// The only way to change the reference hashes: renders every conformance case.
 ///
 /// It rewrites `conformance/references.json`, and what they were blessed under,
-/// [`CONFORMANCE_RECORD`]; `engine-cli bless` refuses a reference changed under the same
+/// [`CONFORMANCE_RECORD`]; `audio-cli bless` refuses a reference changed under the same
 /// versions but for the cases of `--case-changed`, a lower version, a box type's outputs
 /// changed at a version spent (one the record at the merge base of [`MAIN_BASES`](crate::workspace::MAIN_BASES)
 /// holds: successive changes on a branch share one new version until it reaches `main`),
@@ -255,7 +255,7 @@ pub(crate) const USAGE_EXIT: i32 = 2;
 /// with `--from-nothing` (`spec/engine-design.md`, decision 29). The commit must explain
 /// why they changed.
 ///
-/// `options` are passed on to `engine-cli bless` unread, after its `--spent`: its parser
+/// `options` are passed on to `audio-cli bless` unread, after its `--spent`: its parser
 /// is their one source, so an option it refuses is refused after the preflight and its
 /// build, as a usage error.
 #[must_use]
@@ -267,13 +267,13 @@ pub fn bless_step(options: &[String]) -> Step {
 }
 
 /// The command [`bless_step`] runs once the record at the merge base is in
-/// [`SPENT_RECORD`]: `engine-cli bless`, `options` after its own.
+/// [`SPENT_RECORD`]: `audio-cli bless`, `options` after its own.
 #[must_use]
 pub fn bless_command(options: &[String]) -> Cmd {
     let mut args = vec![
         "run",
         "--package",
-        "engine-cli",
+        "audio-cli",
         "--locked",
         "--quiet",
         "--",
@@ -340,7 +340,7 @@ pub fn conformance_command() -> Cmd {
         &[
             "run",
             "--package",
-            "engine-cli",
+            "audio-cli",
             "--locked",
             "--quiet",
             "--",
@@ -366,11 +366,11 @@ pub(crate) fn conformance(runner: &mut dyn Runner, out: &mut dyn Write) -> Resul
         .map_err(|failure| Failure::from(failure.to_string()))
 }
 
-/// What `engine-cli` ends a usage error with: where its own usage is, which a user of
+/// What `audio-cli` ends a usage error with: where its own usage is, which a user of
 /// `cargo xtask bless` reads in `cargo xtask help` instead.
-pub(crate) const ENGINE_CLI_USAGE_POINTER: &str = " (see: engine-cli help)";
+pub(crate) const ENGINE_CLI_USAGE_POINTER: &str = " (see: audio-cli help)";
 
-/// The reason of `line`, the error line of `engine-cli`'s usage error, without its
+/// The reason of `line`, the error line of `audio-cli`'s usage error, without its
 /// `error: ` and its pointer to its usage ([`ENGINE_CLI_USAGE_POINTER`]), so that the line
 /// of `cargo xtask bless` says the reason once, with its own pointer.
 pub(crate) fn child_usage_reason(line: &str) -> &str {
@@ -385,9 +385,9 @@ pub(crate) fn child_usage_reason(line: &str) -> &str {
 /// # Errors
 ///
 /// Returns why the record could not be written, or why the bless failed: a usage error
-/// ([`Failure::usage`]) when `engine-cli` refused the options, exiting with code 2
+/// ([`Failure::usage`]) when `audio-cli` refused the options, exiting with code 2
 /// (cargo's own failures exit with 101, and the other arguments are xtask's), with the
-/// reason `engine-cli` gave ([`child_usage_reason`]).
+/// reason `audio-cli` gave ([`child_usage_reason`]).
 pub(crate) fn bless(
     runner: &mut dyn Runner,
     out: &mut dyn Write,
@@ -410,7 +410,7 @@ pub(crate) fn bless(
         } => Failure {
             usage: true,
             ..Failure::from(format!(
-                "`engine-cli bless` refused the options given to `cargo xtask bless`{}",
+                "`audio-cli bless` refused the options given to `cargo xtask bless`{}",
                 reason.as_deref().map_or_else(String::new, |reason| format!(
                     ": {}",
                     child_usage_reason(reason)
@@ -435,13 +435,13 @@ pub fn bless_benchmarks_steps() -> [Step; 2] {
             "Build the engine module",
             "pnpm",
             &["run", "build:wasm"],
-            Dir::Package("bindings/wasm"),
+            Dir::Package("bindings/audio-wasm"),
         ),
         run(
             "Bless the benchmark baseline",
             "node",
             &["scripts/benchmarks.ts", "bless"],
-            Dir::Package("bindings/wasm"),
+            Dir::Package("bindings/audio-wasm"),
         ),
     ]
 }
@@ -459,7 +459,7 @@ pub(crate) enum Task {
     ListParts,
     /// Every mutant of one target.
     Mutants(Target),
-    /// Rewrite the reference hashes, with these options of `engine-cli bless`.
+    /// Rewrite the reference hashes, with these options of `audio-cli bless`.
     Bless(Vec<String>),
     /// Rewrite the benchmark baseline.
     BlessBenchmarks,
@@ -564,7 +564,7 @@ pub(crate) fn task(args: &[OsString]) -> Result<Task, String> {
 ///
 /// 0 on success. 1 when a check or a command failed: one `error: …` line on `err`, its
 /// details on `out`. 2 for a usage error: one `error: … (see: cargo xtask help)` line on
-/// `err`, nothing on `out`, or, for options `bless` passed on that `engine-cli` refused,
+/// `err`, nothing on `out`, or, for options `bless` passed on that `audio-cli` refused,
 /// after the steps that ran and their lines on `out`. Only `help` prints the usage, on `out`. The
 /// error line and each line of the details go through [`safe_message`]: escaped, and bounded.
 pub fn cli(

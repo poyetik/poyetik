@@ -4,14 +4,14 @@ The Rust engine in the browser: a 440 Hz sine with an on/off button and a live o
 
 | Path | What |
 |---|---|
-| `src/player.ts` | Plays the patch with the engine (`@poyetik/engine-wasm`) and keeps its latest samples |
+| `src/player.ts` | Plays the patch with the engine (`@poyetik/audio-wasm`) and keeps its latest samples |
 | `src/scope.ts` | The oscilloscope as data: scene and measurements, pure functions |
 | `src/draw.ts` | Draws the scene on a Canvas 2D |
 | `src/Oscilloscope.tsx`, `src/App.tsx` | The interface |
 | `e2e/` | End-to-end tests on Chromium, Firefox and Playwright's WebKit (desktop and iPhone sizes; not Safari), with axe |
 
 ```sh
-pnpm dev     # http://localhost:5173 (build bindings/wasm first: pnpm --dir ../../bindings/wasm build)
+pnpm dev     # http://localhost:5173 (build bindings/audio-wasm first: pnpm --dir ../../bindings/audio-wasm build)
 pnpm check   # types, lint, unit tests at 100% coverage, build, end-to-end tests
 ```
 

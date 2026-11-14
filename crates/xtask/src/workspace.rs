@@ -76,8 +76,8 @@ pub fn crates_in(role: CrateRole) -> Vec<&'static str> {
 
 impl RustCrate {
     /// The path of `path` relative to this crate's directory, if the crate holds it (a path
-    /// git names, `/`-separated): `crates/engine-core/src/lib.rs` is `src/lib.rs` of
-    /// `engine-core`, while `crates/engine-core-x/a.rs` and the directory itself are none
+    /// git names, `/`-separated): `crates/audio-core/src/lib.rs` is `src/lib.rs` of
+    /// `audio-core`, while `crates/audio-core-x/a.rs` and the directory itself are none
     /// of its files.
     #[must_use]
     pub fn holds<'path>(&self, path: &'path str) -> Option<&'path str> {
@@ -96,15 +96,15 @@ pub(crate) fn below<'path>(dir: &str, path: &'path str) -> Option<&'path str> {
 /// its own unit tests, and each binary by the crate's tests.
 pub const RUST_CRATES: [RustCrate; 11] = [
     RustCrate {
-        name: "engine-core",
-        dir: "crates/engine-core",
+        name: "audio-core",
+        dir: "crates/audio-core",
         binary: false,
         test_data: &["conformance/test-matrix.json"],
         roles: &[CrateRole::Library, CrateRole::Libm, CrateRole::MathLayer],
     },
     RustCrate {
-        name: "engine-objects",
-        dir: "crates/engine-objects",
+        name: "audio-boxes",
+        dir: "crates/audio-boxes",
         binary: false,
         test_data: &[
             "spec/benchmark-baseline.json",
@@ -113,43 +113,43 @@ pub const RUST_CRATES: [RustCrate; 11] = [
         roles: &[CrateRole::Library, CrateRole::MathLayer],
     },
     RustCrate {
-        name: "engine-patch",
-        dir: "crates/engine-patch",
+        name: "audio-patch",
+        dir: "crates/audio-patch",
         binary: false,
         test_data: &["spec/safe-message-vectors.json"],
         roles: &[CrateRole::Library],
     },
     RustCrate {
-        name: "engine-hash",
-        dir: "crates/engine-hash",
+        name: "audio-hash",
+        dir: "crates/audio-hash",
         binary: false,
         test_data: &["spec/render-hash-vectors.json"],
         roles: &[CrateRole::Library],
     },
     RustCrate {
-        name: "engine-alloc-counter",
-        dir: "crates/engine-alloc-counter",
+        name: "alloc-counter",
+        dir: "crates/alloc-counter",
         binary: false,
         test_data: &[],
         roles: &[CrateRole::SharedTests],
     },
     RustCrate {
-        name: "engine-fpenv",
-        dir: "crates/engine-fpenv",
+        name: "audio-fpenv",
+        dir: "crates/audio-fpenv",
         binary: false,
         test_data: &["conformance/"],
         roles: &[CrateRole::Library],
     },
     RustCrate {
-        name: "engine-battery",
-        dir: "crates/engine-battery",
+        name: "audio-battery",
+        dir: "crates/audio-battery",
         binary: false,
         test_data: &["conformance/test-matrix.json"],
         roles: &[CrateRole::SharedTests],
     },
     RustCrate {
-        name: "engine-testkit",
-        dir: "crates/engine-testkit",
+        name: "audio-testkit",
+        dir: "crates/audio-testkit",
         binary: false,
         test_data: &["spec/measurement-vectors.json"],
         roles: &[
@@ -159,15 +159,15 @@ pub const RUST_CRATES: [RustCrate; 11] = [
         ],
     },
     RustCrate {
-        name: "engine-cli",
-        dir: "crates/engine-cli",
+        name: "audio-cli",
+        dir: "crates/audio-cli",
         binary: true,
         test_data: &["conformance/"],
         roles: &[],
     },
     RustCrate {
-        name: "engine-wasm",
-        dir: "bindings/wasm",
+        name: "audio-wasm",
+        dir: "bindings/audio-wasm",
         binary: false,
         test_data: &[],
         roles: &[CrateRole::Library],
@@ -444,7 +444,7 @@ pub const PACKAGES: [Package; 5] = [
         needs: &[Setup::ConformanceExport],
     },
     Package {
-        dir: "bindings/wasm",
+        dir: "bindings/audio-wasm",
         step: "Engine WASM checks",
         shipped: true,
         outputs: &["dist"],
@@ -520,19 +520,15 @@ pub const PORTABILITY_TARGETS: [&str; 4] = [
 ];
 
 /// The crates of the engine core, built for every one of [`PORTABILITY_TARGETS`].
-pub const PORTABILITY_PACKAGES: [&str; 4] = [
-    "engine-core",
-    "engine-objects",
-    "engine-patch",
-    "engine-hash",
-];
+pub const PORTABILITY_PACKAGES: [&str; 4] =
+    ["audio-core", "audio-boxes", "audio-patch", "audio-hash"];
 
 /// The engine's crate for WebAssembly, which the engine package builds for [`WASM_TARGET`].
-pub const WASM_PACKAGE: &str = "engine-wasm";
+pub const WASM_PACKAGE: &str = "audio-wasm";
 
 /// The native shell and the library's floating-point mode it uses, whose code differs by
 /// architecture: built for each of [`NATIVE_TARGETS`].
-pub const NATIVE_PACKAGES: [&str; 2] = ["engine-fpenv", "engine-cli"];
+pub const NATIVE_PACKAGES: [&str; 2] = ["audio-fpenv", "audio-cli"];
 
 /// Cargo's arguments selecting `packages`: `--package <name>` for each, in order.
 pub(crate) fn package_args<'name>(packages: &[&'name str]) -> Vec<&'name str> {
@@ -542,8 +538,8 @@ pub(crate) fn package_args<'name>(packages: &[&'name str]) -> Vec<&'name str> {
         .collect()
 }
 
-/// Targets of the native shell (`engine-cli`) and of its floating-point mode
-/// (`engine-fpenv`), whose code differs by architecture.
+/// Targets of the native shell (`audio-cli`) and of its floating-point mode
+/// (`audio-fpenv`), whose code differs by architecture.
 ///
 /// Each is linted for both, whatever the machine, so that CI (`x86_64` Linux) compiles the
 /// aarch64 code and a Mac the `x86_64` code.

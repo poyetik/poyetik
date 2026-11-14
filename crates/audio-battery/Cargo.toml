@@ -1,0 +1,22 @@
+[package]
+name = "audio-battery"
+description = "Poyetik fingerprint battery: the shared test matrix, the inputs every box is tried with, and the fingerprint of a box type's outputs over them"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+readme = false
+repository.workspace = true
+keywords = ["audio", "testing"]
+categories = ["development-tools::testing"]
+
+[dependencies]
+audio-core = { path = "../audio-core" }
+sha2 = { workspace = true }
+
+[dev-dependencies]
+serde_json = "1"
+
+[lints]
+workspace = true

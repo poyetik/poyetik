@@ -26,8 +26,8 @@ function rustConstant(source: string, name: string): number {
   return match[1].split(" * ").reduce((product, factor) => product * Number(factor.replaceAll("_", "")), 1);
 }
 
-test("reads case and references files with engine-cli's limits", () => {
-  const cli = repositoryText("crates/engine-cli/src/cli.rs");
+test("reads case and references files with audio-cli's limits", () => {
+  const cli = repositoryText("crates/audio-cli/src/cli.rs");
   expect(MAX_CASE_BYTES).toBe(rustConstant(cli, "MAX_CASE_BYTES"));
   expect(MAX_REFERENCES_BYTES).toBe(rustConstant(cli, "MAX_REFERENCES_BYTES"));
   expect([MAX_CASE_BYTES, MAX_REFERENCES_BYTES]).toStrictEqual([65_536, 1_048_576]);
@@ -41,7 +41,7 @@ test("states every limit of its reading in the corpus README", () => {
 });
 
 test("accepts the engine's range of sample rates", () => {
-  const rate = repositoryText("crates/engine-core/src/rate.rs");
+  const rate = repositoryText("crates/audio-core/src/rate.rs");
   expect([MIN_RATE, MAX_RATE]).toStrictEqual([rustConstant(rate, "MIN"), rustConstant(rate, "MAX")]);
 });
 

@@ -11,7 +11,7 @@ What the project does not prove, or proves only in part, and the trade-offs it a
 
 - **Constructing the engine processor** compiles the module, instantiates it and builds the plan on the audio thread, once, before it renders (measured; to be bounded by #12 step 30).
 - **The tap processor** copies and posts every render quantum while the playground's oscilloscope runs (until #12 step 21).
-- **Allocation in the browser** is measured in V8 only; SpiderMonkey and JavaScriptCore are not measured yet (#12 step 21). The known deviations of the measured path are listed with the allocation test (`bindings/wasm`, `pnpm test:allocation`).
+- **Allocation in the browser** is measured in V8 only; SpiderMonkey and JavaScriptCore are not measured yet (#12 step 21). The known deviations of the measured path are listed with the allocation test (`bindings/audio-wasm`, `pnpm test:allocation`).
 
 ## What CI runs on
 

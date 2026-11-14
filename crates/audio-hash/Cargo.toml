@@ -1,0 +1,22 @@
+[package]
+name = "audio-hash"
+description = "Canonical hash of a rendered signal: identical bits give an identical hash on every target"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+readme = false
+repository.workspace = true
+keywords = ["audio", "hash", "conformance"]
+categories = ["multimedia::audio", "no-std"]
+
+[dependencies]
+audio-core = { path = "../audio-core" }
+sha2 = { workspace = true }
+
+[dev-dependencies]
+serde_json = "1"
+
+[lints]
+workspace = true

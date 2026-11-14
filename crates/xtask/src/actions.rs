@@ -179,7 +179,7 @@ pub(crate) fn readmes(runner: &mut dyn Runner) -> Result<(), Failure> {
 /// Checks that every part is described where a reader looks for it.
 ///
 /// `parts` are the directories of the TypeScript packages and of the crates (`apps/roadmap`,
-/// `crates/engine-core`); `readmes` the tracked `README.md` files with their text. Each
+/// `crates/audio-core`); `readmes` the tracked `README.md` files with their text. Each
 /// TypeScript package has its own README; each part is named, in backquotes, in the README
 /// of the folder that holds it (the parts table of `crates/README.md`, `apps/README.md` …),
 /// and each such folder is named in the root README. Crates are described by their crate

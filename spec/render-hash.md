@@ -2,7 +2,7 @@
 
 The **render hash** identifies a render bit for bit: two renders have the same hash only if they have the same render format, the same arithmetic mode, the same sample rate, the same number of channels and the same bits in every sample. It is how conformance is proven across targets: native, WebAssembly, every browser and every SDK must reproduce the reference hashes of `conformance/references.json`.
 
-Three implementations follow this document, independently: `render_hash` (`crates/engine-hash`), `renderHash` (`bindings/wasm/ts/hash.ts`, exported as `@poyetik/engine-wasm/hash`) and the oracle's `renderHash` (`tooling/oracle/src/hash.ts`). Each one is tested against the known-answer vectors of [`render-hash-vectors.json`](render-hash-vectors.json).
+Three implementations follow this document, independently: `render_hash` (`crates/audio-hash`), `renderHash` (`bindings/audio-wasm/ts/hash.ts`, exported as `@poyetik/audio-wasm/hash`) and the oracle's `renderHash` (`tooling/oracle/src/hash.ts`). Each one is tested against the known-answer vectors of [`render-hash-vectors.json`](render-hash-vectors.json).
 
 ## Input
 

@@ -397,7 +397,7 @@ pub(crate) fn without_code(text: &str) -> String {
 }
 
 /// Whether `character` continues a word or a name around an occurrence: then the
-/// occurrence is part of a name (`engine-objects`, `.node-version`, `nodes_by_id`), not a
+/// occurrence is part of a name (`audio-boxes`, `.node-version`, `nodes_by_id`), not a
 /// word of prose.
 pub(crate) fn joins(character: char) -> bool {
     character.is_alphanumeric() || "_-/~@#$\\".contains(character)
@@ -527,7 +527,7 @@ pub(crate) fn wordings(vocabulary: &str, problems: &mut Vec<String>) -> Vec<Word
 /// key, a program name) apart. `vocabulary` ([`VOCABULARY`]) lists the refused synonyms, each with
 /// what to say instead and where it applies, and the contexts where one is allowed: a file or a
 /// directory, or a phrase holding it. A term is matched case-sensitively, as a whole word,
-/// never inside a name (`engine-objects`, `.node-version`, `Node.js`). Every allowance must
+/// never inside a name (`audio-boxes`, `.node-version`, `Node.js`). Every allowance must
 /// still allow something, so that the list stays current. The released sections of
 /// [`CHANGELOG`] (from its first heading `## [X.Y.Z] - YYYY-MM-DD` on) are not read: they keep
 /// the words they were released with, byte for byte ([`released_sections_gate`](crate::release::released_sections_gate)).

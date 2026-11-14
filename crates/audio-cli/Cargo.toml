@@ -1,0 +1,34 @@
+[package]
+name = "audio-cli"
+description = "Offline renderer: renders conformance cases to WAV files and checks their hashes"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+readme = false
+repository.workspace = true
+keywords = ["audio", "render", "conformance"]
+categories = ["multimedia::audio", "command-line-utilities"]
+
+# Its root is all its code, which tests/ run through the binary: no unit-test build of it,
+# one compilation and one link less at every build of a mutant. xtask's untested targets
+# gate refuses `test = false` on a root that declares a module.
+[[bin]]
+name = "audio-cli"
+path = "src/main.rs"
+test = false
+
+[dependencies]
+audio-battery = { path = "../audio-battery" }
+audio-core = { path = "../audio-core" }
+audio-fpenv = { path = "../audio-fpenv" }
+audio-hash = { path = "../audio-hash" }
+audio-boxes = { path = "../audio-boxes" }
+audio-patch = { path = "../audio-patch" }
+# The fingerprint of every box type, recorded beside the references (decision 29).
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[lints]
+workspace = true

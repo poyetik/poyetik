@@ -20,12 +20,12 @@ export class InputError extends Error {
 }
 
 /**
- * Lowest sample rate the engine supports, in hertz (`engine_core::SampleRate::MIN`): a
- * case or an expectation below it is refused, as `engine-cli` refuses the case.
+ * Lowest sample rate the engine supports, in hertz (`audio_core::SampleRate::MIN`): a
+ * case or an expectation below it is refused, as `audio-cli` refuses the case.
  */
 export const MIN_RATE = 8000;
 
-/** Highest sample rate the engine supports, in hertz (`engine_core::SampleRate::MAX`). */
+/** Highest sample rate the engine supports, in hertz (`audio_core::SampleRate::MAX`). */
 export const MAX_RATE = 384_000;
 
 /** What a case declares: its rate and duration. */
@@ -173,7 +173,7 @@ function wholeNumbers(name: string): (this: unknown, key: string, value: unknown
 }
 
 /**
- * Reads the text of a case file, as `engine-cli` reads it: a JSON object with exactly the
+ * Reads the text of a case file, as `audio-cli` reads it: a JSON object with exactly the
  * fields `sample_rate` (a sample rate the engine supports) and `frames` (1 to
  * `MAX_EXACT_FRAMES`), each a whole number written without fraction or exponent.
  *

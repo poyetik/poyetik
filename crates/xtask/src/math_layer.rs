@@ -10,7 +10,7 @@ use crate::{
 /// The directory of box code, as a literal: [`BOX_CODE`], and the start of its pathspec.
 macro_rules! box_code {
     () => {
-        "crates/engine-objects/src/"
+        "crates/audio-boxes/src/"
     };
 }
 
@@ -18,7 +18,7 @@ macro_rules! box_code {
 /// its pathspec.
 macro_rules! engine_code {
     () => {
-        "crates/engine-core/src/"
+        "crates/audio-core/src/"
     };
 }
 
@@ -30,15 +30,15 @@ pub const MATH_LAYER_SOURCES: [&str; 2] = [
     concat!(engine_code!(), "*.rs"),
 ];
 
-/// The directory of box code: the sources of the box crate, `engine-objects`.
+/// The directory of box code: the sources of the box crate, `audio-boxes`.
 pub const BOX_CODE: &str = box_code!();
 
-/// The directory of the engine core's code, `engine-core`.
+/// The directory of the engine core's code, `audio-core`.
 pub const ENGINE_CODE: &str = engine_code!();
 
 /// The math layer itself (`spec/engine-design.md`, decisions 10 and 28): the one file of
 /// the engine core where samples are summed and computed on, which the gate does not read.
-pub const MATH_LAYER_FILE: &str = "crates/engine-core/src/math.rs";
+pub const MATH_LAYER_FILE: &str = "crates/audio-core/src/math.rs";
 
 /// The names of the iterator reductions written only in the math layer
 /// (`spec/engine-design.md`, decision 28).
@@ -92,11 +92,11 @@ pub const ENGINE_ARITHMETIC_FORBID: &str =
 pub const BOX_FLOAT_FORBID: &str = "#![cfg_attr(not(test), forbid(clippy::float_arithmetic))]";
 
 /// The root of the box crate, which holds [`BOX_FLOAT_FORBID`].
-pub const BOX_ROOT: &str = "crates/engine-objects/src/lib.rs";
+pub const BOX_ROOT: &str = "crates/audio-boxes/src/lib.rs";
 
 /// The root of the engine core, which names none of [`ENGINE_FORBIDDEN_NAMES`] instead of
 /// forbidding the lint, so that the math layer may lift it.
-pub const ENGINE_ROOT: &str = "crates/engine-core/src/lib.rs";
+pub const ENGINE_ROOT: &str = "crates/audio-core/src/lib.rs";
 
 /// The names box code may not write (`spec/engine-design.md`, decision 10).
 ///
@@ -205,7 +205,7 @@ pub(crate) fn math_layer_crates(metadata: &str) -> Result<Vec<String>, Failure> 
         if reaches_libm && !crates_in(CrateRole::Libm).contains(&name) {
             problems.push(format!(
                 "{name} depends on libm: its arithmetic must go through the math layer of \
-                 engine-core"
+                 audio-core"
             ));
         }
     }
