@@ -2,7 +2,7 @@
   "name": "@poyetik/roadmap",
   "private": true,
   "license": "FSL-1.1-ALv2",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "type": "module",
   "description": "Poyetik roadmap kanban: data in board.json (git), CLI driven by Claude, read-only web page.",
   "scripts": {
