@@ -11,9 +11,7 @@
     "e2e/site/fetch.ts",
     "e2e/site/page.ts",
     "e2e/site/timing.ts",
-    "scripts/wasm.ts",
-    "scripts/cli.ts",
-    "scripts/io.ts"
+    "scripts/module.ts"
   ],
   "ignorePatterns": [
     "!dist/engine.wasm"

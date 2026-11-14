@@ -101,3 +101,10 @@ tooling/oracle: @vitest/coverage-v8 (devDependencies) -- coverage of the unit te
 tooling/oracle: eslint (devDependencies) -- runs the shared lint policy
 tooling/oracle: typescript (devDependencies) -- type checking
 tooling/oracle: vitest (devDependencies) -- unit tests
+tooling/wasm-build: @stryker-mutator/core (devDependencies) -- mutation testing
+tooling/wasm-build: @stryker-mutator/vitest-runner (devDependencies) -- runs the mutants with Vitest
+tooling/wasm-build: @types/node (devDependencies) -- types of the Node.js APIs the build commands use (child processes, files, SHA-256)
+tooling/wasm-build: @vitest/coverage-v8 (devDependencies) -- coverage of the unit tests
+tooling/wasm-build: eslint (devDependencies) -- runs the shared lint policy
+tooling/wasm-build: typescript (devDependencies) -- type checking
+tooling/wasm-build: vitest (devDependencies) -- unit tests

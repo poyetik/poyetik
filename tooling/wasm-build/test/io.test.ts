@@ -4,7 +4,7 @@ import { existsSync, fstatSync, readdirSync, realpathSync, writeFileSync } from 
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, expect, test, vi } from "vitest";
-import { PROCESS_IO } from "../scripts/io.ts";
+import { PROCESS_IO } from "../src/io.ts";
 
 afterEach(() => {
   vi.restoreAllMocks();

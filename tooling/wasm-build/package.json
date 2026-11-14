@@ -1,0 +1,32 @@
+{
+  "name": "@poyetik/wasm-build",
+  "private": true,
+  "license": "MIT OR Apache-2.0",
+  "version": "0.5.0",
+  "type": "module",
+  "exports": {
+    "./cli": "./src/cli.ts",
+    "./io": "./src/io.ts",
+    "./wasm": "./src/wasm.ts"
+  },
+  "description": "Builds a WebAssembly module of the project reproducibly (no path of the building machine inside) and checks that two builds are the same bytes: shared by the audio engine's and the visual library's packages.",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --max-warnings 0",
+    "test": "vitest run --coverage",
+    "check": "pnpm typecheck && pnpm lint && pnpm test"
+  },
+  "engines": {
+    "node": ">=22.18"
+  },
+  "devDependencies": {
+    "@poyetik/config": "workspace:*",
+    "@stryker-mutator/core": "catalog:",
+    "@stryker-mutator/vitest-runner": "catalog:",
+    "@types/node": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
+    "eslint": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

@@ -257,7 +257,7 @@ describe("benchMain", () => {
     // this package (its own tests: test/build-scripts.test.ts), which is MODULE_FILE.
     expect(BUILD_SCRIPT).toBe("build:wasm");
     expect(readFileSync(new URL("../../package.json", import.meta.url), "utf8")).toMatch(/"build:wasm": "[a-z]+ scripts\/build-wasm\.ts"/);
-    expect(readFileSync(new URL("../../scripts/build-wasm.ts", import.meta.url), "utf8")).toContain('buildMain(PROCESS_IO, fileURLToPath(new URL("../dist/", import.meta.url)))');
+    expect(readFileSync(new URL("../../scripts/build-wasm.ts", import.meta.url), "utf8")).toContain('buildMain(PROCESS_IO, fileURLToPath(new URL("../dist/", import.meta.url)), ENGINE_MODULE)');
     expect(MODULE_FILE).toBe("bindings/audio-wasm/dist/engine.wasm");
   });
 });
