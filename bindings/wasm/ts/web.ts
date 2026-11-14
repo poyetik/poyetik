@@ -6,8 +6,8 @@
  * {@link addProcessors}, giving the URL of the compiled `worklet/processors.js`.
  */
 
-import { ModuleError, PatchError, WasmEngine, givenAsBinary32, type Precision } from "./engine.ts";
-export { PRECISIONS, givenAsBinary32, parsePrecision, type Precision } from "./engine.ts";
+import { ModuleError, PatchError, WasmEngine, givenAsBinary32, type Precision, type SubnormalArithmetic } from "./engine.ts";
+export { PRECISIONS, givenAsBinary32, parsePrecision, type Precision, type SubnormalArithmetic, type SubnormalsKept } from "./engine.ts";
 import { ENGINE_PROCESSOR, MARKER_PERIOD, TAP_PROCESSOR, parseEngineMessage, parseTapMessage, type EngineOptions, type TapMessage } from "./protocol.ts";
 
 /**
@@ -105,10 +105,11 @@ export interface EngineNode {
   /** The node: no input, one output with one channel per patch channel. */
   readonly node: AudioWorkletNode;
   /**
-   * Resolves when the processor has loaded the patch; rejects if it could not, or with a
-   * {@link ContextClosed} if the context closed first (then it never will).
+   * Resolves when the processor has loaded the patch, with what the arithmetic of the
+   * audio thread does with subnormals (IEEE when every one is kept); rejects if it could
+   * not, or with a {@link ContextClosed} if the context closed first (then it never will).
    */
-  readonly ready: Promise<void>;
+  readonly ready: Promise<SubnormalArithmetic>;
 }
 
 /** Creates the engine node of {@link createEngineNode}, with or without the marker channel. */
@@ -123,7 +124,7 @@ function engineNode(context: BaseAudioContext, loaded: LoadedPatch, onFailure: (
     processorOptions: loaded.options(marker),
   });
   // The handlers are installed by the executor, which runs at once: they settle `ready`.
-  const ready = new Promise<undefined>((resolve, reject) => {
+  const ready = new Promise<SubnormalArithmetic>((resolve, reject) => {
     let failed = false;
     // A processor never answers once its context is closed: the wait ends there too,
     // which is no failure of the engine (`onFailure` is not told).
@@ -152,7 +153,7 @@ function engineNode(context: BaseAudioContext, loaded: LoadedPatch, onFailure: (
       switch (message.type) {
         case "ready":
           context.removeEventListener("statechange", follow);
-          resolve(undefined);
+          resolve(message.subnormals);
           break;
         case "rejected":
           fail(new Error(new TextDecoder().decode(message.detail), { cause: new PatchError(message.detail) }));
@@ -181,8 +182,8 @@ function engineNode(context: BaseAudioContext, loaded: LoadedPatch, onFailure: (
 export class MarkedEngineNode implements EngineNode {
   /** The node: no input, one output with the patch channels then the marker channel. */
   readonly node: AudioWorkletNode;
-  /** Resolves when the processor has loaded the patch; rejects if it could not, or with a {@link ContextClosed} if the context closed first. */
-  readonly ready: Promise<void>;
+  /** Resolves when the processor has loaded the patch, with the audio thread's subnormal arithmetic; rejects if it could not, or with a {@link ContextClosed} if the context closed first. */
+  readonly ready: Promise<SubnormalArithmetic>;
   /** Number of patch channels, before the marker channel. */
   readonly #channels: number;
 

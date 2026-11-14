@@ -3,7 +3,7 @@
 // processor on, as a browser drives it, every quantum counted.
 import { expect } from "vitest";
 import { ENGINE_PROCESSOR, TAP_PROCESSOR } from "../../ts/protocol.ts";
-import { SINE_PATCH, wasmBytes } from "../fixtures.ts";
+import { READY, SINE_PATCH, wasmBytes } from "../fixtures.ts";
 import { loadProcessors, processorClass } from "../worklet.ts";
 import { collections, repeat } from "./collections.ts";
 
@@ -31,7 +31,7 @@ export async function processing(size: number, frames: number, alongside: () => 
       alongside();
     });
   });
-  expect(node.port.posted).toStrictEqual([{ type: "ready" }]);
+  expect(node.port.posted).toStrictEqual([READY]);
   return count;
 }
 

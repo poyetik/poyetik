@@ -41,6 +41,12 @@ function field(json: unknown, key: string): unknown {
 /** The native reference hashes of the corpus, by case name then render format, as parsed JSON. */
 const references: unknown = JSON.parse(readFileSync(new URL("references.json", CONFORMANCE), "utf8"));
 
+/** IEEE subnormal arithmetic, every subnormal kept, written as a literal. */
+export const IEEE_SUBNORMALS = { binary32: { operands: true, results: true }, binary64: { operands: true, results: true } } as const;
+
+/** The `ready` message of a processor whose thread keeps every subnormal. */
+export const READY = { type: "ready", subnormals: IEEE_SUBNORMALS } as const;
+
 /** The patch file of the sine-440 case, byte for byte: never parsed and written again. */
 export const SINE_PATCH = new Uint8Array(readFileSync(new URL("patches/sine-440.json", CONFORMANCE)));
 
@@ -176,6 +182,7 @@ export const FUNCTIONS = [
   "engine_block_size",
   "engine_process",
   "engine_max_patch_bytes",
+  "engine_subnormals",
 ] as const;
 
 /** Encodes a WebAssembly name. */
@@ -222,15 +229,17 @@ const ARITY: Readonly<Record<string, number>> = { engine_input: 1, engine_load: 
 
 /** What each engine export returns when no `body` is given: 1, except these. */
 const ANSWERS: Readonly<Record<string, number>> = {
-  engine_abi_version: 0x5059_0003,
+  engine_abi_version: 0x5059_0004,
   // Any patch of the tests fits.
   engine_max_patch_bytes: 0x10_00_00,
+  // Every subnormal kept: IEEE arithmetic.
+  engine_subnormals: 0b1111,
 };
 
 /**
  * The engine functions with their arity, each returning `i32` 1 (or `body`), except the
- * interface version, which gives the expected one, and the largest patch, a mebibyte,
- * unless `body` is given.
+ * interface version, which gives the expected one, the largest patch, a mebibyte, and the
+ * subnormal arithmetic, IEEE (15), unless `body` is given.
  */
 export function engineFunctions(body?: HandMadeFunction["body"]): HandMadeFunction[] {
   return FUNCTIONS.map((name) => ({

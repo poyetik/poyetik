@@ -33,13 +33,15 @@ export interface Exports {
   readonly process: Exported0;
   /** `engine_max_patch_bytes()`: the longest patch the engine reads, in bytes; a longer one is refused before it is copied in. */
   readonly maxPatchBytes: Exported0;
+  /** `engine_subnormals()`: what the arithmetic of the calling thread does with subnormals, observed now, as four bits (see `subnormalArithmetic` in `engine.ts`). */
+  readonly subnormals: Exported0;
 }
 
 /**
  * The identity and version of the exported interface this code drives (`ABI_VERSION` in
- * `ffi.rs`): "PY" in the high 16 bits, version 3 in the low 16 bits.
+ * `ffi.rs`): "PY" in the high 16 bits, version 4 in the low 16 bits.
  */
-export const ABI_VERSION = 0x5059_0003;
+export const ABI_VERSION = 0x5059_0004;
 
 /** Thrown when the module does not have the expected interface. */
 export class ModuleError extends Error {
@@ -120,5 +122,6 @@ export function readExports(exports: WebAssembly.Exports): Exports {
     blockSize: exported0(exports, "engine_block_size"),
     process: exported0(exports, "engine_process"),
     maxPatchBytes: exported0(exports, "engine_max_patch_bytes"),
+    subnormals: exported0(exports, "engine_subnormals"),
   };
 }

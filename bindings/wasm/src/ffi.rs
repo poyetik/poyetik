@@ -12,6 +12,9 @@
 //!    [`engine_channels`] × [`engine_block_size`] samples, channel after channel: `f64`
 //!    samples (8 bytes) in binary64, `f32` samples (4 bytes) in the two binary32 formats.
 //!
+//! At any time, [`engine_subnormals`] observes what the arithmetic of the calling thread
+//! does with subnormal numbers (a browser may run it in a hardware flush mode).
+//!
 //! Every pointer is valid only until the next call: the caller copies what it needs
 //! and never keeps a view of the memory across calls, which may grow it.
 //!
@@ -34,7 +37,7 @@
 
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
-use engine_core::BLOCK_SIZE;
+use engine_core::{BLOCK_SIZE, SubnormalArithmetic};
 
 use crate::Instance;
 
@@ -44,7 +47,7 @@ use crate::Instance;
 /// same name by chance is not mistaken for an engine; the version in the low 16 bits,
 /// changed whenever a function is added, removed or changes meaning, so that a caller
 /// never drives a module it does not understand.
-pub const ABI_VERSION: u32 = 0x5059_0003;
+pub const ABI_VERSION: u32 = 0x5059_0004;
 
 /// The version of this interface, [`ABI_VERSION`].
 #[unsafe(no_mangle)]
@@ -138,6 +141,30 @@ pub const extern "C" fn engine_block_size() -> usize {
 #[unsafe(no_mangle)]
 pub extern "C" fn engine_process() -> *const u8 {
     instance().process().as_ptr()
+}
+
+/// What the arithmetic of the calling thread does with subnormal numbers, observed now.
+///
+/// Observed by `engine_core::SubnormalArithmetic::observe`, written as four bits (`subnormals_code`): 15 is
+/// IEEE arithmetic, the engine's own; anything else means a hardware flush mode of the
+/// caller's thread reaches the module's arithmetic.
+#[unsafe(no_mangle)]
+pub extern "C" fn engine_subnormals() -> u32 {
+    subnormals_code(SubnormalArithmetic::observe())
+}
+
+/// `arithmetic` written as four bits, each set when subnormals are kept: 1 binary32
+/// operands, 2 binary32 results, 4 binary64 operands, 8 binary64 results.
+fn subnormals_code(arithmetic: SubnormalArithmetic) -> u32 {
+    [
+        (arithmetic.binary32.operands, 0_u32),
+        (arithmetic.binary32.results, 1),
+        (arithmetic.binary64.operands, 2),
+        (arithmetic.binary64.results, 3),
+    ]
+    .into_iter()
+    .map(|(kept, bit)| u32::from(kept) << bit)
+    .sum()
 }
 
 #[cfg(test)]

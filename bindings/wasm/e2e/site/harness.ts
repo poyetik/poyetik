@@ -114,13 +114,20 @@ on("offline", ["offline-hash"], async () => {
   element("offline-hash", HTMLOutputElement).value = await renderHash(loaded.rate, loaded.channels, interleave(channels), format, STRICT);
 });
 
-on("live", ["live-hash"], async () => {
+on("live", ["live-hash", "live-subnormals"], async () => {
   // Closed however the capture ends: a failed one leaves no context running.
   const channels = await closing(new AudioContext({ sampleRate: loaded.rate }), async (context) => {
     await context.suspend();
     await addProcessors(context, PROCESSORS);
     const failure = new FirstFailure();
     const engine = createEngineNode(context, loaded, failure.report, true);
+    // Shown as soon as the processor is ready; a rejection is liveCapture's to report.
+    engine.ready.then(
+      (subnormals) => {
+        element("live-subnormals", HTMLOutputElement).value = JSON.stringify(subnormals);
+      },
+      () => undefined,
+    );
     return liveCapture(engine.ready, captureEngine(context, engine, testCase.frames), failure, async () => {
       // Silent on the speakers: the graph runs for real, the capture reads the engine output
       // before this gain.

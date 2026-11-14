@@ -1,8 +1,8 @@
 import { describe, expect, test, vi } from "vitest";
-import { ABI_VERSION, EngineTrap, ModuleError, PatchError, RENDER_FORMATS, WasmEngine, givenAsBinary32, parsePrecision, type RenderFormat } from "../ts/engine.ts";
+import { ABI_VERSION, EngineTrap, ModuleError, PatchError, RENDER_FORMATS, WasmEngine, givenAsBinary32, parsePrecision, subnormalArithmetic, type RenderFormat } from "../ts/engine.ts";
 import { interleave, interleave64, renderHash, STRICT } from "../ts/hash.ts";
 import { Counted, created } from "./counted.ts";
-import { CORPUS, engineFunctions, HOST_BUFFER_SIZES, FUNCTIONS, oscillators, PATCH_NAMES, PRECISION_NAMES, REFERENCES, SILENT_PATCH, SINE_PATCH, UNKNOWN_BOX, handMadeModule, NAN_BITS, reference, wasmBytes, type CorpusCase } from "./fixtures.ts";
+import { CORPUS, IEEE_SUBNORMALS, engineFunctions, HOST_BUFFER_SIZES, FUNCTIONS, oscillators, PATCH_NAMES, PRECISION_NAMES, REFERENCES, SILENT_PATCH, SINE_PATCH, UNKNOWN_BOX, handMadeModule, NAN_BITS, reference, wasmBytes, type CorpusCase } from "./fixtures.ts";
 
 /** The built engine module, compiled once and instantiated afresh by every test. */
 const module = new WebAssembly.Module(wasmBytes());
@@ -90,6 +90,25 @@ function channelZero(patch: Uint8Array, precision: "binary64" | "binary32", fram
   const left = outputs[0] ?? new Float32Array(0);
   return { values: Array.from(left), bytes: new Uint8Array(left.buffer) };
 }
+
+describe("subnormalArithmetic", () => {
+  /** What a format keeps, written out. */
+  const kept = (operands: boolean, results: boolean): { operands: boolean; results: boolean } => ({ operands, results });
+
+  test("reads each bit of the code as one observation, against literals", () => {
+    expect(subnormalArithmetic(0)).toStrictEqual({ binary32: kept(false, false), binary64: kept(false, false) });
+    expect(subnormalArithmetic(0b0001)).toStrictEqual({ binary32: kept(true, false), binary64: kept(false, false) });
+    expect(subnormalArithmetic(0b0010)).toStrictEqual({ binary32: kept(false, true), binary64: kept(false, false) });
+    expect(subnormalArithmetic(0b0100)).toStrictEqual({ binary32: kept(false, false), binary64: kept(true, false) });
+    expect(subnormalArithmetic(0b1000)).toStrictEqual({ binary32: kept(false, false), binary64: kept(false, true) });
+    expect(subnormalArithmetic(0b1010)).toStrictEqual({ binary32: kept(false, true), binary64: kept(false, true) });
+    expect(subnormalArithmetic(0b1111)).toStrictEqual(IEEE_SUBNORMALS);
+  });
+
+  test.each([16, -1, 0.5, 15.5, Number.NaN, Infinity])("refuses %o, which is no code", (code) => {
+    expect(subnormalArithmetic(code)).toBeUndefined();
+  });
+});
 
 describe("WasmEngine", () => {
   test("knows the whole corpus: every case has its patch and its reference, and nothing else", () => {
@@ -312,20 +331,36 @@ describe("WasmEngine", () => {
   });
 
   test("checks the interface identity and version before anything else", () => {
-    expect(ABI_VERSION).toBe(0x5059_0003);
+    expect(ABI_VERSION).toBe(0x5059_0004);
     // engineFunctions gives every function the same result: here, the version answered.
     // Far from ours, then one step from ours in the version both ways, and in the identity
     // both ways.
     for (const [answer, shown] of [
       [1, "0x1"],
-      [0x5059_0002, "0x50590002"],
-      [0x5059_0004, "0x50590004"],
-      [0x505a_0003, "0x505a0003"],
-      [0x5058_0003, "0x50580003"],
+      [0x5059_0003, "0x50590003"],
+      [0x5059_0005, "0x50590005"],
+      [0x505a_0004, "0x505a0004"],
+      [0x5058_0004, "0x50580004"],
     ] as const) {
       const other = handMadeModule({ memory: true, functions: engineFunctions({ i32: answer }) });
-      expect(() => WasmEngine.create(other, SINE_PATCH, RATE, "binary64-as-binary32")).toThrow(new ModuleError(`interface ${shown}, expected 0x50590003`));
+      expect(() => WasmEngine.create(other, SINE_PATCH, RATE, "binary64-as-binary32")).toThrow(new ModuleError(`interface ${shown}, expected 0x50590004`));
     }
+  });
+
+  test("observes IEEE subnormal arithmetic in Node, whose thread keeps every subnormal", () => {
+    expect(WasmEngine.create(new WebAssembly.Module(wasmBytes()), SINE_PATCH, RATE, "binary64").subnormals).toStrictEqual(IEEE_SUBNORMALS);
+  });
+
+  test("reads the module's observation of subnormals, and refuses a code that is none", () => {
+    const observing = (code: number): WebAssembly.Module =>
+      handMadeModule({ memory: true, functions: engineFunctions().map((func) => (func.name === "engine_subnormals" ? { ...func, body: { i32: code } } : func)) });
+    expect(WasmEngine.create(observing(0b0110), SINE_PATCH, RATE, "binary64-as-binary32").subnormals).toStrictEqual({
+      binary32: { operands: false, results: true },
+      binary64: { operands: true, results: false },
+    });
+    expect(() => WasmEngine.create(observing(16), SINE_PATCH, RATE, "binary64-as-binary32")).toThrow(new ModuleError("engine_subnormals returned 16, not a code from 0 to 15"));
+    // -1 as an i32 is read back as unsigned, as every result.
+    expect(() => WasmEngine.create(observing(-1), SINE_PATCH, RATE, "binary64-as-binary32")).toThrow(new ModuleError("engine_subnormals returned 4294967295, not a code from 0 to 15"));
   });
 
   test("reads results from 2^31 on as unsigned", () => {

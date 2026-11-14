@@ -12,8 +12,14 @@ export const WASM = readFileSync(new URL(import.meta.resolve("@poyetik/engine-wa
 /** Everything the fake Web Audio world did, in order. */
 export const log: string[] = [];
 
+/** The first message of an engine processor whose audio thread keeps every subnormal (IEEE arithmetic). */
+export const READY = Object.freeze({
+  type: "ready",
+  subnormals: Object.freeze({ binary32: Object.freeze({ operands: true, results: true }), binary64: Object.freeze({ operands: true, results: true }) }),
+});
+
 /** What the next engine processor answers (`answer`): its first message, or nothing at all. */
-export const processor: { answer: unknown } = { answer: { type: "ready" } };
+export const processor: { answer: unknown } = { answer: READY };
 
 /** A fake message port. */
 class FakePort {
@@ -332,7 +338,7 @@ export function flush(): Promise<void> {
 export function resetFakes(): void {
   log.length = 0;
   signals.length = 0;
-  processor.answer = { type: "ready" };
+  processor.answer = READY;
   FakeContext.created.length = 0;
   FakeContext.resumesTo = "running";
   FakeContext.resuming = undefined;

@@ -3,12 +3,16 @@
 
 use alloc::vec::Vec;
 
-use engine_core::{BLOCK_SIZE, Binary32, Binary64, Plan, RenderFormat, Renderer, SampleRate};
+use engine_core::{
+    BLOCK_SIZE, Binary32, Binary64, Plan, RenderFormat, Renderer, SampleRate, SubnormalArithmetic,
+    SubnormalsKept,
+};
 use engine_objects::REGISTRY;
 
 use super::{
     ABI_VERSION, engine_abi_version, engine_block_size, engine_channels, engine_input, engine_load,
     engine_max_patch_bytes, engine_message_len, engine_message_ptr, engine_process,
+    engine_subnormals, subnormals_code,
 };
 
 /// Writes `bytes` through the exported input buffer, as JavaScript does.
@@ -145,7 +149,7 @@ fn first_channels(
 fn follows_the_protocol() {
     assert_eq!(engine_abi_version(), ABI_VERSION, "version");
     assert_eq!(ABI_VERSION >> 16_u32, 0x5059_u32, "identity");
-    assert_eq!(ABI_VERSION & 0xFFFF_u32, 3_u32, "third version");
+    assert_eq!(ABI_VERSION & 0xFFFF_u32, 4_u32, "fourth version");
     assert_eq!(engine_block_size(), BLOCK_SIZE, "block size");
     assert_eq!(
         engine_max_patch_bytes(),
@@ -229,5 +233,35 @@ fn follows_the_protocol() {
             let (exported, reference) = first_channels(sine, rate, code, format);
             assert_eq!(exported, reference, "format {format} at {} Hz", rate.hz());
         }
+    }
+}
+
+#[test]
+fn observes_ieee_subnormals_in_the_default_mode() {
+    // The tests run in the processor's default mode: every subnormal kept, every bit set.
+    assert_eq!(engine_subnormals(), 0b1111_u32);
+}
+
+#[test]
+fn writes_each_subnormal_observation_as_its_own_bit() {
+    // Every combination, against the bits written as literals.
+    let kept = |operands, results| SubnormalsKept { operands, results };
+    let cases = [
+        ((false, false, false, false), 0b0000_u32),
+        ((true, false, false, false), 0b0001_u32),
+        ((false, true, false, false), 0b0010_u32),
+        ((false, false, true, false), 0b0100_u32),
+        ((false, false, false, true), 0b1000_u32),
+        ((true, true, false, false), 0b0011_u32),
+        ((false, false, true, true), 0b1100_u32),
+        ((true, false, true, false), 0b0101_u32),
+        ((true, true, true, true), 0b1111_u32),
+    ];
+    for ((operands_32, results_32, operands_64, results_64), code) in cases {
+        let arithmetic = SubnormalArithmetic {
+            binary32: kept(operands_32, results_32),
+            binary64: kept(operands_64, results_64),
+        };
+        assert_eq!(subnormals_code(arithmetic), code, "{arithmetic:?}");
     }
 }

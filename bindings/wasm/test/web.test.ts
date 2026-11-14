@@ -4,7 +4,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { EngineTrap, ModuleError, PatchError } from "../ts/engine.ts";
 import { ENGINE_PROCESSOR, MessageError, SOURCE_STOPPED, TAP_PROCESSOR } from "../ts/protocol.ts";
 import { addProcessors, capture, captureEngine, ContextClosed, createEngineNode, LoadedPatch, loadPatch, MarkedEngineNode, MAX_MARKED_FRAMES, START_MARGIN, renderOffline, tap } from "../ts/web.ts";
-import { engineFunctions, handMadeBytes, SILENT_PATCH, SINE_PATCH, UNKNOWN_BOX, wasmBytes } from "./fixtures.ts";
+import { engineFunctions, handMadeBytes, READY, SILENT_PATCH, SINE_PATCH, UNKNOWN_BOX, wasmBytes } from "./fixtures.ts";
 
 /** The sample rate of the fake audio contexts, in hertz. */
 const RATE = 48_000;
@@ -356,8 +356,11 @@ describe("createEngineNode", () => {
     const failures: Error[] = [];
     const { ready } = createEngineNode(asContext(fakeContext(RATE)), await loaded(2), (error) => failures.push(error));
     expect(await settled(ready)).toBe("pending");
-    FakeNode.created[0]?.port.deliver({ type: "ready" });
+    // Whatever the processor observed is what `ready` gives: here, no subnormal kept as a result.
+    const flushing = { binary32: { operands: true, results: false }, binary64: { operands: true, results: false } };
+    FakeNode.created[0]?.port.deliver({ type: "ready", subnormals: flushing });
     expect(await settled(ready)).toBe("resolved");
+    expect(await ready).toStrictEqual(flushing);
     expect(failures).toStrictEqual([]);
   });
 
@@ -435,7 +438,7 @@ describe("createEngineNode", () => {
     const first = createEngineNode(asContext(context), await loaded(2), () => undefined);
     const second = createEngineNode(asContext(context), await loaded(2), () => undefined);
     expect(statechangeListeners(context)).toBe(2);
-    FakeNode.created[0]?.port.deliver({ type: "ready" });
+    FakeNode.created[0]?.port.deliver(READY);
     FakeNode.created[1]?.onprocessorerror?.();
     expect(statechangeListeners(context)).toBe(0);
     await context.close();
@@ -447,7 +450,7 @@ describe("createEngineNode", () => {
     const failures: Error[] = [];
     const { ready } = createEngineNode(asContext(fakeContext(RATE)), await loaded(2), (error) => failures.push(error));
     const fake = FakeNode.created[0];
-    fake?.port.deliver({ type: "ready" });
+    fake?.port.deliver(READY);
     fake?.port.deliver({ type: "failed", message: "trap" });
     fake?.port.deliver({ type: "failed", message: "again" });
     fake?.onprocessorerror?.();
@@ -796,7 +799,7 @@ describe("renderOffline", () => {
   }
 
   test("renders in an offline context at the rate of the patch, with a marker and a margin", async () => {
-    const { contexts, modules, destination } = offline({ type: "ready" });
+    const { contexts, modules, destination } = offline(READY);
     expect(START_MARGIN).toBe(16_384);
     expect(await renderOffline(await loaded(2), 2, "processors.js")).toStrictEqual([new Float32Array([0, 1]), new Float32Array([1000, 1001])]);
     expect(contexts).toStrictEqual([{ channels: 3, frames: 2 + START_MARGIN, rate: RATE }]);
@@ -809,19 +812,19 @@ describe("renderOffline", () => {
   });
 
   test("returns the frames the engine rendered, wherever the processor started", async () => {
-    offline({ type: "ready" }, { start: 128 });
+    offline(READY, { start: 128 });
     expect(await renderOffline(await loaded(2), 3, "processors.js")).toStrictEqual([new Float32Array([128, 129, 130]), new Float32Array([1128, 1129, 1130])]);
-    offline({ type: "ready" }, { start: START_MARGIN });
+    offline(READY, { start: START_MARGIN });
     expect((await renderOffline(await loaded(2), 1, "processors.js"))[0]).toStrictEqual(new Float32Array([START_MARGIN]));
   });
 
   test("fails when the processor starts too late, or not at all", async () => {
     // Two frames asked: the render holds frame 16 385, where the marker starts, one too late.
-    offline({ type: "ready" }, { start: START_MARGIN + 1 });
+    offline(READY, { start: START_MARGIN + 1 });
     await expect(renderOffline(await loaded(2), 2, "processors.js")).rejects.toThrow(
       new Error("the engine started too late in the offline render: at frame 16385, beyond the 16384 frames of margin"),
     );
-    offline({ type: "ready" }, { start: "never" });
+    offline(READY, { start: "never" });
     await expect(renderOffline(await loaded(2), 1, "processors.js")).rejects.toThrow(
       new Error("the engine started too late in the offline render: not within the 16384 frames of margin"),
     );
@@ -840,7 +843,7 @@ describe("renderOffline", () => {
   test("fails when the engine stops before the end of the render, whatever the order of the messages", async () => {
     // The processor failed at frame 128 of the render, but the failure was not received
     // before the render ended: the marker shows it.
-    offline({ type: "ready" }, { start: 0, stop: 128 });
+    offline(READY, { start: 0, stop: 128 });
     await expect(renderOffline(await loaded(2), 200, "processors.js")).rejects.toThrow(
       new Error("the engine output of the offline render breaks at frame 128: the engine stopped"),
     );
@@ -851,13 +854,13 @@ describe("renderOffline", () => {
     [0.5, "a render needs a whole number of frames from 0, not 0.5"],
     [Number.NaN, "a render needs a whole number of frames from 0, not NaN"],
   ])("refuses to render %d frames, before rendering", async (frames, message) => {
-    const { contexts } = offline({ type: "ready" });
+    const { contexts } = offline(READY);
     await expect(renderOffline(await loaded(2), frames, "processors.js")).rejects.toThrow(new RangeError(message));
     expect(contexts).toStrictEqual([]);
   });
 
   test("renders up to the frames the marker counts, and refuses more before rendering", async () => {
-    offline({ type: "ready" });
+    offline(READY);
     await expect(renderOffline(await loaded(2), MAX_MARKED_FRAMES + 1, "processors.js")).rejects.toThrow(
       new RangeError(`at most ${String(MAX_MARKED_FRAMES)} frames can be rendered from the start of the engine, not ${String(MAX_MARKED_FRAMES + 1)}`),
     );
@@ -868,7 +871,7 @@ describe("renderOffline", () => {
   });
 
   test("fails when the processor fails while rendering", async () => {
-    offline({ type: "ready" }, { later: { type: "failed", message: "trap" } });
+    offline(READY, { later: { type: "failed", message: "trap" } });
     await expect(renderOffline(await loaded(2), 2, "processors.js")).rejects.toThrow(new Error("the engine failed: trap"));
   });
 });
