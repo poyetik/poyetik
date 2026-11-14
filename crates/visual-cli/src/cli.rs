@@ -2,11 +2,10 @@
 
 use alloc::collections::BTreeMap;
 use std::ffi::OsString;
-use std::fs;
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::Path;
 
-use crate::{MAX_CASE_BYTES, parse_case, render_case, safe_message};
+use crate::{Files, MAX_CASE_BYTES, hash_case, safe_message};
 
 /// Usage of the `visual-cli` command, printed on stdout by `visual-cli help`.
 pub const USAGE: &str = "\
@@ -17,7 +16,7 @@ usage: visual-cli <command>
   help                print this help";
 
 /// The largest references file read, in bytes.
-const MAX_REFERENCES_BYTES: u64 = 1024 * 1024;
+pub const MAX_REFERENCES_BYTES: usize = 1024 * 1024;
 
 /// Why a command did not succeed.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,45 +73,29 @@ pub fn arguments(raw: Vec<OsString>) -> Result<Vec<String>, CliError> {
         .collect()
 }
 
-/// Reads at most `limit` bytes of the file at `path` as UTF-8 text.
-fn read_bounded(path: &Path, limit: u64) -> Result<String, CliError> {
-    let name = path.display();
-    let file = fs::File::open(path)
-        .map_err(|error| CliError::Failed(format!("cannot read {name}: {error}")))?;
-    let mut bytes = Vec::new();
-    let _read = file
-        .take(limit.saturating_add(1))
-        .read_to_end(&mut bytes)
-        .map_err(|error| CliError::Failed(format!("cannot read {name}: {error}")))?;
-    if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > limit {
-        return Err(CliError::Failed(format!(
-            "{name} is longer than {limit} bytes"
-        )));
-    }
-    String::from_utf8(bytes).map_err(|_| CliError::Failed(format!("{name} is not UTF-8")))
+/// Reads a file of at most `limit` bytes, naming it on failure.
+fn read(files: &mut dyn Files, path: &Path, limit: usize) -> Result<String, CliError> {
+    files
+        .read(path, limit)
+        .map_err(|error| CliError::Failed(format!("cannot read {}: {error}", path.display())))
 }
 
 /// Renders the case file at `path` and returns its hash as text.
-fn hash_of(path: &Path) -> Result<String, CliError> {
-    let limit = u64::try_from(MAX_CASE_BYTES).unwrap_or(u64::MAX);
-    let text = read_bounded(path, limit)?;
-    let case = parse_case(&text)
-        .map_err(|error| CliError::Failed(format!("{}: {error}", path.display())))?;
-    let hash = render_case(&case)
-        .map_err(|error| CliError::Failed(format!("{}: {error}", path.display())))?;
-    Ok(hash.to_string())
+fn hash_of(files: &mut dyn Files, path: &Path) -> Result<String, CliError> {
+    let text = read(files, path, MAX_CASE_BYTES)?;
+    hash_case(&text)
+        .map(|hash| hash.to_string())
+        .map_err(|error| CliError::Failed(format!("{}: {error}", path.display())))
 }
 
 /// The hash of every case of `<dir>/cases`, by case name (the file name without `.json`).
-fn render_all(dir: &Path) -> Result<BTreeMap<String, String>, CliError> {
+fn render_all(files: &mut dyn Files, dir: &Path) -> Result<BTreeMap<String, String>, CliError> {
     let cases = dir.join("cases");
-    let entries = fs::read_dir(&cases)
+    let entries = files
+        .list(&cases)
         .map_err(|error| CliError::Failed(format!("cannot list {}: {error}", cases.display())))?;
     let mut hashes = BTreeMap::new();
-    for entry in entries {
-        let path = entry
-            .map_err(|error| CliError::Failed(format!("cannot list {}: {error}", cases.display())))?
-            .path();
+    for path in entries {
         let name = path
             .file_name()
             .and_then(|file| file.to_str())
@@ -124,7 +107,8 @@ fn render_all(dir: &Path) -> Result<BTreeMap<String, String>, CliError> {
                 ))
             })?
             .to_owned();
-        let _earlier = hashes.insert(name, hash_of(&path)?);
+        let hash = hash_of(files, &path)?;
+        let _earlier = hashes.insert(name, hash);
     }
     if hashes.is_empty() {
         return Err(CliError::Failed(format!("no case in {}", cases.display())));
@@ -132,37 +116,92 @@ fn render_all(dir: &Path) -> Result<BTreeMap<String, String>, CliError> {
     Ok(hashes)
 }
 
-/// Writes one line on `out`; a closed output is not an error.
-fn say(out: &mut dyn Write, line: &str) {
-    drop(writeln!(out, "{}", safe_message(line)));
+/// A writer to stdout for which a closed reader (a broken pipe, `| head`) is not an error:
+/// what is written after it is dropped, and the command goes on.
+#[derive(Debug)]
+pub struct BestEffort<W>(pub W);
+
+impl<W: Write> Write for BestEffort<W> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        unless_closed(self.0.write(buf), buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        unless_closed(self.0.flush(), ())
+    }
+}
+
+/// `result`, or `done` when it failed only because the reader is gone (a broken pipe).
+///
+/// Apart from [`BestEffort`], which is generic over its writer, so that the decision is
+/// compiled once per result type whatever the writer, and every branch of it is reached
+/// by the tests (the coverage gate counts each instantiation of a generic function).
+fn unless_closed<T>(result: std::io::Result<T>, done: T) -> std::io::Result<T> {
+    match result {
+        Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => Ok(done),
+        other => other,
+    }
+}
+
+/// Writes one line, made safe by [`safe_message`], to `out`, which is stdout.
+///
+/// # Errors
+///
+/// Returns [`CliError::Failed`] when stdout cannot be written (a closed one is
+/// [`BestEffort`]'s to forgive).
+fn say(out: &mut dyn Write, line: &str) -> Result<(), CliError> {
+    writeln!(out, "{}", safe_message(line))
+        .map_err(|error| CliError::Failed(format!("cannot write to stdout: {error}")))
+}
+
+/// The references file of `hashes`, exactly as `visual-cli bless` writes it: a JSON object
+/// of case names to hashes, in name order, indented, ending with a newline.
+fn references_text(hashes: &BTreeMap<String, String>) -> String {
+    let object: serde_json::Map<String, serde_json::Value> = hashes
+        .iter()
+        .map(|(name, hash)| (name.clone(), serde_json::Value::String(hash.clone())))
+        .collect();
+    format!("{:#}\n", serde_json::Value::Object(object))
+}
+
+/// Reads the references of `dir`, only exactly as `visual-cli bless` writes them.
+fn references(files: &mut dyn Files, dir: &Path) -> Result<BTreeMap<String, String>, CliError> {
+    let file = dir.join("references.json");
+    let text = read(files, &file, MAX_REFERENCES_BYTES)?;
+    let rewrite = || {
+        CliError::Failed(format!(
+            "{} is not as `visual-cli bless {}` writes it: rewrite it with that command",
+            file.display(),
+            dir.display()
+        ))
+    };
+    let references: BTreeMap<String, String> =
+        serde_json::from_str(&text).map_err(|_| rewrite())?;
+    if references_text(&references) == text {
+        Ok(references)
+    } else {
+        Err(rewrite())
+    }
 }
 
 /// Compares the renders of `dir` with its references.
-fn check(dir: &Path, out: &mut dyn Write) -> Result<(), CliError> {
-    let hashes = render_all(dir)?;
-    let file = dir.join("references.json");
-    let text = read_bounded(&file, MAX_REFERENCES_BYTES)?;
-    let references: BTreeMap<String, String> = serde_json::from_str(&text)
-        .map_err(|error| CliError::Failed(format!("{}: {error}", file.display())))?;
+fn check(files: &mut dyn Files, dir: &Path, out: &mut dyn Write) -> Result<(), CliError> {
+    let hashes = render_all(files, dir)?;
+    let references = references(files, dir)?;
     let mut problems = 0_usize;
     for (name, hash) in &hashes {
-        match references.get(name) {
-            Some(expected) if expected == hash => say(out, &format!("ok {name} {hash}")),
-            Some(expected) => {
-                say(
-                    out,
-                    &format!("changed {name}: {hash}, reference {expected}"),
-                );
-                problems = problems.saturating_add(1);
-            }
-            None => {
-                say(out, &format!("no reference for {name}"));
-                problems = problems.saturating_add(1);
-            }
+        let line = match references.get(name) {
+            Some(expected) if expected == hash => format!("ok {name} {hash}"),
+            Some(expected) => format!("changed {name}: {hash}, reference {expected}"),
+            None => format!("no reference for {name}"),
+        };
+        if !line.starts_with("ok ") {
+            problems = problems.saturating_add(1);
         }
+        say(out, &line)?;
     }
     for name in references.keys().filter(|name| !hashes.contains_key(*name)) {
-        say(out, &format!("stale reference {name}: no such case"));
+        say(out, &format!("stale reference {name}: no such case"))?;
         problems = problems.saturating_add(1);
     }
     if problems == 0 {
@@ -175,39 +214,35 @@ fn check(dir: &Path, out: &mut dyn Write) -> Result<(), CliError> {
 }
 
 /// Rewrites the references of `dir` from the current renders.
-fn bless(dir: &Path, out: &mut dyn Write) -> Result<(), CliError> {
-    let hashes = render_all(dir)?;
+fn bless(files: &mut dyn Files, dir: &Path, out: &mut dyn Write) -> Result<(), CliError> {
+    let hashes = render_all(files, dir)?;
     let file = dir.join("references.json");
-    let text = serde_json::to_string_pretty(&hashes)
-        .map_err(|error| CliError::Failed(error.to_string()))?;
-    fs::write(&file, format!("{text}\n"))
+    files
+        .write(&file, references_text(&hashes).as_bytes())
         .map_err(|error| CliError::Failed(format!("cannot write {}: {error}", file.display())))?;
     say(
         out,
         &format!("wrote {} references to {}", hashes.len(), file.display()),
-    );
-    Ok(())
+    )
 }
 
-/// Runs the command `args` (without the program name), writing its output on `out`.
+/// Runs the command `args` (without the program name) on `files`, writing its output on
+/// `out`, which is stdout.
 ///
 /// # Errors
 ///
 /// Returns [`CliError::Usage`] for arguments that form no command, and
 /// [`CliError::Failed`] when the command ran and failed.
-pub fn run(args: &[String], out: &mut dyn Write) -> Result<(), CliError> {
+pub fn run(args: &[String], files: &mut dyn Files, out: &mut dyn Write) -> Result<(), CliError> {
     match args {
         [command, case] if command == "render" => {
-            let hash = hash_of(Path::new(case))?;
-            say(out, &hash);
-            Ok(())
+            let hash = hash_of(files, Path::new(case))?;
+            say(out, &hash)
         }
-        [command, dir] if command == "check" => check(Path::new(dir), out),
-        [command, dir] if command == "bless" => bless(Path::new(dir), out),
-        [command] if command == "help" => {
-            drop(writeln!(out, "{USAGE}"));
-            Ok(())
-        }
+        [command, dir] if command == "check" => check(files, Path::new(dir), out),
+        [command, dir] if command == "bless" => bless(files, Path::new(dir), out),
+        [command] if command == "help" => writeln!(out, "{USAGE}")
+            .map_err(|error| CliError::Failed(format!("cannot write to stdout: {error}"))),
         [] => Err(CliError::Usage("no command".to_owned())),
         [command, ..] => Err(CliError::Usage(format!(
             "unknown command or arguments: {command}"

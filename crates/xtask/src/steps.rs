@@ -858,6 +858,30 @@ pub(crate) fn dependency_steps() -> Vec<Step> {
     ]
 }
 
+/// The visual conformance corpus, read by `visual-cli` and by the visual WebAssembly
+/// module's tests.
+pub const VISUAL_CONFORMANCE: &str = "conformance/visual";
+
+/// The native visual conformance check: `visual-cli` renders every visual case with the
+/// exact CPU reference renderer and compares its image hash with its reference.
+fn visual_conformance_step() -> Step {
+    run(
+        "Visual conformance (native)",
+        "cargo",
+        &[
+            "run",
+            "--package",
+            "visual-cli",
+            "--locked",
+            "--quiet",
+            "--",
+            "check",
+            VISUAL_CONFORMANCE,
+        ],
+        Dir::Root,
+    )
+}
+
 /// Conformance, supply chain, then the consistency of the repository: membership, READMEs,
 /// versions, history and the CI workflow.
 pub(crate) fn consistency_steps() -> Vec<(Role, Step)> {
@@ -936,7 +960,10 @@ pub(crate) fn consistency_steps() -> Vec<(Role, Step)> {
             action: Action::PartsGate,
         },
     ]);
-    let mut steps = vec![(Role::Proof(Part::Gates), conformance)];
+    let mut steps = vec![
+        (Role::Proof(Part::Gates), conformance),
+        (Role::Proof(Part::Gates), visual_conformance_step()),
+    ];
     steps.extend(tagged(Role::Setup(Setup::ConformanceExport), export));
     steps.extend(tagged(Role::Proof(Part::Gates), gates));
     steps
