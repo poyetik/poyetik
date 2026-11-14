@@ -678,3 +678,7 @@ pub fn test_data_gate(sources: &[RustSource]) -> Result<(), Failure> {
     }
     step_verdict(problems)
 }
+
+#[cfg(test)]
+#[path = "test_code_tests.rs"]
+mod tests;

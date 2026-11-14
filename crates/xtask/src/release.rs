@@ -266,3 +266,7 @@ pub(crate) fn released_sections(runner: &mut dyn Runner, changelog: &str) -> Res
     let at_base = file_at(runner, &base, CHANGELOG)?;
     released_sections_gate(at_base.as_deref(), changelog, (&base, against))
 }
+
+#[cfg(test)]
+#[path = "release_tests.rs"]
+mod tests;

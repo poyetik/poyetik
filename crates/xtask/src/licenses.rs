@@ -1,4 +1,5 @@
-//! The license gate of the JavaScript dependencies.
+//! The license gates: the JavaScript dependencies' licenses, and each part's license against its
+//! folder's.
 
 use crate::{
     dependencies::NPM_FIELDS,
@@ -280,3 +281,7 @@ pub fn part_license_gate(
     }
     step_verdict(problems)
 }
+
+#[cfg(test)]
+#[path = "licenses_tests.rs"]
+mod tests;

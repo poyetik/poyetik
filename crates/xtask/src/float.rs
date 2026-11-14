@@ -454,3 +454,7 @@ pub(crate) fn float_methods(runner: &mut dyn Runner) -> Result<(), Failure> {
         &read_file(runner, CLIPPY_TOML)?,
     )
 }
+
+#[cfg(test)]
+#[path = "float_tests.rs"]
+mod tests;

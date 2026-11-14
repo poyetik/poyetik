@@ -48,7 +48,9 @@ allow node in bindings/audio-wasm/test/web.test.ts -- the fake Web Audio nodes t
 allow nodes in bindings/audio-wasm/test/web.test.ts -- the fake Web Audio nodes the tests of web.ts drive
 allow node in bindings/audio-wasm/test/types.test.ts -- an engine node created with or without the marker channel (`MarkedEngineNode`)
 allow node in bindings/audio-wasm/test/types/ -- compiler fixtures about `MarkedEngineNode`, a Web Audio node
-allow node in crates/xtask/src/lib_tests.rs -- the tests of this gate, whose fixtures hold the refused words on purpose
+allow node in crates/xtask/src/lib_tests.rs -- the vocabulary file the fake runner serves (FAKE_WORDS), a rule of this gate
+allow node in crates/xtask/src/vocabulary_tests.rs -- the tests of this gate, whose fixtures hold the refused words on purpose
+allow node in crates/xtask/src/cli_tests.rs -- Node.js, the tool the preflight asks for its version and that runs the benchmarks script
 allow node in apps/playground/test/fakes.ts -- the fake Web Audio nodes the tests of the player drive
 
 forbid object -> box in crates/audio-core/ crates/audio-boxes/ crates/audio-patch/ crates/audio-testkit/ crates/audio-hash/ crates/audio-cli/ bindings/audio-wasm/src/ spec/ conformance/ GLOSSARY.md -- GLOSSARY.md: one processing unit of a patch is a box (the `Object` trait keeps its name until #32 step 15)
@@ -61,7 +63,7 @@ allow object as "object, optional" -- the JSON type of `nodes[].params` in the p
 
 forbid tap block -> render quantum -- GLOSSARY.md: a tap delivers render quanta; a block is the engine's
 forbid tap blocks -> render quanta -- GLOSSARY.md: a tap delivers render quanta; a block is the engine's
-allow tap block in crates/xtask/src/lib_tests.rs -- the tests of this gate, whose fixtures hold the refused words on purpose
+allow tap block in crates/xtask/src/vocabulary_tests.rs -- the tests of this gate, whose fixtures hold the refused words on purpose
 forbid block -> render quantum in apps/playground/ -- GLOSSARY.md: the playground only receives render quanta from the tap; a block is the engine's
 forbid blocks -> render quanta in apps/playground/ -- GLOSSARY.md: the playground only receives render quanta from the tap
 

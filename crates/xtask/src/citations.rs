@@ -269,3 +269,7 @@ pub fn citation_gate(sources: &[(String, String)]) -> Result<(), Failure> {
     }
     step_verdict(problems)
 }
+
+#[cfg(test)]
+#[path = "citations_tests.rs"]
+mod tests;

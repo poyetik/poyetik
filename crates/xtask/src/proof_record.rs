@@ -647,3 +647,7 @@ pub(crate) fn record_mutation_proof(
         Err(failure) => say(out, &format!("  not recorded: {}", failure.summary)),
     }
 }
+
+#[cfg(test)]
+#[path = "proof_record_tests.rs"]
+mod tests;

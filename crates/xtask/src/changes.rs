@@ -1278,3 +1278,7 @@ pub(crate) fn rust_mutants_of_changes(
         .run(&changes_mutants_command(jobs))
         .map_err(|failure| Failure::from(failure.to_string()))
 }
+
+#[cfg(test)]
+#[path = "changes_tests.rs"]
+mod tests;

@@ -250,3 +250,7 @@ pub fn ts_coverage_gate(package: &str, summary: &str) -> Result<(), String> {
         ))
     }
 }
+
+#[cfg(test)]
+#[path = "coverage_tests.rs"]
+mod tests;

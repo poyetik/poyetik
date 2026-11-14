@@ -1,0 +1,490 @@
+//! Tests of versions, the changelog and the release gates.
+
+use crate::tests::{
+    CARGO, CHANGELOG_LISTED, CHANGES_MODE, LOG, MAIN_BASE, PACKAGE, failed, found, hermetic_git,
+    passing, scratch, system,
+};
+use crate::{
+    Action, CARGO_TOML, CHANGELOG, Failure, Step, Version, check_steps, package_jsons,
+    release_gate, run_steps,
+};
+
+/// The roadmap's manifest.
+const ROADMAP_PACKAGE: &str = "apps/roadmap/package.json";
+
+/// Every manifest correct except the roadmap one, with `text`.
+fn roadmap_package(text: &str) -> Vec<(String, String)> {
+    package_jsons()
+        .into_iter()
+        .map(|path| {
+            let content = if path == ROADMAP_PACKAGE {
+                text
+            } else {
+                PACKAGE
+            };
+            (path, content.to_owned())
+        })
+        .collect()
+}
+
+#[test]
+fn parses_semantic_versions() {
+    assert_eq!(
+        Version::parse("0.1.0"),
+        Some(Version {
+            major: 0,
+            minor: 1,
+            patch: 0
+        }),
+        "basic"
+    );
+    assert_eq!(
+        Version::parse("10.20.30"),
+        Some(Version {
+            major: 10,
+            minor: 20,
+            patch: 30
+        }),
+        "multi-digit"
+    );
+    for bad in [
+        "",
+        "1",
+        "1.2",
+        "1.2.3.4",
+        "01.2.3",
+        "1.02.3",
+        "1.2.03",
+        "1.2.x",
+        "1..3",
+        "-1.2.3",
+        "1.2.3-rc.1",
+        "+1.2.3",
+    ] {
+        assert_eq!(Version::parse(bad), None, "{bad:?} is not X.Y.Z");
+    }
+    assert_eq!(
+        Version {
+            major: 1,
+            minor: 2,
+            patch: 3
+        }
+        .to_string(),
+        "1.2.3",
+        "display"
+    );
+    assert!(
+        Version::parse("0.10.0") > Version::parse("0.9.9"),
+        "numeric ordering"
+    );
+}
+
+#[test]
+fn accepts_a_consistent_release_setup() {
+    assert_eq!(
+        release_gate(CARGO, &packages(PACKAGE), LOG),
+        Ok(()),
+        "current version is the latest release"
+    );
+    let next = CARGO.replace("0.2.0\"\n\n[other]", "0.3.0\"\n\n[other]");
+    assert_eq!(
+        release_gate(&next, &packages(&PACKAGE.replace("0.2.0", "0.3.0")), LOG),
+        Ok(()),
+        "a newer, unreleased version"
+    );
+    assert_eq!(
+        release_gate(
+            CARGO,
+            &packages(PACKAGE),
+            "# Changelog\n\n## [Unreleased]\n"
+        ),
+        Ok(()),
+        "no release yet"
+    );
+}
+
+#[test]
+fn rejects_inconsistent_versions() {
+    assert_eq!(
+        release_gate(
+            CARGO,
+            &roadmap_package(r#"{"version": "0.3.0", "engines": {"node": ">=22.18"}}"#),
+            LOG
+        ),
+        found(
+            "the versions and the changelog",
+            &[format!(
+                "{ROADMAP_PACKAGE}: version 0.3.0 differs from the workspace version 0.2.0"
+            )]
+        ),
+        "different versions"
+    );
+    assert_eq!(
+        release_gate(CARGO, &roadmap_package("not json"), LOG),
+        found(
+            "the versions and the changelog",
+            &[
+                format!(
+                    "{ROADMAP_PACKAGE}: engines.node is (missing), the packages support Node.js \
+                     >=22.18 (NODE_FLOOR)"
+                ),
+                format!(
+                    "{ROADMAP_PACKAGE}: version (missing) differs from the workspace version 0.2.0"
+                )
+            ]
+        ),
+        "unreadable package"
+    );
+    assert_eq!(
+        release_gate(
+            CARGO,
+            &packages(r#"{"version": "0.1.0", "engines": {"node": ">=22.18"}}"#),
+            LOG
+        ),
+        found(
+            "the versions and the changelog",
+            &package_jsons()
+                .iter()
+                .map(|path| format!(
+                    "{path}: version 0.1.0 differs from the workspace version 0.2.0"
+                ))
+                .collect::<Vec<_>>()
+        ),
+        "every manifest is checked"
+    );
+    assert_eq!(
+        release_gate(
+            "[workspace]\n",
+            &packages(r#"{"version": 1, "engines": {"node": ">=22.18"}}"#),
+            LOG
+        ),
+        found(
+            "the versions and the changelog",
+            &[format!(
+                "{CARGO_TOML}: [workspace.package] version must be X.Y.Z"
+            )]
+        ),
+        "no workspace version, and none in the package either"
+    );
+    let bad = CARGO.replace("0.2.0\"\n\n[other]", "0.2\"\n\n[other]");
+    assert_eq!(
+        release_gate(&bad, &packages(&PACKAGE.replace("0.2.0", "0.2")), LOG),
+        found(
+            "the versions and the changelog",
+            &[format!(
+                "{CARGO_TOML}: [workspace.package] version must be X.Y.Z"
+            )]
+        ),
+        "not X.Y.Z"
+    );
+    let old = CARGO.replace("0.2.0\"\n\n[other]", "0.1.9\"\n\n[other]");
+    assert_eq!(
+        release_gate(&old, &packages(&PACKAGE.replace("0.2.0", "0.1.9")), LOG),
+        found(
+            "the versions and the changelog",
+            &["version 0.1.9 is older than the latest release 0.2.0".to_owned()]
+        ),
+        "older than released"
+    );
+}
+
+#[test]
+fn rejects_a_malformed_changelog() {
+    assert_eq!(
+        release_gate(
+            CARGO,
+            &packages(PACKAGE),
+            "Changelog\n## [0.2.0] - 2026-11-07\n"
+        ),
+        found(
+            "the versions and the changelog",
+            &[
+                format!("{CHANGELOG}: must start with \"# Changelog\""),
+                format!("{CHANGELOG}: the first section must be \"## [Unreleased]\"")
+            ]
+        ),
+        "missing title and unreleased section"
+    );
+    for heading in [
+        "## [0.2] - 2026-11-07",
+        "## 0.2.0 - 2026-11-07",
+        "## [0.2.0] 2026-11-07",
+        "## [0.2.0] - 26-11-07",
+        "## [0.2.0] - 2026-1-07",
+        "## [0.2.0] - 2026-11-7",
+        "## [0.2.0] - 2026-11-07-01",
+        "## [0.2.0] - 2026-11",
+        "## [0.2.0] - 2026-aa-07",
+    ] {
+        assert_eq!(
+            release_gate(
+                CARGO,
+                &packages(PACKAGE),
+                &format!("# Changelog\n## [Unreleased]\n{heading}\n")
+            ),
+            found(
+                "the versions and the changelog",
+                &[format!("{CHANGELOG}: malformed heading \"{heading}\"")]
+            ),
+            "{heading}"
+        );
+    }
+    for order in [
+        "## [0.1.0] - 2026-01-01\n## [0.2.0] - 2026-02-01",
+        "## [0.2.0] - 2026-01-01\n## [0.2.0] - 2026-02-01",
+    ] {
+        assert_eq!(
+            release_gate(
+                CARGO,
+                &packages(PACKAGE),
+                &format!("# Changelog\n## [Unreleased]\n{order}\n")
+            ),
+            found(
+                "the versions and the changelog",
+                &[format!(
+                    "{CHANGELOG}: releases must be in strictly decreasing order"
+                )]
+            ),
+            "{order}"
+        );
+    }
+}
+
+#[test]
+fn requires_every_package_to_support_the_node_floor() {
+    for engines in [
+        r#""engines": {"node": ">=22.17"}"#,
+        r#""engines": {"node": ">=22.18.1"}"#,
+        r#""engines": {}"#,
+    ] {
+        let manifest = format!(r#"{{"version": "0.2.0", {engines}}}"#);
+        assert!(
+            release_gate(CARGO, &roadmap_package(&manifest), LOG).is_err_and(|failure| failure
+                .summary
+                .contains(&format!("{ROADMAP_PACKAGE}: engines.node is "))),
+            "{engines}"
+        );
+    }
+    assert_eq!(
+        release_gate(CARGO, &roadmap_package(r#"{"version": "0.2.0"}"#), LOG),
+        found(
+            "the versions and the changelog",
+            &[format!(
+                "{ROADMAP_PACKAGE}: engines.node is (missing), the packages support Node.js >=22.18 (NODE_FLOOR)"
+            )]
+        ),
+        "no engines"
+    );
+}
+
+/// A changelog with two released sections, as the merge base holds it.
+const RELEASED: &str = "# Changelog\n\n## [Unreleased]\n\n- next.\n\n## [0.2.0] - 2026-11-09\n\n\
+                        - two.\n\n## [0.1.0] - 2026-11-08\n\n- one.\n";
+
+#[test]
+fn keeps_every_released_section_byte_for_byte() {
+    let at = ("fed4560", "origin/main");
+    let base = "fed4560 (merge base with origin/main)";
+    let restore = "restore it from `git show fed4560:CHANGELOG.md`";
+    let context = "the released changelog sections";
+    for (changelog, why) in [
+        (RELEASED.to_owned(), "unchanged"),
+        (
+            RELEASED.replace("- next.", "- next, reworded."),
+            "the unreleased section edited",
+        ),
+        (
+            RELEASED.replace(
+                "## [0.2.0]",
+                "## [0.3.0] - 2026-11-10\n\n- three.\n\n## [0.2.0]",
+            ),
+            "a version added",
+        ),
+    ] {
+        assert_eq!(
+            crate::released_sections_gate(Some(RELEASED), &changelog, at),
+            Ok(()),
+            "{why}"
+        );
+    }
+    assert_eq!(
+        crate::released_sections_gate(None, "anything\n", at),
+        Ok(()),
+        "no changelog at the base: nothing released"
+    );
+    assert_eq!(
+        crate::released_sections_gate(Some(RELEASED), &RELEASED.replace("- one.", "- One."), at),
+        failed(format!(
+            "{context}: CHANGELOG.md:13: the released section [0.1.0] differs from the one at {base}: \
+             a released section is never edited: {restore}"
+        )),
+        "a released section edited, its first differing line named"
+    );
+    for (changelog, why) in [
+        (
+            RELEASED.replace("- one.\n", "- one.\n\n"),
+            "a line added at its end",
+        ),
+        (
+            RELEASED.replace("- one.\n", "- one."),
+            "its last line break removed",
+        ),
+        (
+            RELEASED.replace("- one.\n", "- one.\r\n"),
+            "a line ending changed",
+        ),
+    ] {
+        assert!(
+            crate::released_sections_gate(Some(RELEASED), &changelog, at).is_err_and(|failure| {
+                failure
+                    .summary
+                    .contains("the released section [0.1.0] differs")
+            }),
+            "{why}"
+        );
+    }
+    assert_eq!(
+        crate::released_sections_gate(
+            Some(RELEASED),
+            &RELEASED
+                .replace("2026-11-09", "2026-11-10")
+                .replace("- one.\n", ""),
+            at
+        ),
+        failed(format!(
+            "{context}: 2 problems, listed above\n\
+             CHANGELOG.md:7: the released section [0.2.0] differs from the one at {base}: a released \
+             section is never edited: {restore}\n\
+             CHANGELOG.md:13: the released section [0.1.0] differs from the one at {base}: a released \
+             section is never edited: {restore}"
+        )),
+        "a heading's date changed, a line removed: each section named"
+    );
+    assert_eq!(
+        crate::released_sections_gate(
+            Some(RELEASED),
+            &RELEASED.replace("## [0.1.0] - 2026-11-08\n\n- one.\n", ""),
+            at
+        ),
+        failed(format!(
+            "{context}: CHANGELOG.md: the released section [0.1.0] of {base} is missing: {restore}"
+        )),
+        "a released section removed"
+    );
+}
+
+#[test]
+fn reads_the_changelog_real_git_holds_at_the_merge_base_with_main() {
+    let dir = scratch("released-sections");
+    let _init = hermetic_git(&dir, &["init", "--quiet", "--initial-branch=main"]);
+    std::fs::write(dir.join("README.md"), "x\n").expect("a file");
+    let _add = hermetic_git(&dir, &["add", "."]);
+    let _first = hermetic_git(&dir, &["commit", "--quiet", "-m", "without"]);
+    let without = hermetic_git(&dir, &["rev-parse", "HEAD"]);
+    std::fs::write(dir.join("CHANGELOG.md"), RELEASED).expect("a changelog");
+    let _add_log = hermetic_git(&dir, &["add", "."]);
+    let _second = hermetic_git(&dir, &["commit", "--quiet", "-m", "with"]);
+    let with = hermetic_git(&dir, &["rev-parse", "HEAD"]);
+    let mut runner = system(dir.path());
+    assert_eq!(
+        crate::file_at(&mut runner, without.trim(), "CHANGELOG.md")
+            .map_err(|failure| failure.summary),
+        Ok(None),
+        "none at a commit without it"
+    );
+    assert_eq!(
+        crate::file_at(&mut runner, with.trim(), "CHANGELOG.md").map_err(|failure| failure.summary),
+        Ok(Some(RELEASED.to_owned())),
+        "its bytes at a commit with it"
+    );
+    let _branch = hermetic_git(&dir, &["checkout", "--quiet", "-b", "work"]);
+    assert_eq!(
+        crate::release::released_sections(&mut runner, &RELEASED.replace("- one.", "- One."))
+            .map_err(|failure| failure.summary),
+        Err(format!(
+            "the released changelog sections: CHANGELOG.md:13: the released section [0.1.0] \
+             differs from the one at {with} (merge base with main): a released section is never \
+             edited: restore it from `git show {with}:CHANGELOG.md`",
+            with = with.trim()
+        )),
+        "a changelog against main's at the merge base"
+    );
+    assert_eq!(
+        hermetic_git(&dir, &["show", &format!("{}:CHANGELOG.md", with.trim())]),
+        RELEASED,
+        "the command given shows the sections as released"
+    );
+    assert_eq!(
+        crate::release::released_sections(&mut runner, RELEASED).map_err(|failure| failure.summary),
+        Ok(()),
+        "as released"
+    );
+}
+
+#[test]
+fn reads_the_released_sections_against_main() {
+    let step: Vec<Step> = check_steps(CHANGES_MODE)
+        .into_iter()
+        .filter(|step| step.action == Action::VersionGate)
+        .collect();
+    let mut fake = passing();
+    let listed = fake.files.insert(
+        format!("capture {}", CHANGELOG_LISTED.0),
+        "CHANGELOG.md\n".to_owned(),
+    );
+    assert!(listed.is_some(), "the changelog listed at the base");
+    let shown = fake.files.insert(
+        "capture git show fed4560000000000000000000000000000000000:CHANGELOG.md".to_owned(),
+        LOG.replace("2026", "2025"),
+    );
+    assert!(shown.is_none(), "fresh fake");
+    let base = "fed4560000000000000000000000000000000000 (merge base with origin/main)";
+    assert_eq!(
+        run_steps(&step, &mut fake, &mut Vec::new()),
+        Err(Failure {
+            summary: "One version everywhere, changelog well formed, released sections as on \
+                      main: the released changelog sections: 3 problems, listed above"
+                .to_owned(),
+            details: [(11_u8, "0.2.0"), (13, "0.1.10"), (15, "0.1.2")]
+                .map(|(line, version)| {
+                    format!(
+                        "CHANGELOG.md:{line}: the released section [{version}] differs from the one \
+                         at {base}: a released section is never edited: restore it from `git show \
+                         fed4560000000000000000000000000000000000:CHANGELOG.md`"
+                    )
+                })
+                .to_vec(),
+            usage: false,
+        }),
+        "the changelog against the one at the merge base with main"
+    );
+    let mut baseless = passing();
+    let _main = baseless.files.remove(&format!("capture {}", MAIN_BASE.0));
+    let _local = baseless.files.remove("capture git merge-base HEAD main");
+    assert!(
+        run_steps(&step, &mut baseless, &mut Vec::new()).is_err_and(|failure| failure
+            .summary
+            .starts_with(
+                "One version everywhere, changelog well formed, released sections as on main: \
+                 no merge base with origin/main or main to read the released changelog \
+                 sections from (fetch or create one of them)"
+            )),
+        "no base"
+    );
+    let mut unreadable = passing();
+    unreadable.broken = Some(CHANGELOG_LISTED.0.to_owned());
+    assert!(
+        run_steps(&step, &mut unreadable, &mut Vec::new()).is_err_and(|failure| failure
+            .summary
+            .contains("cannot read CHANGELOG.md at the merge base fed4560")),
+        "git cannot list it"
+    );
+}
+
+/// Every workspace manifest with the same content.
+fn packages(text: &str) -> Vec<(String, String)> {
+    package_jsons()
+        .into_iter()
+        .map(|path| (path, text.to_owned()))
+        .collect()
+}

@@ -217,3 +217,7 @@ pub fn pre_push_gate(head: &str, view: &TreeView, pushed: &[String]) -> Result<(
     }
     verdict("the push cannot be checked", problems)
 }
+
+#[cfg(test)]
+#[path = "history_tests.rs"]
+mod tests;

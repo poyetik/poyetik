@@ -311,3 +311,7 @@ pub fn math_layer_gate(metadata: &str, sources: &[RustSource]) -> Result<(), Fai
         problems,
     )
 }
+
+#[cfg(test)]
+#[path = "math_layer_tests.rs"]
+mod tests;

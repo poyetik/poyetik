@@ -278,3 +278,7 @@ pub(crate) fn flatten(stream: proc_macro2::TokenStream, tokens: &mut Vec<Token>)
         tokens.push(Token { kind, text, line });
     }
 }
+
+#[cfg(test)]
+#[path = "rust_source_tests.rs"]
+mod tests;

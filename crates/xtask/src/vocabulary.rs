@@ -627,3 +627,7 @@ pub fn vocabulary_gate(sources: &[(String, String)], vocabulary: &str) -> Result
         problems,
     )
 }
+
+#[cfg(test)]
+#[path = "vocabulary_tests.rs"]
+mod tests;

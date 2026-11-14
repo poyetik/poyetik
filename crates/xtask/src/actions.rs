@@ -637,3 +637,7 @@ pub fn run_steps_then(
         usage: false,
     })
 }
+
+#[cfg(test)]
+#[path = "actions_tests.rs"]
+mod tests;

@@ -379,3 +379,7 @@ pub fn preflight_gate(
     }));
     verdict("the checks cannot run here", problems)
 }
+
+#[cfg(test)]
+#[path = "preflight_tests.rs"]
+mod tests;
