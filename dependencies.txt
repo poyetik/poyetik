@@ -73,6 +73,13 @@ apps/roadmap: astro (devDependencies) -- builds the static page of the roadmap
 apps/roadmap: eslint (devDependencies) -- runs the shared lint policy
 apps/roadmap: typescript (devDependencies) -- type checking
 apps/roadmap: vitest (devDependencies) -- unit and component tests
+bindings/visual-wasm: @stryker-mutator/core (devDependencies) -- mutation testing
+bindings/visual-wasm: @stryker-mutator/vitest-runner (devDependencies) -- runs the mutants with Vitest
+bindings/visual-wasm: @types/node (devDependencies) -- types of the Node.js APIs the tests use (files)
+bindings/visual-wasm: @vitest/coverage-v8 (devDependencies) -- coverage of the unit tests
+bindings/visual-wasm: eslint (devDependencies) -- runs the shared lint policy
+bindings/visual-wasm: typescript (devDependencies) -- type checking
+bindings/visual-wasm: vitest (devDependencies) -- unit and conformance tests
 bindings/audio-wasm: @playwright/test (devDependencies) -- runs the engine in Chromium, Firefox and WebKit
 bindings/audio-wasm: @stryker-mutator/core (devDependencies) -- mutation testing
 bindings/audio-wasm: @stryker-mutator/vitest-runner (devDependencies) -- runs the mutants with Vitest
