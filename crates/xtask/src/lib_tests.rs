@@ -262,12 +262,13 @@ pub(crate) const TREE_HEAD: (&str, &str) = (
 /// audio library, which depend on nothing but the boxes' tests on the test kit, and the
 /// crates of shared test code, the test kit depending on the counting allocator; each has
 /// only the test target reading its test data ([`test_data_reader_sources`]).
-pub(crate) const METADATA: &str = r#"{"workspace_root":"/r","packages":[{"license":"MIT OR Apache-2.0","name":"x","manifest_path":"/r/crates/x/Cargo.toml","dependencies":[{"name":"audio-core","kind":null,"path":"/r/crates/audio-core"},{"name":"serde_json","kind":null}],"targets":[{"kind":["lib"],"src_path":"/r/crates/x/src/lib.rs","test":true,"doctest":true}]},{"license":"MIT OR Apache-2.0","name":"audio-core","manifest_path":"/r/crates/audio-core/Cargo.toml","targets":[{"kind":["test"],"src_path":"/r/crates/audio-core/tests/data.rs","test":true,"doctest":false}]},{"license":"MIT OR Apache-2.0","name":"audio-boxes","manifest_path":"/r/crates/audio-boxes/Cargo.toml","dependencies":[{"name":"audio-testkit","kind":"dev","path":"/r/crates/audio-testkit"}],"targets":[{"kind":["test"],"src_path":"/r/crates/audio-boxes/tests/data.rs","test":true,"doctest":false}]},{"license":"MIT OR Apache-2.0","name":"audio-patch","manifest_path":"/r/crates/audio-patch/Cargo.toml","targets":[{"kind":["test"],"src_path":"/r/crates/audio-patch/tests/data.rs","test":true,"doctest":false}]},{"license":"MIT OR Apache-2.0","name":"audio-hash","manifest_path":"/r/crates/audio-hash/Cargo.toml","targets":[{"kind":["test"],"src_path":"/r/crates/audio-hash/tests/data.rs","test":true,"doctest":false}]},{"license":"MIT OR Apache-2.0","name":"audio-fpenv","manifest_path":"/r/crates/audio-fpenv/Cargo.toml","targets":[{"kind":["test"],"src_path":"/r/crates/audio-fpenv/tests/data.rs","test":true,"doctest":false}]},{"license":"MIT OR Apache-2.0","name":"audio-wasm","manifest_path":"/r/bindings/audio-wasm/Cargo.toml","targets":[]},{"license":"MIT OR Apache-2.0","name":"audio-testkit","manifest_path":"/r/crates/audio-testkit/Cargo.toml","dependencies":[{"name":"alloc-counter","kind":null,"path":"/r/crates/alloc-counter"}],"targets":[{"kind":["test"],"src_path":"/r/crates/audio-testkit/tests/data.rs","test":true,"doctest":false}]},{"license":"MIT OR Apache-2.0","name":"alloc-counter","manifest_path":"/r/crates/alloc-counter/Cargo.toml","targets":[]}]}"#;
+pub(crate) const METADATA: &str = r#"{"workspace_root":"/r","packages":[{"license":"MIT OR Apache-2.0","name":"x","manifest_path":"/r/crates/x/Cargo.toml","dependencies":[{"name":"audio-core","kind":null,"path":"/r/crates/audio-core"},{"name":"serde_json","kind":null}],"targets":[{"kind":["lib"],"src_path":"/r/crates/x/src/lib.rs","test":true,"doctest":true}]},{"license":"MIT OR Apache-2.0","name":"audio-core","manifest_path":"/r/crates/audio-core/Cargo.toml","targets":[{"kind":["test"],"src_path":"/r/crates/audio-core/tests/data.rs","test":true,"doctest":false}]},{"license":"MIT OR Apache-2.0","name":"audio-boxes","manifest_path":"/r/crates/audio-boxes/Cargo.toml","dependencies":[{"name":"audio-testkit","kind":"dev","path":"/r/crates/audio-testkit"}],"targets":[{"kind":["test"],"src_path":"/r/crates/audio-boxes/tests/data.rs","test":true,"doctest":false}]},{"license":"MIT OR Apache-2.0","name":"audio-patch","manifest_path":"/r/crates/audio-patch/Cargo.toml","targets":[{"kind":["test"],"src_path":"/r/crates/audio-patch/tests/data.rs","test":true,"doctest":false}]},{"license":"MIT OR Apache-2.0","name":"audio-hash","manifest_path":"/r/crates/audio-hash/Cargo.toml","targets":[{"kind":["test"],"src_path":"/r/crates/audio-hash/tests/data.rs","test":true,"doctest":false}]},{"license":"MIT OR Apache-2.0","name":"audio-fpenv","manifest_path":"/r/crates/audio-fpenv/Cargo.toml","targets":[{"kind":["test"],"src_path":"/r/crates/audio-fpenv/tests/data.rs","test":true,"doctest":false}]},{"license":"MIT OR Apache-2.0","name":"audio-wasm","manifest_path":"/r/bindings/audio-wasm/Cargo.toml","targets":[]},{"license":"MIT OR Apache-2.0","name":"audio-testkit","manifest_path":"/r/crates/audio-testkit/Cargo.toml","dependencies":[{"name":"alloc-counter","kind":null,"path":"/r/crates/alloc-counter"}],"targets":[{"kind":["test"],"src_path":"/r/crates/audio-testkit/tests/data.rs","test":true,"doctest":false}]},{"license":"MIT OR Apache-2.0","name":"alloc-counter","manifest_path":"/r/crates/alloc-counter/Cargo.toml","targets":[]},{"license":"MIT OR Apache-2.0","name":"visual-core","manifest_path":"/r/crates/visual-core/Cargo.toml","dependencies":[{"name":"alloc-counter","kind":"dev","path":"/r/crates/alloc-counter"}],"targets":[]},{"license":"MIT OR Apache-2.0","name":"visual-boxes","manifest_path":"/r/crates/visual-boxes/Cargo.toml","dependencies":[{"name":"visual-core","kind":null,"path":"/r/crates/visual-core"},{"name":"visual-testkit","kind":"dev","path":"/r/crates/visual-testkit"}],"targets":[]},{"license":"MIT OR Apache-2.0","name":"visual-hash","manifest_path":"/r/crates/visual-hash/Cargo.toml","targets":[{"kind":["test"],"src_path":"/r/crates/visual-hash/tests/data.rs","test":true,"doctest":false}]},{"license":"MIT OR Apache-2.0","name":"visual-testkit","manifest_path":"/r/crates/visual-testkit/Cargo.toml","dependencies":[{"name":"visual-core","kind":null,"path":"/r/crates/visual-core"},{"name":"alloc-counter","kind":null,"path":"/r/crates/alloc-counter"}],"targets":[{"kind":["test"],"src_path":"/r/crates/visual-testkit/tests/data.rs","test":true,"doctest":false}]}]}"#;
 
 /// The two license listings, written out: the production dependencies of what ships
-/// (the engine package, the playground and the roadmap), then everything.
+/// (the engine package, the playground, the roadmap and the visual library's package), then
+/// everything.
 pub(crate) const LICENSE_LINES: [&str; 2] = [
-    "pnpm licenses list --json --prod --filter ./bindings/audio-wasm --filter ./apps/playground --filter ./apps/roadmap",
+    "pnpm licenses list --json --prod --filter ./bindings/audio-wasm --filter ./apps/playground --filter ./apps/roadmap --filter ./bindings/visual-wasm",
     "pnpm licenses list --json --recursive",
 ];
 
@@ -953,8 +954,8 @@ pub(crate) fn passing() -> Fake {
         let pinned = fake.files.insert(path.to_owned(), text.to_owned());
         assert!(pinned.is_none(), "fresh fake");
     }
-    for (path, text) in READMES {
-        let readme = fake.files.insert(path.to_owned(), text.to_owned());
+    for (path, text) in readmes() {
+        let readme = fake.files.insert(path, text);
         assert!(readme.is_none(), "fresh fake");
     }
     let third = fake
@@ -1135,26 +1136,103 @@ pub(crate) const HISTORY_FILES: &str =
 pub(crate) const HISTORY_SCOPED: &str = "bbbbbbbbbb\naaaaaaaaaa\n";
 
 /// The READMEs of a repository whose parts are all described: each TypeScript package has
-/// its own, each folder names its parts, the root names the folders.
-pub(crate) const READMES: [(&str, &str); 10] = [
-    (
-        "README.md",
-        "| `apps/` | | `bindings/` | | `crates/` | | `tooling/` |",
-    ),
-    (
-        "crates/README.md",
-        "`audio-core` `audio-boxes` `audio-patch` `audio-hash` `alloc-counter` \
-         `audio-fpenv` `audio-battery` `audio-testkit` `audio-cli` `xtask`",
-    ),
-    ("apps/README.md", "| `roadmap/` | | `playground/` |"),
-    ("bindings/README.md", "- [`audio-wasm/`](audio-wasm/)"),
-    ("tooling/README.md", "| `config/` | | `oracle/` |"),
-    ("apps/roadmap/README.md", "# roadmap"),
-    ("apps/playground/README.md", "# playground"),
-    ("bindings/audio-wasm/README.md", "# wasm"),
-    ("tooling/config/README.md", "# config"),
-    ("tooling/oracle/README.md", "# oracle"),
-];
+/// its own, each folder names its parts, the root names the folders. The crates' README
+/// names every crate of [`super::RUST_CRATES`] under `crates/`, and the bindings' every
+/// folder of one under `bindings/`, derived so that they follow the registry.
+pub(crate) fn readmes() -> Vec<(String, String)> {
+    let crates = super::RUST_CRATES
+        .iter()
+        .filter(|krate| krate.dir.starts_with("crates/"))
+        .map(|krate| format!("`{}`", krate.name))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let bindings = super::RUST_CRATES
+        .iter()
+        .filter_map(|krate| krate.dir.strip_prefix("bindings/"))
+        .map(|folder| format!("- [`{folder}/`]({folder}/)"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    // Each folder of packages names its packages; each package has its own README.
+    let packages_in = |folder: &str| {
+        PACKAGES
+            .iter()
+            .filter_map(|package| package.dir.strip_prefix(folder))
+            .map(|name| format!("| `{name}/` |"))
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    let mut readmes: Vec<(String, String)> = [
+        (
+            "README.md",
+            "| `apps/` | | `bindings/` | | `crates/` | | `tooling/` |".to_owned(),
+        ),
+        ("crates/README.md", crates),
+        ("apps/README.md", packages_in("apps/")),
+        ("bindings/README.md", bindings),
+        ("tooling/README.md", packages_in("tooling/")),
+    ]
+    .into_iter()
+    .map(|(path, text)| (path.to_owned(), text))
+    .collect();
+    readmes.extend(PACKAGES.iter().map(|package| {
+        let name = package.dir.rsplit('/').next().unwrap_or(package.dir);
+        (format!("{}/README.md", package.dir), format!("# {name}"))
+    }));
+    readmes
+}
+
+/// The crates of the visual library in [`super::RUST_CRATES`]: the expectations below
+/// that count steps, commands and reads were written for the audio engine's crates, each
+/// visual crate adding its own (one coverage step, its measurement and the emptying of the
+/// coverage build before it, its manifest read by three gates, its coverage report read
+/// twice).
+pub(crate) fn visual_crates() -> usize {
+    super::RUST_CRATES
+        .iter()
+        .filter(|krate| krate.name.starts_with("visual-"))
+        .count()
+}
+
+/// The total the check prints for `steps` steps of the fakes' clock, 1.5 s each, rounded
+/// down to the second: `2 min 16 s` for 91 steps.
+pub(crate) fn elapsed(steps: usize) -> String {
+    let seconds = steps.saturating_mul(3) / 2;
+    format!("{} min {:02} s", seconds / 60, seconds % 60)
+}
+
+/// The visual crates with a binary: each adds the coverage step of its `main.rs`, that
+/// measurement and the emptying before it, and its report read twice.
+pub(crate) fn visual_binaries() -> usize {
+    super::RUST_CRATES
+        .iter()
+        .filter(|krate| krate.name.starts_with("visual-") && krate.binary)
+        .count()
+}
+
+/// The steps the visual library adds to the check: a coverage step per crate and per
+/// binary, and the native visual conformance check.
+pub(crate) fn visual_steps() -> usize {
+    visual_crates()
+        .saturating_add(visual_binaries())
+        .saturating_add(1)
+}
+
+/// The TypeScript packages beyond the five these expectations were written for: the shared
+/// build of the WebAssembly modules (`tooling/wasm-build`) and the visual library in the
+/// browser (`bindings/visual-wasm`).
+pub(crate) fn added_packages() -> usize {
+    PACKAGES.len().saturating_sub(5)
+}
+
+/// The steps the packages of [`added_packages`] add to the check: one per script of its
+/// checks, then its mutation testing, its reports gate and its scope gate.
+pub(crate) fn added_package_steps() -> usize {
+    PACKAGES
+        .iter()
+        .skip(5)
+        .map(|package| package.checks.len().saturating_add(3))
+        .sum()
+}
 
 pub(crate) const CARGO: &str = "[workspace]\nmembers = []\n\n[workspace.package]\nedition = \"2024\"\nversion = \"0.2.0\"\n\n[other]\nversion = \"9.9.9\"\n";
 
@@ -1443,7 +1521,7 @@ pub(crate) const FAKE_WORDS: &str = "forbid node -> box -- the glossary\n";
 
 /// The parts of the full check, by name, in order: the matrix of the CI workflow, then the
 /// final part.
-pub(crate) const PART_NAMES: [&str; 18] = [
+pub(crate) const PART_NAMES: [&str; 20] = [
     "rust",
     "coverage",
     "mutation-0",
@@ -1461,6 +1539,8 @@ pub(crate) const PART_NAMES: [&str; 18] = [
     "bindings-audio-wasm",
     "apps-playground",
     "apps-roadmap",
+    "tooling-wasm-build",
+    "bindings-visual-wasm",
     "final",
 ];
 

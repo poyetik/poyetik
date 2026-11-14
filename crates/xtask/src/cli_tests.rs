@@ -6,7 +6,8 @@ use std::io;
 
 use crate::tests::{
     Broken, CHANGES_MODE, Fake, HERMETIC, MAIN_BASE, MERGE_BASE, PART_NAMES, PUSH_STATUS,
-    command_lines, failed, hermetic_git, one_mutant, passing, run_cli, scratch, system,
+    added_package_steps, command_lines, elapsed, failed, hermetic_git, one_mutant, passing,
+    run_cli, scratch, system, visual_steps,
 };
 use crate::{
     Action, BestEffort, Failure, PACKAGES, Step, SystemRunner, UNVIABLE_REPORT, UNVIABLE_REVIEWED,
@@ -1315,10 +1316,12 @@ fn checks_a_push_then_runs_every_check() {
         0,
         "clean push"
     );
+    let checks = 114 + visual_steps() + added_package_steps();
     assert!(
-        String::from_utf8(out)
-            .expect("UTF-8")
-            .ends_with("✔ all 114 checks passed in 2 min 51 s\n"),
+        String::from_utf8(out).expect("UTF-8").ends_with(&format!(
+            "✔ all {checks} checks passed in {}\n",
+            elapsed(checks)
+        )),
         "then every check"
     );
     assert!(
@@ -1399,15 +1402,17 @@ fn prints_the_details_of_a_failure_on_stdout_and_one_line_on_stderr() {
         ),
         "every mutant, in half the threads of the machine"
     );
+    let checks = 112 + visual_steps() + added_package_steps();
+    let took = elapsed(checks);
     assert_eq!(
         String::from_utf8(err).expect("UTF-8"),
-        "error: 1 of 112 checks failed, listed above\n",
+        format!("error: 1 of {checks} checks failed, listed above\n"),
         "one line on stderr, counting the failed steps"
     );
     assert!(
         String::from_utf8(out).expect("UTF-8").ends_with(&format!(
-            "▶ [112/112] Working tree unchanged by the checks\n  done in 1.5 s\n\
-             ✘ 1 of 112 checks failed in 2 min 48 s\n\
+            "▶ [{checks}/{checks}] Working tree unchanged by the checks\n  done in 1.5 s\n\
+             ✘ 1 of {checks} checks failed in {took}\n\
              not reviewed: crates/a/src/c.rs: replace g -> U with x\n\
              stale review: crates/a/src/b.rs: replace f -> T with Default::default()\n\
              Rust unviable mutants reviewed: unviable mutants must be reviewed in \

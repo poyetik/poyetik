@@ -87,7 +87,8 @@ fn reviews_the_dependencies_real_cargo_metadata_lists() {
     let reviewed = "audio-core: libm (normal) -- r\naudio-testkit: libm (normal) -- r\n\
                     audio-testkit: sha2 (normal) -- r\naudio-boxes: libm (dev) -- r\n\
                     audio-cli: libm (normal) -- r\naudio-cli: serde (build) -- r\n\
-                    audio-hash: serde_json (normal) -- r\naudio-hash: sha2 (normal) -- r\n";
+                    audio-hash: serde_json (normal) -- r\naudio-hash: sha2 (normal) -- r\n\
+                    visual-hash: serde_json (normal) -- r\n";
     assert_eq!(
         crate::dependency_gate(&metadata, &[], reviewed),
         failed(
@@ -100,10 +101,11 @@ fn reviews_the_dependencies_real_cargo_metadata_lists() {
     );
 }
 
-/// What the pin gate says of a dependency `key` of the library not reviewed as bit-defining.
-fn unmarked(key: &str) -> String {
+/// What the pin gate says of a dependency `key` of the library `what` not reviewed as
+/// bit-defining.
+fn unmarked(key: &str, what: &str) -> String {
     format!(
-        "{key}: its code runs in the audio library's: review it in dependencies.txt with a \
+        "{key}: its code runs in the {what}'s: review it in dependencies.txt with a \
          reason starting `bit-defining: `"
     )
 }
@@ -116,16 +118,19 @@ fn pins_the_bit_defining_dependencies_real_cargo_metadata_lists() {
                     audio-testkit: libm (normal) -- the measurements\n\
                     audio-testkit: sha2 (normal) -- bit-defining: the fingerprints\n\
                     audio-hash: serde_json (normal) -- reads JSON\n\
-                    audio-hash: sha2 (normal) -- bit-defining: the render hash\n";
+                    audio-hash: sha2 (normal) -- bit-defining: the render hash\n\
+                    visual-hash: serde_json (normal) -- reads JSON\n";
     assert_eq!(
         crate::pin_gate(&metadata, reviewed),
         step_found(&[
             unpinned("audio-testkit: sha2 (normal)", "^0.11"),
-            unmarked("audio-hash: serde_json (normal)"),
+            unmarked("audio-hash: serde_json (normal)", "audio library"),
             unpinned("audio-hash: serde_json (normal)", "^1"),
+            unmarked("visual-hash: serde_json (normal)", "visual library"),
+            unpinned("visual-hash: serde_json (normal)", "^1"),
         ]),
-        "a reviewed one unpinned, one of the library neither reviewed so nor pinned; the \
-         library's tests, another crate's and a comment apart"
+        "a reviewed one unpinned, one of each library neither reviewed so nor pinned; the \
+         libraries' tests, another crate's and a comment apart"
     );
 }
 
@@ -168,7 +173,7 @@ fn reads_one_exact_version_only() {
     assert_eq!(
         missing,
         step_found(&[
-            unmarked("audio-core: libm (normal)"),
+            unmarked("audio-core: libm (normal)", "audio library"),
             unpinned("audio-core: libm (normal)", "")
         ]),
         "no kind, no requirement"
@@ -198,25 +203,39 @@ fn outside_library(library: &str, name: &str, kind: &str, path: &str) -> String 
     )
 }
 
+/// What the library gate says of `library`, a crate of the visual library, depending on
+/// `name` (`kind`, at `path`).
+fn outside_visual_library(library: &str, name: &str, kind: &str, path: &str) -> String {
+    format!(
+        "{library} depends on {name} ({kind}, {path}): the visual library depends only on its \
+         own crates (visual-core, visual-boxes, visual-hash), its tests also on \
+         visual-testkit, alloc-counter; move what it needs into the library, or the \
+         dependency out of it"
+    )
+}
+
 #[test]
 fn keeps_the_library_apart_in_real_cargo_metadata() {
     let (metadata, root) = fixture_metadata();
     let cli = format!("{root}/crates/audio-cli");
+    let core = format!("{root}/crates/audio-core");
     assert_eq!(
         crate::library_gate(&metadata),
         step_found(&[
             outside_library("audio-boxes", "audio-cli", "normal", &cli),
             outside_library("audio-wasm", "audio-cli", "dev", &cli),
+            outside_visual_library("visual-core", "audio-core", "normal", &core),
         ]),
-        "the native shell in the code and in the tests; the test bench in the tests, the \
-         library's own crates and third-party crates allowed"
+        "the native shell in the code and in the tests; the visual library reaching into \
+         the audio one; each library's test bench in its tests, its own crates and \
+         third-party crates allowed"
     );
 }
 
 #[test]
 fn refuses_a_library_that_reaches_outside_itself() {
     let packages = |core: &str| {
-        let others = r#"{"name":"audio-boxes"},{"name":"audio-patch"},{"name":"audio-hash"},{"name":"audio-fpenv"},"#;
+        let others = r#"{"name":"audio-boxes"},{"name":"audio-patch"},{"name":"audio-hash"},{"name":"audio-fpenv"},{"name":"visual-core"},{"name":"visual-boxes"},{"name":"visual-hash"},"#;
         format!(
             r#"{{"workspace_root":"/r","packages":[{others}{{"name":"audio-wasm"}},{{"name":"audio-core","dependencies":[{core}]}}]}}"#
         )
@@ -279,7 +298,10 @@ fn refuses_a_library_that_reaches_outside_itself() {
                 "audio-patch",
                 "audio-hash",
                 "audio-fpenv",
-                "audio-wasm"
+                "audio-wasm",
+                "visual-core",
+                "visual-boxes",
+                "visual-hash"
             ]
             .map(|name| {
                 format!("{name}: not in the cargo metadata, so its dependencies cannot be checked")

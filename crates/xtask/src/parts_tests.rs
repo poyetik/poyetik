@@ -1,7 +1,10 @@
 //! Tests of the parts of the full check that CI runs as parallel jobs, and the gate that proves
 //! they cover it.
 
-use crate::tests::{FAKE_JOBS, Fake, PART_NAMES, command_lines, failed, parts_refused};
+use crate::tests::{
+    FAKE_JOBS, Fake, PART_NAMES, added_package_steps, added_packages, command_lines, failed,
+    parts_refused, visual_steps,
+};
 use crate::{
     Action, Cmd, Dir, Extent, Failure, Mode, Step, UNVIABLE_REVIEWED, check_steps, run_steps,
 };
@@ -96,7 +99,7 @@ fn runs_each_part_of_the_full_check_as_its_own_job() {
     assert_eq!(
         lines("miri"),
         frame(&[&format!(
-            "Root: cargo +nightly-2026-11-01 {} test --package alloc-counter --package audio-wasm --locked -- --include-ignored",
+            "Root: cargo +nightly-2026-11-01 {} test --package visual-wasm --package alloc-counter --package audio-wasm --locked -- --include-ignored",
             "miri"
         )]),
         "Miri alone"
@@ -105,8 +108,8 @@ fn runs_each_part_of_the_full_check_as_its_own_job() {
         lines("apps-playground"),
         frame(&[
             "Root: pnpm install --frozen-lockfile",
-            "fresh tooling/config/coverage tooling/config/reports/mutation tooling/oracle/coverage tooling/oracle/reports/mutation bindings/audio-wasm/coverage bindings/audio-wasm/reports/mutation apps/playground/coverage apps/playground/reports/mutation apps/roadmap/coverage apps/roadmap/reports/mutation",
-            "fresh bindings/audio-wasm/dist",
+            "fresh tooling/config/coverage tooling/config/reports/mutation tooling/oracle/coverage tooling/oracle/reports/mutation bindings/audio-wasm/coverage bindings/audio-wasm/reports/mutation apps/playground/coverage apps/playground/reports/mutation apps/roadmap/coverage apps/roadmap/reports/mutation tooling/wasm-build/coverage tooling/wasm-build/reports/mutation bindings/visual-wasm/coverage bindings/visual-wasm/reports/mutation",
+            "fresh bindings/audio-wasm/dist bindings/visual-wasm/dist",
             "Package(\"bindings/audio-wasm\"): pnpm run build",
             "Package(\"apps/playground\"): pnpm run typecheck",
             "Package(\"apps/playground\"): pnpm run lint",
@@ -180,8 +183,15 @@ fn the_parts_run_every_step_of_the_full_check_once() {
     }
     assert_eq!(
         steps_run,
-        18 * 3 + (112 - 3 - 7 - 2) + 8 * 2 + 1 + 2 + 6 * 3 + 1,
-        "each part's frame (three steps); every other step of the 112 once, but the seven \
+        (18 + added_packages()) * 3
+            + (112 + visual_steps() + added_package_steps() - 3 - 7 - 2)
+            + 8 * 2
+            + 1
+            + 2
+            + (6 + added_packages()) * 3
+            + 1,
+        "each part's frame (three steps); every other step of the 112 (more with the visual \
+         library's) once, but the seven \
          preparations, the mutation run and its unviable gate; in each of the eight shards, \
          the report emptied and the shard's run; the gate over the shards; the conformance \
          export (two steps) for the oracle; the JavaScript preparation (three steps) for the \

@@ -8,7 +8,7 @@ use crate::tests::{
     CHANGES, COMMON_DIR, FAKE_JOBS, Fake, HERMETIC, HOST, LINKER, MAIN_BASE, MERGE_BASE,
     NEW_RUST_FILES, PROVEN, UNTRACKED, diff_since, failed, fixture_metadata, hermetic_git,
     mutate_changes, one_line_change, passing, proof_record, record_path, rust_mutation_of_changes,
-    scratch, since_base, system,
+    scratch, since_base, system, visual_crates,
 };
 use crate::{
     CHANGES_DIFF, MEASURED_BASE, PROOF_RECORDS, RustCrate, Step, SystemRunner, Target,
@@ -1617,6 +1617,12 @@ fn mutates_every_crate_not_proven_whole_when_what_every_test_uses_changed() {
         "audio-core",
         "audio-boxes",
         "audio-patch",
+        "visual-core",
+        "visual-boxes",
+        "visual-hash",
+        "visual-testkit",
+        "visual-cli",
+        "visual-wasm",
         "alloc-counter",
         "audio-fpenv",
         "audio-battery",
@@ -2213,15 +2219,45 @@ fn follows_a_lock_dependency_by_name_version_and_source() {
     }
 }
 
+/// The reasons the lock reader gives for the malformed forms of `lock` the test below
+/// writes around `libm`'s entry and after the last one. The fixture lists the registry's
+/// packages after every crate of the registry, so these lines are counted from the first
+/// registry entry, `libm`'s, and from the end, never retyped.
+fn malformed_lock_reasons(lock: &str) -> [String; 8] {
+    let libm = lock
+        .lines()
+        .position(|line| line == "name = \"libm\"")
+        .map_or(0, |index| index.saturating_add(1));
+    let after = lock.lines().count().saturating_add(2);
+    let at = |line: usize, what: &str| format!("line {line} {what}");
+    [
+        at(libm, "is not `name = \"…\"`"),
+        at(libm.saturating_add(1), "is not `version = \"…\"`"),
+        at(libm.saturating_add(3), "is not `checksum = \"…\"`"),
+        at(
+            libm.saturating_add(4),
+            "is not the blank line ending an entry",
+        ),
+        at(
+            libm.saturating_sub(2),
+            "is not the blank line ending an entry",
+        ),
+        at(after, "is not `[[package]]`"),
+        format!("the entry of line {after} repeats an earlier one"),
+        at(libm.saturating_add(2), "is not `source = \"…\"`"),
+    ]
+}
+
 #[test]
 fn reads_a_lock_file_only_as_cargo_writes_it() {
     let lock = lock_text(&LOCKED_WORKSPACE, &LOCKED_REGISTRY);
     assert!(crate::changes::lock_entries(&lock).is_ok(), "as written");
     assert_eq!(
         crate::changes::lock_entries(&lock).map(|entries| entries.len()),
-        Ok(16),
+        Ok(16 + visual_crates()),
         "every crate of the workspace and every package"
     );
+    let around = malformed_lock_reasons(&lock);
     let first = "it does not start with `version = 4` after its comments";
     for (malformed, reason) in [
         (lock.replacen("version = 4", "version = 3", 1), first),
@@ -2232,19 +2268,19 @@ fn reads_a_lock_file_only_as_cargo_writes_it() {
                 "\n[[package]]\nnamee = \"libm\"",
                 1,
             ),
-            "line 63 is not `name = \"…\"`",
+            &around[0],
         ),
         (
             lock.replacen("version = \"0.2.16\"", "version = 0.2.16", 1),
-            "line 64 is not `version = \"…\"`",
+            &around[1],
         ),
         (
             lock.replacen("checksum = \"c1\"", "checksum = c1", 1),
-            "line 66 is not `checksum = \"…\"`",
+            &around[2],
         ),
         (
             lock.replacen("checksum = \"c1\"", "checksum = \"c1\"\nyanked = true", 1),
-            "line 67 is not the blank line ending an entry",
+            &around[3],
         ),
         (
             lock.replacen(" \"libm\",", "  \"libm\",", 1),
@@ -2270,17 +2306,14 @@ fn reads_a_lock_file_only_as_cargo_writes_it() {
                 "\n[[package]]\nname = \"libm\"",
                 1,
             ),
-            "line 61 is not the blank line ending an entry",
+            &around[4],
         ),
-        (
-            format!("{lock}\n[metadata]\n"),
-            "line 98 is not `[[package]]`",
-        ),
+        (format!("{lock}\n[metadata]\n"), &around[5]),
         (
             format!(
                 "{lock}\n[[package]]\nname = \"libm\"\nversion = \"0.2.16\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"c1\"\n"
             ),
-            "the entry of line 98 repeats an earlier one",
+            &around[6],
         ),
         (
             format!("{lock}\n[[package]]\nname = \"a\"\n"),
@@ -2296,7 +2329,7 @@ fn reads_a_lock_file_only_as_cargo_writes_it() {
                 "source = registry",
                 1,
             ),
-            "line 65 is not `source = \"…\"`",
+            &around[7],
         ),
     ] {
         assert_eq!(
