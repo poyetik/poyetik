@@ -292,6 +292,10 @@ Sub-decisions:
 Sub-decisions:
 
 - The protected limiter is a **true-peak limiter** (ITU-R BS.1770 oversampled peak estimation) with a ceiling setting, short lookahead and a declared latency, compensated like any box's.
+- **Its settings and defaults** (decided 2026-11-15, after the practice of broadcast and mastering tools): the ceiling defaults to **-1 dBTP** (EBU R128's maximum true-peak level, and the level AES recommends at the input of a lossy codec); the lookahead (about 1.5 ms) and the release (about 100 ms) are host settings too, each with a validated range, refused outside it; the channels share one gain, so that the image does not move.
+- **Its peak estimate**: 4x oversampling at every sample rate, through BS.1770's own interpolation filter (48 taps in 4 phases, whose coefficients are exact in binary32 and binary64), at least the standard's accuracy everywhere (it asks for a 192 kHz estimate) and above it from 96 kHz. Its worst-case under-read, from the standard's formula 20 log10(cos(pi f / n)), is 0.554 dB for content up to 0.45 of the sample rate and 0.688 dB up to half of it, plus the filter's own ripple: the bound on the output's overshoot of the ceiling is derived from both and tested.
+- **Below the ceiling the limiter changes no bit**: its output is its input delayed by its latency, exactly (a law).
+- **A non-finite sample is a warning for playback and renders, a failure for conformance**: renders and live playback go on, the samples replaced and reported (the native renderer prints a warning line, the playground shows it); a conformance case whose render needed any replacement fails its check, since a non-finite sample is a defect of a box.
 - The stage runs **inside the engine**, before delivery and before hashing, so it is deterministic and covered by conformance; a render hash is taken after it.
 - The internal signal has no headroom limit (floating point); full scale is ±1 at delivery only.
 
