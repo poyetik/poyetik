@@ -967,6 +967,21 @@ pub(crate) fn passing() -> Fake {
         let earlier = fake.files.insert(path, text.to_owned());
         assert!(earlier.is_none(), "fresh fake");
     }
+    with_package_checks(fake)
+}
+
+/// `fake`, with each package's manifest running the scripts its checks run.
+fn with_package_checks(mut fake: Fake) -> Fake {
+    for package in PACKAGES {
+        let (path, text) = fake_package(format!("{}/package.json", package.dir));
+        let check = super::check_script(package.checks);
+        let with_check = text.replacen(
+            '{',
+            &format!("{{\"scripts\": {{\"check\": \"{check}\"}}, "),
+            1,
+        );
+        let _manifest = fake.files.insert(path, with_check);
+    }
     fake
 }
 
@@ -1155,6 +1170,7 @@ pub(crate) fn command_lines(steps: &[Step]) -> Vec<String> {
                 format!("typescript reports gate of {}", package.dir)
             }
             Action::StrykerConfigGate => "stryker config gate".to_owned(),
+            Action::PackageCheckGate => "package check gate".to_owned(),
             Action::TypeScriptScopeGate(package) => {
                 format!("typescript scope gate of {}", package.dir)
             }

@@ -1314,3 +1314,100 @@ fn scope(dir: &'static str, mutate: &[&str], measured: &[&str]) -> crate::Scope 
         mutation: serde_json::json!({ "files": reported }).to_string(),
     }
 }
+
+#[test]
+fn ties_each_package_check_to_the_scripts_the_checks_run() {
+    use crate::{check_script, package_check_gate};
+    assert_eq!(
+        check_script(&["typecheck", "test:e2e"]),
+        "pnpm typecheck && pnpm test:e2e",
+        "each script through pnpm, in order"
+    );
+    let checks = ["typecheck", "lint"];
+    assert_eq!(
+        package_check_gate(
+            "a/package.json",
+            r#"{"scripts": {"check": "pnpm typecheck && pnpm lint"}}"#,
+            &checks
+        ),
+        Ok(()),
+        "exactly the scripts, in order"
+    );
+    for (manifest, problem) in [
+        (
+            r#"{"scripts": {"check": "pnpm lint && pnpm typecheck"}}"#,
+            "a/package.json: its `check` script runs `pnpm lint && pnpm typecheck`, not the \
+             scripts the checks run and time: `pnpm typecheck && pnpm lint`",
+        ),
+        (
+            r#"{"scripts": {"check": "pnpm typecheck && pnpm lint && pnpm test"}}"#,
+            "a/package.json: its `check` script runs `pnpm typecheck && pnpm lint && pnpm test`, \
+             not the scripts the checks run and time: `pnpm typecheck && pnpm lint`",
+        ),
+        (
+            r#"{"scripts": {"test": "vitest"}}"#,
+            "a/package.json: no `check` script, where the checks run and time `pnpm typecheck \
+             && pnpm lint`",
+        ),
+        (
+            r#"{"scripts": {"check": 1}}"#,
+            "a/package.json: no `check` script, where the checks run and time `pnpm typecheck \
+             && pnpm lint`",
+        ),
+        (
+            "{}",
+            "a/package.json: no `check` script, where the checks run and time `pnpm typecheck \
+             && pnpm lint`",
+        ),
+    ] {
+        assert_eq!(
+            package_check_gate("a/package.json", manifest, &checks),
+            Err(Failure::from(problem.to_owned())),
+            "{manifest}"
+        );
+    }
+    assert!(
+        package_check_gate("a/package.json", "{", &checks).is_err_and(|failure| failure
+            .summary
+            .starts_with("a/package.json: invalid manifest: ")),
+        "an invalid manifest"
+    );
+}
+
+#[test]
+fn reads_the_manifest_of_every_package_for_the_package_check_gate() {
+    let step = [Step {
+        name: "Package checks".to_owned(),
+        action: Action::PackageCheckGate,
+    }];
+    let mut fake = passing();
+    assert_eq!(run_steps(&step, &mut fake, &mut Vec::new()), Ok(()));
+    for package in crate::PACKAGES {
+        assert!(
+            fake.ran
+                .contains(&format!("read {}/package.json", package.dir)),
+            "{} read",
+            package.dir
+        );
+    }
+    let replaced = fake.files.insert(
+        "apps/roadmap/package.json".to_owned(),
+        r#"{"scripts": {"check": "pnpm test"}}"#.to_owned(),
+    );
+    assert!(replaced.is_some(), "a manifest replaced");
+    assert_eq!(
+        run_steps(&step, &mut fake, &mut Vec::new()),
+        failed(
+            "Package checks: apps/roadmap/package.json: its `check` script runs `pnpm test`, not \
+             the scripts the checks run and time: `pnpm typecheck && pnpm lint && pnpm test && \
+             pnpm build && pnpm test:e2e`"
+        )
+    );
+    let mut unreadable = passing();
+    unreadable.broken = Some("read tooling/config/package.json".to_owned());
+    assert!(
+        run_steps(&step, &mut unreadable, &mut Vec::new())
+            .is_err_and(|failure| failure.summary.contains("tooling/config/package.json")),
+        "an unreadable manifest"
+    );
+}

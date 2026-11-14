@@ -48,6 +48,7 @@ const DEFAULT_PIPELINE: &[&str] = &[
     "Root: pnpm audit --audit-level=low",
     "license gate",
     "stryker config gate",
+    "package check gate",
     "Root: cargo fmt --all --check",
     "Root: cargo clippy --workspace --all-targets --locked",
     "float method gate",
@@ -82,26 +83,46 @@ const DEFAULT_PIPELINE: &[&str] = &[
         "Root: cargo +nightly-2026-11-01 mi",
         "ri test --package alloc-counter --package audio-wasm --locked -- --include-ignored"
     ),
-    "Package(\"tooling/config\"): pnpm run check",
+    "Package(\"tooling/config\"): pnpm run typecheck",
+    "Package(\"tooling/config\"): pnpm run lint",
+    "Package(\"tooling/config\"): pnpm run test",
     "Package(\"tooling/config\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json",
     "typescript reports gate of tooling/config",
     "typescript scope gate of tooling/config",
     "fresh target/conformance",
     "Root: cargo run --package audio-cli --locked --quiet -- export conformance target/conformance",
-    "Package(\"tooling/oracle\"): pnpm run check",
+    "Package(\"tooling/oracle\"): pnpm run typecheck",
+    "Package(\"tooling/oracle\"): pnpm run lint",
+    "Package(\"tooling/oracle\"): pnpm run test",
+    "Package(\"tooling/oracle\"): pnpm run oracle",
     "Package(\"tooling/oracle\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json",
     "typescript reports gate of tooling/oracle",
     "typescript scope gate of tooling/oracle",
-    "Package(\"bindings/audio-wasm\"): pnpm run check",
+    "Package(\"bindings/audio-wasm\"): pnpm run build",
+    "Package(\"bindings/audio-wasm\"): pnpm run typecheck",
+    "Package(\"bindings/audio-wasm\"): pnpm run lint",
+    "Package(\"bindings/audio-wasm\"): pnpm run test",
+    "Package(\"bindings/audio-wasm\"): pnpm run benchmarks:check",
+    "Package(\"bindings/audio-wasm\"): pnpm run test:allocation",
+    "Package(\"bindings/audio-wasm\"): pnpm run test:reproducible",
+    "Package(\"bindings/audio-wasm\"): pnpm run test:e2e",
     "Package(\"bindings/audio-wasm\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json",
     "typescript reports gate of bindings/audio-wasm",
     "typescript scope gate of bindings/audio-wasm",
     "Package(\"bindings/audio-wasm\"): pnpm run build",
-    "Package(\"apps/playground\"): pnpm run check",
+    "Package(\"apps/playground\"): pnpm run typecheck",
+    "Package(\"apps/playground\"): pnpm run lint",
+    "Package(\"apps/playground\"): pnpm run test",
+    "Package(\"apps/playground\"): pnpm run build",
+    "Package(\"apps/playground\"): pnpm run test:e2e",
     "Package(\"apps/playground\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json",
     "typescript reports gate of apps/playground",
     "typescript scope gate of apps/playground",
-    "Package(\"apps/roadmap\"): pnpm run check",
+    "Package(\"apps/roadmap\"): pnpm run typecheck",
+    "Package(\"apps/roadmap\"): pnpm run lint",
+    "Package(\"apps/roadmap\"): pnpm run test",
+    "Package(\"apps/roadmap\"): pnpm run build",
+    "Package(\"apps/roadmap\"): pnpm run test:e2e",
     "Package(\"apps/roadmap\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json",
     "typescript reports gate of apps/roadmap",
     "typescript scope gate of apps/roadmap",
@@ -156,6 +177,7 @@ const DEFAULT_CHECK_NAMES: &[&str] = &[
     "JavaScript vulnerabilities",
     "JavaScript licenses",
     "Stryker configurations hide no mutant",
+    "Each package's check runs exactly the scripts the checks time",
     "Rust formatting",
     "Rust lints",
     "Float methods of the pinned toolchain banned or reviewed as deterministic",
@@ -187,26 +209,46 @@ const DEFAULT_CHECK_NAMES: &[&str] = &[
     "Rust coverage of the audio-cli binary: 100% by its tests",
     "Rust coverage of the xtask binary: 100% by its tests",
     "Unsafe code under Miri",
-    "Shared TypeScript policy (each rule proven to reject what it forbids)",
+    "Shared TypeScript policy (each rule proven to reject what it forbids): typecheck",
+    "Shared TypeScript policy (each rule proven to reject what it forbids): lint",
+    "Shared TypeScript policy (each rule proven to reject what it forbids): test",
     "Mutation testing of tooling/config (what changed since the last run)",
     "TypeScript coverage and mutation reports of tooling/config",
     "Every TypeScript source of tooling/config measured and mutated, or reviewed",
     "Fresh conformance export directory",
     "Conformance export (native WAV files)",
-    "Conformance oracle (independent, TypeScript)",
+    "Conformance oracle (independent, TypeScript): typecheck",
+    "Conformance oracle (independent, TypeScript): lint",
+    "Conformance oracle (independent, TypeScript): test",
+    "Conformance oracle (independent, TypeScript): oracle",
     "Mutation testing of tooling/oracle (what changed since the last run)",
     "TypeScript coverage and mutation reports of tooling/oracle",
     "Every TypeScript source of tooling/oracle measured and mutated, or reviewed",
-    "Engine WASM checks",
+    "Engine WASM checks: build",
+    "Engine WASM checks: typecheck",
+    "Engine WASM checks: lint",
+    "Engine WASM checks: test",
+    "Engine WASM checks: benchmarks:check",
+    "Engine WASM checks: test:allocation",
+    "Engine WASM checks: test:reproducible",
+    "Engine WASM checks: test:e2e",
     "Mutation testing of bindings/audio-wasm (what changed since the last run)",
     "TypeScript coverage and mutation reports of bindings/audio-wasm",
     "Every TypeScript source of bindings/audio-wasm measured and mutated, or reviewed",
     "Engine WASM build, for the packages that use it",
-    "Playground checks",
+    "Playground checks: typecheck",
+    "Playground checks: lint",
+    "Playground checks: test",
+    "Playground checks: build",
+    "Playground checks: test:e2e",
     "Mutation testing of apps/playground (what changed since the last run)",
     "TypeScript coverage and mutation reports of apps/playground",
     "Every TypeScript source of apps/playground measured and mutated, or reviewed",
-    "Roadmap checks",
+    "Roadmap checks: typecheck",
+    "Roadmap checks: lint",
+    "Roadmap checks: test",
+    "Roadmap checks: build",
+    "Roadmap checks: test:e2e",
     "Mutation testing of apps/roadmap (what changed since the last run)",
     "TypeScript coverage and mutation reports of apps/roadmap",
     "Every TypeScript source of apps/roadmap measured and mutated, or reviewed",
@@ -459,7 +501,7 @@ fn runs_every_step_and_reports_success() {
         Ok(()),
         "all green"
     );
-    let (tools, commands, emptied, listed, captured, written) = (10, 58, 14, 27, 55, 4);
+    let (tools, commands, emptied, listed, captured, written) = (10, 78, 14, 27, 55, 4);
     let read = 9
         + 2
         + 13
@@ -487,15 +529,16 @@ fn runs_every_step_and_reports_success() {
         + 1
         + 6
         + 3
-        + 91;
+        + 91
+        + 5;
     assert_eq!(
         fake.ran.len(),
         tools + commands + emptied + listed + captured + written + read,
-        "the preflight asks ten tools; 58 commands run (formatting, lints, documentation, \
+        "the preflight asks ten tools; 78 commands run (formatting, lints, documentation, \
          tests, four portability builds, the native shell's lints and the build of its libraries for its two architectures, fourteen coverage measurements each after emptying \
          the coverage build, the mutants of the changes, Miri, the \
-         conformance check and export, deny, the JavaScript install, audit, the engine build and five package \
-         checks each followed by its Stryker run); fourteen directories are emptied; git lists \
+         conformance check and export, deny, the JavaScript install, audit, the engine build and the twenty-five \
+         scripts of the five package checks, each package followed by its Stryker run); fourteen directories are emptied; git lists \
          fourteen kinds of files (the box sources, the text files that cite the roadmap and the npm configuration files among them), the Rust files again for the test code, test data, untested targets, unviable names and loaded files gates, the TypeScript ones again for the reports and scope gates of \
          each package after the first; the licenses twice, the history of main and the history three times, the state \
          of the tree (before, for the proof record and after) six times, the nightly's version and sysroot, the Cargo metadata (for the untested targets, dependency, pin, library, part license and math layer gates), the output of the fused test build and of the nine builds of the loaded files gate, the merge base, the merge base with main three times and the record of the versions spent and the changelog listed there, the changed paths, the changes, the \
@@ -529,15 +572,15 @@ fn runs_every_step_and_reports_success() {
     );
     let text = String::from_utf8(out).expect("utf-8 output");
     assert!(
-        text.starts_with("▶ [1/92] Tools and platform\n"),
+        text.starts_with("▶ [1/113] Tools and platform\n"),
         "numbered progress: {text}"
     );
     assert!(
-        text.contains("▶ [83/92] Roadmap checks\n  done in 1.5 s\n"),
+        text.contains("▶ [104/113] Roadmap checks: test:e2e\n  done in 1.5 s\n"),
         "last step announced: {text}"
     );
     assert!(
-        text.ends_with("  done in 1.5 s\n✔ all 92 checks passed in 2 min 18 s\n"),
+        text.ends_with("  done in 1.5 s\n✔ all 113 checks passed in 2 min 49 s\n"),
         "summary: {text}"
     );
 }
@@ -830,6 +873,7 @@ const fn carries_its_problems_alone(action: &Action) -> bool {
         | Action::PartsGate
         | Action::ReadmeGate
         | Action::StrykerConfigGate
+        | Action::PackageCheckGate
         | Action::SupplyChainGate
         | Action::TypeScriptMutationGate { .. }
         | Action::TypeScriptReportsGate(_)
@@ -1073,21 +1117,30 @@ fn wires_every_package_into_the_checks() {
         .collect();
     let [shipped, _] = crate::licenses::license_commands();
     for package in PACKAGES {
-        let checked = steps.iter().position(|step| {
-            step.name == package.step
-                && step.action
-                    == Action::Run(Cmd {
-                        program: "pnpm",
-                        args: vec!["run".to_owned(), "check".to_owned()],
-                        dir: Dir::Package(package.dir),
-                    })
-        });
+        let checked: Vec<Option<usize>> = package
+            .checks
+            .iter()
+            .map(|script| {
+                steps.iter().position(|step| {
+                    step.name == format!("{}: {script}", package.step)
+                        && step.action
+                            == Action::Run(Cmd {
+                                program: "pnpm",
+                                args: vec!["run".to_owned(), (*script).to_owned()],
+                                dir: Dir::Package(package.dir),
+                            })
+                })
+            })
+            .collect();
         let gated = steps
             .iter()
             .position(|step| step.action == Action::TypeScriptReportsGate(package));
         assert!(
-            checked.is_some() && checked < gated,
-            "{}: its checks run, before the reports gate",
+            !checked.is_empty()
+                && checked.iter().all(Option::is_some)
+                && checked.windows(2).all(|pair| pair[0] < pair[1])
+                && checked.last().copied().flatten() < gated,
+            "{}: each of its checks runs, in order, before the reports gate: {checked:?}",
             package.dir
         );
         for report in package.reports() {

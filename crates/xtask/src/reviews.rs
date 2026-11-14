@@ -126,6 +126,46 @@ pub fn stryker_scripts_gate(path: &str, manifest: &str) -> Result<(), Failure> {
     )
 }
 
+/// The `check` script of a package manifest that runs `checks` in order, as its checks do.
+#[must_use]
+pub fn check_script(checks: &[&str]) -> String {
+    checks
+        .iter()
+        .map(|script| format!("pnpm {script}"))
+        .collect::<Vec<_>>()
+        .join(" && ")
+}
+
+/// Checks that the `check` script of the package manifest at `path` runs exactly `checks`, in
+/// order ([`check_script`]).
+///
+/// The checks run and time each script as a step of its own, so that `pnpm run check` in the
+/// package and `cargo xtask check` run the same scripts.
+///
+/// # Errors
+///
+/// Returns the script found and the one expected, or that the manifest has none or cannot
+/// be read.
+pub fn package_check_gate(path: &str, manifest: &str, checks: &[&str]) -> Result<(), Failure> {
+    let json: serde_json::Value = serde_json::from_str(manifest)
+        .map_err(|error| Failure::from(format!("{path}: invalid manifest: {error}")))?;
+    let expected = check_script(checks);
+    match json
+        .get("scripts")
+        .and_then(|scripts| scripts.get("check"))
+        .and_then(serde_json::Value::as_str)
+    {
+        Some(found) if found == expected => Ok(()),
+        Some(found) => Err(Failure::from(format!(
+            "{path}: its `check` script runs `{found}`, not the scripts the checks run and \
+             time: `{expected}`"
+        ))),
+        None => Err(Failure::from(format!(
+            "{path}: no `check` script, where the checks run and time `{expected}`"
+        ))),
+    }
+}
+
 /// The keys a Stryker configuration may use: none of them hides a mutant. Any other key
 /// (`ignoreStatic`, `mutator.excludedMutations`, `ignorers` …) could, and is refused.
 pub const STRYKER_KEYS: [&str; 11] = [

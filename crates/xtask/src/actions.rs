@@ -33,8 +33,8 @@ use crate::{
     release::{CARGO_TOML, CHANGELOG, release_gate, released_sections},
     reviews::{
         BYPASS_SOURCES, BYPASSES_REVIEWED, Disable, STRYKER_CONFIG, Scope, TS_SOURCES, bypass_gate,
-        disables, equivalent_gate, membership_gate, mutants_list_command, scope_gate,
-        stryker_config_gate, stryker_scripts_gate, ts_mutation_gate, unviable_gate,
+        disables, equivalent_gate, membership_gate, mutants_list_command, package_check_gate,
+        scope_gate, stryker_config_gate, stryker_scripts_gate, ts_mutation_gate, unviable_gate,
         unviable_reviews_gate,
     },
     runner::{CommandFailure, Runner},
@@ -241,6 +241,25 @@ pub(crate) fn stryker_configs(runner: &mut dyn Runner) -> Result<(), Failure> {
         .try_for_each(|path| stryker_scripts_gate(path, &read_file(runner, path)?))
 }
 
+/// Reads the version of the workspace, of every package and of the changelog, then checks
+/// that they agree and that the released sections are as on main.
+fn versions(runner: &mut dyn Runner) -> Result<(), Failure> {
+    let cargo = read_file(runner, CARGO_TOML)?;
+    let packages = read_all(runner, package_jsons())?;
+    let changelog = read_file(runner, CHANGELOG)?;
+    release_gate(&cargo, &packages, &changelog)?;
+    released_sections(runner, &changelog)
+}
+
+/// Reads the manifest of every package, then checks that its `check` script runs exactly the
+/// scripts its checks run.
+pub(crate) fn package_checks(runner: &mut dyn Runner) -> Result<(), Failure> {
+    PACKAGES.iter().try_for_each(|package| {
+        let path = format!("{}/package.json", package.dir);
+        package_check_gate(&path, &read_file(runner, &path)?, package.checks)
+    })
+}
+
 /// Reads what `package` measures and mutates, then checks that every source of it is in
 /// both, or reviewed.
 pub(crate) fn scope(runner: &mut dyn Runner, package: Package) -> Result<(), Failure> {
@@ -422,13 +441,7 @@ pub(crate) fn run_action(
             .map_err(|failure| Failure::from(failure.to_string())),
         Action::Coverage(coverage) => coverage_gate(&measure(runner, *coverage)?, *coverage),
         Action::CoverageLocality => coverage_locality(runner),
-        Action::VersionGate => {
-            let cargo = read_file(runner, CARGO_TOML)?;
-            let packages = read_all(runner, package_jsons())?;
-            let changelog = read_file(runner, CHANGELOG)?;
-            release_gate(&cargo, &packages, &changelog)?;
-            released_sections(runner, &changelog)
-        }
+        Action::VersionGate => versions(runner),
         Action::FreshDirs(paths) => paths.iter().try_for_each(|path| fresh(runner, path)),
         Action::MembershipGate => membership(runner),
         Action::ReadmeGate => readmes(runner),
@@ -488,6 +501,7 @@ pub(crate) fn run_action(
         }
         Action::TypeScriptScopeGate(package) => scope(runner, *package),
         Action::StrykerConfigGate => stryker_configs(runner),
+        Action::PackageCheckGate => package_checks(runner),
         Action::BypassGate => {
             let paths = list_tracked(runner, &BYPASS_SOURCES, "the source files")?;
             let sources = read_all(runner, paths)?;
