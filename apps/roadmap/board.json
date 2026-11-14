@@ -670,7 +670,7 @@
           "done": false
         },
         {
-          "title": "Check speed, measured first: a clean before each of the 12 coverage measurements rebuilds the workspace 12 times (one target directory per crate), engine.wasm ships its name section (strip it, after checking that what an engine trap reports, and the browsers' stack traces that name functions from that section, keep what they need), and the hash is updated once per sample (chunk it); the mutation jobs stay half the threads, since a slice of 115 mutants ran as fast with 3 to 6 jobs: measure the knee on a larger slice, with the memory of each job; proc-macro2 optimized in the development profile (the opt-level override measured in crates/xtask/README.md, about 1 s per check), made alone after the block merges, since a profile change widens every default check to every Rust mutant",
+          "title": "Check speed, measured first: engine.wasm ships its name section (strip it, after checking that what an engine trap reports, and the browsers' stack traces that name functions from that section, keep what they need), and the hash is updated once per sample (chunk it); the mutation jobs stay half the threads, since a slice of 115 mutants ran as fast with 3 to 6 jobs: measure the knee on a larger slice, with the memory of each job; proc-macro2 optimized in the development profile (the opt-level override measured in crates/xtask/README.md, about 1 s per check), made alone, since a profile change widens every default check to every Rust mutant",
           "done": false
         },
         {
