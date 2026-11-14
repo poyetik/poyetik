@@ -5,9 +5,9 @@ use alloc::vec::Vec;
 
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use visual_core::{ColorEncoding, Image, ImageRate, ImageSize};
+use visual_core::{ColorEncoding, Image, ImageIndex, ImageRate, ImageSize, VisualBox};
 
-use super::{ImageHash, ImageHasher, Mismatch, TAG};
+use super::{ImageHash, ImageHasher, Mismatch, TAG, hash_sequence};
 
 /// The known-answer vectors of the specification, computed independently of every
 /// implementation.
@@ -114,6 +114,23 @@ fn shows_64_lowercase_hex_digits() {
 }
 
 #[test]
+fn gives_the_bytes_it_shows_first_byte_first() {
+    let shown = hash(
+        size(2, 1),
+        &[&[0.25, 0.5, 0.75, 1.0, 0.0, -0.5, 2.0, 0.125]],
+    );
+    let text = shown.to_string();
+    let read: Vec<u8> = text
+        .as_bytes()
+        .chunks(2)
+        .map(|pair| {
+            u8::from_str_radix(core::str::from_utf8(pair).expect("ASCII"), 16).expect("hex")
+        })
+        .collect();
+    assert_eq!(read, shown.bytes(), "the digits, two per byte, in order");
+}
+
+#[test]
 fn covers_every_bit_of_every_value() {
     let one = size(1, 1);
     let base = hash(one, &[&[0.25, 0.5, 0.75, 1.0]]);
@@ -190,5 +207,66 @@ fn names_the_mismatched_image() {
         Mismatch { image: 7 }.to_string(),
         "image 7 differs from the sequence in size or color encoding",
         "message"
+    );
+}
+
+/// Writes `index × 0.25 + offset` in every value of image `index`, a different image for
+/// every index, so that a hash of the wrong images or in the wrong order differs.
+#[derive(Debug)]
+struct Ramp(f32);
+
+impl VisualBox for Ramp {
+    fn render(&mut self, index: ImageIndex, output: &mut Image) {
+        let level = f32::from(u16::try_from(index.0).expect("a small index")) * 0.25 + self.0;
+        for row in output.rows_mut() {
+            row.fill(level);
+        }
+    }
+}
+
+#[test]
+fn hashes_a_rendered_sequence_as_adding_each_image() {
+    let size = size(3, 2);
+    for (first, count) in [(0_u64, 0_u64), (0, 1), (5, 3), (2, 4)] {
+        let mut separately = ImageHasher::new(ImageRate::PER_SECOND_60, size, ENCODING);
+        for offset in 0..count {
+            let mut one = Image::new(size);
+            Ramp(0.5).render(ImageIndex(first + offset), &mut one);
+            separately.add(&one).expect("same size");
+        }
+        let mut image = Image::new(size);
+        assert_eq!(
+            hash_sequence(
+                &mut Ramp(0.5),
+                ImageRate::PER_SECOND_60,
+                ImageIndex(first),
+                count,
+                &mut image
+            ),
+            separately.finish(),
+            "{count} images from {first}"
+        );
+    }
+    let mut image = Image::new(size);
+    let at = |visual: &mut Ramp, into: &mut Image, first: u64| {
+        hash_sequence(visual, ImageRate::PER_SECOND_60, ImageIndex(first), 2, into)
+    };
+    let base = at(&mut Ramp(0.5), &mut image, 1);
+    assert_ne!(
+        base,
+        at(&mut Ramp(0.5), &mut image, 2),
+        "from another image"
+    );
+    assert_ne!(base, at(&mut Ramp(0.75), &mut image, 1), "other values");
+    assert_ne!(
+        base,
+        hash_sequence(
+            &mut Ramp(0.5),
+            ImageRate::new(30, 1).expect("a valid rate"),
+            ImageIndex(1),
+            2,
+            &mut image
+        ),
+        "another rate"
     );
 }
