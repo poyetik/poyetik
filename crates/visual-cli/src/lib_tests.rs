@@ -638,3 +638,18 @@ fn disk_reads_at_most_one_byte_past_the_limit() {
         .expect_err("too large");
     assert_eq!(error.to_string(), "larger than 1000 bytes", "refused");
 }
+
+#[test]
+fn rejects_every_case_of_the_shared_invalid_corpus() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../conformance/visual/invalid/cases");
+    let mut files = Disk.list(&dir).expect("the shared invalid corpus");
+    files.sort();
+    assert!(files.len() >= 24, "every file is read: {}", files.len());
+    for file in files {
+        let refused = match Disk.read(&file, MAX_CASE_BYTES) {
+            Ok(text) => parse_case(&text).err(),
+            Err(error) => Some(error.to_string()),
+        };
+        assert!(refused.is_some(), "{} is refused", file.display());
+    }
+}

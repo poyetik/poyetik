@@ -56,7 +56,7 @@ export interface Expectation {
 }
 
 /** Reads a field of an object (`undefined` when it has none). */
-function field(value: object, name: string): unknown {
+export function field(value: object, name: string): unknown {
   return Reflect.get(value, name);
 }
 
@@ -148,7 +148,7 @@ function entries(value: unknown, where: string): [string, unknown][] {
  * `value`, a JSON object with no field but `keys`, or rejects `where` (a missing field is
  * rejected by its reader); `why` is added to the message of an unknown field.
  */
-function onlyKeys(value: unknown, keys: readonly string[], where: string, why = ""): object {
+export function onlyKeys(value: unknown, keys: readonly string[], where: string, why = ""): object {
   const checked = object(value, where);
   const extra = Object.keys(checked).find((key) => !keys.includes(key));
   if (extra !== undefined) {
