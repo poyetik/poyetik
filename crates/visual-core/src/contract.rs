@@ -30,7 +30,7 @@ pub enum Trace {
 /// A visual box: renders one image at a time.
 ///
 /// This first version covers boxes with no image input (generators); inputs come with
-/// the design decisions of the visual engine (roadmap #35).
+/// the design decisions of the visual engine (roadmap #35 step 2).
 pub trait VisualBox: Send + core::fmt::Debug {
     /// Renders image `index` into `output`, overwriting every value.
     ///

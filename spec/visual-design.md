@@ -1,6 +1,6 @@
 # Visual library design decisions (first image)
 
-The decisions the first version of the visual library is built on (roadmap ticket #34). They are the minimum the first image needs, and **provisional**: the full design decisions of the visual engine come with roadmap ticket #35 (step 2), which confirms, extends or replaces each one before more visual boxes are written. Each one gives the decision, why, the alternatives rejected and its consequences.
+The decisions the first version of the visual library is built on (roadmap #34 steps 1 to 9). They are the minimum the first image needs, and **provisional**: the full design decisions of the visual engine come with roadmap #35 step 2, which confirms, extends or replaces each one before more visual boxes are written. Each one gives the decision, why, the alternatives rejected and its consequences.
 
 The visual library mirrors the audio engine's design principles (`engine-design.md`): a contract every box implements, exact and deterministic rendering, laws checked on every box, proof across targets. It shares no code with the audio engine.
 
@@ -22,7 +22,7 @@ The visual library mirrors the audio engine's design principles (`engine-design.
 
 **Decision.** The visual library is usable on its own: it depends on no other part of the project, the audio engine included (its tests use the workspace's counting allocator, a test-only crate). What spans sound and image (a clock shared with the audio engine, a scene with sound sources) lives in a layer above both libraries, which uses each only through its public interface.
 
-**Why.** Each library is released as open source, ready to use as is. A shared layer above costs nothing at run time: one program, one WebAssembly binary, the compiler sees through the crates; benchmarks are to prove it (#35).
+**Why.** Each library is released as open source, ready to use as is. A shared layer above costs nothing at run time: one program, one WebAssembly binary, the compiler sees through the crates; benchmarks are to prove it (#35 step 3).
 
 **Rejected.** One engine for sound and image: neither could be used alone.
 
@@ -36,7 +36,7 @@ The visual library mirrors the audio engine's design principles (`engine-design.
 
 Durations (a cycle, later a cue) are exact reduced fractions of seconds too (`Seconds`).
 
-**Consequences.** The square computes its position from the image index in 128-bit integer arithmetic: exact for every index up to 2⁶⁴ − 1. Boxes with state (feedback, particles) will need checkpoints to keep random access (#35).
+**Consequences.** The square computes its position from the image index in 128-bit integer arithmetic: exact for every index up to 2⁶⁴ − 1. Boxes with state (feedback, particles) will need checkpoints to keep random access (#35 step 8).
 
 ## 3. Images
 
@@ -62,7 +62,7 @@ Durations (a cycle, later a cue) are exact reduced fractions of seconds too (`Se
 - `render(index, output)`: renders image `index` into `output`, overwriting every value; a pure function of the index, the box's parameters and the output size; never allocates, frees, locks or blocks;
 - `trace(index, output, point)`: optional, what produced a point of the output: nothing declared (the default), the background, or a shape numbered by the box. Exact, computed on the CPU only when a gesture asks, so it costs nothing otherwise.
 
-This first version covers boxes with no image input (generators). Inputs, and tracing through boxes that transform their input (mapping an output point back to input points, zero, one or several), come with #35.
+This first version covers boxes with no image input (generators). Inputs, and tracing through boxes that transform their input (mapping an output point back to input points, zero, one or several), come with #35 step 2.
 
 **Why.** Interaction with the output (picking, touch screens, interactive pages as a build target) is decided from the first box, since adding it to every box later would be costly.
 
@@ -76,7 +76,7 @@ This first version covers boxes with no image input (generators). Inputs, and tr
 
 A square wider than the image does not move and is clipped on the right. Its trace answers shape 0 inside the square (edges half-open, like pixels) and the background elsewhere.
 
-**Why.** The smallest shape that tests everything: exact coverage at every subpixel position, exact time, random access. It will follow the phase of an audio oscillator through the layer above both libraries (#34, step 5).
+**Why.** The smallest shape that tests everything: exact coverage at every subpixel position, exact time, random access. It will follow the phase of an audio oscillator through the layer above both libraries (#35 step 3).
 
 ## 7. Structure and laws, as for sound
 
@@ -88,4 +88,4 @@ A square wider than the image does not move and is clipped on the right. Its tra
 
 **Decision.** The visual library's core is `no_std` and forbids `unsafe`, like the audio engine's: it cannot reach the OS, the clock, threads or the GPU, and it builds for every portability target (`cargo xtask check`), a microcontroller included. It renders sequences of images exactly (`render_sequence`); every other renderer, the GPU one included, is measured against it.
 
-**Why.** The proof tiers of visuals: the CPU reference and the logic are exact, the same bits on every target; floating-point GPU rendering is measured within a derived threshold of the reference (#34, step 6).
+**Why.** The proof tiers of visuals: the CPU reference and the logic are exact, the same bits on every target; floating-point GPU rendering is measured within a derived threshold of the reference (#34 step 5).
