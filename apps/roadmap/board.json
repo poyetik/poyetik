@@ -530,7 +530,7 @@
       "column": "later",
       "milestone": "M0 Foundations",
       "createdAt": "2026-11-08",
-      "updatedAt": "2026-11-12",
+      "updatedAt": "2026-11-14",
       "tasks": [
         {
           "title": "Patch reading: the format version is checked after the whole document parses, so a version-2 patch is reported as an unknown field; read format first. engine-cli and the oracle skip non-.json entries of cases/ and patches/ silently; refuse them",
@@ -906,6 +906,14 @@
         },
         {
           "title": "AudioContext.close() in every browser engine: a Playwright test, in Chromium, Firefox and WebKit, that close() settles its promise before statechange fires (in a later task), and that a second close rejects with InvalidStateError: the order both TypeScript fake contexts reproduce, measured by hand in Chrome and Firefox only",
+          "done": false
+        },
+        {
+          "title": "CI job timeouts from measured times: each part's timeout set from its slowest measured run (the oracle's Stryker part varied from 53 to more than 150 minutes across hosted runners), once the repository's public runners (four processors) are measured; the oracle's part split in two (Stryker's mutate divided by file) if it stays the longest",
+          "done": false
+        },
+        {
+          "title": "Test fixtures built at module level in TypeScript tests make every mutant of the code they call static (each runs every test): a lint of @poyetik/config refuses a module-level call in a test file but through a lazy helper (once()), with a policy fixture",
           "done": false
         }
       ]
