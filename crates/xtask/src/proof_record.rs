@@ -31,7 +31,7 @@ pub const PROOF_RECORD_TAG: &str = "poyetik rust-mutants-proven";
 ///
 /// A record of another format is ignored, its format said. Raised whenever what a record
 /// holds or means changes, so that no record written under other rules is read.
-pub const PROOF_RECORD_FORMAT: u32 = 4;
+pub const PROOF_RECORD_FORMAT: u32 = 5;
 
 /// What decides how the default check scopes its mutation testing, beside the tools.
 ///

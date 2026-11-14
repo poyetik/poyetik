@@ -122,10 +122,66 @@ fn falls_back_to_origin_main_then_main() {
 }
 
 #[test]
-fn mutates_a_whole_crate_whose_test_code_changed() {
-    for test_code in [
-        "crates/audio-core/tests/laws.rs",
-        "crates/audio-core/src/plan_tests.rs",
+fn mutates_a_whole_crate_whose_integration_tests_changed() {
+    let test_code = "crates/audio-core/tests/laws.rs";
+    let mut fake = passing();
+    let _changes = fake
+        .files
+        .insert(format!("capture {}", CHANGES.0), one_line_change(test_code));
+    for (path, text) in [
+        ("crates/audio-core/src/lib.rs", "fn a() {}\n"),
+        ("crates/audio-core/tests/laws.rs", "fn t() {}\n"),
+        ("crates/audio-core/tests/laws.rs", "fn l() {}\n"),
+        ("crates/audio-boxes/src/lib.rs", "fn o() {}\n"),
+    ] {
+        let _source = fake.files.insert(path.to_owned(), text.to_owned());
+    }
+    let mut out = Vec::new();
+    assert_eq!(
+        run_steps(&rust_mutation_of_changes(), &mut fake, &mut out),
+        Ok(())
+    );
+    assert_eq!(
+        fake.files.get(CHANGES_DIFF).cloned(),
+        Some(crate::new_file_diff(
+            "crates/audio-core/src/lib.rs",
+            "fn a() {}\n"
+        )),
+        "every source of its crate added whole, nothing else of it, its test code and other \
+         crates apart"
+    );
+    assert!(
+        fake.ran.contains(&format!(
+            "{} :(exclude)crates/audio-core/",
+            diff_since(MERGE_BASE.1.trim())
+        )),
+        "git leaves the crate out of the diff"
+    );
+    assert!(
+        String::from_utf8(out).expect("UTF-8").contains(
+            "  the integration tests of audio-core changed: every mutant of audio-core\n"
+        ),
+        "said"
+    );
+}
+
+#[test]
+fn mutates_the_source_whose_unit_tests_changed_and_no_other() {
+    let test_code = "crates/audio-core/src/plan_tests.rs";
+    // The lines of the unit tests stay in the diff, as every changed Rust file outside the
+    // sources tested whole: cargo-mutants mutates no test code.
+    let tests = format!(
+        "diff --git a/{test_code} b/{test_code}\n--- a/{test_code}\n+++ b/{test_code}\n@@ -1 +1 @@\n-a\n+b\n"
+    );
+    for (plan, expected) in [
+        (
+            Some("fn p() {}\n"),
+            format!(
+                "{tests}{}",
+                crate::new_file_diff("crates/audio-core/src/plan.rs", "fn p() {}\n")
+            ),
+        ),
+        (None, tests),
     ] {
         let mut fake = passing();
         let _changes = fake
@@ -139,33 +195,38 @@ fn mutates_a_whole_crate_whose_test_code_changed() {
         ] {
             let _source = fake.files.insert(path.to_owned(), text.to_owned());
         }
+        if let Some(text) = plan {
+            let _source = fake
+                .files
+                .insert("crates/audio-core/src/plan.rs".to_owned(), text.to_owned());
+        }
         let mut out = Vec::new();
         assert_eq!(
             run_steps(&rust_mutation_of_changes(), &mut fake, &mut out),
             Ok(()),
-            "{test_code}"
+            "{plan:?}"
         );
         assert_eq!(
             fake.files.get(CHANGES_DIFF).cloned(),
-            Some(crate::new_file_diff(
-                "crates/audio-core/src/lib.rs",
-                "fn a() {}\n"
-            )),
-            "{test_code}: every source of its crate added whole, nothing else of it, its test \
-             code and other crates apart"
+            Some(expected),
+            "{plan:?}: the source of the unit tests added whole, when it exists; nothing else \
+             of its crate, nor of others"
         );
         assert!(
             fake.ran.contains(&format!(
-                "{} :(exclude)crates/audio-core/",
+                "{} :(exclude)crates/audio-core/src/plan.rs",
                 diff_since(MERGE_BASE.1.trim())
             )),
-            "{test_code}: git leaves the crate out of the diff"
+            "{plan:?}: git leaves the source out of the diff"
         );
-        assert!(
-            String::from_utf8(out)
-                .expect("UTF-8")
-                .contains("  the test code of audio-core changed: every mutant of audio-core\n"),
-            "{test_code}: said"
+        let said = String::from_utf8(out).expect("UTF-8");
+        assert_eq!(
+            said.contains(
+                "  crates/audio-core/src/plan_tests.rs changed: every mutant of \
+                 crates/audio-core/src/plan.rs\n"
+            ),
+            plan.is_some(),
+            "{plan:?}: said when the source exists: {said}"
         );
     }
 }
@@ -329,13 +390,13 @@ fn gives_each_changed_file_one_section_when_its_crate_is_tested_whole() {
         format!(
             "{}{}{}",
             one_line_change("crates/audio-core/src/lib.rs"),
-            one_line_change("crates/audio-core/src/plan_tests.rs"),
+            one_line_change("crates/audio-core/tests/laws.rs"),
             one_line_change("crates/audio-hash/src/lib.rs")
         ),
     );
     for (path, text) in [
         ("crates/audio-core/src/lib.rs", "fn a() {}\nfn b() {}\n"),
-        ("crates/audio-core/src/plan_tests.rs", "fn t() {}\n"),
+        ("crates/audio-core/tests/laws.rs", "fn t() {}\n"),
         ("crates/audio-hash/src/lib.rs", "fn h() {}\n"),
     ] {
         let _source = fake.files.insert(path.to_owned(), text.to_owned());
@@ -361,7 +422,9 @@ fn gives_each_changed_file_one_section_when_its_crate_is_tested_whole() {
          crate's change as git wrote it"
     );
     assert!(
-        said.contains("  the test code of audio-core changed: every mutant of audio-core\n"),
+        said.contains(
+            "  the integration tests of audio-core changed: every mutant of audio-core\n"
+        ),
         "said: {said}"
     );
     // A git that wrote the excluded crate's change in place of another's, as many sections
@@ -373,7 +436,7 @@ fn gives_each_changed_file_one_section_when_its_crate_is_tested_whole() {
         format!(
             "{}{}{}",
             one_line_change("crates/audio-core/src/lib.rs"),
-            one_line_change("crates/audio-core/src/plan_tests.rs"),
+            one_line_change("crates/audio-core/tests/laws.rs"),
             one_line_change("crates/audio-hash/src/lib.rs")
         ),
     );
@@ -415,7 +478,7 @@ fn refuses_a_diff_git_left_a_change_out_of() {
         format!("capture {}", CHANGES.0),
         format!(
             "{}{}",
-            one_line_change("crates/audio-core/src/plan_tests.rs"),
+            one_line_change("crates/audio-core/tests/laws.rs"),
             one_line_change("crates/audio-hash/src/lib.rs")
         ),
     );
@@ -477,7 +540,7 @@ fn reads_the_paths_real_git_changes_whatever_they_hold() {
         .iter()
         .find(|krate| krate.name == "audio-core")
         .expect("the engine core");
-    let diff = crate::changes::diff_since(&mut runner, "HEAD", &[core]).expect("a diff");
+    let diff = crate::changes::diff_since(&mut runner, "HEAD", &[core], &[]).expect("a diff");
     assert_eq!(
         diff,
         format!(
@@ -507,6 +570,7 @@ fn takes_every_file_git_s_rust_pathspec_matches_for_rust() {
             (&changed, &[]),
             Vec::new(),
             &[],
+            &[],
         )
         .map_err(|failure| failure.summary),
         Ok(format!(
@@ -533,7 +597,8 @@ fn shows_cargo_mutants_the_rust_changes_alone() {
     std::fs::write(dir.join(hash), "b\n").expect("a change");
     let mut runner = system(dir.path());
     assert_eq!(
-        crate::changes::diff_since(&mut runner, "HEAD", &[]).map_err(|failure| failure.summary),
+        crate::changes::diff_since(&mut runner, "HEAD", &[], &[])
+            .map_err(|failure| failure.summary),
         Ok(format!(
             "diff --git a/{hash} b/{hash}\nindex 7898192..6178079 100644\n--- a/{hash}\n+++ b/{hash}\n@@ -1 +1 @@\n-a\n+b\n"
         )),
@@ -571,6 +636,7 @@ fn tells_a_file_turned_into_a_link_from_a_change_git_left_out() {
             "HEAD",
             (&changed, &[]),
             Vec::new(),
+            &[],
             &[],
         )
         .map_err(|failure| failure.summary)
@@ -632,6 +698,7 @@ fn git_answers(
             "HEAD",
             (&changed, &[]),
             Vec::new(),
+            &[],
             &[],
         )
         .map_err(|failure| failure.summary)
@@ -762,7 +829,7 @@ fn reads_the_changed_lines_whatever_git_attributes_say() {
         )
         .expect("an attribute no gate sees");
         let mut runner = system(dir.path());
-        let diff = crate::changes::diff_since(&mut runner, "HEAD", &[]).expect("a diff");
+        let diff = crate::changes::diff_since(&mut runner, "HEAD", &[], &[]).expect("a diff");
         assert!(
             diff.ends_with("@@ -1 +1 @@\n-a\n+b\n"),
             "{attribute}: the changed line, never `Binary files … differ`: {diff}"
@@ -1284,12 +1351,12 @@ fn widens_a_crate_that_changed_since_the_record_as_without_it() {
         format!(
             "{}{}",
             since_base(),
-            one_line_change("crates/audio-hash/src/lib_tests.rs")
+            one_line_change("crates/audio-hash/tests/vectors.rs")
         ),
     ));
     let said = mutate_changes(&mut before);
     assert!(
-        !said.contains("the test code of audio-hash changed"),
+        !said.contains("the integration tests of audio-hash changed"),
         "said: {said}"
     );
     // The same, with the render hash changed since the record: widened whole.
@@ -1302,7 +1369,7 @@ fn widens_a_crate_that_changed_since_the_record_as_without_it() {
         format!(
             "{}{}",
             since_base(),
-            one_line_change("crates/audio-hash/src/lib_tests.rs")
+            one_line_change("crates/audio-hash/tests/vectors.rs")
         ),
     ));
     drop(after.files.insert(
@@ -1311,8 +1378,9 @@ fn widens_a_crate_that_changed_since_the_record_as_without_it() {
     ));
     let after_said = mutate_changes(&mut after);
     assert!(
-        after_said.contains("  the test code of audio-hash changed: every mutant of audio-hash\n")
-            && after_said.contains(&proven_line("audio-core")),
+        after_said.contains(
+            "  the integration tests of audio-hash changed: every mutant of audio-hash\n"
+        ) && after_said.contains(&proven_line("audio-core")),
         "after_said: {after_said}"
     );
     assert_eq!(
@@ -1498,7 +1566,7 @@ fn ignores_a_proof_record_it_cannot_trust() {
     );
     ignored(
         &mut malformed,
-        "its first line is not `poyetik rust-mutants-proven 4`",
+        "its first line is not `poyetik rust-mutants-proven 5`",
     );
     let mut unreadable = proven_fake(&proof_record(PROVEN[2]), "");
     unreadable.broken = Some(format!("read {}", record_path(PROVEN[2])));
@@ -2245,7 +2313,7 @@ fn mutates_the_crates_that_build_a_changed_manifest_or_the_shared_test_crate() {
         "a fixture manifest is xtask's test code"
     );
     assert!(
-        said.contains("  the test code of xtask changed: every mutant of xtask\n"),
+        said.contains("  the integration tests of xtask changed: every mutant of xtask\n"),
         "said: {said}"
     );
 }

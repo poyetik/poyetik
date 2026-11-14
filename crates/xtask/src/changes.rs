@@ -792,9 +792,10 @@ pub(crate) fn new_rust_files(runner: &mut dyn Runner) -> Result<Vec<String>, Fai
 }
 
 /// The diff of the tracked Rust files (`*.rs`, the only files cargo-mutants mutates) since
-/// `since`, committed or not, but those below the directories of `left_out`, which git
-/// leaves out (`:(exclude)` pathspecs): so that the diff holds no section of a crate tested
-/// whole or proven, rather than a second one, and none of a file that is not Rust, whose
+/// `since`, committed or not, but those below the directories of `left_out` and the files
+/// `whole`, which git leaves out (`:(exclude)` pathspecs): so that the diff holds no section
+/// of a crate or a file tested whole or of a crate proven, rather than a second one, and
+/// none of a file that is not Rust, whose
 /// bytes may not be text. Every file is shown as text (`--text`), whatever its `diff` or
 /// `binary` attribute says, which no gate reads ([`incomplete_diff`]), and every option of
 /// git's that changes which lines it writes or how is given, whatever the user's
@@ -808,10 +809,12 @@ pub(crate) fn diff_since(
     runner: &mut dyn Runner,
     since: &str,
     left_out: &[&RustCrate],
+    whole: &[&str],
 ) -> Result<String, Failure> {
     let excluded: Vec<String> = left_out
         .iter()
         .map(|krate| format!(":(exclude){}/", krate.dir))
+        .chain(whole.iter().map(|path| format!(":(exclude){path}")))
         .collect();
     let mut args = vec![
         "-c",
@@ -1061,10 +1064,19 @@ pub(crate) enum MutatedPart {
     Lines,
     /// Every mutant of it, with why (`None` for [`Reach::Everything`], said once).
     Whole(Option<String>),
+    /// Every mutant of the sources whose unit tests changed (`<module>.rs` for
+    /// `<module>_tests.rs`), each with why, and the lines of it that changed.
+    Modules(Vec<(String, String)>),
 }
 
 /// Each crate the changes `changed` put in scope, and how much of it ([`MutatedPart`]): its own
-/// lines changed, or its test code or test data changed, or `reach` widens it.
+/// lines changed; the sources whose unit tests changed ([`unit_tests_of`]); the whole crate
+/// when its integration tests or its test data changed, or `reach` widens it.
+///
+/// A unit test file widens to its own source only, though its tests may kill mutants of
+/// other sources too: a weakened test can then leave a mutant of another source alive that
+/// the default check does not run. The full check mutates everything, and every change
+/// reaches `main` through it.
 pub(crate) fn in_scope(changed: &[String], reach: &Reach) -> Vec<(RustCrate, MutatedPart)> {
     RUST_CRATES
         .into_iter()
@@ -1072,8 +1084,8 @@ pub(crate) fn in_scope(changed: &[String], reach: &Reach) -> Vec<(RustCrate, Mut
             let every = format!("every mutant of {}", krate.name);
             let code = changed
                 .iter()
-                .find(|path| krate.holds(path).is_some_and(rust_test_code))
-                .map(|_| format!("the test code of {} changed: {every}", krate.name));
+                .find(|path| krate.holds(path).is_some_and(in_tests_dir))
+                .map(|_| format!("the integration tests of {} changed: {every}", krate.name));
             let data = changed
                 .iter()
                 .find(|path| krate.test_data.iter().any(|root| under_root(path, root)))
@@ -1089,19 +1101,40 @@ pub(crate) fn in_scope(changed: &[String], reach: &Reach) -> Vec<(RustCrate, Mut
                     })
                     .map(|said| MutatedPart::Whole(Some(said))),
             };
+            let modules: Vec<(String, String)> = changed
+                .iter()
+                .filter_map(|path| {
+                    unit_tests_of(&krate, path).map(|source| {
+                        let said = format!("{path} changed: every mutant of {source}");
+                        (source, said)
+                    })
+                })
+                .collect();
             let touched = changed.iter().any(|path| krate.holds(path).is_some());
             whole
+                .or_else(|| (!modules.is_empty()).then_some(MutatedPart::Modules(modules)))
                 .or_else(|| touched.then_some(MutatedPart::Lines))
                 .map(|scope| (krate, scope))
         })
         .collect()
 }
 
+/// The source whose unit tests `path` holds, when it is a unit test file of `krate`
+/// ([`unit_test_file`]): `<module>.rs` beside `<module>_tests.rs`.
+pub(crate) fn unit_tests_of(krate: &RustCrate, path: &str) -> Option<String> {
+    krate
+        .holds(path)
+        .filter(|rel| !in_tests_dir(rel))
+        .and_then(|_| path.strip_suffix("_tests.rs"))
+        .map(|module| format!("{module}.rs"))
+}
+
 /// The diff cargo-mutants mutates the lines of: the changes since `base` (`changed`, the
 /// tracked files changed since it; `new`, the new Rust files, added whole) but those of the
-/// crates `tested` whole or `proven`, which git leaves out, so that each path has at most
-/// one section; then every source of each crate of `tested` (its test code apart), added
-/// whole, after saying why on `out`.
+/// crates `tested` whole or `proven` and of the sources of `modules`, which git leaves out,
+/// so that each path has at most one section; then every source of each crate of `tested`
+/// (its test code apart), and each source of `modules` that exists, added whole, after
+/// saying why on `out`.
 ///
 /// # Errors
 ///
@@ -1114,6 +1147,7 @@ pub(crate) fn mutated_diff(
     base: &str,
     (changed, new): (&[String], &[String]),
     tested: Vec<(RustCrate, Option<String>)>,
+    modules: &[(String, String)],
     proven: &[RustCrate],
 ) -> Result<String, Failure> {
     // Git leaves out every crate tested whole or proven, so that each path has at most
@@ -1123,8 +1157,11 @@ pub(crate) fn mutated_diff(
         .map(|(krate, _)| krate)
         .chain(proven)
         .collect();
-    let outside = |path: &str| !left_out.iter().any(|krate| krate.holds(path).is_some());
-    let mut diff = diff_since(runner, base, &left_out)?;
+    let whole: Vec<&str> = modules.iter().map(|(source, _)| source.as_str()).collect();
+    let outside = |path: &str| {
+        !left_out.iter().any(|krate| krate.holds(path).is_some()) && !whole.contains(&path)
+    };
+    let mut diff = diff_since(runner, base, &left_out, &whole)?;
     let expected: BTreeSet<&str> = changed
         .iter()
         .filter(|path| outside(path) && rust_file(path))
@@ -1136,11 +1173,19 @@ pub(crate) fn mutated_diff(
     for path in new.iter().filter(|path| outside(path)) {
         diff.push_str(&new_file_diff(path, &read_file(runner, path)?));
     }
-    if !tested.is_empty() {
+    if !tested.is_empty() || !modules.is_empty() {
         let mut sources = list_tracked(runner, &["*.rs"], "the Rust files")?;
         sources.extend(new.iter().cloned());
         sources.sort();
         sources.dedup();
+        for (source, said) in modules {
+            // A source gone with its tests has no mutant left.
+            if sources.contains(source) {
+                say(out, &format!("  {said}"))?;
+                let text = read_file(runner, source)?;
+                diff.push_str(&new_file_diff(source, &text));
+            }
+        }
         for (krate, said) in tested {
             if let Some(said) = said {
                 say(out, &format!("  {said}"))?;
@@ -1175,7 +1220,8 @@ pub(crate) fn shown_whole(runner: &mut dyn Runner) -> Result<(), Failure> {
 /// the changes of the tracked files, committed or not, and every new Rust file git does not
 /// ignore; nothing when nothing changed.
 ///
-/// A change to the test code of a crate, or to the test data it declares
+/// A change to the unit tests of a source adds that source whole ([`unit_tests_of`]); a
+/// change to the integration tests of a crate, or to the test data it declares
 /// ([`RustCrate::test_data`]), can weaken the tests of any of its code, so every source of
 /// that crate is then added whole, and so is every crate a change of a shared input
 /// reaches ([`reach`]); a change to what every test depends on
@@ -1251,15 +1297,27 @@ pub(crate) fn rust_mutants_of_changes(
             .run(&tested_mutants_command(&["--workspace"], jobs))
             .map_err(|failure| Failure::from(failure.to_string()));
     }
-    let tested: Vec<(RustCrate, Option<String>)> = scoped
+    let mut tested: Vec<(RustCrate, Option<String>)> = Vec::new();
+    let mut modules: Vec<(String, String)> = Vec::new();
+    for (krate, scope) in scoped
         .into_iter()
         .filter(|(krate, _)| !proven.contains(krate))
-        .filter_map(|(krate, scope)| match scope {
-            MutatedPart::Lines => None,
-            MutatedPart::Whole(said) => Some((krate, said)),
-        })
-        .collect();
-    let diff = mutated_diff(runner, out, &base, (&tracked, &new), tested, &proven)?;
+    {
+        match scope {
+            MutatedPart::Lines => {}
+            MutatedPart::Whole(said) => tested.push((krate, said)),
+            MutatedPart::Modules(sources) => modules.extend(sources),
+        }
+    }
+    let diff = mutated_diff(
+        runner,
+        out,
+        &base,
+        (&tracked, &new),
+        tested,
+        &modules,
+        &proven,
+    )?;
     if diff.is_empty() {
         let outside = if proven.is_empty() {
             ""
