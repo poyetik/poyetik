@@ -1385,7 +1385,7 @@
           "done": false
         },
         {
-          "title": "Offline render in a visual command-line renderer and the first visual conformance case: the same hashes natively and in WebAssembly",
+          "title": "Offline render in a visual command-line renderer and the first visual conformance case: the same hashes natively and in WebAssembly; then the end of this block (steps 1 to 4): a deep review, its decided fixes, and a pull request whose full check is green",
           "done": false
         },
         {
@@ -1393,7 +1393,7 @@
           "done": false
         },
         {
-          "title": "Playground: the square moving live next to the oscilloscope, first drawn by the CPU reference in WebAssembly, then in WebGPU; end-to-end tests on the browsers",
+          "title": "Playground: the square moving live next to the oscilloscope, first drawn by the CPU reference in WebAssembly, then in WebGPU; end-to-end tests on the browsers; then the end of this block (steps 5 and 6): a deep review, its decided fixes, and a pull request whose full check is green",
           "done": false
         },
         {
