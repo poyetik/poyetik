@@ -94,7 +94,7 @@ pub(crate) fn below<'path>(dir: &str, path: &'path str) -> Option<&'path str> {
 
 /// The crates of the Cargo workspace (checked by [`membership_gate`](crate::reviews::membership_gate)): each is measured by
 /// its own unit tests, and each binary by the crate's tests.
-pub const RUST_CRATES: [RustCrate; 13] = [
+pub const RUST_CRATES: [RustCrate; 15] = [
     RustCrate {
         name: "audio-core",
         dir: "crates/audio-core",
@@ -134,10 +134,24 @@ pub const RUST_CRATES: [RustCrate; 13] = [
         roles: &[],
     },
     RustCrate {
+        name: "visual-boxes",
+        dir: "crates/visual-boxes",
+        binary: false,
+        test_data: &[],
+        roles: &[],
+    },
+    RustCrate {
         name: "visual-hash",
         dir: "crates/visual-hash",
         binary: false,
         test_data: &["spec/image-hash-vectors.json"],
+        roles: &[],
+    },
+    RustCrate {
+        name: "visual-testkit",
+        dir: "crates/visual-testkit",
+        binary: false,
+        test_data: &["conformance/visual/test-matrix.json"],
         roles: &[],
     },
     RustCrate {
@@ -535,12 +549,13 @@ pub const PORTABILITY_TARGETS: [&str; 4] = [
 
 /// The crates of the engine core and of the visual library's core, built for every one of
 /// [`PORTABILITY_TARGETS`].
-pub const PORTABILITY_PACKAGES: [&str; 6] = [
+pub const PORTABILITY_PACKAGES: [&str; 7] = [
     "audio-core",
     "audio-boxes",
     "audio-patch",
     "audio-hash",
     "visual-core",
+    "visual-boxes",
     "visual-hash",
 ];
 

@@ -19,10 +19,8 @@ pub enum VisualError {
         /// Height in pixels.
         height: u32,
     },
-    /// The side of a square is larger than the image height.
-    InvalidSide(u32),
-    /// The duration of a cycle is not a reduced, nonzero fraction of seconds.
-    InvalidCycle {
+    /// A duration is not a reduced, nonzero fraction of seconds.
+    InvalidSeconds {
         /// Seconds, times `denominator`.
         numerator: u32,
         /// Divides `numerator`.
@@ -45,17 +43,12 @@ impl fmt::Display for VisualError {
                 "invalid image size {width}x{height}: each side must be from 1 to {} pixels",
                 crate::ImageSize::MAX_SIDE
             ),
-            Self::InvalidSide(side) => write!(
-                f,
-                "invalid square side {side}: at most {} (the image height)",
-                crate::Square::FULL_SIDE
-            ),
-            Self::InvalidCycle {
+            Self::InvalidSeconds {
                 numerator,
                 denominator,
             } => write!(
                 f,
-                "invalid cycle {numerator}/{denominator} s: a reduced, nonzero fraction is required"
+                "invalid duration {numerator}/{denominator} s: a reduced, nonzero fraction is required"
             ),
         }
     }
@@ -87,15 +80,11 @@ mod tests {
                 "invalid image size 0x7: each side must be from 1 to 16384 pixels",
             ),
             (
-                VisualError::InvalidSide(65_537),
-                "invalid square side 65537: at most 65536 (the image height)",
-            ),
-            (
-                VisualError::InvalidCycle {
+                VisualError::InvalidSeconds {
                     numerator: 0,
                     denominator: 3,
                 },
-                "invalid cycle 0/3 s: a reduced, nonzero fraction is required",
+                "invalid duration 0/3 s: a reduced, nonzero fraction is required",
             ),
         ];
         for (error, message) in cases {

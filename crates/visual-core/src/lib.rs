@@ -1,5 +1,5 @@
 //! Poyetik visual library core: images, exact time, the contract every visual box
-//! implements, and the exact CPU reference renderer.
+//! implements, and the exact CPU reference renderer. The boxes are in `visual-boxes`.
 //!
 //! A standalone library: it depends on no other part of the project (the audio library
 //! included), so it can be used on its own. It is `no_std` and forbids `unsafe`, so it
@@ -21,17 +21,10 @@ mod error;
 mod image;
 mod rate;
 mod render;
-mod square;
 
 pub use contract::{SubpixelPoint, Trace, VisualBox};
-pub use coverage::{SUBPIXELS, coverage_to_intensity};
+pub use coverage::{SUBPIXELS, coverage_to_intensity, overlap};
 pub use error::VisualError;
 pub use image::{ColorEncoding, Image, ImageSize};
-pub use rate::{ImageIndex, ImageRate};
+pub use rate::{ImageIndex, ImageRate, Seconds};
 pub use render::render_sequence;
-pub use square::{Cycle, Square};
-
-/// Counts heap operations in the tests, to prove rendering never allocates.
-#[cfg(test)]
-#[global_allocator]
-static ALLOCATOR: alloc_counter::CountingAllocator = alloc_counter::CountingAllocator;
