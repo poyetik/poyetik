@@ -948,7 +948,7 @@
       "column": "doing",
       "milestone": "M1 Engine",
       "createdAt": "2026-11-07",
-      "updatedAt": "2026-11-13",
+      "updatedAt": "2026-11-14",
       "tasks": [
         {
           "title": "Engine design decisions, recorded before any code that depends on them: messages, event scheduling, feedback, polyphony, multichannel, rates, parallelism, hot swap, latency, state; including the Nyquist policy of oscillators, an exact integer phase accumulator, the output stage (headroom, non-finite samples), the input domain of boxes, and compiling, instantiating, parsing and building plans off the audio thread, or bounding and measuring what must stay there (the construction of the engine processor), hot swap included",
@@ -1051,7 +1051,7 @@
           "done": false
         },
         {
-          "title": "Subpatches with their own block size, resampling and overlap, a block of 1 frame included; feedback cycles through an explicit delay, single-sample feedback included; delay-free loops resolved per sample (linear exactly, non-linear with a fixed iteration count)",
+          "title": "Subpatches with their own block size, resampling and overlap, a block of 1 frame included; feedback cycles through an explicit delay, single-sample feedback included; delay-free loops resolved per sample (linear exactly, non-linear until a deterministic convergence test holds, at most a cap that is reported when reached), after an in-depth study of the solvers that keeps every option open",
           "done": false
         },
         {
