@@ -47,10 +47,23 @@ const HASH = /^[0-9a-f]{64}$/;
 
 /**
  * What the live page shows when the audio thread keeps every subnormal (IEEE arithmetic),
- * written as a literal: the engine's arithmetic, which the browser's flush mode, if it
- * reached the module, would change.
+ * written as a literal: the engine's arithmetic, which the browser's flush mode, when it
+ * reaches the module, changes.
  */
 const IEEE_SUBNORMALS = '{"binary32":{"operands":true,"results":true},"binary64":{"operands":true,"results":true}}';
+
+/** What the live page shows when the audio thread flushes every subnormal, operand and result, in both formats. */
+const FLUSHED_SUBNORMALS = '{"binary32":{"operands":false,"results":false},"binary64":{"operands":false,"results":false}}';
+
+/**
+ * The arithmetic of each browser's audio thread on the machine running the tests, as
+ * measured (spec/engine-design.md, decision 11): Firefox on x86_64 flushes every
+ * subnormal; every other browser, and every browser on aarch64, keeps IEEE arithmetic.
+ * Asserted, so that a browser changing its mode is seen.
+ */
+function liveSubnormals(browserName: string): string {
+  return browserName === "firefox" && process.arch === "x64" ? FLUSHED_SUBNORMALS : IEEE_SUBNORMALS;
+}
 
 test("covers the whole corpus, with a reference for every case", () => {
   expect(CASES.length).toBeGreaterThan(1);
@@ -75,12 +88,12 @@ for (const { precision, format } of PRECISIONS) {
   }
 
   for (const name of LIVE) {
-    test(`plays ${name} live in ${precision} bit-identical to the native engine`, async ({ page }) => {
+    test(`plays ${name} live in ${precision} bit-identical to the native engine`, async ({ page, browserName }) => {
       await page.goto(`e2e/site/index.html?case=${name}&precision=${precision}`);
       await page.getByRole("button", { name: "Capture live" }).click();
       await expect(page.locator("#live-hash")).toHaveText(HASH, { timeout: 15_000 });
       await expect(page.locator("#live-hash")).toHaveText(reference(name, format));
-      await expect(page.locator("#live-subnormals")).toHaveText(IEEE_SUBNORMALS);
+      await expect(page.locator("#live-subnormals")).toHaveText(liveSubnormals(browserName));
       await expect(page.locator("#error")).toHaveText("");
     });
   }
