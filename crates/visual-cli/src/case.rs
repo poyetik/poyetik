@@ -124,6 +124,16 @@ pub fn render_case(case: &Case) -> Result<ImageHash, String> {
         .map_or(Ok(hash), Err)
 }
 
+/// Reads a case from the text of its file and renders it to its image hash: what the
+/// commands do with a case file.
+///
+/// # Errors
+///
+/// Returns why the text is not a valid case (see [`parse_case`]).
+pub fn hash_case(text: &str) -> Result<ImageHash, String> {
+    render_case(&parse_case(text)?)
+}
+
 #[cfg(test)]
 #[path = "case_tests.rs"]
 mod tests;
