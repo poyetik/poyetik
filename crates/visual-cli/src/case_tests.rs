@@ -61,6 +61,24 @@ fn refuses_invalid_cases_with_a_reason() {
 }
 
 #[test]
+fn reads_a_case_of_sixty_four_kibibytes_and_no_more() {
+    // The limit as documented, written out: a wrong constant fails here, not only past
+    // itself.
+    let padded = format!("{SMALL}{}", " ".repeat(65_536_usize - SMALL.len()));
+    assert_eq!(padded.len(), 65_536_usize, "exactly 64 KiB");
+    assert_eq!(parse_case(&padded), parse_case(SMALL), "read whole");
+    let over = format!("{padded} ");
+    assert_eq!(
+        parse_case(&over),
+        Err(format!(
+            "a case file holds at most {} bytes, this one {}",
+            65_536_usize, 65_537_usize
+        )),
+        "one byte more"
+    );
+}
+
+#[test]
 fn refuses_unknown_fields_and_large_files() {
     let unknown = SMALL.replace("\"first\"", "\"extra\": 1, \"first\"");
     assert!(

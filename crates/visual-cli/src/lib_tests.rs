@@ -396,6 +396,33 @@ fn reads_the_references_only_as_bless_writes_them() {
 }
 
 #[test]
+fn reads_a_references_file_of_one_mebibyte_and_no_more() {
+    // The limit as documented, written out: a wrong constant fails here, not only past
+    // itself.
+    let mut written = blessed();
+    written.insert_str(1, &" ".repeat(1_048_576_usize - written.len()));
+    assert_eq!(written.len(), 1_048_576_usize, "exactly one mebibyte");
+    assert_eq!(
+        run_with(&mut corpus(&written), &["check", "d"]).0,
+        Err(CliError::Failed(
+            "d/references.json is not as `visual-cli bless d` writes it: rewrite it with that \
+             command"
+                .to_owned()
+        )),
+        "read whole, then refused for its layout only"
+    );
+    written.push(' ');
+    assert_eq!(
+        run_with(&mut corpus(&written), &["check", "d"]).0,
+        Err(CliError::Failed(format!(
+            "cannot read d/references.json: larger than {} bytes",
+            1_048_576_usize
+        ))),
+        "one byte more"
+    );
+}
+
+#[test]
 fn refuses_a_corpus_it_cannot_read_whole() {
     assert_eq!(
         run_with(&mut Memory::default(), &["check", "d"]).0,
@@ -637,4 +664,19 @@ fn disk_reads_at_most_one_byte_past_the_limit() {
         .read(Path::new("/dev/zero"), 1_000)
         .expect_err("too large");
     assert_eq!(error.to_string(), "larger than 1000 bytes", "refused");
+}
+
+#[test]
+fn rejects_every_case_of_the_shared_invalid_corpus() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../conformance/visual/invalid/cases");
+    let mut files = Disk.list(&dir).expect("the shared invalid corpus");
+    files.sort();
+    assert!(files.len() >= 24, "every file is read: {}", files.len());
+    for file in files {
+        let refused = match Disk.read(&file, MAX_CASE_BYTES) {
+            Ok(text) => parse_case(&text).err(),
+            Err(error) => Some(error.to_string()),
+        };
+        assert!(refused.is_some(), "{} is refused", file.display());
+    }
 }
