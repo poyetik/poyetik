@@ -13,7 +13,6 @@ mod square;
 pub use error::BoxError;
 pub use square::Square;
 
-/// Counts heap operations in the tests, to prove rendering never allocates.
 #[cfg(test)]
-#[global_allocator]
-static ALLOCATOR: visual_testkit::CountingAllocator = visual_testkit::CountingAllocator;
+#[path = "lib_tests.rs"]
+mod tests;
