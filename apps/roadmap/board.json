@@ -1208,7 +1208,7 @@
           "done": false
         },
         {
-          "title": "The shared layer above the two standalone libraries (time base, clock choice, audio and video alignment, a scene and cues spanning both), using each library only through its public interface; any hook it needs from the audio library checked against the audio engine's decisions; the architecture proven to cost nothing: benchmarks comparing work done through the public interfaces with the same work done directly, with regression thresholds; first use: the square of #34 following the phase of an audio oscillator, the instant of each image tied to the audio frames by an exact rule",
+          "title": "The shared layer above the two standalone libraries (clock choice, audio and video alignment, a scene and cues spanning both; exact musical time from the time crate, #37, sampled at every image), using each library only through its public interface; any hook it needs from the audio library checked against the audio engine's decisions; the architecture proven to cost nothing: benchmarks comparing work done through the public interfaces with the same work done directly, with regression thresholds",
           "done": false
         },
         {
