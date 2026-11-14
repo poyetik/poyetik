@@ -1208,7 +1208,7 @@
           "done": false
         },
         {
-          "title": "The shared layer above the two standalone libraries (time base, clock choice, audio and video alignment, a scene and cues spanning both), using each library only through its public interface; any hook it needs from the audio library checked against the audio engine's decisions; the architecture proven to cost nothing: benchmarks comparing work done through the public interfaces with the same work done directly, with regression thresholds",
+          "title": "The shared layer above the two standalone libraries (time base, clock choice, audio and video alignment, a scene and cues spanning both), using each library only through its public interface; any hook it needs from the audio library checked against the audio engine's decisions; the architecture proven to cost nothing: benchmarks comparing work done through the public interfaces with the same work done directly, with regression thresholds; first use: the square of #34 following the phase of an audio oscillator, the instant of each image tied to the audio frames by an exact rule",
           "done": false
         },
         {
@@ -1365,8 +1365,8 @@
     },
     {
       "id": 34,
-      "title": "First image: a square moving with the sound, identical on every target",
-      "description": "The visual counterpart of #1: a white square on black, moving in time, rendered by the standalone visual library natively and in WebAssembly and shown live in the playground, then following the phase of an audio oscillator. Small on purpose: it builds the whole proof chain for images (exact CPU reference, canonical image hash, conformance across targets, GPU within a measured threshold, browser tests, independent oracle) on which every visual box will then be checked.",
+      "title": "First image: a moving square, identical on every target",
+      "description": "The visual counterpart of #1: a white square on black, moving in time, rendered by the standalone visual library natively and in WebAssembly and shown live in the playground next to the oscilloscope. Small on purpose: it builds the whole proof chain for images (exact CPU reference, canonical image hash, conformance across targets, GPU within a measured threshold, browser tests, independent oracle) on which every visual box will then be checked. Following the sound comes with the shared layer above both libraries (#35).",
       "column": "doing",
       "milestone": "M3 Visuals",
       "createdAt": "2026-11-09",
@@ -1389,15 +1389,11 @@
           "done": false
         },
         {
-          "title": "Sound and image on one clock, through the shared layer above the audio and visual libraries: the instant of each image tied to the audio frames by an exact rule, the square following the phase of an audio oscillator",
-          "done": false
-        },
-        {
           "title": "GPU backend (wgpu, justified like every dependency): the same images within a measured threshold of the reference, checked in CI on a software GPU",
           "done": false
         },
         {
-          "title": "Playground: the square moving live with the sound in WebGPU, end-to-end tests on the browsers",
+          "title": "Playground: the square moving live next to the oscilloscope, first drawn by the CPU reference in WebAssembly, then in WebGPU; end-to-end tests on the browsers",
           "done": false
         },
         {
