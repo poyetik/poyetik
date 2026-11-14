@@ -255,12 +255,13 @@ const TREE_HEAD: (&str, &str) = (
 /// audio library, which depend on nothing but the boxes' tests on the test kit, and the
 /// crates of shared test code, the test kit depending on the counting allocator; each has
 /// only the test target reading its test data ([`test_data_reader_sources`]).
-const METADATA: &str = r#"{"workspace_root":"/r","packages":[{"license":"MIT OR Apache-2.0","name":"x","manifest_path":"/r/crates/x/Cargo.toml","dependencies":[{"name":"audio-core","kind":null,"path":"/r/crates/audio-core"},{"name":"serde_json","kind":null}],"targets":[{"kind":["lib"],"src_path":"/r/crates/x/src/lib.rs","test":true,"doctest":true}]},{"license":"MIT OR Apache-2.0","name":"audio-core","manifest_path":"/r/crates/audio-core/Cargo.toml","targets":[{"kind":["test"],"src_path":"/r/crates/audio-core/tests/data.rs","test":true,"doctest":false}]},{"license":"MIT OR Apache-2.0","name":"audio-boxes","manifest_path":"/r/crates/audio-boxes/Cargo.toml","dependencies":[{"name":"audio-testkit","kind":"dev","path":"/r/crates/audio-testkit"}],"targets":[{"kind":["test"],"src_path":"/r/crates/audio-boxes/tests/data.rs","test":true,"doctest":false}]},{"license":"MIT OR Apache-2.0","name":"audio-patch","manifest_path":"/r/crates/audio-patch/Cargo.toml","targets":[{"kind":["test"],"src_path":"/r/crates/audio-patch/tests/data.rs","test":true,"doctest":false}]},{"license":"MIT OR Apache-2.0","name":"audio-hash","manifest_path":"/r/crates/audio-hash/Cargo.toml","targets":[{"kind":["test"],"src_path":"/r/crates/audio-hash/tests/data.rs","test":true,"doctest":false}]},{"license":"MIT OR Apache-2.0","name":"audio-fpenv","manifest_path":"/r/crates/audio-fpenv/Cargo.toml","targets":[{"kind":["test"],"src_path":"/r/crates/audio-fpenv/tests/data.rs","test":true,"doctest":false}]},{"license":"MIT OR Apache-2.0","name":"audio-wasm","manifest_path":"/r/bindings/audio-wasm/Cargo.toml","targets":[]},{"license":"MIT OR Apache-2.0","name":"audio-testkit","manifest_path":"/r/crates/audio-testkit/Cargo.toml","dependencies":[{"name":"alloc-counter","kind":null,"path":"/r/crates/alloc-counter"}],"targets":[{"kind":["test"],"src_path":"/r/crates/audio-testkit/tests/data.rs","test":true,"doctest":false}]},{"license":"MIT OR Apache-2.0","name":"alloc-counter","manifest_path":"/r/crates/alloc-counter/Cargo.toml","targets":[]}]}"#;
+const METADATA: &str = r#"{"workspace_root":"/r","packages":[{"license":"MIT OR Apache-2.0","name":"x","manifest_path":"/r/crates/x/Cargo.toml","dependencies":[{"name":"audio-core","kind":null,"path":"/r/crates/audio-core"},{"name":"serde_json","kind":null}],"targets":[{"kind":["lib"],"src_path":"/r/crates/x/src/lib.rs","test":true,"doctest":true}]},{"license":"MIT OR Apache-2.0","name":"audio-core","manifest_path":"/r/crates/audio-core/Cargo.toml","targets":[{"kind":["test"],"src_path":"/r/crates/audio-core/tests/data.rs","test":true,"doctest":false}]},{"license":"MIT OR Apache-2.0","name":"audio-boxes","manifest_path":"/r/crates/audio-boxes/Cargo.toml","dependencies":[{"name":"audio-testkit","kind":"dev","path":"/r/crates/audio-testkit"}],"targets":[{"kind":["test"],"src_path":"/r/crates/audio-boxes/tests/data.rs","test":true,"doctest":false}]},{"license":"MIT OR Apache-2.0","name":"audio-patch","manifest_path":"/r/crates/audio-patch/Cargo.toml","targets":[{"kind":["test"],"src_path":"/r/crates/audio-patch/tests/data.rs","test":true,"doctest":false}]},{"license":"MIT OR Apache-2.0","name":"audio-hash","manifest_path":"/r/crates/audio-hash/Cargo.toml","targets":[{"kind":["test"],"src_path":"/r/crates/audio-hash/tests/data.rs","test":true,"doctest":false}]},{"license":"MIT OR Apache-2.0","name":"audio-fpenv","manifest_path":"/r/crates/audio-fpenv/Cargo.toml","targets":[{"kind":["test"],"src_path":"/r/crates/audio-fpenv/tests/data.rs","test":true,"doctest":false}]},{"license":"MIT OR Apache-2.0","name":"audio-wasm","manifest_path":"/r/bindings/audio-wasm/Cargo.toml","targets":[]},{"license":"MIT OR Apache-2.0","name":"audio-testkit","manifest_path":"/r/crates/audio-testkit/Cargo.toml","dependencies":[{"name":"alloc-counter","kind":null,"path":"/r/crates/alloc-counter"}],"targets":[{"kind":["test"],"src_path":"/r/crates/audio-testkit/tests/data.rs","test":true,"doctest":false}]},{"license":"MIT OR Apache-2.0","name":"alloc-counter","manifest_path":"/r/crates/alloc-counter/Cargo.toml","targets":[]},{"license":"MIT OR Apache-2.0","name":"visual-core","manifest_path":"/r/crates/visual-core/Cargo.toml","dependencies":[{"name":"alloc-counter","kind":"dev","path":"/r/crates/alloc-counter"}],"targets":[]},{"license":"MIT OR Apache-2.0","name":"visual-boxes","manifest_path":"/r/crates/visual-boxes/Cargo.toml","dependencies":[{"name":"visual-core","kind":null,"path":"/r/crates/visual-core"},{"name":"visual-testkit","kind":"dev","path":"/r/crates/visual-testkit"}],"targets":[]},{"license":"MIT OR Apache-2.0","name":"visual-hash","manifest_path":"/r/crates/visual-hash/Cargo.toml","targets":[{"kind":["test"],"src_path":"/r/crates/visual-hash/tests/data.rs","test":true,"doctest":false}]},{"license":"MIT OR Apache-2.0","name":"visual-testkit","manifest_path":"/r/crates/visual-testkit/Cargo.toml","dependencies":[{"name":"visual-core","kind":null,"path":"/r/crates/visual-core"},{"name":"alloc-counter","kind":null,"path":"/r/crates/alloc-counter"}],"targets":[{"kind":["test"],"src_path":"/r/crates/visual-testkit/tests/data.rs","test":true,"doctest":false}]}]}"#;
 
 /// The two license listings, written out: the production dependencies of what ships
-/// (the engine package, the playground and the roadmap), then everything.
+/// (the engine package, the playground, the roadmap and the visual library's package), then
+/// everything.
 const LICENSE_LINES: [&str; 2] = [
-    "pnpm licenses list --json --prod --filter ./bindings/audio-wasm --filter ./apps/playground --filter ./apps/roadmap",
+    "pnpm licenses list --json --prod --filter ./bindings/audio-wasm --filter ./apps/playground --filter ./apps/roadmap --filter ./bindings/visual-wasm",
     "pnpm licenses list --json --recursive",
 ];
 
@@ -935,8 +936,8 @@ fn passing() -> Fake {
         let pinned = fake.files.insert(path.to_owned(), text.to_owned());
         assert!(pinned.is_none(), "fresh fake");
     }
-    for (path, text) in READMES {
-        let readme = fake.files.insert(path.to_owned(), text.to_owned());
+    for (path, text) in readmes() {
+        let readme = fake.files.insert(path, text);
         assert!(readme.is_none(), "fresh fake");
     }
     let third = fake
@@ -1104,26 +1105,130 @@ const HISTORY_FILES: &str =
 const HISTORY_SCOPED: &str = "bbbbbbbbbb\naaaaaaaaaa\n";
 
 /// The READMEs of a repository whose parts are all described: each TypeScript package has
-/// its own, each folder names its parts, the root names the folders.
-const READMES: [(&str, &str); 10] = [
-    (
-        "README.md",
-        "| `apps/` | | `bindings/` | | `crates/` | | `tooling/` |",
-    ),
-    (
-        "crates/README.md",
-        "`audio-core` `audio-boxes` `audio-patch` `audio-hash` `alloc-counter` \
-         `audio-fpenv` `audio-battery` `audio-testkit` `audio-cli` `xtask`",
-    ),
-    ("apps/README.md", "| `roadmap/` | | `playground/` |"),
-    ("bindings/README.md", "- [`audio-wasm/`](audio-wasm/)"),
-    ("tooling/README.md", "| `config/` | | `oracle/` |"),
-    ("apps/roadmap/README.md", "# roadmap"),
-    ("apps/playground/README.md", "# playground"),
-    ("bindings/audio-wasm/README.md", "# wasm"),
-    ("tooling/config/README.md", "# config"),
-    ("tooling/oracle/README.md", "# oracle"),
-];
+/// its own, each folder names its parts, the root names the folders. The crates' README
+/// names every crate of [`super::RUST_CRATES`] under `crates/`, and the bindings' every
+/// folder of one under `bindings/`, derived so that they follow the registry.
+fn readmes() -> Vec<(String, String)> {
+    let crates = super::RUST_CRATES
+        .iter()
+        .filter(|krate| krate.dir.starts_with("crates/"))
+        .map(|krate| format!("`{}`", krate.name))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let bindings = super::RUST_CRATES
+        .iter()
+        .filter_map(|krate| krate.dir.strip_prefix("bindings/"))
+        .map(|folder| format!("- [`{folder}/`]({folder}/)"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    // Each folder of packages names its packages; each package has its own README.
+    let packages_in = |folder: &str| {
+        PACKAGES
+            .iter()
+            .filter_map(|package| package.dir.strip_prefix(folder))
+            .map(|name| format!("| `{name}/` |"))
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    let mut readmes: Vec<(String, String)> = [
+        (
+            "README.md",
+            "| `apps/` | | `bindings/` | | `crates/` | | `tooling/` |".to_owned(),
+        ),
+        ("crates/README.md", crates),
+        ("apps/README.md", packages_in("apps/")),
+        ("bindings/README.md", bindings),
+        ("tooling/README.md", packages_in("tooling/")),
+    ]
+    .into_iter()
+    .map(|(path, text)| (path.to_owned(), text))
+    .collect();
+    readmes.extend(PACKAGES.iter().map(|package| {
+        let name = package.dir.rsplit('/').next().unwrap_or(package.dir);
+        (format!("{}/README.md", package.dir), format!("# {name}"))
+    }));
+    readmes
+}
+
+/// The crates of the visual library in [`super::RUST_CRATES`]: the expectations below
+/// that count steps, commands and reads were written for the audio engine's crates, each
+/// visual crate adding its own (one coverage step, its measurement and the emptying of the
+/// coverage build before it, its manifest read by three gates, its coverage report read
+/// twice).
+fn visual_crates() -> usize {
+    super::RUST_CRATES
+        .iter()
+        .filter(|krate| krate.name.starts_with("visual-"))
+        .count()
+}
+
+/// The total the check prints for `steps` steps of the fakes' clock, 1.5 s each, rounded
+/// down to the second: `2 min 16 s` for 91 steps.
+fn elapsed(steps: usize) -> String {
+    let seconds = steps.saturating_mul(3) / 2;
+    format!("{} min {:02} s", seconds / 60, seconds % 60)
+}
+
+/// The visual crates with a binary: each adds the coverage step of its `main.rs`, that
+/// measurement and the emptying before it, and its report read twice.
+fn visual_binaries() -> usize {
+    super::RUST_CRATES
+        .iter()
+        .filter(|krate| krate.name.starts_with("visual-") && krate.binary)
+        .count()
+}
+
+/// The steps the visual library adds to the check: a coverage step per crate and per
+/// binary, and the native visual conformance check.
+fn visual_steps() -> usize {
+    visual_crates()
+        .saturating_add(visual_binaries())
+        .saturating_add(1)
+}
+
+/// The reads the visual library adds to the default check: each crate's manifest by three
+/// gates and its coverage report twice, each binary's coverage report twice, and each test
+/// data reader and each audited unsafe file by eight gates.
+fn visual_reads() -> usize {
+    visual_crates()
+        .saturating_mul(3 + 2)
+        .saturating_add(visual_binaries().saturating_mul(2))
+        .saturating_add(visual_crates_with_test_data().saturating_mul(8))
+        .saturating_add(
+            UNSAFE_FILES
+                .iter()
+                .filter(|file| file.contains("/visual-"))
+                .count()
+                .saturating_mul(8),
+        )
+}
+
+/// The TypeScript packages beyond the five these expectations were written for: the shared
+/// build of the WebAssembly modules (`tooling/wasm-build`) and the visual library in the
+/// browser (`bindings/visual-wasm`). Each adds four steps (its checks, its mutation
+/// testing, its reports gate and its scope gate).
+fn added_packages() -> usize {
+    PACKAGES.len().saturating_sub(5)
+}
+
+/// What the packages beyond the five add to the default check's operations, as counted by
+/// `runs_every_step_and_reports_success`: 40 for the shared build of the WebAssembly
+/// modules (its check and Stryker runs, its report directories emptied, the listing and the
+/// reads of its manifest, sources, configurations and reports by the gates, its manifest
+/// read by the part license gate too), 43 for the visual library in the browser (the same,
+/// its build output emptied, and its two entry points read in the bypass register).
+fn added_package_operations() -> usize {
+    40_usize.saturating_mul(added_packages()).saturating_add(3)
+}
+
+/// The visual crates whose tests read declared test data: the fake gives each a test data
+/// reader, which eight gates read.
+fn visual_crates_with_test_data() -> usize {
+    super::RUST_CRATES
+        .iter()
+        .filter(|krate| krate.name.starts_with("visual-") && !krate.test_data.is_empty())
+        .count()
+}
 
 const CARGO: &str = "[workspace]\nmembers = []\n\n[workspace.package]\nedition = \"2024\"\nversion = \"0.2.0\"\n\n[other]\nversion = \"9.9.9\"\n";
 /// The manifest of a crate that takes the workspace version.
@@ -1826,8 +1931,8 @@ const DEFAULT_PIPELINE: &[&str] = &[
     "preflight",
     "tree recorded",
     "Root: pnpm install --frozen-lockfile",
-    "fresh tooling/config/coverage tooling/config/reports/mutation tooling/oracle/coverage tooling/oracle/reports/mutation bindings/audio-wasm/coverage bindings/audio-wasm/reports/mutation apps/playground/coverage apps/playground/reports/mutation apps/roadmap/coverage apps/roadmap/reports/mutation",
-    "fresh bindings/audio-wasm/dist",
+    "fresh tooling/config/coverage tooling/config/reports/mutation tooling/oracle/coverage tooling/oracle/reports/mutation bindings/audio-wasm/coverage bindings/audio-wasm/reports/mutation apps/playground/coverage apps/playground/reports/mutation apps/roadmap/coverage apps/roadmap/reports/mutation tooling/wasm-build/coverage tooling/wasm-build/reports/mutation bindings/visual-wasm/coverage bindings/visual-wasm/reports/mutation",
+    "fresh bindings/audio-wasm/dist bindings/visual-wasm/dist",
     "equivalent gate",
     "bypass gate",
     "unsafe gate",
@@ -1837,6 +1942,7 @@ const DEFAULT_PIPELINE: &[&str] = &[
     "untested targets gate",
     "unviable names gate",
     "conformance cargo run --package audio-cli --locked --quiet -- check conformance --spent target/xtask/spent-algorithms.json",
+    "Root: cargo run --package visual-cli --locked --quiet -- check conformance/visual",
     "Root: cargo deny --locked check",
     "dependency gate",
     "pin gate",
@@ -1862,10 +1968,10 @@ const DEFAULT_PIPELINE: &[&str] = &[
     "Root: cargo test --workspace --locked -- --include-ignored",
     "loaded files gate",
     "fused build",
-    "Root: cargo build --package audio-core --package audio-boxes --package audio-patch --package audio-hash --locked --target aarch64-apple-darwin",
-    "Root: cargo build --package audio-core --package audio-boxes --package audio-patch --package audio-hash --locked --target x86_64-unknown-linux-gnu",
-    "Root: cargo build --package audio-core --package audio-boxes --package audio-patch --package audio-hash --locked --target wasm32-unknown-unknown",
-    "Root: cargo build --package audio-core --package audio-boxes --package audio-patch --package audio-hash --locked --target thumbv7em-none-eabihf",
+    "Root: cargo build --package audio-core --package audio-boxes --package audio-patch --package audio-hash --package visual-core --package visual-boxes --package visual-hash --locked --target aarch64-apple-darwin",
+    "Root: cargo build --package audio-core --package audio-boxes --package audio-patch --package audio-hash --package visual-core --package visual-boxes --package visual-hash --locked --target x86_64-unknown-linux-gnu",
+    "Root: cargo build --package audio-core --package audio-boxes --package audio-patch --package audio-hash --package visual-core --package visual-boxes --package visual-hash --locked --target wasm32-unknown-unknown",
+    "Root: cargo build --package audio-core --package audio-boxes --package audio-patch --package audio-hash --package visual-core --package visual-boxes --package visual-hash --locked --target thumbv7em-none-eabihf",
     "Root: cargo clippy --package audio-fpenv --package audio-cli --all-targets --locked --target aarch64-apple-darwin",
     "Root: cargo clippy --package audio-fpenv --package audio-cli --all-targets --locked --target x86_64-unknown-linux-gnu",
     "Root: cargo build --lib --package audio-fpenv --package audio-cli --locked --target aarch64-apple-darwin",
@@ -1880,6 +1986,8 @@ const DEFAULT_PIPELINE: &[&str] = &[
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/visual-boxes/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/visual-boxes.json -- --include-ignored",
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/visual-hash/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/visual-hash.json -- --include-ignored",
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/visual-testkit/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/visual-testkit.json -- --include-ignored",
+    "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/visual-cli/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/visual-cli.json -- --include-ignored",
+    "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path bindings/visual-wasm/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/visual-wasm.json -- --include-ignored",
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/alloc-counter/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/alloc-counter.json -- --include-ignored",
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/audio-fpenv/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/audio-fpenv.json -- --include-ignored",
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/audio-battery/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/audio-battery.json -- --include-ignored",
@@ -1887,11 +1995,12 @@ const DEFAULT_PIPELINE: &[&str] = &[
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/audio-cli/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/audio-cli.json -- --include-ignored",
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path bindings/audio-wasm/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/audio-wasm.json -- --include-ignored",
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/xtask/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/xtask.json -- --include-ignored",
+    "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/visual-cli/Cargo.toml --locked --branch --json --summary-only --output-path target/coverage/visual-cli-main.json -- --include-ignored",
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/audio-cli/Cargo.toml --locked --branch --json --summary-only --output-path target/coverage/audio-cli-main.json -- --include-ignored",
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/xtask/Cargo.toml --locked --branch --json --summary-only --output-path target/coverage/xtask-main.json -- --include-ignored",
     concat!(
         "Root: cargo +nightly-2026-11-01 mi",
-        "ri test --package alloc-counter --package audio-wasm --locked -- --include-ignored"
+        "ri test --package visual-wasm --package alloc-counter --package audio-wasm --locked -- --include-ignored"
     ),
     "Package(\"tooling/config\"): pnpm run check",
     "Package(\"tooling/config\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json",
@@ -1916,6 +2025,14 @@ const DEFAULT_PIPELINE: &[&str] = &[
     "Package(\"apps/roadmap\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json",
     "typescript reports gate of apps/roadmap",
     "typescript scope gate of apps/roadmap",
+    "Package(\"tooling/wasm-build\"): pnpm run check",
+    "Package(\"tooling/wasm-build\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json",
+    "typescript reports gate of tooling/wasm-build",
+    "typescript scope gate of tooling/wasm-build",
+    "Package(\"bindings/visual-wasm\"): pnpm run check",
+    "Package(\"bindings/visual-wasm\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json",
+    "typescript reports gate of bindings/visual-wasm",
+    "typescript scope gate of bindings/visual-wasm",
     "fresh mutants.out",
     "rust mutants of the changes (3 jobs)",
     "unviable gate (Partial)",
@@ -1959,10 +2076,11 @@ const DEFAULT_CHECK_NAMES: &[&str] = &[
     "Tests turned off only where no test can hide, doc tests kept",
     "Every function a review of an unviable mutant names exists",
     "Conformance (native)",
+    "Visual conformance (native)",
     "Rust supply chain",
     "Every direct dependency reviewed",
     "Bit-defining dependencies pinned to one exact version",
-    "The audio library depends only on its own crates, its tests also on its test crates; every crate only tests use is shared test code",
+    "Each library depends only on its own crates, its tests also on its test crates; every crate only tests use is shared test code",
     "Every part under the license of its folder, no open part depending on an app",
     "Box arithmetic only through the math layer: libm in audio-core and audio-testkit only, no raw float in box code, no iterator reduction outside the math layer",
     "Supply-chain configuration as xtask defines it",
@@ -1998,6 +2116,12 @@ const DEFAULT_CHECK_NAMES: &[&str] = &[
     "Rust coverage of audio-boxes: 100% by its own unit tests",
     "Rust coverage of audio-patch: 100% by its own unit tests",
     "Rust coverage of audio-hash: 100% by its own unit tests",
+    "Rust coverage of visual-core: 100% by its own unit tests",
+    "Rust coverage of visual-boxes: 100% by its own unit tests",
+    "Rust coverage of visual-hash: 100% by its own unit tests",
+    "Rust coverage of visual-testkit: 100% by its own unit tests",
+    "Rust coverage of visual-cli: 100% by its own unit tests",
+    "Rust coverage of visual-wasm: 100% by its own unit tests",
     "Rust coverage of alloc-counter: 100% by its own unit tests",
     "Rust coverage of audio-fpenv: 100% by its own unit tests",
     "Rust coverage of audio-battery: 100% by its own unit tests",
@@ -2005,6 +2129,7 @@ const DEFAULT_CHECK_NAMES: &[&str] = &[
     "Rust coverage of audio-cli: 100% by its own unit tests",
     "Rust coverage of audio-wasm: 100% by its own unit tests",
     "Rust coverage of xtask: 100% by its own unit tests",
+    "Rust coverage of the visual-cli binary: 100% by its tests",
     "Rust coverage of the audio-cli binary: 100% by its tests",
     "Rust coverage of the xtask binary: 100% by its tests",
     "Unsafe code under Miri",
@@ -2031,6 +2156,14 @@ const DEFAULT_CHECK_NAMES: &[&str] = &[
     "Mutation testing of apps/roadmap (what changed since the last run)",
     "TypeScript coverage and mutation reports of apps/roadmap",
     "Every TypeScript source of apps/roadmap measured and mutated, or reviewed",
+    "WebAssembly module builds (reproducible, shared by the engine and the visual library)",
+    "Mutation testing of tooling/wasm-build (what changed since the last run)",
+    "TypeScript coverage and mutation reports of tooling/wasm-build",
+    "Every TypeScript source of tooling/wasm-build measured and mutated, or reviewed",
+    "Visual WASM checks (the same image hashes as the native renderer)",
+    "Mutation testing of bindings/visual-wasm (what changed since the last run)",
+    "TypeScript coverage and mutation reports of bindings/visual-wasm",
+    "Every TypeScript source of bindings/visual-wasm measured and mutated, or reviewed",
     "Fresh Rust mutation report",
     "Rust mutation testing of the changes",
     "Rust unviable mutants reviewed",
@@ -2225,6 +2358,14 @@ fn the_full_check_differs_only_by_its_mutation_testing() {
             (
                 "Mutation testing of apps/roadmap (what changed since the last run)",
                 "Mutation testing of apps/roadmap (every mutant)"
+            ),
+            (
+                "Mutation testing of tooling/wasm-build (what changed since the last run)",
+                "Mutation testing of tooling/wasm-build (every mutant)"
+            ),
+            (
+                "Mutation testing of bindings/visual-wasm (what changed since the last run)",
+                "Mutation testing of bindings/visual-wasm (every mutant)"
             ),
         ],
         "the steps that differ say how much they mutate"
@@ -4196,7 +4337,7 @@ fn measures_each_crate_by_its_own_unit_tests() {
         })
         .collect();
     expected.extend(
-        ["audio-cli", "xtask"]
+        ["visual-cli", "audio-cli", "xtask"]
             .map(|name| format!(
                 "cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/{name}/Cargo.toml \
                  --locked --branch --json --summary-only --output-path target/coverage/{name}-main.json -- --include-ignored"
@@ -4264,7 +4405,8 @@ fn runs_every_step_and_reports_success() {
         Ok(()),
         "all green"
     );
-    let (tools, commands, emptied, listed, captured, written) = (10, 58, 14, 27, 55, 4);
+    let (tools, emptied, listed, captured, written) = (10, 14, 27, 55, 4);
+    let commands = 58 + 2 * (visual_crates() + visual_binaries()) + 1;
     let read = 9
         + 2
         + 13
@@ -4292,11 +4434,13 @@ fn runs_every_step_and_reports_success() {
         + 1
         + 6
         + 3
-        + 91;
+        + 91
+        + visual_reads()
+        + added_package_operations();
     assert_eq!(
         fake.ran.len(),
         tools + commands + emptied + listed + captured + written + read,
-        "the preflight asks ten tools; 58 commands run (formatting, lints, documentation, \
+        "the preflight asks ten tools; 58 commands run, plus two per visual crate and binary and the visual conformance check (formatting, lints, documentation, \
          tests, four portability builds, the native shell's lints and the build of its libraries for its two architectures, fourteen coverage measurements each after emptying \
          the coverage build, the mutants of the changes, Miri, the \
          conformance check and export, deny, the JavaScript install, audit, the engine build and five package \
@@ -4333,16 +4477,23 @@ fn runs_every_step_and_reports_success() {
         "coverage reports read"
     );
     let text = String::from_utf8(out).expect("utf-8 output");
+    let checks = 92 + visual_steps() + 4 * added_packages();
     assert!(
-        text.starts_with("▶ [1/92] Tools and platform\n"),
+        text.starts_with(&format!("▶ [1/{checks}] Tools and platform\n")),
         "numbered progress: {text}"
     );
     assert!(
-        text.contains("▶ [83/92] Roadmap checks\n  done in 1.5 s\n"),
-        "last step announced: {text}"
+        text.contains(&format!(
+            "▶ [{}/{checks}] Roadmap checks\n  done in 1.5 s\n",
+            83 + visual_steps()
+        )),
+        "the roadmap's step announced: {text}"
     );
     assert!(
-        text.ends_with("  done in 1.5 s\n✔ all 92 checks passed in 2 min 18 s\n"),
+        text.ends_with(&format!(
+            "  done in 1.5 s\n✔ all {checks} checks passed in {}\n",
+            elapsed(checks)
+        )),
         "summary: {text}"
     );
 }
@@ -5434,9 +5585,10 @@ fn rejects_other_commit_messages() {
         format!(
             "unknown scope \"{scope}\": name a crate, a package or a scope of xtask's \
              COMMIT_SCOPE_EXTRAS (audio-core, audio-boxes, audio-patch, audio-hash, \
+             visual-core, visual-boxes, visual-hash, visual-testkit, visual-cli, visual-wasm, \
              alloc-counter, audio-fpenv, audio-battery, audio-testkit, audio-cli, \
-             audio-wasm, xtask, config, oracle, playground, roadmap, spec, conformance, ci, \
-             build, release, changelog, glossary, deep-review)"
+             audio-wasm, xtask, config, oracle, playground, roadmap, wasm-build, spec, \
+             conformance, ci, build, release, changelog, glossary, deep-review)"
         )
     };
     let cases: [(&str, String); 18] = [
@@ -7406,11 +7558,11 @@ fn confines_unsafe_blocks_to_the_audited_files() {
         ),
         "another file lifting it"
     );
-    assert_eq!(UNSAFE_FILES.len(), 3, "three audited files");
-    let mut fourth = sources.clone();
-    fourth.push(("crates/audio-fpenv/src/other.rs".to_owned(), lifting()));
+    assert_eq!(UNSAFE_FILES.len(), 4, "four audited files");
+    let mut fifth = sources.clone();
+    fifth.push(("crates/audio-fpenv/src/other.rs".to_owned(), lifting()));
     assert_eq!(
-        unsafe_gate(&fourth),
+        unsafe_gate(&fifth),
         found(
             "the lint against unsafe code",
             &[
@@ -7421,7 +7573,7 @@ fn confines_unsafe_blocks_to_the_audited_files() {
                 ),
             ]
         ),
-        "a fourth file, even in the crate of an audited one"
+        "a fifth file, even in the crate of an audited one"
     );
     let mut no_assembly = sources.clone();
     for (path, text) in &mut no_assembly {
@@ -8313,10 +8465,7 @@ fn stops_at_a_missing_tool() {
 
 #[test]
 fn requires_every_part_to_be_described() {
-    let readmes: Vec<(String, String)> = READMES
-        .iter()
-        .map(|&(path, text)| (path.to_owned(), text.to_owned()))
-        .collect();
+    let readmes = readmes();
     let mut parts: Vec<String> = PACKAGES
         .iter()
         .map(|package| package.dir.to_owned())
@@ -9102,10 +9251,12 @@ fn checks_a_push_then_runs_every_check() {
         0,
         "clean push"
     );
+    let checks = 92 + visual_steps() + 4 * added_packages();
     assert!(
-        String::from_utf8(out)
-            .expect("UTF-8")
-            .ends_with("✔ all 92 checks passed in 2 min 18 s\n"),
+        String::from_utf8(out).expect("UTF-8").ends_with(&format!(
+            "✔ all {checks} checks passed in {}\n",
+            elapsed(checks)
+        )),
         "then every check"
     );
     assert!(
@@ -9607,7 +9758,8 @@ fn derives_the_workflow_s_lists_and_reads_its_node_release() {
             "rust coverage mutation-0 mutation-1 mutation-2 mutation-3 ",
             "mutation-4 mutation-5 mutation-6 mutation-7 ",
             "miri",
-            " gates tooling-config tooling-oracle bindings-audio-wasm apps-playground apps-roadmap"
+            " gates tooling-config tooling-oracle bindings-audio-wasm apps-playground apps-roadmap",
+            " tooling-wasm-build bindings-visual-wasm"
         ),
         "the matrix of a full check, derived from the parts: every one but the final"
     );
@@ -9874,15 +10026,17 @@ fn prints_the_details_of_a_failure_on_stdout_and_one_line_on_stderr() {
         ),
         "every mutant, in half the threads of the machine"
     );
+    let checks = 90 + visual_steps() + 4 * added_packages();
+    let took = elapsed(checks);
     assert_eq!(
         String::from_utf8(err).expect("UTF-8"),
-        "error: 1 of 90 checks failed, listed above\n",
+        format!("error: 1 of {checks} checks failed, listed above\n"),
         "one line on stderr, counting the failed steps"
     );
     assert!(
         String::from_utf8(out).expect("UTF-8").ends_with(&format!(
-            "▶ [90/90] Working tree unchanged by the checks\n  done in 1.5 s\n\
-             ✘ 1 of 90 checks failed in 2 min 15 s\n\
+            "▶ [{checks}/{checks}] Working tree unchanged by the checks\n  done in 1.5 s\n\
+             ✘ 1 of {checks} checks failed in {took}\n\
              not reviewed: crates/a/src/c.rs: replace g -> U with x\n\
              stale review: crates/a/src/b.rs: replace f -> T with Default::default()\n\
              Rust unviable mutants reviewed: unviable mutants must be reviewed in \
@@ -12886,7 +13040,8 @@ fn reviews_the_dependencies_real_cargo_metadata_lists() {
     let reviewed = "audio-core: libm (normal) -- r\naudio-testkit: libm (normal) -- r\n\
                     audio-testkit: sha2 (normal) -- r\naudio-boxes: libm (dev) -- r\n\
                     audio-cli: libm (normal) -- r\naudio-cli: serde (build) -- r\n\
-                    audio-hash: serde_json (normal) -- r\naudio-hash: sha2 (normal) -- r\n";
+                    audio-hash: serde_json (normal) -- r\naudio-hash: sha2 (normal) -- r\n\
+                    visual-hash: serde_json (normal) -- r\n";
     assert_eq!(
         super::dependency_gate(&metadata, &[], reviewed),
         failed(
@@ -12907,10 +13062,11 @@ fn unpinned(key: &str, req: &str) -> String {
     )
 }
 
-/// What the pin gate says of a dependency `key` of the library not reviewed as bit-defining.
-fn unmarked(key: &str) -> String {
+/// What the pin gate says of a dependency `key` of the library `what` not reviewed as
+/// bit-defining.
+fn unmarked(key: &str, what: &str) -> String {
     format!(
-        "{key}: its code runs in the audio library's: review it in dependencies.txt with a \
+        "{key}: its code runs in the {what}'s: review it in dependencies.txt with a \
          reason starting `bit-defining: `"
     )
 }
@@ -12923,16 +13079,19 @@ fn pins_the_bit_defining_dependencies_real_cargo_metadata_lists() {
                     audio-testkit: libm (normal) -- the measurements\n\
                     audio-testkit: sha2 (normal) -- bit-defining: the fingerprints\n\
                     audio-hash: serde_json (normal) -- reads JSON\n\
-                    audio-hash: sha2 (normal) -- bit-defining: the render hash\n";
+                    audio-hash: sha2 (normal) -- bit-defining: the render hash\n\
+                    visual-hash: serde_json (normal) -- reads JSON\n";
     assert_eq!(
         super::pin_gate(&metadata, reviewed),
         step_found(&[
             unpinned("audio-testkit: sha2 (normal)", "^0.11"),
-            unmarked("audio-hash: serde_json (normal)"),
+            unmarked("audio-hash: serde_json (normal)", "audio library"),
             unpinned("audio-hash: serde_json (normal)", "^1"),
+            unmarked("visual-hash: serde_json (normal)", "visual library"),
+            unpinned("visual-hash: serde_json (normal)", "^1"),
         ]),
-        "a reviewed one unpinned, one of the library neither reviewed so nor pinned; the \
-         library's tests, another crate's and a comment apart"
+        "a reviewed one unpinned, one of each library neither reviewed so nor pinned; the \
+         libraries' tests, another crate's and a comment apart"
     );
 }
 
@@ -12975,7 +13134,7 @@ fn reads_one_exact_version_only() {
     assert_eq!(
         missing,
         step_found(&[
-            unmarked("audio-core: libm (normal)"),
+            unmarked("audio-core: libm (normal)", "audio library"),
             unpinned("audio-core: libm (normal)", "")
         ]),
         "no kind, no requirement"
@@ -13005,25 +13164,39 @@ fn outside_library(library: &str, name: &str, kind: &str, path: &str) -> String 
     )
 }
 
+/// What the library gate says of `library`, a crate of the visual library, depending on
+/// `name` (`kind`, at `path`).
+fn outside_visual_library(library: &str, name: &str, kind: &str, path: &str) -> String {
+    format!(
+        "{library} depends on {name} ({kind}, {path}): the visual library depends only on its \
+         own crates (visual-core, visual-boxes, visual-hash), its tests also on \
+         visual-testkit, alloc-counter; move what it needs into the library, or the \
+         dependency out of it"
+    )
+}
+
 #[test]
 fn keeps_the_library_apart_in_real_cargo_metadata() {
     let (metadata, root) = fixture_metadata();
     let cli = format!("{root}/crates/audio-cli");
+    let core = format!("{root}/crates/audio-core");
     assert_eq!(
         super::library_gate(&metadata),
         step_found(&[
             outside_library("audio-boxes", "audio-cli", "normal", &cli),
             outside_library("audio-wasm", "audio-cli", "dev", &cli),
+            outside_visual_library("visual-core", "audio-core", "normal", &core),
         ]),
-        "the native shell in the code and in the tests; the test bench in the tests, the \
-         library's own crates and third-party crates allowed"
+        "the native shell in the code and in the tests; the visual library reaching into \
+         the audio one; each library's test bench in its tests, its own crates and \
+         third-party crates allowed"
     );
 }
 
 #[test]
 fn refuses_a_library_that_reaches_outside_itself() {
     let packages = |core: &str| {
-        let others = r#"{"name":"audio-boxes"},{"name":"audio-patch"},{"name":"audio-hash"},{"name":"audio-fpenv"},"#;
+        let others = r#"{"name":"audio-boxes"},{"name":"audio-patch"},{"name":"audio-hash"},{"name":"audio-fpenv"},{"name":"visual-core"},{"name":"visual-boxes"},{"name":"visual-hash"},"#;
         format!(
             r#"{{"workspace_root":"/r","packages":[{others}{{"name":"audio-wasm"}},{{"name":"audio-core","dependencies":[{core}]}}]}}"#
         )
@@ -13086,7 +13259,10 @@ fn refuses_a_library_that_reaches_outside_itself() {
                 "audio-patch",
                 "audio-hash",
                 "audio-fpenv",
-                "audio-wasm"
+                "audio-wasm",
+                "visual-core",
+                "visual-boxes",
+                "visual-hash"
             ]
             .map(|name| {
                 format!("{name}: not in the cargo metadata, so its dependencies cannot be checked")
@@ -13621,7 +13797,10 @@ fn empties_stale_build_outputs_before_the_builds_that_write_them() {
     let steps = check_steps(CHANGES_MODE);
     assert_eq!(
         super::build_outputs(),
-        vec!["bindings/audio-wasm/dist".to_owned()],
+        vec![
+            "bindings/audio-wasm/dist".to_owned(),
+            "bindings/visual-wasm/dist".to_owned()
+        ],
         "the outputs of tsc, which never removes a stale one"
     );
     for package in PACKAGES {
@@ -13644,7 +13823,7 @@ fn empties_stale_build_outputs_before_the_builds_that_write_them() {
 fn runs_miri_on_every_crate_of_the_audited_files() {
     assert_eq!(
         super::unsafe_crates(),
-        vec!["alloc-counter", "audio-wasm"],
+        vec!["visual-wasm", "alloc-counter", "audio-wasm"],
         "the crates of the audited files, in the order of RUST_CRATES, but the assembly one"
     );
     assert_eq!(
@@ -13661,7 +13840,8 @@ fn runs_miri_on_every_crate_of_the_audited_files() {
     assert_eq!(
         super::miri_command().line(),
         format!(
-            "cargo +nightly-2026-11-01 {} test --package alloc-counter --package \
+            "cargo +nightly-2026-11-01 {} test --package visual-wasm --package \
+             alloc-counter --package \
              audio-wasm --locked -- --include-ignored",
             "miri"
         ),
@@ -13693,7 +13873,7 @@ fn empties_the_coverage_build_before_every_measurement() {
         .collect();
     assert_eq!(
         measurements.len(),
-        15 + 1,
+        13 + visual_crates() + visual_binaries() + 1,
         "every crate and binary measured, and the locality fixture"
     );
     for index in measurements {
@@ -15064,7 +15244,7 @@ fn builds_the_engine_package_before_every_package() {
 
 /// The parts of the full check, by name, in order: the matrix of the CI workflow, then the
 /// final part.
-const PART_NAMES: [&str; 18] = [
+const PART_NAMES: [&str; 20] = [
     "rust",
     "coverage",
     "mutation-0",
@@ -15082,6 +15262,8 @@ const PART_NAMES: [&str; 18] = [
     "bindings-audio-wasm",
     "apps-playground",
     "apps-roadmap",
+    "tooling-wasm-build",
+    "bindings-visual-wasm",
     "final",
 ];
 
@@ -15175,7 +15357,7 @@ fn runs_each_part_of_the_full_check_as_its_own_job() {
     assert_eq!(
         lines("miri"),
         frame(&[&format!(
-            "Root: cargo +nightly-2026-11-01 {} test --package alloc-counter --package audio-wasm --locked -- --include-ignored",
+            "Root: cargo +nightly-2026-11-01 {} test --package visual-wasm --package alloc-counter --package audio-wasm --locked -- --include-ignored",
             "miri"
         )]),
         "Miri alone"
@@ -15184,8 +15366,8 @@ fn runs_each_part_of_the_full_check_as_its_own_job() {
         lines("apps-playground"),
         frame(&[
             "Root: pnpm install --frozen-lockfile",
-            "fresh tooling/config/coverage tooling/config/reports/mutation tooling/oracle/coverage tooling/oracle/reports/mutation bindings/audio-wasm/coverage bindings/audio-wasm/reports/mutation apps/playground/coverage apps/playground/reports/mutation apps/roadmap/coverage apps/roadmap/reports/mutation",
-            "fresh bindings/audio-wasm/dist",
+            "fresh tooling/config/coverage tooling/config/reports/mutation tooling/oracle/coverage tooling/oracle/reports/mutation bindings/audio-wasm/coverage bindings/audio-wasm/reports/mutation apps/playground/coverage apps/playground/reports/mutation apps/roadmap/coverage apps/roadmap/reports/mutation tooling/wasm-build/coverage tooling/wasm-build/reports/mutation bindings/visual-wasm/coverage bindings/visual-wasm/reports/mutation",
+            "fresh bindings/audio-wasm/dist bindings/visual-wasm/dist",
             "Package(\"bindings/audio-wasm\"): pnpm run build",
             "Package(\"apps/playground\"): pnpm run check",
             "Package(\"apps/playground\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json --force",
@@ -15272,8 +15454,15 @@ fn the_parts_run_every_step_of_the_full_check_once() {
     }
     assert_eq!(
         steps_run,
-        18 * 3 + (90 - 3 - 7 - 2) + 8 * 2 + 1 + 2 + 6 * 3 + 1,
-        "each part's frame (three steps); every other step of the 90 once, but the seven \
+        (18 + added_packages()) * 3
+            + (90 + visual_steps() + 4 * added_packages() - 3 - 7 - 2)
+            + 8 * 2
+            + 1
+            + 2
+            + (6 + added_packages()) * 3
+            + 1,
+        "each part's frame (three steps); every other step of the 90 (more with the visual \
+         library's) once, but the seven \
          preparations, the mutation run and its unviable gate; in each of the eight shards, \
          the report emptied and the shard's run; the gate over the shards; the conformance \
          export (two steps) for the oracle; the JavaScript preparation (three steps) for the \
@@ -16279,6 +16468,12 @@ fn mutates_every_crate_not_proven_whole_when_what_every_test_uses_changed() {
         "audio-core",
         "audio-boxes",
         "audio-patch",
+        "visual-core",
+        "visual-boxes",
+        "visual-hash",
+        "visual-testkit",
+        "visual-cli",
+        "visual-wasm",
         "alloc-counter",
         "audio-fpenv",
         "audio-battery",
@@ -17621,6 +17816,16 @@ fn derives_each_list_of_crates_from_their_roles() {
             "the test kit",
         ),
         (
+            CrateRole::VisualLibrary,
+            &["visual-core", "visual-boxes", "visual-hash"][..],
+            "the visual library",
+        ),
+        (
+            CrateRole::VisualLibraryTests,
+            &["visual-testkit", "alloc-counter"][..],
+            "the visual test kit and the counting allocator",
+        ),
+        (
             CrateRole::Libm,
             &["audio-core", "audio-testkit"][..],
             "the engine core and the test kit",
@@ -17632,7 +17837,12 @@ fn derives_each_list_of_crates_from_their_roles() {
         ),
         (
             CrateRole::SharedTests,
-            &["alloc-counter", "audio-battery", "audio-testkit"][..],
+            &[
+                "visual-testkit",
+                "alloc-counter",
+                "audio-battery",
+                "audio-testkit",
+            ][..],
             "the counting allocator, the fingerprint battery and the test kit",
         ),
     ] {
@@ -17870,15 +18080,45 @@ fn follows_a_lock_dependency_by_name_version_and_source() {
     }
 }
 
+/// The reasons the lock reader gives for the malformed forms of `lock` the test below
+/// writes around `libm`'s entry and after the last one. The fixture lists the registry's
+/// packages after every crate of the registry, so these lines are counted from the first
+/// registry entry, `libm`'s, and from the end, never retyped.
+fn malformed_lock_reasons(lock: &str) -> [String; 8] {
+    let libm = lock
+        .lines()
+        .position(|line| line == "name = \"libm\"")
+        .map_or(0, |index| index.saturating_add(1));
+    let after = lock.lines().count().saturating_add(2);
+    let at = |line: usize, what: &str| format!("line {line} {what}");
+    [
+        at(libm, "is not `name = \"…\"`"),
+        at(libm.saturating_add(1), "is not `version = \"…\"`"),
+        at(libm.saturating_add(3), "is not `checksum = \"…\"`"),
+        at(
+            libm.saturating_add(4),
+            "is not the blank line ending an entry",
+        ),
+        at(
+            libm.saturating_sub(2),
+            "is not the blank line ending an entry",
+        ),
+        at(after, "is not `[[package]]`"),
+        format!("the entry of line {after} repeats an earlier one"),
+        at(libm.saturating_add(2), "is not `source = \"…\"`"),
+    ]
+}
+
 #[test]
 fn reads_a_lock_file_only_as_cargo_writes_it() {
     let lock = lock_text(&LOCKED_WORKSPACE, &LOCKED_REGISTRY);
     assert!(super::changes::lock_entries(&lock).is_ok(), "as written");
     assert_eq!(
         super::changes::lock_entries(&lock).map(|entries| entries.len()),
-        Ok(16),
+        Ok(16 + visual_crates()),
         "every crate of the workspace and every package"
     );
+    let around = malformed_lock_reasons(&lock);
     let first = "it does not start with `version = 4` after its comments";
     for (malformed, reason) in [
         (lock.replacen("version = 4", "version = 3", 1), first),
@@ -17889,19 +18129,19 @@ fn reads_a_lock_file_only_as_cargo_writes_it() {
                 "\n[[package]]\nnamee = \"libm\"",
                 1,
             ),
-            "line 63 is not `name = \"…\"`",
+            &around[0],
         ),
         (
             lock.replacen("version = \"0.2.16\"", "version = 0.2.16", 1),
-            "line 64 is not `version = \"…\"`",
+            &around[1],
         ),
         (
             lock.replacen("checksum = \"c1\"", "checksum = c1", 1),
-            "line 66 is not `checksum = \"…\"`",
+            &around[2],
         ),
         (
             lock.replacen("checksum = \"c1\"", "checksum = \"c1\"\nyanked = true", 1),
-            "line 67 is not the blank line ending an entry",
+            &around[3],
         ),
         (
             lock.replacen(" \"libm\",", "  \"libm\",", 1),
@@ -17927,17 +18167,14 @@ fn reads_a_lock_file_only_as_cargo_writes_it() {
                 "\n[[package]]\nname = \"libm\"",
                 1,
             ),
-            "line 61 is not the blank line ending an entry",
+            &around[4],
         ),
-        (
-            format!("{lock}\n[metadata]\n"),
-            "line 98 is not `[[package]]`",
-        ),
+        (format!("{lock}\n[metadata]\n"), &around[5]),
         (
             format!(
                 "{lock}\n[[package]]\nname = \"libm\"\nversion = \"0.2.16\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"c1\"\n"
             ),
-            "the entry of line 98 repeats an earlier one",
+            &around[6],
         ),
         (
             format!("{lock}\n[[package]]\nname = \"a\"\n"),
@@ -17953,7 +18190,7 @@ fn reads_a_lock_file_only_as_cargo_writes_it() {
                 "source = registry",
                 1,
             ),
-            "line 65 is not `source = \"…\"`",
+            &around[7],
         ),
     ] {
         assert_eq!(
@@ -18958,7 +19195,10 @@ fn writes_the_parts_as_the_outputs_of_the_first_job() {
         parts.starts_with("parts=[\"rust\",\"coverage\",\"mutation-0\","),
         "{parts}"
     );
-    assert!(parts.ends_with(",\"apps-roadmap\"]"), "{parts}");
+    assert!(
+        parts.ends_with(",\"apps-roadmap\",\"tooling-wasm-build\",\"bindings-visual-wasm\"]"),
+        "{parts}"
+    );
     assert_eq!(full, "full=true", "every part: the final part runs");
 }
 
