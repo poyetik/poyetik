@@ -27,7 +27,8 @@ pub fn coverage_to_intensity(coverage: u32) -> f32 {
 
 /// The length of the overlap of `[start, end)` with `[cell_start, cell_start + SUBPIXELS)`,
 /// in subpixel units: from 0 to [`SUBPIXELS`].
-pub(crate) fn overlap(start: u64, end: u64, cell_start: u64) -> u32 {
+#[must_use]
+pub fn overlap(start: u64, end: u64, cell_start: u64) -> u32 {
     let cell_end = cell_start.saturating_add(u64::from(SUBPIXELS));
     let low = start.max(cell_start);
     let high = end.min(cell_end);

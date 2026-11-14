@@ -1,47 +1,12 @@
 //! The square: a white square on opaque black, sweeping from the left edge to the right
 //! edge once per cycle, with exact edge coverage.
 
-use crate::coverage::overlap;
-use crate::rate::gcd;
-use crate::{
-    Image, ImageIndex, ImageRate, SUBPIXELS, SubpixelPoint, Trace, VisualBox, VisualError,
-    coverage_to_intensity,
+use visual_core::{
+    Image, ImageIndex, ImageRate, SUBPIXELS, Seconds, SubpixelPoint, Trace, VisualBox,
+    coverage_to_intensity, overlap,
 };
 
-/// The duration of one sweep: `numerator / denominator` seconds, an exact, reduced,
-/// nonzero fraction.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Cycle {
-    /// Seconds, times `denominator`.
-    numerator: u32,
-    /// Divides `numerator`.
-    denominator: u32,
-}
-
-impl Cycle {
-    /// Creates a cycle of `numerator / denominator` seconds.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`VisualError::InvalidCycle`] unless both terms are nonzero and the
-    /// fraction is reduced.
-    pub fn new(numerator: u32, denominator: u32) -> Result<Self, VisualError> {
-        if numerator == 0
-            || denominator == 0
-            || gcd(u64::from(numerator), u64::from(denominator)) != 1
-        {
-            Err(VisualError::InvalidCycle {
-                numerator,
-                denominator,
-            })
-        } else {
-            Ok(Self {
-                numerator,
-                denominator,
-            })
-        }
-    }
-}
+use crate::BoxError;
 
 /// Where the square is in one image, in subpixel units.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -73,7 +38,7 @@ pub struct Square {
     /// The side, in 65 536ths of the image height.
     side: u32,
     /// The duration of one sweep.
-    cycle: Cycle,
+    cycle: Seconds,
 }
 
 impl Square {
@@ -85,11 +50,10 @@ impl Square {
     ///
     /// # Errors
     ///
-    /// Returns [`VisualError::InvalidSide`] when `side` is above
-    /// [`Square::FULL_SIDE`].
-    pub const fn new(rate: ImageRate, side: u32, cycle: Cycle) -> Result<Self, VisualError> {
+    /// Returns [`BoxError::InvalidSide`] when `side` is above [`Square::FULL_SIDE`].
+    pub const fn new(rate: ImageRate, side: u32, cycle: Seconds) -> Result<Self, BoxError> {
         if side > Self::FULL_SIDE {
-            Err(VisualError::InvalidSide(side))
+            Err(BoxError::InvalidSide(side))
         } else {
             Ok(Self { rate, side, cycle })
         }
@@ -106,9 +70,9 @@ impl Square {
         // / (rate numerator × cycle numerator); only its fractional part matters.
         let elapsed = u128::from(index.0)
             .saturating_mul(u128::from(self.rate.denominator()))
-            .saturating_mul(u128::from(self.cycle.denominator));
+            .saturating_mul(u128::from(self.cycle.denominator()));
         let period = u128::from(self.rate.numerator())
-            .saturating_mul(u128::from(self.cycle.numerator))
+            .saturating_mul(u128::from(self.cycle.numerator()))
             .max(1);
         let within = elapsed.checked_rem(period).unwrap_or(0);
         let offset = within

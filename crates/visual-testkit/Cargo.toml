@@ -1,0 +1,22 @@
+[package]
+name = "visual-testkit"
+description = "Poyetik visual test bench: the laws every visual box must respect, over the shared visual test matrix"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+readme = false
+repository.workspace = true
+keywords = ["graphics", "testing", "deterministic"]
+categories = ["development-tools::testing"]
+
+[dependencies]
+alloc-counter = { path = "../alloc-counter" }
+visual-core = { path = "../visual-core" }
+
+[dev-dependencies]
+serde_json = "1"
+
+[lints]
+workspace = true

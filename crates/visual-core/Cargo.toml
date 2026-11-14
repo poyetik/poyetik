@@ -13,10 +13,5 @@ categories = ["graphics", "no-std"]
 
 [dependencies]
 
-[dev-dependencies]
-# Proves that rendering an image never touches the heap. A test-only crate of the
-# workspace's test bench; the visual library itself depends on nothing.
-alloc-counter = { path = "../alloc-counter" }
-
 [lints]
 workspace = true

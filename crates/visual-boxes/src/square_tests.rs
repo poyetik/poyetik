@@ -2,17 +2,17 @@ extern crate alloc;
 
 use alloc::vec::Vec;
 
-use alloc_counter::heap_operations_during;
-
-use super::{Cycle, Square};
-use crate::{
-    Image, ImageIndex, ImageRate, ImageSize, SUBPIXELS, SubpixelPoint, Trace, VisualBox,
-    VisualError,
+use visual_core::{
+    Image, ImageIndex, ImageRate, ImageSize, SUBPIXELS, Seconds, SubpixelPoint, Trace, VisualBox,
 };
+use visual_testkit::heap_operations_during;
+
+use super::Square;
+use crate::BoxError;
 
 /// A square of `side` 65 536ths of the height, at `rate`, sweeping once per `seconds`.
 fn square(rate: ImageRate, side: u32, seconds: (u32, u32)) -> Square {
-    let cycle = Cycle::new(seconds.0, seconds.1).expect("a valid cycle");
+    let cycle = Seconds::new(seconds.0, seconds.1).expect("a valid cycle");
     Square::new(rate, side, cycle).expect("a valid square")
 }
 
@@ -308,15 +308,15 @@ fn traces_what_it_draws() {
 
 #[test]
 fn rejects_a_side_taller_than_the_image() {
-    let cycle = Cycle::new(1, 1).expect("a valid cycle");
+    let cycle = Seconds::new(1, 1).expect("a valid cycle");
     assert_eq!(
         Square::new(per_second(), Square::FULL_SIDE + 1, cycle),
-        Err(VisualError::InvalidSide(65_537)),
+        Err(BoxError::InvalidSide(65_537)),
         "too tall"
     );
     assert_eq!(
         Square::new(per_second(), u32::MAX, cycle),
-        Err(VisualError::InvalidSide(u32::MAX)),
+        Err(BoxError::InvalidSide(u32::MAX)),
         "largest"
     );
     assert!(
@@ -326,21 +326,15 @@ fn rejects_a_side_taller_than_the_image() {
 }
 
 #[test]
-fn accepts_only_reduced_nonzero_cycles() {
-    for (numerator, denominator) in [(1, 1), (1001, 1000), (u32::MAX, 1), (1, u32::MAX)] {
-        assert!(
-            Cycle::new(numerator, denominator).is_ok(),
-            "{numerator}/{denominator}"
-        );
-    }
-    for (numerator, denominator) in [(0, 1), (1, 0), (0, 0), (2, 4), (6, 3)] {
-        assert_eq!(
-            Cycle::new(numerator, denominator),
-            Err(VisualError::InvalidCycle {
-                numerator,
-                denominator
-            }),
-            "{numerator}/{denominator}"
-        );
+fn respects_every_visual_box_law() {
+    // Sides from none to the full height, cycles shorter and longer than an image, and
+    // not whole numbers of images, at every rate, size and index of the shared matrix.
+    for side in [0, 1, 30_000, Square::FULL_SIDE] {
+        for cycle in [(1, 1), (1001, 1000), (1, 1000), (3600, 1)] {
+            let laws = visual_testkit::check_laws(&|rate| -> alloc::boxed::Box<dyn VisualBox> {
+                alloc::boxed::Box::new(square(rate, side, cycle))
+            });
+            assert_eq!(laws, Ok(()), "side {side}, cycle {cycle:?}");
+        }
     }
 }
