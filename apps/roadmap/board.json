@@ -1374,15 +1374,15 @@
       "tasks": [
         {
           "title": "Visual operator contract in the standalone visual library (no dependency on the audio library), with the optional mapping from output points back to what produced them, and a square operator with exact edge coverage (antialiasing)",
-          "done": false
+          "done": true
         },
         {
           "title": "Exact CPU reference renderer: no_std, no unsafe code, built for every target of the portability check",
-          "done": false
+          "done": true
         },
         {
           "title": "Canonical hash of an image sequence, specified in spec/ with known-answer vectors read by every implementation",
-          "done": false
+          "done": true
         },
         {
           "title": "Offline render in a visual command-line renderer and the first visual conformance case: the same hashes natively and in WebAssembly; then the end of this block (steps 1 to 4): a deep review, its decided fixes, and a pull request whose full check is green",
