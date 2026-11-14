@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The visual library starts, standalone (it depends on no other part of the project): `visual-core`, `no_std` with no `unsafe`, built for every portability target. It holds images (linear-light BT.709 RGBA in 32-bit floats, premultiplied alpha), an exact image rate (a reduced fraction, so `24000/1001` is exact), the visual box contract (`render`, a pure function of the image index, never allocating; and an optional `trace` saying what produced a point of the output, for picking), and a square sweeping across the image with exact edge coverage: every pixel's value is the exact area the square covers, computed in integers at 1/4096 of a pixel and converted to a float without rounding. Its tests prove the area law (the values sum exactly to the square's area), random access (any image first, the same bits), exact periodicity over 10¹² images, no allocation while rendering, and the trace at every edge. Its design decisions, provisional until the visual engine's design (roadmap #35), are in `spec/visual-design.md`.
+- The image hash, `image-hash/1` (`spec/image-hash.md`): the SHA-256 of a sequence of images in canonical form (rate, size, color encoding, every value's bits, then the number of images, so that a sequence is hashed as it renders), with known-answer vectors computed independently in Python (`spec/image-hash-vectors.json`); `visual-hash`, `no_std` with no `unsafe`, reproduces them.
+
 ## [0.5.0] - 2026-11-15
 
 ### Added

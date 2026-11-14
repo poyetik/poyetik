@@ -1,0 +1,37 @@
+//! Poyetik visual library core: images, exact time, the contract every visual box
+//! implements, and the exact CPU reference renderer.
+//!
+//! A standalone library: it depends on no other part of the project (the audio library
+//! included), so it can be used on its own. It is `no_std` and forbids `unsafe`, so it
+//! cannot reach the OS, the clock, threads or the GPU: what it renders is deterministic
+//! by construction, and it is the exact reference every other renderer (the GPU one
+//! included) is measured against.
+//!
+//! The design decisions of this first version are provisional and listed in
+//! `spec/visual-design.md`.
+
+#![no_std]
+#![forbid(unsafe_code)]
+
+extern crate alloc;
+
+mod contract;
+mod coverage;
+mod error;
+mod image;
+mod rate;
+mod render;
+mod square;
+
+pub use contract::{SubpixelPoint, Trace, VisualBox};
+pub use coverage::{SUBPIXELS, coverage_to_intensity};
+pub use error::VisualError;
+pub use image::{ColorEncoding, Image, ImageSize};
+pub use rate::{ImageIndex, ImageRate};
+pub use render::render_sequence;
+pub use square::{Cycle, Square};
+
+/// Counts heap operations in the tests, to prove rendering never allocates.
+#[cfg(test)]
+#[global_allocator]
+static ALLOCATOR: alloc_counter::CountingAllocator = alloc_counter::CountingAllocator;
