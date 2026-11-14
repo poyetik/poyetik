@@ -208,7 +208,7 @@ fn failed(text: impl AsRef<str>) -> Result<(), Failure> {
     })
 }
 
-/// The failure of a gate that found `problems` about `context`, as [`super::verdict`]
+/// The failure of a gate that found `problems` about `context`, as [`super::steps::verdict`]
 /// shows it (tested on its own by `shows_one_problem_inline_and_lists_several`).
 fn found(context: &str, problems: &[String]) -> Result<(), Failure> {
     match problems {
@@ -222,7 +222,7 @@ fn found(context: &str, problems: &[String]) -> Result<(), Failure> {
 }
 
 /// The failure of a gate run only as a step that found `problems`, as
-/// [`super::step_verdict`] shows it: the step's name comes from the step.
+/// [`super::steps::step_verdict`] shows it: the step's name comes from the step.
 fn step_found(problems: &[String]) -> Result<(), Failure> {
     match problems {
         [only] => failed(only),
@@ -2018,7 +2018,7 @@ fn names_every_check_in_order() {
 /// The steps of the default check in the order of the full check, without the two it adds
 /// after its unviable gate.
 fn default_steps_as_full() -> Vec<Step> {
-    let mut changes: Vec<Step> = super::full_order(CHANGES_MODE)
+    let mut changes: Vec<Step> = super::steps::full_order(CHANGES_MODE)
         .into_iter()
         .map(|(_, step)| step)
         .collect();
@@ -2056,7 +2056,7 @@ fn the_default_check_runs_the_steps_of_its_full_order_cheapest_first() {
         lines.sort();
         lines
     };
-    let unordered: Vec<Step> = super::full_order(CHANGES_MODE)
+    let unordered: Vec<Step> = super::steps::full_order(CHANGES_MODE)
         .into_iter()
         .map(|(_, step)| step)
         .collect();
@@ -2072,7 +2072,7 @@ fn the_default_check_runs_the_steps_of_its_full_order_cheapest_first() {
         "the same steps, each once"
     );
     let jobs = NonZeroUsize::new(3).expect("three is not zero");
-    let full: Vec<Step> = super::full_order(Mode::Full { jobs })
+    let full: Vec<Step> = super::steps::full_order(Mode::Full { jobs })
         .into_iter()
         .map(|(_, step)| step)
         .collect();
@@ -2085,17 +2085,17 @@ fn the_default_check_runs_the_steps_of_its_full_order_cheapest_first() {
 
 #[test]
 fn prepares_what_a_part_needs_before_its_first_step_in_the_default_check() {
-    let roles = super::roles(CHANGES_MODE);
+    let roles = super::steps::roles(CHANGES_MODE);
     let mut checked = 0_usize;
     for (at, (role, step)) in roles.iter().enumerate() {
-        let super::Role::Proof(part) = role else {
+        let super::parts::Role::Proof(part) = role else {
             continue;
         };
         for setup in part.needs() {
             let preparing: Vec<usize> = roles
                 .iter()
                 .enumerate()
-                .filter(|(_, (other, _))| *other == super::Role::Setup(setup))
+                .filter(|(_, (other, _))| *other == super::parts::Role::Setup(setup))
                 .map(|(index, _)| index)
                 .collect();
             assert!(
@@ -2670,12 +2670,12 @@ fn reads_the_paths_real_git_changes_whatever_they_hold() {
     std::fs::write(dir.join("crates/engine-core/tests/new.rs"), "fn n() {}\n").expect("a new file");
     let mut runner = system(dir.path());
     assert_eq!(
-        super::changed_since(&mut runner, "HEAD").map_err(|failure| failure.summary),
+        super::changes::changed_since(&mut runner, "HEAD").map_err(|failure| failure.summary),
         Ok(vec![quoted.to_owned(), spaced.to_owned(), hash.to_owned()]),
         "a path git would quote, and one holding ` b/`, as they are"
     );
     assert_eq!(
-        super::new_rust_files(&mut runner).map_err(|failure| failure.summary),
+        super::changes::new_rust_files(&mut runner).map_err(|failure| failure.summary),
         Ok(vec!["crates/engine-core/tests/new.rs".to_owned()]),
         "the new Rust file"
     );
@@ -2683,7 +2683,7 @@ fn reads_the_paths_real_git_changes_whatever_they_hold() {
         .iter()
         .find(|krate| krate.name == "engine-core")
         .expect("the engine core");
-    let diff = super::diff_since(&mut runner, "HEAD", &[core]).expect("a diff");
+    let diff = super::changes::diff_since(&mut runner, "HEAD", &[core]).expect("a diff");
     assert_eq!(
         diff,
         format!(
@@ -2704,9 +2704,9 @@ fn takes_every_file_git_s_rust_pathspec_matches_for_rust() {
     let _commit = hermetic_git(&dir, &["commit", "--quiet", "-m", "first"]);
     std::fs::write(dir.join(path), "b\n").expect("a change");
     let mut runner = system(dir.path());
-    let changed = super::changed_since(&mut runner, "HEAD").expect("the changes");
+    let changed = super::changes::changed_since(&mut runner, "HEAD").expect("the changes");
     assert_eq!(
-        super::mutated_diff(
+        super::changes::mutated_diff(
             &mut runner,
             &mut Vec::new(),
             "HEAD",
@@ -2739,7 +2739,7 @@ fn shows_cargo_mutants_the_rust_changes_alone() {
     std::fs::write(dir.join(hash), "b\n").expect("a change");
     let mut runner = system(dir.path());
     assert_eq!(
-        super::diff_since(&mut runner, "HEAD", &[]).map_err(|failure| failure.summary),
+        super::changes::diff_since(&mut runner, "HEAD", &[]).map_err(|failure| failure.summary),
         Ok(format!(
             "diff --git a/{hash} b/{hash}\nindex 7898192..6178079 100644\n--- a/{hash}\n+++ b/{hash}\n@@ -1 +1 @@\n-a\n+b\n"
         )),
@@ -2770,8 +2770,8 @@ fn tells_a_file_turned_into_a_link_from_a_change_git_left_out() {
     std::fs::write(dir.join(hash), "b\n").expect("a change");
     let mut runner = system(dir.path());
     let mutated = |git: &mut SystemRunner| {
-        let changed = super::changed_since(git, "HEAD").expect("the changes");
-        super::mutated_diff(
+        let changed = super::changes::changed_since(git, "HEAD").expect("the changes");
+        super::changes::mutated_diff(
             git,
             &mut Vec::new(),
             "HEAD",
@@ -2826,13 +2826,13 @@ fn git_answers(
         root: dir.to_path_buf(),
         env,
     };
-    let changed = super::changed_since(&mut runner, "HEAD").expect("the changes");
-    let new = super::new_rust_files(&mut runner).expect("the new files");
-    let tree = super::tree_cleanliness(&mut runner).expect("the tree");
+    let changed = super::changes::changed_since(&mut runner, "HEAD").expect("the changes");
+    let new = super::changes::new_rust_files(&mut runner).expect("the new files");
+    let tree = super::proof_record::tree_cleanliness(&mut runner).expect("the tree");
     vec![
         changed.join("|"),
         new.join("|"),
-        super::mutated_diff(
+        super::changes::mutated_diff(
             &mut runner,
             &mut Vec::new(),
             "HEAD",
@@ -2968,13 +2968,13 @@ fn reads_the_changed_lines_whatever_git_attributes_say() {
         )
         .expect("an attribute no gate sees");
         let mut runner = system(dir.path());
-        let diff = super::diff_since(&mut runner, "HEAD", &[]).expect("a diff");
+        let diff = super::changes::diff_since(&mut runner, "HEAD", &[]).expect("a diff");
         assert!(
             diff.ends_with("@@ -1 +1 @@\n-a\n+b\n"),
             "{attribute}: the changed line, never `Binary files … differ`: {diff}"
         );
         assert_eq!(
-            super::incomplete_diff(&diff, &BTreeSet::from([path])),
+            super::changes::incomplete_diff(&diff, &BTreeSet::from([path])),
             None,
             "{attribute}"
         );
@@ -2987,7 +2987,7 @@ fn refuses_a_diff_that_is_not_every_change_in_text() {
     let one = one_line_change(first);
     let two = format!("{one}{}", one_line_change(second));
     let incomplete = |diff: &str, expected: &[&str]| {
-        super::incomplete_diff(diff, &expected.iter().copied().collect())
+        super::changes::incomplete_diff(diff, &expected.iter().copied().collect())
     };
     assert_eq!(incomplete(&one, &[first]), None, "one section, one change");
     assert_eq!(
@@ -3072,7 +3072,7 @@ fn refuses_a_diff_that_is_not_every_change_in_text() {
 fn refuses_a_section_header_whose_path_it_cannot_read() {
     let first = "crates/a/src/b.rs";
     let incomplete = |diff: &str, expected: &[&str]| {
-        super::incomplete_diff(diff, &expected.iter().copied().collect())
+        super::changes::incomplete_diff(diff, &expected.iter().copied().collect())
     };
     let spaced = "crates/a/src/x b/y.rs";
     assert_eq!(
@@ -3142,7 +3142,7 @@ fn keeps_the_user_s_git_files_from_a_test_s_git() {
 fn starts_a_test_runner_s_commands_without_the_machine_s_git_configuration() {
     let runner = system(Path::new(".").to_path_buf());
     let set = |env: &[(&str, &str)]| -> Vec<(OsString, Option<OsString>)> {
-        super::command("cargo", &runner.root, env)
+        super::runner::command("cargo", &runner.root, env)
             .get_envs()
             .filter(|(name, _)| {
                 [
@@ -3178,7 +3178,7 @@ fn starts_a_test_runner_s_commands_without_the_machine_s_git_configuration() {
 
 #[test]
 fn starts_git_without_the_variables_that_change_its_pathspecs_and_its_diffs() {
-    let git = super::command("git", Path::new("."), &[]);
+    let git = super::runner::command("git", Path::new("."), &[]);
     for variable in [
         "GIT_LITERAL_PATHSPECS",
         "GIT_GLOB_PATHSPECS",
@@ -3215,7 +3215,7 @@ fn reads_the_commits_objects_whatever_a_replace_ref_says() {
         "the replace ref is in force for git"
     );
     assert_eq!(
-        super::changed_since(&mut system(dir.path()), base.trim()).expect("the changes"),
+        super::changes::changed_since(&mut system(dir.path()), base.trim()).expect("the changes"),
         vec![path.to_owned()],
         "xtask's git reads the base's own tree"
     );
@@ -6175,7 +6175,7 @@ fn reads_the_versions_spent_at_origin_main_then_main() {
         "fed4560000000000000000000000000000000000\n".to_owned(),
     );
     assert_eq!(
-        super::spent_base(&mut fallen_back).map_err(|failure| failure.summary),
+        super::changes::spent_base(&mut fallen_back).map_err(|failure| failure.summary),
         Ok((
             "fed4560000000000000000000000000000000000".to_owned(),
             "main"
@@ -6193,7 +6193,7 @@ fn reads_the_versions_spent_at_origin_main_then_main() {
     let mut neither = passing();
     let _unresolved = neither.files.remove(&format!("capture {}", MAIN_BASE.0));
     assert_eq!(
-        super::spent_base(&mut neither).map(|_base| ()),
+        super::changes::spent_base(&mut neither).map(|_base| ()),
         failed(
             "no merge base with origin/main or main to read the algorithm versions spent from \
              (fetch or create one of them)\n\
@@ -6237,18 +6237,18 @@ fn reads_the_versions_spent_where_real_git_says_main_is() {
     let _local = commit("not pushed");
     let mut runner = system(clone.clone());
     assert_eq!(
-        super::mutation_base(&mut runner).map_err(|failure| failure.summary),
+        super::changes::mutation_base(&mut runner).map_err(|failure| failure.summary),
         Ok((pushed, "@{upstream}")),
         "the changes are measured from the upstream, ahead of main"
     );
     assert_eq!(
-        super::spent_base(&mut runner).map_err(|failure| failure.summary),
+        super::changes::spent_base(&mut runner).map_err(|failure| failure.summary),
         Ok((on_main.clone(), "origin/main")),
         "the versions spent are those on main, never the upstream's"
     );
     let _forgotten = hermetic_git(&clone, &["remote", "remove", "origin"]);
     assert_eq!(
-        super::spent_base(&mut runner).map_err(|failure| failure.summary),
+        super::changes::spent_base(&mut runner).map_err(|failure| failure.summary),
         Ok((on_main, "main")),
         "without origin/main, main"
     );
@@ -8022,7 +8022,7 @@ fn requires_the_rust_release_of_the_toolchain_file() {
         Some("1.99.1"),
         "spaces around"
     );
-    let without = super::command("rustc", Path::new("."), &[]);
+    let without = super::runner::command("rustc", Path::new("."), &[]);
     assert!(
         without
             .get_envs()
@@ -8347,7 +8347,7 @@ fn names_every_check_alike() {
 }
 
 /// Whether the verdict of a gate doing `action` carries its problems alone, the step's name
-/// being their one source (`super::step_verdict`): every action is classed here, with no
+/// being their one source (`super::steps::step_verdict`): every action is classed here, with no
 /// wildcard, so that a new one does not compile before it is. `false` for a step that is
 /// no gate, or for a gate whose verdict opens with a context of its own: the file or the
 /// register it reads, or what it found, never a copy of its step's name.
@@ -8833,7 +8833,7 @@ fn sees_a_change_a_clean_filter_hides_from_git() {
     let _commit = hermetic_git(&dir, &["commit", "--quiet", "-m", "first"]);
     let _filter = hermetic_git(&dir, &["config", "filter.hide.clean", "grep -v HIDDEN"]);
     let unclean = || {
-        let tree = super::tree_cleanliness(&mut system(dir.path())).expect("read");
+        let tree = super::proof_record::tree_cleanliness(&mut system(dir.path())).expect("read");
         super::unclean(&tree)
     };
     std::fs::write(dir.join(".git/info/attributes"), "").expect("no attribute");
@@ -8902,7 +8902,7 @@ fn clears_a_file_real_git_hides(name: &str, path: &str, quoted: &str) {
         for mark in marks {
             let _hide = hermetic_git(&dir, &["update-index", mark, path]);
         }
-        let tree = super::tree_cleanliness(&mut runner).expect("the tree");
+        let tree = super::proof_record::tree_cleanliness(&mut runner).expect("the tree");
         assert_eq!(
             super::unclean(&tree),
             Some(format!(
@@ -8916,7 +8916,7 @@ fn clears_a_file_real_git_hides(name: &str, path: &str, quoted: &str) {
             let ran = runner.run_for_stdout(&Cmd::new("sh", &["-c", script], Dir::Root));
             assert!(ran.ended.is_ok(), "{script}: {}", ran.stderr);
         }
-        let cleared = super::tree_cleanliness(&mut runner).expect("the tree");
+        let cleared = super::proof_record::tree_cleanliness(&mut runner).expect("the tree");
         assert_eq!(
             super::unclean(&cleared),
             None,
@@ -9673,7 +9673,7 @@ fn compares_the_commits_pushed_not_their_tags() {
     let deleted = "0000000000000000000000000000000000000000";
     let push = |fake: &mut Fake, objects: &[&str]| {
         let pushed: Vec<String> = objects.iter().map(|&object| object.to_owned()).collect();
-        super::pre_push(fake, &pushed)
+        super::actions::pre_push(fake, &pushed)
     };
     let mut on_head = pushing(head, &[(tag, head)]);
     assert_eq!(
@@ -9717,12 +9717,12 @@ fn pushes_an_annotated_tag_of_the_commit_checked_out() {
     let (here, before, parent) = (object("here"), object("before"), object("HEAD~1"));
     assert_ne!(here, object("HEAD"), "a tag object, not the commit");
     let mut runner = system(repo.path());
-    let on_head = super::pre_push(&mut runner, core::slice::from_ref(&here));
-    let elsewhere = super::pre_push(&mut runner, &[before]);
+    let on_head = super::actions::pre_push(&mut runner, core::slice::from_ref(&here));
+    let elsewhere = super::actions::pre_push(&mut runner, &[before]);
     let _hidden = hermetic_git(&repo, &["config", "status.showUntrackedFiles", "no"]);
     std::fs::create_dir_all(repo.join("src")).expect("folder");
     std::fs::write(repo.join("src/gain.rs"), "").expect("untracked file");
-    let untracked = super::pre_push(&mut runner, &[here]);
+    let untracked = super::actions::pre_push(&mut runner, &[here]);
     assert_eq!(
         untracked,
         failed(
@@ -9787,9 +9787,13 @@ fn checks_the_history_git_really_writes() {
 
 #[test]
 fn shows_one_problem_inline_and_lists_several() {
-    assert_eq!(super::verdict("context", vec![]), Ok(()), "no problem");
     assert_eq!(
-        super::verdict("context", vec!["a".to_owned()]),
+        super::steps::verdict("context", vec![]),
+        Ok(()),
+        "no problem"
+    );
+    assert_eq!(
+        super::steps::verdict("context", vec!["a".to_owned()]),
         Err(Failure {
             summary: "context: a".to_owned(),
             details: vec![],
@@ -9798,7 +9802,7 @@ fn shows_one_problem_inline_and_lists_several() {
         "one problem, in the summary line"
     );
     assert_eq!(
-        super::verdict("context", vec!["a".to_owned(), "b".to_owned()]),
+        super::steps::verdict("context", vec!["a".to_owned(), "b".to_owned()]),
         Err(Failure {
             summary: "context: 2 problems, listed above".to_owned(),
             details: vec!["a".to_owned(), "b".to_owned()],
@@ -10018,7 +10022,7 @@ fn wires_every_package_into_the_checks() {
         })
         .flatten()
         .collect();
-    let [shipped, _] = super::license_commands();
+    let [shipped, _] = super::licenses::license_commands();
     for package in PACKAGES {
         let checked = steps.iter().position(|step| {
             step.name == package.step
@@ -10214,7 +10218,7 @@ fn reports_readme_problems_whatever_the_membership() {
 #[test]
 fn license_and_history_commands_are_exactly() {
     assert_eq!(
-        super::license_commands().map(|cmd| cmd.line()),
+        super::licenses::license_commands().map(|cmd| cmd.line()),
         LICENSE_LINES.map(str::to_owned),
         "every shipped package filtered, then everything"
     );
@@ -10224,7 +10228,7 @@ fn license_and_history_commands_are_exactly() {
         "every message, the files after the boundary, the commits after the scopes' boundary"
     );
     assert!(
-        super::license_commands()
+        super::licenses::license_commands()
             .iter()
             .chain(&super::history_commands(
                 super::CHANGELOG_SINCE,
@@ -10683,7 +10687,7 @@ fn reads_the_lint_forbids_as_no_test_code() {
 fn reads_the_files_a_dep_info_file_lists() {
     let text = "/t/deps/x-1.d: a/src/lib.rs a/src/my\\ file.rs ../../spec/v.json\n\n/t/deps/x-1: a/src/lib.rs a/src/my\\ file.rs ../../spec/v.json\n\na/src/lib.rs:\na/src/my\\ file.rs:\n../../spec/v.json:\n\n# env-dep:CARGO_MANIFEST_DIR=/r/a\n# checksum:x\n";
     assert_eq!(
-        super::dep_info_files(text),
+        super::loaded_files::dep_info_files(text),
         Ok(vec![
             "a/src/lib.rs".to_owned(),
             "a/src/my file.rs".to_owned(),
@@ -10692,7 +10696,7 @@ fn reads_the_files_a_dep_info_file_lists() {
         "each file once, a space unescaped, the targets and comments apart"
     );
     assert_eq!(
-        super::dep_info_files("x-1: a.rs\n\na.rs:\nb.rs\n"),
+        super::loaded_files::dep_info_files("x-1: a.rs\n\na.rs:\nb.rs\n"),
         Err("a line not as rustc writes dep-info: b.rs".to_owned()),
         "a line of no known form"
     );
@@ -10707,7 +10711,11 @@ fn reads_the_files_a_dep_info_file_lists() {
         ("/elsewhere/a/../b.rs", "/elsewhere/b.rs"),
         ("/../x.rs", "/../x.rs"),
     ] {
-        assert_eq!(super::normalized(file, "/r"), expected, "{file}");
+        assert_eq!(
+            super::loaded_files::normalized(file, "/r"),
+            expected,
+            "{file}"
+        );
     }
 }
 
@@ -10715,11 +10723,11 @@ fn reads_the_files_a_dep_info_file_lists() {
 fn tells_each_build_and_its_dep_info_file_from_cargo_s_messages() {
     let core = super::RUST_CRATES[0];
     let read = |line: &str, tests_only: bool| {
-        super::built_artifact(line, tests_only, &super::RUST_CRATES)
+        super::loaded_files::built_artifact(line, tests_only, &super::RUST_CRATES)
             .map_err(|failure| failure.summary)
     };
     let found = |target: &str, dep_info: &str, test: bool| {
-        Ok(Some(super::Artifact {
+        Ok(Some(super::loaded_files::Artifact {
             krate: core,
             root: "/r".to_owned(),
             target: target.to_owned(),
@@ -10784,7 +10792,7 @@ fn tells_each_build_and_its_dep_info_file_from_cargo_s_messages() {
 fn refuses_a_cargo_message_it_does_not_read() {
     let core = super::RUST_CRATES[0];
     let read = |line: &str, tests_only: bool| {
-        super::built_artifact(line, tests_only, &super::RUST_CRATES)
+        super::loaded_files::built_artifact(line, tests_only, &super::RUST_CRATES)
             .map_err(|failure| failure.summary)
     };
     let built = artifact(core.dir, "engine_core", true, "/t/deps/engine_core-2");
@@ -11132,7 +11140,7 @@ fn reads_the_files_real_rustc_loads_for_each_build() {
     let [check, test, wasm] = loaded_fixture_commands(&target.display().to_string());
     let [configured, loaded_crate] = LOADED_FIXTURE_CRATES;
     let read = |commands: &[super::LoadedCommand]| {
-        let mut loaded = super::loaded_files(
+        let mut loaded = super::loaded_files::loaded_files(
             &mut system(fixture("loaded-files")),
             commands,
             &LOADED_FIXTURE_CRATES,
@@ -11236,7 +11244,7 @@ const PATHS_FIXTURE_CRATE: RustCrate = RustCrate {
 fn refuses_what_path_attributes_load_from_outside_src() {
     let target = scratch("loaded-paths");
     let [check, test, _] = loaded_fixture_commands(&target.display().to_string());
-    let loaded = super::loaded_files(
+    let loaded = super::loaded_files::loaded_files(
         &mut system(fixture("loaded-paths")),
         &[check, test],
         &[PATHS_FIXTURE_CRATE],
@@ -11394,7 +11402,7 @@ fn shows_the_compiler_s_diagnostic_of_a_build_that_fails() {
         "--target-dir".to_owned(),
         dir.join("target").display().to_string(),
     ]);
-    let failure = super::loaded_files(
+    let failure = super::loaded_files::loaded_files(
         &mut system(dir.path()),
         &[super::LoadedCommand {
             cmd,
@@ -11586,7 +11594,7 @@ fn reads_a_raw_identifier_as_its_name() {
             .expect("lexes")
             .tokens
             .into_iter()
-            .filter(|token| token.kind == super::TokenKind::Ident)
+            .filter(|token| token.kind == super::rust_source::TokenKind::Ident)
             .map(|token| token.text)
             .collect()
     };
@@ -12427,7 +12435,7 @@ fn refuses_raw_floats_libm_and_host_in_box_code() {
 
 #[test]
 fn reads_a_rust_source_into_its_tokens() {
-    use super::{Token, TokenKind};
+    use crate::rust_source::{Token, TokenKind};
     let token = |kind: TokenKind, text: &str, line: usize| Token {
         kind,
         text: text.to_owned(),
@@ -13844,7 +13852,7 @@ fn matches_the_globs_of_stryker_mutate() {
         let pattern: Vec<&str> = glob.split('/').collect();
         let segments: Vec<&str> = path.split('/').collect();
         assert_eq!(
-            super::glob_matches(&pattern, &segments),
+            super::reviews::glob_matches(&pattern, &segments),
             expected,
             "{glob} against {path}"
         );
@@ -14114,7 +14122,7 @@ fn fails_when_the_scope_gate_cannot_read_its_inputs() {
 fn reads_the_prose_of_each_language() {
     let rust = "/// A doc.\nlet a = \"text {name} here\"; // trailing\nlet b = 'x'; let c = '\\''; fn f<'a>() {}\n/* block\n   two */ let d = r#\"raw \"quoted\" text\"#;\nlet e = \"word\"; let f = r\"plain raw\"; let g = br\"two bytes\";\nlet h = \"a\\\nb\";\n";
     assert_eq!(
-        super::code_prose(rust, super::Language::Rust),
+        super::vocabulary::code_prose(rust, super::vocabulary::Language::Rust),
         [
             (1, "/// A doc."),
             (2, "text  here"),
@@ -14133,7 +14141,7 @@ fn reads_the_prose_of_each_language() {
     );
     let script = "const a = 'single \\'quoted\\''; // note\nconst b = `tem ${node.x} plate ${{ a: 1 }.a}`;\nconst c = `two\n${\n0} lines`;\nconst d = \"it's\"; /* unclosed";
     assert_eq!(
-        super::code_prose(script, super::Language::Script),
+        super::vocabulary::code_prose(script, super::vocabulary::Language::Script),
         [
             (1, "single 'quoted'"),
             (1, "// note"),
@@ -14148,20 +14156,20 @@ fn reads_the_prose_of_each_language() {
         "every quote, substitutions apart, line numbers kept"
     );
     assert_eq!(
-        super::markdown_prose("# Title\n\n```sh\nnode x\n```\ntext\n"),
+        super::vocabulary::markdown_prose("# Title\n\n```sh\nnode x\n```\ntext\n"),
         [(1, "# Title"), (2, ""), (6, "text")]
             .map(|(line, text)| (line, text.to_owned()))
             .to_vec(),
         "fenced code apart"
     );
     assert_eq!(
-        super::without_code("a `node` [link](node.md) (node) b"),
+        super::vocabulary::without_code("a `node` [link](node.md) (node) b"),
         "a        [link]          (node) b",
         "code spans and link targets apart"
     );
     let json = "{\n  \"description\": \"a long render\", \"key\": \"word\",\n  \"say \\\"x\\\" here\" : [\"two words\", \"esc\\\\aped \\\"q\\\"\"],\n  \"open\": \"to the end\n}\n";
     assert_eq!(
-        super::json_prose(json),
+        super::vocabulary::json_prose(json),
         [
             (2, "a long render"),
             (3, "two words"),
@@ -14173,10 +14181,16 @@ fn reads_the_prose_of_each_language() {
         "string values, keys and single words apart, escapes read, an unclosed string to the \
          end of its line"
     );
-    assert_eq!(super::language("spec/b.json"), Some(super::Language::Json));
-    assert_eq!(super::language("a/b.tsx"), Some(super::Language::Script));
-    assert_eq!(super::language("a/b.txt"), None);
-    assert_eq!(super::language("Makefile"), None);
+    assert_eq!(
+        super::vocabulary::language("spec/b.json"),
+        Some(super::vocabulary::Language::Json)
+    );
+    assert_eq!(
+        super::vocabulary::language("a/b.tsx"),
+        Some(super::vocabulary::Language::Script)
+    );
+    assert_eq!(super::vocabulary::language("a/b.txt"), None);
+    assert_eq!(super::vocabulary::language("Makefile"), None);
 }
 
 #[test]
@@ -14202,7 +14216,11 @@ fn finds_only_words_of_prose() {
         } else {
             "node"
         };
-        assert_eq!(super::occurrences(text, term), expected, "{text}");
+        assert_eq!(
+            super::vocabulary::occurrences(text, term),
+            expected,
+            "{text}"
+        );
     }
 }
 
@@ -14285,10 +14303,10 @@ fn refuses_the_synonyms_the_glossary_replaces() {
             "{malformed}"
         );
     }
-    assert!(super::within("web/c.ts", "web/"), "a directory");
-    assert!(super::within("web", "web"), "a file");
+    assert!(super::vocabulary::within("web/c.ts", "web/"), "a directory");
+    assert!(super::vocabulary::within("web", "web"), "a file");
     assert!(
-        !super::within("web/c.ts", "web"),
+        !super::vocabulary::within("web/c.ts", "web"),
         "a file is not a directory"
     );
 }
@@ -14442,7 +14460,7 @@ fn reads_the_changelog_real_git_holds_at_the_merge_base_with_main() {
     );
     let _branch = hermetic_git(&dir, &["checkout", "--quiet", "-b", "work"]);
     assert_eq!(
-        super::released_sections(&mut runner, &RELEASED.replace("- one.", "- One."))
+        super::release::released_sections(&mut runner, &RELEASED.replace("- one.", "- One."))
             .map_err(|failure| failure.summary),
         Err(format!(
             "the released changelog sections: CHANGELOG.md:13: the released section [0.1.0] \
@@ -14458,7 +14476,7 @@ fn reads_the_changelog_real_git_holds_at_the_merge_base_with_main() {
         "the command given shows the sections as released"
     );
     assert_eq!(
-        super::released_sections(&mut runner, RELEASED).map_err(|failure| failure.summary),
+        super::release::released_sections(&mut runner, RELEASED).map_err(|failure| failure.summary),
         Ok(()),
         "as released"
     );
@@ -14588,27 +14606,27 @@ fn reads_the_prose_files_and_the_vocabulary() {
 #[test]
 fn reads_odd_sources_without_losing_prose() {
     let lines = |text: &str, language| -> Vec<String> {
-        super::code_prose(text, language)
+        super::vocabulary::code_prose(text, language)
             .into_iter()
             .map(|(line, prose)| format!("{line}:{prose}"))
             .collect()
     };
     let rust = "let a = \"\"; let r#type = ar\"one two\"; x ` y\nlet b = \"{a b} } c\";";
     assert_eq!(
-        lines(rust, super::Language::Rust),
+        lines(rust, super::vocabulary::Language::Rust),
         ["1:one two", "2:  } c"],
         "an empty literal, a raw identifier, an `r` ending a name, a backquote; in a Rust \
          literal, what braces hold is a placeholder or code (JSON), never prose"
     );
     let script = "const a = r\"one two\"; const b = 'a {b} c'; const c = `cost $5 and '$x'`; const d = 'tab\\there';";
     assert_eq!(
-        lines(script, super::Language::Script),
+        lines(script, super::vocabulary::Language::Script),
         ["1:one two", "1:a {b} c", "1:cost $5 and '$x'", "1:tab here"],
         "no raw strings, braces kept, a dollar sign that starts no substitution, an escape"
     );
     let quotes = "let q = '\\\"'; // one\nlet d = '\"'; // two\n'\\x41'\"'tail word\"\n_r\"a\\tb c\" ar\"d\\te f\" br\"g\\th i\"";
     assert_eq!(
-        lines(quotes, super::Language::Rust),
+        lines(quotes, super::vocabulary::Language::Rust),
         [
             "1:// one",
             "2:// two",
@@ -14623,16 +14641,20 @@ fn reads_odd_sources_without_losing_prose() {
     for (text, language, expected) in [
         (
             "r\"open to the end",
-            super::Language::Rust,
+            super::vocabulary::Language::Rust,
             "1:open to the end",
         ),
         (
             "\"open to the end",
-            super::Language::Rust,
+            super::vocabulary::Language::Rust,
             "1:open to the end",
         ),
-        ("`open ${to the end", super::Language::Script, "1:open  "),
-        ("'\\", super::Language::Rust, ""),
+        (
+            "`open ${to the end",
+            super::vocabulary::Language::Script,
+            "1:open  ",
+        ),
+        ("'\\", super::vocabulary::Language::Rust, ""),
     ] {
         assert_eq!(
             lines(text, language).join("|"),
@@ -14641,7 +14663,7 @@ fn reads_odd_sources_without_losing_prose() {
         );
     }
     assert_eq!(
-        super::without_code("[a](x`y) `a](b` c"),
+        super::vocabulary::without_code("[a](x`y) `a](b` c"),
         format!("[a]{}c", " ".repeat(13)),
         "a backquote in a link target, a bracket in a code span"
     );
@@ -14909,7 +14931,7 @@ fn shows_untrusted_text_on_one_bounded_line() {
 #[test]
 fn starts_commands_with_no_input_and_git_untranslated() {
     let locale = |program: &str| {
-        super::command(program, Path::new("."), &[])
+        super::runner::command(program, Path::new("."), &[])
             .get_envs()
             .find(|(name, _)| *name == "LC_ALL")
             .map(|(_, value)| value.map(OsString::from))
@@ -14955,7 +14977,7 @@ fn reads_the_changes_as_they_are() {
         let _set = hermetic_git(&repo, &["config", key, value]);
     }
     let mut runner = system(repo.path());
-    let state = super::tree_state(&mut runner);
+    let state = super::coverage::tree_state(&mut runner);
     let diff = state.expect("read").diff;
     assert!(
         diff.contains("-fn f() {}\n+fn g() {}\n"),
@@ -14974,7 +14996,7 @@ fn knows_a_deletion_by_its_all_zero_object_name() {
         ("0".repeat(63), false),
         (format!("{}1", "0".repeat(39)), false),
     ] {
-        assert_eq!(super::is_deletion(&object), deletion, "{object:?}");
+        assert_eq!(super::actions::is_deletion(&object), deletion, "{object:?}");
     }
 }
 
@@ -15199,7 +15221,7 @@ fn runs_each_part_of_the_full_check_as_its_own_job() {
 #[test]
 fn checks_the_parts_of_the_full_check_as_a_step() {
     assert_eq!(
-        super::parts_of_the_full_check(super::full_parts()),
+        super::actions::parts_of_the_full_check(super::full_parts()),
         Ok(()),
         "every part"
     );
@@ -15208,7 +15230,7 @@ fn checks_the_parts_of_the_full_check_as_a_step() {
         .filter(|part| *part != super::Part::Miri)
         .collect();
     assert_eq!(
-        super::parts_of_the_full_check(without_miri),
+        super::actions::parts_of_the_full_check(without_miri),
         parts_refused(&["`Unsafe code under Miri` runs in no part"]),
         "a part left out"
     );
@@ -15763,8 +15785,8 @@ const PROVEN: [&str; 3] = [
 ];
 
 /// The tools and the host the fake answers with.
-fn fake_tools() -> super::ProofTools {
-    super::ProofTools {
+fn fake_tools() -> super::proof_record::ProofTools {
+    super::proof_record::ProofTools {
         mutants: "cargo-mutants 27.1.0".to_owned(),
         toolchain: "1.99.1".to_owned(),
         host: "aarch64-apple-darwin".to_owned(),
@@ -15790,11 +15812,11 @@ fn compares_the_tools_of_two_records_field_by_field() {
     let tools = fake_tools();
     assert_eq!(tools, fake_tools(), "the same tools");
     let others = [
-        super::ProofTools {
+        super::proof_record::ProofTools {
             mutants: "cargo-mutants 27.1.1".to_owned(),
             ..fake_tools()
         },
-        super::ProofTools {
+        super::proof_record::ProofTools {
             git: "git version 2.39.3".to_owned(),
             ..fake_tools()
         },
@@ -16944,7 +16966,7 @@ fn sorted_names(crates: &[&RustCrate]) -> Vec<&'static str> {
 
 #[test]
 fn reads_the_crates_each_crate_compiles_for_its_tests() {
-    let closures = super::crate_closures(&closure_metadata(true)).expect("valid metadata");
+    let closures = super::changes::crate_closures(&closure_metadata(true)).expect("valid metadata");
     let names = |name: &str| -> Vec<&str> {
         closures
             .get(name)
@@ -16967,7 +16989,7 @@ fn reads_the_crates_each_crate_compiles_for_its_tests() {
         "a crate the metadata does not list"
     );
     let deep = r#"{"workspace_root":"/r","packages":[{"name":"engine-cli","dependencies":[{"name":"engine-hash","path":"/r/crates/engine-hash"}]},{"name":"engine-hash","dependencies":[{"name":"engine-core","path":"/r/crates/engine-core"},{"name":"other","path":"/r/crates/other"},{"name":"engine-patch","path":"/r/vendor/crates/engine-patch"}]}]}"#;
-    let deep_closures = super::crate_closures(deep).expect("valid metadata");
+    let deep_closures = super::changes::crate_closures(deep).expect("valid metadata");
     assert_eq!(
         deep_closures
             .get("engine-cli")
@@ -16977,12 +16999,12 @@ fn reads_the_crates_each_crate_compiles_for_its_tests() {
          included"
     );
     assert!(
-        super::crate_closures(r#"{"workspace_root":"/r","packages":[{"name":"engine-hash","dependencies":[{"path":"/r/crates/engine-core"}]}]}"#)
+        super::changes::crate_closures(r#"{"workspace_root":"/r","packages":[{"name":"engine-hash","dependencies":[{"path":"/r/crates/engine-core"}]}]}"#)
             .is_err_and(|failure| failure.summary == "cargo metadata lists a dependency without a name"),
         "a dependency without a name"
     );
     assert!(
-        super::crate_closures("not json")
+        super::changes::crate_closures("not json")
             .is_err_and(|failure| failure.summary.starts_with("invalid cargo metadata: ")),
         "not JSON"
     );
@@ -16991,7 +17013,7 @@ fn reads_the_crates_each_crate_compiles_for_its_tests() {
 #[test]
 fn reads_the_crates_real_cargo_metadata_lists() {
     let (metadata, _) = fixture_metadata();
-    let closures = super::crate_closures(&metadata).expect("valid metadata");
+    let closures = super::changes::crate_closures(&metadata).expect("valid metadata");
     let of = |name: &str| closures.get(name).map(|closure| sorted_names(closure));
     assert_eq!(
         of("engine-objects"),
@@ -17055,12 +17077,14 @@ fn shares_proof_records_between_the_worktrees_of_real_git() {
     };
     // Written from the linked worktree, read from the main one: one common directory.
     let mut from_linked = system(linked);
-    let path = super::proof_record_path(&mut from_linked, &commit).expect("common directory");
+    let path = super::proof_record::proof_record_path(&mut from_linked, &commit)
+        .expect("common directory");
     from_linked
         .write(&path, &record.text())
         .expect("the record is written");
     let mut from_main = system(main.clone());
-    let main_path = super::proof_record_path(&mut from_main, &commit).expect("common directory");
+    let main_path =
+        super::proof_record::proof_record_path(&mut from_main, &commit).expect("common directory");
     let read = from_main.read(&main_path).expect("the record is read");
     assert_eq!(
         super::ProofRecord::parse(&read),
@@ -17601,7 +17625,7 @@ fn derives_each_list_of_crates_from_their_roles() {
 
 #[test]
 fn widens_each_kind_of_shared_input_as_far_as_it_reaches() {
-    use super::Widening;
+    use super::changes::Widening;
     for (path, expected) in [
         ("Cargo.toml", Some(Widening::Workspace)),
         ("rust-toolchain.toml", Some(Widening::Everything)),
@@ -17642,7 +17666,7 @@ fn widens_each_kind_of_shared_input_as_far_as_it_reaches() {
         ("crates/engine-testkits/a.rs", None),
         ("doc/crates/engine-testkit/a.rs", None),
     ] {
-        assert_eq!(super::widening(path), expected, "{path}");
+        assert_eq!(super::changes::widening(path), expected, "{path}");
     }
 }
 
@@ -17706,10 +17730,10 @@ const LOCKED_REGISTRY: [Registered<'static>; 5] = [
     ("itoa", "1.0.0", "c5", &[]),
 ];
 
-/// The crates [`super::lock_widened`] finds between the lock of the tests and the one with
+/// The crates [`super::changes::lock_widened`] finds between the lock of the tests and the one with
 /// `registry` instead.
 fn widened_by(registry: &[Registered<'_>]) -> Result<Vec<&'static str>, String> {
-    super::lock_widened(
+    super::changes::lock_widened(
         &lock_text(&LOCKED_WORKSPACE, &LOCKED_REGISTRY),
         &lock_text(&LOCKED_WORKSPACE, registry),
     )
@@ -17755,7 +17779,7 @@ fn widens_to_the_crates_whose_build_reaches_a_changed_lock_entry() {
         ("xtask", &["serde_json", "itoa"]),
     ];
     assert_eq!(
-        super::lock_widened(
+        super::changes::lock_widened(
             &lock_text(&LOCKED_WORKSPACE, &LOCKED_REGISTRY),
             &lock_text(&workspace, &LOCKED_REGISTRY)
         )
@@ -17776,14 +17800,14 @@ fn follows_a_lock_dependency_by_name_version_and_source() {
     let mut changed = two;
     changed[2] = ("itoa", "2.0.0", "c8", &[]);
     assert_eq!(
-        super::lock_widened(&before, &lock_text(&[("xtask", &["serde_json"])], &changed))
+        super::changes::lock_widened(&before, &lock_text(&[("xtask", &["serde_json"])], &changed))
             .map(|crates| crates.into_iter().collect::<Vec<_>>()),
         Ok(Vec::new()),
         "the version named, not the other"
     );
     changed[1] = ("itoa", "1.0.0", "c9", &[]);
     assert_eq!(
-        super::lock_widened(&before, &lock_text(&[("xtask", &["serde_json"])], &changed))
+        super::changes::lock_widened(&before, &lock_text(&[("xtask", &["serde_json"])], &changed))
             .map(|crates| crates.into_iter().collect::<Vec<_>>()),
         Ok(vec!["xtask"]),
         "the version named"
@@ -17799,7 +17823,7 @@ fn follows_a_lock_dependency_by_name_version_and_source() {
     ];
     let lock = lock_text(&[("xtask", &["serde_json"])], &sourced);
     assert_eq!(
-        super::lock_widened(&lock, &lock).map(|crates| crates.len()),
+        super::changes::lock_widened(&lock, &lock).map(|crates| crates.len()),
         Ok(0),
         "a source named"
     );
@@ -17819,7 +17843,7 @@ fn follows_a_lock_dependency_by_name_version_and_source() {
             ],
         );
         assert_eq!(
-            super::lock_widened(&unresolved, &unresolved),
+            super::changes::lock_widened(&unresolved, &unresolved),
             Err(format!(
                 "a dependency, `{}`, names no one entry",
                 dependencies.join("")
@@ -17832,9 +17856,9 @@ fn follows_a_lock_dependency_by_name_version_and_source() {
 #[test]
 fn reads_a_lock_file_only_as_cargo_writes_it() {
     let lock = lock_text(&LOCKED_WORKSPACE, &LOCKED_REGISTRY);
-    assert!(super::lock_entries(&lock).is_ok(), "as written");
+    assert!(super::changes::lock_entries(&lock).is_ok(), "as written");
     assert_eq!(
-        super::lock_entries(&lock).map(|entries| entries.len()),
+        super::changes::lock_entries(&lock).map(|entries| entries.len()),
         Ok(16),
         "every crate of the workspace and every package"
     );
@@ -17916,17 +17940,17 @@ fn reads_a_lock_file_only_as_cargo_writes_it() {
         ),
     ] {
         assert_eq!(
-            super::lock_entries(&malformed).err(),
+            super::changes::lock_entries(&malformed).err(),
             Some(reason.to_owned()),
             "{reason}"
         );
         assert_eq!(
-            super::lock_widened(&lock, &malformed),
+            super::changes::lock_widened(&lock, &malformed),
             Err(reason.to_owned()),
             "{reason}: after"
         );
         assert_eq!(
-            super::lock_widened(&malformed, &lock),
+            super::changes::lock_widened(&malformed, &lock),
             Err(format!("its earlier version: {reason}")),
             "{reason}: before"
         );
@@ -17941,9 +17965,12 @@ fn needs_one_entry_of_each_crate_of_the_workspace() {
         "",
         1,
     );
-    assert!(super::lock_entries(&without).is_ok(), "still a lock file");
+    assert!(
+        super::changes::lock_entries(&without).is_ok(),
+        "still a lock file"
+    );
     assert_eq!(
-        super::lock_widened(&lock, &without),
+        super::changes::lock_widened(&lock, &without),
         Err("it does not hold exactly one entry of engine-cli".to_owned()),
         "a crate of the workspace missing"
     );
@@ -18233,9 +18260,9 @@ fn manifest_with(from: &str, to: &str) -> String {
     MANIFEST.replacen(from, to, 1)
 }
 
-/// What [`super::manifest_widened`] finds from [`MANIFEST`] to `manifest`, names sorted.
+/// What [`super::changes::manifest_widened`] finds from [`MANIFEST`] to `manifest`, names sorted.
 fn widened_entries(manifest: &str) -> Result<Vec<String>, String> {
-    super::manifest_widened(MANIFEST, manifest).map(|names| names.into_iter().collect())
+    super::changes::manifest_widened(MANIFEST, manifest).map(|names| names.into_iter().collect())
 }
 
 #[test]
@@ -18335,7 +18362,7 @@ fn leaves_out_a_change_of_the_workspace_lints_alone() {
     let under = |header: &str| {
         let before = manifest_with("[workspace.lints.rust]", header);
         let after = lint(&before);
-        super::manifest_widened(&before, &after)
+        super::changes::manifest_widened(&before, &after)
     };
     for header in [
         "[workspace.lints.rust]",
@@ -18363,7 +18390,7 @@ fn leaves_out_a_change_of_the_workspace_lints_alone() {
         "unsafe_code = \"deny\"\nx = [\n[\"a\"],\n]\ny = 1\n",
     );
     assert_eq!(
-        super::manifest_widened(&continued, &continued.replacen("y = 1", "y = 2", 1)),
+        super::changes::manifest_widened(&continued, &continued.replacen("y = 1", "y = 2", 1)),
         Err(outside.clone()),
         "a line of a lint's value beginning with `[` ends what is left out"
     );
@@ -18475,7 +18502,7 @@ fn widens_to_everything_a_workspace_manifest_changed_elsewhere_or_unread() {
         );
     }
     assert_eq!(
-        super::manifest_widened("[workspace]\n", MANIFEST),
+        super::changes::manifest_widened("[workspace]\n", MANIFEST),
         Err(
             "its earlier version: it does not hold exactly one line `[workspace.dependencies]`"
                 .to_owned()
@@ -18490,7 +18517,7 @@ const DECLARING_METADATA: &str = r#"{"workspace_root":"/r","packages":[{"name":"
 
 #[test]
 fn reads_the_name_each_crate_gives_its_dependencies() {
-    let builds = super::crate_builds(DECLARING_METADATA).expect("valid metadata");
+    let builds = super::changes::crate_builds(DECLARING_METADATA).expect("valid metadata");
     let declaring: Vec<(&str, Vec<&str>)> = builds
         .declaring
         .iter()
@@ -18508,18 +18535,18 @@ fn reads_the_name_each_crate_gives_its_dependencies() {
     );
     assert_eq!(
         builds.closures,
-        super::crate_closures(DECLARING_METADATA).expect("valid metadata"),
+        super::changes::crate_closures(DECLARING_METADATA).expect("valid metadata"),
         "and the closures"
     );
     assert!(
-        super::crate_builds(
+        super::changes::crate_builds(
             r#"{"workspace_root":"/r","packages":[{"name":"engine-hash","dependencies":[{"rename":null}]}]}"#
         )
         .is_err_and(|failure| failure.summary == "cargo metadata lists a dependency without a name"),
         "a dependency without a name"
     );
     assert!(
-        super::crate_builds("not json")
+        super::changes::crate_builds("not json")
             .is_err_and(|failure| failure.summary.starts_with("invalid cargo metadata: ")),
         "not JSON"
     );
@@ -18533,13 +18560,13 @@ fn narrows_a_change_of_the_workspace_manifest_real_git_shows() {
     let _add = hermetic_git(&dir, &["add", "."]);
     let _commit = hermetic_git(&dir, &["commit", "--quiet", "-m", "base"]);
     let base = hermetic_git(&dir, &["rev-parse", "HEAD"]);
-    let builds = super::crate_builds(DECLARING_METADATA).expect("valid metadata");
+    let builds = super::changes::crate_builds(DECLARING_METADATA).expect("valid metadata");
     let reach = |manifest: Option<&str>| {
         match manifest {
             Some(text) => std::fs::write(dir.join("Cargo.toml"), text).expect("written"),
             None => std::fs::remove_file(dir.join("Cargo.toml")).expect("removed"),
         }
-        super::reach(
+        super::changes::reach(
             &mut system(dir.path()),
             base.trim(),
             ["Cargo.toml"],
@@ -18547,14 +18574,14 @@ fn narrows_a_change_of_the_workspace_manifest_real_git_shows() {
         )
     };
     let crates = |names: &[&'static str]| {
-        super::Reach::Crates(
+        super::changes::Reach::Crates(
             names
                 .iter()
                 .map(|name| (*name, "Cargo.toml".to_owned()))
                 .collect(),
         )
     };
-    let everything = |why: &str| super::Reach::Everything {
+    let everything = |why: &str| super::changes::Reach::Everything {
         path: "Cargo.toml".to_owned(),
         unnarrowed: Some(why.to_owned()),
     };
@@ -18606,13 +18633,13 @@ fn narrows_a_change_of_the_workspace_manifest_real_git_shows() {
     assert!(
         matches!(
             reach(None),
-            super::Reach::Everything { unnarrowed: Some(why), .. }
+            super::changes::Reach::Everything { unnarrowed: Some(why), .. }
                 if why.starts_with("cannot read it: ")
         ),
         "a manifest that cannot be read"
     );
     std::fs::write(dir.join("Cargo.toml"), MANIFEST).expect("restored");
-    let unrooted = super::reach(
+    let unrooted = super::changes::reach(
         &mut system(dir.path()),
         "0000000000000000000000000000000000000000",
         ["Cargo.toml"],
@@ -18621,7 +18648,7 @@ fn narrows_a_change_of_the_workspace_manifest_real_git_shows() {
     assert!(
         matches!(
             &unrooted,
-            super::Reach::Everything { unnarrowed: Some(why), .. }
+            super::changes::Reach::Everything { unnarrowed: Some(why), .. }
                 if why.starts_with("cannot read Cargo.toml at the merge base 0000000000000000000000000000000000000000: `git ls-tree --name-only 0000000000000000000000000000000000000000 -- Cargo.toml` exited with code ")
         ),
         "a commit git cannot show it at: {unrooted:?}"
@@ -18637,15 +18664,15 @@ fn says_a_shared_input_the_base_lacks_is_missing_there() {
     let _commit = hermetic_git(&dir, &["commit", "--quiet", "-m", "base"]);
     let base = hermetic_git(&dir, &["rev-parse", "HEAD"]);
     std::fs::write(dir.join("Cargo.lock"), "version = 4\n").expect("a lock file");
-    let builds = super::crate_builds(DECLARING_METADATA).expect("valid metadata");
+    let builds = super::changes::crate_builds(DECLARING_METADATA).expect("valid metadata");
     assert_eq!(
-        super::reach(
+        super::changes::reach(
             &mut system(dir.path()),
             base.trim(),
             ["Cargo.lock"],
             &builds
         ),
-        super::Reach::Everything {
+        super::changes::Reach::Everything {
             path: "Cargo.lock".to_owned(),
             unnarrowed: Some(format!("missing at {}", base.trim())),
         },
