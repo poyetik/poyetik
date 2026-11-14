@@ -32,6 +32,7 @@ mod patch;
 mod plan;
 mod rate;
 mod render;
+mod subnormals;
 
 pub use block::{BLOCK_SIZE, Block};
 pub use error::CoreError;
@@ -47,6 +48,7 @@ pub use patch::{Connection, Node, NodeId, Patch};
 pub use plan::Plan;
 pub use rate::SampleRate;
 pub use render::Renderer;
+pub use subnormals::{SubnormalArithmetic, SubnormalsKept};
 
 #[cfg(test)]
 #[path = "lib_tests.rs"]
