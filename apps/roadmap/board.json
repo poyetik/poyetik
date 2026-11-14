@@ -1273,11 +1273,11 @@
     {
       "id": 35,
       "title": "Visual foundations: design and quality bar of the visual engine before more boxes",
-      "description": "The visual counterpart of #12: decide the visual engine's design against the live-show targets, then set its quality and proof bar before writing many visual boxes. One core shared with the audio engine; other uses (editing, compositing, embedded) kept possible whenever it costs nothing.",
+      "description": "The visual counterpart of #12: decide the design of a standalone visual library against the live-show targets, then set its quality and proof bar before writing many visual boxes. Like the audio library, it is usable on its own, with no dependency on the audio library or the editor; what spans sound and image lives in a shared layer above both. Other uses (editing, compositing, embedded) kept possible whenever it costs nothing.",
       "column": "later",
       "milestone": "M3 Visuals",
       "createdAt": "2026-11-09",
-      "updatedAt": "2026-11-09",
+      "updatedAt": "2026-11-10",
       "tasks": [
         {
           "title": "Target matrix for the live show (node-based real-time visuals, lighting previsualization, media servers, LED pixel mapping and lasers, multi-machine shows): for each, the core concepts it needs; a target needing a new core concept is settled before any code",
@@ -1288,7 +1288,7 @@
           "done": false
         },
         {
-          "title": "The hooks of the shared core (time base, open port types) checked against the audio engine's decisions",
+          "title": "The shared layer above the two standalone libraries (time base, clock choice, audio and video alignment, a scene and cues spanning both), using each library only through its public interface; any hook it needs from the audio library checked against the audio engine's decisions",
           "done": false
         },
         {
