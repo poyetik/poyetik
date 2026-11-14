@@ -34,7 +34,7 @@ mod rust_source;
 mod steps;
 mod supply_chain;
 mod test_code;
-mod unsafe_code;
+mod unsafety;
 mod vocabulary;
 mod workflow;
 mod workspace;
@@ -115,7 +115,7 @@ pub use test_code::{
     DOC_TESTED_KINDS, NOT_TEST_ATTRIBUTES, TARGET_KINDS, test_code_gate, test_data_gate,
     untested_targets_gate, unviable_names_gate,
 };
-pub use unsafe_code::{
+pub use unsafety::{
     ASSEMBLY_CALL, ASSEMBLY_FILES, ASSEMBLY_REFUSED_WORDS, DOC_TESTS_FORBID_UNSAFE_CODE,
     FORBID_UNSAFE_CODE, ONE_UNSAFE_OPERATION, REFUSED_ASSEMBLY, TEST_DECLARATION_FORM,
     TestDeclaration, UNSAFE_CODE_KEPT, UNSAFE_FILES, test_declarations, unsafe_gate,

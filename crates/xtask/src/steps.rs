@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use crate::{
     parts::{MUTATION_SHARDS, Part, Role, Setup, Shard},
     reviews::STRYKER_CONFIG,
-    unsafe_code::{ASSEMBLY_FILES, UNSAFE_FILES},
+    unsafety::{ASSEMBLY_FILES, UNSAFE_FILES},
     workspace::{
         CHANGES_DIFF, CONFORMANCE_EXPORT, COVERAGE_DIR, Coverage, ENGINE_PACKAGE, Extent,
         MUTANTS_OUT, Measured, Mode, NATIVE_PACKAGES, NATIVE_TARGETS, NIGHTLY_TOOLCHAIN, PACKAGES,

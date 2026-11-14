@@ -344,7 +344,7 @@ pub(crate) fn loaded_files_of_the_workspace(runner: &mut dyn Runner) -> Result<(
 /// target the check does not build (`windows`, an operating system no build targets),
 /// which no check compiles at all. **Review only**: what a doc test loads, a crate rustdoc
 /// compiles apart that writes no dep-info (the compiler refuses unsafe code there:
-/// [`DOC_TESTS_FORBID_UNSAFE_CODE`](crate::unsafe_code::DOC_TESTS_FORBID_UNSAFE_CODE)).
+/// [`DOC_TESTS_FORBID_UNSAFE_CODE`](crate::unsafety::DOC_TESTS_FORBID_UNSAFE_CODE)).
 ///
 /// # Errors
 ///

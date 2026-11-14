@@ -19064,6 +19064,25 @@ fn tells_the_license_of_each_folder() {
 }
 
 #[test]
+fn accepts_open_parts_depending_on_open_parts() {
+    let metadata = r#"{"workspace_root":"/r","packages":[{"license":"MIT OR Apache-2.0","name":"lib","manifest_path":"/r/crates/lib/Cargo.toml","dependencies":[{"name":"core","kind":null,"path":"/r/crates/core"}]},{"license":"MIT OR Apache-2.0","name":"core","manifest_path":"/r/crates/core/Cargo.toml"}]}"#;
+    let packages = vec![
+        (
+            "tooling/tool/package.json".to_owned(),
+            r#"{"name": "@poyetik/tool", "license": "MIT OR Apache-2.0", "devDependencies": {"@poyetik/config": "workspace:*"}}"#.to_owned(),
+        ),
+        (
+            "tooling/config/package.json".to_owned(),
+            r#"{"name": "@poyetik/config", "license": "MIT OR Apache-2.0"}"#.to_owned(),
+        ),
+    ];
+    assert_eq!(
+        super::part_license_gate(metadata, &packages, &license_texts()),
+        Ok(())
+    );
+}
+
+#[test]
 fn accepts_every_part_under_its_license_and_apps_using_open_parts() {
     let open = "MIT OR Apache-2.0";
     let app = "FSL-1.1-ALv2";
