@@ -1,0 +1,8 @@
+{
+  "rate": [60, 1],
+  "width": 320,
+  "height": 180,
+  "first": 0,
+  "images": 120,
+  "square": { "side": 21845, "cycle": [2, 1] }
+}

@@ -33,6 +33,8 @@ audio-patch: serde_json (normal) -- bit-defining: parses patch documents, and so
 audio-testkit: libm (normal) -- deterministic math functions (sine, cosine, logarithm) for the measurements, identical on every target where std's are not
 audio-testkit: proptest (normal) -- property tests of the box and plan laws, from a fixed seed
 audio-testkit: serde_json (dev) -- reads the shared known-answer vectors of spec/measurement-vectors.json
+visual-cli: serde (normal) -- reads the visual conformance case files into typed values, refusing unknown fields
+visual-cli: serde_json (normal) -- parses the visual case files and writes the visual reference hashes
 visual-hash: serde_json (dev) -- reads the shared known-answer vectors of spec/image-hash-vectors.json
 visual-hash: sha2 (normal) -- the SHA-256 of a sequence of images, without std, the same on every target
 visual-testkit: serde_json (dev) -- reads the shared visual test matrix, conformance/visual/test-matrix.json
