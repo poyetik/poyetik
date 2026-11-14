@@ -145,7 +145,9 @@ pub const JOB_TIMEOUTS: [u32; 3] = [15, 300, 30];
 pub const NIGHTLY_COMPONENTS: [&str; 3] = ["llvm-tools-preview", "miri", "rust-src"];
 
 /// The steps that install the tools of a job: the checkout (the whole history, for the
-/// history gate, and no credential kept), the pinned toolchains, the Rust cache (`keyed`
+/// history gate, and no credential kept), the model of the runner's processor (`lscpu`, so
+/// that a slow run is explained by its log: hosted runners differ), the pinned toolchains,
+/// the Rust cache (`keyed`
 /// by the part, for the check's matrix, and saved even when the run fails), the Cargo tools
 /// of [`PINNED_TOOLS`], pnpm and Node.js (its packages cached, for the check's matrix).
 pub(crate) fn tool_steps(keyed: bool) -> Vec<String> {
@@ -160,6 +162,8 @@ pub(crate) fn tool_steps(keyed: bool) -> Vec<String> {
         "        with:".to_owned(),
         "          fetch-depth: 0".to_owned(),
         "          persist-credentials: false".to_owned(),
+        "      - name: The runner's processor".to_owned(),
+        "        run: lscpu".to_owned(),
         "      - name: Install Rust toolchains".to_owned(),
         "        run: |".to_owned(),
         "          rustup toolchain install".to_owned(),
@@ -253,7 +257,7 @@ pub fn workflow_text() -> Vec<String> {
     lines.extend(parts_job(ci, parts_timeout));
     lines.extend([
         "  check:".to_owned(),
-        format!("    name: cargo xtask check --full --part {each}"),
+        format!("    name: {each}"),
         "    needs: parts".to_owned(),
         format!("    {some}"),
         format!("    runs-on: {RUNNER}"),
@@ -277,7 +281,7 @@ pub fn workflow_text() -> Vec<String> {
     ]);
     lines.extend(AUDIO_SINK.map(|line| format!("          {line}")));
     lines.extend([
-        "      - name: One part of the full check".to_owned(),
+        format!("      - name: cargo xtask check --full --part {each}"),
         format!("        run: cargo xtask check --full --part {each}"),
         "      - uses: actions/upload-artifact@".to_owned(),
         "        with:".to_owned(),
@@ -298,10 +302,7 @@ pub fn workflow_text() -> Vec<String> {
     lines.extend([
         "          if-no-files-found: ignore".to_owned(),
         "  final:".to_owned(),
-        format!(
-            "    name: cargo xtask check --full --part {}",
-            Part::Final.name()
-        ),
+        format!("    name: {}", Part::Final.name()),
         "    needs: [parts, check]".to_owned(),
         format!("    {every}"),
         format!("    runs-on: {RUNNER}"),
@@ -314,7 +315,10 @@ pub fn workflow_text() -> Vec<String> {
         "        with:".to_owned(),
         format!("          pattern: {UNVIABLE_ARTIFACT}*"),
         format!("          path: {SHARD_REPORTS}"),
-        "      - name: The unviable mutants of every shard, reviewed together".to_owned(),
+        format!(
+            "      - name: cargo xtask check --full --part {}",
+            Part::Final.name()
+        ),
         format!(
             "        run: cargo xtask check --full --part {}",
             Part::Final.name()
