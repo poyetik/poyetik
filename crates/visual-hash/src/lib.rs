@@ -16,7 +16,9 @@
 use core::fmt;
 
 use sha2::{Digest, Sha256};
-use visual_core::{ColorEncoding, Image, ImageRate, ImageSize};
+use visual_core::{
+    ColorEncoding, Image, ImageIndex, ImageRate, ImageSize, VisualBox, render_sequence,
+};
 
 /// Identifies the hashing scheme; changes whenever the hashed bytes change.
 const TAG: &[u8] = b"image-hash/1";
@@ -110,11 +112,17 @@ impl ImageHasher {
         if image.size() != self.size {
             return Err(Mismatch { image: self.images });
         }
+        self.update(image);
+        Ok(())
+    }
+
+    /// Adds the values of `image`, whose size and encoding the caller has made the
+    /// sequence's.
+    fn update(&mut self, image: &Image) {
         for value in image.values() {
             self.hasher.update(value.to_bits().to_le_bytes());
         }
         self.images = self.images.saturating_add(1);
-        Ok(())
     }
 
     /// The hash of the sequence: the bytes so far, then the number of images.
@@ -124,6 +132,28 @@ impl ImageHasher {
         hasher.update(self.images.to_le_bytes());
         ImageHash(hasher.finalize().into())
     }
+}
+
+/// Renders `count` images of `visual` from image `first` into `image`, at `rate`, and
+/// returns the image hash of the sequence (`spec/image-hash.md`).
+///
+/// Every image of the sequence is `image` itself, rendered again, so each has the size and
+/// encoding the hash starts with: no image can be refused, by construction, where
+/// [`ImageHasher::add`] must check images that come from elsewhere. The same hash as
+/// rendering each image and adding it in order.
+#[must_use]
+pub fn hash_sequence(
+    visual: &mut dyn VisualBox,
+    rate: ImageRate,
+    first: ImageIndex,
+    count: u64,
+    image: &mut Image,
+) -> ImageHash {
+    let mut hasher = ImageHasher::new(rate, image.size(), image.encoding());
+    render_sequence(visual, first, count, image, |_, rendered| {
+        hasher.update(rendered);
+    });
+    hasher.finish()
 }
 
 #[cfg(test)]

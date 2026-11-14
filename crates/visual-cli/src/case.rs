@@ -2,9 +2,8 @@
 
 use serde::Deserialize;
 use visual_boxes::Square;
-use visual_core::{Image, ImageIndex, ImageRate, ImageSize, Seconds, render_sequence};
-
-use visual_hash::{ImageHash, ImageHasher};
+use visual_core::{Image, ImageIndex, ImageRate, ImageSize, Seconds};
+use visual_hash::{ImageHash, hash_sequence};
 
 /// The largest case file read, in bytes.
 pub const MAX_CASE_BYTES: usize = 64 * 1024;
@@ -103,25 +102,13 @@ fn check(case: &Case) -> Result<Checked, String> {
 pub fn render_case(case: &Case) -> Result<ImageHash, String> {
     let mut checked = check(case)?;
     let mut image = Image::new(checked.size);
-    let mut hasher = ImageHasher::new(checked.rate, checked.size, image.encoding());
-    // Every image has the size the hasher was started with, so `add` never refuses one;
-    // its error is still kept rather than dropped, and reported.
-    let mut mismatch = None;
-    render_sequence(
+    Ok(hash_sequence(
         &mut checked.square,
+        checked.rate,
         ImageIndex(case.first),
         case.images,
         &mut image,
-        |_, rendered| {
-            let refused = hasher.add(rendered).err();
-            mismatch = mismatch.or(refused);
-        },
-    );
-    let hash = hasher.finish();
-    mismatch
-        .as_ref()
-        .map(ToString::to_string)
-        .map_or(Ok(hash), Err)
+    ))
 }
 
 /// Reads a case from the text of its file and renders it to its image hash: what the
