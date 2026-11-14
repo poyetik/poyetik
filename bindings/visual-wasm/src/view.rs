@@ -1,8 +1,8 @@
 //! The square shown by a page: its parameters and the image it renders into.
 
 use visual_boxes::Square;
-use visual_core::{Image, ImageIndex, ImageRate, ImageSize, Seconds, VisualBox, render_sequence};
-use visual_hash::ImageHasher;
+use visual_core::{Image, ImageIndex, ImageRate, ImageSize, Seconds, VisualBox};
+use visual_hash::hash_sequence;
 
 /// A square and the image it renders into, set up by the page.
 #[derive(Debug)]
@@ -79,17 +79,7 @@ impl View {
     /// up.
     pub fn hash(&mut self, first: u64, count: u64) -> &[u8; 32] {
         if let Some((square, image, rate)) = &mut self.shown {
-            let mut hasher = ImageHasher::new(*rate, image.size(), image.encoding());
-            let mut refused = None;
-            render_sequence(square, ImageIndex(first), count, image, |_, rendered| {
-                let added = hasher.add(rendered).err();
-                refused = refused.or(added);
-            });
-            self.hash = if refused.is_none() {
-                hasher.finish().bytes()
-            } else {
-                [0; 32]
-            };
+            self.hash = hash_sequence(square, *rate, ImageIndex(first), count, image).bytes();
         }
         &self.hash
     }
