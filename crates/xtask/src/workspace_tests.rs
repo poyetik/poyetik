@@ -51,7 +51,7 @@ fn measures_each_crate_by_its_own_unit_tests() {
         })
         .collect();
     expected.extend(
-        ["audio-cli", "xtask"]
+        ["visual-cli", "audio-cli", "xtask"]
             .map(|name| format!(
                 "cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/{name}/Cargo.toml \
                  --locked --branch --json --summary-only --output-path target/coverage/{name}-main.json -- --include-ignored"
@@ -68,7 +68,10 @@ fn empties_stale_build_outputs_before_the_builds_that_write_them() {
     let steps = check_steps(CHANGES_MODE);
     assert_eq!(
         crate::build_outputs(),
-        vec!["bindings/audio-wasm/dist".to_owned()],
+        vec![
+            "bindings/audio-wasm/dist".to_owned(),
+            "bindings/visual-wasm/dist".to_owned()
+        ],
         "the outputs of tsc, which never removes a stale one"
     );
     for package in PACKAGES {
@@ -177,6 +180,16 @@ fn derives_each_list_of_crates_from_their_roles() {
             "the test kit",
         ),
         (
+            CrateRole::VisualLibrary,
+            &["visual-core", "visual-boxes", "visual-hash"][..],
+            "the visual library",
+        ),
+        (
+            CrateRole::VisualLibraryTests,
+            &["visual-testkit", "alloc-counter"][..],
+            "the visual test kit and the counting allocator",
+        ),
+        (
             CrateRole::Libm,
             &["audio-core", "audio-testkit"][..],
             "the engine core and the test kit",
@@ -188,7 +201,12 @@ fn derives_each_list_of_crates_from_their_roles() {
         ),
         (
             CrateRole::SharedTests,
-            &["alloc-counter", "audio-battery", "audio-testkit"][..],
+            &[
+                "visual-testkit",
+                "alloc-counter",
+                "audio-battery",
+                "audio-testkit",
+            ][..],
             "the counting allocator, the fingerprint battery and the test kit",
         ),
     ] {

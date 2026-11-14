@@ -48,9 +48,10 @@ fn rejects_other_commit_messages() {
         format!(
             "unknown scope \"{scope}\": name a crate, a package or a scope of xtask's \
              COMMIT_SCOPE_EXTRAS (audio-core, audio-boxes, audio-patch, audio-hash, \
+             visual-core, visual-boxes, visual-hash, visual-testkit, visual-cli, visual-wasm, \
              alloc-counter, audio-fpenv, audio-battery, audio-testkit, audio-cli, \
-             audio-wasm, xtask, config, oracle, playground, roadmap, spec, conformance, ci, \
-             build, release, changelog, glossary, deep-review)"
+             audio-wasm, xtask, config, oracle, playground, roadmap, wasm-build, spec, \
+             conformance, ci, build, release, changelog, glossary, deep-review)"
         )
     };
     let cases: [(&str, String); 18] = [
@@ -390,7 +391,10 @@ fn writes_the_parts_as_the_outputs_of_the_first_job() {
         parts.starts_with("parts=[\"rust\",\"coverage\",\"mutation-0\","),
         "{parts}"
     );
-    assert!(parts.ends_with(",\"apps-roadmap\"]"), "{parts}");
+    assert!(
+        parts.ends_with(",\"apps-roadmap\",\"tooling-wasm-build\",\"bindings-visual-wasm\"]"),
+        "{parts}"
+    );
     assert_eq!(full, "full=true", "every part: the final part runs");
 }
 

@@ -4,9 +4,10 @@ use core::num::NonZeroUsize;
 use std::path::Path;
 
 use crate::tests::{
-    CHANGES_MODE, FAKE_JOBS, HISTORY_LINES, LICENSE_LINES, METADATA, PACKAGE, PINS_LISTED, cite,
-    command_lines, failed, fixture_metadata, one_mutant, passing, run_cli, targets_metadata,
-    test_code_gate, test_data_gate, untested_targets_gate, unviable_names_gate,
+    CHANGES_MODE, FAKE_JOBS, HISTORY_LINES, LICENSE_LINES, METADATA, PACKAGE, PINS_LISTED,
+    added_package_steps, cite, command_lines, elapsed, failed, fixture_metadata, one_mutant,
+    passing, run_cli, targets_metadata, test_code_gate, test_data_gate, untested_targets_gate,
+    unviable_names_gate, visual_binaries, visual_crates, visual_steps,
 };
 use crate::{
     Action, CARGO_TOML, CHANGELOG, Cmd, Coverage, Dir, EQUIVALENT_REVIEWED, Extent, Failure,
@@ -19,8 +20,8 @@ const DEFAULT_PIPELINE: &[&str] = &[
     "preflight",
     "tree recorded",
     "Root: pnpm install --frozen-lockfile",
-    "fresh tooling/config/coverage tooling/config/reports/mutation tooling/oracle/coverage tooling/oracle/reports/mutation bindings/audio-wasm/coverage bindings/audio-wasm/reports/mutation apps/playground/coverage apps/playground/reports/mutation apps/roadmap/coverage apps/roadmap/reports/mutation",
-    "fresh bindings/audio-wasm/dist",
+    "fresh tooling/config/coverage tooling/config/reports/mutation tooling/oracle/coverage tooling/oracle/reports/mutation bindings/audio-wasm/coverage bindings/audio-wasm/reports/mutation apps/playground/coverage apps/playground/reports/mutation apps/roadmap/coverage apps/roadmap/reports/mutation tooling/wasm-build/coverage tooling/wasm-build/reports/mutation bindings/visual-wasm/coverage bindings/visual-wasm/reports/mutation",
+    "fresh bindings/audio-wasm/dist bindings/visual-wasm/dist",
     "equivalent gate",
     "bypass gate",
     "unsafe gate",
@@ -30,6 +31,7 @@ const DEFAULT_PIPELINE: &[&str] = &[
     "untested targets gate",
     "unviable names gate",
     "conformance cargo run --package audio-cli --locked --quiet -- check conformance --spent target/xtask/spent-algorithms.json",
+    "Root: cargo run --package visual-cli --locked --quiet -- check conformance/visual",
     "Root: cargo deny --locked check",
     "dependency gate",
     "pin gate",
@@ -57,10 +59,10 @@ const DEFAULT_PIPELINE: &[&str] = &[
     "Root: cargo test --workspace --locked -- --include-ignored",
     "loaded files gate",
     "fused build",
-    "Root: cargo build --package audio-core --package audio-boxes --package audio-patch --package audio-hash --locked --target aarch64-apple-darwin",
-    "Root: cargo build --package audio-core --package audio-boxes --package audio-patch --package audio-hash --locked --target x86_64-unknown-linux-gnu",
-    "Root: cargo build --package audio-core --package audio-boxes --package audio-patch --package audio-hash --locked --target wasm32-unknown-unknown",
-    "Root: cargo build --package audio-core --package audio-boxes --package audio-patch --package audio-hash --locked --target thumbv7em-none-eabihf",
+    "Root: cargo build --package audio-core --package audio-boxes --package audio-patch --package audio-hash --package visual-core --package visual-boxes --package visual-hash --locked --target aarch64-apple-darwin",
+    "Root: cargo build --package audio-core --package audio-boxes --package audio-patch --package audio-hash --package visual-core --package visual-boxes --package visual-hash --locked --target x86_64-unknown-linux-gnu",
+    "Root: cargo build --package audio-core --package audio-boxes --package audio-patch --package audio-hash --package visual-core --package visual-boxes --package visual-hash --locked --target wasm32-unknown-unknown",
+    "Root: cargo build --package audio-core --package audio-boxes --package audio-patch --package audio-hash --package visual-core --package visual-boxes --package visual-hash --locked --target thumbv7em-none-eabihf",
     "Root: cargo clippy --package audio-fpenv --package audio-cli --all-targets --locked --target aarch64-apple-darwin",
     "Root: cargo clippy --package audio-fpenv --package audio-cli --all-targets --locked --target x86_64-unknown-linux-gnu",
     "Root: cargo build --lib --package audio-fpenv --package audio-cli --locked --target aarch64-apple-darwin",
@@ -71,6 +73,12 @@ const DEFAULT_PIPELINE: &[&str] = &[
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/audio-boxes/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/audio-boxes.json -- --include-ignored",
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/audio-patch/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/audio-patch.json -- --include-ignored",
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/audio-hash/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/audio-hash.json -- --include-ignored",
+    "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/visual-core/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/visual-core.json -- --include-ignored",
+    "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/visual-boxes/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/visual-boxes.json -- --include-ignored",
+    "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/visual-hash/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/visual-hash.json -- --include-ignored",
+    "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/visual-testkit/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/visual-testkit.json -- --include-ignored",
+    "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/visual-cli/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/visual-cli.json -- --include-ignored",
+    "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path bindings/visual-wasm/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/visual-wasm.json -- --include-ignored",
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/alloc-counter/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/alloc-counter.json -- --include-ignored",
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/audio-fpenv/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/audio-fpenv.json -- --include-ignored",
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/audio-battery/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/audio-battery.json -- --include-ignored",
@@ -78,11 +86,12 @@ const DEFAULT_PIPELINE: &[&str] = &[
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/audio-cli/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/audio-cli.json -- --include-ignored",
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path bindings/audio-wasm/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/audio-wasm.json -- --include-ignored",
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/xtask/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/xtask.json -- --include-ignored",
+    "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/visual-cli/Cargo.toml --locked --branch --json --summary-only --output-path target/coverage/visual-cli-main.json -- --include-ignored",
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/audio-cli/Cargo.toml --locked --branch --json --summary-only --output-path target/coverage/audio-cli-main.json -- --include-ignored",
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/xtask/Cargo.toml --locked --branch --json --summary-only --output-path target/coverage/xtask-main.json -- --include-ignored",
     concat!(
         "Root: cargo +nightly-2026-11-01 mi",
-        "ri test --package alloc-counter --package audio-wasm --locked -- --include-ignored"
+        "ri test --package visual-wasm --package alloc-counter --package audio-wasm --locked -- --include-ignored"
     ),
     "Package(\"tooling/config\"): pnpm run typecheck",
     "Package(\"tooling/config\"): pnpm run lint",
@@ -127,6 +136,20 @@ const DEFAULT_PIPELINE: &[&str] = &[
     "Package(\"apps/roadmap\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json",
     "typescript reports gate of apps/roadmap",
     "typescript scope gate of apps/roadmap",
+    "Package(\"tooling/wasm-build\"): pnpm run typecheck",
+    "Package(\"tooling/wasm-build\"): pnpm run lint",
+    "Package(\"tooling/wasm-build\"): pnpm run test",
+    "Package(\"tooling/wasm-build\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json",
+    "typescript reports gate of tooling/wasm-build",
+    "typescript scope gate of tooling/wasm-build",
+    "Package(\"bindings/visual-wasm\"): pnpm run build",
+    "Package(\"bindings/visual-wasm\"): pnpm run typecheck",
+    "Package(\"bindings/visual-wasm\"): pnpm run lint",
+    "Package(\"bindings/visual-wasm\"): pnpm run test",
+    "Package(\"bindings/visual-wasm\"): pnpm run test:reproducible",
+    "Package(\"bindings/visual-wasm\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json",
+    "typescript reports gate of bindings/visual-wasm",
+    "typescript scope gate of bindings/visual-wasm",
     "fresh mutants.out",
     "rust mutants of the changes (3 jobs)",
     "unviable gate (Partial)",
@@ -160,10 +183,11 @@ const DEFAULT_CHECK_NAMES: &[&str] = &[
     "Tests turned off only where no test can hide, doc tests kept",
     "Every function a review of an unviable mutant names exists",
     "Conformance (native)",
+    "Visual conformance (native)",
     "Rust supply chain",
     "Every direct dependency reviewed",
     "Bit-defining dependencies pinned to one exact version",
-    "The audio library depends only on its own crates, its tests also on its test crates; every crate only tests use is shared test code",
+    "Each library depends only on its own crates, its tests also on its test crates; every crate only tests use is shared test code",
     "Every part under the license of its folder, no open part depending on an app",
     "Box arithmetic only through the math layer: libm in audio-core and audio-testkit only, no raw float in box code, no iterator reduction outside the math layer",
     "Supply-chain configuration as xtask defines it",
@@ -201,6 +225,12 @@ const DEFAULT_CHECK_NAMES: &[&str] = &[
     "Rust coverage of audio-boxes: 100% by its own unit tests",
     "Rust coverage of audio-patch: 100% by its own unit tests",
     "Rust coverage of audio-hash: 100% by its own unit tests",
+    "Rust coverage of visual-core: 100% by its own unit tests",
+    "Rust coverage of visual-boxes: 100% by its own unit tests",
+    "Rust coverage of visual-hash: 100% by its own unit tests",
+    "Rust coverage of visual-testkit: 100% by its own unit tests",
+    "Rust coverage of visual-cli: 100% by its own unit tests",
+    "Rust coverage of visual-wasm: 100% by its own unit tests",
     "Rust coverage of alloc-counter: 100% by its own unit tests",
     "Rust coverage of audio-fpenv: 100% by its own unit tests",
     "Rust coverage of audio-battery: 100% by its own unit tests",
@@ -208,6 +238,7 @@ const DEFAULT_CHECK_NAMES: &[&str] = &[
     "Rust coverage of audio-cli: 100% by its own unit tests",
     "Rust coverage of audio-wasm: 100% by its own unit tests",
     "Rust coverage of xtask: 100% by its own unit tests",
+    "Rust coverage of the visual-cli binary: 100% by its tests",
     "Rust coverage of the audio-cli binary: 100% by its tests",
     "Rust coverage of the xtask binary: 100% by its tests",
     "Unsafe code under Miri",
@@ -254,6 +285,20 @@ const DEFAULT_CHECK_NAMES: &[&str] = &[
     "Mutation testing of apps/roadmap (what changed since the last run)",
     "TypeScript coverage and mutation reports of apps/roadmap",
     "Every TypeScript source of apps/roadmap measured and mutated, or reviewed",
+    "WebAssembly module builds (reproducible, shared by the engine and the visual library): typecheck",
+    "WebAssembly module builds (reproducible, shared by the engine and the visual library): lint",
+    "WebAssembly module builds (reproducible, shared by the engine and the visual library): test",
+    "Mutation testing of tooling/wasm-build (what changed since the last run)",
+    "TypeScript coverage and mutation reports of tooling/wasm-build",
+    "Every TypeScript source of tooling/wasm-build measured and mutated, or reviewed",
+    "Visual WASM checks (the same image hashes as the native renderer): build",
+    "Visual WASM checks (the same image hashes as the native renderer): typecheck",
+    "Visual WASM checks (the same image hashes as the native renderer): lint",
+    "Visual WASM checks (the same image hashes as the native renderer): test",
+    "Visual WASM checks (the same image hashes as the native renderer): test:reproducible",
+    "Mutation testing of bindings/visual-wasm (what changed since the last run)",
+    "TypeScript coverage and mutation reports of bindings/visual-wasm",
+    "Every TypeScript source of bindings/visual-wasm measured and mutated, or reviewed",
     "Fresh Rust mutation report",
     "Rust mutation testing of the changes",
     "Rust unviable mutants reviewed",
@@ -449,6 +494,14 @@ fn the_full_check_differs_only_by_its_mutation_testing() {
                 "Mutation testing of apps/roadmap (what changed since the last run)",
                 "Mutation testing of apps/roadmap (every mutant)"
             ),
+            (
+                "Mutation testing of tooling/wasm-build (what changed since the last run)",
+                "Mutation testing of tooling/wasm-build (every mutant)"
+            ),
+            (
+                "Mutation testing of bindings/visual-wasm (what changed since the last run)",
+                "Mutation testing of bindings/visual-wasm (every mutant)"
+            ),
         ],
         "the steps that differ say how much they mutate"
     );
@@ -494,6 +547,74 @@ fn resolves_directories() {
     );
 }
 
+/// The reads the visual library adds to the default check: each crate's manifest by three
+/// gates and its coverage report twice, each binary's coverage report twice, and each test
+/// data reader and each audited unsafe file by eight gates.
+fn visual_reads() -> usize {
+    visual_crates()
+        .saturating_mul(3 + 2)
+        .saturating_add(visual_binaries().saturating_mul(2))
+        .saturating_add(visual_crates_with_test_data().saturating_mul(8))
+        .saturating_add(
+            UNSAFE_FILES
+                .iter()
+                .filter(|file| file.contains("/visual-"))
+                .count()
+                .saturating_mul(8),
+        )
+}
+
+/// What the packages beyond the five add to the default check's operations, as counted by
+/// `runs_every_step_and_reports_success`: for each, one command per script of its checks and
+/// 40 more (its Stryker run, its report directories emptied, the listing and the reads of
+/// its manifest, sources, configurations and reports by the gates, its manifest read by the
+/// part license and package check gates too); and 3 for the visual library in the browser
+/// (its build output emptied, and its two entry points read in the bypass register).
+fn added_package_operations() -> usize {
+    PACKAGES
+        .iter()
+        .skip(5)
+        .map(|package| package.checks.len().saturating_add(40))
+        .sum::<usize>()
+        .saturating_add(3)
+}
+
+/// The visual crates whose tests read declared test data: the fake gives each a test data
+/// reader, which eight gates read.
+fn visual_crates_with_test_data() -> usize {
+    crate::RUST_CRATES
+        .iter()
+        .filter(|krate| krate.name.starts_with("visual-") && !krate.test_data.is_empty())
+        .count()
+}
+
+/// The files the conflict marker gate reads in a run of [`passing`]: the attributes file,
+/// then every tracked text file, which is every file of the fake but its captured answers,
+/// the toolchain's, the new Rust files and those declared binary, and the spent record the
+/// run writes before the gate (the fake lists every file it holds as tracked).
+fn conflict_gate_reads() -> usize {
+    let fake = passing();
+    let binary = crate::binary_suffixes(
+        fake.files
+            .get(crate::GIT_ATTRIBUTES)
+            .expect("the attributes file"),
+    )
+    .expect("binary suffixes");
+    let new = fake
+        .files
+        .get(&format!("capture {}", crate::tests::NEW_RUST_FILES.0))
+        .cloned()
+        .unwrap_or_default();
+    let listed = fake
+        .files
+        .keys()
+        .filter(|path| !path.starts_with("capture ") && !path.starts_with('/'))
+        .filter(|path| !new.split('\0').any(|file| file == path.as_str()))
+        .filter(|path| !binary.iter().any(|suffix| path.ends_with(suffix.as_str())))
+        .count();
+    listed.checked_add(2).expect("a small count")
+}
+
 #[test]
 fn runs_every_step_and_reports_success() {
     let mut fake = passing();
@@ -503,7 +624,8 @@ fn runs_every_step_and_reports_success() {
         Ok(()),
         "all green"
     );
-    let (tools, commands, emptied, listed, captured, written) = (10, 78, 14, 28, 55, 4);
+    let (tools, emptied, listed, captured, written) = (10, 14, 28, 55, 4);
+    let commands = 78 + 2 * (visual_crates() + visual_binaries()) + 1;
     let read = 9
         + 2
         + 13
@@ -533,12 +655,13 @@ fn runs_every_step_and_reports_success() {
         + 3
         + 91
         + 5
-        + 1
-        + 106;
+        + conflict_gate_reads()
+        + visual_reads()
+        + added_package_operations();
     assert_eq!(
         fake.ran.len(),
         tools + commands + emptied + listed + captured + written + read,
-        "the preflight asks ten tools; 78 commands run (formatting, lints, documentation, \
+        "the preflight asks ten tools; 78 commands run, plus two per visual crate and binary and the visual conformance check (formatting, lints, documentation, \
          tests, four portability builds, the native shell's lints and the build of its libraries for its two architectures, fourteen coverage measurements each after emptying \
          the coverage build, the mutants of the changes, Miri, the \
          conformance check and export, deny, the JavaScript install, audit, the engine build and the twenty-five \
@@ -575,16 +698,23 @@ fn runs_every_step_and_reports_success() {
         "coverage reports read"
     );
     let text = String::from_utf8(out).expect("utf-8 output");
+    let checks = 114 + visual_steps() + added_package_steps();
     assert!(
-        text.starts_with("▶ [1/114] Tools and platform\n"),
+        text.starts_with(&format!("▶ [1/{checks}] Tools and platform\n")),
         "numbered progress: {text}"
     );
     assert!(
-        text.contains("▶ [105/114] Roadmap checks: test:e2e\n  done in 1.5 s\n"),
-        "last step announced: {text}"
+        text.contains(&format!(
+            "▶ [{}/{checks}] Roadmap checks: test:e2e\n  done in 1.5 s\n",
+            105 + visual_steps()
+        )),
+        "the roadmap's step announced: {text}"
     );
     assert!(
-        text.ends_with("  done in 1.5 s\n✔ all 114 checks passed in 2 min 51 s\n"),
+        text.ends_with(&format!(
+            "  done in 1.5 s\n✔ all {checks} checks passed in {}\n",
+            elapsed(checks)
+        )),
         "summary: {text}"
     );
 }
@@ -1312,7 +1442,7 @@ fn reads_every_configuration_the_check_builds() {
 fn runs_miri_on_every_crate_of_the_audited_files() {
     assert_eq!(
         crate::unsafe_crates(),
-        vec!["alloc-counter", "audio-wasm"],
+        vec!["visual-wasm", "alloc-counter", "audio-wasm"],
         "the crates of the audited files, in the order of RUST_CRATES, but the assembly one"
     );
     assert_eq!(
@@ -1329,7 +1459,8 @@ fn runs_miri_on_every_crate_of_the_audited_files() {
     assert_eq!(
         crate::miri_command().line(),
         format!(
-            "cargo +nightly-2026-11-01 {} test --package alloc-counter --package \
+            "cargo +nightly-2026-11-01 {} test --package visual-wasm --package \
+             alloc-counter --package \
              audio-wasm --locked -- --include-ignored",
             "miri"
         ),
@@ -1361,7 +1492,7 @@ fn empties_the_coverage_build_before_every_measurement() {
         .collect();
     assert_eq!(
         measurements.len(),
-        13 + 1,
+        13 + visual_crates() + visual_binaries() + 1,
         "every crate and binary measured, and the locality fixture"
     );
     for index in measurements {

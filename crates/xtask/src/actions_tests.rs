@@ -7,8 +7,8 @@ use std::io;
 use crate::actions::conflict_markers;
 use crate::steps::Failure;
 use crate::tests::{
-    Broken, CHANGES, CHANGES_MODE, FAKE_JOBS, Fake, READMES, failed, found, hermetic_git,
-    hermetic_git_ending, one_line_change, parts_refused, passing, scratch, system,
+    Broken, CHANGES, CHANGES_MODE, FAKE_JOBS, Fake, failed, found, hermetic_git,
+    hermetic_git_ending, one_line_change, parts_refused, passing, readmes, scratch, system,
 };
 use crate::{
     Action, Cmd, CommandFailure, Dir, Extent, Mode, OnFailure, PACKAGES, Ran, Runner, Step,
@@ -225,10 +225,7 @@ fn reports_rust_files_it_cannot_list() {
 
 #[test]
 fn requires_every_part_to_be_described() {
-    let readmes: Vec<(String, String)> = READMES
-        .iter()
-        .map(|&(path, text)| (path.to_owned(), text.to_owned()))
-        .collect();
+    let readmes = readmes();
     let mut parts: Vec<String> = PACKAGES
         .iter()
         .map(|package| package.dir.to_owned())

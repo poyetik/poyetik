@@ -39,11 +39,11 @@ fn confines_unsafe_blocks_to_the_audited_files() {
         ),
         "another file lifting it"
     );
-    assert_eq!(UNSAFE_FILES.len(), 3, "three audited files");
-    let mut fourth = sources.clone();
-    fourth.push(("crates/audio-fpenv/src/other.rs".to_owned(), lifting()));
+    assert_eq!(UNSAFE_FILES.len(), 4, "four audited files");
+    let mut fifth = sources.clone();
+    fifth.push(("crates/audio-fpenv/src/other.rs".to_owned(), lifting()));
     assert_eq!(
-        unsafe_gate(&fourth),
+        unsafe_gate(&fifth),
         found(
             "the lint against unsafe code",
             &[
@@ -54,7 +54,7 @@ fn confines_unsafe_blocks_to_the_audited_files() {
                 ),
             ]
         ),
-        "a fourth file, even in the crate of an audited one"
+        "a fifth file, even in the crate of an audited one"
     );
     let mut no_assembly = sources.clone();
     for (path, text) in &mut no_assembly {
