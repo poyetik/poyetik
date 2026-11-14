@@ -534,8 +534,14 @@ function margins(amplitude: number, error: number, quality: Quality): [number, n
   return lowest > 0 ? [total, lowest] : null;
 }
 
-/** The most unknowns a fit has: DC, then a cosine and a sine for each order up to {@link HARMONICS}. */
-const MOST_UNKNOWNS = 2 * HARMONICS + 1;
+/**
+ * The most unknowns a fit has: DC, then a cosine and a sine for each order up to
+ * {@link HARMONICS}. A function, not a module constant, so that Stryker runs only the tests
+ * that reach it for each of its mutants, rather than every test.
+ */
+function mostUnknowns(): number {
+  return 2 * HARMONICS + 1;
+}
 
 /**
  * The largest floor a fit of conditioning `conditioning` has over a render within `error`
@@ -548,7 +554,7 @@ const MOST_UNKNOWNS = 2 * HARMONICS + 1;
  * below that.
  */
 export function renderFloor(amplitude: number, error: number, conditioning: number): number {
-  const fitted = (Math.sqrt(2 * MOST_UNKNOWNS) * Math.sqrt(1 + conditioning)) / (1 - conditioning);
+  const fitted = (Math.sqrt(2 * mostUnknowns()) * Math.sqrt(1 + conditioning)) / (1 - conditioning);
   return 2 * FLOOR * ((1 + Math.SQRT2) * Math.abs(amplitude) + (1 + fitted) * error);
 }
 
