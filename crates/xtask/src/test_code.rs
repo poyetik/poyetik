@@ -9,7 +9,7 @@ use crate::{
     release::CARGO_TOML,
     rust_source::{RustSource, Token, TokenKind},
     steps::{Failure, step_verdict},
-    unsafe_code::{
+    unsafety::{
         DOC_TESTS_FORBID_UNSAFE_CODE, TEST_DECLARATION_FORM, TestDeclaration, test_declarations,
     },
     workspace::{RUST_CRATES, RustCrate, UNVIABLE_REVIEWED},

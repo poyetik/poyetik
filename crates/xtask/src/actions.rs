@@ -42,7 +42,7 @@ use crate::{
     steps::{Action, Cmd, Dir, Failure, Step, check_steps, fused_command, fused_gate, verdict},
     supply_chain::{SUPPLY_CHAIN_FILES, supply_chain_gate},
     test_code::{test_code_gate, test_data_gate, untested_targets_gate, unviable_names_gate},
-    unsafe_code::unsafe_gate,
+    unsafety::unsafe_gate,
     vocabulary::{VOCABULARY, VOCABULARY_SOURCES, vocabulary_gate},
     workflow::NODE_VERSION_FILE,
     workspace::{
