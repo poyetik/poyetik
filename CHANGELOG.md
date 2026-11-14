@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- The default check mutates every mutant of a source whose unit tests changed (`plan.rs` for `plan_tests.rs`), no longer of its whole crate; a change to a crate's integration tests or declared test data still widens to the whole crate. The full check, which every change passes before it reaches `main`, still mutates everything. Mutation proof records are of format 5: those of format 4 are ignored once.
+- The default check mutates every mutant of the source declaring a changed unit test file (`plan.rs` for the `plan_tests.rs` it declares), no longer of its whole crate; a change to a crate's integration tests or declared test data, or to a test file no source declares, still widens to the whole crate. The full check, which every change passes before it reaches `main`, still mutates everything. Mutation proof records are of format 5: those of format 4 are ignored.
 
 ## [0.3.2] - 2026-11-14
 

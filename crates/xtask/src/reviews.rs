@@ -140,30 +140,42 @@ pub fn check_script(checks: &[&str]) -> String {
 /// order ([`check_script`]).
 ///
 /// The checks run and time each script as a step of its own, so that `pnpm run check` in the
-/// package and `cargo xtask check` run the same scripts.
+/// package and `cargo xtask check` run the same scripts; no `precheck` or `postcheck` script
+/// either, which `pnpm run check` would run around it and the checks would not.
 ///
 /// # Errors
 ///
-/// Returns the script found and the one expected, or that the manifest has none or cannot
-/// be read.
+/// Returns every problem: the script found and the one expected, or that the manifest has
+/// none, and each `precheck` or `postcheck` script, each saying that the scripts and
+/// `Package::checks` in xtask change together; or why the manifest cannot be read.
 pub fn package_check_gate(path: &str, manifest: &str, checks: &[&str]) -> Result<(), Failure> {
     let json: serde_json::Value = serde_json::from_str(manifest)
         .map_err(|error| Failure::from(format!("{path}: invalid manifest: {error}")))?;
     let expected = check_script(checks);
-    match json
-        .get("scripts")
+    let scripts = json.get("scripts");
+    let mut problems = Vec::new();
+    match scripts
         .and_then(|scripts| scripts.get("check"))
         .and_then(serde_json::Value::as_str)
     {
-        Some(found) if found == expected => Ok(()),
-        Some(found) => Err(Failure::from(format!(
-            "{path}: its `check` script runs `{found}`, not the scripts the checks run and \
-             time: `{expected}`"
-        ))),
-        None => Err(Failure::from(format!(
-            "{path}: no `check` script, where the checks run and time `{expected}`"
-        ))),
+        Some(found) if found == expected => {}
+        Some(found) => problems.push(format!("its `check` script runs `{found}`")),
+        None => problems.push("it has no `check` script".to_owned()),
     }
+    for around in ["precheck", "postcheck"] {
+        if scripts.and_then(|scripts| scripts.get(around)).is_some() {
+            problems.push(format!(
+                "it has a `{around}` script, which the checks would not run"
+            ));
+        }
+    }
+    verdict(
+        &format!(
+            "{path}: the checks run and time `{expected}` (`Package::checks` in xtask's \
+             workspace.rs, which changes with the manifest)"
+        ),
+        problems,
+    )
 }
 
 /// The keys a Stryker configuration may use: none of them hides a mutant. Any other key

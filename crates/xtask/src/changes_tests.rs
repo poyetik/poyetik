@@ -11,8 +11,8 @@ use crate::tests::{
     scratch, since_base, system,
 };
 use crate::{
-    CHANGES_DIFF, RustCrate, Step, SystemRunner, Target, UNVIABLE_REPORT, changes_mutants_command,
-    mutants_steps, run_steps,
+    CHANGES_DIFF, MEASURED_BASE, PROOF_RECORDS, RustCrate, Step, SystemRunner, Target,
+    UNVIABLE_REPORT, changes_mutants_command, mutants_steps, run_steps,
 };
 
 #[test]
@@ -168,70 +168,217 @@ fn mutates_a_whole_crate_whose_integration_tests_changed() {
     );
 }
 
-#[test]
-fn mutates_the_source_whose_unit_tests_changed_and_no_other() {
-    let test_code = "crates/audio-core/src/plan_tests.rs";
-    // The lines of the unit tests stay in the diff, as every changed Rust file outside the
-    // sources tested whole: cargo-mutants mutates no test code.
-    let tests = format!(
-        "diff --git a/{test_code} b/{test_code}\n--- a/{test_code}\n+++ b/{test_code}\n@@ -1 +1 @@\n-a\n+b\n"
+/// The declaration of the unit test file `file` beside its source.
+fn declares(file: &str) -> String {
+    format!("fn a() {{}}\n#[cfg(test)]\n#[path = \"{file}\"]\nmod tests;\n")
+}
+
+/// The diff git writes for a change of one line of `path`, as the fake's changes hold it.
+fn tests_section(path: &str) -> String {
+    format!("diff --git a/{path} b/{path}\n--- a/{path}\n+++ b/{path}\n@@ -1 +1 @@\n-a\n+b\n")
+}
+
+/// Runs the default check's mutation of the changes on a fake whose changes are `changes`
+/// (one line each) and whose files are `files`; returns the diff given to cargo-mutants,
+/// what was said and what ran.
+fn mutate_with(changes: &[&str], files: &[(&str, &str)]) -> (Option<String>, String, Vec<String>) {
+    let mut fake = passing();
+    let _changes = fake.files.insert(
+        format!("capture {}", CHANGES.0),
+        changes.iter().map(|path| one_line_change(path)).collect(),
     );
-    for (plan, expected) in [
+    for (path, text) in files {
+        let _source = fake.files.insert((*path).to_owned(), (*text).to_owned());
+    }
+    let mut out = Vec::new();
+    assert_eq!(
+        run_steps(&rust_mutation_of_changes(), &mut fake, &mut out),
+        Ok(()),
+        "{changes:?}"
+    );
+    (
+        fake.files.get(CHANGES_DIFF).cloned(),
+        String::from_utf8(out).expect("UTF-8"),
+        fake.ran,
+    )
+}
+
+#[test]
+fn mutates_the_source_declaring_the_unit_tests_changed_and_no_other() {
+    let plan = declares("plan_tests.rs");
+    let math = declares("reduction_tests.rs");
+    let others = [
+        ("crates/audio-core/src/lib.rs", "fn a() {}\n"),
+        ("crates/audio-core/src/plan_tests.rs", "fn t() {}\n"),
+        ("crates/audio-core/src/reduction_tests.rs", "fn r() {}\n"),
+        ("crates/audio-core/tests/laws.rs", "fn l() {}\n"),
+        ("crates/audio-boxes/src/lib.rs", "fn o() {}\n"),
+    ];
+    // A test file and the source of the same name declaring it; then a test file declared
+    // by a source of another name (math.rs declares reduction_tests.rs).
+    for (test, source, text) in [
         (
-            Some("fn p() {}\n"),
-            format!(
-                "{tests}{}",
-                crate::new_file_diff("crates/audio-core/src/plan.rs", "fn p() {}\n")
-            ),
+            "crates/audio-core/src/plan_tests.rs",
+            "crates/audio-core/src/plan.rs",
+            &plan,
         ),
-        (None, tests),
+        (
+            "crates/audio-core/src/reduction_tests.rs",
+            "crates/audio-core/src/math.rs",
+            &math,
+        ),
     ] {
-        let mut fake = passing();
-        let _changes = fake
-            .files
-            .insert(format!("capture {}", CHANGES.0), one_line_change(test_code));
-        for (path, text) in [
-            ("crates/audio-core/src/lib.rs", "fn a() {}\n"),
-            ("crates/audio-core/src/plan_tests.rs", "fn t() {}\n"),
-            ("crates/audio-core/tests/laws.rs", "fn l() {}\n"),
-            ("crates/audio-boxes/src/lib.rs", "fn o() {}\n"),
-        ] {
-            let _source = fake.files.insert(path.to_owned(), text.to_owned());
-        }
-        if let Some(text) = plan {
-            let _source = fake
-                .files
-                .insert("crates/audio-core/src/plan.rs".to_owned(), text.to_owned());
-        }
-        let mut out = Vec::new();
+        let mut files = others.to_vec();
+        files.push((source, text.as_str()));
+        let (diff, said, ran) = mutate_with(&[test], &files);
         assert_eq!(
-            run_steps(&rust_mutation_of_changes(), &mut fake, &mut out),
-            Ok(()),
-            "{plan:?}"
-        );
-        assert_eq!(
-            fake.files.get(CHANGES_DIFF).cloned(),
-            Some(expected),
-            "{plan:?}: the source of the unit tests added whole, when it exists; nothing else \
-             of its crate, nor of others"
+            diff,
+            Some(format!(
+                "{}{}",
+                tests_section(test),
+                crate::new_file_diff(source, text)
+            )),
+            "{test}: the lines of the unit tests (cargo-mutants mutates no test code), then \
+             the source declaring them whole; nothing else of its crate, nor of others"
         );
         assert!(
-            fake.ran.contains(&format!(
-                "{} :(exclude)crates/audio-core/src/plan.rs",
+            ran.contains(&format!(
+                "{} :(exclude,literal){source}",
                 diff_since(MERGE_BASE.1.trim())
             )),
-            "{plan:?}: git leaves the source out of the diff"
+            "{test}: git leaves the source out of the diff, literally: {ran:?}"
         );
-        let said = String::from_utf8(out).expect("UTF-8");
-        assert_eq!(
-            said.contains(
-                "  crates/audio-core/src/plan_tests.rs changed: every mutant of \
-                 crates/audio-core/src/plan.rs\n"
-            ),
-            plan.is_some(),
-            "{plan:?}: said when the source exists: {said}"
+        assert!(
+            said.contains(&format!(
+                "  {test} changed: every mutant of {source}, which declares it\n"
+            )),
+            "{test}: said: {said}"
         );
     }
+}
+
+#[test]
+fn mutates_the_whole_crate_of_a_unit_test_file_no_source_declares() {
+    // A test file deleted with its declaration, or whose declaration was removed.
+    let (diff, said, _) = mutate_with(
+        &["crates/audio-core/src/plan_tests.rs"],
+        &[
+            ("crates/audio-core/src/lib.rs", "fn a() {}\n"),
+            ("crates/audio-core/src/plan.rs", "fn p() {}\n"),
+        ],
+    );
+    assert_eq!(
+        diff,
+        Some(format!(
+            "{}{}",
+            crate::new_file_diff("crates/audio-core/src/lib.rs", "fn a() {}\n"),
+            crate::new_file_diff("crates/audio-core/src/plan.rs", "fn p() {}\n")
+        )),
+        "every source of the crate whole, as for its integration tests"
+    );
+    assert!(
+        said.contains(
+            "  crates/audio-core/src/plan_tests.rs changed, which no source of audio-core \
+             declares: every mutant of audio-core\n"
+        ),
+        "said: {said}"
+    );
+}
+
+#[test]
+fn gives_a_source_tested_whole_one_section_however_it_changed() {
+    let plan = declares("plan_tests.rs");
+    let both = declares("both_tests.rs").replace(
+        "mod tests;",
+        "mod tests;\n#[cfg(test)]\n#[path = \"also_tests.rs\"]\nmod also;",
+    );
+    // The source and its unit tests changed together, tracked; two test files of one source.
+    let (diff, said, _) = mutate_with(
+        &[
+            "crates/audio-core/src/plan.rs",
+            "crates/audio-core/src/plan_tests.rs",
+            "crates/audio-core/src/both_tests.rs",
+            "crates/audio-core/src/also_tests.rs",
+        ],
+        &[
+            ("crates/audio-core/src/plan.rs", &plan),
+            ("crates/audio-core/src/plan_tests.rs", "fn t() {}\n"),
+            ("crates/audio-core/src/both.rs", &both),
+            ("crates/audio-core/src/both_tests.rs", "fn t() {}\n"),
+            ("crates/audio-core/src/also_tests.rs", "fn t() {}\n"),
+        ],
+    );
+    assert_eq!(
+        diff,
+        Some(format!(
+            "{}{}{}{}{}",
+            tests_section("crates/audio-core/src/plan_tests.rs"),
+            tests_section("crates/audio-core/src/both_tests.rs"),
+            tests_section("crates/audio-core/src/also_tests.rs"),
+            crate::new_file_diff("crates/audio-core/src/plan.rs", &plan),
+            crate::new_file_diff("crates/audio-core/src/both.rs", &both),
+        )),
+        "each source whole once, not also as git wrote its change"
+    );
+    assert_eq!(
+        said.matches("every mutant of crates/audio-core/src/both.rs")
+            .count(),
+        1,
+        "said once per source: {said}"
+    );
+}
+
+#[test]
+fn gives_a_new_source_tested_whole_one_section() {
+    let plan = declares("plan_tests.rs");
+    let mut fake = passing();
+    let _changes = fake
+        .files
+        .insert(format!("capture {}", CHANGES.0), String::new());
+    let _listed = fake.files.insert(
+        format!("capture {}", NEW_RUST_FILES.0),
+        "crates/audio-core/src/plan.rs\0crates/audio-core/src/plan_tests.rs\0".to_owned(),
+    );
+    for (path, text) in [
+        ("crates/audio-core/src/plan.rs", plan.as_str()),
+        ("crates/audio-core/src/plan_tests.rs", "fn t() {}\n"),
+    ] {
+        let _source = fake.files.insert(path.to_owned(), text.to_owned());
+    }
+    assert_eq!(
+        run_steps(&rust_mutation_of_changes(), &mut fake, &mut Vec::new()),
+        Ok(())
+    );
+    assert_eq!(
+        fake.files.get(CHANGES_DIFF).cloned(),
+        Some(format!(
+            "{}{}",
+            crate::new_file_diff("crates/audio-core/src/plan_tests.rs", "fn t() {}\n"),
+            crate::new_file_diff("crates/audio-core/src/plan.rs", &plan)
+        )),
+        "the new source once, whole"
+    );
+}
+
+#[test]
+fn refuses_a_source_it_cannot_lex_when_it_looks_for_the_declarer() {
+    let mut fake = passing();
+    let _changes = fake.files.insert(
+        format!("capture {}", CHANGES.0),
+        one_line_change("crates/audio-core/src/plan_tests.rs"),
+    );
+    let _source = fake.files.insert(
+        "crates/audio-core/src/plan.rs".to_owned(),
+        "#!shebang\n".to_owned(),
+    );
+    assert!(
+        run_steps(&rust_mutation_of_changes(), &mut fake, &mut Vec::new()).is_err_and(|failure| {
+            failure
+                .summary
+                .contains("crates/audio-core/src/plan.rs:1: starts with `#!`")
+        }),
+        "refused, never a silent skip"
+    );
 }
 
 #[test]
@@ -554,6 +701,30 @@ fn reads_the_paths_real_git_changes_whatever_they_hold() {
 }
 
 #[test]
+fn leaves_out_exactly_the_files_tested_whole_with_real_git() {
+    let dir = scratch("literal-exclusion");
+    // A name git's pathspec glob would read as a pattern matching its neighbor.
+    let (odd, neighbor) = ("crates/a/src/b[1].rs", "crates/a/src/b1.rs");
+    for path in [odd, neighbor] {
+        let file = dir.join(path);
+        std::fs::create_dir_all(file.parent().expect("a parent")).expect("its directory");
+        std::fs::write(&file, "a\n").expect("a file");
+    }
+    let _init = hermetic_git(&dir, &["init", "--quiet", "--initial-branch=main"]);
+    let _add = hermetic_git(&dir, &["add", "."]);
+    let _commit = hermetic_git(&dir, &["commit", "--quiet", "-m", "first"]);
+    for path in [odd, neighbor] {
+        std::fs::write(dir.join(path), "b\n").expect("a change");
+    }
+    let mut runner = system(dir.path());
+    let diff = crate::changes::diff_since(&mut runner, "HEAD", &[], &[odd]).expect("a diff");
+    assert!(
+        diff.starts_with(&format!("diff --git a/{neighbor} b/{neighbor}\n")) && !diff.contains(odd),
+        "the file tested whole left out, its neighbor kept: {diff}"
+    );
+}
+
+#[test]
 fn takes_every_file_git_s_rust_pathspec_matches_for_rust() {
     let dir = scratch("dot-rs");
     let path = "crates/audio-hash/src/.rs";
@@ -572,7 +743,7 @@ fn takes_every_file_git_s_rust_pathspec_matches_for_rust() {
             "HEAD",
             (&changed, &[]),
             Vec::new(),
-            &[],
+            Vec::new(),
             &[],
         )
         .map_err(|failure| failure.summary),
@@ -639,7 +810,7 @@ fn tells_a_file_turned_into_a_link_from_a_change_git_left_out() {
             "HEAD",
             (&changed, &[]),
             Vec::new(),
-            &[],
+            Vec::new(),
             &[],
         )
         .map_err(|failure| failure.summary)
@@ -701,7 +872,7 @@ fn git_answers(
             "HEAD",
             (&changed, &[]),
             Vec::new(),
-            &[],
+            Vec::new(),
             &[],
         )
         .map_err(|failure| failure.summary)
@@ -1285,7 +1456,7 @@ fn skips_only_the_crates_a_valid_proof_record_still_proves() {
         "said: {said}"
     );
     assert_eq!(
-        fake.files.get(crate::MEASURED_BASE).cloned(),
+        fake.files.get(MEASURED_BASE).cloned(),
         Some(format!("{}\n", PROVEN[2])),
         "the base noted for the record of this run"
     );
@@ -1680,7 +1851,7 @@ fn falls_back_without_a_common_directory() {
         "the diff since the base"
     );
     let mut unwritable = passing();
-    unwritable.broken = Some(format!("write {}", crate::MEASURED_BASE));
+    unwritable.broken = Some(format!("write {MEASURED_BASE}"));
     assert_eq!(
         run_steps(
             &rust_mutation_of_changes(),
@@ -1688,8 +1859,7 @@ fn falls_back_without_a_common_directory() {
             &mut Vec::new()
         ),
         failed(format!(
-            "Rust mutation testing of the changes: cannot write {}: read-only",
-            crate::MEASURED_BASE
+            "Rust mutation testing of the changes: cannot write {MEASURED_BASE}: read-only"
         )),
         "the base measured cannot be noted"
     );
@@ -2980,22 +3150,39 @@ fn changed_lines_steps() -> Vec<Step> {
 
 #[test]
 fn mutates_the_lines_changed_and_never_widens() {
-    let mut fake = passing();
-    let changes = format!(
-        "{}{}",
-        one_line_change("crates/audio-core/src/lib.rs"),
-        one_line_change("crates/audio-core/src/plan_tests.rs")
-    );
-    let _changes = fake
-        .files
-        .insert(format!("capture {}", CHANGES.0), changes.clone());
-    for (path, text) in [
-        ("crates/audio-core/src/lib.rs", "fn a() {}\n"),
-        ("crates/audio-core/src/plan.rs", "fn p() {}\n"),
-        ("crates/audio-core/src/plan_tests.rs", "fn t() {}\n"),
-    ] {
-        let _source = fake.files.insert(path.to_owned(), text.to_owned());
-    }
+    // Each change the default check widens: unit tests (to their source), integration tests
+    // and test data (to the crate), a lock entry (to the crates reaching it).
+    let rust = [
+        "crates/audio-core/src/lib.rs",
+        "crates/audio-core/src/plan_tests.rs",
+        "crates/audio-core/tests/laws.rs",
+    ];
+    let changes: String = rust
+        .iter()
+        .chain(&["spec/render-hash-vectors.json", "Cargo.lock"])
+        .map(|path| one_line_change(path))
+        .collect();
+    let rust_changes: String = rust.iter().map(|path| one_line_change(path)).collect();
+    let files = [
+        ("crates/audio-core/src/lib.rs", "fn a() {}\n".to_owned()),
+        ("crates/audio-core/src/plan.rs", declares("plan_tests.rs")),
+        (
+            "crates/audio-core/src/plan_tests.rs",
+            "fn t() {}\n".to_owned(),
+        ),
+        ("crates/audio-hash/src/lib.rs", "fn h() {}\n".to_owned()),
+    ];
+    let fake_with = || {
+        let mut fake = passing();
+        let _changes = fake
+            .files
+            .insert(format!("capture {}", CHANGES.0), changes.clone());
+        for (path, text) in &files {
+            let _source = fake.files.insert((*path).to_owned(), text.clone());
+        }
+        fake
+    };
+    let mut fake = fake_with();
     let mut out = Vec::new();
     assert_eq!(
         run_steps(&changed_lines_steps(), &mut fake, &mut out),
@@ -3003,8 +3190,8 @@ fn mutates_the_lines_changed_and_never_widens() {
     );
     assert_eq!(
         fake.files.get(CHANGES_DIFF).cloned(),
-        Some(changes),
-        "the lines git wrote, the unit tests' source not added whole"
+        Some(rust_changes),
+        "the Rust lines git wrote, nothing added whole"
     );
     assert!(
         fake.ran
@@ -3012,11 +3199,9 @@ fn mutates_the_lines_changed_and_never_widens() {
         "mutated: {:?}",
         fake.ran
     );
+    let record = |line: &str| line.contains(PROOF_RECORDS) || line.contains(MEASURED_BASE);
     assert!(
-        !fake
-            .ran
-            .iter()
-            .any(|line| line.contains("rust-mutants-proven") || line.contains("mutants-base")),
+        !fake.ran.iter().any(|line| record(line)),
         "no proof record read or written: {:?}",
         fake.ran
     );
@@ -3027,6 +3212,19 @@ fn mutates_the_lines_changed_and_never_widens() {
              with @{upstream}), not widened\n"
         ),
         "said: {said}"
+    );
+    // The default check on the same changes widens, and reads and writes its record.
+    let mut widened = fake_with();
+    let _said = mutate_changes(&mut widened);
+    assert_ne!(
+        widened.files.get(CHANGES_DIFF),
+        fake.files.get(CHANGES_DIFF),
+        "the default check widens the same changes"
+    );
+    assert!(
+        widened.ran.iter().any(|line| record(line)),
+        "the default check reads or writes its record: {:?}",
+        widened.ran
     );
 }
 

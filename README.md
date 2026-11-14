@@ -40,6 +40,7 @@ cargo xtask check          # every check, one after another, cheapest first; mut
 cargo xtask check --full   # every check and every mutant
 cargo xtask list           # what they are (`list --full`: those of `check --full`)
 cargo xtask mutants <target>  # every mutant of a crate, a Rust file, a TypeScript package or one of its sources
+cargo xtask mutants --changed # the Rust lines changed since the merge base only, never widened
 ```
 
 The pre-push hook runs `cargo xtask pre-push`, which refuses uncommitted changes and a pushed commit other than the one checked out, then runs `cargo xtask check` (`--full` when a tag is pushed); CI runs `cargo xtask check --full`, split into parallel jobs, one per part of `cargo xtask list --full --parts` (`cargo xtask check --full --part <part>` runs one). The default check mutation tests only what changed: Rust since the merge base (`MUTATION_BASES`), but the crates an earlier default check of the same base proved and left unchanged (its mutation proof record, which `--full` never reads), TypeScript since the last local Stryker run (its incremental file), so a green default check does not prove a green full check; `CLAUDE.md` (CI) says what each proves and when the full check is required.

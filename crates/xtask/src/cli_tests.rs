@@ -163,31 +163,31 @@ fn refuses_what_is_no_mutation_target() {
         ),
         (
             "crates/xtask",
-            "\"crates/xtask\" is no crate, Rust file of a crate, TypeScript package or source of one",
+            "\"crates/xtask\" is no crate, Rust file of a crate, TypeScript package or source of one, nor `--changed`",
         ),
         (
             "crates/other/src/lib.rs",
-            "\"crates/other/src/lib.rs\" is no crate, Rust file of a crate, TypeScript package or source of one",
+            "\"crates/other/src/lib.rs\" is no crate, Rust file of a crate, TypeScript package or source of one, nor `--changed`",
         ),
         (
             "crates/xtaskx/src/lib.rs",
-            "\"crates/xtaskx/src/lib.rs\" is no crate, Rust file of a crate, TypeScript package or source of one",
+            "\"crates/xtaskx/src/lib.rs\" is no crate, Rust file of a crate, TypeScript package or source of one, nor `--changed`",
         ),
         (
             "apps/roadmap/src/page.astro",
-            "\"apps/roadmap/src/page.astro\" is no crate, Rust file of a crate, TypeScript package or source of one",
+            "\"apps/roadmap/src/page.astro\" is no crate, Rust file of a crate, TypeScript package or source of one, nor `--changed`",
         ),
         (
             "apps/roadmap/README.md",
-            "\"apps/roadmap/README.md\" is no crate, Rust file of a crate, TypeScript package or source of one",
+            "\"apps/roadmap/README.md\" is no crate, Rust file of a crate, TypeScript package or source of one, nor `--changed`",
         ),
         (
             "apps/roadmap/src/lib.rs",
-            "\"apps/roadmap/src/lib.rs\" is no crate, Rust file of a crate, TypeScript package or source of one",
+            "\"apps/roadmap/src/lib.rs\" is no crate, Rust file of a crate, TypeScript package or source of one, nor `--changed`",
         ),
         (
             "crates/audio-core/src/a.ts",
-            "\"crates/audio-core/src/a.ts\" is no crate, Rust file of a crate, TypeScript package or source of one",
+            "\"crates/audio-core/src/a.ts\" is no crate, Rust file of a crate, TypeScript package or source of one, nor `--changed`",
         ),
         (
             "crates/xtask/src/lib_tests.rs",
@@ -203,11 +203,11 @@ fn refuses_what_is_no_mutation_target() {
         ),
         (
             "crates/xtask/src/lib.RS",
-            "\"crates/xtask/src/lib.RS\" is no crate, Rust file of a crate, TypeScript package or source of one",
+            "\"crates/xtask/src/lib.RS\" is no crate, Rust file of a crate, TypeScript package or source of one, nor `--changed`",
         ),
         (
             "\u{1b}[2J",
-            "\"\\u{1b}[2J\" is no crate, Rust file of a crate, TypeScript package or source of one",
+            "\"\\u{1b}[2J\" is no crate, Rust file of a crate, TypeScript package or source of one, nor `--changed`",
         ),
     ] {
         assert_eq!(

@@ -397,11 +397,13 @@ pub const EQUIVALENT_REVIEWED: &str = "mutants-equivalent.txt";
 pub struct Package {
     /// Its directory, relative to the root: `<folder of parts>/<name>`.
     pub dir: &'static str,
-    /// The name of its checks, each step named after it and the script it runs.
+    /// The name of its checks: each of their steps is named `<step>: <script>`.
     pub step: &'static str,
     /// The scripts its `check` script runs, in order (`pnpm <script> && …`): each a step of
     /// its own, run in its directory, so that each says its time; the package check gate
     /// ([`package_check_gate`](crate::reviews::package_check_gate)) ties them to its manifest.
+    /// In `--full`, which runs every step whatever fails, a failed script does not stop the
+    /// later ones, as `&&` would: more failures for one cause, the same verdict.
     pub checks: &'static [&'static str],
     /// Whether what it ships reaches users, so that its production dependencies must be
     /// under [`SHIPPED_LICENSES`](crate::licenses::SHIPPED_LICENSES).
