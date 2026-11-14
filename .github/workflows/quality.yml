@@ -4,7 +4,9 @@
 # `cargo xtask check`, which mutation tests only the changes; only this run proves the rest.
 # On demand, because the full check is long and commits are frequent: on a push only when the
 # last commit's message holds [ci] alone on a line (xtask refuses it anywhere else), on every
-# pull request, and by hand (Run workflow).
+# pull request, and by hand (Run workflow). A push whose marker names parts ([ci gates
+# bindings-wasm], in the order of `cargo xtask list --full --parts`), or a run by hand given
+# parts, checks only those, without the final part: never a full check.
 # Every line of this file but its comments and blank lines is xtask's (`workflow_text`): the
 # workflow gate refuses any other, an action's commit hash and its tag comment apart, which
 # Dependabot updates. A change of CI is a change of xtask.
@@ -14,21 +16,56 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+    inputs:
+      parts:
+        description: The parts to check, separated by spaces (cargo xtask list --full --parts, final apart); empty for every part
+        type: string
+        default: ''
 
 permissions:
   contents: read
 
-# A newer run of the check cancels the older one of the same ref; a run skipped by the [ci]
+# A newer run of the check cancels the older one of the same ref; a run skipped by the marker
 # condition below gets a group of its own, so that it never cancels a check in progress.
 concurrency:
-  group: ${{ (github.event_name != 'push' || contains(github.event.head_commit.message, '[ci]')) && format('quality-{0}', github.ref) || format('skipped-{0}', github.run_id) }}
+  group: ${{ (github.event_name != 'push' || contains(github.event.head_commit.message, '[ci]') || contains(github.event.head_commit.message, '[ci ')) && format('quality-{0}', github.ref) || format('skipped-{0}', github.run_id) }}
   cancel-in-progress: true
 
 jobs:
+  # The parts to check, read by xtask (`cargo xtask ci-parts`): every part for a pull request
+  # or a run by hand given none, else those named. The commit message and the input reach it
+  # through the environment, never written into the script.
+  parts:
+    name: The parts to check
+    # A push runs the check only when its last commit asks for it with a marker.
+    if: github.event_name != 'push' || contains(github.event.head_commit.message, '[ci]') || contains(github.event.head_commit.message, '[ci ')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      parts: ${{ steps.parts.outputs.parts }}
+      full: ${{ steps.parts.outputs.full }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the Rust toolchain
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: parts
+          cache-on-failure: true
+      - name: The parts asked for
+        id: parts
+        env:
+          EVENT: ${{ github.event_name }}
+          MESSAGE: ${{ github.event.head_commit.message }}
+          PARTS: ${{ inputs.parts }}
+        run: cargo xtask ci-parts "$EVENT" "$MESSAGE" "$PARTS" >> "$GITHUB_OUTPUT"
   check:
     name: cargo xtask check --full --part ${{ matrix.part }}
-    # A push runs the check only when its last commit asks for it with [ci].
-    if: github.event_name != 'push' || contains(github.event.head_commit.message, '[ci]')
+    needs: parts
+    # Only the parts read above, if any.
+    if: needs.parts.outputs.parts != '[]'
     # The OS release is pinned (never `-latest`); the runner image itself still receives
     # GitHub's weekly updates, which no workflow can pin.
     runs-on: ubuntu-24.04
@@ -41,8 +78,9 @@ jobs:
       # Every part runs whatever the others find, as the full check runs every step.
       fail-fast: false
       matrix:
-        # The parts of `cargo xtask list --full --parts` but the final one, exactly.
-        part: [rust, coverage, mutation-0, mutation-1, mutation-2, mutation-3, mutation-4, mutation-5, mutation-6, mutation-7, miri, gates, tooling-config, tooling-oracle, bindings-wasm, apps-playground, apps-roadmap]
+        # The parts read above: for a full check, those of `cargo xtask list --full --parts`
+        # but the final one, exactly.
+        part: ${{ fromJSON(needs.parts.outputs.parts) }}
     # Every action is pinned to a full commit (the tag it was taken from is in the comment)
     # and every tool to an exact version: a moved tag or a new release of an action or a
     # tool cannot change CI.
@@ -134,9 +172,9 @@ jobs:
 
   final:
     name: cargo xtask check --full --part final
-    # Once every part has passed: what needs them all.
-    needs: check
-    if: github.event_name != 'push' || contains(github.event.head_commit.message, '[ci]')
+    # Once every part has passed, and only when every part ran: what needs them all.
+    needs: [parts, check]
+    if: needs.parts.outputs.full == 'true'
     runs-on: ubuntu-24.04
     # Set by the same rule as the parts' timeout, from this job's own time.
     timeout-minutes: 30

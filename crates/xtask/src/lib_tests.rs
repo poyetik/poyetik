@@ -9324,10 +9324,33 @@ fn workflow_former_probes() -> Vec<(&'static str, String)> {
             "a token that writes",
             quality_with("  contents: read", "  contents: write"),
         ),
-        ("a shard missing", quality_with(", mutation-7", "")),
         (
-            "the final part in the matrix",
-            quality_with("apps-roadmap]", "apps-roadmap, final]"),
+            "a matrix fixed in the workflow",
+            quality_with(
+                "        part: ${{ fromJSON(needs.parts.outputs.parts) }}",
+                "        part: [rust]",
+            ),
+        ),
+        (
+            "the final part after some parts",
+            quality_with(
+                "    if: needs.parts.outputs.full == 'true'",
+                "    if: needs.parts.outputs.parts != '[]'",
+            ),
+        ),
+        (
+            "the commit message written into the script",
+            quality_with(
+                "ci-parts \"$EVENT\" \"$MESSAGE\"",
+                "ci-parts \"$EVENT\" \"${{ github.event.head_commit.message }}\"",
+            ),
+        ),
+        (
+            "every push checked",
+            quality_with(
+                "    if: github.event_name != 'push' || contains(github.event.head_commit.message, '[ci]') || contains(github.event.head_commit.message, '[ci ')\n    runs-on",
+                "    runs-on",
+            ),
         ),
         (
             "a part stopping the others",
@@ -9336,11 +9359,11 @@ fn workflow_former_probes() -> Vec<(&'static str, String)> {
         (
             "a part excluded",
             quality_with(
-                "        part: [",
+                "        part: ${{",
                 concat!(
                     "        exclude:\n          - part: ",
                     "miri",
-                    "\n        part: ["
+                    "\n        part: ${{"
                 ),
             ),
         ),
@@ -9537,14 +9560,19 @@ fn derives_the_workflow_s_lists_and_reads_its_node_release() {
             "only a line using an action ends with `@`: {line}"
         );
     }
-    assert!(
-        parts.contains(&concat!(
-            "        part: [rust, coverage, mutation-0, mutation-1, mutation-2, mutation-3, ",
-            "mutation-4, mutation-5, mutation-6, mutation-7, ",
+    assert_eq!(
+        super::matrix_parts()
+            .into_iter()
+            .map(super::Part::name)
+            .collect::<Vec<_>>()
+            .join(" "),
+        concat!(
+            "rust coverage mutation-0 mutation-1 mutation-2 mutation-3 ",
+            "mutation-4 mutation-5 mutation-6 mutation-7 ",
             "miri",
-            ", gates, tooling-config, tooling-oracle, bindings-wasm, apps-playground, apps-roadmap]"
-        ).to_owned()),
-        "the matrix, derived from the parts"
+            " gates tooling-config tooling-oracle bindings-wasm apps-playground apps-roadmap"
+        ),
+        "the matrix of a full check, derived from the parts: every one but the final"
     );
     for (node, accepted) in [
         ("22.18.0", true),
@@ -14621,7 +14649,7 @@ fn reads_odd_sources_without_losing_prose() {
 
 #[test]
 fn keeps_a_run_skipped_by_the_ci_condition_from_cancelling_a_check() {
-    let [_, condition] = super::WORKFLOW_CONDITIONS;
+    let [_, condition, ..] = super::WORKFLOW_CONDITIONS;
     let group = super::workflow_concurrency()
         .into_iter()
         .nth(1)
@@ -14650,7 +14678,7 @@ fn confines_the_ci_marker_to_a_line_of_its_own() {
         "none"
     );
     let expected = Some(
-        "invalid commit message: [ci] asks CI to run; write it alone on a line, or not at all"
+        "invalid commit message: [ci] asks CI to run, and `[ci <part> <part>…]` some parts of it (`cargo xtask list --full --parts` names them, in their order, final apart); write one alone on a line, or none at all"
             .to_owned(),
     );
     for message in [
@@ -18707,5 +18735,227 @@ fn mutates_the_crates_a_change_of_the_workspace_manifest_reaches() {
             && !kept.contains(&proven_line("engine-hash"))
             && !kept.contains("ignored the mutation proof record"),
         "a record still proves what the change does not reach: {kept}"
+    );
+}
+
+/// The parts named by `names`, separated by spaces, as the matrix names them.
+fn parts_named(names: &str) -> Vec<super::Part> {
+    names
+        .split(' ')
+        .map(|name| {
+            super::matrix_parts()
+                .into_iter()
+                .find(|part| part.name() == name)
+                .expect("a part of the matrix")
+        })
+        .collect()
+}
+
+#[test]
+fn writes_the_ci_marker_of_some_parts_in_one_form() {
+    assert_eq!(
+        super::ci_parts_marker(&super::matrix_parts()),
+        "[ci]",
+        "every part"
+    );
+    assert_eq!(super::ci_parts_marker(&[]), "[ci]", "none: every part");
+    assert_eq!(
+        super::ci_parts_marker(&parts_named("bindings-wasm gates")),
+        "[ci gates bindings-wasm]",
+        "in the order of the matrix, one space apart"
+    );
+    assert_eq!(
+        super::ci_parts_marker(&[super::Part::Final, super::Part::Coverage]),
+        "[ci coverage]",
+        "the final part is no part of the matrix"
+    );
+}
+
+#[test]
+fn reads_parts_named_by_hand_in_any_order_each_once() {
+    assert_eq!(
+        super::named_parts(" bindings-wasm \t rust\n"),
+        Ok(parts_named("rust bindings-wasm")),
+        "in the order of the matrix, whatever the spaces"
+    );
+    assert_eq!(
+        super::named_parts("final"),
+        Err(
+            "unknown part \"final\" (`cargo xtask list --full --parts` lists them, final apart)"
+                .to_owned()
+        ),
+        "the final part runs only after every part"
+    );
+    assert_eq!(
+        super::named_parts("rust Rust"),
+        Err(
+            "unknown part \"Rust\" (`cargo xtask list --full --parts` lists them, final apart)"
+                .to_owned()
+        ),
+        "names as the matrix writes them"
+    );
+    assert_eq!(
+        super::named_parts("gates coverage gates"),
+        Err("part \"gates\" named twice".to_owned())
+    );
+    assert_eq!(super::named_parts("  "), Err("no part named".to_owned()));
+}
+
+#[test]
+fn accepts_a_marker_of_some_parts_only_in_its_one_form() {
+    for message in [
+        "ci: x\n\n[ci gates bindings-wasm]\n",
+        "ci: x\n\n  [ci tooling-oracle]  \n",
+        "ci: x\n\n[CI GATES BINDINGS-WASM]\n",
+        "ci: x\n\n[ci gates]\n\nAgain:\n[ci gates]\n",
+        "ci: x\n\n[cite] a source, [circa] then\n",
+    ] {
+        assert_eq!(super::ci_marker(message), None, "{message:?}");
+    }
+    let refused = Some(
+        "invalid commit message: [ci] asks CI to run, and `[ci <part> <part>…]` some parts of it (`cargo xtask list --full --parts` names them, in their order, final apart); write one alone on a line, or none at all"
+            .to_owned(),
+    );
+    for message in [
+        "ci: x\n\n[ci bindings-wasm gates]\n",
+        "ci: x\n\n[ci gates  bindings-wasm]\n",
+        "ci: x\n\n[ci nope]\n",
+        "ci: x\n\n[ci final]\n",
+        "ci: x\n\n[ci gates gates]\n",
+        "ci: x\n\n[ci ]\n",
+        "ci: x\n\n[ci gates\n",
+        "ci: x\n\nrun [ci gates] now\n",
+    ] {
+        assert_eq!(super::ci_marker(message), refused, "{message:?}");
+        assert!(commit_msg_gate(message).is_err(), "{message:?}");
+    }
+    let every: String = super::matrix_parts()
+        .into_iter()
+        .map(super::Part::name)
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert_eq!(
+        super::ci_marker(&format!("ci: x\n\n[ci {every}]\n")),
+        refused,
+        "every part is written [ci]"
+    );
+    assert_eq!(
+        super::ci_marker("ci: x\n\n[ci]\n[ci gates]\n"),
+        Some("invalid commit message: its CI markers ask for different parts".to_owned()),
+        "two markers, two sets of parts"
+    );
+}
+
+#[test]
+fn reads_the_parts_a_run_of_the_workflow_checks() {
+    let every = super::matrix_parts();
+    assert_eq!(
+        super::ci_parts("pull_request", "", "gates"),
+        Ok(every.clone()),
+        "a pull request checks every part"
+    );
+    assert_eq!(
+        super::ci_parts("workflow_dispatch", "", " "),
+        Ok(every.clone()),
+        "by hand, no part given"
+    );
+    assert_eq!(
+        super::ci_parts("workflow_dispatch", "[ci gates]", "coverage rust"),
+        Ok(parts_named("rust coverage")),
+        "by hand, the parts given, the message not read"
+    );
+    assert_eq!(
+        super::ci_parts("workflow_dispatch", "", "nope"),
+        Err(
+            "unknown part \"nope\" (`cargo xtask list --full --parts` lists them, final apart)"
+                .to_owned()
+        )
+    );
+    assert_eq!(
+        super::ci_parts("push", "ci: x\n\n[ci]\n", "gates"),
+        Ok(every),
+        "a push asking for every part, the input not read"
+    );
+    assert_eq!(
+        super::ci_parts("push", "ci: x\n\n[ci gates bindings-wasm]\n", ""),
+        Ok(parts_named("gates bindings-wasm"))
+    );
+    assert_eq!(
+        super::ci_parts("push", "docs: x\n", ""),
+        Ok(Vec::new()),
+        "a push asking for nothing"
+    );
+    assert!(
+        super::ci_parts("push", "ci: x\n\n[ci bindings-wasm gates]\n", "").is_err(),
+        "a marker in another form"
+    );
+    assert_eq!(
+        super::ci_parts("schedule", "", ""),
+        Err("the workflow does not run on \"schedule\"".to_owned())
+    );
+}
+
+#[test]
+fn writes_the_parts_as_the_outputs_of_the_first_job() {
+    assert_eq!(
+        super::ci_outputs(&parts_named("gates bindings-wasm")),
+        [
+            "parts=[\"gates\",\"bindings-wasm\"]".to_owned(),
+            "full=false".to_owned()
+        ]
+    );
+    assert_eq!(
+        super::ci_outputs(&[]),
+        ["parts=[]".to_owned(), "full=false".to_owned()],
+        "none: no job of the matrix"
+    );
+    let [parts, full] = super::ci_outputs(&super::matrix_parts());
+    assert!(
+        parts.starts_with("parts=[\"rust\",\"coverage\",\"mutation-0\","),
+        "{parts}"
+    );
+    assert!(parts.ends_with(",\"apps-roadmap\"]"), "{parts}");
+    assert_eq!(full, "full=true", "every part: the final part runs");
+}
+
+#[test]
+fn cli_prints_the_parts_of_a_run_or_why_not() {
+    let run = |list: &[&str]| {
+        let args: Vec<String> = list.iter().map(|arg| (*arg).to_owned()).collect();
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        let code = run_cli(&args, &mut passing(), &mut out, &mut err);
+        (
+            code,
+            String::from_utf8(out).expect("UTF-8"),
+            String::from_utf8(err).expect("UTF-8"),
+        )
+    };
+    assert_eq!(
+        run(&["ci-parts", "push", "ci: x\n\n[ci coverage]\n", ""]),
+        (
+            0,
+            "parts=[\"coverage\"]\nfull=false\n".to_owned(),
+            String::new()
+        )
+    );
+    assert_eq!(
+        run(&["ci-parts", "workflow_dispatch", "", "nope"]),
+        (
+            1,
+            String::new(),
+            "error: unknown part \"nope\" (`cargo xtask list --full --parts` lists them, final apart)\n"
+                .to_owned()
+        ),
+        "a part that is none fails the run"
+    );
+    assert_eq!(
+        run(&["ci-parts", "push", ""]),
+        (
+            2,
+            String::new(),
+            "error: `ci-parts` takes an event, a commit message and the parts given by hand (see: cargo xtask help)\n"
+                .to_owned()
+        ),
+        "three arguments"
     );
 }
