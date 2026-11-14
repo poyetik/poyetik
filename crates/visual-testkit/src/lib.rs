@@ -28,7 +28,6 @@ pub mod matrix;
 pub use alloc_counter::{CountingAllocator, NotCounting, heap_operations_during};
 pub use laws::{Factory, check_laws};
 
-/// The test binary of this crate counts heap operations, like every box test binary must.
 #[cfg(test)]
-#[global_allocator]
-static ALLOCATOR: CountingAllocator = CountingAllocator;
+#[path = "lib_tests.rs"]
+mod tests;
