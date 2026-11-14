@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-14
+
 ### Added
 
 - CI can check only some parts of the full check, to debug one without the whole matrix: a push whose last commit holds `[ci <part> <part>…]` alone on a line (known parts, each once, in the order of `cargo xtask list --full --parts`, the final one apart; `ci_marker` refuses every other form, as the commit-msg hook and the history gate read it), or a run by hand given the parts (the `parts` input of `workflow_dispatch`). The workflow's first job reads them with `cargo xtask ci-parts <event> <message> <parts>` (`ci_parts`; the message and the input reach it through the environment, never written into the script), its matrix is those parts, and the final job runs only when every part ran, so a run of some parts is never a full check.
