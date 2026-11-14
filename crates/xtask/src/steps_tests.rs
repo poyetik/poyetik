@@ -845,6 +845,7 @@ const fn carries_its_problems_alone(action: &Action) -> bool {
         | Action::Coverage(_)
         | Action::CoverageLocality
         | Action::RustMutantsOfChanges { .. }
+        | Action::RustMutantsOfChangedLines { .. }
         | Action::Bless(_)
         | Action::Conformance
         | Action::MutationProofRecorded

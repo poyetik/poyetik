@@ -79,6 +79,12 @@ fn reads_every_kind_of_mutation_target() {
         "a crate, by its name"
     );
     assert_eq!(
+        mutation_target("--changed"),
+        Ok(Target::ChangedLines),
+        "the lines changed"
+    );
+    assert_eq!(Target::ChangedLines.file(), None, "no file");
+    assert_eq!(
         mutation_target("crates/xtask/src/lib.rs"),
         Ok(Target::RustFile {
             krate: krate("xtask"),
@@ -1636,4 +1642,33 @@ impl io::Write for Pipe {
     fn flush(&mut self) -> io::Result<()> {
         Err(io::Error::from(self.0))
     }
+}
+
+#[test]
+fn cli_mutates_the_lines_changed() {
+    let mut changed = passing();
+    assert_eq!(
+        run_cli(
+            &["mutants".to_owned(), "--changed".to_owned()],
+            &mut changed,
+            &mut Vec::new(),
+            &mut Vec::new()
+        ),
+        0,
+        "the lines changed"
+    );
+    assert_eq!(
+        changed.ran.first().map(String::as_str),
+        Some("fresh mutants.out"),
+        "its report emptied first"
+    );
+    assert!(
+        changed.ran.contains(&"cargo mutants --no-config --output=. --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --workspace --in-diff target/xtask/changes.diff --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored".to_owned())
+            && changed.ran.ends_with(&[
+                "read mutants.out/unviable.txt".to_owned(),
+                "read mutants-unviable.txt".to_owned()
+            ]),
+        "mutated in half the threads, its unviable mutants gated: {:?}",
+        changed.ran
+    );
 }

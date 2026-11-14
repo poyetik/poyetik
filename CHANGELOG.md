@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `cargo xtask mutants --changed` mutates the Rust lines changed since the merge base only, never widened and with no proof record, then gates the unviable mutants as for a partial run: for development, between two default checks.
+
 ### Changed
 
 - The default check mutates every mutant of a source whose unit tests changed (`plan.rs` for `plan_tests.rs`), no longer of its whole crate; a change to a crate's integration tests or declared test data still widens to the whole crate. The full check, which every change passes before it reaches `main`, still mutates everything. Mutation proof records are of format 5: those of format 4 are ignored once.

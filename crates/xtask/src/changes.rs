@@ -1337,6 +1337,47 @@ pub(crate) fn rust_mutants_of_changes(
         .map_err(|failure| Failure::from(failure.to_string()))
 }
 
+/// Runs cargo-mutants on the Rust lines changed since the merge base only
+/// ([`Action::RustMutantsOfChangedLines`](crate::steps::Action::RustMutantsOfChangedLines)):
+/// the changes of the tracked files, committed or not, and every new Rust file git does not
+/// ignore, never widened and with no proof record; nothing when no Rust line changed.
+///
+/// For development, between two default checks: seconds for a changed message where the
+/// default check may widen to a whole source or crate.
+///
+/// # Errors
+///
+/// Returns why the changes cannot be read or mutated ([`shown_whole`], [`mutation_base`],
+/// [`mutated_diff`]), why the diff cannot be written, or a surviving mutant.
+pub(crate) fn rust_mutants_of_lines(
+    runner: &mut dyn Runner,
+    out: &mut dyn Write,
+    jobs: NonZeroUsize,
+) -> Result<(), Failure> {
+    shown_whole(runner)?;
+    let (base, against) = mutation_base(runner)?;
+    let new = new_rust_files(runner)?;
+    let tracked = changed_since(runner, &base)?;
+    let measured = format!("{base} (merge base with {against})");
+    let diff = mutated_diff(runner, out, &base, (&tracked, &new), Vec::new(), &[], &[])?;
+    if diff.is_empty() {
+        return say(
+            out,
+            &format!("  no Rust line changed since {measured}: no mutant to test"),
+        );
+    }
+    say(
+        out,
+        &format!("  the Rust lines changed since {measured}, not widened"),
+    )?;
+    runner
+        .write(CHANGES_DIFF, &diff)
+        .map_err(|error| Failure::from(format!("cannot write {CHANGES_DIFF}: {error}")))?;
+    runner
+        .run(&changes_mutants_command(jobs))
+        .map_err(|failure| Failure::from(failure.to_string()))
+}
+
 #[cfg(test)]
 #[path = "changes_tests.rs"]
 mod tests;

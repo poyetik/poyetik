@@ -7,7 +7,7 @@ use std::io;
 use std::io::Write;
 
 use crate::{
-    changes::{licenses, main_base, rust_mutants_of_changes},
+    changes::{licenses, main_base, rust_mutants_of_changes, rust_mutants_of_lines},
     citations::{CITATION_SOURCES, citation_gate},
     cli::{bless, conformance},
     commits::SCOPES_SINCE,
@@ -499,6 +499,7 @@ pub(crate) fn run_action(
             equivalent_gate(&sources, &read_file(runner, EQUIVALENT_REVIEWED)?)
         }
         Action::RustMutantsOfChanges { jobs } => rust_mutants_of_changes(runner, out, *jobs),
+        Action::RustMutantsOfChangedLines { jobs } => rust_mutants_of_lines(runner, out, *jobs),
         Action::MutationProofRecorded => record_mutation_proof(runner, out, tree.as_ref()),
         Action::Conformance => conformance(runner, out),
         Action::Bless(options) => bless(runner, out, options),
