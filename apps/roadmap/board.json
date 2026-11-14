@@ -1220,68 +1220,17 @@
       ]
     },
     {
-      "id": 34,
-      "title": "First image: a square moving with the sound, identical on every target",
-      "description": "The visual counterpart of #1: a white square on black, its position driven by the phase of an audio oscillator, rendered by the engine natively and in WebAssembly and shown live in the playground. Small on purpose: it builds the whole proof chain for images (exact CPU reference, canonical image hash, conformance across targets, GPU within a measured threshold, browser tests, independent oracle) on which every visual box will then be checked.",
-      "column": "later",
-      "milestone": "M3 Visuals",
-      "createdAt": "2026-11-09",
-      "updatedAt": "2026-11-09",
-      "tasks": [
-        {
-          "title": "Visual operator contract in the core and a square operator, with exact edge coverage (antialiasing)",
-          "done": false
-        },
-        {
-          "title": "Exact CPU reference renderer: no_std, no unsafe code, built for every target of the portability check",
-          "done": false
-        },
-        {
-          "title": "Canonical hash of an image sequence, specified in spec/ with known-answer vectors read by every implementation",
-          "done": false
-        },
-        {
-          "title": "Offline render in audio-cli and the first visual conformance case: the same hashes natively and in WebAssembly",
-          "done": false
-        },
-        {
-          "title": "Sound and image on one clock: the instant of each image tied to the audio frames by an exact rule, the square following the phase of an audio oscillator",
-          "done": false
-        },
-        {
-          "title": "GPU backend (wgpu, justified like every dependency): the same images within a measured threshold of the reference, checked in CI on a software GPU",
-          "done": false
-        },
-        {
-          "title": "Playground: the square moving live with the sound in WebGPU, end-to-end tests on the browsers",
-          "done": false
-        },
-        {
-          "title": "Independent oracle: rereads the images, recomputes the hashes and checks the motion",
-          "done": false
-        },
-        {
-          "title": "Wired into cargo xtask check",
-          "done": false
-        },
-        {
-          "title": "Deep review: every finding analyzed and applied, then a fresh review",
-          "done": false
-        }
-      ]
-    },
-    {
       "id": 35,
       "title": "Visual foundations: design and quality bar of the visual engine before more boxes",
       "description": "The visual counterpart of #12: decide the design of a standalone visual library against the live-show targets, then set its quality and proof bar before writing many visual boxes. Like the audio library, it is usable on its own, with no dependency on the audio library or the editor; what spans sound and image lives in a shared layer above both. Other uses (editing, compositing, embedded) kept possible whenever it costs nothing.",
       "column": "later",
       "milestone": "M3 Visuals",
       "createdAt": "2026-11-09",
-      "updatedAt": "2026-11-10",
+      "updatedAt": "2026-11-14",
       "tasks": [
         {
           "title": "Target matrix for the live show (node-based real-time visuals, lighting previsualization, media servers, LED pixel mapping and lasers, multi-machine shows): for each, the core concepts it needs; a target needing a new core concept is settled before any code",
-          "done": false
+          "done": true
         },
         {
           "title": "Engine design decisions, recorded before any code that depends on them: time and rates, push and pull computation, resources and GPU memory, data types (textures, buffers, geometry including vector paths, channels), colour pipeline, outputs, execution modes, random access, hot swap, latency, state; and interaction: the input event model (the image a gesture applies to), a scene queryable on the CPU for picking, the operator contract mapping output coordinates back to input coordinates, gesture-to-image latency, the state of interactive objects, 3D camera navigation and manipulators",
@@ -1439,6 +1388,57 @@
         },
         {
           "title": "A standalone no_std crate, published like the libraries: the library gate gains its role (the only crate outside the audio library the library's crates may depend on), with its own coverage, mutation, benchmarks and conformance",
+          "done": false
+        }
+      ]
+    },
+    {
+      "id": 34,
+      "title": "First image: a square moving with the sound, identical on every target",
+      "description": "The visual counterpart of #1: a white square on black, moving in time, rendered by the standalone visual library natively and in WebAssembly and shown live in the playground, then following the phase of an audio oscillator. Small on purpose: it builds the whole proof chain for images (exact CPU reference, canonical image hash, conformance across targets, GPU within a measured threshold, browser tests, independent oracle) on which every visual box will then be checked.",
+      "column": "doing",
+      "milestone": "M3 Visuals",
+      "createdAt": "2026-11-09",
+      "updatedAt": "2026-11-14",
+      "tasks": [
+        {
+          "title": "Visual operator contract in the standalone visual library (no dependency on the audio library), with the optional mapping from output points back to what produced them, and a square operator with exact edge coverage (antialiasing)",
+          "done": false
+        },
+        {
+          "title": "Exact CPU reference renderer: no_std, no unsafe code, built for every target of the portability check",
+          "done": false
+        },
+        {
+          "title": "Canonical hash of an image sequence, specified in spec/ with known-answer vectors read by every implementation",
+          "done": false
+        },
+        {
+          "title": "Offline render in a visual command-line renderer and the first visual conformance case: the same hashes natively and in WebAssembly",
+          "done": false
+        },
+        {
+          "title": "Sound and image on one clock, through the shared layer above the audio and visual libraries: the instant of each image tied to the audio frames by an exact rule, the square following the phase of an audio oscillator",
+          "done": false
+        },
+        {
+          "title": "GPU backend (wgpu, justified like every dependency): the same images within a measured threshold of the reference, checked in CI on a software GPU",
+          "done": false
+        },
+        {
+          "title": "Playground: the square moving live with the sound in WebGPU, end-to-end tests on the browsers",
+          "done": false
+        },
+        {
+          "title": "Independent oracle: rereads the images, recomputes the hashes and checks the motion",
+          "done": false
+        },
+        {
+          "title": "Wired into cargo xtask check",
+          "done": false
+        },
+        {
+          "title": "Deep review: every finding analyzed and applied, then a fresh review",
           "done": false
         }
       ]
