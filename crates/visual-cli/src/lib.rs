@@ -12,8 +12,14 @@ extern crate alloc;
 
 mod case;
 mod cli;
+mod files;
 mod safe;
 
-pub use case::{Case, MAX_CASE_BYTES, MAX_IMAGES, SquareCase, parse_case, render_case};
-pub use cli::{CliError, USAGE, arguments, run};
+pub use case::{Case, MAX_CASE_BYTES, MAX_IMAGES, SquareCase, hash_case, parse_case, render_case};
+pub use cli::{BestEffort, CliError, MAX_REFERENCES_BYTES, USAGE, arguments, run};
+pub use files::{Disk, Files};
 pub use safe::{MAX_MESSAGE_CHARS, safe_message};
+
+#[cfg(test)]
+#[path = "lib_tests.rs"]
+mod tests;
