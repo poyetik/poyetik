@@ -1,7 +1,10 @@
 import { createHash } from "node:crypto";
 import { describe, expect, test } from "vitest";
-import { buildMain, ignoreClosedReader, type Io, reproducibleMain } from "../scripts/cli.ts";
-import { CARGO_ARGS } from "../scripts/wasm.ts";
+import { buildMain, ignoreClosedReader, type Io, reproducibleMain } from "../src/cli.ts";
+import { cargoArgs, type WasmModule } from "../src/wasm.ts";
+
+/** The module these tests build: the engine's, as `bindings/audio-wasm` builds it. */
+const ENGINE: WasmModule = { package: "audio-wasm", label: "engine module", file: "engine.wasm" };
 
 /** One cargo message reporting the engine module at `path`. */
 function reported(path: string): string {
@@ -85,21 +88,31 @@ function failed(status: number | null, signal: string | null): Error {
 
 describe("build:wasm", () => {
   test("builds the module reproducibly and copies it into dist", () => {
+<<<<<<<< HEAD:bindings/audio-wasm/test/build-scripts.test.ts
     const { io, log, out, err, runs } = fakeIo(() => `   Compiling\n${reported("/t/audio_wasm.wasm")}`);
     expect(buildMain(io, "/pkg/dist")).toBe(0);
+========
+    const { io, log, out, err, runs } = fakeIo(() => `   Compiling\n${reported("/t/audio_wasm.wasm")}`);
+    expect(buildMain(io, "/pkg/dist", ENGINE)).toBe(0);
+>>>>>>>> b30d7e6a (refactor(wasm-build): share the WebAssembly module build):tooling/wasm-build/test/build-scripts.test.ts
     // rustc is asked in the repository, so that it is the toolchain the repository pins.
     expect(runs).toStrictEqual([
       { command: "rustc", args: ["--print", "sysroot"], cwd: "/src/repo", env: { PATH: "/bin" } },
       { command: "rustc", args: ["-vV"], cwd: "/src/repo", env: { PATH: "/bin" } },
-      { command: "cargo", args: CARGO_ARGS, cwd: "/src/repo", env: { PATH: "/bin", CARGO_ENCODED_RUSTFLAGS: flags("/home/u/.cargo") } },
+      { command: "cargo", args: cargoArgs(ENGINE), cwd: "/src/repo", env: { PATH: "/bin", CARGO_ENCODED_RUSTFLAGS: flags("/home/u/.cargo") } },
     ]);
     expect(log).toStrictEqual(["mkdir /pkg/dist", "copy /t/audio_wasm.wasm /pkg/dist/engine.wasm"]);
     expect([out, err]).toStrictEqual([[], []]);
   });
 
   test("remaps the Cargo home CARGO_HOME names", () => {
+<<<<<<<< HEAD:bindings/audio-wasm/test/build-scripts.test.ts
     const { io, runs } = fakeIo(() => reported("/t/audio_wasm.wasm"), {}, { CARGO_HOME: "/opt/cargo" });
     expect(buildMain(io, "/pkg/dist")).toBe(0);
+========
+    const { io, runs } = fakeIo(() => reported("/t/audio_wasm.wasm"), {}, { CARGO_HOME: "/opt/cargo" });
+    expect(buildMain(io, "/pkg/dist", ENGINE)).toBe(0);
+>>>>>>>> b30d7e6a (refactor(wasm-build): share the WebAssembly module build):tooling/wasm-build/test/build-scripts.test.ts
     expect(runs[2]?.env).toStrictEqual({ PATH: "/bin", CARGO_HOME: "/opt/cargo", CARGO_ENCODED_RUSTFLAGS: flags("/opt/cargo") });
   });
 
@@ -111,7 +124,7 @@ describe("build:wasm", () => {
     const { io, log, out, err } = fakeIo(() => {
       throw thrown;
     });
-    expect(buildMain(io, "/pkg/dist")).toBe(1);
+    expect(buildMain(io, "/pkg/dist", ENGINE)).toBe(1);
     expect([out, err, log]).toStrictEqual([[], [line], []]);
   });
 
@@ -130,7 +143,7 @@ describe("build:wasm", () => {
         return TOOLCHAIN(args);
       },
     );
-    expect(buildMain(io, "/pkg/dist")).toBe(1);
+    expect(buildMain(io, "/pkg/dist", ENGINE)).toBe(1);
     expect([out, err, log]).toStrictEqual([[], [line], []]);
     expect(runs.map((run) => run.command)).not.toContain("cargo");
   });
@@ -145,14 +158,19 @@ describe("build:wasm", () => {
       {},
       (args) => String(args[0] === "--print" ? sysroot : verbose),
     );
-    expect(buildMain(io, "/pkg/dist")).toBe(1);
+    expect(buildMain(io, "/pkg/dist", ENGINE)).toBe(1);
     expect(err).toStrictEqual([line]);
   });
 
   test("explains a build that does not report the module", () => {
     const { io, err } = fakeIo(() => "");
+<<<<<<<< HEAD:bindings/audio-wasm/test/build-scripts.test.ts
     expect(buildMain(io, "/pkg/dist")).toBe(1);
     expect(err).toStrictEqual(["error: cargo did not report the engine module (audio_wasm .wasm)"]);
+========
+    expect(buildMain(io, "/pkg/dist", ENGINE)).toBe(1);
+    expect(err).toStrictEqual(["error: cargo did not report the engine module (audio_wasm .wasm)"]);
+>>>>>>>> b30d7e6a (refactor(wasm-build): share the WebAssembly module build):tooling/wasm-build/test/build-scripts.test.ts
   });
 
   test("lets an unexpected error through", () => {
@@ -163,7 +181,7 @@ describe("build:wasm", () => {
         throw new Error("disk full");
       },
     };
-    expect(() => buildMain(broken, "/pkg/dist")).toThrow(new Error("disk full"));
+    expect(() => buildMain(broken, "/pkg/dist", ENGINE)).toThrow(new Error("disk full"));
   });
 });
 
@@ -179,8 +197,13 @@ describe("test:reproducible", () => {
   test("builds twice in two fresh directories, removes them, and prints the digest", () => {
     const module = new Uint8Array([0, 97, 115, 109]);
     const { io, log, out, err, runs } = builds(module, module.slice());
+<<<<<<<< HEAD:bindings/audio-wasm/test/build-scripts.test.ts
     expect(reproducibleMain(io)).toBe(0);
     expect(runs.filter((run) => run.command === "cargo").map((run) => run.env["CARGO_TARGET_DIR"])).toStrictEqual(["/tmp/audio-wasm-a-1", "/tmp/audio-wasm-b-2"]);
+========
+    expect(reproducibleMain(io, ENGINE)).toBe(0);
+    expect(runs.filter((run) => run.command === "cargo").map((run) => run.env["CARGO_TARGET_DIR"])).toStrictEqual(["/tmp/engine-wasm-a-1", "/tmp/engine-wasm-b-2"]);
+>>>>>>>> b30d7e6a (refactor(wasm-build): share the WebAssembly module build):tooling/wasm-build/test/build-scripts.test.ts
     expect(log).toStrictEqual([
       "temp audio-wasm-a-",
       "temp audio-wasm-b-",
@@ -200,7 +223,7 @@ describe("test:reproducible", () => {
     // sysroot, outside the home directory here.
     const leaking = new TextEncoder().encode(`panic at /src/repo/x.rs and /home/u/.cargo/y.rs and ${SYSROOT}/lib/rustlib/src/rust/library/core/src/str/pattern.rs`);
     const { io, out, err } = builds(leaking, new Uint8Array([1]));
-    expect(reproducibleMain(io)).toBe(1);
+    expect(reproducibleMain(io, ENGINE)).toBe(1);
     expect(out).toStrictEqual([
       "two builds of the engine module differ",
       "the engine module contains the path /src/repo",
@@ -215,7 +238,7 @@ describe("test:reproducible", () => {
     const { io, log, err } = fakeIo(() => {
       throw failed(101, null);
     });
-    expect(reproducibleMain(io)).toBe(1);
+    expect(reproducibleMain(io, ENGINE)).toBe(1);
     expect(err).toStrictEqual(["error: cargo build failed (exit 101)"]);
     expect(log).toStrictEqual(["temp audio-wasm-a-", "temp audio-wasm-b-", "remove /tmp/audio-wasm-a-1", "remove /tmp/audio-wasm-b-2"]);
   });

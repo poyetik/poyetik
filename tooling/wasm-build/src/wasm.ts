@@ -1,9 +1,10 @@
-// How the engine module is built reproducibly: with no path of the machine that built it
-// inside, so that two clean builds give the same bytes. What is proven: two builds on one
+// How a WebAssembly module of the project is built reproducibly: with no path of the
+// machine that built it inside, so that two clean builds give the same bytes. What is proven: two builds on one
 // machine, in two fresh target directories (pnpm test:reproducible, which prints the
 // SHA-256 of the module); across machines, only by comparing that digest by hand (a
 // committed digest is planned, #11 step 3). Pure functions, tested; cli.ts runs them.
 
+<<<<<<<< HEAD:bindings/audio-wasm/scripts/wasm.ts
 /** The cargo arguments building the engine module, its JSON messages on stdout. */
 export const CARGO_ARGS = [
   "build",
@@ -16,6 +17,27 @@ export const CARGO_ARGS = [
   "--message-format",
   "json-render-diagnostics",
 ] as const;
+========
+/** A WebAssembly module of the project: what builds it, and what it is called. */
+export interface WasmModule {
+  /** The cargo package that builds it (`audio-wasm`), a `cdylib` for WebAssembly. */
+  readonly package: string;
+  /** What the messages call it (`engine module`). */
+  readonly label: string;
+  /** The file it is copied to in the package's `dist/` (`engine.wasm`). */
+  readonly file: string;
+}
+
+/** The name of `module`'s cargo target: its package's, with `_` for `-`. */
+export function targetName(module: WasmModule): string {
+  return module.package.replaceAll("-", "_");
+}
+
+/** The cargo arguments building `module`, its JSON messages on stdout. */
+export function cargoArgs(module: WasmModule): readonly string[] {
+  return ["build", "--package", module.package, "--release", "--locked", "--target", "wasm32-unknown-unknown", "--message-format", "json-render-diagnostics"];
+}
+>>>>>>>> b30d7e6a (refactor(wasm-build): share the WebAssembly module build):tooling/wasm-build/src/wasm.ts
 
 /** The toolchain that builds the module, as rustc reports it. */
 export interface Toolchain {
@@ -86,11 +108,11 @@ export function commitHashOf(verbose: string): string {
 }
 
 /**
- * The path of the engine module, from cargo's JSON messages (one per line): asked of
- * cargo rather than assumed, so that `CARGO_TARGET_DIR` and any layout work.
+ * The path of `module`, from cargo's JSON messages (one per line): asked of cargo rather
+ * than assumed, so that `CARGO_TARGET_DIR` and any layout work.
  * @throws {BuildError} when no message names it.
  */
-export function artifactPath(messages: string): string {
+export function artifactPath(messages: string, module: WasmModule): string {
   for (const line of messages.split("\n")) {
     if (!line.startsWith("{")) {
       continue;
@@ -99,14 +121,22 @@ export function artifactPath(messages: string): string {
     const reason: unknown = Reflect.get(Object(message), "reason");
     const target: unknown = Reflect.get(Object(message), "target");
     const files: unknown = Reflect.get(Object(message), "filenames");
+<<<<<<<< HEAD:bindings/audio-wasm/scripts/wasm.ts
     if (reason === "compiler-artifact" && Reflect.get(Object(target), "name") === "audio_wasm" && Array.isArray(files)) {
+========
+    if (reason === "compiler-artifact" && Reflect.get(Object(target), "name") === targetName(module) && Array.isArray(files)) {
+>>>>>>>> b30d7e6a (refactor(wasm-build): share the WebAssembly module build):tooling/wasm-build/src/wasm.ts
       const wasm = files.find((file: unknown): file is string => typeof file === "string" && file.endsWith(".wasm"));
       if (wasm !== undefined) {
         return wasm;
       }
     }
   }
+<<<<<<<< HEAD:bindings/audio-wasm/scripts/wasm.ts
   throw new BuildError("cargo did not report the engine module (audio_wasm .wasm)");
+========
+  throw new BuildError(`cargo did not report the ${module.label} (${targetName(module)} .wasm)`);
+>>>>>>>> b30d7e6a (refactor(wasm-build): share the WebAssembly module build):tooling/wasm-build/src/wasm.ts
 }
 
 /**
@@ -137,13 +167,13 @@ export function privatePaths(repository: string, cargo: string, home: string, sy
 }
 
 /**
- * What makes two builds of the module not reproducible: their bytes differ, or the first
+ * What makes two builds of `module` not reproducible: their bytes differ, or the first
  * contains a path of the building machine. Empty when they are reproducible.
  */
-export function reproducibilityProblems(first: Uint8Array, second: Uint8Array, paths: readonly string[]): string[] {
+export function reproducibilityProblems(first: Uint8Array, second: Uint8Array, paths: readonly string[], module: WasmModule): string[] {
   return [
-    ...(identical(first, second) ? [] : ["two builds of the engine module differ"]),
-    ...leakedPaths(first, paths).map((path) => `the engine module contains the path ${path}`),
+    ...(identical(first, second) ? [] : [`two builds of the ${module.label} differ`]),
+    ...leakedPaths(first, paths).map((path) => `the ${module.label} contains the path ${path}`),
   ];
 }
 

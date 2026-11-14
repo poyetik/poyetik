@@ -474,10 +474,11 @@ impl Package {
 
 /// The TypeScript packages, in the order their checks run.
 ///
-/// The shared policy, the oracle, the engine in the browser, the playground built on it,
-/// then the roadmap. Each writes its coverage summary and its mutation report, both checked
-/// by xtask rather than trusted to their own thresholds.
-pub const PACKAGES: [Package; 5] = [
+/// The shared policy, the oracle, the engine in the browser, the playground built on it, the
+/// roadmap, then the shared build of the WebAssembly modules. Each writes its coverage
+/// summary and its mutation report, both checked by xtask rather than trusted to their own
+/// thresholds.
+pub const PACKAGES: [Package; 6] = [
     Package {
         dir: "tooling/config",
         step: "Shared TypeScript policy (each rule proven to reject what it forbids)",
@@ -510,6 +511,14 @@ pub const PACKAGES: [Package; 5] = [
         dir: "apps/roadmap",
         step: "Roadmap checks",
         shipped: true,
+        outputs: &[],
+        needs: &[],
+    },
+    Package {
+        dir: "tooling/wasm-build",
+        step: "WebAssembly module builds (reproducible, shared by the engine and the visual \
+               library)",
+        shipped: false,
         outputs: &[],
         needs: &[],
     },
