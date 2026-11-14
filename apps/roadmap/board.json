@@ -450,16 +450,20 @@
     },
     {
       "id": 19,
-      "title": "Split xtask into modules",
-      "description": "The project automation is one library file of about two thousand lines, with its tests in one file as long. Split it into modules by concern (the runner, the gates, the steps, the command line), each with its own tests, without changing a step, a message or a verdict. Do it together with the next new gate, so that the reviewed lists of unviable mutants, keyed by file, move once.",
+      "title": "Typed cargo metadata in xtask",
+      "description": "The gates of xtask that read the workspace's packages, dependencies and targets each parse cargo metadata's JSON on their own, as untyped values. Parse it once into typed packages, dependencies and targets, refusing missing fields, and make every gate read them, without changing a step, a message or a verdict.",
       "column": "later",
       "milestone": "M0 Foundations",
       "createdAt": "2026-11-08",
-      "updatedAt": "2026-11-11",
+      "updatedAt": "2026-11-14",
       "tasks": [
         {
           "title": "Parse cargo metadata once into typed packages, dependencies and targets, refusing missing fields, and make every gate read them",
           "done": false
+        },
+        {
+          "title": "Give each module of xtask its own tests file",
+          "done": true
         }
       ]
     },
@@ -914,6 +918,10 @@
         },
         {
           "title": "Test fixtures built at module level in TypeScript tests make every mutant of the code they call static (each runs every test): a lint of @poyetik/config refuses a module-level call in a test file but through a lazy helper (once()), with a policy fixture",
+          "done": false
+        },
+        {
+          "title": "Rust documentation of test code: the documentation step builds without cfg(test), so the doc comments of the *_tests.rs files are never link-checked although the workspace denies broken intra-doc links; document each crate with --cfg test and its dev-dependencies (cargo doc does not link them), with a fixture of a broken link in test code that the step must refuse",
           "done": false
         }
       ]
