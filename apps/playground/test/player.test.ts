@@ -98,6 +98,18 @@ describe("EnginePlayer", () => {
     expect(log.at(-1)).toBe("close");
   });
 
+  test("knows the arithmetic of the audio thread only once the engine has observed it", async () => {
+    const player = new EnginePlayer(playerOptions());
+    expect(player.arithmetic()).toBeUndefined();
+    await player.start();
+    expect(player.arithmetic()).toStrictEqual({ binary32: { operands: true, results: true }, binary64: { operands: true, results: true } });
+    await stopPlaying(player);
+    const flushed = { binary32: { operands: false, results: true }, binary64: { operands: true, results: false } };
+    processor.answer = { type: "ready", subnormals: flushed };
+    await player.start();
+    expect(player.arithmetic()).toStrictEqual(flushed);
+  });
+
   test("starts once, even when asked twice at once", async () => {
     const player = new EnginePlayer(playerOptions());
     const first = player.start();
