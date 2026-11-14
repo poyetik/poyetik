@@ -16,6 +16,7 @@ The **engine core** and the project tooling, as Rust crates of one Cargo workspa
 | `visual-core` | The visual library's core, standalone (it depends on no other part): images, exact time, the visual box contract and the exact CPU reference renderer (`no_std`, no `unsafe`) |
 | `visual-boxes` | The visual boxes (the square), each checked against the visual box laws (`no_std`, no `unsafe`) |
 | `visual-hash` | Canonical SHA-256 hash of a sequence of images (`spec/image-hash.md`) (`no_std`, no `unsafe`) |
+| `visual-cli` | Visual offline renderer: renders the visual conformance cases to image hashes, and checks or rewrites their references (commands: `visual-cli help`) |
 | `visual-testkit` | Visual test bench: the laws every visual box must respect, over the shared visual test matrix (no `unsafe`) |
 | `xtask` | Project automation: `cargo xtask check` and the git hooks' commands (commands: `cargo xtask help`) |
 
