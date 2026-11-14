@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The checks run each script of a TypeScript package's `check` as a step of its own, which says its time (`Package::checks`), and a gate refuses a package whose `check` script runs other scripts than those (`package_check_gate`).
 - `cargo xtask mutants --changed` mutates the Rust lines changed since the merge base only, never widened and with no proof record, then gates the unviable mutants as for a partial run: for development, between two default checks.
 
 ### Changed

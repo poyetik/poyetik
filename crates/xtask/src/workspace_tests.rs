@@ -77,7 +77,9 @@ fn empties_stale_build_outputs_before_the_builds_that_write_them() {
             let emptied = steps.iter().position(
                 |step| matches!(&step.action, Action::FreshDirs(paths) if paths.contains(&path)),
             );
-            let built = steps.iter().position(|step| step.name == package.step);
+            let built = steps
+                .iter()
+                .position(|step| step.name.starts_with(&format!("{}: ", package.step)));
             assert!(
                 emptied.is_some() && emptied < built,
                 "{path} is emptied before {} runs",
@@ -114,7 +116,9 @@ fn builds_the_engine_package_before_every_package() {
         let emptied = steps
             .iter()
             .position(|step| step.action == Action::FreshDirs(crate::build_outputs()));
-        let first = steps.iter().position(|step| step.name == first_user);
+        let first = steps
+            .iter()
+            .position(|step| step.name.starts_with(&format!("{first_user}: ")));
         assert!(
             emptied < built && built < first && emptied.is_some(),
             "{mode:?}: built after its outputs are emptied, before {first_user}"

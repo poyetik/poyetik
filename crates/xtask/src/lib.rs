@@ -92,9 +92,9 @@ pub use proof_record::{
 pub use release::{CARGO_TOML, CHANGELOG, Version, release_gate, released_sections_gate};
 pub use reviews::{
     BYPASS_SOURCES, BYPASSES_REVIEWED, Disable, POLICY_FIXTURES, SCOPE_REVIEWS, STRYKER_CONFIG,
-    STRYKER_KEYS, STRYKER_SCRIPT, Scope, TS_SOURCES, bypass_gate, equivalent_gate, membership_gate,
-    mutants_list_command, scope_gate, stryker_config_gate, stryker_scripts_gate, ts_mutation_gate,
-    unviable_gate, unviable_reviews_gate,
+    STRYKER_KEYS, STRYKER_SCRIPT, Scope, TS_SOURCES, bypass_gate, check_script, equivalent_gate,
+    membership_gate, mutants_list_command, package_check_gate, scope_gate, stryker_config_gate,
+    stryker_scripts_gate, ts_mutation_gate, unviable_gate, unviable_reviews_gate,
 };
 pub use runner::{
     CommandFailure, Exit, Failed, HERMETIC_GIT, LOCAL_GIT_VARIABLES, PATHSPEC_GIT_VARIABLES, Ran,

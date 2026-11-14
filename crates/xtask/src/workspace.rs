@@ -397,8 +397,12 @@ pub const EQUIVALENT_REVIEWED: &str = "mutants-equivalent.txt";
 pub struct Package {
     /// Its directory, relative to the root: `<folder of parts>/<name>`.
     pub dir: &'static str,
-    /// The name of its check step (`pnpm run check` in its directory).
+    /// The name of its checks, each step named after it and the script it runs.
     pub step: &'static str,
+    /// The scripts its `check` script runs, in order (`pnpm <script> && …`): each a step of
+    /// its own, run in its directory, so that each says its time; the package check gate
+    /// ([`package_check_gate`](crate::reviews::package_check_gate)) ties them to its manifest.
+    pub checks: &'static [&'static str],
     /// Whether what it ships reaches users, so that its production dependencies must be
     /// under [`SHIPPED_LICENSES`](crate::licenses::SHIPPED_LICENSES).
     pub shipped: bool,
@@ -432,6 +436,7 @@ pub const PACKAGES: [Package; 5] = [
     Package {
         dir: "tooling/config",
         step: "Shared TypeScript policy (each rule proven to reject what it forbids)",
+        checks: &["typecheck", "lint", "test"],
         shipped: false,
         outputs: &[],
         needs: &[],
@@ -439,6 +444,7 @@ pub const PACKAGES: [Package; 5] = [
     Package {
         dir: "tooling/oracle",
         step: "Conformance oracle (independent, TypeScript)",
+        checks: &["typecheck", "lint", "test", "oracle"],
         shipped: false,
         outputs: &[],
         needs: &[Setup::ConformanceExport],
@@ -446,6 +452,16 @@ pub const PACKAGES: [Package; 5] = [
     Package {
         dir: "bindings/audio-wasm",
         step: "Engine WASM checks",
+        checks: &[
+            "build",
+            "typecheck",
+            "lint",
+            "test",
+            "benchmarks:check",
+            "test:allocation",
+            "test:reproducible",
+            "test:e2e",
+        ],
         shipped: true,
         outputs: &["dist"],
         needs: &[],
@@ -453,6 +469,7 @@ pub const PACKAGES: [Package; 5] = [
     Package {
         dir: "apps/playground",
         step: "Playground checks",
+        checks: &["typecheck", "lint", "test", "build", "test:e2e"],
         shipped: true,
         outputs: &[],
         needs: &[Setup::EngineBuild],
@@ -460,6 +477,7 @@ pub const PACKAGES: [Package; 5] = [
     Package {
         dir: "apps/roadmap",
         step: "Roadmap checks",
+        checks: &["typecheck", "lint", "test", "build", "test:e2e"],
         shipped: true,
         outputs: &[],
         needs: &[],

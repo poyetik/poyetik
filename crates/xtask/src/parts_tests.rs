@@ -108,7 +108,11 @@ fn runs_each_part_of_the_full_check_as_its_own_job() {
             "fresh tooling/config/coverage tooling/config/reports/mutation tooling/oracle/coverage tooling/oracle/reports/mutation bindings/audio-wasm/coverage bindings/audio-wasm/reports/mutation apps/playground/coverage apps/playground/reports/mutation apps/roadmap/coverage apps/roadmap/reports/mutation",
             "fresh bindings/audio-wasm/dist",
             "Package(\"bindings/audio-wasm\"): pnpm run build",
-            "Package(\"apps/playground\"): pnpm run check",
+            "Package(\"apps/playground\"): pnpm run typecheck",
+            "Package(\"apps/playground\"): pnpm run lint",
+            "Package(\"apps/playground\"): pnpm run test",
+            "Package(\"apps/playground\"): pnpm run build",
+            "Package(\"apps/playground\"): pnpm run test:e2e",
             "Package(\"apps/playground\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json --force",
             "typescript reports gate of apps/playground",
             "typescript scope gate of apps/playground",
@@ -130,8 +134,9 @@ fn runs_each_part_of_the_full_check_as_its_own_job() {
     );
     assert_eq!(
         lines("tooling-config").len(),
-        3 + 4 + 3,
-        "the frame, the JavaScript preparation (and no other) and the package's four steps"
+        3 + 6 + 3,
+        "the frame, the JavaScript preparation (and no other) and the package's six steps: its \
+         three scripts, its Stryker run and its two gates"
     );
     let gates = lines("gates");
     assert!(
@@ -175,8 +180,8 @@ fn the_parts_run_every_step_of_the_full_check_once() {
     }
     assert_eq!(
         steps_run,
-        18 * 3 + (90 - 3 - 7 - 2) + 8 * 2 + 1 + 2 + 6 * 3 + 1,
-        "each part's frame (three steps); every other step of the 90 once, but the seven \
+        18 * 3 + (111 - 3 - 7 - 2) + 8 * 2 + 1 + 2 + 6 * 3 + 1,
+        "each part's frame (three steps); every other step of the 111 once, but the seven \
          preparations, the mutation run and its unviable gate; in each of the eight shards, \
          the report emptied and the shard's run; the gate over the shards; the conformance \
          export (two steps) for the oracle; the JavaScript preparation (three steps) for the \

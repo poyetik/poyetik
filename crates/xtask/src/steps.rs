@@ -130,6 +130,9 @@ pub enum Action {
     TypeScriptReportsGate(Package),
     /// Require every Stryker configuration to hide no mutant.
     StrykerConfigGate,
+    /// Require the `check` script of every package to run exactly the scripts its checks
+    /// run ([`Package::checks`](crate::workspace::Package::checks)).
+    PackageCheckGate,
     /// Require every TypeScript source of a package to be measured by its coverage and
     /// mutated by Stryker, or reviewed as an exception.
     TypeScriptScopeGate(Package),
@@ -1013,6 +1016,13 @@ pub(crate) fn typescript_steps(mode: Mode) -> Vec<(Role, Step)> {
             },
         ),
         (
+            gates,
+            Step {
+                name: "Each package's check runs exactly the scripts the checks time".to_owned(),
+                action: Action::PackageCheckGate,
+            },
+        ),
+        (
             javascript,
             Step {
                 name: "Fresh TypeScript report directories".to_owned(),
@@ -1039,38 +1049,52 @@ pub(crate) fn typescript_steps(mode: Mode) -> Vec<(Role, Step)> {
         ),
     ];
     for package in PACKAGES {
-        let mut owned = Vec::new();
-        owned.push(run(
-            package.step,
-            "pnpm",
-            &["run", "check"],
-            Dir::Package(package.dir),
+        steps.extend(tagged(
+            Role::Proof(Part::Package(package)),
+            package_steps(package, mode),
         ));
-        let what = match mode {
-            Mode::Changes { .. } => "what changed since the last run",
-            Mode::Full { .. } => "every mutant",
-        };
-        owned.push(Step {
-            name: format!("Mutation testing of {} ({what})", package.dir),
-            action: Action::Run(stryker_command(package.dir, mode)),
-        });
-        owned.push(Step {
-            name: format!(
-                "TypeScript coverage and mutation reports of {}",
-                package.dir
-            ),
-            action: Action::TypeScriptReportsGate(package),
-        });
-        owned.push(Step {
-            name: format!(
-                "Every TypeScript source of {} measured and mutated, or reviewed",
-                package.dir
-            ),
-            action: Action::TypeScriptScopeGate(package),
-        });
-        steps.extend(tagged(Role::Proof(Part::Package(package)), owned));
     }
     steps
+}
+
+/// The steps of `package` in `mode`: each script of its checks, then its mutation testing and
+/// the gates over its reports.
+fn package_steps(package: Package, mode: Mode) -> Vec<Step> {
+    let mut owned: Vec<Step> = package
+        .checks
+        .iter()
+        .map(|script| {
+            run(
+                &format!("{}: {script}", package.step),
+                "pnpm",
+                &["run", script],
+                Dir::Package(package.dir),
+            )
+        })
+        .collect();
+    let what = match mode {
+        Mode::Changes { .. } => "what changed since the last run",
+        Mode::Full { .. } => "every mutant",
+    };
+    owned.push(Step {
+        name: format!("Mutation testing of {} ({what})", package.dir),
+        action: Action::Run(stryker_command(package.dir, mode)),
+    });
+    owned.push(Step {
+        name: format!(
+            "TypeScript coverage and mutation reports of {}",
+            package.dir
+        ),
+        action: Action::TypeScriptReportsGate(package),
+    });
+    owned.push(Step {
+        name: format!(
+            "Every TypeScript source of {} measured and mutated, or reviewed",
+            package.dir
+        ),
+        action: Action::TypeScriptScopeGate(package),
+    });
+    owned
 }
 
 /// Every check of the repository in `mode`, in the order they run, each with its role
