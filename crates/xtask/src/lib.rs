@@ -6783,9 +6783,19 @@ pub fn failure_uploads() -> Vec<String> {
     uploads
 }
 
-/// The exact triggers of the workflow: every push, every pull request, and by hand.
-pub const WORKFLOW_TRIGGERS: [&str; 4] =
-    ["on:", "  push:", "  pull_request:", "  workflow_dispatch:"];
+/// The exact triggers of the workflow: every push, every pull request, and by hand, with
+/// the parts to check given as text (empty for every part, [`ci_parts`]).
+pub const WORKFLOW_TRIGGERS: [&str; 9] = [
+    "on:",
+    "  push:",
+    "  pull_request:",
+    "  workflow_dispatch:",
+    "    inputs:",
+    "      parts:",
+    "        description: The parts to check, separated by spaces (cargo xtask list --full --parts, final apart); empty for every part",
+    "        type: string",
+    "        default: ''",
+];
 
 /// The exact permissions of the workflow's token: reading the repository.
 pub const WORKFLOW_PERMISSIONS: [&str; 2] = ["permissions:", "  contents: read"];
@@ -6813,13 +6823,17 @@ pub const AUDIO_SINK: [&str; 6] = [
 
 /// The only conditions the workflow may hold, exactly.
 ///
-/// The upload of the reports after a failure, and the maintainer's decision that a push runs
-/// the check only when its last commit asks for it with `[ci]` (pull requests and manual
-/// runs always run it). Any other condition, or a variant of these, could skip the check
-/// without anyone deciding it.
-pub const WORKFLOW_CONDITIONS: [&str; 2] = [
+/// The upload of the reports after a failure; the maintainer's decision that a push runs
+/// the check only when its last commit asks for it with a marker, `[ci]` or `[ci <part>…]`
+/// (pull requests and manual runs always run it), held by the job reading the parts; a
+/// check only of the parts it read, if any; and the final part only after every part
+/// (`full`, [`ci_outputs`]), so that a run of some parts is never a full check. Any other
+/// condition, or a variant of these, could skip the check without anyone deciding it.
+pub const WORKFLOW_CONDITIONS: [&str; 4] = [
     "if: failure()",
-    "if: github.event_name != 'push' || contains(github.event.head_commit.message, '[ci]')",
+    "if: github.event_name != 'push' || contains(github.event.head_commit.message, '[ci]') || contains(github.event.head_commit.message, '[ci ')",
+    "if: needs.parts.outputs.parts != '[]'",
+    "if: needs.parts.outputs.full == 'true'",
 ];
 
 /// The exact concurrency of the workflow.
@@ -6829,7 +6843,7 @@ pub const WORKFLOW_CONDITIONS: [&str; 2] = [
 /// never cancels a check in progress and then skips its own.
 #[must_use]
 pub fn workflow_concurrency() -> [String; 3] {
-    let [_, condition] = WORKFLOW_CONDITIONS;
+    let [_, condition, ..] = WORKFLOW_CONDITIONS;
     let condition = condition.strip_prefix("if: ").unwrap_or(condition);
     [
         "concurrency:".to_owned(),
@@ -6846,11 +6860,12 @@ pub fn workflow_concurrency() -> [String; 3] {
 /// still receives GitHub's weekly updates, which no workflow can pin.
 pub const RUNNER: &str = "ubuntu-24.04";
 
-/// The timeout of each job of the check's matrix, then of the final job, in minutes.
+/// The timeout of the job reading the parts, of each job of the check's matrix, then of
+/// the final job, in minutes.
 ///
 /// A guard against a hung job. The matrix's is temporarily wide, above the slowest measured
 /// run of its longest part (the oracle's mutation testing), until that part is split.
-pub const JOB_TIMEOUTS: [u32; 2] = [300, 30];
+pub const JOB_TIMEOUTS: [u32; 3] = [15, 300, 30];
 
 /// The components of the [`NIGHTLY_TOOLCHAIN`]: branch coverage and Miri.
 pub const NIGHTLY_COMPONENTS: [&str; 3] = ["llvm-tools-preview", "miri", "rust-src"];
@@ -6900,47 +6915,79 @@ fn tool_steps(keyed: bool) -> Vec<String> {
     steps
 }
 
+/// The workflow's first job, `parts`, held by the marker condition `ci` and stopped after
+/// `timeout` minutes: it reads the parts to check ([`ci_parts`]) into its outputs.
+fn parts_job(ci: &str, timeout: u32) -> Vec<String> {
+    vec![
+        "  parts:".to_owned(),
+        "    name: The parts to check".to_owned(),
+        format!("    {ci}"),
+        format!("    runs-on: {RUNNER}"),
+        format!("    timeout-minutes: {timeout}"),
+        "    outputs:".to_owned(),
+        "      parts: ${{ steps.parts.outputs.parts }}".to_owned(),
+        "      full: ${{ steps.parts.outputs.full }}".to_owned(),
+        "    steps:".to_owned(),
+        "      - uses: actions/checkout@".to_owned(),
+        "        with:".to_owned(),
+        "          persist-credentials: false".to_owned(),
+        "      - name: Install the Rust toolchain".to_owned(),
+        "        run: rustup toolchain install".to_owned(),
+        "      - uses: Swatinem/rust-cache@".to_owned(),
+        "        with:".to_owned(),
+        "          key: parts".to_owned(),
+        "          cache-on-failure: true".to_owned(),
+        "      - name: The parts asked for".to_owned(),
+        "        id: parts".to_owned(),
+        "        env:".to_owned(),
+        "          EVENT: ${{ github.event_name }}".to_owned(),
+        "          MESSAGE: ${{ github.event.head_commit.message }}".to_owned(),
+        "          PARTS: ${{ inputs.parts }}".to_owned(),
+        "        run: cargo xtask ci-parts \"$EVENT\" \"$MESSAGE\" \"$PARTS\" >> \"$GITHUB_OUTPUT\"".to_owned(),
+    ]
+}
+
 /// The one workflow CI may run, line by line, without its comments and blank lines: each
 /// line using an action ends with `@`, where the workflow pins a full commit hash
 /// ([`workflow_gate`]).
 ///
 /// Built from what xtask owns: the triggers, the token's permissions and the concurrency
 /// ([`WORKFLOW_TRIGGERS`], [`WORKFLOW_PERMISSIONS`], [`workflow_concurrency`]), the
-/// conditions ([`WORKFLOW_CONDITIONS`]: every job holds the `[ci]` one), the [`RUNNER`] and
-/// the [`JOB_TIMEOUTS`], the tools (the checkout, the toolchains with
-/// [`NIGHTLY_COMPONENTS`], the Rust cache, [`PINNED_TOOLS`], pnpm and Node.js). A job
-/// `check` runs every part of the full check but the final one ([`full_parts`]), one per
-/// job of its matrix and all of them whatever fails, after the browsers and the audio
-/// output ([`AUDIO_SINK`]) its live tests need; each uploads the unviable mutants of its
-/// shard, if it ran one, as the artifact `unviable-<part>` ([`UNVIABLE_ARTIFACT`]), and,
-/// when it failed, every report ([`failure_uploads`]). The job `final` needs every one,
-/// downloads their unviable mutants below [`SHARD_REPORTS`] and runs the final part, which
-/// reviews them together.
+/// conditions ([`WORKFLOW_CONDITIONS`]), the [`RUNNER`] and the [`JOB_TIMEOUTS`], the tools
+/// (the checkout, the toolchains with [`NIGHTLY_COMPONENTS`], the Rust cache,
+/// [`PINNED_TOOLS`], pnpm and Node.js). A job `parts`, run only when asked (the marker
+/// condition), reads the parts to check with `cargo xtask ci-parts` ([`ci_parts`]), the
+/// commit message and the parts given by hand passed through the environment, never
+/// written into the script. A job `check` runs those parts, one per job of its matrix and
+/// all of them whatever fails (every part of [`matrix_parts`] for a full check), after the
+/// browsers and the audio output ([`AUDIO_SINK`]) its live tests need; each uploads the
+/// unviable mutants of its shard, if it ran one, as the artifact `unviable-<part>`
+/// ([`UNVIABLE_ARTIFACT`]), and, when it failed, every report ([`failure_uploads`]). The
+/// job `final` runs only when every part ran, needs every one, downloads their unviable
+/// mutants below [`SHARD_REPORTS`] and runs the final part, which reviews them together:
+/// so a run of some parts never has a final job, and is never a full check.
 #[must_use]
 pub fn workflow_text() -> Vec<String> {
-    let [failure, ci] = WORKFLOW_CONDITIONS;
-    let [check_timeout, final_timeout] = JOB_TIMEOUTS;
+    let [failure, ci, some, every] = WORKFLOW_CONDITIONS;
+    let [parts_timeout, check_timeout, final_timeout] = JOB_TIMEOUTS;
     let each = "${{ matrix.part }}";
-    let parts: Vec<String> = full_parts()
-        .into_iter()
-        .filter(|part| *part != Part::Final)
-        .map(Part::name)
-        .collect();
     let mut lines = vec!["name: Quality".to_owned()];
     lines.extend(WORKFLOW_TRIGGERS.map(str::to_owned));
     lines.extend(WORKFLOW_PERMISSIONS.map(str::to_owned));
     lines.extend(workflow_concurrency());
+    lines.push("jobs:".to_owned());
+    lines.extend(parts_job(ci, parts_timeout));
     lines.extend([
-        "jobs:".to_owned(),
         "  check:".to_owned(),
         format!("    name: cargo xtask check --full --part {each}"),
-        format!("    {ci}"),
+        "    needs: parts".to_owned(),
+        format!("    {some}"),
         format!("    runs-on: {RUNNER}"),
         format!("    timeout-minutes: {check_timeout}"),
         "    strategy:".to_owned(),
         "      fail-fast: false".to_owned(),
         "      matrix:".to_owned(),
-        format!("        part: [{}]", parts.join(", ")),
+        "        part: ${{ fromJSON(needs.parts.outputs.parts) }}".to_owned(),
         "    steps:".to_owned(),
     ]);
     lines.extend(tool_steps(true));
@@ -6981,8 +7028,8 @@ pub fn workflow_text() -> Vec<String> {
             "    name: cargo xtask check --full --part {}",
             Part::Final.name()
         ),
-        "    needs: check".to_owned(),
-        format!("    {ci}"),
+        "    needs: [parts, check]".to_owned(),
+        format!("    {every}"),
         format!("    runs-on: {RUNNER}"),
         format!("    timeout-minutes: {final_timeout}"),
         "    steps:".to_owned(),
@@ -7446,31 +7493,167 @@ pub fn commit_msg_gate(message: &str) -> Result<(), Failure> {
 }
 
 /// The marker asking CI to run on a push: the workflow runs the check when the last
-/// commit's message contains it (see [`WORKFLOW_CONDITIONS`]).
+/// commit's message contains it (see [`WORKFLOW_CONDITIONS`]), every part of it.
 pub const CI_MARKER: &str = "[ci]";
+
+/// How the marker asking CI to run only some parts begins: `[ci <part> <part>…]`, the parts
+/// named as [`Part::name`] does, [`ci_parts_marker`] giving the one form accepted.
+pub const CI_PARTS_MARKER: &str = "[ci ";
 
 /// Commits published before the marker was confined to a line of its own, whose message
 /// names it in a sentence: their history is not rewritten.
 pub const CI_MARKER_EXEMPT: [&str; 1] = ["baa21644eeb1ec9354743fe07ef69f21a173f685"];
 
-/// Why `message` names [`CI_MARKER`] other than alone on a line, if it does.
+/// The parts the workflow's matrix can run: every part of the full check but the final
+/// one, which runs only after all of them ([`workflow_text`]).
+#[must_use]
+pub fn matrix_parts() -> Vec<Part> {
+    full_parts()
+        .into_iter()
+        .filter(|part| *part != Part::Final)
+        .collect()
+}
+
+/// The marker asking CI to run `parts`, the one form of it [`ci_marker`] accepts: `[ci]`
+/// for every part of the matrix, else `[ci <part> <part>…]`, the parts in the order of
+/// [`matrix_parts`], separated by one space.
+#[must_use]
+pub fn ci_parts_marker(parts: &[Part]) -> String {
+    let named: Vec<String> = matrix_parts()
+        .into_iter()
+        .filter(|part| parts.contains(part))
+        .map(Part::name)
+        .collect();
+    if named.len() == matrix_parts().len() || named.is_empty() {
+        CI_MARKER.to_owned()
+    } else {
+        format!("{CI_PARTS_MARKER}{}]", named.join(" "))
+    }
+}
+
+/// Reads parts named by `names`, separated by white space, in any order: each a part of
+/// [`matrix_parts`] by its name, each once; given back in the order of [`matrix_parts`].
 ///
-/// GitHub only offers `contains` to read a commit message, so the marker in a sentence
-/// (a commit describing the rule, say) would start CI unasked: it is refused anywhere but
-/// on a line of its own, the one way to ask for CI. GitHub's `contains` ignores case
-/// (`[CI]` starts CI too), so the marker is read in any case, both sides uppercased.
+/// # Errors
+///
+/// Returns why a name is none, or is repeated, or that no part is named.
+pub fn named_parts(names: &str) -> Result<Vec<Part>, String> {
+    let known = matrix_parts();
+    let mut chosen: Vec<Part> = Vec::new();
+    for name in names.split_whitespace() {
+        let part = known
+            .iter()
+            .copied()
+            .find(|part| part.name() == name)
+            .ok_or_else(|| {
+                format!("unknown part \"{name}\" (`cargo xtask list --full --parts` lists them, final apart)")
+            })?;
+        if chosen.contains(&part) {
+            return Err(format!("part \"{name}\" named twice"));
+        }
+        chosen.push(part);
+    }
+    if chosen.is_empty() {
+        return Err("no part named".to_owned());
+    }
+    Ok(known
+        .into_iter()
+        .filter(|part| chosen.contains(part))
+        .collect())
+}
+
+/// The parts the marker of `line` asks for, if `line` is a marker in its one accepted form
+/// ([`ci_parts_marker`]), read in any case as GitHub reads it: every part for `[ci]`.
+fn marker_parts(line: &str) -> Option<Vec<Part>> {
+    // Uppercased, as `ci_marker` reads a marker: `ı` and `i` both give `I`.
+    let line = line.trim().to_uppercase();
+    if line == CI_MARKER.to_uppercase() {
+        return Some(matrix_parts());
+    }
+    let names = line
+        .strip_prefix(&CI_PARTS_MARKER.to_uppercase())?
+        .strip_suffix(']')?
+        .to_lowercase();
+    let parts = named_parts(&names).ok()?;
+    (ci_parts_marker(&parts).to_uppercase() == line).then_some(parts)
+}
+
+/// Whether `line` names a marker, well formed or not: it holds `[ci]` or `[ci ` in any case,
+/// which GitHub's `contains` finds ([`WORKFLOW_CONDITIONS`]).
+fn names_a_marker(line: &str) -> bool {
+    let line = line.to_uppercase();
+    [CI_MARKER, CI_PARTS_MARKER]
+        .iter()
+        .any(|marker| line.contains(&marker.to_uppercase()))
+}
+
+/// Why `message` names a CI marker other than alone on a line in its one form, if it does.
+///
+/// A marker is `[ci]` or `[ci <part>…]` ([`ci_parts_marker`]). GitHub only offers `contains` to read a commit message, so a marker in a sentence (a
+/// commit describing the rule, say) would start CI unasked: it is refused anywhere but on
+/// a line of its own, the one way to ask for CI. GitHub's `contains` ignores case (`[CI]`
+/// starts CI too), so a marker is read in any case. A marker naming parts names known parts
+/// of the matrix, each once, in their order ([`ci_parts_marker`]), and every marker line of
+/// a message asks for the same parts.
 #[must_use]
 pub fn ci_marker(message: &str) -> Option<String> {
-    let marker = CI_MARKER.to_uppercase();
-    message
+    let markers: Vec<&str> = message
         .lines()
-        .map(str::to_uppercase)
-        .any(|line| line.contains(&marker) && line.trim() != marker)
-        .then(|| {
-            format!(
-                "invalid commit message: {CI_MARKER} asks CI to run; write it alone on a line, or not at all"
-            )
-        })
+        .filter(|line| names_a_marker(line))
+        .collect();
+    if markers.iter().any(|line| marker_parts(line).is_none()) {
+        return Some(format!(
+            "invalid commit message: {CI_MARKER} asks CI to run, and `[ci <part> <part>…]` some parts of it (`cargo xtask list --full --parts` names them, in their order, final apart); write one alone on a line, or none at all"
+        ));
+    }
+    let mut asked = markers.iter().filter_map(|line| marker_parts(line));
+    let first = asked.next();
+    asked
+        .any(|parts| Some(parts) != first)
+        .then(|| "invalid commit message: its CI markers ask for different parts".to_owned())
+}
+
+/// The parts a run of the workflow checks.
+///
+/// Read from its event (`github.event_name`), the message of the last commit pushed (on a
+/// push) and the parts given by hand (a manual run, white-space separated, empty for every
+/// part): every part for a pull request and for a
+/// manual run given none; on a push, those its marker asks for ([`ci_marker`]), none
+/// without one.
+///
+/// # Errors
+///
+/// Returns why the parts given by hand or the marker cannot be read, or that the event is
+/// not one the workflow runs on.
+pub fn ci_parts(event: &str, message: &str, input: &str) -> Result<Vec<Part>, String> {
+    match event {
+        "pull_request" => Ok(matrix_parts()),
+        "workflow_dispatch" if input.trim().is_empty() => Ok(matrix_parts()),
+        "workflow_dispatch" => named_parts(input),
+        "push" => {
+            if let Some(problem) = ci_marker(message) {
+                return Err(problem);
+            }
+            Ok(message.lines().find_map(marker_parts).unwrap_or_default())
+        }
+        other => Err(format!("the workflow does not run on \"{other}\"")),
+    }
+}
+
+/// The outputs of the workflow's first job, as GitHub reads them from `$GITHUB_OUTPUT`.
+///
+/// `parts`, the names of `parts` as a JSON array (the matrix of the check), and `full`,
+/// whether they are every part of the matrix (only then does the final part run).
+#[must_use]
+pub fn ci_outputs(parts: &[Part]) -> [String; 2] {
+    let names: Vec<String> = parts
+        .iter()
+        .map(|part| format!("\"{}\"", part.name()))
+        .collect();
+    [
+        format!("parts=[{}]", names.join(",")),
+        format!("full={}", parts == matrix_parts().as_slice()),
+    ]
 }
 
 /// Checks a recorded commit message, as it is, against the convention of
@@ -11702,7 +11885,7 @@ pub fn run_steps_then(
 
 /// Usage of the `xtask` command, in the order of its first line.
 pub const USAGE: &str = "\
-usage: cargo xtask <check [--full [--part <part>]]|list [--full [--parts]]|mutants <target>|bless [<option>...]|bless-benchmarks|commit-msg <file>|pre-push [pair...]|help>
+usage: cargo xtask <check [--full [--part <part>]]|list [--full [--parts]]|mutants <target>|bless [<option>...]|bless-benchmarks|commit-msg <file>|pre-push [pair...]|ci-parts <event> <message> <parts>|help>
   check [--full]        run every quality check, stopping at the first failure;
                         mutation testing covers the changes. Rust: the changes since
                         the merge base with the upstream, origin/main or main; the
@@ -11732,6 +11915,11 @@ usage: cargo xtask <check [--full [--part <part>]]|list [--full [--parts]]|mutan
                         out, then run `check`, or `check --full` if a tag is pushed;
                         each pair is a pushed commit and the remote ref it updates
                         (used by the pre-push hook)
+  ci-parts <arg>...     given <event> <message> <parts>, print the parts a run of the
+                        workflow checks, as the outputs of its first job: every part
+                        for a pull_request, the <parts> given by hand for a
+                        workflow_dispatch (empty: every part), those the CI marker
+                        of <message> asks for on a push (used by the workflow)
   help                  show this help";
 
 /// What `cargo xtask mutants` mutates, every mutant of it.
@@ -12136,6 +12324,9 @@ enum Task {
     /// Check what is pushed (each object with the remote ref it updates), then every check:
     /// every mutant if a tag is pushed, since a release requires the full check.
     PrePush(Vec<(String, String)>),
+    /// The parts a run of the workflow checks: its event, the last commit's message and
+    /// the parts given by hand.
+    CiParts(String, String, String),
     /// The usage.
     Help,
 }
@@ -12188,6 +12379,12 @@ fn task(args: &[OsString]) -> Result<Task, String> {
         [command] if command == "bless-benchmarks" => Ok(Task::BlessBenchmarks),
         [command] if command == "help" => Ok(Task::Help),
         [command, file] if command == "commit-msg" => Ok(Task::CommitMsg(file.clone())),
+        [command, event, message, parts] if command == "ci-parts" => {
+            Ok(Task::CiParts(event.clone(), message.clone(), parts.clone()))
+        }
+        [command, ..] if command == "ci-parts" => Err(
+            "`ci-parts` takes an event, a commit message and the parts given by hand".to_owned(),
+        ),
         [command, target] if command == "mutants" => mutation_target(target).map(Task::Mutants),
         [command, ..] if command == "mutants" => Err("`mutants` takes one target".to_owned()),
         [command, pushed @ ..] if command == "pre-push" => {
@@ -12296,6 +12493,13 @@ pub fn cli(
             let steps = mutants_steps(&target, jobs);
             run_steps(&steps, runner, out)
         }
+        Task::CiParts(event, message, parts) => ci_parts(&event, &message, &parts)
+            .map_err(Failure::from)
+            .and_then(|parts| {
+                ci_outputs(&parts)
+                    .iter()
+                    .try_for_each(|line| say(out, line))
+            }),
         Task::Help => say(out, USAGE),
         Task::List(full) => {
             check_steps(mode(full))

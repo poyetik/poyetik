@@ -12,7 +12,7 @@ mod tests {
     use std::process::{Command, Output, Stdio};
 
     /// The first line of the usage.
-    const USAGE: &str = "usage: cargo xtask <check [--full [--part <part>]]|list [--full [--parts]]|mutants <target>|bless [<option>...]|bless-benchmarks|commit-msg <file>|pre-push [pair...]|help>\n";
+    const USAGE: &str = "usage: cargo xtask <check [--full [--part <part>]]|list [--full [--parts]]|mutants <target>|bless [<option>...]|bless-benchmarks|commit-msg <file>|pre-push [pair...]|ci-parts <event> <message> <parts>|help>\n";
 
     /// Runs the binary with `args`, its stdout and stderr captured.
     fn xtask(args: &[&str]) -> Output {
@@ -164,6 +164,25 @@ mod tests {
         assert!(output.status.success(), "help succeeds");
         assert!(text(&output.stdout).starts_with(USAGE), "usage on stdout");
         assert!(output.stderr.is_empty(), "nothing on stderr");
+    }
+
+    #[test]
+    fn prints_the_parts_a_run_of_the_workflow_checks() {
+        let refused = xtask(&["ci-parts", "push", "ci: x\n\n[ci gates coverage]\n", ""]);
+        assert_eq!(refused.status.code(), Some(1_i32), "a marker out of order");
+        assert!(refused.stdout.is_empty(), "nothing on stdout");
+        assert!(
+            text(&refused.stderr).starts_with("error: invalid commit message: [ci] asks CI to run"),
+            "one line on stderr"
+        );
+        let asked = xtask(&["ci-parts", "push", "ci: x\n\n[ci coverage gates]\n", ""]);
+        assert!(asked.status.success(), "the parts asked for");
+        assert_eq!(
+            text(&asked.stdout),
+            "parts=[\"coverage\",\"gates\"]\nfull=false\n",
+            "as the outputs of the workflow's first job"
+        );
+        assert!(asked.stderr.is_empty(), "nothing on stderr");
     }
 
     #[test]
