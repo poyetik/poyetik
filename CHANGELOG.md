@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-11-14
+
 ### Fixed
 
 - `cargo xtask check` passes again on its own code: xtask's unsafe-code gate module was named `unsafe_code`, the name of the lint, which the unsafe gate reads as lifting the lint wherever the module is imported (it is `unsafety`); and the part license gate is covered by its unit tests when an open part depends on another open part.
