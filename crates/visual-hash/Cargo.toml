@@ -1,0 +1,22 @@
+[package]
+name = "visual-hash"
+description = "Canonical hash of a sequence of images: identical bits give an identical hash on every target"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+readme = false
+repository.workspace = true
+keywords = ["graphics", "hash", "conformance"]
+categories = ["graphics", "no-std"]
+
+[dependencies]
+visual-core = { path = "../visual-core" }
+sha2 = { version = "0.11", default-features = false }
+
+[dev-dependencies]
+serde_json = "1"
+
+[lints]
+workspace = true

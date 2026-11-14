@@ -14,6 +14,9 @@ The specifications every implementation follows: the **patch format**, the contr
 | [`benchmark-baseline.json`](benchmark-baseline.json) | The baseline of [`benchmarks.md`](benchmarks.md) every check compares with, written only by `cargo xtask bless-benchmarks` |
 | [`benchmark-thresholds.json`](benchmark-thresholds.json) | The tolerance of the counts and the measured construction times the browser bounds derive from |
 | [`engine-design.md`](engine-design.md) | The engine design decisions: what the engine will do (events, block sizes, precision, multichannel, polyphony, latency, hot swap, the control boundary, payloads, randomness, the box contract, resources…), why, and in what order; the formats above change with the steps that implement them |
+| [`image-hash.md`](image-hash.md) | The image hash, version 1 (`image-hash/1`): the hashed bytes of a sequence of images, their order, the versioning rule |
+| [`image-hash-vectors.json`](image-hash-vectors.json) | Known-answer vectors of the image hash, read by the tests of every implementation |
+| [`visual-design.md`](visual-design.md) | The visual library's design decisions for its first image (provisional): a standalone library, exact time, images, exact coverage, the visual box contract, the square, the exact CPU reference renderer |
 | [`limitations.md`](limitations.md) | What the project does not prove, or proves only in part, and the trade-offs it accepted, each with where it is decided or tracked |
 
 The format grows incrementally, step by step of #3: only what the engine actually supports is specified.

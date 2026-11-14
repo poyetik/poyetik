@@ -470,7 +470,7 @@ pub fn fused_gate(output: &str) -> Result<(), Failure> {
     }
 }
 
-/// The engine crates build for every portability target.
+/// The engine crates, audio and visual, build for every portability target.
 pub(crate) fn portability_steps() -> Vec<Step> {
     PORTABILITY_TARGETS
         .iter()

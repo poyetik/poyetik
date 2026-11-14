@@ -1876,6 +1876,8 @@ const DEFAULT_PIPELINE: &[&str] = &[
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/audio-boxes/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/audio-boxes.json -- --include-ignored",
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/audio-patch/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/audio-patch.json -- --include-ignored",
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/audio-hash/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/audio-hash.json -- --include-ignored",
+    "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/visual-core/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/visual-core.json -- --include-ignored",
+    "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/visual-hash/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/visual-hash.json -- --include-ignored",
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/alloc-counter/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/alloc-counter.json -- --include-ignored",
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/audio-fpenv/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/audio-fpenv.json -- --include-ignored",
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/audio-battery/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/audio-battery.json -- --include-ignored",

@@ -13,6 +13,8 @@ The **engine core** and the project tooling, as Rust crates of one Cargo workspa
 | `audio-patch` | Reads the JSON patch format (`spec/patch-format.md`) (`no_std`, no `unsafe`) |
 | `audio-hash` | Canonical SHA-256 hash of a render, `render-hash/2`: its render format and arithmetic mode, then its samples (`no_std`, no `unsafe`) |
 | `audio-cli` | Offline renderer: renders conformance cases in every render format to render hashes and WAV files, and checks or rewrites the reference hashes (commands: `audio-cli help`) |
+| `visual-core` | The visual library's core, standalone (it depends on no other part): images, exact time, the visual box contract, the square, and the exact CPU reference renderer (`no_std`, no `unsafe`) |
+| `visual-hash` | Canonical SHA-256 hash of a sequence of images (`spec/image-hash.md`) (`no_std`, no `unsafe`) |
 | `xtask` | Project automation: `cargo xtask check` and the git hooks' commands (commands: `cargo xtask help`) |
 
 The engine compiled to WebAssembly, `audio-wasm`, is in `bindings/audio-wasm`.

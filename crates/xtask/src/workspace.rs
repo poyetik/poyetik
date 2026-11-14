@@ -94,7 +94,7 @@ pub(crate) fn below<'path>(dir: &str, path: &'path str) -> Option<&'path str> {
 
 /// The crates of the Cargo workspace (checked by [`membership_gate`](crate::reviews::membership_gate)): each is measured by
 /// its own unit tests, and each binary by the crate's tests.
-pub const RUST_CRATES: [RustCrate; 11] = [
+pub const RUST_CRATES: [RustCrate; 13] = [
     RustCrate {
         name: "audio-core",
         dir: "crates/audio-core",
@@ -125,6 +125,20 @@ pub const RUST_CRATES: [RustCrate; 11] = [
         binary: false,
         test_data: &["spec/render-hash-vectors.json"],
         roles: &[CrateRole::Library],
+    },
+    RustCrate {
+        name: "visual-core",
+        dir: "crates/visual-core",
+        binary: false,
+        test_data: &[],
+        roles: &[],
+    },
+    RustCrate {
+        name: "visual-hash",
+        dir: "crates/visual-hash",
+        binary: false,
+        test_data: &["spec/image-hash-vectors.json"],
+        roles: &[],
     },
     RustCrate {
         name: "alloc-counter",
@@ -519,9 +533,16 @@ pub const PORTABILITY_TARGETS: [&str; 4] = [
     "thumbv7em-none-eabihf",
 ];
 
-/// The crates of the engine core, built for every one of [`PORTABILITY_TARGETS`].
-pub const PORTABILITY_PACKAGES: [&str; 4] =
-    ["audio-core", "audio-boxes", "audio-patch", "audio-hash"];
+/// The crates of the engine core and of the visual library's core, built for every one of
+/// [`PORTABILITY_TARGETS`].
+pub const PORTABILITY_PACKAGES: [&str; 6] = [
+    "audio-core",
+    "audio-boxes",
+    "audio-patch",
+    "audio-hash",
+    "visual-core",
+    "visual-hash",
+];
 
 /// The engine's crate for WebAssembly, which the engine package builds for [`WASM_TARGET`].
 pub const WASM_PACKAGE: &str = "audio-wasm";
