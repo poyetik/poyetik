@@ -16,7 +16,7 @@ use crate::{
 /// The rule itself is older (9a32301), but it was enforced only when the gate came, after
 /// this commit: this commit and 81509cf, before it, added their entries in later commits,
 /// and the history is not rewritten to move them.
-pub const CHANGELOG_SINCE: &str = "8182fda87a1c631295548ff52eeb4ea08335fa36";
+pub const CHANGELOG_SINCE: &str = "a6614dfa18a3b69634f7f581f711d3f509bb5115";
 
 /// The commits the history gate is pinned to, each with the constant naming it:
 /// [`SCOPES_SINCE`], [`CHANGELOG_SINCE`], then each of [`CI_MARKER_EXEMPT`].
