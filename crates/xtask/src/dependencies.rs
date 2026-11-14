@@ -238,7 +238,7 @@ pub fn library_gate(metadata: &str) -> Result<(), Failure> {
 /// (the largest such set): a change to it can weaken the tests of every crate using it, so
 /// the default check widens to them, and a crate left without the role would be left out
 /// of that widening. A crate may hold the role though code depends on it too (the
-/// fingerprint battery, whose test matrix the tests read and which `engine-cli` runs): it
+/// fingerprint battery, whose test matrix the tests read and which `audio-cli` runs): it
 /// then widens more, never less.
 ///
 /// # Errors

@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import axe from "axe-core";
 import { afterEach, expect, test, vi } from "vitest";
-import type { SubnormalArithmetic } from "@poyetik/engine-wasm/web";
+import type { SubnormalArithmetic } from "@poyetik/audio-wasm/web";
 import { App, BUTTON_LABELS, FLUSHING, REFUSED } from "../src/App.tsx";
 import { explain, type Failure, type Missing, type Player, type PlayerState, type Signal } from "../src/player.ts";
 

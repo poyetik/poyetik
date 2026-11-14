@@ -2,8 +2,8 @@
 // thread may do. The engine loads when a "loaded" event says so, never when the real
 // compiler happens to finish: a seed always explores the same interleaving, however
 // loaded the machine (its own file, since the mock replaces the loader for the whole file).
-import type * as Web from "@poyetik/engine-wasm/web";
-import type { LoadedPatch } from "@poyetik/engine-wasm/web";
+import type * as Web from "@poyetik/audio-wasm/web";
+import type { LoadedPatch } from "@poyetik/audio-wasm/web";
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { SINE_440 } from "../src/patch.ts";
 import { EnginePlayer } from "../src/player.ts";
@@ -20,7 +20,7 @@ interface PendingLoad {
 /** The loads the player started and the test has not settled yet, oldest first. */
 const loads = vi.hoisted((): PendingLoad[] => []);
 
-vi.mock("@poyetik/engine-wasm/web", async (importOriginal) => ({
+vi.mock("@poyetik/audio-wasm/web", async (importOriginal) => ({
   ...(await importOriginal<typeof Web>()),
   loadPatch: (): Promise<LoadedPatch> =>
     new Promise<LoadedPatch>((resolve, reject) => {
@@ -32,7 +32,7 @@ vi.mock("@poyetik/engine-wasm/web", async (importOriginal) => ({
 let patch: LoadedPatch | undefined;
 
 beforeAll(async () => {
-  const web = await vi.importActual<typeof Web>("@poyetik/engine-wasm/web");
+  const web = await vi.importActual<typeof Web>("@poyetik/audio-wasm/web");
   patch = await web.loadPatch(WASM.buffer.slice(WASM.byteOffset, WASM.byteOffset + WASM.byteLength), SINE_440, 48_000);
 });
 

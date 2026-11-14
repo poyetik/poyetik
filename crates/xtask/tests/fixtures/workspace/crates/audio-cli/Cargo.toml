@@ -1,0 +1,17 @@
+[package]
+name = "audio-cli"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[lib]
+path = "lib.rs"
+
+# Refused: the native shell depends on libm, renamed.
+[dependencies]
+audio-core = { path = "../audio-core" }
+audio-boxes = { path = "../audio-boxes" }
+fast-math = { package = "libm", version = "0.2" }
+
+[build-dependencies]
+serde = "1"

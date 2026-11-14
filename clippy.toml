@@ -98,7 +98,7 @@ disallowed-types = [
 ]
 # The engine's sample types: their operators are the math layer's IEEE 754 operations, which
 # neither overflow nor panic (spec/engine-design.md, decision 10).
-arithmetic-side-effects-allowed = ["engine_core::Binary64", "engine_core::Binary32"]
+arithmetic-side-effects-allowed = ["audio_core::Binary64", "audio_core::Binary32"]
 allow-expect-in-tests = true
 allow-panic-in-tests = true
 allow-indexing-slicing-in-tests = true

@@ -15,7 +15,7 @@ pub const NODE_VERSION_FILE: &str = ".node-version";
 
 /// The WebAssembly module the engine package builds: uploaded by a failed CI run, so that
 /// its bytes can be compared with a local build.
-pub const WASM_MODULE: &str = "bindings/wasm/dist/engine.wasm";
+pub const WASM_MODULE: &str = "bindings/audio-wasm/dist/engine.wasm";
 
 /// What Playwright leaves in a package after its browser tests: its report, and the traces
 /// and screenshots of the failed tests.

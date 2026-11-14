@@ -80,7 +80,7 @@ test("judges a corpus on disk", async () => {
   expect(process.exitCode).toBe(0);
 });
 
-test("refuses every case of the shared rejection corpus, read from disk as engine-cli reads it", async () => {
+test("refuses every case of the shared rejection corpus, read from disk as audio-cli reads it", async () => {
   const names = readdirSync(invalidCases()).filter((name) => name.endsWith(".json"));
   expect(names.length).toBeGreaterThanOrEqual(8);
   for (const name of names) {

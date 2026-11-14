@@ -7,7 +7,7 @@
  * (suspended, failed), so that the page never claims to play while it does not.
  */
 
-import { addProcessors, createEngineNode, loadPatch, tap, type SubnormalArithmetic, type Tap } from "@poyetik/engine-wasm/web";
+import { addProcessors, createEngineNode, loadPatch, tap, type SubnormalArithmetic, type Tap } from "@poyetik/audio-wasm/web";
 import { fetchOk } from "./fetch.ts";
 import { SampleHistory } from "./history.ts";
 

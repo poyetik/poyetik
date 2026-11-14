@@ -42,17 +42,17 @@ allow nodes as "worklet nodes" -- Web Audio `AudioWorkletNode`s
 allow node as "Web Audio node" -- the browser's audio graph, not a patch
 allow node as "node scripts/benchmarks.ts" -- the Node.js command that runs the benchmark command, named by its usage
 allow node as "node src/bin.ts" -- the Node.js command that runs the oracle, named by its usage
-allow node in bindings/wasm/ts/web.ts -- the main-thread API of Web Audio: every node there is an `AudioNode`, never a box
-allow node in bindings/wasm/ts/worklet/processors.ts -- the processors of Web Audio nodes: the node options are `AudioWorkletNode` options
-allow node in bindings/wasm/test/web.test.ts -- the fake Web Audio nodes the tests of web.ts drive
-allow nodes in bindings/wasm/test/web.test.ts -- the fake Web Audio nodes the tests of web.ts drive
-allow node in bindings/wasm/test/types.test.ts -- an engine node created with or without the marker channel (`MarkedEngineNode`)
-allow node in bindings/wasm/test/types/ -- compiler fixtures about `MarkedEngineNode`, a Web Audio node
+allow node in bindings/audio-wasm/ts/web.ts -- the main-thread API of Web Audio: every node there is an `AudioNode`, never a box
+allow node in bindings/audio-wasm/ts/worklet/processors.ts -- the processors of Web Audio nodes: the node options are `AudioWorkletNode` options
+allow node in bindings/audio-wasm/test/web.test.ts -- the fake Web Audio nodes the tests of web.ts drive
+allow nodes in bindings/audio-wasm/test/web.test.ts -- the fake Web Audio nodes the tests of web.ts drive
+allow node in bindings/audio-wasm/test/types.test.ts -- an engine node created with or without the marker channel (`MarkedEngineNode`)
+allow node in bindings/audio-wasm/test/types/ -- compiler fixtures about `MarkedEngineNode`, a Web Audio node
 allow node in crates/xtask/src/lib_tests.rs -- the tests of this gate, whose fixtures hold the refused words on purpose
 allow node in apps/playground/test/fakes.ts -- the fake Web Audio nodes the tests of the player drive
 
-forbid object -> box in crates/engine-core/ crates/engine-objects/ crates/engine-patch/ crates/engine-testkit/ crates/engine-hash/ crates/engine-cli/ bindings/wasm/src/ spec/ conformance/ GLOSSARY.md -- GLOSSARY.md: one processing unit of a patch is a box (the `Object` trait keeps its name until #32 step 15)
-forbid objects -> boxes in crates/engine-core/ crates/engine-objects/ crates/engine-patch/ crates/engine-testkit/ crates/engine-hash/ crates/engine-cli/ bindings/wasm/src/ spec/ conformance/ GLOSSARY.md -- GLOSSARY.md: one processing unit of a patch is a box
+forbid object -> box in crates/audio-core/ crates/audio-boxes/ crates/audio-patch/ crates/audio-testkit/ crates/audio-hash/ crates/audio-cli/ bindings/audio-wasm/src/ spec/ conformance/ GLOSSARY.md -- GLOSSARY.md: one processing unit of a patch is a box (the `Object` trait keeps its name until #32 step 15)
+forbid objects -> boxes in crates/audio-core/ crates/audio-boxes/ crates/audio-patch/ crates/audio-testkit/ crates/audio-hash/ crates/audio-cli/ bindings/audio-wasm/src/ spec/ conformance/ GLOSSARY.md -- GLOSSARY.md: one processing unit of a patch is a box
 allow object as "JSON object" -- the JSON value, as the patch format names it
 allow object as "trait object" -- Rust's `dyn Trait` value
 allow object as "while parsing an object" -- serde_json's own message about a JSON object, quoted by the tests

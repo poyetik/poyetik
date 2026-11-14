@@ -1,4 +1,4 @@
-import { loadPatch } from "@poyetik/engine-wasm/web";
+import { loadPatch } from "@poyetik/audio-wasm/web";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { SINE_440 } from "../src/patch.ts";
 import { ENGINE_RATES, EnginePlayer, explain, missing, type Environment, type Failure, type Missing } from "../src/player.ts";

@@ -16,23 +16,23 @@
 # fingerprints: a change of one of them in Cargo.lock is an update too.
 # `cargo xtask check` fails on any direct dependency not listed, and on any stale entry.
 
-engine-battery: serde_json (dev) -- reads the shared test matrix, conformance/test-matrix.json, which the TypeScript tests read too
-engine-battery: sha2 (normal) -- bit-defining: hashes a box type's outputs over the fixed battery into its fingerprint, recorded beside the conformance references
-engine-cli: serde (normal) -- reads the conformance case files into typed values, refusing unknown fields
-engine-cli: serde_json (normal) -- parses the case files and writes the reference hashes
-engine-core: libm (normal) -- bit-defining: the math functions of the engine's math layer (sine, floor), deterministic and portable, identical on every target where std's are not; boxes reach them only through the layer
-engine-core: serde_json (dev) -- reads the shared test matrix, so the unit tests run at every sample rate of conformance/test-matrix.json
-engine-fpenv: serde_json (dev) -- reads the conformance cases and their reference hashes, rendered under every forced host mode
-engine-hash: serde_json (dev) -- reads the shared known-answer vectors of spec/render-hash-vectors.json
-engine-hash: sha2 (normal) -- bit-defining: the SHA-256 of a render, without std, the same on every target
-engine-objects: libm (dev) -- the exact references of the tests (sine, exponent, logarithm), computed apart from the math layer of the boxes they check
-engine-objects: serde_json (dev) -- reads the shared known-answer vectors of spec/measurement-vectors.json (the error bound of a sine)
-engine-patch: serde (normal) -- bit-defining: reads the patch format into typed values, refusing unknown fields
-engine-patch: serde_derive (normal) -- bit-defining: generates the patch reader's deserialization code (the fields read, unknown ones refused), pinned directly since serde requires it only as 1
-engine-patch: serde_json (normal) -- bit-defining: parses patch documents, and so the parameter values a render computes from
-engine-testkit: libm (normal) -- deterministic math functions (sine, cosine, logarithm) for the measurements, identical on every target where std's are not
-engine-testkit: proptest (normal) -- property tests of the box and plan laws, from a fixed seed
-engine-testkit: serde_json (dev) -- reads the shared known-answer vectors of spec/measurement-vectors.json
+audio-battery: serde_json (dev) -- reads the shared test matrix, conformance/test-matrix.json, which the TypeScript tests read too
+audio-battery: sha2 (normal) -- bit-defining: hashes a box type's outputs over the fixed battery into its fingerprint, recorded beside the conformance references
+audio-cli: serde (normal) -- reads the conformance case files into typed values, refusing unknown fields
+audio-cli: serde_json (normal) -- parses the case files and writes the reference hashes
+audio-core: libm (normal) -- bit-defining: the math functions of the engine's math layer (sine, floor), deterministic and portable, identical on every target where std's are not; boxes reach them only through the layer
+audio-core: serde_json (dev) -- reads the shared test matrix, so the unit tests run at every sample rate of conformance/test-matrix.json
+audio-fpenv: serde_json (dev) -- reads the conformance cases and their reference hashes, rendered under every forced host mode
+audio-hash: serde_json (dev) -- reads the shared known-answer vectors of spec/render-hash-vectors.json
+audio-hash: sha2 (normal) -- bit-defining: the SHA-256 of a render, without std, the same on every target
+audio-boxes: libm (dev) -- the exact references of the tests (sine, exponent, logarithm), computed apart from the math layer of the boxes they check
+audio-boxes: serde_json (dev) -- reads the shared known-answer vectors of spec/measurement-vectors.json (the error bound of a sine)
+audio-patch: serde (normal) -- bit-defining: reads the patch format into typed values, refusing unknown fields
+audio-patch: serde_derive (normal) -- bit-defining: generates the patch reader's deserialization code (the fields read, unknown ones refused), pinned directly since serde requires it only as 1
+audio-patch: serde_json (normal) -- bit-defining: parses patch documents, and so the parameter values a render computes from
+audio-testkit: libm (normal) -- deterministic math functions (sine, cosine, logarithm) for the measurements, identical on every target where std's are not
+audio-testkit: proptest (normal) -- property tests of the box and plan laws, from a fixed seed
+audio-testkit: serde_json (dev) -- reads the shared known-answer vectors of spec/measurement-vectors.json
 xtask: proc-macro2 (normal) -- the Rust tokenizer of the gates that read Rust code (comments nested as rustc nests them, doc comments as prose, every literal whole), its own lexer only: its build script reads only `rustc --version`, no compile probe, no procedural macro; already in the lock through serde_derive
 xtask: serde_json (normal) -- reads the coverage, mutation and license reports, the Cargo metadata and the package manifests
 
@@ -68,15 +68,15 @@ apps/roadmap: astro (devDependencies) -- builds the static page of the roadmap
 apps/roadmap: eslint (devDependencies) -- runs the shared lint policy
 apps/roadmap: typescript (devDependencies) -- type checking
 apps/roadmap: vitest (devDependencies) -- unit and component tests
-bindings/wasm: @playwright/test (devDependencies) -- runs the engine in Chromium, Firefox and WebKit
-bindings/wasm: @stryker-mutator/core (devDependencies) -- mutation testing
-bindings/wasm: @stryker-mutator/vitest-runner (devDependencies) -- runs the mutants with Vitest
-bindings/wasm: @types/audioworklet (devDependencies) -- types of the AudioWorklet global scope, which TypeScript lacks
-bindings/wasm: @types/node (devDependencies) -- types of the Node.js APIs of the scripts and the tests
-bindings/wasm: @vitest/coverage-v8 (devDependencies) -- coverage of the unit tests
-bindings/wasm: eslint (devDependencies) -- runs the shared lint policy
-bindings/wasm: typescript (devDependencies) -- type checking and the build of the glue
-bindings/wasm: vitest (devDependencies) -- unit tests in Node
+bindings/audio-wasm: @playwright/test (devDependencies) -- runs the engine in Chromium, Firefox and WebKit
+bindings/audio-wasm: @stryker-mutator/core (devDependencies) -- mutation testing
+bindings/audio-wasm: @stryker-mutator/vitest-runner (devDependencies) -- runs the mutants with Vitest
+bindings/audio-wasm: @types/audioworklet (devDependencies) -- types of the AudioWorklet global scope, which TypeScript lacks
+bindings/audio-wasm: @types/node (devDependencies) -- types of the Node.js APIs of the scripts and the tests
+bindings/audio-wasm: @vitest/coverage-v8 (devDependencies) -- coverage of the unit tests
+bindings/audio-wasm: eslint (devDependencies) -- runs the shared lint policy
+bindings/audio-wasm: typescript (devDependencies) -- type checking and the build of the glue
+bindings/audio-wasm: vitest (devDependencies) -- unit tests in Node
 tooling/config: @eslint/js (dependencies) -- the recommended JavaScript rules the policy starts from
 tooling/config: eslint-plugin-jsdoc (dependencies) -- requires the documentation of every named item
 tooling/config: typescript-eslint (dependencies) -- the strict, type-checked TypeScript rules of the policy

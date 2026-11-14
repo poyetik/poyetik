@@ -1,0 +1,15 @@
+[package]
+name = "audio-hash"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[lib]
+path = "lib.rs"
+
+# Refused: serde_json, a dependency of the library, is neither reviewed as bit-defining nor
+# pinned.
+[dependencies]
+audio-core = { path = "../audio-core" }
+serde_json = "1"
+sha2 = "=0.11.1"

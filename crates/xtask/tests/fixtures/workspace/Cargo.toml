@@ -3,14 +3,14 @@
 # project's, and hold what each gate reading the metadata must refuse.
 [workspace]
 members = [
-    "crates/engine-core",
-    "crates/engine-objects",
-    "crates/engine-patch",
-    "crates/engine-hash",
-    "crates/engine-fpenv",
-    "crates/engine-alloc-counter",
-    "crates/engine-testkit",
-    "crates/engine-cli",
-    "bindings/wasm",
+    "crates/audio-core",
+    "crates/audio-boxes",
+    "crates/audio-patch",
+    "crates/audio-hash",
+    "crates/audio-fpenv",
+    "crates/alloc-counter",
+    "crates/audio-testkit",
+    "crates/audio-cli",
+    "bindings/audio-wasm",
 ]
 resolver = "3"

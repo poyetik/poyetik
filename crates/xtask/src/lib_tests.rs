@@ -255,12 +255,12 @@ const TREE_HEAD: (&str, &str) = (
 /// audio library, which depend on nothing but the boxes' tests on the test kit, and the
 /// crates of shared test code, the test kit depending on the counting allocator; each has
 /// only the test target reading its test data ([`test_data_reader_sources`]).
-const METADATA: &str = r#"{"workspace_root":"/r","packages":[{"license":"MIT OR Apache-2.0","name":"x","manifest_path":"/r/crates/x/Cargo.toml","dependencies":[{"name":"engine-core","kind":null,"path":"/r/crates/engine-core"},{"name":"serde_json","kind":null}],"targets":[{"kind":["lib"],"src_path":"/r/crates/x/src/lib.rs","test":true,"doctest":true}]},{"license":"MIT OR Apache-2.0","name":"engine-core","manifest_path":"/r/crates/engine-core/Cargo.toml","targets":[{"kind":["test"],"src_path":"/r/crates/engine-core/tests/data.rs","test":true,"doctest":false}]},{"license":"MIT OR Apache-2.0","name":"engine-objects","manifest_path":"/r/crates/engine-objects/Cargo.toml","dependencies":[{"name":"engine-testkit","kind":"dev","path":"/r/crates/engine-testkit"}],"targets":[{"kind":["test"],"src_path":"/r/crates/engine-objects/tests/data.rs","test":true,"doctest":false}]},{"license":"MIT OR Apache-2.0","name":"engine-patch","manifest_path":"/r/crates/engine-patch/Cargo.toml","targets":[{"kind":["test"],"src_path":"/r/crates/engine-patch/tests/data.rs","test":true,"doctest":false}]},{"license":"MIT OR Apache-2.0","name":"engine-hash","manifest_path":"/r/crates/engine-hash/Cargo.toml","targets":[{"kind":["test"],"src_path":"/r/crates/engine-hash/tests/data.rs","test":true,"doctest":false}]},{"license":"MIT OR Apache-2.0","name":"engine-fpenv","manifest_path":"/r/crates/engine-fpenv/Cargo.toml","targets":[{"kind":["test"],"src_path":"/r/crates/engine-fpenv/tests/data.rs","test":true,"doctest":false}]},{"license":"MIT OR Apache-2.0","name":"engine-wasm","manifest_path":"/r/bindings/wasm/Cargo.toml","targets":[]},{"license":"MIT OR Apache-2.0","name":"engine-testkit","manifest_path":"/r/crates/engine-testkit/Cargo.toml","dependencies":[{"name":"engine-alloc-counter","kind":null,"path":"/r/crates/engine-alloc-counter"}],"targets":[{"kind":["test"],"src_path":"/r/crates/engine-testkit/tests/data.rs","test":true,"doctest":false}]},{"license":"MIT OR Apache-2.0","name":"engine-alloc-counter","manifest_path":"/r/crates/engine-alloc-counter/Cargo.toml","targets":[]}]}"#;
+const METADATA: &str = r#"{"workspace_root":"/r","packages":[{"license":"MIT OR Apache-2.0","name":"x","manifest_path":"/r/crates/x/Cargo.toml","dependencies":[{"name":"audio-core","kind":null,"path":"/r/crates/audio-core"},{"name":"serde_json","kind":null}],"targets":[{"kind":["lib"],"src_path":"/r/crates/x/src/lib.rs","test":true,"doctest":true}]},{"license":"MIT OR Apache-2.0","name":"audio-core","manifest_path":"/r/crates/audio-core/Cargo.toml","targets":[{"kind":["test"],"src_path":"/r/crates/audio-core/tests/data.rs","test":true,"doctest":false}]},{"license":"MIT OR Apache-2.0","name":"audio-boxes","manifest_path":"/r/crates/audio-boxes/Cargo.toml","dependencies":[{"name":"audio-testkit","kind":"dev","path":"/r/crates/audio-testkit"}],"targets":[{"kind":["test"],"src_path":"/r/crates/audio-boxes/tests/data.rs","test":true,"doctest":false}]},{"license":"MIT OR Apache-2.0","name":"audio-patch","manifest_path":"/r/crates/audio-patch/Cargo.toml","targets":[{"kind":["test"],"src_path":"/r/crates/audio-patch/tests/data.rs","test":true,"doctest":false}]},{"license":"MIT OR Apache-2.0","name":"audio-hash","manifest_path":"/r/crates/audio-hash/Cargo.toml","targets":[{"kind":["test"],"src_path":"/r/crates/audio-hash/tests/data.rs","test":true,"doctest":false}]},{"license":"MIT OR Apache-2.0","name":"audio-fpenv","manifest_path":"/r/crates/audio-fpenv/Cargo.toml","targets":[{"kind":["test"],"src_path":"/r/crates/audio-fpenv/tests/data.rs","test":true,"doctest":false}]},{"license":"MIT OR Apache-2.0","name":"audio-wasm","manifest_path":"/r/bindings/audio-wasm/Cargo.toml","targets":[]},{"license":"MIT OR Apache-2.0","name":"audio-testkit","manifest_path":"/r/crates/audio-testkit/Cargo.toml","dependencies":[{"name":"alloc-counter","kind":null,"path":"/r/crates/alloc-counter"}],"targets":[{"kind":["test"],"src_path":"/r/crates/audio-testkit/tests/data.rs","test":true,"doctest":false}]},{"license":"MIT OR Apache-2.0","name":"alloc-counter","manifest_path":"/r/crates/alloc-counter/Cargo.toml","targets":[]}]}"#;
 
 /// The two license listings, written out: the production dependencies of what ships
 /// (the engine package, the playground and the roadmap), then everything.
 const LICENSE_LINES: [&str; 2] = [
-    "pnpm licenses list --json --prod --filter ./bindings/wasm --filter ./apps/playground --filter ./apps/roadmap",
+    "pnpm licenses list --json --prod --filter ./bindings/audio-wasm --filter ./apps/playground --filter ./apps/roadmap",
     "pnpm licenses list --json --recursive",
 ];
 
@@ -394,15 +394,15 @@ fn loaded_answers(fake: &mut Fake) {
     let registry = r#"{"reason":"compiler-artifact","package_id":"registry+https://github.com/rust-lang/crates.io-index#serde@1.0.0","profile":{"test":false}}"#;
     for (number, command) in (1_usize..).zip(super::loaded_files_commands()) {
         let tested = number == 2;
-        let stem = format!("/t/debug/deps/engine_fpenv-{number}");
+        let stem = format!("/t/debug/deps/audio_fpenv-{number}");
         let output = if tested {
             stem.clone()
         } else {
-            format!("/t/debug/deps/libengine_fpenv-{number}.rmeta")
+            format!("/t/debug/deps/libaudio_fpenv-{number}.rmeta")
         };
         let answer = format!(
             "{registry}\n{}\n{{\"reason\":\"build-finished\",\"success\":true}}\n",
-            artifact("crates/engine-fpenv", "engine_fpenv", tested, &output)
+            artifact("crates/audio-fpenv", "audio_fpenv", tested, &output)
         );
         assert!(
             fake.files
@@ -956,7 +956,7 @@ fn passing() -> Fake {
         (CHANGELOG.to_owned(), LOG),
         (
             "COMMIT_EDITMSG".to_owned(),
-            "feat(engine-core): add the plan\n",
+            "feat(audio-core): add the plan\n",
         ),
         (super::CARGO_CONFIG_FILE.to_owned(), super::CARGO_CONFIG),
         (super::ROADMAP_BOARD.to_owned(), BOARD),
@@ -1094,7 +1094,7 @@ const TOOLCHAIN: &str = "# Pinned.\n[toolchain]\nchannel = \"1.99.1\"\nprofile =
 
 /// A history whose two commits follow the convention, the change of behavior with its
 /// changelog entry, as `git log` writes it for the history gate.
-const HISTORY: &str = "\u{1e}bbbbbbbbbb\u{1f}feat(engine-core): add the plan\n\nWhy.\n\u{1e}aaaaaaaaaa\u{1f}docs: start\n";
+const HISTORY: &str = "\u{1e}bbbbbbbbbb\u{1f}feat(audio-core): add the plan\n\nWhy.\n\u{1e}aaaaaaaaaa\u{1f}docs: start\n";
 
 /// The files the commits of [`HISTORY`] touched.
 const HISTORY_FILES: &str =
@@ -1112,15 +1112,15 @@ const READMES: [(&str, &str); 10] = [
     ),
     (
         "crates/README.md",
-        "`engine-core` `engine-objects` `engine-patch` `engine-hash` `engine-alloc-counter` \
-         `engine-fpenv` `engine-battery` `engine-testkit` `engine-cli` `xtask`",
+        "`audio-core` `audio-boxes` `audio-patch` `audio-hash` `alloc-counter` \
+         `audio-fpenv` `audio-battery` `audio-testkit` `audio-cli` `xtask`",
     ),
     ("apps/README.md", "| `roadmap/` | | `playground/` |"),
-    ("bindings/README.md", "- [`wasm/`](wasm/)"),
+    ("bindings/README.md", "- [`audio-wasm/`](audio-wasm/)"),
     ("tooling/README.md", "| `config/` | | `oracle/` |"),
     ("apps/roadmap/README.md", "# roadmap"),
     ("apps/playground/README.md", "# playground"),
-    ("bindings/wasm/README.md", "# wasm"),
+    ("bindings/audio-wasm/README.md", "# wasm"),
     ("tooling/config/README.md", "# config"),
     ("tooling/oracle/README.md", "# oracle"),
 ];
@@ -1826,8 +1826,8 @@ const DEFAULT_PIPELINE: &[&str] = &[
     "preflight",
     "tree recorded",
     "Root: pnpm install --frozen-lockfile",
-    "fresh tooling/config/coverage tooling/config/reports/mutation tooling/oracle/coverage tooling/oracle/reports/mutation bindings/wasm/coverage bindings/wasm/reports/mutation apps/playground/coverage apps/playground/reports/mutation apps/roadmap/coverage apps/roadmap/reports/mutation",
-    "fresh bindings/wasm/dist",
+    "fresh tooling/config/coverage tooling/config/reports/mutation tooling/oracle/coverage tooling/oracle/reports/mutation bindings/audio-wasm/coverage bindings/audio-wasm/reports/mutation apps/playground/coverage apps/playground/reports/mutation apps/roadmap/coverage apps/roadmap/reports/mutation",
+    "fresh bindings/audio-wasm/dist",
     "equivalent gate",
     "bypass gate",
     "unsafe gate",
@@ -1836,7 +1836,7 @@ const DEFAULT_PIPELINE: &[&str] = &[
     "test data gate",
     "untested targets gate",
     "unviable names gate",
-    "conformance cargo run --package engine-cli --locked --quiet -- check conformance --spent target/xtask/spent-algorithms.json",
+    "conformance cargo run --package audio-cli --locked --quiet -- check conformance --spent target/xtask/spent-algorithms.json",
     "Root: cargo deny --locked check",
     "dependency gate",
     "pin gate",
@@ -1862,48 +1862,48 @@ const DEFAULT_PIPELINE: &[&str] = &[
     "Root: cargo test --workspace --locked -- --include-ignored",
     "loaded files gate",
     "fused build",
-    "Root: cargo build --package engine-core --package engine-objects --package engine-patch --package engine-hash --locked --target aarch64-apple-darwin",
-    "Root: cargo build --package engine-core --package engine-objects --package engine-patch --package engine-hash --locked --target x86_64-unknown-linux-gnu",
-    "Root: cargo build --package engine-core --package engine-objects --package engine-patch --package engine-hash --locked --target wasm32-unknown-unknown",
-    "Root: cargo build --package engine-core --package engine-objects --package engine-patch --package engine-hash --locked --target thumbv7em-none-eabihf",
-    "Root: cargo clippy --package engine-fpenv --package engine-cli --all-targets --locked --target aarch64-apple-darwin",
-    "Root: cargo clippy --package engine-fpenv --package engine-cli --all-targets --locked --target x86_64-unknown-linux-gnu",
-    "Root: cargo build --lib --package engine-fpenv --package engine-cli --locked --target aarch64-apple-darwin",
-    "Root: cargo build --lib --package engine-fpenv --package engine-cli --locked --target x86_64-unknown-linux-gnu",
+    "Root: cargo build --package audio-core --package audio-boxes --package audio-patch --package audio-hash --locked --target aarch64-apple-darwin",
+    "Root: cargo build --package audio-core --package audio-boxes --package audio-patch --package audio-hash --locked --target x86_64-unknown-linux-gnu",
+    "Root: cargo build --package audio-core --package audio-boxes --package audio-patch --package audio-hash --locked --target wasm32-unknown-unknown",
+    "Root: cargo build --package audio-core --package audio-boxes --package audio-patch --package audio-hash --locked --target thumbv7em-none-eabihf",
+    "Root: cargo clippy --package audio-fpenv --package audio-cli --all-targets --locked --target aarch64-apple-darwin",
+    "Root: cargo clippy --package audio-fpenv --package audio-cli --all-targets --locked --target x86_64-unknown-linux-gnu",
+    "Root: cargo build --lib --package audio-fpenv --package audio-cli --locked --target aarch64-apple-darwin",
+    "Root: cargo build --lib --package audio-fpenv --package audio-cli --locked --target x86_64-unknown-linux-gnu",
     "fresh target/coverage",
     "coverage locality",
-    "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-core/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-core.json -- --include-ignored",
-    "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-objects/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-objects.json -- --include-ignored",
-    "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-patch/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-patch.json -- --include-ignored",
-    "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-hash/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-hash.json -- --include-ignored",
-    "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-alloc-counter/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-alloc-counter.json -- --include-ignored",
-    "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-fpenv/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-fpenv.json -- --include-ignored",
-    "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-battery/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-battery.json -- --include-ignored",
-    "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-testkit/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-testkit.json -- --include-ignored",
-    "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-cli/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-cli.json -- --include-ignored",
-    "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path bindings/wasm/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-wasm.json -- --include-ignored",
+    "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/audio-core/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/audio-core.json -- --include-ignored",
+    "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/audio-boxes/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/audio-boxes.json -- --include-ignored",
+    "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/audio-patch/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/audio-patch.json -- --include-ignored",
+    "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/audio-hash/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/audio-hash.json -- --include-ignored",
+    "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/alloc-counter/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/alloc-counter.json -- --include-ignored",
+    "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/audio-fpenv/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/audio-fpenv.json -- --include-ignored",
+    "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/audio-battery/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/audio-battery.json -- --include-ignored",
+    "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/audio-testkit/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/audio-testkit.json -- --include-ignored",
+    "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/audio-cli/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/audio-cli.json -- --include-ignored",
+    "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path bindings/audio-wasm/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/audio-wasm.json -- --include-ignored",
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/xtask/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/xtask.json -- --include-ignored",
-    "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-cli/Cargo.toml --locked --branch --json --summary-only --output-path target/coverage/engine-cli-main.json -- --include-ignored",
+    "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/audio-cli/Cargo.toml --locked --branch --json --summary-only --output-path target/coverage/audio-cli-main.json -- --include-ignored",
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/xtask/Cargo.toml --locked --branch --json --summary-only --output-path target/coverage/xtask-main.json -- --include-ignored",
     concat!(
         "Root: cargo +nightly-2026-11-01 mi",
-        "ri test --package engine-alloc-counter --package engine-wasm --locked -- --include-ignored"
+        "ri test --package alloc-counter --package audio-wasm --locked -- --include-ignored"
     ),
     "Package(\"tooling/config\"): pnpm run check",
     "Package(\"tooling/config\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json",
     "typescript reports gate of tooling/config",
     "typescript scope gate of tooling/config",
     "fresh target/conformance",
-    "Root: cargo run --package engine-cli --locked --quiet -- export conformance target/conformance",
+    "Root: cargo run --package audio-cli --locked --quiet -- export conformance target/conformance",
     "Package(\"tooling/oracle\"): pnpm run check",
     "Package(\"tooling/oracle\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json",
     "typescript reports gate of tooling/oracle",
     "typescript scope gate of tooling/oracle",
-    "Package(\"bindings/wasm\"): pnpm run check",
-    "Package(\"bindings/wasm\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json",
-    "typescript reports gate of bindings/wasm",
-    "typescript scope gate of bindings/wasm",
-    "Package(\"bindings/wasm\"): pnpm run build",
+    "Package(\"bindings/audio-wasm\"): pnpm run check",
+    "Package(\"bindings/audio-wasm\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json",
+    "typescript reports gate of bindings/audio-wasm",
+    "typescript scope gate of bindings/audio-wasm",
+    "Package(\"bindings/audio-wasm\"): pnpm run build",
     "Package(\"apps/playground\"): pnpm run check",
     "Package(\"apps/playground\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json",
     "typescript reports gate of apps/playground",
@@ -1960,7 +1960,7 @@ const DEFAULT_CHECK_NAMES: &[&str] = &[
     "Bit-defining dependencies pinned to one exact version",
     "The audio library depends only on its own crates, its tests also on its test crates; every crate only tests use is shared test code",
     "Every part under the license of its folder, no open part depending on an app",
-    "Box arithmetic only through the math layer: libm in engine-core and engine-testkit only, no raw float in box code, no iterator reduction outside the math layer",
+    "Box arithmetic only through the math layer: libm in audio-core and audio-testkit only, no raw float in box code, no iterator reduction outside the math layer",
     "Supply-chain configuration as xtask defines it",
     "Packages and crates known to the checks",
     "Every part described in a README",
@@ -1986,22 +1986,22 @@ const DEFAULT_CHECK_NAMES: &[&str] = &[
     "Engine portability (thumbv7em-none-eabihf)",
     "Native shell lints (aarch64-apple-darwin)",
     "Native shell lints (x86_64-unknown-linux-gnu)",
-    "Native code of engine-cli and engine-fpenv built, inline assembly included (aarch64-apple-darwin)",
-    "Native code of engine-cli and engine-fpenv built, inline assembly included (x86_64-unknown-linux-gnu)",
+    "Native code of audio-cli and audio-fpenv built, inline assembly included (aarch64-apple-darwin)",
+    "Native code of audio-cli and audio-fpenv built, inline assembly included (x86_64-unknown-linux-gnu)",
     "Fresh Rust coverage reports",
     "Rust coverage counts a crate's own unit tests only",
-    "Rust coverage of engine-core: 100% by its own unit tests",
-    "Rust coverage of engine-objects: 100% by its own unit tests",
-    "Rust coverage of engine-patch: 100% by its own unit tests",
-    "Rust coverage of engine-hash: 100% by its own unit tests",
-    "Rust coverage of engine-alloc-counter: 100% by its own unit tests",
-    "Rust coverage of engine-fpenv: 100% by its own unit tests",
-    "Rust coverage of engine-battery: 100% by its own unit tests",
-    "Rust coverage of engine-testkit: 100% by its own unit tests",
-    "Rust coverage of engine-cli: 100% by its own unit tests",
-    "Rust coverage of engine-wasm: 100% by its own unit tests",
+    "Rust coverage of audio-core: 100% by its own unit tests",
+    "Rust coverage of audio-boxes: 100% by its own unit tests",
+    "Rust coverage of audio-patch: 100% by its own unit tests",
+    "Rust coverage of audio-hash: 100% by its own unit tests",
+    "Rust coverage of alloc-counter: 100% by its own unit tests",
+    "Rust coverage of audio-fpenv: 100% by its own unit tests",
+    "Rust coverage of audio-battery: 100% by its own unit tests",
+    "Rust coverage of audio-testkit: 100% by its own unit tests",
+    "Rust coverage of audio-cli: 100% by its own unit tests",
+    "Rust coverage of audio-wasm: 100% by its own unit tests",
     "Rust coverage of xtask: 100% by its own unit tests",
-    "Rust coverage of the engine-cli binary: 100% by its tests",
+    "Rust coverage of the audio-cli binary: 100% by its tests",
     "Rust coverage of the xtask binary: 100% by its tests",
     "Unsafe code under Miri",
     "Shared TypeScript policy (each rule proven to reject what it forbids)",
@@ -2015,9 +2015,9 @@ const DEFAULT_CHECK_NAMES: &[&str] = &[
     "TypeScript coverage and mutation reports of tooling/oracle",
     "Every TypeScript source of tooling/oracle measured and mutated, or reviewed",
     "Engine WASM checks",
-    "Mutation testing of bindings/wasm (what changed since the last run)",
-    "TypeScript coverage and mutation reports of bindings/wasm",
-    "Every TypeScript source of bindings/wasm measured and mutated, or reviewed",
+    "Mutation testing of bindings/audio-wasm (what changed since the last run)",
+    "TypeScript coverage and mutation reports of bindings/audio-wasm",
+    "Every TypeScript source of bindings/audio-wasm measured and mutated, or reviewed",
     "Engine WASM build, for the packages that use it",
     "Playground checks",
     "Mutation testing of apps/playground (what changed since the last run)",
@@ -2211,8 +2211,8 @@ fn the_full_check_differs_only_by_its_mutation_testing() {
                 "Mutation testing of tooling/oracle (every mutant)"
             ),
             (
-                "Mutation testing of bindings/wasm (what changed since the last run)",
-                "Mutation testing of bindings/wasm (every mutant)"
+                "Mutation testing of bindings/audio-wasm (what changed since the last run)",
+                "Mutation testing of bindings/audio-wasm (every mutant)"
             ),
             (
                 "Mutation testing of apps/playground (what changed since the last run)",
@@ -2363,18 +2363,18 @@ fn one_line_change(path: &str) -> String {
 #[test]
 fn mutates_a_whole_crate_whose_test_code_changed() {
     for test_code in [
-        "crates/engine-core/tests/laws.rs",
-        "crates/engine-core/src/plan_tests.rs",
+        "crates/audio-core/tests/laws.rs",
+        "crates/audio-core/src/plan_tests.rs",
     ] {
         let mut fake = passing();
         let _changes = fake
             .files
             .insert(format!("capture {}", CHANGES.0), one_line_change(test_code));
         for (path, text) in [
-            ("crates/engine-core/src/lib.rs", "fn a() {}\n"),
-            ("crates/engine-core/src/plan_tests.rs", "fn t() {}\n"),
-            ("crates/engine-core/tests/laws.rs", "fn l() {}\n"),
-            ("crates/engine-objects/src/lib.rs", "fn o() {}\n"),
+            ("crates/audio-core/src/lib.rs", "fn a() {}\n"),
+            ("crates/audio-core/src/plan_tests.rs", "fn t() {}\n"),
+            ("crates/audio-core/tests/laws.rs", "fn l() {}\n"),
+            ("crates/audio-boxes/src/lib.rs", "fn o() {}\n"),
         ] {
             let _source = fake.files.insert(path.to_owned(), text.to_owned());
         }
@@ -2387,7 +2387,7 @@ fn mutates_a_whole_crate_whose_test_code_changed() {
         assert_eq!(
             fake.files.get(CHANGES_DIFF).cloned(),
             Some(super::new_file_diff(
-                "crates/engine-core/src/lib.rs",
+                "crates/audio-core/src/lib.rs",
                 "fn a() {}\n"
             )),
             "{test_code}: every source of its crate added whole, nothing else of it, its test \
@@ -2395,7 +2395,7 @@ fn mutates_a_whole_crate_whose_test_code_changed() {
         );
         assert!(
             fake.ran.contains(&format!(
-                "{} :(exclude)crates/engine-core/",
+                "{} :(exclude)crates/audio-core/",
                 diff_since(MERGE_BASE.1.trim())
             )),
             "{test_code}: git leaves the crate out of the diff"
@@ -2403,7 +2403,7 @@ fn mutates_a_whole_crate_whose_test_code_changed() {
         assert!(
             String::from_utf8(out)
                 .expect("UTF-8")
-                .contains("  the test code of engine-core changed: every mutant of engine-core\n"),
+                .contains("  the test code of audio-core changed: every mutant of audio-core\n"),
             "{test_code}: said"
         );
     }
@@ -2423,9 +2423,9 @@ fn mutates_a_whole_crate_whose_test_data_changed() {
             .files
             .insert(format!("capture {}", CHANGES.0), one_line_change(data));
         for (path, text) in [
-            ("crates/engine-hash/src/lib.rs", "fn h() {}\n"),
-            ("crates/engine-hash/src/lib_tests.rs", "fn t() {}\n"),
-            ("crates/engine-core/src/lib.rs", "fn a() {}\n"),
+            ("crates/audio-hash/src/lib.rs", "fn h() {}\n"),
+            ("crates/audio-hash/src/lib_tests.rs", "fn t() {}\n"),
+            ("crates/audio-core/src/lib.rs", "fn a() {}\n"),
             ("crates/xtask/src/lib.rs", "fn x() {}\n"),
         ] {
             let _source = fake.files.insert(path.to_owned(), text.to_owned());
@@ -2436,7 +2436,7 @@ fn mutates_a_whole_crate_whose_test_data_changed() {
             Ok(()),
             "{data}"
         );
-        let hash = super::new_file_diff("crates/engine-hash/src/lib.rs", "fn h() {}\n");
+        let hash = super::new_file_diff("crates/audio-hash/src/lib.rs", "fn h() {}\n");
         let xtask = super::new_file_diff("crates/xtask/src/lib.rs", "fn x() {}\n");
         let expected = format!(
             "{}{}",
@@ -2451,7 +2451,7 @@ fn mutates_a_whole_crate_whose_test_data_changed() {
         );
         let said = String::from_utf8(out).expect("UTF-8");
         assert_eq!(
-            said.contains("  the test data of engine-hash changed: every mutant of engine-hash\n"),
+            said.contains("  the test data of audio-hash changed: every mutant of audio-hash\n"),
             hash_reads,
             "{data}: said"
         );
@@ -2510,11 +2510,11 @@ fn mutates_everything_when_what_every_test_uses_changed() {
     }
     for path in [
         "Cargo.toml.orig",
-        "crates/engine-core/Cargo.toml.orig",
-        "crates/engine-testkits/a.rs",
+        "crates/audio-core/Cargo.toml.orig",
+        "crates/audio-testkits/a.rs",
         "doc/Cargo.lock.md",
-        "doc/crates/engine-testkit/a.rs",
-        "crates/engine-core/src/Cargo.toml.rs",
+        "doc/crates/audio-testkit/a.rs",
+        "crates/audio-core/src/Cargo.toml.rs",
     ] {
         let mut fake = passing();
         let _changes = fake
@@ -2567,40 +2567,40 @@ fn gives_each_changed_file_one_section_when_its_crate_is_tested_whole() {
         format!("capture {}", CHANGES.0),
         format!(
             "{}{}{}",
-            one_line_change("crates/engine-core/src/lib.rs"),
-            one_line_change("crates/engine-core/src/plan_tests.rs"),
-            one_line_change("crates/engine-hash/src/lib.rs")
+            one_line_change("crates/audio-core/src/lib.rs"),
+            one_line_change("crates/audio-core/src/plan_tests.rs"),
+            one_line_change("crates/audio-hash/src/lib.rs")
         ),
     );
     for (path, text) in [
-        ("crates/engine-core/src/lib.rs", "fn a() {}\nfn b() {}\n"),
-        ("crates/engine-core/src/plan_tests.rs", "fn t() {}\n"),
-        ("crates/engine-hash/src/lib.rs", "fn h() {}\n"),
+        ("crates/audio-core/src/lib.rs", "fn a() {}\nfn b() {}\n"),
+        ("crates/audio-core/src/plan_tests.rs", "fn t() {}\n"),
+        ("crates/audio-hash/src/lib.rs", "fn h() {}\n"),
     ] {
         let _source = fake.files.insert(path.to_owned(), text.to_owned());
     }
     let _new = fake.files.insert(
-        "crates/engine-core/src/new.rs".to_owned(),
+        "crates/audio-core/src/new.rs".to_owned(),
         "fn n() {}\n".to_owned(),
     );
     let _listed = fake.files.insert(
         format!("capture {}", NEW_RUST_FILES.0),
-        "crates/engine-core/src/new.rs\0".to_owned(),
+        "crates/audio-core/src/new.rs\0".to_owned(),
     );
     let said = mutate_changes(&mut fake);
     assert_eq!(
         fake.files.get(CHANGES_DIFF).cloned(),
         Some(format!(
             "{}{}{}",
-            one_line_change("crates/engine-hash/src/lib.rs"),
-            super::new_file_diff("crates/engine-core/src/lib.rs", "fn a() {}\nfn b() {}\n"),
-            super::new_file_diff("crates/engine-core/src/new.rs", "fn n() {}\n")
+            one_line_change("crates/audio-hash/src/lib.rs"),
+            super::new_file_diff("crates/audio-core/src/lib.rs", "fn a() {}\nfn b() {}\n"),
+            super::new_file_diff("crates/audio-core/src/new.rs", "fn n() {}\n")
         )),
         "the source changed and widened, and the new file, once each and whole; the other \
          crate's change as git wrote it"
     );
     assert!(
-        said.contains("  the test code of engine-core changed: every mutant of engine-core\n"),
+        said.contains("  the test code of audio-core changed: every mutant of audio-core\n"),
         "said: {said}"
     );
     // A git that wrote the excluded crate's change in place of another's, as many sections
@@ -2611,27 +2611,27 @@ fn gives_each_changed_file_one_section_when_its_crate_is_tested_whole() {
         format!("capture {}", CHANGES.0),
         format!(
             "{}{}{}",
-            one_line_change("crates/engine-core/src/lib.rs"),
-            one_line_change("crates/engine-core/src/plan_tests.rs"),
-            one_line_change("crates/engine-hash/src/lib.rs")
+            one_line_change("crates/audio-core/src/lib.rs"),
+            one_line_change("crates/audio-core/src/plan_tests.rs"),
+            one_line_change("crates/audio-hash/src/lib.rs")
         ),
     );
     let _ignored = careless.files.insert(
         format!(
-            "{} :(exclude)crates/engine-core/",
+            "{} :(exclude)crates/audio-core/",
             diff_since(MERGE_BASE.1.trim())
         ),
-        one_line_change("crates/engine-core/src/lib.rs"),
+        one_line_change("crates/audio-core/src/lib.rs"),
     );
     let _source = careless.files.insert(
-        "crates/engine-core/src/lib.rs".to_owned(),
+        "crates/audio-core/src/lib.rs".to_owned(),
         "fn a() {}\n".to_owned(),
     );
     assert_eq!(
         run_steps(&rust_mutation_of_changes(), &mut careless, &mut Vec::new()),
         failed(
             "Rust mutation testing of the changes: git's diff holds no section for \
-             crates/engine-hash/src/lib.rs, a changed Rust file: it left the change out, whose \
+             crates/audio-hash/src/lib.rs, a changed Rust file: it left the change out, whose \
              mutants would go untested"
         ),
         "refused before cargo-mutants reads it"
@@ -2654,13 +2654,13 @@ fn refuses_a_diff_git_left_a_change_out_of() {
         format!("capture {}", CHANGES.0),
         format!(
             "{}{}",
-            one_line_change("crates/engine-core/src/plan_tests.rs"),
-            one_line_change("crates/engine-hash/src/lib.rs")
+            one_line_change("crates/audio-core/src/plan_tests.rs"),
+            one_line_change("crates/audio-hash/src/lib.rs")
         ),
     );
     let _lost = lossy.files.insert(
         format!(
-            "{} :(exclude)crates/engine-core/",
+            "{} :(exclude)crates/audio-core/",
             diff_since(MERGE_BASE.1.trim())
         ),
         String::new(),
@@ -2669,7 +2669,7 @@ fn refuses_a_diff_git_left_a_change_out_of() {
         run_steps(&rust_mutation_of_changes(), &mut lossy, &mut Vec::new()),
         failed(
             "Rust mutation testing of the changes: git's diff holds no section for \
-             crates/engine-hash/src/lib.rs, a changed Rust file: it left the change out, whose \
+             crates/audio-hash/src/lib.rs, a changed Rust file: it left the change out, whose \
              mutants would go untested"
         ),
         "refused before cargo-mutants reads it"
@@ -2686,9 +2686,9 @@ fn refuses_a_diff_git_left_a_change_out_of() {
 #[test]
 fn reads_the_paths_real_git_changes_whatever_they_hold() {
     let dir = scratch("changed-paths");
-    let quoted = "crates/engine-core/tests/caf\u{e9}.json";
-    let spaced = "crates/engine-core/tests/x b/y.rs";
-    let hash = "crates/engine-hash/src/lib.rs";
+    let quoted = "crates/audio-core/tests/caf\u{e9}.json";
+    let spaced = "crates/audio-core/tests/x b/y.rs";
+    let hash = "crates/audio-hash/src/lib.rs";
     for path in [quoted, spaced, hash] {
         let file = dir.join(path);
         std::fs::create_dir_all(file.parent().expect("a parent")).expect("its directory");
@@ -2700,7 +2700,7 @@ fn reads_the_paths_real_git_changes_whatever_they_hold() {
     for path in [quoted, spaced, hash] {
         std::fs::write(dir.join(path), "b\n").expect("a change");
     }
-    std::fs::write(dir.join("crates/engine-core/tests/new.rs"), "fn n() {}\n").expect("a new file");
+    std::fs::write(dir.join("crates/audio-core/tests/new.rs"), "fn n() {}\n").expect("a new file");
     let mut runner = system(dir.path());
     assert_eq!(
         super::changes::changed_since(&mut runner, "HEAD").map_err(|failure| failure.summary),
@@ -2709,12 +2709,12 @@ fn reads_the_paths_real_git_changes_whatever_they_hold() {
     );
     assert_eq!(
         super::changes::new_rust_files(&mut runner).map_err(|failure| failure.summary),
-        Ok(vec!["crates/engine-core/tests/new.rs".to_owned()]),
+        Ok(vec!["crates/audio-core/tests/new.rs".to_owned()]),
         "the new Rust file"
     );
     let core = super::RUST_CRATES
         .iter()
-        .find(|krate| krate.name == "engine-core")
+        .find(|krate| krate.name == "audio-core")
         .expect("the engine core");
     let diff = super::changes::diff_since(&mut runner, "HEAD", &[core]).expect("a diff");
     assert_eq!(
@@ -2729,8 +2729,8 @@ fn reads_the_paths_real_git_changes_whatever_they_hold() {
 #[test]
 fn takes_every_file_git_s_rust_pathspec_matches_for_rust() {
     let dir = scratch("dot-rs");
-    let path = "crates/engine-hash/src/.rs";
-    std::fs::create_dir_all(dir.join("crates/engine-hash/src")).expect("its directory");
+    let path = "crates/audio-hash/src/.rs";
+    std::fs::create_dir_all(dir.join("crates/audio-hash/src")).expect("its directory");
     std::fs::write(dir.join(path), "a\n").expect("a file named `.rs`");
     let _init = hermetic_git(&dir, &["init", "--quiet", "--initial-branch=main"]);
     let _add = hermetic_git(&dir, &["add", "."]);
@@ -2759,7 +2759,7 @@ fn takes_every_file_git_s_rust_pathspec_matches_for_rust() {
 #[test]
 fn shows_cargo_mutants_the_rust_changes_alone() {
     let dir = scratch("binary-change");
-    let (sound, hash) = ("conformance/x.wav", "crates/engine-hash/src/lib.rs");
+    let (sound, hash) = ("conformance/x.wav", "crates/audio-hash/src/lib.rs");
     for path in [sound, hash] {
         std::fs::create_dir_all(dir.join(path).parent().expect("a parent")).expect("its directory");
     }
@@ -2785,8 +2785,8 @@ fn tells_a_file_turned_into_a_link_from_a_change_git_left_out() {
     let dir = scratch("type-change");
     let (markdown, hash, linked) = (
         "docs/a.md",
-        "crates/engine-hash/src/lib.rs",
-        "crates/engine-hash/src/b.rs",
+        "crates/audio-hash/src/lib.rs",
+        "crates/audio-hash/src/b.rs",
     );
     for path in [markdown, hash, linked] {
         std::fs::create_dir_all(dir.join(path).parent().expect("a parent")).expect("its directory");
@@ -2842,10 +2842,10 @@ fn git_answers(
     configure: &dyn Fn(&Path),
 ) -> Vec<String> {
     let (first, second) = (
-        "crates/engine-hash/src/lib.rs",
-        "crates/engine-hash/src/b c.rs",
+        "crates/audio-hash/src/lib.rs",
+        "crates/audio-hash/src/b c.rs",
     );
-    std::fs::create_dir_all(dir.join("crates/engine-hash/src")).expect("its directory");
+    std::fs::create_dir_all(dir.join("crates/audio-hash/src")).expect("its directory");
     std::fs::write(dir.join(first), "a\n\nb\nc\n").expect("a file");
     std::fs::write(dir.join(second), "x\n").expect("a file");
     let _init = hermetic_git(dir, &["init", "--quiet", "--initial-branch=main"]);
@@ -2854,7 +2854,7 @@ fn git_answers(
     configure(dir);
     std::fs::write(dir.join(first), "a\n\nb\nd\n").expect("a change");
     std::fs::write(dir.join(second), "y\n").expect("a change");
-    std::fs::write(dir.join("crates/engine-hash/src/new.rs"), "n\n").expect("a new file");
+    std::fs::write(dir.join("crates/audio-hash/src/new.rs"), "n\n").expect("a new file");
     let mut runner = SystemRunner {
         root: dir.to_path_buf(),
         env,
@@ -2933,8 +2933,8 @@ fn gives_the_same_answers_under_a_hostile_git_configuration() {
             answers.get(3).map(String::as_str)
         ),
         (
-            Some("` M \"crates/engine-hash/src/b c.rs\"` is not committed"),
-            Some("` M \"crates/engine-hash/src/b c.rs\"` is not committed")
+            Some("` M \"crates/audio-hash/src/b c.rs\"` is not committed"),
+            Some("` M \"crates/audio-hash/src/b c.rs\"` is not committed")
         ),
         "the tree is not clean, whatever the configuration"
     );
@@ -2943,19 +2943,19 @@ fn gives_the_same_answers_under_a_hostile_git_configuration() {
 /// The changed paths, the new Rust files and the diff [`git_answers`] gives with no
 /// configuration of git's: the reference every other configuration's answers must equal.
 const PLAIN_GIT_ANSWERS: [&str; 3] = [
-    "crates/engine-hash/src/b c.rs|crates/engine-hash/src/lib.rs",
-    "crates/engine-hash/src/new.rs",
-    "diff --git a/crates/engine-hash/src/b c.rs b/crates/engine-hash/src/b c.rs\n\
+    "crates/audio-hash/src/b c.rs|crates/audio-hash/src/lib.rs",
+    "crates/audio-hash/src/new.rs",
+    "diff --git a/crates/audio-hash/src/b c.rs b/crates/audio-hash/src/b c.rs\n\
      index 587be6b..975fbec 100644\n\
-     --- a/crates/engine-hash/src/b c.rs\t\n\
-     +++ b/crates/engine-hash/src/b c.rs\t\n\
+     --- a/crates/audio-hash/src/b c.rs\t\n\
+     +++ b/crates/audio-hash/src/b c.rs\t\n\
      @@ -1 +1 @@\n\
      -x\n\
      +y\n\
-     diff --git a/crates/engine-hash/src/lib.rs b/crates/engine-hash/src/lib.rs\n\
+     diff --git a/crates/audio-hash/src/lib.rs b/crates/audio-hash/src/lib.rs\n\
      index 068025d..6b37b6d 100644\n\
-     --- a/crates/engine-hash/src/lib.rs\n\
-     +++ b/crates/engine-hash/src/lib.rs\n\
+     --- a/crates/audio-hash/src/lib.rs\n\
+     +++ b/crates/audio-hash/src/lib.rs\n\
      @@ -1,4 +1,4 @@\n\
      \x20a\n\
      \x20\n\
@@ -2987,8 +2987,8 @@ fn gives_the_same_diff_under_a_user_s_diff_options() {
 #[test]
 fn reads_the_changed_lines_whatever_git_attributes_say() {
     let dir = scratch("binary-attributes");
-    let path = "crates/engine-hash/src/lib.rs";
-    std::fs::create_dir_all(dir.join("crates/engine-hash/src")).expect("its directory");
+    let path = "crates/audio-hash/src/lib.rs";
+    std::fs::create_dir_all(dir.join("crates/audio-hash/src")).expect("its directory");
     std::fs::write(dir.join(path), "a\n").expect("a file");
     let _init = hermetic_git(&dir, &["init", "--quiet", "--initial-branch=main"]);
     let _add = hermetic_git(&dir, &["add", "."]);
@@ -3230,8 +3230,8 @@ fn starts_git_without_the_variables_that_change_its_pathspecs_and_its_diffs() {
 #[test]
 fn reads_the_commits_objects_whatever_a_replace_ref_says() {
     let dir = scratch("replace-ref");
-    let path = "crates/engine-hash/src/lib.rs";
-    std::fs::create_dir_all(dir.join("crates/engine-hash/src")).expect("its directory");
+    let path = "crates/audio-hash/src/lib.rs";
+    std::fs::create_dir_all(dir.join("crates/audio-hash/src")).expect("its directory");
     std::fs::write(dir.join(path), "a\n").expect("a file");
     let _init = hermetic_git(&dir, &["init", "--quiet", "--initial-branch=main"]);
     let _add = hermetic_git(&dir, &["add", "."]);
@@ -3361,8 +3361,8 @@ fn refuses_to_mutate_a_tree_where_a_filter_may_hide_changes() {
 fn refuses_to_mutate_a_tree_where_git_hides_files() {
     for (listed, file, flag) in [
         (
-            "H Cargo.toml\0h crates/engine-core/src/plan.rs\0",
-            "crates/engine-core/src/plan.rs",
+            "H Cargo.toml\0h crates/audio-core/src/plan.rs\0",
+            "crates/audio-core/src/plan.rs",
             "--no-assume-unchanged",
         ),
         (
@@ -3664,8 +3664,8 @@ fn reads_every_kind_of_mutation_target() {
             .expect("a package")
     };
     assert_eq!(
-        mutation_target("engine-core"),
-        Ok(Target::Crate(krate("engine-core"))),
+        mutation_target("audio-core"),
+        Ok(Target::Crate(krate("audio-core"))),
         "a crate, by its name"
     );
     assert_eq!(
@@ -3677,16 +3677,16 @@ fn reads_every_kind_of_mutation_target() {
         "a Rust file, in its crate"
     );
     assert_eq!(
-        mutation_target("bindings/wasm/src/ffi.rs"),
+        mutation_target("bindings/audio-wasm/src/ffi.rs"),
         Ok(Target::RustFile {
-            krate: krate("engine-wasm"),
-            path: "bindings/wasm/src/ffi.rs".to_owned()
+            krate: krate("audio-wasm"),
+            path: "bindings/audio-wasm/src/ffi.rs".to_owned()
         }),
         "a Rust file of the crate that shares a package's directory"
     );
     assert_eq!(
-        mutation_target("bindings/wasm"),
-        Ok(Target::Package(package("bindings/wasm"))),
+        mutation_target("bindings/audio-wasm"),
+        Ok(Target::Package(package("bindings/audio-wasm"))),
         "a package, by its directory"
     );
     for (path, dir, source) in [
@@ -3697,8 +3697,8 @@ fn reads_every_kind_of_mutation_target() {
             "src/app.tsx",
         ),
         (
-            "bindings/wasm/ts/worklet/x.mts",
-            "bindings/wasm",
+            "bindings/audio-wasm/ts/worklet/x.mts",
+            "bindings/audio-wasm",
             "ts/worklet/x.mts",
         ),
         ("tooling/oracle/src/a.cts", "tooling/oracle", "src/a.cts"),
@@ -3730,8 +3730,8 @@ fn refuses_what_is_no_mutation_target() {
             "\"apps/roadmap/src/board.test.ts\" is test code: name the source it tests",
         ),
         (
-            "crates/xtask/../engine-core/src/lib.rs",
-            "\"crates/xtask/../engine-core/src/lib.rs\" is not a plain path from the root (no `.`, `..` or empty part)",
+            "crates/xtask/../audio-core/src/lib.rs",
+            "\"crates/xtask/../audio-core/src/lib.rs\" is not a plain path from the root (no `.`, `..` or empty part)",
         ),
         (
             "./crates/xtask/src/lib.rs",
@@ -3770,8 +3770,8 @@ fn refuses_what_is_no_mutation_target() {
             "\"apps/roadmap/src/lib.rs\" is no crate, Rust file of a crate, TypeScript package or source of one",
         ),
         (
-            "crates/engine-core/src/a.ts",
-            "\"crates/engine-core/src/a.ts\" is no crate, Rust file of a crate, TypeScript package or source of one",
+            "crates/audio-core/src/a.ts",
+            "\"crates/audio-core/src/a.ts\" is no crate, Rust file of a crate, TypeScript package or source of one",
         ),
         (
             "crates/xtask/src/lib_tests.rs",
@@ -3813,10 +3813,10 @@ fn mutates_every_mutant_of_one_target() {
         ))
     };
     assert_eq!(
-        lines("engine-core"),
+        lines("audio-core"),
         vec![
             "fresh mutants.out",
-            "Root: cargo mutants --no-config --output=. --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --package engine-core --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored",
+            "Root: cargo mutants --no-config --output=. --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --package audio-core --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored",
             "unviable gate (Partial)",
         ],
         "a crate"
@@ -3864,8 +3864,8 @@ fn mutates_every_mutant_of_one_target() {
         "named"
     );
     assert_eq!(
-        names("engine-core")[1],
-        "Rust mutation testing of engine-core",
+        names("audio-core")[1],
+        "Rust mutation testing of audio-core",
         "named"
     );
     assert_eq!(
@@ -3890,7 +3890,7 @@ fn cli_mutates_one_target() {
     let mut fake = passing();
     assert_eq!(
         run_cli(
-            &["mutants".to_owned(), "engine-core".to_owned()],
+            &["mutants".to_owned(), "audio-core".to_owned()],
             &mut fake,
             &mut out,
             &mut Vec::new()
@@ -3902,7 +3902,7 @@ fn cli_mutates_one_target() {
         fake.ran,
         vec![
             "fresh mutants.out",
-            "cargo mutants --no-config --output=. --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --package engine-core --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored",
+            "cargo mutants --no-config --output=. --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --package audio-core --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored",
             "read mutants.out/unviable.txt",
             "read mutants-unviable.txt",
         ],
@@ -4192,7 +4192,7 @@ fn measures_each_crate_by_its_own_unit_tests() {
         })
         .collect();
     expected.extend(
-        ["engine-cli", "xtask"]
+        ["audio-cli", "xtask"]
             .map(|name| format!(
                 "cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/{name}/Cargo.toml \
                  --locked --branch --json --summary-only --output-path target/coverage/{name}-main.json -- --include-ignored"
@@ -4527,23 +4527,23 @@ fn fails_on_missing_or_incomplete_coverage() {
     assert_eq!(
         run_steps(&check_steps(CHANGES_MODE), &mut missing, &mut Vec::new()),
         failed(
-            "Rust coverage of engine-core: 100% by its own unit tests: cannot read \
-             target/coverage/engine-core.json: missing"
+            "Rust coverage of audio-core: 100% by its own unit tests: cannot read \
+             target/coverage/audio-core.json: missing"
         ),
         "missing report"
     );
     let mut partial = passing();
     let _replaced = partial.files.insert(
         core.report(),
-        report(&[("crates/engine-core/src/lib.rs", (2, 1), (1, 1), (1, 1))]),
+        report(&[("crates/audio-core/src/lib.rs", (2, 1), (1, 1), (1, 1))]),
     );
     assert_eq!(
         run_steps(&check_steps(CHANGES_MODE), &mut partial, &mut Vec::new()),
         failed(
-            "Rust coverage of engine-core: 100% by its own unit tests: engine-core is not \
-             covered 100% by its own unit tests: crates/engine-core/src/lib.rs: lines 1/2\n\
+            "Rust coverage of audio-core: 100% by its own unit tests: audio-core is not \
+             covered 100% by its own unit tests: crates/audio-core/src/lib.rs: lines 1/2\n\
              the lines: cargo +nightly-2026-11-01 llvm-cov --manifest-path \
-             crates/engine-core/Cargo.toml --lib --branch --show-missing-lines -- --include-ignored"
+             crates/audio-core/Cargo.toml --lib --branch --show-missing-lines -- --include-ignored"
         ),
         "incomplete coverage"
     );
@@ -5389,9 +5389,9 @@ fn rejects_a_malformed_changelog() {
 fn accepts_conventional_commit_messages() {
     for message in [
         "feat: add the plan",
-        "fix(engine-core): keep box state across blocks\n\nBody text.\nCo-Authored-By: x",
+        "fix(audio-core): keep box state across blocks\n\nBody text.\nCo-Authored-By: x",
         "refactor(xtask)!: rename the gate",
-        "build(engine-wasm): bump the format",
+        "build(audio-wasm): bump the format",
         "chore(roadmap): tick",
         "docs(deep-review): add a check",
         "test(config): cover",
@@ -5429,9 +5429,9 @@ fn rejects_other_commit_messages() {
     let unknown = |scope: &str| {
         format!(
             "unknown scope \"{scope}\": name a crate, a package or a scope of xtask's \
-             COMMIT_SCOPE_EXTRAS (engine-core, engine-objects, engine-patch, engine-hash, \
-             engine-alloc-counter, engine-fpenv, engine-battery, engine-testkit, engine-cli, \
-             engine-wasm, xtask, config, oracle, playground, roadmap, spec, conformance, ci, \
+             COMMIT_SCOPE_EXTRAS (audio-core, audio-boxes, audio-patch, audio-hash, \
+             alloc-counter, audio-fpenv, audio-battery, audio-testkit, audio-cli, \
+             audio-wasm, xtask, config, oracle, playground, roadmap, spec, conformance, ci, \
              build, release, changelog, glossary, deep-review)"
         )
     };
@@ -5604,8 +5604,8 @@ fn bless_benchmarks_counts_and_rewrites_the_baseline() {
     assert_eq!(
         command_lines(&steps),
         vec![
-            "Package(\"bindings/wasm\"): pnpm run build:wasm",
-            "Package(\"bindings/wasm\"): node scripts/benchmarks.ts bless"
+            "Package(\"bindings/audio-wasm\"): pnpm run build:wasm",
+            "Package(\"bindings/audio-wasm\"): node scripts/benchmarks.ts bless"
         ],
         "builds the module, then runs the benchmark command's bless, which no package script runs"
     );
@@ -5700,7 +5700,7 @@ const SHOW_RECORD: &str =
     "capture git show fed4560000000000000000000000000000000000:conformance/algorithms.json";
 
 /// The command `cargo xtask bless` runs, without options.
-const BLESS_RAN: &str = "cargo run --package engine-cli --locked --quiet -- bless conformance \
+const BLESS_RAN: &str = "cargo run --package audio-cli --locked --quiet -- bless conformance \
                          --spent target/xtask/spent-algorithms.json";
 
 #[test]
@@ -5753,13 +5753,13 @@ fn passes_its_options_on_and_tells_a_refused_one_as_a_usage_error() {
     );
     drop(fake.files.insert(
         format!("stderr {ran}"),
-        "error: unknown option \"--frm-nothing\" (see: engine-cli help)\n".to_owned(),
+        "error: unknown option \"--frm-nothing\" (see: audio-cli help)\n".to_owned(),
     ));
     let (mut out, mut err) = (Vec::new(), Vec::new());
     assert_eq!(
         run_cli(&args, &mut fake, &mut out, &mut err),
         2,
-        "engine-cli's usage error is xtask's"
+        "audio-cli's usage error is xtask's"
     );
     assert_eq!(
         fake.ran.last(),
@@ -5768,13 +5768,13 @@ fn passes_its_options_on_and_tells_a_refused_one_as_a_usage_error() {
     );
     assert_eq!(
         String::from_utf8(err).expect("utf-8"),
-        "error: Bless conformance references: `engine-cli bless` refused the options given to \
+        "error: Bless conformance references: `audio-cli bless` refused the options given to \
          `cargo xtask bless`: unknown option \"--frm-nothing\" (see: cargo xtask help)\n",
         "one line, with the child's reason, pointing to the usage"
     );
     assert!(
         String::from_utf8(out).expect("utf-8").contains(
-            "  OPTION a\n  error: unknown option \"--frm-nothing\" (see: engine-cli help)\n  \
+            "  OPTION a\n  error: unknown option \"--frm-nothing\" (see: audio-cli help)\n  \
              failed after"
         ),
         "what it said on stdout, then on stderr, replayed in that order"
@@ -5815,7 +5815,7 @@ fn passes_its_options_on_and_tells_a_refused_one_as_a_usage_error() {
     assert_eq!(
         run_steps(&[bless_step(&[])], &mut refused, &mut refused_out),
         Err(Failure {
-            summary: "Bless conformance references: `engine-cli bless` refused the options \
+            summary: "Bless conformance references: `audio-cli bless` refused the options \
                       given to `cargo xtask bless`"
                 .to_owned(),
             details: Vec::new(),
@@ -5959,10 +5959,10 @@ fn runs_a_real_command_for_its_stdout_and_its_stderr() {
 }
 
 /// `cargo xtask bless` through real processes: real git in a scratch repository whose main
-/// holds no record, and a stand-in for `cargo` that refuses an option as `engine-cli` does,
+/// holds no record, and a stand-in for `cargo` that refuses an option as `audio-cli` does,
 /// with a result line on stdout and its error line on stderr. The step fails as a usage
 /// error, its last line carrying the child's reason, after the child's lines in their order.
-/// That cargo passes on the exit code of `engine-cli` is its documented behavior, review
+/// That cargo passes on the exit code of `audio-cli` is its documented behavior, review
 /// only.
 #[cfg(unix)]
 #[test]
@@ -5978,7 +5978,7 @@ fn tells_a_refused_option_of_a_real_bless_as_a_usage_error_with_its_reason() {
     let stub = bin.join("cargo");
     std::fs::write(
         &stub,
-        "#!/bin/sh\necho 'OPTION   --bogus'\necho 'error: unknown option \"--bogus\" (see: engine-cli \
+        "#!/bin/sh\necho 'OPTION   --bogus'\necho 'error: unknown option \"--bogus\" (see: audio-cli \
          help)' >&2\nexit 2\n",
     )
     .expect("stub written");
@@ -6014,7 +6014,7 @@ fn tells_a_refused_option_of_a_real_bless_as_a_usage_error_with_its_reason() {
         (failure.usage, failure.summary),
         (
             true,
-            "Bless conformance references: `engine-cli bless` refused the options given to \
+            "Bless conformance references: `audio-cli bless` refused the options given to \
              `cargo xtask bless`: unknown option \"--bogus\""
                 .to_owned()
         ),
@@ -6023,7 +6023,7 @@ fn tells_a_refused_option_of_a_real_bless_as_a_usage_error_with_its_reason() {
     let shown = String::from_utf8(out).expect("UTF-8");
     assert!(
         shown.contains(
-            "  OPTION   --bogus\n  error: unknown option \"--bogus\" (see: engine-cli help)\n"
+            "  OPTION   --bogus\n  error: unknown option \"--bogus\" (see: audio-cli help)\n"
         ),
         "the child's result line, then its error line: {shown}"
     );
@@ -6290,7 +6290,7 @@ fn reads_the_versions_spent_where_real_git_says_main_is() {
 }
 
 /// The command of the conformance step.
-const CONFORMANCE_RAN: &str = "cargo run --package engine-cli --locked --quiet -- check \
+const CONFORMANCE_RAN: &str = "cargo run --package audio-cli --locked --quiet -- check \
                                conformance --spent target/xtask/spent-algorithms.json";
 
 #[test]
@@ -7161,8 +7161,8 @@ fn knows_exactly_the_packages_and_crates_of_the_repository() {
         "known, a fixture of xtask apart"
     );
     assert_eq!(
-        membership_gate(&packages, &crates, &[".gitignore".to_owned(), "bindings/wasm/.gitignore".to_owned()]),
-        found("the manifests differ from what xtask knows", &["bindings/wasm/.gitignore: build outputs go to dist/ or target/, not hidden in a source folder".to_owned()]),
+        membership_gate(&packages, &crates, &[".gitignore".to_owned(), "bindings/audio-wasm/.gitignore".to_owned()]),
+        found("the manifests differ from what xtask knows", &["bindings/audio-wasm/.gitignore: build outputs go to dist/ or target/, not hidden in a source folder".to_owned()]),
         "a nested .gitignore"
     );
 
@@ -7182,7 +7182,7 @@ fn knows_exactly_the_packages_and_crates_of_the_repository() {
                     .to_owned(),
                 "crates/b/Cargo.toml is not a crate of RUST_CRATES: its coverage would not be measured"
                     .to_owned(),
-                "crates/engine-core/Cargo.toml does not take the workspace version".to_owned(),
+                "crates/audio-core/Cargo.toml does not take the workspace version".to_owned(),
             ]
         ),
         "an unknown package and crate, a crate with its own version"
@@ -7198,8 +7198,7 @@ fn knows_exactly_the_packages_and_crates_of_the_repository() {
             "the manifests differ from what xtask knows",
             &[
                 "apps/roadmap/package.json belongs to PACKAGES but is not tracked".to_owned(),
-                "crates/engine-core/Cargo.toml belongs to RUST_CRATES but is not tracked"
-                    .to_owned(),
+                "crates/audio-core/Cargo.toml belongs to RUST_CRATES but is not tracked".to_owned(),
             ]
         ),
         "a package and a crate that are gone"
@@ -7405,15 +7404,15 @@ fn confines_unsafe_blocks_to_the_audited_files() {
     );
     assert_eq!(UNSAFE_FILES.len(), 3, "three audited files");
     let mut fourth = sources.clone();
-    fourth.push(("crates/engine-fpenv/src/other.rs".to_owned(), lifting()));
+    fourth.push(("crates/audio-fpenv/src/other.rs".to_owned(), lifting()));
     assert_eq!(
         unsafe_gate(&fourth),
         found(
             "the lint against unsafe code",
             &[
-                "crates/engine-fpenv/src/other.rs lifts the lint against unsafe code".to_owned(),
+                "crates/audio-fpenv/src/other.rs lifts the lint against unsafe code".to_owned(),
                 format!(
-                    "crates/engine-fpenv/src/other.rs does not hold `{}`",
+                    "crates/audio-fpenv/src/other.rs does not hold `{}`",
                     forbid.trim()
                 ),
             ]
@@ -7432,7 +7431,7 @@ fn confines_unsafe_blocks_to_the_audited_files() {
     assert_eq!(
         unsafe_gate(&no_assembly),
         failed(
-            "the lint against unsafe code: crates/engine-fpenv/src/word.rs is listed in \
+            "the lint against unsafe code: crates/audio-fpenv/src/word.rs is listed in \
              ASSEMBLY_FILES but holds no inline assembly"
         ),
         "an assembly file without assembly"
@@ -7587,12 +7586,12 @@ fn refuses_a_file_that_rebinds_core_in_the_crate_of_an_assembly_file() {
     let forbid = format!("#![forbid({}_{})]\n", "unsafe", "code");
     for (path, code) in [
         (
-            "crates/engine-fpenv/src/lib.rs",
+            "crates/audio-fpenv/src/lib.rs",
             "extern crate shadow as core;\n",
         ),
-        ("crates/engine-fpenv/src/lib.rs", "use crate::m as core;\n"),
-        ("crates/engine-fpenv/src/other.rs", "mod core {}\n"),
-        ("crates/engine-fpenv/src/other.rs", "mod r#core {}\n"),
+        ("crates/audio-fpenv/src/lib.rs", "use crate::m as core;\n"),
+        ("crates/audio-fpenv/src/other.rs", "mod core {}\n"),
+        ("crates/audio-fpenv/src/other.rs", "mod r#core {}\n"),
     ] {
         let text = if path.ends_with("lib.rs") {
             format!("//! The crate.\n{}{code}", doc_tests_forbid())
@@ -7611,7 +7610,7 @@ fn refuses_a_file_that_rebinds_core_in_the_crate_of_an_assembly_file() {
     }
     assert_eq!(
         gate(
-            "crates/engine-fpenv/src/other.rs",
+            "crates/audio-fpenv/src/other.rs",
             &format!(
                 "{forbid}//! as core, mod core\nconst A: &str = \"as core\";\nmod coreless {{}}\n"
             )
@@ -7621,7 +7620,7 @@ fn refuses_a_file_that_rebinds_core_in_the_crate_of_an_assembly_file() {
     );
     assert_eq!(
         gate(
-            "crates/engine-core/src/lib.rs",
+            "crates/audio-core/src/lib.rs",
             &format!("{forbid}{}use crate::m as core;\n", doc_tests_forbid())
         ),
         Ok(()),
@@ -7655,21 +7654,21 @@ fn refuses_unsafe_operations_another_file_could_bring_under_the_assembly_file() 
         ))
     };
     assert_eq!(
-        with("crates/engine-fpenv/src/lib.rs", &peek),
-        refused("crates/engine-fpenv/src/lib.rs", 6),
+        with("crates/audio-fpenv/src/lib.rs", &peek),
+        refused("crates/audio-fpenv/src/lib.rs", 6),
         "a macro of the library root, used in the assembly file"
     );
     assert_eq!(
         with(
-            "crates/engine-fpenv/src/lib_tests.rs",
+            "crates/audio-fpenv/src/lib_tests.rs",
             &format!("{forbid}{word} fn f() {{}}\n")
         ),
-        refused("crates/engine-fpenv/src/lib_tests.rs", 2),
+        refused("crates/audio-fpenv/src/lib_tests.rs", 2),
         "an unsafe function of another module"
     );
     assert_eq!(
         with(
-            "crates/engine-fpenv/src/lib.rs",
+            "crates/audio-fpenv/src/lib.rs",
             &format!(
                 "//! Not {word} but the assembly.\n{}const A: &str = \"{word}\";\n",
                 doc_tests_forbid()
@@ -7697,12 +7696,12 @@ fn refuses_assembly_outside_an_unsafe_block_everywhere() {
             11_usize,
         ),
         (
-            "bindings/wasm/src/ffi.rs".to_owned(),
+            "bindings/audio-wasm/src/ffi.rs".to_owned(),
             format!("{}::core::arch::naked_asm!(\"ret\");\n", lifting()),
             5,
         ),
         (
-            "crates/engine-core/src/render.rs".to_owned(),
+            "crates/audio-core/src/render.rs".to_owned(),
             format!("{forbid}macro_rules! g {{\n    () => {{ global_asm!(\"\") }};\n}}\n"),
             3,
         ),
@@ -7738,7 +7737,7 @@ fn requires_every_library_root_to_forbid_unsafe_code_in_its_doc_tests() {
         .iter()
         .map(|path| ((*path).to_owned(), audited(path)))
         .collect();
-    let root = "crates/engine-core/src/lib.rs";
+    let root = "crates/audio-core/src/lib.rs";
     let gate = |text: String| {
         let mut all = sources.clone();
         all.push((root.to_owned(), text));
@@ -7763,18 +7762,15 @@ fn requires_every_library_root_to_forbid_unsafe_code_in_its_doc_tests() {
     ] {
         assert!(reports(&gate(text.clone()), &refused(root)), "{text}");
     }
-    sources.retain(|(path, _)| path != "crates/engine-alloc-counter/src/lib.rs");
-    sources.push((
-        "crates/engine-alloc-counter/src/lib.rs".to_owned(),
-        lifting(),
-    ));
-    sources.push(("crates/engine-core/src/plan.rs".to_owned(), forbid.clone()));
-    sources.push(("crates/engine-cli/src/main.rs".to_owned(), forbid));
+    sources.retain(|(path, _)| path != "crates/alloc-counter/src/lib.rs");
+    sources.push(("crates/alloc-counter/src/lib.rs".to_owned(), lifting()));
+    sources.push(("crates/audio-core/src/plan.rs".to_owned(), forbid.clone()));
+    sources.push(("crates/audio-cli/src/main.rs".to_owned(), forbid));
     assert_eq!(
         unsafe_gate(&sources),
         failed(format!(
             "the lint against unsafe code: {}",
-            refused("crates/engine-alloc-counter/src/lib.rs")
+            refused("crates/alloc-counter/src/lib.rs")
         )),
         "the root of an unsafe crate too; a module and a binary's root need not"
     );
@@ -7788,7 +7784,7 @@ fn refuses_unsafe_outside_the_unsafe_files_and_their_declared_tests() {
     let sources: Vec<(String, String)> = UNSAFE_FILES
         .iter()
         .map(|path| {
-            let text = if *path == "bindings/wasm/src/ffi.rs" {
+            let text = if *path == "bindings/audio-wasm/src/ffi.rs" {
                 format!(
                     "{}{declaration}fn f(p: *const u8) -> u8 {{ {word} {{ *p }} }}\n",
                     audited(path)
@@ -7809,7 +7805,7 @@ fn refuses_unsafe_outside_the_unsafe_files_and_their_declared_tests() {
                 .map(|path| ((*path).to_owned(), audited(path))),
         )
         .chain([(
-            "bindings/wasm/src/ffi_tests.rs".to_owned(),
+            "bindings/audio-wasm/src/ffi_tests.rs".to_owned(),
             format!("fn t(p: *const u8) -> u8 {{ {word} {{ *p }} }}\n"),
         )])
         .collect();
@@ -7834,19 +7830,19 @@ fn refuses_unsafe_outside_the_unsafe_files_and_their_declared_tests() {
         "{forbid}#[macro_export]\nmacro_rules! peek {{\n    ($p:expr) => {{ {word} {{ ::core::ptr::read_volatile($p) }} }};\n}}\n"
     );
     for (path, text, line) in [
-        ("crates/engine-hash/src/lib.rs", peek, 4_usize),
+        ("crates/audio-hash/src/lib.rs", peek, 4_usize),
         (
-            "crates/engine-core/src/lib.rs",
+            "crates/audio-core/src/lib.rs",
             format!("{forbid}fn f(p: *const u8) -> u8 {{\n    {word} {{ *p }}\n}}\n"),
             3,
         ),
         (
-            "crates/engine-core/src/render.rs",
+            "crates/audio-core/src/render.rs",
             format!("{forbid}/* /* */ \"*/ {word} fn f() {{}} // \"\n"),
             2,
         ),
         (
-            "bindings/wasm/src/other_tests.rs",
+            "bindings/audio-wasm/src/other_tests.rs",
             format!("{forbid}fn t(p: *const u8) -> u8 {{ {word} {{ *p }} }}\n"),
             2,
         ),
@@ -7864,7 +7860,7 @@ fn refuses_unsafe_outside_the_unsafe_files_and_their_declared_tests() {
     }
     assert_eq!(
         with(
-            "crates/engine-core/src/lib.rs",
+            "crates/audio-core/src/lib.rs",
             &format!(
                 "{forbid}{}//! Not {word} code.\nconst A: &str = \"{word}\"; // {word}\n",
                 doc_tests_forbid()
@@ -7897,7 +7893,7 @@ fn reports_rust_files_it_cannot_list() {
         // sources are then listed.
         let _changes = fake.files.insert(
             format!("capture {}", CHANGES.0),
-            one_line_change("crates/engine-core/src/lib_tests.rs"),
+            one_line_change("crates/audio-core/src/lib_tests.rs"),
         );
         let step = Step {
             name: name.to_owned(),
@@ -8322,7 +8318,7 @@ fn requires_every_part_to_be_described() {
         .map(|package| package.dir.to_owned())
         .collect();
     assert_eq!(super::readme_gate(&parts, &readmes), Ok(()), "described");
-    parts.push("crates/engine-core".to_owned());
+    parts.push("crates/audio-core".to_owned());
     parts.push("lonely".to_owned());
     let without: Vec<(String, String)> = readmes
         .iter()
@@ -8331,10 +8327,7 @@ fn requires_every_part_to_be_described() {
         })
         .cloned()
         .chain([
-            (
-                "crates/README.md".to_owned(),
-                "| `engine-hash` |".to_owned(),
-            ),
+            ("crates/README.md".to_owned(), "| `audio-hash` |".to_owned()),
             (
                 "README.md".to_owned(),
                 "| `apps/` | | `bindings/` | | `tooling/` |".to_owned(),
@@ -8346,7 +8339,7 @@ fn requires_every_part_to_be_described() {
         failed(
             "parts not described: 4 problems, listed above\n\
              tooling/oracle has no README.md\n\
-             crates/README.md does not name engine-core\n\
+             crates/README.md does not name audio-core\n\
              lonely is not inside a folder of parts (apps/, crates/ …)\n\
              README.md does not name crates/"
         ),
@@ -8447,16 +8440,16 @@ fn times_named(step: &str, text: &str) -> usize {
 #[test]
 fn names_each_failed_step_once() {
     let refused = |result: Result<(), Failure>| result.expect_err("refused").summary;
-    let rust = |text: &str| vec![("crates/engine-core/src/a.rs".to_owned(), text.to_owned())];
+    let rust = |text: &str| vec![("crates/audio-core/src/a.rs".to_owned(), text.to_owned())];
     let (real, _) = fixture_metadata();
-    let shared = r#"{"workspace_root":"/r","packages":[{"name":"x","dependencies":[{"name":"engine-core","kind":"dev","path":"/r/crates/engine-core"}]}]}"#;
+    let shared = r#"{"workspace_root":"/r","packages":[{"name":"x","dependencies":[{"name":"audio-core","kind":"dev","path":"/r/crates/audio-core"}]}]}"#;
     let alone = [
         (
             Action::LoadedFilesGate,
             vec![refused(super::loaded_files_gate(
                 &[super::Loaded {
                     krate: super::RUST_CRATES[0],
-                    target: "engine_core".to_owned(),
+                    target: "audio_core".to_owned(),
                     configuration: None,
                     of_tests: false,
                     files: vec!["spec/x.json".to_owned()],
@@ -8542,7 +8535,7 @@ fn names_a_failed_step_once_as_the_user_reads_it() {
         .clone();
     let mut fake = passing();
     drop(fake.files.insert(
-        "crates/engine-core/src/a.rs".to_owned(),
+        "crates/audio-core/src/a.rs".to_owned(),
         "#[cfg(test)]\nmod tests {}\n".to_owned(),
     ));
     let summary = run_steps(core::slice::from_ref(&step), &mut fake, &mut Vec::new())
@@ -8550,7 +8543,7 @@ fn names_a_failed_step_once_as_the_user_reads_it() {
         .summary;
     assert_eq!(times_named(&step.name, &summary), 1, "{summary}");
     assert!(
-        summary.starts_with(&format!("{}: crates/engine-core/src/a.rs:1: ", step.name)),
+        summary.starts_with(&format!("{}: crates/audio-core/src/a.rs:1: ", step.name)),
         "{summary}"
     );
     assert_eq!(
@@ -8565,7 +8558,7 @@ fn tells_changes_of_behavior() {
     for (message, expected) in [
         ("feat: add", true),
         ("fix(roadmap): repair", true),
-        ("perf(engine-core): faster", true),
+        ("perf(audio-core): faster", true),
         ("docs!: drop a page", true),
         ("refactor(roadmap)!: rename", true),
         (
@@ -8865,8 +8858,8 @@ fn refuses_a_tracked_file_git_passes_through_a_filter() {
 #[test]
 fn sees_a_change_a_clean_filter_hides_from_git() {
     let dir = scratch("clean-filter");
-    let path = "crates/engine-hash/src/lib.rs";
-    std::fs::create_dir_all(dir.join("crates/engine-hash/src")).expect("its directory");
+    let path = "crates/audio-hash/src/lib.rs";
+    std::fs::create_dir_all(dir.join("crates/audio-hash/src")).expect("its directory");
     std::fs::write(dir.join(path), "fn a() {}\n").expect("a file");
     let _init = hermetic_git(&dir, &["init", "--quiet", "--initial-branch=main"]);
     let _add = hermetic_git(&dir, &["add", "."]);
@@ -8903,8 +8896,8 @@ fn says_how_to_clear_a_file_real_git_hides() {
     for (name, path, quoted) in [
         (
             "hidden-file",
-            "crates/engine-hash/src/lib.rs",
-            "crates/engine-hash/src/lib.rs",
+            "crates/audio-hash/src/lib.rs",
+            "crates/audio-hash/src/lib.rs",
         ),
         (
             "hidden-quoted",
@@ -8920,7 +8913,7 @@ fn says_how_to_clear_a_file_real_git_hides() {
 /// its commands, the name written `quoted` there, clear it when a POSIX shell runs them.
 fn clears_a_file_real_git_hides(name: &str, path: &str, quoted: &str) {
     let dir = scratch(name);
-    std::fs::create_dir_all(dir.join("crates/engine-hash/src")).expect("its directory");
+    std::fs::create_dir_all(dir.join("crates/audio-hash/src")).expect("its directory");
     std::fs::write(dir.join(path), "a\n").expect("a file");
     let _init = hermetic_git(&dir, &["init", "--quiet", "--initial-branch=main"]);
     let _add = hermetic_git(&dir, &["add", "."]);
@@ -9577,7 +9570,7 @@ fn derives_the_workflow_s_lists_and_reads_its_node_release() {
         vec![
             "mutants.out",
             "target/coverage",
-            "bindings/wasm/dist/engine.wasm",
+            "bindings/audio-wasm/dist/engine.wasm",
             "tooling/*/coverage",
             "tooling/*/reports",
             "bindings/*/coverage",
@@ -9610,7 +9603,7 @@ fn derives_the_workflow_s_lists_and_reads_its_node_release() {
             "rust coverage mutation-0 mutation-1 mutation-2 mutation-3 ",
             "mutation-4 mutation-5 mutation-6 mutation-7 ",
             "miri",
-            " gates tooling-config tooling-oracle bindings-wasm apps-playground apps-roadmap"
+            " gates tooling-config tooling-oracle bindings-audio-wasm apps-playground apps-roadmap"
         ),
         "the matrix of a full check, derived from the parts: every one but the final"
     );
@@ -10436,13 +10429,13 @@ fn makes_the_compiler_refuse_unsafe_outside_the_audited_files() {
         .map(|path| ((*path).to_owned(), audited(path)))
         .collect();
     for path in [
-        "crates/engine-core/src/lib.rs",
-        "crates/engine-cli/src/main.rs",
-        "crates/engine-cli/tests/binary.rs",
-        "crates/engine-cli/build.rs",
-        "crates/engine-cli/src/bin/other.rs",
-        "bindings/wasm/src/engine.rs",
-        "bindings/wasm/tests/web.rs",
+        "crates/audio-core/src/lib.rs",
+        "crates/audio-cli/src/main.rs",
+        "crates/audio-cli/tests/binary.rs",
+        "crates/audio-cli/build.rs",
+        "crates/audio-cli/src/bin/other.rs",
+        "bindings/audio-wasm/src/engine.rs",
+        "bindings/audio-wasm/tests/web.rs",
     ] {
         let text = if path.ends_with("/src/lib.rs") {
             format!("{forbid}{}", doc_tests_forbid())
@@ -10452,9 +10445,9 @@ fn makes_the_compiler_refuse_unsafe_outside_the_audited_files() {
         sources.push((path.to_owned(), text));
     }
     for path in [
-        "crates/engine-core/src/plan.rs",
-        "crates/engine-cli/tests/data/fixture.rs",
-        "bindings/wasm/src/lib.rs",
+        "crates/audio-core/src/plan.rs",
+        "crates/audio-cli/tests/data/fixture.rs",
+        "bindings/audio-wasm/src/lib.rs",
         "README.rs",
     ] {
         let text = if path.ends_with("/src/lib.rs") {
@@ -10471,9 +10464,9 @@ fn makes_the_compiler_refuse_unsafe_outside_the_audited_files() {
     );
     let mut missing = sources.clone();
     for (path, _) in [
-        ("crates/engine-core/src/lib.rs", ""),
-        ("crates/engine-cli/tests/binary.rs", ""),
-        ("bindings/wasm/src/engine.rs", ""),
+        ("crates/audio-core/src/lib.rs", ""),
+        ("crates/audio-cli/tests/binary.rs", ""),
+        ("bindings/audio-wasm/src/engine.rs", ""),
     ] {
         missing.retain(|(source, _)| source != path);
         missing.push((
@@ -10487,15 +10480,15 @@ fn makes_the_compiler_refuse_unsafe_outside_the_audited_files() {
             "the lint against unsafe code",
             &[
                 format!(
-                    "crates/engine-core/src/lib.rs does not hold `{}`",
+                    "crates/audio-core/src/lib.rs does not hold `{}`",
                     forbid.trim()
                 ),
                 format!(
-                    "crates/engine-cli/tests/binary.rs does not hold `{}`",
+                    "crates/audio-cli/tests/binary.rs does not hold `{}`",
                     forbid.trim()
                 ),
                 format!(
-                    "bindings/wasm/src/engine.rs does not hold `{}`",
+                    "bindings/audio-wasm/src/engine.rs does not hold `{}`",
                     forbid.trim()
                 ),
             ]
@@ -10507,12 +10500,12 @@ fn makes_the_compiler_refuse_unsafe_outside_the_audited_files() {
         format!("#[expect({lint}, reason = \"r\")] // deny({lint})\n"),
     ] {
         let mut probe = sources.clone();
-        probe.push(("crates/engine-core/src/m.rs".to_owned(), text.clone()));
+        probe.push(("crates/audio-core/src/m.rs".to_owned(), text.clone()));
         assert_eq!(
             unsafe_gate(&probe),
             found(
                 "the lint against unsafe code",
-                &["crates/engine-core/src/m.rs lifts the lint against unsafe code".to_owned()]
+                &["crates/audio-core/src/m.rs lifts the lint against unsafe code".to_owned()]
             ),
             "only the exact attribute is exempt: {text}"
         );
@@ -10558,7 +10551,7 @@ fn requires_each_forbid_as_a_leading_inner_attribute_of_its_file() {
         .iter()
         .map(|path| ((*path).to_owned(), audited(path)))
         .collect();
-    let root = "crates/engine-cli/src/main.rs";
+    let root = "crates/audio-cli/src/main.rs";
     let unsafe_site = |text: &str| {
         let mut sources = audited_sources.clone();
         sources.push((root.to_owned(), text.to_owned()));
@@ -10577,7 +10570,7 @@ fn requires_each_forbid_as_a_leading_inner_attribute_of_its_file() {
         }
         unsafe_gate(&sources)
     };
-    let module = "crates/engine-core/src/plan.rs";
+    let module = "crates/audio-core/src/plan.rs";
     let math_site = |path: &str, text: &str| {
         math_layer_gate(r#"{"packages":[]}"#, &[(path.to_owned(), text.to_owned())])
     };
@@ -10638,7 +10631,7 @@ fn lets_the_test_modules_of_an_unsafe_file_inherit_its_lifting() {
     let mut sources: Vec<(String, String)> = UNSAFE_FILES
         .iter()
         .map(|path| {
-            let text = if *path == "bindings/wasm/src/ffi.rs" {
+            let text = if *path == "bindings/audio-wasm/src/ffi.rs" {
                 format!("{}{declaration}", audited(path))
             } else {
                 audited(path)
@@ -10647,15 +10640,15 @@ fn lets_the_test_modules_of_an_unsafe_file_inherit_its_lifting() {
         })
         .collect();
     sources.push((
-        "bindings/wasm/src/ffi_tests.rs".to_owned(),
+        "bindings/audio-wasm/src/ffi_tests.rs".to_owned(),
         "fn pointer() {}\n".to_owned(),
     ));
     sources.push((
-        "bindings/wasm/src/engine.rs".to_owned(),
+        "bindings/audio-wasm/src/engine.rs".to_owned(),
         format!("{forbid}{declaration}").replace("ffi_tests", "engine_tests"),
     ));
     sources.push((
-        "bindings/wasm/src/engine_tests.rs".to_owned(),
+        "bindings/audio-wasm/src/engine_tests.rs".to_owned(),
         forbid.clone(),
     ));
     assert_eq!(
@@ -10665,28 +10658,28 @@ fn lets_the_test_modules_of_an_unsafe_file_inherit_its_lifting() {
     );
     let mut safe_tests = sources.clone();
     for (path, text) in &mut safe_tests {
-        if path == "bindings/wasm/src/engine_tests.rs" {
+        if path == "bindings/audio-wasm/src/engine_tests.rs" {
             *text = "fn plain() {}\n".to_owned();
         }
     }
     assert_eq!(
         unsafe_gate(&safe_tests),
         failed(format!(
-            "the lint against unsafe code: bindings/wasm/src/engine_tests.rs does not hold `{}`",
+            "the lint against unsafe code: bindings/audio-wasm/src/engine_tests.rs does not hold `{}`",
             forbid.trim()
         )),
         "the test module of a safe file forbids it like any module"
     );
     let mut undeclared = sources;
     for (path, text) in &mut undeclared {
-        if path == "bindings/wasm/src/ffi.rs" {
+        if path == "bindings/audio-wasm/src/ffi.rs" {
             *text = audited(path);
         }
     }
     assert_eq!(
         unsafe_gate(&undeclared),
         failed(format!(
-            "the lint against unsafe code: bindings/wasm/src/ffi_tests.rs does not hold `{}`",
+            "the lint against unsafe code: bindings/audio-wasm/src/ffi_tests.rs does not hold `{}`",
             forbid.trim()
         )),
         "a file the unsafe file does not declare is not its test module"
@@ -10696,7 +10689,7 @@ fn lets_the_test_modules_of_an_unsafe_file_inherit_its_lifting() {
 #[test]
 fn reads_the_lint_forbids_as_no_test_code() {
     let gate =
-        |text: &str| test_code_gate(&[("crates/engine-core/src/a.rs".to_owned(), text.to_owned())]);
+        |text: &str| test_code_gate(&[("crates/audio-core/src/a.rs".to_owned(), text.to_owned())]);
     // The two lint forbids that apply outside tests, written whole, the attribute's name
     // apart so that the bypass gate does not read this file as lifting a lint.
     let attribute = format!("{}_{}", "cfg", "attr");
@@ -10715,7 +10708,7 @@ fn reads_the_lint_forbids_as_no_test_code() {
             "#![{attribute}(not(test), forbid(clippy::float_arithmetic, unused))]\n"
         )),
         failed(
-            "crates/engine-core/src/a.rs:1: names `test` outside test code: tests \
+            "crates/audio-core/src/a.rs:1: names `test` outside test code: tests \
              live in tests/ or in a *_tests.rs file declared `#[cfg(test)] #[path = \
              \"<name>_tests.rs\"] mod <module>;`"
         ),
@@ -10777,16 +10770,16 @@ fn tells_each_build_and_its_dep_info_file_from_cargo_s_messages() {
     };
     for (output, target, test, dep_info) in [
         (
-            "/t/deps/libengine_core-1.rmeta",
-            "engine_core",
+            "/t/deps/libaudio_core-1.rmeta",
+            "audio_core",
             false,
-            "/t/deps/engine_core-1.d",
+            "/t/deps/audio_core-1.d",
         ),
         (
-            "/t/deps/engine_core-2",
-            "engine_core",
+            "/t/deps/audio_core-2",
+            "audio_core",
             true,
-            "/t/deps/engine_core-2.d",
+            "/t/deps/audio_core-2.d",
         ),
         (
             "/t/deps/plan_laws-3.exe",
@@ -10795,10 +10788,10 @@ fn tells_each_build_and_its_dep_info_file_from_cargo_s_messages() {
             "/t/deps/plan_laws-3.d",
         ),
         (
-            "/t/deps/libengine_cli-4.rmeta",
-            "engine-cli",
+            "/t/deps/libaudio_cli-4.rmeta",
+            "audio-cli",
             false,
-            "/t/deps/engine_cli-4.d",
+            "/t/deps/audio_cli-4.d",
         ),
     ] {
         for tests_only in [false, true] {
@@ -10835,7 +10828,7 @@ fn refuses_a_cargo_message_it_does_not_read() {
         super::loaded_files::built_artifact(line, tests_only, &super::RUST_CRATES)
             .map_err(|failure| failure.summary)
     };
-    let built = artifact(core.dir, "engine_core", true, "/t/deps/engine_core-2");
+    let built = artifact(core.dir, "audio_core", true, "/t/deps/audio_core-2");
     let unread =
         |what: &str, line: &str| Err(format!("cannot read cargo's message {what}: {line}"));
     for (what, line) in [
@@ -10850,29 +10843,29 @@ fn refuses_a_cargo_message_it_does_not_read() {
         ),
         (
             "(no manifest_path)",
-            built.replace(r#""manifest_path":"/r/crates/engine-core/Cargo.toml","#, ""),
+            built.replace(r#""manifest_path":"/r/crates/audio-core/Cargo.toml","#, ""),
         ),
         (
             "(no target name)",
-            built.replace(r#""name":"engine_core""#, r#""kind":[]"#),
+            built.replace(r#""name":"audio_core""#, r#""kind":[]"#),
         ),
         (
             "(no output)",
-            built.replace(r#"["/t/deps/engine_core-2"]"#, "[]"),
+            built.replace(r#"["/t/deps/audio_core-2"]"#, "[]"),
         ),
         (
             "(an output with no directory)",
-            built.replace("/t/deps/engine_core-2", "engine_core-2"),
+            built.replace("/t/deps/audio_core-2", "audio_core-2"),
         ),
         (
             "(an output not named <crate>-<hash>)",
-            built.replace("/t/deps/engine_core-2", "/t/deps/engine_corex-2"),
+            built.replace("/t/deps/audio_core-2", "/t/deps/audio_corex-2"),
         ),
     ] {
         assert_eq!(read(&line, true), unread(what, &line), "{what}");
     }
     let foreign = built.replace(
-        "/r/crates/engine-core/Cargo.toml",
+        "/r/crates/audio-core/Cargo.toml",
         "/r/crates/other/Cargo.toml",
     );
     assert_eq!(
@@ -10893,22 +10886,22 @@ fn refuses_a_file_rustc_loads_where_no_gate_looks() {
         files: files.iter().map(|file| (*file).to_owned()).collect(),
     };
     let tracked: Vec<String> = [
-        "crates/engine-core/src/lib.rs",
-        "crates/engine-core/src/plan_tests.rs",
-        "crates/engine-core/src/helper.rs",
-        "crates/engine-core/tests/laws.rs",
-        "crates/engine-objects/src/lib.rs",
+        "crates/audio-core/src/lib.rs",
+        "crates/audio-core/src/plan_tests.rs",
+        "crates/audio-core/src/helper.rs",
+        "crates/audio-core/tests/laws.rs",
+        "crates/audio-boxes/src/lib.rs",
     ]
     .map(str::to_owned)
     .into();
-    let library = build(core, false, &["crates/engine-core/src/lib.rs"]);
+    let library = build(core, false, &["crates/audio-core/src/lib.rs"]);
     let tests = build(
         core,
         true,
         &[
-            "crates/engine-core/src/lib.rs",
-            "crates/engine-core/src/plan_tests.rs",
-            "crates/engine-core/tests/laws.rs",
+            "crates/audio-core/src/lib.rs",
+            "crates/audio-core/src/plan_tests.rs",
+            "crates/audio-core/tests/laws.rs",
             "conformance/test-matrix.json",
         ],
     );
@@ -10924,11 +10917,11 @@ fn refuses_a_file_rustc_loads_where_no_gate_looks() {
     assert_eq!(
         gate(&[
             library,
-            build(core, true, &["crates/engine-core/src/helper.rs"])
+            build(core, true, &["crates/audio-core/src/helper.rs"])
         ]),
         refused(
-            "crates/engine-core/src/helper.rs: read only by the test build of `engine_core` \
-             (engine-core), but not named as test code (tests/, a *_tests.rs file): a module \
+            "crates/audio-core/src/helper.rs: read only by the test build of `audio_core` \
+             (audio-core), but not named as test code (tests/, a *_tests.rs file): a module \
              brought in by a macro or an attribute"
         ),
         "a file only the tests load, named as code"
@@ -10939,23 +10932,23 @@ fn refuses_a_file_rustc_loads_where_no_gate_looks() {
                 core,
                 false,
                 &[
-                    "crates/engine-core/src/lib.rs",
-                    "crates/engine-core/src/helper.rs"
+                    "crates/audio-core/src/lib.rs",
+                    "crates/audio-core/src/helper.rs"
                 ]
             ),
-            build(core, true, &["crates/engine-core/src/helper.rs"]),
+            build(core, true, &["crates/audio-core/src/helper.rs"]),
         ]),
         Ok(()),
         "a file of the code, which the tests load too"
     );
     assert_eq!(
         gate(&[
-            build(objects, false, &["crates/engine-objects/src/lib.rs"]),
-            build(core, true, &["crates/engine-objects/src/lib.rs"])
+            build(objects, false, &["crates/audio-boxes/src/lib.rs"]),
+            build(core, true, &["crates/audio-boxes/src/lib.rs"])
         ]),
         refused(
-            "crates/engine-objects/src/lib.rs: read by the test build of `engine_core` \
-             (engine-core), outside its crate and its declared test data"
+            "crates/audio-boxes/src/lib.rs: read by the test build of `audio_core` \
+             (audio-core), outside its crate and its declared test data"
         ),
         "another crate's code, which its build reads: not this crate's"
     );
@@ -10978,7 +10971,7 @@ fn refuses_a_file_rustc_loads_outside_its_crate_or_git() {
     assert_eq!(
         gate(&[build(core, false, &["conformance/test-matrix.json"])]),
         refused(
-            "conformance/test-matrix.json: read by the build of `engine_core` (engine-core), \
+            "conformance/test-matrix.json: read by the build of `audio_core` (audio-core), \
              outside its crate"
         ),
         "test data read by the code"
@@ -10986,28 +10979,24 @@ fn refuses_a_file_rustc_loads_outside_its_crate_or_git() {
     assert_eq!(
         gate(&[build(core, true, &["spec/x.json"])]),
         refused(
-            "spec/x.json: read by the test build of `engine_core` (engine-core), outside its \
+            "spec/x.json: read by the test build of `audio_core` (audio-core), outside its \
              crate and its declared test data"
         ),
         "data no declaration names"
     );
     assert_eq!(
-        gate(&[build(core, false, &["crates/engine-core/src/new.rs"])]),
+        gate(&[build(core, false, &["crates/audio-core/src/new.rs"])]),
         refused(
-            "crates/engine-core/src/new.rs: read by the build of `engine_core` (engine-core), \
+            "crates/audio-core/src/new.rs: read by the build of `audio_core` (audio-core), \
              but not tracked by git, so no gate read it (git add it)"
         ),
         "a Rust file git does not track"
     );
     assert_eq!(
-        gate(&[build(
-            core,
-            true,
-            &["crates/engine-core/tests/new_tests.rs"]
-        )]),
+        gate(&[build(core, true, &["crates/audio-core/tests/new_tests.rs"])]),
         refused(
-            "crates/engine-core/tests/new_tests.rs: read by the test build of `engine_core` \
-             (engine-core), but not tracked by git, so no gate read it (git add it)"
+            "crates/audio-core/tests/new_tests.rs: read by the test build of `audio_core` \
+             (audio-core), but not tracked by git, so no gate read it (git add it)"
         ),
         "untracked test code"
     );
@@ -11018,15 +11007,15 @@ fn refuses_test_code_and_files_not_rust_in_the_code() {
     let core = super::RUST_CRATES[0];
     let build = |of_tests: bool, files: &[&str]| super::Loaded {
         krate: core,
-        target: "engine_core".to_owned(),
+        target: "audio_core".to_owned(),
         configuration: None,
         of_tests,
         files: files.iter().map(|file| (*file).to_owned()).collect(),
     };
     let tracked: Vec<String> = [
-        "crates/engine-core/src/lib.rs",
-        "crates/engine-core/src/extra_tests.rs",
-        "crates/engine-core/tests/laws.rs",
+        "crates/audio-core/src/lib.rs",
+        "crates/audio-core/src/extra_tests.rs",
+        "crates/audio-core/tests/laws.rs",
     ]
     .map(str::to_owned)
     .into();
@@ -11035,13 +11024,13 @@ fn refuses_test_code_and_files_not_rust_in_the_code() {
     };
     let refused = |problem: &str| Err(problem.to_owned());
     for test_code in [
-        "crates/engine-core/src/extra_tests.rs",
-        "crates/engine-core/tests/laws.rs",
+        "crates/audio-core/src/extra_tests.rs",
+        "crates/audio-core/tests/laws.rs",
     ] {
         assert_eq!(
-            gate(&[build(false, &["crates/engine-core/src/lib.rs", test_code])]),
+            gate(&[build(false, &["crates/audio-core/src/lib.rs", test_code])]),
             refused(&format!(
-                "{test_code}: read by the build of `engine_core` (engine-core), which builds no \
+                "{test_code}: read by the build of `audio_core` (audio-core), which builds no \
                  tests, but named as test code (tests/, a *_tests.rs file): code that every \
                  rule telling test code by its name skips"
             )),
@@ -11049,25 +11038,25 @@ fn refuses_test_code_and_files_not_rust_in_the_code() {
         );
         assert_eq!(
             gate(&[
-                build(false, &["crates/engine-core/src/lib.rs"]),
-                build(true, &["crates/engine-core/src/lib.rs", test_code]),
+                build(false, &["crates/audio-core/src/lib.rs"]),
+                build(true, &["crates/audio-core/src/lib.rs", test_code]),
             ]),
             Ok(()),
             "the same file read by the tests alone: {test_code}"
         );
     }
     for (of_tests, data, what) in [
-        (false, "crates/engine-core/src/blob.inc", "the build"),
-        (true, "crates/engine-core/src/blob.inc", "the test build"),
-        (true, "crates/engine-core/tests/data.bin", "the test build"),
+        (false, "crates/audio-core/src/blob.inc", "the build"),
+        (true, "crates/audio-core/src/blob.inc", "the test build"),
+        (true, "crates/audio-core/tests/data.bin", "the test build"),
     ] {
         assert_eq!(
             gate(&[
-                build(false, &["crates/engine-core/src/lib.rs"]),
-                build(of_tests, &["crates/engine-core/src/lib.rs", data])
+                build(false, &["crates/audio-core/src/lib.rs"]),
+                build(of_tests, &["crates/audio-core/src/lib.rs", data])
             ]),
             refused(&format!(
-                "{data}: read by {what} of `engine_core` (engine-core), not a Rust file: no gate \
+                "{data}: read by {what} of `audio_core` (audio-core), not a Rust file: no gate \
                  reads it as code, and only a build of tests reads data, from its crate's \
                  declared test data"
             )),
@@ -11075,20 +11064,20 @@ fn refuses_test_code_and_files_not_rust_in_the_code() {
         );
     }
     let in_crate = RustCrate {
-        test_data: &["crates/engine-core/tests/data/"],
+        test_data: &["crates/audio-core/tests/data/"],
         ..core
     };
     assert_eq!(
         super::loaded_files_gate(
             &[
-                build(false, &["crates/engine-core/src/lib.rs"]),
+                build(false, &["crates/audio-core/src/lib.rs"]),
                 super::Loaded {
                     krate: in_crate,
                     ..build(
                         true,
                         &[
-                            "crates/engine-core/src/lib.rs",
-                            "crates/engine-core/tests/data/a.bin"
+                            "crates/audio-core/src/lib.rs",
+                            "crates/audio-core/tests/data/a.bin"
                         ]
                     )
                 },
@@ -11100,11 +11089,11 @@ fn refuses_test_code_and_files_not_rust_in_the_code() {
     );
     assert_eq!(
         gate(&[
-            build(false, &["crates/engine-core/src/lib.rs"]),
+            build(false, &["crates/audio-core/src/lib.rs"]),
             build(
                 true,
                 &[
-                    "crates/engine-core/src/lib.rs",
+                    "crates/audio-core/src/lib.rs",
                     "conformance/test-matrix.json"
                 ]
             )
@@ -11403,7 +11392,7 @@ fn reads_every_configuration_the_check_builds() {
     }
     for (_, [target, _, _], packages) in &gate {
         assert_eq!(
-            packages.contains(&"engine-wasm".to_owned()),
+            packages.contains(&"audio-wasm".to_owned()),
             target.as_deref() == Some("wasm32-unknown-unknown"),
             "the engine's crate for WebAssembly, checked for WebAssembly alone: {target:?}"
         );
@@ -11489,9 +11478,9 @@ fn reports_the_builds_and_dep_info_files_it_cannot_read() {
     );
     let mut failing = passing();
     failing.fail = Some(check.line());
-    let rendered = "    Checking engine-fpenv v0.1.0\nerror[E0308]: mismatched types\n --> \
-                    crates/engine-fpenv/src/lib.rs:1:20\nerror: could not compile \
-                    `engine-fpenv` (lib) due to 1 previous error";
+    let rendered = "    Checking audio-fpenv v0.1.0\nerror[E0308]: mismatched types\n --> \
+                    crates/audio-fpenv/src/lib.rs:1:20\nerror: could not compile \
+                    `audio-fpenv` (lib) due to 1 previous error";
     let _rendered = failing
         .files
         .insert(format!("stderr {}", check.line()), format!("{rendered}\n"));
@@ -11505,20 +11494,19 @@ fn reports_the_builds_and_dep_info_files_it_cannot_read() {
         "a build that fails, with the compiler's rendered diagnostic"
     );
     let mut missing = passing();
-    let _gone = missing.files.remove("/t/debug/deps/engine_fpenv-1.d");
+    let _gone = missing.files.remove("/t/debug/deps/audio_fpenv-1.d");
     assert_eq!(
         run_steps(&step(), &mut missing, &mut Vec::new()),
-        failed("Loaded: cannot read /t/debug/deps/engine_fpenv-1.d: missing"),
+        failed("Loaded: cannot read /t/debug/deps/audio_fpenv-1.d: missing"),
         "a dep-info file missing"
     );
     let mut garbled = passing();
-    let _garbled = garbled.files.insert(
-        "/t/debug/deps/engine_fpenv-2.d".to_owned(),
-        "x\n".to_owned(),
-    );
+    let _garbled = garbled
+        .files
+        .insert("/t/debug/deps/audio_fpenv-2.d".to_owned(), "x\n".to_owned());
     assert_eq!(
         run_steps(&step(), &mut garbled, &mut Vec::new()),
-        failed("Loaded: /t/debug/deps/engine_fpenv-2.d: a line not as rustc writes dep-info: x"),
+        failed("Loaded: /t/debug/deps/audio_fpenv-2.d: a line not as rustc writes dep-info: x"),
         "a dep-info file not as rustc writes it"
     );
     let mut noise = passing();
@@ -11532,17 +11520,17 @@ fn reports_the_builds_and_dep_info_files_it_cannot_read() {
     );
     let mut stray = passing();
     let _stray = stray.files.insert(
-        "/t/debug/deps/engine_fpenv-2.d".to_owned(),
+        "/t/debug/deps/audio_fpenv-2.d".to_owned(),
         dep_info(
-            "/t/debug/deps/engine_fpenv-2",
-            &["crates/engine-fpenv/src/stray.rs"],
+            "/t/debug/deps/audio_fpenv-2",
+            &["crates/audio-fpenv/src/stray.rs"],
         ),
     );
     assert_eq!(
         run_steps(&step(), &mut stray, &mut Vec::new()),
         failed(
-            "Loaded: crates/engine-fpenv/src/stray.rs: read by the test \
-             build of `engine_fpenv` (engine-fpenv), but not tracked by git, so no gate read it \
+            "Loaded: crates/audio-fpenv/src/stray.rs: read by the test \
+             build of `audio_fpenv` (audio-fpenv), but not tracked by git, so no gate read it \
              (git add it)"
         ),
         "the gate fed with what the builds read"
@@ -11552,10 +11540,10 @@ fn reports_the_builds_and_dep_info_files_it_cannot_read() {
 #[test]
 fn refuses_a_reason_naming_a_function_outside_test_code() {
     let production = (
-        "crates/engine-hash/src/lib.rs".to_owned(),
+        "crates/audio-hash/src/lib.rs".to_owned(),
         "pub fn unsafe_gate_helper_fn() {}\n".to_owned(),
     );
-    let review = "crates/engine-hash/src/lib.rs: replace unsafe_gate_helper_fn with () -- killed by unsafe_gate_helper_fn\n";
+    let review = "crates/audio-hash/src/lib.rs: replace unsafe_gate_helper_fn with () -- killed by unsafe_gate_helper_fn\n";
     assert_eq!(
         unviable_names_gate(review, core::slice::from_ref(&production)),
         failed(format!(
@@ -11566,8 +11554,8 @@ fn refuses_a_reason_naming_a_function_outside_test_code() {
         "a production function named as the test that kills the mutant"
     );
     for test_code in [
-        "crates/engine-hash/src/lib_tests.rs",
-        "crates/engine-hash/tests/hash.rs",
+        "crates/audio-hash/src/lib_tests.rs",
+        "crates/audio-hash/tests/hash.rs",
     ] {
         assert_eq!(
             unviable_names_gate(
@@ -11590,10 +11578,10 @@ fn refuses_a_reason_naming_a_function_outside_test_code() {
 fn refuses_a_review_naming_a_function_no_source_holds() {
     let sources = vec![
         (
-            "crates/engine-core/src/lib_tests.rs".to_owned(),
+            "crates/audio-core/src/lib_tests.rs".to_owned(),
             "type F = fn(u8) -> u8;\nfn kills_the_viable_variant() {}\n// fn in_a_comment_only() {}\nconst A: &str = \"fn in_a_string_only\";\nfn r#raw_named_one() {}\n".to_owned(),
         ),
-        ("crates/engine-hash/tests/x.rs".to_owned(), "pub(crate) fn other_crate_s_test() {}\n".to_owned()),
+        ("crates/audio-hash/tests/x.rs".to_owned(), "pub(crate) fn other_crate_s_test() {}\n".to_owned()),
     ];
     let reviews = "# A comment naming no_such_function_here is prose.\n\ncrates/a/src/lib.rs: replace f -> u8 with 0 -- killed by kills_the_viable_variant and other_crate_s_test\ncrates/a/src/lib.rs: replace g -> u8 with 1 -- killed by raw_named_one, not two_parts nor Not_a_name nor not_A_name\n";
     assert_eq!(
@@ -11670,7 +11658,7 @@ fn refuses_a_test_file_that_loads_another() {
     );
     let loads = |what: &str, line: usize| {
         format!(
-            "crates/engine-core/src/plan_tests.rs:{line}: {what}, which no rule tells \
+            "crates/audio-core/src/plan_tests.rs:{line}: {what}, which no rule tells \
              as test code: a *_tests.rs file writes its modules inline"
         )
     };
@@ -11699,8 +11687,8 @@ fn refuses_a_test_file_that_loads_another() {
     ] {
         assert_eq!(
             gate(&[
-                ("crates/engine-core/src/plan.rs", declared),
-                ("crates/engine-core/src/plan_tests.rs", text),
+                ("crates/audio-core/src/plan.rs", declared),
+                ("crates/audio-core/src/plan_tests.rs", text),
             ]),
             failed(expected),
             "{text}"
@@ -11708,9 +11696,9 @@ fn refuses_a_test_file_that_loads_another() {
     }
     assert_eq!(
         gate(&[
-            ("crates/engine-core/src/plan.rs", declared),
+            ("crates/audio-core/src/plan.rs", declared),
             (
-                "crates/engine-core/src/plan_tests.rs",
+                "crates/audio-core/src/plan_tests.rs",
                 "mod inner {\n    #[test]\n    fn t() { let path = include_str!(\"x.json\"); }\n}\n// mod helper;\nconst M: &str = \"mod helper;\";\nfn f(path: &str) -> &str { path }\n#[derive(Debug)] struct S;\n#[path = \"h.rs\"]\nmod h {}\n",
             ),
         ]),
@@ -11732,13 +11720,13 @@ fn refuses_test_code_outside_test_files() {
     let declared = "//! test, in prose\nconst A: &str = \"test\";\nconst B: &str = include_str!(\"x.json\");\n#[cfg(test)]\n#[path = \"plan_tests.rs\"]\nmod tests;\n";
     let tests = "#[test]\nfn f() { assert!(cfg!(test)); }\n";
     let fine = [
-        ("crates/engine-core/src/plan.rs", declared),
-        ("crates/engine-core/src/plan_tests.rs", tests),
+        ("crates/audio-core/src/plan.rs", declared),
+        ("crates/audio-core/src/plan_tests.rs", tests),
         (
-            "crates/engine-cli/tests/binary.rs",
+            "crates/audio-cli/tests/binary.rs",
             "#[cfg(test)]\nmod t { include!(\"x.rs\"); }\n",
         ),
-        ("crates/engine-cli/tests/data_tests.rs", ""),
+        ("crates/audio-cli/tests/data_tests.rs", ""),
         ("README.rs", "#[test] fn f() {}\n"),
         ("crates/other/src/lib.rs", "#[test] fn f() {}\n"),
     ];
@@ -11754,51 +11742,51 @@ fn refuses_test_code_outside_test_files() {
         ("#[cfg(any(test, unix))]\nfn f() {}\n", 1),
     ] {
         assert_eq!(
-            gate(&[("crates/engine-core/src/a.rs", text)]),
-            failed(format!("crates/engine-core/src/a.rs:{line}: {names}")),
+            gate(&[("crates/audio-core/src/a.rs", text)]),
+            failed(format!("crates/audio-core/src/a.rs:{line}: {names}")),
             "{text}"
         );
     }
     assert_eq!(
         gate(&[(
-            "crates/engine-core/src/a.rs",
+            "crates/audio-core/src/a.rs",
             "fn f() {\n    #[test]\n    fn g() {}\n}\n"
         )]),
-        failed(format!("crates/engine-core/src/a.rs:2: {names}")),
+        failed(format!("crates/audio-core/src/a.rs:2: {names}")),
         "a test function"
     );
     assert_eq!(
-        gate(&[("bindings/wasm/src/a.rs", "include!(\"b.rs\");\n")]),
+        gate(&[("bindings/audio-wasm/src/a.rs", "include!(\"b.rs\");\n")]),
         failed(
-            "bindings/wasm/src/a.rs:1: names `include`: code is brought in by `mod` \
+            "bindings/audio-wasm/src/a.rs:1: names `include`: code is brought in by `mod` \
              only, so that its path says what it is"
         ),
         "code included"
     );
     assert_eq!(
-        gate(&[("crates/engine-core/src/plan_tests.rs", tests)]),
+        gate(&[("crates/audio-core/src/plan_tests.rs", tests)]),
         failed(
-            "crates/engine-core/src/plan_tests.rs: a *_tests.rs file no file beside \
+            "crates/audio-core/src/plan_tests.rs: a *_tests.rs file no file beside \
              it declares as test code"
         ),
         "an undeclared test file"
     );
     assert_eq!(
         gate(&[
-            ("crates/engine-core/src/plan.rs", declared),
-            ("crates/engine-core/src/other.rs", declared),
-            ("crates/engine-core/src/plan_tests.rs", tests),
-            ("crates/engine-core/src/sub/x.rs", declared),
+            ("crates/audio-core/src/plan.rs", declared),
+            ("crates/audio-core/src/other.rs", declared),
+            ("crates/audio-core/src/plan_tests.rs", tests),
+            ("crates/audio-core/src/sub/x.rs", declared),
         ]),
         step_found(&[
-            "crates/engine-core/src/plan_tests.rs: declared as test code 2 times".to_owned()
+            "crates/audio-core/src/plan_tests.rs: declared as test code 2 times".to_owned()
         ]),
         "a test file declared twice; one declared from another directory is another file"
     );
     let unknown = gate(&[
-        ("crates/engine-core/src/plan.rs", declared),
-        ("crates/engine-core/src/plan_tests.rs", tests),
-        ("crates/engine-core/src/sub/x.rs", declared),
+        ("crates/audio-core/src/plan.rs", declared),
+        ("crates/audio-core/src/plan_tests.rs", tests),
+        ("crates/audio-core/src/sub/x.rs", declared),
     ]);
     assert_eq!(
         unknown,
@@ -11824,12 +11812,12 @@ fn refuses_test_data_a_crate_does_not_declare() {
         "// include_str!(\"../../../spec/x.json\")\nconst A: &str = \"include_str!(\\\"x\\\")\";\n",
     ] {
         assert_eq!(
-            with("crates/engine-hash/src/more_tests.rs", text),
+            with("crates/audio-hash/src/more_tests.rs", text),
             Ok(()),
             "declared data, the crate's own files, other variables, prose: {text}"
         );
     }
-    let unread = "crates/engine-hash/src/more_tests.rs:1: the tests of engine-hash read";
+    let unread = "crates/audio-hash/src/more_tests.rs:1: the tests of audio-hash read";
     for (text, read) in [
         (
             "const A: &str = include_str!(\"../../../spec/measurement-vectors.json\");\n",
@@ -11845,7 +11833,7 @@ fn refuses_test_data_a_crate_does_not_declare() {
         ),
     ] {
         assert_eq!(
-            with("crates/engine-hash/src/more_tests.rs", text),
+            with("crates/audio-hash/src/more_tests.rs", text),
             failed(format!("{unread} `{read}`, which is not in its test_data")),
             "{text}"
         );
@@ -11872,9 +11860,9 @@ fn refuses_test_data_a_crate_does_not_declare() {
         ),
     ] {
         assert_eq!(
-            with("crates/engine-hash/src/more_tests.rs", text),
+            with("crates/audio-hash/src/more_tests.rs", text),
             failed(format!(
-                "crates/engine-hash/src/more_tests.rs:1: `{word}!` without a literal \
+                "crates/audio-hash/src/more_tests.rs:1: `{word}!` without a literal \
                  path the gate can follow"
             )),
             "{text}"
@@ -11882,24 +11870,24 @@ fn refuses_test_data_a_crate_does_not_declare() {
     }
     assert_eq!(
         with(
-            "crates/engine-hash/src/more_tests.rs",
+            "crates/audio-hash/src/more_tests.rs",
             "const A: &str = include_str!(\"../../../../x\");\n"
         ),
         failed(
-            "crates/engine-hash/src/more_tests.rs:1: `../../../../x` leaves the \
+            "crates/audio-hash/src/more_tests.rs:1: `../../../../x` leaves the \
              repository"
         ),
         "outside the repository"
     );
     let without: Vec<(String, String)> = base
         .iter()
-        .filter(|(path, _)| path != "crates/engine-hash/tests/data.rs")
+        .filter(|(path, _)| path != "crates/audio-hash/tests/data.rs")
         .cloned()
         .collect();
     assert_eq!(
         test_data_gate(&without),
         failed(
-            "engine-hash: declares `spec/render-hash-vectors.json` as test data, \
+            "audio-hash: declares `spec/render-hash-vectors.json` as test data, \
              which no test of it reads"
         ),
         "a stale root"
@@ -11918,7 +11906,7 @@ fn refuses_the_reads_of_test_data_it_cannot_follow() {
         sources.push((path.to_owned(), text.to_owned()));
         test_data_gate(&sources)
     };
-    let file = "crates/engine-hash/src/more_tests.rs";
+    let file = "crates/audio-hash/src/more_tests.rs";
     let manifest = format!("\"{}_{}_{}\"", "CARGO", "MANIFEST", "DIR");
     let run_time = |word: &str| {
         format!(
@@ -11972,7 +11960,7 @@ fn refuses_the_reads_of_test_data_it_cannot_follow() {
     for text in [
         "fn f() { let _ = std::env::var_os(CHILD); let _ = var(\"HOME\"); }\n".to_owned(),
         "fn f() { let _ = var(r\"CARGO_PKG_NAME\"); let _ = var_os(r#\"CARGO\"#); }\n".to_owned(),
-        "fn f() { let _ = env!(\"CARGO_BIN_EXE_engine-cli\"); let _ = env!(\"CARGO_PKG_VERSION\"); }\n"
+        "fn f() { let _ = env!(\"CARGO_BIN_EXE_audio-cli\"); let _ = env!(\"CARGO_PKG_VERSION\"); }\n"
             .to_owned(),
         format!(
             "fn f() {{ let _ = Path::new(env!({manifest})).join(\"src\").display(); let var = 1; }}\n"
@@ -11983,11 +11971,11 @@ fn refuses_the_reads_of_test_data_it_cannot_follow() {
     // Data read outside the crate by code that is not a test.
     assert_eq!(
         with(
-            "crates/engine-testkit/src/measure/mod.rs",
+            "crates/audio-testkit/src/measure/mod.rs",
             "const V: &str = include_str!(\"../../../../spec/measurement-vectors.json\");\n"
         ),
         failed(
-            "crates/engine-testkit/src/measure/mod.rs:1: code that is not a test \
+            "crates/audio-testkit/src/measure/mod.rs:1: code that is not a test \
              reads `spec/measurement-vectors.json`, outside its crate: only tests read test data"
         ),
         "a library's read is no input any crate declares"
@@ -11996,7 +11984,7 @@ fn refuses_the_reads_of_test_data_it_cannot_follow() {
 
 #[test]
 fn follows_the_reads_of_test_data_in_tokens() {
-    let file = "crates/engine-hash/src/more_tests.rs";
+    let file = "crates/audio-hash/src/more_tests.rs";
     let with = |text: &str| {
         let mut sources = test_data_reader_sources();
         sources.push((file.to_owned(), text.to_owned()));
@@ -12007,7 +11995,7 @@ fn follows_the_reads_of_test_data_in_tokens() {
         (
             "/* /* */ \"*/ const A: &str = include_str!(\"../../../spec/measurement-vectors.json\"); // \"\n".to_owned(),
             format!(
-                "{file}:1: the tests of engine-hash read `spec/measurement-vectors.json`, which \
+                "{file}:1: the tests of audio-hash read `spec/measurement-vectors.json`, which \
                  is not in its test_data"
             ),
         ),
@@ -12069,7 +12057,7 @@ fn leaves_a_binary_entry_point_to_find_its_repository() {
         "a binary's entry point, which finds the repository it runs in"
     );
     for path in [
-        "crates/engine-hash/src/main.rs",
+        "crates/audio-hash/src/main.rs",
         "crates/xtask/src/bin/main.rs",
     ] {
         assert_eq!(
@@ -12157,13 +12145,13 @@ fn requires_every_crate_to_inherit_the_workspace_lints() {
     let crates: Vec<(String, String)> = super::RUST_CRATES
         .iter()
         .map(|krate| {
-            let text = if krate.name == "engine-core" {
+            let text = if krate.name == "audio-core" {
                 format!(
                     "[package]\nversion.workspace = true\nrepository.workspace = true\n\n\
                      [lints.rust]\n{}_{} = \"allow\"\n",
                     "unsafe", "code"
                 )
-            } else if krate.name == "engine-hash" {
+            } else if krate.name == "audio-hash" {
                 "[package]\nversion.workspace = true\nrepository.workspace = true\n\n[lints]\n\n\
                  workspace = true\n"
                     .to_owned()
@@ -12178,8 +12166,8 @@ fn requires_every_crate_to_inherit_the_workspace_lints() {
         found(
             "the manifests differ from what xtask knows",
             &[
-                "crates/engine-core/Cargo.toml does not inherit the workspace lints (`[lints]` then `workspace = true`)".to_owned(),
-                "crates/engine-hash/Cargo.toml does not inherit the workspace lints (`[lints]` then `workspace = true`)".to_owned(),
+                "crates/audio-core/Cargo.toml does not inherit the workspace lints (`[lints]` then `workspace = true`)".to_owned(),
+                "crates/audio-hash/Cargo.toml does not inherit the workspace lints (`[lints]` then `workspace = true`)".to_owned(),
             ]
         ),
         "lints of its own, or the inheritance away from its table"
@@ -12223,13 +12211,13 @@ fn requires_the_exact_cargo_configuration() {
 
 #[test]
 fn refuses_a_dependency_renamed() {
-    let metadata = r#"{"packages":[{"name":"x","dependencies":[{"name":"engine-hash","kind":null,"path":"/r/crates/engine-hash","rename":"core"},{"name":"serde_json","kind":"dev","rename":"json"}]}]}"#;
+    let metadata = r#"{"packages":[{"name":"x","dependencies":[{"name":"audio-hash","kind":null,"path":"/r/crates/audio-hash","rename":"core"},{"name":"serde_json","kind":"dev","rename":"json"}]}]}"#;
     assert_eq!(
         super::dependency_gate(metadata, &[], "x: serde_json (dev) -- reads JSON\n"),
         found(
             "direct dependencies must be reviewed in dependencies.txt and keep their names",
             &[
-                "x depends on engine-hash renamed `core`: a dependency keeps its package's \
+                "x depends on audio-hash renamed `core`: a dependency keeps its package's \
                  name, so that no name (`core`, `std` …) can stand for another crate"
                     .to_owned(),
                 "x depends on serde_json renamed `json`: a dependency keeps its package's \
@@ -12251,10 +12239,10 @@ fn requires_every_direct_dependency_to_be_reviewed() {
         ),
         (
             "apps/a/package.json".to_owned(),
-            r#"{"dependencies":{"@poyetik/engine-wasm":"workspace:*","react":"^19"},"peerDependencies":{"typescript":"~6"}}"#.to_owned(),
+            r#"{"dependencies":{"@poyetik/audio-wasm":"workspace:*","react":"^19"},"peerDependencies":{"typescript":"~6"}}"#.to_owned(),
         ),
     ];
-    let metadata = r#"{"packages":[{"name":"x","dependencies":[{"name":"engine-core","kind":null,"path":"/r","rename":null},{"name":"serde_json","kind":null},{"name":"rand","kind":"dev"}]},{"name":"y"}]}"#;
+    let metadata = r#"{"packages":[{"name":"x","dependencies":[{"name":"audio-core","kind":null,"path":"/r","rename":null},{"name":"serde_json","kind":null},{"name":"rand","kind":"dev"}]},{"name":"y"}]}"#;
     assert_eq!(
         super::dependency_gate(metadata, &packages, reviewed),
         found(
@@ -12299,8 +12287,8 @@ fn requires_every_direct_dependency_to_be_reviewed() {
 }
 
 /// The summary of the math layer gate's failures.
-const MATH_LAYER: &str = "box arithmetic only through the math layer (engine-core, \
-                          engine-testkit only may depend on libm; box code names no raw float, \
+const MATH_LAYER: &str = "box arithmetic only through the math layer (audio-core, \
+                          audio-testkit only may depend on libm; box code names no raw float, \
                           libm, host or delivery, and computes no float; no iterator reduction \
                           outside the math layer; code comes in by `mod` alone)";
 
@@ -12309,7 +12297,7 @@ fn refuses_libm_outside_the_math_layer_and_the_measurements() {
     let gate = |dependencies: &str| {
         math_layer_gate(
             &format!(
-                r#"{{"packages":[{{"name":"engine-core","dependencies":[{{"name":"libm","kind":null}}]}},{{"name":"engine-testkit","dependencies":[{{"name":"libm","kind":null}}]}},{{"name":"engine-objects","dependencies":{dependencies}}}]}}"#
+                r#"{{"packages":[{{"name":"audio-core","dependencies":[{{"name":"libm","kind":null}}]}},{{"name":"audio-testkit","dependencies":[{{"name":"libm","kind":null}}]}},{{"name":"audio-boxes","dependencies":{dependencies}}}]}}"#
             ),
             &[],
         )
@@ -12317,7 +12305,7 @@ fn refuses_libm_outside_the_math_layer_and_the_measurements() {
     let refused = |name: &str| {
         Err(Failure::from(format!(
             "{MATH_LAYER}: {name} depends on libm: its arithmetic must go through the math \
-             layer of engine-core"
+             layer of audio-core"
         )))
     };
     assert_eq!(
@@ -12332,16 +12320,16 @@ fn refuses_libm_outside_the_math_layer_and_the_measurements() {
     );
     assert_eq!(
         gate(r#"[{"name":"libm","kind":null}]"#),
-        refused("engine-objects"),
+        refused("audio-boxes"),
         "a box crate may not"
     );
     assert_eq!(
         gate(r#"[{"name":"libm","kind":"build","rename":"math"}]"#),
-        refused("engine-objects"),
+        refused("audio-boxes"),
         "not as a build dependency, not renamed"
     );
     assert_eq!(
-        gate(r#"[{"name":"libmx","kind":null},{"name":"engine-core","kind":null,"path":"/r"}]"#),
+        gate(r#"[{"name":"libmx","kind":null},{"name":"audio-core","kind":null,"path":"/r"}]"#),
         Ok(()),
         "another crate"
     );
@@ -12384,12 +12372,12 @@ fn refuses_raw_floats_libm_and_host_in_box_code() {
     let gate = |text: &str| {
         math_layer_gate(
             r#"{"packages":[]}"#,
-            &[("crates/engine-objects/src/a.rs".to_owned(), text.to_owned())],
+            &[("crates/audio-boxes/src/a.rs".to_owned(), text.to_owned())],
         )
     };
     let refused = |line: usize, word: &str| {
         Err(Failure::from(format!(
-            "{MATH_LAYER}: crates/engine-objects/src/a.rs:{line}: box code names `{word}`: it \
+            "{MATH_LAYER}: crates/audio-boxes/src/a.rs:{line}: box code names `{word}`: it \
              computes with the engine's sample types, through the math layer"
         )))
     };
@@ -12411,7 +12399,7 @@ fn refuses_raw_floats_libm_and_host_in_box_code() {
         "a suffix without separator"
     );
     assert_eq!(
-        gate("use engine_core::host::Raw;"),
+        gate("use audio_core::host::Raw;"),
         refused(1, "host"),
         "the host module"
     );
@@ -12444,10 +12432,10 @@ fn refuses_raw_floats_libm_and_host_in_box_code() {
         Err((
             format!("{MATH_LAYER}: 2 problems, listed above"),
             vec![
-                "crates/engine-objects/src/a.rs:1: box code names `Delivered`: it computes \
+                "crates/audio-boxes/src/a.rs:1: box code names `Delivered`: it computes \
                  with the engine's sample types, through the math layer"
                     .to_owned(),
-                "crates/engine-objects/src/a.rs:1: box code names `deliver`: it computes with \
+                "crates/audio-boxes/src/a.rs:1: box code names `deliver`: it computes with \
                  the engine's sample types, through the math layer"
                     .to_owned(),
             ]
@@ -12459,11 +12447,11 @@ fn refuses_raw_floats_libm_and_host_in_box_code() {
             r#"{"packages":[]}"#,
             &[
                 (
-                    "crates/engine-objects/src/osc.rs".to_owned(),
+                    "crates/audio-boxes/src/osc.rs".to_owned(),
                     "#[cfg(test)]\n#[path = \"osc_tests.rs\"]\nmod tests;\n".to_owned()
                 ),
                 (
-                    "crates/engine-objects/src/osc_tests.rs".to_owned(),
+                    "crates/audio-boxes/src/osc_tests.rs".to_owned(),
                     "let x: f64 = libm::sin(1.0);".to_owned()
                 )
             ],
@@ -12603,12 +12591,12 @@ fn reads_char_literals_and_raw_strings_as_prose() {
     let gate = |text: &str| {
         math_layer_gate(
             r#"{"packages":[]}"#,
-            &[("crates/engine-objects/src/a.rs".to_owned(), text.to_owned())],
+            &[("crates/audio-boxes/src/a.rs".to_owned(), text.to_owned())],
         )
     };
     let refused = |line: usize, word: &str| {
         Err(Failure::from(format!(
-            "{MATH_LAYER}: crates/engine-objects/src/a.rs:{line}: box code names `{word}`: it \
+            "{MATH_LAYER}: crates/audio-boxes/src/a.rs:{line}: box code names `{word}`: it \
              computes with the engine's sample types, through the math layer"
         )))
     };
@@ -12657,7 +12645,7 @@ fn refuses_sums_outside_the_math_layer() {
              layer: an iterator sums samples only through ordered_sum, in the reduction order"
         )))
     };
-    let (boxes, engine) = ("crates/engine-objects/src/a.rs", super::ENGINE_ROOT);
+    let (boxes, engine) = ("crates/audio-boxes/src/a.rs", super::ENGINE_ROOT);
     for path in [boxes, engine] {
         for word in super::REDUCTION_NAMES {
             assert_eq!(
@@ -12701,19 +12689,19 @@ fn refuses_sums_outside_the_math_layer() {
     );
     let anything = "let t = x.iter().fold(0, f).sum(); arithmetic_side_effects; f64";
     assert_eq!(
-        gate("crates/engine-core/src/math.rs", anything),
+        gate("crates/audio-core/src/math.rs", anything),
         Ok(()),
         "the math layer"
     );
     for (declaring, exempt, name) in [
         (
-            "crates/engine-core/src/plan.rs",
-            "crates/engine-core/src/plan_tests.rs",
+            "crates/audio-core/src/plan.rs",
+            "crates/audio-core/src/plan_tests.rs",
             "plan",
         ),
         (
-            "crates/engine-objects/src/osc.rs",
-            "crates/engine-objects/src/osc_tests.rs",
+            "crates/audio-boxes/src/osc.rs",
+            "crates/audio-boxes/src/osc_tests.rs",
             "osc",
         ),
     ] {
@@ -12734,9 +12722,9 @@ fn refuses_sums_outside_the_math_layer() {
         );
     }
     assert_eq!(
-        gate("crates/engine-patch/src/lib.rs", "let a = 1;"),
+        gate("crates/audio-patch/src/lib.rs", "let a = 1;"),
         Err(Failure::from(format!(
-            "{MATH_LAYER}: crates/engine-patch/src/lib.rs: not a source the math layer gate \
+            "{MATH_LAYER}: crates/audio-patch/src/lib.rs: not a source the math layer gate \
              reads"
         ))),
         "a source of another crate"
@@ -12757,9 +12745,9 @@ fn requires_the_compiler_to_refuse_float_and_generic_arithmetic() {
     assert_eq!(
         gate(&[
             (super::BOX_ROOT, &format!("#![no_std]\n{float}\n")),
-            ("crates/engine-objects/src/osc.rs", "fn f() {}\n"),
+            ("crates/audio-boxes/src/osc.rs", "fn f() {}\n"),
             (
-                "crates/engine-core/src/plan.rs",
+                "crates/audio-core/src/plan.rs",
                 &format!("//! Plans.\n\n{arithmetic}\n")
             ),
             (super::ENGINE_ROOT, "mod plan;\n"),
@@ -12783,9 +12771,9 @@ fn requires_the_compiler_to_refuse_float_and_generic_arithmetic() {
         "the box root without its exact line"
     );
     assert_eq!(
-        gate(&[("crates/engine-core/src/render.rs", "fn f() {}\n")]),
+        gate(&[("crates/audio-core/src/render.rs", "fn f() {}\n")]),
         failed(format!(
-            "{MATH_LAYER}: crates/engine-core/src/render.rs does not hold `{arithmetic}`"
+            "{MATH_LAYER}: crates/audio-core/src/render.rs does not hold `{arithmetic}`"
         )),
         "an engine module without its line"
     );
@@ -12822,7 +12810,7 @@ fn reads_every_source_of_box_and_engine_code() {
              crates by `mod` alone, from files the gate reads"
         )
     };
-    let boxes = "crates/engine-objects/src/a.rs";
+    let boxes = "crates/audio-boxes/src/a.rs";
     for (text, line, word) in [
         ("fn f() {}\ninclude!(\"../../x.rs\");\n", 2, "include"),
         ("include!(\"../../x.rs\");\n", 1, "include"),
@@ -12846,14 +12834,14 @@ fn reads_every_source_of_box_and_engine_code() {
             none,
             &[
                 (boxes, declared),
-                ("crates/engine-objects/src/a_tests.rs", "f64")
+                ("crates/audio-boxes/src/a_tests.rs", "f64")
             ]
         ),
         Ok(()),
         "a declared test file"
     );
     assert_eq!(
-        gate(none, &[("crates/engine-objects/src/a_tests.rs", "f64")]),
+        gate(none, &[("crates/audio-boxes/src/a_tests.rs", "f64")]),
         Ok(()),
         "a test file not declared: the test code and loaded-files gates' to refuse"
     );
@@ -12879,8 +12867,8 @@ fn reads_what_real_cargo_metadata_says_of_libm() {
         found(
             MATH_LAYER,
             &[
-                "engine-cli depends on libm: its arithmetic must go through the math layer of \
-               engine-core"
+                "audio-cli depends on libm: its arithmetic must go through the math layer of \
+               audio-core"
                     .to_owned()
             ]
         ),
@@ -12891,14 +12879,14 @@ fn reads_what_real_cargo_metadata_says_of_libm() {
 #[test]
 fn reviews_the_dependencies_real_cargo_metadata_lists() {
     let (metadata, _) = fixture_metadata();
-    let reviewed = "engine-core: libm (normal) -- r\nengine-testkit: libm (normal) -- r\n\
-                    engine-testkit: sha2 (normal) -- r\nengine-objects: libm (dev) -- r\n\
-                    engine-cli: libm (normal) -- r\nengine-cli: serde (build) -- r\n\
-                    engine-hash: serde_json (normal) -- r\nengine-hash: sha2 (normal) -- r\n";
+    let reviewed = "audio-core: libm (normal) -- r\naudio-testkit: libm (normal) -- r\n\
+                    audio-testkit: sha2 (normal) -- r\naudio-boxes: libm (dev) -- r\n\
+                    audio-cli: libm (normal) -- r\naudio-cli: serde (build) -- r\n\
+                    audio-hash: serde_json (normal) -- r\naudio-hash: sha2 (normal) -- r\n";
     assert_eq!(
         super::dependency_gate(&metadata, &[], reviewed),
         failed(
-            "direct dependencies must be reviewed in dependencies.txt and keep their names: engine-cli depends on \
+            "direct dependencies must be reviewed in dependencies.txt and keep their names: audio-cli depends on \
              libm renamed `fast-math`: a dependency keeps its package's name, so that no name \
              (`core`, `std` …) can stand for another crate"
         ),
@@ -12926,18 +12914,18 @@ fn unmarked(key: &str) -> String {
 #[test]
 fn pins_the_bit_defining_dependencies_real_cargo_metadata_lists() {
     let (metadata, _) = fixture_metadata();
-    let reviewed = "# engine-cli: libm (normal) -- bit-defining: in a comment\n\
-                    engine-core: libm (normal) -- bit-defining: the math layer\n\
-                    engine-testkit: libm (normal) -- the measurements\n\
-                    engine-testkit: sha2 (normal) -- bit-defining: the fingerprints\n\
-                    engine-hash: serde_json (normal) -- reads JSON\n\
-                    engine-hash: sha2 (normal) -- bit-defining: the render hash\n";
+    let reviewed = "# audio-cli: libm (normal) -- bit-defining: in a comment\n\
+                    audio-core: libm (normal) -- bit-defining: the math layer\n\
+                    audio-testkit: libm (normal) -- the measurements\n\
+                    audio-testkit: sha2 (normal) -- bit-defining: the fingerprints\n\
+                    audio-hash: serde_json (normal) -- reads JSON\n\
+                    audio-hash: sha2 (normal) -- bit-defining: the render hash\n";
     assert_eq!(
         super::pin_gate(&metadata, reviewed),
         step_found(&[
-            unpinned("engine-testkit: sha2 (normal)", "^0.11"),
-            unmarked("engine-hash: serde_json (normal)"),
-            unpinned("engine-hash: serde_json (normal)", "^1"),
+            unpinned("audio-testkit: sha2 (normal)", "^0.11"),
+            unmarked("audio-hash: serde_json (normal)"),
+            unpinned("audio-hash: serde_json (normal)", "^1"),
         ]),
         "a reviewed one unpinned, one of the library neither reviewed so nor pinned; the \
          library's tests, another crate's and a comment apart"
@@ -12949,9 +12937,9 @@ fn reads_one_exact_version_only() {
     let gate = |req: &str| {
         super::pin_gate(
             &format!(
-                r#"{{"packages":[{{"name":"engine-core","dependencies":[{{"name":"libm","kind":"build","req":"{req}"}}]}}]}}"#
+                r#"{{"packages":[{{"name":"audio-core","dependencies":[{{"name":"libm","kind":"build","req":"{req}"}}]}}]}}"#
             ),
-            "engine-core: libm (build) -- bit-defining: the math layer\n",
+            "audio-core: libm (build) -- bit-defining: the math layer\n",
         )
     };
     assert_eq!(gate("=0.2.16"), Ok(()), "one version, a build dependency");
@@ -12972,26 +12960,26 @@ fn reads_one_exact_version_only() {
     ] {
         assert_eq!(
             gate(req),
-            step_found(&[unpinned("engine-core: libm (build)", req)]),
+            step_found(&[unpinned("audio-core: libm (build)", req)]),
             "{req}"
         );
     }
     let missing = super::pin_gate(
-        r#"{"packages":[{"name":"engine-core","dependencies":[{"name":"libm"}]}]}"#,
-        "engine-core: libm (normal) -- reads\n",
+        r#"{"packages":[{"name":"audio-core","dependencies":[{"name":"libm"}]}]}"#,
+        "audio-core: libm (normal) -- reads\n",
     );
     assert_eq!(
         missing,
         step_found(&[
-            unmarked("engine-core: libm (normal)"),
-            unpinned("engine-core: libm (normal)", "")
+            unmarked("audio-core: libm (normal)"),
+            unpinned("audio-core: libm (normal)", "")
         ]),
         "no kind, no requirement"
     );
     assert_eq!(
         super::pin_gate(
-            r#"{"packages":[{"name":"engine-cli","dependencies":[{"name":"x","req":"1"}]}]}"#,
-            "engine-cli: x (normal) --bit-defining: no space\nengine-cli: x (normal)  -- reads\n"
+            r#"{"packages":[{"name":"audio-cli","dependencies":[{"name":"x","req":"1"}]}]}"#,
+            "audio-cli: x (normal) --bit-defining: no space\naudio-cli: x (normal)  -- reads\n"
         ),
         Ok(()),
         "a crate outside the library, a reason not starting with the mark"
@@ -13007,8 +12995,8 @@ fn reads_one_exact_version_only() {
 fn outside_library(library: &str, name: &str, kind: &str, path: &str) -> String {
     format!(
         "{library} depends on {name} ({kind}, {path}): the audio library depends only on its \
-         own crates (engine-core, engine-objects, engine-patch, engine-hash, engine-fpenv, \
-         engine-wasm), its tests also on engine-testkit; move what it needs into the library, \
+         own crates (audio-core, audio-boxes, audio-patch, audio-hash, audio-fpenv, \
+         audio-wasm), its tests also on audio-testkit; move what it needs into the library, \
          or the dependency out of it"
     )
 }
@@ -13016,12 +13004,12 @@ fn outside_library(library: &str, name: &str, kind: &str, path: &str) -> String 
 #[test]
 fn keeps_the_library_apart_in_real_cargo_metadata() {
     let (metadata, root) = fixture_metadata();
-    let cli = format!("{root}/crates/engine-cli");
+    let cli = format!("{root}/crates/audio-cli");
     assert_eq!(
         super::library_gate(&metadata),
         step_found(&[
-            outside_library("engine-objects", "engine-cli", "normal", &cli),
-            outside_library("engine-wasm", "engine-cli", "dev", &cli),
+            outside_library("audio-boxes", "audio-cli", "normal", &cli),
+            outside_library("audio-wasm", "audio-cli", "dev", &cli),
         ]),
         "the native shell in the code and in the tests; the test bench in the tests, the \
          library's own crates and third-party crates allowed"
@@ -13031,9 +13019,9 @@ fn keeps_the_library_apart_in_real_cargo_metadata() {
 #[test]
 fn refuses_a_library_that_reaches_outside_itself() {
     let packages = |core: &str| {
-        let others = r#"{"name":"engine-objects"},{"name":"engine-patch"},{"name":"engine-hash"},{"name":"engine-fpenv"},"#;
+        let others = r#"{"name":"audio-boxes"},{"name":"audio-patch"},{"name":"audio-hash"},{"name":"audio-fpenv"},"#;
         format!(
-            r#"{{"workspace_root":"/r","packages":[{others}{{"name":"engine-wasm"}},{{"name":"engine-core","dependencies":[{core}]}}]}}"#
+            r#"{{"workspace_root":"/r","packages":[{others}{{"name":"audio-wasm"}},{{"name":"audio-core","dependencies":[{core}]}}]}}"#
         )
     };
     let dependency = |name: &str, kind: &str, path: &str| {
@@ -13041,70 +13029,60 @@ fn refuses_a_library_that_reaches_outside_itself() {
     };
     let gate = |core: &str| super::library_gate(&packages(core));
     for allowed in [
-        dependency("engine-hash", "null", "/r/crates/engine-hash"),
-        dependency("engine-wasm", "\"build\"", "/r/bindings/wasm"),
-        dependency("engine-testkit", "\"dev\"", "/r/crates/engine-testkit"),
+        dependency("audio-hash", "null", "/r/crates/audio-hash"),
+        dependency("audio-wasm", "\"build\"", "/r/bindings/audio-wasm"),
+        dependency("audio-testkit", "\"dev\"", "/r/crates/audio-testkit"),
         r#"{"name":"serde","kind":null}"#.to_owned(),
     ] {
         assert_eq!(gate(&allowed), Ok(()), "{allowed}");
     }
     for (name, kind, path, said) in [
+        ("audio-testkit", "null", "/r/crates/audio-testkit", "normal"),
         (
-            "engine-testkit",
-            "null",
-            "/r/crates/engine-testkit",
-            "normal",
-        ),
-        (
-            "engine-testkit",
+            "audio-testkit",
             "\"build\"",
-            "/r/crates/engine-testkit",
+            "/r/crates/audio-testkit",
             "build",
         ),
-        (
-            "engine-alloc-counter",
-            "\"dev\"",
-            "/r/crates/engine-alloc-counter",
-            "dev",
-        ),
+        ("alloc-counter", "\"dev\"", "/r/crates/alloc-counter", "dev"),
         ("xtask", "null", "/r/crates/xtask", "normal"),
-        ("engine-hash", "null", "/r/apps/engine-hash", "normal"),
-        ("engine-hash", "null", "/r/crates/engine-hashx", "normal"),
+        ("audio-hash", "null", "/r/apps/audio-hash", "normal"),
+        ("audio-hash", "null", "/r/crates/audio-hashx", "normal"),
         (
-            "engine-hash",
+            "audio-hash",
             "null",
-            "/r/vendor/crates/engine-hash",
+            "/r/vendor/crates/audio-hash",
             "normal",
         ),
         (
-            "engine-testkit",
+            "audio-testkit",
             "\"dev\"",
-            "/r/tooling/engine-testkit",
+            "/r/tooling/audio-testkit",
             "dev",
         ),
         ("player", "null", "/r/apps/player", "normal"),
     ] {
         assert_eq!(
             gate(&dependency(name, kind, path)),
-            step_found(&[outside_library("engine-core", name, said, path)]),
+            step_found(&[outside_library("audio-core", name, said, path)]),
             "{name} {kind} {path}"
         );
     }
     assert!(
-        gate(r#"{"kind":null,"path":"/r/crates/engine-hash"}"#).is_err_and(|failure| {
+        gate(r#"{"kind":null,"path":"/r/crates/audio-hash"}"#).is_err_and(|failure| {
             failure.summary == "cargo metadata lists a dependency without a name"
         }),
         "a dependency without a name"
     );
     assert_eq!(
-        super::library_gate(r#"{"workspace_root":"/r","packages":[{"name":"engine-core"}]}"#),
+        super::library_gate(r#"{"workspace_root":"/r","packages":[{"name":"audio-core"}]}"#),
         step_found(
             &[
-                "engine-objects",
-                "engine-patch",
-                "engine-hash",
-                "engine-fpenv",
-                "engine-wasm"
+                "audio-boxes",
+                "audio-patch",
+                "audio-hash",
+                "audio-fpenv",
+                "audio-wasm"
             ]
             .map(|name| {
                 format!("{name}: not in the cargo metadata, so its dependencies cannot be checked")
@@ -13613,7 +13591,7 @@ fn requires_every_crate_to_take_the_workspace_repository() {
     let crates: Vec<(String, String)> = super::RUST_CRATES
         .iter()
         .map(|krate| {
-            let text = if krate.name == "engine-core" {
+            let text = if krate.name == "audio-core" {
                 MEMBER.replace(
                     "repository.workspace = true",
                     "repository = \"https://example.invalid/poyetik\"",
@@ -13628,7 +13606,7 @@ fn requires_every_crate_to_take_the_workspace_repository() {
         membership_gate(&packages, &crates, &[]),
         found(
             "the manifests differ from what xtask knows",
-            &["crates/engine-core/Cargo.toml does not take the workspace repository".to_owned()]
+            &["crates/audio-core/Cargo.toml does not take the workspace repository".to_owned()]
         ),
         "a repository of its own"
     );
@@ -13639,7 +13617,7 @@ fn empties_stale_build_outputs_before_the_builds_that_write_them() {
     let steps = check_steps(CHANGES_MODE);
     assert_eq!(
         super::build_outputs(),
-        vec!["bindings/wasm/dist".to_owned()],
+        vec!["bindings/audio-wasm/dist".to_owned()],
         "the outputs of tsc, which never removes a stale one"
     );
     for package in PACKAGES {
@@ -13662,12 +13640,12 @@ fn empties_stale_build_outputs_before_the_builds_that_write_them() {
 fn runs_miri_on_every_crate_of_the_audited_files() {
     assert_eq!(
         super::unsafe_crates(),
-        vec!["engine-alloc-counter", "engine-wasm"],
+        vec!["alloc-counter", "audio-wasm"],
         "the crates of the audited files, in the order of RUST_CRATES, but the assembly one"
     );
     assert_eq!(
         super::ASSEMBLY_FILES,
-        ["crates/engine-fpenv/src/word.rs"],
+        ["crates/audio-fpenv/src/word.rs"],
         "the one file Miri cannot run"
     );
     assert!(
@@ -13679,8 +13657,8 @@ fn runs_miri_on_every_crate_of_the_audited_files() {
     assert_eq!(
         super::miri_command().line(),
         format!(
-            "cargo +nightly-2026-11-01 {} test --package engine-alloc-counter --package \
-             engine-wasm --locked -- --include-ignored",
+            "cargo +nightly-2026-11-01 {} test --package alloc-counter --package \
+             audio-wasm --locked -- --include-ignored",
             "miri"
         ),
         "Miri on each of them, ignored tests included"
@@ -13809,7 +13787,7 @@ fn requires_the_fused_build_to_have_run_with_its_option() {
     assert!(
         command.contains(r#"--config build.rustflags=["--cfg", "poyetik_math=\"fused\""]"#)
             && command.contains("--target-dir target/fused")
-            && command.contains("--package engine-core --package engine-objects"),
+            && command.contains("--package audio-core --package audio-boxes"),
         "{command}"
     );
     let steps: Vec<Step> = check_steps(CHANGES_MODE)
@@ -14871,7 +14849,7 @@ fn makes_a_message_safe_to_show() {
     );
     assert_eq!(
         MAX_MESSAGE_CHARS, 1_000,
-        "the limit of engine_patch::safe_message"
+        "the limit of audio_patch::safe_message"
     );
 }
 
@@ -15044,11 +15022,11 @@ fn knows_a_deletion_by_its_all_zero_object_name() {
 fn builds_the_engine_package_before_every_package() {
     assert_eq!(
         super::ENGINE_PACKAGE.dir,
-        "bindings/wasm",
+        "bindings/audio-wasm",
         "the engine in the browser"
     );
     assert!(
-        super::WASM_MODULE.starts_with("bindings/wasm/dist/"),
+        super::WASM_MODULE.starts_with("bindings/audio-wasm/dist/"),
         "its build writes the module"
     );
     for (mode, first_user) in [
@@ -15061,7 +15039,7 @@ fn builds_the_engine_package_before_every_package() {
                 == Action::Run(Cmd::new(
                     "pnpm",
                     &["run", "build"],
-                    Dir::Package("bindings/wasm"),
+                    Dir::Package("bindings/audio-wasm"),
                 ))
         });
         let emptied = steps
@@ -15097,7 +15075,7 @@ const PART_NAMES: [&str; 18] = [
     "gates",
     "tooling-config",
     "tooling-oracle",
-    "bindings-wasm",
+    "bindings-audio-wasm",
     "apps-playground",
     "apps-roadmap",
     "final",
@@ -15193,7 +15171,7 @@ fn runs_each_part_of_the_full_check_as_its_own_job() {
     assert_eq!(
         lines("miri"),
         frame(&[&format!(
-            "Root: cargo +nightly-2026-11-01 {} test --package engine-alloc-counter --package engine-wasm --locked -- --include-ignored",
+            "Root: cargo +nightly-2026-11-01 {} test --package alloc-counter --package audio-wasm --locked -- --include-ignored",
             "miri"
         )]),
         "Miri alone"
@@ -15202,9 +15180,9 @@ fn runs_each_part_of_the_full_check_as_its_own_job() {
         lines("apps-playground"),
         frame(&[
             "Root: pnpm install --frozen-lockfile",
-            "fresh tooling/config/coverage tooling/config/reports/mutation tooling/oracle/coverage tooling/oracle/reports/mutation bindings/wasm/coverage bindings/wasm/reports/mutation apps/playground/coverage apps/playground/reports/mutation apps/roadmap/coverage apps/roadmap/reports/mutation",
-            "fresh bindings/wasm/dist",
-            "Package(\"bindings/wasm\"): pnpm run build",
+            "fresh tooling/config/coverage tooling/config/reports/mutation tooling/oracle/coverage tooling/oracle/reports/mutation bindings/audio-wasm/coverage bindings/audio-wasm/reports/mutation apps/playground/coverage apps/playground/reports/mutation apps/roadmap/coverage apps/roadmap/reports/mutation",
+            "fresh bindings/audio-wasm/dist",
+            "Package(\"bindings/audio-wasm\"): pnpm run build",
             "Package(\"apps/playground\"): pnpm run check",
             "Package(\"apps/playground\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json --force",
             "typescript reports gate of apps/playground",
@@ -15217,7 +15195,7 @@ fn runs_each_part_of_the_full_check_as_its_own_job() {
         Some(
             [
                 "fresh target/conformance",
-                "Root: cargo run --package engine-cli --locked --quiet -- export conformance target/conformance",
+                "Root: cargo run --package audio-cli --locked --quiet -- export conformance target/conformance",
                 "Root: pnpm install --frozen-lockfile",
             ]
             .map(str::to_owned)
@@ -16055,8 +16033,8 @@ const UNTRACKED: &str = "capture git ls-files -z --others --exclude-standard";
 fn since_base() -> String {
     format!(
         "{}{}",
-        one_line_change("crates/engine-core/src/plan.rs"),
-        one_line_change("crates/engine-hash/src/lib.rs")
+        one_line_change("crates/audio-core/src/plan.rs"),
+        one_line_change("crates/audio-hash/src/lib.rs")
     )
 }
 
@@ -16064,12 +16042,12 @@ fn since_base() -> String {
 /// no crate of the workspace otherwise; the boxes always depend on the engine core.
 fn closure_metadata(linked: bool) -> String {
     let hash = if linked {
-        r#"[{"name":"engine-core","kind":null,"path":"/r/crates/engine-core"},{"name":"sha2","kind":null}]"#
+        r#"[{"name":"audio-core","kind":null,"path":"/r/crates/audio-core"},{"name":"sha2","kind":null}]"#
     } else {
         r#"[{"name":"sha2","kind":null}]"#
     };
     format!(
-        r#"{{"workspace_root":"/r","packages":[{{"name":"engine-hash","dependencies":{hash}}},{{"name":"engine-objects","dependencies":[{{"name":"engine-core","kind":null,"path":"/r/crates/engine-core"}},{{"name":"engine-testkit","kind":"dev","path":"/r/crates/engine-testkit"}}]}},{{"name":"engine-core","dependencies":[]}},{{"name":"serde","dependencies":[]}}]}}"#
+        r#"{{"workspace_root":"/r","packages":[{{"name":"audio-hash","dependencies":{hash}}},{{"name":"audio-boxes","dependencies":[{{"name":"audio-core","kind":null,"path":"/r/crates/audio-core"}},{{"name":"audio-testkit","kind":"dev","path":"/r/crates/audio-testkit"}}]}},{{"name":"audio-core","dependencies":[]}},{{"name":"serde","dependencies":[]}}]}}"#
     )
 }
 
@@ -16119,7 +16097,7 @@ fn proven_line(name: &str) -> String {
 
 #[test]
 fn skips_only_the_crates_a_valid_proof_record_still_proves() {
-    let plan = one_line_change("crates/engine-core/src/plan.rs");
+    let plan = one_line_change("crates/audio-core/src/plan.rs");
     let mut fake = proven_fake(&proof_record(PROVEN[2]), &plan);
     let said = mutate_changes(&mut fake);
     assert_eq!(
@@ -16132,8 +16110,8 @@ fn skips_only_the_crates_a_valid_proof_record_still_proves() {
         said.contains(&format!(
             "  the changes since {} (merge base with @{{upstream}})\n",
             PROVEN[2]
-        )) && said.contains(&proven_line("engine-hash"))
-            && !said.contains(&proven_line("engine-core")),
+        )) && said.contains(&proven_line("audio-hash"))
+            && !said.contains(&proven_line("audio-core")),
         "said: {said}"
     );
     assert_eq!(
@@ -16159,7 +16137,7 @@ fn skips_only_the_crates_a_valid_proof_record_still_proves() {
     // A line changed since the base, its neighbor since the record: the crate's changes
     // since the base are mutated whole, not only what changed since the record.
     let mut neighbor = proven_fake(&proof_record(PROVEN[2]), &plan);
-    let two = "diff --git a/crates/engine-core/src/plan.rs b/crates/engine-core/src/plan.rs\n--- a/crates/engine-core/src/plan.rs\n+++ b/crates/engine-core/src/plan.rs\n@@ -1 +1 @@\n-a\n+b\n@@ -9 +9 @@\n-c\n+d\n";
+    let two = "diff --git a/crates/audio-core/src/plan.rs b/crates/audio-core/src/plan.rs\n--- a/crates/audio-core/src/plan.rs\n+++ b/crates/audio-core/src/plan.rs\n@@ -1 +1 @@\n-a\n+b\n@@ -9 +9 @@\n-c\n+d\n";
     drop(neighbor.files.insert(diff_since(PROVEN[2]), two.to_owned()));
     let _said = mutate_changes(&mut neighbor);
     assert_eq!(
@@ -16174,14 +16152,14 @@ fn mutates_nothing_when_every_change_is_proven() {
     for since_commit in [
         String::new(),
         one_line_change("apps/roadmap/board.json"),
-        one_line_change("crates/engine-cli/src/lib.rs"),
+        one_line_change("crates/audio-cli/src/lib.rs"),
     ] {
         let mut fake = proven_fake(&proof_record(PROVEN[2]), &since_commit);
         drop(fake.files.remove(UNVIABLE_REPORT));
         let said = mutate_changes(&mut fake);
         assert!(
-            said.contains(&proven_line("engine-core"))
-                && said.contains(&proven_line("engine-hash"))
+            said.contains(&proven_line("audio-core"))
+                && said.contains(&proven_line("audio-hash"))
                 && said.contains(
                     "  no Rust file changed outside the crates proven: no mutant to test\n"
                 ),
@@ -16206,42 +16184,41 @@ fn widens_a_crate_that_changed_since_the_record_as_without_it() {
         format!(
             "{}{}",
             since_base(),
-            one_line_change("crates/engine-hash/src/lib_tests.rs")
+            one_line_change("crates/audio-hash/src/lib_tests.rs")
         ),
     ));
     let said = mutate_changes(&mut before);
     assert!(
-        !said.contains("the test code of engine-hash changed"),
+        !said.contains("the test code of audio-hash changed"),
         "said: {said}"
     );
     // The same, with the render hash changed since the record: widened whole.
     let mut after = proven_fake(
         &proof_record(PROVEN[2]),
-        &one_line_change("crates/engine-hash/src/lib.rs"),
+        &one_line_change("crates/audio-hash/src/lib.rs"),
     );
     drop(after.files.insert(
         diff_since(PROVEN[2]),
         format!(
             "{}{}",
             since_base(),
-            one_line_change("crates/engine-hash/src/lib_tests.rs")
+            one_line_change("crates/audio-hash/src/lib_tests.rs")
         ),
     ));
     drop(after.files.insert(
-        "crates/engine-hash/src/lib.rs".to_owned(),
+        "crates/audio-hash/src/lib.rs".to_owned(),
         "fn h() {}\n".to_owned(),
     ));
     let after_said = mutate_changes(&mut after);
     assert!(
-        after_said
-            .contains("  the test code of engine-hash changed: every mutant of engine-hash\n")
-            && after_said.contains(&proven_line("engine-core")),
+        after_said.contains("  the test code of audio-hash changed: every mutant of audio-hash\n")
+            && after_said.contains(&proven_line("audio-core")),
         "after_said: {after_said}"
     );
     assert_eq!(
         after.files.get(CHANGES_DIFF).cloned(),
         Some(super::new_file_diff(
-            "crates/engine-hash/src/lib.rs",
+            "crates/audio-hash/src/lib.rs",
             "fn h() {}\n"
         )),
         "the render hash widened, its source once and whole, the engine core left out"
@@ -16252,18 +16229,18 @@ fn widens_a_crate_that_changed_since_the_record_as_without_it() {
         &one_line_change("spec/render-hash-vectors.json"),
     );
     assert!(
-        !mutate_changes(&mut data).contains(&proven_line("engine-hash")),
+        !mutate_changes(&mut data).contains(&proven_line("audio-hash")),
         "test data changed since the record"
     );
     let mut untracked = proven_fake(&proof_record(PROVEN[2]), "");
     drop(untracked.files.insert(
         UNTRACKED.to_owned(),
-        "conformance/new.json\0crates/engine-hash/notes.txt\0".to_owned(),
+        "conformance/new.json\0crates/audio-hash/notes.txt\0".to_owned(),
     ));
     let untracked_said = mutate_changes(&mut untracked);
     assert!(
-        !untracked_said.contains(&proven_line("engine-hash"))
-            && untracked_said.contains(&proven_line("engine-core")),
+        !untracked_said.contains(&proven_line("audio-hash"))
+            && untracked_said.contains(&proven_line("audio-core")),
         "an untracked file in a crate: untracked_said: {untracked_said}"
     );
 }
@@ -16274,18 +16251,18 @@ fn mutates_every_crate_not_proven_whole_when_what_every_test_uses_changed() {
     // not proven, whole; the proven ones left out.
     let mut everything = proven_fake(
         &proof_record(PROVEN[2]),
-        &one_line_change("crates/engine-hash/src/lib.rs"),
+        &one_line_change("crates/audio-hash/src/lib.rs"),
     );
     drop(everything.files.insert(
         diff_since(PROVEN[2]),
         format!("{}{}", since_base(), one_line_change("Cargo.lock")),
     ));
     drop(everything.files.insert(
-        "crates/engine-hash/src/lib.rs".to_owned(),
+        "crates/audio-hash/src/lib.rs".to_owned(),
         "fn h() {}\n".to_owned(),
     ));
     drop(everything.files.insert(
-        "crates/engine-core/src/plan.rs".to_owned(),
+        "crates/audio-core/src/plan.rs".to_owned(),
         "fn p() {}\n".to_owned(),
     ));
     let everything_said = mutate_changes(&mut everything);
@@ -16295,15 +16272,15 @@ fn mutates_every_crate_not_proven_whole_when_what_every_test_uses_changed() {
         .cloned()
         .unwrap_or_default();
     let proven: String = [
-        "engine-core",
-        "engine-objects",
-        "engine-patch",
-        "engine-alloc-counter",
-        "engine-fpenv",
-        "engine-battery",
-        "engine-testkit",
-        "engine-cli",
-        "engine-wasm",
+        "audio-core",
+        "audio-boxes",
+        "audio-patch",
+        "alloc-counter",
+        "audio-fpenv",
+        "audio-battery",
+        "audio-testkit",
+        "audio-cli",
+        "audio-wasm",
         "xtask",
     ]
     .iter()
@@ -16323,7 +16300,7 @@ fn mutates_every_crate_not_proven_whole_when_what_every_test_uses_changed() {
     );
     assert_eq!(
         diff,
-        super::new_file_diff("crates/engine-hash/src/lib.rs", "fn h() {}\n"),
+        super::new_file_diff("crates/audio-hash/src/lib.rs", "fn h() {}\n"),
         "every crate is tested whole or proven: git keeps only the Rust files no crate holds"
     );
 }
@@ -16335,7 +16312,7 @@ fn names_each_proven_crate_the_check_would_otherwise_have_tested() {
     let mut fake = proven_fake(&proof_record(PROVEN[2]), "");
     drop(fake.files.insert(
         diff_since(PROVEN[2]),
-        one_line_change("crates/engine-testkit/src/lib.rs"),
+        one_line_change("crates/audio-testkit/src/lib.rs"),
     ));
     drop(fake.files.remove(UNVIABLE_REPORT));
     let said = mutate_changes(&mut fake);
@@ -16347,8 +16324,8 @@ fn names_each_proven_crate_the_check_would_otherwise_have_tested() {
              1.5 s\n▶ [2/2] Rust unviable mutants reviewed\n  done in 1.5 s\n✔ all 2 checks \
              passed in 3.0 s\n",
             PROVEN[2],
-            proven_line("engine-objects"),
-            proven_line("engine-testkit")
+            proven_line("audio-boxes"),
+            proven_line("audio-testkit")
         ),
         "the crates in scope only through the widening are named"
     );
@@ -16362,11 +16339,11 @@ fn reuses_no_record_of_a_crate_whose_quoted_path_changed() {
             "capture git diff --no-color --name-only -z --no-renames {}",
             PROVEN[0]
         ),
-        "crates/engine-hash/tests/caf\u{e9}.json\0".to_owned(),
+        "crates/audio-hash/tests/caf\u{e9}.json\0".to_owned(),
     ));
     let said = mutate_changes(&mut fake);
     assert!(
-        !said.contains(&proven_line("engine-hash")) && said.contains(&proven_line("engine-core")),
+        !said.contains(&proven_line("audio-hash")) && said.contains(&proven_line("audio-core")),
         "a path git would quote is a change of its crate: {said}"
     );
 }
@@ -16528,7 +16505,7 @@ fn ignores_a_proof_record_when_its_rules_or_shared_inputs_changed() {
     let said = mutate_changes(&mut tests);
     assert!(
         !said.contains("ignored the mutation proof record")
-            && said.contains(&proven_line("engine-core")),
+            && said.contains(&proven_line("audio-core")),
         "xtask's tests are not its rules: said: {said}"
     );
 }
@@ -16703,7 +16680,7 @@ fn uses_the_proof_record_it_wrote() {
     let said = mutate_changes(&mut fake);
     assert!(
         said.contains(&format!(
-            "  engine-core: proven by an earlier check at {}, unchanged since\n",
+            "  audio-core: proven by an earlier check at {}, unchanged since\n",
             CHECKED_OUT[0]
         )) && said
             .contains("  no Rust file changed outside the crates proven: no mutant to test\n"),
@@ -16737,17 +16714,17 @@ fn records_no_proof_of_a_tree_not_clean() {
         ),
         (
             "",
-            "H Cargo.toml\0h crates/engine-core/src/plan.rs\0",
-            "`crates/engine-core/src/plan.rs` is hidden from git status (assume-unchanged or \
+            "H Cargo.toml\0h crates/audio-core/src/plan.rs\0",
+            "`crates/audio-core/src/plan.rs` is hidden from git status (assume-unchanged or \
              skip-worktree), so no diff of git shows its changes: clear it with `git update-index \
-             --no-assume-unchanged -- 'crates/engine-core/src/plan.rs'`",
+             --no-assume-unchanged -- 'crates/audio-core/src/plan.rs'`",
         ),
         (
             "",
-            "S crates/engine-core/src/plan.rs\0",
-            "`crates/engine-core/src/plan.rs` is hidden from git status (assume-unchanged or \
+            "S crates/audio-core/src/plan.rs\0",
+            "`crates/audio-core/src/plan.rs` is hidden from git status (assume-unchanged or \
              skip-worktree), so no diff of git shows its changes: clear it with `git update-index \
-             --no-skip-worktree -- 'crates/engine-core/src/plan.rs'`",
+             --no-skip-worktree -- 'crates/audio-core/src/plan.rs'`",
         ),
     ] {
         let mut dirty = measured();
@@ -17014,32 +16991,28 @@ fn reads_the_crates_each_crate_compiles_for_its_tests() {
             .unwrap_or_default()
     };
     assert_eq!(
-        names("engine-objects"),
-        ["engine-core", "engine-objects", "engine-testkit"],
+        names("audio-boxes"),
+        ["audio-boxes", "audio-core", "audio-testkit"],
         "its dependencies of every kind, and itself"
     );
-    assert_eq!(
-        names("engine-hash"),
-        ["engine-core", "engine-hash"],
-        "linked"
-    );
+    assert_eq!(names("audio-hash"), ["audio-core", "audio-hash"], "linked");
     assert_eq!(
         names("xtask"),
         ["xtask"],
         "a crate the metadata does not list"
     );
-    let deep = r#"{"workspace_root":"/r","packages":[{"name":"engine-cli","dependencies":[{"name":"engine-hash","path":"/r/crates/engine-hash"}]},{"name":"engine-hash","dependencies":[{"name":"engine-core","path":"/r/crates/engine-core"},{"name":"other","path":"/r/crates/other"},{"name":"engine-patch","path":"/r/vendor/crates/engine-patch"}]}]}"#;
+    let deep = r#"{"workspace_root":"/r","packages":[{"name":"audio-cli","dependencies":[{"name":"audio-hash","path":"/r/crates/audio-hash"}]},{"name":"audio-hash","dependencies":[{"name":"audio-core","path":"/r/crates/audio-core"},{"name":"other","path":"/r/crates/other"},{"name":"audio-patch","path":"/r/vendor/crates/audio-patch"}]}]}"#;
     let deep_closures = super::changes::crate_closures(deep).expect("valid metadata");
     assert_eq!(
         deep_closures
-            .get("engine-cli")
+            .get("audio-cli")
             .map(|closure| sorted_names(closure)),
-        Some(vec!["engine-cli", "engine-core", "engine-hash"]),
+        Some(vec!["audio-cli", "audio-core", "audio-hash"]),
         "at any depth, crates outside the workspace apart, one named like a crate elsewhere \
          included"
     );
     assert!(
-        super::changes::crate_closures(r#"{"workspace_root":"/r","packages":[{"name":"engine-hash","dependencies":[{"path":"/r/crates/engine-core"}]}]}"#)
+        super::changes::crate_closures(r#"{"workspace_root":"/r","packages":[{"name":"audio-hash","dependencies":[{"path":"/r/crates/audio-core"}]}]}"#)
             .is_err_and(|failure| failure.summary == "cargo metadata lists a dependency without a name"),
         "a dependency without a name"
     );
@@ -17056,23 +17029,23 @@ fn reads_the_crates_real_cargo_metadata_lists() {
     let closures = super::changes::crate_closures(&metadata).expect("valid metadata");
     let of = |name: &str| closures.get(name).map(|closure| sorted_names(closure));
     assert_eq!(
-        of("engine-objects"),
+        of("audio-boxes"),
         Some(vec![
-            "engine-alloc-counter",
-            "engine-cli",
-            "engine-core",
-            "engine-objects",
-            "engine-testkit"
+            "alloc-counter",
+            "audio-boxes",
+            "audio-cli",
+            "audio-core",
+            "audio-testkit"
         ]),
         "normal and development dependencies, at any depth"
     );
     assert_eq!(
-        of("engine-fpenv"),
+        of("audio-fpenv"),
         Some(vec![
-            "engine-alloc-counter",
-            "engine-core",
-            "engine-fpenv",
-            "engine-testkit"
+            "alloc-counter",
+            "audio-core",
+            "audio-fpenv",
+            "audio-testkit"
         ]),
         "a development dependency's own"
     );
@@ -17494,19 +17467,19 @@ fn reads_the_targets_of_real_cargo_metadata() {
 #[test]
 fn tells_the_files_of_a_crate_by_its_directory() {
     let core = RustCrate {
-        name: "engine-core",
-        dir: "crates/engine-core",
+        name: "audio-core",
+        dir: "crates/audio-core",
         binary: false,
         test_data: &[],
         roles: &[],
     };
     for (path, held) in [
-        ("crates/engine-core/src/lib.rs", Some("src/lib.rs")),
-        ("crates/engine-core/", Some("")),
-        ("crates/engine-core", None),
-        ("crates/engine-core-x/a.rs", None),
-        ("crates/engine-corea.rs", None),
-        ("x/crates/engine-core/a.rs", None),
+        ("crates/audio-core/src/lib.rs", Some("src/lib.rs")),
+        ("crates/audio-core/", Some("")),
+        ("crates/audio-core", None),
+        ("crates/audio-core-x/a.rs", None),
+        ("crates/audio-corea.rs", None),
+        ("x/crates/audio-core/a.rs", None),
         ("crates/engine-cor/a.rs", None),
     ] {
         assert_eq!(core.holds(path), held, "{path}");
@@ -17517,7 +17490,7 @@ fn tells_the_files_of_a_crate_by_its_directory() {
 fn takes_a_crate_of_the_workspace_by_its_name_and_its_directory() {
     assert_eq!(
         super::shared_tests_gate(
-            r#"{"workspace_root":"/r","packages":[{"name":"engine-objects","dependencies":[{"name":"engine-hash","kind":"dev","path":"/elsewhere/engine-hash"},{"name":"engine-patch","kind":"dev","path":"/r/vendor/crates/engine-patch"},{"name":"other","kind":"dev","path":"/r/crates/engine-patch"},{"name":"engine-testkit","kind":"dev","path":"/r/crates/engine-testkit"}]},{"name":"engine-testkit","dependencies":[{"name":"engine-alloc-counter","kind":null,"path":"/r/crates/engine-alloc-counter"}]}]}"#
+            r#"{"workspace_root":"/r","packages":[{"name":"audio-boxes","dependencies":[{"name":"audio-hash","kind":"dev","path":"/elsewhere/audio-hash"},{"name":"audio-patch","kind":"dev","path":"/r/vendor/crates/audio-patch"},{"name":"other","kind":"dev","path":"/r/crates/audio-patch"},{"name":"audio-testkit","kind":"dev","path":"/r/crates/audio-testkit"}]},{"name":"audio-testkit","dependencies":[{"name":"alloc-counter","kind":null,"path":"/r/crates/alloc-counter"}]}]}"#
         ),
         Ok(()),
         "a dependency is a crate of the workspace by its name and its directory both"
@@ -17560,10 +17533,10 @@ fn takes_for_shared_test_code_every_crate_only_tests_use() {
     };
     assert_eq!(
         super::shared_tests_gate(&metadata(&[
-            package("engine-objects", &[("engine-testkit", "\"dev\"")]),
-            package("engine-core", &[("engine-alloc-counter", "null")]),
-            package("engine-testkit", &[("engine-alloc-counter", "null")]),
-            package("engine-cli", &[("engine-testkit", "null")]),
+            package("audio-boxes", &[("audio-testkit", "\"dev\"")]),
+            package("audio-core", &[("alloc-counter", "null")]),
+            package("audio-testkit", &[("alloc-counter", "null")]),
+            package("audio-cli", &[("audio-testkit", "null")]),
         ])),
         Ok(()),
         "shared test code that code depends on too widens more, never less"
@@ -17571,37 +17544,37 @@ fn takes_for_shared_test_code_every_crate_only_tests_use() {
     assert_eq!(
         super::shared_tests_gate(&metadata(&[
             package(
-                "engine-objects",
-                &[("engine-testkit", "\"dev\""), ("engine-hash", "\"dev\"")]
+                "audio-boxes",
+                &[("audio-testkit", "\"dev\""), ("audio-hash", "\"dev\"")]
             ),
-            package("engine-testkit", &[("engine-alloc-counter", "null")]),
+            package("audio-testkit", &[("alloc-counter", "null")]),
         ])),
         failed(
-            "engine-hash: only tests reach it, so a change to it can weaken the \
+            "audio-hash: only tests reach it, so a change to it can weaken the \
              tests of every crate using it: give it CrateRole::SharedTests"
         ),
         "a crate only tests reach, not taken for shared test code"
     );
     assert_eq!(
         super::shared_tests_gate(&metadata(&[
-            package("engine-objects", &[("engine-testkit", "\"dev\"")]),
-            package("engine-testkit", &[("engine-alloc-counter", "\"build\"")]),
-            package("other", &[("engine-testkit", "\"dev\"")]),
+            package("audio-boxes", &[("audio-testkit", "\"dev\"")]),
+            package("audio-testkit", &[("alloc-counter", "\"build\"")]),
+            package("other", &[("audio-testkit", "\"dev\"")]),
         ])),
         Ok(()),
         "through a crate of shared test code, any kind"
     );
     assert_eq!(
         super::shared_tests_gate(&metadata(&[
-            package("engine-objects", &[("engine-hash", "\"dev\"")]),
-            package("engine-hash", &[("engine-patch", "null")]),
-            package("engine-wasm", &[("engine-patch", "\"dev\"")]),
+            package("audio-boxes", &[("audio-hash", "\"dev\"")]),
+            package("audio-hash", &[("audio-patch", "null")]),
+            package("audio-wasm", &[("audio-patch", "\"dev\"")]),
         ])),
         step_found(&[
-            "engine-hash: only tests reach it, so a change to it can weaken the tests of \
+            "audio-hash: only tests reach it, so a change to it can weaken the tests of \
                  every crate using it: give it CrateRole::SharedTests"
                 .to_owned(),
-            "engine-patch: only tests reach it, so a change to it can weaken the tests of \
+            "audio-patch: only tests reach it, so a change to it can weaken the tests of \
                  every crate using it: give it CrateRole::SharedTests"
                 .to_owned(),
         ]),
@@ -17609,11 +17582,11 @@ fn takes_for_shared_test_code_every_crate_only_tests_use() {
     );
     assert_eq!(
         super::shared_tests_gate(&metadata(&[
-            package("engine-objects", &[("engine-hash", "\"dev\"")]),
-            package("engine-core", &[("engine-patch", "null")]),
+            package("audio-boxes", &[("audio-hash", "\"dev\"")]),
+            package("audio-core", &[("audio-patch", "null")]),
         ])),
         failed(
-            "engine-hash: only tests reach it, so a change to it can weaken the \
+            "audio-hash: only tests reach it, so a change to it can weaken the \
              tests of every crate using it: give it CrateRole::SharedTests"
         ),
         "code depending on one crate takes no other out of the set"
@@ -17629,33 +17602,33 @@ fn derives_each_list_of_crates_from_their_roles() {
         (
             CrateRole::Library,
             &[
-                "engine-core",
-                "engine-objects",
-                "engine-patch",
-                "engine-hash",
-                "engine-fpenv",
-                "engine-wasm",
+                "audio-core",
+                "audio-boxes",
+                "audio-patch",
+                "audio-hash",
+                "audio-fpenv",
+                "audio-wasm",
             ][..],
             "the audio library",
         ),
         (
             CrateRole::LibraryTests,
-            &["engine-testkit"][..],
+            &["audio-testkit"][..],
             "the test kit",
         ),
         (
             CrateRole::Libm,
-            &["engine-core", "engine-testkit"][..],
+            &["audio-core", "audio-testkit"][..],
             "the engine core and the test kit",
         ),
         (
             CrateRole::MathLayer,
-            &["engine-core", "engine-objects"][..],
+            &["audio-core", "audio-boxes"][..],
             "the engine core and the boxes",
         ),
         (
             CrateRole::SharedTests,
-            &["engine-alloc-counter", "engine-battery", "engine-testkit"][..],
+            &["alloc-counter", "audio-battery", "audio-testkit"][..],
             "the counting allocator, the fingerprint battery and the test kit",
         ),
     ] {
@@ -17670,41 +17643,41 @@ fn widens_each_kind_of_shared_input_as_far_as_it_reaches() {
         ("Cargo.toml", Some(Widening::Workspace)),
         ("rust-toolchain.toml", Some(Widening::Everything)),
         (".cargo/config.toml", Some(Widening::Everything)),
-        ("crates/engine-core/.cargo/config.toml", None),
+        ("crates/audio-core/.cargo/config.toml", None),
         ("Cargo.lock", Some(Widening::Lock)),
         (
-            "crates/engine-core/Cargo.toml",
-            Some(Widening::Manifest("engine-core")),
+            "crates/audio-core/Cargo.toml",
+            Some(Widening::Manifest("audio-core")),
         ),
         (
-            "bindings/wasm/Cargo.toml",
-            Some(Widening::Manifest("engine-wasm")),
+            "bindings/audio-wasm/Cargo.toml",
+            Some(Widening::Manifest("audio-wasm")),
         ),
         (
-            "crates/engine-testkit/Cargo.toml",
-            Some(Widening::Manifest("engine-testkit")),
+            "crates/audio-testkit/Cargo.toml",
+            Some(Widening::Manifest("audio-testkit")),
         ),
         (
-            "crates/engine-testkit/src/lib.rs",
-            Some(Widening::SharedTests("engine-testkit")),
+            "crates/audio-testkit/src/lib.rs",
+            Some(Widening::SharedTests("audio-testkit")),
         ),
         (
-            "crates/engine-alloc-counter/src/lib.rs",
-            Some(Widening::SharedTests("engine-alloc-counter")),
+            "crates/alloc-counter/src/lib.rs",
+            Some(Widening::SharedTests("alloc-counter")),
         ),
         ("tooling/x/Cargo.toml", Some(Widening::Everything)),
         ("doc/Cargo.lock", Some(Widening::Everything)),
         ("apps/a/rust-toolchain.toml", Some(Widening::Everything)),
         ("crates/xtask/tests/fixtures/workspace/Cargo.toml", None),
         (
-            "crates/xtask/tests/fixtures/workspace/crates/engine-core/Cargo.toml",
+            "crates/xtask/tests/fixtures/workspace/crates/audio-core/Cargo.toml",
             None,
         ),
-        ("crates/engine-core/src/Cargo.lock", None),
-        ("crates/engine-core/src/lib.rs", None),
+        ("crates/audio-core/src/Cargo.lock", None),
+        ("crates/audio-core/src/lib.rs", None),
         ("Cargo.toml.orig", None),
-        ("crates/engine-testkits/a.rs", None),
-        ("doc/crates/engine-testkit/a.rs", None),
+        ("crates/audio-testkits/a.rs", None),
+        ("doc/crates/audio-testkit/a.rs", None),
     ] {
         assert_eq!(super::changes::widening(path), expected, "{path}");
     }
@@ -17755,9 +17728,9 @@ fn lock_text(workspace: &[(&str, &[&str])], registry: &[Registered<'_>]) -> Stri
 
 /// What the workspace of the lock tests depends on.
 const LOCKED_WORKSPACE: [(&str, &[&str]); 4] = [
-    ("engine-core", &["libm"]),
-    ("engine-objects", &["engine-core"]),
-    ("engine-testkit", &["engine-core", "proptest"]),
+    ("audio-core", &["libm"]),
+    ("audio-boxes", &["audio-core"]),
+    ("audio-testkit", &["audio-core", "proptest"]),
     ("xtask", &["serde_json"]),
 ];
 
@@ -17787,7 +17760,7 @@ fn widens_to_the_crates_whose_build_reaches_a_changed_lock_entry() {
     registry[0] = ("libm", "0.2.16", "c9", &[]);
     assert_eq!(
         widened_by(&registry),
-        Ok(vec!["engine-core", "engine-objects", "engine-testkit"]),
+        Ok(vec!["audio-boxes", "audio-core", "audio-testkit"]),
         "a checksum: every crate reaching it, however deep"
     );
     let mut registry2 = LOCKED_REGISTRY.to_vec();
@@ -17802,7 +17775,7 @@ fn widens_to_the_crates_whose_build_reaches_a_changed_lock_entry() {
     let _removed = registry3.remove(2);
     assert_eq!(
         widened_by(&registry3),
-        Ok(vec!["engine-testkit"]),
+        Ok(vec!["audio-testkit"]),
         "a package removed: the one that reached it changed"
     );
     let mut registry4 = LOCKED_REGISTRY.to_vec();
@@ -17813,9 +17786,9 @@ fn widens_to_the_crates_whose_build_reaches_a_changed_lock_entry() {
         "a package no crate reaches"
     );
     let workspace = [
-        ("engine-core", &["libm"][..]),
-        ("engine-objects", &["engine-core"]),
-        ("engine-testkit", &["engine-core", "proptest"]),
+        ("audio-core", &["libm"][..]),
+        ("audio-boxes", &["audio-core"]),
+        ("audio-testkit", &["audio-core", "proptest"]),
         ("xtask", &["serde_json", "itoa"]),
     ];
     assert_eq!(
@@ -18001,7 +17974,7 @@ fn reads_a_lock_file_only_as_cargo_writes_it() {
 fn needs_one_entry_of_each_crate_of_the_workspace() {
     let lock = lock_text(&LOCKED_WORKSPACE, &LOCKED_REGISTRY);
     let without = lock.replacen(
-        "\n[[package]]\nname = \"engine-cli\"\nversion = \"0.1.0\"\n",
+        "\n[[package]]\nname = \"audio-cli\"\nversion = \"0.1.0\"\n",
         "",
         1,
     );
@@ -18011,7 +17984,7 @@ fn needs_one_entry_of_each_crate_of_the_workspace() {
     );
     assert_eq!(
         super::changes::lock_widened(&lock, &without),
-        Err("it does not hold exactly one entry of engine-cli".to_owned()),
+        Err("it does not hold exactly one entry of audio-cli".to_owned()),
         "a crate of the workspace missing"
     );
 }
@@ -18133,13 +18106,13 @@ fn mutates_the_crates_a_change_of_the_lock_file_reaches() {
 fn mutates_the_crates_that_build_a_changed_manifest_or_the_shared_test_crate() {
     for (path, whole) in [
         (
-            "crates/engine-core/Cargo.toml",
-            &["engine-core", "engine-objects"][..],
+            "crates/audio-core/Cargo.toml",
+            &["audio-core", "audio-boxes"][..],
         ),
-        ("crates/engine-hash/Cargo.toml", &["engine-hash"]),
+        ("crates/audio-hash/Cargo.toml", &["audio-hash"]),
         (
-            "crates/engine-testkit/src/runner.rs",
-            &["engine-objects", "engine-testkit"],
+            "crates/audio-testkit/src/runner.rs",
+            &["audio-boxes", "audio-testkit"],
         ),
     ] {
         let change = one_line_change(path);
@@ -18197,8 +18170,8 @@ fn keeps_the_crates_a_record_proves_that_a_lock_change_does_not_reach() {
     }
     let said = mutate_changes(&mut fake);
     assert!(
-        said.contains(&proven_line("engine-core"))
-            && said.contains(&proven_line("engine-hash"))
+        said.contains(&proven_line("audio-core"))
+            && said.contains(&proven_line("audio-hash"))
             && !said.contains("ignored the mutation proof record"),
         "the record still proves what the change does not reach: {said}"
     );
@@ -18226,8 +18199,8 @@ fn keeps_the_crates_a_record_proves_that_a_lock_change_does_not_reach() {
     }
     let reached = mutate_changes(&mut xtask);
     assert!(
-        !reached.contains(&proven_line("engine-core"))
-            && reached.contains(&proven_line("engine-hash")),
+        !reached.contains(&proven_line("audio-core"))
+            && reached.contains(&proven_line("audio-hash")),
         "the engine core reaches the changed entry, the render hash does not: {reached}"
     );
 }
@@ -18342,9 +18315,9 @@ fn finds_the_shared_dependencies_a_workspace_manifest_changes() {
         (
             manifest_with(
                 "# Pinned.\n",
-                "engine-core = { path = \"crates/engine-core\" }\na_b  =\t[\"x\", { y = \"#{[\" }]\n",
+                "audio-core = { path = \"crates/audio-core\" }\na_b  =\t[\"x\", { y = \"#{[\" }]\n",
             ),
-            &["a_b", "engine-core"],
+            &["a_b", "audio-core"],
             "entries added, names with a dash or an underscore, any value on one line",
         ),
         (
@@ -18553,7 +18526,7 @@ fn widens_to_everything_a_workspace_manifest_changed_elsewhere_or_unread() {
 
 /// What the crates of the manifest tests declare: the engine core `libm`, the render hash
 /// `sha2`, xtask `serde_json` under the name `json`; the boxes build the engine core.
-const DECLARING_METADATA: &str = r#"{"workspace_root":"/r","packages":[{"name":"engine-core","dependencies":[{"name":"libm","kind":null,"rename":null}]},{"name":"engine-hash","dependencies":[{"name":"sha2","kind":null}]},{"name":"engine-objects","dependencies":[{"name":"engine-core","kind":null,"path":"/r/crates/engine-core"}]},{"name":"xtask","dependencies":[{"name":"serde_json","kind":null,"rename":"json"}]},{"name":"other","dependencies":[{"name":"libm","kind":null}]}]}"#;
+const DECLARING_METADATA: &str = r#"{"workspace_root":"/r","packages":[{"name":"audio-core","dependencies":[{"name":"libm","kind":null,"rename":null}]},{"name":"audio-hash","dependencies":[{"name":"sha2","kind":null}]},{"name":"audio-boxes","dependencies":[{"name":"audio-core","kind":null,"path":"/r/crates/audio-core"}]},{"name":"xtask","dependencies":[{"name":"serde_json","kind":null,"rename":"json"}]},{"name":"other","dependencies":[{"name":"libm","kind":null}]}]}"#;
 
 #[test]
 fn reads_the_name_each_crate_gives_its_dependencies() {
@@ -18566,10 +18539,10 @@ fn reads_the_name_each_crate_gives_its_dependencies() {
     assert_eq!(
         declaring,
         [
-            ("engine-core", vec!["engine-objects"]),
+            ("audio-core", vec!["audio-boxes"]),
             ("json", vec!["xtask"]),
-            ("libm", vec!["engine-core"]),
-            ("sha2", vec!["engine-hash"]),
+            ("libm", vec!["audio-core"]),
+            ("sha2", vec!["audio-hash"]),
         ],
         "by its name in the manifest, a crate outside the workspace apart"
     );
@@ -18580,7 +18553,7 @@ fn reads_the_name_each_crate_gives_its_dependencies() {
     );
     assert!(
         super::changes::crate_builds(
-            r#"{"workspace_root":"/r","packages":[{"name":"engine-hash","dependencies":[{"rename":null}]}]}"#
+            r#"{"workspace_root":"/r","packages":[{"name":"audio-hash","dependencies":[{"rename":null}]}]}"#
         )
         .is_err_and(|failure| failure.summary == "cargo metadata lists a dependency without a name"),
         "a dependency without a name"
@@ -18627,7 +18600,7 @@ fn narrows_a_change_of_the_workspace_manifest_real_git_shows() {
     };
     assert_eq!(
         reach(Some(&manifest_with("=0.2.16", "=0.2.17"))),
-        crates(&["engine-core", "engine-objects"]),
+        crates(&["audio-core", "audio-boxes"]),
         "an entry changed: the crate declaring it, and every crate building that one"
     );
     assert_eq!(
@@ -18635,7 +18608,7 @@ fn narrows_a_change_of_the_workspace_manifest_real_git_shows() {
             "sha2 = { version = \"=0.11.1\", default-features = false }\n",
             ""
         ))),
-        crates(&["engine-hash"]),
+        crates(&["audio-hash"]),
         "an entry removed"
     );
     assert_eq!(
@@ -18748,11 +18721,11 @@ fn mutates_the_crates_a_change_of_the_workspace_manifest_reaches() {
     let said = mutate_changes(&mut fake);
     assert_eq!(
         fake.files.get(CHANGES_DIFF).cloned(),
-        Some(whole_crates(&change, &["engine-hash"])),
+        Some(whole_crates(&change, &["audio-hash"])),
         "the render hash alone, whole"
     );
     assert!(
-        said.contains("  Cargo.toml changed: every mutant of engine-hash\n")
+        said.contains("  Cargo.toml changed: every mutant of audio-hash\n")
             && !said.contains("every Rust mutant"),
         "said: {said}"
     );
@@ -18798,8 +18771,8 @@ fn mutates_the_crates_a_change_of_the_workspace_manifest_reaches() {
     }
     let kept = mutate_changes(&mut record);
     assert!(
-        kept.contains(&proven_line("engine-core"))
-            && !kept.contains(&proven_line("engine-hash"))
+        kept.contains(&proven_line("audio-core"))
+            && !kept.contains(&proven_line("audio-hash"))
             && !kept.contains("ignored the mutation proof record"),
         "a record still proves what the change does not reach: {kept}"
     );
@@ -18827,8 +18800,8 @@ fn writes_the_ci_marker_of_some_parts_in_one_form() {
     );
     assert_eq!(super::ci_parts_marker(&[]), "[ci]", "none: every part");
     assert_eq!(
-        super::ci_parts_marker(&parts_named("bindings-wasm gates")),
-        "[ci gates bindings-wasm]",
+        super::ci_parts_marker(&parts_named("bindings-audio-wasm gates")),
+        "[ci gates bindings-audio-wasm]",
         "in the order of the matrix, one space apart"
     );
     assert_eq!(
@@ -18841,8 +18814,8 @@ fn writes_the_ci_marker_of_some_parts_in_one_form() {
 #[test]
 fn reads_parts_named_by_hand_in_any_order_each_once() {
     assert_eq!(
-        super::named_parts(" bindings-wasm \t rust\n"),
-        Ok(parts_named("rust bindings-wasm")),
+        super::named_parts(" bindings-audio-wasm \t rust\n"),
+        Ok(parts_named("rust bindings-audio-wasm")),
         "in the order of the matrix, whatever the spaces"
     );
     assert_eq!(
@@ -18871,9 +18844,9 @@ fn reads_parts_named_by_hand_in_any_order_each_once() {
 #[test]
 fn accepts_a_marker_of_some_parts_only_in_its_one_form() {
     for message in [
-        "ci: x\n\n[ci gates bindings-wasm]\n",
+        "ci: x\n\n[ci gates bindings-audio-wasm]\n",
         "ci: x\n\n  [ci tooling-oracle]  \n",
-        "ci: x\n\n[CI GATES BINDINGS-WASM]\n",
+        "ci: x\n\n[CI GATES BINDINGS-AUDIO-WASM]\n",
         "ci: x\n\n[ci gates]\n\nAgain:\n[ci gates]\n",
         "ci: x\n\n[cite] a source, [circa] then\n",
     ] {
@@ -18884,8 +18857,8 @@ fn accepts_a_marker_of_some_parts_only_in_its_one_form() {
             .to_owned(),
     );
     for message in [
-        "ci: x\n\n[ci bindings-wasm gates]\n",
-        "ci: x\n\n[ci gates  bindings-wasm]\n",
+        "ci: x\n\n[ci bindings-audio-wasm gates]\n",
+        "ci: x\n\n[ci gates  bindings-audio-wasm]\n",
         "ci: x\n\n[ci nope]\n",
         "ci: x\n\n[ci final]\n",
         "ci: x\n\n[ci gates gates]\n",
@@ -18944,8 +18917,8 @@ fn reads_the_parts_a_run_of_the_workflow_checks() {
         "a push asking for every part, the input not read"
     );
     assert_eq!(
-        super::ci_parts("push", "ci: x\n\n[ci gates bindings-wasm]\n", ""),
-        Ok(parts_named("gates bindings-wasm"))
+        super::ci_parts("push", "ci: x\n\n[ci gates bindings-audio-wasm]\n", ""),
+        Ok(parts_named("gates bindings-audio-wasm"))
     );
     assert_eq!(
         super::ci_parts("push", "docs: x\n", ""),
@@ -18953,7 +18926,7 @@ fn reads_the_parts_a_run_of_the_workflow_checks() {
         "a push asking for nothing"
     );
     assert!(
-        super::ci_parts("push", "ci: x\n\n[ci bindings-wasm gates]\n", "").is_err(),
+        super::ci_parts("push", "ci: x\n\n[ci bindings-audio-wasm gates]\n", "").is_err(),
         "a marker in another form"
     );
     assert_eq!(
@@ -18965,9 +18938,9 @@ fn reads_the_parts_a_run_of_the_workflow_checks() {
 #[test]
 fn writes_the_parts_as_the_outputs_of_the_first_job() {
     assert_eq!(
-        super::ci_outputs(&parts_named("gates bindings-wasm")),
+        super::ci_outputs(&parts_named("gates bindings-audio-wasm")),
         [
-            "parts=[\"gates\",\"bindings-wasm\"]".to_owned(),
+            "parts=[\"gates\",\"bindings-audio-wasm\"]".to_owned(),
             "full=false".to_owned()
         ]
     );
@@ -19078,8 +19051,8 @@ fn tells_the_license_of_each_folder() {
     for (dir, license) in [
         ("apps/playground", "FSL-1.1-ALv2"),
         ("apps/x/y", "FSL-1.1-ALv2"),
-        ("crates/engine-core", "MIT OR Apache-2.0"),
-        ("bindings/wasm", "MIT OR Apache-2.0"),
+        ("crates/audio-core", "MIT OR Apache-2.0"),
+        ("bindings/audio-wasm", "MIT OR Apache-2.0"),
         ("tooling/config", "MIT OR Apache-2.0"),
         ("spec", "MIT OR Apache-2.0"),
         (".", "MIT OR Apache-2.0"),

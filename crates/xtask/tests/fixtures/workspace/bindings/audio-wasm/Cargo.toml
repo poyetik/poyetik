@@ -1,0 +1,17 @@
+[package]
+name = "audio-wasm"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[lib]
+path = "lib.rs"
+
+# Refused: the tests of the library use the native shell.
+[dependencies]
+audio-core = { path = "../../crates/audio-core" }
+audio-boxes = { path = "../../crates/audio-boxes" }
+
+[dev-dependencies]
+audio-cli = { path = "../../crates/audio-cli" }
+audio-testkit = { path = "../../crates/audio-testkit" }

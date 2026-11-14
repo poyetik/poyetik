@@ -13,7 +13,7 @@
       "updatedAt": "2026-11-12",
       "tasks": [
         {
-          "title": "Version 1: boxes, parameters and cables (spec/patch-format.md, read by engine-patch)",
+          "title": "Version 1: boxes, parameters and cables (spec/patch-format.md, read by audio-patch)",
           "done": true
         },
         {
@@ -104,7 +104,7 @@
           "done": false
         },
         {
-          "title": "One patch loader shared by native and WebAssembly, with a differential test, and one render-format dispatch shared by engine-cli and engine-wasm",
+          "title": "One patch loader shared by native and WebAssembly, with a differential test, and one render-format dispatch shared by audio-cli and audio-wasm",
           "done": false
         },
         {
@@ -120,7 +120,7 @@
           "done": false
         },
         {
-          "title": "Every native entry point that does float work (building, processing, rendering, the C functions) takes the DefaultMode proof of engine-fpenv or opens its scope itself, so that a native call outside the processor's default floating-point mode does not compile: a proof engine-core's entry points take, or a native layer over them as the one boundary a native host uses, decided here",
+          "title": "Every native entry point that does float work (building, processing, rendering, the C functions) takes the DefaultMode proof of audio-fpenv or opens its scope itself, so that a native call outside the processor's default floating-point mode does not compile: a proof audio-core's entry points take, or a native layer over them as the one boundary a native host uses, decided here",
           "done": false
         }
       ]
@@ -533,7 +533,7 @@
       "updatedAt": "2026-11-14",
       "tasks": [
         {
-          "title": "Patch reading: the format version is checked after the whole document parses, so a version-2 patch is reported as an unknown field; read format first. engine-cli and the oracle skip non-.json entries of cases/ and patches/ silently; refuse them",
+          "title": "Patch reading: the format version is checked after the whole document parses, so a version-2 patch is reported as an unknown field; read format first. audio-cli and the oracle skip non-.json entries of cases/ and patches/ silently; refuse them",
           "done": false
         },
         {
@@ -717,7 +717,7 @@
           "done": false
         },
         {
-          "title": "Documentation claims: numbers retyped in comments and specs with no test (name or compute them), the bypass register \"holds only\" entries but holds a test helper, README commands no check runs (a smoke run or a narrower rule), the README spec row omits the render hash, the crates README undersells engine-testkit, and the GLOSSARY rows of render hash and conformance case are incomplete",
+          "title": "Documentation claims: numbers retyped in comments and specs with no test (name or compute them), the bypass register \"holds only\" entries but holds a test helper, README commands no check runs (a smoke run or a narrower rule), the README spec row omits the render hash, the crates README undersells audio-testkit, and the GLOSSARY rows of render hash and conformance case are incomplete",
           "done": false
         },
         {
@@ -729,7 +729,7 @@
           "done": false
         },
         {
-          "title": "Oracle: refuse duplicate keys in case files, as engine-cli does",
+          "title": "Oracle: refuse duplicate keys in case files, as audio-cli does",
           "done": false
         },
         {
@@ -737,11 +737,11 @@
           "done": false
         },
         {
-          "title": "engine-cli: open inputs with a bound and refuse anything but a regular file, so a FIFO cannot block a read",
+          "title": "audio-cli: open inputs with a bound and refuse anything but a regular file, so a FIFO cannot block a read",
           "done": false
         },
         {
-          "title": "engine-wasm: a capture on a context that never runs, or on a source that never produces input, still waits forever: race it against the context's state and the engine's failure",
+          "title": "audio-wasm: a capture on a context that never runs, or on a source that never produces input, still waits forever: race it against the context's state and the engine's failure",
           "done": false
         },
         {
@@ -749,7 +749,7 @@
           "done": false
         },
         {
-          "title": "xtask: test its copy of the safe-message escaping against spec/safe-message-vectors.json, as engine-patch and the TypeScript tools do",
+          "title": "xtask: test its copy of the safe-message escaping against spec/safe-message-vectors.json, as audio-patch and the TypeScript tools do",
           "done": false
         },
         {
@@ -765,11 +765,11 @@
           "done": false
         },
         {
-          "title": "engine-wasm: renderOffline reports a late rejected or failed message as started too late or engine stopped: keep the real cause, with a test of that order",
+          "title": "audio-wasm: renderOffline reports a late rejected or failed message as started too late or engine stopped: keep the real cause, with a test of that order",
           "done": false
         },
         {
-          "title": "engine-wasm: prove in a real browser that a stopped engine gives the tap an empty input (the source-stopped signal is tested with fakes only)",
+          "title": "audio-wasm: prove in a real browser that a stopped engine gives the tap an empty input (the source-stopped signal is tested with fakes only)",
           "done": false
         },
         {
@@ -833,7 +833,7 @@
           "done": false
         },
         {
-          "title": "Native float mode, host side: decision 11 also has native shells detect, in safe code, a floating-point mode they could not set and report it; engine-fpenv always sets it on x86_64 and aarch64, so nothing reports yet. Implement the detection and report with the first plugin shell (with a mode that foreign code changes inside an engine call, which with_default_mode undoes on exit but whose proof is false until then), or scope it in the spec there",
+          "title": "Native float mode, host side: decision 11 also has native shells detect, in safe code, a floating-point mode they could not set and report it; audio-fpenv always sets it on x86_64 and aarch64, so nothing reports yet. Implement the detection and report with the first plugin shell (with a mode that foreign code changes inside an engine call, which with_default_mode undoes on exit but whose proof is false until then), or scope it in the spec there",
           "done": false
         },
         {
@@ -841,19 +841,19 @@
           "done": true
         },
         {
-          "title": "MXCSR bit 17 (MM, the misaligned exception mask of some AMD processors) is outside the mode fields of engine-fpenv and kept as the host set it: confirm on an AMD runner that it cannot change a result, and say so in the audit",
+          "title": "MXCSR bit 17 (MM, the misaligned exception mask of some AMD processors) is outside the mode fields of audio-fpenv and kept as the host set it: confirm on an AMD runner that it cannot change a result, and say so in the audit",
           "done": false
         },
         {
-          "title": "Browser render hash: the module is built in the strict mode only (a compile-time assertion in engine-wasm) and renderHash requires its mode; once a second mode is offered, export the module's mode through the C interface and hash with it",
+          "title": "Browser render hash: the module is built in the strict mode only (a compile-time assertion in audio-wasm) and renderHash requires its mode; once a second mode is offered, export the module's mode through the C interface and hash with it",
           "done": false
         },
         {
-          "title": "Unknown arithmetic mode: the oracle, engine-hash and the browser renderHash word their refusal differently; one message and a shared vector of it",
+          "title": "Unknown arithmetic mode: the oracle, audio-hash and the browser renderHash word their refusal differently; one message and a shared vector of it",
           "done": true
         },
         {
-          "title": "Math layer gate: it sees only a direct libm dependency of a box crate; also refuse engine-testkit as a normal dependency of a box crate, and math reached through other crates (num-traits, a libm feature of another dependency)",
+          "title": "Math layer gate: it sees only a direct libm dependency of a box crate; also refuse audio-testkit as a normal dependency of a box crate, and math reached through other crates (num-traits, a libm feature of another dependency)",
           "done": false
         },
         {
@@ -877,7 +877,7 @@
           "done": false
         },
         {
-          "title": "Coverage per instantiation: the coverage gate reads llvm-cov's summary, which merges the instantiations of a generic function, so a branch one instantiation never takes passes (found on 2026-11-10: in engine-core, Renderer<Binary64>::render_into never run on a plan without output and its render never refused, and reduce over blocks never given no term; engine-cli's read_earlier on one map type; engine-testkit's check_rendered and two closures of the laws in one precision). Reading every function record instead is not enough as is: an instantiation by a test's closure type (with_default_mode in engine-fpenv's tests) cannot take both sides of a branch, and a test-only path in hot code costs instructions. Decide which instantiations must be covered whole (those differing in the sample type, at least), how the gate tells them apart without parsing mangled names loosely, and prove it refuses with a fixture crate",
+          "title": "Coverage per instantiation: the coverage gate reads llvm-cov's summary, which merges the instantiations of a generic function, so a branch one instantiation never takes passes (found on 2026-11-10: in audio-core, Renderer<Binary64>::render_into never run on a plan without output and its render never refused, and reduce over blocks never given no term; audio-cli's read_earlier on one map type; audio-testkit's check_rendered and two closures of the laws in one precision). Reading every function record instead is not enough as is: an instantiation by a test's closure type (with_default_mode in audio-fpenv's tests) cannot take both sides of a branch, and a test-only path in hot code costs instructions. Decide which instantiations must be covered whole (those differing in the sample type, at least), how the gate tells them apart without parsing mangled names loosely, and prove it refuses with a fixture crate",
           "done": false
         },
         {
@@ -885,7 +885,7 @@
           "done": false
         },
         {
-          "title": "Gates for two classes of defect: refuse derive(PartialEq) on a type whose fields hold raw f32 or f64 (an IEEE equality the float_cmp lint cannot see, as renders had) unless reviewed, and refuse one public name exported by two crates of the audio library (as the plan's instance trait and engine_wasm::Instance were) unless reviewed; each with refused fixtures and a review register",
+          "title": "Gates for two classes of defect: refuse derive(PartialEq) on a type whose fields hold raw f32 or f64 (an IEEE equality the float_cmp lint cannot see, as renders had) unless reviewed, and refuse one public name exported by two crates of the audio library (as the plan's instance trait and audio_wasm::Instance were) unless reviewed; each with refused fixtures and a review register",
           "done": false
         },
         {
@@ -901,7 +901,7 @@
           "done": false
         },
         {
-          "title": "Exact values where a test asserts only the state of a Result: about 35 test sites assert a result with is_ok() or is_err() (most in xtask's and engine-cli's tests) where the exact value or message is known; assert it, and add a gate that refuses assert!(x.is_ok()) and assert!(x.is_err()) in test code unless reviewed, since Clippy's assertions_on_result_states only sees an assertion without a message, which missing_assert_message forbids here",
+          "title": "Exact values where a test asserts only the state of a Result: about 35 test sites assert a result with is_ok() or is_err() (most in xtask's and audio-cli's tests) where the exact value or message is known; assert it, and add a gate that refuses assert!(x.is_ok()) and assert!(x.is_err()) in test code unless reviewed, since Clippy's assertions_on_result_states only sees an assertion without a message, which missing_assert_message forbids here",
           "done": false
         },
         {
@@ -963,7 +963,7 @@
           "done": true
         },
         {
-          "title": "Objective measurements in engine-testkit and the oracle: spectrum, THD, SNR, aliasing level, with thresholds per box; spur and aliasing laws across the rate matrix; the banned float methods audited against the toolchain",
+          "title": "Objective measurements in audio-testkit and the oracle: spectrum, THD, SNR, aliasing level, with thresholds per box; spur and aliasing laws across the rate matrix; the banned float methods audited against the toolchain",
           "done": true
         },
         {
@@ -1126,19 +1126,19 @@
           "done": true
         },
         {
-          "title": "engine-core: Object contract, strong types, fixed block, plan build and run (no_std, forbid unsafe)",
+          "title": "audio-core: Object contract, strong types, fixed block, plan build and run (no_std, forbid unsafe)",
           "done": true
         },
         {
-          "title": "engine-objects + engine-testkit: osc~ (440 Hz sine) passing the generic laws",
+          "title": "audio-boxes + audio-testkit: osc~ (440 Hz sine) passing the generic laws",
           "done": true
         },
         {
-          "title": "engine-hash + engine-cli: offline render, canonical hash, first conformance case sine-440",
+          "title": "audio-hash + audio-cli: offline render, canonical hash, first conformance case sine-440",
           "done": true
         },
         {
-          "title": "bindings/wasm (engine-wasm + AudioWorklet glue): same hashes as native, proven by end-to-end tests on 4 browsers (OfflineAudioContext) and in Node",
+          "title": "bindings/audio-wasm (audio-wasm + AudioWorklet glue): same hashes as native, proven by end-to-end tests on 4 browsers (OfflineAudioContext) and in Node",
           "done": true
         },
         {
@@ -1212,7 +1212,7 @@
           "done": false
         },
         {
-          "title": "Offline render in engine-cli and the first visual conformance case: the same hashes natively and in WebAssembly",
+          "title": "Offline render in audio-cli and the first visual conformance case: the same hashes natively and in WebAssembly",
           "done": false
         },
         {

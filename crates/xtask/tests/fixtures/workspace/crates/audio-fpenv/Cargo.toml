@@ -1,0 +1,11 @@
+[package]
+name = "audio-fpenv"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[lib]
+path = "lib.rs"
+
+[dev-dependencies]
+audio-core = { path = "../audio-core" }

@@ -17,7 +17,7 @@ const SOURCE = /\.(?:ts|tsx|mts|cts|js|jsx|mjs|cjs|astro)$/u;
 const UNLINTED: ReadonlyMap<string, string> = new Map([
   ["tooling/config/test/policy/", "the policy's fixtures, each breaking a rule on purpose: the policy test lints them"],
   ["tooling/config/test/compiler/", "compiler fixtures, each breaking a setting on purpose: the policy test compiles them"],
-  ["bindings/wasm/test/types/", "compiler fixtures, some wrong on purpose: bindings/wasm/test/types.test.ts compiles them"],
+  ["bindings/audio-wasm/test/types/", "compiler fixtures, some wrong on purpose: bindings/audio-wasm/test/types.test.ts compiles them"],
   // Their frontmatter only calls the linted code of src/lib (Board's `Props` is declared there).
   ["apps/roadmap/src/components/Board.astro", "an Astro component: `astro check` type-checks it; ESLint reads none until eslint-plugin-astro (#15 step 1)"],
   ["apps/roadmap/src/pages/index.astro", "an Astro page: `astro check` type-checks it; ESLint reads none until eslint-plugin-astro (#15 step 1)"],

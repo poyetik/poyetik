@@ -1,5 +1,5 @@
 // What every command-line tool of the repository does to untrusted text before printing
-// it: the same characters and the same bound as `engine_patch::safe_message` in Rust,
+// it: the same characters and the same bound as `audio_patch::safe_message` in Rust,
 // checked on the shared vectors of spec/safe-message-vectors.json.
 
 /** Longest line {@link oneLine} returns, in characters (code points) after escaping. */

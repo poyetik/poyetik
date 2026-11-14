@@ -1,0 +1,27 @@
+[package]
+name = "audio-wasm"
+description = "Poyetik engine for WebAssembly: a minimal C interface for browsers (AudioWorklet) and Node"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+readme = false
+repository.workspace = true
+keywords = ["audio", "dsp", "webassembly"]
+categories = ["multimedia::audio", "wasm"]
+
+[lib]
+# cdylib: the `.wasm` module; rlib: native tests of the same code.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+audio-core = { path = "../../crates/audio-core" }
+audio-boxes = { path = "../../crates/audio-boxes" }
+audio-patch = { path = "../../crates/audio-patch" }
+
+[dev-dependencies]
+audio-testkit = { path = "../../crates/audio-testkit" }
+
+[lints]
+workspace = true

@@ -2,7 +2,7 @@
 // the same sample rates as the Rust tests, and the time zones and locales of the browsers,
 // never retyped.
 //
-// bindings/wasm has its own reader (test/fixtures.ts): a package cannot import another's
+// bindings/audio-wasm has its own reader (test/fixtures.ts): a package cannot import another's
 // test files (relative imports break in the mutation testing sandbox). When a third
 // TypeScript package needs the matrix (the editor), the readers move to one shared,
 // tested workspace package instead of a third copy.

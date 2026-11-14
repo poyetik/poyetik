@@ -5,7 +5,7 @@
 # On demand, because the full check is long and commits are frequent: on a push only when the
 # last commit's message holds [ci] alone on a line (xtask refuses it anywhere else), on every
 # pull request, and by hand (Run workflow). A push whose marker names parts ([ci gates
-# bindings-wasm], in the order of `cargo xtask list --full --parts`), or a run by hand given
+# bindings-audio-wasm], in the order of `cargo xtask list --full --parts`), or a run by hand given
 # parts, checks only those, without the final part: never a full check.
 # Every line of this file but its comments and blank lines is xtask's (`workflow_text`): the
 # workflow gate refuses any other, an action's commit hash and its tag comment apart, which
@@ -160,7 +160,7 @@ jobs:
           path: |
             mutants.out
             target/coverage
-            bindings/wasm/dist/engine.wasm
+            bindings/audio-wasm/dist/engine.wasm
             tooling/*/coverage
             tooling/*/reports
             bindings/*/coverage

@@ -1,0 +1,28 @@
+[package]
+name = "audio-testkit"
+description = "Poyetik test bench: runs boxes in isolation and checks the generic laws every box must respect"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+readme = false
+repository.workspace = true
+keywords = ["audio", "testing"]
+categories = ["development-tools::testing"]
+
+[dependencies]
+alloc-counter = { path = "../alloc-counter" }
+audio-battery = { path = "../audio-battery" }
+audio-core = { path = "../audio-core" }
+libm = { workspace = true }
+proptest = { version = "1", default-features = false, features = ["std"] }
+
+[dev-dependencies]
+# The patch reader and the real boxes, for the laws of reading patches (tests/parse_laws.rs).
+audio-boxes = { path = "../audio-boxes" }
+audio-patch = { path = "../audio-patch" }
+serde_json = "1"
+
+[lints]
+workspace = true

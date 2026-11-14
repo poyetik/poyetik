@@ -30,7 +30,7 @@ describe("parseCase", () => {
     ['{"sample_rate":48000,"frames":-0}', "c: frames is not a positive whole number"],
     // The same domain as the expectations: 1 to 2^29 frames.
     ['{"sample_rate":48000,"frames":536870913}', "c: frames is above 536870912, the longest case with an exact reference"],
-    // The engine's range of rates, as engine-cli refuses the case.
+    // The engine's range of rates, as audio-cli refuses the case.
     ['{"sample_rate":7999,"frames":10}', "c: sample_rate is not a supported sample rate (8000 to 384000 Hz)"],
     ['{"sample_rate":384001,"frames":10}', "c: sample_rate is not a supported sample rate (8000 to 384000 Hz)"],
     ['{"sample_rate":4294967296,"frames":10}', "c: sample_rate is not a supported sample rate (8000 to 384000 Hz)"],

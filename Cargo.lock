@@ -3,6 +3,105 @@
 version = 4
 
 [[package]]
+name = "alloc-counter"
+version = "0.2.0"
+
+[[package]]
+name = "audio-battery"
+version = "0.2.0"
+dependencies = [
+ "audio-core",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
+name = "audio-boxes"
+version = "0.2.0"
+dependencies = [
+ "audio-core",
+ "audio-testkit",
+ "libm",
+ "serde_json",
+]
+
+[[package]]
+name = "audio-cli"
+version = "0.2.0"
+dependencies = [
+ "audio-battery",
+ "audio-boxes",
+ "audio-core",
+ "audio-fpenv",
+ "audio-hash",
+ "audio-patch",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "audio-core"
+version = "0.2.0"
+dependencies = [
+ "libm",
+ "serde_json",
+]
+
+[[package]]
+name = "audio-fpenv"
+version = "0.2.0"
+dependencies = [
+ "audio-boxes",
+ "audio-core",
+ "audio-hash",
+ "audio-patch",
+ "serde_json",
+]
+
+[[package]]
+name = "audio-hash"
+version = "0.2.0"
+dependencies = [
+ "audio-core",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
+name = "audio-patch"
+version = "0.2.0"
+dependencies = [
+ "audio-core",
+ "serde",
+ "serde_derive",
+ "serde_json",
+]
+
+[[package]]
+name = "audio-testkit"
+version = "0.2.0"
+dependencies = [
+ "alloc-counter",
+ "audio-battery",
+ "audio-boxes",
+ "audio-core",
+ "audio-patch",
+ "libm",
+ "proptest",
+ "serde_json",
+]
+
+[[package]]
+name = "audio-wasm"
+version = "0.2.0"
+dependencies = [
+ "audio-boxes",
+ "audio-core",
+ "audio-patch",
+ "audio-testkit",
+]
+
+[[package]]
 name = "autocfg"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -72,105 +171,6 @@ checksum = "f1dd6dbb5841937940781866fa1281a1ff7bd3bf827091440879f9994983d5c2"
 dependencies = [
  "block-buffer",
  "crypto-common",
-]
-
-[[package]]
-name = "engine-alloc-counter"
-version = "0.2.0"
-
-[[package]]
-name = "engine-battery"
-version = "0.2.0"
-dependencies = [
- "engine-core",
- "serde_json",
- "sha2",
-]
-
-[[package]]
-name = "engine-cli"
-version = "0.2.0"
-dependencies = [
- "engine-battery",
- "engine-core",
- "engine-fpenv",
- "engine-hash",
- "engine-objects",
- "engine-patch",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "engine-core"
-version = "0.2.0"
-dependencies = [
- "libm",
- "serde_json",
-]
-
-[[package]]
-name = "engine-fpenv"
-version = "0.2.0"
-dependencies = [
- "engine-core",
- "engine-hash",
- "engine-objects",
- "engine-patch",
- "serde_json",
-]
-
-[[package]]
-name = "engine-hash"
-version = "0.2.0"
-dependencies = [
- "engine-core",
- "serde_json",
- "sha2",
-]
-
-[[package]]
-name = "engine-objects"
-version = "0.2.0"
-dependencies = [
- "engine-core",
- "engine-testkit",
- "libm",
- "serde_json",
-]
-
-[[package]]
-name = "engine-patch"
-version = "0.2.0"
-dependencies = [
- "engine-core",
- "serde",
- "serde_derive",
- "serde_json",
-]
-
-[[package]]
-name = "engine-testkit"
-version = "0.2.0"
-dependencies = [
- "engine-alloc-counter",
- "engine-battery",
- "engine-core",
- "engine-objects",
- "engine-patch",
- "libm",
- "proptest",
- "serde_json",
-]
-
-[[package]]
-name = "engine-wasm"
-version = "0.2.0"
-dependencies = [
- "engine-core",
- "engine-objects",
- "engine-patch",
- "engine-testkit",
 ]
 
 [[package]]

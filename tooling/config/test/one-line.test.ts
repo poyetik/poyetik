@@ -35,7 +35,7 @@ function vectorsFile(): URL {
   throw new Error("spec/safe-message-vectors.json not found");
 }
 
-/** The shared vectors, also read by the tests of `engine_patch::safe_message`. */
+/** The shared vectors, also read by the tests of `audio_patch::safe_message`. */
 const VECTORS: unknown = JSON.parse(readFileSync(vectorsFile(), "utf8"));
 
 test("reproduces the shared vectors of the Rust implementation", () => {

@@ -7,10 +7,10 @@ import { judge } from "./oracle.ts";
 /** Usage of the command, printed on stdout by `node src/bin.ts help`, run in tooling/oracle. */
 export const USAGE = "usage: node src/bin.ts <conformance dir> <dir of exported WAV files>\n       node src/bin.ts help\n(in tooling/oracle)";
 
-/** Largest case file, in bytes: 64 KiB, as `engine-cli` reads it (`MAX_CASE_BYTES`). */
+/** Largest case file, in bytes: 64 KiB, as `audio-cli` reads it (`MAX_CASE_BYTES`). */
 export const MAX_CASE_BYTES = 64 * 1024;
 
-/** Largest `references.json`, in bytes: 1 MiB, as `engine-cli` reads it (`MAX_REFERENCES_BYTES`). */
+/** Largest `references.json`, in bytes: 1 MiB, as `audio-cli` reads it (`MAX_REFERENCES_BYTES`). */
 export const MAX_REFERENCES_BYTES = 1024 * 1024;
 
 /** Largest `expectations.json`, in bytes: 1 MiB, the limit of `references.json`, which lists the same cases. */
@@ -39,7 +39,7 @@ export interface Io {
 }
 
 /**
- * What a case name may hold, as `engine-cli` reads it (`conformance/README.md`), so that both
+ * What a case name may hold, as `audio-cli` reads it (`conformance/README.md`), so that both
  * readers of the corpus accept the same files.
  */
 const CASE_NAME = /^[a-z0-9][a-z0-9.-]*$/u;

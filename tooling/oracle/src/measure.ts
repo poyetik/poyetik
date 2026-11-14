@@ -2,7 +2,7 @@
  * Objective measurements of a signal, as `spec/measurements.md` defines them: its spectrum,
  * and for a known fundamental its THD+N, THD, aliasing level, SNR and SFDR, with the bounds
  * a sine within a known error per sample meets. Written again from the specification,
- * sharing no code with the engine's test bench (`engine_testkit::measure`); both read the
+ * sharing no code with the engine's test bench (`audio_testkit::measure`); both read the
  * known-answer vectors of `spec/measurement-vectors.json`.
  */
 

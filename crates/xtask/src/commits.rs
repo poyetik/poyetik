@@ -31,7 +31,7 @@ pub const COMMIT_SCOPE_EXTRAS: [(&str, &str); 8] = [
 ///
 /// Each crate of [`RUST_CRATES`] by its name, each package of [`PACKAGES`] by the last
 /// folder of its directory, or by the name of the crate that shares that directory
-/// (`engine-wasm`, never `wasm`), then [`COMMIT_SCOPE_EXTRAS`]: one name per part, so that
+/// (`audio-wasm`, never `wasm`), then [`COMMIT_SCOPE_EXTRAS`]: one name per part, so that
 /// a part is never named two ways.
 #[must_use]
 pub fn commit_scopes() -> Vec<&'static str> {

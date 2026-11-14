@@ -19,7 +19,7 @@
     "node": ">=22.18"
   },
   "dependencies": {
-    "@poyetik/engine-wasm": "workspace:*",
+    "@poyetik/audio-wasm": "workspace:*",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"
   },

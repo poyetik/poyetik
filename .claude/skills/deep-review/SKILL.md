@@ -102,7 +102,7 @@ A confirmed defect is not automatically worth fixing as suggested. For every CON
 ## 5. Lessons: turn classes of defects into rules
 
 A fixed defect is gone; a rule keeps its whole class from coming back. For the confirmed findings taken together, find what they reveal about the project's methods: a gap in the testing strategy (edges never tested, a kind of input never generated, a claim never measured), a check that passes vacuously, a promise of `CLAUDE.md` that no tool enforces, a recurring kind of mistake. For each lesson, propose in this order of preference (the guiding principle of `CLAUDE.md`):
-1. **a tool** that makes the mistake impossible or detects it: a step or gate in `cargo xtask check`, a law in `engine-testkit`, a lint, a type;
+1. **a tool** that makes the mistake impossible or detects it: a step or gate in `cargo xtask check`, a law in `audio-testkit`, a lint, a type;
 2. **a rule in `CLAUDE.md`**, worded so that it applies beyond the case that revealed it;
 3. **a check in this skill**, when only a review can see it.
 

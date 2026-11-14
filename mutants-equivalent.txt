@@ -8,4 +8,4 @@
 # Format: `<file>: <Mutator> at <the line, trimmed> -- <reason>`.
 # `cargo xtask check` fails on any disable comment not listed, and on any stale entry.
 
-bindings/wasm/ts/abi.ts: ArrayDeclaration at const NO_ARGUMENTS: readonly number[] = Object.freeze([]); -- only passed to exports that take no argument, and WebAssembly ignores extra arguments: any content gives the same calls
+bindings/audio-wasm/ts/abi.ts: ArrayDeclaration at const NO_ARGUMENTS: readonly number[] = Object.freeze([]); -- only passed to exports that take no argument, and WebAssembly ignores extra arguments: any content gives the same calls

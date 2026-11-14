@@ -1,7 +1,7 @@
 /** Entry point: mounts the playground. `?muted` silences the speakers (end-to-end tests). */
 
-import wasm from "@poyetik/engine-wasm/engine.wasm?url";
-import worklet from "@poyetik/engine-wasm/worklet?worker&url";
+import wasm from "@poyetik/audio-wasm/engine.wasm?url";
+import worklet from "@poyetik/audio-wasm/worklet?worker&url";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App.tsx";
