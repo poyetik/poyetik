@@ -106,7 +106,17 @@ test.afterEach(() => {
   expect(errors.filter((error) => !(expected?.test(error) ?? false))).toStrictEqual([]);
 });
 
-test("plays the 440 Hz sine of the engine and shows it live", async ({ page }) => {
+/**
+ * The start of the note the page shows when the browser's audio thread flushes subnormals,
+ * written here: Firefox on x86_64 does, every other browser and every browser on aarch64
+ * keeps IEEE arithmetic (spec/engine-design.md, decision 11).
+ */
+const FLUSHING = /^This browser rounds the smallest numbers to zero while it plays/;
+
+/** Whether `browserName` flushes subnormals on its audio thread on the machine running the tests, as measured. */
+const flushesSubnormals = (browserName: string): boolean => browserName === "firefox" && process.arch === "x64";
+
+test("plays the 440 Hz sine of the engine and shows it live, saying when the browser flushes subnormals", async ({ page, browserName }) => {
   await page.goto("./?muted");
   await expect(page).toHaveTitle("Playground · Poyetik");
   await expect(page.getByRole("status")).toHaveText("Stopped");
@@ -117,6 +127,7 @@ test("plays the 440 Hz sine of the engine and shows it live", async ({ page }) =
   await expect(page.getByTestId("frequency")).toHaveText("440.0 Hz");
   await expect(page.getByTestId("peak")).toHaveText("1.00");
   await expect(page.getByTestId("rate")).toHaveText(/^\d+ Hz$/);
+  await expect(page.getByText(FLUSHING)).toHaveCount(flushesSubnormals(browserName) ? 1 : 0);
 
   await page.getByRole("button", { name: "Stop" }).click();
   await expect(page.getByRole("status")).toHaveText("Stopped");

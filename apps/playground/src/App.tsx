@@ -1,7 +1,7 @@
 /** The playground page: an on/off button and the oscilloscope. */
 
 import { useCallback, useSyncExternalStore, type JSX } from "react";
-import { explain, type Player, type PlayerState } from "./player.ts";
+import { explain, flushes, type Player, type PlayerState } from "./player.ts";
 import { Oscilloscope } from "./Oscilloscope.tsx";
 
 /** Every state, as shown in the status. */
@@ -44,6 +44,13 @@ const ALERT = "player-alert";
 export const REFUSED = "The browser kept audio paused. Try again, or check that this tab may play sound.";
 
 /**
+ * Shown once the engine has seen that this browser's audio thread flushes subnormal numbers
+ * to zero: what plays here is not proven bit-identical to the engine elsewhere.
+ */
+export const FLUSHING =
+  "This browser rounds the smallest numbers to zero while it plays, so this tone is not guaranteed to be bit-identical to the engine elsewhere. The difference is far below anything audible.";
+
+/**
  * What the page explains next to the button, or null: why the player cannot start or
  * failed, and what to do; or why a resume did nothing.
  */
@@ -70,6 +77,7 @@ export function App({ player }: { readonly player: Player }): JSX.Element {
   const signal = useCallback(() => player.latest(), [player]);
   const { label, run } = action(player, state);
   const explanation = notice(state);
+  const arithmetic = player.arithmetic();
 
   return (
     <main>
@@ -120,6 +128,7 @@ export function App({ player }: { readonly player: Player }): JSX.Element {
           </details>
         ) : null}
       </div>
+      {arithmetic !== undefined && flushes(arithmetic) ? <p>{FLUSHING}</p> : null}
       <Oscilloscope active={state.kind === "playing"} signal={signal} />
     </main>
   );

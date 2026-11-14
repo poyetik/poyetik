@@ -1,7 +1,8 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import axe from "axe-core";
 import { afterEach, expect, test, vi } from "vitest";
-import { App, BUTTON_LABELS, REFUSED } from "../src/App.tsx";
+import type { SubnormalArithmetic } from "@poyetik/engine-wasm/web";
+import { App, BUTTON_LABELS, FLUSHING, REFUSED } from "../src/App.tsx";
 import { explain, type Failure, type Missing, type Player, type PlayerState, type Signal } from "../src/player.ts";
 
 /** A player whose state the test drives, recording the calls. */
@@ -10,6 +11,8 @@ class FakePlayer implements Player {
   readonly calls: string[] = [];
   /** What {@link FakePlayer.latest} returns: the test sets it to feed the oscilloscope. */
   signal: Signal | undefined = undefined;
+  /** What {@link FakePlayer.arithmetic} returns: the test sets it, before the change of state that shows it. */
+  subnormals: SubnormalArithmetic | undefined = undefined;
   /** The state the test last moved to with {@link FakePlayer.become}. */
   #state: PlayerState = { kind: "stopped" };
   /** The page's subscriptions, told by {@link FakePlayer.become}. */
@@ -49,6 +52,11 @@ class FakePlayer implements Player {
   /** The signal the test set, or undefined. */
   latest(): Signal | undefined {
     return this.signal;
+  }
+
+  /** The arithmetic the test set, or undefined. */
+  arithmetic(): SubnormalArithmetic | undefined {
+    return this.subnormals;
   }
 
   /** Moves to `state`, as the real player would, and tells the page. */
@@ -218,6 +226,44 @@ test("says when the browser kept the audio paused after Resume, and only then", 
   expect(alert.textContent).toBe(REFUSED);
   expect(button().getAttribute("aria-describedby")).toBe(alert.id);
   expect(REFUSED).toBe("The browser kept audio paused. Try again, or check that this tab may play sound.");
+});
+
+/** Every subnormal kept, in both formats: IEEE arithmetic, written as a literal. */
+const IEEE: SubnormalArithmetic = { binary32: { operands: true, results: true }, binary64: { operands: true, results: true } };
+
+/** IEEE arithmetic but for one of its four observations, each in turn: every way to flush some subnormals alone. */
+const ONE_FLUSHED: readonly SubnormalArithmetic[] = [
+  { ...IEEE, binary32: { operands: false, results: true } },
+  { ...IEEE, binary32: { operands: true, results: false } },
+  { ...IEEE, binary64: { operands: false, results: true } },
+  { ...IEEE, binary64: { operands: true, results: false } },
+];
+
+test.each([undefined, IEEE])("says nothing of the arithmetic when it is unknown or IEEE: %o", (subnormals) => {
+  const player = new FakePlayer();
+  player.subnormals = subnormals;
+  render(<App player={player} />);
+  player.become({ kind: "playing" });
+  expect(screen.queryByText(FLUSHING)).toBeNull();
+});
+
+test.each(ONE_FLUSHED)("says that the tone is not guaranteed bit-identical when the browser flushes subnormals: %o", (subnormals) => {
+  const player = new FakePlayer();
+  render(<App player={player} />);
+  player.become({ kind: "starting" });
+  expect(screen.queryByText(FLUSHING)).toBeNull();
+  player.subnormals = subnormals;
+  player.become({ kind: "playing" });
+  expect(screen.getByText(FLUSHING).tagName).toBe("P");
+});
+
+test("is accessible with the note on the arithmetic shown", async () => {
+  const player = new FakePlayer();
+  player.subnormals = { binary32: { operands: false, results: false }, binary64: { operands: false, results: false } };
+  render(<App player={player} />);
+  player.become({ kind: "playing" });
+  expect(screen.getByText(FLUSHING).tagName).toBe("P");
+  expect(await audit()).toStrictEqual({ violations: [], incomplete: UNDECIDED });
 });
 
 test("repaints the oscilloscope only while playing", () => {

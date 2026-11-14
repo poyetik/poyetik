@@ -18,6 +18,11 @@ vi.mock("../src/player.ts", () => ({
       return undefined;
     }
 
+    /** Never observed: the stub never loads the engine. */
+    arithmetic(): undefined {
+      return undefined;
+    }
+
     /** The only state of the stub, shared so that `state()` is stable. */
     readonly #state = { kind: "stopped" } as const;
 

@@ -7,7 +7,7 @@
  * (suspended, failed), so that the page never claims to play while it does not.
  */
 
-import { addProcessors, createEngineNode, loadPatch, tap, type Tap } from "@poyetik/engine-wasm/web";
+import { addProcessors, createEngineNode, loadPatch, tap, type SubnormalArithmetic, type Tap } from "@poyetik/engine-wasm/web";
 import { fetchOk } from "./fetch.ts";
 import { SampleHistory } from "./history.ts";
 
@@ -63,6 +63,19 @@ export interface Player {
   subscribe(listener: () => void): () => void;
   /** What was played most recently, or undefined when not playing. */
   latest(): Signal | undefined;
+  /**
+   * What the arithmetic of the browser's audio thread does with subnormal numbers, as the
+   * engine observed it when it last loaded; undefined until it first has.
+   */
+  arithmetic(): SubnormalArithmetic | undefined;
+}
+
+/**
+ * Whether `arithmetic` flushes some subnormals to zero: then the engine's renders in this
+ * browser are not proven bit-identical to its renders elsewhere (`spec/limitations.md`).
+ */
+export function flushes(arithmetic: SubnormalArithmetic): boolean {
+  return [arithmetic.binary32, arithmetic.binary64].some((kept) => !kept.operands || !kept.results);
 }
 
 /** What a browser may lack to play a patch. */
@@ -284,6 +297,8 @@ export class EnginePlayer implements Player {
   #idle: PlayerState;
   /** The live state and its session, if any: holding a session and being live are one. */
   #live: Live | undefined;
+  /** What {@link EnginePlayer.arithmetic} returns: the arithmetic the engine last observed. */
+  #arithmetic: SubnormalArithmetic | undefined;
 
   /**
    * Sets the player up; nothing is loaded before the first start. A browser lacking what
@@ -401,7 +416,7 @@ export class EnginePlayer implements Player {
       // Awaited before resuming: Chromium, Firefox and WebKit all construct the processor,
       // and so settle `ready`, while the context is still suspended: checked once by hand in
       // Playwright's builds of each (Safari unchecked); an end-to-end test is #24 step 54.
-      await session.until(engine.ready);
+      this.#arithmetic = await session.until(engine.ready);
       cause = "device";
       await session.until(context.resume());
       this.#fadeIn(session);
@@ -550,5 +565,10 @@ export class EnginePlayer implements Player {
   latest(): Signal | undefined {
     const live = this.#live;
     return live?.state === PLAYING ? { samples: live.session.history.snapshot(), rate: live.session.context.sampleRate } : undefined;
+  }
+
+  /** The arithmetic of the audio thread the engine last observed, or undefined before it first has. */
+  arithmetic(): SubnormalArithmetic | undefined {
+    return this.#arithmetic;
   }
 }
