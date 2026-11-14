@@ -24,6 +24,7 @@ use crate::{
         CHANGELOG_SINCE, history_commands, history_gate, history_pins, pins_command, pins_gate,
         pre_push_gate,
     },
+    licenses::{LICENSE_FILES, part_license_gate},
     loaded_files::{loaded_files_of_the_workspace, workflows},
     math_layer::{MATH_LAYER_SOURCES, math_layer_gate},
     parts::{Part, full_parts, part_steps, parts_gate, preparation_steps},
@@ -371,6 +372,17 @@ pub(crate) fn pins(runner: &mut dyn Runner) -> Result<(), Failure> {
     pin_gate(&metadata, &read_file(runner, DEPENDENCIES_REVIEWED)?)
 }
 
+/// Reads what the part license gate checks, and runs it ([`part_license_gate`]).
+pub(crate) fn part_licenses(runner: &mut dyn Runner) -> Result<(), Failure> {
+    let metadata = crates_metadata(runner)?;
+    let packages = read_all(runner, package_jsons())?;
+    let files = LICENSE_FILES
+        .iter()
+        .map(|(file, _)| (*file).to_owned())
+        .collect();
+    part_license_gate(&metadata, &packages, &read_all(runner, files)?)
+}
+
 /// Reads the tracked text files, and runs the citation gate on them ([`citation_gate`]).
 pub(crate) fn citations(runner: &mut dyn Runner) -> Result<(), Failure> {
     let paths = list_tracked(runner, &CITATION_SOURCES, "the text files")?;
@@ -425,6 +437,7 @@ pub(crate) fn run_action(
         Action::LibraryGate => crates_metadata(runner).and_then(|metadata| {
             library_gate(&metadata).and_then(|()| shared_tests_gate(&metadata))
         }),
+        Action::PartLicenseGate => part_licenses(runner),
         Action::VocabularyGate => {
             let paths = list_tracked(runner, &VOCABULARY_SOURCES, "the prose files")?;
             let sources = read_all(runner, paths)?;

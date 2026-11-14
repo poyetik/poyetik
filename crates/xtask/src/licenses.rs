@@ -1,7 +1,9 @@
 //! The license gate of the JavaScript dependencies.
 
 use crate::{
-    steps::{Cmd, Dir, Failure, verdict},
+    dependencies::NPM_FIELDS,
+    math_layer::{cargo_packages, dependencies_of, workspace_root},
+    steps::{Cmd, Dir, Failure, step_verdict, verdict},
     workspace::PACKAGES,
 };
 
@@ -125,4 +127,156 @@ pub fn license_gate(shipped: &str, all: &str) -> Result<(), Failure> {
             .map(|(name, license)| format!("{name} is under {license}")),
     );
     verdict("licenses not allowed", problems)
+}
+
+/// The license of every part outside `apps/`: the libraries, the bindings, the
+/// specifications and the tooling, open source.
+pub const OPEN_LICENSE: &str = "MIT OR Apache-2.0";
+
+/// The license of the parts under [`APPS`]: source-available, each release becoming
+/// Apache-2.0 two years after it.
+pub const APPS_LICENSE: &str = "FSL-1.1-ALv2";
+
+/// The folder of parts under [`APPS_LICENSE`].
+pub const APPS: &str = "apps/";
+
+/// The files holding the text of each license, relative to the root.
+///
+/// Each with the line it starts with (spaces around it apart): the open license's two
+/// alternatives at the root, which covers every part but the apps, and the apps' in their
+/// folder.
+pub const LICENSE_FILES: [(&str, &str); 3] = [
+    ("LICENSE-MIT", "MIT License"),
+    ("LICENSE-APACHE", "Apache License"),
+    (
+        "apps/LICENSE",
+        "# Functional Source License, Version 1.1, ALv2 Future License",
+    ),
+];
+
+/// The license of the part in `dir`, relative to the root (`.` for the root itself):
+/// [`APPS_LICENSE`] under [`APPS`], [`OPEN_LICENSE`] everywhere else.
+#[must_use]
+pub fn license_of(dir: &str) -> &'static str {
+    if dir.starts_with(APPS) {
+        APPS_LICENSE
+    } else {
+        OPEN_LICENSE
+    }
+}
+
+/// Checks that every part is under its folder's license and no open part depends on an app.
+///
+/// `metadata` is the output of [`metadata_command`](crate::dependencies::metadata_command):
+/// every crate declares the license of its directory ([`license_of`]) in its manifest, and
+/// none outside [`APPS`] depends on a crate of the workspace under [`APPS`] (a `path`
+/// dependency of any kind). `packages` are the `package.json` files (path and text): each
+/// declares the license of its directory in its `license` field, and none outside [`APPS`]
+/// depends on a package of the workspace under it (a `workspace:` dependency, in any of
+/// [`NPM_FIELDS`]), so that the open parts stay open and
+/// usable without the apps. `texts` are the [`LICENSE_FILES`] (path and text), each starting
+/// with its license's first line.
+///
+/// # Errors
+///
+/// Returns every crate or package without its folder's license, every open part that
+/// depends on a part of the apps, every license file that does not start with its
+/// license's first line, and invalid metadata or manifests.
+pub fn part_license_gate(
+    metadata: &str,
+    packages: &[(String, String)],
+    texts: &[(String, String)],
+) -> Result<(), Failure> {
+    let mut problems = Vec::new();
+    let root = workspace_root(metadata)?;
+    let relative = |path: &str| -> String {
+        let dir = path.rsplit_once('/').map_or("", |(dir, _)| dir);
+        dir.strip_prefix(root.as_str())
+            .map_or(dir, |rest| rest.trim_start_matches('/'))
+            .to_owned()
+    };
+    for (name, krate) in cargo_packages(metadata)? {
+        let manifest = krate
+            .get("manifest_path")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| Failure::from(format!("cargo metadata gives {name} no manifest")))?;
+        let dir = relative(manifest);
+        let wanted = license_of(&dir);
+        match krate.get("license").and_then(serde_json::Value::as_str) {
+            Some(license) if license == wanted => {}
+            other => problems.push(format!(
+                "{dir}: the crate {name} is under {}, not {wanted}",
+                other.unwrap_or("no license")
+            )),
+        }
+        for dependency in dependencies_of(&krate) {
+            let Some(path) = dependency.get("path").and_then(serde_json::Value::as_str) else {
+                continue;
+            };
+            let target = path
+                .strip_prefix(root.as_str())
+                .map_or(path, |rest| rest.trim_start_matches('/'));
+            if wanted == OPEN_LICENSE && license_of(target) == APPS_LICENSE {
+                problems.push(format!(
+                    "{dir}: the crate {name}, under {OPEN_LICENSE}, depends on {target}, \
+                     under {APPS_LICENSE}"
+                ));
+            }
+        }
+    }
+    let mut parts: Vec<(String, String, serde_json::Value)> = Vec::new();
+    for (path, text) in packages {
+        let fields: serde_json::Value = serde_json::from_str(text)
+            .map_err(|error| Failure::from(format!("{path}: invalid package.json: {error}")))?;
+        let dir = path.strip_suffix("/package.json").unwrap_or(".").to_owned();
+        let name = fields
+            .get("name")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .to_owned();
+        parts.push((dir, name, fields));
+    }
+    for (dir, name, fields) in &parts {
+        let wanted = license_of(dir);
+        match fields.get("license").and_then(serde_json::Value::as_str) {
+            Some(license) if license == wanted => {}
+            other => problems.push(format!(
+                "{dir}/package.json: {name} is under {}, not {wanted}",
+                other.unwrap_or("no license")
+            )),
+        }
+        for field in NPM_FIELDS {
+            let declared = fields
+                .get(field)
+                .and_then(serde_json::Value::as_object)
+                .into_iter()
+                .flatten();
+            for (dependency, version) in declared {
+                let local = version
+                    .as_str()
+                    .is_some_and(|version| version.starts_with("workspace:"));
+                let target = parts.iter().find(|(_, other, _)| other == dependency);
+                if let (true, Some((target, _, _))) = (local, target)
+                    && wanted == OPEN_LICENSE
+                    && license_of(target) == APPS_LICENSE
+                {
+                    problems.push(format!(
+                        "{dir}/package.json: {name}, under {OPEN_LICENSE}, depends on \
+                         {dependency} ({field}), under {APPS_LICENSE}"
+                    ));
+                }
+            }
+        }
+    }
+    for (file, first) in LICENSE_FILES {
+        let starts = texts
+            .iter()
+            .find(|(path, _)| path == file)
+            .and_then(|(_, text)| text.lines().find(|line| !line.trim().is_empty()))
+            .is_some_and(|line| line.trim() == first);
+        if !starts {
+            problems.push(format!("{file} does not start with \"{first}\""));
+        }
+    }
+    step_verdict(problems)
 }

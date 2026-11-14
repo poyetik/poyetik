@@ -66,7 +66,8 @@ pub use history::{
     pins_gate, pre_push_gate,
 };
 pub use licenses::{
-    LICENSE_CONTROLS, SHIPPED_LICENSES, TOOLING_EXCEPTIONS, TOOLING_EXTRA_LICENSES, license_gate,
+    APPS, APPS_LICENSE, LICENSE_CONTROLS, LICENSE_FILES, OPEN_LICENSE, SHIPPED_LICENSES,
+    TOOLING_EXCEPTIONS, TOOLING_EXTRA_LICENSES, license_gate, license_of, part_license_gate,
 };
 pub use loaded_files::{Loaded, LoadedCommand, loaded_files_commands, loaded_files_gate};
 pub use math_layer::{

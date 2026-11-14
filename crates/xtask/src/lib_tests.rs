@@ -255,7 +255,7 @@ const TREE_HEAD: (&str, &str) = (
 /// audio library, which depend on nothing but the boxes' tests on the test kit, and the
 /// crates of shared test code, the test kit depending on the counting allocator; each has
 /// only the test target reading its test data ([`test_data_reader_sources`]).
-const METADATA: &str = r#"{"workspace_root":"/r","packages":[{"name":"x","manifest_path":"/r/crates/x/Cargo.toml","dependencies":[{"name":"engine-core","kind":null,"path":"/r/crates/engine-core"},{"name":"serde_json","kind":null}],"targets":[{"kind":["lib"],"src_path":"/r/crates/x/src/lib.rs","test":true,"doctest":true}]},{"name":"engine-core","manifest_path":"/r/crates/engine-core/Cargo.toml","targets":[{"kind":["test"],"src_path":"/r/crates/engine-core/tests/data.rs","test":true,"doctest":false}]},{"name":"engine-objects","manifest_path":"/r/crates/engine-objects/Cargo.toml","dependencies":[{"name":"engine-testkit","kind":"dev","path":"/r/crates/engine-testkit"}],"targets":[{"kind":["test"],"src_path":"/r/crates/engine-objects/tests/data.rs","test":true,"doctest":false}]},{"name":"engine-patch","manifest_path":"/r/crates/engine-patch/Cargo.toml","targets":[{"kind":["test"],"src_path":"/r/crates/engine-patch/tests/data.rs","test":true,"doctest":false}]},{"name":"engine-hash","manifest_path":"/r/crates/engine-hash/Cargo.toml","targets":[{"kind":["test"],"src_path":"/r/crates/engine-hash/tests/data.rs","test":true,"doctest":false}]},{"name":"engine-fpenv","manifest_path":"/r/crates/engine-fpenv/Cargo.toml","targets":[{"kind":["test"],"src_path":"/r/crates/engine-fpenv/tests/data.rs","test":true,"doctest":false}]},{"name":"engine-wasm","manifest_path":"/r/bindings/wasm/Cargo.toml","targets":[]},{"name":"engine-testkit","manifest_path":"/r/crates/engine-testkit/Cargo.toml","dependencies":[{"name":"engine-alloc-counter","kind":null,"path":"/r/crates/engine-alloc-counter"}],"targets":[{"kind":["test"],"src_path":"/r/crates/engine-testkit/tests/data.rs","test":true,"doctest":false}]},{"name":"engine-alloc-counter","manifest_path":"/r/crates/engine-alloc-counter/Cargo.toml","targets":[]}]}"#;
+const METADATA: &str = r#"{"workspace_root":"/r","packages":[{"license":"MIT OR Apache-2.0","name":"x","manifest_path":"/r/crates/x/Cargo.toml","dependencies":[{"name":"engine-core","kind":null,"path":"/r/crates/engine-core"},{"name":"serde_json","kind":null}],"targets":[{"kind":["lib"],"src_path":"/r/crates/x/src/lib.rs","test":true,"doctest":true}]},{"license":"MIT OR Apache-2.0","name":"engine-core","manifest_path":"/r/crates/engine-core/Cargo.toml","targets":[{"kind":["test"],"src_path":"/r/crates/engine-core/tests/data.rs","test":true,"doctest":false}]},{"license":"MIT OR Apache-2.0","name":"engine-objects","manifest_path":"/r/crates/engine-objects/Cargo.toml","dependencies":[{"name":"engine-testkit","kind":"dev","path":"/r/crates/engine-testkit"}],"targets":[{"kind":["test"],"src_path":"/r/crates/engine-objects/tests/data.rs","test":true,"doctest":false}]},{"license":"MIT OR Apache-2.0","name":"engine-patch","manifest_path":"/r/crates/engine-patch/Cargo.toml","targets":[{"kind":["test"],"src_path":"/r/crates/engine-patch/tests/data.rs","test":true,"doctest":false}]},{"license":"MIT OR Apache-2.0","name":"engine-hash","manifest_path":"/r/crates/engine-hash/Cargo.toml","targets":[{"kind":["test"],"src_path":"/r/crates/engine-hash/tests/data.rs","test":true,"doctest":false}]},{"license":"MIT OR Apache-2.0","name":"engine-fpenv","manifest_path":"/r/crates/engine-fpenv/Cargo.toml","targets":[{"kind":["test"],"src_path":"/r/crates/engine-fpenv/tests/data.rs","test":true,"doctest":false}]},{"license":"MIT OR Apache-2.0","name":"engine-wasm","manifest_path":"/r/bindings/wasm/Cargo.toml","targets":[]},{"license":"MIT OR Apache-2.0","name":"engine-testkit","manifest_path":"/r/crates/engine-testkit/Cargo.toml","dependencies":[{"name":"engine-alloc-counter","kind":null,"path":"/r/crates/engine-alloc-counter"}],"targets":[{"kind":["test"],"src_path":"/r/crates/engine-testkit/tests/data.rs","test":true,"doctest":false}]},{"license":"MIT OR Apache-2.0","name":"engine-alloc-counter","manifest_path":"/r/crates/engine-alloc-counter/Cargo.toml","targets":[]}]}"#;
 
 /// The two license listings, written out: the production dependencies of what ships
 /// (the engine package, the playground and the roadmap), then everything.
@@ -974,7 +974,8 @@ fn passing() -> Fake {
         ),
     ]
     .into_iter()
-    .chain(package_jsons().into_iter().map(|path| (path, PACKAGE)))
+    .chain(LICENSE_TEXTS.map(|(path, text)| (path.to_owned(), text)))
+    .chain(package_jsons().into_iter().map(fake_package))
     .chain(
         super::RUST_CRATES
             .iter()
@@ -984,6 +985,17 @@ fn passing() -> Fake {
         assert!(earlier.is_none(), "fresh fake");
     }
     fake
+}
+
+/// The fake `package.json` at `path`, under the license of its folder: [`APP_PACKAGE`] under
+/// `apps/`, [`PACKAGE`] elsewhere.
+fn fake_package(path: String) -> (String, &'static str) {
+    let text = if path.starts_with("apps/") {
+        APP_PACKAGE
+    } else {
+        PACKAGE
+    };
+    (path, text)
 }
 
 /// Gives every coverage measurement of `fake` a full report, and the locality fixture the
@@ -1116,7 +1128,22 @@ const READMES: [(&str, &str); 10] = [
 const CARGO: &str = "[workspace]\nmembers = []\n\n[workspace.package]\nedition = \"2024\"\nversion = \"0.2.0\"\n\n[other]\nversion = \"9.9.9\"\n";
 /// The manifest of a crate that takes the workspace version.
 const MEMBER: &str = "[package]\nversion.workspace = true\nrepository.workspace = true\n\n[lints]\nworkspace = true\n";
-const PACKAGE: &str = r#"{"name": "x", "version": "0.2.0", "engines": {"node": ">=22.18"}}"#;
+const PACKAGE: &str = r#"{"name": "x", "license": "MIT OR Apache-2.0", "version": "0.2.0", "engines": {"node": ">=22.18"}}"#;
+/// [`PACKAGE`] under the license of the apps, as every manifest under `apps/` is.
+const APP_PACKAGE: &str = r#"{"name": "x", "license": "FSL-1.1-ALv2", "version": "0.2.0", "engines": {"node": ">=22.18"}}"#;
+/// The license files, each starting with the line of its license, the Apache license's
+/// centered by spaces as its official text is.
+const LICENSE_TEXTS: [(&str, &str); 3] = [
+    ("LICENSE-MIT", "MIT License\n\nCopyright\n"),
+    (
+        "LICENSE-APACHE",
+        "\n                              Apache License\n",
+    ),
+    (
+        "apps/LICENSE",
+        "# Functional Source License, Version 1.1, ALv2 Future License\n",
+    ),
+];
 /// Every workspace manifest with the same content.
 fn packages(text: &str) -> Vec<(String, String)> {
     package_jsons()
@@ -1187,6 +1214,7 @@ fn command_lines(steps: &[Step]) -> Vec<String> {
             Action::DependencyGate => "dependency gate".to_owned(),
             Action::PinGate => "pin gate".to_owned(),
             Action::LibraryGate => "library gate".to_owned(),
+            Action::PartLicenseGate => "part license gate".to_owned(),
             Action::CitationGate => "citation gate".to_owned(),
             Action::FusedBuild => "fused build".to_owned(),
             Action::LoadedFilesGate => "loaded files gate".to_owned(),
@@ -1793,106 +1821,110 @@ fn reads_the_float_sources_of_the_toolchain_s_sysroot() {
     );
 }
 
+/// What each step of the default check does, in order, as `command_lines` says it.
+const DEFAULT_PIPELINE: &[&str] = &[
+    "preflight",
+    "tree recorded",
+    "Root: pnpm install --frozen-lockfile",
+    "fresh tooling/config/coverage tooling/config/reports/mutation tooling/oracle/coverage tooling/oracle/reports/mutation bindings/wasm/coverage bindings/wasm/reports/mutation apps/playground/coverage apps/playground/reports/mutation apps/roadmap/coverage apps/roadmap/reports/mutation",
+    "fresh bindings/wasm/dist",
+    "equivalent gate",
+    "bypass gate",
+    "unsafe gate",
+    "cargo config gate",
+    "test code gate",
+    "test data gate",
+    "untested targets gate",
+    "unviable names gate",
+    "conformance cargo run --package engine-cli --locked --quiet -- check conformance --spent target/xtask/spent-algorithms.json",
+    "Root: cargo deny --locked check",
+    "dependency gate",
+    "pin gate",
+    "library gate",
+    "part license gate",
+    "math layer gate",
+    "supply chain gate",
+    "membership gate",
+    "readme gate",
+    "citation gate",
+    "vocabulary gate",
+    "version gate",
+    "history gate",
+    "workflow gate",
+    "parts gate",
+    "Root: pnpm audit --audit-level=low",
+    "license gate",
+    "stryker config gate",
+    "Root: cargo fmt --all --check",
+    "Root: cargo clippy --workspace --all-targets --locked",
+    "float method gate",
+    "Root: cargo doc --workspace --no-deps --document-private-items --locked",
+    "Root: cargo test --workspace --locked -- --include-ignored",
+    "loaded files gate",
+    "fused build",
+    "Root: cargo build --package engine-core --package engine-objects --package engine-patch --package engine-hash --locked --target aarch64-apple-darwin",
+    "Root: cargo build --package engine-core --package engine-objects --package engine-patch --package engine-hash --locked --target x86_64-unknown-linux-gnu",
+    "Root: cargo build --package engine-core --package engine-objects --package engine-patch --package engine-hash --locked --target wasm32-unknown-unknown",
+    "Root: cargo build --package engine-core --package engine-objects --package engine-patch --package engine-hash --locked --target thumbv7em-none-eabihf",
+    "Root: cargo clippy --package engine-fpenv --package engine-cli --all-targets --locked --target aarch64-apple-darwin",
+    "Root: cargo clippy --package engine-fpenv --package engine-cli --all-targets --locked --target x86_64-unknown-linux-gnu",
+    "Root: cargo build --lib --package engine-fpenv --package engine-cli --locked --target aarch64-apple-darwin",
+    "Root: cargo build --lib --package engine-fpenv --package engine-cli --locked --target x86_64-unknown-linux-gnu",
+    "fresh target/coverage",
+    "coverage locality",
+    "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-core/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-core.json -- --include-ignored",
+    "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-objects/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-objects.json -- --include-ignored",
+    "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-patch/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-patch.json -- --include-ignored",
+    "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-hash/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-hash.json -- --include-ignored",
+    "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-alloc-counter/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-alloc-counter.json -- --include-ignored",
+    "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-fpenv/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-fpenv.json -- --include-ignored",
+    "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-battery/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-battery.json -- --include-ignored",
+    "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-testkit/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-testkit.json -- --include-ignored",
+    "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-cli/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-cli.json -- --include-ignored",
+    "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path bindings/wasm/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-wasm.json -- --include-ignored",
+    "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/xtask/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/xtask.json -- --include-ignored",
+    "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-cli/Cargo.toml --locked --branch --json --summary-only --output-path target/coverage/engine-cli-main.json -- --include-ignored",
+    "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/xtask/Cargo.toml --locked --branch --json --summary-only --output-path target/coverage/xtask-main.json -- --include-ignored",
+    concat!(
+        "Root: cargo +nightly-2026-11-01 mi",
+        "ri test --package engine-alloc-counter --package engine-wasm --locked -- --include-ignored"
+    ),
+    "Package(\"tooling/config\"): pnpm run check",
+    "Package(\"tooling/config\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json",
+    "typescript reports gate of tooling/config",
+    "typescript scope gate of tooling/config",
+    "fresh target/conformance",
+    "Root: cargo run --package engine-cli --locked --quiet -- export conformance target/conformance",
+    "Package(\"tooling/oracle\"): pnpm run check",
+    "Package(\"tooling/oracle\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json",
+    "typescript reports gate of tooling/oracle",
+    "typescript scope gate of tooling/oracle",
+    "Package(\"bindings/wasm\"): pnpm run check",
+    "Package(\"bindings/wasm\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json",
+    "typescript reports gate of bindings/wasm",
+    "typescript scope gate of bindings/wasm",
+    "Package(\"bindings/wasm\"): pnpm run build",
+    "Package(\"apps/playground\"): pnpm run check",
+    "Package(\"apps/playground\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json",
+    "typescript reports gate of apps/playground",
+    "typescript scope gate of apps/playground",
+    "Package(\"apps/roadmap\"): pnpm run check",
+    "Package(\"apps/roadmap\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json",
+    "typescript reports gate of apps/roadmap",
+    "typescript scope gate of apps/roadmap",
+    "fresh mutants.out",
+    "rust mutants of the changes (3 jobs)",
+    "unviable gate (Partial)",
+    "unviable reviews current",
+    "mutation proof recorded",
+    "tree unchanged",
+];
+
 #[test]
 fn lists_every_check_in_order() {
     assert_eq!(
         command_lines(&check_steps(CHANGES_MODE)),
-        vec![
-            "preflight",
-            "tree recorded",
-            "Root: pnpm install --frozen-lockfile",
-            "fresh tooling/config/coverage tooling/config/reports/mutation tooling/oracle/coverage tooling/oracle/reports/mutation bindings/wasm/coverage bindings/wasm/reports/mutation apps/playground/coverage apps/playground/reports/mutation apps/roadmap/coverage apps/roadmap/reports/mutation",
-            "fresh bindings/wasm/dist",
-            "equivalent gate",
-            "bypass gate",
-            "unsafe gate",
-            "cargo config gate",
-            "test code gate",
-            "test data gate",
-            "untested targets gate",
-            "unviable names gate",
-            "conformance cargo run --package engine-cli --locked --quiet -- check conformance --spent target/xtask/spent-algorithms.json",
-            "Root: cargo deny --locked check",
-            "dependency gate",
-            "pin gate",
-            "library gate",
-            "math layer gate",
-            "supply chain gate",
-            "membership gate",
-            "readme gate",
-            "citation gate",
-            "vocabulary gate",
-            "version gate",
-            "history gate",
-            "workflow gate",
-            "parts gate",
-            "Root: pnpm audit --audit-level=low",
-            "license gate",
-            "stryker config gate",
-            "Root: cargo fmt --all --check",
-            "Root: cargo clippy --workspace --all-targets --locked",
-            "float method gate",
-            "Root: cargo doc --workspace --no-deps --document-private-items --locked",
-            "Root: cargo test --workspace --locked -- --include-ignored",
-            "loaded files gate",
-            "fused build",
-            "Root: cargo build --package engine-core --package engine-objects --package engine-patch --package engine-hash --locked --target aarch64-apple-darwin",
-            "Root: cargo build --package engine-core --package engine-objects --package engine-patch --package engine-hash --locked --target x86_64-unknown-linux-gnu",
-            "Root: cargo build --package engine-core --package engine-objects --package engine-patch --package engine-hash --locked --target wasm32-unknown-unknown",
-            "Root: cargo build --package engine-core --package engine-objects --package engine-patch --package engine-hash --locked --target thumbv7em-none-eabihf",
-            "Root: cargo clippy --package engine-fpenv --package engine-cli --all-targets --locked --target aarch64-apple-darwin",
-            "Root: cargo clippy --package engine-fpenv --package engine-cli --all-targets --locked --target x86_64-unknown-linux-gnu",
-            "Root: cargo build --lib --package engine-fpenv --package engine-cli --locked --target aarch64-apple-darwin",
-            "Root: cargo build --lib --package engine-fpenv --package engine-cli --locked --target x86_64-unknown-linux-gnu",
-            "fresh target/coverage",
-            "coverage locality",
-            "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-core/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-core.json -- --include-ignored",
-            "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-objects/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-objects.json -- --include-ignored",
-            "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-patch/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-patch.json -- --include-ignored",
-            "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-hash/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-hash.json -- --include-ignored",
-            "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-alloc-counter/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-alloc-counter.json -- --include-ignored",
-            "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-fpenv/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-fpenv.json -- --include-ignored",
-            "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-battery/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-battery.json -- --include-ignored",
-            "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-testkit/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-testkit.json -- --include-ignored",
-            "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-cli/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-cli.json -- --include-ignored",
-            "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path bindings/wasm/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/engine-wasm.json -- --include-ignored",
-            "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/xtask/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/xtask.json -- --include-ignored",
-            "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/engine-cli/Cargo.toml --locked --branch --json --summary-only --output-path target/coverage/engine-cli-main.json -- --include-ignored",
-            "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/xtask/Cargo.toml --locked --branch --json --summary-only --output-path target/coverage/xtask-main.json -- --include-ignored",
-            &format!(
-                "Root: cargo +nightly-2026-11-01 {} test --package engine-alloc-counter --package engine-wasm --locked -- --include-ignored",
-                "miri"
-            ),
-            "Package(\"tooling/config\"): pnpm run check",
-            "Package(\"tooling/config\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json",
-            "typescript reports gate of tooling/config",
-            "typescript scope gate of tooling/config",
-            "fresh target/conformance",
-            "Root: cargo run --package engine-cli --locked --quiet -- export conformance target/conformance",
-            "Package(\"tooling/oracle\"): pnpm run check",
-            "Package(\"tooling/oracle\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json",
-            "typescript reports gate of tooling/oracle",
-            "typescript scope gate of tooling/oracle",
-            "Package(\"bindings/wasm\"): pnpm run check",
-            "Package(\"bindings/wasm\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json",
-            "typescript reports gate of bindings/wasm",
-            "typescript scope gate of bindings/wasm",
-            "Package(\"bindings/wasm\"): pnpm run build",
-            "Package(\"apps/playground\"): pnpm run check",
-            "Package(\"apps/playground\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json",
-            "typescript reports gate of apps/playground",
-            "typescript scope gate of apps/playground",
-            "Package(\"apps/roadmap\"): pnpm run check",
-            "Package(\"apps/roadmap\"): pnpm exec stryker run stryker.config.json --incremental --incrementalFile reports/stryker-incremental.json",
-            "typescript reports gate of apps/roadmap",
-            "typescript scope gate of apps/roadmap",
-            "fresh mutants.out",
-            "rust mutants of the changes (3 jobs)",
-            "unviable gate (Partial)",
-            "unviable reviews current",
-            "mutation proof recorded",
-            "tree unchanged",
-        ],
+        DEFAULT_PIPELINE,
         "the default check pipeline"
     );
 }
@@ -1927,6 +1959,7 @@ const DEFAULT_CHECK_NAMES: &[&str] = &[
     "Every direct dependency reviewed",
     "Bit-defining dependencies pinned to one exact version",
     "The audio library depends only on its own crates, its tests also on its test crates; every crate only tests use is shared test code",
+    "Every part under the license of its folder, no open part depending on an app",
     "Box arithmetic only through the math layer: libm in engine-core and engine-testkit only, no raw float in box code, no iterator reduction outside the math layer",
     "Supply-chain configuration as xtask defines it",
     "Packages and crates known to the checks",
@@ -4227,7 +4260,7 @@ fn runs_every_step_and_reports_success() {
         Ok(()),
         "all green"
     );
-    let (tools, commands, emptied, listed, captured, written) = (10, 58, 14, 27, 54, 4);
+    let (tools, commands, emptied, listed, captured, written) = (10, 58, 14, 27, 55, 4);
     let read = 9
         + 2
         + 13
@@ -4253,6 +4286,8 @@ fn runs_every_step_and_reports_success() {
         + 3 * 12
         + 1
         + 1
+        + 6
+        + 3
         + 91;
     assert_eq!(
         fake.ran.len(),
@@ -4264,14 +4299,14 @@ fn runs_every_step_and_reports_success() {
          checks each followed by its Stryker run); fourteen directories are emptied; git lists \
          fourteen kinds of files (the box sources, the text files that cite the roadmap and the npm configuration files among them), the Rust files again for the test code, test data, untested targets, unviable names and loaded files gates, the TypeScript ones again for the reports and scope gates of \
          each package after the first; the licenses twice, the history of main and the history three times, the state \
-         of the tree (before, for the proof record and after) six times, the nightly's version and sysroot, the Cargo metadata (for the untested targets, dependency, pin, library and math layer gates), the output of the fused test build and of the nine builds of the loaded files gate, the merge base, the merge base with main three times and the record of the versions spent and the changelog listed there, the changed paths, the changes, the \
+         of the tree (before, for the proof record and after) six times, the nightly's version and sysroot, the Cargo metadata (for the untested targets, dependency, pin, library, part license and math layer gates), the output of the fused test build and of the nine builds of the loaded files gate, the merge base, the merge base with main three times and the record of the versions spent and the changelog listed there, the changed paths, the changes, the \
          new Rust files and the list of every mutant once, git's common directory twice, the tree checked out, \
          cargo-mutants' version, rustc's host and build, the linker driver's and git's versions, the status for a push and the hidden files and the tracked files (for their filters) for the mutation step and the proof record; the spent record, the measured base, the diff and the \
          proof record are written once each; the proof record, the measured base and the \
          toolchain file are read for it; and the gates read the nine dep-info files of the loaded files gate, the nine fake test data readers for the unsafe, bypass and vocabulary gates, every Rust file (twelve) for the test code, test data, untested targets and unviable names gates and the reviews of unviable mutants for the last, .node-version and the toolchain file for the preflight, the toolchain file, the four float sources and the float macros of the nightly and clippy.toml for the float gate, fourteen coverage reports, \
          the unviable report and reviews, the register of the pin gate, the 91 text files of the citation gate (the board and the spent record, which the fake lists as tracked, among them), the reviews again against the list of every mutant, six TypeScript sources and their reviews, the nine \
          sources, the twelve Cargo manifests and the register of the bypass gate, the three unsafe files, the Cargo \
-         configuration, the six package manifests and the register of the dependency gate, the four \
+         configuration, the six package manifests and the register of the dependency gate, the six package manifests and the three license files of the part license gate, the four \
          supply-chain files, twelve crate manifests, ten READMEs, the changelog, ten READMEs, three Rust and six TypeScript sources and the vocabulary of the vocabulary gate, eight version files, the workflow and \
          .node-version, five Stryker configurations and the six package manifests, and for each of the five \
          packages, the six TypeScript sources and two reports of its reports gate, then its \
@@ -4295,15 +4330,15 @@ fn runs_every_step_and_reports_success() {
     );
     let text = String::from_utf8(out).expect("utf-8 output");
     assert!(
-        text.starts_with("▶ [1/91] Tools and platform\n"),
+        text.starts_with("▶ [1/92] Tools and platform\n"),
         "numbered progress: {text}"
     );
     assert!(
-        text.contains("▶ [82/91] Roadmap checks\n  done in 1.5 s\n"),
+        text.contains("▶ [83/92] Roadmap checks\n  done in 1.5 s\n"),
         "last step announced: {text}"
     );
     assert!(
-        text.ends_with("  done in 1.5 s\n✔ all 91 checks passed in 2 min 16 s\n"),
+        text.ends_with("  done in 1.5 s\n✔ all 92 checks passed in 2 min 18 s\n"),
         "summary: {text}"
     );
 }
@@ -8359,6 +8394,7 @@ const fn carries_its_problems_alone(action: &Action) -> bool {
         | Action::UnviableNamesGate
         | Action::PinGate
         | Action::LibraryGate
+        | Action::PartLicenseGate
         | Action::CitationGate
         | Action::LoadedFilesGate => true,
         Action::BypassGate
@@ -8461,6 +8497,10 @@ fn names_each_failed_step_once() {
                 refused(super::library_gate(&real)),
                 refused(super::shared_tests_gate(shared)),
             ],
+        ),
+        (
+            Action::PartLicenseGate,
+            vec![refused(super::part_license_gate(METADATA, &[], &[]))],
         ),
         (Action::CitationGate, vec![refused(cite("\u{23}12 step 4"))]),
     ];
@@ -9068,7 +9108,7 @@ fn checks_a_push_then_runs_every_check() {
     assert!(
         String::from_utf8(out)
             .expect("UTF-8")
-            .ends_with("✔ all 91 checks passed in 2 min 16 s\n"),
+            .ends_with("✔ all 92 checks passed in 2 min 18 s\n"),
         "then every check"
     );
     assert!(
@@ -9839,13 +9879,13 @@ fn prints_the_details_of_a_failure_on_stdout_and_one_line_on_stderr() {
     );
     assert_eq!(
         String::from_utf8(err).expect("UTF-8"),
-        "error: 1 of 89 checks failed, listed above\n",
+        "error: 1 of 90 checks failed, listed above\n",
         "one line on stderr, counting the failed steps"
     );
     assert!(
         String::from_utf8(out).expect("UTF-8").ends_with(&format!(
-            "▶ [89/89] Working tree unchanged by the checks\n  done in 1.5 s\n\
-             ✘ 1 of 89 checks failed in 2 min 13 s\n\
+            "▶ [90/90] Working tree unchanged by the checks\n  done in 1.5 s\n\
+             ✘ 1 of 90 checks failed in 2 min 15 s\n\
              not reviewed: crates/a/src/c.rs: replace g -> U with x\n\
              stale review: crates/a/src/b.rs: replace f -> T with Default::default()\n\
              Rust unviable mutants reviewed: unviable mutants must be reviewed in \
@@ -15250,8 +15290,8 @@ fn the_parts_run_every_step_of_the_full_check_once() {
     }
     assert_eq!(
         steps_run,
-        18 * 3 + (89 - 3 - 7 - 2) + 8 * 2 + 1 + 2 + 6 * 3 + 1,
-        "each part's frame (three steps); every other step of the 89 once, but the seven \
+        18 * 3 + (90 - 3 - 7 - 2) + 8 * 2 + 1 + 2 + 6 * 3 + 1,
+        "each part's frame (three steps); every other step of the 90 once, but the seven \
          preparations, the mutation run and its unviable gate; in each of the eight shards, \
          the report emptied and the shard's run; the gate over the shards; the conformance \
          export (two steps) for the oracle; the JavaScript preparation (three steps) for the \
@@ -18984,5 +19024,204 @@ fn cli_prints_the_parts_of_a_run_or_why_not() {
                 .to_owned()
         ),
         "three arguments"
+    );
+}
+
+/// Cargo metadata of two crates, `crates/lib` and `apps/app`, under the given licenses, the
+/// first depending on the second (by a path, of `kind`) when `depends`.
+fn license_metadata(lib: Option<&str>, app: &str, depends: Option<&str>) -> String {
+    let license = lib.map_or(String::new(), |license| {
+        format!(r#""license":"{license}","#)
+    });
+    let dependencies = depends.map_or(String::new(), |kind| {
+        format!(r#","dependencies":[{{"name":"app","kind":"{kind}","path":"/r/apps/app"}},{{"name":"serde","kind":null}}]"#)
+    });
+    format!(
+        r#"{{"workspace_root":"/r","packages":[{{{license}"name":"lib","manifest_path":"/r/crates/lib/Cargo.toml"{dependencies}}},{{"license":"{app}","name":"app","manifest_path":"/r/apps/app/Cargo.toml","dependencies":[{{"name":"lib","kind":null,"path":"/r/crates/lib"}}]}}]}}"#
+    )
+}
+
+/// The license files as [`LICENSE_TEXTS`] holds them.
+fn license_texts() -> Vec<(String, String)> {
+    LICENSE_TEXTS
+        .iter()
+        .map(|(path, text)| ((*path).to_owned(), (*text).to_owned()))
+        .collect()
+}
+
+/// A tooling package and an app, under the given licenses, the first depending on the
+/// second in `field` (with `version`) when given.
+fn license_packages(tool: &str, app: &str, depends: Option<(&str, &str)>) -> Vec<(String, String)> {
+    let dependency = depends.map_or(String::new(), |(field, version)| {
+        format!(r#", "{field}": {{"@poyetik/app": "{version}"}}"#)
+    });
+    vec![
+        (
+            "tooling/tool/package.json".to_owned(),
+            format!(r#"{{"name": "@poyetik/tool", "license": "{tool}"{dependency}}}"#),
+        ),
+        (
+            "apps/app/package.json".to_owned(),
+            format!(
+                r#"{{"name": "@poyetik/app", "license": "{app}", "dependencies": {{"@poyetik/tool": "workspace:*"}}}}"#
+            ),
+        ),
+        (
+            "package.json".to_owned(),
+            r#"{"name": "poyetik", "license": "MIT OR Apache-2.0"}"#.to_owned(),
+        ),
+    ]
+}
+
+#[test]
+fn tells_the_license_of_each_folder() {
+    for (dir, license) in [
+        ("apps/playground", "FSL-1.1-ALv2"),
+        ("apps/x/y", "FSL-1.1-ALv2"),
+        ("crates/engine-core", "MIT OR Apache-2.0"),
+        ("bindings/wasm", "MIT OR Apache-2.0"),
+        ("tooling/config", "MIT OR Apache-2.0"),
+        ("spec", "MIT OR Apache-2.0"),
+        (".", "MIT OR Apache-2.0"),
+        ("apps", "MIT OR Apache-2.0"),
+        ("xapps/y", "MIT OR Apache-2.0"),
+    ] {
+        assert_eq!(super::license_of(dir), license, "{dir}");
+    }
+}
+
+#[test]
+fn accepts_every_part_under_its_license_and_apps_using_open_parts() {
+    let open = "MIT OR Apache-2.0";
+    let app = "FSL-1.1-ALv2";
+    assert_eq!(
+        super::part_license_gate(
+            &license_metadata(Some(open), app, None),
+            &license_packages(open, app, Some(("devDependencies", "^1.0.0"))),
+            &license_texts(),
+        ),
+        Ok(())
+    );
+}
+
+#[test]
+fn refuses_a_part_under_another_license_than_its_folders() {
+    let open = "MIT OR Apache-2.0";
+    let app = "FSL-1.1-ALv2";
+    assert_eq!(
+        super::part_license_gate(
+            &license_metadata(None, open, None),
+            &license_packages(app, "MIT", None),
+            &license_texts(),
+        ),
+        step_found(&[
+            "crates/lib: the crate lib is under no license, not MIT OR Apache-2.0".to_owned(),
+            "apps/app: the crate app is under MIT OR Apache-2.0, not FSL-1.1-ALv2".to_owned(),
+            "tooling/tool/package.json: @poyetik/tool is under FSL-1.1-ALv2, not MIT OR Apache-2.0"
+                .to_owned(),
+            "apps/app/package.json: @poyetik/app is under MIT, not FSL-1.1-ALv2".to_owned(),
+        ])
+    );
+    let unlicensed = vec![(
+        "package.json".to_owned(),
+        r#"{"name": "poyetik"}"#.to_owned(),
+    )];
+    assert_eq!(
+        super::part_license_gate(
+            &license_metadata(Some(open), app, None),
+            &unlicensed,
+            &license_texts()
+        ),
+        step_found(&[
+            "./package.json: poyetik is under no license, not MIT OR Apache-2.0".to_owned()
+        ])
+    );
+}
+
+#[test]
+fn refuses_an_open_part_depending_on_an_app() {
+    let open = "MIT OR Apache-2.0";
+    let app = "FSL-1.1-ALv2";
+    for kind in ["normal", "dev", "build"] {
+        assert_eq!(
+            super::part_license_gate(
+                &license_metadata(Some(open), app, Some(kind)),
+                &license_packages(open, app, None),
+                &license_texts(),
+            ),
+            step_found(&["crates/lib: the crate lib, under MIT OR Apache-2.0, depends on apps/app, under FSL-1.1-ALv2"
+                    .to_owned()]
+            ),
+            "{kind}"
+        );
+    }
+    for field in [
+        "dependencies",
+        "devDependencies",
+        "peerDependencies",
+        "optionalDependencies",
+    ] {
+        assert_eq!(
+            super::part_license_gate(
+                &license_metadata(Some(open), app, None),
+                &license_packages(open, app, Some((field, "workspace:*"))),
+                &license_texts(),
+            ),
+            step_found(&[format!(
+                "tooling/tool/package.json: @poyetik/tool, under MIT OR Apache-2.0, depends on @poyetik/app ({field}), under FSL-1.1-ALv2"
+            )]),
+            "{field}"
+        );
+    }
+}
+
+#[test]
+fn refuses_a_license_file_missing_or_not_starting_with_its_license() {
+    let open = "MIT OR Apache-2.0";
+    let app = "FSL-1.1-ALv2";
+    let mut texts = license_texts();
+    texts.retain(|(path, _)| path != "LICENSE-MIT");
+    if let Some((_, text)) = texts.iter_mut().find(|(path, _)| path == "apps/LICENSE") {
+        *text =
+            "Copyright\n# Functional Source License, Version 1.1, ALv2 Future License\n".to_owned();
+    }
+    assert_eq!(
+        super::part_license_gate(
+            &license_metadata(Some(open), app, None),
+            &license_packages(open, app, None),
+            &texts,
+        ),
+        step_found(&[
+                "LICENSE-MIT does not start with \"MIT License\"".to_owned(),
+                "apps/LICENSE does not start with \"# Functional Source License, Version 1.1, ALv2 Future License\""
+                    .to_owned(),
+            ]
+        )
+    );
+}
+
+#[test]
+fn refuses_unreadable_manifests_of_the_license_gate() {
+    let open = "MIT OR Apache-2.0";
+    let app = "FSL-1.1-ALv2";
+    let broken = vec![("apps/app/package.json".to_owned(), "{".to_owned())];
+    assert!(
+        super::part_license_gate(
+            &license_metadata(Some(open), app, None),
+            &broken,
+            &license_texts()
+        )
+        .is_err_and(|failure| failure
+            .summary
+            .starts_with("apps/app/package.json: invalid package.json")),
+        "invalid package.json"
+    );
+    let no_manifest =
+        r#"{"workspace_root":"/r","packages":[{"name":"lib","license":"MIT OR Apache-2.0"}]}"#;
+    assert_eq!(
+        super::part_license_gate(no_manifest, &[], &license_texts()),
+        Err(Failure::from(
+            "cargo metadata gives lib no manifest".to_owned()
+        ))
     );
 }
