@@ -85,3 +85,28 @@ fn refuses_unknown_fields_and_large_files() {
         "an invalid case does not render"
     );
 }
+
+#[test]
+fn accepts_a_sequence_ending_at_the_largest_index_only() {
+    let at = |first: u64, images: u64| {
+        SMALL
+            .replace("\"first\": 3", &format!("\"first\": {first}"))
+            .replace("\"images\": 5", &format!("\"images\": {images}"))
+    };
+    for (first, images) in [(u64::MAX, 1), (u64::MAX - 4, 5), (0, MAX_IMAGES)] {
+        assert!(
+            parse_case(&at(first, images)).is_ok(),
+            "{images} images from {first}: the last is {}",
+            first + (images - 1)
+        );
+    }
+    for (first, images) in [(u64::MAX, 2), (u64::MAX - 3, 5)] {
+        assert_eq!(
+            parse_case(&at(first, images)),
+            Err(format!(
+                "the last image is past the largest index: first {first} and {images} images"
+            )),
+            "{images} images from {first}"
+        );
+    }
+}
