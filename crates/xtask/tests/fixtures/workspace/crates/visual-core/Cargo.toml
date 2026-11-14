@@ -1,0 +1,15 @@
+[package]
+name = "visual-core"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[lib]
+path = "lib.rs"
+
+# Refused: the visual library depends on the audio library.
+[dependencies]
+audio-core = { path = "../audio-core" }
+
+[dev-dependencies]
+alloc-counter = { path = "../alloc-counter" }
