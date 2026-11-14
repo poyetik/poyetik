@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `visual-wasm`, the visual library compiled to WebAssembly: a minimal C interface with no imports (`visual_abi_version`, `visual_setup`, `visual_render`, `visual_hash`, `visual_values_len`) over a safe view that renders and hashes without the heap. Its FFI module is the fourth file of xtask's `UNSAFE_FILES`, run under Miri like the audio engine's, with the same build-time refusal of WebAssembly atomics; every crate root of the visual library forbids unsafe code in its doc tests.
 - The first visual conformance cases (`conformance/visual/`): four squares across rates (60, 23.976, 29.97 and 1000 images per second), sizes (320×180, odd, one column) and image indices (up to 9 × 10¹⁵; a case may end at the largest index, 2⁶⁴ − 1), with their reference image hashes. `visual-cli` renders them natively (`render`, `check`, `bless`, following the command-line contract of every tool; it reads `references.json` only exactly as `bless` writes it), which `cargo xtask check` runs ("Visual conformance (native)"), and `bindings/visual-wasm/conformance.mts` renders them in WebAssembly under Node: the same hashes natively and in WebAssembly, also checked by hand in Chrome. The independent oracle parses the visual cases too (`@poyetik/oracle/visual-inputs`, the first image's index exact past 2⁵³), and a shared rejection corpus (`conformance/visual/invalid/cases`, one fault per file) is refused whole by `visual-cli` and the oracle alike.
 
+### Changed
+
+- The reproducible build of a WebAssembly module (`pnpm build:wasm`, `pnpm test:reproducible`) moves from `bindings/audio-wasm/scripts` to its own package, `tooling/wasm-build` (`@poyetik/wasm-build`), parameterized by the module (its cargo package, what messages call it, its file in `dist/`), so that the engine's package and the visual library's build theirs with the same code; `bindings/audio-wasm` keeps its entry points and its messages, byte for byte. `cargo xtask check` checks the new package like the others (its own CI part, `tooling-wasm-build`).
+
 ## [0.5.0] - 2026-11-15
 
 ### Added

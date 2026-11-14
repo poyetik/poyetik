@@ -1,5 +1,11 @@
 import { describe, expect, test } from "vitest";
-import { artifactPath, BuildError, CARGO_ARGS, commitHashOf, encodedRustflags, identical, leakedPaths, sysrootOf } from "../scripts/wasm.ts";
+import { artifactPath, BuildError, cargoArgs, commitHashOf, encodedRustflags, identical, leakedPaths, reproducibilityProblems, sysrootOf, targetName, type WasmModule } from "../src/wasm.ts";
+
+/** The engine's module, as `bindings/audio-wasm` builds it. */
+const ENGINE: WasmModule = { package: "audio-wasm", label: "engine module", file: "engine.wasm" };
+
+/** Another module, so that nothing of the engine's is assumed. */
+const OTHER: WasmModule = { package: "visual-wasm", label: "visual module", file: "visual.wasm" };
 
 describe("encodedRustflags", () => {
   test("remaps the Cargo home, the repository and the standard library's sources, separated by U+001F", () => {
@@ -11,7 +17,8 @@ describe("encodedRustflags", () => {
   });
 
   test("builds the release engine for WebAssembly, with JSON messages", () => {
-    expect(CARGO_ARGS).toStrictEqual(["build", "--package", "audio-wasm", "--release", "--locked", "--target", "wasm32-unknown-unknown", "--message-format", "json-render-diagnostics"]);
+    expect(cargoArgs(OTHER)).toStrictEqual(["build", "--package", "visual-wasm", "--release", "--locked", "--target", "wasm32-unknown-unknown", "--message-format", "json-render-diagnostics"]);
+    expect(cargoArgs(ENGINE)).toStrictEqual(["build", "--package", "audio-wasm", "--release", "--locked", "--target", "wasm32-unknown-unknown", "--message-format", "json-render-diagnostics"]);
   });
 });
 
@@ -26,7 +33,7 @@ describe("artifactPath", () => {
       artifact("audio_wasm", ["/t/libaudio_wasm.rlib", "/elsewhere/audio_wasm.wasm"]),
       "",
     ].join("\n");
-    expect(artifactPath(messages)).toBe("/elsewhere/audio_wasm.wasm");
+    expect(artifactPath(messages, ENGINE)).toBe("/elsewhere/audio_wasm.wasm");
   });
 
   test.each([
@@ -36,7 +43,7 @@ describe("artifactPath", () => {
     ["files that are not a list", artifact("audio_wasm", "/t/audio_wasm.wasm")],
     ["another reason", JSON.stringify({ reason: "compiler-message", target: { name: "audio_wasm" }, filenames: ["/t/audio_wasm.wasm"] })],
   ])("explains a build that does not report the module: %s", (_case, messages) => {
-    expect(() => artifactPath(messages)).toThrow(new BuildError("cargo did not report the engine module (audio_wasm .wasm)"));
+    expect(() => artifactPath(messages, ENGINE)).toThrow(new BuildError("cargo did not report the engine module (audio_wasm .wasm)"));
   });
 
   test("names its errors", () => {
@@ -93,5 +100,20 @@ describe("identical", () => {
     expect(identical(new Uint8Array([1, 2]), new Uint8Array([1, 3]))).toBe(false);
     expect(identical(new Uint8Array([1, 2]), new Uint8Array([1, 2, 0]))).toBe(false);
     expect(identical(new Uint8Array([1, 2, 0]), new Uint8Array([1, 2]))).toBe(false);
+  });
+});
+
+describe("each module", () => {
+  test("is named by its own package", () => {
+    expect([targetName(ENGINE), targetName(OTHER), targetName({ package: "a-b-c", label: "x", file: "x.wasm" })]).toStrictEqual(["audio_wasm", "visual_wasm", "a_b_c"]);
+    const reported = JSON.stringify({ reason: "compiler-artifact", target: { name: "visual_wasm" }, filenames: ["/t/visual_wasm.wasm"] });
+    expect(artifactPath(reported, OTHER)).toBe("/t/visual_wasm.wasm");
+    expect(() => artifactPath(reported, ENGINE)).toThrow(new BuildError("cargo did not report the engine module (audio_wasm .wasm)"));
+    expect(() => artifactPath("", OTHER)).toThrow(new BuildError("cargo did not report the visual module (visual_wasm .wasm)"));
+  });
+
+  test("is named in its reproducibility problems", () => {
+    expect(reproducibilityProblems(new Uint8Array([1]), new Uint8Array([2]), ["/home"], OTHER)).toStrictEqual(["two builds of the visual module differ"]);
+    expect(reproducibilityProblems(new TextEncoder().encode("/home/x"), new TextEncoder().encode("/home/x"), ["/home"], OTHER)).toStrictEqual(["the visual module contains the path /home"]);
   });
 });

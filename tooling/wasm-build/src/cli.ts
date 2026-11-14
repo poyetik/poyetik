@@ -1,10 +1,11 @@
-// The two wasm build commands, with everything they touch injected: building the module
-// into dist/ (pnpm build:wasm) and checking that it is reproducible (pnpm
-// test:reproducible). The entry points (build-wasm.ts, reproducible.ts) only wire them to
-// the real process, files and cargo.
+// The two build commands of a WebAssembly module, with everything they touch injected:
+// building the module into its package's dist/ (pnpm build:wasm) and checking that it is
+// reproducible (pnpm test:reproducible). The entry points of each package (its
+// scripts/build-wasm.ts and scripts/reproducible.ts) only wire them to the real process,
+// files and cargo, with the package's module.
 import { createHash } from "node:crypto";
 import { join } from "node:path";
-import { artifactPath, BuildError, CARGO_ARGS, cargoHomeOf, commandFailure, commitHashOf, encodedRustflags, privatePaths, reproducibilityProblems, sysrootOf, type Toolchain } from "./wasm.ts";
+import { artifactPath, BuildError, cargoArgs, cargoHomeOf, commandFailure, commitHashOf, encodedRustflags, privatePaths, reproducibilityProblems, sysrootOf, type Toolchain, type WasmModule } from "./wasm.ts";
 
 /** What the commands need from the outside world. */
 export interface Io {
@@ -58,11 +59,11 @@ function toolchainOf(io: Io): Toolchain {
 }
 
 /**
- * Builds the module reproducibly with `toolchain` (in `targetDir` when given) and returns
+ * Builds `module` reproducibly with `toolchain` (in `targetDir` when given) and returns
  * its path.
  * @throws {BuildError} when cargo fails, or does not report the module.
  */
-function build(io: Io, toolchain: Toolchain, targetDir?: string): string {
+function build(io: Io, module: WasmModule, toolchain: Toolchain, targetDir?: string): string {
   const env = {
     ...io.env,
     CARGO_ENCODED_RUSTFLAGS: encodedRustflags(cargoHomeOf(io.env, io.home), io.repository, toolchain),
@@ -70,11 +71,11 @@ function build(io: Io, toolchain: Toolchain, targetDir?: string): string {
   };
   let messages: string;
   try {
-    messages = io.run("cargo", CARGO_ARGS, { cwd: io.repository, env });
+    messages = io.run("cargo", cargoArgs(module), { cwd: io.repository, env });
   } catch (error) {
     throw new BuildError(commandFailure("cargo build", error));
   }
-  return artifactPath(messages);
+  return artifactPath(messages, module);
 }
 
 /** Runs `action`, turning the failures it explains into one `error:` line and exit code 1. */
@@ -90,38 +91,38 @@ function reported(io: Io, action: () => number): number {
   }
 }
 
-/** `pnpm build:wasm`: builds the module and copies it to `dist/engine.wasm`; returns the exit code. */
-export function buildMain(io: Io, dist: string): number {
+/** `pnpm build:wasm`: builds `module` and copies it to its file in `dist`; returns the exit code. */
+export function buildMain(io: Io, dist: string, module: WasmModule): number {
   return reported(io, () => {
-    const artifact = build(io, toolchainOf(io));
+    const artifact = build(io, module, toolchainOf(io));
     io.makeDirectory(dist);
-    io.copy(artifact, join(dist, "engine.wasm"));
+    io.copy(artifact, join(dist, module.file));
     return 0;
   });
 }
 
 /**
- * `pnpm test:reproducible`: builds the module twice, in two fresh target directories
+ * `pnpm test:reproducible`: builds `module` twice, in two fresh target directories
  * (removed whatever the outcome), and checks that both builds are the same bytes and that
  * neither holds a path of this machine. Prints the SHA-256 of the module on success, to
  * compare across machines; each problem otherwise, then one `error:` line. Returns the
  * exit code.
  */
-export function reproducibleMain(io: Io): number {
-  const dirs = [io.temporaryDirectory("audio-wasm-a-"), io.temporaryDirectory("audio-wasm-b-")] as const;
+export function reproducibleMain(io: Io, module: WasmModule): number {
+  const dirs = [io.temporaryDirectory(`${module.package}-a-`), io.temporaryDirectory(`${module.package}-b-`)] as const;
   try {
     return reported(io, () => {
       const toolchain = toolchainOf(io);
-      const first = io.read(build(io, toolchain, dirs[0]));
-      const second = io.read(build(io, toolchain, dirs[1]));
+      const first = io.read(build(io, module, toolchain, dirs[0]));
+      const second = io.read(build(io, module, toolchain, dirs[1]));
       const paths = privatePaths(io.repository, cargoHomeOf(io.env, io.home), io.home, toolchain.sysroot);
-      const problems = reproducibilityProblems(first, second, paths);
+      const problems = reproducibilityProblems(first, second, paths, module);
       if (problems.length > 0) {
         problems.forEach(io.out);
-        io.err(`error: the engine module is not reproducible (${String(problems.length)} problem(s))`);
+        io.err(`error: the ${module.label} is not reproducible (${String(problems.length)} problem(s))`);
         return 1;
       }
-      io.out(`the engine module is reproducible: sha256 ${createHash("sha256").update(first).digest("hex")}`);
+      io.out(`the ${module.label} is reproducible: sha256 ${createHash("sha256").update(first).digest("hex")}`);
       return 0;
     });
   } finally {
