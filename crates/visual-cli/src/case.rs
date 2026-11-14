@@ -79,7 +79,11 @@ fn check(case: &Case) -> Result<Checked, String> {
         ));
     }
     // The last image is `first + images - 1`; `images` is at least 1 here.
-    if case.first.checked_add(case.images.saturating_sub(1)).is_none() {
+    if case
+        .first
+        .checked_add(case.images.saturating_sub(1))
+        .is_none()
+    {
         return Err(format!(
             "the last image is past the largest index: first {} and {} images",
             case.first, case.images
