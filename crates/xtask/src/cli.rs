@@ -41,7 +41,8 @@ usage: cargo xtask <check [--full [--part <part>]]|list [--full [--parts]]|mutan
                         --full --parts, the parts of `check --full`
   mutants <target>      run every mutant of one target: a crate (its name), a Rust file
                         of a crate, a TypeScript package (its directory) or one of its
-                        sources (their paths from the root)
+                        sources (their paths from the root); --changed: the Rust lines
+                        changed since the merge base only, not widened
   bless [<option>...]   rewrite conformance/references.json from the current renders,
                         and conformance/algorithms.json from the current box types and
                         engine (decision 29): runs `audio-cli bless conformance
@@ -83,6 +84,8 @@ pub enum Target {
         /// Its path, relative to the package.
         source: String,
     },
+    /// The Rust lines changed since the merge base, not widened (`--changed`).
+    ChangedLines,
 }
 
 impl Target {
@@ -90,12 +93,16 @@ impl Target {
     #[must_use]
     pub fn file(&self) -> Option<String> {
         match self {
-            Self::Crate(_) | Self::Package(_) => None,
+            Self::Crate(_) | Self::Package(_) | Self::ChangedLines => None,
             Self::RustFile { path, .. } => Some(path.clone()),
             Self::TypeScriptFile { package, source } => Some(format!("{}/{source}", package.dir)),
         }
     }
 }
+
+/// The target of `cargo xtask mutants` that names the Rust lines changed since the merge
+/// base ([`Target::ChangedLines`]).
+pub(crate) const CHANGED_LINES: &str = "--changed";
 
 /// The extensions of the TypeScript sources Stryker can mutate: those of [`TS_SOURCES`],
 /// Astro templates apart.
@@ -116,6 +123,9 @@ pub(crate) fn mutable_source(path: &str) -> bool {
 /// Returns the usage error, in one line: a path that is not plain, test code (Rust or
 /// TypeScript, fixtures included), or anything else that is no target.
 pub fn mutation_target(text: &str) -> Result<Target, String> {
+    if text == CHANGED_LINES {
+        return Ok(Target::ChangedLines);
+    }
     if let Some(krate) = RUST_CRATES.iter().find(|krate| krate.name == text) {
         return Ok(Target::Crate(*krate));
     }
@@ -204,6 +214,20 @@ pub fn mutants_steps(target: &Target, jobs: NonZeroUsize) -> Vec<Step> {
     };
     match target {
         Target::Crate(krate) => rust(krate.name, &["--package", krate.name]),
+        Target::ChangedLines => vec![
+            Step {
+                name: "Fresh Rust mutation report".to_owned(),
+                action: Action::FreshDirs(vec![MUTANTS_OUT.to_owned()]),
+            },
+            Step {
+                name: "Rust mutation testing of the lines changed".to_owned(),
+                action: Action::RustMutantsOfChangedLines { jobs },
+            },
+            Step {
+                name: "Rust unviable mutants reviewed".to_owned(),
+                action: Action::UnviableGate(Extent::Partial),
+            },
+        ],
         Target::RustFile { krate, path } => rust(path, &["--package", krate.name, "--file", path]),
         Target::Package(package) => typescript(
             *package,

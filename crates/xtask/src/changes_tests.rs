@@ -5,12 +5,15 @@ use core::fmt::Write as _;
 use std::path::Path;
 
 use crate::tests::{
-    CHANGES, COMMON_DIR, Fake, HERMETIC, HOST, LINKER, MAIN_BASE, MERGE_BASE, NEW_RUST_FILES,
-    PROVEN, UNTRACKED, diff_since, failed, fixture_metadata, hermetic_git, mutate_changes,
-    one_line_change, passing, proof_record, record_path, rust_mutation_of_changes, scratch,
-    since_base, system,
+    CHANGES, COMMON_DIR, FAKE_JOBS, Fake, HERMETIC, HOST, LINKER, MAIN_BASE, MERGE_BASE,
+    NEW_RUST_FILES, PROVEN, UNTRACKED, diff_since, failed, fixture_metadata, hermetic_git,
+    mutate_changes, one_line_change, passing, proof_record, record_path, rust_mutation_of_changes,
+    scratch, since_base, system,
 };
-use crate::{CHANGES_DIFF, RustCrate, SystemRunner, UNVIABLE_REPORT, run_steps};
+use crate::{
+    CHANGES_DIFF, RustCrate, Step, SystemRunner, Target, UNVIABLE_REPORT, changes_mutants_command,
+    mutants_steps, run_steps,
+};
 
 #[test]
 fn mutates_the_changes_since_the_merge_base_with_the_upstream() {
@@ -2968,4 +2971,129 @@ fn ignored(fake: &mut Fake, reason: &str) {
         Some(since_base()),
         "{reason}: the diff since the base"
     );
+}
+
+/// The steps of `cargo xtask mutants --changed`, with the fake's jobs.
+fn changed_lines_steps() -> Vec<Step> {
+    mutants_steps(&Target::ChangedLines, FAKE_JOBS)
+}
+
+#[test]
+fn mutates_the_lines_changed_and_never_widens() {
+    let mut fake = passing();
+    let changes = format!(
+        "{}{}",
+        one_line_change("crates/audio-core/src/lib.rs"),
+        one_line_change("crates/audio-core/src/plan_tests.rs")
+    );
+    let _changes = fake
+        .files
+        .insert(format!("capture {}", CHANGES.0), changes.clone());
+    for (path, text) in [
+        ("crates/audio-core/src/lib.rs", "fn a() {}\n"),
+        ("crates/audio-core/src/plan.rs", "fn p() {}\n"),
+        ("crates/audio-core/src/plan_tests.rs", "fn t() {}\n"),
+    ] {
+        let _source = fake.files.insert(path.to_owned(), text.to_owned());
+    }
+    let mut out = Vec::new();
+    assert_eq!(
+        run_steps(&changed_lines_steps(), &mut fake, &mut out),
+        Ok(())
+    );
+    assert_eq!(
+        fake.files.get(CHANGES_DIFF).cloned(),
+        Some(changes),
+        "the lines git wrote, the unit tests' source not added whole"
+    );
+    assert!(
+        fake.ran
+            .contains(&changes_mutants_command(FAKE_JOBS).line()),
+        "mutated: {:?}",
+        fake.ran
+    );
+    assert!(
+        !fake
+            .ran
+            .iter()
+            .any(|line| line.contains("rust-mutants-proven") || line.contains("mutants-base")),
+        "no proof record read or written: {:?}",
+        fake.ran
+    );
+    let said = String::from_utf8(out).expect("UTF-8");
+    assert!(
+        said.contains(
+            "  the Rust lines changed since abc1230000000000000000000000000000000000 (merge base \
+             with @{upstream}), not widened\n"
+        ),
+        "said: {said}"
+    );
+}
+
+#[test]
+fn mutates_nothing_when_no_rust_line_changed() {
+    let mut fake = passing();
+    let _changes = fake
+        .files
+        .insert(format!("capture {}", CHANGES.0), String::new());
+    let mut out = Vec::new();
+    assert_eq!(
+        run_steps(&changed_lines_steps(), &mut fake, &mut out),
+        Ok(())
+    );
+    assert!(
+        !fake
+            .ran
+            .iter()
+            .any(|line| line.starts_with("cargo mutants")
+                || line == "write target/xtask/changes.diff"),
+        "nothing written, nothing mutated: {:?}",
+        fake.ran
+    );
+    assert!(
+        String::from_utf8(out).expect("UTF-8").contains(
+            "  no Rust line changed since abc1230000000000000000000000000000000000 (merge base \
+             with @{upstream}): no mutant to test\n"
+        ),
+        "said"
+    );
+}
+
+#[test]
+fn reports_why_the_lines_changed_cannot_be_mutated() {
+    for (broken, expected) in [
+        (
+            "git ls-files -v -z",
+            "cannot read the work tree: cannot run `git ls-files -v -z`: not found".to_owned(),
+        ),
+        (
+            CHANGES.0,
+            format!("cannot read the changes: cannot run `{}`: not found", CHANGES.0),
+        ),
+        (
+            NEW_RUST_FILES.0,
+            format!(
+                "cannot list the new Rust files: cannot run `{}`: not found",
+                NEW_RUST_FILES.0
+            ),
+        ),
+        (
+            "write target/xtask/changes.diff",
+            "cannot write target/xtask/changes.diff: read-only".to_owned(),
+        ),
+        (
+            "cargo mutants --no-config --output=. --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --workspace --in-diff target/xtask/changes.diff --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored",
+            "cannot run `cargo mutants --no-config --output=. --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --workspace --in-diff target/xtask/changes.diff --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored`: not found".to_owned(),
+        ),
+    ] {
+        let mut fake = passing();
+        fake.broken = Some(broken.to_owned());
+        assert_eq!(
+            run_steps(&changed_lines_steps(), &mut fake, &mut Vec::new()),
+            failed(format!(
+                "Rust mutation testing of the lines changed: {expected}"
+            )),
+            "{broken}"
+        );
+    }
 }

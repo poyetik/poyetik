@@ -1138,6 +1138,9 @@ pub(crate) fn command_lines(steps: &[Step]) -> Vec<String> {
             Action::RustMutantsOfChanges { jobs } => {
                 format!("rust mutants of the changes ({jobs} jobs)")
             }
+            Action::RustMutantsOfChangedLines { jobs } => {
+                format!("rust mutants of the lines changed ({jobs} jobs)")
+            }
             Action::UnviableGate(extent) => format!("unviable gate ({extent:?})"),
             Action::MutationProofRecorded => "mutation proof recorded".to_owned(),
             Action::Bless(options) => format!("bless {}", super::bless_command(options).line()),

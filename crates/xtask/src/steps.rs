@@ -85,6 +85,12 @@ pub enum Action {
         /// The number of cargo-mutants jobs.
         jobs: NonZeroUsize,
     },
+    /// Run cargo-mutants on the Rust lines changed since the merge base only, not widened
+    /// (`cargo xtask mutants --changed`); nothing when no Rust line changed.
+    RustMutantsOfChangedLines {
+        /// The number of cargo-mutants jobs.
+        jobs: NonZeroUsize,
+    },
     /// Check the conformance references natively: read the record at the merge base of
     /// [`MAIN_BASES`](crate::workspace::MAIN_BASES), then run [`conformance_command`](crate::cli::conformance_command), which also compares the
     /// fingerprints with it.
