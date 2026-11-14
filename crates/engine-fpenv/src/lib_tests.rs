@@ -16,7 +16,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::hint::black_box;
 
-use engine_core::{RenderFormat, Renderer};
+use engine_core::{RenderFormat, Renderer, SubnormalArithmetic, SubnormalsKept};
 use engine_hash::Samples;
 
 use super::with_default_mode;
@@ -123,18 +123,19 @@ const FLUSH_FIELDS: [(&str, Word, (bool, bool), bool); 2] = [
     ("FIZ alone", 0x1, (false, true), true),
 ];
 
-/// Whether the smallest subnormal binary32 value survives as an operand and as a result:
-/// `(input kept, result kept)`. The operand probe's result, `2^-149 · 2^24 = 2^-125`, is
-/// normal, so only a flush of operands zeroes it; the result probe's operands are normal,
-/// so only a flush of results zeroes it. Operands pass through `black_box`, so that nothing
-/// is computed at compile time.
+/// Whether subnormals survive as operands and as results, `(operands kept, results kept)`,
+/// as `engine-core`'s observation of the arithmetic sees them (the probe a browser's engine
+/// reports, proven here under every mode forced). A flush field covers both formats, so the
+/// binary32 and binary64 observations must agree.
 fn subnormals_kept() -> (bool, bool) {
-    let input = black_box(f32::from_bits(1)) * black_box(16_777_216.0_f32);
-    let result = black_box(f32::MIN_POSITIVE) / black_box(4.0_f32);
-    (
-        black_box(input).to_bits() != 0,
-        black_box(result).to_bits() != 0,
-    )
+    let observed = SubnormalArithmetic::observe();
+    let pair = |kept: SubnormalsKept| (kept.operands, kept.results);
+    assert_eq!(
+        pair(observed.binary64),
+        pair(observed.binary32),
+        "binary64 observed like binary32"
+    );
+    pair(observed.binary32)
 }
 
 /// The direction of rounding observed: `1 + 1.5 ulp` gives `1 + 2 ulp` to nearest (a tie,

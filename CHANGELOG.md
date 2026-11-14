@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `engine_core::SubnormalArithmetic::observe` computes subnormal numbers on the calling thread and reports, for binary32 and binary64, whether a subnormal operand is used as it is (no denormals-are-zero) and a subnormal result kept (no flush-to-zero), each probe kept only when it gives its exact IEEE bits (`SubnormalArithmetic::IEEE`, `is_ieee`; `spec/engine-design.md`, decision 11). `engine-fpenv`'s tests prove it under every flush mode forced on the processor (`x86_64` in CI, aarch64 on a Mac), so the probe sees each mode its target has.
+
 ## [0.2.0] - 2026-11-13
 
 ### Added
