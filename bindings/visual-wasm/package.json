@@ -1,0 +1,36 @@
+{
+  "name": "@poyetik/visual-wasm",
+  "private": true,
+  "license": "MIT OR Apache-2.0",
+  "version": "0.5.0",
+  "type": "module",
+  "exports": {
+    "./visual": "./ts/visual.ts",
+    "./visual.wasm": "./dist/visual.wasm"
+  },
+  "description": "The visual library compiled to WebAssembly, and the TypeScript that drives it: the same image hashes as the native renderer, case by case.",
+  "scripts": {
+    "build:wasm": "node scripts/build-wasm.ts",
+    "build": "pnpm build:wasm",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --max-warnings 0",
+    "test": "vitest run --coverage",
+    "test:reproducible": "node scripts/reproducible.ts",
+    "check": "pnpm build && pnpm typecheck && pnpm lint && pnpm test && pnpm test:reproducible"
+  },
+  "engines": {
+    "node": ">=22.18"
+  },
+  "devDependencies": {
+    "@poyetik/config": "workspace:*",
+    "@poyetik/oracle": "workspace:*",
+    "@poyetik/wasm-build": "workspace:*",
+    "@stryker-mutator/core": "catalog:",
+    "@stryker-mutator/vitest-runner": "catalog:",
+    "@types/node": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
+    "eslint": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}
