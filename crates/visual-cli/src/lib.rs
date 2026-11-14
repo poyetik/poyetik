@@ -7,6 +7,7 @@
 //! Standalone, like the rest of the visual library: it depends on no audio crate.
 
 #![forbid(unsafe_code)]
+#![doc(test(attr(forbid(unsafe_code))))]
 
 extern crate alloc;
 

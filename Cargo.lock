@@ -429,6 +429,7 @@ dependencies = [
  "visual-boxes",
  "visual-core",
  "visual-hash",
+ "visual-testkit",
 ]
 
 [[package]]

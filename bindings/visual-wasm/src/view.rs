@@ -1,5 +1,7 @@
 //! The square shown by a page: its parameters and the image it renders into.
 
+#![forbid(unsafe_code)]
+
 use visual_boxes::Square;
 use visual_core::{Image, ImageIndex, ImageRate, ImageSize, Seconds, VisualBox};
 use visual_hash::hash_sequence;
@@ -84,3 +86,7 @@ impl View {
         &self.hash
     }
 }
+
+#[cfg(test)]
+#[path = "view_tests.rs"]
+mod tests;
