@@ -1,0 +1,96 @@
+//! The square shown by a page: its parameters and the image it renders into.
+
+use visual_boxes::Square;
+use visual_core::{Image, ImageIndex, ImageRate, ImageSize, Seconds, VisualBox, render_sequence};
+use visual_hash::ImageHasher;
+
+/// A square and the image it renders into, set up by the page.
+#[derive(Debug)]
+pub struct View {
+    /// The square, its image and the image rate, once set up.
+    shown: Option<(Square, Image, ImageRate)>,
+    /// The bytes of the last image hash computed.
+    hash: [u8; 32],
+}
+
+impl Default for View {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl View {
+    /// No square yet.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            shown: None,
+            hash: [0; 32],
+        }
+    }
+
+    /// Sets the square up: images of `width` × `height` pixels at `rate` (a fraction of
+    /// images per second), a side of `side` / 65 536 of the height, one sweep per `cycle`
+    /// (a fraction of seconds). Returns whether every value was valid; otherwise the
+    /// previous square, if any, is kept.
+    pub fn setup(
+        &mut self,
+        width: u32,
+        height: u32,
+        rate: (u32, u32),
+        side: u32,
+        cycle: (u32, u32),
+    ) -> bool {
+        let built = ImageSize::new(width, height).ok().and_then(|size| {
+            let rate = ImageRate::new(rate.0, rate.1).ok()?;
+            let cycle = Seconds::new(cycle.0, cycle.1).ok()?;
+            let square = Square::new(rate, side, cycle).ok()?;
+            Some((square, Image::new(size), rate))
+        });
+        let valid = built.is_some();
+        if built.is_some() {
+            self.shown = built;
+        }
+        valid
+    }
+
+    /// The number of values of an image: width × height × 4; 0 when no square is set up.
+    #[must_use]
+    pub fn render_len(&self) -> usize {
+        self.shown
+            .as_ref()
+            .map_or(0, |(_, image, _)| image.values().len())
+    }
+
+    /// Renders image `index` and returns its values (four per pixel, row by row from the
+    /// top); empty when no square is set up.
+    pub fn render(&mut self, index: u64) -> &[f32] {
+        match &mut self.shown {
+            Some((square, image, _)) => {
+                square.render(ImageIndex(index), image);
+                image.values()
+            }
+            None => &[],
+        }
+    }
+
+    /// Renders `count` images from image `first` and returns their image hash
+    /// (`spec/image-hash.md`), the 32 bytes of the SHA-256; all zero when no square is set
+    /// up.
+    pub fn hash(&mut self, first: u64, count: u64) -> &[u8; 32] {
+        if let Some((square, image, rate)) = &mut self.shown {
+            let mut hasher = ImageHasher::new(*rate, image.size(), image.encoding());
+            let mut refused = None;
+            render_sequence(square, ImageIndex(first), count, image, |_, rendered| {
+                let added = hasher.add(rendered).err();
+                refused = refused.or(added);
+            });
+            self.hash = if refused.is_none() {
+                hasher.finish().bytes()
+            } else {
+                [0; 32]
+            };
+        }
+        &self.hash
+    }
+}

@@ -25,6 +25,14 @@ const TAG: &[u8] = b"image-hash/1";
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ImageHash([u8; 32]);
 
+impl ImageHash {
+    /// The 32 bytes of the SHA-256, the first byte of the digest first.
+    #[must_use]
+    pub const fn bytes(self) -> [u8; 32] {
+        self.0
+    }
+}
+
 impl fmt::Display for ImageHash {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for byte in self.0 {

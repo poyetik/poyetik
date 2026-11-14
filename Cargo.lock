@@ -390,6 +390,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "visual-cli"
+version = "0.5.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "visual-boxes",
+ "visual-core",
+ "visual-hash",
+]
+
+[[package]]
 name = "visual-core"
 version = "0.5.0"
 
@@ -409,6 +420,15 @@ dependencies = [
  "alloc-counter",
  "serde_json",
  "visual-core",
+]
+
+[[package]]
+name = "visual-wasm"
+version = "0.5.0"
+dependencies = [
+ "visual-boxes",
+ "visual-core",
+ "visual-hash",
 ]
 
 [[package]]
