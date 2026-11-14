@@ -1,0 +1,13 @@
+[package]
+name = "visual-hash"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[lib]
+path = "lib.rs"
+
+# Refused: serde_json, a dependency of the visual library, is neither reviewed as
+# bit-defining nor pinned.
+[dependencies]
+serde_json = "1"

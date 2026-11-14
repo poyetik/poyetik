@@ -1,0 +1,12 @@
+[package]
+name = "visual-testkit"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+alloc-counter = { path = "../alloc-counter" }
+visual-core = { path = "../visual-core" }
