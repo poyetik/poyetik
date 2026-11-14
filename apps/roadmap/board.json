@@ -175,7 +175,7 @@
       "column": "next",
       "milestone": "M0 Foundations",
       "createdAt": "2026-11-07",
-      "updatedAt": "2026-11-09",
+      "updatedAt": "2026-11-14",
       "tasks": [
         {
           "title": "Choose the license and have it reviewed",
@@ -183,15 +183,15 @@
         },
         {
           "title": "Add LICENSE and set the SPDX identifier in Cargo.toml and every package.json",
-          "done": false
+          "done": true
         },
         {
           "title": "README: what users may do with what they create",
-          "done": false
+          "done": true
         },
         {
           "title": "Contribution policy: DCO or CLA",
-          "done": false
+          "done": true
         }
       ]
     },

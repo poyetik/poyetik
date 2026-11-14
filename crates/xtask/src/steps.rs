@@ -166,6 +166,9 @@ pub enum Action {
     /// The rules of [`library_gate`](crate::dependencies::library_gate) (what the audio library may depend on) and of
     /// [`shared_tests_gate`](crate::dependencies::shared_tests_gate) (which crates only tests use).
     LibraryGate,
+    /// Require every part to be under the license of its folder, and no open part to depend
+    /// on an app ([`part_license_gate`](crate::licenses::part_license_gate)).
+    PartLicenseGate,
     /// Require every roadmap step a tracked file cites to exist on the board
     /// ([`citation_gate`](crate::citations::citation_gate)).
     CitationGate,
@@ -846,6 +849,11 @@ pub(crate) fn dependency_steps() -> Vec<Step> {
                    test crates; every crate only tests use is shared test code"
                 .to_owned(),
             action: Action::LibraryGate,
+        },
+        Step {
+            name: "Every part under the license of its folder, no open part depending on an app"
+                .to_owned(),
+            action: Action::PartLicenseGate,
         },
     ]
 }

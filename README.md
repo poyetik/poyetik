@@ -21,6 +21,8 @@ A monorepo of separate parts:
 | `GLOSSARY.md` | The words of the project, and the name each takes in the patch format and the code |
 | `CLAUDE.md` | Project rules: language, proof, typing, testing, documentation, versioning |
 | `CHANGELOG.md` | Notable changes, per version |
+| `CONTRIBUTING.md`, `CLA.md` | How to contribute, and the contributor license agreement |
+| `LICENSE-MIT`, `LICENSE-APACHE`, `apps/LICENSE` | The license texts: see [License](#license) |
 
 ## Requirements
 
@@ -54,7 +56,14 @@ A new build of the compiler, or of the C compiler driver `cc` every build links 
 
 ## License
 
-Not decided yet.
+Two licenses, by folder, each stated in the part's manifest (its SPDX identifier) and checked by `cargo xtask check` (xtask's `part_license_gate`):
+
+- **`apps/`**, the applications: the [Functional Source License 1.1, Apache 2.0 future license](apps/LICENSE) (`FSL-1.1-ALv2`). Source-available: you may use, copy, modify and redistribute them for any purpose but a product or service that competes with Poyetik; each release becomes Apache-2.0 two years after it is published.
+- **Everything else** (the engine and its libraries, the bindings, the specifications, the conformance cases, the tooling): open source, under the [MIT license](LICENSE-MIT) or the [Apache License 2.0](LICENSE-APACHE), at your choice (`MIT OR Apache-2.0`). No open part depends on an application.
+
+**What you create is yours.** Patches, sounds, music, and the apps and plugins you export from them belong to you, and you may use and sell them as you wish.
+
+Contributions are accepted under the [contributor license agreement](CONTRIBUTING.md).
 
 ## Versioning
 

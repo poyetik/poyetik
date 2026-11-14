@@ -39,7 +39,7 @@ Core promise: **the engine produces exactly the same samples, bit for bit, on ev
 ## Documentation
 
 - **`doc/` is local only and never versioned** (git-ignored), and no versioned file but this one refers to it (other files, the `.claude/` skills included, say "the local design notes listed in `CLAUDE.md`"): design discussions, `architecture.md` (architecture, strategic reasons of the dependencies, decisions log), `licensing.md` (licensing strategy), `interface-testing.md`, `debug-mode.md`, `integrations.md`, brainstorms. It may be missing in a fresh clone; when present, read the relevant files before any design decision. Never copy its strategy content into a versioned file.
-- **No license is chosen yet**: never add a `LICENSE` file or change the `UNLICENSED` identifiers without the maintainer's explicit decision.
+- **Licenses, by folder** (decided by the maintainer): `apps/` under `FSL-1.1-ALv2` (`apps/LICENSE`), everything else under `MIT OR Apache-2.0` (`LICENSE-MIT`, `LICENSE-APACHE`); every crate and package states its folder's license, and no open part depends on an app (xtask's `part_license_gate`, whose doc is the source of the rule). Contributions come under the contributor license agreement (`CLA.md`). Never change a license, a license file or the agreement without the maintainer's explicit decision.
 - `doc/2026-11-07-initial-brainstorm.md` is the founding brainstorm. Read it before any architecture decision when it is present.
 
 Project rules will be added here as we go.
