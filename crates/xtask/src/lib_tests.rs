@@ -9208,8 +9208,8 @@ fn quality_with(from: &str, to: &str) -> String {
 /// list of refused forms let pass, and more.
 fn workflow_probes() -> Vec<(&'static str, String)> {
     let sink = "      - name: Start an audio server with a null sink\n        run: |\n          sudo apt-get update\n          sudo apt-get install --yes --no-install-recommends pulseaudio=1:16.1+dfsg1-2ubuntu10.1\n          pulseaudio --start --exit-idle-time=-1\n          pactl load-module module-null-sink sink_name=null\n          pactl set-default-sink null\n          pactl get-default-sink | grep --quiet --line-regexp null || { echo \"::error::no audio sink: Firefox cannot play live (the runner has no sound card)\"; exit 1; }\n";
-    let check = "      - name: One part of the full check\n        run: cargo xtask check --full --part ${{ matrix.part }}\n";
-    let final_check = "      - name: The unviable mutants of every shard, reviewed together\n";
+    let check = "      - name: cargo xtask check --full --part ${{ matrix.part }}\n        run: cargo xtask check --full --part ${{ matrix.part }}\n";
+    let final_check = "      - name: cargo xtask check --full --part final\n";
     vec![
         (
             "a default shell that runs nothing",
@@ -9260,7 +9260,7 @@ fn workflow_probes() -> Vec<(&'static str, String)> {
             "the check replaced, its line kept as text",
             quality_with(
                 check,
-                "      - name: One part of the full check\n        env:\n          NOTE: |\n            run: cargo xtask check --full --part ${{ matrix.part }}\n        run: echo skipped\n",
+                "      - name: cargo xtask check --full --part ${{ matrix.part }}\n        env:\n          NOTE: |\n            run: cargo xtask check --full --part ${{ matrix.part }}\n        run: echo skipped\n",
             ),
         ),
         (
@@ -9282,7 +9282,7 @@ fn workflow_probes() -> Vec<(&'static str, String)> {
 /// Workflows that differ from [`QUALITY`] in one way each, with what differs: the pins,
 /// the steps, the end of the file, and the forms of the gate this one replaced.
 fn workflow_more_probes() -> Vec<(&'static str, String)> {
-    let check = "      - name: One part of the full check\n        run: cargo xtask check --full --part ${{ matrix.part }}\n";
+    let check = "      - name: cargo xtask check --full --part ${{ matrix.part }}\n        run: cargo xtask check --full --part ${{ matrix.part }}\n";
     vec![
         (
             "a short commit",

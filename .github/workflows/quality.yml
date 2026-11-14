@@ -62,7 +62,7 @@ jobs:
           PARTS: ${{ inputs.parts }}
         run: cargo xtask ci-parts "$EVENT" "$MESSAGE" "$PARTS" >> "$GITHUB_OUTPUT"
   check:
-    name: cargo xtask check --full --part ${{ matrix.part }}
+    name: ${{ matrix.part }}
     needs: parts
     # Only the parts read above, if any.
     if: needs.parts.outputs.parts != '[]'
@@ -91,6 +91,11 @@ jobs:
           fetch-depth: 0
           # No credential is kept in the repository's configuration for later steps.
           persist-credentials: false
+
+      # The processor of this runner: hosted runners differ (Intel or AMD, of different
+      # speeds), so that a slow run is explained by its log.
+      - name: The runner's processor
+        run: lscpu
 
       # Rust: the pinned stable toolchain is installed from rust-toolchain.toml (rustup
       # 1.28 or later, given no name); the pinned nightly is used only to measure branch
@@ -137,7 +142,7 @@ jobs:
           pactl set-default-sink null
           pactl get-default-sink | grep --quiet --line-regexp null || { echo "::error::no audio sink: Firefox cannot play live (the runner has no sound card)"; exit 1; }
 
-      - name: One part of the full check
+      - name: cargo xtask check --full --part ${{ matrix.part }}
         run: cargo xtask check --full --part ${{ matrix.part }}
 
       # A mutation shard's unviable mutants, which the final part reviews with every other
@@ -171,7 +176,7 @@ jobs:
           if-no-files-found: ignore
 
   final:
-    name: cargo xtask check --full --part final
+    name: final
     # Once every part has passed, and only when every part ran: what needs them all.
     needs: [parts, check]
     if: needs.parts.outputs.full == 'true'
@@ -183,6 +188,8 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - name: The runner's processor
+        run: lscpu
 
       # The tools its preflight checks, as every part's (not the browsers, which it does not
       # check).
@@ -207,5 +214,5 @@ jobs:
           pattern: unviable-*
           path: mutants.out/shards
 
-      - name: The unviable mutants of every shard, reviewed together
+      - name: cargo xtask check --full --part final
         run: cargo xtask check --full --part final
