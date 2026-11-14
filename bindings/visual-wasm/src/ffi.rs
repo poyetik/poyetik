@@ -9,21 +9,38 @@
 //!    [`visual_values_len`] gives their count (four per pixel). The address is valid only
 //!    until the next call: the caller copies what it needs.
 //!
+//! Every function returns an unsigned 32-bit value (addresses and lengths included), which
+//! JavaScript receives as a signed `i32`: values from 2^31 on must be read back as
+//! unsigned. A trap (a bug, or memory exhausted) aborts the call in progress and leaves
+//! this instance in an unknown state: the caller must not use it again.
+//!
 //! The only `unsafe` here is `#[unsafe(no_mangle)]`, which gives each function a fixed
-//! export name.
+//! export name, and the tests that use the pointers exactly as JavaScript does.
 
 #![expect(
     unsafe_code,
-    reason = "the exported C interface: `#[unsafe(no_mangle)]`"
+    reason = "the exported C interface: `#[unsafe(no_mangle)]` and pointer-level tests"
 )]
 
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
-use crate::View;
+use crate::{View, image_index};
 
 /// Identity and version of this interface: `0x5056` ("PV") in the high 16 bits, the
 /// version in the low 16 bits.
 pub const ABI_VERSION: u32 = 0x5056_0002;
+
+// The lock below never waits: without WebAssembly threads (no `atomics` target feature),
+// std's `Mutex` cannot block. Built with them, it would become a real lock that a page's
+// render could wait on: such a build is refused. Threads need a nightly toolchain (a std
+// rebuilt with atomics), which is also the only one exposing this `cfg`: the pinned
+// nightly sets it from `-C target-feature=+atomics` alone, std not rebuilt, and this guard
+// then stops the build; the stable toolchain ignores the feature with a warning and builds
+// a module whose memory is not shared, where the lock still cannot block.
+#[cfg(all(target_arch = "wasm32", target_feature = "atomics"))]
+compile_error!(
+    "visual-wasm with WebAssembly atomics: the view lock could block a render; reach the view without a lock first"
+);
 
 /// The state of this module instance.
 static VIEW: Mutex<View> = Mutex::new(View::new());
@@ -63,16 +80,16 @@ pub extern "C" fn visual_setup(
 /// Renders image `high × 2³² + low` and returns the address of its values.
 #[unsafe(no_mangle)]
 pub extern "C" fn visual_render(low: u32, high: u32) -> *const f32 {
-    let index = (u64::from(high) << 32_u32) | u64::from(low);
-    view().render(index).as_ptr()
+    view().render(image_index(low, high)).as_ptr()
 }
 
 /// Renders `count` images from image `first_high × 2³² + first_low` and returns the address
 /// of their image hash: 32 bytes, all zero when no square is set up.
 #[unsafe(no_mangle)]
 pub extern "C" fn visual_hash(first_low: u32, first_high: u32, count: u32) -> *const u8 {
-    let first = (u64::from(first_high) << 32_u32) | u64::from(first_low);
-    view().hash(first, u64::from(count)).as_ptr()
+    view()
+        .hash(image_index(first_low, first_high), u64::from(count))
+        .as_ptr()
 }
 
 /// The number of values of the last image rendered: width × height × 4.
@@ -80,3 +97,7 @@ pub extern "C" fn visual_hash(first_low: u32, first_high: u32, count: u32) -> *c
 pub extern "C" fn visual_values_len() -> usize {
     view().render_len()
 }
+
+#[cfg(test)]
+#[path = "ffi_tests.rs"]
+mod tests;

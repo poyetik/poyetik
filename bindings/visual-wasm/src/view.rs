@@ -1,8 +1,19 @@
 //! The square shown by a page: its parameters and the image it renders into.
 
+#![forbid(unsafe_code)]
+
 use visual_boxes::Square;
 use visual_core::{Image, ImageIndex, ImageRate, ImageSize, Seconds, VisualBox};
 use visual_hash::hash_sequence;
+
+/// The image index `high × 2³² + low`, joined from the two halves a 32-bit caller passes:
+/// from their bytes, so that no arithmetic can carry or overlap.
+#[must_use]
+pub const fn image_index(low: u32, high: u32) -> u64 {
+    let [low0, low1, low2, low3] = low.to_le_bytes();
+    let [high0, high1, high2, high3] = high.to_le_bytes();
+    u64::from_le_bytes([low0, low1, low2, low3, high0, high1, high2, high3])
+}
 
 /// A square and the image it renders into, set up by the page.
 #[derive(Debug)]
@@ -84,3 +95,7 @@ impl View {
         &self.hash
     }
 }
+
+#[cfg(test)]
+#[path = "view_tests.rs"]
+mod tests;

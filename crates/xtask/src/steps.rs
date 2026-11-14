@@ -839,7 +839,7 @@ pub fn miri_command() -> Cmd {
 }
 
 /// The supply chain and the dependencies: every one reviewed, the bit-defining ones pinned,
-/// the audio library standing alone.
+/// each library standing alone.
 pub(crate) fn dependency_steps() -> Vec<Step> {
     vec![
         run(
