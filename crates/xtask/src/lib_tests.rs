@@ -268,8 +268,8 @@ const LICENSE_LINES: [&str; 2] = [
 /// commit after the changelog boundary.
 const HISTORY_LINES: [&str; 3] = [
     "git log --format=%x1e%H%x1f%B HEAD",
-    "git log --format=%x1e%H --name-only 8182fda87a1c631295548ff52eeb4ea08335fa36..HEAD",
-    "git log --format=%H 5f3abfee9e4b5b58cf50972cc3ff04eaf290b687..HEAD",
+    "git log --format=%x1e%H --name-only a6614dfa18a3b69634f7f581f711d3f509bb5115..HEAD",
+    "git log --format=%H 9853e43382d0af0e44970c8304294d34e0d8ac2b..HEAD",
 ];
 
 /// The threads of the fake's machine: six, so that the jobs of a full check (three) differ
@@ -5649,14 +5649,14 @@ const MAIN_BASE: (&str, &str) = (
 /// The commits the history gate is pinned to, written out: `SCOPES_SINCE`,
 /// `CHANGELOG_SINCE`, then the one commit of `CI_MARKER_EXEMPT`.
 const PINS: [(&str, &str); 3] = [
-    ("SCOPES_SINCE", "5f3abfee9e4b5b58cf50972cc3ff04eaf290b687"),
+    ("SCOPES_SINCE", "9853e43382d0af0e44970c8304294d34e0d8ac2b"),
     (
         "CHANGELOG_SINCE",
-        "8182fda87a1c631295548ff52eeb4ea08335fa36",
+        "a6614dfa18a3b69634f7f581f711d3f509bb5115",
     ),
     (
         "CI_MARKER_EXEMPT",
-        "baa21644eeb1ec9354743fe07ef69f21a173f685",
+        "431b8a141a99759fb5c2a5adefd4fc551c43276c",
     ),
 ];
 
@@ -5665,9 +5665,9 @@ const PINS: [(&str, &str); 3] = [
 const PINS_LISTED: (&str, &str) = (
     "git log --format=%H fed4560000000000000000000000000000000000",
     "fed4560000000000000000000000000000000000\n\
-     5f3abfee9e4b5b58cf50972cc3ff04eaf290b687\n\
-     baa21644eeb1ec9354743fe07ef69f21a173f685\n\
-     8182fda87a1c631295548ff52eeb4ea08335fa36\n",
+     9853e43382d0af0e44970c8304294d34e0d8ac2b\n\
+     431b8a141a99759fb5c2a5adefd4fc551c43276c\n\
+     a6614dfa18a3b69634f7f581f711d3f509bb5115\n",
 );
 
 /// How the fake lists the record of the conformance references at the base of the
@@ -8709,8 +8709,8 @@ fn checks_the_pins_in_the_history_of_main() {
     let listed = unpinned.files.insert(
         format!("capture {}", PINS_LISTED.0),
         "fed4560000000000000000000000000000000000\n\
-             8182fda87a1c631295548ff52eeb4ea08335fa36\n\
-             baa21644eeb1ec9354743fe07ef69f21a173f685\n"
+             a6614dfa18a3b69634f7f581f711d3f509bb5115\n\
+             431b8a141a99759fb5c2a5adefd4fc551c43276c\n"
             .to_owned(),
     );
     assert!(listed.is_some(), "the passing fake lists the pins");
@@ -8719,7 +8719,7 @@ fn checks_the_pins_in_the_history_of_main() {
         failed(
             "Commit messages, and a changelog entry for each change of behavior: the history \
              gate is pinned to commits main does not hold: SCOPES_SINCE names \
-             5f3abfee9e4b5b58cf50972cc3ff04eaf290b687, which is not in the history of \
+             9853e43382d0af0e44970c8304294d34e0d8ac2b, which is not in the history of \
              fed4560000000000000000000000000000000000 (merge base with origin/main): pin a \
              commit main holds"
         ),

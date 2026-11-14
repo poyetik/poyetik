@@ -58,7 +58,7 @@ pub fn commit_scopes() -> Vec<&'static str> {
 /// The scopes were free text up to it, and the published history is not rewritten. It is
 /// the commit of `main` the branch that brought the rule started from, as every pin of the
 /// history gate is a commit of `main` ([`history_pins`](crate::history::history_pins)).
-pub const SCOPES_SINCE: &str = "5f3abfee9e4b5b58cf50972cc3ff04eaf290b687";
+pub const SCOPES_SINCE: &str = "9853e43382d0af0e44970c8304294d34e0d8ac2b";
 
 /// Longest allowed commit header, in characters.
 pub const COMMIT_HEADER_MAX: usize = 72;
@@ -98,7 +98,7 @@ pub const CI_PARTS_MARKER: &str = "[ci ";
 
 /// Commits published before the marker was confined to a line of its own, whose message
 /// names it in a sentence: their history is not rewritten.
-pub const CI_MARKER_EXEMPT: [&str; 1] = ["baa21644eeb1ec9354743fe07ef69f21a173f685"];
+pub const CI_MARKER_EXEMPT: [&str; 1] = ["431b8a141a99759fb5c2a5adefd4fc551c43276c"];
 
 /// The parts the workflow's matrix can run: every part of the full check but the final
 /// one, which runs only after all of them ([`workflow_text`](crate::workflow::workflow_text)).
