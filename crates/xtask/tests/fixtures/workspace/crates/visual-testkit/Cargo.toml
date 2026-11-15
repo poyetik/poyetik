@@ -7,6 +7,8 @@ publish = false
 [lib]
 path = "lib.rs"
 
+# Refused: a test crate of the visual library reaching into the audio one.
 [dependencies]
 alloc-counter = { path = "../alloc-counter" }
+audio-core = { path = "../audio-core" }
 visual-core = { path = "../visual-core" }

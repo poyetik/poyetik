@@ -1965,10 +1965,12 @@ fn reads_the_crates_real_cargo_metadata_lists() {
         of("audio-boxes"),
         Some(vec![
             "alloc-counter",
+            "audio-battery",
             "audio-boxes",
             "audio-cli",
             "audio-core",
-            "audio-testkit"
+            "audio-testkit",
+            "visual-core"
         ]),
         "normal and development dependencies, at any depth"
     );
@@ -1976,9 +1978,11 @@ fn reads_the_crates_real_cargo_metadata_lists() {
         of("audio-fpenv"),
         Some(vec![
             "alloc-counter",
+            "audio-battery",
             "audio-core",
             "audio-fpenv",
-            "audio-testkit"
+            "audio-testkit",
+            "visual-core"
         ]),
         "a development dependency's own"
     );
