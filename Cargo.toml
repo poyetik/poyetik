@@ -15,8 +15,8 @@ repository = "https://github.com/poyetik/poyetik"
 # follows spec/engine-design.md decisions 10 and 29 (a new algorithm version for every box
 # type whose bits move, the old functions kept while an older version is supported).
 libm = { version = "=0.2.16", default-features = false }
-# Exactly pinned for the same reason: it computes the render hash and the fingerprints of the
-# box types, which an update could move.
+# Exactly pinned for the same reason: it computes the render hash, the fingerprints of the
+# box types and the image hash, which an update could move.
 sha2 = { version = "=0.11.1", default-features = false }
 
 # Strict linting, inherited by every crate (`[lints] workspace = true`). See CLAUDE.md.

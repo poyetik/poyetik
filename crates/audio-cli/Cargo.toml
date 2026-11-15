@@ -27,8 +27,8 @@ audio-hash = { path = "../audio-hash" }
 audio-boxes = { path = "../audio-boxes" }
 audio-patch = { path = "../audio-patch" }
 # The fingerprint of every box type, recorded beside the references (decision 29).
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.154"
 
 [lints]
 workspace = true
