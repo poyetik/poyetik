@@ -207,7 +207,7 @@ fn references(files: &mut dyn Files, dir: &Path) -> Result<BTreeMap<String, Stri
     let text = read(files, &file, MAX_REFERENCES_BYTES)?;
     let references: BTreeMap<String, String> = serde_json::from_str(&text).map_err(|error| {
         CliError::Failed(format!(
-            "{} is not an object of case names to hashes ({error}): restore it from git (`visual-cli bless {}` rewrites it from the current renders, only when they are meant to change)",
+            "{} is not a JSON object of case names to hashes ({error}): restore it from git (`visual-cli bless {}` rewrites it from the current renders, only when they are meant to change)",
             file.display(),
             dir.display()
         ))

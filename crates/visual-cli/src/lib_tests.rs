@@ -400,7 +400,7 @@ fn reads_the_references_only_as_bless_writes_them() {
         assert_eq!(
             run_with(&mut corpus(references), &["check", "d"]).0,
             Err(CliError::Failed(format!(
-                "d/references.json is not an object of case names to hashes ({reason}): restore \
+                "d/references.json is not a JSON object of case names to hashes ({reason}): restore \
                  it from git (`visual-cli bless d` rewrites it from the current renders, only \
                  when they are meant to change)"
             ))),
