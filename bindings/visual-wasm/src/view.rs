@@ -52,15 +52,18 @@ impl View {
         side: u32,
         cycle: (u32, u32),
     ) -> bool {
-        let built = ImageSize::new(width, height).ok().and_then(|size| {
-            let rate = ImageRate::new(rate.0, rate.1).ok()?;
-            let cycle = Seconds::new(cycle.0, cycle.1).ok()?;
-            let square = Square::new(rate, side, cycle).ok()?;
-            Some((square, Image::new(size), rate))
+        let checked = ImageSize::new(width, height).ok().and_then(|size| {
+            let images = ImageRate::new(rate.0, rate.1).ok()?;
+            let sweep = Seconds::new(cycle.0, cycle.1).ok()?;
+            let square = Square::new(images, side, sweep).ok()?;
+            Some((square, size, images))
         });
-        let valid = built.is_some();
-        if built.is_some() {
-            self.shown = built;
+        let valid = checked.is_some();
+        if let Some((square, size, images)) = checked {
+            // Every value is valid: the image replaced is released before the next one is
+            // allocated, so that the two are never held at once.
+            self.shown = None;
+            self.shown = Some((square, Image::new(size), images));
         }
         valid
     }
