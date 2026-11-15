@@ -90,7 +90,8 @@ export class LoadedPatch {
     this.#patch = patch;
     this.rate = rate;
     this.precision = precision;
-    this.output = output;
+    // A copy, frozen: the caller changing its object after the load changes nothing the engine checked.
+    this.output = Object.freeze({ ...output, limiter: Object.freeze({ ...output.limiter }) });
     this.channels = engine.channels;
     this.latency = engine.latency;
     this.settings = { rate, renderQuantum: RENDER_QUANTUM, engineBlock: engine.blockSize, imposed: ["rate", "renderQuantum"] };

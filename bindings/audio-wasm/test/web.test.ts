@@ -264,15 +264,26 @@ describe("loadPatch", () => {
   test("checks its output stage with the engine, raw by default, and runs its nodes through it", async () => {
     const byDefault = await loadPatch(wasmBytes(), SINE_PATCH, RATE);
     expect(byDefault).toMatchObject({ output: RAW_OUTPUT, latency: 0 });
-    expect(byDefault.options(false).output).toBe(RAW_OUTPUT);
+    expect(byDefault.options(false).output).toStrictEqual(RAW_OUTPUT);
     const protectedPatch = await loadPatch(wasmBytes(), SINE_PATCH, RATE, "binary32", PROTECTED_OUTPUT);
     // 5 ms at 48 kHz and the precise detector's 16 frames.
     expect(protectedPatch).toMatchObject({ output: PROTECTED_OUTPUT, latency: 256 });
-    expect(protectedPatch.options(true).output).toBe(PROTECTED_OUTPUT);
+    expect(protectedPatch.options(true).output).toStrictEqual(PROTECTED_OUTPUT);
     expect((await LoadedPatch.load(wasmBytes(), SINE_PATCH, RATE, "binary64", PROTECTED_OUTPUT)).latency).toBe(256);
     const refused = await loadPatch(wasmBytes(), SINE_PATCH, RATE, "binary64", { ...PROTECTED_OUTPUT, maximumLookahead: 9 }).catch((error: unknown) => error);
     expect(refused).toStrictEqual(new Error("limiter maximum lookahead 9 ms is out of range (0.5 to 5 ms)"));
     expect(refused instanceof Error ? refused.cause : undefined).toBeInstanceOf(OutputError);
+  });
+
+  test("keeps a frozen copy of its output stage, whatever its caller does with its own", async () => {
+    const limiter = { ...DEFAULT_LIMITER };
+    const output = { ...PROTECTED_OUTPUT, limiter };
+    const checked = await loadPatch(wasmBytes(), SINE_PATCH, RATE, undefined, output);
+    output.mode = "raw";
+    limiter.lookahead = 6;
+    expect(checked.output).toStrictEqual(PROTECTED_OUTPUT);
+    expect(checked.options(false).output).toStrictEqual(PROTECTED_OUTPUT);
+    expect([Object.isFrozen(checked.output), Object.isFrozen(checked.output.limiter)]).toStrictEqual([true, true]);
   });
 
   test("keeps its own copies of the bytes", async () => {
