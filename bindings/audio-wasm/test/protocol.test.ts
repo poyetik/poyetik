@@ -1,13 +1,34 @@
 import { describe, expect, test } from "vitest";
 import { IEEE_SUBNORMALS, READY } from "./fixtures.ts";
-import { ENGINE_PROCESSOR, MessageError, OptionsError, TAP_PROCESSOR, parseEngineMessage, parseEngineOptions, parseTapMessage, SOURCE_STOPPED } from "../ts/protocol.ts";
+import { CommandError, ENGINE_PROCESSOR, MessageError, OptionsError, TAP_PROCESSOR, parseEngineCommand, parseEngineMessage, parseEngineOptions, parseTapMessage, SOURCE_STOPPED } from "../ts/protocol.ts";
 
 describe("parseEngineOptions", () => {
-  test("accepts the module bytes, the patch, the marker choice and the precision", () => {
+  /** An output stage of the options, every field differing from the defaults. */
+  const OUTPUT = { mode: "switchable", maximumLookahead: 2, limiter: { ceiling: -3, lookahead: 1, release: 50, adaptivity: 0.25 } } as const;
+
+  test("accepts the module bytes, the patch, the marker choice, the precision and the output stage", () => {
     const wasm = new ArrayBuffer(8);
     const patch = new Uint8Array([1]);
-    expect(parseEngineOptions({ wasm, patch, marker: true, precision: "binary32", extra: 1 })).toStrictEqual({ wasm, patch, marker: true, precision: "binary32" });
-    expect(parseEngineOptions({ wasm, patch, marker: false, precision: "binary64" })).toStrictEqual({ wasm, patch, marker: false, precision: "binary64" });
+    expect(parseEngineOptions({ wasm, patch, marker: true, precision: "binary32", output: { ...OUTPUT, extra: 1 }, extra: 1 })).toStrictEqual({ wasm, patch, marker: true, precision: "binary32", output: OUTPUT });
+    for (const mode of ["raw", "protected", "switchable"] as const) {
+      expect(parseEngineOptions({ wasm, patch, marker: false, precision: "binary64", output: { ...OUTPUT, mode } })).toStrictEqual({ wasm, patch, marker: false, precision: "binary64", output: { ...OUTPUT, mode } });
+    }
+  });
+
+  /** Valid options but for `output`. */
+  const withOutput = (output: unknown): unknown => ({ wasm: new ArrayBuffer(0), patch: new Uint8Array(), marker: false, precision: "binary64", output });
+
+  test.each<readonly [unknown, string]>([
+    [undefined, "output is not an object"],
+    [null, "output is not an object"],
+    [{ ...OUTPUT, mode: "loud" }, "output mode is not one of raw, protected, switchable"],
+    [{ ...OUTPUT, mode: 1 }, "output mode is not one of raw, protected, switchable"],
+    [{ ...OUTPUT, maximumLookahead: "5" }, "output maximumLookahead is not a number"],
+    [{ ...OUTPUT, limiter: null }, "output limiter is not an object"],
+    [{ ...OUTPUT, limiter: 1 }, "output limiter is not an object"],
+    ...(["ceiling", "lookahead", "release", "adaptivity"] as const).map((name): readonly [unknown, string] => [{ ...OUTPUT, limiter: { ...OUTPUT.limiter, [name]: "1" } }, `output limiter ${name} is not a number`]),
+  ])("rejects the output stage %o", (output, detail) => {
+    expect(() => parseEngineOptions(withOutput(output))).toThrow(new OptionsError(detail));
   });
 
   test.each([
@@ -105,5 +126,39 @@ describe("parseEngineMessage", () => {
 
   test("names its errors", () => {
     expect(new MessageError("x")).toMatchObject({ name: "MessageError", message: "invalid message from the processor: x" });
+  });
+});
+
+describe("parseEngineCommand", () => {
+  test("accepts limiter settings and a protection", () => {
+    const settings = { ceiling: -3, lookahead: 1, release: 50, adaptivity: 0.25 };
+    expect(parseEngineCommand({ type: "limiter", settings: { ...settings, extra: 1 } })).toStrictEqual({ type: "limiter", settings });
+    expect(parseEngineCommand({ type: "protect", protect: true })).toStrictEqual({ type: "protect", protect: true });
+    expect(parseEngineCommand({ type: "protect", protect: false })).toStrictEqual({ type: "protect", protect: false });
+  });
+
+  test.each([
+    [undefined, "not an object"],
+    [null, "not an object"],
+    ["protect", "not an object"],
+    [{ type: "mute" }, "unknown command"],
+    [{ type: "protect", protect: 1 }, "protect is not a boolean"],
+    [{ type: "limiter" }, "limiter is not an object"],
+    [{ type: "limiter", settings: { ceiling: -1, lookahead: 1.5, release: 100 } }, "limiter adaptivity is not a number"],
+  ])("rejects %o", (value, detail) => {
+    expect(() => parseEngineCommand(value)).toThrow(new CommandError(detail));
+  });
+
+  test("names its errors", () => {
+    expect(new CommandError("x")).toMatchObject({ name: "CommandError", message: "invalid command to the engine processor: x" });
+  });
+});
+
+describe("parseEngineMessage refusals", () => {
+  test("accepts a refusal with its explanation as bytes, and rejects one without", () => {
+    const detail = new Uint8Array([104, 105]);
+    expect(parseEngineMessage({ type: "refused", detail })).toStrictEqual({ type: "refused", detail });
+    expect(() => parseEngineMessage({ type: "refused", detail: "hi" })).toThrow(new MessageError("refusal detail is not a Uint8Array"));
+    expect(() => parseEngineMessage({ type: "rejected", detail: "hi" })).toThrow(new MessageError("rejection detail is not a Uint8Array"));
   });
 });

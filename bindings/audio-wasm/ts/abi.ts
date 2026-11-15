@@ -13,6 +13,9 @@ type Exported1 = (value: number) => number;
 /** A function exported by the module, with two arguments. */
 type Exported2 = (first: number, second: number) => number;
 
+/** A function exported by the module, with four arguments. */
+type Exported4 = (first: number, second: number, third: number, fourth: number) => number;
+
 /** The exports of the engine module. */
 export interface Exports {
   /** The module memory: every address the functions return points into it, and it may grow at any call. */
@@ -37,6 +40,14 @@ export interface Exports {
   readonly subnormals: Exported0;
   /** `engine_replaced()`: the byte address of four little-endian `u32` words, what the output stage replaced since the load: the count (saturating at 2^32 - 1), the low then the high 32 bits of the frame of the first, its channel; zeros while none was. */
   readonly replaced: Exported0;
+  /** `engine_output(mode, maximum_lookahead)`: sets the output stage every later load builds, the mode of code `mode` (its index in `OUTPUT_MODES` of `engine.ts`) and the maximum lookahead in milliseconds; 1 on success, 0 on failure. */
+  readonly output: Exported2;
+  /** `engine_limiter(ceiling, lookahead, release, adaptivity)`: sets the limiter, live on the loaded engine (refused when its stage is raw) and for every later load; 1 on success, 0 on failure. */
+  readonly limiter: Exported4;
+  /** `engine_protect(protected)`: switches the loaded engine's limiter toward protected (1) or raw (0), by a crossfade; 1 on success, 0 on failure. */
+  readonly protect: Exported1;
+  /** `engine_latency()`: the latency of the loaded engine's output stage, in frames; 0 when it is raw. */
+  readonly latency: Exported0;
 }
 
 /**
@@ -105,16 +116,24 @@ function exported2(exports: WebAssembly.Exports, name: string): Exported2 {
 }
 
 /**
- * Reads the result of `engine_load`: true when the patch was loaded (1), false when the
- * engine refused it (0), its explanation then in `engine_message_ptr` and `engine_message_len`.
+ * Reads the result of a call of `name` that succeeds or is refused (`engine_load`,
+ * `engine_output`, `engine_limiter`, `engine_protect`): true when it succeeded (1), false
+ * when the engine refused it (0), its explanation then in `engine_message_ptr` and
+ * `engine_message_len`.
  * @throws {ModuleError} for any other result: the module breaks the interface, and its
  * message is never taken for a refusal.
  */
-export function wasLoaded(result: number): boolean {
+export function succeeded(name: string, result: number): boolean {
   if (result !== 0 && result !== 1) {
-    throw new ModuleError(`engine_load returned ${String(result)}, not 1 (loaded) or 0 (refused)`);
+    throw new ModuleError(`${name} returned ${String(result)}, not 1 (succeeded) or 0 (refused)`);
   }
   return result === 1;
+}
+
+/** Reads one exported function with four arguments. */
+function exported4(exports: WebAssembly.Exports, name: string): Exported4 {
+  const call = exportedFunction(exports, name, 4);
+  return (first, second, third, fourth) => call([first, second, third, fourth]);
 }
 
 /** Reads and checks the exports of an engine module instance, version first. */
@@ -139,5 +158,9 @@ export function readExports(exports: WebAssembly.Exports): Exports {
     maxPatchBytes: exported0(exports, "engine_max_patch_bytes"),
     subnormals: exported0(exports, "engine_subnormals"),
     replaced: exported0(exports, "engine_replaced"),
+    output: exported2(exports, "engine_output"),
+    limiter: exported4(exports, "engine_limiter"),
+    protect: exported1(exports, "engine_protect"),
+    latency: exported0(exports, "engine_latency"),
   };
 }

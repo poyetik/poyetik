@@ -1,7 +1,7 @@
 import { getEventListeners } from "node:events";
 import { runInNewContext } from "node:vm";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { EngineTrap, ModuleError, PatchError } from "../ts/engine.ts";
+import { DEFAULT_LIMITER, EngineTrap, ModuleError, OutputError, PROTECTED_OUTPUT, PatchError, RAW_OUTPUT } from "../ts/engine.ts";
 import { ENGINE_PROCESSOR, MessageError, SOURCE_STOPPED, TAP_PROCESSOR } from "../ts/protocol.ts";
 import { addProcessors, capture, captureEngine, ContextClosed, createEngineNode, LoadedPatch, loadPatch, MarkedEngineNode, MAX_MARKED_FRAMES, START_MARGIN, renderOffline, tap } from "../ts/web.ts";
 import { engineFunctions, handMadeBytes, READY, SILENT_PATCH, SINE_PATCH, UNKNOWN_BOX, wasmBytes } from "./fixtures.ts";
@@ -258,6 +258,20 @@ describe("loadPatch", () => {
     await expect(loadPatch(wasmBytes(), UNKNOWN_BOX, RATE, "binary32")).rejects.toThrow(new Error('box 1: unknown box type "nope~"'));
   });
 
+  test("checks its output stage with the engine, raw by default, and runs its nodes through it", async () => {
+    const byDefault = await loadPatch(wasmBytes(), SINE_PATCH, RATE);
+    expect(byDefault).toMatchObject({ output: RAW_OUTPUT, latency: 0 });
+    expect(byDefault.options(false).output).toBe(RAW_OUTPUT);
+    const protectedPatch = await loadPatch(wasmBytes(), SINE_PATCH, RATE, "binary32", PROTECTED_OUTPUT);
+    // 5 ms at 48 kHz and the detector's 6 frames.
+    expect(protectedPatch).toMatchObject({ output: PROTECTED_OUTPUT, latency: 246 });
+    expect(protectedPatch.options(true).output).toBe(PROTECTED_OUTPUT);
+    expect((await LoadedPatch.load(wasmBytes(), SINE_PATCH, RATE, "binary64", PROTECTED_OUTPUT)).latency).toBe(246);
+    const refused = await loadPatch(wasmBytes(), SINE_PATCH, RATE, "binary64", { ...PROTECTED_OUTPUT, maximumLookahead: 9 }).catch((error: unknown) => error);
+    expect(refused).toStrictEqual(new Error("limiter maximum lookahead 9 ms is out of range (0.5 to 5 ms)"));
+    expect(refused instanceof Error ? refused.cause : undefined).toBeInstanceOf(OutputError);
+  });
+
   test("keeps its own copies of the bytes", async () => {
     const wasm = wasmBytes();
     const patch = SINE_PATCH.slice();
@@ -361,6 +375,33 @@ describe("createEngineNode", () => {
     FakeNode.created[0]?.port.deliver({ type: "ready", subnormals: flushing });
     expect(await settled(ready)).toBe("resolved");
     expect(await ready).toStrictEqual(flushing);
+    expect(failures).toStrictEqual([]);
+  });
+
+  test("posts the settings of its output stage to the processor, and hands a refusal to onRefused", async () => {
+    stubNodes();
+    const refusals: Error[] = [];
+    const failures: Error[] = [];
+    for (const marker of [false, true] as const) {
+      const engine = marker
+        ? createEngineNode(asContext(fakeContext(RATE)), await loaded(2), { onFailure: (error) => failures.push(error), onRefused: (error) => refusals.push(error) }, true)
+        : createEngineNode(asContext(fakeContext(RATE)), await loaded(2), { onFailure: (error) => failures.push(error), onRefused: (error) => refusals.push(error) });
+      const port = FakeNode.created.at(-1)?.port;
+      engine.setLimiter(DEFAULT_LIMITER);
+      engine.setProtected(false);
+      expect(port?.posted).toStrictEqual([
+        { type: "limiter", settings: DEFAULT_LIMITER },
+        { type: "protect", protect: false },
+      ]);
+      port?.deliver(READY);
+      port?.deliver({ type: "refused", detail: new TextEncoder().encode("no limiter") });
+    }
+    expect(refusals).toStrictEqual([new Error("no limiter"), new Error("no limiter")]);
+    expect(refusals.map((error) => error.cause)).toStrictEqual([new OutputError(new TextEncoder().encode("no limiter")), new OutputError(new TextEncoder().encode("no limiter"))]);
+    expect(failures).toStrictEqual([]);
+    // Without a handler, a refusal is read and dropped: no failure.
+    createEngineNode(asContext(fakeContext(RATE)), await loaded(2), { onFailure: (error) => failures.push(error) });
+    FakeNode.created.at(-1)?.port.deliver({ type: "refused", detail: new Uint8Array() });
     expect(failures).toStrictEqual([]);
   });
 

@@ -3,7 +3,7 @@
  * main thread or in Node (the package exports no Node entry point yet: it comes with the
  * SDK, #32 step 15; the tests import this module directly). See `bindings/audio-wasm/src/ffi.rs` for the exported interface.
  */
-import { ModuleError, readExports, wasLoaded, type Exports } from "./abi.ts";
+import { ModuleError, readExports, succeeded, type Exports } from "./abi.ts";
 
 export { ABI_VERSION, ModuleError } from "./abi.ts";
 
@@ -130,6 +130,79 @@ export class PatchError extends Error {
 }
 
 /**
+ * What the output stage does (`spec/engine-design.md`, decision 12), each mode at the index
+ * of its code in the C interface (`engine_output`): raw, without a limiter or latency;
+ * protected by the true-peak limiter; switchable, raw first, with the limiter's latency kept
+ * so that it can be protected live ({@link WasmEngine.setProtected}).
+ */
+export const OUTPUT_MODES = ["raw", "protected", "switchable"] as const;
+
+/** A mode of the output stage, one of {@link OUTPUT_MODES}. */
+export type OutputMode = (typeof OUTPUT_MODES)[number];
+
+/**
+ * The settings of the output stage's limiter that change live: the ceiling in dBTP (-20 to
+ * 0), the lookahead and the release in milliseconds (0.5 to 5, 10 to 1000), the adaptivity
+ * of the release (0, a fixed release, to 1, fully program-dependent). The engine checks them.
+ */
+export interface LimiterSettings {
+  /** The ceiling, in dBTP. */
+  readonly ceiling: number;
+  /** The lookahead, in milliseconds. */
+  readonly lookahead: number;
+  /** The release, in milliseconds. */
+  readonly release: number;
+  /** The adaptivity of the release, from 0 to 1. */
+  readonly adaptivity: number;
+}
+
+/** The engine's default limiter settings: -1 dBTP, 1.5 ms, 100 ms, 0.5. */
+export const DEFAULT_LIMITER: LimiterSettings = Object.freeze({ ceiling: -1, lookahead: 1.5, release: 100, adaptivity: 0.5 });
+
+/**
+ * The output stage an engine is built with: its mode, the maximum lookahead in
+ * milliseconds (0.5 to 5), which fixes a limiter's latency for the life of the engine, and
+ * the limiter's settings.
+ */
+export interface Output {
+  /** The mode. */
+  readonly mode: OutputMode;
+  /** The maximum lookahead, in milliseconds. */
+  readonly maximumLookahead: number;
+  /** The limiter's settings. */
+  readonly limiter: LimiterSettings;
+}
+
+/** A raw output stage: non-finite samples replaced, nothing limited, no latency. */
+export const RAW_OUTPUT: Output = Object.freeze({ mode: "raw", maximumLookahead: 5, limiter: DEFAULT_LIMITER });
+
+/** A protected output stage, the playground's (decision 12): the default settings, the largest maximum lookahead. */
+export const PROTECTED_OUTPUT: Output = Object.freeze({ mode: "protected", maximumLookahead: 5, limiter: DEFAULT_LIMITER });
+
+/** Thrown when the engine refuses a setting of its output stage, with its explanation. */
+export class OutputError extends Error {
+  /** The UTF-8 explanation given by the engine. */
+  readonly detail: Uint8Array;
+
+  /**
+   * Records the explanation of the engine.
+   * @param detail The UTF-8 explanation given by the engine.
+   */
+  constructor(detail: Uint8Array) {
+    super("the engine refused the output settings");
+    this.name = "OutputError";
+    this.detail = detail;
+  }
+}
+
+/** A copy of the engine's explanation of its last refusal: it does not keep the module memory alive. */
+function explanation(exports: Exports): Uint8Array {
+  const pointer = exports.messagePtr();
+  const length = exports.messageLen();
+  return new Uint8Array(exports.memory.buffer, pointer, length).slice();
+}
+
+/**
  * Thrown when the engine module traps (a bug, or memory exhausted). The instance is then
  * in an unknown state: the engine refuses to render again, and the patch must be loaded
  * into a new engine.
@@ -209,6 +282,11 @@ const NOTHING_REPLACED: Replaced = Object.freeze({ count: 0 });
 export class WasmEngine<A extends Samples> {
   /** Number of output channels of the patch. */
   readonly channels: number;
+  /**
+   * The latency of its output stage, in frames (`engine_latency`): its render starts with
+   * that many frames of silence; 0 for a raw stage. Fixed when it is created.
+   */
+  readonly latency: number;
   /**
    * What the arithmetic of the thread that created the engine does with subnormals, as the
    * module observed it then (`engine_subnormals`): on an audio thread, whether the
@@ -298,6 +376,7 @@ export class WasmEngine<A extends Samples> {
       throw new ModuleError(`engine_subnormals returned ${String(code)}, not a code from 0 to ${String(SUBNORMAL_CODES)}`);
     }
     this.subnormals = subnormals;
+    this.latency = exports.latency();
     this.#blockSize = exports.blockSize();
     if (this.#blockSize === 0) {
       throw new ModuleError("engine_block_size returned 0: a block has at least one frame");
@@ -320,9 +399,9 @@ export class WasmEngine<A extends Samples> {
    * memory never shrinks again, with the words of the engine.
    * @throws {EngineTrap} when the module traps.
    */
-  static create(module: WebAssembly.Module, patch: Uint8Array, rate: number, format: "binary64"): WasmEngine<Float64Array>;
-  static create(module: WebAssembly.Module, patch: Uint8Array, rate: number, format: Binary32Format): WasmEngine<Float32Array>;
-  static create(module: WebAssembly.Module, patch: Uint8Array, rate: number, format: RenderFormat): WasmEngine<Float64Array> | WasmEngine<Float32Array> {
+  static create(module: WebAssembly.Module, patch: Uint8Array, rate: number, format: "binary64", output?: Output): WasmEngine<Float64Array>;
+  static create(module: WebAssembly.Module, patch: Uint8Array, rate: number, format: Binary32Format, output?: Output): WasmEngine<Float32Array>;
+  static create(module: WebAssembly.Module, patch: Uint8Array, rate: number, format: RenderFormat, output: Output = RAW_OUTPUT): WasmEngine<Float64Array> | WasmEngine<Float32Array> {
     if (!Number.isInteger(rate) || rate < 0 || rate > 0xff_ff_ff_ff) {
       throw new RangeError(`the sample rate must be a whole number of hertz, not ${String(rate)}`);
     }
@@ -332,17 +411,63 @@ export class WasmEngine<A extends Samples> {
       if (patch.length > max) {
         throw new PatchError(ascii(`patch too large: ${String(patch.length)} bytes (at most ${String(max)})`));
       }
+      const { ceiling, lookahead, release, adaptivity } = output.limiter;
+      // The limiter first: the stage's maximum is checked against the lookahead set.
+      if (
+        !succeeded("engine_limiter", exports.limiter(ceiling, lookahead, release, adaptivity)) ||
+        !succeeded("engine_output", exports.output(OUTPUT_MODES.indexOf(output.mode), output.maximumLookahead))
+      ) {
+        throw new OutputError(explanation(exports));
+      }
       // Every call may grow the memory, which detaches its previous buffer: call first,
       // then read `memory.buffer`.
       const input = exports.input(patch.length);
       new Uint8Array(exports.memory.buffer, input, patch.length).set(patch);
-      if (!wasLoaded(exports.load(rate, RENDER_FORMATS.indexOf(format)))) {
-        const pointer = exports.messagePtr();
-        const length = exports.messageLen();
-        throw new PatchError(new Uint8Array(exports.memory.buffer, pointer, length).slice());
+      if (!succeeded("engine_load", exports.load(rate, RENDER_FORMATS.indexOf(format)))) {
+        throw new PatchError(explanation(exports));
       }
       return format === "binary64" ? new WasmEngine<Float64Array>(exports, BINARY64) : new WasmEngine<Float32Array>(exports, BINARY32);
     });
+  }
+
+  /**
+   * Changes the settings of its limiter, live, from the next block.
+   * @throws {OutputError} when the engine refuses them (a value out of range, a lookahead
+   * above the maximum it was created with, a raw stage without a limiter); the engine
+   * renders on with the settings it had.
+   * @throws {ModuleError} when the module answers neither 1 nor 0.
+   * @throws {EngineTrap} when the module traps, or failed before.
+   */
+  setLimiter(settings: LimiterSettings): void {
+    const { ceiling, lookahead, release, adaptivity } = settings;
+    this.#settle("engine_limiter", this.#call(() => this.#exports.limiter(ceiling, lookahead, release, adaptivity)));
+  }
+
+  /**
+   * Starts the crossfade of its limiter toward protected (`true`) or raw (`false`).
+   * @throws {OutputError} when its stage is raw, without a limiter.
+   * @throws {ModuleError} when the module answers neither 1 nor 0.
+   * @throws {EngineTrap} when the module traps, or failed before.
+   */
+  setProtected(protect: boolean): void {
+    this.#settle("engine_protect", this.#call(() => this.#exports.protect(protect ? 1 : 0)));
+  }
+
+  /**
+   * Reads the answer of an output call `name`: nothing on success, its refusal as an
+   * {@link OutputError}; a module that answers otherwise is dead.
+   */
+  #settle(name: string, answer: number): void {
+    let done: boolean;
+    try {
+      done = succeeded(name, answer);
+    } catch (error) {
+      this.#dead = true;
+      throw error;
+    }
+    if (!done) {
+      throw new OutputError(explanation(this.#exports));
+    }
   }
 
   /** Number of frames of every block the module renders (`engine_block_size`), read once when the engine is created. */

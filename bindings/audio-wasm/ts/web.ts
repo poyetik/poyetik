@@ -6,19 +6,26 @@
  * {@link addProcessors}, giving the URL of the compiled `worklet/processors.js`.
  */
 
-import { ModuleError, PatchError, WasmEngine, givenAsBinary32, type Precision, type Replaced, type SubnormalArithmetic } from "./engine.ts";
+import { ModuleError, OutputError, PatchError, RAW_OUTPUT, WasmEngine, givenAsBinary32, type LimiterSettings, type Output, type Precision, type Replaced, type SubnormalArithmetic } from "./engine.ts";
 export {
+  DEFAULT_LIMITER,
+  OUTPUT_MODES,
   PRECISIONS,
+  PROTECTED_OUTPUT,
+  RAW_OUTPUT,
   givenAsBinary32,
   parsePrecision,
   type FirstReplaced,
+  type LimiterSettings,
+  type Output,
+  type OutputMode,
   type Precision,
   type Replaced,
   type SubnormalArithmetic,
   type SubnormalsKept,
 } from "./engine.ts";
 export { REPLACED_REPORT_SECONDS } from "./protocol.ts";
-import { ENGINE_PROCESSOR, MARKER_PERIOD, TAP_PROCESSOR, parseEngineMessage, parseTapMessage, type EngineOptions, type TapMessage } from "./protocol.ts";
+import { ENGINE_PROCESSOR, MARKER_PERIOD, TAP_PROCESSOR, parseEngineMessage, parseTapMessage, type EngineCommand, type EngineOptions, type TapMessage } from "./protocol.ts";
 
 /**
  * A patch checked by the engine, ready to run in engine nodes. Only {@link loadPatch} or
@@ -35,6 +42,10 @@ export class LoadedPatch {
   readonly channels: number;
   /** The precision the engine computes it in (a host setting); Web Audio is given binary32. */
   readonly precision: Precision;
+  /** The output stage its engines are created with (a host setting, `spec/engine-design.md` decision 12). */
+  readonly output: Output;
+  /** The latency of that stage, in frames: an engine node's sound starts that much later. */
+  readonly latency: number;
   /** The engine WebAssembly module, as bytes. */
   readonly #wasm: ArrayBuffer;
   /** The patch, as UTF-8 text in the patch format. */
@@ -46,19 +57,25 @@ export class LoadedPatch {
    * @param patch A copy of the patch bytes.
    * @param rate The rate it was checked at.
    * @param precision The precision it was checked in.
-   * @param channels Its number of output channels.
+   * @param output The output stage it was checked with.
+   * @param engine Its number of output channels and its latency.
+   * @param engine.channels Its number of output channels.
+   * @param engine.latency The latency of its output stage, in frames.
    */
-  private constructor(wasm: ArrayBuffer, patch: Uint8Array, rate: number, precision: Precision, channels: number) {
+  private constructor(wasm: ArrayBuffer, patch: Uint8Array, rate: number, precision: Precision, output: Output, engine: { readonly channels: number; readonly latency: number }) {
     this.#wasm = wasm;
     this.#patch = patch;
     this.rate = rate;
     this.precision = precision;
-    this.channels = channels;
+    this.output = output;
+    this.channels = engine.channels;
+    this.latency = engine.latency;
   }
 
   /**
    * Checks `patch` with the engine at `rate` hertz in `precision` (binary64 by default, a
-   * host setting; the render is given to Web Audio as binary32), on this thread: errors are thrown here
+   * host setting; the render is given to Web Audio as binary32) through the output stage
+   * `output` (raw by default), on this thread: errors are thrown here
    * with the explanation of the engine, rather than in the audio thread. What it rejects
    * with, told apart by `name` (the error classes are not exported yet, roadmap #32 step 12):
    * @throws {RangeError} when `rate` is not a whole number of hertz that fits 32 bits.
@@ -67,20 +84,23 @@ export class LoadedPatch {
    * @throws {Error} with the explanation of the engine as message, and a `PatchError` as
    * `cause`, when it rejects the patch or the rate (an unsupported rate, a patch that is
    * not UTF-8, invalid or that cannot be planned).
+   * @throws {Error} with the explanation of the engine as message, and an `OutputError` as
+   * `cause`, when it refuses the output stage (a setting out of range, a lookahead above
+   * the maximum).
    * @throws {Error} named `EngineTrap`, with the WebAssembly `RuntimeError` as `cause`, when
    * the module traps while checking the patch.
    */
-  static async load(wasm: ArrayBuffer, patch: Uint8Array, rate: number, precision: Precision = "binary64"): Promise<LoadedPatch> {
+  static async load(wasm: ArrayBuffer, patch: Uint8Array, rate: number, precision: Precision = "binary64", output: Output = RAW_OUTPUT): Promise<LoadedPatch> {
     const bytes = wasm.slice(0);
     const module = await WebAssembly.compile(bytes).catch((error: unknown) => {
       throw new ModuleError(`cannot be compiled: ${String(error)}`, { cause: error });
     });
     const copy = patch.slice();
     try {
-      const { channels } = WasmEngine.create(module, copy, rate, givenAsBinary32(precision));
-      return new LoadedPatch(bytes, copy, rate, precision, channels);
+      const engine = WasmEngine.create(module, copy, rate, givenAsBinary32(precision), output);
+      return new LoadedPatch(bytes, copy, rate, precision, output, engine);
     } catch (error) {
-      throw error instanceof PatchError ? new Error(new TextDecoder().decode(error.detail), { cause: error }) : error;
+      throw error instanceof PatchError || error instanceof OutputError ? new Error(new TextDecoder().decode(error.detail), { cause: error }) : error;
     }
   }
 
@@ -89,7 +109,7 @@ export class LoadedPatch {
    * @param marker Whether the node adds a marker channel (see `EngineOptions`).
    */
   options(marker: boolean): EngineOptions {
-    return { wasm: this.#wasm.slice(0), patch: this.#patch.slice(), marker, precision: this.precision };
+    return { wasm: this.#wasm.slice(0), patch: this.#patch.slice(), marker, precision: this.precision, output: this.output };
   }
 }
 
@@ -101,13 +121,13 @@ export async function addProcessors(context: BaseAudioContext, url: string | URL
 }
 
 /**
- * Checks `patch` with the engine at `rate` hertz, to compute in `precision` (by default,
- * the default of {@link LoadedPatch.load}): see {@link LoadedPatch.load}, which lists what
+ * Checks `patch` with the engine at `rate` hertz, to compute in `precision` through the
+ * output stage `output` (by default, those of {@link LoadedPatch.load}): see {@link LoadedPatch.load}, which lists what
  * it rejects with.
  * @throws {Error} as {@link LoadedPatch.load}.
  */
-export function loadPatch(wasm: ArrayBuffer, patch: Uint8Array, rate: number, precision?: Precision): Promise<LoadedPatch> {
-  return LoadedPatch.load(wasm, patch, rate, precision);
+export function loadPatch(wasm: ArrayBuffer, patch: Uint8Array, rate: number, precision?: Precision, output?: Output): Promise<LoadedPatch> {
+  return LoadedPatch.load(wasm, patch, rate, precision, output);
 }
 
 /** An engine node, and when it is ready. */
@@ -120,6 +140,16 @@ export interface EngineNode {
    * not, or with a {@link ContextClosed} if the context closed first (then it never will).
    */
   readonly ready: Promise<SubnormalArithmetic>;
+  /**
+   * Changes the settings of its output stage's limiter, live, from the processor's next
+   * render quantum; a refusal reaches `onRefused`, the engine rendering on.
+   */
+  readonly setLimiter: (settings: LimiterSettings) => void;
+  /**
+   * Starts the crossfade of its limiter toward protected (`true`) or raw (`false`); a
+   * refusal (a raw stage, without a limiter) reaches `onRefused`.
+   */
+  readonly setProtected: (protect: boolean) => void;
 }
 
 /** What an engine node tells its creator, beside `ready`. */
@@ -135,6 +165,12 @@ export interface EngineHandlers {
    * the first time, then when it grew, at most once per `REPLACED_REPORT_SECONDS` of audio.
    */
   readonly onReplaced?: (replaced: Required<Replaced>) => void;
+  /**
+   * Receives the engine's refusal of a setting of its output stage
+   * ({@link EngineNode.setLimiter}, {@link EngineNode.setProtected}), its explanation as the
+   * message and the `OutputError` as `cause`: the engine renders on with the settings it had.
+   */
+  readonly onRefused?: (error: Error) => void;
 }
 
 /** Creates the engine node of {@link createEngineNode}, with or without the marker channel. */
@@ -189,6 +225,9 @@ function engineNode(context: BaseAudioContext, loaded: LoadedPatch, handlers: En
         case "replaced":
           handlers.onReplaced?.(message.replaced);
           break;
+        case "refused":
+          handlers.onRefused?.(new Error(new TextDecoder().decode(message.detail), { cause: new OutputError(message.detail) }));
+          break;
       }
     };
     node.onprocessorerror = () => {
@@ -199,7 +238,19 @@ function engineNode(context: BaseAudioContext, loaded: LoadedPatch, handlers: En
   });
   // Rejections also reach onFailure: `ready` is only awaited by those who need it.
   ready.catch(() => undefined);
-  return { node, ready };
+  const command = (message: EngineCommand): void => {
+    node.port.postMessage(message);
+  };
+  return {
+    node,
+    ready,
+    setLimiter: (settings) => {
+      command({ type: "limiter", settings });
+    },
+    setProtected: (protect) => {
+      command({ type: "protect", protect });
+    },
+  };
 }
 
 /**
@@ -212,6 +263,10 @@ export class MarkedEngineNode implements EngineNode {
   readonly node: AudioWorkletNode;
   /** Resolves when the processor has loaded the patch, with the audio thread's subnormal arithmetic; rejects if it could not, or with a {@link ContextClosed} if the context closed first. */
   readonly ready: Promise<SubnormalArithmetic>;
+  /** Changes the settings of its limiter, live: see {@link EngineNode.setLimiter}. */
+  readonly setLimiter: (settings: LimiterSettings) => void;
+  /** Starts the crossfade of its limiter: see {@link EngineNode.setProtected}. */
+  readonly setProtected: (protect: boolean) => void;
   /** Number of patch channels, before the marker channel. */
   readonly #channels: number;
 
@@ -223,6 +278,8 @@ export class MarkedEngineNode implements EngineNode {
   private constructor(engine: EngineNode, channels: number) {
     this.node = engine.node;
     this.ready = engine.ready;
+    this.setLimiter = engine.setLimiter;
+    this.setProtected = engine.setProtected;
     this.#channels = channels;
   }
 

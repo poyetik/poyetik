@@ -6,7 +6,7 @@ import { vi } from "vitest";
 /** Stands in for the processor port: records messages. */
 export class FakePort {
   /** Set by the processor to receive messages from the main thread; the tests call it to simulate one. */
-  onmessage: (() => void) | null = null;
+  onmessage: ((event: { readonly data: unknown }) => void) | null = null;
   /** Every message the processor posted, in order. */
   readonly posted: unknown[] = [];
 

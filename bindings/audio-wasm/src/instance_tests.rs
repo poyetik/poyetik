@@ -320,8 +320,12 @@ fn sets_the_limiter_live_and_for_later_loads() {
     assert!(instance.output(0, 5.0), "raw for later loads");
     assert!(load_mono(&mut instance), "a raw load");
     assert!(
-        instance.limiter(-2.0, 4.0, 200.0, 0.0),
-        "stored for later loads, the raw engine untouched"
+        !instance.limiter(-2.0, 4.0, 200.0, 0.0),
+        "a raw engine has no limiter to set"
+    );
+    assert_eq!(
+        instance.message(),
+        "the output stage is raw: it has no limiter to set"
     );
 }
 

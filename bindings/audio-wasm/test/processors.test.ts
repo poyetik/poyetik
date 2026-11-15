@@ -1,9 +1,9 @@
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
-import { WasmEngine, givenAsBinary32 } from "../ts/engine.ts";
+import { PROTECTED_OUTPUT, RAW_OUTPUT, WasmEngine, givenAsBinary32 } from "../ts/engine.ts";
 import { ENGINE_PROCESSOR, MARKER_PERIOD, SOURCE_STOPPED, TAP_PROCESSOR } from "../ts/protocol.ts";
 import { Counted, created } from "./counted.ts";
 import { engineFunctions, handMadeBytes, type HandMadeFunction, PRECISION_NAMES, READY, SAMPLE_RATES, SILENT_PATCH, SINE_PATCH, UNKNOWN_BOX, wasmBytes } from "./fixtures.ts";
-import { loadProcessors, processorClass, type ProcessorClass } from "./worklet.ts";
+import { loadProcessors, processorClass, type Processor, type ProcessorClass } from "./worklet.ts";
 
 /** The sample rate of the fake worklet scope, in hertz, restored after a test changes it. */
 const RATE = 48_000;
@@ -34,7 +34,7 @@ describe("engine processor", () => {
     // The worklet's global sampleRate, never a default: each rate gives other samples.
     vi.stubGlobal("sampleRate", rate);
     const Engine = processor(ENGINE_PROCESSOR);
-    const node = new Engine({ processorOptions: { wasm: wasmBytes(), patch: SINE_PATCH, marker: false, precision: "binary64" } });
+    const node = new Engine({ processorOptions: { wasm: wasmBytes(), patch: SINE_PATCH, marker: false, precision: "binary64", output: RAW_OUTPUT } });
     const outputs = [[new Float32Array(128), new Float32Array(128)]];
     expect(node.process([], outputs)).toBe(true);
     const expected = [new Float32Array(128), new Float32Array(128)];
@@ -47,7 +47,7 @@ describe("engine processor", () => {
 
   test.each(PRECISION_NAMES)("computes in the precision of its options, %s, given as binary32", (precision) => {
     const Engine = processor(ENGINE_PROCESSOR);
-    const node = new Engine({ processorOptions: { wasm: wasmBytes(), patch: SINE_PATCH, marker: false, precision } });
+    const node = new Engine({ processorOptions: { wasm: wasmBytes(), patch: SINE_PATCH, marker: false, precision, output: RAW_OUTPUT } });
     const outputs = [[new Float32Array(128), new Float32Array(128)]];
     expect(node.process([], outputs)).toBe(true);
     const expected = [new Float32Array(128), new Float32Array(128)];
@@ -60,7 +60,7 @@ describe("engine processor", () => {
 
   test("leaves the one silent channel of a patch without output alone, without a marker", () => {
     const Engine = processor(ENGINE_PROCESSOR);
-    const node = new Engine({ processorOptions: { wasm: wasmBytes(), patch: SILENT_PATCH, marker: false, precision: "binary64" } });
+    const node = new Engine({ processorOptions: { wasm: wasmBytes(), patch: SILENT_PATCH, marker: false, precision: "binary64", output: RAW_OUTPUT } });
     const outputs = [[new Float32Array(128)]];
     expect(node.process([], outputs)).toBe(true);
     expect(outputs[0]?.[0]).toStrictEqual(new Float32Array(128));
@@ -68,13 +68,13 @@ describe("engine processor", () => {
 
   test("keeps running with no output", () => {
     const Engine = processor(ENGINE_PROCESSOR);
-    const node = new Engine({ processorOptions: { wasm: wasmBytes(), patch: SINE_PATCH, marker: false, precision: "binary64" } });
+    const node = new Engine({ processorOptions: { wasm: wasmBytes(), patch: SINE_PATCH, marker: false, precision: "binary64", output: RAW_OUTPUT } });
     expect(node.process([], [])).toBe(true);
   });
 
   test("counts every frame it renders on the channel after the patch channels", () => {
     const Engine = processor(ENGINE_PROCESSOR);
-    const node = new Engine({ processorOptions: { wasm: wasmBytes(), patch: SINE_PATCH, marker: true, precision: "binary64" } });
+    const node = new Engine({ processorOptions: { wasm: wasmBytes(), patch: SINE_PATCH, marker: true, precision: "binary64", output: RAW_OUTPUT } });
     const outputs = [[new Float32Array(128), new Float32Array(128), new Float32Array(128)]];
     expect(node.process([], outputs)).toBe(true);
     const expected = [new Float32Array(256), new Float32Array(256)];
@@ -102,7 +102,7 @@ describe("engine processor", () => {
   // 60 times the slowest plain run.
   test("counts from 1 again after 2^24 frames, the largest count a float holds exactly", () => {
     const Engine = processor(ENGINE_PROCESSOR);
-    const node = new Engine({ processorOptions: { wasm: wasmBytes(), patch: SILENT_PATCH, marker: true, precision: "binary64" } });
+    const node = new Engine({ processorOptions: { wasm: wasmBytes(), patch: SILENT_PATCH, marker: true, precision: "binary64", output: RAW_OUTPUT } });
     // A patch without output: the marker is its first channel. 4096 quanta of 4096 frames reach 2^24.
     const outputs = [[new Float32Array(4096)]];
     for (let quantum = 1; quantum < 4096; quantum += 1) {
@@ -123,7 +123,7 @@ describe("engine processor", () => {
     const original = Float32Array;
     vi.stubGlobal("Float32Array", Counted);
     try {
-      const node = new Engine({ processorOptions: { wasm: wasmBytes(), patch: SINE_PATCH, marker: true, precision: "binary64" } });
+      const node = new Engine({ processorOptions: { wasm: wasmBytes(), patch: SINE_PATCH, marker: true, precision: "binary64", output: RAW_OUTPUT } });
       const outputs = [[new Float32Array(128), new Float32Array(128), new Float32Array(128)]];
       expect(
         created(() => {
@@ -144,14 +144,14 @@ describe("engine processor", () => {
 
   test("tells the main thread it is ready", () => {
     const Engine = processor(ENGINE_PROCESSOR);
-    const node = new Engine({ processorOptions: { wasm: wasmBytes(), patch: SINE_PATCH, marker: false, precision: "binary64" } });
+    const node = new Engine({ processorOptions: { wasm: wasmBytes(), patch: SINE_PATCH, marker: false, precision: "binary64", output: RAW_OUTPUT } });
     expect(node.port.posted).toStrictEqual([READY]);
   });
 
   test("tells the main thread what the module observed of subnormals on its thread", () => {
     // A module observing code 0b1001: binary32 operands and binary64 results kept, the rest flushed.
     const functions = engineFunctions().map((func) => (func.name === "engine_subnormals" ? { ...func, body: { i32: 0b1001 } } : func));
-    const node = new (processor(ENGINE_PROCESSOR))({ processorOptions: { wasm: handMadeBytes({ memory: true, functions }).buffer, patch: SINE_PATCH, marker: false, precision: "binary64" } });
+    const node = new (processor(ENGINE_PROCESSOR))({ processorOptions: { wasm: handMadeBytes({ memory: true, functions }).buffer, patch: SINE_PATCH, marker: false, precision: "binary64", output: RAW_OUTPUT } });
     expect(node.port.posted).toStrictEqual([
       { type: "ready", subnormals: { binary32: { operands: true, results: false }, binary64: { operands: false, results: true } } },
     ]);
@@ -168,7 +168,7 @@ describe("engine processor", () => {
 
   test("reports the explanation of a rejected patch, as bytes", () => {
     const Engine = processor(ENGINE_PROCESSOR);
-    const node = new Engine({ processorOptions: { wasm: wasmBytes(), patch: UNKNOWN_BOX, marker: false, precision: "binary64" } });
+    const node = new Engine({ processorOptions: { wasm: wasmBytes(), patch: UNKNOWN_BOX, marker: false, precision: "binary64", output: RAW_OUTPUT } });
     const [message] = node.port.posted;
     expect(message).toMatchObject({ type: "rejected" });
     const detail: unknown = typeof message === "object" && message !== null ? Reflect.get(message, "detail") : undefined;
@@ -177,7 +177,7 @@ describe("engine processor", () => {
 
   test("reports a failure while rendering once, then stops", () => {
     const Engine = processor(ENGINE_PROCESSOR);
-    const node = new Engine({ processorOptions: { wasm: wasmBytes(), patch: SINE_PATCH, marker: false, precision: "binary64" } });
+    const node = new Engine({ processorOptions: { wasm: wasmBytes(), patch: SINE_PATCH, marker: false, precision: "binary64", output: RAW_OUTPUT } });
     // Outputs of different lengths make the engine refuse to render.
     expect(node.process([], [[new Float32Array(2), new Float32Array(3)]])).toBe(false);
     expect(node.port.posted).toStrictEqual([
@@ -202,7 +202,7 @@ describe("engine processor reports of replaced samples", () => {
   }
 
   test("tells nothing while nothing is replaced", () => {
-    const node = new (processor(ENGINE_PROCESSOR))({ processorOptions: { wasm: replacing(0), patch: SINE_PATCH, marker: false, precision: "binary64" } });
+    const node = new (processor(ENGINE_PROCESSOR))({ processorOptions: { wasm: replacing(0), patch: SINE_PATCH, marker: false, precision: "binary64", output: RAW_OUTPUT } });
     for (let quantum = 0; quantum !== 4; quantum += 1) {
       expect(node.process([], [[new Float32Array(128)]])).toBe(true);
     }
@@ -212,7 +212,7 @@ describe("engine processor reports of replaced samples", () => {
   test("tells the first replacement at once, then more at most once per REPLACED_REPORT_SECONDS", () => {
     // Two quanta of 128 frames per second: the interval is two quanta.
     vi.stubGlobal("sampleRate", 256);
-    const node = new (processor(ENGINE_PROCESSOR))({ processorOptions: { wasm: replacing("counting"), patch: SINE_PATCH, marker: false, precision: "binary64" } });
+    const node = new (processor(ENGINE_PROCESSOR))({ processorOptions: { wasm: replacing("counting"), patch: SINE_PATCH, marker: false, precision: "binary64", output: RAW_OUTPUT } });
     const first = { frame: 2 ** 32 + 5, channel: 2 };
     // Each call counts on: the processor reads the count once per quantum (1, then 3, then 4),
     // and the first sample once more when it tells (2, then 5).
@@ -225,6 +225,63 @@ describe("engine processor reports of replaced samples", () => {
   });
 });
 
+describe("engine processor output stage", () => {
+  /** An engine processor running the sine through `output`. */
+  function engine(output: unknown): Processor {
+    const Engine = processor(ENGINE_PROCESSOR);
+    return new Engine({ processorOptions: { wasm: wasmBytes(), patch: SINE_PATCH, marker: false, precision: "binary32", output } });
+  }
+
+  /** The largest magnitude of `quanta` render quanta of `node`'s first channel. */
+  function peak(node: Processor, quanta: number): number {
+    let largest = 0;
+    for (let quantum = 0; quantum < quanta; quantum += 1) {
+      const outputs = [[new Float32Array(128), new Float32Array(128)]];
+      expect(node.process([], outputs)).toBe(true);
+      largest = Math.max(largest, ...(outputs[0]?.[0] ?? []).map(Math.abs));
+    }
+    return largest;
+  }
+
+  test("creates the engine with the output stage of its options, delayed by its latency", () => {
+    const node = engine(PROTECTED_OUTPUT);
+    const outputs = [[new Float32Array(128), new Float32Array(128)], [new Float32Array(128), new Float32Array(128)]];
+    expect(node.process([], [outputs[0] ?? []])).toBe(true);
+    expect(node.process([], [outputs[1] ?? []])).toBe(true);
+    const first = [...(outputs[0]?.[0] ?? []), ...(outputs[1]?.[0] ?? [])];
+    // 5 ms at 48 kHz and the detector's 6 frames.
+    expect(first.slice(0, 246).every((sample) => sample === 0)).toBe(true);
+    expect(first[247]).not.toBe(0);
+    expect(peak(node, 400)).toBeLessThanOrEqual(0.891_250_938_133_745_6);
+  });
+
+  test("applies the commands of the main thread, telling nothing on success", () => {
+    const node = engine(PROTECTED_OUTPUT);
+    expect(node.port.posted).toStrictEqual([READY]);
+    node.port.onmessage?.({ data: { type: "limiter", settings: { ceiling: -6, lookahead: 1, release: 50, adaptivity: 0 } } });
+    expect(peak(node, 400)).toBeLessThanOrEqual(10 ** (-6 / 20));
+    node.port.onmessage?.({ data: { type: "protect", protect: false } });
+    expect(peak(node, 400)).toBeGreaterThan(0.999);
+    expect(node.port.posted).toStrictEqual([READY]);
+  });
+
+  test("tells a refused command back as bytes, and renders on", () => {
+    const node = engine(RAW_OUTPUT);
+    node.port.onmessage?.({ data: { type: "protect", protect: true } });
+    expect(node.port.posted).toStrictEqual([READY, { type: "refused", detail: new TextEncoder().encode("the output stage is raw: it has no limiter to set") }]);
+    expect(peak(node, 4)).toBeGreaterThan(0.1);
+  });
+
+  test("stops on an invalid command, as on a failure while rendering, then ignores every command", () => {
+    const node = engine(PROTECTED_OUTPUT);
+    node.port.onmessage?.({ data: { type: "mute" } });
+    expect(node.port.posted).toStrictEqual([READY, { type: "failed", message: "CommandError: invalid command to the engine processor: unknown command" }]);
+    expect(node.process([], [[new Float32Array(128)]])).toBe(false);
+    node.port.onmessage?.({ data: { type: "protect", protect: true } });
+    expect(node.port.posted).toHaveLength(2);
+  });
+});
+
 describe("engine processor traps", () => {
   /** The bytes of an engine module whose `name` export traps. */
   function trapping(name: string): ArrayBuffer {
@@ -232,12 +289,12 @@ describe("engine processor traps", () => {
   }
 
   test("reports a trap while loading with the trap itself, the only clue under panic = abort", () => {
-    const node = new (processor(ENGINE_PROCESSOR))({ processorOptions: { wasm: trapping("engine_load"), patch: SINE_PATCH, marker: false, precision: "binary64" } });
+    const node = new (processor(ENGINE_PROCESSOR))({ processorOptions: { wasm: trapping("engine_load"), patch: SINE_PATCH, marker: false, precision: "binary64", output: RAW_OUTPUT } });
     expect(node.port.posted).toStrictEqual([{ type: "failed", message: "EngineTrap: the engine module trapped and cannot be used again (RuntimeError: unreachable)" }]);
   });
 
   test("reports a trap while rendering with the trap itself", () => {
-    const node = new (processor(ENGINE_PROCESSOR))({ processorOptions: { wasm: trapping("engine_process"), patch: SINE_PATCH, marker: false, precision: "binary64" } });
+    const node = new (processor(ENGINE_PROCESSOR))({ processorOptions: { wasm: trapping("engine_process"), patch: SINE_PATCH, marker: false, precision: "binary64", output: RAW_OUTPUT } });
     expect(node.process([], [[new Float32Array(128)]])).toBe(false);
     expect(node.port.posted).toStrictEqual([
       READY,
@@ -253,7 +310,7 @@ describe("tap processor", () => {
     expect(tap.process([[left, new Float32Array([3, 4])]], [])).toBe(true);
     left[0] = 9;
     expect(tap.port.posted).toStrictEqual([[new Float32Array([1, 2]), new Float32Array([3, 4])]]);
-    tap.port.onmessage?.();
+    tap.port.onmessage?.({ data: "stop" });
     expect(tap.process([[left]], [])).toBe(false);
     expect(tap.port.posted).toHaveLength(1);
   });
@@ -272,7 +329,7 @@ describe("tap processor", () => {
     expect(tap.port.posted).toStrictEqual([quantum, SOURCE_STOPPED, quantum, SOURCE_STOPPED]);
     // Once told to stop, nothing.
     expect(tap.process([quantum], [])).toBe(true);
-    tap.port.onmessage?.();
+    tap.port.onmessage?.({ data: "stop" });
     expect(tap.process([], [])).toBe(false);
     expect(tap.port.posted).toHaveLength(5);
   });

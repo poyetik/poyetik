@@ -184,6 +184,10 @@ export const FUNCTIONS = [
   "engine_max_patch_bytes",
   "engine_subnormals",
   "engine_replaced",
+  "engine_output",
+  "engine_limiter",
+  "engine_protect",
+  "engine_latency",
 ] as const;
 
 /**
@@ -244,7 +248,7 @@ export interface HandMadeFunction {
 }
 
 /** The arity of each engine export. */
-const ARITY: Readonly<Record<string, number>> = { engine_input: 1, engine_load: 2 };
+const ARITY: Readonly<Record<string, number>> = { engine_input: 1, engine_load: 2, engine_output: 2, engine_limiter: 4, engine_protect: 1 };
 
 /** What each engine export returns when no `body` is given: 1, except these. */
 const ANSWERS: Readonly<Record<string, number>> = {

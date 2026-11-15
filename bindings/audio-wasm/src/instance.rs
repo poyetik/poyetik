@@ -151,11 +151,12 @@ impl Instance {
     }
 
     /// Sets the limiter's settings: a ceiling in dBTP, a lookahead and a release in
-    /// milliseconds, an adaptivity from 0 to 1. They act live on the loaded engine when it
-    /// has a limiter, and on every later load.
+    /// milliseconds, an adaptivity from 0 to 1. They act live on the loaded engine, and on
+    /// every later load.
     ///
     /// Returns whether it succeeded; on failure nothing changed and [`Instance::message`]
-    /// explains why (a value out of range, a lookahead above the maximum).
+    /// explains why (a value out of range, a lookahead above the maximum, a loaded engine
+    /// whose stage is raw, without a limiter).
     pub fn limiter(&mut self, ceiling: f64, lookahead: f64, release: f64, adaptivity: f64) -> bool {
         let set = LimiterSettings::new(
             Binary64::from_raw(ceiling),
@@ -172,9 +173,7 @@ impl Instance {
                 }
                 .to_string());
             }
-            if let Some(engine) = &mut self.engine
-                && engine.latency() > 0
-            {
+            if let Some(engine) = &mut self.engine {
                 engine.set_limiter(settings)?;
             }
             self.output.settings = settings;

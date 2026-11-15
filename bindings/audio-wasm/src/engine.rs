@@ -308,7 +308,7 @@ impl Engine {
                 stage,
             } => {
                 plan.process(out);
-                stage.apply(out);
+                stage.apply_before_narrowing(out);
                 for (narrow, wide) in given.iter_mut().zip(out.iter()) {
                     for (sample, value) in narrow.iter_mut().zip(wide) {
                         *sample = Binary32::from_raw(<f32 as Delivered<Binary64>>::deliver(*value));

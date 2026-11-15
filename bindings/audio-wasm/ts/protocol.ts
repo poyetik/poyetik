@@ -1,6 +1,6 @@
 /** What the main thread and the `AudioWorklet` processors agree on. */
 
-import { PRECISIONS, parsePrecision, type Precision, type Replaced, type SubnormalArithmetic, type SubnormalsKept } from "./engine.ts";
+import { OUTPUT_MODES, PRECISIONS, parsePrecision, type LimiterSettings, type Output, type OutputMode, type Precision, type Replaced, type SubnormalArithmetic, type SubnormalsKept } from "./engine.ts";
 
 /** Name of the processor running the engine. */
 export const ENGINE_PROCESSOR = "poyetik-engine";
@@ -22,6 +22,8 @@ export interface EngineOptions {
   readonly marker: boolean;
   /** The precision the engine computes in; its render is given to Web Audio as binary32. */
   readonly precision: Precision;
+  /** The output stage the engine is created with (`spec/engine-design.md`, decision 12). */
+  readonly output: Output;
 }
 
 /**
@@ -57,6 +59,42 @@ export class MessageError extends Error {
   }
 }
 
+/** The limiter settings `value`, four numbers; `fail` makes the error naming what is wrong. */
+export function parseLimiter(value: unknown, fail: (detail: string) => Error): LimiterSettings {
+  if (typeof value !== "object" || value === null) {
+    throw fail("limiter is not an object");
+  }
+  const number = (name: string): number => {
+    const field: unknown = Reflect.get(value, name);
+    if (typeof field !== "number") {
+      throw fail(`limiter ${name} is not a number`);
+    }
+    return field;
+  };
+  return { ceiling: number("ceiling"), lookahead: number("lookahead"), release: number("release"), adaptivity: number("adaptivity") };
+}
+
+/** Whether `value` is a mode of the output stage. */
+function isOutputMode(value: unknown): value is OutputMode {
+  return OUTPUT_MODES.some((mode) => mode === value);
+}
+
+/** Checks the output stage of the engine options: its mode, maximum lookahead and limiter. The engine checks their ranges. */
+function parseOutput(value: unknown): Output {
+  if (typeof value !== "object" || value === null) {
+    throw new OptionsError("output is not an object");
+  }
+  const mode: unknown = Reflect.get(value, "mode");
+  if (!isOutputMode(mode)) {
+    throw new OptionsError(`output mode is not one of ${OUTPUT_MODES.join(", ")}`);
+  }
+  const maximumLookahead: unknown = Reflect.get(value, "maximumLookahead");
+  if (typeof maximumLookahead !== "number") {
+    throw new OptionsError("output maximumLookahead is not a number");
+  }
+  return { mode, maximumLookahead, limiter: parseLimiter(Reflect.get(value, "limiter"), (detail) => new OptionsError(`output ${detail}`)) };
+}
+
 /** Checks the options received by the engine processor. */
 export function parseEngineOptions(value: unknown): EngineOptions {
   if (typeof value !== "object" || value === null) {
@@ -78,7 +116,7 @@ export function parseEngineOptions(value: unknown): EngineOptions {
   if (known === undefined) {
     throw new OptionsError(`precision is not one of ${PRECISIONS.join(", ")}`);
   }
-  return { wasm, patch, marker, precision: known };
+  return { wasm, patch, marker, precision: known, output: parseOutput(Reflect.get(value, "output")) };
 }
 
 /**
@@ -130,7 +168,9 @@ export type EngineMessage =
   /** Anything else went wrong (invalid options, a trap): the processor is silent. */
   | { readonly type: "failed"; readonly message: string }
   /** The output stage replaced non-finite samples by zero: how many so far, and the first. */
-  | { readonly type: "replaced"; readonly replaced: Required<Replaced> };
+  | { readonly type: "replaced"; readonly replaced: Required<Replaced> }
+  /** The engine refused a command of the main thread (a setting of its output stage); `detail` is its UTF-8 explanation. It renders on. */
+  | { readonly type: "refused"; readonly detail: Uint8Array };
 
 /**
  * The shortest time between two `replaced` messages of one engine processor, in seconds of
@@ -198,10 +238,10 @@ export function parseEngineMessage(value: unknown): EngineMessage {
   if (type === "ready") {
     return { type, subnormals: parseSubnormalArithmetic(Reflect.get(value, "subnormals")) };
   }
-  if (type === "rejected") {
+  if (type === "rejected" || type === "refused") {
     const detail: unknown = Reflect.get(value, "detail");
     if (!(detail instanceof Uint8Array)) {
-      throw new MessageError("rejection detail is not a Uint8Array");
+      throw new MessageError(`${type === "rejected" ? "rejection" : "refusal"} detail is not a Uint8Array`);
     }
     return { type, detail };
   }
@@ -216,4 +256,42 @@ export function parseEngineMessage(value: unknown): EngineMessage {
     return { type, replaced: parseReplaced(Reflect.get(value, "replaced")) };
   }
   throw new MessageError("unknown engine message");
+}
+
+/** Thrown when a command posted to the engine processor does not have the expected shape. */
+export class CommandError extends Error {
+  /**
+   * Describes an invalid command.
+   * @param detail What is wrong with the command.
+   */
+  constructor(detail: string) {
+    super(`invalid command to the engine processor: ${detail}`);
+    this.name = "CommandError";
+  }
+}
+
+/** What the main thread asks of a running engine processor: the output stage's settings, live. */
+export type EngineCommand =
+  /** New settings of the limiter. */
+  | { readonly type: "limiter"; readonly settings: LimiterSettings }
+  /** A crossfade of the limiter toward protected (`true`) or raw (`false`). */
+  | { readonly type: "protect"; readonly protect: boolean };
+
+/** Checks a command posted to the engine processor. */
+export function parseEngineCommand(value: unknown): EngineCommand {
+  if (typeof value !== "object" || value === null) {
+    throw new CommandError("not an object");
+  }
+  const type: unknown = Reflect.get(value, "type");
+  if (type === "limiter") {
+    return { type, settings: parseLimiter(Reflect.get(value, "settings"), (detail) => new CommandError(detail)) };
+  }
+  if (type === "protect") {
+    const protect: unknown = Reflect.get(value, "protect");
+    if (typeof protect !== "boolean") {
+      throw new CommandError("protect is not a boolean");
+    }
+    return { type, protect };
+  }
+  throw new CommandError("unknown command");
 }

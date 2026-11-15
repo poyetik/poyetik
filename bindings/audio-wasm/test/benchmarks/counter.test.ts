@@ -111,6 +111,10 @@ describe("CountedInstance", () => {
       engine_max_patch_bytes: 0,
       engine_subnormals: 0,
       engine_replaced: 0,
+      engine_output: 2,
+      engine_limiter: 4,
+      engine_protect: 1,
+      engine_latency: 0,
     };
     const stubbed = (arity: (name: string, expected: number) => number): (typeof version)[] =>
       Object.entries(arities).map(([name, expected]) => ({ params: arity(name, expected), result: true, locals: [0x00], code: [0x41, 0x01, 0x0b], exported: name }));
@@ -124,7 +128,7 @@ describe("CountedInstance", () => {
     for (const [result, unsigned] of [[2, 2], [-1, 0xff_ff_ff_ff]] as const) {
       const loading = stubs.map((stub) => (stub.exported === "engine_load" ? { ...stub, code: [0x41, result & 0x7f, 0x0b] } : stub));
       expect(() => new CountedInstance(module([version, ...loading], [i64], counter([0x03]))).load(SINE_PATCH, 48_000, "binary64-as-binary32")).toThrow(
-        new ModuleError(`engine_load returned ${String(unsigned)}, not 1 (loaded) or 0 (refused)`),
+        new ModuleError(`engine_load returned ${String(unsigned)}, not 1 (succeeded) or 0 (refused)`),
       );
     }
     const wrong = new CountedInstance(module([version, ...stubs], [I32_GLOBAL], counter([0x03])));

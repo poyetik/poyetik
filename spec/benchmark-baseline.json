@@ -52,25 +52,25 @@
       "box": "dac~",
       "precision": "binary64",
       "setting": "two inlets fed at 48 kHz",
-      "instructions": 358144
+      "instructions": 358784
     },
     {
       "box": "dac~",
       "precision": "binary32",
       "setting": "two inlets fed at 48 kHz",
-      "instructions": 72576
+      "instructions": 73024
     },
     {
       "box": "dac~",
       "precision": "binary64",
       "setting": "unconnected at 48 kHz",
-      "instructions": 347776
+      "instructions": 348416
     },
     {
       "box": "dac~",
       "precision": "binary32",
       "setting": "unconnected at 48 kHz",
-      "instructions": 66304
+      "instructions": 66752
     }
   ],
   "mixes": [
@@ -129,41 +129,41 @@
     {
       "precision": "binary64",
       "setting": "an empty patch at 48 kHz",
-      "instructions": 8704
+      "instructions": 8768
     },
     {
       "precision": "binary32",
       "setting": "an empty patch at 48 kHz",
-      "instructions": 7424
+      "instructions": 7872
     },
     {
       "precision": "binary64",
       "setting": "16 output boxes each fed by 3 oscillators at 48 kHz",
-      "instructions": 41168609
+      "instructions": 41169313
     },
     {
       "precision": "binary32",
       "setting": "16 output boxes each fed by 3 oscillators at 48 kHz",
-      "instructions": 28635582
+      "instructions": 28640830
     }
   ],
   "plans": [
     {
       "oscillators": 256,
-      "instructions": 3864055
+      "instructions": 3864463
     },
     {
       "oscillators": 1024,
-      "instructions": 16635076
+      "instructions": 16635484
     },
     {
       "oscillators": 4096,
-      "instructions": 71793765
+      "instructions": 71794173
     },
     {
       "oscillators": 16384,
-      "instructions": 305314139
+      "instructions": 305314547
     }
   ],
-  "module_bytes": 350042
+  "module_bytes": 385541
 }

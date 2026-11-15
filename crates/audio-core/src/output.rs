@@ -123,6 +123,25 @@ impl<S: Sample> OutputStage<S> {
         if let Some(limiter) = &mut self.limiter {
             limiter.apply(blocks);
         }
+        self.advance();
+    }
+
+    /// Applies the stage to the next block of every channel before it is given in a
+    /// narrower format, where [`OutputStage::replace_given`] checks it as given. A stage with
+    /// a limiter applies itself whole ([`OutputStage::apply`]), since the limiter's detector
+    /// needs finite samples; a raw stage only counts the block, and leaves every non-finite
+    /// sample to the check as given, which sees each one (the rounding keeps a non-finite
+    /// sample non-finite, at the same place): one pass over the block instead of two.
+    pub fn apply_before_narrowing(&mut self, blocks: &mut [Block<S>]) {
+        if self.limiter.is_some() {
+            self.apply(blocks);
+        } else {
+            self.advance();
+        }
+    }
+
+    /// Counts one more block.
+    fn advance(&mut self) {
         self.frame = self
             .frame
             .saturating_add(u64::try_from(BLOCK_SIZE).unwrap_or(u64::MAX));

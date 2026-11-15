@@ -127,7 +127,7 @@ pub extern "C" fn engine_output(mode: u32, maximum_lookahead: f64) -> u32 {
 /// Sets the limiter: 1 on success, 0 on failure.
 ///
 /// A ceiling in dBTP, a lookahead and a release in milliseconds, an adaptivity from 0 to
-/// 1; live on the loaded engine when it has a limiter, and on every later load.
+/// 1; live on the loaded engine (refused when its stage is raw), and on every later load.
 #[unsafe(no_mangle)]
 pub extern "C" fn engine_limiter(
     ceiling: f64,

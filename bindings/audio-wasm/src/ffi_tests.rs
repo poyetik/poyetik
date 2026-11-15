@@ -270,8 +270,8 @@ fn follows_the_output_protocol(sine: &[u8]) {
     );
     assert_eq!(
         engine_limiter(-2.0, 1.0, 100.0, 0.5),
-        1,
-        "for the next load"
+        0,
+        "the raw engine loaded has no limiter"
     );
     write(sine);
     assert_eq!(engine_load(48_000, 2), 1, "a protected load");

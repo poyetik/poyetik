@@ -6,13 +6,14 @@
  * it receives and sends is bytes, numbers or strings built without them.
  */
 
-import { PatchError, WasmEngine, givenAsBinary32 } from "../engine.ts";
+import { OutputError, PatchError, WasmEngine, givenAsBinary32 } from "../engine.ts";
 import {
   ENGINE_PROCESSOR,
   MARKER_PERIOD,
   REPLACED_REPORT_SECONDS,
   SOURCE_STOPPED,
   TAP_PROCESSOR,
+  parseEngineCommand,
   parseEngineOptions,
   type EngineMessage,
 } from "../protocol.ts";
@@ -65,13 +66,44 @@ class EngineProcessor extends AudioWorkletProcessor {
   constructor(options: { readonly processorOptions?: unknown }) {
     super();
     try {
-      const { wasm, patch, marker, precision } = parseEngineOptions(options.processorOptions);
-      const engine = WasmEngine.create(new WebAssembly.Module(wasm), patch, sampleRate, givenAsBinary32(precision));
+      const { wasm, patch, marker, precision, output } = parseEngineOptions(options.processorOptions);
+      const engine = WasmEngine.create(new WebAssembly.Module(wasm), patch, sampleRate, givenAsBinary32(precision), output);
       // Observed when it was created, here on the audio thread, in the browser's mode.
       const ready: EngineMessage = { type: "ready", subnormals: engine.subnormals };
       this.#running = { engine, marker };
+      this.port.onmessage = (event: MessageEvent<unknown>) => {
+        this.#command(event.data);
+      };
       this.port.postMessage(ready);
     } catch (error) {
+      this.port.postMessage(failure(error));
+    }
+  }
+
+  /**
+   * Applies a command of the main thread to the running engine: a refused setting is told
+   * back (`refused`), the engine rendering on; an invalid command, a module error or a
+   * trap stops it, as a failure while rendering does. Ignored once it failed.
+   */
+  #command(data: unknown): void {
+    const running = this.#running;
+    if (running === undefined) {
+      return;
+    }
+    try {
+      const command = parseEngineCommand(data);
+      if (command.type === "limiter") {
+        running.engine.setLimiter(command.settings);
+      } else {
+        running.engine.setProtected(command.protect);
+      }
+    } catch (error) {
+      if (error instanceof OutputError) {
+        const refused: EngineMessage = { type: "refused", detail: error.detail };
+        this.port.postMessage(refused);
+        return;
+      }
+      this.#running = undefined;
       this.port.postMessage(failure(error));
     }
   }
