@@ -750,7 +750,7 @@
           "done": false
         },
         {
-          "title": "audio-cli: open inputs with a bound and refuse anything but a regular file, so a FIFO cannot block a read",
+          "title": "audio-cli and the visual command-line tool: open inputs with a bound and refuse anything but a regular file, so a FIFO cannot block a read",
           "done": false
         },
         {
@@ -979,6 +979,14 @@
         },
         {
           "title": "Command-line contract plumbing: the closed-stdout writer (three copies), the Files trait (two, untied) and safe_message (three, tied only by spec/safe-message-vectors.json) live in audio-cli, the visual command-line tool and xtask; move them to one small shared crate",
+          "done": false
+        },
+        {
+          "title": "Reproducible wasm build outside xtask: the build scripts refuse the preflight's variables and cargo configuration from one list shared with xtask's preflight, so that a build run by hand cannot differ from the checked one",
+          "done": false
+        },
+        {
+          "title": "audio-wasm's C interface: say for each address it returns what invalidates it (the next call that may grow the memory or rewrite its buffer), as the visual library's interface says it",
           "done": false
         }
       ]
