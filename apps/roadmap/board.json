@@ -1,7 +1,7 @@
 {
   "version": 1,
   "title": "Poyetik",
-  "nextId": 38,
+  "nextId": 39,
   "cards": [
     {
       "id": 3,
@@ -1475,6 +1475,61 @@
         },
         {
           "title": "Deep review: every finding analyzed and applied, then a fresh review",
+          "done": false
+        }
+      ]
+    },
+    {
+      "id": 38,
+      "title": "Mastering-grade audio engine: the tools of the best mastering editors and plugins on the engine",
+      "description": "What a mastering tool needs beyond the engine's foundations, each an addition on #12's work, none undoing a decision. Two decisions come first, since later work depends on them.",
+      "column": "later",
+      "milestone": "M1 Engine",
+      "createdAt": "2026-11-15",
+      "updatedAt": "2026-11-15",
+      "tasks": [
+        {
+          "title": "Decide subpatch fusion (a subpatch compiled into one box) for performance, so that a mastering chain built as a patch costs no more than dedicated boxes",
+          "done": false
+        },
+        {
+          "title": "Decide what to do about codecs and post-encode peak checks (AAC, MP3, Opus): excluded, through external processor boxes marked non-deterministic (#12 step 37), or a deterministic encoder of our own",
+          "done": false
+        },
+        {
+          "title": "Limiter: an adjustable channel link, from one linked gain to a gain per channel, its measurements derived as the linked limiter's",
+          "done": false
+        },
+        {
+          "title": "Limiter: 16x and 32x detector levels, their coefficients computed in the math layer and their under-read bounds derived from them, their cost benchmarked",
+          "done": false
+        },
+        {
+          "title": "Mid/side processing on multichannel cables (#12 step 24): a matrixing box and its exact inverse",
+          "done": false
+        },
+        {
+          "title": "Loudness meter after BS.1770 and EBU R128 (LUFS momentary, short-term and integrated, LRA, dBTP), its values on the return path, measured against the standard's test signals",
+          "done": false
+        },
+        {
+          "title": "Dither and noise shaping on seeded randomness (#12 step 18), deterministic, chosen at export, their noise spectra measured",
+          "done": false
+        },
+        {
+          "title": "Limiter: the gain applied oversampled against aliasing, on the resampler of subpatches (#12 step 26), its aliasing measured",
+          "done": false
+        },
+        {
+          "title": "Live change of the limiter's latency (maximum lookahead, detector precision) through hot swap (#12 step 30)",
+          "done": false
+        },
+        {
+          "title": "Multiband processing, linear-phase included, on the FFT (#12 step 25) and latency compensation (#12 step 27)",
+          "done": false
+        },
+        {
+          "title": "The patcher's own limiter as a patch of primitive boxes (styles, slow attacks), on subpatches and feedback (#12 step 26), tested against the output stage's limiter",
           "done": false
         }
       ]
