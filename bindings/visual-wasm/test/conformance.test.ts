@@ -141,8 +141,9 @@ test("renders every value of the square as the spec places it, across the visual
       }
     }
   }
-  // Measured: 0.5 s alone (2026-11-15); under Stryker's parallel test processes it
-  // runs several times slower, past vitest's 5 s: a limit, not a tolerance on what it checks.
+  // Measured: 0.5 s alone (2026-11-15); how much slower it runs under Stryker's parallel
+  // test processes is not measured, so the limit leaves room: a limit, not a tolerance on
+  // what it checks.
 }, 60_000);
 
 test("explains a refused square and keeps the one it had", async () => {
@@ -184,8 +185,9 @@ test("sets up the largest image, refuses one pixel row more, and releases the im
   module.setup({ ...square, width: 16_384, height: 2048 });
   expect(memory.buffer.byteLength, "still one image at a time after a refusal").toBeLessThan(image + image / 2);
   expect(module.hash(1n, 0)).toMatch(/^[0-9a-f]{64}$/u);
-  // Measured: 0.3 s alone (2026-11-15); under Stryker's parallel test processes it
-  // runs several times slower, past vitest's 5 s: a limit, not a tolerance on what it checks.
+  // Measured: 0.3 s alone (2026-11-15); how much slower it runs under Stryker's parallel
+  // test processes is not measured, so the limit leaves room: a limit, not a tolerance on
+  // what it checks.
 }, 60_000);
 
 test("stops looking for the conformance directory at the root, a Windows drive's included", () => {

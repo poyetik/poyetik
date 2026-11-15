@@ -1372,7 +1372,7 @@
     {
       "id": 37,
       "title": "Time crate: exact musical time shared by the audio and visual libraries",
-      "description": "A tiny standalone no_std crate holding the time map and its exact evaluation, which the audio library, the visual library and the coordinating layer all depend on, so that every domain places a beat on the same frame, bit for bit, on every machine (spec/engine-design.md, decision 17). Its results are bit-defining and versioned (decision 29).",
+      "description": "A tiny standalone no_std crate holding the time map and its exact evaluation, which the audio library, the visual library and the coordinating layer all depend on, so that every domain places a beat on the same audio frame, bit for bit, on every machine (spec/engine-design.md, decision 17). Its results are bit-defining and versioned (decision 29).",
       "column": "later",
       "milestone": "M1 Engine",
       "createdAt": "2026-11-13",

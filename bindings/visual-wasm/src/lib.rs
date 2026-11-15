@@ -1,5 +1,5 @@
 //! The Poyetik visual library compiled to WebAssembly, for those who use the visual library
-//! alone, in Node or a browser; the product links both libraries into its own modules instead
+//! alone, in Node (browsers come with the playground, #34 step 6); the product links both libraries into its own modules instead
 //! (`spec/engine-design.md`, decision 33).
 //!
 //! The module exports a minimal C interface ([`ffi`]) with no imports and no generated

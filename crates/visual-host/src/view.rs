@@ -53,8 +53,8 @@ impl core::error::Error for SetupError {
     }
 }
 
-/// The most bytes a refusal's message takes: more than the longest [`SetupError`] says (its
-/// values at their widest), which a test checks.
+/// The most bytes a refusal's message takes: about twice the longest a [`SetupError`] says
+/// (every variant with values of ten digits, about 125 bytes), which a test checks.
 const MESSAGE_BYTES: usize = 256;
 
 /// The explanation of a refused setup, held in the view itself, so that refusing allocates
