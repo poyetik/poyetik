@@ -13,10 +13,13 @@ pub const WORKFLOW: &str = ".github/workflows/quality.yml";
 /// The Node.js release CI uses, pinned.
 pub const NODE_VERSION_FILE: &str = ".node-version";
 
-/// The WebAssembly modules the packages of both libraries build: uploaded by a failed CI
-/// run, so that their bytes can be compared with a local build.
+/// The WebAssembly modules the packages of both libraries build, uploaded by a failed CI
+/// run.
+///
+/// Their bytes can then be compared with a local build. The engine's are one pattern for
+/// every engine block (`engine.wasm` and each `engine-<frames>.wasm`).
 pub const WASM_MODULES: [&str; 2] = [
-    "bindings/audio-wasm/dist/engine.wasm",
+    "bindings/audio-wasm/dist/engine*.wasm",
     "bindings/visual-wasm/dist/visual.wasm",
 ];
 

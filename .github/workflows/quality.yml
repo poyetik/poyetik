@@ -161,7 +161,7 @@ jobs:
           path: |
             mutants.out
             target/coverage
-            bindings/audio-wasm/dist/engine.wasm
+            bindings/audio-wasm/dist/engine*.wasm
             bindings/visual-wasm/dist/visual.wasm
             tooling/*/coverage
             tooling/*/reports

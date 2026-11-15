@@ -102,7 +102,7 @@ fn builds_the_engine_package_before_every_package() {
     assert_eq!(
         crate::WASM_MODULES,
         [
-            format!("{}/dist/engine.wasm", crate::ENGINE_PACKAGE.dir),
+            format!("{}/dist/engine*.wasm", crate::ENGINE_PACKAGE.dir),
             "bindings/visual-wasm/dist/visual.wasm".to_owned()
         ],
         "the modules the packages' builds write"
