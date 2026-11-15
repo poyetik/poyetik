@@ -541,8 +541,8 @@ pub const PACKAGES: [Package; 7] = [
     },
     Package {
         dir: "tooling/wasm-build",
-        step: "WebAssembly module builds (reproducible, shared by the engine and the visual \
-               library)",
+        step: "The tool that builds the WebAssembly modules reproducibly (the engine's \
+               and the visual library's)",
         checks: &["typecheck", "lint", "test"],
         shipped: false,
         outputs: &[],
