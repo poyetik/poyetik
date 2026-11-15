@@ -224,10 +224,11 @@ fn derives_each_list_of_crates_from_their_roles() {
             &[
                 "visual-testkit",
                 "alloc-counter",
+                "fpenv",
                 "audio-battery",
                 "audio-testkit",
             ][..],
-            "the counting allocator, the fingerprint battery and the test kit",
+            "the counting allocator, the floating-point mode, the fingerprint battery and the test kit",
         ),
     ] {
         assert_eq!(crate::crates_in(role), crates, "{what}");

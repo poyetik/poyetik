@@ -659,7 +659,7 @@ fn runs_every_step_and_reports_success() {
         + 3
         + 93
         + 5
-        // fpenv, shared by both libraries, reads no test data: one test data reader fewer
+        // fpenv, beside the libraries, reads no test data: one test data reader fewer
         // than these counts were written for, which eight gates read (roadmap #24 step 107
         // derives each count from the registries).
         - 8

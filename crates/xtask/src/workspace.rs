@@ -219,7 +219,11 @@ pub const RUST_CRATES: [RustCrate; 19] = [
         dir: "crates/fpenv",
         binary: false,
         test_data: &[],
-        roles: &[CrateRole::LibraryTests, CrateRole::VisualLibraryTests],
+        roles: &[
+            CrateRole::SharedTests,
+            CrateRole::LibraryTests,
+            CrateRole::VisualLibraryTests,
+        ],
     },
     RustCrate {
         name: "audio-battery",

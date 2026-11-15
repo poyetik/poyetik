@@ -502,7 +502,7 @@ pub(crate) fn portability_steps() -> Vec<Step> {
         .collect()
 }
 
-/// The native shell (`audio-cli`) and the library's floating-point mode it uses
+/// The native shell (`audio-cli`) and the floating-point mode it uses
 /// (`fpenv`), whose code differs by architecture, linted then built for each of
 /// [`NATIVE_TARGETS`].
 ///
