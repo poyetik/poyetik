@@ -22,12 +22,15 @@ macro_rules! engine_code {
     };
 }
 
-/// The sources the math layer gate reads, as git pathspecs, their `*_tests.rs` files apart:
-/// box code ([`BOX_CODE`]) and the engine core's ([`ENGINE_CODE`]), built from the same
-/// literals.
-pub const MATH_LAYER_SOURCES: [&str; 2] = [
+/// The sources the math layer gate reads, as git pathspecs, their `*_tests.rs` files apart.
+///
+/// Box code ([`BOX_CODE`]) and the engine core's ([`ENGINE_CODE`]), built from the same
+/// literals, and the root of the visual boxes ([`VISUAL_BOX_ROOT`]), read for its forbid
+/// alone.
+pub const MATH_LAYER_SOURCES: [&str; 3] = [
     concat!(box_code!(), "*.rs"),
     concat!(engine_code!(), "*.rs"),
+    VISUAL_BOX_ROOT,
 ];
 
 /// The directory of box code: the sources of the box crate, `audio-boxes`.
@@ -84,8 +87,8 @@ pub const ENGINE_FORBIDDEN_NAMES: [&str; 4] = [
 pub const ENGINE_ARITHMETIC_FORBID: &str =
     "#![cfg_attr(not(test), forbid(clippy::arithmetic_side_effects))]";
 
-/// The leading inner attribute of the root of the box crate: outside tests, box code
-/// computes no float.
+/// The leading inner attribute of the root of each box crate ([`BOX_ROOTS`]): outside tests,
+/// box code computes no float.
 ///
 /// Clippy's `float_arithmetic`, which the compiler then refuses to lift by any name
 /// (E0453). The box tests compute their references in raw floats.
@@ -93,6 +96,16 @@ pub const BOX_FLOAT_FORBID: &str = "#![cfg_attr(not(test), forbid(clippy::float_
 
 /// The root of the box crate, which holds [`BOX_FLOAT_FORBID`].
 pub const BOX_ROOT: &str = "crates/audio-boxes/src/lib.rs";
+
+/// The root of the visual boxes, which holds [`BOX_FLOAT_FORBID`].
+///
+/// A visual box computes its coverage in integers, exact on every target (`spec/visual-design.md`), and turns it into
+/// values through the visual core alone. The math layer's other rules are the audio
+/// engine's, so the gate reads nothing else of it.
+pub const VISUAL_BOX_ROOT: &str = "crates/visual-boxes/src/lib.rs";
+
+/// The roots of the box crates of both libraries, each holding [`BOX_FLOAT_FORBID`].
+pub const BOX_ROOTS: [&str; 2] = [BOX_ROOT, VISUAL_BOX_ROOT];
 
 /// The root of the engine core, which names none of [`ENGINE_FORBIDDEN_NAMES`] instead of
 /// forbidding the lint, so that the math layer may lift it.
@@ -229,7 +242,8 @@ pub(crate) fn math_layer_crates(metadata: &str) -> Result<Vec<String>, Failure> 
 /// code, not read (the test code gate, [`test_code_gate`](crate::test_code::test_code_gate), proves each declared once beside
 /// its source, and the loaded-files gate, [`loaded_files_gate`](crate::loaded_files::loaded_files_gate), that no build of the code
 /// reads one, both steps of every check), and [`MATH_LAYER_FILE`] is the math layer, read
-/// only for `include`; any other file is refused. So code reaches these crates only
+/// only for `include`; [`VISUAL_BOX_ROOT`] is read for its forbid alone; any other file is
+/// refused. So code reaches these crates only
 /// through modules of their `src/`, from files the gate reads (the loaded-files gate refuses
 /// a build of the code reading any other file); a box crate,
 /// `no_std` and without `libm`, computes with the engine's sample types alone, whose
@@ -246,6 +260,12 @@ pub fn math_layer_gate(metadata: &str, sources: &[RustSource]) -> Result<(), Fai
     for source in sources {
         let path = &source.path;
         if unit_test_file(path) {
+            continue;
+        }
+        if path == VISUAL_BOX_ROOT {
+            if source.leading_attribute(BOX_FLOAT_FORBID).is_none() {
+                problems.push(format!("{path} does not hold `{BOX_FLOAT_FORBID}`"));
+            }
             continue;
         }
         let is_box = path.starts_with(BOX_CODE);

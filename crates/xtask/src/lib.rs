@@ -73,9 +73,9 @@ pub use licenses::{
 };
 pub use loaded_files::{Loaded, LoadedCommand, loaded_files_commands, loaded_files_gate};
 pub use math_layer::{
-    BOX_CODE, BOX_FLOAT_FORBID, BOX_FORBIDDEN_NAMES, BOX_ROOT, ENGINE_ARITHMETIC_FORBID,
+    BOX_CODE, BOX_FLOAT_FORBID, BOX_FORBIDDEN_NAMES, BOX_ROOT, BOX_ROOTS, ENGINE_ARITHMETIC_FORBID,
     ENGINE_CODE, ENGINE_FORBIDDEN_NAMES, ENGINE_ROOT, MATH_LAYER_FILE, MATH_LAYER_SOURCES,
-    REDUCTION_NAMES, math_layer_gate,
+    REDUCTION_NAMES, VISUAL_BOX_ROOT, math_layer_gate,
 };
 pub use parts::{
     MUTATION_SHARDS, Part, SHARD_REPORTS, Setup, Shard, UNVIABLE_ARTIFACT, full_parts, part_steps,

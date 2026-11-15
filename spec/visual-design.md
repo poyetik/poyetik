@@ -56,7 +56,7 @@ Whether a color value may exceed its alpha (emission, high dynamic range) is dec
 
 **Decision.** A visual box implements `VisualBox`:
 - `render(index, output)`: renders image `index` into `output`, overwriting every value; a pure function of the index, the box's parameters and the output size; never allocates, frees, locks or blocks;
-- `trace(index, output, point)`: optional, what produced a point of the output: nothing declared (the default), the background, or a shape numbered by the box. Exact, computed on the CPU only when a gesture asks, so it costs nothing otherwise.
+- `trace(index, point)`: optional, what produced a point of the output: nothing declared (the default), the background, or a shape numbered by the box. Exact, computed on the CPU only when a gesture asks, so it costs nothing otherwise, and needing no image: the point carries the size of its image, and is always inside it (`ImageSize::point` builds it, refusing a point outside), so no box has to answer for one.
 
 This first version covers boxes with no image input (generators). Inputs, and tracing through boxes that transform their input (mapping an output point back to input points, zero, one or several), come with #35 step 2.
 

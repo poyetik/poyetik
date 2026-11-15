@@ -7,7 +7,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use visual_core::{ColorEncoding, Image, ImageIndex, ImageRange, ImageRate, ImageSize, VisualBox};
 
-use super::{ImageHash, ImageHasher, Mismatch, TAG, hash_sequence};
+use super::{ImageHash, ImageHasher, Mismatch, SCHEME, hash_sequence};
 
 /// The known-answer vectors of the specification, computed independently of every
 /// implementation.
@@ -68,7 +68,8 @@ fn hex_bytes(digits: &str) -> Vec<u8> {
 fn reproduces_the_known_answer_vectors_of_the_specification() {
     // If one changes, every reference hash changes: the scheme needs a new tag.
     let json: Value = serde_json::from_str(VECTORS).expect("valid JSON");
-    assert_eq!(text(&json, "scheme").as_bytes(), TAG, "same scheme");
+    assert_eq!(text(&json, "scheme"), SCHEME, "same scheme");
+    assert_eq!(SCHEME, "image-hash/1", "its name and version");
     let vectors = json["vectors"].as_array().expect("a list of vectors");
     assert_eq!(
         vectors.len(),

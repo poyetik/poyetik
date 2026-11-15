@@ -20,9 +20,13 @@ fn place(rate: ImageRate, size: ImageSize, index: ImageIndex) -> String {
     )
 }
 
-/// The bit patterns of an image's values, so that `-0.0` and NaN payloads compare exactly.
-fn bits(image: &Image) -> Vec<u32> {
-    image.values().iter().map(|value| value.to_bits()).collect()
+/// Whether two images hold the same bits, value for value: floats compared exactly (`-0`
+/// and `0` differ, a NaN equals itself), with no allocation.
+fn same_bits(left: &Image, right: &Image) -> bool {
+    left.values()
+        .iter()
+        .map(|value| value.to_bits())
+        .eq(right.values().iter().map(|value| value.to_bits()))
 }
 
 /// Renders image `index` of `visual` into `image`, refusing any heap operation: the only
@@ -79,26 +83,20 @@ fn from_both_ends<T: Copy>(indices: &[T]) -> Vec<T> {
     order
 }
 
-/// Points to trace in an image of `size`: its corners, its center, and one outside it.
-fn points(size: ImageSize) -> [SubpixelPoint; 4] {
+/// Points to trace in an image of `size`: its first subpixel (the top left corner), its
+/// center and its last subpixel (the bottom right corner), every one inside it, as every
+/// point is.
+fn points(size: ImageSize) -> impl Iterator<Item = SubpixelPoint> {
     let unit = u64::from(visual_core::SUBPIXELS);
     let right = u64::from(size.width()).saturating_mul(unit);
     let bottom = u64::from(size.height()).saturating_mul(unit);
     [
-        SubpixelPoint { x: 0, y: 0 },
-        SubpixelPoint {
-            x: right / 2,
-            y: bottom / 2,
-        },
-        SubpixelPoint {
-            x: right.saturating_sub(1),
-            y: bottom.saturating_sub(1),
-        },
-        SubpixelPoint {
-            x: right,
-            y: bottom,
-        },
+        (0, 0),
+        (right / 2, bottom / 2),
+        (right.saturating_sub(1), bottom.saturating_sub(1)),
     ]
+    .into_iter()
+    .filter_map(move |(x, y)| size.point(x, y))
 }
 
 /// Checks the law of finite values on one rendered image: every value finite, and alpha
@@ -149,12 +147,12 @@ fn check_at(make: &Factory<'_>, rate: ImageRate, size: ImageSize) -> Result<(), 
         let image = render(first.as_mut(), size, index, &at, "")?;
         check_values(&image, &at)?;
         let again = render(second.as_mut(), size, index, &at, ", a second instance,")?;
-        if bits(&again) != bits(&image) {
+        if !same_bits(&again, &image) {
             return Err(format!("determinism: two fresh instances differ at {at}"));
         }
         let mut over = dirty(size);
         render_into(third.as_mut(), &mut over, index, &at, " over other values")?;
-        if bits(&over) != bits(&image) {
+        if !same_bits(&over, &image) {
             return Err(format!(
                 "overwrite: a value kept from before rendering at {at}"
             ));
@@ -171,21 +169,22 @@ fn check_at(make: &Factory<'_>, rate: ImageRate, size: ImageSize) -> Result<(), 
             &at,
             ", other images first,",
         )?;
-        if bits(&image) != bits(reference) {
+        if !same_bits(&image, reference) {
             return Err(format!(
                 "random access: rendering other images first changes the bits at {at}"
             ));
         }
         for point in points(size) {
             let fresh = make(rate);
-            let traced: Trace = fresh.trace(*index, reference, point);
-            if fresh.trace(*index, reference, point) != traced
-                || shuffled.trace(*index, reference, point) != traced
-                || first.trace(*index, reference, point) != traced
+            let traced: Trace = fresh.trace(*index, point);
+            if fresh.trace(*index, point) != traced
+                || shuffled.trace(*index, point) != traced
+                || first.trace(*index, point) != traced
             {
                 return Err(format!(
                     "pure trace: ({}, {}) traces differently at {at}",
-                    point.x, point.y
+                    point.x(),
+                    point.y()
                 ));
             }
         }
@@ -211,7 +210,7 @@ fn check_at(make: &Factory<'_>, rate: ImageRate, size: ImageSize) -> Result<(), 
             &at,
             ", the same image again,",
         )?;
-        if bits(&once) != bits(reference) || bits(&twice) != bits(reference) {
+        if !same_bits(&once, reference) || !same_bits(&twice, reference) {
             return Err(format!(
                 "random access: rendering the images in another order, each twice, changes the bits at {at}"
             ));
