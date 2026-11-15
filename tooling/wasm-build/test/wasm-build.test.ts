@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { artifactPath, BuildError, cargoArgs, commitHashOf, encodedRustflags, identical, leakedPaths, reproducibilityProblems, sysrootOf, targetName, type WasmModule } from "../src/wasm.ts";
+import { artifactPath, BuildError, cargoArgs, cargoHomeOf, commitHashOf, encodedRustflags, identical, leakedPaths, privatePaths, reproducibilityProblems, sysrootOf, targetName, type WasmModule } from "../src/wasm.ts";
 
 /** The engine's module, as `bindings/audio-wasm` builds it. */
 const ENGINE: WasmModule = { package: "audio-wasm", label: "engine module", file: "engine.wasm" };
@@ -85,12 +85,44 @@ describe("commitHashOf", () => {
 });
 
 describe("leakedPaths", () => {
-  test("finds the paths of this machine in the module bytes, ignoring empty ones", () => {
+  test("finds the paths of this machine in the module bytes, followed by a child of theirs, ignoring empty ones", () => {
     // Binary around the strings, invalid as UTF-8 (0xff), as in a real module.
     const text = new TextEncoder().encode("\u0000panic at /home/u/.cargo/registry/x.rs\u0000/cargo/y.rs");
     const bytes = new Uint8Array([0xff, 0xfe, ...text, 0xff]);
-    expect(leakedPaths(bytes, ["/home/u/.cargo", "/src/repo", ""])).toStrictEqual(["/home/u/.cargo"]);
-    expect(leakedPaths(bytes, ["/src/repo"])).toStrictEqual([]);
+    const cargo = { path: "/home/u/.cargo", children: ["/registry/"] };
+    expect(leakedPaths(bytes, [cargo, { path: "/src/repo", children: ["/crates/"] }, { path: "", children: ["/"] }])).toStrictEqual(["/home/u/.cargo"]);
+    expect(leakedPaths(bytes, [{ path: "/src/repo", children: ["/crates/"] }])).toStrictEqual([]);
+    expect(leakedPaths(bytes, [{ path: "/home/u/.cargo", children: ["/git/", "/registry/"] }]), "any of its children").toStrictEqual(["/home/u/.cargo"]);
+    expect(leakedPaths(bytes, [{ path: "/home/u/.cargo", children: [] }]), "no child, no leak").toStrictEqual([]);
+  });
+
+  test("tells a leak from the module's own relative paths, in a container too", () => {
+    // A repository at /src, whose sources are in crates/*/src/, and a home directory at /.
+    const paths = privatePaths("/src", "/cargo-home", "/", "/sysroot");
+    // Each path alone, or followed by anything but a child of a leak, as text may hold it.
+    const own = new TextEncoder().encode("crates/visual-core/src/image.rs /rustc/abc/library/core/src/num/mod.rs https://x /cargo-home /cargo-home/x /sysroot /sysroot/x /src");
+    expect(leakedPaths(own, paths), "relative paths and other text are not leaks").toStrictEqual([]);
+    for (const [leak, path] of [
+      ["/src/crates/visual-core/src/image.rs", "/src"],
+      ["/src/bindings/visual-wasm/src/ffi.rs", "/src"],
+      ["/cargo-home/registry/src/index.crates.io-0/sha2-0.11.1/src/lib.rs", "/cargo-home"],
+      ["/cargo-home/git/checkouts/x/src/lib.rs", "/cargo-home"],
+      ["/sysroot/lib/rustlib/src/rust/library/core/src/lib.rs", "/sysroot"],
+    ] as const) {
+      expect(leakedPaths(new TextEncoder().encode(leak), paths), leak).toStrictEqual([path]);
+    }
+    expect(leakedPaths(new TextEncoder().encode("/home/u/x"), privatePaths("/r", "/c", "/home/u", "/s")), "anything of a home directory").toStrictEqual(["/home/u"]);
+    expect(leakedPaths(new TextEncoder().encode("/home/user2/x"), privatePaths("/r", "/c", "/home/u", "/s")), "another home directory").toStrictEqual([]);
+    expect(privatePaths("/r", "/c", "/", "/s").map(({ path }) => path), "no home directory at /").toStrictEqual(["/r", "/c", "/s"]);
+  });
+});
+
+describe("cargoHomeOf", () => {
+  test("reads CARGO_HOME as cargo does: unset or empty is the home's, relative is from where cargo runs", () => {
+    expect(cargoHomeOf({}, "/home/u", "/src/repo")).toBe("/home/u/.cargo");
+    expect(cargoHomeOf({ CARGO_HOME: "" }, "/home/u", "/src/repo")).toBe("/home/u/.cargo");
+    expect(cargoHomeOf({ CARGO_HOME: "/opt/cargo" }, "/home/u", "/src/repo")).toBe("/opt/cargo");
+    expect(cargoHomeOf({ CARGO_HOME: "tools/cargo" }, "/home/u", "/src/repo")).toBe("/src/repo/tools/cargo");
   });
 });
 
@@ -113,7 +145,7 @@ describe("each module", () => {
   });
 
   test("is named in its reproducibility problems", () => {
-    expect(reproducibilityProblems(new Uint8Array([1]), new Uint8Array([2]), ["/home"], OTHER)).toStrictEqual(["two builds of the visual module differ"]);
-    expect(reproducibilityProblems(new TextEncoder().encode("/home/x"), new TextEncoder().encode("/home/x"), ["/home"], OTHER)).toStrictEqual(["the visual module contains the path /home"]);
+    expect(reproducibilityProblems(new Uint8Array([1]), new Uint8Array([2]), [{ path: "/home", children: ["/"] }], OTHER)).toStrictEqual(["two builds of the visual module differ"]);
+    expect(reproducibilityProblems(new TextEncoder().encode("/home/x"), new TextEncoder().encode("/home/x"), [{ path: "/home", children: ["/"] }], OTHER)).toStrictEqual(["the visual module contains the path /home"]);
   });
 });
