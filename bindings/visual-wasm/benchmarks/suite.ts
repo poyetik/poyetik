@@ -32,7 +32,7 @@ export const SQUARE = { rate: [60, 1], side: 39_322, cycle: [1001, 1000] } as co
  * How far the cost per pixel at a size may be from the largest size's, in percent: the cost
  * of an image is proportional to its pixels, plus what an image costs once (setting the
  * render up), which is below 1.4% of the smallest size's (measured 2026-11-16: 96.29 against
- * 95.05 instructions a pixel for the render, 1509.02 against 1505.30 for render and hash).
+ * 95.05 instructions a pixel for the render, 1381.92 against 1378.00 for render and hash).
  */
 export const LINEAR_PERCENT = 2;
 

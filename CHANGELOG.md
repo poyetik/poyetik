@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The image hash feeds SHA-256 by chunks of 4 KiB laid out on the stack, not one value at a time: the same bytes, so the same hashes, for 8.5% fewer WebAssembly instructions to render and hash an image (`spec/benchmarks.md`, "The image hash fed by chunks").
+
 ### Fixed
 
 - A cost-benchmark harness any library's WebAssembly module can use (`@poyetik/wasm-build/bench`): named counts measured on the module as built (`countedInstance` over the shared instrumenter), compared with a baseline in the repository within a tolerance either way, laws the counts must obey, and one command, `check`, `bless` or `help`, following the command-line contract; the engine's benchmarks keep their own until they move to it (roadmap #24 step 155).
