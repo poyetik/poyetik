@@ -121,6 +121,12 @@ describe("CountedInstance", () => {
     expect(() => new CountedInstance(module([version, ...stubbed((name, expected) => (name === "engine_process" ? 1 : expected))], [i64], counter([0x03])))).toThrow(
       new ModuleError("engine_process takes 1 argument(s), expected 0"),
     );
+    for (const [result, unsigned] of [[2, 2], [-1, 0xff_ff_ff_ff]] as const) {
+      const loading = stubs.map((stub) => (stub.exported === "engine_load" ? { ...stub, code: [0x41, result & 0x7f, 0x0b] } : stub));
+      expect(() => new CountedInstance(module([version, ...loading], [i64], counter([0x03]))).load(SINE_PATCH, 48_000, "binary64-as-binary32")).toThrow(
+        new ModuleError(`engine_load returned ${String(unsigned)}, not 1 (loaded) or 0 (refused)`),
+      );
+    }
     const wrong = new CountedInstance(module([version, ...stubs], [I32_GLOBAL], counter([0x03])));
     expect(() => wrong.process(1)).toThrow(new CountError('the counter "instructions" is not an i64'));
   });

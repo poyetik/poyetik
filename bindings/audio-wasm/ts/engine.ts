@@ -3,7 +3,7 @@
  * main thread or in Node (the package exports no Node entry point yet: it comes with the
  * SDK, #32 step 15; the tests import this module directly). See `bindings/audio-wasm/src/ffi.rs` for the exported interface.
  */
-import { ModuleError, readExports, type Exports } from "./abi.ts";
+import { ModuleError, readExports, wasLoaded, type Exports } from "./abi.ts";
 
 export { ABI_VERSION, ModuleError } from "./abi.ts";
 
@@ -313,7 +313,8 @@ export class WasmEngine<A extends Samples> {
    * formats into `Float32Array`s.
    * @throws {RangeError} when `rate` is not a whole number of hertz that fits 32 bits.
    * @throws {ModuleError} when `module` is not an engine module of this version, gives
-   * blocks of 0 frames, or observes subnormals in a code that is not one.
+   * blocks of 0 frames, observes subnormals in a code that is not one, or answers the load
+   * with a result other than 1 (loaded) or 0 (refused).
    * @throws {PatchError} when the engine rejects the patch, its bytes or the rate; a patch
    * longer than the engine reads is refused before it is copied into the module, whose
    * memory never shrinks again, with the words of the engine.
@@ -335,7 +336,7 @@ export class WasmEngine<A extends Samples> {
       // then read `memory.buffer`.
       const input = exports.input(patch.length);
       new Uint8Array(exports.memory.buffer, input, patch.length).set(patch);
-      if (exports.load(rate, RENDER_FORMATS.indexOf(format)) !== 1) {
+      if (!wasLoaded(exports.load(rate, RENDER_FORMATS.indexOf(format)))) {
         const pointer = exports.messagePtr();
         const length = exports.messageLen();
         throw new PatchError(new Uint8Array(exports.memory.buffer, pointer, length).slice());
@@ -439,8 +440,8 @@ export class WasmEngine<A extends Samples> {
    * @throws {EngineTrap} when the module traps, or failed before.
    */
   #report(): number {
-    // An i32 result reaches JavaScript signed: an address past 2^31 reads as negative.
-    const pointer = this.#call(this.#exports.replaced) >>> 0;
+    // Read unsigned, as every export (`readExports`): an address past 2^31 is never negative.
+    const pointer = this.#call(this.#exports.replaced);
     const buffer = this.#exports.memory.buffer;
     if (this.#bytes.buffer !== buffer) {
       this.#bytes = new DataView(buffer);

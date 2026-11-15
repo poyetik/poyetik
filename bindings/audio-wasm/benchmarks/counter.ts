@@ -2,7 +2,7 @@
 // ffi.rs), and reading how many WebAssembly instructions each call executed. The
 // instrumented module computes exactly what the module computes (test/benchmarks/counter.test.ts
 // renders every conformance case through both): only the counter is added.
-import { readExports, type Exports } from "../ts/abi.ts";
+import { readExports, wasLoaded, type Exports } from "../ts/abi.ts";
 import { RENDER_FORMATS, type RenderFormat } from "../ts/engine.ts";
 import { COUNTER, instrument } from "./instrument.ts";
 
@@ -64,6 +64,7 @@ export class CountedInstance {
    * and returns the WebAssembly instructions `engine_input` and `engine_load` executed (the
    * copy of the patch into the module memory is JavaScript, not counted).
    * @throws {CountError} with the engine's explanation when it refuses the patch.
+   * @throws {ModuleError} when `engine_load` returns neither 1 nor 0.
    */
   load(patch: Uint8Array, rate: number, format: RenderFormat): bigint {
     let loaded = 0;
@@ -72,7 +73,7 @@ export class CountedInstance {
       new Uint8Array(this.#exports.memory.buffer, address, patch.length).set(patch);
       loaded = this.#exports.load(rate, RENDER_FORMATS.indexOf(format));
     });
-    if (loaded !== 1) {
+    if (!wasLoaded(loaded)) {
       const message = new Uint8Array(this.#exports.memory.buffer, this.#exports.messagePtr(), this.#exports.messageLen());
       throw new CountError(`the engine refused the patch: ${new TextDecoder().decode(message)}`);
     }

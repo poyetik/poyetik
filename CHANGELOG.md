@@ -35,9 +35,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Breaking:** render rules version 3 (decision 29): the output stage is one of the render rules. No reference changed (no case outputs a non-finite sample); `conformance/algorithms.json` records the version.
-- **Breaking:** the engine module's interface is version 5 (`ABI_VERSION`, `0x5059_0005`): four functions added.
+- **Breaking:** the engine module's interface is version 5 (`ABI_VERSION`, `0x5059_0005`): one function added, `engine_replaced`.
 - **Breaking:** `createEngineNode` (`@poyetik/audio-wasm`, `./web`) takes its handlers as one object, `{ onFailure, onReplaced? }` (`EngineHandlers`), instead of a failure callback.
 - **Breaking:** `audio_cli::run` takes a second writer, for warnings (stderr).
+
+### Fixed
+
+- `WasmEngine.create` and the benchmarks' counted instance took any `engine_load` result other than 1 for a refused patch, reading whatever message the module held; a result other than 1 (loaded) or 0 (refused) is now a `ModuleError`.
 
 ## [0.4.0] - 2026-11-14
 

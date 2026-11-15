@@ -104,6 +104,19 @@ function exported2(exports: WebAssembly.Exports, name: string): Exported2 {
   return (first, second) => call([first, second]);
 }
 
+/**
+ * Reads the result of `engine_load`: true when the patch was loaded (1), false when the
+ * engine refused it (0), its explanation then in `engine_message_ptr` and `engine_message_len`.
+ * @throws {ModuleError} for any other result: the module breaks the interface, and its
+ * message is never taken for a refusal.
+ */
+export function wasLoaded(result: number): boolean {
+  if (result !== 0 && result !== 1) {
+    throw new ModuleError(`engine_load returned ${String(result)}, not 1 (loaded) or 0 (refused)`);
+  }
+  return result === 1;
+}
+
 /** Reads and checks the exports of an engine module instance, version first. */
 export function readExports(exports: WebAssembly.Exports): Exports {
   const memory = exports["memory"];

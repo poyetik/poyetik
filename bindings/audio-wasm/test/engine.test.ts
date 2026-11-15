@@ -247,6 +247,14 @@ describe("WasmEngine", () => {
     expect(new TextDecoder().decode(detail)).toBe('box 1: unknown box type "nope~"');
   });
 
+  test.each([2, -1])("refuses a load result %i that is neither 1 (loaded) nor 0 (refused) as a module error, never a refused patch", (result) => {
+    const functions = engineFunctions().map((func) => (func.name === "engine_load" ? { ...func, body: { i32: result } } : func));
+    const answering = handMadeModule({ memory: true, functions });
+    expect(() => WasmEngine.create(answering, SINE_PATCH, RATE, "binary64-as-binary32")).toThrow(
+      new ModuleError(`engine_load returned ${String(result >>> 0)}, not 1 (loaded) or 0 (refused)`),
+    );
+  });
+
   test("hands JavaScript an explanation on one escaped, bounded line", () => {
     const explanation = (patch: string): string => {
       try {
@@ -444,6 +452,24 @@ describe("WasmEngine", () => {
     // Each word in its place.
     const spread = reporting({ report: [3, 0x0102_0304, 2, 0x0506] });
     expect(spread.replaced()).toStrictEqual({ count: 3, first: { frame: 2 * 2 ** 32 + 0x0102_0304, channel: 0x0506 } });
+  });
+
+  test("reads its report through one view while the memory stays, and one new view once it grew", () => {
+    // The engine processor reads the count every render quantum: reading it allocates nothing.
+    const functions = engineFunctions().map((func) =>
+      func.name === "engine_process" ? { ...func, body: "grow" as const } : func.name === "engine_replaced" ? { ...func, body: { report: [2, 0, 0, 0] as const } } : func,
+    );
+    const engine = WasmEngine.create(handMadeModule({ memory: true, functions }), SINE_PATCH, RATE, "binary64-as-binary32");
+    const views = vi.spyOn(globalThis, "DataView");
+    try {
+      expect([engine.replacedCount, engine.replacedCount, engine.replacedCount]).toStrictEqual([2, 2, 2]);
+      expect(views).toHaveBeenCalledTimes(0);
+      engine.render([new Float32Array(1)]);
+      expect([engine.replacedCount, engine.replacedCount]).toStrictEqual([2, 2]);
+      expect(views).toHaveBeenCalledTimes(1);
+    } finally {
+      views.mockRestore();
+    }
   });
 
   test("reads the report wherever the module places it, after the memory grew", () => {
