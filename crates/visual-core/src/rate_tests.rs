@@ -2,6 +2,8 @@
 
 extern crate alloc;
 
+use alloc::format;
+use alloc::string::{String, ToString as _};
 use alloc::vec::Vec;
 
 use super::{ImageIndex, ImageRange, ImageRate, Seconds, gcd};
@@ -161,4 +163,83 @@ fn refuses_a_range_past_the_largest_index() {
             "from {first}: up to the largest index, none past"
         );
     }
+}
+
+/// Whether `numerator / denominator` is reduced, by Euclid's algorithm in 64 bits: apart
+/// from the code under test.
+fn coprime(numerator: u32, denominator: u32) -> bool {
+    let (mut left, mut right) = (u64::from(numerator), u64::from(denominator));
+    while let Some(rest) = left.checked_rem(right) {
+        (left, right) = (right, rest);
+    }
+    left == 1
+}
+
+#[test]
+fn accepts_exactly_the_values_its_rules_allow() {
+    // Each constructor against its rule written apart, at random terms, edges often: what
+    // it accepts, it keeps as given; what it refuses, it names.
+    use visual_testkit::generate::{u32_edges, u64_edges};
+    use visual_testkit::proptest::test_runner::TestCaseError;
+    use visual_testkit::runner::runner;
+    let check = |holds: bool, what: String| {
+        if holds {
+            Ok(())
+        } else {
+            Err(TestCaseError::fail(what))
+        }
+    };
+    let rates = runner(4096).run(&(u32_edges(), u32_edges()), |(numerator, denominator)| {
+        let valid = denominator != 0
+            && coprime(numerator, denominator)
+            && numerator >= denominator
+            && u64::from(numerator) <= u64::from(denominator) * 1000;
+        let made = ImageRate::new(numerator, denominator);
+        check(
+            made.map(|rate| (rate.numerator(), rate.denominator()))
+                == if valid {
+                    Ok((numerator, denominator))
+                } else {
+                    Err(VisualError::InvalidImageRate {
+                        numerator,
+                        denominator,
+                    })
+                },
+            format!("rate {numerator}/{denominator}: {made:?}"),
+        )
+    });
+    assert_eq!(rates.map_err(|error| error.to_string()), Ok(()), "rates");
+    let durations = runner(4096).run(&(u32_edges(), u32_edges()), |(numerator, denominator)| {
+        let valid = numerator != 0 && denominator != 0 && coprime(numerator, denominator);
+        let made = Seconds::new(numerator, denominator);
+        check(
+            made.map(|seconds| (seconds.numerator(), seconds.denominator()))
+                == if valid {
+                    Ok((numerator, denominator))
+                } else {
+                    Err(VisualError::InvalidSeconds {
+                        numerator,
+                        denominator,
+                    })
+                },
+            format!("{numerator}/{denominator} s: {made:?}"),
+        )
+    });
+    assert_eq!(
+        durations.map_err(|error| error.to_string()),
+        Ok(()),
+        "durations"
+    );
+    let ranges = runner(4096).run(&(u64_edges(), u64_edges()), |(first, count)| {
+        let valid = count == 0 || first.checked_add(count - 1).is_some();
+        let made = ImageRange::new(ImageIndex(first), count);
+        check(
+            made.is_ok() == valid
+                && made
+                    .err()
+                    .is_none_or(|error| error == VisualError::InvalidImageRange { first, count }),
+            format!("{count} images from {first}: {made:?}"),
+        )
+    });
+    assert_eq!(ranges.map_err(|error| error.to_string()), Ok(()), "ranges");
 }

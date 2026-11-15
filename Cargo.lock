@@ -398,11 +398,15 @@ dependencies = [
  "visual-boxes",
  "visual-core",
  "visual-hash",
+ "visual-testkit",
 ]
 
 [[package]]
 name = "visual-core"
 version = "0.5.0"
+dependencies = [
+ "visual-testkit",
+]
 
 [[package]]
 name = "visual-hash"
@@ -411,6 +415,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "visual-core",
+ "visual-testkit",
 ]
 
 [[package]]
@@ -418,6 +423,7 @@ name = "visual-testkit"
 version = "0.5.0"
 dependencies = [
  "alloc-counter",
+ "proptest",
  "serde_json",
  "visual-core",
 ]

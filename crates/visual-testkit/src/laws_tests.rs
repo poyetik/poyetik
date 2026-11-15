@@ -3,6 +3,7 @@ use core::sync::atomic::{AtomicU32, Ordering};
 use visual_core::{Image, ImageIndex, ImageRate, SubpixelPoint, Trace, VisualBox};
 
 use super::{check_laws, from_both_ends};
+use crate::matrix::{IMAGE_INDICES, IMAGE_RATES, IMAGE_SIZES};
 
 /// A correct box: every value derived from the image index and the rate, alpha 1.
 #[derive(Debug)]
@@ -76,6 +77,15 @@ enum Fault {
     NotANumberWhenTallest,
     /// Its trace depends on how many times it traced, at the last subpixel of the image only.
     ImpureTraceAtTheLastSubpixel,
+    /// It renders a NaN at a rate the matrix does not hold only.
+    NotANumberOffTheMatrixRates,
+    /// It renders a NaN in images of a size the matrix does not hold only.
+    NotANumberOffTheMatrixSizes,
+    /// It renders a NaN at an index the matrix does not hold only.
+    NotANumberOffTheMatrixIndices,
+    /// It renders a NaN when it moves forward after having moved back: only the pass
+    /// jumping between both ends of the indices does, in its first rendering of an image.
+    NotANumberForwardAfterGoingBack,
 }
 
 /// A box with one fault, otherwise like [`Good`].
@@ -93,6 +103,8 @@ struct Faulty {
     traced: AtomicU32,
     /// The last image rendered, if any.
     last: Option<ImageIndex>,
+    /// Whether it ever rendered an image before the last one it rendered.
+    went_back: bool,
 }
 
 /// Instances created so far, to number them.
@@ -103,6 +115,9 @@ impl Faulty {
     /// writes nothing at all, else whether it then writes a NaN.
     fn before(&mut self, index: ImageIndex, output: &Image) -> Option<bool> {
         let last = self.last.replace(index);
+        let forward = last.is_some_and(|before| index > before);
+        let came_back = self.went_back;
+        self.went_back |= last.is_some_and(|before| index < before);
         if self.fault == Fault::SkipsARepeat && last == Some(index) {
             return None;
         }
@@ -114,6 +129,14 @@ impl Faulty {
             Fault::NotANumberAtTheHighestRate => self.good.rate.numerator() == 1000,
             Fault::NotANumberWhenWidest => size.width() == visual_core::ImageSize::MAX_SIDE,
             Fault::NotANumberWhenTallest => size.height() == visual_core::ImageSize::MAX_SIDE,
+            Fault::NotANumberOffTheMatrixRates => {
+                !IMAGE_RATES.contains(&(self.good.rate.numerator(), self.good.rate.denominator()))
+            }
+            Fault::NotANumberOffTheMatrixSizes => {
+                !IMAGE_SIZES.contains(&(size.width(), size.height()))
+            }
+            Fault::NotANumberOffTheMatrixIndices => !IMAGE_INDICES.contains(&index.0),
+            Fault::NotANumberForwardAfterGoingBack => came_back && forward,
             Fault::Stateful
             | Fault::PerInstance
             | Fault::Allocates
@@ -163,7 +186,11 @@ impl VisualBox for Faulty {
             | Fault::NotANumberAtTheHighestRate
             | Fault::NotANumberWhenWidest
             | Fault::NotANumberWhenTallest
-            | Fault::ImpureTraceAtTheLastSubpixel => 0,
+            | Fault::ImpureTraceAtTheLastSubpixel
+            | Fault::NotANumberOffTheMatrixRates
+            | Fault::NotANumberOffTheMatrixSizes
+            | Fault::NotANumberOffTheMatrixIndices
+            | Fault::NotANumberForwardAfterGoingBack => 0,
         };
         let first = output
             .rows_mut()
@@ -192,7 +219,11 @@ impl VisualBox for Faulty {
             | Fault::NotANumberAtTheHighestRate
             | Fault::NotANumberWhenWidest
             | Fault::NotANumberWhenTallest
-            | Fault::ImpureTraceAtTheLastSubpixel => None,
+            | Fault::ImpureTraceAtTheLastSubpixel
+            | Fault::NotANumberOffTheMatrixRates
+            | Fault::NotANumberOffTheMatrixSizes
+            | Fault::NotANumberOffTheMatrixIndices
+            | Fault::NotANumberForwardAfterGoingBack => None,
         };
         if let (Some(value), Some(slot)) = (changed, first) {
             *slot = value;
@@ -215,7 +246,11 @@ impl VisualBox for Faulty {
             | Fault::NotANumberAtTheHighestRate
             | Fault::NotANumberWhenWidest
             | Fault::NotANumberWhenTallest
-            | Fault::ImpureTraceAtTheLastSubpixel => None,
+            | Fault::ImpureTraceAtTheLastSubpixel
+            | Fault::NotANumberOffTheMatrixRates
+            | Fault::NotANumberOffTheMatrixSizes
+            | Fault::NotANumberOffTheMatrixIndices
+            | Fault::NotANumberForwardAfterGoingBack => None,
         };
         if let Some(value) = alpha
             && let Some(slot) = output.rows_mut().last().and_then(|row| row.last_mut())
@@ -266,7 +301,11 @@ impl VisualBox for Faulty {
             | Fault::SkipsARepeat
             | Fault::NotANumberAtTheHighestRate
             | Fault::NotANumberWhenWidest
-            | Fault::NotANumberWhenTallest => self.good.trace(index, point),
+            | Fault::NotANumberWhenTallest
+            | Fault::NotANumberOffTheMatrixRates
+            | Fault::NotANumberOffTheMatrixSizes
+            | Fault::NotANumberOffTheMatrixIndices
+            | Fault::NotANumberForwardAfterGoingBack => self.good.trace(index, point),
         }
     }
 }
@@ -281,6 +320,7 @@ fn verdict(fault: Fault) -> Result<(), String> {
             instance: INSTANCES.fetch_add(1, Ordering::Relaxed),
             traced: AtomicU32::new(0),
             last: None,
+            went_back: false,
         })
     })
 }
@@ -376,6 +416,32 @@ fn catches_each_broken_law() {
         (
             Fault::ImpureTraceAtTheLastSubpixel,
             "pure trace: (4095, 4095) traces differently at rate 1/1, size 1x1, image 18446744073709551615",
+        ),
+        (
+            Fault::NotANumberForwardAfterGoingBack,
+            "random access: rendering the images in another order, each twice, changes the bits at rate 1/1, size 1x1, image 1000000",
+        ),
+    ] {
+        assert_eq!(verdict(fault), Err(law.to_owned()), "{fault:?}");
+    }
+}
+
+#[test]
+fn catches_a_box_right_only_at_the_values_of_the_matrix() {
+    // Each fault appears only at a rate, a size or an index the matrix does not hold: the
+    // random cases find it, and report the simplest case that shows it.
+    for (fault, law) in [
+        (
+            Fault::NotANumberOffTheMatrixRates,
+            "Test failed: finite values: a value is NaN or infinite at rate 2/1, size 1x1, image 0.",
+        ),
+        (
+            Fault::NotANumberOffTheMatrixSizes,
+            "Test failed: finite values: a value is NaN or infinite at rate 1/1, size 1x2, image 0.",
+        ),
+        (
+            Fault::NotANumberOffTheMatrixIndices,
+            "Test failed: finite values: a value is NaN or infinite at rate 1/1, size 1x1, image 4294967295.",
         ),
     ] {
         assert_eq!(verdict(fault), Err(law.to_owned()), "{fault:?}");

@@ -244,3 +244,41 @@ fn accepts_a_sequence_ending_at_the_largest_index_only() {
         );
     }
 }
+
+#[test]
+fn reads_any_text_without_panicking() {
+    // Any text, and the valid case with a value replaced by any number or a slice replaced
+    // by any characters: every one read to a case or a reason, never a panic. What it
+    // accepts names a whole case of its limits.
+    use visual_testkit::generate::u64_edges;
+    use visual_testkit::proptest::prelude::{Strategy, any, prop_oneof};
+    use visual_testkit::proptest::test_runner::TestCaseError;
+    use visual_testkit::runner::runner;
+    let numbers = ["24000", "1001", "17", "9", "3", "5", "40000", "1000"];
+    let texts = prop_oneof![
+        any::<String>(),
+        (0..numbers.len(), u64_edges()).prop_map(move |(at, value)| {
+            let from = numbers.get(at).copied().unwrap_or("17");
+            SMALL.replacen(from, &value.to_string(), 1)
+        }),
+        (0..SMALL.len(), 0_usize..8, any::<String>()).prop_map(|(start, length, inserted)| {
+            let end = start.saturating_add(length).min(SMALL.len());
+            let (head, tail) = (
+                SMALL.get(..start).unwrap_or(""),
+                SMALL.get(end..).unwrap_or(""),
+            );
+            format!("{head}{inserted}{tail}")
+        }),
+    ];
+    let verdict = runner(2048).run(&texts, |text| match parse_case(&text) {
+        Ok(case) if case.range.count() == 0 || case.size.pixels() > 1 << 25_u32 => Err(
+            TestCaseError::fail(format!("accepted out of its limits: {text}")),
+        ),
+        Ok(_) | Err(_) => Ok(()),
+    });
+    assert_eq!(
+        verdict.map_err(|error| error.to_string()),
+        Ok(()),
+        "every text"
+    );
+}

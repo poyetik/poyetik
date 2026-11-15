@@ -1,5 +1,10 @@
 //! Tests of `image.rs`.
 
+extern crate alloc;
+
+use alloc::format;
+use alloc::string::ToString as _;
+
 use super::{ColorEncoding, Image, ImageSize};
 use crate::VisualError;
 
@@ -122,4 +127,39 @@ fn gives_its_rows_from_the_top() {
             .all(|value| value.to_bits() == 2.0_f32.to_bits()),
         "then the next"
     );
+}
+
+#[test]
+fn accepts_exactly_the_sizes_its_rules_allow() {
+    // Against the rule written apart, at random sides, edges and the limits often.
+    use visual_testkit::generate::u32_edges;
+    use visual_testkit::proptest::prelude::{Just, prop_oneof};
+    use visual_testkit::proptest::test_runner::TestCaseError;
+    use visual_testkit::runner::runner;
+    let sides = || {
+        prop_oneof![
+            u32_edges(),
+            Just(16_384_u32),
+            Just(16_385_u32),
+            Just(2048_u32),
+            Just(2049_u32),
+            1_u32..=16_385
+        ]
+    };
+    let verdict = runner(4096).run(&(sides(), sides()), |(width, height)| {
+        let expected = if !(1..=16_384).contains(&width) || !(1..=16_384).contains(&height) {
+            Err(VisualError::InvalidImageSize { width, height })
+        } else if u64::from(width) * u64::from(height) > 1 << 25_u32 {
+            Err(VisualError::ImageTooLarge { width, height })
+        } else {
+            Ok((width, height))
+        };
+        let made = ImageSize::new(width, height).map(|size| (size.width(), size.height()));
+        if made == expected {
+            Ok(())
+        } else {
+            Err(TestCaseError::fail(format!("{width}x{height}: {made:?}")))
+        }
+    });
+    assert_eq!(verdict.map_err(|error| error.to_string()), Ok(()), "sizes");
 }

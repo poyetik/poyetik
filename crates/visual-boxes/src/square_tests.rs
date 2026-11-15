@@ -1,9 +1,17 @@
 extern crate alloc;
 
+use alloc::format;
+use alloc::string::ToString as _;
 use alloc::vec::Vec;
 
 use visual_core::{Image, ImageIndex, ImageRate, ImageSize, SUBPIXELS, Seconds, Trace, VisualBox};
+use visual_testkit::generate::{
+    rate_terms, seconds_terms, side, small_size, tall_size, u64_edges, wide_size,
+};
 use visual_testkit::heap_operations_during;
+use visual_testkit::proptest::prelude::{Strategy, prop_oneof};
+use visual_testkit::proptest::test_runner::TestCaseError;
+use visual_testkit::runner::runner;
 
 use super::Square;
 use crate::BoxError;
@@ -549,4 +557,99 @@ fn respects_every_visual_box_law() {
             assert_eq!(laws, Ok(()), "side {side}, cycle {cycle:?}");
         }
     }
+}
+
+/// A random square and image: the terms of its rate, its side, the terms of its cycle, an
+/// image index and the image's width and height.
+type Drawn = ((u32, u32), u32, (u32, u32), u64, (u32, u32));
+
+/// Checks, on one random square and image, every property the square promises: each pixel
+/// equals its exact reference, the values sum to the square's area, the image repeats one
+/// whole period of images later when that index exists, and the trace agrees with the
+/// pixels (a fully covered pixel's center is on the square, an empty one's is not).
+fn holds_its_properties(
+    (rate, side, cycle, index, (width, height)): Drawn,
+) -> Result<(), TestCaseError> {
+    let at = format!("{rate:?} side {side} cycle {cycle:?} image {index} {width}x{height}");
+    let fail = |what: &str| TestCaseError::fail(format!("{at}: {what}"));
+    let image_rate = ImageRate::new(rate.0, rate.1).map_err(|_| fail("an invalid rate drawn"))?;
+    let mut visual = square(image_rate, side, cycle);
+    let image = rendered(&mut visual, index, width, height);
+    let scale = f64::from(1_u32 << 24_u32).recip();
+    let unit = u64::from(SUBPIXELS);
+    let half = unit / 2;
+    for (column, row, red) in (0..height)
+        .flat_map(|row| (0..width).map(move |column| (column, row)))
+        .zip(reds(&image))
+        .map(|((column, row), red)| (column, row, red))
+    {
+        let coverage = reference_coverage(rate, side, cycle, index, (width, height), (column, row));
+        let expected =
+            f64::from(u32::try_from(coverage).map_err(|_| fail("a coverage above 2^24"))?) * scale;
+        if f64::from(red).to_bits() != expected.to_bits() {
+            return Err(fail(&format!(
+                "pixel ({column}, {row}) is {red}, not {expected}"
+            )));
+        }
+        let center = u64::from(column)
+            .checked_mul(unit)
+            .and_then(|left| left.checked_add(half))
+            .zip(
+                u64::from(row)
+                    .checked_mul(unit)
+                    .and_then(|top| top.checked_add(half)),
+            )
+            .and_then(|(x, y)| image.size().point(x, y))
+            .ok_or_else(|| fail("a pixel center outside the image"))?;
+        let traced = visual.trace(ImageIndex(index), center);
+        if (red.to_bits() == 1.0_f32.to_bits() && traced != Trace::Shape(0))
+            || (red.to_bits() == 0.0_f32.to_bits() && traced != Trace::Background)
+        {
+            return Err(fail(&format!(
+                "pixel ({column}, {row}) is {red}, traced {traced:?}"
+            )));
+        }
+    }
+    if covered_area(&image).to_bits() != square_area(width, height, side).to_bits() {
+        return Err(fail("not the square's area"));
+    }
+    // One whole period of images: rate × cycle seconds, in lowest terms, below 2^64 × 2^64.
+    let images = u128::from(rate.0).saturating_mul(u128::from(cycle.0));
+    let seconds = u128::from(rate.1).saturating_mul(u128::from(cycle.1));
+    let (mut common, mut rest) = (images, seconds);
+    while let Some(next) = common.checked_rem(rest) {
+        (common, rest) = (rest, next);
+    }
+    let period = images.checked_div(common).unwrap_or(images);
+    if let Some(later) = u64::try_from(period)
+        .ok()
+        .and_then(|period| index.checked_add(period))
+    {
+        let again = rendered(&mut visual, later, width, height);
+        if bits(&reds(&again)) != bits(&reds(&image)) {
+            return Err(fail(&format!("image {later}, a period later, differs")));
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn holds_its_properties_at_random_terms_sizes_and_indices() {
+    // Small images, every pixel against its reference; then wide and tall ones, where the
+    // travel and the side are longest. Rates, cycles, sides and indices across their whole
+    // domains, their edges often.
+    let draw = |sizes| (rate_terms(), side(), seconds_terms(), u64_edges(), sizes);
+    let small = runner(512).run(&draw(small_size().boxed()), holds_its_properties);
+    assert_eq!(
+        small.map_err(|error| error.to_string()),
+        Ok(()),
+        "small images"
+    );
+    let long = prop_oneof![wide_size(), tall_size()].boxed();
+    let long = runner(64).run(&draw(long), holds_its_properties);
+    assert_eq!(
+        long.map_err(|error| error.to_string()),
+        Ok(()),
+        "wide and tall images"
+    );
 }
