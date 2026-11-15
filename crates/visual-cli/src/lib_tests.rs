@@ -6,8 +6,8 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 use super::{
-    BestEffort, CliError, Disk, Files, MAX_CASE_BYTES, MAX_REFERENCES_BYTES, USAGE, arguments,
-    parse_case, run,
+    BestEffort, CliError, Disk, Files, MAX_CASE_BYTES, MAX_MESSAGE_CHARS, MAX_REFERENCES_BYTES,
+    USAGE, arguments, parse_case, run,
 };
 
 /// A small valid case.
@@ -172,6 +172,15 @@ fn says_each_error_on_one_line_with_its_exit_code() {
         ("error: no command (see: visual-cli help)".to_owned(), 2),
         "a usage error points to the help"
     );
+    let long = CliError::Usage("x".repeat(1200));
+    assert_eq!(
+        long.line(),
+        format!(
+            "error: {}… (see: visual-cli help)",
+            "x".repeat(MAX_MESSAGE_CHARS - 1)
+        ),
+        "the pointer to the help after a reason cut short"
+    );
     let failed = CliError::Failed("a\nb".to_owned());
     assert_eq!(
         (failed.line(), failed.exit_code()),
@@ -184,14 +193,13 @@ fn says_each_error_on_one_line_with_its_exit_code() {
 fn refuses_arguments_that_form_no_command() {
     for (words, reason) in [
         (&[][..], "no command"),
-        (&["paint"][..], "unknown command or arguments: paint"),
-        (&["render"][..], "unknown command or arguments: render"),
-        (
-            &["check", "a", "b"][..],
-            "unknown command or arguments: check",
-        ),
-        (&["bless"][..], "unknown command or arguments: bless"),
-        (&["help", "me"][..], "unknown command or arguments: help"),
+        (&["paint"][..], "unknown command \"paint\""),
+        (&["render"][..], "render expects <case.json>"),
+        (&["render", "a", "b"][..], "render expects <case.json>"),
+        (&["check"][..], "check expects <dir>"),
+        (&["check", "a", "b"][..], "check expects <dir>"),
+        (&["bless"][..], "bless expects <dir>"),
+        (&["help", "me"][..], "help expects no argument"),
     ] {
         let (outcome, said) = run_with(&mut Memory::default(), words);
         assert_eq!(
@@ -293,7 +301,11 @@ fn checks_every_case_against_its_reference() {
         run_with(&mut memory, &["check", "d"]),
         (
             Ok(()),
-            format!("ok other {}\nok small {}\n", hash(OTHER), hash(SMALL))
+            format!(
+                "ok       other {}\nok       small {}\n",
+                hash(OTHER),
+                hash(SMALL)
+            )
         ),
         "every case, in name order"
     );
@@ -314,8 +326,8 @@ fn reports_every_case_that_differs_from_its_reference() {
     assert_eq!(
         said,
         format!(
-            "no reference for other\nchanged small: {}, reference {wrong}\nstale reference \
-             gone: no such case\n",
+            "MISSING  other: no reference\nMISMATCH small: {}, reference {wrong}\nSTALE    \
+             gone: reference without a case\n",
             hash(SMALL)
         ),
         "a case without a reference, a changed one and a stale reference, each on its line"
@@ -364,14 +376,33 @@ fn reads_the_references_only_as_bless_writes_them() {
             blessed.replacen("{\n", "{\n  \"small\": \"x\",\n", 1),
             "a repeated name",
         ),
-        ("[]\n".to_owned(), "not an object"),
-        ("{\"a\": 1}\n".to_owned(), "a value that is not a hash"),
-        ("not JSON".to_owned(), "not JSON"),
     ] {
         assert_eq!(
             run_with(&mut corpus(&references), &["check", "d"]).0,
             rewrite,
             "{what}"
+        );
+    }
+    for (references, reason) in [
+        (
+            "[]\n",
+            "invalid type: sequence, expected a map at line 1 column 0",
+        ),
+        (
+            "{\"a\": 1}\n",
+            "invalid type: integer `1`, expected a string at line 1 column 7",
+        ),
+        ("not JSON", "expected ident at line 1 column 2"),
+        ("<<<<<<< HEAD\n", "expected value at line 1 column 1"),
+    ] {
+        assert_eq!(
+            run_with(&mut corpus(references), &["check", "d"]).0,
+            Err(CliError::Failed(format!(
+                "d/references.json is not an object of case names to hashes ({reason}): restore \
+                 it from git (`visual-cli bless d` rewrites it from the current renders, only \
+                 when they are meant to change)"
+            ))),
+            "{references}: restored, not rewritten"
         );
     }
     let mut unreadable = corpus(&blessed);
@@ -430,18 +461,33 @@ fn refuses_a_corpus_it_cannot_read_whole() {
         "no cases directory"
     );
     let mut stray = corpus(&blessed());
-    drop(
-        stray
-            .files
-            .insert(PathBuf::from("d/cases/notes.txt"), b"x".to_vec()),
-    );
+    for file in ["d/cases/.DS_Store", "d/cases/notes.txt", "d/cases/.json"] {
+        drop(stray.files.insert(PathBuf::from(file), b"x".to_vec()));
+    }
     assert_eq!(
-        run_with(&mut stray, &["check", "d"]).0,
-        Err(CliError::Failed(
-            "d/cases/notes.txt is not a case file (<name>.json)".to_owned()
-        )),
-        "a file that is not a case"
+        run_with(&mut stray, &["check", "d"]),
+        run_with(&mut corpus(&blessed()), &["check", "d"]),
+        "a file that is not a case file is not a case"
     );
+    for name in ["Small", "-small", "small_case", "small case", "_é"] {
+        let mut named = corpus(&blessed());
+        drop(named.files.insert(
+            PathBuf::from(format!("d/cases/{name}.json")),
+            SMALL.as_bytes().to_vec(),
+        ));
+        drop(named.files.insert(
+            PathBuf::from("d/cases/zz-Bad.json"),
+            SMALL.as_bytes().to_vec(),
+        ));
+        assert_eq!(
+            run_with(&mut named, &["check", "d"]).0,
+            Err(CliError::Failed(format!(
+                "d/cases/{name}.json: not a case name (lowercase ASCII letters, digits, dots and \
+                 hyphens, starting with a letter or a digit)"
+            ))),
+            "{name}: refused, the first in name order"
+        );
+    }
     let mut broken = corpus(&blessed());
     drop(
         broken
@@ -457,27 +503,11 @@ fn refuses_a_corpus_it_cannot_read_whole() {
 }
 
 #[test]
-fn says_when_the_cases_directory_lists_nothing() {
-    /// A file system whose every directory is empty.
-    #[derive(Debug)]
-    struct Empty;
-    impl Files for Empty {
-        fn read(&mut self, _path: &Path, _limit: usize) -> io::Result<String> {
-            Err(io::Error::from(io::ErrorKind::NotFound))
-        }
-        fn write(&mut self, _path: &Path, _bytes: &[u8]) -> io::Result<()> {
-            Err(io::Error::from(io::ErrorKind::ReadOnlyFilesystem))
-        }
-        fn list(&mut self, _dir: &Path) -> io::Result<Vec<PathBuf>> {
-            Ok(Vec::new())
-        }
-    }
-    assert!(Empty.read(Path::new("a"), 1).is_err(), "nothing to read");
-    assert!(Empty.write(Path::new("a"), b"").is_err(), "nothing written");
+fn says_when_the_cases_directory_holds_no_case() {
     for command in ["check", "bless"] {
-        let mut out = Vec::new();
+        let mut memory = Memory::with(&[("d/cases/.DS_Store", "x"), ("d/cases/notes.txt", "x")]);
         assert_eq!(
-            run(&args(&[command, "d"]), &mut Empty, &mut out),
+            run_with(&mut memory, &[command, "d"]).0,
             Err(CliError::Failed("no case in d/cases".to_owned())),
             "{command}"
         );
@@ -491,7 +521,7 @@ fn blesses_the_references_the_check_then_accepts() {
         run_with(&mut memory, &["bless", "d"]),
         (
             Ok(()),
-            "wrote 2 references to d/references.json\n".to_owned()
+            "wrote    2 references to d/references.json\n".to_owned()
         ),
         "every case"
     );

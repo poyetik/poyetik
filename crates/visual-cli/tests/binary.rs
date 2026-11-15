@@ -110,7 +110,7 @@ mod tests {
         );
         let said = String::from_utf8_lossy(&output.stdout);
         assert!(
-            said.lines().count() >= 4 && said.lines().all(|line| line.starts_with("ok ")),
+            said.lines().count() >= 4 && said.lines().all(|line| line.starts_with("ok       ")),
             "every case passes: {said}"
         );
         assert!(output.stderr.is_empty(), "nothing on stderr");
@@ -128,7 +128,7 @@ mod tests {
         let output = visual_cli(&[OsStr::new("check"), dir.as_os_str()]);
         assert_eq!(output.status.code(), Some(1_i32), "a failure");
         assert!(
-            String::from_utf8_lossy(&output.stdout).starts_with("changed square: "),
+            String::from_utf8_lossy(&output.stdout).starts_with("MISMATCH square: "),
             "the case named on stdout"
         );
         assert_eq!(
@@ -150,7 +150,7 @@ mod tests {
         assert_eq!(
             String::from_utf8_lossy(&output.stdout),
             format!(
-                "wrote 1 references to {}\n",
+                "wrote    1 references to {}\n",
                 dir.join("references.json").display()
             ),
             "says what it wrote"
@@ -181,8 +181,8 @@ mod tests {
     fn refuses_bad_command_lines_with_one_error_line_and_exit_code_2() {
         for (args, reason) in [
             (&[][..], "no command"),
-            (&["chek"][..], "unknown command or arguments: chek"),
-            (&["check"][..], "unknown command or arguments: check"),
+            (&["chek"][..], "unknown command \"chek\""),
+            (&["check"][..], "check expects <dir>"),
         ] {
             let os_args: Vec<&OsStr> = args.iter().map(OsStr::new).collect();
             assert_error(
