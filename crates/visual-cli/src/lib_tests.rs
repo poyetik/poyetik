@@ -694,17 +694,154 @@ fn disk_reads_at_most_one_byte_past_the_limit() {
     assert_eq!(error.to_string(), "larger than 1000 bytes", "refused");
 }
 
+/// Every file of the shared invalid corpus and why `visual-cli` refuses it, so that no file
+/// is refused for another fault than the one it holds.
+const INVALID_CORPUS: &[(&str, &str)] = &[
+    ("case-above-64-kib", "larger than 65536 bytes"),
+    (
+        "case-as-an-array",
+        "invalid type: sequence, expected a JSON object at line 1 column 0",
+    ),
+    (
+        "cycle-0",
+        "square.cycle: invalid duration 0/1 s: a reduced, nonzero fraction is required",
+    ),
+    (
+        "cycle-not-reduced",
+        "square.cycle: invalid duration 2/4 s: a reduced, nonzero fraction is required",
+    ),
+    (
+        "field-written-twice",
+        "duplicate field `first` at line 6 column 9",
+    ),
+    (
+        "first-above-u64",
+        "invalid type: floating point `1.8446744073709552e+19`, expected u64 at line 5 column 31",
+    ),
+    (
+        "first-negative-zero",
+        "invalid type: floating point `-0.0`, expected u64 at line 5 column 13",
+    ),
+    (
+        "first-negative",
+        "invalid value: integer `-1`, expected u64 at line 5 column 13",
+    ),
+    (
+        "height-above-16384",
+        "width and height: invalid image size 4x16385: each side must be from 1 to 16384 pixels",
+    ),
+    (
+        "image-above-the-pixel-limit",
+        "width and height: invalid image size 16384x2049: an image holds at most 33554432 pixels",
+    ),
+    ("images-0", "images: from 1 to 10000, not 0"),
+    (
+        "images-above-the-limit",
+        "images: from 1 to 10000, not 10001",
+    ),
+    (
+        "last-image-past-the-largest-index",
+        "first and images: invalid image range: 2 images from image 18446744073709551615 pass the largest index, 18446744073709551615",
+    ),
+    ("missing-field", "missing field `height` at line 7 column 1"),
+    (
+        "not-an-object",
+        "invalid type: string \"a case\", expected a JSON object at line 1 column 8",
+    ),
+    (
+        "number-as-string",
+        "invalid type: string \"4\", expected u32 at line 3 column 14",
+    ),
+    (
+        "number-with-exponent",
+        "invalid type: floating point `4.0`, expected u32 at line 3 column 14",
+    ),
+    (
+        "number-with-fraction",
+        "invalid type: floating point `2.0`, expected u64 at line 6 column 15",
+    ),
+    (
+        "rate-above-1000-per-second",
+        "rate: invalid image rate 1001/1: a reduced fraction from 1 to 1000 images per second is required",
+    ),
+    (
+        "rate-below-one-per-second",
+        "rate: invalid image rate 1/2: a reduced fraction from 1 to 1000 images per second is required",
+    ),
+    (
+        "rate-denominator-0",
+        "rate: invalid image rate 60/0: a reduced fraction from 1 to 1000 images per second is required",
+    ),
+    (
+        "rate-not-a-pair",
+        "invalid length 1, expected an array of length 2 at line 2 column 14",
+    ),
+    (
+        "rate-not-reduced",
+        "rate: invalid image rate 120/2: a reduced fraction from 1 to 1000 images per second is required",
+    ),
+    (
+        "side-above-a-full-square",
+        "square.side: invalid square side 65537: at most 65536, a square as tall as the image (a side is in 65536ths of the image height)",
+    ),
+    (
+        "side-negative-zero",
+        "invalid type: floating point `-0.0`, expected u32 at line 7 column 24",
+    ),
+    (
+        "square-as-an-array",
+        "invalid type: sequence, expected a JSON object at line 7 column 12",
+    ),
+    (
+        "square-field-written-twice",
+        "duplicate field `side` at line 7 column 35",
+    ),
+    (
+        "too-many-pixels-rendered",
+        "images, width and height: a case renders at most 268435456 pixels in all, this one 301989888",
+    ),
+    (
+        "unknown-field",
+        "unknown field `speed`, expected one of `rate`, `width`, `height`, `first`, `images`, `square` at line 7 column 9",
+    ),
+    (
+        "unknown-square-field",
+        "unknown field `color`, expected `side` or `cycle` at line 7 column 36",
+    ),
+    (
+        "value-above-u32",
+        "invalid value: integer `4294967296`, expected u32 at line 7 column 32",
+    ),
+    (
+        "width-0",
+        "width and height: invalid image size 0x3: each side must be from 1 to 16384 pixels",
+    ),
+];
+
 #[test]
-fn rejects_every_case_of_the_shared_invalid_corpus() {
+fn rejects_every_case_of_the_shared_invalid_corpus_for_its_own_fault() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../conformance/visual/invalid/cases");
     let mut files = Disk.list(&dir).expect("the shared invalid corpus");
     files.sort();
-    assert!(files.len() >= 24, "every file is read: {}", files.len());
-    for file in files {
-        let refused = match Disk.read(&file, MAX_CASE_BYTES) {
+    let names: Vec<String> = files
+        .iter()
+        .map(|file| {
+            file.file_stem()
+                .and_then(|stem| stem.to_str())
+                .expect("a file name")
+                .to_owned()
+        })
+        .collect();
+    let expected: Vec<&str> = INVALID_CORPUS.iter().map(|(name, _)| *name).collect();
+    assert_eq!(
+        names, expected,
+        "every file has its reason, and every reason its file"
+    );
+    for (file, (name, reason)) in files.iter().zip(INVALID_CORPUS) {
+        let refused = match Disk.read(file, MAX_CASE_BYTES) {
             Ok(text) => parse_case(&text).err().map(|error| error.to_string()),
             Err(error) => Some(error.to_string()),
         };
-        assert!(refused.is_some(), "{} is refused", file.display());
+        assert_eq!(refused.as_deref(), Some(*reason), "{name}");
     }
 }

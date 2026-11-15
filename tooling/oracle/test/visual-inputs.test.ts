@@ -79,7 +79,6 @@ describe("parseVisualCase", () => {
       [`"side": 40000`, `"side": 65536`],
       [`[1001, 1000]`, `[4294967295, 1]`],
       [`[1001, 1000]`, `[1, 4294967295]`],
-      [`"first": 3`, `"first": -0`],
     ] as const) {
       expect(() => parseVisualCase(replaced(from, to), "c"), to).not.toThrow();
     }
@@ -121,14 +120,22 @@ describe("parseVisualCase", () => {
       [`"side": 40000`, `"side": 40000, "color": 1`, "square: unknown field color"],
       [`"images": 5`, `"images": 5.0`, "images is not a whole number written without fraction or exponent"],
       [`"width": 17`, `"width": 1.7e1`, "width is not a whole number written without fraction or exponent"],
-      [`"side": 40000`, `"side": 4e4`, "side is not a whole number written without fraction or exponent"],
+      [`"side": 40000`, `"side": 4e4`, "square.side is not a whole number written without fraction or exponent"],
+      [`[24000, 1001]`, `[24e3, 1001]`, "rate[0] is not a whole number written without fraction or exponent"],
+      [`[1001, 1000]`, `[1001, 1000.0]`, "square.cycle[1] is not a whole number written without fraction or exponent"],
+      [`"first": 3`, `"first": -0`, "first is negative zero, which an unsigned integer refuses"],
+      [`"side": 40000`, `"side": -0`, "square.side is negative zero, which an unsigned integer refuses"],
+      [`"first": 3`, `"first": 3, "first": 4`, "a field is written twice"],
+      [`"side": 40000`, `"side": 40000, "side": 1`, "a field is written twice"],
+      [`"first": 3`, `"first": 3, "fir\\u0073t": 4`, "a field is written twice"],
     ] as const) {
       expect(refusal(replaced(from, to)), to).toBe(`${prefix}${reason}`);
     }
     expect(refusal("[]")).toBe("invalid conformance input: c is not an object");
     expect(refusal(`${BASE.slice(0, BASE.indexOf(`"square"`))}"square": []}`)).toBe(`${prefix}square is not an object`);
     expect(refusal("{")).toMatch(/^invalid conformance input: c: not JSON \(SyntaxError: /);
-    expect(refusal(BASE.replace(`"height": 9, `, ""))).toBe(`${prefix}height is not an unsigned 32-bit integer`);
+    expect(refusal(BASE.replace(`"height": 9, `, ""))).toBe(`${prefix}missing field height`);
+    expect(refusal(BASE.replace(`"side": 40000, `, ""))).toBe(`${prefix}square: missing field side`);
   });
 
   test("refuses a text longer than a case file holds, counted in bytes", () => {
@@ -141,6 +148,42 @@ describe("parseVisualCase", () => {
   });
 });
 
+/** Every file of the shared invalid corpus and why the oracle refuses it (`<name>` stands for the case's name, in the order of the file names), so that no file is refused for another fault than the one it holds. */
+const INVALID_CORPUS: readonly (readonly [string, string])[] = [
+  ["case-above-64-kib", "larger than 65536 bytes"],
+  ["case-as-an-array", "<name> is not an object"],
+  ["cycle-0", "<name>: square.cycle is not a reduced, nonzero duration"],
+  ["cycle-not-reduced", "<name>: square.cycle is not a reduced, nonzero duration"],
+  ["field-written-twice", "<name>: a field is written twice"],
+  ["first-above-u64", "<name>: first is not an unsigned 64-bit integer"],
+  ["first-negative-zero", "<name>: first is negative zero, which an unsigned integer refuses"],
+  ["first-negative", "<name>: first is not an unsigned 64-bit integer"],
+  ["height-above-16384", "<name>: height is not from 1 to 16384 pixels"],
+  ["image-above-the-pixel-limit", "<name>: the image has more than 33554432 pixels"],
+  ["images-0", "<name>: images is not from 1 to 10000"],
+  ["images-above-the-limit", "<name>: images is not from 1 to 10000"],
+  ["last-image-past-the-largest-index", "<name>: the last image is past the largest index"],
+  ["missing-field", "<name>: missing field height"],
+  ["not-an-object", "<name> is not an object"],
+  ["number-as-string", "<name>: width is not an unsigned 32-bit integer"],
+  ["number-with-exponent", "<name>: width is not a whole number written without fraction or exponent"],
+  ["number-with-fraction", "<name>: images is not a whole number written without fraction or exponent"],
+  ["rate-above-1000-per-second", "<name>: rate is not a reduced rate from 1 to 1000 images per second"],
+  ["rate-below-one-per-second", "<name>: rate is not a reduced rate from 1 to 1000 images per second"],
+  ["rate-denominator-0", "<name>: rate is not a reduced rate from 1 to 1000 images per second"],
+  ["rate-not-a-pair", "<name>: rate is not a pair of numbers"],
+  ["rate-not-reduced", "<name>: rate is not a reduced rate from 1 to 1000 images per second"],
+  ["side-above-a-full-square", "<name>: square.side is above 65536, a square taller than the image"],
+  ["side-negative-zero", "<name>: square.side is negative zero, which an unsigned integer refuses"],
+  ["square-as-an-array", "<name>: square is not an object"],
+  ["square-field-written-twice", "<name>: a field is written twice"],
+  ["too-many-pixels-rendered", "<name>: a case renders at most 268435456 pixels in all, this one 301989888"],
+  ["unknown-field", "<name>: unknown field speed"],
+  ["unknown-square-field", "<name>: square: unknown field color"],
+  ["value-above-u32", "<name>: square.side is not an unsigned 32-bit integer"],
+  ["width-0", "<name>: width is not from 1 to 16384 pixels"],
+];
+
 describe("the repository's visual corpus", () => {
   test("every case reads", () => {
     const dir = `${visualConformance()}cases/`;
@@ -152,12 +195,17 @@ describe("the repository's visual corpus", () => {
     expect(parseVisualCase(caseText(`${dir}square-far-in-time-at-2997.json`), "far").first).toBe(9_007_199_254_740_000n);
   });
 
-  test("every case of the shared invalid corpus is refused, read as visual-cli reads it", () => {
+  test("every case of the shared invalid corpus is refused, read as visual-cli reads it, for its own fault", () => {
     const dir = `${visualConformance()}invalid/cases/`;
-    const names = readdirSync(dir).filter((name) => name.endsWith(".json"));
-    expect(names.length).toBeGreaterThanOrEqual(24);
-    for (const name of names) {
-      expect(() => parseVisualCase(caseText(`${dir}${name}`), name), name).toThrow(name === "case-above-64-kib.json" ? /larger than 65536 bytes/ : InputError);
+    const names = readdirSync(dir)
+      .filter((file) => file.endsWith(".json"))
+      .sort()
+      .map((file) => file.slice(0, -".json".length));
+    expect(names, "every file has its reason, and every reason its file").toStrictEqual(INVALID_CORPUS.map(([name]) => name));
+    for (const [name, reason] of INVALID_CORPUS) {
+      const expected = reason.replace("<name>", name);
+      expect(() => parseVisualCase(caseText(`${dir}${name}.json`), name), name).toThrow(name === "case-above-64-kib" ? `: ${expected}` : `invalid conformance input: ${expected}`);
     }
   });
+
 });

@@ -103,20 +103,51 @@ function side(value: unknown, where: string): number {
   return read;
 }
 
+/** The fields of a case and of its square, every one required, none other allowed. */
+const CASE_KEYS = ["rate", "width", "height", "first", "images", "square"] as const;
+
+/** The fields of the square of a case. */
+const SQUARE_KEYS = ["side", "cycle"] as const;
+
+/** `value` as an object with exactly the fields `keys`, none missing and none other, or rejects `where`. */
+function exactly(value: unknown, keys: readonly string[], where: string): object {
+  const checked = onlyKeys(value, keys, where);
+  const missing = keys.find((key) => !Object.hasOwn(checked, key));
+  if (missing !== undefined) {
+    throw new InputError(`${where}: missing field ${missing}`);
+  }
+  return checked;
+}
+
 /**
  * Parses `text` with a reviver that refuses any number not written as a whole number,
- * without fraction or exponent, as `visual-cli`'s reader refuses it for an integer field,
- * and returns the exact value of `first` from its text (a number above 2⁵³ has lost it).
+ * without fraction or exponent, and negative zero, as `visual-cli`'s reader refuses them
+ * for an integer field; names the number refused by its path (`square.cycle[0]`); and
+ * returns the exact value of `first` from its text (a number above 2⁵³ has lost it).
+ *
+ * The reviver visits every value before the one holding it: the path of a number refused
+ * is built on the way up, from the values holding it, and thrown at the root.
  */
 function exactFirst(text: string, name: string): bigint {
   let first = -1n;
-  JSON.parse(text, (key, value: unknown, ...context: unknown[]) => {
-    if (typeof value === "number") {
-      const source = String(Reflect.get(Object(context[0]), "source"));
-      if (!/^-?\d+$/.test(source)) {
-        throw new InputError(`${name}: ${key} is not a whole number written without fraction or exponent`);
+  // The number refused: its path so far, why, and the value holding it, whose own visit adds its key.
+  let refused: { path: string; reason: string; holder: unknown } | undefined;
+  JSON.parse(text, function (this: unknown, key, value: unknown, ...context: unknown[]) {
+    if (refused !== undefined) {
+      if (value === refused.holder) {
+        if (key === "") {
+          throw new InputError(`${name}: ${refused.path} ${refused.reason}`);
+        }
+        refused = { ...refused, path: refused.path.startsWith("[") ? `${key}${refused.path}` : `${key}.${refused.path}`, holder: this };
       }
-      if (key === "first") {
+    } else if (typeof value === "number") {
+      const source = String(Reflect.get(Object(context[0]), "source"));
+      const path = Array.isArray(this) ? `[${key}]` : key;
+      if (source === "-0") {
+        refused = { path, reason: "is negative zero, which an unsigned integer refuses", holder: this };
+      } else if (!/^-?\d+$/.test(source)) {
+        refused = { path, reason: "is not a whole number written without fraction or exponent", holder: this };
+      } else if (key === "first") {
         first = BigInt(source);
       }
     }
@@ -126,10 +157,20 @@ function exactFirst(text: string, name: string): bigint {
 }
 
 /**
+ * Whether every field of `text` is written once: its shape is already checked, so that
+ * its only strings are its keys (the values are numbers and arrays of numbers), and a
+ * field written twice, which `JSON.parse` silently keeps the last of, adds a string.
+ */
+function eachFieldOnce(text: string): boolean {
+  return text.split(/"(?:[^"\\]|\\.)*"/).length - 1 === CASE_KEYS.length + SQUARE_KEYS.length;
+}
+
+/**
  * Reads the text of a visual case file, as `visual-cli` reads it: at most
  * {@link MAX_VISUAL_CASE_BYTES} bytes of a JSON object with exactly the fields `rate`,
  * `width`, `height`, `first`, `images` and `square` (itself exactly `side` and `cycle`),
- * every number whole, written without fraction or exponent, each within its range.
+ * each written once, every number whole, written without fraction or exponent and not
+ * negative zero, each within its range.
  *
  * The text is parsed twice, as the audio cases are: plainly first, to check the shape and
  * the values; then, the shape known to be shallow, with the reviver that checks how every
@@ -147,8 +188,8 @@ export function parseVisualCase(text: string, name: string): VisualCase {
   } catch (error) {
     throw new InputError(`${name}: not JSON (${String(error)})`);
   }
-  const checked = onlyKeys(value, ["rate", "width", "height", "first", "images", "square"], name);
-  const square = onlyKeys(field(checked, "square"), ["side", "cycle"], `${name}: square`);
+  const checked = exactly(value, CASE_KEYS, name);
+  const square = exactly(field(checked, "square"), SQUARE_KEYS, `${name}: square`);
   const read = {
     rate: rate(field(checked, "rate"), `${name}: rate`),
     width: side(field(checked, "width"), `${name}: width`),
@@ -173,6 +214,9 @@ export function parseVisualCase(text: string, name: string): VisualCase {
   }
   if (typeof field(checked, "first") !== "number") {
     throw new InputError(`${name}: first is not a whole number`);
+  }
+  if (!eachFieldOnce(text)) {
+    throw new InputError(`${name}: a field is written twice`);
   }
   const first = exactFirst(text, name);
   if (first < 0n || first > MAX_U64) {
