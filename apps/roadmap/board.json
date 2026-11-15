@@ -1222,26 +1222,26 @@
     {
       "id": 35,
       "title": "Visual foundations: design and quality bar of the visual engine before more boxes",
-      "description": "The visual counterpart of #12: decide the design of a standalone visual library against the live-show targets, then set its quality and proof bar before writing many visual boxes. Like the audio library, it is usable on its own, with no dependency on the audio library or the editor; what spans sound and image lives in a shared layer above both. Other uses (editing, compositing, embedded) kept possible whenever it costs nothing.",
+      "description": "The visual counterpart of #12: decide the design of a standalone visual library against the live-show targets, then set its quality and proof bar before writing many visual boxes. Like the audio library, it is usable on its own, with no dependency on the audio library or the editor; what spans sound and image lives in the coordinating layer above both. Other uses (editing, compositing, embedded) kept possible whenever it costs nothing.",
       "column": "later",
       "milestone": "M3 Visuals",
       "createdAt": "2026-11-09",
-      "updatedAt": "2026-11-14",
+      "updatedAt": "2026-11-15",
       "tasks": [
         {
           "title": "Target matrix for the live show (node-based real-time visuals, lighting previsualization, media servers, LED pixel mapping and lasers, multi-machine shows): for each, the core concepts it needs; a target needing a new core concept is settled before any code",
           "done": true
         },
         {
-          "title": "Engine design decisions, recorded before any code that depends on them: time and rates, push and pull computation, resources and GPU memory, data types (textures, buffers, geometry including vector paths, channels), colour pipeline, outputs, execution modes, random access, hot swap, latency, state; and interaction: the input event model (the image a gesture applies to), a scene queryable on the CPU for picking, the operator contract mapping output coordinates back to input coordinates, gesture-to-image latency, the state of interactive objects, 3D camera navigation and manipulators",
+          "title": "Engine design decisions, recorded before any code that depends on them: time and rates (the image rate carried by the render context; an image a point in time or an interval, motion blur), push and pull computation, resources and GPU memory, data types (textures, buffers, geometry including vector paths, channels, pixel aspect), color pipeline, outputs, execution modes, random access, hot swap, latency, state, algorithm versions and a spent record (the visual counterpart of decision 29), a registry of the visual boxes, interface stability; and interaction: the input event model (the image a gesture applies to), a scene queryable on the CPU for picking, the visual box contract mapping output coordinates back to input coordinates, gesture-to-image latency, the state of interactive elements, 3D camera navigation and manipulators",
           "done": false
         },
         {
-          "title": "The shared layer above the two standalone libraries (clock choice, audio and video alignment, a scene and cues spanning both; exact musical time from the time crate, #37, sampled at every image), using each library only through its public interface; any hook it needs from the audio library checked against the audio engine's decisions; the architecture proven to cost nothing: benchmarks comparing work done through the public interfaces with the same work done directly, with regression thresholds",
+          "title": "The coordinating layer above the two standalone libraries (clock choice, audio and video alignment, a scene and cues spanning both; exact musical time from the time crate, #37, sampled at every image; the one WebAssembly module a product loads, linking the libraries it uses), using each library only through its public interface; any hook it needs from the audio library checked against the audio engine's decisions; the architecture proven to cost nothing: benchmarks comparing work done through the public interfaces with the same work done directly, with regression thresholds",
           "done": false
         },
         {
-          "title": "Proof tiers declared per operator: exact (logic, CPU reference, integer GPU operations if proven), measured (floating-point GPU within derived thresholds), not guaranteed; shown by the editor",
+          "title": "Proof tiers declared per visual box: exact (logic, CPU reference, integer GPU operations if proven), measured (floating-point GPU within derived thresholds), not guaranteed; shown by the editor",
           "done": false
         },
         {
@@ -1249,19 +1249,19 @@
           "done": false
         },
         {
-          "title": "Floating-point linear-light colour, with colour metadata (primaries, transfer, range) on every image",
+          "title": "Floating-point linear-light color, with color metadata (primaries, transfer, range) on every image; whether a value may exceed its alpha (emission, high dynamic range)",
           "done": false
         },
         {
-          "title": "Objective image measurements in the test kit and the oracle (perceptual difference, colour difference, aliasing, banding), thresholds per operator with their derivation",
+          "title": "Objective image measurements in the test kit and the oracle (perceptual difference, color difference, aliasing, banding, flicker), thresholds per visual box with their derivation",
           "done": false
         },
         {
-          "title": "Deterministic random access: rendering image n directly equals rendering from the start, stateful operators through checkpoints",
+          "title": "Deterministic random access: rendering image n directly equals rendering from the start, stateful boxes through checkpoints",
           "done": false
         },
         {
-          "title": "Video input and output in the shells: decoded images with exact timestamps, colour and access cost; decoder conformance on a corpus of reference videos",
+          "title": "Video input and output in the shells: decoded images with exact timestamps, color and access cost; decoder conformance on a corpus of reference videos",
           "done": false
         },
         {
@@ -1273,7 +1273,7 @@
           "done": false
         },
         {
-          "title": "Benchmarks per operator in CI, quality tiers per device, a cost estimate warning when a patch will not keep up",
+          "title": "Benchmarks per visual box in CI, quality tiers per device, a cost estimate warning when a patch will not keep up",
           "done": false
         },
         {
@@ -1281,7 +1281,7 @@
           "done": false
         },
         {
-          "title": "Third-party visual operators in the editor: shaders validated by WebGPU, recovery from a lost GPU device without taking the editor down, GPU cost measured by timestamp queries, a determinism tier per shader (exact, measured, not guaranteed) with the CPU interpreter as reference, invariance to resolution and frame rate and random access in the compatibility report",
+          "title": "Third-party visual boxes in the editor: shaders validated by WebGPU, recovery from a lost GPU device without taking the editor down, GPU cost measured by timestamp queries, a determinism tier per shader (exact, measured, not guaranteed) with the CPU interpreter as reference, invariance to resolution and image rate and random access in the compatibility report",
           "done": false
         },
         {
@@ -1289,7 +1289,7 @@
           "done": false
         },
         {
-          "title": "Further capabilities weighed in the target matrix before the design decisions: a 3D scene shared with audio (sound sources, loudspeakers, lights and projectors as objects of one scene), keyframe animation and curves, cue states and crossfades between scenes, seeded fixed-timestep particles and simulations, physically based materials and lights in photometric units shared with the light previsualization, haze and fog, dynamic quality scaling live only and reported, asset import (glTF, SVG, point clouds, images, LUTs), surtitles and captions, camera and projector calibration, keying and masks, output recording, time remapping, visual debugging, headless rendering",
+          "title": "Further capabilities weighed in the target matrix before the design decisions: a 3D scene shared with audio (sound sources, loudspeakers, lights and projectors as elements of one scene), keyframe animation and curves, cue states and crossfades between scenes, seeded fixed-timestep particles and simulations, physically based materials and lights in photometric units shared with the light previsualization, haze and fog, dynamic quality scaling live only and reported, asset import (glTF, SVG, point clouds, images, LUTs), surtitles and captions, camera and projector calibration, keying and masks, output recording, time remapping, visual debugging, headless rendering",
           "done": false
         }
       ]
@@ -1356,7 +1356,7 @@
       "column": "later",
       "milestone": "M1 Engine",
       "createdAt": "2026-11-13",
-      "updatedAt": "2026-11-13",
+      "updatedAt": "2026-11-15",
       "tasks": [
         {
           "title": "An exact time base: a tempo unit that represents every stated tempo exactly, and positions kept in exact integers (beats scaled by the frame rate), with no division on the path of a step",
@@ -1387,7 +1387,7 @@
           "done": false
         },
         {
-          "title": "A standalone no_std crate, published like the libraries: the library gate gains its role (the only crate outside the audio library the library's crates may depend on), with its own coverage, mutation, benchmarks and conformance",
+          "title": "A standalone no_std crate, published like the libraries: the library gate gains its role (the only crate outside each library its crates may depend on), with its own coverage, mutation, benchmarks and conformance",
           "done": false
         }
       ]
@@ -1395,14 +1395,14 @@
     {
       "id": 34,
       "title": "First image: a moving square, identical on every target",
-      "description": "The visual counterpart of #1: a white square on black, moving in time, rendered by the standalone visual library natively and in WebAssembly and shown live in the playground next to the oscilloscope. Small on purpose: it builds the whole proof chain for images (exact CPU reference, canonical image hash, conformance across targets, GPU within a measured threshold, browser tests, independent oracle) on which every visual box will then be checked. Following the sound comes with the shared layer above both libraries (#35).",
+      "description": "The visual counterpart of #1: a white square on black, moving in time, rendered by the standalone visual library natively and in WebAssembly and shown live in the playground next to the oscilloscope. Small on purpose: it builds the whole proof chain for images (exact CPU reference, canonical image hash, conformance across targets, GPU within a measured threshold, browser tests, independent oracle) on which every visual box will then be checked. Following the sound comes with the coordinating layer above both libraries (#35 step 3).",
       "column": "doing",
       "milestone": "M3 Visuals",
       "createdAt": "2026-11-09",
-      "updatedAt": "2026-11-14",
+      "updatedAt": "2026-11-15",
       "tasks": [
         {
-          "title": "Visual operator contract in the standalone visual library (no dependency on the audio library), with the optional mapping from output points back to what produced them, and a square operator with exact edge coverage (antialiasing)",
+          "title": "Visual box contract in the standalone visual library (no dependency on the audio library), with the optional mapping from output points back to what produced them, and a square box with exact edge coverage (antialiasing)",
           "done": true
         },
         {
@@ -1422,7 +1422,7 @@
           "done": false
         },
         {
-          "title": "Playground: the square moving live next to the oscilloscope, first drawn by the CPU reference in WebAssembly, then in WebGPU; end-to-end tests on the browsers; then the end of this block (steps 5 and 6): a deep review, its decided fixes, and a pull request whose full check is green",
+          "title": "Playground: the square moving live next to the oscilloscope, first drawn by the CPU reference in WebAssembly, the playground loading one module that links the audio and visual libraries, never one per library, then in WebGPU; end-to-end tests on the browsers; then the end of this block (steps 5 and 6): a deep review, its decided fixes, and a pull request whose full check is green",
           "done": false
         },
         {
@@ -1430,7 +1430,7 @@
           "done": false
         },
         {
-          "title": "Wired into cargo xtask check",
+          "title": "The GPU, the playground and the oracle's visual export wired into cargo xtask check (the visual conformance, coverage, Miri and the visual packages already are)",
           "done": false
         },
         {
