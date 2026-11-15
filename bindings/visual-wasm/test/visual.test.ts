@@ -39,26 +39,36 @@ function withArity(arity: number, body: (...args: number[]) => unknown): (...arg
   }
 }
 
+/** The values a fake module renders for a square of `count` values: 0.25 and 1, then zeros. */
+function image(count: number): number[] {
+  return [0.25, 1, ...Array.from({ length: count - 2 }, () => 0)];
+}
+
 /**
- * A fake module: a memory holding two values of an image at byte 8, a 32-byte hash at
- * byte 64 and the message "no" at byte 128, and the functions of the interface with their
- * arities, each recording its call and answering what `answers` gives (by default, the
- * addresses and lengths of those values, and every setup accepted).
+ * A fake module: a memory holding the values of an image at byte 8 (0.25 and 1, then
+ * zeros), a 32-byte hash at byte 4096 and the message "no" at byte 8192, and the functions
+ * of the interface with their arities, each recording its call and answering what
+ * `answers` gives (by default, the addresses of those values, the length of an image of the
+ * last square set up, and every setup accepted).
  */
 function fake(answers: Partial<Record<string, (...args: number[]) => unknown>> = {}): { exports: Record<string, unknown>; calls: Calls; memory: WebAssembly.Memory } {
   const memory = new WebAssembly.Memory({ initial: 1 });
   new Float32Array(memory.buffer, 8, 2).set([0.25, 1]);
-  new Uint8Array(memory.buffer, 64, 32).set(Array.from({ length: 32 }, (_slot, index) => index * 8));
-  new Uint8Array(memory.buffer, 128, 2).set([0x6e, 0x6f]);
+  new Uint8Array(memory.buffer, 4096, 32).set(Array.from({ length: 32 }, (_slot, index) => index * 8));
+  new Uint8Array(memory.buffer, 8192, 2).set([0x6e, 0x6f]);
   const calls: Calls = [];
+  let values = 0;
   const defaults: Record<string, (...args: number[]) => unknown> = {
     visual_abi_version: () => ABI_VERSION,
-    visual_setup: () => 1,
-    visual_message_ptr: () => 128,
+    visual_setup: (width = 0, height = 0) => {
+      values = width * height * 4;
+      return 1;
+    },
+    visual_message_ptr: () => 8192,
     visual_message_len: () => 2,
     visual_render: () => 8,
-    visual_hash: () => 64,
-    visual_values_len: () => 2,
+    visual_hash: () => 4096,
+    visual_values_len: () => values,
   };
   const exports: Record<string, unknown> = { memory };
   for (const [name, arity] of Object.entries(ARITIES)) {
@@ -75,9 +85,9 @@ describe("VisualModule", () => {
     const { exports, calls, memory } = fake();
     const module = new VisualModule(exports, { width: 7, height: 5, rate: [24_000, 1001], side: 40_000, cycle: [1001, 1000] });
     const values = module.render(5n + (7n << 32n));
-    expect(Array.from(values)).toStrictEqual([0.25, 1]);
+    expect(Array.from(values)).toStrictEqual(image(7 * 5 * 4));
     new Float32Array(memory.buffer, 8, 2).set([9, 9]);
-    expect(Array.from(values), "a copy, not a view of the memory").toStrictEqual([0.25, 1]);
+    expect(Array.from(values), "a copy, not a view of the memory").toStrictEqual(image(7 * 5 * 4));
     expect(module.hash(MAX_INDEX - BigInt(MAX_COUNT) + 1n, MAX_COUNT)).toBe(Array.from({ length: 32 }, (_slot, index) => (index * 8).toString(16).padStart(2, "0")).join(""));
     module.setup(SQUARE);
     expect(calls).toStrictEqual([
@@ -105,7 +115,7 @@ describe("VisualModule", () => {
 
   test("refuses an explanation that is not UTF-8", () => {
     const { exports, memory } = fake({ visual_setup: () => 0 });
-    new Uint8Array(memory.buffer, 128, 2).set([0x6e, 0xff]);
+    new Uint8Array(memory.buffer, 8192, 2).set([0x6e, 0xff]);
     expect(() => new VisualModule(exports, SQUARE)).toThrow(new VisualModuleError("visual_setup explained its refusal in bytes that are not UTF-8"));
   });
 
@@ -115,8 +125,8 @@ describe("VisualModule", () => {
 
   test("reads every result as unsigned, as the interface returns it", () => {
     // 8 − 2^32 is how a signed i32 carries address 8: only read as unsigned does it reach the values.
-    const module = new VisualModule(fake({ visual_render: () => 8 - 2 ** 32, visual_hash: () => 64 - 2 ** 32 }).exports, SQUARE);
-    expect(Array.from(module.render(0n))).toStrictEqual([0.25, 1]);
+    const module = new VisualModule(fake({ visual_render: () => 8 - 2 ** 32, visual_hash: () => 4096 - 2 ** 32 }).exports, SQUARE);
+    expect(Array.from(module.render(0n))).toStrictEqual(image(8));
     expect(module.hash(0n, 1)).toBe(Array.from({ length: 32 }, (_slot, index) => (index * 8).toString(16).padStart(2, "0")).join(""));
   });
 
@@ -172,7 +182,58 @@ describe("VisualModule", () => {
     const module = new VisualModule(fake({ visual_render: () => { if (failing) { throw failure; } return 8; } }).exports, SQUARE);
     expect(() => module.render(0n)).toThrow(failure);
     failing = false;
-    expect(Array.from(module.render(0n))).toStrictEqual([0.25, 1]);
+    expect(Array.from(module.render(0n))).toStrictEqual(image(8));
+  });
+
+  test("refuses what the module answers outside its memory, unaligned or of the wrong length", () => {
+    const end = 65_536;
+    for (const [answers, call, reason] of [
+      [{ visual_values_len: () => 5 }, "render", "visual_values_len answered 5, not the 8 values of the square set up"],
+      [{ visual_render: () => 3 }, "render", "visual_render answered 8 values of 4 bytes at 3, unaligned or outside the module memory"],
+      [{ visual_render: () => end - 28 }, "render", `visual_render answered 8 values of 4 bytes at ${String(end - 28)}, unaligned or outside the module memory`],
+      [{ visual_hash: () => end - 31 }, "hash", `visual_hash answered 32 values of 1 bytes at ${String(end - 31)}, unaligned or outside the module memory`],
+    ] as const) {
+      const module = new VisualModule(fake(answers).exports, SQUARE);
+      expect(() => (call === "render" ? module.render(0n) : module.hash(0n, 1)), reason).toThrow(new VisualModuleError(reason));
+      expect(() => {
+        module.setup(SQUARE);
+      }, "not a trap: the instance stays alive").not.toThrow();
+    }
+    const atTheEnd = new VisualModule(fake({ visual_render: () => end - 32, visual_hash: () => end - 32 }).exports, SQUARE);
+    expect(Array.from(atTheEnd.render(0n)), "ending exactly at the end of the memory").toStrictEqual(image(8).map(() => 0));
+    expect(atTheEnd.hash(0n, 1)).toBe("0".repeat(64));
+    expect(() => new VisualModule(fake({ visual_setup: () => 0, visual_message_ptr: () => end - 1 }).exports, SQUARE)).toThrow(
+      new VisualModuleError(`visual_message_ptr answered 2 values of 1 bytes at ${String(end - 1)}, unaligned or outside the module memory`),
+    );
+  });
+
+  test("refuses bytes that are not the visual module, and keeps the reason", async () => {
+    const garbage: unknown = await VisualModule.instantiate(new Uint8Array([1, 2, 3]), SQUARE).catch((error: unknown) => error);
+    expect(garbage).toBeInstanceOf(VisualModuleError);
+    expect(garbage instanceof VisualModuleError && garbage.message.startsWith("visual module: cannot be compiled: CompileError: ")).toBe(true);
+    expect(garbage instanceof VisualModuleError && garbage.cause instanceof WebAssembly.CompileError, "the reason kept").toBe(true);
+    // (module (import "a" "b" (func))): a valid module that needs an import.
+    const needsImports = new Uint8Array([0x00, 0x61, 0x73, 0x6d, 1, 0, 0, 0, 1, 4, 1, 0x60, 0, 0, 2, 7, 1, 1, 0x61, 1, 0x62, 0, 0]);
+    const unlinked: unknown = await VisualModule.instantiate(needsImports, SQUARE).catch((error: unknown) => error);
+    expect(unlinked instanceof VisualModuleError && unlinked.message.startsWith("visual module: cannot be instantiated with no imports: ")).toBe(true);
+    expect(unlinked instanceof VisualModuleError && unlinked.cause instanceof TypeError, "the reason kept: no import object for module a").toBe(true);
+    // (module): a valid module with nothing the interface needs.
+    await expect(VisualModule.instantiate(new Uint8Array([0x00, 0x61, 0x73, 0x6d, 1, 0, 0, 0]), SQUARE)).rejects.toThrow(new VisualModuleError("no memory"));
+  });
+
+  test("dies when the module traps while its version is asked", () => {
+    const trap = new WebAssembly.RuntimeError("unreachable");
+    expect(
+      () =>
+        new VisualModule(
+          fake({
+            visual_abi_version: () => {
+              throw trap;
+            },
+          }).exports,
+          SQUARE,
+        ),
+    ).toThrow(new VisualTrap());
   });
 
   test("refuses a module that is not the visual module it drives", () => {

@@ -163,13 +163,13 @@ impl View {
     }
 
     /// Renders `count` images from image `first` and returns their image hash
-    /// (`spec/image-hash.md`), the 32 bytes of the SHA-256; all zero when no square is set
-    /// up; `None` when the last of those images would be past image 2⁶⁴ − 1.
+    /// (`spec/image-hash.md`), the 32 bytes of the SHA-256; `None` when no square is set
+    /// up, or when the last of those images would be past image 2⁶⁴ − 1: never a value
+    /// that could pass for a hash.
     pub fn hash(&mut self, first: u64, count: u64) -> Option<&[u8; 32]> {
         let range = ImageRange::new(ImageIndex(first), count).ok()?;
-        if let Some((square, image, rate)) = &mut self.shown {
-            self.hash = hash_sequence(square, *rate, range, image).bytes();
-        }
+        let (square, image, rate) = self.shown.as_mut()?;
+        self.hash = hash_sequence(square, *rate, range, image).bytes();
         Some(&self.hash)
     }
 }
