@@ -23,7 +23,6 @@
     "break": 100
   },
   "coverageAnalysis": "perTest",
-  "concurrency": 4,
   "tempDirName": ".stryker-tmp",
   "plugins": [
     "@stryker-mutator/vitest-runner"
