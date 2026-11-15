@@ -86,8 +86,9 @@ fn nonzero_edges() -> impl Strategy<Value = NonZeroU32> {
 
 /// The terms of a valid image rate, reduced, from 1 to 1000 images per second.
 ///
-/// Denominators from 1 to the largest `u32`, numerators from the slowest rate to the fastest the
-/// denominator allows, both ends often.
+/// Denominators from 1 to the largest `u32`, the largest a rate other than 1/1 can have
+/// (`u32::MAX - 1`) often, numerators from the slowest rate to the fastest the denominator
+/// allows, both ends often.
 pub fn rate_terms() -> impl Strategy<Value = (u32, u32)> {
     prop_oneof![
         Just(NonZeroU32::MIN),

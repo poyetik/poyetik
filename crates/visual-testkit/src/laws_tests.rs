@@ -91,6 +91,8 @@ enum Fault {
     /// Its trace changes for a size other than the first it rendered: geometry cached by
     /// rendering, read back by tracing.
     TraceAfterAnotherSize,
+    /// Its trace answers from the size it rendered last, whatever the point's size.
+    TraceFromTheLastSize,
 }
 
 /// A box with one fault, otherwise like [`Good`].
@@ -112,6 +114,8 @@ struct Faulty {
     went_back: bool,
     /// The size of the first image it rendered.
     first_size: Option<(u32, u32)>,
+    /// The size of the last image it rendered.
+    last_size: Option<(u32, u32)>,
 }
 
 /// Instances created so far, to number them.
@@ -135,6 +139,7 @@ impl Faulty {
         let first_size = *self
             .first_size
             .get_or_insert_with(|| (size.width(), size.height()));
+        self.last_size = Some((size.width(), size.height()));
         let odd = match self.fault {
             Fault::NotANumberAtTheHighestRate => self.good.rate.numerator() == 1000,
             Fault::NotANumberWhenWidest => size.width() == visual_core::ImageSize::MAX_SIDE,
@@ -163,7 +168,8 @@ impl Faulty {
             | Fault::AllocatesSeekingBack
             | Fault::SkipsARepeat
             | Fault::ImpureTraceAtTheLastSubpixel
-            | Fault::TraceAfterAnotherSize => false,
+            | Fault::TraceAfterAnotherSize
+            | Fault::TraceFromTheLastSize => false,
         };
         Some(odd)
     }
@@ -219,7 +225,8 @@ impl VisualBox for Faulty {
             | Fault::NotANumberOffTheMatrixIndices
             | Fault::NotANumberForwardAfterGoingBack
             | Fault::NotANumberAfterAnotherSize
-            | Fault::TraceAfterAnotherSize => None,
+            | Fault::TraceAfterAnotherSize
+            | Fault::TraceFromTheLastSize => None,
         };
         if let (Some(value), Some(slot)) = (changed, first) {
             *slot = value;
@@ -248,7 +255,8 @@ impl VisualBox for Faulty {
             | Fault::NotANumberOffTheMatrixIndices
             | Fault::NotANumberForwardAfterGoingBack
             | Fault::NotANumberAfterAnotherSize
-            | Fault::TraceAfterAnotherSize => None,
+            | Fault::TraceAfterAnotherSize
+            | Fault::TraceFromTheLastSize => None,
         };
         if let Some(value) = alpha
             && let Some(slot) = output.rows_mut().last().and_then(|row| row.last_mut())
@@ -287,6 +295,17 @@ impl VisualBox for Faulty {
             }
             Fault::TraceAfterRendering => Trace::Shape(u32::from(self.rendered > 0)),
             Fault::TraceAfterSixImages => Trace::Shape(u32::from(self.rendered >= 6)),
+            Fault::TraceFromTheLastSize => {
+                let size = point.size();
+                if self
+                    .last_size
+                    .is_some_and(|last| last != (size.width(), size.height()))
+                {
+                    Trace::Shape(9)
+                } else {
+                    self.good.trace(index, point)
+                }
+            }
             Fault::TraceAfterAnotherSize => {
                 let size = point.size();
                 if self
@@ -332,6 +351,7 @@ fn verdict(fault: Fault) -> Result<(), String> {
             last: None,
             went_back: false,
             first_size: None,
+            last_size: None,
         })
     })
 }
@@ -339,6 +359,26 @@ fn verdict(fault: Fault) -> Result<(), String> {
 #[test]
 fn a_correct_box_passes_every_law() {
     assert_eq!(check_laws(&good), Ok(()), "every law holds");
+}
+
+#[test]
+fn catches_a_box_that_changes_with_the_size() {
+    for (fault, law) in [
+        (
+            Fault::NotANumberAfterAnotherSize,
+            "size change: rendering at another size first changes the bits at rate 1/1, size 2x3, image 0",
+        ),
+        (
+            Fault::TraceFromTheLastSize,
+            "size change: (0, 0) of size 2x3 traces differently after size 1x1 at rate 1/1, size 1x1, image 0",
+        ),
+        (
+            Fault::TraceAfterAnotherSize,
+            "size change: (0, 0) of size 2x3 traces differently after size 1x1 at rate 1/1, size 1x1, image 0",
+        ),
+    ] {
+        assert_eq!(verdict(fault), Err(law.to_owned()), "{fault:?}");
+    }
 }
 
 #[test]
@@ -429,14 +469,6 @@ fn catches_each_broken_law() {
             "pure trace: (4095, 4095) traces differently at rate 1/1, size 1x1, image 18446744073709551615",
         ),
         (
-            Fault::NotANumberAfterAnotherSize,
-            "size change: rendering at another size first changes the bits at rate 1/1, size 2x3, image 0",
-        ),
-        (
-            Fault::TraceAfterAnotherSize,
-            "size change: (0, 0) traces differently after another size at rate 1/1, size 2x3, image 0",
-        ),
-        (
             Fault::NotANumberForwardAfterGoingBack,
             "random access: rendering the images in another order, each twice, changes the bits at rate 1/1, size 1x1, image 1000000",
         ),
@@ -469,8 +501,8 @@ const CONTRACT_INPUTS: [(&str, Fault, &str); 4] = [
     ),
     (
         "traced point's size",
-        Fault::TraceAfterAnotherSize,
-        "size change: (0, 0) traces ",
+        Fault::TraceFromTheLastSize,
+        "size change: (0, 0) of size ",
     ),
 ];
 
