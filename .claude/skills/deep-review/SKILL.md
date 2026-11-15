@@ -77,6 +77,7 @@ Defect classes earlier reviews found, which only a review sees. Give each review
 13. **Performance and bits** (3, 2). A performance finding comes with the measurement to take, and is never applied unmeasured. A fix that changes rendered bits only in cases the corpus does not reach yet is scheduled while it is still hash-neutral, before the change (a new box, a new case) that would make it move the reference hashes.
 14. **Hardening options** (4, 17). At each review, compare the configuration with the current hardening options of the forge (GitHub Actions), the package managers (pnpm, Cargo) and the supply-chain tools (`cargo-deny`).
 15. **Spec and measurements** (6, 15, 16). Every engine change matches the decision of `spec/engine-design.md` it implements, at the step that decision names. Every box and every engine component that touches the signal (resampler, smoothing, limiter, compensation, crossfades, event timing) lands its measurements with derived thresholds (`spec/measurements.md`), and every threshold has its derivation next to it: recompute it, and check one test per regime.
+16. **Previous fixes closed** (5, 6, 10). For each finding the previous review of the same scope accepted, find its commit and the test or search that shows every place it named changed. A fix that landed in part, or a test it promised that was never written, is a finding of this review.
 
 ## 3. Verification: every finding is challenged
 
@@ -126,7 +127,7 @@ Never apply a fix on the strength of the review alone. For each finding the main
 1. **Re-analyze it** against the code as it is now (other fixes may have changed it): is it still real, is the chosen option still the best, did a trade-off move? If the answer changed, stop and tell the maintainer before doing anything.
 2. Write the failing test first (`CLAUDE.md`: every fix starts with a test that reproduces the problem).
 3. Apply the fix, then run the checks it calls for: for a review block's review, targeted checks (`CLAUDE.md`, Working in blocks), the block's full check being its pull request's CI run; otherwise `cargo xtask check --full` (or a green CI run) until it is green.
-4. Commit, one logical fix per commit, the message saying which finding it closes.
+4. Commit, one logical fix per commit, the message saying which finding it closes; list in the review's report, for each finding closed, its commit and the test or search proving every place it named changed, so that the next review can check it (standing check 16).
 
 Accepted lessons are applied the same way: the tool or rule first, with a test showing it catches the defects that revealed it.
 
