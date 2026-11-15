@@ -4,11 +4,11 @@ version = 4
 
 [[package]]
 name = "alloc-counter"
-version = "0.5.0"
+version = "0.6.0"
 
 [[package]]
 name = "audio-battery"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "audio-core",
  "serde_json",
@@ -17,7 +17,7 @@ dependencies = [
 
 [[package]]
 name = "audio-boxes"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "audio-core",
  "audio-testkit",
@@ -27,7 +27,7 @@ dependencies = [
 
 [[package]]
 name = "audio-cli"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "audio-battery",
  "audio-boxes",
@@ -41,7 +41,7 @@ dependencies = [
 
 [[package]]
 name = "audio-core"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "libm",
  "serde_json",
@@ -49,7 +49,7 @@ dependencies = [
 
 [[package]]
 name = "audio-fpenv"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "audio-boxes",
  "audio-core",
@@ -60,7 +60,7 @@ dependencies = [
 
 [[package]]
 name = "audio-hash"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "audio-core",
  "serde_json",
@@ -69,7 +69,7 @@ dependencies = [
 
 [[package]]
 name = "audio-patch"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "audio-core",
  "serde",
@@ -79,7 +79,7 @@ dependencies = [
 
 [[package]]
 name = "audio-testkit"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "alloc-counter",
  "audio-battery",
@@ -93,7 +93,7 @@ dependencies = [
 
 [[package]]
 name = "audio-wasm"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "audio-boxes",
  "audio-core",
@@ -383,7 +383,7 @@ checksum = "a2c754d6c33795a1c324727428e5a7dedb5b06195f9890bdbcba760d3e246563"
 
 [[package]]
 name = "visual-boxes"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "visual-core",
  "visual-testkit",
@@ -391,7 +391,7 @@ dependencies = [
 
 [[package]]
 name = "visual-cli"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -403,14 +403,14 @@ dependencies = [
 
 [[package]]
 name = "visual-core"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "visual-testkit",
 ]
 
 [[package]]
 name = "visual-hash"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "serde_json",
  "sha2",
@@ -420,7 +420,7 @@ dependencies = [
 
 [[package]]
 name = "visual-host"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "visual-boxes",
  "visual-core",
@@ -430,7 +430,7 @@ dependencies = [
 
 [[package]]
 name = "visual-testkit"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "alloc-counter",
  "proptest",
@@ -440,7 +440,7 @@ dependencies = [
 
 [[package]]
 name = "visual-wasm"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "visual-boxes",
  "visual-core",
@@ -450,7 +450,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "proc-macro2",
  "serde_json",

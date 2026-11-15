@@ -2,7 +2,7 @@
   "name": "poyetik",
   "private": true,
   "license": "MIT OR Apache-2.0",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Poyetik monorepo root: pnpm workspace for every TypeScript package.",
   "scripts": {
     "prepare": "git rev-parse --is-inside-work-tree >/dev/null 2>&1 && git config core.hooksPath .githooks || true"
