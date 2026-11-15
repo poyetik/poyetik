@@ -15,6 +15,7 @@ mod case;
 mod cli;
 mod files;
 mod safe;
+mod status;
 
 pub use case::{
     CaseError, MAX_CASE_BYTES, MAX_IMAGES, MAX_RENDERED_PIXELS, PreparedCase, hash_case, parse_case,

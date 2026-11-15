@@ -3,8 +3,9 @@
 use alloc::collections::BTreeMap;
 use std::ffi::OsString;
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
+use crate::status::Status;
 use crate::{Files, MAX_CASE_BYTES, hash_case, safe_message};
 
 /// Usage of the `visual-cli` command, printed on stdout by `visual-cli help`.
@@ -14,6 +15,9 @@ usage: visual-cli <command>
   check <dir>         compare every case of <dir>/cases with <dir>/references.json
   bless <dir>         rewrite <dir>/references.json from the current renders
   help                print this help";
+
+/// What follows the reason of a usage error: where the usage is.
+const USAGE_HINT: &str = " (see: visual-cli help)";
 
 /// The largest references file read, in bytes.
 pub const MAX_REFERENCES_BYTES: usize = 1024 * 1024;
@@ -28,11 +32,16 @@ pub enum CliError {
 }
 
 impl CliError {
-    /// The error as the one line the tool prints on stderr, without its newline, made safe
-    /// by [`safe_message`].
+    /// The error as the one line the tool prints on stderr, without its newline: `error: `
+    /// and the message made safe by [`safe_message`], then, for a usage error, its pointer
+    /// to the usage, ` (see: visual-cli help)`, appended after the reason is bounded, so
+    /// that no reason can cut it.
     #[must_use]
     pub fn line(&self) -> String {
-        format!("error: {}", safe_message(&self.to_string()))
+        match self {
+            Self::Usage(reason) => format!("error: {}{USAGE_HINT}", safe_message(reason)),
+            Self::Failed(message) => format!("error: {}", safe_message(message)),
+        }
     }
 
     /// The exit code of the process for this error: 2 for a usage error, 1 for a failure.
@@ -48,7 +57,7 @@ impl CliError {
 impl core::fmt::Display for CliError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Self::Usage(reason) => write!(f, "{reason} (see: visual-cli help)"),
+            Self::Usage(reason) => write!(f, "{reason}{USAGE_HINT}"),
             Self::Failed(message) => f.write_str(message),
         }
     }
@@ -88,30 +97,55 @@ fn hash_of(files: &mut dyn Files, path: &Path) -> Result<String, CliError> {
         .map_err(|error| CliError::Failed(format!("{}: {error}", path.display())))
 }
 
-/// The hash of every case of `<dir>/cases`, by case name (the file name without `.json`).
-fn render_all(files: &mut dyn Files, dir: &Path) -> Result<BTreeMap<String, String>, CliError> {
+/// What a case name may hold, as an error says: so that it can be pasted into a command
+/// unquoted, in any shell, and is the same file on every file system (the names
+/// `audio-cli` takes).
+const CASE_NAME: &str =
+    "lowercase ASCII letters, digits, dots and hyphens, starting with a letter or a digit";
+
+/// Whether `name` is a case name ([`CASE_NAME`]).
+fn case_name(name: &str) -> bool {
+    let mut bytes = name.bytes();
+    let word = |byte: u8| byte.is_ascii_lowercase() || byte.is_ascii_digit();
+    bytes.next().is_some_and(word) && bytes.all(|byte| word(byte) || byte == b'.' || byte == b'-')
+}
+
+/// The `.json` files of `<dir>/cases`, sorted, each with its case name ([`CASE_NAME`]);
+/// any other file (a `.DS_Store` a file manager left) is not a case and is skipped.
+fn case_files(files: &mut dyn Files, dir: &Path) -> Result<Vec<(String, PathBuf)>, CliError> {
     let cases = dir.join("cases");
-    let entries = files
+    let mut entries = files
         .list(&cases)
         .map_err(|error| CliError::Failed(format!("cannot list {}: {error}", cases.display())))?;
+    entries.sort();
+    let named: Vec<(String, PathBuf)> = entries
+        .into_iter()
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "json")
+        })
+        .map(|path| {
+            path.file_stem()
+                .and_then(|stem| stem.to_str())
+                .filter(|name| case_name(name))
+                .map(|name| (name.to_owned(), path.clone()))
+                .ok_or_else(|| {
+                    CliError::Failed(format!("{}: not a case name ({CASE_NAME})", path.display()))
+                })
+        })
+        .collect::<Result<_, _>>()?;
+    if named.is_empty() {
+        return Err(CliError::Failed(format!("no case in {}", cases.display())));
+    }
+    Ok(named)
+}
+
+/// The hash of every case of `<dir>/cases`, by case name (the file name without `.json`).
+fn render_all(files: &mut dyn Files, dir: &Path) -> Result<BTreeMap<String, String>, CliError> {
     let mut hashes = BTreeMap::new();
-    for path in entries {
-        let name = path
-            .file_name()
-            .and_then(|file| file.to_str())
-            .and_then(|file| file.strip_suffix(".json"))
-            .ok_or_else(|| {
-                CliError::Failed(format!(
-                    "{} is not a case file (<name>.json)",
-                    path.display()
-                ))
-            })?
-            .to_owned();
+    for (name, path) in case_files(files, dir)? {
         let hash = hash_of(files, &path)?;
         let _earlier = hashes.insert(name, hash);
-    }
-    if hashes.is_empty() {
-        return Err(CliError::Failed(format!("no case in {}", cases.display())));
     }
     Ok(hashes)
 }
@@ -165,22 +199,27 @@ fn references_text(hashes: &BTreeMap<String, String>) -> String {
 }
 
 /// Reads the references of `dir`, only exactly as `visual-cli bless` writes them.
+///
+/// A file that is not a JSON object of names to hashes is to be restored, not rewritten:
+/// rewriting it from the current renders would also take in any change of the renders.
 fn references(files: &mut dyn Files, dir: &Path) -> Result<BTreeMap<String, String>, CliError> {
     let file = dir.join("references.json");
     let text = read(files, &file, MAX_REFERENCES_BYTES)?;
-    let rewrite = || {
+    let references: BTreeMap<String, String> = serde_json::from_str(&text).map_err(|error| {
         CliError::Failed(format!(
-            "{} is not as `visual-cli bless {}` writes it: rewrite it with that command",
+            "{} is not an object of case names to hashes ({error}): restore it from git (`visual-cli bless {}` rewrites it from the current renders, only when they are meant to change)",
             file.display(),
             dir.display()
         ))
-    };
-    let references: BTreeMap<String, String> =
-        serde_json::from_str(&text).map_err(|_| rewrite())?;
+    })?;
     if references_text(&references) == text {
         Ok(references)
     } else {
-        Err(rewrite())
+        Err(CliError::Failed(format!(
+            "{} is not as `visual-cli bless {}` writes it: rewrite it with that command",
+            file.display(),
+            dir.display()
+        )))
     }
 }
 
@@ -190,18 +229,24 @@ fn check(files: &mut dyn Files, dir: &Path, out: &mut dyn Write) -> Result<(), C
     let references = references(files, dir)?;
     let mut problems = 0_usize;
     for (name, hash) in &hashes {
-        let line = match references.get(name) {
-            Some(expected) if expected == hash => format!("ok {name} {hash}"),
-            Some(expected) => format!("changed {name}: {hash}, reference {expected}"),
-            None => format!("no reference for {name}"),
+        let (status, line) = match references.get(name) {
+            Some(expected) if expected == hash => (Status::Ok, format!("{name} {hash}")),
+            Some(expected) => (
+                Status::Mismatch,
+                format!("{name}: {hash}, reference {expected}"),
+            ),
+            None => (Status::Missing, format!("{name}: no reference")),
         };
-        if !line.starts_with("ok ") {
+        if status != Status::Ok {
             problems = problems.saturating_add(1);
         }
-        say(out, &line)?;
+        say(out, &format!("{status} {line}"))?;
     }
     for name in references.keys().filter(|name| !hashes.contains_key(*name)) {
-        say(out, &format!("stale reference {name}: no such case"))?;
+        say(
+            out,
+            &format!("{} {name}: reference without a case", Status::Stale),
+        )?;
         problems = problems.saturating_add(1);
     }
     if problems == 0 {
@@ -222,7 +267,12 @@ fn bless(files: &mut dyn Files, dir: &Path, out: &mut dyn Write) -> Result<(), C
         .map_err(|error| CliError::Failed(format!("cannot write {}: {error}", file.display())))?;
     say(
         out,
-        &format!("wrote {} references to {}", hashes.len(), file.display()),
+        &format!(
+            "{} {} references to {}",
+            Status::Wrote,
+            hashes.len(),
+            file.display()
+        ),
     )
 }
 
@@ -234,18 +284,22 @@ fn bless(files: &mut dyn Files, dir: &Path, out: &mut dyn Write) -> Result<(), C
 /// Returns [`CliError::Usage`] for arguments that form no command, and
 /// [`CliError::Failed`] when the command ran and failed.
 pub fn run(args: &[String], files: &mut dyn Files, out: &mut dyn Write) -> Result<(), CliError> {
-    match args {
-        [command, case] if command == "render" => {
+    let Some((command, rest)) = args.split_first() else {
+        return Err(CliError::Usage("no command".to_owned()));
+    };
+    let expects = |synopsis: &str| CliError::Usage(format!("{command} expects {synopsis}"));
+    match (command.as_str(), rest) {
+        ("render", [case]) => {
             let hash = hash_of(files, Path::new(case))?;
             say(out, &hash)
         }
-        [command, dir] if command == "check" => check(files, Path::new(dir), out),
-        [command, dir] if command == "bless" => bless(files, Path::new(dir), out),
-        [command] if command == "help" => writeln!(out, "{USAGE}")
+        ("check", [dir]) => check(files, Path::new(dir), out),
+        ("bless", [dir]) => bless(files, Path::new(dir), out),
+        ("help", []) => writeln!(out, "{USAGE}")
             .map_err(|error| CliError::Failed(format!("cannot write to stdout: {error}"))),
-        [] => Err(CliError::Usage("no command".to_owned())),
-        [command, ..] => Err(CliError::Usage(format!(
-            "unknown command or arguments: {command}"
-        ))),
+        ("render", _) => Err(expects("<case.json>")),
+        ("check" | "bless", _) => Err(expects("<dir>")),
+        ("help", _) => Err(expects("no argument")),
+        _ => Err(CliError::Usage(format!("unknown command \"{command}\""))),
     }
 }
