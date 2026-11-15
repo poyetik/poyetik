@@ -1029,7 +1029,7 @@
       "column": "doing",
       "milestone": "M1 Engine",
       "createdAt": "2026-11-07",
-      "updatedAt": "2026-11-14",
+      "updatedAt": "2026-11-15",
       "tasks": [
         {
           "title": "Engine design decisions, recorded before any code that depends on them: messages, event scheduling, feedback, polyphony, multichannel, rates, parallelism, hot swap, latency, state; including the Nyquist policy of oscillators, an exact integer phase accumulator, the output stage (headroom, non-finite samples), the input domain of boxes, and compiling, instantiating, parsing and building plans off the audio thread, or bounding and measuring what must stay there (the construction of the engine processor), hot swap included",
@@ -1065,7 +1065,7 @@
         },
         {
           "title": "Output stage: raw and protected (safety limiter) modes; non-finite samples always replaced and reported; the playground protected by default",
-          "done": false
+          "done": true
         },
         {
           "title": "Host settings: sample rate, host buffer, engine block and channel counts chosen by the host, renders independent of the engine block (reduced-rate updates only on a grid of absolute frames), settings a host cannot honor reported",
