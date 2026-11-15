@@ -2,6 +2,7 @@
 
 #![forbid(unsafe_code)]
 
+use alloc::borrow::ToOwned;
 use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;

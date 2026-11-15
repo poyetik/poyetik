@@ -68,6 +68,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "audio-host"
+version = "0.6.0"
+dependencies = [
+ "audio-boxes",
+ "audio-core",
+ "audio-patch",
+ "audio-testkit",
+]
+
+[[package]]
 name = "audio-patch"
 version = "0.6.0"
 dependencies = [
@@ -97,6 +107,7 @@ version = "0.6.0"
 dependencies = [
  "audio-boxes",
  "audio-core",
+ "audio-host",
  "audio-patch",
  "audio-testkit",
 ]

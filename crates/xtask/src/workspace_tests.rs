@@ -173,6 +173,7 @@ fn derives_each_list_of_crates_from_their_roles() {
                 "audio-boxes",
                 "audio-patch",
                 "audio-hash",
+                "audio-host",
                 "audio-fpenv",
                 "audio-wasm",
             ][..],

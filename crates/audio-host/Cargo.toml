@@ -1,0 +1,23 @@
+[package]
+name = "audio-host"
+description = "The Poyetik engine as a host drives it: a patch loaded, rendered block by block in a render format through the output stage"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+readme = false
+repository.workspace = true
+keywords = ["audio", "dsp", "engine"]
+categories = ["multimedia::audio", "no-std"]
+
+[dependencies]
+audio-core = { path = "../audio-core" }
+audio-boxes = { path = "../audio-boxes" }
+audio-patch = { path = "../audio-patch" }
+
+[dev-dependencies]
+audio-testkit = { path = "../audio-testkit" }
+
+[lints]
+workspace = true

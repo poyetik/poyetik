@@ -12,6 +12,7 @@ The **two libraries** (the audio library and the visual library) and the project
 | `audio-fpenv` | Runs native engine calls in the default floating-point mode of the processor (no flush-to-zero, round to nearest) whatever mode the host set, restoring the host's mode after: native only (`x86_64`, aarch64), its one `unsafe` file reads and writes the control register with inline assembly, proven by its tests and audited (Miri cannot run assembly) |
 | `audio-patch` | Reads the JSON patch format (`spec/patch-format.md`) (`no_std`, no `unsafe`) |
 | `audio-hash` | Canonical SHA-256 hash of a render, `render-hash/2`: its render format and arithmetic mode, then its samples (`no_std`, no `unsafe`) |
+| `audio-host` | The engine as a host drives it: a patch loaded from its bytes, rendered block by block in its render format through the output stage, and the state a C interface forwards to; the WebAssembly module is a thin C interface over it (`no_std`, no `unsafe`) |
 | `audio-cli` | Offline renderer: renders conformance cases in every render format to render hashes and WAV files, and checks or rewrites the reference hashes (commands: `audio-cli help`) |
 | `visual-core` | The visual library's core, standalone (it depends on no other part): images, exact time, the visual box contract and the exact CPU reference renderer (`no_std`, no `unsafe`) |
 | `visual-boxes` | The visual boxes (the square), each checked against the visual box laws (`no_std`, no `unsafe`) |

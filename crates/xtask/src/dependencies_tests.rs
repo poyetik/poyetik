@@ -200,8 +200,8 @@ fn reads_one_exact_version_only() {
 fn outside_library(library: &str, name: &str, kind: &str, path: &str) -> String {
     format!(
         "{library} depends on {name} ({kind}, {path}): the audio library depends only on its \
-         own crates (audio-core, audio-boxes, audio-patch, audio-hash, audio-fpenv, \
-         audio-wasm), its tests also on alloc-counter, audio-battery, audio-testkit; move what \
+         own crates (audio-core, audio-boxes, audio-patch, audio-hash, audio-host, \
+         audio-fpenv, audio-wasm), its tests also on alloc-counter, audio-battery, audio-testkit; move what \
          it needs into the library, or the dependency out of it"
     )
 }
@@ -260,7 +260,7 @@ fn keeps_the_library_apart_in_real_cargo_metadata() {
             outside_tests(
                 "audio-testkit",
                 "audio library",
-                "audio-core, audio-boxes, audio-patch, audio-hash, audio-fpenv, audio-wasm",
+                "audio-core, audio-boxes, audio-patch, audio-hash, audio-host, audio-fpenv, audio-wasm",
                 "alloc-counter, audio-battery, audio-testkit",
                 (
                     "visual-core",
@@ -288,7 +288,7 @@ fn keeps_the_library_apart_in_real_cargo_metadata() {
 #[test]
 fn refuses_a_library_that_reaches_outside_itself() {
     let packages = |core: &str| {
-        let others = r#"{"name":"audio-boxes"},{"name":"audio-patch"},{"name":"audio-hash"},{"name":"audio-fpenv"},{"name":"visual-core"},{"name":"visual-boxes"},{"name":"visual-hash"},{"name":"visual-host"},{"name":"visual-wasm"},{"name":"visual-cli"},{"name":"alloc-counter"},{"name":"audio-battery"},{"name":"audio-testkit"},{"name":"visual-testkit"},"#;
+        let others = r#"{"name":"audio-boxes"},{"name":"audio-patch"},{"name":"audio-hash"},{"name":"audio-host"},{"name":"audio-fpenv"},{"name":"visual-core"},{"name":"visual-boxes"},{"name":"visual-hash"},{"name":"visual-host"},{"name":"visual-wasm"},{"name":"visual-cli"},{"name":"alloc-counter"},{"name":"audio-battery"},{"name":"audio-testkit"},{"name":"visual-testkit"},"#;
         format!(
             r#"{{"workspace_root":"/r","packages":[{others}{{"name":"audio-wasm"}},{{"name":"audio-core","dependencies":[{core}]}}]}}"#
         )
@@ -350,6 +350,7 @@ fn refuses_a_library_that_reaches_outside_itself() {
                 "audio-boxes",
                 "audio-patch",
                 "audio-hash",
+                "audio-host",
                 "audio-fpenv",
                 "audio-wasm",
                 "alloc-counter",

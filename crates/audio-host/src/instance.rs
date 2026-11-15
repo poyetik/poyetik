@@ -1,8 +1,10 @@
-//! The state of one WebAssembly module instance, behind the [`crate::ffi`] functions.
+//! The state of one engine instance behind a C interface: what its exported functions
+//! forward to.
 
 #![forbid(unsafe_code)]
 
-use alloc::string::String;
+use alloc::borrow::ToOwned;
+use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use audio_core::host::Raw;
@@ -44,13 +46,13 @@ const fn detector_of(code: u32) -> Option<Detector> {
 /// The report of an instance without an engine: nothing replaced.
 static NOTHING_REPLACED: [u32; 4] = [0; 4];
 
-/// What one module instance holds: the input buffer JavaScript writes into, the loaded
+/// What one engine instance holds: the input buffer its caller writes into, the loaded
 /// engine and the last error message.
 ///
-/// Every method is safe; [`crate::ffi`] only forwards to them.
+/// Every method is safe; a C interface only forwards to them.
 #[derive(Debug)]
 pub struct Instance {
-    /// Bytes written by JavaScript: the patch to load.
+    /// Bytes written by the caller: the patch to load.
     input: Vec<u8>,
     /// The loaded engine, if the last load succeeded.
     engine: Option<Engine>,

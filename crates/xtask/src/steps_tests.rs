@@ -59,10 +59,10 @@ const DEFAULT_PIPELINE: &[&str] = &[
     "Root: cargo test --workspace --locked -- --include-ignored",
     "loaded files gate",
     "fused build",
-    "Root: cargo build --package audio-core --package audio-boxes --package audio-patch --package audio-hash --package visual-core --package visual-boxes --package visual-hash --package visual-host --locked --target aarch64-apple-darwin",
-    "Root: cargo build --package audio-core --package audio-boxes --package audio-patch --package audio-hash --package visual-core --package visual-boxes --package visual-hash --package visual-host --locked --target x86_64-unknown-linux-gnu",
-    "Root: cargo build --package audio-core --package audio-boxes --package audio-patch --package audio-hash --package visual-core --package visual-boxes --package visual-hash --package visual-host --locked --target wasm32-unknown-unknown",
-    "Root: cargo build --package audio-core --package audio-boxes --package audio-patch --package audio-hash --package visual-core --package visual-boxes --package visual-hash --package visual-host --locked --target thumbv7em-none-eabihf",
+    "Root: cargo build --package audio-core --package audio-boxes --package audio-patch --package audio-hash --package audio-host --package visual-core --package visual-boxes --package visual-hash --package visual-host --locked --target aarch64-apple-darwin",
+    "Root: cargo build --package audio-core --package audio-boxes --package audio-patch --package audio-hash --package audio-host --package visual-core --package visual-boxes --package visual-hash --package visual-host --locked --target x86_64-unknown-linux-gnu",
+    "Root: cargo build --package audio-core --package audio-boxes --package audio-patch --package audio-hash --package audio-host --package visual-core --package visual-boxes --package visual-hash --package visual-host --locked --target wasm32-unknown-unknown",
+    "Root: cargo build --package audio-core --package audio-boxes --package audio-patch --package audio-hash --package audio-host --package visual-core --package visual-boxes --package visual-hash --package visual-host --locked --target thumbv7em-none-eabihf",
     "Root: cargo clippy --package audio-fpenv --package audio-cli --all-targets --locked --target aarch64-apple-darwin",
     "Root: cargo clippy --package audio-fpenv --package audio-cli --all-targets --locked --target x86_64-unknown-linux-gnu",
     "Root: cargo build --lib --package audio-fpenv --package audio-cli --locked --target aarch64-apple-darwin",
@@ -73,6 +73,7 @@ const DEFAULT_PIPELINE: &[&str] = &[
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/audio-boxes/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/audio-boxes.json -- --include-ignored",
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/audio-patch/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/audio-patch.json -- --include-ignored",
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/audio-hash/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/audio-hash.json -- --include-ignored",
+    "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/audio-host/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/audio-host.json -- --include-ignored",
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/visual-core/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/visual-core.json -- --include-ignored",
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/visual-boxes/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/visual-boxes.json -- --include-ignored",
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/visual-hash/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/visual-hash.json -- --include-ignored",
@@ -226,6 +227,7 @@ const DEFAULT_CHECK_NAMES: &[&str] = &[
     "Rust coverage of audio-boxes: 100% by its own unit tests",
     "Rust coverage of audio-patch: 100% by its own unit tests",
     "Rust coverage of audio-hash: 100% by its own unit tests",
+    "Rust coverage of audio-host: 100% by its own unit tests",
     "Rust coverage of visual-core: 100% by its own unit tests",
     "Rust coverage of visual-boxes: 100% by its own unit tests",
     "Rust coverage of visual-hash: 100% by its own unit tests",
@@ -626,13 +628,13 @@ fn runs_every_step_and_reports_success() {
         Ok(()),
         "all green"
     );
-    let (tools, emptied, listed, captured, written) = (10, 14, 28, 55, 4);
-    let commands = 78 + 2 * (visual_crates() + visual_binaries()) + 1;
+    let (tools, emptied, listed, captured, written) = (10, 15, 28, 55, 4);
+    let commands = 79 + 2 * (visual_crates() + visual_binaries()) + 1;
     let read = 9
         + 2
         + 13
         + 7
-        + 14
+        + 15
         + 3
         + 7
         + 21
@@ -640,12 +642,12 @@ fn runs_every_step_and_reports_success() {
         + 1
         + 7
         + 3
-        + 12
+        + 13
         + 10
         + 21
         + 8
         + 2
-        + 12
+        + 13
         + 40
         + 20
         + 3
@@ -655,7 +657,7 @@ fn runs_every_step_and_reports_success() {
         + 1
         + 6
         + 3
-        + 91
+        + 93
         + 5
         + conflict_gate_reads()
         + visual_reads()
@@ -688,7 +690,7 @@ fn runs_every_step_and_reports_success() {
         "coverage reports read"
     );
     let text = String::from_utf8(out).expect("utf-8 output");
-    let checks = 114 + visual_steps() + added_package_steps();
+    let checks = 115 + visual_steps() + added_package_steps();
     assert!(
         text.starts_with(&format!("▶ [1/{checks}] Tools and platform\n")),
         "numbered progress: {text}"
@@ -696,7 +698,7 @@ fn runs_every_step_and_reports_success() {
     assert!(
         text.contains(&format!(
             "▶ [{}/{checks}] Roadmap checks: test:e2e\n  done in 1.5 s\n",
-            105 + visual_steps()
+            106 + visual_steps()
         )),
         "the roadmap's step announced: {text}"
     );
@@ -1482,7 +1484,7 @@ fn empties_the_coverage_build_before_every_measurement() {
         .collect();
     assert_eq!(
         measurements.len(),
-        13 + visual_crates() + visual_binaries() + 1,
+        14 + visual_crates() + visual_binaries() + 1,
         "every crate and binary measured, and the locality fixture"
     );
     for index in measurements {

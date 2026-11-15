@@ -1,8 +1,6 @@
 //! Tests of the C interface, at the pointer level: they use `unsafe` under the lifting of
 //! the FFI module that declares them, and run under Miri.
 
-use alloc::vec::Vec;
-
 use audio_boxes::REGISTRY;
 use audio_core::{
     BLOCK_SIZE, Binary32, Binary64, Plan, RenderFormat, Renderer, SampleRate, SubnormalArithmetic,

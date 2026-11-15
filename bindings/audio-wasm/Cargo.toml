@@ -16,6 +16,7 @@ categories = ["multimedia::audio", "wasm"]
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+audio-host = { path = "../../crates/audio-host" }
 audio-core = { path = "../../crates/audio-core" }
 audio-boxes = { path = "../../crates/audio-boxes" }
 audio-patch = { path = "../../crates/audio-patch" }

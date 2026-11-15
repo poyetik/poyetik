@@ -7,6 +7,7 @@ members = [
     "crates/audio-boxes",
     "crates/audio-patch",
     "crates/audio-hash",
+    "crates/audio-host",
     "crates/audio-fpenv",
     "crates/visual-core",
     "crates/visual-boxes",

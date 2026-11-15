@@ -184,13 +184,13 @@ fn the_parts_run_every_step_of_the_full_check_once() {
     assert_eq!(
         steps_run,
         (18 + added_packages()) * 3
-            + (112 + visual_steps() + added_package_steps() - 3 - 7 - 2)
+            + (113 + visual_steps() + added_package_steps() - 3 - 7 - 2)
             + 8 * 2
             + 1
             + 2
             + (6 + added_packages()) * 3
             + 1,
-        "each part's frame (three steps); every other step of the 112 (more with the visual \
+        "each part's frame (three steps); every other step of the 113 (more with the visual \
          library's) once, but the seven \
          preparations, the mutation run and its unviable gate; in each of the eight shards, \
          the report emptied and the shard's run; the gate over the shards; the conformance \

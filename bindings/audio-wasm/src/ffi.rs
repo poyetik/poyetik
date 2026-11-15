@@ -41,7 +41,7 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use audio_core::SubnormalArithmetic;
 
-use crate::Instance;
+use audio_host::Instance;
 
 /// Identity and version of this interface.
 ///
@@ -172,10 +172,10 @@ pub extern "C" fn engine_channels() -> usize {
 }
 
 /// Number of frames per block: the engine block this module is built for
-/// ([`crate::ENGINE_BLOCK`]).
+/// ([`audio_host::ENGINE_BLOCK`]).
 #[unsafe(no_mangle)]
 pub const extern "C" fn engine_block_size() -> usize {
-    crate::ENGINE_BLOCK
+    audio_host::ENGINE_BLOCK
 }
 
 /// Renders the next block and returns the address of its planar samples, in bytes.

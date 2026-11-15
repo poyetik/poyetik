@@ -115,7 +115,7 @@ pub(crate) fn below<'path>(dir: &str, path: &'path str) -> Option<&'path str> {
 
 /// The crates of the Cargo workspace (checked by [`membership_gate`](crate::reviews::membership_gate)): each is measured by
 /// its own unit tests, and each binary by the crate's tests.
-pub const RUST_CRATES: [RustCrate; 18] = [
+pub const RUST_CRATES: [RustCrate; 19] = [
     RustCrate {
         name: "audio-core",
         dir: "crates/audio-core",
@@ -145,6 +145,13 @@ pub const RUST_CRATES: [RustCrate; 18] = [
         dir: "crates/audio-hash",
         binary: false,
         test_data: &["spec/render-hash-vectors.json"],
+        roles: &[CrateRole::Library],
+    },
+    RustCrate {
+        name: "audio-host",
+        dir: "crates/audio-host",
+        binary: false,
+        test_data: &[],
         roles: &[CrateRole::Library],
     },
     RustCrate {
@@ -667,11 +674,12 @@ pub const PORTABILITY_TARGETS: [&str; 4] = [
 
 /// The crates of the engine core and of the visual library's core, built for every one of
 /// [`PORTABILITY_TARGETS`].
-pub const PORTABILITY_PACKAGES: [&str; 8] = [
+pub const PORTABILITY_PACKAGES: [&str; 9] = [
     "audio-core",
     "audio-boxes",
     "audio-patch",
     "audio-hash",
+    "audio-host",
     "visual-core",
     "visual-boxes",
     "visual-hash",

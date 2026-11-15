@@ -2,6 +2,8 @@
 
 #![forbid(unsafe_code)]
 
+use alloc::borrow::ToOwned;
+use alloc::boxed::Box;
 use alloc::vec::Vec;
 
 use audio_boxes::{BuiltIn, REGISTRY};

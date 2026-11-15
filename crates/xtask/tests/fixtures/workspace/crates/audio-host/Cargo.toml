@@ -1,0 +1,13 @@
+[package]
+name = "audio-host"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+audio-core = { path = "../audio-core" }
+audio-boxes = { path = "../audio-boxes" }
+audio-patch = { path = "../audio-patch" }

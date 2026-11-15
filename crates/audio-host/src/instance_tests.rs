@@ -2,6 +2,9 @@
 
 #![forbid(unsafe_code)]
 
+use alloc::boxed::Box;
+use alloc::vec::Vec;
+
 use audio_core::host::Raw;
 use audio_core::{BLOCK_SIZE, RenderFormat};
 
@@ -175,6 +178,27 @@ fn renders_without_a_heap_operation() {
         let _: Blocks<'_, ENGINE_BLOCK> = empty.process();
     });
     assert_eq!(none, Ok(((), 0)), "nothing loaded");
+}
+
+#[test]
+fn reports_what_the_loaded_engine_replaced_or_nothing() {
+    let mut empty = Instance::new();
+    assert!(
+        core::ptr::eq(empty.replaced_report(), super::NOTHING_REPLACED.as_ptr()),
+        "nothing loaded: the four zeros"
+    );
+    assert_eq!(super::NOTHING_REPLACED, [0; 4], "nothing replaced");
+    let mut instance = loaded();
+    let given = instance.replaced_report();
+    let engine = instance.engine.as_mut().expect("an engine loaded");
+    assert!(
+        core::ptr::eq(given, engine.replaced_report()),
+        "the loaded engine's own report"
+    );
+    assert!(
+        !core::ptr::eq(given, super::NOTHING_REPLACED.as_ptr()),
+        "not the empty report"
+    );
 }
 
 #[test]
