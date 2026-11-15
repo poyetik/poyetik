@@ -935,6 +935,79 @@ fn needs_no_reduction_up_to_the_ceiling_and_the_exact_share_above() {
 }
 
 #[test]
+fn needs_everything_taken_away_from_a_peak_beyond_the_format() {
+    // A true peak that overflowed to infinity, from finite samples whose interpolated sum
+    // exceeds the largest value, needs the whole signal taken away, never none.
+    assert_eq!(
+        super::reduction_needed(super::Binary64(f64::INFINITY), super::Binary64(0.75_f64)),
+        super::Binary64(1.0_f64),
+        "in binary64"
+    );
+    assert_eq!(
+        super::reduction_needed(super::Binary32(f32::INFINITY), super::Binary32(0.75_f32)),
+        super::Binary32(1.0_f32),
+        "in binary32"
+    );
+}
+
+/// The true-peak estimate of a window of the largest finite samples of `S`, `largest`
+/// and `negative`, signed as the taps of the interpolator's first phase (or against
+/// them, `flip`): that phase's sum overflows, to an infinity of either sign.
+fn estimates_an_overflowing_phase_as_infinite<S: Sample>(largest: S, negative: S) {
+    let filter = filter::<S>();
+    for flip in [false, true] {
+        let window: [S; super::TRUE_PEAK_TAPS] = core::array::from_fn(|tap| {
+            if (filter[tap] >= S::ZERO) == flip {
+                negative
+            } else {
+                largest
+            }
+        });
+        let estimate = super::true_peak(&window, &filter, super::TRUE_PEAK_TAPS);
+        assert!(
+            !estimate.is_finite() && estimate > S::ZERO,
+            "an overflowing sum is an infinite peak, flipped {flip}"
+        );
+    }
+}
+
+/// The true-peak estimate of a phase of four unit taps over `[largest, negative, largest,
+/// negative]`: the reduction order adds the first and third terms, then the second and
+/// fourth, which overflow to opposite infinities, whose sum is NaN.
+fn estimates_a_phase_overflowing_both_ways_as_infinite<S: Sample>(largest: S, negative: S) {
+    let one = S::from_binary64(super::Binary64(1.0_f64));
+    let estimate = super::true_peak(&[largest, negative, largest, negative], &[one; 4], 4);
+    assert!(
+        !estimate.is_finite() && estimate > S::ZERO,
+        "an infinite peak, never one a NaN sum leaves out"
+    );
+}
+
+#[test]
+fn estimates_a_phase_overflowing_both_ways_as_infinite_in_each_precision() {
+    estimates_a_phase_overflowing_both_ways_as_infinite(
+        super::Binary64(f64::MAX),
+        super::Binary64(f64::MIN),
+    );
+    estimates_a_phase_overflowing_both_ways_as_infinite(
+        super::Binary32(f32::MAX),
+        super::Binary32(f32::MIN),
+    );
+}
+
+#[test]
+fn estimates_an_overflowing_phase_as_infinite_in_each_precision() {
+    estimates_an_overflowing_phase_as_infinite(
+        super::Binary64(f64::MAX),
+        super::Binary64(f64::MIN),
+    );
+    estimates_an_overflowing_phase_as_infinite(
+        super::Binary32(f32::MAX),
+        super::Binary32(f32::MIN),
+    );
+}
+
+#[test]
 fn decays_approaches_shares_and_complements_reductions() {
     assert_eq!(
         super::decayed(super::Binary64(0.5_f64), super::Binary64(0.5_f64)),

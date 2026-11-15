@@ -923,6 +923,7 @@ fn larger<S: Sample>(first: S, second: S) -> S {
 /// multiplying the newest sample), summed in the reduction order ([`ordered_sum`]).
 ///
 /// Every sample of `window` is finite: the output stage replaces a non-finite one first.
+/// A phase's sum can still overflow; it is then an infinite peak.
 #[expect(
     clippy::arithmetic_side_effects,
     reason = "IEEE 754 products of the sample type, which neither overflow into a panic nor panic"
@@ -936,20 +937,32 @@ pub(crate) fn true_peak<S: Sample>(window: &[S], filter: &[S], taps: usize) -> S
         .fold(S::ZERO, |peak, sample| larger(peak, magnitude(*sample)));
     filter.chunks_exact(taps).fold(ends, |peak, phase| {
         let value = ordered_sum(phase.iter().zip(window).map(|(tap, sample)| *tap * *sample));
-        larger(peak, magnitude(value))
+        // A sum that overflowed is beyond the format: an infinity, or NaN from both, which a
+        // comparison would drop. Either counts as an infinite peak.
+        if value.is_finite() {
+            larger(peak, magnitude(value))
+        } else {
+            S::from_binary64(Binary64(f64::INFINITY))
+        }
     })
 }
 
 /// The gain reduction a true peak `peak` needs to stay at `ceiling` (positive): the share
 /// of the signal to take away, `(peak - ceiling) / peak` above the ceiling, and exactly +0
 /// at or below it, by one formula, `max(+0, (peak - ceiling) / max(peak, ceiling))`, whose
-/// divisor is never below the ceiling.
+/// divisor is never below the ceiling; and all of it, exactly 1, for an infinite peak (an
+/// estimate that overflowed, [`true_peak`]), whose share the formula would make NaN.
 #[expect(
     clippy::arithmetic_side_effects,
-    reason = "IEEE 754 difference and quotient of finite samples, the divisor at least the positive ceiling"
+    reason = "IEEE 754 difference and quotient of a peak and the positive ceiling, the divisor at least the ceiling"
 )]
 pub(crate) fn reduction_needed<S: Sample>(peak: S, ceiling: S) -> S {
-    larger(S::ZERO, (peak - ceiling) / larger(peak, ceiling))
+    let share = (peak - ceiling) / larger(peak, ceiling);
+    if share.is_finite() {
+        larger(S::ZERO, share)
+    } else {
+        S::from_binary64(Binary64::ONE)
+    }
 }
 
 /// The reduction `reduction` kept for one more frame: `reduction × keep` (`keep` below 1),
