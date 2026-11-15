@@ -280,9 +280,11 @@ fn names_the_case_it_cannot_render() {
         ))),
         "a file past the limit"
     );
-    assert!(
-        failed(&mut memory, "bad.json")
-            .is_err_and(|error| error.to_string().starts_with("bad.json: ")),
+    assert_eq!(
+        failed(&mut memory, "bad.json"),
+        Err(CliError::Failed(
+            "bad.json: missing field `width` at line 1 column 16".to_owned()
+        )),
         "an invalid case, named"
     );
     assert_eq!(
@@ -494,10 +496,11 @@ fn refuses_a_corpus_it_cannot_read_whole() {
             .files
             .insert(PathBuf::from("d/cases/broken.json"), b"{}".to_vec()),
     );
-    assert!(
-        run_with(&mut broken, &["check", "d"])
-            .0
-            .is_err_and(|error| error.to_string().starts_with("d/cases/broken.json: ")),
+    assert_eq!(
+        run_with(&mut broken, &["check", "d"]).0,
+        Err(CliError::Failed(
+            "d/cases/broken.json: missing field `rate` at line 1 column 2".to_owned()
+        )),
         "an invalid case, named"
     );
 }

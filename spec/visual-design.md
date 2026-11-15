@@ -74,7 +74,7 @@ This first version covers boxes with no image input (generators). Inputs, and tr
 - left edge: `⌊r × max(W − s, 0) / (p a)⌋`;
 - top edge: `⌊(H − s) / 2⌋`.
 
-A square wider than the image does not move and is clipped on the right. Its trace answers shape 0 inside the square (edges half-open, like pixels) and the background elsewhere.
+Within a cycle the left edge advances by `⌊max(W − s, 0) × q b / (p a)⌋` subpixel units or one more from one image to the next; it never reaches `W − s`, since `r < p a`: the last image of a cycle stops short of it, and the next cycle starts again at the left edge. A square wider than the image does not move and is clipped on the right. Its trace answers shape 0 inside the square (edges half-open, like pixels) and the background elsewhere.
 
 **Why.** The smallest shape that tests everything: exact coverage at every subpixel position, exact time, random access. It will follow the phase of an audio oscillator through the layer above both libraries (#35 step 3).
 

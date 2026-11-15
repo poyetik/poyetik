@@ -59,16 +59,30 @@ fn rejects_unreduced_out_of_range_or_undefined_rates() {
 
 #[test]
 fn accepts_the_edges_of_the_range() {
-    assert!(ImageRate::new(1000, 1).is_ok(), "1000 per second");
-    assert!(ImageRate::new(1999, 2).is_ok(), "just under 1000");
-    assert!(
-        ImageRate::new(1001, 1001).is_err(),
+    for (numerator, denominator, what) in [
+        (1000, 1, "1000 per second"),
+        (1999, 2, "just under 1000"),
+        (1002, 1001, "just over 1 per second"),
+        (
+            u32::MAX,
+            u32::MAX - 1,
+            "largest terms, just over 1 per second",
+        ),
+    ] {
+        assert_eq!(
+            ImageRate::new(numerator, denominator)
+                .map(|rate| (rate.numerator(), rate.denominator())),
+            Ok((numerator, denominator)),
+            "{what}"
+        );
+    }
+    assert_eq!(
+        ImageRate::new(1001, 1001),
+        Err(VisualError::InvalidImageRate {
+            numerator: 1001,
+            denominator: 1001
+        }),
         "1 per second, unreduced"
-    );
-    assert!(ImageRate::new(1002, 1001).is_ok(), "just over 1 per second");
-    assert!(
-        ImageRate::new(u32::MAX, u32::MAX - 1).is_ok(),
-        "largest terms, just over 1 per second"
     );
 }
 

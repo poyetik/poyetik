@@ -136,6 +136,18 @@ The oracle (`tooling/oracle`) measures every channel of every conformance render
 - `sine_error_bounds`: `(format, amplitude, frames)` and the error bound of a sine box per sample in that render format: with `m = |amplitude|`, `e = ⌈log2 m⌉` and `acc = 2π·frames·2^-52 + 2^-48`, `2^(max(e, -968) - 54) + m·acc` in `binary64` (values below 2^-1022 flushed), `2^(max(e, -101) - 25) + m·acc` in `binary64-as-binary32` (values rounding below 2^-126 flushed at delivery, `engine-design.md` decision 11), `2^(max(e, -101) - 25) + m·(2^-22 + 2^-25 + 2^-33 + acc)` in `binary32` (the sine's own rounding to binary32, `m·2^-25`, comes before any gain, whose product is rounded again; values below 2^-126 flushed), for an amplitude exact in binary32 only (a gain that itself rounds to binary32 adds `2^(e - 25)` more, which the first box with such a gain derives and adds; every `binary32` vector, and every amplitude the oracle accepts, is exact in binary32); 0 for silence.
 - `sine_bounds`: inputs of the bounds above and their expected values, computed independently.
 
+## Images
+
+The visual library's boxes are measured against the same bar (`spec/visual-design.md`). The square is in the exact tier: its CPU reference renderer computes every pixel in integers, so its measurements are bit equalities, with no tolerance to derive.
+
+| Measurement | How | Threshold |
+|---|---|---|
+| Coverage | Every pixel of every image of a whole cycle, and far in time, against its coverage computed independently from `spec/visual-design.md` (sections 4 and 6) in 128-bit integers (`renders_every_pixel_as_its_exact_reference`, `crates/visual-boxes`) | Equal bits |
+| Area | The values of an image sum to the square's area, wherever it is | Equal, in `f64` (exact below 2⁵³) |
+| Motion | The left edge, read from the pixels, advances by `⌊(W − s) q b / (p a)⌋` subpixel units or one more each image, and starts each cycle at the left edge | Exact |
+
+Perceptual measurements (aliasing of moving edges, flicker, banding once images are quantized) and the GPU renderer's distance to this reference come with the visual measurements of the test kit (#35 step 7) and the GPU (#34 step 5); `spec/limitations.md` lists what is not measured yet.
+
 ## How to add measurements for a new box or engine component
 
 1. **Say what it must be.** Write the ideal signal it should produce for a test input (a sine, a filtered sine, a delayed copy, a ramp…), with its exact parameters.
