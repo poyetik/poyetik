@@ -47,7 +47,7 @@ fn matches_the_shared_json_matrix() {
     let json: serde_json::Value =
         serde_json::from_str(include_str!("../../../conformance/visual/test-matrix.json"))
             .expect("valid JSON");
-    let keys: Vec<&String> = json.as_object().expect("an object").keys().collect();
+    let keys: Vec<&String> = json.as_object().expect("a JSON object").keys().collect();
     assert_eq!(
         keys,
         ["image_indices", "image_rates", "image_sizes"],

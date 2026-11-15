@@ -22,7 +22,7 @@ pub const MAX_IMAGES: u64 = 10_000;
 /// 20 ns a pixel), a few minutes unoptimized, whatever its file says.
 pub const MAX_RENDERED_PIXELS: u64 = 1 << 28;
 
-/// Reads a JSON object, and only an object, as `T`: serde's derived structs also accept a
+/// Reads a JSON object as `T`, and nothing else: serde's derived structs also accept a
 /// JSON array of their fields in order, which a case file must not be.
 fn object<'de, D: Deserializer<'de>, T: Deserialize<'de>>(deserializer: D) -> Result<T, D::Error> {
     /// Visits a map only.
