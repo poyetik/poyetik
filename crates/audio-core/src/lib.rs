@@ -34,6 +34,7 @@ mod patch;
 mod plan;
 mod rate;
 mod render;
+mod settings;
 mod subnormals;
 
 pub use block::{BLOCK_SIZE, Block, MAX_ENGINE_BLOCK, NAMED_ENGINE_BLOCK, built_for};
@@ -52,6 +53,7 @@ pub use patch::{Connection, Node, NodeId, Patch};
 pub use plan::Plan;
 pub use rate::SampleRate;
 pub use render::Renderer;
+pub use settings::{AppliedSettings, Direction, HostSettings, MAX_CHANNELS, Unhonored};
 pub use subnormals::{SubnormalArithmetic, SubnormalsKept};
 
 #[cfg(test)]

@@ -86,6 +86,13 @@ fn describes_every_error() {
             "cycle without delay: boxes in it or after it: box 1, box 9",
         ),
         (
+            CoreError::TooManyChannels {
+                direction: crate::Direction::Inputs,
+                count: 513,
+            },
+            "too many input channels: 513 (at most 512)",
+        ),
+        (
             CoreError::Unbuilt {
                 node: NodeId(4),
                 kind: String::from("osc~"),
