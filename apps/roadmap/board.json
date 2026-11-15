@@ -1422,7 +1422,7 @@
           "done": false
         },
         {
-          "title": "Playground: the square moving live next to the oscilloscope, first drawn by the CPU reference in WebAssembly, the playground loading one module that links the audio and visual libraries, never one per library, then in WebGPU; end-to-end tests on the browsers; then the end of this block (steps 5 and 6): a deep review, its decided fixes, and a pull request whose full check is green",
+          "title": "Playground: the square moving live next to the oscilloscope, first drawn by the CPU reference in WebAssembly, the playground loading one module that links the audio and visual libraries, never one per library, rendering into a buffer the page owns (no copy of the image per frame drawn) through a package built to JavaScript with its types, then in WebGPU; end-to-end tests on the browsers; then the end of this block (steps 5 and 6): a deep review, its decided fixes, and a pull request whose full check is green",
           "done": false
         },
         {
