@@ -1,25 +1,48 @@
 //! The contract every visual box implements.
 
-use crate::{Image, ImageIndex};
+use crate::{Image, ImageIndex, ImageSize};
 
-/// A point of an image, in subpixel units from its top left corner.
+/// A point of an image of a given size, in subpixel units from its top left corner, always
+/// inside it: built by [`ImageSize::point`] only.
 ///
 /// [`crate::SUBPIXELS`] units per pixel, `x` to the right, `y` down. The pixel `(i, j)` covers
 /// `[i × SUBPIXELS, (i + 1) × SUBPIXELS) × [j × SUBPIXELS, (j + 1) × SUBPIXELS)`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SubpixelPoint {
-    /// From the left edge.
-    pub x: u64,
-    /// From the top edge.
-    pub y: u64,
+    /// The size of the image the point is in.
+    pub(crate) size: ImageSize,
+    /// From the left edge, below width × `SUBPIXELS`.
+    pub(crate) x: u64,
+    /// From the top edge, below height × `SUBPIXELS`.
+    pub(crate) y: u64,
+}
+
+impl SubpixelPoint {
+    /// The size of the image the point is in.
+    #[must_use]
+    pub const fn size(self) -> ImageSize {
+        self.size
+    }
+
+    /// From the left edge, in subpixel units: below width × [`crate::SUBPIXELS`].
+    #[must_use]
+    pub const fn x(self) -> u64 {
+        self.x
+    }
+
+    /// From the top edge, in subpixel units: below height × [`crate::SUBPIXELS`].
+    #[must_use]
+    pub const fn y(self) -> u64 {
+        self.y
+    }
 }
 
 /// What produced a point of a box's output: the answer of [`VisualBox::trace`], with
 /// which a gesture on the output finds what it touched (picking).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Trace {
-    /// The box does not declare it: a gesture cannot be traced through this box, and
-    /// the editor reports it.
+    /// The box does not declare it: a gesture cannot be traced through this box, and a
+    /// caller can report it (the editor, #35 step 4).
     NotDeclared,
     /// Nothing the box draws: the background.
     Background,
@@ -39,12 +62,14 @@ pub trait VisualBox: Send + core::fmt::Debug {
     /// gives the same bits. Must not allocate or free memory, lock or block.
     fn render(&mut self, index: ImageIndex, output: &mut Image);
 
-    /// What produced `point` of image `index`, for an output of `output`'s size: the
+    /// What produced `point` of image `index`, for an output of the point's size: the
     /// optional mapping from output points back to what produced them. Exact, computed
-    /// on the CPU only when a gesture asks, so it costs nothing otherwise.
+    /// on the CPU only when a gesture asks, so it costs nothing otherwise, and needing no
+    /// image: only its size, which the point carries. A point is always inside its image
+    /// ([`ImageSize::point`]).
     ///
     /// A box that does not implement it answers [`Trace::NotDeclared`].
-    fn trace(&self, _index: ImageIndex, _output: &Image, _point: SubpixelPoint) -> Trace {
+    fn trace(&self, _index: ImageIndex, _point: SubpixelPoint) -> Trace {
         Trace::NotDeclared
     }
 }

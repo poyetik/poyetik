@@ -22,8 +22,8 @@ impl VisualBox for Good {
         }
     }
 
-    fn trace(&self, index: ImageIndex, _output: &Image, point: SubpixelPoint) -> Trace {
-        if point.x > point.y {
+    fn trace(&self, index: ImageIndex, point: SubpixelPoint) -> Trace {
+        if point.x() > point.y() {
             Trace::Shape(u32::try_from(index.0 % 5).unwrap_or(0))
         } else {
             Trace::Background
@@ -76,8 +76,6 @@ enum Fault {
     NotANumberWhenTallest,
     /// Its trace depends on how many times it traced, at the last subpixel of the image only.
     ImpureTraceAtTheLastSubpixel,
-    /// Its trace depends on how many times it traced, at the point past the image only.
-    ImpureTraceOutside,
 }
 
 /// A box with one fault, otherwise like [`Good`].
@@ -130,8 +128,7 @@ impl Faulty {
             | Fault::TraceAfterSixImages
             | Fault::AllocatesSeekingBack
             | Fault::SkipsARepeat
-            | Fault::ImpureTraceAtTheLastSubpixel
-            | Fault::ImpureTraceOutside => false,
+            | Fault::ImpureTraceAtTheLastSubpixel => false,
         };
         Some(odd)
     }
@@ -166,8 +163,7 @@ impl VisualBox for Faulty {
             | Fault::NotANumberAtTheHighestRate
             | Fault::NotANumberWhenWidest
             | Fault::NotANumberWhenTallest
-            | Fault::ImpureTraceAtTheLastSubpixel
-            | Fault::ImpureTraceOutside => 0,
+            | Fault::ImpureTraceAtTheLastSubpixel => 0,
         };
         let first = output
             .rows_mut()
@@ -196,8 +192,7 @@ impl VisualBox for Faulty {
             | Fault::NotANumberAtTheHighestRate
             | Fault::NotANumberWhenWidest
             | Fault::NotANumberWhenTallest
-            | Fault::ImpureTraceAtTheLastSubpixel
-            | Fault::ImpureTraceOutside => None,
+            | Fault::ImpureTraceAtTheLastSubpixel => None,
         };
         if let (Some(value), Some(slot)) = (changed, first) {
             *slot = value;
@@ -220,8 +215,7 @@ impl VisualBox for Faulty {
             | Fault::NotANumberAtTheHighestRate
             | Fault::NotANumberWhenWidest
             | Fault::NotANumberWhenTallest
-            | Fault::ImpureTraceAtTheLastSubpixel
-            | Fault::ImpureTraceOutside => None,
+            | Fault::ImpureTraceAtTheLastSubpixel => None,
         };
         if let Some(value) = alpha
             && let Some(slot) = output.rows_mut().last().and_then(|row| row.last_mut())
@@ -230,43 +224,32 @@ impl VisualBox for Faulty {
         }
     }
 
-    fn trace(&self, index: ImageIndex, output: &Image, point: SubpixelPoint) -> Trace {
+    fn trace(&self, index: ImageIndex, point: SubpixelPoint) -> Trace {
         let count = self.traced.fetch_add(1, Ordering::Relaxed);
         match self.fault {
             Fault::ImpureTrace => Trace::Shape(count),
             Fault::ImpureTraceAtCenter => {
                 let unit = u64::from(visual_core::SUBPIXELS);
-                let size = output.size();
-                let center = SubpixelPoint {
-                    x: u64::from(size.width()).saturating_mul(unit) / 2,
-                    y: u64::from(size.height()).saturating_mul(unit) / 2,
-                };
-                if point == center {
+                let size = point.size();
+                let center = size.point(
+                    u64::from(size.width()).saturating_mul(unit) / 2,
+                    u64::from(size.height()).saturating_mul(unit) / 2,
+                );
+                if Some(point) == center {
                     Trace::Shape(count)
                 } else {
-                    self.good.trace(index, output, point)
+                    self.good.trace(index, point)
                 }
             }
-            Fault::ImpureTraceAtTheLastSubpixel | Fault::ImpureTraceOutside => {
+            Fault::ImpureTraceAtTheLastSubpixel => {
                 let unit = u64::from(visual_core::SUBPIXELS);
-                let size = output.size();
+                let size = point.size();
                 let right = u64::from(size.width()).saturating_mul(unit);
                 let bottom = u64::from(size.height()).saturating_mul(unit);
-                let at = if self.fault == Fault::ImpureTraceOutside {
-                    SubpixelPoint {
-                        x: right,
-                        y: bottom,
-                    }
-                } else {
-                    SubpixelPoint {
-                        x: right.saturating_sub(1),
-                        y: bottom.saturating_sub(1),
-                    }
-                };
-                if point == at {
+                if Some(point) == size.point(right.saturating_sub(1), bottom.saturating_sub(1)) {
                     Trace::Shape(count)
                 } else {
-                    self.good.trace(index, output, point)
+                    self.good.trace(index, point)
                 }
             }
             Fault::TraceAfterRendering => Trace::Shape(u32::from(self.rendered > 0)),
@@ -283,7 +266,7 @@ impl VisualBox for Faulty {
             | Fault::SkipsARepeat
             | Fault::NotANumberAtTheHighestRate
             | Fault::NotANumberWhenWidest
-            | Fault::NotANumberWhenTallest => self.good.trace(index, output, point),
+            | Fault::NotANumberWhenTallest => self.good.trace(index, point),
         }
     }
 }
@@ -393,10 +376,6 @@ fn catches_each_broken_law() {
         (
             Fault::ImpureTraceAtTheLastSubpixel,
             "pure trace: (4095, 4095) traces differently at rate 1/1, size 1x1, image 18446744073709551615",
-        ),
-        (
-            Fault::ImpureTraceOutside,
-            "pure trace: (4096, 4096) traces differently at rate 1/1, size 1x1, image 18446744073709551615",
         ),
     ] {
         assert_eq!(verdict(fault), Err(law.to_owned()), "{fault:?}");

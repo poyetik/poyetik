@@ -21,8 +21,9 @@ use visual_core::{
     ColorEncoding, Image, ImageRange, ImageRate, ImageSize, VisualBox, render_sequence,
 };
 
-/// Identifies the hashing scheme; changes whenever the hashed bytes change.
-const TAG: &[u8] = b"image-hash/1";
+/// The name and version of the hashing scheme, `image-hash/1`: a new version whenever the
+/// hashed bytes change, the first bytes hashed, so that hashes of two schemes never match.
+pub const SCHEME: &str = "image-hash/1";
 
 /// The SHA-256 hash of a sequence of images, shown as 64 lowercase hexadecimal digits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -87,7 +88,7 @@ impl ImageHasher {
             ColorEncoding::LinearRec709Rgba32F => 1,
         };
         let mut hasher = Sha256::new();
-        hasher.update(TAG);
+        hasher.update(SCHEME.as_bytes());
         hasher.update(rate.numerator().to_le_bytes());
         hasher.update(rate.denominator().to_le_bytes());
         hasher.update(size.width().to_le_bytes());
@@ -138,8 +139,14 @@ impl ImageHasher {
     }
 }
 
-/// Renders the images of `range` of `visual` into `image`, at `rate`, and returns the image
-/// hash of the sequence (`spec/image-hash.md`).
+/// Renders the images of `range` of `visual` into `image` and returns the image hash of the
+/// sequence (`spec/image-hash.md`), whose header records `rate`.
+///
+/// The box renders at the rate it was made for: `rate` is only what the hash records, and
+/// the caller passes that same rate (a hash of images recorded at another rate than they
+/// were rendered at is a hash of other images). Whether the box's own rate can be read
+/// back, making this argument unnecessary, is a question of the visual engine's design
+/// (#35 step 2).
 ///
 /// Every image of the sequence is `image` itself, rendered again, so each has the size and
 /// encoding the hash starts with: no image can be refused, by construction, where

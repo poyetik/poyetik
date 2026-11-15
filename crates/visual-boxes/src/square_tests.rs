@@ -2,9 +2,7 @@ extern crate alloc;
 
 use alloc::vec::Vec;
 
-use visual_core::{
-    Image, ImageIndex, ImageRate, ImageSize, SUBPIXELS, Seconds, SubpixelPoint, Trace, VisualBox,
-};
+use visual_core::{Image, ImageIndex, ImageRate, ImageSize, SUBPIXELS, Seconds, Trace, VisualBox};
 use visual_testkit::heap_operations_during;
 
 use super::Square;
@@ -271,7 +269,8 @@ fn never_allocates_while_rendering() {
 fn traces_a_point_to_the_square_or_the_background() {
     // Image 0 of the 4 x 2 case: the square spans [0, 4096) x [2048, 6144).
     let visual = square(per_second(), Square::FULL_SIDE / 2, (4, 1));
-    let image = Image::new(ImageSize::new(4, 2).expect("a valid size"));
+    let size = ImageSize::new(4, 2).expect("a valid size");
+    let at = |x, y| size.point(x, y).expect("inside the image");
     for (x, y, trace) in [
         (0, 2048, Trace::Shape(0)),
         (4095, 6143, Trace::Shape(0)),
@@ -279,27 +278,31 @@ fn traces_a_point_to_the_square_or_the_background() {
         (0, 6144, Trace::Background),
         (0, 2047, Trace::Background),
         (10_000, 4000, Trace::Background),
-        (u64::MAX, u64::MAX, Trace::Background),
+        (16_383, 8191, Trace::Background),
     ] {
-        assert_eq!(
-            visual.trace(ImageIndex(0), &image, SubpixelPoint { x, y }),
-            trace,
-            "({x}, {y})"
-        );
+        assert_eq!(visual.trace(ImageIndex(0), at(x, y)), trace, "({x}, {y})");
     }
     // Image 1: the square moved 3/4 pixel to the right.
-    let moved = SubpixelPoint { x: 3071, y: 4000 };
     assert_eq!(
-        visual.trace(ImageIndex(1), &image, moved),
+        visual.trace(ImageIndex(1), at(3071, 4000)),
         Trace::Background,
         "left of it"
     );
-    let inside = SubpixelPoint { x: 3072, y: 4000 };
     assert_eq!(
-        visual.trace(ImageIndex(1), &image, inside),
+        visual.trace(ImageIndex(1), at(3072, 4000)),
         Trace::Shape(0),
         "its edge"
     );
+    // A square wider than the image is clipped: every point of the image is on it.
+    let wide = square(per_second(), Square::FULL_SIDE, (4, 1));
+    let narrow = ImageSize::new(1, 4).expect("a valid size");
+    for (x, y) in [(0, 0), (4095, 16_383)] {
+        assert_eq!(
+            wide.trace(ImageIndex(3), narrow.point(x, y).expect("inside")),
+            Trace::Shape(0),
+            "({x}, {y}) of a clipped square"
+        );
+    }
 }
 
 #[test]
@@ -312,17 +315,20 @@ fn traces_what_it_draws() {
     for (pixel, red) in reds(&image).iter().enumerate() {
         let column = u64::try_from(pixel % 4).expect("small");
         let row = u64::try_from(pixel / 4).expect("small");
-        let center = SubpixelPoint {
-            x: column * u64::from(SUBPIXELS) + half,
-            y: row * u64::from(SUBPIXELS) + half,
-        };
+        let center = image
+            .size()
+            .point(
+                column * u64::from(SUBPIXELS) + half,
+                row * u64::from(SUBPIXELS) + half,
+            )
+            .expect("inside");
         let expected = if red.to_bits() == 1.0_f32.to_bits() {
             Trace::Shape(0)
         } else {
             Trace::Background
         };
         assert_eq!(
-            visual.trace(ImageIndex(0), &image, center),
+            visual.trace(ImageIndex(0), center),
             expected,
             "pixel {pixel}"
         );
@@ -429,6 +435,51 @@ fn renders_every_pixel_as_its_exact_reference() {
                             f64::from(red).to_bits(),
                             expected.to_bits(),
                             "{width}x{height}, side {side}, image {index}, pixel {at}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn renders_every_pixel_as_its_exact_reference_at_the_extreme_terms() {
+    // The regime where the position within a cycle times the travel passes 2^64: rate and
+    // cycle terms of 32 bits (those of `square-last-images-at-extreme-terms`), indices up
+    // to the largest, and the widest row, whose travel is near 2^26 subpixel units; the
+    // smaller terms of the matrix's largest rate too. Every pixel equals its reference.
+    let scale = f64::from(1_u32 << 24_u32).recip();
+    for (rate, cycle) in [
+        ((4_294_967_291, 4_294_968), (4_294_967_295, 4_294_967_291)),
+        ((30_000, 1001), (4_294_967_295, 1)),
+        ((1, 1), (4_294_967_295, 1)),
+    ] {
+        for (width, height) in [(ImageSize::MAX_SIDE, 1), (64, 36), (5, 3)] {
+            for side in [1, 30_000, Square::FULL_SIDE] {
+                let mut visual = square(
+                    ImageRate::new(rate.0, rate.1).expect("a valid rate"),
+                    side,
+                    cycle,
+                );
+                for index in [0, 1, 1 << 40_u32, u64::MAX - 47, u64::MAX - 1, u64::MAX] {
+                    let image = rendered(&mut visual, index, width, height);
+                    for (at, &red) in reds(&image).iter().enumerate() {
+                        let at = u32::try_from(at).expect("small");
+                        let coverage = reference_coverage(
+                            rate,
+                            side,
+                            cycle,
+                            index,
+                            (width, height),
+                            (at % width, at / width),
+                        );
+                        let expected =
+                            f64::from(u32::try_from(coverage).expect("at most 2^24")) * scale;
+                        assert_eq!(
+                            f64::from(red).to_bits(),
+                            expected.to_bits(),
+                            "{rate:?} {cycle:?} {width}x{height}, side {side}, image {index}, pixel {at}"
                         );
                     }
                 }

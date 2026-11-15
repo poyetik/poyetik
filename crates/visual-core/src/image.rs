@@ -3,7 +3,7 @@
 use alloc::vec;
 use alloc::vec::Vec;
 
-use crate::VisualError;
+use crate::{SUBPIXELS, SubpixelPoint, VisualError};
 
 /// The size of an image in pixels, each side from 1 to [`ImageSize::MAX_SIDE`], and at most
 /// [`ImageSize::MAX_PIXELS`] pixels in all.
@@ -62,6 +62,18 @@ impl ImageSize {
     #[must_use]
     pub fn pixels(self) -> u64 {
         u64::from(self.width).saturating_mul(u64::from(self.height))
+    }
+
+    /// The point `x`, `y` subpixel units from the top left corner of an image of this
+    /// size; `None` when it is outside the image (`x` at least width × [`SUBPIXELS`], or
+    /// `y` at least height × [`SUBPIXELS`]): what a box traces is always a point of its
+    /// output.
+    #[must_use]
+    pub fn point(self, x: u64, y: u64) -> Option<SubpixelPoint> {
+        let unit = u64::from(SUBPIXELS);
+        (x < u64::from(self.width).saturating_mul(unit)
+            && y < u64::from(self.height).saturating_mul(unit))
+        .then_some(SubpixelPoint { size: self, x, y })
     }
 }
 

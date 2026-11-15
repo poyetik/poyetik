@@ -93,7 +93,11 @@ fn requires_each_forbid_as_a_leading_inner_attribute_of_its_file() {
             "{text}: {found:?}"
         );
     }
-    for (path, attribute) in [(crate::BOX_ROOT, float), (module, arithmetic)] {
+    for (path, attribute) in [
+        (crate::BOX_ROOT, float),
+        (crate::VISUAL_BOX_ROOT, float),
+        (module, arithmetic),
+    ] {
         for text in misplaced(attribute) {
             let found = math_site(path, &text);
             assert!(
@@ -179,9 +183,18 @@ fn refuses_libm_outside_the_math_layer_and_the_measurements() {
         crate::MATH_LAYER_SOURCES,
         [
             format!("{}*.rs", crate::BOX_CODE),
-            format!("{}*.rs", crate::ENGINE_CODE)
+            format!("{}*.rs", crate::ENGINE_CODE),
+            crate::VISUAL_BOX_ROOT.to_owned()
         ],
-        "the pathspecs of the box and engine directories"
+        "the pathspecs of the box and engine directories, and the visual boxes' root"
+    );
+    assert_eq!(
+        crate::BOX_ROOTS,
+        [
+            "crates/audio-boxes/src/lib.rs",
+            "crates/visual-boxes/src/lib.rs"
+        ],
+        "the roots of both libraries' box crates"
     );
 }
 
@@ -451,6 +464,25 @@ fn requires_the_compiler_to_refuse_float_and_generic_arithmetic() {
         ]),
         Ok(()),
         "each forbid where it belongs, the root and the math layer apart"
+    );
+    assert_eq!(
+        gate(&[(
+            crate::VISUAL_BOX_ROOT,
+            &format!("#![no_std]\n{float}\nfn f() -> f32 {{ 1.0f32 + libm::sinf(0.5) }}\n")
+        )]),
+        Ok(()),
+        "the visual box root: its forbid alone is read, the audio rules are not its own"
+    );
+    assert_eq!(
+        gate(&[(
+            crate::VISUAL_BOX_ROOT,
+            "#![no_std]\n#![forbid(clippy::float_arithmetic)]\n"
+        )]),
+        failed(format!(
+            "{MATH_LAYER}: {} does not hold `{float}`",
+            crate::VISUAL_BOX_ROOT
+        )),
+        "the visual box root without its exact line"
     );
     assert_eq!(
         gate(&[(

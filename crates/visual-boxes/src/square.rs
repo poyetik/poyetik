@@ -109,11 +109,11 @@ impl VisualBox for Square {
         }
     }
 
-    fn trace(&self, index: ImageIndex, output: &Image, point: SubpixelPoint) -> Trace {
-        let size = output.size();
+    fn trace(&self, index: ImageIndex, point: SubpixelPoint) -> Trace {
+        let size = point.size();
         let placed = self.place(index, size.width(), size.height());
-        if (placed.left..placed.right).contains(&point.x)
-            && (placed.top..placed.bottom).contains(&point.y)
+        if (placed.left..placed.right).contains(&point.x())
+            && (placed.top..placed.bottom).contains(&point.y())
         {
             Trace::Shape(0)
         } else {
