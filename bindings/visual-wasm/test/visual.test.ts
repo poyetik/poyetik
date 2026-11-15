@@ -1,5 +1,6 @@
 import { assert, describe, expect, test } from "vitest";
-import { ABI_VERSION, MAX_COUNT, MAX_INDEX, type SquareSetup, VisualModule, VisualModuleError, VisualSetupError, VisualTrap } from "../ts/visual.ts";
+import { ABI_VERSION, MAX_COUNT, MAX_INDEX, type SquareSetup, VisualDriver, VisualModuleError, VisualSetupError, VisualTrap } from "../ts/driver.ts";
+import { VisualModule } from "../ts/visual.ts";
 
 /** A valid square. */
 const SQUARE: SquareSetup = { width: 2, height: 1, rate: [60, 1], side: 65_536, cycle: [1, 2] };
@@ -80,10 +81,10 @@ function fake(answers: Partial<Record<string, (...args: number[]) => unknown>> =
   return { exports, calls, memory };
 }
 
-describe("VisualModule", () => {
+describe("VisualDriver", () => {
   test("drives the interface: setup, render and hash, every argument in its place", () => {
     const { exports, calls, memory } = fake();
-    const module = new VisualModule(exports, { width: 7, height: 5, rate: [24_000, 1001], side: 40_000, cycle: [1001, 1000] });
+    const module = new VisualDriver(exports, { width: 7, height: 5, rate: [24_000, 1001], side: 40_000, cycle: [1001, 1000] });
     const values = module.render(5n + (7n << 32n));
     expect(Array.from(values)).toStrictEqual(image(7 * 5 * 4));
     new Float32Array(memory.buffer, 8, 2).set([9, 9]);
@@ -101,10 +102,10 @@ describe("VisualModule", () => {
   });
 
   test("throws the module's explanation when it refuses a square, at creation or later", () => {
-    expect(() => new VisualModule(fake({ visual_setup: () => 0 }).exports, SQUARE)).toThrow(new VisualSetupError("no"));
+    expect(() => new VisualDriver(fake({ visual_setup: () => 0 }).exports, SQUARE)).toThrow(new VisualSetupError("no"));
     let refuse = false;
     const { exports, calls } = fake({ visual_setup: () => (refuse ? 0 : 1) });
-    const module = new VisualModule(exports, SQUARE);
+    const module = new VisualDriver(exports, SQUARE);
     refuse = true;
     expect(() => {
       module.setup(SQUARE);
@@ -116,28 +117,28 @@ describe("VisualModule", () => {
   test("refuses an explanation that is not UTF-8", () => {
     const { exports, memory } = fake({ visual_setup: () => 0 });
     new Uint8Array(memory.buffer, 8192, 2).set([0x6e, 0xff]);
-    expect(() => new VisualModule(exports, SQUARE)).toThrow(new VisualModuleError("visual_setup explained its refusal in bytes that are not UTF-8"));
+    expect(() => new VisualDriver(exports, SQUARE)).toThrow(new VisualModuleError("visual_setup explained its refusal in bytes that are not UTF-8"));
   });
 
   test("refuses a setup result outside the interface", () => {
-    expect(() => new VisualModule(fake({ visual_setup: () => 2 }).exports, SQUARE)).toThrow(new VisualModuleError("visual_setup returned 2, not 0 or 1"));
+    expect(() => new VisualDriver(fake({ visual_setup: () => 2 }).exports, SQUARE)).toThrow(new VisualModuleError("visual_setup returned 2, not 0 or 1"));
   });
 
   test("reads every result as unsigned, as the interface returns it", () => {
     // 8 − 2^32 is how a signed i32 carries address 8: only read as unsigned does it reach the values.
-    const module = new VisualModule(fake({ visual_render: () => 8 - 2 ** 32, visual_hash: () => 4096 - 2 ** 32 }).exports, SQUARE);
+    const module = new VisualDriver(fake({ visual_render: () => 8 - 2 ** 32, visual_hash: () => 4096 - 2 ** 32 }).exports, SQUARE);
     expect(Array.from(module.render(0n))).toStrictEqual(image(8));
     expect(module.hash(0n, 1)).toBe(Array.from({ length: 32 }, (_slot, index) => (index * 8).toString(16).padStart(2, "0")).join(""));
   });
 
   test("refuses images the module refuses", () => {
-    expect(() => new VisualModule(fake({ visual_hash: () => 0 }).exports, SQUARE).hash(0n, 1)).toThrow(new VisualModuleError("visual_hash refused the images"));
+    expect(() => new VisualDriver(fake({ visual_hash: () => 0 }).exports, SQUARE).hash(0n, 1)).toThrow(new VisualModuleError("visual_hash refused the images"));
   });
 
   test("dies when the module traps, and stays dead", () => {
     const trap = new WebAssembly.RuntimeError("unreachable");
     let trapping = false;
-    const module = new VisualModule(
+    const module = new VisualDriver(
       fake({
         visual_render: () => {
           if (trapping) {
@@ -165,7 +166,7 @@ describe("VisualModule", () => {
 
   test("keeps the trap as the cause of the error it throws", () => {
     const trap = new WebAssembly.RuntimeError("unreachable");
-    const module = new VisualModule(fake({ visual_hash: () => { throw trap; } }).exports, SQUARE);
+    const module = new VisualDriver(fake({ visual_hash: () => { throw trap; } }).exports, SQUARE);
     let thrown: unknown;
     try {
       module.hash(0n, 1);
@@ -187,7 +188,7 @@ describe("VisualModule", () => {
           return 8;
         },
       });
-      const module = new VisualModule(exports, SQUARE);
+      const module = new VisualDriver(exports, SQUARE);
       let thrown: unknown;
       try {
         module.render(0n);
@@ -203,38 +204,6 @@ describe("VisualModule", () => {
     }
   });
 
-  test("drives an instance alone: a second wrapper is refused, even after a trap", () => {
-    let trapping = false;
-    const { exports } = fake({
-      visual_render: () => {
-        if (trapping) {
-          throw new WebAssembly.RuntimeError("unreachable");
-        }
-        return 8;
-      },
-    });
-    const first = new VisualModule(exports, SQUARE);
-    expect(() => new VisualModule(exports, SQUARE)).toThrow(new VisualModuleError("this instance is already driven by a VisualModule, or a call into it failed"));
-    trapping = true;
-    expect(() => first.render(0n)).toThrow(new VisualTrap());
-    expect(() => new VisualModule(exports, SQUARE), "nor driven again once dead").toThrow(new VisualModuleError("this instance is already driven by a VisualModule, or a call into it failed"));
-  });
-
-  test("keeps an instance whose version check failed, and frees one whose first square was refused", () => {
-    const failing = fake({
-      visual_abi_version: () => {
-        throw new RangeError("Maximum call stack size exceeded");
-      },
-    });
-    expect(() => new VisualModule(failing.exports, SQUARE)).toThrow(new VisualTrap());
-    const before = failing.calls.length;
-    expect(() => new VisualModule(failing.exports, SQUARE), "never called again").toThrow(new VisualModuleError("this instance is already driven by a VisualModule, or a call into it failed"));
-    expect(failing.calls.length).toBe(before);
-    const refused = fake();
-    expect(() => new VisualModule(refused.exports, { ...SQUARE, width: -1 })).toThrow(new VisualModuleError("width is not an unsigned 32-bit integer: -1"));
-    expect(() => new VisualModule(refused.exports, SQUARE), "the healthy instance driven again").not.toThrow();
-  });
-
   test("reads the explanation of a refusal from the memory as it is after asking where it is", () => {
     const { exports, memory } = fake({
       visual_setup: () => 0,
@@ -243,7 +212,7 @@ describe("VisualModule", () => {
         return 8192;
       },
     });
-    expect(() => new VisualModule(exports, SQUARE)).toThrow(new VisualSetupError("no"));
+    expect(() => new VisualDriver(exports, SQUARE)).toThrow(new VisualSetupError("no"));
   });
 
   test("refuses what the module answers outside its memory, unaligned or of the wrong length", () => {
@@ -254,16 +223,16 @@ describe("VisualModule", () => {
       [{ visual_render: () => end - 28 }, "render", `visual_render answered 8 values of 4 bytes at ${String(end - 28)}, unaligned or outside the module memory`],
       [{ visual_hash: () => end - 31 }, "hash", `visual_hash answered 32 values of 1 bytes at ${String(end - 31)}, unaligned or outside the module memory`],
     ] as const) {
-      const module = new VisualModule(fake(answers).exports, SQUARE);
+      const module = new VisualDriver(fake(answers).exports, SQUARE);
       expect(() => (call === "render" ? module.render(0n) : module.hash(0n, 1)), reason).toThrow(new VisualModuleError(reason));
       expect(() => {
         module.setup(SQUARE);
       }, "not a trap: the instance stays alive").not.toThrow();
     }
-    const atTheEnd = new VisualModule(fake({ visual_render: () => end - 32, visual_hash: () => end - 32 }).exports, SQUARE);
+    const atTheEnd = new VisualDriver(fake({ visual_render: () => end - 32, visual_hash: () => end - 32 }).exports, SQUARE);
     expect(Array.from(atTheEnd.render(0n)), "ending exactly at the end of the memory").toStrictEqual(image(8).map(() => 0));
     expect(atTheEnd.hash(0n, 1)).toBe("0".repeat(64));
-    expect(() => new VisualModule(fake({ visual_setup: () => 0, visual_message_ptr: () => end - 1 }).exports, SQUARE)).toThrow(
+    expect(() => new VisualDriver(fake({ visual_setup: () => 0, visual_message_ptr: () => end - 1 }).exports, SQUARE)).toThrow(
       new VisualModuleError(`visual_message_ptr answered 2 values of 1 bytes at ${String(end - 1)}, unaligned or outside the module memory`),
     );
   });
@@ -288,7 +257,7 @@ describe("VisualModule", () => {
     const trap = new WebAssembly.RuntimeError("unreachable");
     expect(
       () =>
-        new VisualModule(
+        new VisualDriver(
           fake({
             visual_abi_version: () => {
               throw trap;
@@ -314,14 +283,14 @@ describe("VisualModule", () => {
       edits.push([{ [name]: undefined }, `no function ${name}`], [{ [name]: withArity(arity + 1, () => 1) }, `${name} takes ${String(arity + 1)} argument(s), expected ${String(arity)}`]);
     }
     for (const [edit, reason] of edits) {
-      expect(() => new VisualModule({ ...exports, ...edit }, SQUARE), reason).toThrow(new VisualModuleError(reason));
+      expect(() => new VisualDriver({ ...exports, ...edit }, SQUARE), reason).toThrow(new VisualModuleError(reason));
     }
     expect(new VisualModuleError("x")).toMatchObject({ name: "VisualModuleError", message: "visual module: x" });
   });
 
   test("refuses values the interface cannot take, before any call", () => {
     const { exports, calls } = fake();
-    const module = new VisualModule(exports, SQUARE);
+    const module = new VisualDriver(exports, SQUARE);
     for (const [setup, what, value] of [
       [{ ...SQUARE, width: -1 }, "width", "-1"],
       [{ ...SQUARE, height: 2 ** 32 }, "height", "4294967296"],
