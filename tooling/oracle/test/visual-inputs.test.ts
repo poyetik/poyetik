@@ -2,7 +2,7 @@ import { existsSync, readdirSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 import { readBounded } from "../src/files.ts";
 import { InputError } from "../src/inputs.ts";
-import { FULL_SIDE, MAX_IMAGE_PIXELS, MAX_IMAGE_SIDE, MAX_IMAGES, MAX_IMAGES_PER_SECOND, MAX_VISUAL_CASE_BYTES, parseVisualCase } from "../src/visual-inputs.ts";
+import { FULL_SIDE, MAX_IMAGE_PIXELS, MAX_IMAGE_SIDE, MAX_IMAGES, MAX_RENDERED_PIXELS, MAX_IMAGES_PER_SECOND, MAX_VISUAL_CASE_BYTES, parseVisualCase } from "../src/visual-inputs.ts";
 
 /** A valid case, the base of every malformed one below. */
 const BASE = `{"rate": [24000, 1001], "width": 17, "height": 9, "first": 3, "images": 5, "square": {"side": 40000, "cycle": [1001, 1000]}}`;
@@ -42,7 +42,7 @@ function refusal(text: string): string {
 
 describe("the limits are the visual library's", () => {
   test("written as the Rust constants are", () => {
-    expect([MAX_VISUAL_CASE_BYTES, MAX_IMAGES, MAX_IMAGES_PER_SECOND, MAX_IMAGE_SIDE, MAX_IMAGE_PIXELS, FULL_SIDE]).toStrictEqual([65_536, 10_000, 1000, 16_384, 33_554_432, 65_536]);
+    expect([MAX_VISUAL_CASE_BYTES, MAX_IMAGES, MAX_IMAGES_PER_SECOND, MAX_IMAGE_SIDE, MAX_IMAGE_PIXELS, MAX_RENDERED_PIXELS, FULL_SIDE]).toStrictEqual([65_536, 10_000, 1000, 16_384, 33_554_432, 268_435_456, 65_536]);
   });
 });
 
@@ -73,7 +73,7 @@ describe("parseVisualCase", () => {
       [`[24000, 1001]`, `[4294967291, 4294968]`],
       [`"width": 17`, `"width": 1`],
       [`"height": 9`, `"height": 16384`],
-      [`"width": 17, "height": 9`, `"width": 16384, "height": 2048`],
+      [`"width": 17, "height": 9, "first": 3, "images": 5`, `"width": 16384, "height": 2048, "first": 3, "images": 8`],
       [`"width": 17, "height": 9`, `"width": 2048, "height": 16384`],
       [`"side": 40000`, `"side": 0`],
       [`"side": 40000`, `"side": 65536`],
@@ -108,6 +108,7 @@ describe("parseVisualCase", () => {
       [`"width": 17`, `"width": 0`, "width is not from 1 to 16384 pixels"],
       [`"height": 9`, `"height": 16385`, "height is not from 1 to 16384 pixels"],
       [`"width": 17, "height": 9`, `"width": 16384, "height": 2049`, "the image has more than 33554432 pixels"],
+      [`"width": 17, "height": 9, "first": 3, "images": 5`, `"width": 16384, "height": 2048, "first": 3, "images": 9`, "a case renders at most 268435456 pixels in all, this one 301989888"],
       [`"width": 17, "height": 9`, `"width": 5793, "height": 5793`, "the image has more than 33554432 pixels"],
       [`"width": 17`, `"width": 4.5`, "width is not an unsigned 32-bit integer"],
       [`"width": 17`, `"width": "17"`, "width is not an unsigned 32-bit integer"],

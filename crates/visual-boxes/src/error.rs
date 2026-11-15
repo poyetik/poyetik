@@ -14,7 +14,7 @@ impl fmt::Display for BoxError {
         match *self {
             Self::InvalidSide(side) => write!(
                 f,
-                "invalid square side {side}: at most {} (the image height)",
+                "invalid square side {side}: at most {}, a square as tall as the image (a side is in 65536ths of the image height)",
                 crate::Square::FULL_SIDE
             ),
         }
