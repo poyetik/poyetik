@@ -8,7 +8,7 @@ use alloc::vec::Vec;
 use audio_core::host::Raw;
 use audio_core::{Binary64, Detector, LimiterError, LimiterSettings, RenderFormat, Setting};
 
-use crate::{Blocks, Engine, Output, OutputMode};
+use crate::{Blocks, ENGINE_BLOCK, Engine, Output, OutputMode};
 
 /// The render format of a code of [`Instance::load`]: its index in [`RenderFormat::ALL`],
 /// part of the C interface (0 binary64, 1 binary64-as-binary32, 2 binary32), pinned by
@@ -241,7 +241,7 @@ impl Instance {
 
     /// Renders the next block: `channels()` blocks of planar samples in the render format,
     /// none when no engine is loaded.
-    pub fn process(&mut self) -> Blocks<'_> {
+    pub fn process(&mut self) -> Blocks<'_, ENGINE_BLOCK> {
         self.engine
             .as_mut()
             .map_or(Blocks::Binary32(&[]), Engine::process)

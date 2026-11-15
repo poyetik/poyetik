@@ -6,42 +6,44 @@ use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
 
-use audio_boxes::{EnginePlan, REGISTRY};
+use audio_boxes::{BuiltIn, EnginePlan, REGISTRY};
+
+use crate::ENGINE_BLOCK;
 use audio_core::host::{Delivered, Raw};
 use audio_core::{
-    Binary32, Binary64, Block, Detector, LimiterError, LimiterSettings, OutputStage, Plan,
-    RenderFormat, Replaced, Sample, SampleRate, TruePeakLimiter,
+    Binary32, Binary64, Block, Detector, Dispatch, LimiterError, LimiterSettings, OutputStage,
+    Plan, RenderFormat, Replaced, Sample, SampleRate, TruePeakLimiter,
 };
 
 /// The plan of a patch, its output buffers and its output stage, in one render format.
 #[derive(Debug)]
-enum Rendering {
+enum Rendering<const N: usize> {
     /// Computed and given in binary64.
     Binary64 {
         /// The execution plan.
-        plan: EnginePlan<Binary64>,
+        plan: EnginePlan<Binary64, N>,
         /// The last rendered block, one per output channel.
-        out: Vec<Block<Binary64>>,
+        out: Vec<Block<Binary64, N>>,
         /// The output stage, in the computing precision.
         stage: OutputStage<Binary64>,
     },
     /// Computed in binary64, given in binary32.
     Binary64AsBinary32 {
         /// The execution plan.
-        plan: EnginePlan<Binary64>,
+        plan: EnginePlan<Binary64, N>,
         /// The last rendered block, one per output channel, as computed.
-        out: Vec<Block<Binary64>>,
+        out: Vec<Block<Binary64, N>>,
         /// The same block rounded to binary32: what the host is given.
-        given: Vec<Block<Binary32>>,
+        given: Vec<Block<Binary32, N>>,
         /// The output stage, in the computing precision, before the rounding.
         stage: OutputStage<Binary64>,
     },
     /// Computed and given in binary32.
     Binary32 {
         /// The execution plan.
-        plan: EnginePlan<Binary32>,
+        plan: EnginePlan<Binary32, N>,
         /// The last rendered block, one per output channel.
-        out: Vec<Block<Binary32>>,
+        out: Vec<Block<Binary32, N>>,
         /// The output stage, in the computing precision.
         stage: OutputStage<Binary32>,
     },
@@ -108,14 +110,14 @@ impl Output {
 /// The planar blocks of the last render, in the format of the render: one block per output
 /// channel.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Blocks<'engine> {
+pub enum Blocks<'engine, const N: usize> {
     /// Binary64 samples, 8 bytes each.
-    Binary64(&'engine [Block<Binary64>]),
+    Binary64(&'engine [Block<Binary64, N>]),
     /// Binary32 samples, 4 bytes each.
-    Binary32(&'engine [Block<Binary32>]),
+    Binary32(&'engine [Block<Binary32, N>]),
 }
 
-impl Blocks<'_> {
+impl<const N: usize> Blocks<'_, N> {
     /// The address of the first sample, as bytes.
     #[must_use]
     pub const fn as_ptr(&self) -> *const u8 {
@@ -129,22 +131,32 @@ impl Blocks<'_> {
 /// A validated patch ready to render in one render format, with its output buffers and
 /// its output stage.
 #[derive(Debug)]
-pub struct Engine {
+pub struct Engine<const N: usize = ENGINE_BLOCK> {
     /// Number of output channels.
     channels: usize,
     /// The plan, its buffers and its stage.
-    rendering: Rendering,
+    rendering: Rendering<N>,
     /// What the stage replaced, as the four words of the C interface
     /// ([`Engine::replaced_report`]).
     report: [u32; 4],
 }
 
 /// Builds the plan of `patch` at `rate`, computing in `S`.
-fn plan<S: Sample>(patch: &audio_core::Patch, rate: SampleRate) -> Result<EnginePlan<S>, String> {
+fn plan<S: Sample, const N: usize>(
+    patch: &audio_core::Patch,
+    rate: SampleRate,
+) -> Result<EnginePlan<S, N>, String>
+where
+    BuiltIn<S, N>: Dispatch<S, N>,
+{
     Plan::build(patch, &REGISTRY, rate).map_err(|error| error.to_string())
 }
 
-impl Engine {
+impl<const N: usize> Engine<N>
+where
+    BuiltIn<Binary64, N>: Dispatch<Binary64, N>,
+    BuiltIn<Binary32, N>: Dispatch<Binary32, N>,
+{
     /// Reads a patch (UTF-8 text in the patch format) and builds its plan at `rate` hertz,
     /// rendering in `format`, through the output stage `output`.
     ///
@@ -166,41 +178,41 @@ impl Engine {
         let stage_error = |error: LimiterError| error.to_string();
         let (channels, rendering) = match format {
             RenderFormat::Binary64 => {
-                let plan = plan::<Binary64>(&parsed, rate)?;
+                let plan = plan::<Binary64, N>(&parsed, rate)?;
                 let channels = plan.channels();
                 let stage = output.stage(rate, channels).map_err(stage_error)?;
                 (
                     channels,
                     Rendering::Binary64 {
                         plan,
-                        out: vec![Binary64::SILENCE; channels],
+                        out: vec![[Binary64::ZERO; N]; channels],
                         stage,
                     },
                 )
             }
             RenderFormat::Binary64AsBinary32 => {
-                let plan = plan::<Binary64>(&parsed, rate)?;
+                let plan = plan::<Binary64, N>(&parsed, rate)?;
                 let channels = plan.channels();
                 let stage = output.stage(rate, channels).map_err(stage_error)?;
                 (
                     channels,
                     Rendering::Binary64AsBinary32 {
                         plan,
-                        out: vec![Binary64::SILENCE; channels],
-                        given: vec![Binary32::SILENCE; channels],
+                        out: vec![[Binary64::ZERO; N]; channels],
+                        given: vec![[Binary32::ZERO; N]; channels],
                         stage,
                     },
                 )
             }
             RenderFormat::Binary32 => {
-                let plan = plan::<Binary32>(&parsed, rate)?;
+                let plan = plan::<Binary32, N>(&parsed, rate)?;
                 let channels = plan.channels();
                 let stage = output.stage(rate, channels).map_err(stage_error)?;
                 (
                     channels,
                     Rendering::Binary32 {
                         plan,
-                        out: vec![Binary32::SILENCE; channels],
+                        out: vec![[Binary32::ZERO; N]; channels],
                         stage,
                     },
                 )
@@ -297,7 +309,7 @@ impl Engine {
     /// ([`Plan::flush_sums`]), where flushing could change a bit.
     ///
     /// Does not use the heap (no allocation or release).
-    pub fn process(&mut self) -> Blocks<'_> {
+    pub fn process(&mut self) -> Blocks<'_, N> {
         match &mut self.rendering {
             Rendering::Binary64 { plan, out, stage } => {
                 plan.process(out);

@@ -4,20 +4,23 @@
 
 use alloc::vec::Vec;
 
-use audio_boxes::REGISTRY;
+use audio_boxes::{BuiltIn, REGISTRY};
 use audio_core::host::Raw;
-use audio_core::{BLOCK_SIZE, Binary32, Binary64, Plan, RenderFormat, Renderer, SampleRate};
+use audio_core::{
+    BLOCK_SIZE, Binary32, Binary64, Dispatch, Plan, RenderFormat, Renderer, SampleRate,
+};
 
 use super::{Blocks, Engine, Output};
+use crate::ENGINE_BLOCK;
 
 /// A 440 Hz sine on both channels.
 const SINE: &str = r#"{"format":1,"nodes":[{"id":1,"box":"osc~"},{"id":2,"box":"dac~"}],
     "connections":[{"from":[1,0],"to":[2,0]},{"from":[1,0],"to":[2,1]}]}"#;
 
 /// The bits of `blocks`, interleaved by channel, widened to 64 bits.
-fn interleaved(blocks: Blocks<'_>) -> Vec<u64> {
+fn interleaved<const N: usize>(blocks: Blocks<'_, N>) -> Vec<u64> {
     let mut bits = Vec::new();
-    for frame in 0..BLOCK_SIZE {
+    for frame in 0..N {
         match blocks {
             Blocks::Binary64(channels) => {
                 bits.extend(channels.iter().map(|channel| channel[frame].bits()));
@@ -77,27 +80,40 @@ const SUMMED: &str = r#"{"format":1,"nodes":[{"id":1,"box":"osc~"},{"id":2,"box"
 #[test]
 fn renders_exactly_like_the_plan_in_every_format_at_every_rate() {
     for text in [SINE, SUMMED] {
-        renders_like_the_renderer(text);
+        // At every engine block a module is built for: the renderer's samples (the
+        // engine-block law, decision 2).
+        renders_like_the_renderer::<32>(text);
+        renders_like_the_renderer::<64>(text);
+        renders_like_the_renderer::<128>(text);
+        renders_like_the_renderer::<256>(text);
+        renders_like_the_renderer::<512>(text);
+        renders_like_the_renderer::<1024>(text);
     }
 }
 
-/// Renders `text` in every format at every rate of the matrix, as the renderer does.
-fn renders_like_the_renderer(text: &str) {
+/// Renders `text` in every format at every rate of the matrix, in blocks of `N` frames, as
+/// the renderer does in its default blocks.
+fn renders_like_the_renderer<const N: usize>(text: &str)
+where
+    BuiltIn<Binary64, N>: Dispatch<Binary64, N>,
+    BuiltIn<Binary32, N>: Dispatch<Binary32, N>,
+{
     let patch = audio_patch::parse_patch(text).expect("valid patch");
     for format in RenderFormat::ALL {
         for rate in audio_testkit::matrix::sample_rates() {
-            let mut engine =
-                Engine::new(text.as_bytes(), rate.hz(), format, Output::RAW).expect("valid patch");
+            let mut engine = Engine::<N>::new(text.as_bytes(), rate.hz(), format, Output::RAW)
+                .expect("valid patch");
             assert_eq!(engine.channels(), 2, "stereo");
-            let blocks = 10_usize;
+            // At least 640 frames, whole blocks.
+            let blocks = (640_usize).div_ceil(N);
             let mut actual = Vec::new();
             for _ in 0..blocks {
                 actual.extend(interleaved(engine.process()));
             }
             assert_eq!(
                 actual,
-                expected(&patch, rate, format, blocks * BLOCK_SIZE),
-                "{format}, bit-identical at {} Hz",
+                expected(&patch, rate, format, blocks.saturating_mul(N)),
+                "{format}, bit-identical at {} Hz in blocks of {N}",
                 rate.hz()
             );
         }
@@ -119,8 +135,9 @@ fn delivers_no_subnormal_in_any_format() {
     let patch = audio_patch::parse_patch(SUBNORMAL_SINE).expect("valid patch");
     let rate = SampleRate::new(8_000).expect("a supported rate");
     for format in RenderFormat::ALL {
-        let mut engine = Engine::new(SUBNORMAL_SINE.as_bytes(), 8_000, format, Output::RAW)
-            .expect("valid patch");
+        let mut engine =
+            Engine::<ENGINE_BLOCK>::new(SUBNORMAL_SINE.as_bytes(), 8_000, format, Output::RAW)
+                .expect("valid patch");
         let actual = interleaved(engine.process());
         let zeros = actual.iter().filter(|bits| **bits == 0).count();
         assert_eq!(
@@ -143,8 +160,8 @@ fn delivers_no_subnormal_in_any_format() {
 #[test]
 fn gives_each_format_in_its_own_width() {
     for (format, wide) in RenderFormat::ALL.into_iter().zip([true, false, false]) {
-        let mut engine =
-            Engine::new(SINE.as_bytes(), 48_000, format, Output::RAW).expect("valid patch");
+        let mut engine = Engine::<ENGINE_BLOCK>::new(SINE.as_bytes(), 48_000, format, Output::RAW)
+            .expect("valid patch");
         let blocks = engine.process();
         assert_eq!(
             matches!(blocks, Blocks::Binary64(_)),
@@ -170,10 +187,11 @@ fn renders_without_a_heap_operation() {
     for format in RenderFormat::ALL {
         for rate in audio_testkit::matrix::sample_rates() {
             let mut engine =
-                Engine::new(SINE.as_bytes(), rate.hz(), format, Output::RAW).expect("valid patch");
+                Engine::<ENGINE_BLOCK>::new(SINE.as_bytes(), rate.hz(), format, Output::RAW)
+                    .expect("valid patch");
             let operations = audio_testkit::heap_operations_during(|| {
                 for _ in 0_u16..100_u16 {
-                    let _: Blocks<'_> = engine.process();
+                    let _: Blocks<'_, ENGINE_BLOCK> = engine.process();
                 }
             });
             assert_eq!(
@@ -189,7 +207,8 @@ fn renders_without_a_heap_operation() {
 #[test]
 fn rejects_text_that_is_not_utf8() {
     for format in RenderFormat::ALL {
-        let error = Engine::new(&[0xff], 48_000, format, Output::RAW).expect_err("invalid UTF-8");
+        let error = Engine::<ENGINE_BLOCK>::new(&[0xff], 48_000, format, Output::RAW)
+            .expect_err("invalid UTF-8");
         assert!(error.starts_with("patch is not UTF-8: "), "{error}");
     }
 }
@@ -197,7 +216,8 @@ fn rejects_text_that_is_not_utf8() {
 #[test]
 fn rejects_an_unsupported_sample_rate() {
     let error =
-        Engine::new(SINE.as_bytes(), 0, RenderFormat::Binary64, Output::RAW).expect_err("rate 0");
+        Engine::<ENGINE_BLOCK>::new(SINE.as_bytes(), 0, RenderFormat::Binary64, Output::RAW)
+            .expect_err("rate 0");
     assert_eq!(
         error, "invalid sample rate: 0 Hz (supported: 8000 to 384000 Hz)",
         "the rate and the range"
@@ -206,8 +226,8 @@ fn rejects_an_unsupported_sample_rate() {
 
 #[test]
 fn rejects_an_unreadable_patch() {
-    let error =
-        Engine::new(b"{}", 48_000, RenderFormat::Binary32, Output::RAW).expect_err("no format");
+    let error = Engine::<ENGINE_BLOCK>::new(b"{}", 48_000, RenderFormat::Binary32, Output::RAW)
+        .expect_err("no format");
     assert_eq!(
         error, "invalid patch: missing field `format` at line 1 column 2",
         "explained"
@@ -218,8 +238,8 @@ fn rejects_an_unreadable_patch() {
 fn rejects_an_invalid_plan_in_every_format() {
     let unknown = r#"{"format":1,"nodes":[{"id":1,"box":"nope~"}],"connections":[]}"#;
     for format in RenderFormat::ALL {
-        let error =
-            Engine::new(unknown.as_bytes(), 48_000, format, Output::RAW).expect_err("unknown box");
+        let error = Engine::<ENGINE_BLOCK>::new(unknown.as_bytes(), 48_000, format, Output::RAW)
+            .expect_err("unknown box");
         assert!(error.contains("nope~"), "{format}: {error}");
     }
 }
@@ -263,7 +283,8 @@ fn reports_what_its_stage_replaced_as_it_was_given() {
     // as binary32, as given (counted in the block given last, frame 3).
     let block = u32::try_from(BLOCK_SIZE).expect("a frame count");
     for (format, frame) in RenderFormat::ALL.into_iter().zip([block + 3, 3, block + 3]) {
-        let mut engine = Engine::new(SINE.as_bytes(), 48_000, format, Output::RAW).expect("a sine");
+        let mut engine = Engine::<ENGINE_BLOCK>::new(SINE.as_bytes(), 48_000, format, Output::RAW)
+            .expect("a sine");
         let _first = engine.process();
         let replaced = |reporting: &mut Engine| {
             let pointer = reporting.replaced_report();
@@ -390,7 +411,8 @@ fn limits_exactly_like_the_renderer_through_a_protected_stage_in_every_format_at
     for format in RenderFormat::ALL {
         for rate in audio_testkit::matrix::sample_rates() {
             let mut engine =
-                Engine::new(LOUD.as_bytes(), rate.hz(), format, protected()).expect("valid patch");
+                Engine::<ENGINE_BLOCK>::new(LOUD.as_bytes(), rate.hz(), format, protected())
+                    .expect("valid patch");
             let blocks = 40_usize;
             let mut actual = Vec::new();
             for _ in 0..blocks {
@@ -410,7 +432,8 @@ fn limits_exactly_like_the_renderer_through_a_protected_stage_in_every_format_at
 #[test]
 fn changes_its_limiter_live_and_refuses_without_one() {
     let mut raw =
-        Engine::new(LOUD.as_bytes(), 48_000, RenderFormat::Binary32, Output::RAW).expect("valid");
+        Engine::<ENGINE_BLOCK>::new(LOUD.as_bytes(), 48_000, RenderFormat::Binary32, Output::RAW)
+            .expect("valid");
     assert_eq!(raw.latency(), 0, "raw: no latency");
     let refusal = Err("the output stage is raw: it has no limiter to set".to_owned());
     assert_eq!(
@@ -420,7 +443,8 @@ fn changes_its_limiter_live_and_refuses_without_one() {
     );
     assert_eq!(raw.set_protected(false), refusal, "nor to switch");
     for format in RenderFormat::ALL {
-        let mut engine = Engine::new(LOUD.as_bytes(), 48_000, format, protected()).expect("valid");
+        let mut engine = Engine::<ENGINE_BLOCK>::new(LOUD.as_bytes(), 48_000, format, protected())
+            .expect("valid");
         assert_eq!(engine.latency(), 96 + 16, "{format}: 2 ms at 48 kHz");
         let longer = audio_core::LimiterSettings::new(
             Binary64::new(-1.0),
@@ -450,7 +474,8 @@ fn changes_its_limiter_live_and_refuses_without_one() {
         ..protected()
     };
     assert_eq!(
-        Engine::new(LOUD.as_bytes(), 48_000, RenderFormat::Binary64, wrong).map(|_| ()),
+        Engine::<ENGINE_BLOCK>::new(LOUD.as_bytes(), 48_000, RenderFormat::Binary64, wrong)
+            .map(|_| ()),
         Err("limiter maximum lookahead 9 ms is out of range (0.5 to 5 ms)".to_owned()),
         "a maximum out of range"
     );

@@ -7,9 +7,10 @@ use audio_core::{BLOCK_SIZE, RenderFormat};
 
 use super::Instance;
 use crate::Blocks;
+use crate::ENGINE_BLOCK;
 
 /// The first channel of `blocks`, widened to 64 bits.
-fn first(blocks: Blocks<'_>) -> Vec<u64> {
+fn first(blocks: Blocks<'_, ENGINE_BLOCK>) -> Vec<u64> {
     match blocks {
         Blocks::Binary64(channels) => channels[0].iter().map(|sample| sample.bits()).collect(),
         Blocks::Binary32(channels) => channels[0].iter().map(|sample| sample.bits()).collect(),
@@ -17,7 +18,7 @@ fn first(blocks: Blocks<'_>) -> Vec<u64> {
 }
 
 /// The blocks of a binary32 render, or `None` for binary64.
-fn narrow(blocks: Blocks<'_>) -> Option<&[audio_core::Block<audio_core::Binary32>]> {
+fn narrow(blocks: Blocks<'_, ENGINE_BLOCK>) -> Option<&[audio_core::Block<audio_core::Binary32>]> {
     match blocks {
         Blocks::Binary64(_) => None,
         Blocks::Binary32(channels) => Some(channels),
@@ -68,7 +69,8 @@ fn loads_in_the_format_of_its_code() {
         instance.input(MONO.len()).copy_from_slice(MONO);
         assert!(instance.load(8_000, code), "{}", instance.message());
         let mut engine =
-            crate::Engine::new(MONO, 8_000, format, crate::Output::RAW).expect("valid");
+            crate::Engine::<ENGINE_BLOCK>::new(MONO, 8_000, format, crate::Output::RAW)
+                .expect("valid");
         assert_eq!(
             first(instance.process()),
             first(engine.process()),
@@ -158,14 +160,14 @@ fn renders_without_a_heap_operation() {
         assert!(instance.load(48_000, code), "{}", instance.message());
         let operations = audio_testkit::heap_operations_during(|| {
             for _ in 0_u16..100_u16 {
-                let _: Blocks<'_> = instance.process();
+                let _: Blocks<'_, ENGINE_BLOCK> = instance.process();
             }
         });
         assert_eq!(operations, Ok(((), 0)), "format {code}: 100 blocks");
     }
     let mut empty = Instance::new();
     let none = audio_testkit::heap_operations_during(|| {
-        let _: Blocks<'_> = empty.process();
+        let _: Blocks<'_, ENGINE_BLOCK> = empty.process();
     });
     assert_eq!(none, Ok(((), 0)), "nothing loaded");
 }
