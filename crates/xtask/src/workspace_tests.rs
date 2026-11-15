@@ -194,6 +194,11 @@ fn derives_each_list_of_crates_from_their_roles() {
             "the visual library's command line",
         ),
         (
+            CrateRole::CaseReader,
+            &["visual-cli"][..],
+            "the conformance case reader whose dependencies are pinned by its role",
+        ),
+        (
             CrateRole::VisualLibraryTests,
             &["visual-testkit", "alloc-counter"][..],
             "the visual test kit and the counting allocator",

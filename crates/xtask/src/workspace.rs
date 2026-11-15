@@ -57,11 +57,13 @@ pub enum CrateRole {
     /// A tool of the visual library, its command line: it depends, within the project,
     /// only on the visual library as the library's crates do, so that it stands alone
     /// with it, but it is not the library: it is not shipped, and the gate pins no
-    /// dependency for its role ([`library_gate`](crate::dependencies::library_gate)). Its
-    /// JSON reader still defines the values it renders and hashes (integers only, read
-    /// exactly, and checked natively and by the oracle): it is pinned as bit-defining in
-    /// the dependency register, as the engine's command line's is.
+    /// dependency for that role ([`library_gate`](crate::dependencies::library_gate)): its
+    /// case reader is pinned for its role of [`CrateRole::CaseReader`].
     VisualTool,
+    /// A command-line tool reading conformance cases: its normal and build dependencies
+    /// read the values it renders and hashes, so [`pin_gate`](crate::dependencies::pin_gate)
+    /// requires each to be reviewed as bit-defining and pinned, as a library's.
+    CaseReader,
     /// A crate that may depend on `libm` outside its tests (`spec/engine-design.md`,
     /// decision 10; [`math_layer_gate`](crate::math_layer::math_layer_gate)): the engine core, whose math layer is the only
     /// path from box arithmetic to a math function, and the test kit, whose measurements
@@ -174,7 +176,7 @@ pub const RUST_CRATES: [RustCrate; 17] = [
         dir: "crates/visual-cli",
         binary: true,
         test_data: &["conformance/visual/", "spec/safe-message-vectors.json"],
-        roles: &[CrateRole::VisualTool],
+        roles: &[CrateRole::VisualTool, CrateRole::CaseReader],
     },
     RustCrate {
         name: "visual-wasm",
@@ -618,8 +620,9 @@ pub struct Library {
     pub crates: CrateRole,
     /// The role of the crates its tests may also use.
     pub tests: CrateRole,
-    /// The role of its tools, held to the same dependencies as its crates but not pinned,
-    /// if it has any.
+    /// The role of its tools, held to the same dependencies within the project as its crates
+    /// (a tool's third-party dependencies are pinned only for a role of their own, as
+    /// [`CrateRole::CaseReader`]), if it has any.
     pub tools: Option<CrateRole>,
     /// Its name.
     pub name: &'static str,

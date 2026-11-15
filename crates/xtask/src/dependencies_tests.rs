@@ -129,9 +129,11 @@ fn pins_the_bit_defining_dependencies_real_cargo_metadata_lists() {
             unpinned("audio-hash: serde_json (normal)", "^1"),
             unmarked("visual-hash: serde_json (normal)", "visual library"),
             unpinned("visual-hash: serde_json (normal)", "^1"),
+            unmarked("visual-cli: serde_json (normal)", "conformance case reader"),
+            unpinned("visual-cli: serde_json (normal)", "^1"),
         ]),
-        "a reviewed one unpinned, one of each library neither reviewed so nor pinned; the \
-         libraries' tests, a tool of the visual library, another crate's and a comment apart"
+        "a reviewed one unpinned, one of each library and of a case reader neither reviewed \
+         so nor pinned; the libraries' tests, another crate's and a comment apart"
     );
 }
 

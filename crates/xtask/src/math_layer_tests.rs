@@ -189,13 +189,39 @@ fn refuses_libm_outside_the_math_layer_and_the_measurements() {
         "the pathspecs of the box and engine directories, and the visual boxes' root"
     );
     assert_eq!(
-        crate::BOX_ROOTS,
+        crate::MATH_LAYER_NAMED,
         [
             "crates/audio-boxes/src/lib.rs",
-            "crates/visual-boxes/src/lib.rs"
+            "crates/visual-boxes/src/lib.rs",
+            "crates/audio-core/src/lib.rs",
+            "crates/audio-core/src/math.rs"
         ],
-        "the roots of both libraries' box crates"
+        "the roots of both libraries' box crates, the engine core's root and the math layer"
     );
+}
+
+#[test]
+fn refuses_to_check_files_it_names_but_does_not_read() {
+    let named = |skipped: &str| {
+        crate::named_sources_gate(&parsed(
+            &crate::MATH_LAYER_NAMED
+                .iter()
+                .filter(|path| **path != skipped)
+                .map(|path| ((*path).to_owned(), String::new()))
+                .collect::<Vec<_>>(),
+        ))
+    };
+    assert_eq!(named(""), Ok(()), "every named file read");
+    for skipped in crate::MATH_LAYER_NAMED {
+        assert_eq!(
+            named(skipped),
+            failed(format!(
+                "{skipped}: the math layer gate names it but does not read it: moved or \
+                 removed, its rule would hold for nothing; name the file where it is"
+            )),
+            "{skipped}"
+        );
+    }
 }
 
 #[test]

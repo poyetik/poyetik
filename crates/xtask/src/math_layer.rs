@@ -3,7 +3,7 @@
 use crate::{
     changes::unit_test_file,
     rust_source::{RustSource, TokenKind},
-    steps::{Failure, verdict},
+    steps::{Failure, step_verdict, verdict},
     workspace::{CrateRole, RUST_CRATES, RustCrate, crates_in},
 };
 
@@ -87,7 +87,7 @@ pub const ENGINE_FORBIDDEN_NAMES: [&str; 4] = [
 pub const ENGINE_ARITHMETIC_FORBID: &str =
     "#![cfg_attr(not(test), forbid(clippy::arithmetic_side_effects))]";
 
-/// The leading inner attribute of the root of each box crate ([`BOX_ROOTS`]): outside tests,
+/// The leading inner attribute of the root of each box crate ([`BOX_ROOT`], [`VISUAL_BOX_ROOT`]): outside tests,
 /// box code computes no float.
 ///
 /// Clippy's `float_arithmetic`, which the compiler then refuses to lift by any name
@@ -104,8 +104,12 @@ pub const BOX_ROOT: &str = "crates/audio-boxes/src/lib.rs";
 /// engine's, so the gate reads nothing else of it.
 pub const VISUAL_BOX_ROOT: &str = "crates/visual-boxes/src/lib.rs";
 
-/// The roots of the box crates of both libraries, each holding [`BOX_FLOAT_FORBID`].
-pub const BOX_ROOTS: [&str; 2] = [BOX_ROOT, VISUAL_BOX_ROOT];
+/// The files the gate names for a rule of their own.
+///
+/// The roots of both libraries' box crates, the engine core's root and the math layer. Each
+/// must be among the sources it reads ([`named_sources_gate`]): one moved or renamed would
+/// leave its rule holding for nothing.
+pub const MATH_LAYER_NAMED: [&str; 4] = [BOX_ROOT, VISUAL_BOX_ROOT, ENGINE_ROOT, MATH_LAYER_FILE];
 
 /// The root of the engine core, which names none of [`ENGINE_FORBIDDEN_NAMES`] instead of
 /// forbidding the lint, so that the math layer may lift it.
@@ -223,6 +227,27 @@ pub(crate) fn math_layer_crates(metadata: &str) -> Result<Vec<String>, Failure> 
         }
     }
     Ok(problems)
+}
+
+/// Checks that every file of [`MATH_LAYER_NAMED`] is among `sources`, the files
+/// [`math_layer_gate`] reads: a rule the gate keeps for a file it no longer finds would hold
+/// for nothing, and the gate pass.
+///
+/// # Errors
+///
+/// Returns every named file not among `sources`.
+pub fn named_sources_gate(sources: &[RustSource]) -> Result<(), Failure> {
+    let problems = MATH_LAYER_NAMED
+        .iter()
+        .filter(|named| !sources.iter().any(|source| source.path == **named))
+        .map(|named| {
+            format!(
+                "{named}: the math layer gate names it but does not read it: moved or removed, \
+                 its rule would hold for nothing; name the file where it is"
+            )
+        })
+        .collect();
+    step_verdict(problems)
 }
 
 /// Checks that box arithmetic can only go through the math layer, and that no code but the
