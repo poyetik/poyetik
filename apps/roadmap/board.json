@@ -1237,7 +1237,7 @@
           "done": false
         },
         {
-          "title": "The coordinating layer above the two standalone libraries (clock choice, audio and video alignment, a scene and cues spanning both; exact musical time from the time crate, #37, sampled at every image), grown from the crate #34 step 6 creates in a first form, which builds the one WebAssembly module a product loads, linking both libraries, the same module in the page and in the audio worklet; using each library only through its public interface; any hook it needs from the audio library checked against the audio engine's decisions; the architecture proven to cost nothing: benchmarks comparing work done through the public interfaces with the same work done directly, with regression thresholds",
+          "title": "The coordinating layer above the two standalone libraries (clock choice, audio and video alignment, a scene and cues spanning both; exact musical time from the time crate, #37, sampled at every image), grown from the crate #34 step 6 creates in a first form, which builds the modules a product loads: natively one binary specialized at build, in the browser one module per thread holding what that thread needs (the audio worklet never the drawing code); how the page and the audio worklet exchange data (shared memory, which needs the page cross-origin isolated, or messages) decided here with the audio and video alignment; using each library only through its public interface; any hook it needs from the audio library checked against the audio engine's decisions; the architecture proven to cost nothing: benchmarks comparing work done through the public interfaces with the same work done directly, with regression thresholds",
           "done": false
         },
         {
@@ -1418,11 +1418,11 @@
           "done": false
         },
         {
-          "title": "GPU backend (wgpu, justified like every dependency): the same images within a measured threshold of the reference, checked in CI on a software GPU",
+          "title": "GPU backend (wgpu, justified like every dependency): the same images within a measured threshold of the reference, checked in CI on a software GPU; benchmarks from this first GPU image, as for audio: the cost of rendering and of hashing, on the CPU reference and on the GPU, per image size, with regression thresholds in CI, so that each design choice from here on is measured",
           "done": false
         },
         {
-          "title": "Playground: the square moving live next to the oscilloscope, first drawn by the CPU reference in WebAssembly, the playground loading one module that links the audio and visual libraries, the same module in the page and in the audio worklet, never one per library, built by the first form of the coordinating layer's crate (linking both libraries, with no logic spanning them yet; #35 step 3 grows it), rendering into a buffer the page owns (no copy of the image per image drawn) through a package built to JavaScript with its types, then in WebGPU; end-to-end tests on the browsers; then the end of this block (steps 5 and 6): a deep review, its decided fixes, and a pull request whose full check is green",
+          "title": "Playground: the square moving live next to the oscilloscope, first drawn by the CPU reference in WebAssembly; each thread loading the one module it needs, never one per library side by side (the page a module linking what it uses, the audio worklet the audio library without the drawing code, since it never draws), every module built by the first form of the coordinating layer's crate (linking the libraries, with no logic spanning them yet; #35 step 3 grows it), the cost of that split measured (module size, worklet start-up, render cost); rendering into a buffer the page owns (no copy of the image per image drawn) through a package built to JavaScript with its types, then in WebGPU; end-to-end tests on the browsers; then the end of this block (steps 5 and 6): a deep review, its decided fixes, and a pull request whose full check is green",
           "done": false
         },
         {
