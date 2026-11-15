@@ -11,6 +11,7 @@ use crate::{
     citations::{CITATION_SOURCES, citation_gate},
     cli::{bless, conformance},
     commits::SCOPES_SINCE,
+    conflicts::{GIT_ATTRIBUTES, binary_suffixes, conflict_marker_gate},
     coverage::{
         TreeState, coverage_gate, coverage_locality, measure, tree_gate, tree_state,
         ts_coverage_gate,
@@ -153,6 +154,23 @@ pub(crate) fn read_all(
         .into_iter()
         .map(|path| read_file(runner, &path).map(|text| (path, text)))
         .collect()
+}
+
+/// Reads every tracked text file (every tracked file but those [`GIT_ATTRIBUTES`] declares
+/// binary), then checks that none holds a conflict marker.
+pub(crate) fn conflict_markers(runner: &mut dyn Runner) -> Result<(), Failure> {
+    let binary = binary_suffixes(&read_file(runner, GIT_ATTRIBUTES)?)?;
+    let paths = list_tracked(runner, &["*"], "the tracked files")?
+        .into_iter()
+        .filter(|path| !binary.iter().any(|suffix| path.ends_with(suffix.as_str())))
+        .collect();
+    let sources = read_all(runner, paths).map_err(|failure| {
+        Failure::from(format!(
+            "{} (a binary file is declared `*.<extension> binary` in {GIT_ATTRIBUTES})",
+            failure.summary
+        ))
+    })?;
+    conflict_marker_gate(&sources)
 }
 
 /// Lists the manifests tracked by git, then checks them.
@@ -451,6 +469,7 @@ pub(crate) fn run_action(
             library_gate(&metadata).and_then(|()| shared_tests_gate(&metadata))
         }),
         Action::PartLicenseGate => part_licenses(runner),
+        Action::ConflictMarkerGate => conflict_markers(runner),
         Action::VocabularyGate => {
             let paths = list_tracked(runner, &VOCABULARY_SOURCES, "the prose files")?;
             let sources = read_all(runner, paths)?;

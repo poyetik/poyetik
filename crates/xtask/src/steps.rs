@@ -147,6 +147,9 @@ pub enum Action {
     /// Require the prose of the repository to use the words of the glossary, not the
     /// synonyms [`VOCABULARY`](crate::vocabulary::VOCABULARY) lists.
     VocabularyGate,
+    /// Require no tracked text file to hold a conflict marker git left
+    /// ([`conflict_marker_gate`](crate::conflicts::conflict_marker_gate)).
+    ConflictMarkerGate,
     /// Require every JavaScript dependency under an allowed license: the strict list for
     /// what the apps ship, the wider one for development tooling.
     LicenseGate,
@@ -926,6 +929,10 @@ pub(crate) fn consistency_steps() -> Vec<(Role, Step)> {
         Step {
             name: "The words of the glossary, not their synonyms".to_owned(),
             action: Action::VocabularyGate,
+        },
+        Step {
+            name: "No conflict marker left in a tracked text file".to_owned(),
+            action: Action::ConflictMarkerGate,
         },
         Step {
             name: "One version everywhere, changelog well formed, released sections as on main"

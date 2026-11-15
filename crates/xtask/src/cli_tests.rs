@@ -1318,7 +1318,7 @@ fn checks_a_push_then_runs_every_check() {
     assert!(
         String::from_utf8(out)
             .expect("UTF-8")
-            .ends_with("✔ all 113 checks passed in 2 min 49 s\n"),
+            .ends_with("✔ all 114 checks passed in 2 min 51 s\n"),
         "then every check"
     );
     assert!(
@@ -1401,13 +1401,13 @@ fn prints_the_details_of_a_failure_on_stdout_and_one_line_on_stderr() {
     );
     assert_eq!(
         String::from_utf8(err).expect("UTF-8"),
-        "error: 1 of 111 checks failed, listed above\n",
+        "error: 1 of 112 checks failed, listed above\n",
         "one line on stderr, counting the failed steps"
     );
     assert!(
         String::from_utf8(out).expect("UTF-8").ends_with(&format!(
-            "▶ [111/111] Working tree unchanged by the checks\n  done in 1.5 s\n\
-             ✘ 1 of 111 checks failed in 2 min 46 s\n\
+            "▶ [112/112] Working tree unchanged by the checks\n  done in 1.5 s\n\
+             ✘ 1 of 112 checks failed in 2 min 48 s\n\
              not reviewed: crates/a/src/c.rs: replace g -> U with x\n\
              stale review: crates/a/src/b.rs: replace f -> T with Default::default()\n\
              Rust unviable mutants reviewed: unviable mutants must be reviewed in \

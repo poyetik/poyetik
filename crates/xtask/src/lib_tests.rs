@@ -61,6 +61,14 @@ pub(crate) fn unviable_names_gate(
 /// process (a hook's `GIT_DIR` …) reaches it, nor the user's or the system's configuration,
 /// and commits get a fixed identity.
 pub(crate) fn hermetic_git(dir: &Path, args: &[&str]) -> String {
+    let (succeeded, stdout) = hermetic_git_ending(dir, args);
+    assert!(succeeded, "git {args:?} in {}", dir.display());
+    stdout
+}
+
+/// Runs git in `dir` as [`hermetic_git`] does, for a command that may fail on purpose (a
+/// merge that conflicts): whether it succeeded, and its stdout.
+pub(crate) fn hermetic_git_ending(dir: &Path, args: &[&str]) -> (bool, String) {
     let mut command = Command::new("git");
     let _same = command
         .args(args)
@@ -74,8 +82,10 @@ pub(crate) fn hermetic_git(dir: &Path, args: &[&str]) -> String {
         let _without = command.env_remove(variable);
     }
     let output = command.output().expect("git runs");
-    assert!(output.status.success(), "git {args:?} in {}", dir.display());
-    String::from_utf8(output.stdout).expect("UTF-8")
+    (
+        output.status.success(),
+        String::from_utf8(output.stdout).expect("UTF-8"),
+    )
 }
 
 /// The configuration of git for every command a test runs, as [`hermetic_git`] or through
@@ -967,6 +977,10 @@ pub(crate) fn passing() -> Fake {
             "feat(audio-core): add the plan\n",
         ),
         (super::CARGO_CONFIG_FILE.to_owned(), super::CARGO_CONFIG),
+        (
+            super::GIT_ATTRIBUTES.to_owned(),
+            "* text=auto eol=lf\n*.wasm binary\n",
+        ),
         (super::ROADMAP_BOARD.to_owned(), BOARD),
         (super::VOCABULARY.to_owned(), FAKE_WORDS),
         (super::DEPENDABOT.to_owned(), super::DEPENDABOT_CONFIG),
@@ -1216,6 +1230,7 @@ pub(crate) fn command_lines(steps: &[Step]) -> Vec<String> {
             Action::LibraryGate => "library gate".to_owned(),
             Action::PartLicenseGate => "part license gate".to_owned(),
             Action::CitationGate => "citation gate".to_owned(),
+            Action::ConflictMarkerGate => "conflict marker gate".to_owned(),
             Action::FusedBuild => "fused build".to_owned(),
             Action::LoadedFilesGate => "loaded files gate".to_owned(),
             Action::UnviableNamesGate => "unviable names gate".to_owned(),

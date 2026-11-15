@@ -41,6 +41,7 @@ const DEFAULT_PIPELINE: &[&str] = &[
     "readme gate",
     "citation gate",
     "vocabulary gate",
+    "conflict marker gate",
     "version gate",
     "history gate",
     "workflow gate",
@@ -170,6 +171,7 @@ const DEFAULT_CHECK_NAMES: &[&str] = &[
     "Every part described in a README",
     "Every roadmap step cited exists on the board",
     "The words of the glossary, not their synonyms",
+    "No conflict marker left in a tracked text file",
     "One version everywhere, changelog well formed, released sections as on main",
     "Commit messages, and a changelog entry for each change of behavior",
     "CI runs exactly the workflow xtask defines",
@@ -501,7 +503,7 @@ fn runs_every_step_and_reports_success() {
         Ok(()),
         "all green"
     );
-    let (tools, commands, emptied, listed, captured, written) = (10, 78, 14, 27, 55, 4);
+    let (tools, commands, emptied, listed, captured, written) = (10, 78, 14, 28, 55, 4);
     let read = 9
         + 2
         + 13
@@ -530,7 +532,9 @@ fn runs_every_step_and_reports_success() {
         + 6
         + 3
         + 91
-        + 5;
+        + 5
+        + 1
+        + 106;
     assert_eq!(
         fake.ran.len(),
         tools + commands + emptied + listed + captured + written + read,
@@ -539,7 +543,7 @@ fn runs_every_step_and_reports_success() {
          the coverage build, the mutants of the changes, Miri, the \
          conformance check and export, deny, the JavaScript install, audit, the engine build and the twenty-five \
          scripts of the five package checks, each package followed by its Stryker run); fourteen directories are emptied; git lists \
-         fourteen kinds of files (the box sources, the text files that cite the roadmap and the npm configuration files among them), the Rust files again for the test code, test data, untested targets, unviable names and loaded files gates, the TypeScript ones again for the reports and scope gates of \
+         every tracked file for the conflict marker gate, fourteen kinds of files (the box sources, the text files that cite the roadmap and the npm configuration files among them), the Rust files again for the test code, test data, untested targets, unviable names and loaded files gates, the TypeScript ones again for the reports and scope gates of \
          each package after the first; the licenses twice, the history of main and the history three times, the state \
          of the tree (before, for the proof record and after) six times, the nightly's version and sysroot, the Cargo metadata (for the untested targets, dependency, pin, library, part license and math layer gates), the output of the fused test build and of the nine builds of the loaded files gate, the merge base, the merge base with main three times and the record of the versions spent and the changelog listed there, the changed paths, the changes, the \
          new Rust files and the list of every mutant once, git's common directory twice, the tree checked out, \
@@ -550,7 +554,7 @@ fn runs_every_step_and_reports_success() {
          sources, the twelve Cargo manifests and the register of the bypass gate, the three unsafe files, the Cargo \
          configuration, the six package manifests and the register of the dependency gate, the six package manifests and the three license files of the part license gate, the five manifests of the package check gate, the four \
          supply-chain files, twelve crate manifests, ten READMEs, the changelog, ten READMEs, three Rust and six TypeScript sources and the vocabulary of the vocabulary gate, eight version files, the workflow and \
-         .node-version, five Stryker configurations and the six package manifests, and for each of the five \
+         .node-version, the attributes file and the 106 tracked text files of the conflict marker gate, five Stryker configurations and the six package manifests, and for each of the five \
          packages, the six TypeScript sources and two reports of its reports gate, then its \
          Stryker configuration, coverage summary, mutation report and the register of its \
          scope gate"
@@ -572,15 +576,15 @@ fn runs_every_step_and_reports_success() {
     );
     let text = String::from_utf8(out).expect("utf-8 output");
     assert!(
-        text.starts_with("▶ [1/113] Tools and platform\n"),
+        text.starts_with("▶ [1/114] Tools and platform\n"),
         "numbered progress: {text}"
     );
     assert!(
-        text.contains("▶ [104/113] Roadmap checks: test:e2e\n  done in 1.5 s\n"),
+        text.contains("▶ [105/114] Roadmap checks: test:e2e\n  done in 1.5 s\n"),
         "last step announced: {text}"
     );
     assert!(
-        text.ends_with("  done in 1.5 s\n✔ all 113 checks passed in 2 min 49 s\n"),
+        text.ends_with("  done in 1.5 s\n✔ all 114 checks passed in 2 min 51 s\n"),
         "summary: {text}"
     );
 }
@@ -860,6 +864,7 @@ const fn carries_its_problems_alone(action: &Action) -> bool {
         | Action::LibraryGate
         | Action::PartLicenseGate
         | Action::CitationGate
+        | Action::ConflictMarkerGate
         | Action::LoadedFilesGate => true,
         Action::BypassGate
         | Action::CargoConfigGate
@@ -969,6 +974,16 @@ fn names_each_failed_step_once() {
             vec![refused(crate::part_license_gate(METADATA, &[], &[]))],
         ),
         (Action::CitationGate, vec![refused(cite("\u{23}12 step 4"))]),
+        (
+            Action::ConflictMarkerGate,
+            vec![
+                refused(crate::conflict_marker_gate(&[(
+                    "a.md".to_owned(),
+                    "<<<<<<< x\n".to_owned(),
+                )])),
+                refused(crate::binary_suffixes("a binary\n").map(|_| ())),
+            ],
+        ),
     ];
     let steps = check_steps(Mode::Full { jobs: FAKE_JOBS });
     let classed: Vec<&Action> = steps

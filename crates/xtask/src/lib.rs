@@ -17,6 +17,7 @@ mod changes;
 mod citations;
 mod cli;
 mod commits;
+mod conflicts;
 mod coverage;
 mod dependencies;
 mod float;
@@ -52,6 +53,7 @@ pub use commits::{
     COMMIT_TYPES, SCOPES_SINCE, ci_marker, ci_outputs, ci_parts, ci_parts_marker, commit_msg_gate,
     commit_scopes, matrix_parts, named_parts,
 };
+pub use conflicts::{GIT_ATTRIBUTES, MARKER_SIZE, binary_suffixes, conflict_marker_gate};
 pub use coverage::{TreeState, coverage_gate, tree_gate, ts_coverage_gate};
 pub use dependencies::{
     BIT_DEFINING, CARGO_CONFIG, DEPENDENCIES_REVIEWED, NPM_FIELDS, dependency_gate, library_gate,
