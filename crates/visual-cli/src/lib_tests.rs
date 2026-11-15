@@ -609,6 +609,26 @@ fn refuses_a_corpus_it_cannot_read_whole() {
 }
 
 #[test]
+fn names_a_case_file_it_cannot_read_by_its_case() {
+    let mut unreadable = corpus(&blessed());
+    unreadable.unreadable = Some(PathBuf::from("d/cases/small.json"));
+    assert_eq!(
+        run_with(&mut unreadable, &["check", "d"]),
+        (
+            Err(CliError::Failed(
+                "1 problem(s), listed above; 1 case(s) cannot be rendered: fix them first"
+                    .to_owned()
+            )),
+            format!(
+                "ok       other {}\nFAILED   small: cannot read d/cases/small.json: unreadable\n",
+                hash(OTHER)
+            )
+        ),
+        "the case named, the file it could not read too"
+    );
+}
+
+#[test]
 fn names_every_case_it_cannot_render_and_blesses_none() {
     let mut broken = corpus(&blessed());
     drop(
