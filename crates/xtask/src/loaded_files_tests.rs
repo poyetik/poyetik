@@ -561,9 +561,9 @@ fn reports_the_builds_and_dep_info_files_it_cannot_read() {
     );
     let mut failing = passing();
     failing.fail = Some(check.line());
-    let rendered = "    Checking audio-fpenv v0.1.0\nerror[E0308]: mismatched types\n --> \
-                    crates/audio-fpenv/src/lib.rs:1:20\nerror: could not compile \
-                    `audio-fpenv` (lib) due to 1 previous error";
+    let rendered = "    Checking fpenv v0.1.0\nerror[E0308]: mismatched types\n --> \
+                    crates/fpenv/src/lib.rs:1:20\nerror: could not compile \
+                    `fpenv` (lib) due to 1 previous error";
     let _rendered = failing
         .files
         .insert(format!("stderr {}", check.line()), format!("{rendered}\n"));
@@ -577,19 +577,19 @@ fn reports_the_builds_and_dep_info_files_it_cannot_read() {
         "a build that fails, with the compiler's rendered diagnostic"
     );
     let mut missing = passing();
-    let _gone = missing.files.remove("/t/debug/deps/audio_fpenv-1.d");
+    let _gone = missing.files.remove("/t/debug/deps/fpenv-1.d");
     assert_eq!(
         run_steps(&step(), &mut missing, &mut Vec::new()),
-        failed("Loaded: cannot read /t/debug/deps/audio_fpenv-1.d: missing"),
+        failed("Loaded: cannot read /t/debug/deps/fpenv-1.d: missing"),
         "a dep-info file missing"
     );
     let mut garbled = passing();
     let _garbled = garbled
         .files
-        .insert("/t/debug/deps/audio_fpenv-2.d".to_owned(), "x\n".to_owned());
+        .insert("/t/debug/deps/fpenv-2.d".to_owned(), "x\n".to_owned());
     assert_eq!(
         run_steps(&step(), &mut garbled, &mut Vec::new()),
-        failed("Loaded: /t/debug/deps/audio_fpenv-2.d: a line not as rustc writes dep-info: x"),
+        failed("Loaded: /t/debug/deps/fpenv-2.d: a line not as rustc writes dep-info: x"),
         "a dep-info file not as rustc writes it"
     );
     let mut noise = passing();
@@ -603,17 +603,14 @@ fn reports_the_builds_and_dep_info_files_it_cannot_read() {
     );
     let mut stray = passing();
     let _stray = stray.files.insert(
-        "/t/debug/deps/audio_fpenv-2.d".to_owned(),
-        dep_info(
-            "/t/debug/deps/audio_fpenv-2",
-            &["crates/audio-fpenv/src/stray.rs"],
-        ),
+        "/t/debug/deps/fpenv-2.d".to_owned(),
+        dep_info("/t/debug/deps/fpenv-2", &["crates/fpenv/src/stray.rs"]),
     );
     assert_eq!(
         run_steps(&step(), &mut stray, &mut Vec::new()),
         failed(
-            "Loaded: crates/audio-fpenv/src/stray.rs: read by the test \
-             build of `audio_fpenv` (audio-fpenv), but not tracked by git, so no gate read it \
+            "Loaded: crates/fpenv/src/stray.rs: read by the test \
+             build of `fpenv` (fpenv), but not tracked by git, so no gate read it \
              (git add it)"
         ),
         "the gate fed with what the builds read"

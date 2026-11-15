@@ -8,7 +8,7 @@
 //! only `bless` may change.
 //!
 //! It runs on `x86_64` and aarch64 only: it renders in the processor's default
-//! floating-point mode (`audio-fpenv`, `spec/engine-design.md` decision 11), and another
+//! floating-point mode (`fpenv`, `spec/engine-design.md` decision 11), and another
 //! architecture refuses to build until its mode is set there.
 
 #![forbid(unsafe_code)]
@@ -33,3 +33,7 @@ pub use wav::{HEADER_LEN, wav_header};
 #[cfg(test)]
 #[path = "lib_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "host_modes_tests.rs"]
+mod host_modes_tests;

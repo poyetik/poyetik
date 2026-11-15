@@ -32,9 +32,9 @@ dependencies = [
  "audio-battery",
  "audio-boxes",
  "audio-core",
- "audio-fpenv",
  "audio-hash",
  "audio-patch",
+ "fpenv",
  "serde",
  "serde_json",
 ]
@@ -44,17 +44,6 @@ name = "audio-core"
 version = "0.6.0"
 dependencies = [
  "libm",
- "serde_json",
-]
-
-[[package]]
-name = "audio-fpenv"
-version = "0.6.0"
-dependencies = [
- "audio-boxes",
- "audio-core",
- "audio-hash",
- "audio-patch",
  "serde_json",
 ]
 
@@ -183,6 +172,10 @@ dependencies = [
  "block-buffer",
  "crypto-common",
 ]
+
+[[package]]
+name = "fpenv"
+version = "0.6.0"
 
 [[package]]
 name = "getrandom"

@@ -17,14 +17,14 @@ pub const UNSAFE_FILES: [&str; 4] = [
     "bindings/audio-wasm/src/ffi.rs",
     "bindings/visual-wasm/src/ffi.rs",
     "crates/alloc-counter/src/lib.rs",
-    "crates/audio-fpenv/src/word.rs",
+    "crates/fpenv/src/word.rs",
 ];
 
 /// The files of [`UNSAFE_FILES`] made of inline assembly, which Miri cannot run.
 ///
 /// Their crates leave the Miri step ([`unsafe_crates`](crate::steps::unsafe_crates)), and are proven by their own tests
 /// on each architecture they support, and by the audit written in the file.
-pub const ASSEMBLY_FILES: [&str; 1] = ["crates/audio-fpenv/src/word.rs"];
+pub const ASSEMBLY_FILES: [&str; 1] = ["crates/fpenv/src/word.rs"];
 
 /// Whether `relative` (the path of a Rust file inside a crate's directory) is the root of a
 /// crate target: the library, a binary, a test, a benchmark, an example or a build script.

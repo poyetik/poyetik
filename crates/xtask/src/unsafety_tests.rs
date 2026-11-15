@@ -41,15 +41,15 @@ fn confines_unsafe_blocks_to_the_audited_files() {
     );
     assert_eq!(UNSAFE_FILES.len(), 4, "four audited files");
     let mut fifth = sources.clone();
-    fifth.push(("crates/audio-fpenv/src/other.rs".to_owned(), lifting()));
+    fifth.push(("crates/fpenv/src/other.rs".to_owned(), lifting()));
     assert_eq!(
         unsafe_gate(&fifth),
         found(
             "the lint against unsafe code",
             &[
-                "crates/audio-fpenv/src/other.rs lifts the lint against unsafe code".to_owned(),
+                "crates/fpenv/src/other.rs lifts the lint against unsafe code".to_owned(),
                 format!(
-                    "crates/audio-fpenv/src/other.rs does not hold `{}`",
+                    "crates/fpenv/src/other.rs does not hold `{}`",
                     forbid.trim()
                 ),
             ]
@@ -68,7 +68,7 @@ fn confines_unsafe_blocks_to_the_audited_files() {
     assert_eq!(
         unsafe_gate(&no_assembly),
         failed(
-            "the lint against unsafe code: crates/audio-fpenv/src/word.rs is listed in \
+            "the lint against unsafe code: crates/fpenv/src/word.rs is listed in \
              ASSEMBLY_FILES but holds no inline assembly"
         ),
         "an assembly file without assembly"
@@ -222,13 +222,10 @@ fn refuses_a_file_that_rebinds_core_in_the_crate_of_an_assembly_file() {
     let refused = |problem: String| failed(format!("the lint against unsafe code: {problem}"));
     let forbid = format!("#![forbid({}_{})]\n", "unsafe", "code");
     for (path, code) in [
-        (
-            "crates/audio-fpenv/src/lib.rs",
-            "extern crate shadow as core;\n",
-        ),
-        ("crates/audio-fpenv/src/lib.rs", "use crate::m as core;\n"),
-        ("crates/audio-fpenv/src/other.rs", "mod core {}\n"),
-        ("crates/audio-fpenv/src/other.rs", "mod r#core {}\n"),
+        ("crates/fpenv/src/lib.rs", "extern crate shadow as core;\n"),
+        ("crates/fpenv/src/lib.rs", "use crate::m as core;\n"),
+        ("crates/fpenv/src/other.rs", "mod core {}\n"),
+        ("crates/fpenv/src/other.rs", "mod r#core {}\n"),
     ] {
         let text = if path.ends_with("lib.rs") {
             format!("//! The crate.\n{}{code}", doc_tests_forbid())
@@ -247,7 +244,7 @@ fn refuses_a_file_that_rebinds_core_in_the_crate_of_an_assembly_file() {
     }
     assert_eq!(
         gate(
-            "crates/audio-fpenv/src/other.rs",
+            "crates/fpenv/src/other.rs",
             &format!(
                 "{forbid}//! as core, mod core\nconst A: &str = \"as core\";\nmod coreless {{}}\n"
             )
@@ -291,21 +288,21 @@ fn refuses_unsafe_operations_another_file_could_bring_under_the_assembly_file() 
         ))
     };
     assert_eq!(
-        with("crates/audio-fpenv/src/lib.rs", &peek),
-        refused("crates/audio-fpenv/src/lib.rs", 6),
+        with("crates/fpenv/src/lib.rs", &peek),
+        refused("crates/fpenv/src/lib.rs", 6),
         "a macro of the library root, used in the assembly file"
     );
     assert_eq!(
         with(
-            "crates/audio-fpenv/src/lib_tests.rs",
+            "crates/fpenv/src/lib_tests.rs",
             &format!("{forbid}{word} fn f() {{}}\n")
         ),
-        refused("crates/audio-fpenv/src/lib_tests.rs", 2),
+        refused("crates/fpenv/src/lib_tests.rs", 2),
         "an unsafe function of another module"
     );
     assert_eq!(
         with(
-            "crates/audio-fpenv/src/lib.rs",
+            "crates/fpenv/src/lib.rs",
             &format!(
                 "//! Not {word} but the assembly.\n{}const A: &str = \"{word}\";\n",
                 doc_tests_forbid()

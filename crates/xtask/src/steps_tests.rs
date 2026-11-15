@@ -63,10 +63,10 @@ const DEFAULT_PIPELINE: &[&str] = &[
     "Root: cargo build --package audio-core --package audio-boxes --package audio-patch --package audio-hash --package audio-host --package visual-core --package visual-boxes --package visual-hash --package visual-host --locked --target x86_64-unknown-linux-gnu",
     "Root: cargo build --package audio-core --package audio-boxes --package audio-patch --package audio-hash --package audio-host --package visual-core --package visual-boxes --package visual-hash --package visual-host --locked --target wasm32-unknown-unknown",
     "Root: cargo build --package audio-core --package audio-boxes --package audio-patch --package audio-hash --package audio-host --package visual-core --package visual-boxes --package visual-hash --package visual-host --locked --target thumbv7em-none-eabihf",
-    "Root: cargo clippy --package audio-fpenv --package audio-cli --all-targets --locked --target aarch64-apple-darwin",
-    "Root: cargo clippy --package audio-fpenv --package audio-cli --all-targets --locked --target x86_64-unknown-linux-gnu",
-    "Root: cargo build --lib --package audio-fpenv --package audio-cli --locked --target aarch64-apple-darwin",
-    "Root: cargo build --lib --package audio-fpenv --package audio-cli --locked --target x86_64-unknown-linux-gnu",
+    "Root: cargo clippy --package fpenv --package audio-cli --all-targets --locked --target aarch64-apple-darwin",
+    "Root: cargo clippy --package fpenv --package audio-cli --all-targets --locked --target x86_64-unknown-linux-gnu",
+    "Root: cargo build --lib --package fpenv --package audio-cli --locked --target aarch64-apple-darwin",
+    "Root: cargo build --lib --package fpenv --package audio-cli --locked --target x86_64-unknown-linux-gnu",
     "fresh target/coverage",
     "coverage locality",
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/audio-core/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/audio-core.json -- --include-ignored",
@@ -82,7 +82,7 @@ const DEFAULT_PIPELINE: &[&str] = &[
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/visual-host/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/visual-host.json -- --include-ignored",
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path bindings/visual-wasm/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/visual-wasm.json -- --include-ignored",
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/alloc-counter/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/alloc-counter.json -- --include-ignored",
-    "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/audio-fpenv/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/audio-fpenv.json -- --include-ignored",
+    "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/fpenv/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/fpenv.json -- --include-ignored",
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/audio-battery/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/audio-battery.json -- --include-ignored",
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/audio-testkit/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/audio-testkit.json -- --include-ignored",
     "coverage cargo +nightly-2026-11-01 llvm-cov --manifest-path crates/audio-cli/Cargo.toml --lib --locked --branch --json --summary-only --output-path target/coverage/audio-cli.json -- --include-ignored",
@@ -219,8 +219,8 @@ const DEFAULT_CHECK_NAMES: &[&str] = &[
     "Library portability (thumbv7em-none-eabihf)",
     "Native shell lints (aarch64-apple-darwin)",
     "Native shell lints (x86_64-unknown-linux-gnu)",
-    "Native code of audio-cli and audio-fpenv built, inline assembly included (aarch64-apple-darwin)",
-    "Native code of audio-cli and audio-fpenv built, inline assembly included (x86_64-unknown-linux-gnu)",
+    "Native code of audio-cli and fpenv built, inline assembly included (aarch64-apple-darwin)",
+    "Native code of audio-cli and fpenv built, inline assembly included (x86_64-unknown-linux-gnu)",
     "Fresh Rust coverage reports",
     "Rust coverage counts a crate's own unit tests only",
     "Rust coverage of audio-core: 100% by its own unit tests",
@@ -236,7 +236,7 @@ const DEFAULT_CHECK_NAMES: &[&str] = &[
     "Rust coverage of visual-host: 100% by its own unit tests",
     "Rust coverage of visual-wasm: 100% by its own unit tests",
     "Rust coverage of alloc-counter: 100% by its own unit tests",
-    "Rust coverage of audio-fpenv: 100% by its own unit tests",
+    "Rust coverage of fpenv: 100% by its own unit tests",
     "Rust coverage of audio-battery: 100% by its own unit tests",
     "Rust coverage of audio-testkit: 100% by its own unit tests",
     "Rust coverage of audio-cli: 100% by its own unit tests",
@@ -659,6 +659,10 @@ fn runs_every_step_and_reports_success() {
         + 3
         + 93
         + 5
+        // fpenv, shared by both libraries, reads no test data: one test data reader fewer
+        // than these counts were written for, which eight gates read (roadmap #24 step 107
+        // derives each count from the registries).
+        - 8
         + conflict_gate_reads()
         + visual_reads()
         + added_package_operations()
@@ -1179,7 +1183,7 @@ fn checks_the_pins_in_the_history_of_main() {
         failed(
             "Commit messages, and a changelog entry for each change of behavior: the history \
              gate is pinned to commits main does not hold: SCOPES_SINCE names \
-             9853e43382d0af0e44970c8304294d34e0d8ac2b, which is not in the history of \
+             8ff0722ec0273e176d23865891563e8bbe8a1c41, which is not in the history of \
              fed4560000000000000000000000000000000000 (merge base with origin/main): pin a \
              commit main holds"
         ),
@@ -1439,7 +1443,7 @@ fn runs_miri_on_every_crate_of_the_audited_files() {
     );
     assert_eq!(
         crate::ASSEMBLY_FILES,
-        ["crates/audio-fpenv/src/word.rs"],
+        ["crates/fpenv/src/word.rs"],
         "the one file Miri cannot run"
     );
     assert!(

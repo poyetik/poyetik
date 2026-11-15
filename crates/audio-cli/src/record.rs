@@ -12,8 +12,8 @@ use std::path::Path;
 use audio_battery::{FINGERPRINT_BATTERY, fingerprint};
 use audio_boxes::{BuiltIn, REGISTRY};
 use audio_core::{Binary32, Binary64, RENDER_RULES_VERSION};
-use audio_fpenv::DefaultMode;
 use audio_hash::SCHEME;
+use fpenv::DefaultMode;
 use serde::{Deserialize, Serialize};
 
 /// The reference hashes of a conformance directory: for each case, the hash of each render

@@ -6,7 +6,7 @@ use audio_core::{
     Binary32, Binary64, Detector, LimiterError, LimiterSettings, MODE, OutputStage, Plan,
     RenderFormat, Renderer, Replaced, Sample, SampleRate, TruePeakLimiter,
 };
-use audio_fpenv::DefaultMode;
+use fpenv::DefaultMode;
 
 use crate::{HEADER_LEN, wav_header};
 use audio_boxes::{EnginePlan, REGISTRY};
@@ -213,7 +213,7 @@ impl RenderedSamples {
 /// let patch = r#"{"format":1,"nodes":[{"id":1,"box":"osc~"},{"id":2,"box":"dac~"}],
 ///   "connections":[{"from":[1,0],"to":[2,0]}]}"#;
 /// let format = audio_core::RenderFormat::Binary64;
-/// audio_fpenv::with_default_mode(|mode| {
+/// fpenv::with_default_mode(|mode| {
 ///     let prepared = audio_cli::prepare_case(case, patch, format, mode).expect("a case");
 ///     let mut rendered = prepared.render(mode);
 ///     rendered.samples = audio_cli::RenderedSamples::Binary32(vec![0.0; 3]);
@@ -228,7 +228,7 @@ impl RenderedSamples {
 /// let patch = r#"{"format":1,"nodes":[{"id":1,"box":"osc~"},{"id":2,"box":"dac~"}],
 ///   "connections":[{"from":[1,0],"to":[2,0]}]}"#;
 /// let format = audio_core::RenderFormat::Binary64;
-/// audio_fpenv::with_default_mode(|mode| {
+/// fpenv::with_default_mode(|mode| {
 ///     let render =
 ///         || audio_cli::prepare_case(case, patch, format, mode).map(|it| it.render(mode));
 ///     render().expect("a case") == render().expect("a case")
@@ -338,7 +338,7 @@ impl Prepared {
     }
 
     /// Renders the case with the native engine, in the default floating-point mode that
-    /// `_mode` proves (`audio_fpenv`): a render without it does not compile.
+    /// `_mode` proves (`fpenv`): a render without it does not compile.
     ///
     /// The samples fit a WAV file (checked by [`prepare_case`]), at most 4 GiB. They are
     /// allocated at once: if memory cannot hold them, the process aborts, as any Rust
@@ -383,7 +383,7 @@ impl Prepared {
 /// Reads a conformance case and its patch (the text of the patch file, unchanged) and
 /// builds its plan in the precision of `format`, without rendering it yet.
 ///
-/// It runs in the default floating-point mode that `_mode` proves (`audio_fpenv`):
+/// It runs in the default floating-point mode that `_mode` proves (`fpenv`):
 /// parsing and building do float work, so a preparation without the proof does not compile:
 ///
 /// ```compile_fail,E0061
@@ -394,14 +394,14 @@ impl Prepared {
 /// let _ = audio_cli::prepare_case(case, patch, format);
 /// ```
 ///
-/// while inside [`audio_fpenv::with_default_mode`] it does:
+/// while inside [`fpenv::with_default_mode`] it does:
 ///
 /// ```
 /// let case = r#"{"sample_rate":48000,"frames":100}"#;
 /// let patch = r#"{"format":1,"nodes":[{"id":1,"box":"osc~"},{"id":2,"box":"dac~"}],
 ///   "connections":[{"from":[1,0],"to":[2,0]}]}"#;
 /// let format = audio_core::RenderFormat::Binary64;
-/// let prepared = audio_fpenv::with_default_mode(|mode| {
+/// let prepared = fpenv::with_default_mode(|mode| {
 ///     audio_cli::prepare_case(case, patch, format, mode)
 /// });
 /// assert_eq!(prepared.map(|prepared| prepared.sample_count()), Ok(200));

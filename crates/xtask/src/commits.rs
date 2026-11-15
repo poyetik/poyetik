@@ -55,10 +55,12 @@ pub fn commit_scopes() -> Vec<&'static str> {
 
 /// The last commit whose scope the history gate does not hold to [`commit_scopes`].
 ///
-/// The scopes were free text up to it, and the published history is not rewritten. It is
-/// the commit of `main` the branch that brought the rule started from, as every pin of the
-/// history gate is a commit of `main` ([`history_pins`](crate::history::history_pins)).
-pub const SCOPES_SINCE: &str = "9853e43382d0af0e44970c8304294d34e0d8ac2b";
+/// The scopes were free text up to the branch that brought the rule, and a part renamed
+/// since (`audio-fpenv`, now `fpenv`) leaves its old name in the published history, which
+/// is not rewritten. It is the commit of `main` the branch that renamed it started from, as
+/// every pin of the history gate is a commit of `main`
+/// ([`history_pins`](crate::history::history_pins)).
+pub const SCOPES_SINCE: &str = "8ff0722ec0273e176d23865891563e8bbe8a1c41";
 
 /// Longest allowed commit header, in characters.
 pub const COMMIT_HEADER_MAX: usize = 72;

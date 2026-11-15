@@ -1,0 +1,15 @@
+[package]
+name = "fpenv"
+description = "Poyetik native support: runs calls in the default floating-point mode of the processor, whatever mode the host set, and forces a host's mode for tests"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+readme = false
+repository.workspace = true
+keywords = ["floating-point", "determinism"]
+categories = ["no-std"]
+
+[lints]
+workspace = true

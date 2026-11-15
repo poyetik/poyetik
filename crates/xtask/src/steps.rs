@@ -503,7 +503,7 @@ pub(crate) fn portability_steps() -> Vec<Step> {
 }
 
 /// The native shell (`audio-cli`) and the library's floating-point mode it uses
-/// (`audio-fpenv`), whose code differs by architecture, linted then built for each of
+/// (`fpenv`), whose code differs by architecture, linted then built for each of
 /// [`NATIVE_TARGETS`].
 ///
 /// Clippy type-checks every target of theirs, tests included, without generating code, so
@@ -526,7 +526,9 @@ pub(crate) fn native_lint_steps() -> Vec<Step> {
     });
     let builds = NATIVE_TARGETS.iter().map(|&target| {
         run(
-            &format!("Native code of audio-cli and audio-fpenv built, inline assembly included ({target})"),
+            &format!(
+                "Native code of audio-cli and fpenv built, inline assembly included ({target})"
+            ),
             "cargo",
             &[
                 vec!["build", "--lib"],

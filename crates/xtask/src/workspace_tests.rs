@@ -174,15 +174,14 @@ fn derives_each_list_of_crates_from_their_roles() {
                 "audio-patch",
                 "audio-hash",
                 "audio-host",
-                "audio-fpenv",
                 "audio-wasm",
             ][..],
             "the audio library",
         ),
         (
             CrateRole::LibraryTests,
-            &["alloc-counter", "audio-battery", "audio-testkit"][..],
-            "the counting allocator, the fingerprint battery and the test kit",
+            &["alloc-counter", "fpenv", "audio-battery", "audio-testkit"][..],
+            "the counting allocator, the floating-point mode, the fingerprint battery and the test kit",
         ),
         (
             CrateRole::VisualLibrary,
@@ -207,8 +206,8 @@ fn derives_each_list_of_crates_from_their_roles() {
         ),
         (
             CrateRole::VisualLibraryTests,
-            &["visual-testkit", "alloc-counter"][..],
-            "the visual test kit and the counting allocator",
+            &["visual-testkit", "alloc-counter", "fpenv"][..],
+            "the visual test kit, the counting allocator and the floating-point mode",
         ),
         (
             CrateRole::Libm,
@@ -237,11 +236,7 @@ fn derives_each_list_of_crates_from_their_roles() {
 
 /// The crates of the libraries not built for every portability target, and why: each
 /// needs what a bare-metal target has not.
-const NOT_PORTABLE: [(&str, &str); 3] = [
-    (
-        "audio-fpenv",
-        "sets the floating-point mode of the native CPU it runs on",
-    ),
+const NOT_PORTABLE: [(&str, &str); 2] = [
     (
         "audio-wasm",
         "the engine's WebAssembly interface: std, built for WebAssembly by its package",

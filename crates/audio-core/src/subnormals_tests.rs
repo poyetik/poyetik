@@ -1,5 +1,5 @@
 //! Tests of the observation of subnormal arithmetic. The tests run in the default mode of
-//! the processor (IEEE); `audio-fpenv`'s tests observe it under every flush mode forced.
+//! the processor (IEEE); `audio-cli`'s tests observe it under every host mode `fpenv` forces.
 
 use super::{SubnormalArithmetic, SubnormalsKept};
 

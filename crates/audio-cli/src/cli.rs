@@ -9,8 +9,8 @@ use std::path::{Path, PathBuf};
 
 use audio_battery::FINGERPRINT_BATTERY;
 use audio_core::RenderFormat;
-use audio_fpenv::{DefaultMode, with_default_mode};
 use audio_patch::MAX_PATCH_BYTES;
+use fpenv::{DefaultMode, with_default_mode};
 
 use audio_boxes::REGISTRY;
 
@@ -1107,7 +1107,7 @@ fn export(
 /// writing its output to `out` (stdout) and its warnings to `warnings` (stderr: one
 /// `warning:` line each, never a failure).
 ///
-/// The mode is set by `audio_fpenv::with_default_mode`, whatever mode the calling thread
+/// The mode is set by `fpenv::with_default_mode`, whatever mode the calling thread
 /// had: renders are the same bits as WebAssembly's even under a host that flushes
 /// subnormals.
 ///

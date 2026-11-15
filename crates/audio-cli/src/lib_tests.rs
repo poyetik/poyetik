@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use audio_core::{RenderFormat, Replaced, SampleRate};
 
-use audio_fpenv::with_default_mode;
+use fpenv::with_default_mode;
 
 use crate::hint::Hint;
 

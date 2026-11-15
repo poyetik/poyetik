@@ -1,5 +1,5 @@
-//! Runs native engine calls in the default floating-point mode of the processor, whatever
-//! mode the host set (`spec/engine-design.md`, decision 11).
+//! Runs native calls of either library in the default floating-point mode of the processor,
+//! whatever mode the host set (`spec/engine-design.md`, decision 11).
 //!
 //! A plugin host may turn on flush-to-zero or denormals-are-zero, or another rounding
 //! direction, on the thread that calls the engine; WebAssembly has none of these. So that
@@ -17,7 +17,7 @@
 //! native host API makes it a type (#32 step 17). The proof cannot be built anywhere else:
 //!
 //! ```compile_fail,E0451
-//! let forged = audio_fpenv::DefaultMode {
+//! let forged = fpenv::DefaultMode {
 //!     scope: core::marker::PhantomData,
 //!     thread: core::marker::PhantomData,
 //! };
@@ -27,21 +27,25 @@
 //!
 //! ```compile_fail,E0521
 //! let mut kept = None;
-//! audio_fpenv::with_default_mode(|mode| kept = Some(mode));
+//! fpenv::with_default_mode(|mode| kept = Some(mode));
 //! ```
 //!
 //! nor sent to another thread, whose mode is its own:
 //!
 //! ```compile_fail,E0277
-//! audio_fpenv::with_default_mode(|mode| std::thread::spawn(move || drop(mode)).join());
+//! fpenv::with_default_mode(|mode| std::thread::spawn(move || drop(mode)).join());
 //! ```
 //!
 //! while within its call it can be passed on:
 //!
 //! ```
-//! fn engine_call(_mode: audio_fpenv::DefaultMode<'_>) -> u32 { 7 }
-//! assert_eq!(audio_fpenv::with_default_mode(|mode| engine_call(mode)), 7);
+//! fn engine_call(_mode: fpenv::DefaultMode<'_>) -> u32 { 7 }
+//! assert_eq!(fpenv::with_default_mode(|mode| engine_call(mode)), 7);
 //! ```
+//!
+//! For tests of either library, [`host`] forces the mode a host may set on the calling
+//! thread and observes the mode in force, so that a test can show what the default mode
+//! protects.
 //!
 //! Native only: `x86_64` (MXCSR) and aarch64 (FPCR); any other target refuses to build it.
 //! Its one `unsafe` file, `word.rs`, reads and writes the control register with inline
@@ -53,9 +57,10 @@
 
 #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
 compile_error!(
-    "audio-fpenv supports x86_64 and aarch64 only: set the floating-point mode of another target before adding it"
+    "fpenv supports x86_64 and aarch64 only: set the floating-point mode of another target before adding it"
 );
 
+pub mod host;
 mod word;
 
 use core::marker::PhantomData;

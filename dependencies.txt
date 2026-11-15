@@ -25,7 +25,6 @@ audio-cli: serde (normal) -- bit-defining: reads the conformance case files into
 audio-cli: serde_json (normal) -- bit-defining: parses the case files, the values rendered and hashed, and writes the reference hashes
 audio-core: libm (normal) -- bit-defining: the math functions of the engine's math layer (sine, floor), deterministic and portable, identical on every target where std's are not; boxes reach them only through the layer
 audio-core: serde_json (dev) -- reads the shared test matrix, so the unit tests run at every sample rate of conformance/test-matrix.json
-audio-fpenv: serde_json (dev) -- reads the conformance cases and their reference hashes, rendered under every forced host mode
 audio-hash: serde_json (dev) -- reads the shared known-answer vectors of spec/render-hash-vectors.json
 audio-hash: sha2 (normal) -- bit-defining: the SHA-256 of a render, without std, the same on every target
 audio-boxes: libm (dev) -- the exact references of the tests (sine, exponent, logarithm), computed apart from the math layer of the boxes they check

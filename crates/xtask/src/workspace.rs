@@ -215,11 +215,11 @@ pub const RUST_CRATES: [RustCrate; 19] = [
         ],
     },
     RustCrate {
-        name: "audio-fpenv",
-        dir: "crates/audio-fpenv",
+        name: "fpenv",
+        dir: "crates/fpenv",
         binary: false,
-        test_data: &["conformance/"],
-        roles: &[CrateRole::Library],
+        test_data: &[],
+        roles: &[CrateRole::LibraryTests, CrateRole::VisualLibraryTests],
     },
     RustCrate {
         name: "audio-battery",
@@ -690,9 +690,9 @@ pub const PORTABILITY_PACKAGES: [&str; 9] = [
 /// their packages build for [`WASM_TARGET`].
 pub const WASM_PACKAGES: [&str; 2] = ["audio-wasm", "visual-wasm"];
 
-/// The native shell and the library's floating-point mode it uses, whose code differs by
+/// The native shell and the floating-point mode it uses, whose code differs by
 /// architecture: built for each of [`NATIVE_TARGETS`].
-pub const NATIVE_PACKAGES: [&str; 2] = ["audio-fpenv", "audio-cli"];
+pub const NATIVE_PACKAGES: [&str; 2] = ["fpenv", "audio-cli"];
 
 /// Cargo's arguments selecting `packages`: `--package <name>` for each, in order.
 pub(crate) fn package_args<'name>(packages: &[&'name str]) -> Vec<&'name str> {
@@ -703,7 +703,7 @@ pub(crate) fn package_args<'name>(packages: &[&'name str]) -> Vec<&'name str> {
 }
 
 /// Targets of the native shell (`audio-cli`) and of its floating-point mode
-/// (`audio-fpenv`), whose code differs by architecture.
+/// (`fpenv`), whose code differs by architecture.
 ///
 /// Each is linted for both, whatever the machine, so that CI (`x86_64` Linux) compiles the
 /// aarch64 code and a Mac the `x86_64` code.

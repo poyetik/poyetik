@@ -19,7 +19,7 @@ const CASES = readdirSync(new URL("cases/", CONFORMANCE))
  * Cases also captured live, through the real audio graph (in real time, so a subset): the
  * default rate and 44.1 kHz, and the case whose render given as binary32 delivers binary32
  * subnormals (2^-126 Hz at 8 kHz), which a real-time audio thread under flush-to-zero would
- * change, as audio-fpenv's flushing control shows natively.
+ * change, as fpenv's flushing control shows natively.
  */
 const LIVE = ["sine-440", "sine-440-at-44k1", "sine-1.1754944e-38-at-8k"];
 

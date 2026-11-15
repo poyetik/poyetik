@@ -1626,7 +1626,7 @@ fn mutates_every_crate_not_proven_whole_when_what_every_test_uses_changed() {
         "visual-host",
         "visual-wasm",
         "alloc-counter",
-        "audio-fpenv",
+        "fpenv",
         "audio-battery",
         "audio-testkit",
         "audio-cli",
@@ -1977,16 +1977,20 @@ fn reads_the_crates_real_cargo_metadata_lists() {
         "normal and development dependencies, at any depth"
     );
     assert_eq!(
-        of("audio-fpenv"),
+        of("audio-core"),
         Some(vec![
             "alloc-counter",
             "audio-battery",
             "audio-core",
-            "audio-fpenv",
             "audio-testkit",
             "visual-core"
         ]),
         "a development dependency's own"
+    );
+    assert_eq!(
+        of("fpenv"),
+        Some(vec!["fpenv"]),
+        "a crate with no dependency"
     );
     assert_eq!(
         of("xtask"),

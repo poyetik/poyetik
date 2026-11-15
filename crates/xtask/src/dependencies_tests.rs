@@ -201,7 +201,7 @@ fn outside_library(library: &str, name: &str, kind: &str, path: &str) -> String 
     format!(
         "{library} depends on {name} ({kind}, {path}): the audio library depends only on its \
          own crates (audio-core, audio-boxes, audio-patch, audio-hash, audio-host, \
-         audio-fpenv, audio-wasm), its tests also on alloc-counter, audio-battery, audio-testkit; move what \
+         audio-wasm), its tests also on alloc-counter, fpenv, audio-battery, audio-testkit; move what \
          it needs into the library, or the dependency out of it"
     )
 }
@@ -212,7 +212,7 @@ fn outside_visual_library(library: &str, name: &str, kind: &str, path: &str) -> 
     format!(
         "{library} depends on {name} ({kind}, {path}): the visual library depends only on its \
          own crates (visual-core, visual-boxes, visual-hash, visual-host, visual-wasm), its tests also on \
-         visual-testkit, alloc-counter; move what it needs into the library, or the \
+         visual-testkit, alloc-counter, fpenv; move what it needs into the library, or the \
          dependency out of it"
     )
 }
@@ -241,7 +241,7 @@ fn outside_visual_tool(tool: &str, name: &str, kind: &str, path: &str) -> String
         "{tool}, a tool of the visual library, depends on {name} ({kind}, {path}): it \
          depends, within the project, only on the visual library's crates (visual-core, \
          visual-boxes, visual-hash, visual-host, visual-wasm), its tests also on visual-testkit, \
-         alloc-counter; move what it needs into the library, or the dependency out of it"
+         alloc-counter, fpenv; move what it needs into the library, or the dependency out of it"
     )
 }
 
@@ -260,8 +260,8 @@ fn keeps_the_library_apart_in_real_cargo_metadata() {
             outside_tests(
                 "audio-testkit",
                 "audio library",
-                "audio-core, audio-boxes, audio-patch, audio-hash, audio-host, audio-fpenv, audio-wasm",
-                "alloc-counter, audio-battery, audio-testkit",
+                "audio-core, audio-boxes, audio-patch, audio-hash, audio-host, audio-wasm",
+                "alloc-counter, fpenv, audio-battery, audio-testkit",
                 (
                     "visual-core",
                     "normal",
@@ -275,7 +275,7 @@ fn keeps_the_library_apart_in_real_cargo_metadata() {
                 "visual-testkit",
                 "visual library",
                 "visual-core, visual-boxes, visual-hash, visual-host, visual-wasm",
-                "visual-testkit, alloc-counter",
+                "visual-testkit, alloc-counter, fpenv",
                 ("audio-core", "normal", &core),
             ),
         ]),
@@ -288,7 +288,7 @@ fn keeps_the_library_apart_in_real_cargo_metadata() {
 #[test]
 fn refuses_a_library_that_reaches_outside_itself() {
     let packages = |core: &str| {
-        let others = r#"{"name":"audio-boxes"},{"name":"audio-patch"},{"name":"audio-hash"},{"name":"audio-host"},{"name":"audio-fpenv"},{"name":"visual-core"},{"name":"visual-boxes"},{"name":"visual-hash"},{"name":"visual-host"},{"name":"visual-wasm"},{"name":"visual-cli"},{"name":"alloc-counter"},{"name":"audio-battery"},{"name":"audio-testkit"},{"name":"visual-testkit"},"#;
+        let others = r#"{"name":"audio-boxes"},{"name":"audio-patch"},{"name":"audio-hash"},{"name":"audio-host"},{"name":"fpenv"},{"name":"visual-core"},{"name":"visual-boxes"},{"name":"visual-hash"},{"name":"visual-host"},{"name":"visual-wasm"},{"name":"visual-cli"},{"name":"alloc-counter"},{"name":"audio-battery"},{"name":"audio-testkit"},{"name":"visual-testkit"},"#;
         format!(
             r#"{{"workspace_root":"/r","packages":[{others}{{"name":"audio-wasm"}},{{"name":"audio-core","dependencies":[{core}]}}]}}"#
         )
@@ -351,9 +351,9 @@ fn refuses_a_library_that_reaches_outside_itself() {
                 "audio-patch",
                 "audio-hash",
                 "audio-host",
-                "audio-fpenv",
                 "audio-wasm",
                 "alloc-counter",
+                "fpenv",
                 "audio-battery",
                 "audio-testkit",
                 "visual-core",
@@ -363,7 +363,8 @@ fn refuses_a_library_that_reaches_outside_itself() {
                 "visual-wasm",
                 "visual-cli",
                 "visual-testkit",
-                "alloc-counter"
+                "alloc-counter",
+                "fpenv"
             ]
             .map(|name| {
                 format!("{name}: not in the cargo metadata, so its dependencies cannot be checked")

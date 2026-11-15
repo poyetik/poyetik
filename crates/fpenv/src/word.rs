@@ -31,11 +31,12 @@
 //!   restoring write gives the host its own mode back, in which the rest of
 //!   `with_default_mode`'s return path runs (dropping the guard, returning the result: no
 //!   float work of the engine) before the host's code, outside Rust's assumption by the
-//!   host's choice. The crate's tests go further: their `as_host` runs Rust code (renders,
-//!   parsing) under forced modes on purpose, to show what the default mode protects, which
-//!   the rule calls unsupported; their bodies pass through `black_box` as
-//!   `with_default_mode`'s do, and each forced mode is first shown in force, so a body the
-//!   compiler moved into the default mode would fail loudly, never pass. Accepted, review
+//!   host's choice. Tests go further: `host::as_host`, for the tests of this crate and of
+//!   either library, runs Rust code (renders, parsing) under forced modes on purpose, to
+//!   show what the default mode protects, which the rule calls unsupported; its bodies pass
+//!   through `black_box` as `with_default_mode`'s do, and each forced mode is first shown in
+//!   force, so a body the compiler moved into the default mode would fail loudly, never
+//!   pass. Accepted, review
 //!   only: no other way gives a native engine call the default mode a host may have
 //!   changed.
 //! - **AMD's MM bit.** Some AMD processors define MXCSR bit 17 (misaligned exception mask);
@@ -56,11 +57,11 @@
 
 /// The control register's value: MXCSR (32 bits) on `x86_64`, FPCR (64 bits) on aarch64.
 #[cfg(target_arch = "x86_64")]
-pub(crate) type Word = u32;
+pub type Word = u32;
 
 /// The control register's value: MXCSR (32 bits) on `x86_64`, FPCR (64 bits) on aarch64.
 #[cfg(target_arch = "aarch64")]
-pub(crate) type Word = u64;
+pub type Word = u64;
 
 /// The bits of MXCSR that set the mode: DAZ, the six exception masks, the rounding control
 /// and FTZ. The others are the sticky exception flags (bits 0 to 5), which record what
@@ -70,7 +71,7 @@ pub(crate) const CONTROL: Word = 0xffc0;
 
 /// The default mode of MXCSR: every exception masked, rounding to nearest, no DAZ, no FTZ.
 #[cfg(target_arch = "x86_64")]
-pub(crate) const DEFAULT: Word = 0x1f80;
+pub const DEFAULT: Word = 0x1f80;
 
 /// The bits of FPCR that set the mode: FIZ, AH, NEP, the trap enables, EBF, FZ16, `RMode`,
 /// FZ, DN and AHP. The others are reserved.
@@ -80,7 +81,7 @@ pub(crate) const CONTROL: Word = 0x07c8_bf07;
 /// The default mode of FPCR: every field zero (round to nearest, no flush, no trap, IEEE
 /// NaN propagation and half precision).
 #[cfg(target_arch = "aarch64")]
-pub(crate) const DEFAULT: Word = 0;
+pub const DEFAULT: Word = 0;
 
 /// The control register of the current thread.
 pub(crate) fn read() -> Word {

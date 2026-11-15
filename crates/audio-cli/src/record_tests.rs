@@ -106,7 +106,7 @@ fn references(cases: &[(&str, &str)]) -> References {
 
 #[test]
 fn fingerprints_every_registered_box_type_at_its_version() {
-    let now = audio_fpenv::with_default_mode(current_fingerprints);
+    let now = fpenv::with_default_mode(current_fingerprints);
     assert_eq!(
         now.keys().map(String::as_str).collect::<Vec<_>>(),
         ["dac~", "osc~"],
