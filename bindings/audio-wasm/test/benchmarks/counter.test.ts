@@ -1,10 +1,10 @@
 import { describe, expect, test } from "vitest";
 import { CountedInstance, CountError, countedEngine, countedModule } from "../../benchmarks/counter.ts";
-import { instrument } from "../../benchmarks/instrument.ts";
+import { instrument } from "@poyetik/wasm-build/instrument";
 import { ModuleError, RENDER_FORMATS, WasmEngine } from "../../ts/engine.ts";
 import { interleave, interleave64, renderHash, STRICT } from "../../ts/hash.ts";
 import { CORPUS, SINE_PATCH, UNKNOWN_BOX, reference, wasmBytes } from "../fixtures.ts";
-import { assemble, I32_GLOBAL } from "./assemble.ts";
+import { assemble, I32_GLOBAL } from "@poyetik/wasm-build/testing/assemble";
 
 /** The built engine module, instrumented and compiled at the first use (a mutant that breaks it fails a test, not the file). */
 let compiled: WebAssembly.Module | undefined;
