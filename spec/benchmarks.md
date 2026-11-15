@@ -98,11 +98,11 @@ The visual library's module (`bindings/visual-wasm/dist/visual.wasm`) is counted
 
 **What is measured.** At four image sizes, each four times the pixels of the one before (64×36, 320×180, 640×360, 1280×720), in a fresh instance with the square set up (not counted): the instructions of rendering one image, and of rendering and hashing it; and the module's size in bytes. The square is the only visual box today; the suite measures each box that comes.
 
-**The law: an image costs its pixels.** An image's cost is proportional to its pixels, plus what it costs once: for the render, and for the render and hash, the cost per pixel at every size must be within 2% of the largest size's (measured 2026-11-16: 96.29 instructions a pixel at 64×36 against 95.05 at 1280×720 for the render, 1381.92 against 1378.00 for the render and hash). A box whose cost grows faster than its pixels, or whose fixed cost swamps a small image, breaks it, and bless refuses to write.
+**The law: an image costs its pixels.** An image's cost is proportional to its pixels, plus what it costs once: for the render, and for the render and hash, the cost per pixel at every size must be within 2% of the largest size's (measured 2026-11-16: 88.19 instructions a pixel at 64×36 against 87.04 at 1280×720 for the render, 1373.82 against 1369.99 for the render and hash). A box whose cost grows faster than its pixels, or whose fixed cost swamps a small image, breaks it, and bless refuses to write.
 
 **Threshold.** As the engine's: 2% either way, a review trigger, not a noise margin.
 
-**What they show already.** Hashing an image costs about 14 times rendering the square (1378 against 95 instructions a pixel, 16 bytes a pixel): SHA-256 itself, about 86 instructions a byte in WebAssembly, which has no instruction for it. The image hash checks conformance; a page drawing live images does not hash them. Its measured choices come under "Measured design choices" below.
+**What they show already.** Hashing an image costs about 16 times rendering the square (1370 against 87 instructions a pixel, 16 bytes a pixel): SHA-256 itself, about 86 instructions a byte in WebAssembly, which has no instruction for it. The image hash checks conformance; a page drawing live images does not hash them. Its measured choices come under "Measured design choices" below.
 
 **What they do not see.** The GPU renderer's cost, which is measured in time by its own benchmark (#34 step 5); the cost of a box other than the square.
 
@@ -245,6 +245,10 @@ Every choice of the engine's code that a measurement decided, since the reductio
 ### The image hash fed by chunks
 
 **The image hash feeds SHA-256 4 KiB at a time** (`visual-hash`, `ImageHasher`; 2026-11-16). One call per value (4 bytes) cost 1505 instructions a pixel to render and hash; laying 1024 values out on the stack and feeding them at once costs 1378 (-8.5%), the same bytes in the same order, so the same hash (the corpus and the known-answer vectors unchanged). The rest is SHA-256's own work; a faster hash would be a new scheme, `image-hash/2`, decided apart.
+
+### The square placed in 32 bits
+
+**The square's edges are 32-bit integers** (`visual-boxes`, `Square::placement`; 2026-11-16). Every edge is at most 16 384 × 4096 = 2²⁶ subpixels, so 32 bits hold it by construction, the GPU's shading language (no wider integers) included. Computing the placement in 32 bits instead of 64 costs 8.4% fewer instructions to render the square (87.04 against 95.05 a pixel at 1280×720), the same images (the corpus unchanged).
 
 ### How the counts are taken
 
