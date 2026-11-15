@@ -561,10 +561,24 @@ impl<S: Sample> TruePeakLimiter<S> {
         (self.nonzero, self.sums, self.since_exact) = (nonzero, sums, 0);
     }
 
-    /// Adds the need `value` of step `step` to the sliding maximum, and drops what left its
-    /// window.
+    /// Drops what left the window of the sliding maximum, then adds the need `value` of step
+    /// `step`.
+    ///
+    /// Dropping first keeps at most the window's `lookahead + 1` older needs, so the new one
+    /// always has a free entry of the ring (`maximum + 2` long), with the lookahead at its
+    /// maximum too.
     fn enqueue(&mut self, step: u64, value: S) {
         let length = self.queue.len();
+        let span = u64::try_from(self.lookahead.saturating_add(2)).unwrap_or(u64::MAX);
+        while self.queued > 0
+            && self
+                .queue
+                .get(self.front)
+                .is_some_and(|(entered, _)| step.saturating_sub(*entered) >= span)
+        {
+            self.front = next(self.front, length);
+            self.queued = self.queued.saturating_sub(1);
+        }
         while let Some(last) = self.queued.checked_sub(1) {
             let back = ahead(self.front, last, length);
             if self.queue.get(back).is_some_and(|(_, kept)| *kept > value) {
@@ -578,16 +592,6 @@ impl<S: Sample> TruePeakLimiter<S> {
             (step, value),
         );
         self.queued = self.queued.saturating_add(1);
-        let span = u64::try_from(self.lookahead.saturating_add(2)).unwrap_or(u64::MAX);
-        // The need just added never leaves: the queue keeps at least it.
-        while self
-            .queue
-            .get(self.front)
-            .is_some_and(|(entered, _)| step.saturating_sub(*entered) >= span)
-        {
-            self.front = next(self.front, length);
-            self.queued = self.queued.saturating_sub(1);
-        }
     }
 
     /// The largest need of the window.

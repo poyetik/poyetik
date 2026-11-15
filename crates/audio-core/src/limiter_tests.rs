@@ -385,8 +385,14 @@ fn holds_the_ceiling<S: Sample + Raw>(slack: f64) {
     let mut draws = Noise::new();
     // 10^(-1/20), the default ceiling of -1 dBTP as an amplitude, computed apart.
     let ceiling = 0.891_250_938_133_745_6_f64;
-    for rate in rates() {
-        for (channels, detector) in [1, 2].into_iter().zip(DETECTORS) {
+    for (at_rate, rate) in rates().into_iter().enumerate() {
+        // Every detector, on one channel or two by turns across the rates.
+        for (index, detector) in DETECTORS.into_iter().enumerate() {
+            let channels = if index.wrapping_add(at_rate).is_multiple_of(2) {
+                1
+            } else {
+                2
+            };
             for input in loud::<S>(channels, &mut draws) {
                 let mut limiter = TruePeakLimiter::<S>::new(
                     rate,
@@ -415,6 +421,52 @@ fn holds_the_ceiling<S: Sample + Raw>(slack: f64) {
             }
         }
     }
+}
+
+/// Holds the ceiling with its lookahead at its maximum, where the window's needs fill the
+/// queue of its sliding maximum: a loud 48 Hz sine, whose needs fall for longer than the
+/// window, with the shortest release and the fastest adaptivity, at every rate and with
+/// every detector.
+fn holds_the_ceiling_with_its_lookahead_at_its_maximum<S: Sample + Raw>(slack: f64) {
+    // 10^(-1/20), the default ceiling of -1 dBTP as an amplitude, computed apart.
+    let ceiling = 0.891_250_938_133_745_6_f64;
+    for rate in rates() {
+        // Three periods of the sine.
+        let frames = usize::try_from(rate.hz()).expect("small") / 16;
+        let blocks = frames.div_ceil(BLOCK_SIZE);
+        for detector in DETECTORS {
+            let mut limiter = TruePeakLimiter::<S>::new(
+                rate,
+                1,
+                value(1.5_f64),
+                detector,
+                settings(-1.0, 1.5, 10.0, 1.0),
+                true,
+            )
+            .expect("a limiter");
+            let hz = f64::from(rate.hz());
+            let input = signal(blocks, 1, |frame, _| {
+                let at = f64::from(u32::try_from(frame).expect("small"));
+                of::<S>(3.0_f64 * libm::sin(core::f64::consts::TAU * 48.0_f64 * at / hz))
+            });
+            let peak = largest(&limited(&mut limiter, &input), 0, 1);
+            assert!(
+                peak <= ceiling * (1.0_f64 + slack),
+                "{peak} above {ceiling} at {} Hz, {detector:?}",
+                rate.hz()
+            );
+            assert!(
+                peak > ceiling * 0.5_f64,
+                "it does not silence the signal: {peak}"
+            );
+        }
+    }
+}
+
+#[test]
+fn holds_the_ceiling_with_its_lookahead_at_its_maximum_in_each_precision() {
+    holds_the_ceiling_with_its_lookahead_at_its_maximum::<Binary64>(1e-9_f64);
+    holds_the_ceiling_with_its_lookahead_at_its_maximum::<Binary32>(1e-4_f64);
 }
 
 #[test]
@@ -493,6 +545,53 @@ fn returns_exactly_to_raw<S: Sample + Raw>() {
 fn returns_exactly_to_raw_in_each_precision() {
     returns_exactly_to_raw::<Binary64>();
     returns_exactly_to_raw::<Binary32>();
+}
+
+#[test]
+fn holds_the_largest_need_of_its_window_whatever_the_lookahead() {
+    // The sliding maximum against the largest need of the window counted apart, at every
+    // rate, with the lookahead at its maximum (the queue full) and below it, for needs that
+    // fall for longer than the window (each need the largest until it leaves), rise and
+    // wander.
+    for rate in rates() {
+        for (maximum, lookahead) in [(0.5_f64, 0.5_f64), (5.0_f64, 5.0_f64), (5.0_f64, 1.5_f64)] {
+            let shapes: [&dyn Fn(usize) -> f64; 3] = [
+                &|step| 1.0_f64 / (1.0_f64 + f64::from(u32::try_from(step).expect("small"))),
+                &|step| f64::from(u32::try_from(step).expect("small")),
+                &|step| {
+                    let mut draws = Noise(u32::try_from(step).expect("small"));
+                    draws.next().abs()
+                },
+            ];
+            for (shape, need) in shapes.iter().enumerate() {
+                let mut limiter = TruePeakLimiter::<Binary64>::new(
+                    rate,
+                    1,
+                    value(maximum),
+                    super::Detector::Standard,
+                    settings(-1.0, lookahead, 100.0, 0.5),
+                    true,
+                )
+                .expect("a limiter");
+                let span = frames_at(lookahead, rate) + 2;
+                let needs: Vec<f64> = (0..4 * span).map(need).collect();
+                for (step, &value_now) in needs.iter().enumerate() {
+                    limiter.enqueue(
+                        u64::try_from(step).expect("small"),
+                        Binary64::new(value_now),
+                    );
+                    let window = &needs[step.saturating_sub(span - 1)..=step];
+                    let expected = window.iter().copied().fold(0.0_f64, larger);
+                    assert_eq!(
+                        limiter.held().raw(),
+                        expected,
+                        "{} Hz, {lookahead} of {maximum} ms, shape {shape}, step {step}",
+                        rate.hz()
+                    );
+                }
+            }
+        }
+    }
 }
 
 #[test]
