@@ -253,7 +253,47 @@ static ABOVE: ObjectSpec = ObjectSpec::new::<ConstAbove>(
     AlgorithmVersion::FIRST,
 );
 
-static REGISTRY: [&ObjectSpec; 8] = [&CONST, &RAMP, &ADD, &OUT, &MONO_OUT, &RATE, &PASS, &LEVEL];
+/// Outputs 1 at every frame of each block but three: a NaN at frame 1, +∞ at frame 2 and
+/// -∞ at frame 3; a defect no real box should have, for the output stage to replace.
+#[derive(Debug)]
+struct NonFinite;
+impl<S: Sample> Object<S> for NonFinite {
+    fn process(&mut self, _inputs: &[Block<S>], outputs: &mut [Block<S>]) {
+        for output in outputs {
+            *output = [of::<S>(1.0); BLOCK_SIZE];
+            output[1] = of::<S>(f64::NAN);
+            output[2] = of::<S>(f64::INFINITY);
+            output[3] = of::<S>(f64::NEG_INFINITY);
+        }
+    }
+}
+impl Create for NonFinite {
+    const PARAMS: &'static [ParamSpec] = &[];
+
+    fn create<S: Sample>(_rate: SampleRate, _params: Params<'_>) -> Box<dyn Object<S>> {
+        Box::new(Self)
+    }
+}
+static NON_FINITE: ObjectSpec = ObjectSpec::new::<NonFinite>(
+    "nonfinite~",
+    "non-finite samples",
+    &[],
+    &[PORT],
+    &[],
+    AlgorithmVersion::FIRST,
+);
+
+static REGISTRY: [&ObjectSpec; 9] = [
+    &CONST,
+    &RAMP,
+    &ADD,
+    &OUT,
+    &MONO_OUT,
+    &RATE,
+    &PASS,
+    &LEVEL,
+    &NON_FINITE,
+];
 
 fn rate() -> SampleRate {
     SampleRate::new(48_000).expect("valid sample rate")
@@ -712,6 +752,62 @@ fn renders_interleaved_frames_offline<S: Bits>() {
         next,
         samples::<S>(&[130.0_f64, -1.0_f64]),
         "the next render continues exactly where the previous one stopped"
+    );
+}
+
+fn replaces_and_reports_non_finite_samples_before_delivery<S: Bits>() {
+    let mut renderer = Renderer::new(
+        build::<S>(
+            vec![node(1, "nonfinite~"), node(2, "ramp~"), node(3, "out~")],
+            vec![wire(1, 0, 3, 0), wire(2, 0, 3, 1)],
+        )
+        .expect("valid patch"),
+    );
+    assert_eq!(
+        renderer.replaced(),
+        crate::Replaced::default(),
+        "nothing replaced before a render"
+    );
+    let frames = BLOCK_SIZE + 4;
+    let interleaved: Vec<S::Float> = renderer.render(frames).expect("small render");
+    let left: Vec<S::Float> = interleaved.iter().step_by(2).copied().collect();
+    let right: Vec<S::Float> = interleaved.iter().skip(1).step_by(2).copied().collect();
+    let one = of::<S>(1.0).raw();
+    let zero = of::<S>(0.0).raw();
+    assert_eq!(
+        &left[..5],
+        &[one, zero, zero, zero, one],
+        "NaN, +∞ and -∞ given as +0, their neighbors kept"
+    );
+    assert_eq!(
+        &left[BLOCK_SIZE..],
+        &[one, zero, zero, zero],
+        "in every block"
+    );
+    assert_eq!(
+        right,
+        (0..u16::try_from(frames).expect("a short render"))
+            .map(|value| of::<S>(f64::from(value)).raw())
+            .collect::<Vec<_>>(),
+        "the finite channel bit for bit"
+    );
+    assert_eq!(
+        renderer.replaced(),
+        crate::Replaced {
+            count: 6,
+            first: Some(crate::FirstReplaced {
+                frame: 1,
+                channel: 0
+            })
+        },
+        "three per block, the first at frame 1 of channel 0"
+    );
+    let mut more = vec![zero; 2 * BLOCK_SIZE];
+    renderer.render_into(&mut more);
+    assert_eq!(
+        renderer.replaced().count,
+        6 + 3,
+        "the third block computed, for its first frames: counted when computed"
     );
 }
 
@@ -1583,6 +1679,7 @@ in_both_precisions!(
     rejects_invalid_connections,
     rejects_cycles,
     renders_interleaved_frames_offline,
+    replaces_and_reports_non_finite_samples_before_delivery,
     renders_nothing_for_zero_frames_or_channels,
     refuses_renders_too_long_for_memory,
     sums_cables_in_source_order_whatever_the_document_order,

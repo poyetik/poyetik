@@ -183,6 +183,10 @@ export const FUNCTIONS = [
   "engine_process",
   "engine_max_patch_bytes",
   "engine_subnormals",
+  "engine_replaced_count",
+  "engine_replaced_frame_low",
+  "engine_replaced_frame_high",
+  "engine_replaced_channel",
 ] as const;
 
 /** Encodes a WebAssembly name. */
@@ -219,9 +223,10 @@ export interface HandMadeFunction {
    * `alternate`: writes 0.25 (f32) at address 2048, then returns 4096 and 2048 in turn
    * (which one is kept at address 1024, away from the patch copied from address 1): a
    * block that moves without the memory growing; or `nan`: writes the binary32 NaN of
-   * payload `NAN_BITS` at addresses 0 and 4, then returns 0.
+   * payload `NAN_BITS` at addresses 0 and 4, then returns 0; or `counting`: returns 1, 2,
+   * 3… on successive calls (the count kept at address 1032).
    */
-  readonly body: { readonly i32: number } | "i64" | "trap" | "grow" | "alternate" | "nan";
+  readonly body: { readonly i32: number } | "i64" | "trap" | "grow" | "alternate" | "nan" | "counting";
 }
 
 /** The arity of each engine export. */
@@ -229,17 +234,23 @@ const ARITY: Readonly<Record<string, number>> = { engine_input: 1, engine_load: 
 
 /** What each engine export returns when no `body` is given: 1, except these. */
 const ANSWERS: Readonly<Record<string, number>> = {
-  engine_abi_version: 0x5059_0004,
+  engine_abi_version: 0x5059_0005,
   // Any patch of the tests fits.
   engine_max_patch_bytes: 0x10_00_00,
   // Every subnormal kept: IEEE arithmetic.
   engine_subnormals: 0b1111,
+  // Nothing replaced by the output stage.
+  engine_replaced_count: 0,
+  engine_replaced_frame_low: 0,
+  engine_replaced_frame_high: 0,
+  engine_replaced_channel: 0,
 };
 
 /**
  * The engine functions with their arity, each returning `i32` 1 (or `body`), except the
  * interface version, which gives the expected one, the largest patch, a mebibyte, and the
- * subnormal arithmetic, IEEE (15), unless `body` is given.
+ * subnormal arithmetic, IEEE (15), and the output stage's report, nothing replaced (0),
+ * unless `body` is given.
  */
 export function engineFunctions(body?: HandMadeFunction["body"]): HandMadeFunction[] {
   return FUNCTIONS.map((name) => ({
@@ -294,9 +305,13 @@ export function handMadeBytes(options: HandMade): Uint8Array<ArrayBuffer> {
       ...[0x41, 0x80, 0x08, 0x41, 0x80, 0x10, 0x41, 0x80, 0x08, 0x28, 0x02, 0x00, 0x6b, 0x36, 0x02, 0x00],
       ...[0x41, 0x80, 0x08, 0x28, 0x02, 0x00, 0x41, 0x80, 0x10, 0x6a],
     ];
+    // i32.const 1032, then the count at 1032 plus 1, stored there; then read back.
+    const counting = [0x41, 0x88, 0x08, 0x41, 0x88, 0x08, 0x28, 0x02, 0x00, 0x41, 0x01, 0x6a, 0x36, 0x02, 0x00, 0x41, 0x88, 0x08, 0x28, 0x02, 0x00];
     const nan = [...[0x41, 0x00, 0x41, ...sleb128(NAN_BITS), 0x36, 0x02, 0x00], ...[0x41, 0x04, 0x41, ...sleb128(NAN_BITS), 0x36, 0x02, 0x00], 0x41, 0x00];
     const code =
-      func.body === "nan"
+      func.body === "counting"
+        ? counting
+        : func.body === "nan"
         ? nan
         : func.body === "trap"
         ? [0x00]

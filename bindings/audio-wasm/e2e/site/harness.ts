@@ -120,7 +120,7 @@ on("live", ["live-hash", "live-subnormals"], async () => {
     await context.suspend();
     await addProcessors(context, PROCESSORS);
     const failure = new FirstFailure();
-    const engine = createEngineNode(context, loaded, failure.report, true);
+    const engine = createEngineNode(context, loaded, { onFailure: failure.report }, true);
     // Shown as soon as the processor is ready; a rejection is liveCapture's to report.
     engine.ready.then(
       (subnormals) => {
@@ -159,8 +159,10 @@ on("construction", ["construction-ms"], async () => {
       runs,
       PAGE_CLOCK,
       async () => {
-        const { node, ready } = createEngineNode(context, loaded, (failure) => {
-          error.value = String(failure);
+        const { node, ready } = createEngineNode(context, loaded, {
+          onFailure: (failure) => {
+            error.value = String(failure);
+          },
         });
         await ready;
         return node;

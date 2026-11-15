@@ -5,7 +5,7 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use audio_core::RenderFormat;
+use audio_core::{RenderFormat, Replaced};
 
 use crate::{Blocks, Engine};
 
@@ -103,6 +103,15 @@ impl Instance {
         self.engine
             .as_mut()
             .map_or(Blocks::Binary32(&[]), Engine::process)
+    }
+
+    /// What the output stage of the loaded engine replaced since its first block; nothing
+    /// when no engine is loaded.
+    #[must_use]
+    pub fn replaced(&self) -> Replaced {
+        self.engine
+            .as_ref()
+            .map_or_else(Replaced::default, Engine::replaced)
     }
 }
 

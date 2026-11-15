@@ -347,6 +347,54 @@ fn cases(files: &mut dyn Files, dir: &Path) -> Result<Vec<CaseFiles>, String> {
     Ok(read_cases)
 }
 
+/// What the output stage replaced in `rendered`, in words, or `None` when it replaced
+/// nothing (`spec/engine-design.md`, decision 12).
+pub(crate) fn replaced_words(rendered: &Rendered) -> Option<String> {
+    let replaced = rendered.replaced();
+    let first = replaced.first?;
+    let samples = if replaced.count == 1 {
+        "1 non-finite sample".to_owned()
+    } else {
+        format!("{} non-finite samples", replaced.count)
+    };
+    Some(format!(
+        "{samples} (NaN or infinite) rendered as zero, the first at frame {} of channel {}",
+        first.frame, first.channel
+    ))
+}
+
+/// Writes one `warning:` line to `warnings` when the output stage replaced samples in
+/// `rendered`, a render of the case file `case`: a warning, never a failure, the render
+/// going on (`spec/engine-design.md`, decision 12); a closed stderr changes nothing.
+pub(crate) fn warn_replaced(warnings: &mut dyn Write, case: &str, rendered: &Rendered) {
+    if let Some(words) = replaced_words(rendered) {
+        drop(writeln!(
+            warnings,
+            "warning: {}: {words}",
+            OneLine::new(case).as_str()
+        ));
+    }
+}
+
+/// `rendered`, a render of the conformance case `name` in `format`, when its output stage
+/// replaced nothing: a non-finite sample is a defect of a box, which no reference may hold.
+///
+/// # Errors
+///
+/// Returns what was replaced, naming the case and the format.
+pub(crate) fn conformant<'rendered>(
+    rendered: &'rendered Rendered,
+    name: &str,
+    format: RenderFormat,
+) -> Result<&'rendered Rendered, String> {
+    replaced_words(rendered).map_or(Ok(rendered), |words| {
+        Err(format!(
+            "{} in {format}: {words}: a box gave them, a defect no conformance case may hold",
+            OneLine::new(name).as_str()
+        ))
+    })
+}
+
 /// The hash of `rendered`, or why it is not a render, in words.
 pub(crate) fn hash_of(rendered: &Rendered) -> Result<RenderHash, String> {
     rendered
@@ -362,7 +410,8 @@ fn hashes(cases: &[CaseFiles], mode: DefaultMode<'_>) -> Result<References, Stri
         let mut formats = BTreeMap::new();
         for format in RenderFormat::ALL {
             let rendered = case.prepare(format, mode)?.render(mode);
-            drop(formats.insert(format.name().to_owned(), hash_of(&rendered)?.to_string()));
+            let rendered = conformant(&rendered, &case.name, format)?;
+            drop(formats.insert(format.name().to_owned(), hash_of(rendered)?.to_string()));
         }
         // Case names are file names of one directory, hence unique.
         drop(hashes.insert(case.name.clone(), formats));
@@ -396,7 +445,7 @@ const RENDER_OPTIONS: [&str; 2] = ["--format", "--wav"];
 /// a value that is not an option.
 fn render(
     files: &mut dyn Files,
-    out: &mut dyn Write,
+    (out, warnings): (&mut dyn Write, &mut dyn Write),
     args: &[String],
     mode: DefaultMode<'_>,
 ) -> Result<(), CliError> {
@@ -439,6 +488,7 @@ fn render(
     )
     .map_err(|error| error.in_files(case_path, patch_path))?;
     let rendered = prepared.render(mode);
+    warn_replaced(warnings, case, &rendered);
     if let Some(path) = wav {
         files
             .write(Path::new(path), &rendered.wav())
@@ -1034,11 +1084,12 @@ fn export(
     for case in cases {
         for format in RenderFormat::ALL {
             let rendered = case.prepare(format, mode)?.render(mode);
+            let rendered = conformant(&rendered, &case.name, format)?;
             let path = target.join(format!("{}.{format}.wav", case.name));
             files
                 .write(&path, &rendered.wav())
                 .map_err(|error| format!("cannot write {}: {error}", path.display()))?;
-            let hash = hash_of(&rendered)?;
+            let hash = hash_of(rendered)?;
             say(
                 out,
                 &OneLine::new(&format!(
@@ -1052,7 +1103,9 @@ fn export(
     Ok(())
 }
 
-/// Runs the command named by `args`, in the default floating-point mode of the processor.
+/// Runs the command named by `args`, in the default floating-point mode of the processor,
+/// writing its output to `out` (stdout) and its warnings to `warnings` (stderr: one
+/// `warning:` line each, never a failure).
 ///
 /// The mode is set by `audio_fpenv::with_default_mode`, whatever mode the calling thread
 /// had: renders are the same bits as WebAssembly's even under a host that flushes
@@ -1063,8 +1116,13 @@ fn export(
 /// Returns [`CliError::Usage`] for a missing or unknown command or invalid arguments,
 /// and [`CliError::Failed`] for an unreadable or invalid case, a conformance failure or
 /// an output that cannot be written.
-pub fn run(args: &[String], files: &mut dyn Files, out: &mut dyn Write) -> Result<(), CliError> {
-    with_default_mode(|mode| dispatch(args, files, out, mode))
+pub fn run(
+    args: &[String],
+    files: &mut dyn Files,
+    out: &mut dyn Write,
+    warnings: &mut dyn Write,
+) -> Result<(), CliError> {
+    with_default_mode(|mode| dispatch(args, files, (out, warnings), mode))
 }
 
 /// Runs the command named by `args`, rendering in the default floating-point mode `mode`
@@ -1072,7 +1130,7 @@ pub fn run(args: &[String], files: &mut dyn Files, out: &mut dyn Write) -> Resul
 fn dispatch(
     args: &[String],
     files: &mut dyn Files,
-    out: &mut dyn Write,
+    (out, warnings): (&mut dyn Write, &mut dyn Write),
     mode: DefaultMode<'_>,
 ) -> Result<(), CliError> {
     let Some((command, rest)) = args.split_first() else {
@@ -1080,7 +1138,7 @@ fn dispatch(
     };
     let expects = |synopsis: &str| CliError::Usage(format!("{command} expects {synopsis}"));
     match (command.as_str(), rest) {
-        ("render", _) => render(files, out, rest, mode),
+        ("render", _) => render(files, (out, warnings), rest, mode),
         ("check", [dir]) => Ok(check(files, out, Path::new(dir), None, mode)?),
         ("check", [dir, option, spent]) if option == "--spent" => Ok(check(
             files,

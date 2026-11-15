@@ -171,6 +171,29 @@ function guarded<T>(action: () => T): T {
   }
 }
 
+/** The first sample the output stage replaced: the earliest frame, then the lowest channel. */
+export interface FirstReplaced {
+  /** Its frame, counted from the first frame of the engine (exact up to 2^53). */
+  readonly frame: number;
+  /** Its channel. */
+  readonly channel: number;
+}
+
+/**
+ * What the output stage of an engine replaced since it was loaded (`spec/engine-design.md`,
+ * decision 12): how many non-finite samples (NaN or infinite), each given as zero, and the
+ * first of them.
+ */
+export interface Replaced {
+  /** How many, saturating at 2^32 - 1. */
+  readonly count: number;
+  /** The first of them; absent while none was. */
+  readonly first?: FirstReplaced;
+}
+
+/** What an engine that replaced nothing reports: one shared, frozen value. */
+const NOTHING_REPLACED: Replaced = Object.freeze({ count: 0 });
+
 /**
  * One patch loaded into its own instance of the engine module, rendering in one render
  * format into arrays of type `A`: `Float64Array` for binary64, `Float32Array` for the two
@@ -357,6 +380,55 @@ export class WasmEngine<A extends Samples> {
       outputs.forEach(this.#copyChunk);
       this.#written += this.#count;
       this.#position += this.#count;
+    }
+  }
+
+  /**
+   * How many non-finite samples the output stage replaced since the load, saturating at
+   * 2^32 - 1 (`engine_replaced_count`). Reading it allocates nothing: the audio thread reads
+   * it after every block.
+   * @throws {EngineTrap} when the module traps, or failed before.
+   */
+  get replacedCount(): number {
+    return this.#call(this.#exports.replacedCount);
+  }
+
+  /**
+   * What the output stage replaced since the load: the count and the first sample (its
+   * frame from `engine_replaced_frame_high` and `engine_replaced_frame_low`, its channel).
+   * Allocates its result when something was replaced.
+   * @throws {EngineTrap} when the module traps, or failed before.
+   */
+  replaced(): Replaced {
+    const count = this.replacedCount;
+    return count === 0 ? NOTHING_REPLACED : { count, first: this.replacedFirst() };
+  }
+
+  /**
+   * The first sample the output stage replaced, as the module tells it: its frame from
+   * `engine_replaced_frame_high` and `engine_replaced_frame_low`, its channel; frame 0 of
+   * channel 0 while none was (read {@link WasmEngine.replacedCount} first).
+   * @throws {EngineTrap} when the module traps, or failed before.
+   */
+  replacedFirst(): FirstReplaced {
+    const frame = this.#call(this.#exports.replacedFrameHigh) * 2 ** 32 + this.#call(this.#exports.replacedFrameLow);
+    return { frame, channel: this.#call(this.#exports.replacedChannel) };
+  }
+
+  /**
+   * Calls one exported function of a live module: a module that failed is never called
+   * again, and a trap kills it.
+   * @throws {EngineTrap} when the module traps, or failed before.
+   */
+  #call(exported: () => number): number {
+    if (this.#dead) {
+      throw new EngineTrap();
+    }
+    try {
+      return exported();
+    } catch (error) {
+      this.#dead = true;
+      throw error instanceof WebAssembly.RuntimeError ? new EngineTrap({ cause: error }) : error;
     }
   }
 

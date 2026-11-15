@@ -27,8 +27,8 @@ mod tests {
     use audio_core::host::{Delivered, ParamBounds, Raw};
     use audio_core::{
         AlgorithmVersion, BLOCK_SIZE, Binary32, Binary64, Block, Capability, Connection, CoreError,
-        Create, Dispatch, Node, NodeId, Object, ObjectSpec, ParamSpec, ParamValues, Params, Patch,
-        Plan, PortSpec, Precision, Renderer, Sample, SampleRate,
+        Create, Dispatch, Node, NodeId, Object, ObjectSpec, OutputStage, ParamSpec, ParamValues,
+        Params, Patch, Plan, PortSpec, Precision, Renderer, Sample, SampleRate,
     };
     use audio_testkit::matrix::{HOST_BUFFER_SIZES, PRECISIONS, sample_rates};
     use audio_testkit::runner::runner;
@@ -180,7 +180,38 @@ mod tests {
         AlgorithmVersion::FIRST,
     );
 
-    static REGISTRY: [&ObjectSpec; 4] = [&CONST, &MIX, &OUT, &RATE];
+    /// Outputs +∞, -∞, NaN, then 1 in turn, frame by frame: a defect no real box has, for
+    /// the output stage to replace (decision 12), through every sum and every `mix~` it
+    /// reaches (∞ - ∞ is NaN there).
+    #[derive(Debug)]
+    struct NonFinite;
+    impl<S: Sample> Object<S> for NonFinite {
+        fn process(&mut self, _inputs: &[Block<S>], outputs: &mut [Block<S>]) {
+            let values = [f64::INFINITY, f64::NEG_INFINITY, f64::NAN, 1.0_f64];
+            for output in outputs {
+                for (sample, value) in output.iter_mut().zip(values.iter().cycle()) {
+                    *sample = of::<S>(*value);
+                }
+            }
+        }
+    }
+    impl Create for NonFinite {
+        const PARAMS: &'static [ParamSpec] = &[];
+
+        fn create<S: Sample>(_rate: SampleRate, _params: Params<'_>) -> Box<dyn Object<S>> {
+            Box::new(Self)
+        }
+    }
+    static NON_FINITE: ObjectSpec = ObjectSpec::new::<NonFinite>(
+        "nonfinite~",
+        "non-finite samples",
+        &[],
+        &[PORT],
+        &[],
+        AlgorithmVersion::FIRST,
+    );
+
+    static REGISTRY: [&ObjectSpec; 5] = [&CONST, &MIX, &OUT, &RATE, &NON_FINITE];
 
     /// Random patches per rate.
     const CASES: u32 = 64;
@@ -188,11 +219,11 @@ mod tests {
     /// A random patch: box kinds and values, cables as index pairs (may form cycles).
     type Shape = (Vec<(u8, f32)>, Vec<(u8, u8, u8, u8)>);
 
-    /// Random shapes: up to 11 boxes of the four kinds, up to 23 cables.
+    /// Random shapes: up to 11 boxes of the five kinds, up to 31 cables.
     fn shapes() -> impl Strategy<Value = Shape> {
         (
-            vec((0_u8..4, -1.0_f32..=1.0), 1..12),
-            vec((0_u8..12, 0_u8..2, 0_u8..12, 0_u8..2), 0..24),
+            vec((0_u8..5, -1.0_f32..=1.0), 1..12),
+            vec((0_u8..12, 0_u8..2, 0_u8..12, 0_u8..2), 0..32),
         )
     }
 
@@ -216,7 +247,8 @@ mod tests {
                     0 => ("const~", BTreeMap::from([(String::from("value"), value)])),
                     1 => ("mix~", BTreeMap::new()),
                     2 => ("out~", BTreeMap::new()),
-                    _ => ("rate~", BTreeMap::new()),
+                    3 => ("rate~", BTreeMap::new()),
+                    _ => ("nonfinite~", BTreeMap::new()),
                 };
                 Node {
                     id: NodeId(index.wrapping_mul(5).checked_rem(13).expect("13")),
@@ -226,7 +258,7 @@ mod tests {
             })
             .collect();
         let outlets = |node: &Node| match node.kind.as_str() {
-            "const~" | "rate~" => 1,
+            "const~" | "rate~" | "nonfinite~" => 1,
             "mix~" => 2,
             _ => 0,
         };
@@ -406,17 +438,20 @@ mod tests {
         samples
     }
 
-    /// `sample` as a host is given it in its own precision: delivery is a flush point
-    /// (decision 11), every sample subnormal in `S` given as a zero of its sign, written
-    /// here from the bits, apart from the engine's flush and from its choice of the
-    /// channels it may skip.
+    /// `sample` as a host is given it in its own precision: the output stage gives a
+    /// non-finite sample (all its exponent bits set) as +0 (decision 12), and delivery is a
+    /// flush point (decision 11), every sample subnormal in `S` given as a zero of its
+    /// sign; written here from the bits, apart from the engine's stage and flush and from
+    /// its choice of the channels it may skip.
     fn delivered<S: Bits>(sample: S) -> S {
         let (exponent, sign) = match S::PRECISION {
             Precision::Binary64 => (0x7ff0_0000_0000_0000_u64, 0x8000_0000_0000_0000_u64),
             Precision::Binary32 => (0x7f80_0000, 0x8000_0000),
         };
         let bits = sample.bits();
-        if bits & exponent == 0 && bits & !sign != 0 {
+        if bits & exponent == exponent {
+            S::from_binary64(Binary64::new(0.0))
+        } else if bits & exponent == 0 && bits & !sign != 0 {
             S::from_binary64(Binary64::new(if bits & sign == 0 { 0.0 } else { -0.0 }))
         } else {
             sample
@@ -438,17 +473,22 @@ mod tests {
         Ok(read_back::<S>(&whole))
     }
 
-    /// Processes a fresh plan block by block until `samples` interleaved samples: no
-    /// heap operation from the first block on.
+    /// Processes a fresh plan block by block, each block through a fresh output stage
+    /// (decision 12), until `samples` interleaved samples: no heap operation from the first
+    /// block on.
     fn first_blocks<S: Sample, I: Dispatch<S>>(
         mut plan: Plan<S, I>,
         samples: usize,
     ) -> Result<Vec<S>, String> {
+        let mut stage = OutputStage::new();
         let mut block = vec![S::SILENCE; plan.channels()];
         let mut processed =
             Vec::with_capacity(samples.saturating_add(BLOCK_SIZE.saturating_mul(block.len())));
         while processed.len() < samples {
-            let ((), count) = heap_operations_during(|| plan.process(&mut block))?;
+            let ((), count) = heap_operations_during(|| {
+                plan.process(&mut block);
+                stage.apply(&mut block);
+            })?;
             if count > 0 {
                 return Err(format!("{count} heap operations while processing a block"));
             }

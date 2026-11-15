@@ -6,8 +6,18 @@
  * {@link addProcessors}, giving the URL of the compiled `worklet/processors.js`.
  */
 
-import { ModuleError, PatchError, WasmEngine, givenAsBinary32, type Precision, type SubnormalArithmetic } from "./engine.ts";
-export { PRECISIONS, givenAsBinary32, parsePrecision, type Precision, type SubnormalArithmetic, type SubnormalsKept } from "./engine.ts";
+import { ModuleError, PatchError, WasmEngine, givenAsBinary32, type Precision, type Replaced, type SubnormalArithmetic } from "./engine.ts";
+export {
+  PRECISIONS,
+  givenAsBinary32,
+  parsePrecision,
+  type FirstReplaced,
+  type Precision,
+  type Replaced,
+  type SubnormalArithmetic,
+  type SubnormalsKept,
+} from "./engine.ts";
+export { REPLACED_REPORT_SECONDS } from "./protocol.ts";
 import { ENGINE_PROCESSOR, MARKER_PERIOD, TAP_PROCESSOR, parseEngineMessage, parseTapMessage, type EngineOptions, type TapMessage } from "./protocol.ts";
 
 /**
@@ -112,8 +122,23 @@ export interface EngineNode {
   readonly ready: Promise<SubnormalArithmetic>;
 }
 
+/** What an engine node tells its creator, beside `ready`. */
+export interface EngineHandlers {
+  /**
+   * Receives the first failure of the processor, at load or later (the node is then
+   * silent); not a closing context, which is no failure of the engine.
+   */
+  readonly onFailure: (error: Error) => void;
+  /**
+   * Receives what the output stage replaced (non-finite samples, each played as silence,
+   * `spec/engine-design.md` decision 12): the count so far and the first sample, at once
+   * the first time, then when it grew, at most once per `REPLACED_REPORT_SECONDS` of audio.
+   */
+  readonly onReplaced?: (replaced: Required<Replaced>) => void;
+}
+
 /** Creates the engine node of {@link createEngineNode}, with or without the marker channel. */
-function engineNode(context: BaseAudioContext, loaded: LoadedPatch, onFailure: (error: Error) => void, marker: boolean): EngineNode {
+function engineNode(context: BaseAudioContext, loaded: LoadedPatch, handlers: EngineHandlers, marker: boolean): EngineNode {
   if (context.sampleRate !== loaded.rate) {
     throw new Error(`the context runs at ${String(context.sampleRate)} Hz, the patch was loaded at ${String(loaded.rate)} Hz`);
   }
@@ -139,7 +164,7 @@ function engineNode(context: BaseAudioContext, loaded: LoadedPatch, onFailure: (
         failed = true;
         context.removeEventListener("statechange", follow);
         reject(error);
-        onFailure(error);
+        handlers.onFailure(error);
       }
     };
     node.port.onmessage = (event: MessageEvent<unknown>) => {
@@ -160,6 +185,9 @@ function engineNode(context: BaseAudioContext, loaded: LoadedPatch, onFailure: (
           break;
         case "failed":
           fail(new Error(`the engine failed: ${message.message}`));
+          break;
+        case "replaced":
+          handlers.onReplaced?.(message.replaced);
           break;
       }
     };
@@ -204,27 +232,27 @@ export class MarkedEngineNode implements EngineNode {
   }
 
   /** Creates the marked node of `createEngineNode(…, true)`. */
-  static create(context: BaseAudioContext, loaded: LoadedPatch, onFailure: (error: Error) => void): MarkedEngineNode {
-    return new MarkedEngineNode(engineNode(context, loaded, onFailure, true), loaded.channels);
+  static create(context: BaseAudioContext, loaded: LoadedPatch, handlers: EngineHandlers): MarkedEngineNode {
+    return new MarkedEngineNode(engineNode(context, loaded, handlers, true), loaded.channels);
   }
 }
 
 /**
  * Creates a node running `loaded`: no input, one output with one channel per patch
  * channel (one silent channel when the patch has none), plus the marker channel when
- * `marker` is set (then a {@link MarkedEngineNode}). `onFailure` receives the first
- * failure of the processor, at load or later (the node is then silent); `ready` also
+ * `marker` is set (then a {@link MarkedEngineNode}). `handlers.onFailure` receives the
+ * first failure of the processor, at load or later (the node is then silent); `ready` also
  * rejects with it when it comes before the patch is loaded, and rejects with a
  * {@link ContextClosed} when the context closes first (which `onFailure` is not told: the
- * engine did not fail).
+ * engine did not fail). `handlers.onReplaced` receives what the output stage replaced.
  * @throws {Error} when the context does not run at the rate the patch was checked at.
  */
-export function createEngineNode(context: BaseAudioContext, loaded: LoadedPatch, onFailure: (error: Error) => void, marker?: false): EngineNode;
+export function createEngineNode(context: BaseAudioContext, loaded: LoadedPatch, handlers: EngineHandlers, marker?: false): EngineNode;
 /** Creates a node running `loaded` with the marker channel: see the overload above. */
-export function createEngineNode(context: BaseAudioContext, loaded: LoadedPatch, onFailure: (error: Error) => void, marker: true): MarkedEngineNode;
+export function createEngineNode(context: BaseAudioContext, loaded: LoadedPatch, handlers: EngineHandlers, marker: true): MarkedEngineNode;
 /** Creates a node running `loaded`: see the overloads above. */
-export function createEngineNode(context: BaseAudioContext, loaded: LoadedPatch, onFailure: (error: Error) => void, marker = false): EngineNode {
-  return marker ? MarkedEngineNode.create(context, loaded, onFailure) : engineNode(context, loaded, onFailure, false);
+export function createEngineNode(context: BaseAudioContext, loaded: LoadedPatch, handlers: EngineHandlers, marker = false): EngineNode {
+  return marker ? MarkedEngineNode.create(context, loaded, handlers) : engineNode(context, loaded, handlers, false);
 }
 
 /** A running tap, posting every render quantum of its source to the main thread. */
@@ -477,8 +505,10 @@ export async function renderOffline(loaded: LoadedPatch, frames: number, process
   const engine = createEngineNode(
     context,
     loaded,
-    (error) => {
-      failure = error;
+    {
+      onFailure: (error) => {
+        failure = error;
+      },
     },
     true,
   );

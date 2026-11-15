@@ -8,7 +8,9 @@ use alloc::vec::Vec;
 
 use audio_boxes::{EnginePlan, REGISTRY};
 use audio_core::host::{Delivered, Raw};
-use audio_core::{Binary32, Binary64, Block, Plan, RenderFormat, Sample, SampleRate};
+use audio_core::{
+    Binary32, Binary64, Block, OutputStage, Plan, RenderFormat, Replaced, Sample, SampleRate,
+};
 
 /// The plan of a patch and its output buffers, in one render format.
 #[derive(Debug)]
@@ -66,6 +68,8 @@ pub struct Engine {
     channels: usize,
     /// The plan and its buffers.
     rendering: Rendering,
+    /// The output stage every block passes before it is given.
+    stage: OutputStage,
 }
 
 /// Builds the plan of `patch` at `rate`, computing in `S`.
@@ -125,6 +129,7 @@ impl Engine {
         Ok(Self {
             channels,
             rendering,
+            stage: OutputStage::new(),
         })
     }
 
@@ -134,8 +139,16 @@ impl Engine {
         self.channels
     }
 
+    /// What the output stage replaced since the first block: the non-finite samples, each
+    /// given as zero.
+    #[must_use]
+    pub const fn replaced(&self) -> Replaced {
+        self.stage.replaced()
+    }
+
     /// Renders the next block and returns it, one block per output channel, in the render
-    /// format, each sample given as [`Delivered`] gives it: a binary64 render given as
+    /// format, after the output stage ([`OutputStage`]: a non-finite sample replaced by
+    /// zero and reported, [`Engine::replaced`]), each sample given as [`Delivered`] gives it: a binary64 render given as
     /// binary32 is rounded sample by sample, and no sample is subnormal in the format given
     /// (delivery is a flush point, `spec/engine-design.md`, decision 11). A binary64 or
     /// binary32 block is handed over in place, only its channels that are sums flushed
@@ -146,11 +159,13 @@ impl Engine {
         match &mut self.rendering {
             Rendering::Binary64 { plan, out } => {
                 plan.process(out);
+                self.stage.apply(out);
                 plan.flush_sums(out);
                 Blocks::Binary64(out)
             }
             Rendering::Binary64AsBinary32 { plan, out, given } => {
                 plan.process(out);
+                self.stage.apply(out);
                 for (narrow, wide) in given.iter_mut().zip(out.iter()) {
                     for (sample, value) in narrow.iter_mut().zip(wide) {
                         *sample = Binary32::from_raw(<f32 as Delivered<Binary64>>::deliver(*value));
@@ -160,6 +175,7 @@ impl Engine {
             }
             Rendering::Binary32 { plan, out } => {
                 plan.process(out);
+                self.stage.apply(out);
                 plan.flush_sums(out);
                 Blocks::Binary32(out)
             }

@@ -4,4 +4,4 @@ import { captureEngine, createEngineNode, type LoadedPatch } from "../../ts/web.
 declare const context: BaseAudioContext;
 declare const loaded: LoadedPatch;
 
-export const captured = captureEngine(context, createEngineNode(context, loaded, () => undefined), 1);
+export const captured = captureEngine(context, createEngineNode(context, loaded, { onFailure: () => undefined }), 1);

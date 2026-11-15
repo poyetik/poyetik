@@ -87,8 +87,8 @@ describe("CountedInstance", () => {
   });
 
   test("refuses a module without its counter or memory, of another interface, without a function or with another arity (read as the engine reads them), or whose counter is not an i64", () => {
-    const version = { params: 0, result: true, locals: [0x00], code: [0x41, 0x84, 0x80, 0xe4, 0x82, 0x05, 0x0b], exported: "engine_abi_version" };
-    const other = { ...version, code: [0x41, 0x85, 0x80, 0xe4, 0x82, 0x05, 0x0b] };
+    const version = { params: 0, result: true, locals: [0x00], code: [0x41, 0x85, 0x80, 0xe4, 0x82, 0x05, 0x0b], exported: "engine_abi_version" };
+    const other = { ...version, code: [0x41, 0x86, 0x80, 0xe4, 0x82, 0x05, 0x0b] };
     const counter = (kind: readonly number[]): readonly (readonly [string, number, number])[] => [
       ["memory", 0x02, 0],
       ["instructions", kind[0] ?? 0, 0],
@@ -98,7 +98,7 @@ describe("CountedInstance", () => {
       new WebAssembly.Module(assemble({ functions, globals, exports }));
     expect(() => new CountedInstance(module([version], [i64], [["memory", 0x02, 0]]))).toThrow(new CountError('the module does not export its counter "instructions"'));
     expect(() => new CountedInstance(module([version], [i64], [["instructions", 0x03, 0]]))).toThrow(new ModuleError("no memory"));
-    expect(() => new CountedInstance(module([other], [i64], counter([0x03])))).toThrow(new ModuleError("interface 0x50590005, expected 0x50590004"));
+    expect(() => new CountedInstance(module([other], [i64], counter([0x03])))).toThrow(new ModuleError("interface 0x50590006, expected 0x50590005"));
     expect(() => new CountedInstance(module([version], [i64], counter([0x03])))).toThrow(new ModuleError("no function engine_input"));
     const arities: Readonly<Record<string, number>> = {
       engine_input: 1,
@@ -110,6 +110,10 @@ describe("CountedInstance", () => {
       engine_process: 0,
       engine_max_patch_bytes: 0,
       engine_subnormals: 0,
+      engine_replaced_count: 0,
+      engine_replaced_frame_low: 0,
+      engine_replaced_frame_high: 0,
+      engine_replaced_channel: 0,
     };
     const stubbed = (arity: (name: string, expected: number) => number): (typeof version)[] =>
       Object.entries(arities).map(([name, expected]) => ({ params: arity(name, expected), result: true, locals: [0x00], code: [0x41, 0x01, 0x0b], exported: name }));

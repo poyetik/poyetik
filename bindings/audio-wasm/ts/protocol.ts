@@ -1,6 +1,6 @@
 /** What the main thread and the `AudioWorklet` processors agree on. */
 
-import { PRECISIONS, parsePrecision, type Precision, type SubnormalArithmetic, type SubnormalsKept } from "./engine.ts";
+import { PRECISIONS, parsePrecision, type Precision, type Replaced, type SubnormalArithmetic, type SubnormalsKept } from "./engine.ts";
 
 /** Name of the processor running the engine. */
 export const ENGINE_PROCESSOR = "poyetik-engine";
@@ -115,7 +115,9 @@ export function parseTapMessage(value: unknown): TapMessage {
 
 /**
  * What the engine processor tells the main thread: once whether the patch is loaded
- * (`ready`) or why not, then, after `ready`, at most one failure while rendering.
+ * (`ready`) or why not, then, after `ready`, what the output stage replaced when it
+ * replaced more (`replaced`, at most once per {@link REPLACED_REPORT_SECONDS}), and at most
+ * one failure while rendering.
  */
 export type EngineMessage =
   /**
@@ -126,7 +128,42 @@ export type EngineMessage =
   /** The engine rejected the patch; `detail` is its UTF-8 explanation. */
   | { readonly type: "rejected"; readonly detail: Uint8Array }
   /** Anything else went wrong (invalid options, a trap): the processor is silent. */
-  | { readonly type: "failed"; readonly message: string };
+  | { readonly type: "failed"; readonly message: string }
+  /** The output stage replaced non-finite samples by zero: how many so far, and the first. */
+  | { readonly type: "replaced"; readonly replaced: Required<Replaced> };
+
+/**
+ * The shortest time between two `replaced` messages of one engine processor, in seconds of
+ * audio: the main thread learns of the first replacement at once, then of more at most
+ * this often, so that a box emitting NaN at every frame does not flood the message port.
+ */
+export const REPLACED_REPORT_SECONDS = 1;
+
+/** Checks a count of an engine message: a whole number from `minimum` on, exact as a number. */
+function parseCount(value: unknown, name: string, minimum: number): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < minimum) {
+    throw new MessageError(`${name} is not a whole number from ${String(minimum)}`);
+  }
+  return value;
+}
+
+/** Checks what a `replaced` message says the output stage replaced: at least one sample. */
+function parseReplaced(value: unknown): Required<Replaced> {
+  if (typeof value !== "object" || value === null) {
+    throw new MessageError("replaced samples are not an object");
+  }
+  const first: unknown = Reflect.get(value, "first");
+  if (typeof first !== "object" || first === null) {
+    throw new MessageError("the first replaced sample is not an object");
+  }
+  return {
+    count: parseCount(Reflect.get(value, "count"), "the replaced count", 1),
+    first: {
+      frame: parseCount(Reflect.get(first, "frame"), "the first replaced frame", 0),
+      channel: parseCount(Reflect.get(first, "channel"), "the first replaced channel", 0),
+    },
+  };
+}
 
 /** Checks what subnormals a format keeps, in an engine message; `format` names it in the error. */
 function parseSubnormalsKept(value: unknown, format: string): SubnormalsKept {
@@ -174,6 +211,9 @@ export function parseEngineMessage(value: unknown): EngineMessage {
       throw new MessageError("failure message is not a string");
     }
     return { type, message };
+  }
+  if (type === "replaced") {
+    return { type, replaced: parseReplaced(Reflect.get(value, "replaced")) };
   }
   throw new MessageError("unknown engine message");
 }

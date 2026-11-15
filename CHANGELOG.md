@@ -28,6 +28,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `cargo xtask check` refuses a conflict marker that git left unresolved in a tracked text file (the conflict marker gate, a consistency step): a line starting with git's `<<<<<<<`, `|||||||` or `>>>>>>>` markers, or its `=======` separator inside a conflict, each reported with its file and line. The text files are every tracked file but those `.gitattributes` declares binary as `*.<extension> binary`; a declaration in another form is refused, as is a binary file it does not declare.
+### Added
+
+- The engine's output stage (`spec/engine-design.md`, decision 12): after the plan, before delivery and before any hash, every non-finite sample (NaN or infinite) is replaced by zero and reported, natively (`audio_core::OutputStage`, `Renderer::replaced`) as in WebAssembly (`engine_replaced_count`, `engine_replaced_frame_low`, `engine_replaced_frame_high`, `engine_replaced_channel`; `WasmEngine.replacedCount`, `replaced()`, `replacedFirst()`). The engine processor tells the main thread (a `replaced` message: at once, then at most once per second of audio), `createEngineNode`'s handlers receive it (`onReplaced`), and the playground says it (a live region). `audio-cli render` writes one `warning:` line on stderr; `check`, `bless` and `export` refuse a conformance case that needed any replacement, a defect of a box. The plan laws generate non-finite samples and require none delivered.
+
+### Changed
+
+- **Breaking:** render rules version 3 (decision 29): the output stage is one of the render rules. No reference changed (no case outputs a non-finite sample); `conformance/algorithms.json` records the version.
+- **Breaking:** the engine module's interface is version 5 (`ABI_VERSION`, `0x5059_0005`): four functions added.
+- **Breaking:** `createEngineNode` (`@poyetik/audio-wasm`, `./web`) takes its handlers as one object, `{ onFailure, onReplaced? }` (`EngineHandlers`), instead of a failure callback.
+- **Breaking:** `audio_cli::run` takes a second writer, for warnings (stderr).
 
 ## [0.4.0] - 2026-11-14
 

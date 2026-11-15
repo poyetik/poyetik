@@ -28,6 +28,7 @@ mod error;
 mod flush;
 mod math;
 mod object;
+mod output;
 mod patch;
 mod plan;
 mod rate;
@@ -44,6 +45,7 @@ pub use object::{
     AlgorithmVersion, Capability, Create, Dispatch, Factory, Object, ObjectSpec, ParamError,
     ParamSpec, ParamSpecError, ParamValues, Params, PortSpec, RENDER_RULES_VERSION,
 };
+pub use output::{FirstReplaced, OutputStage, Replaced};
 pub use patch::{Connection, Node, NodeId, Patch};
 pub use plan::Plan;
 pub use rate::SampleRate;

@@ -12,7 +12,8 @@ use audio_core::{
 use super::{
     ABI_VERSION, engine_abi_version, engine_block_size, engine_channels, engine_input, engine_load,
     engine_max_patch_bytes, engine_message_len, engine_message_ptr, engine_process,
-    engine_subnormals, subnormals_code,
+    engine_replaced_channel, engine_replaced_count, engine_replaced_frame_high,
+    engine_replaced_frame_low, engine_subnormals, subnormals_code,
 };
 
 /// Writes `bytes` through the exported input buffer, as JavaScript does.
@@ -147,7 +148,7 @@ fn first_channels(
 fn follows_the_protocol() {
     assert_eq!(engine_abi_version(), ABI_VERSION, "version");
     assert_eq!(ABI_VERSION >> 16_u32, 0x5059_u32, "identity");
-    assert_eq!(ABI_VERSION & 0xFFFF_u32, 4_u32, "fourth version");
+    assert_eq!(ABI_VERSION & 0xFFFF_u32, 5_u32, "fifth version");
     assert_eq!(engine_block_size(), BLOCK_SIZE, "block size");
     assert_eq!(
         engine_max_patch_bytes(),
@@ -158,6 +159,11 @@ fn follows_the_protocol() {
     write(b"not a patch");
     assert_eq!(engine_load(48_000, 1), 0, "rejected");
     assert_eq!(engine_channels(), 0, "nothing loaded");
+    assert_eq!(
+        engine_replaced_count(),
+        0,
+        "nothing loaded, nothing replaced"
+    );
     let explanation = message();
     assert_eq!(
         explanation, b"invalid patch: expected ident at line 1 column 2",
@@ -205,12 +211,23 @@ fn follows_the_protocol() {
             .collect::<Vec<_>>()
     };
     assert_eq!(bits(&actual), bits(&expected), "bit-identical");
+    assert_eq!(
+        [
+            engine_replaced_count(),
+            engine_replaced_frame_low(),
+            engine_replaced_frame_high(),
+            engine_replaced_channel(),
+        ],
+        [0, 0, 0, 0],
+        "a sine replaces nothing"
+    );
 
     // What the audio thread calls, block after block: no heap operation.
     let operations = audio_testkit::heap_operations_during(|| {
         for _ in 0_u16..100_u16 {
             let _: *const u8 = core::hint::black_box(engine_process());
             let _: usize = core::hint::black_box(engine_channels());
+            let _: u32 = core::hint::black_box(engine_replaced_count());
         }
     });
     assert_eq!(
@@ -262,4 +279,36 @@ fn writes_each_subnormal_observation_as_its_own_bit() {
         };
         assert_eq!(subnormals_code(arithmetic), code, "{arithmetic:?}");
     }
+}
+
+#[test]
+fn gives_what_the_output_stage_replaced_as_four_words() {
+    use audio_core::{FirstReplaced, Replaced};
+    assert_eq!(
+        super::replaced_words(Replaced::default()),
+        [0, 0, 0, 0],
+        "nothing replaced"
+    );
+    assert_eq!(
+        super::replaced_words(Replaced {
+            count: 3,
+            first: Some(FirstReplaced {
+                frame: 0x0000_0002_0000_0007,
+                channel: 1,
+            }),
+        }),
+        [3, 7, 2, 1],
+        "the frame split in its low and high words"
+    );
+    assert_eq!(
+        super::replaced_words(Replaced {
+            count: u64::MAX,
+            first: Some(FirstReplaced {
+                frame: u64::MAX,
+                channel: usize::MAX,
+            }),
+        }),
+        [u32::MAX, u32::MAX, u32::MAX, u32::MAX],
+        "the count and the channel saturate, every bit of the frame kept"
+    );
 }

@@ -508,6 +508,9 @@ pub trait Sample:
     #[must_use]
     fn flush(self) -> Self;
 
+    /// Whether it is a number: neither NaN nor infinite, decided from its bits.
+    fn is_finite(self) -> bool;
+
     /// The sine of `self` radians (`libm`).
     #[must_use]
     fn sin(self) -> Self;
@@ -537,6 +540,10 @@ impl Sample for Binary64 {
 
     fn flush(self) -> Self {
         Self(crate::flush::binary64(self.0))
+    }
+
+    fn is_finite(self) -> bool {
+        self.0.is_finite()
     }
 
     fn sin(self) -> Self {
@@ -583,6 +590,10 @@ impl Sample for Binary32 {
 
     fn flush(self) -> Self {
         Self(crate::flush::binary32(self.0))
+    }
+
+    fn is_finite(self) -> bool {
+        self.0.is_finite()
     }
 
     fn sin(self) -> Self {
@@ -703,6 +714,30 @@ fn reduce<L: Summand, T: Borrow<L>>(
             lane.add(other);
         }
     }
+}
+
+/// Whether every sample of `block` is finite, decided once per block: the sum of every
+/// sample times zero is zero (of either sign) when every sample is finite, and NaN as soon
+/// as one is not (∞ × 0 and NaN × 0 are NaN, and NaN absorbs every sum), so that a block
+/// costs a product and a sum per sample and one decision.
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "IEEE 754 arithmetic of the sample type, which neither overflows nor panics"
+)]
+pub(crate) fn all_finite<S: Sample>(block: &Block<S>) -> bool {
+    // Eight at a time, each eight unrolled (a fixed length): their loads take constant
+    // offsets, and the loop runs eight times less. A block is whole eights, so nothing is
+    // left over.
+    const { assert!(BLOCK_SIZE.is_multiple_of(8), "a block is whole eights of samples") };
+    let (eights, _none) = block.as_chunks::<8>();
+    eights
+        .iter()
+        .fold(S::ZERO, |sum, eight| {
+            eight
+                .iter()
+                .fold(sum, |partial, sample| partial + *sample * S::ZERO)
+        })
+        .is_finite()
 }
 
 /// The sum of `terms`, in the reduction order (`spec/engine-design.md`, decision 28).

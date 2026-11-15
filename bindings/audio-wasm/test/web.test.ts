@@ -313,7 +313,7 @@ describe("createEngineNode", () => {
     stubNodes();
     const fake = fakeContext(RATE);
     const patch = await loaded(2);
-    const created = createEngineNode(asContext(fake), patch, () => undefined);
+    const created = createEngineNode(asContext(fake), patch, { onFailure: () => undefined });
     expect(created.node).toBe(FakeNode.created[0]);
     expect(FakeNode.created[0]).toMatchObject({
       context: fake,
@@ -330,22 +330,22 @@ describe("createEngineNode", () => {
   test("adds a marker channel after the patch channels when asked", async () => {
     stubNodes();
     const patch = await loaded(2);
-    createEngineNode(asContext(fakeContext(RATE)), patch, () => undefined, true);
+    createEngineNode(asContext(fakeContext(RATE)), patch, { onFailure: () => undefined }, true);
     expect(FakeNode.created[0]?.options).toMatchObject({ outputChannelCount: [3], processorOptions: patch.options(true) });
-    createEngineNode(asContext(fakeContext(RATE)), await loaded(0), () => undefined, true);
+    createEngineNode(asContext(fakeContext(RATE)), await loaded(0), { onFailure: () => undefined }, true);
     expect(FakeNode.created[1]?.options).toHaveProperty("outputChannelCount", [1]);
   });
 
   test("gives a patch without output one silent channel", async () => {
     stubNodes();
-    createEngineNode(asContext(fakeContext(RATE)), await loaded(0), () => undefined);
+    createEngineNode(asContext(fakeContext(RATE)), await loaded(0), { onFailure: () => undefined });
     expect(FakeNode.created[0]?.options).toHaveProperty("outputChannelCount", [1]);
   });
 
   test("refuses a context at another rate", async () => {
     stubNodes();
     const patch = await loaded(2);
-    expect(() => createEngineNode(asContext(fakeContext(44_100)), patch, () => undefined)).toThrow(
+    expect(() => createEngineNode(asContext(fakeContext(44_100)), patch, { onFailure: () => undefined })).toThrow(
       new Error("the context runs at 44100 Hz, the patch was loaded at 48000 Hz"),
     );
     expect(FakeNode.created).toHaveLength(0);
@@ -354,13 +354,38 @@ describe("createEngineNode", () => {
   test("is ready when the processor has loaded the patch", async () => {
     stubNodes();
     const failures: Error[] = [];
-    const { ready } = createEngineNode(asContext(fakeContext(RATE)), await loaded(2), (error) => failures.push(error));
+    const { ready } = createEngineNode(asContext(fakeContext(RATE)), await loaded(2), { onFailure: (error) => failures.push(error) });
     expect(await settled(ready)).toBe("pending");
     // Whatever the processor observed is what `ready` gives: here, no subnormal kept as a result.
     const flushing = { binary32: { operands: true, results: false }, binary64: { operands: true, results: false } };
     FakeNode.created[0]?.port.deliver({ type: "ready", subnormals: flushing });
     expect(await settled(ready)).toBe("resolved");
     expect(await ready).toStrictEqual(flushing);
+    expect(failures).toStrictEqual([]);
+  });
+
+  test("hands what the output stage replaced to onReplaced, before and after ready, and to nobody without it", async () => {
+    stubNodes();
+    const reports: unknown[] = [];
+    const failures: Error[] = [];
+    const { ready } = createEngineNode(asContext(fakeContext(RATE)), await loaded(2), {
+      onFailure: (error) => failures.push(error),
+      onReplaced: (replaced) => reports.push(replaced),
+    });
+    const first = { count: 1, first: { frame: 3, channel: 0 } };
+    FakeNode.created[0]?.port.deliver({ type: "replaced", replaced: first });
+    expect(reports).toStrictEqual([first]);
+    expect(await settled(ready)).toBe("pending");
+    FakeNode.created[0]?.port.deliver(READY);
+    const more = { count: 5, first: { frame: 3, channel: 0 } };
+    FakeNode.created[0]?.port.deliver({ type: "replaced", replaced: more });
+    expect(reports).toStrictEqual([first, more]);
+    expect(failures).toStrictEqual([]);
+    // Without a handler, a report is read and dropped: no failure.
+    const quiet = createEngineNode(asContext(fakeContext(RATE)), await loaded(2), { onFailure: (error) => failures.push(error) });
+    FakeNode.created[1]?.port.deliver({ type: "replaced", replaced: first });
+    FakeNode.created[1]?.port.deliver(READY);
+    expect(await settled(quiet.ready)).toBe("resolved");
     expect(failures).toStrictEqual([]);
   });
 
@@ -371,7 +396,7 @@ describe("createEngineNode", () => {
   ])("reports a failure of the processor before it is ready: %o", async (message, expected) => {
     stubNodes();
     const failures: Error[] = [];
-    const { ready } = createEngineNode(asContext(fakeContext(RATE)), await loaded(2), (error) => failures.push(error));
+    const { ready } = createEngineNode(asContext(fakeContext(RATE)), await loaded(2), { onFailure: (error) => failures.push(error) });
     FakeNode.created[0]?.port.deliver(message);
     expect(await settled(ready)).toStrictEqual(expected);
     expect(failures).toStrictEqual([expected]);
@@ -380,7 +405,7 @@ describe("createEngineNode", () => {
   test("keeps the rejection of the engine as the cause", async () => {
     stubNodes();
     const failures: Error[] = [];
-    const { ready } = createEngineNode(asContext(fakeContext(RATE)), await loaded(2), (error) => failures.push(error));
+    const { ready } = createEngineNode(asContext(fakeContext(RATE)), await loaded(2), { onFailure: (error) => failures.push(error) });
     FakeNode.created[0]?.port.deliver({ type: "rejected", detail: new TextEncoder().encode("bad") });
     expect(failures[0]?.cause).toBeInstanceOf(PatchError);
     expect(await settled(ready)).toBe(failures[0]);
@@ -391,7 +416,7 @@ describe("createEngineNode", () => {
     // Observed without rejecting: an unhandled rejection would crash the test runner
     // instead of failing this test.
     const handled = vi.spyOn(Promise.prototype, "catch");
-    const { ready } = createEngineNode(asContext(fakeContext(RATE)), await loaded(2), () => undefined);
+    const { ready } = createEngineNode(asContext(fakeContext(RATE)), await loaded(2), { onFailure: () => undefined });
     expect(handled.mock.contexts).toContain(ready);
     handled.mockRestore();
   });
@@ -400,7 +425,7 @@ describe("createEngineNode", () => {
     stubNodes();
     const failures: Error[] = [];
     const context = fakeContext(RATE);
-    const { ready } = createEngineNode(asContext(context), await loaded(2), (error) => failures.push(error));
+    const { ready } = createEngineNode(asContext(context), await loaded(2), { onFailure: (error) => failures.push(error) });
     expect(statechangeListeners(context)).toBe(1);
     // A context that only runs or suspends does not end the wait.
     for (const state of ["running", "suspended"] as const) {
@@ -427,7 +452,7 @@ describe("createEngineNode", () => {
     // Its `statechange` has fired before the node exists: no later event can end the wait,
     // only the node's own look at the state.
     await new Promise((resolve) => setImmediate(resolve));
-    const { ready } = createEngineNode(asContext(context), await loaded(2), () => undefined);
+    const { ready } = createEngineNode(asContext(context), await loaded(2), { onFailure: () => undefined });
     expect(await settled(ready)).toStrictEqual(new ContextClosed("the context closed before the engine processor was ready"));
     expect(statechangeListeners(context)).toBe(0);
   });
@@ -435,8 +460,8 @@ describe("createEngineNode", () => {
   test("stops following the context once ready, or once failed", async () => {
     stubNodes();
     const context = fakeContext(RATE);
-    const first = createEngineNode(asContext(context), await loaded(2), () => undefined);
-    const second = createEngineNode(asContext(context), await loaded(2), () => undefined);
+    const first = createEngineNode(asContext(context), await loaded(2), { onFailure: () => undefined });
+    const second = createEngineNode(asContext(context), await loaded(2), { onFailure: () => undefined });
     expect(statechangeListeners(context)).toBe(2);
     FakeNode.created[0]?.port.deliver(READY);
     FakeNode.created[1]?.onprocessorerror?.();
@@ -448,7 +473,7 @@ describe("createEngineNode", () => {
   test("reports a later failure once, and a processor error", async () => {
     stubNodes();
     const failures: Error[] = [];
-    const { ready } = createEngineNode(asContext(fakeContext(RATE)), await loaded(2), (error) => failures.push(error));
+    const { ready } = createEngineNode(asContext(fakeContext(RATE)), await loaded(2), { onFailure: (error) => failures.push(error) });
     const fake = FakeNode.created[0];
     fake?.port.deliver(READY);
     fake?.port.deliver({ type: "failed", message: "trap" });
@@ -458,7 +483,7 @@ describe("createEngineNode", () => {
     expect(failures).toStrictEqual([new Error("the engine failed: trap")]);
 
     const errors: Error[] = [];
-    const second = createEngineNode(asContext(fakeContext(RATE)), await loaded(2), (error) => errors.push(error));
+    const second = createEngineNode(asContext(fakeContext(RATE)), await loaded(2), { onFailure: (error) => errors.push(error) });
     FakeNode.created[1]?.onprocessorerror?.();
     expect(errors).toStrictEqual([new Error("the engine processor failed")]);
     expect(await settled(second.ready)).toBe(errors[0]);
@@ -647,7 +672,7 @@ describe("captureEngine", () => {
   async function capturing(frames: number): Promise<{ captured: Promise<Float32Array[]>; deliver: (data: unknown) => void }> {
     stubNodes();
     const fake = fakeContext(RATE);
-    const engine = createEngineNode(asContext(fake), await loaded(2), () => undefined, true);
+    const engine = createEngineNode(asContext(fake), await loaded(2), { onFailure: () => undefined }, true);
     expect(engine).toBeInstanceOf(MarkedEngineNode);
     expect(engine.channels).toBe(2);
     const captured = captureEngine(asContext(fake), engine, frames);
@@ -710,7 +735,7 @@ describe("captureEngine", () => {
   ])("refuses to capture %d frames", async (frames, message) => {
     stubNodes();
     const fake = fakeContext(RATE);
-    const engine = createEngineNode(asContext(fake), await loaded(2), () => undefined, true);
+    const engine = createEngineNode(asContext(fake), await loaded(2), { onFailure: () => undefined }, true);
     await expect(captureEngine(asContext(fake), engine, frames)).rejects.toThrow(new RangeError(message));
     expect(FakeNode.created).toHaveLength(1);
   });

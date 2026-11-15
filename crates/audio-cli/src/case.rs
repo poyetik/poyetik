@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use audio_core::{Binary32, Binary64, MODE, Plan, RenderFormat, Renderer, SampleRate};
+use audio_core::{Binary32, Binary64, MODE, Plan, RenderFormat, Renderer, Replaced, SampleRate};
 use audio_fpenv::DefaultMode;
 
 use crate::{HEADER_LEN, wav_header};
@@ -145,9 +145,18 @@ pub struct Rendered {
     pub(crate) samples: RenderedSamples,
     /// Header of the WAV file of these samples, computed when the case was prepared.
     pub(crate) wav_header: [u8; HEADER_LEN],
+    /// What the output stage replaced: the non-finite samples, each rendered as zero.
+    pub(crate) replaced: Replaced,
 }
 
 impl Rendered {
+    /// What the output stage replaced (`spec/engine-design.md`, decision 12): the
+    /// non-finite samples of the render, each rendered as zero, and the first of them.
+    #[must_use]
+    pub const fn replaced(&self) -> Replaced {
+        self.replaced
+    }
+
     /// Its sample rate.
     #[must_use]
     pub const fn rate(&self) -> SampleRate {
@@ -239,21 +248,27 @@ impl Prepared {
     pub fn render(self, _mode: DefaultMode<'_>) -> Rendered {
         let count = self.sample_count();
         let channels = self.plan.channels();
-        let samples = match self.plan {
+        let (samples, replaced) = match self.plan {
             Built::Binary64(plan) => {
                 let mut samples = vec![0.0_f64; count];
-                Renderer::new(plan).render_into(&mut samples);
-                RenderedSamples::Binary64(samples)
+                let mut renderer = Renderer::new(plan);
+                renderer.render_into(&mut samples);
+                (RenderedSamples::Binary64(samples), renderer.replaced())
             }
             Built::Binary64AsBinary32(plan) => {
                 let mut samples = vec![0.0_f32; count];
-                Renderer::new(plan).render_into(&mut samples);
-                RenderedSamples::Binary64AsBinary32(samples)
+                let mut renderer = Renderer::new(plan);
+                renderer.render_into(&mut samples);
+                (
+                    RenderedSamples::Binary64AsBinary32(samples),
+                    renderer.replaced(),
+                )
             }
             Built::Binary32(plan) => {
                 let mut samples = vec![0.0_f32; count];
-                Renderer::new(plan).render_into(&mut samples);
-                RenderedSamples::Binary32(samples)
+                let mut renderer = Renderer::new(plan);
+                renderer.render_into(&mut samples);
+                (RenderedSamples::Binary32(samples), renderer.replaced())
             }
         };
         Rendered {
@@ -261,6 +276,7 @@ impl Prepared {
             channels,
             samples,
             wav_header: self.wav_header,
+            replaced,
         }
     }
 }

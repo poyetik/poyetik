@@ -23,6 +23,11 @@ vi.mock("../src/player.ts", () => ({
       return undefined;
     }
 
+    /** Never anything replaced: the stub never loads the engine. */
+    replaced(): undefined {
+      return undefined;
+    }
+
     /** The only state of the stub, shared so that `state()` is stable. */
     readonly #state = { kind: "stopped" } as const;
 

@@ -1,5 +1,6 @@
 /** The playground page: an on/off button and the oscilloscope. */
 
+import type { Replaced } from "@poyetik/audio-wasm/web";
 import { useCallback, useSyncExternalStore, type JSX } from "react";
 import { explain, flushes, type Player, type PlayerState } from "./player.ts";
 import { Oscilloscope } from "./Oscilloscope.tsx";
@@ -51,6 +52,15 @@ export const FLUSHING =
   "This browser rounds the smallest numbers to zero while it plays, so this tone is not guaranteed to be bit-identical to the engine elsewhere. The difference is far below anything audible.";
 
 /**
+ * Shown once the engine's output stage has replaced invalid samples (NaN or infinite) by
+ * silence (`spec/engine-design.md`, decision 12): how many so far, and where the first was.
+ */
+export function replacedNotice(replaced: Required<Replaced>): string {
+  const samples = replaced.count === 1 ? "1 invalid sample" : `${String(replaced.count)} invalid samples`;
+  return `The engine played ${samples} (not a number, or infinite) as silence, the first on channel ${String(replaced.first.channel + 1)}: a defect of the patch.`;
+}
+
+/**
  * What the page explains next to the button, or null: why the player cannot start or
  * failed, and what to do; or why a resume did nothing.
  */
@@ -78,6 +88,7 @@ export function App({ player }: { readonly player: Player }): JSX.Element {
   const { label, run } = action(player, state);
   const explanation = notice(state);
   const arithmetic = player.arithmetic();
+  const replaced = useSyncExternalStore(subscribe, () => player.replaced());
 
   return (
     <main>
@@ -129,6 +140,10 @@ export function App({ player }: { readonly player: Player }): JSX.Element {
         ) : null}
       </div>
       {arithmetic !== undefined && flushes(arithmetic) ? <p>{FLUSHING}</p> : null}
+      {/* A live region: a count that grows while playing is announced, without moving the focus. */}
+      <div aria-live="polite" data-testid="replaced">
+        {replaced === undefined ? null : <p>{replacedNotice(replaced)}</p>}
+      </div>
       <Oscilloscope active={state.kind === "playing"} signal={signal} />
     </main>
   );

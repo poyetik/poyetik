@@ -4,7 +4,7 @@ use alloc::collections::BTreeMap;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use audio_core::{RenderFormat, SampleRate};
+use audio_core::{RenderFormat, Replaced, SampleRate};
 
 use audio_fpenv::with_default_mode;
 
@@ -145,7 +145,8 @@ fn args(words: &[&str]) -> Vec<String> {
 
 fn run_with(memory: &mut Memory, words: &[&str]) -> (Result<(), String>, String) {
     let mut out = Vec::new();
-    let result = run(&args(words), memory, &mut out).map_err(|error| error.to_string());
+    let result =
+        run(&args(words), memory, &mut out, &mut Vec::new()).map_err(|error| error.to_string());
     (result, String::from_utf8(out).expect("utf-8 output"))
 }
 
@@ -189,6 +190,7 @@ fn refuses_to_hash_samples_that_are_not_whole_frames() {
         channels: 2,
         samples: RenderedSamples::Binary32(vec![0.0; 3]),
         wav_header: [0; HEADER_LEN],
+        replaced: Replaced::default(),
     };
     let error = rendered.hash().expect_err("a cut frame");
     assert_eq!(
@@ -549,6 +551,7 @@ fn encodes_samples_after_their_header() {
             channels: 1,
             samples,
             wav_header: wav_header(48_000, 1, count, format).expect("valid sizes"),
+            replaced: Replaced::default(),
         }
     };
     let rendered = mono(RenderedSamples::Binary32(vec![0.5, -1.0]));
@@ -880,7 +883,7 @@ fn fingerprint_of(name: &str) -> String {
 /// fingerprints of the registered box types at version 1.
 fn record(cases: &str) -> String {
     canonical(&format!(
-        r#"{{"cases":{cases},"fingerprint_battery":2,"fingerprints":{{"dac~":{{"1":"{}"}},"osc~":{{"1":"{}"}}}},"render_hash":"render-hash/2","render_rules":2}}"#,
+        r#"{{"cases":{cases},"fingerprint_battery":2,"fingerprints":{{"dac~":{{"1":"{}"}},"osc~":{{"1":"{}"}}}},"render_hash":"render-hash/2","render_rules":3}}"#,
         fingerprint_of("dac~"),
         fingerprint_of("osc~")
     ))
@@ -1198,7 +1201,13 @@ fn check_command_reports_every_case_that_fails_to_render() {
         ("conf/algorithms.json", &record("{}")),
     ]);
     assert_eq!(
-        run(&args(&["check", "conf"]), &mut broken, &mut Broken).map_err(|error| error.to_string()),
+        run(
+            &args(&["check", "conf"]),
+            &mut broken,
+            &mut Broken,
+            &mut Vec::new()
+        )
+        .map_err(|error| error.to_string()),
         Err("cannot write to stdout: closed".to_owned()),
         "a broken output is a failure"
     );
@@ -1236,7 +1245,7 @@ fn bless_command_writes_sorted_references() {
             "{{\n  \"cases\": {{\n    \"a\": {versions},\n    \"sine\": {versions}\n  }},\n  \
              \"fingerprint_battery\": 2,\n  \"fingerprints\": {{\n    \"dac~\": {{\n      \
              \"1\": \"{}\"\n    }},\n    \"osc~\": {{\n      \"1\": \"{}\"\n    }}\n  }},\n  \
-             \"render_hash\": \"render-hash/2\",\n  \"render_rules\": 2\n}}\n",
+             \"render_hash\": \"render-hash/2\",\n  \"render_rules\": 3\n}}\n",
             fingerprint_of("dac~"),
             fingerprint_of("osc~")
         ),
@@ -1614,9 +1623,9 @@ fn older_rules(record: &mut serde_json::Value) {
     record["render_rules"] = 0_u32.into();
 }
 
-/// The engine's render rules, 1.
+/// The engine's render rules, 3.
 fn current_rules(record: &mut serde_json::Value) {
-    record["render_rules"] = 2_u32.into();
+    record["render_rules"] = 3_u32.into();
 }
 
 /// The render hash the engine had before its current one.
@@ -2276,7 +2285,7 @@ fn hinted(kind: HintKind) -> Vec<Hinted> {
                 xtask(memory, "check", &[])
             },
             "RULES    the references were rendered under render rules version 0, the engine's \
-             is 2 (run `cargo xtask bless`)",
+             is 3 (run `cargo xtask bless`)",
             0,
             no_change,
         )],
@@ -2568,10 +2577,10 @@ const WITH_BATTERY: [WithBattery; 7] = [
         what: "the render rules",
         make: |memory| edit_records(memory, older_rules),
         apart: rules_apart,
-        cause: "RULES    --battery-changed: the render rules changed too, from version 0 to 2",
+        cause: "RULES    --battery-changed: the render rules changed too, from version 0 to 3",
         at_check: || {
             "RULES    the references were rendered under render rules version 0, the engine's \
-             is 2"
+             is 3"
                 .to_owned()
         },
         named: false,
@@ -2982,7 +2991,7 @@ fn check_command_names_a_mismatch_under_other_render_rules_as_such() {
     ));
     let record = memory
         .text("conf/algorithms.json")
-        .replace("\"render_rules\": 2", "\"render_rules\": 0");
+        .replace("\"render_rules\": 3", "\"render_rules\": 0");
     drop(
         memory
             .files
@@ -3004,7 +3013,7 @@ fn check_command_names_a_mismatch_under_other_render_rules_as_such() {
     assert!(
         out.ends_with(
             "RULES    the references were rendered under render rules version 0, the engine's is \
-             2 (run `cargo xtask bless`)\n"
+             3 (run `cargo xtask bless`)\n"
         ),
         "{out}"
     );
@@ -3132,8 +3141,13 @@ fn help_prints_the_usage_on_the_output() {
         "usage on stdout"
     );
     assert_eq!(
-        run(&args(&["help"]), &mut Memory::default(), &mut Broken)
-            .map_err(|error| error.to_string()),
+        run(
+            &args(&["help"]),
+            &mut Memory::default(),
+            &mut Broken,
+            &mut Vec::new()
+        )
+        .map_err(|error| error.to_string()),
         Err("cannot write to stdout: closed".to_owned()),
         "a broken output is a failure"
     );
@@ -3209,20 +3223,37 @@ impl io::Write for Broken {
 fn reports_a_broken_output() {
     let mut memory = conformance(&format!(r#"{{"sine":{}}}"#, sine_references()));
     assert_eq!(
-        run(&args(&["check", "conf"]), &mut memory, &mut Broken).map_err(|error| error.to_string()),
+        run(
+            &args(&["check", "conf"]),
+            &mut memory,
+            &mut Broken,
+            &mut Vec::new()
+        )
+        .map_err(|error| error.to_string()),
         Err("cannot write to stdout: closed".to_owned()),
         "check"
     );
     let mut bad = conformance(r#"{"sine":{"binary64":"0"}}"#);
     assert_eq!(
-        run(&args(&["check", "conf"]), &mut bad, &mut Broken).map_err(|error| error.to_string()),
+        run(
+            &args(&["check", "conf"]),
+            &mut bad,
+            &mut Broken,
+            &mut Vec::new()
+        )
+        .map_err(|error| error.to_string()),
         Err("cannot write to stdout: closed".to_owned()),
         "mismatch line"
     );
     let mut missing = conformance("{}");
     assert_eq!(
-        run(&args(&["check", "conf"]), &mut missing, &mut Broken)
-            .map_err(|error| error.to_string()),
+        run(
+            &args(&["check", "conf"]),
+            &mut missing,
+            &mut Broken,
+            &mut Vec::new()
+        )
+        .map_err(|error| error.to_string()),
         Err("cannot write to stdout: closed".to_owned()),
         "missing line"
     );
@@ -3240,7 +3271,13 @@ fn reports_a_broken_output() {
     ]);
     let mut three = Limited(3);
     assert_eq!(
-        run(&args(&["check", "conf"]), &mut stale, &mut three).map_err(|error| error.to_string()),
+        run(
+            &args(&["check", "conf"]),
+            &mut stale,
+            &mut three,
+            &mut Vec::new()
+        )
+        .map_err(|error| error.to_string()),
         Err("cannot write to stdout: closed".to_owned()),
         "stale line"
     );
@@ -3253,7 +3290,8 @@ fn reports_a_broken_output() {
         run(
             &args(&["check", "conf"]),
             &mut unknown_format,
-            &mut three_more
+            &mut three_more,
+            &mut Vec::new()
         )
         .map_err(|error| error.to_string()),
         Err("cannot write to stdout: closed".to_owned()),
@@ -3764,13 +3802,23 @@ fn pairs_every_case_with_its_patch() {
 #[test]
 fn tells_usage_errors_from_failures() {
     let mut memory = Memory::default();
-    let unknown = run(&args(&["nope"]), &mut memory, &mut Vec::new());
+    let unknown = run(
+        &args(&["nope"]),
+        &mut memory,
+        &mut Vec::new(),
+        &mut Vec::new(),
+    );
     assert_eq!(
         unknown,
         Err(CliError::Usage("unknown command \"nope\"".to_owned())),
         "usage"
     );
-    let failed = run(&args(&["check", "conf"]), &mut memory, &mut Vec::new());
+    let failed = run(
+        &args(&["check", "conf"]),
+        &mut memory,
+        &mut Vec::new(),
+        &mut Vec::new(),
+    );
     assert_eq!(
         failed,
         Err(CliError::Failed(
@@ -3987,7 +4035,13 @@ fn check_command_prints_one_safe_line_per_problem() {
     assert_safe_lines(&out, 18);
     let mut named = Memory::with(&[("conf/cases/a\nok       a 0\u{1b}[2J.json", SINE)]);
     assert_eq!(
-        run(&args(&["check", "conf"]), &mut named, &mut Vec::new()).map_err(|error| error.line()),
+        run(
+            &args(&["check", "conf"]),
+            &mut named,
+            &mut Vec::new(),
+            &mut Vec::new()
+        )
+        .map_err(|error| error.line()),
         Err(format!(
             "error: conf/cases/a\\u{{a}}ok       a 0\\u{{1b}}[2J.json: {NOT_A_CASE_NAME}"
         )),
@@ -4043,4 +4097,90 @@ fn bless_and_export_print_safe_lines() {
         })
         .concat();
     assert_eq!(export_out, lines, "the path is escaped");
+}
+
+/// A render of two samples by hand, whose output stage replaced `replaced`.
+fn replacing(replaced: Replaced) -> Rendered {
+    Rendered {
+        rate: SampleRate::HZ_48000,
+        channels: 1,
+        samples: RenderedSamples::Binary32(vec![0.0; 2]),
+        wav_header: [0; HEADER_LEN],
+        replaced,
+    }
+}
+
+#[test]
+fn words_what_the_output_stage_replaced() {
+    use audio_core::FirstReplaced;
+    assert_eq!(
+        super::cli::replaced_words(&replacing(Replaced::default())),
+        None
+    );
+    assert_eq!(
+        super::cli::replaced_words(&replacing(Replaced {
+            count: 1,
+            first: Some(FirstReplaced {
+                frame: 7,
+                channel: 0
+            })
+        })),
+        Some("1 non-finite sample (NaN or infinite) rendered as zero, the first at frame 7 of channel 0".to_owned())
+    );
+    assert_eq!(
+        super::cli::replaced_words(&replacing(Replaced {
+            count: u64::MAX,
+            first: Some(FirstReplaced {
+                frame: u64::MAX,
+                channel: 3
+            })
+        })),
+        Some(format!(
+            "{} non-finite samples (NaN or infinite) rendered as zero, the first at frame {} of \
+             channel 3",
+            u64::MAX,
+            u64::MAX
+        ))
+    );
+}
+
+#[test]
+fn warns_of_replaced_samples_on_render_and_refuses_them_in_conformance() {
+    use audio_core::FirstReplaced;
+    let replaced = replacing(Replaced {
+        count: 2,
+        first: Some(FirstReplaced {
+            frame: 3,
+            channel: 1,
+        }),
+    });
+    let mut warnings = Vec::new();
+    super::cli::warn_replaced(&mut warnings, "cases/a\u{1b}.json", &replaced);
+    assert_eq!(
+        String::from_utf8(warnings).expect("UTF-8"),
+        "warning: cases/a\\u{1b}.json: 2 non-finite samples (NaN or infinite) rendered as zero, the \
+         first at frame 3 of channel 1\n",
+        "one line, the case file escaped"
+    );
+    let mut none = Vec::new();
+    super::cli::warn_replaced(&mut none, "cases/a.json", &replacing(Replaced::default()));
+    assert!(none.is_empty(), "nothing replaced, nothing said");
+    // A closed stderr changes nothing.
+    super::cli::warn_replaced(&mut Broken, "cases/a.json", &replaced);
+    assert_eq!(
+        super::cli::conformant(&replaced, "sine-440", RenderFormat::Binary32).map(|_| ()),
+        Err(
+            "sine-440 in binary32: 2 non-finite samples (NaN or infinite) rendered as zero, the \
+             first at frame 3 of channel 1: a box gave them, a defect no conformance case may \
+             hold"
+                .to_owned()
+        ),
+        "a conformance case refused"
+    );
+    let clean = replacing(Replaced::default());
+    assert!(
+        super::cli::conformant(&clean, "sine-440", RenderFormat::Binary32)
+            .is_ok_and(|kept| core::ptr::eq(kept, &raw const clean)),
+        "a clean render kept as it is"
+    );
 }

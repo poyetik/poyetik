@@ -35,13 +35,21 @@ export interface Exports {
   readonly maxPatchBytes: Exported0;
   /** `engine_subnormals()`: what the arithmetic of the calling thread does with subnormals, observed now, as four bits (see `subnormalArithmetic` in `engine.ts`). */
   readonly subnormals: Exported0;
+  /** `engine_replaced_count()`: how many non-finite samples the output stage replaced since the load, saturating at 2^32 - 1. */
+  readonly replacedCount: Exported0;
+  /** `engine_replaced_frame_low()`: the low 32 bits of the frame of the first sample replaced; 0 when none was. */
+  readonly replacedFrameLow: Exported0;
+  /** `engine_replaced_frame_high()`: the high 32 bits of that frame; 0 when none was. */
+  readonly replacedFrameHigh: Exported0;
+  /** `engine_replaced_channel()`: the channel of the first sample replaced; 0 when none was. */
+  readonly replacedChannel: Exported0;
 }
 
 /**
  * The identity and version of the exported interface this code drives (`ABI_VERSION` in
- * `ffi.rs`): "PY" in the high 16 bits, version 4 in the low 16 bits.
+ * `ffi.rs`): "PY" in the high 16 bits, version 5 in the low 16 bits.
  */
-export const ABI_VERSION = 0x5059_0004;
+export const ABI_VERSION = 0x5059_0005;
 
 /** Thrown when the module does not have the expected interface. */
 export class ModuleError extends Error {
@@ -123,5 +131,9 @@ export function readExports(exports: WebAssembly.Exports): Exports {
     process: exported0(exports, "engine_process"),
     maxPatchBytes: exported0(exports, "engine_max_patch_bytes"),
     subnormals: exported0(exports, "engine_subnormals"),
+    replacedCount: exported0(exports, "engine_replaced_count"),
+    replacedFrameLow: exported0(exports, "engine_replaced_frame_low"),
+    replacedFrameHigh: exported0(exports, "engine_replaced_frame_high"),
+    replacedChannel: exported0(exports, "engine_replaced_channel"),
   };
 }

@@ -189,6 +189,46 @@ describe("engine processor", () => {
   });
 });
 
+describe("engine processor reports of replaced samples", () => {
+  /**
+   * The bytes of an engine module of one channel whose blocks sit at address 0, whose
+   * output stage reports a replaced count of 1, 2, 3… at each reading, its first sample at
+   * frame 2^32 + 5 of channel 2; or, with `count` 0, nothing replaced.
+   */
+  function replacing(count: "counting" | 0): ArrayBuffer {
+    const answers: Readonly<Record<string, { readonly i32: number } | "counting">> = {
+      engine_process: { i32: 0 },
+      engine_replaced_count: count === 0 ? { i32: 0 } : count,
+      engine_replaced_frame_low: { i32: 5 },
+      engine_replaced_frame_high: { i32: 1 },
+      engine_replaced_channel: { i32: 2 },
+    };
+    return handMadeBytes({ memory: true, functions: engineFunctions().map((func) => ({ ...func, body: answers[func.name] ?? func.body })) }).buffer;
+  }
+
+  test("tells nothing while nothing is replaced", () => {
+    const node = new (processor(ENGINE_PROCESSOR))({ processorOptions: { wasm: replacing(0), patch: SINE_PATCH, marker: false, precision: "binary64" } });
+    for (let quantum = 0; quantum !== 4; quantum += 1) {
+      expect(node.process([], [[new Float32Array(128)]])).toBe(true);
+    }
+    expect(node.port.posted).toStrictEqual([READY]);
+  });
+
+  test("tells the first replacement at once, then more at most once per REPLACED_REPORT_SECONDS", () => {
+    // Two quanta of 128 frames per second: the interval is two quanta.
+    vi.stubGlobal("sampleRate", 256);
+    const node = new (processor(ENGINE_PROCESSOR))({ processorOptions: { wasm: replacing("counting"), patch: SINE_PATCH, marker: false, precision: "binary64" } });
+    const first = { frame: 2 ** 32 + 5, channel: 2 };
+    // Each reading of the count counts on: the processor reads it once per quantum.
+    expect(node.process([], [[new Float32Array(128)]])).toBe(true);
+    expect(node.port.posted).toStrictEqual([READY, { type: "replaced", replaced: { count: 1, first } }]);
+    expect(node.process([], [[new Float32Array(128)]])).toBe(true);
+    expect(node.port.posted).toHaveLength(2);
+    expect(node.process([], [[new Float32Array(128)]])).toBe(true);
+    expect(node.port.posted).toStrictEqual([READY, { type: "replaced", replaced: { count: 1, first } }, { type: "replaced", replaced: { count: 3, first } }]);
+  });
+});
+
 describe("engine processor traps", () => {
   /** The bytes of an engine module whose `name` export traps. */
   function trapping(name: string): ArrayBuffer {

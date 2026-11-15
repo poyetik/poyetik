@@ -1,8 +1,8 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import axe from "axe-core";
 import { afterEach, expect, test, vi } from "vitest";
-import type { SubnormalArithmetic } from "@poyetik/audio-wasm/web";
-import { App, BUTTON_LABELS, FLUSHING, REFUSED } from "../src/App.tsx";
+import type { Replaced, SubnormalArithmetic } from "@poyetik/audio-wasm/web";
+import { App, BUTTON_LABELS, FLUSHING, REFUSED, replacedNotice } from "../src/App.tsx";
 import { explain, type Failure, type Missing, type Player, type PlayerState, type Signal } from "../src/player.ts";
 
 /** A player whose state the test drives, recording the calls. */
@@ -13,6 +13,8 @@ class FakePlayer implements Player {
   signal: Signal | undefined = undefined;
   /** What {@link FakePlayer.arithmetic} returns: the test sets it, before the change of state that shows it. */
   subnormals: SubnormalArithmetic | undefined = undefined;
+  /** What {@link FakePlayer.replaced} returns: set by {@link FakePlayer.replace}. */
+  replacedSamples: Required<Replaced> | undefined = undefined;
   /** The state the test last moved to with {@link FakePlayer.become}. */
   #state: PlayerState = { kind: "stopped" };
   /** The page's subscriptions, told by {@link FakePlayer.become}. */
@@ -57,6 +59,21 @@ class FakePlayer implements Player {
   /** The arithmetic the test set, or undefined. */
   arithmetic(): SubnormalArithmetic | undefined {
     return this.subnormals;
+  }
+
+  /** What the test set as replaced, or undefined. */
+  replaced(): Required<Replaced> | undefined {
+    return this.replacedSamples;
+  }
+
+  /** Reports `replaced`, as the real player does while playing: the state stays the same, and the page is told. */
+  replace(replaced: Required<Replaced>): void {
+    act(() => {
+      this.replacedSamples = replaced;
+      this.#listeners.forEach((listener) => {
+        listener();
+      });
+    });
   }
 
   /** Moves to `state`, as the real player would, and tells the page. */
@@ -263,6 +280,39 @@ test("is accessible with the note on the arithmetic shown", async () => {
   render(<App player={player} />);
   player.become({ kind: "playing" });
   expect(screen.getByText(FLUSHING).tagName).toBe("P");
+  expect(await audit()).toStrictEqual({ violations: [], incomplete: UNDECIDED });
+});
+
+test("words what the output stage replaced, in the singular and the plural", () => {
+  expect(replacedNotice({ count: 1, first: { frame: 7, channel: 0 } })).toBe(
+    "The engine played 1 invalid sample (not a number, or infinite) as silence, the first on channel 1: a defect of the patch.",
+  );
+  expect(replacedNotice({ count: 4096, first: { frame: 0, channel: 1 } })).toBe(
+    "The engine played 4096 invalid samples (not a number, or infinite) as silence, the first on channel 2: a defect of the patch.",
+  );
+});
+
+test("announces what the output stage replaced while playing, as it grows", () => {
+  const player = new FakePlayer();
+  render(<App player={player} />);
+  player.become({ kind: "playing" });
+  const region = screen.getByTestId("replaced");
+  expect(region.getAttribute("aria-live")).toBe("polite");
+  expect(region.textContent).toBe("");
+  const first = { count: 3, first: { frame: 10, channel: 0 } };
+  player.replace(first);
+  expect(region.textContent).toBe(replacedNotice(first));
+  expect(screen.getByText(replacedNotice(first)).tagName).toBe("P");
+  const more = { count: 300, first: { frame: 10, channel: 0 } };
+  player.replace(more);
+  expect(region.textContent).toBe(replacedNotice(more));
+});
+
+test("is accessible with the replaced samples announced", async () => {
+  const player = new FakePlayer();
+  render(<App player={player} />);
+  player.become({ kind: "playing" });
+  player.replace({ count: 2, first: { frame: 1, channel: 1 } });
   expect(await audit()).toStrictEqual({ violations: [], incomplete: UNDECIDED });
 });
 

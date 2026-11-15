@@ -6,14 +6,15 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::host::Delivered;
-use crate::{BLOCK_SIZE, Block, CoreError, Dispatch, Plan, Sample};
+use crate::{BLOCK_SIZE, Block, CoreError, Dispatch, OutputStage, Plan, Replaced, Sample};
 
 /// Renders a plan computing in `S` offline, frame by frame, as one continuous stream; its
 /// plan holds its box instances as `I`, as [`Plan`] says.
 ///
-/// Rendering `a` then `b` frames gives the same samples as rendering `a + b`. Its samples
-/// are given as they are computed, or rounded to binary32 for a host that takes binary32
-/// ([`host::Delivered`](Delivered)).
+/// Rendering `a` then `b` frames gives the same samples as rendering `a + b`. Every block
+/// passes the output stage ([`OutputStage`]: a non-finite sample replaced by zero and
+/// reported, [`Renderer::replaced`]), then its samples are given as they are computed, or
+/// rounded to binary32 for a host that takes binary32 ([`host::Delivered`](Delivered)).
 ///
 /// It owns its [`Plan`] and offers no way to run [`Plan::process`] on it: a block
 /// processed behind its back would reorder time (frames of a later block returned before
@@ -56,6 +57,8 @@ pub struct Renderer<S: Sample, I> {
     last: Vec<Block<S>>,
     /// Frames of `last` already returned; [`BLOCK_SIZE`] when none is left.
     used: usize,
+    /// The output stage every block passes before it is returned.
+    stage: OutputStage,
 }
 
 impl<S: Sample, I: Dispatch<S>> Renderer<S, I> {
@@ -66,7 +69,16 @@ impl<S: Sample, I: Dispatch<S>> Renderer<S, I> {
             last: vec![S::SILENCE; plan.channels()],
             plan,
             used: BLOCK_SIZE,
+            stage: OutputStage::new(),
         }
+    }
+
+    /// What the output stage replaced since the first frame: the non-finite samples, each
+    /// rendered as zero. Counted when their block is computed, so it may hold samples of the
+    /// current block not returned yet (less than a block ahead).
+    #[must_use]
+    pub const fn replaced(&self) -> Replaced {
+        self.stage.replaced()
     }
 
     /// Number of output channels: samples per frame.
@@ -122,6 +134,7 @@ impl<S: Sample, I: Dispatch<S>> Renderer<S, I> {
             }
             if self.used == BLOCK_SIZE {
                 self.plan.process(&mut self.last);
+                self.stage.apply(&mut self.last);
                 self.used = 0;
             }
             let count = BLOCK_SIZE

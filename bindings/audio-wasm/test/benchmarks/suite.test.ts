@@ -289,8 +289,8 @@ function standIn(fixed: number): CountedEngine {
   const pass = [0x03, 0x40, 0x20, 0x00, 0x45, 0x0d, 0x01, 0x20, 0x00, 0x41, 0x01, 0x6b, 0x21, 0x00, 0x0c, 0x00, 0x0b];
   const wasm = assemble({
     functions: [
-      // 0x5059_0004 in signed LEB128: the interface's identity and version.
-      func("engine_abi_version", 0, constant([0x84, 0x80, 0xe4, 0x82, 0x05])),
+      // 0x5059_0005 in signed LEB128: the interface's identity and version.
+      func("engine_abi_version", 0, constant([0x85, 0x80, 0xe4, 0x82, 0x05])),
       func("engine_input", 1, [0x20, 0x00, 0x24, 0x00, ...constant([0x00])]),
       func("engine_load", 2, constant([0x01])),
       func("engine_message_ptr", 0, constant([0x00])),
@@ -300,6 +300,10 @@ function standIn(fixed: number): CountedEngine {
       func("engine_process", 0, [...Array<number>(fixed).fill(0x01), 0x23, 0x00, 0x21, 0x00, 0x02, 0x40, ...pass, 0x0b, ...constant([0x00])], [0x01, 0x01, 0x7f]),
       func("engine_max_patch_bytes", 0, constant([0x00])),
       func("engine_subnormals", 0, constant([0x0f])),
+      func("engine_replaced_count", 0, constant([0x00])),
+      func("engine_replaced_frame_low", 0, constant([0x00])),
+      func("engine_replaced_frame_high", 0, constant([0x00])),
+      func("engine_replaced_channel", 0, constant([0x00])),
     ],
     globals: [I32_GLOBAL],
     exports: [["memory", 0x02, 0]],

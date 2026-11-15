@@ -110,6 +110,29 @@ describe("EnginePlayer", () => {
     expect(player.arithmetic()).toStrictEqual(flushed);
   });
 
+  test("tells what the output stage replaced while playing, forgets it at the next start, and ignores a closed session's", async () => {
+    const player = new EnginePlayer(playerOptions());
+    expect(player.replaced()).toBeUndefined();
+    await player.start();
+    const changes: string[] = [];
+    player.subscribe(() => changes.push(player.state().kind));
+    const first = { count: 2, first: { frame: 9, channel: 1 } };
+    workletNode("poyetik-engine")?.port.deliver({ type: "replaced", replaced: first });
+    expect(player.replaced()).toStrictEqual(first);
+    expect(changes).toStrictEqual(["playing"]);
+    const more = { count: 40, first: { frame: 9, channel: 1 } };
+    workletNode("poyetik-engine")?.port.deliver({ type: "replaced", replaced: more });
+    expect(player.replaced()).toStrictEqual(more);
+    const engine = workletNode("poyetik-engine");
+    await stopPlaying(player);
+    expect(player.replaced()).toStrictEqual(more);
+    // A report of the session just stopped changes nothing.
+    engine?.port.deliver({ type: "replaced", replaced: { count: 41, first: { frame: 9, channel: 1 } } });
+    expect(player.replaced()).toStrictEqual(more);
+    await player.start();
+    expect(player.replaced()).toBeUndefined();
+  });
+
   test("starts once, even when asked twice at once", async () => {
     const player = new EnginePlayer(playerOptions());
     const first = player.start();

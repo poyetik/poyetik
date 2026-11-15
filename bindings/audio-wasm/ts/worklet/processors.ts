@@ -7,7 +7,15 @@
  */
 
 import { PatchError, WasmEngine, givenAsBinary32 } from "../engine.ts";
-import { ENGINE_PROCESSOR, MARKER_PERIOD, SOURCE_STOPPED, TAP_PROCESSOR, parseEngineOptions, type EngineMessage } from "../protocol.ts";
+import {
+  ENGINE_PROCESSOR,
+  MARKER_PERIOD,
+  REPLACED_REPORT_SECONDS,
+  SOURCE_STOPPED,
+  TAP_PROCESSOR,
+  parseEngineOptions,
+  type EngineMessage,
+} from "../protocol.ts";
 
 /** The outputs of a node without output: one shared, frozen, empty list. */
 const NO_OUTPUT: readonly Float32Array[] = Object.freeze([]);
@@ -28,8 +36,9 @@ function failure(error: unknown): EngineMessage {
 
 /**
  * Runs the engine: one output, one channel per patch channel. Tells the main thread once
- * whether the patch is loaded, or why it is not; after a failure (at load or later) it
- * outputs silence and stops.
+ * whether the patch is loaded, or why it is not; what the output stage replaced, when it
+ * replaced more, at most once per {@link REPLACED_REPORT_SECONDS}; after a failure (at load
+ * or later) it outputs silence and stops.
  */
 class EngineProcessor extends AudioWorkletProcessor {
   /**
@@ -39,6 +48,12 @@ class EngineProcessor extends AudioWorkletProcessor {
   #running: { readonly engine: WasmEngine<Float32Array>; readonly marker: boolean } | undefined;
   /** Frames rendered so far, modulo {@link MARKER_PERIOD}: what the marker channel counts. */
   #rendered = 0;
+  /** Replaced samples already told to the main thread. */
+  #told = 0;
+  /** Frames rendered since the last `replaced` message, up to {@link EngineProcessor.#interval}. */
+  #sinceTold = 0;
+  /** The frames of {@link REPLACED_REPORT_SECONDS} at the context's rate. */
+  readonly #interval = REPLACED_REPORT_SECONDS * sampleRate;
 
   /**
    * Loads the patch given in the node options (`processorOptions`, see `EngineOptions`), to
@@ -61,7 +76,10 @@ class EngineProcessor extends AudioWorkletProcessor {
     }
   }
 
-  /** Renders the next render quantum. Does not allocate, except to report a failure once. */
+  /**
+   * Renders the next render quantum. Does not allocate, but to report a failure once, or
+   * replaced samples (never while none is replaced).
+   */
   process(_inputs: Float32Array[][], outputs: Float32Array[][]): boolean {
     if (this.#running === undefined) {
       return false;
@@ -72,11 +90,28 @@ class EngineProcessor extends AudioWorkletProcessor {
       if (this.#running.marker) {
         this.#mark(output, this.#running.engine.channels);
       }
+      this.#report(this.#running.engine, output[0]?.length ?? 0);
       return true;
     } catch (error) {
       this.#running = undefined;
       this.port.postMessage(failure(error));
       return false;
+    }
+  }
+
+  /**
+   * Tells the main thread what the output stage replaced, when it replaced more than told:
+   * the first time at once, then once {@link EngineProcessor.#interval} frames passed since
+   * the last message. Reading the count allocates nothing.
+   */
+  #report(engine: WasmEngine<Float32Array>, frames: number): void {
+    this.#sinceTold = Math.min(this.#sinceTold + frames, this.#interval);
+    const count = engine.replacedCount;
+    if (count > this.#told && (this.#told === 0 || this.#sinceTold === this.#interval)) {
+      this.#told = count;
+      this.#sinceTold = 0;
+      const message: EngineMessage = { type: "replaced", replaced: { count, first: engine.replacedFirst() } };
+      this.port.postMessage(message);
     }
   }
 

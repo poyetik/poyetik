@@ -56,13 +56,19 @@ test("names the processors: a contract with every page that loads them", () => {
 });
 
 describe("parseEngineMessage", () => {
-  test("accepts the three messages of the engine processor", () => {
+  test("accepts the four messages of the engine processor", () => {
     const detail = new Uint8Array([1]);
     expect(parseEngineMessage(READY)).toStrictEqual(READY);
     const mixed = { binary32: { operands: false, results: true }, binary64: { operands: true, results: false } };
     expect(parseEngineMessage({ type: "ready", subnormals: mixed })).toStrictEqual({ type: "ready", subnormals: mixed });
     expect(parseEngineMessage({ type: "rejected", detail })).toStrictEqual({ type: "rejected", detail });
     expect(parseEngineMessage({ type: "failed", message: "x" })).toStrictEqual({ type: "failed", message: "x" });
+    for (const replaced of [
+      { count: 1, first: { frame: 0, channel: 0 } },
+      { count: Number.MAX_SAFE_INTEGER, first: { frame: Number.MAX_SAFE_INTEGER, channel: 3 } },
+    ]) {
+      expect(parseEngineMessage({ type: "replaced", replaced })).toStrictEqual({ type: "replaced", replaced });
+    }
   });
 
   test.each([
@@ -81,6 +87,18 @@ describe("parseEngineMessage", () => {
     [{ type: "ready", subnormals: { ...IEEE_SUBNORMALS, binary32: { operands: true } } }, "binary32 subnormals are not two booleans"],
     [{ type: "ready", subnormals: { ...IEEE_SUBNORMALS, binary64: { operands: true, results: "yes" } } }, "binary64 subnormals are not two booleans"],
     [{}, "unknown engine message"],
+    [{ type: "replaced" }, "replaced samples are not an object"],
+    [{ type: "replaced", replaced: null }, "replaced samples are not an object"],
+    [{ type: "replaced", replaced: { count: 1 } }, "the first replaced sample is not an object"],
+    [{ type: "replaced", replaced: { count: 1, first: null } }, "the first replaced sample is not an object"],
+    [{ type: "replaced", replaced: { count: 0, first: { frame: 0, channel: 0 } } }, "the replaced count is not a whole number from 1"],
+    [{ type: "replaced", replaced: { count: 1.5, first: { frame: 0, channel: 0 } } }, "the replaced count is not a whole number from 1"],
+    [{ type: "replaced", replaced: { count: "1", first: { frame: 0, channel: 0 } } }, "the replaced count is not a whole number from 1"],
+    [{ type: "replaced", replaced: { count: 2 ** 53, first: { frame: 0, channel: 0 } } }, "the replaced count is not a whole number from 1"],
+    [{ type: "replaced", replaced: { count: 1, first: { frame: -1, channel: 0 } } }, "the first replaced frame is not a whole number from 0"],
+    [{ type: "replaced", replaced: { count: 1, first: { frame: Number.NaN, channel: 0 } } }, "the first replaced frame is not a whole number from 0"],
+    [{ type: "replaced", replaced: { count: 1, first: { frame: 0, channel: -1 } } }, "the first replaced channel is not a whole number from 0"],
+    [{ type: "replaced", replaced: { count: 1, first: { frame: 0 } } }, "the first replaced channel is not a whole number from 0"],
   ])("rejects %o", (value, detail) => {
     expect(() => parseEngineMessage(value)).toThrow(new MessageError(detail));
   });

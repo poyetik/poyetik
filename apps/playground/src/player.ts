@@ -7,7 +7,7 @@
  * (suspended, failed), so that the page never claims to play while it does not.
  */
 
-import { addProcessors, createEngineNode, loadPatch, tap, type SubnormalArithmetic, type Tap } from "@poyetik/audio-wasm/web";
+import { addProcessors, createEngineNode, loadPatch, tap, type Replaced, type SubnormalArithmetic, type Tap } from "@poyetik/audio-wasm/web";
 import { fetchOk } from "./fetch.ts";
 import { SampleHistory } from "./history.ts";
 
@@ -68,6 +68,11 @@ export interface Player {
    * engine observed it when it last loaded; undefined until it first has.
    */
   arithmetic(): SubnormalArithmetic | undefined;
+  /**
+   * What the engine's output stage replaced since the current or last start: the non-finite
+   * samples it played as silence, how many and the first; undefined while none was.
+   */
+  replaced(): Required<Replaced> | undefined;
 }
 
 /**
@@ -299,6 +304,8 @@ export class EnginePlayer implements Player {
   #live: Live | undefined;
   /** What {@link EnginePlayer.arithmetic} returns: the arithmetic the engine last observed. */
   #arithmetic: SubnormalArithmetic | undefined;
+  /** What {@link EnginePlayer.replaced} returns: what the output stage replaced since the last start. */
+  #replaced: Required<Replaced> | undefined;
 
   /**
    * Sets the player up; nothing is loaded before the first start. A browser lacking what
@@ -388,6 +395,7 @@ export class EnginePlayer implements Player {
     const { context, gain } = session;
     // Where the start is: what a failure there is caused by.
     let cause: Failure = "load";
+    this.#replaced = undefined;
     // Followed from before the first await: a context the browser closes at any point of
     // the start fails the session on the device, never later on whatever awaited it.
     context.onstatechange = () => {
@@ -398,8 +406,16 @@ export class EnginePlayer implements Player {
       await session.until(addProcessors(context, this.#options.worklet));
       cause = "engine";
       const loaded = await session.until(loadPatch(wasm, this.#options.patch, context.sampleRate));
-      const engine = createEngineNode(context, loaded, (error) => {
-        void this.#fail(session, "engine", error);
+      const engine = createEngineNode(context, loaded, {
+        onFailure: (error) => {
+          void this.#fail(session, "engine", error);
+        },
+        onReplaced: (replaced) => {
+          if (this.#live?.session === session) {
+            this.#replaced = replaced;
+            this.#notify();
+          }
+        },
       });
       const onBlock = (block: Float32Array[]): void => {
         const [first] = block;
@@ -570,5 +586,10 @@ export class EnginePlayer implements Player {
   /** The arithmetic of the audio thread the engine last observed, or undefined before it first has. */
   arithmetic(): SubnormalArithmetic | undefined {
     return this.#arithmetic;
+  }
+
+  /** What the output stage replaced since the last start, or undefined while nothing was. */
+  replaced(): Required<Replaced> | undefined {
+    return this.#replaced;
   }
 }
