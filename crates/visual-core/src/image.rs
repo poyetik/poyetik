@@ -22,9 +22,11 @@ impl ImageSize {
     /// The most pixels an image holds, 2²⁵ (8K UHD, 7680 × 4320, and 16 384 × 2048 fit):
     /// its values then take 2²⁹ bytes (512 MiB), a size every target can request, those of 32
     /// bits included, where one allocation is at most `isize::MAX` bytes (2³¹ − 1) and the
-    /// whole WebAssembly memory 4 GiB (whether a given machine has the memory is another
-    /// matter: a microcontroller has far less, and refuses the allocation). So every target accepts the same sizes, and two
-    /// images (one replacing the other) still fit in that memory.
+    /// whole WebAssembly memory 4 GiB. So every target accepts the same sizes, and two images
+    /// (one replacing the other) still fit in that memory. Whether a given machine has the
+    /// memory is another matter: creating an image cannot fail, so where the allocation is
+    /// refused (a microcontroller, a phone's browser) the program aborts natively and the
+    /// WebAssembly instance traps (`spec/limitations.md`, "Out of memory").
     pub const MAX_PIXELS: u32 = 1 << 25;
 
     /// Creates an image size.
