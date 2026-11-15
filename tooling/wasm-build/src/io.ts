@@ -1,11 +1,11 @@
 // The real outside world of the build commands (see cli.ts): this process, its files and
-// cargo. Shared by the two entry points; tested on real files and a real child process.
+// cargo. Shared by every entry point; tested on real files and a real child process.
 import { execFileSync } from "node:child_process";
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { Io } from "./cli.ts";
+import type { EntryProcess, Io } from "./cli.ts";
 
 /** The real outside world. */
 export const PROCESS_IO: Io = {
@@ -25,4 +25,13 @@ export const PROCESS_IO: Io = {
   },
   out: (line) => process.stdout.write(`${line}\n`),
   err: (line) => process.stderr.write(`${line}\n`),
+};
+
+/** This process as an entry point reports to it: its stdout, its stderr, its exit code. */
+export const PROCESS_ENTRY: EntryProcess = {
+  stdout: process.stdout,
+  err: PROCESS_IO.err,
+  exit: (code) => {
+    process.exitCode = code;
+  },
 };

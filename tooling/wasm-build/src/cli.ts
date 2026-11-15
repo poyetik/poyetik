@@ -107,7 +107,7 @@ function reported(io: Io, action: () => number): number {
   try {
     return action();
   } catch (error) {
-    io.err(`error: ${error instanceof BuildError ? error.message : `unexpected failure: ${String(error)}`}`);
+    io.err(`error: ${oneLine(error instanceof BuildError ? error.message : `unexpected failure: ${String(error)}`)}`);
     return 1;
   }
 }
@@ -115,19 +115,26 @@ function reported(io: Io, action: () => number): number {
 /**
  * Reads the arguments of `command`, which takes none but `help`: `undefined` when there
  * are none, else its exit code, after printing `usage` on stdout for `help`, or one usage
- * error naming the argument, made safe on one line and pointing to the help.
+ * error naming the argument refused (the first, or the one after `help`), made safe on one
+ * line and pointing to the help.
  */
 function usage(io: Io, command: string, args: readonly string[], text: string): number | undefined {
-  const [first] = args;
+  const [first, second] = args;
   if (first === undefined) {
     return undefined;
   }
-  if (first === "help" && args.length === 1) {
-    io.out(text);
-    return 0;
+  const refuse = (refused: string): number => {
+    io.err(`error: ${oneLine(`${command} takes no argument but help, not "${refused}"`)} (see: pnpm ${command} help)`);
+    return 2;
+  };
+  if (first !== "help") {
+    return refuse(first);
   }
-  io.err(`error: ${oneLine(`${command} takes no argument but help, not "${first}"`)} (see: pnpm ${command} help)`);
-  return 2;
+  if (second !== undefined) {
+    return refuse(second);
+  }
+  io.out(text);
+  return 0;
 }
 
 /** `pnpm build:wasm`: builds `module` and copies it to its file in `dist`; returns the exit code. */
@@ -205,7 +212,7 @@ export function reproducibleMain(io: Io, args: readonly string[], module: WasmMo
  * is given to `fail` as one `error:` line, never thrown: thrown from an event, it would
  * end the process with a stack trace.
  */
-export function ignoreClosedReader(stream: { on: (event: "error", listener: (error: Error) => void) => unknown }, fail: (line: string) => void): void {
+export function ignoreClosedReader(stream: ErrorEvents, fail: (line: string) => void): void {
   stream.on("error", (error) => {
     if (why(error) !== "EPIPE") {
       fail(`error: cannot write to stdout: ${why(error)}`);
@@ -218,9 +225,34 @@ export function ignoreClosedReader(stream: { on: (event: "error", listener: (err
  * error is one `error:` line given to `err` (the entry point's stderr) and exit code 1,
  * given to `exit` ({@link ignoreClosedReader}).
  */
-export function guardStdout(stream: { on: (event: "error", listener: (error: Error) => void) => unknown }, err: (line: string) => void, exit: (code: number) => void): void {
+export function guardStdout(stream: ErrorEvents, err: (line: string) => void, exit: (code: number) => void): void {
   ignoreClosedReader(stream, (line) => {
     err(line);
     exit(1);
   });
+}
+
+/** A stream that reports its errors as events, as stdout does. */
+export interface ErrorEvents {
+  /** Adds the listener of its `error` events. */
+  readonly on: (event: "error", listener: (error: Error) => void) => unknown;
+}
+
+/** What an entry point reports to: its process's stdout, stderr and exit code. */
+export interface EntryProcess {
+  /** The stdout the command writes to. */
+  readonly stdout: ErrorEvents;
+  /** Writes a line on stderr. */
+  readonly err: (line: string) => void;
+  /** Sets the exit code of the process. */
+  readonly exit: (code: number) => void;
+}
+
+/**
+ * Runs `main` as the whole of an entry point: guards stdout first ({@link guardStdout}),
+ * so that no entry point can forget it, then sets the exit code to what `main` returns.
+ */
+export function runEntryPoint(entry: EntryProcess, main: () => number): void {
+  guardStdout(entry.stdout, entry.err, entry.exit);
+  entry.exit(main());
 }
