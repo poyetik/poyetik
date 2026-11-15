@@ -742,7 +742,7 @@
           "done": false
         },
         {
-          "title": "Oracle: refuse duplicate keys in case files, as audio-cli does",
+          "title": "Case files: the two readers refuse different files; the oracle accepts a repeated key (JSON.parse keeps the last) and audio-cli accepts a JSON array in place of the case object (serde's derived visit_seq, which deny_unknown_fields does not stop); refuse both in both, with a corpus file for each",
           "done": false
         },
         {
@@ -959,6 +959,14 @@
         },
         {
           "title": "visual-cli refuses a case path that is not a regular file (a FIFO, a device) instead of blocking on it, like audio-cli (step 52)",
+          "done": false
+        },
+        {
+          "title": "Invalid case corpus: audio-cli's test only checks a case error or a file too large, and the oracle's only that it throws, so a file can be refused for the wrong reason; pin each file's refusal with a name to expected message table per language, its names equal to the directory's",
+          "done": false
+        },
+        {
+          "title": "Render-hash vectors: none holds a signaling NaN or a negative NaN, although the hash keeps every payload; add both in each format, their digests computed independently in Python",
           "done": false
         }
       ]
