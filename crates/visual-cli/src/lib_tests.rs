@@ -172,6 +172,17 @@ fn says_each_error_on_one_line_with_its_exit_code() {
         ("error: no command (see: visual-cli help)".to_owned(), 2),
         "a usage error points to the help"
     );
+    assert_eq!(
+        (
+            usage.to_string(),
+            CliError::Failed("a\nb".to_owned()).to_string()
+        ),
+        (
+            "no command (see: visual-cli help)".to_owned(),
+            "a\nb".to_owned()
+        ),
+        "shown as an error: the reason and its pointer, raw (line() makes it safe)"
+    );
     let long = CliError::Usage("x".repeat(1200));
     assert_eq!(
         long.line(),
@@ -503,6 +514,18 @@ fn refuses_a_corpus_it_cannot_read_whole() {
                  hyphens, starting with a letter or a digit)"
             ))),
             "{name}: refused, the first in name order"
+        );
+    }
+    for name in ["v2.0-wide", "0.5", "a-b.c"] {
+        let mut named = corpus(&blessed());
+        drop(named.files.insert(
+            PathBuf::from(format!("d/cases/{name}.json")),
+            SMALL.as_bytes().to_vec(),
+        ));
+        let (_, said) = run_with(&mut named, &["check", "d"]);
+        assert!(
+            said.contains(&format!("MISSING  {name}: no reference")),
+            "{name}: a case name, dots and hyphens included, read as a case: {said}"
         );
     }
     let mut broken = corpus(&blessed());
