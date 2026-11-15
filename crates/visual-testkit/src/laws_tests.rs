@@ -88,6 +88,9 @@ enum Fault {
     NotANumberForwardAfterGoingBack,
     /// It renders a NaN once it has seen a size other than the first it rendered.
     NotANumberAfterAnotherSize,
+    /// Its trace changes for a size other than the first it rendered: geometry cached by
+    /// rendering, read back by tracing.
+    TraceAfterAnotherSize,
 }
 
 /// A box with one fault, otherwise like [`Good`].
@@ -129,6 +132,9 @@ impl Faulty {
             drop(core::hint::black_box(vec![0_u8; 16]));
         }
         let size = output.size();
+        let first_size = *self
+            .first_size
+            .get_or_insert_with(|| (size.width(), size.height()));
         let odd = match self.fault {
             Fault::NotANumberAtTheHighestRate => self.good.rate.numerator() == 1000,
             Fault::NotANumberWhenWidest => size.width() == visual_core::ImageSize::MAX_SIDE,
@@ -141,12 +147,7 @@ impl Faulty {
             }
             Fault::NotANumberOffTheMatrixIndices => !IMAGE_INDICES.contains(&index.0),
             Fault::NotANumberForwardAfterGoingBack => came_back && forward,
-            Fault::NotANumberAfterAnotherSize => {
-                *self
-                    .first_size
-                    .get_or_insert_with(|| (size.width(), size.height()))
-                    != (size.width(), size.height())
-            }
+            Fault::NotANumberAfterAnotherSize => first_size != (size.width(), size.height()),
             Fault::Stateful
             | Fault::PerInstance
             | Fault::Allocates
@@ -161,7 +162,8 @@ impl Faulty {
             | Fault::TraceAfterSixImages
             | Fault::AllocatesSeekingBack
             | Fault::SkipsARepeat
-            | Fault::ImpureTraceAtTheLastSubpixel => false,
+            | Fault::ImpureTraceAtTheLastSubpixel
+            | Fault::TraceAfterAnotherSize => false,
         };
         Some(odd)
     }
@@ -216,7 +218,8 @@ impl VisualBox for Faulty {
             | Fault::NotANumberOffTheMatrixSizes
             | Fault::NotANumberOffTheMatrixIndices
             | Fault::NotANumberForwardAfterGoingBack
-            | Fault::NotANumberAfterAnotherSize => None,
+            | Fault::NotANumberAfterAnotherSize
+            | Fault::TraceAfterAnotherSize => None,
         };
         if let (Some(value), Some(slot)) = (changed, first) {
             *slot = value;
@@ -244,7 +247,8 @@ impl VisualBox for Faulty {
             | Fault::NotANumberOffTheMatrixSizes
             | Fault::NotANumberOffTheMatrixIndices
             | Fault::NotANumberForwardAfterGoingBack
-            | Fault::NotANumberAfterAnotherSize => None,
+            | Fault::NotANumberAfterAnotherSize
+            | Fault::TraceAfterAnotherSize => None,
         };
         if let Some(value) = alpha
             && let Some(slot) = output.rows_mut().last().and_then(|row| row.last_mut())
@@ -283,6 +287,17 @@ impl VisualBox for Faulty {
             }
             Fault::TraceAfterRendering => Trace::Shape(u32::from(self.rendered > 0)),
             Fault::TraceAfterSixImages => Trace::Shape(u32::from(self.rendered >= 6)),
+            Fault::TraceAfterAnotherSize => {
+                let size = point.size();
+                if self
+                    .first_size
+                    .is_some_and(|first| first != (size.width(), size.height()))
+                {
+                    Trace::Shape(9)
+                } else {
+                    self.good.trace(index, point)
+                }
+            }
             Fault::Stateful
             | Fault::PerInstance
             | Fault::Allocates
@@ -418,6 +433,10 @@ fn catches_each_broken_law() {
             "size change: rendering at another size first changes the bits at rate 1/1, size 2x3, image 0",
         ),
         (
+            Fault::TraceAfterAnotherSize,
+            "size change: (0, 0) traces differently after another size at rate 1/1, size 2x3, image 0",
+        ),
+        (
             Fault::NotANumberForwardAfterGoingBack,
             "random access: rendering the images in another order, each twice, changes the bits at rate 1/1, size 1x1, image 1000000",
         ),
@@ -426,23 +445,42 @@ fn catches_each_broken_law() {
     }
 }
 
-/// The inputs the visual box contract makes an image depend on (`VisualBox::render`, in
-/// `visual-core`'s contract): the index of the image, the rate the box is made for and the
-/// size of its output, each with a fault the laws must refuse: a box keeping state across a
-/// change of index or of size, or right only at some rates. A new input of the contract
-/// comes with its fault here.
-const CONTRACT_INPUTS: [(&str, Fault); 3] = [
-    ("index", Fault::NotANumberForwardAfterGoingBack),
-    ("rate", Fault::NotANumberOffTheMatrixRates),
-    ("size", Fault::NotANumberAfterAnotherSize),
+/// The inputs the visual box contract makes an image and a trace depend on
+/// (`VisualBox::render` and `VisualBox::trace`, in `visual-core`'s contract): the index of the
+/// image, the rate the box is made for, the size of its output and the size a traced point
+/// belongs to, each with a fault the laws must refuse: a box keeping state across a change of
+/// index or of size, or right only at some rates. A new input of the contract comes with its
+/// fault here (a convention, reviewed: no tool lists the contract's inputs).
+const CONTRACT_INPUTS: [(&str, Fault, &str); 4] = [
+    (
+        "index",
+        Fault::NotANumberForwardAfterGoingBack,
+        "random access: ",
+    ),
+    (
+        "rate",
+        Fault::NotANumberOffTheMatrixRates,
+        "Test failed: finite values: ",
+    ),
+    (
+        "size",
+        Fault::NotANumberAfterAnotherSize,
+        "size change: rendering ",
+    ),
+    (
+        "traced point's size",
+        Fault::TraceAfterAnotherSize,
+        "size change: (0, 0) traces ",
+    ),
 ];
 
 #[test]
 fn refuses_a_box_wrong_along_any_input_of_the_contract() {
-    for (input, fault) in CONTRACT_INPUTS {
+    for (input, fault, law) in CONTRACT_INPUTS {
+        let refused = verdict(fault);
         assert!(
-            verdict(fault).is_err_and(|law| !law.is_empty()),
-            "{input}: {fault:?} refused"
+            refused.as_ref().is_err_and(|said| said.starts_with(law)),
+            "{input}: {fault:?} refused by the law it breaks, {law}: {refused:?}"
         );
     }
 }
