@@ -93,6 +93,10 @@ enum Fault {
     TraceAfterAnotherSize,
     /// Its trace answers from the size it rendered last, whatever the point's size.
     TraceFromTheLastSize,
+    /// It renders the smallest subnormal value at image 59, in the first value.
+    Subnormal,
+    /// It renders -0 at image 59, in the first value.
+    NegativeZero,
 }
 
 /// A box with one fault, otherwise like [`Good`].
@@ -169,7 +173,9 @@ impl Faulty {
             | Fault::SkipsARepeat
             | Fault::ImpureTraceAtTheLastSubpixel
             | Fault::TraceAfterAnotherSize
-            | Fault::TraceFromTheLastSize => false,
+            | Fault::TraceFromTheLastSize
+            | Fault::Subnormal
+            | Fault::NegativeZero => false,
         };
         Some(odd)
     }
@@ -207,6 +213,8 @@ impl VisualBox for Faulty {
             }
             Fault::NotANumber(_) => (index.0 == 59).then_some(f32::NAN),
             Fault::Infinite => (index.0 == 59).then_some(f32::INFINITY),
+            Fault::Subnormal => (index.0 == 59).then_some(f32::from_bits(1)),
+            Fault::NegativeZero => (index.0 == 59).then_some(-0.0),
             Fault::KeepsAValue => kept,
             Fault::AlphaAbove
             | Fault::AlphaBelow
@@ -256,7 +264,9 @@ impl VisualBox for Faulty {
             | Fault::NotANumberForwardAfterGoingBack
             | Fault::NotANumberAfterAnotherSize
             | Fault::TraceAfterAnotherSize
-            | Fault::TraceFromTheLastSize => None,
+            | Fault::TraceFromTheLastSize
+            | Fault::Subnormal
+            | Fault::NegativeZero => None,
         };
         if let Some(value) = alpha
             && let Some(slot) = output.rows_mut().last().and_then(|row| row.last_mut())
@@ -334,7 +344,9 @@ impl VisualBox for Faulty {
             | Fault::NotANumberOffTheMatrixSizes
             | Fault::NotANumberOffTheMatrixIndices
             | Fault::NotANumberForwardAfterGoingBack
-            | Fault::NotANumberAfterAnotherSize => self.good.trace(index, point),
+            | Fault::NotANumberAfterAnotherSize
+            | Fault::Subnormal
+            | Fault::NegativeZero => self.good.trace(index, point),
         }
     }
 }
@@ -411,6 +423,14 @@ fn catches_each_broken_law() {
         (
             Fault::NotANumber(3),
             "finite values: a value is NaN or infinite at rate 1/1, size 1x1, image 59",
+        ),
+        (
+            Fault::Subnormal,
+            "finite values: a subnormal value at rate 1/1, size 1x1, image 59",
+        ),
+        (
+            Fault::NegativeZero,
+            "finite values: a negative zero at rate 1/1, size 1x1, image 59",
         ),
         (
             Fault::Infinite,

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- No visual box may output a subnormal value or -0: the finite-values law refuses both (a box writes 0 instead), so that a target flushing subnormals to zero, as GPUs do, cannot change an image's bits or its hash (`spec/visual-design.md`, section 3).
+
 ## [0.7.0] - 2026-11-19
 
 ### Added

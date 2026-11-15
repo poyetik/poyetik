@@ -20,7 +20,8 @@
 //!   trace on its point's size, never on the sizes rendered before;
 //! - **overwrite**: rendering overwrites every value, whatever the image held before
 //!   (the image is filled with NaN first);
-//! - **finite values**: never NaN or infinity, and alpha within `[0, 1]`;
+//! - **finite values**: never NaN or infinity, never a subnormal value or -0, and alpha
+//!   within `[0, 1]`;
 //! - **no heap operation** while rendering, in every pass of every law: no allocation,
 //!   reallocation or release (measured by [`CountingAllocator`], which the test binary
 //!   must install as its global allocator);

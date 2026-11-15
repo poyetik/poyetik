@@ -109,13 +109,25 @@ fn points(size: ImageSize) -> impl Iterator<Item = SubpixelPoint> {
     .filter_map(move |(x, y)| size.point(x, y))
 }
 
-/// Checks the law of finite values on one rendered image: every value finite, and alpha
-/// within `[0, 1]` too.
+/// The bits of -0 as a 32-bit float: its sign bit alone.
+const NEGATIVE_ZERO: u32 = 1 << 31_u32;
+
+/// Checks the law of finite values on one rendered image: every value finite, none
+/// subnormal and none -0, and alpha within `[0, 1]` too.
 fn check_values(image: &Image, at: &str) -> Result<(), String> {
     for pixel in image.values().as_chunks::<{ Image::CHANNELS }>().0 {
         let &[red, green, blue, alpha] = pixel;
         if !(red.is_finite() && green.is_finite() && blue.is_finite() && alpha.is_finite()) {
             return Err(format!("finite values: a value is NaN or infinite at {at}"));
+        }
+        // No subnormal value and no -0 (`spec/visual-design.md`, section 3): a target that
+        // flushes subnormals to zero, or signs zero differently, then cannot change an
+        // image's bits, nor its hash.
+        if pixel.iter().any(|value| value.is_subnormal()) {
+            return Err(format!("finite values: a subnormal value at {at}"));
+        }
+        if pixel.iter().any(|value| value.to_bits() == NEGATIVE_ZERO) {
+            return Err(format!("finite values: a negative zero at {at}"));
         }
         if !(0.0..=1.0).contains(&alpha) {
             return Err(format!(
