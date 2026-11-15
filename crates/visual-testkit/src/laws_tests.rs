@@ -426,6 +426,27 @@ fn catches_each_broken_law() {
     }
 }
 
+/// The inputs the visual box contract makes an image depend on (`VisualBox::render`, in
+/// `visual-core`'s contract): the index of the image, the rate the box is made for and the
+/// size of its output, each with a fault the laws must refuse: a box keeping state across a
+/// change of index or of size, or right only at some rates. A new input of the contract
+/// comes with its fault here.
+const CONTRACT_INPUTS: [(&str, Fault); 3] = [
+    ("index", Fault::NotANumberForwardAfterGoingBack),
+    ("rate", Fault::NotANumberOffTheMatrixRates),
+    ("size", Fault::NotANumberAfterAnotherSize),
+];
+
+#[test]
+fn refuses_a_box_wrong_along_any_input_of_the_contract() {
+    for (input, fault) in CONTRACT_INPUTS {
+        assert!(
+            verdict(fault).is_err_and(|law| !law.is_empty()),
+            "{input}: {fault:?} refused"
+        );
+    }
+}
+
 #[test]
 fn catches_a_box_right_only_at_the_values_of_the_matrix() {
     // Each fault appears only at a rate, a size or an index the matrix does not hold: the
