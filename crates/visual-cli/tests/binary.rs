@@ -110,7 +110,10 @@ mod tests {
         std::fs::create_dir_all(dir.join("cases")).expect("cases directory");
         for entry in std::fs::read_dir(Path::new(&corpus()).join("cases")).expect("the cases") {
             let path = entry.expect("an entry").path();
-            if path.file_stem() != Some(OsStr::new(largest)) {
+            // Only case files: a file manager's `.DS_Store`, which git ignores, is none.
+            if path.extension() == Some(OsStr::new("json"))
+                && path.file_stem() != Some(OsStr::new(largest))
+            {
                 let name = path.file_name().expect("a file name");
                 let copied = std::fs::copy(&path, dir.join("cases").join(name)).expect("copied");
                 assert!(copied > 0, "{} copied", path.display());
@@ -139,9 +142,11 @@ mod tests {
         let said = String::from_utf8_lossy(&output.stdout);
         let mut cases: Vec<String> = std::fs::read_dir(Path::new(&corpus()).join("cases"))
             .expect("the cases")
-            .map(|entry| {
+            .filter_map(|entry| {
                 let name = entry.expect("an entry").file_name();
-                name.to_string_lossy().trim_end_matches(".json").to_owned()
+                name.to_string_lossy()
+                    .strip_suffix(".json")
+                    .map(str::to_owned)
             })
             .collect();
         cases.sort();
@@ -192,7 +197,7 @@ mod tests {
             String::from_utf8_lossy(&output.stderr),
             format!(
                 "error: 1 problem(s), listed above; when the renders are meant to change, \
-                 `visual-cli bless {}` rewrites the references\n",
+                 `cargo run -p visual-cli -- bless {}` rewrites the references\n",
                 dir.display()
             ),
             "one error line, and how to accept the change if it is meant"
@@ -211,7 +216,7 @@ mod tests {
         assert_eq!(
             String::from_utf8_lossy(&output.stdout),
             format!(
-                "wrote    1 references to {}\n",
+                "wrote    1 reference(s) to {}\n",
                 dir.join("references.json").display()
             ),
             "says what it wrote"
