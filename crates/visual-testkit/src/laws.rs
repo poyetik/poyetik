@@ -25,16 +25,58 @@ fn bits(image: &Image) -> Vec<u32> {
     image.values().iter().map(|value| value.to_bits()).collect()
 }
 
-/// Renders image `index` of `visual` into a fresh image of `size`, counting heap
-/// operations.
+/// Renders image `index` of `visual` into `image`, refusing any heap operation: the only
+/// way the laws render, so that every pass is held to the no-heap law. `how` says how the
+/// pass renders, after "while rendering" (empty for the first pass).
+fn render_into(
+    visual: &mut dyn VisualBox,
+    image: &mut Image,
+    index: ImageIndex,
+    at: &str,
+    how: &str,
+) -> Result<(), String> {
+    let ((), operations) = heap_operations_during(|| visual.render(index, image))?;
+    if operations == 0 {
+        Ok(())
+    } else {
+        Err(format!(
+            "no heap operation: {operations} while rendering{how} at {at}"
+        ))
+    }
+}
+
+/// Renders image `index` of `visual` into a fresh image of `size` ([`render_into`]).
 fn render(
     visual: &mut dyn VisualBox,
     size: ImageSize,
     index: ImageIndex,
-) -> Result<(Image, usize), String> {
+    at: &str,
+    how: &str,
+) -> Result<Image, String> {
     let mut image = Image::new(size);
-    let ((), operations) = heap_operations_during(|| visual.render(index, &mut image))?;
-    Ok((image, operations))
+    render_into(visual, &mut image, index, at, how)?;
+    Ok(image)
+}
+
+/// An image of `size` whose every value is NaN: what rendering leaves unwritten shows.
+fn dirty(size: ImageSize) -> Image {
+    let mut image = Image::new(size);
+    for row in image.rows_mut() {
+        row.fill(f32::NAN);
+    }
+    image
+}
+
+/// `indices` from both ends in turn: the first, the last, the second, the one before the
+/// last, and so on, so that every step jumps far forward or back.
+fn from_both_ends<T: Copy>(indices: &[T]) -> Vec<T> {
+    let mut ends = indices.iter().copied();
+    let mut order = Vec::with_capacity(indices.len());
+    while let Some(low) = ends.next() {
+        order.push(low);
+        order.extend(ends.next_back());
+    }
+    order
 }
 
 /// Points to trace in an image of `size`: its corners, its center, and one outside it.
@@ -103,23 +145,15 @@ fn check_at(make: &Factory<'_>, rate: ImageRate, size: ImageSize) -> Result<(), 
     let mut references = Vec::new();
     for index in image_indices() {
         let at = place(rate, size, index);
-        let (image, operations) = render(first.as_mut(), size, index)?;
-        if operations != 0 {
-            return Err(format!(
-                "no heap operation: {operations} while rendering at {at}"
-            ));
-        }
+        let image = render(first.as_mut(), size, index, &at, "")?;
         check_values(&image, &at)?;
-        let (again, _) = render(second.as_mut(), size, index)?;
+        let again = render(second.as_mut(), size, index, &at, ", a second instance,")?;
         if bits(&again) != bits(&image) {
             return Err(format!("determinism: two fresh instances differ at {at}"));
         }
-        let mut dirty = Image::new(size);
-        for row in dirty.rows_mut() {
-            row.fill(f32::NAN);
-        }
-        third.render(index, &mut dirty);
-        if bits(&dirty) != bits(&image) {
+        let mut over = dirty(size);
+        render_into(third.as_mut(), &mut over, index, &at, " over other values")?;
+        if bits(&over) != bits(&image) {
             return Err(format!(
                 "overwrite: a value kept from before rendering at {at}"
             ));
@@ -129,7 +163,13 @@ fn check_at(make: &Factory<'_>, rate: ImageRate, size: ImageSize) -> Result<(), 
     let mut shuffled = make(rate);
     for (index, reference) in references.iter().rev() {
         let at = place(rate, size, *index);
-        let (image, _) = render(shuffled.as_mut(), size, *index)?;
+        let image = render(
+            shuffled.as_mut(),
+            size,
+            *index,
+            &at,
+            ", other images first,",
+        )?;
         if bits(&image) != bits(reference) {
             return Err(format!(
                 "random access: rendering other images first changes the bits at {at}"
@@ -147,6 +187,33 @@ fn check_at(make: &Factory<'_>, rate: ImageRate, size: ImageSize) -> Result<(), 
                     point.x, point.y
                 ));
             }
+        }
+    }
+    // Every image again, jumping between both ends of the matrix, each twice in a row,
+    // the second time over other values: random access in any direction, and a box that
+    // skips an image it rendered last.
+    let mut jumping = make(rate);
+    for (index, reference) in from_both_ends(&references.iter().collect::<Vec<_>>()) {
+        let at = place(rate, size, *index);
+        let once = render(
+            jumping.as_mut(),
+            size,
+            *index,
+            &at,
+            ", jumping between images,",
+        )?;
+        let mut twice = dirty(size);
+        render_into(
+            jumping.as_mut(),
+            &mut twice,
+            *index,
+            &at,
+            ", the same image again,",
+        )?;
+        if bits(&once) != bits(reference) || bits(&twice) != bits(reference) {
+            return Err(format!(
+                "random access: rendering the images in another order, each twice, changes the bits at {at}"
+            ));
         }
     }
     Ok(())

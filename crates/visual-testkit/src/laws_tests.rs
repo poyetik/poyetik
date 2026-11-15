@@ -2,7 +2,7 @@ use core::sync::atomic::{AtomicU32, Ordering};
 
 use visual_core::{Image, ImageIndex, ImageRate, SubpixelPoint, Trace, VisualBox};
 
-use super::check_laws;
+use super::{check_laws, from_both_ends};
 
 /// A correct box: every value derived from the image index and the rate, alpha 1.
 #[derive(Debug)]
@@ -64,6 +64,20 @@ enum Fault {
     TraceAfterRendering,
     /// Its trace changes once it has rendered six images.
     TraceAfterSixImages,
+    /// It allocates when it renders an image before the last one it rendered.
+    AllocatesSeekingBack,
+    /// It writes nothing when asked for the image it rendered last.
+    SkipsARepeat,
+    /// It renders a NaN at the highest rate of the matrix only.
+    NotANumberAtTheHighestRate,
+    /// It renders a NaN in the widest images only.
+    NotANumberWhenWidest,
+    /// It renders a NaN in the tallest images only.
+    NotANumberWhenTallest,
+    /// Its trace depends on how many times it traced, at the last subpixel of the image only.
+    ImpureTraceAtTheLastSubpixel,
+    /// Its trace depends on how many times it traced, at the point past the image only.
+    ImpureTraceOutside,
 }
 
 /// A box with one fault, otherwise like [`Good`].
@@ -79,15 +93,60 @@ struct Faulty {
     instance: u32,
     /// Traces so far.
     traced: AtomicU32,
+    /// The last image rendered, if any.
+    last: Option<ImageIndex>,
 }
 
 /// Instances created so far, to number them.
 static INSTANCES: AtomicU32 = AtomicU32::new(0);
 
+impl Faulty {
+    /// What its fault does before rendering image `index` into `output`: `None` when it
+    /// writes nothing at all, else whether it then writes a NaN.
+    fn before(&mut self, index: ImageIndex, output: &Image) -> Option<bool> {
+        let last = self.last.replace(index);
+        if self.fault == Fault::SkipsARepeat && last == Some(index) {
+            return None;
+        }
+        if self.fault == Fault::AllocatesSeekingBack && last.is_some_and(|before| index < before) {
+            drop(core::hint::black_box(vec![0_u8; 16]));
+        }
+        let size = output.size();
+        let odd = match self.fault {
+            Fault::NotANumberAtTheHighestRate => self.good.rate.numerator() == 1000,
+            Fault::NotANumberWhenWidest => size.width() == visual_core::ImageSize::MAX_SIDE,
+            Fault::NotANumberWhenTallest => size.height() == visual_core::ImageSize::MAX_SIDE,
+            Fault::Stateful
+            | Fault::PerInstance
+            | Fault::Allocates
+            | Fault::NotANumber(_)
+            | Fault::Infinite
+            | Fault::AlphaAbove
+            | Fault::AlphaBelow
+            | Fault::KeepsAValue
+            | Fault::ImpureTrace
+            | Fault::ImpureTraceAtCenter
+            | Fault::TraceAfterRendering
+            | Fault::TraceAfterSixImages
+            | Fault::AllocatesSeekingBack
+            | Fault::SkipsARepeat
+            | Fault::ImpureTraceAtTheLastSubpixel
+            | Fault::ImpureTraceOutside => false,
+        };
+        Some(odd)
+    }
+}
+
 impl VisualBox for Faulty {
     fn render(&mut self, index: ImageIndex, output: &mut Image) {
+        let Some(odd) = self.before(index, output) else {
+            return;
+        };
         let kept = output.values().first().copied();
         self.good.render(index, output);
+        if odd && let Some(slot) = output.rows_mut().next().and_then(|row| row.first_mut()) {
+            *slot = f32::NAN;
+        }
         self.rendered = self.rendered.saturating_add(1);
         let channel = match self.fault {
             Fault::NotANumber(channel) => channel,
@@ -101,7 +160,14 @@ impl VisualBox for Faulty {
             | Fault::ImpureTrace
             | Fault::ImpureTraceAtCenter
             | Fault::TraceAfterRendering
-            | Fault::TraceAfterSixImages => 0,
+            | Fault::TraceAfterSixImages
+            | Fault::AllocatesSeekingBack
+            | Fault::SkipsARepeat
+            | Fault::NotANumberAtTheHighestRate
+            | Fault::NotANumberWhenWidest
+            | Fault::NotANumberWhenTallest
+            | Fault::ImpureTraceAtTheLastSubpixel
+            | Fault::ImpureTraceOutside => 0,
         };
         let first = output
             .rows_mut()
@@ -124,7 +190,14 @@ impl VisualBox for Faulty {
             | Fault::ImpureTrace
             | Fault::ImpureTraceAtCenter
             | Fault::TraceAfterRendering
-            | Fault::TraceAfterSixImages => None,
+            | Fault::TraceAfterSixImages
+            | Fault::AllocatesSeekingBack
+            | Fault::SkipsARepeat
+            | Fault::NotANumberAtTheHighestRate
+            | Fault::NotANumberWhenWidest
+            | Fault::NotANumberWhenTallest
+            | Fault::ImpureTraceAtTheLastSubpixel
+            | Fault::ImpureTraceOutside => None,
         };
         if let (Some(value), Some(slot)) = (changed, first) {
             *slot = value;
@@ -141,7 +214,14 @@ impl VisualBox for Faulty {
             | Fault::ImpureTrace
             | Fault::ImpureTraceAtCenter
             | Fault::TraceAfterRendering
-            | Fault::TraceAfterSixImages => None,
+            | Fault::TraceAfterSixImages
+            | Fault::AllocatesSeekingBack
+            | Fault::SkipsARepeat
+            | Fault::NotANumberAtTheHighestRate
+            | Fault::NotANumberWhenWidest
+            | Fault::NotANumberWhenTallest
+            | Fault::ImpureTraceAtTheLastSubpixel
+            | Fault::ImpureTraceOutside => None,
         };
         if let Some(value) = alpha
             && let Some(slot) = output.rows_mut().last().and_then(|row| row.last_mut())
@@ -167,6 +247,28 @@ impl VisualBox for Faulty {
                     self.good.trace(index, output, point)
                 }
             }
+            Fault::ImpureTraceAtTheLastSubpixel | Fault::ImpureTraceOutside => {
+                let unit = u64::from(visual_core::SUBPIXELS);
+                let size = output.size();
+                let right = u64::from(size.width()).saturating_mul(unit);
+                let bottom = u64::from(size.height()).saturating_mul(unit);
+                let at = if self.fault == Fault::ImpureTraceOutside {
+                    SubpixelPoint {
+                        x: right,
+                        y: bottom,
+                    }
+                } else {
+                    SubpixelPoint {
+                        x: right.saturating_sub(1),
+                        y: bottom.saturating_sub(1),
+                    }
+                };
+                if point == at {
+                    Trace::Shape(count)
+                } else {
+                    self.good.trace(index, output, point)
+                }
+            }
             Fault::TraceAfterRendering => Trace::Shape(u32::from(self.rendered > 0)),
             Fault::TraceAfterSixImages => Trace::Shape(u32::from(self.rendered >= 6)),
             Fault::Stateful
@@ -176,7 +278,12 @@ impl VisualBox for Faulty {
             | Fault::Infinite
             | Fault::AlphaAbove
             | Fault::AlphaBelow
-            | Fault::KeepsAValue => self.good.trace(index, output, point),
+            | Fault::KeepsAValue
+            | Fault::AllocatesSeekingBack
+            | Fault::SkipsARepeat
+            | Fault::NotANumberAtTheHighestRate
+            | Fault::NotANumberWhenWidest
+            | Fault::NotANumberWhenTallest => self.good.trace(index, output, point),
         }
     }
 }
@@ -190,6 +297,7 @@ fn verdict(fault: Fault) -> Result<(), String> {
             rendered: 0,
             instance: INSTANCES.fetch_add(1, Ordering::Relaxed),
             traced: AtomicU32::new(0),
+            last: None,
         })
     })
 }
@@ -262,7 +370,48 @@ fn catches_each_broken_law() {
             Fault::TraceAfterSixImages,
             "pure trace: (0, 0) traces differently at rate 1/1, size 1x1, image 18446744073709551615",
         ),
+        (
+            Fault::AllocatesSeekingBack,
+            "no heap operation: 2 while rendering, other images first, at rate 1/1, size 1x1, image 1000000",
+        ),
+        (
+            Fault::SkipsARepeat,
+            "random access: rendering the images in another order, each twice, changes the bits at rate 1/1, size 1x1, image 0",
+        ),
+        (
+            Fault::NotANumberAtTheHighestRate,
+            "finite values: a value is NaN or infinite at rate 1000/1, size 1x1, image 0",
+        ),
+        (
+            Fault::NotANumberWhenWidest,
+            "finite values: a value is NaN or infinite at rate 1/1, size 16384x1, image 0",
+        ),
+        (
+            Fault::NotANumberWhenTallest,
+            "finite values: a value is NaN or infinite at rate 1/1, size 1x16384, image 0",
+        ),
+        (
+            Fault::ImpureTraceAtTheLastSubpixel,
+            "pure trace: (4095, 4095) traces differently at rate 1/1, size 1x1, image 18446744073709551615",
+        ),
+        (
+            Fault::ImpureTraceOutside,
+            "pure trace: (4096, 4096) traces differently at rate 1/1, size 1x1, image 18446744073709551615",
+        ),
     ] {
         assert_eq!(verdict(fault), Err(law.to_owned()), "{fault:?}");
+    }
+}
+
+#[test]
+fn orders_images_from_both_ends_in_turn() {
+    for (indices, order) in [
+        (&[][..], &[][..]),
+        (&[0_u64][..], &[0_u64][..]),
+        (&[0, 1][..], &[0, 1][..]),
+        (&[0, 1, 2][..], &[0, 2, 1][..]),
+        (&[0, 1, 2, 3, 4, 5][..], &[0, 5, 1, 4, 2, 3][..]),
+    ] {
+        assert_eq!(from_both_ends(indices), order, "{indices:?}");
     }
 }
