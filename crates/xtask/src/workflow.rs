@@ -145,6 +145,14 @@ pub const RUNNER: &str = "ubuntu-24.04";
 /// run of its longest part (the oracle's mutation testing), until that part is split.
 pub const JOB_TIMEOUTS: [u32; 3] = [15, 300, 30];
 
+/// The timeout of the Miri part's job ([`Part::Miri`]), in minutes, below the matrix's.
+///
+/// Miri runs only the tests of the crates holding `unsafe` code, which hold only their
+/// boundary: the job took 6 minutes on `main`'s run of 2026-11-15, its setup included. A
+/// test that renders under Miri at length (seconds per block) makes the job fail at this
+/// bound instead of passing hours later, unseen in the matrix's wide timeout.
+pub const MIRI_TIMEOUT: u32 = 30;
+
 /// The components of the [`NIGHTLY_TOOLCHAIN`]: branch coverage and Miri.
 pub const NIGHTLY_COMPONENTS: [&str; 3] = ["llvm-tools-preview", "miri", "rust-src"];
 
@@ -265,7 +273,10 @@ pub fn workflow_text() -> Vec<String> {
         "    needs: parts".to_owned(),
         format!("    {some}"),
         format!("    runs-on: {RUNNER}"),
-        format!("    timeout-minutes: {check_timeout}"),
+        format!(
+            "    timeout-minutes: ${{{{ matrix.part == '{}' && {MIRI_TIMEOUT} || {check_timeout} }}}}",
+            Part::Miri.name()
+        ),
         "    strategy:".to_owned(),
         "      fail-fast: false".to_owned(),
         "      matrix:".to_owned(),

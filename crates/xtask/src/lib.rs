@@ -125,9 +125,9 @@ pub use unsafety::{
 };
 pub use vocabulary::{VOCABULARY, VOCABULARY_SOURCES, vocabulary_gate};
 pub use workflow::{
-    AUDIO_SINK, JOB_TIMEOUTS, NIGHTLY_COMPONENTS, NODE_VERSION_FILE, PLAYWRIGHT_OUTPUTS, RUNNER,
-    WASM_MODULES, WORKFLOW, WORKFLOW_CONDITIONS, WORKFLOW_PERMISSIONS, WORKFLOW_TRIGGERS,
-    failure_uploads, workflow_concurrency, workflow_gate, workflow_text,
+    AUDIO_SINK, JOB_TIMEOUTS, MIRI_TIMEOUT, NIGHTLY_COMPONENTS, NODE_VERSION_FILE,
+    PLAYWRIGHT_OUTPUTS, RUNNER, WASM_MODULES, WORKFLOW, WORKFLOW_CONDITIONS, WORKFLOW_PERMISSIONS,
+    WORKFLOW_TRIGGERS, failure_uploads, workflow_concurrency, workflow_gate, workflow_text,
 };
 pub use workspace::{
     CHANGES_DIFF, CONFORMANCE_EXPORT, COVERAGE_DIR, COVERAGE_LOCALITY, Coverage, CrateRole,

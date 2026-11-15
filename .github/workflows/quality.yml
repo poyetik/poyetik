@@ -72,8 +72,9 @@ jobs:
     # A guard against a hung job, temporarily wide: the oracle's mutation testing, the
     # longest part, took 56 minutes on one runner and did not finish in 90 on two others,
     # nor in 150 on a third (1308 of 1470 mutants, none surviving). Each job's timeout is
-    # to be set from its part's measured duration once that part is split.
-    timeout-minutes: 300
+    # to be set from its part's measured duration once that part is split. Miri's is set
+    # already: 6 minutes on main, so a test rendering at length under Miri fails it.
+    timeout-minutes: ${{ matrix.part == 'miri' && 30 || 300 }}
     strategy:
       # Every part runs whatever the others find, as the full check runs every step.
       fail-fast: false
