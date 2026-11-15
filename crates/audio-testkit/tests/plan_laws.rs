@@ -27,8 +27,9 @@ mod tests {
     use audio_core::host::{Delivered, ParamBounds, Raw};
     use audio_core::{
         AlgorithmVersion, BLOCK_SIZE, Binary32, Binary64, Block, Capability, Connection, CoreError,
-        Create, Dispatch, Node, NodeId, Object, ObjectSpec, OutputStage, ParamSpec, ParamValues,
-        Params, Patch, Plan, PortSpec, Precision, Renderer, Sample, SampleRate,
+        Create, Detector, Dispatch, ENGINE_BLOCKS, LimiterSettings, Node, NodeId, Object,
+        ObjectSpec, OutputStage, ParamSpec, ParamValues, Params, Patch, Plan, PortSpec, Precision,
+        Renderer, Sample, SampleRate, TruePeakLimiter,
     };
     use audio_testkit::matrix::{HOST_BUFFER_SIZES, PRECISIONS, sample_rates};
     use audio_testkit::runner::runner;
@@ -574,6 +575,13 @@ mod tests {
             }
         }
 
+        // Rendered at every engine block a build offers, raw and through a limiter: the same
+        // samples (the engine-block law, decision 2), those of the default size the plan's.
+        let default_size = engine_block_law::<S>(&patch, &REGISTRY, rate, frames)?;
+        if bits(&default_size) != bits(&whole) {
+            return Err("the engine's instance type differs from the plan's".to_owned());
+        }
+
         // The same patch, advanced block by block from a fresh plan: the same samples.
         let processed = first_blocks(
             Plan::<S, I>::build(&patch, &REGISTRY, rate).map_err(|error| error.to_string())?,
@@ -607,6 +615,76 @@ mod tests {
             ));
         }
         Ok(())
+    }
+
+    /// The engine-block law (decision 2): `frames` frames of `patch` at `rate`, with the box
+    /// types of `registry`, are the same at every engine block a build offers, raw and through
+    /// a protected limiter. Returns the raw samples, those of every size.
+    fn engine_block_law<S: Bits>(
+        patch: &Patch,
+        registry: &[&'static ObjectSpec],
+        rate: SampleRate,
+        frames: usize,
+    ) -> Result<Vec<S>, String> {
+        let sizes = [
+            at_block::<S, 32>(patch, registry, rate, frames)?,
+            at_block::<S, 64>(patch, registry, rate, frames)?,
+            at_block::<S, 128>(patch, registry, rate, frames)?,
+            at_block::<S, 256>(patch, registry, rate, frames)?,
+            at_block::<S, 512>(patch, registry, rate, frames)?,
+            at_block::<S, 1024>(patch, registry, rate, frames)?,
+        ];
+        let [_, (raw, protected), ..] = &sizes;
+        let (raw, protected) = (bits(raw), bits(protected));
+        for ((other, other_protected), size) in sizes.iter().zip(ENGINE_BLOCKS) {
+            if bits(other) != raw {
+                return Err(format!(
+                    "an engine block of {size} frames changes the samples"
+                ));
+            }
+            if bits(other_protected) != protected {
+                return Err(format!(
+                    "an engine block of {size} frames changes the limited samples"
+                ));
+            }
+        }
+        let [_, (default_size, _), ..] = sizes;
+        Ok(default_size)
+    }
+
+    /// `frames` frames of `patch` at `rate` in an engine block of `N` frames, on the engine's
+    /// instance type, with the box types of `registry`: raw, then through a protected limiter
+    /// at its default settings.
+    fn at_block<S: Bits, const N: usize>(
+        patch: &Patch,
+        registry: &[&'static ObjectSpec],
+        rate: SampleRate,
+        frames: usize,
+    ) -> Result<(Vec<S>, Vec<S>), String>
+    where
+        BuiltIn<S, N>: Dispatch<S, N>,
+    {
+        let build = || {
+            Plan::<S, BuiltIn<S, N>, N>::build(patch, registry, rate)
+                .map_err(|error| error.to_string())
+        };
+        let unlimited: Vec<S::Float> = Renderer::new(build()?)
+            .render(frames)
+            .map_err(|error| error.to_string())?;
+        let plan = build()?;
+        let limiter = TruePeakLimiter::new(
+            rate,
+            plan.channels(),
+            Binary64::new(1.5_f64),
+            Detector::Standard,
+            LimiterSettings::DEFAULT,
+            true,
+        )
+        .map_err(|error| error.to_string())?;
+        let protected: Vec<S::Float> = Renderer::with_stage(plan, OutputStage::limited(limiter))
+            .render(frames)
+            .map_err(|error| error.to_string())?;
+        Ok((read_back::<S>(&unlimited), read_back::<S>(&protected)))
     }
 
     /// Runs `law` on [`CASES`] random cases at each rate of the matrix, with one runner
@@ -662,6 +740,71 @@ mod tests {
                 precision.bits()
             );
         }
+    }
+
+    /// Outputs 1 at the first frame of every block it is given and 0 elsewhere: a box whose
+    /// output depends on the engine block, the cheat the engine-block law refuses.
+    #[derive(Debug)]
+    struct Blocky;
+    impl<S: Sample, const N: usize> Object<S, N> for Blocky {
+        fn process(&mut self, _inputs: &[Block<S, N>], outputs: &mut [Block<S, N>]) {
+            for output in outputs {
+                output.fill(S::ZERO);
+                for first in output.iter_mut().take(1) {
+                    *first = of::<S>(1.0);
+                }
+            }
+        }
+    }
+    impl Create for Blocky {
+        const PARAMS: &'static [ParamSpec] = &[];
+
+        fn create<S: Sample, const N: usize>(
+            _rate: SampleRate,
+            _params: Params<'_>,
+        ) -> Box<dyn Object<S, N>> {
+            Box::new(Self)
+        }
+    }
+    static BLOCKY: ObjectSpec = ObjectSpec::new::<Blocky>(
+        "blocky~",
+        "the first frame of each block",
+        &[],
+        &[PORT],
+        &[],
+        AlgorithmVersion::FIRST,
+    );
+
+    #[test]
+    fn the_engine_block_law_refuses_a_box_that_sees_its_block() {
+        // A box marking each block's first frame into an output box: the law sees it at the
+        // first size whose blocks start elsewhere than the default's, 32 frames.
+        let rate = SampleRate::new(48_000).expect("valid rate");
+        let node = |id: u32, kind: &str| Node {
+            id: NodeId(id),
+            kind: String::from(kind),
+            params: BTreeMap::new(),
+        };
+        let cable = Connection {
+            from: NodeId(1),
+            outlet: 0,
+            to: NodeId(2),
+            inlet: 0,
+        };
+        let cheat = Patch::new(vec![node(1, "blocky~"), node(2, "out~")], vec![cable])
+            .expect("a valid patch");
+        assert_eq!(
+            engine_block_law::<Binary64>(&cheat, &[&BLOCKY, &OUT], rate, 200),
+            Err("an engine block of 32 frames changes the samples".to_owned()),
+            "the cheat refused"
+        );
+        // The same patch with a box that does not see its block passes.
+        let fair = Patch::new(vec![node(1, "const~"), node(2, "out~")], vec![cable])
+            .expect("a valid patch");
+        assert!(
+            engine_block_law::<Binary64>(&fair, &[&CONST, &OUT], rate, 200).is_ok(),
+            "the fair patch accepted"
+        );
     }
 
     #[test]
