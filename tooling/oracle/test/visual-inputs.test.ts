@@ -13,15 +13,22 @@ function replaced(from: string, to: string): string {
   return BASE.replace(from, to);
 }
 
-/** The visual conformance directory, found by walking up: the tests also run from a copy of the package, deeper in the repository. */
-function visualConformance(): string {
-  for (let directory = new URL("./", import.meta.url); directory.pathname !== "/"; directory = new URL("../", directory)) {
+/**
+ * The visual conformance directory, found by walking up from `from`: the tests also run
+ * from a copy of the package, deeper in the repository.
+ * @throws {Error} When no directory up to the root holds it.
+ */
+function visualConformance(from: URL = new URL(import.meta.url)): string {
+  for (let directory = new URL("./", from); ; directory = new URL("../", directory)) {
     const candidate = new URL("conformance/visual/", directory);
     if (existsSync(candidate)) {
       return candidate.pathname;
     }
+    // The root, where going up changes nothing: `/` here, `/C:/` on Windows.
+    if (new URL("../", directory).href === directory.href) {
+      throw new Error("conformance/visual not found");
+    }
   }
-  throw new Error("conformance/visual not found");
 }
 
 /** The text of the file at `path`, read as `visual-cli` reads it: at most a case's bytes, UTF-8 only. */
@@ -158,6 +165,7 @@ const INVALID_CORPUS: readonly (readonly [string, string])[] = [
   ["first-above-u64", "<name>: first is not an unsigned 64-bit integer"],
   ["first-negative-zero", "<name>: first is negative zero, which an unsigned integer refuses"],
   ["first-negative", "<name>: first is not an unsigned 64-bit integer"],
+  ["height-0", "<name>: height is not from 1 to 16384 pixels"],
   ["height-above-16384", "<name>: height is not from 1 to 16384 pixels"],
   ["image-above-the-pixel-limit", "<name>: the image has more than 33554432 pixels"],
   ["images-0", "<name>: images is not from 1 to 10000"],
@@ -182,17 +190,19 @@ const INVALID_CORPUS: readonly (readonly [string, string])[] = [
   ["unknown-square-field", "<name>: square: unknown field color"],
   ["value-above-u32", "<name>: square.side is not an unsigned 32-bit integer"],
   ["width-0", "<name>: width is not from 1 to 16384 pixels"],
+  ["width-16385", "<name>: width is not from 1 to 16384 pixels"],
 ];
 
 describe("the repository's visual corpus", () => {
   test("every case reads", () => {
     const dir = `${visualConformance()}cases/`;
     const names = readdirSync(dir).filter((name) => name.endsWith(".json"));
-    expect(names.length).toBeGreaterThanOrEqual(4);
+    expect(names, "the eleven cases of the corpus").toHaveLength(11);
     for (const name of names) {
       expect(() => parseVisualCase(caseText(`${dir}${name}`), name), name).not.toThrow();
     }
-    expect(parseVisualCase(caseText(`${dir}square-far-in-time-at-2997.json`), "far").first).toBe(9_007_199_254_740_000n);
+    // Past 2^53: a reader through a 64-bit float would round it.
+    expect(parseVisualCase(caseText(`${dir}square-last-images-at-extreme-terms.json`), "extreme").first).toBe(18_446_744_073_709_551_568n);
   });
 
   test("every case of the shared invalid corpus is refused, read as visual-cli reads it, for its own fault", () => {
@@ -208,4 +218,10 @@ describe("the repository's visual corpus", () => {
     }
   });
 
+});
+
+test("stops looking for the conformance directory at the root, a Windows drive's included", () => {
+  for (const root of ["file:///", "file:///C:/", "file:///C:/Users/nobody/"]) {
+    expect(() => visualConformance(new URL(root)), root).toThrow(new Error("conformance/visual not found"));
+  }
 });

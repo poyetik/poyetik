@@ -95,6 +95,57 @@ fn hashes_the_images_it_renders() {
     );
 }
 
+/// The largest image of the matrix the view is checked at: every image natively (none holds
+/// more than `ImageSize::MAX_PIXELS`, 2²⁵), those of at most 64 pixels under Miri (the others
+/// cost minutes there, and their arithmetic is the library's, run natively).
+const MATRIX_PIXELS: u64 = if cfg!(miri) { 64 } else { 1 << 25_u32 };
+
+#[test]
+fn renders_and_hashes_across_the_visual_matrix() {
+    // Every rate, size and index of the shared matrix, through the view as through the
+    // library (the sizes of at most `MATRIX_PIXELS`).
+    let cycle = Seconds::new(1001, 1000).expect("a valid cycle");
+    let mut view = View::new();
+    for rate in visual_testkit::matrix::image_rates() {
+        let sizes = visual_testkit::matrix::image_sizes();
+        for size in sizes
+            .into_iter()
+            .filter(|size| size.pixels() <= MATRIX_PIXELS)
+        {
+            assert!(
+                view.setup(
+                    size.width(),
+                    size.height(),
+                    (rate.numerator(), rate.denominator()),
+                    39_322,
+                    (1001, 1000)
+                )
+                .is_ok(),
+                "{rate:?} {size:?}"
+            );
+            let mut square = Square::new(rate, 39_322, cycle).expect("a valid square");
+            let mut image = Image::new(size);
+            for index in visual_testkit::matrix::image_indices() {
+                square.render(index, &mut image);
+                let expected: Vec<u32> =
+                    image.values().iter().map(|value| value.to_bits()).collect();
+                let shown: Vec<u32> = view
+                    .render(index.0)
+                    .iter()
+                    .map(|value| value.to_bits())
+                    .collect();
+                assert_eq!(shown, expected, "{rate:?} {size:?} image {index:?}");
+                let range = ImageRange::new(index, 1).expect("one image");
+                assert_eq!(
+                    view.hash(index.0, 1),
+                    Some(&hash_sequence(&mut square, rate, range, &mut image).bytes()),
+                    "{rate:?} {size:?} image {index:?}"
+                );
+            }
+        }
+    }
+}
+
 #[test]
 fn refuses_images_past_the_largest_index() {
     let mut view = View::new();
@@ -102,9 +153,13 @@ fn refuses_images_past_the_largest_index() {
     for (first, count) in [(u64::MAX, 2), (u64::MAX - 3, 5)] {
         assert_eq!(view.hash(first, count), None, "{count} images from {first}");
     }
+    let (mut square, mut image, rate) = direct();
     for (first, count) in [(u64::MAX, 1), (u64::MAX - 4, 5)] {
-        assert!(
-            view.hash(first, count).is_some(),
+        let range = ImageRange::new(ImageIndex(first), count).expect("a valid range");
+        let expected = hash_sequence(&mut square, rate, range, &mut image);
+        assert_eq!(
+            view.hash(first, count),
+            Some(&expected.bytes()),
             "{count} images from {first}: up to the last"
         );
     }

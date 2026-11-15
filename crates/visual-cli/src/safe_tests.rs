@@ -30,7 +30,11 @@ fn reproduces_the_shared_vectors() {
         "same limit"
     );
     let vectors = json["vectors"].as_array().expect("a list of vectors");
-    assert!(vectors.len() >= 5, "every vector is read");
+    assert_eq!(
+        vectors.len(),
+        9,
+        "every vector is read: the nine of the file"
+    );
     for vector in vectors {
         let name = vector["name"].as_str().expect("a name");
         assert_eq!(
