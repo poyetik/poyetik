@@ -50,6 +50,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Breaking:** render rules version 3 (decision 29): the output stage is one of the render rules. No reference changed (no case outputs a non-finite sample); `conformance/algorithms.json` records the version.
 - **Breaking:** the engine module's interface is version 5 (`ABI_VERSION`, `0x5059_0005`): five functions added: `engine_replaced`, and the output stage's `engine_output`, `engine_limiter`, `engine_protect` and `engine_latency`.
+- `LoadedPatch.settings` says what the engine applies in the browser (`BrowserSettings`, decision 1): the context's rate, Web Audio's render quantum (`RENDER_QUANTUM`, 128 frames) and the module's engine block, the rate and the quantum listed as imposed by the browser rather than chosen by the host.
 - The playground plays through the engine module of 128-frame blocks, Web Audio's render quantum: one call into the engine per quantum.
 - **Breaking:** `createEngineNode` (`@poyetik/audio-wasm`, `./web`) takes its handlers as one object, `{ onFailure, onReplaced? }` (`EngineHandlers`), instead of a failure callback.
 - **Breaking:** `audio_cli::run` takes a second writer, for warnings (stderr).

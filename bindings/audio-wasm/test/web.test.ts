@@ -4,7 +4,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { DEFAULT_LIMITER, EngineTrap, ModuleError, OutputError, PROTECTED_OUTPUT, PatchError, RAW_OUTPUT } from "../ts/engine.ts";
 import { ENGINE_PROCESSOR, MessageError, SOURCE_STOPPED, TAP_PROCESSOR } from "../ts/protocol.ts";
 import { addProcessors, capture, captureEngine, ContextClosed, createEngineNode, LoadedPatch, loadPatch, MarkedEngineNode, MAX_MARKED_FRAMES, START_MARGIN, renderOffline, tap } from "../ts/web.ts";
-import { engineFunctions, handMadeBytes, READY, SILENT_PATCH, SINE_PATCH, UNKNOWN_BOX, wasmBytes } from "./fixtures.ts";
+import { engineFunctions, handMadeBytes, READY, SILENT_PATCH, SINE_PATCH, UNKNOWN_BOX, wasmBytes, wasmBytesOf } from "./fixtures.ts";
 
 /** The sample rate of the fake audio contexts, in hertz. */
 const RATE = 48_000;
@@ -242,6 +242,9 @@ describe("loadPatch", () => {
     const patch = await loadPatch(wasmBytes(), SINE_PATCH, RATE);
     expect(patch).toBeInstanceOf(LoadedPatch);
     expect(patch).toMatchObject({ rate: RATE, channels: 2 });
+    // The browser imposes the rate and the 128-frame quantum; the module decides the block.
+    expect(patch.settings).toStrictEqual({ rate: RATE, renderQuantum: 128, engineBlock: 64, imposed: ["rate", "renderQuantum"] });
+    expect((await loadPatch(wasmBytesOf(128), SINE_PATCH, 44_100)).settings).toStrictEqual({ rate: 44_100, renderQuantum: 128, engineBlock: 128, imposed: ["rate", "renderQuantum"] });
     expect((await loaded(0, 44_100)).channels).toBe(0);
   });
 

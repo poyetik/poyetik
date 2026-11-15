@@ -29,6 +29,24 @@ export {
 export { REPLACED_REPORT_SECONDS } from "./protocol.ts";
 import { ENGINE_PROCESSOR, MARKER_PERIOD, TAP_PROCESSOR, parseEngineMessage, parseTapMessage, type EngineCommand, type EngineOptions, type TapMessage } from "./protocol.ts";
 
+/** The render quantum of Web Audio, in frames: what an audio worklet is called with, always. */
+export const RENDER_QUANTUM = 128;
+
+/**
+ * What the engine applies in the browser (`spec/engine-design.md`, decision 1): the settings
+ * of an engine node, and those the browser imposes rather than the host choosing them.
+ */
+export interface BrowserSettings {
+  /** The sample rate, in hertz: the context's. */
+  readonly rate: number;
+  /** The frames the engine is called for at a time: Web Audio's render quantum. */
+  readonly renderQuantum: typeof RENDER_QUANTUM;
+  /** The engine block of the module, in frames (`engine_block_size`): the module chosen decides it. */
+  readonly engineBlock: number;
+  /** The settings the browser imposes: the rate the context runs at, which may differ from the one asked of it, and the render quantum, which no worklet chooses. */
+  readonly imposed: readonly ("rate" | "renderQuantum")[];
+}
+
 /**
  * A patch checked by the engine, ready to run in engine nodes. Only {@link loadPatch} or
  * {@link LoadedPatch.load} makes one: holding a `LoadedPatch` proves the engine accepted this patch at this rate,
@@ -48,6 +66,8 @@ export class LoadedPatch {
   readonly output: Output;
   /** The latency of that stage, in frames: an engine node's sound starts that much later. */
   readonly latency: number;
+  /** What the engine applies in the browser, and what the browser imposes (decision 1). */
+  readonly settings: BrowserSettings;
   /** The engine WebAssembly module, as bytes. */
   readonly #wasm: ArrayBuffer;
   /** The patch, as UTF-8 text in the patch format. */
@@ -63,8 +83,9 @@ export class LoadedPatch {
    * @param engine Its number of output channels and its latency.
    * @param engine.channels Its number of output channels.
    * @param engine.latency The latency of its output stage, in frames.
+   * @param engine.blockSize The engine block of its module, in frames.
    */
-  private constructor(wasm: ArrayBuffer, patch: Uint8Array, rate: number, precision: Precision, output: Output, engine: { readonly channels: number; readonly latency: number }) {
+  private constructor(wasm: ArrayBuffer, patch: Uint8Array, rate: number, precision: Precision, output: Output, engine: { readonly channels: number; readonly latency: number; readonly blockSize: number }) {
     this.#wasm = wasm;
     this.#patch = patch;
     this.rate = rate;
@@ -72,6 +93,7 @@ export class LoadedPatch {
     this.output = output;
     this.channels = engine.channels;
     this.latency = engine.latency;
+    this.settings = { rate, renderQuantum: RENDER_QUANTUM, engineBlock: engine.blockSize, imposed: ["rate", "renderQuantum"] };
   }
 
   /**
