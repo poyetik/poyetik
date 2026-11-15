@@ -24,8 +24,11 @@ const NTSC: NonZeroU32 = match NonZeroU32::new(1001) {
 };
 
 /// The greatest common divisor of `left` and `right`, never 0 since `right` is not.
+///
+/// The remainder is a method call, as in `visual-core`'s own gcd, not the `%` operator: a
+/// mutant turning `%` into `/` never reaches 0 and would hang every test instead of failing one.
 fn gcd(mut left: u32, mut right: NonZeroU32) -> NonZeroU32 {
-    while let Some(rest) = NonZeroU32::new(left % right) {
+    while let Some(rest) = left.checked_rem(right.get()).and_then(NonZeroU32::new) {
         left = right.get();
         right = rest;
     }
