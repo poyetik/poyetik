@@ -59,3 +59,17 @@ test("sets up the largest image and refuses one pixel row more, as every target 
   expect(module.setup({ ...square, width: 2048, height: 16_384 })).toBe(true);
   expect(module.render(1n)).toHaveLength(2048 * 16_384 * 4);
 });
+
+test("releases the image it replaces before allocating the next one", async () => {
+  const { instance } = await WebAssembly.instantiate(readFileSync(MODULE), {});
+  const memory: unknown = instance.exports["memory"];
+  if (!(memory instanceof WebAssembly.Memory)) {
+    throw new Error("no memory");
+  }
+  const module = new VisualModule(instance.exports);
+  const square = { rate: [60, 1], side: 65_536, cycle: [1, 2] } as const;
+  const image = 16_384 * 2048 * 4 * 4;
+  expect(module.setup({ ...square, width: 16_384, height: 2048 })).toBe(true);
+  expect(module.setup({ ...square, width: 2048, height: 16_384 })).toBe(true);
+  expect(memory.buffer.byteLength, "one image of 512 MiB at a time, not two").toBeLessThan(image + image / 2);
+});
