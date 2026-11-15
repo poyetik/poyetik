@@ -876,12 +876,19 @@ pub const VISUAL_CONFORMANCE: &str = "conformance/visual";
 
 /// The native visual conformance check: `visual-cli` renders every visual case with the
 /// exact CPU reference renderer and compares its image hash with its reference.
+///
+/// Built optimized: the largest image of the corpus (2²⁵ pixels) takes about 15 s
+/// unoptimized and half a second optimized (measured 2026-11-15); the arithmetic is checked
+/// either way, since the library denies `arithmetic_side_effects` and the results are the
+/// same bits (the corpus is also checked unoptimized by the tests of `visual-cli`, its
+/// largest image apart, and in WebAssembly).
 fn visual_conformance_step() -> Step {
     run(
         "Visual conformance (native)",
         "cargo",
         &[
             "run",
+            "--release",
             "--package",
             "visual-cli",
             "--locked",

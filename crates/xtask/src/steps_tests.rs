@@ -31,7 +31,7 @@ const DEFAULT_PIPELINE: &[&str] = &[
     "untested targets gate",
     "unviable names gate",
     "conformance cargo run --package audio-cli --locked --quiet -- check conformance --spent target/xtask/spent-algorithms.json",
-    "Root: cargo run --package visual-cli --locked --quiet -- check conformance/visual",
+    "Root: cargo run --release --package visual-cli --locked --quiet -- check conformance/visual",
     "Root: cargo deny --locked check",
     "dependency gate",
     "pin gate",
