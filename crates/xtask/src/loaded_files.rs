@@ -12,7 +12,7 @@ use crate::{
     workflow::{NODE_VERSION_FILE, WORKFLOW, workflow_gate},
     workspace::{
         NATIVE_PACKAGES, NATIVE_TARGETS, PORTABILITY_PACKAGES, PORTABILITY_TARGETS, RUST_CRATES,
-        RustCrate, WASM_PACKAGE, WASM_TARGET, package_args,
+        RustCrate, WASM_PACKAGES, WASM_TARGET, package_args,
     },
 };
 
@@ -36,7 +36,7 @@ pub struct LoadedCommand {
 /// check`), then what the Rust tests step builds (`cargo test --no-run`, its builds
 /// reused), of which only the builds of tests are read. Then the fused test build's own
 /// builds ([`fused_command`](crate::steps::fused_command) with `--no-run`, which the fused step reuses), the engine core
-/// for each of [`PORTABILITY_TARGETS`] ([`PORTABILITY_PACKAGES`], with [`WASM_PACKAGE`] for
+/// for each of [`PORTABILITY_TARGETS`] ([`PORTABILITY_PACKAGES`], with [`WASM_PACKAGES`] for
 /// [`WASM_TARGET`]) and the native crates, their tests included, for each of
 /// [`NATIVE_TARGETS`] ([`NATIVE_PACKAGES`]), each checked (`cargo check`: type-checked, no
 /// code generated), every build of theirs read. So a module only another target, the fused
@@ -70,7 +70,7 @@ pub fn loaded_files_commands() -> Vec<LoadedCommand> {
     ];
     for target in PORTABILITY_TARGETS {
         let wasm = if target == WASM_TARGET {
-            package_args(&[WASM_PACKAGE])
+            package_args(&WASM_PACKAGES)
         } else {
             Vec::new()
         };

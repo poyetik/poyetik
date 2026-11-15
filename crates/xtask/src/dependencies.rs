@@ -6,7 +6,7 @@ use crate::{
     math_layer::{cargo_packages, dependencies_of, workspace_dependency, workspace_root},
     reviews::{compare_reviews, count},
     steps::{Cmd, Dir, Failure, step_verdict, verdict},
-    workspace::{CrateRole, Extent, LIBRARIES, crates_in},
+    workspace::{CrateRole, Extent, LIBRARIES, Library, crates_in},
 };
 
 /// The exact Cargo configuration of the repository: an alias, nothing else.
@@ -161,9 +161,9 @@ pub fn pin_gate(metadata: &str, reviewed: &str) -> Result<(), Failure> {
             let key = format!("{name}: {} ({kind})", text("name").unwrap_or_default());
             let library = LIBRARIES
                 .iter()
-                .find(|(role, _, _)| crates_in(*role).contains(&name.as_str()))
+                .find(|library| crates_in(library.crates).contains(&name.as_str()))
                 .filter(|_| kind != "dev")
-                .map(|(_, _, what)| *what);
+                .map(|library| library.name);
             let bits = marked.contains(key.as_str());
             if let Some(what) = library.filter(|_| !bits) {
                 problems.push(format!(
@@ -203,9 +203,16 @@ pub fn library_gate(metadata: &str) -> Result<(), Failure> {
     let packages = cargo_packages(metadata)?;
     let root = workspace_root(metadata)?;
     let mut problems = Vec::new();
-    for (role, tests_role, what) in LIBRARIES {
-        let (library_crates, test_crates) = (crates_in(role), crates_in(tests_role));
-        for library in library_crates.iter().copied() {
+    for Library {
+        crates,
+        tests,
+        tools,
+        name: what,
+    } in LIBRARIES
+    {
+        let (library_crates, test_crates) = (crates_in(crates), crates_in(tests));
+        let tool_crates = tools.map(crates_in).unwrap_or_default();
+        for library in library_crates.iter().chain(&tool_crates).copied() {
             let Some((_, krate)) = packages.iter().find(|(name, _)| name == library) else {
                 problems.push(format!(
                     "{library}: not in the cargo metadata, so its dependencies cannot be checked"
@@ -221,16 +228,25 @@ pub fn library_gate(metadata: &str) -> Result<(), Failure> {
                 let name = text("name").unwrap_or_default();
                 let kind = text("kind").unwrap_or("normal");
                 let allowed =
-                    |crates: &[&str]| known.is_some_and(|known| crates.contains(&known.name));
-                if !(allowed(&library_crates) || (kind == "dev" && allowed(&test_crates))) {
-                    problems.push(format!(
-                        "{library} depends on {name} ({kind}, {path}): the {what} depends \
-                         only on its own crates ({}), its tests also on {}; move what it \
-                         needs into the library, or the dependency out of it",
-                        library_crates.join(", "),
-                        test_crates.join(", ")
-                    ));
+                    |among: &[&str]| known.is_some_and(|known| among.contains(&known.name));
+                if allowed(&library_crates) || (kind == "dev" && allowed(&test_crates)) {
+                    continue;
                 }
+                let (own, tests_too) = (library_crates.join(", "), test_crates.join(", "));
+                problems.push(if tool_crates.contains(&library) {
+                    format!(
+                        "{library}, a tool of the {what}, depends on {name} ({kind}, {path}): it \
+                         depends, within the project, only on the {what}'s crates ({own}), its \
+                         tests also on {tests_too}; move what it needs into the library, or the \
+                         dependency out of it"
+                    )
+                } else {
+                    format!(
+                        "{library} depends on {name} ({kind}, {path}): the {what} depends \
+                         only on its own crates ({own}), its tests also on {tests_too}; move \
+                         what it needs into the library, or the dependency out of it"
+                    )
+                });
             }
         }
     }

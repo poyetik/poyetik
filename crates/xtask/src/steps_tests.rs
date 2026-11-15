@@ -661,26 +661,11 @@ fn runs_every_step_and_reports_success() {
     assert_eq!(
         fake.ran.len(),
         tools + commands + emptied + listed + captured + written + read,
-        "the preflight asks ten tools; 78 commands run, plus two per visual crate and binary and the visual conformance check (formatting, lints, documentation, \
-         tests, four portability builds, the native shell's lints and the build of its libraries for its two architectures, fourteen coverage measurements each after emptying \
-         the coverage build, the mutants of the changes, Miri, the \
-         conformance check and export, deny, the JavaScript install, audit, the engine build and the twenty-five \
-         scripts of the five package checks, each package followed by its Stryker run); fourteen directories are emptied; git lists \
-         every tracked file for the conflict marker gate, fourteen kinds of files (the box sources, the text files that cite the roadmap and the npm configuration files among them), the Rust files again for the test code, test data, untested targets, unviable names and loaded files gates, the TypeScript ones again for the reports and scope gates of \
-         each package after the first; the licenses twice, the history of main and the history three times, the state \
-         of the tree (before, for the proof record and after) six times, the nightly's version and sysroot, the Cargo metadata (for the untested targets, dependency, pin, library, part license and math layer gates), the output of the fused test build and of the nine builds of the loaded files gate, the merge base, the merge base with main three times and the record of the versions spent and the changelog listed there, the changed paths, the changes, the \
-         new Rust files and the list of every mutant once, git's common directory twice, the tree checked out, \
-         cargo-mutants' version, rustc's host and build, the linker driver's and git's versions, the status for a push and the hidden files and the tracked files (for their filters) for the mutation step and the proof record; the spent record, the measured base, the diff and the \
-         proof record are written once each; the proof record, the measured base and the \
-         toolchain file are read for it; and the gates read the nine dep-info files of the loaded files gate, the nine fake test data readers for the unsafe, bypass and vocabulary gates, every Rust file (twelve) for the test code, test data, untested targets and unviable names gates and the reviews of unviable mutants for the last, .node-version and the toolchain file for the preflight, the toolchain file, the four float sources and the float macros of the nightly and clippy.toml for the float gate, fourteen coverage reports, \
-         the unviable report and reviews, the register of the pin gate, the 91 text files of the citation gate (the board and the spent record, which the fake lists as tracked, among them), the reviews again against the list of every mutant, six TypeScript sources and their reviews, the nine \
-         sources, the twelve Cargo manifests and the register of the bypass gate, the three unsafe files, the Cargo \
-         configuration, the six package manifests and the register of the dependency gate, the six package manifests and the three license files of the part license gate, the five manifests of the package check gate, the four \
-         supply-chain files, twelve crate manifests, ten READMEs, the changelog, ten READMEs, three Rust and six TypeScript sources and the vocabulary of the vocabulary gate, eight version files, the workflow and \
-         .node-version, the attributes file and the 106 tracked text files of the conflict marker gate, five Stryker configurations and the six package manifests, and for each of the five \
-         packages, the six TypeScript sources and two reports of its reports gate, then its \
-         Stryker configuration, coverage summary, mutation report and the register of its \
-         scope gate"
+        "every operation of a default run, by kind: the tools the preflight asks, the \
+         commands run, the directories emptied, what git lists, what is captured, the files \
+         written and the files read, each count derived above from the registries it \
+         follows (the crates, the packages, the unsafe files, the steps), so that no number \
+         written here can go stale"
     );
     for path in [CARGO_TOML.to_owned(), CHANGELOG.to_owned()]
         .into_iter()

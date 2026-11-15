@@ -181,8 +181,13 @@ fn derives_each_list_of_crates_from_their_roles() {
         ),
         (
             CrateRole::VisualLibrary,
-            &["visual-core", "visual-boxes", "visual-hash"][..],
-            "the visual library",
+            &["visual-core", "visual-boxes", "visual-hash", "visual-wasm"][..],
+            "the visual library and its module",
+        ),
+        (
+            CrateRole::VisualTool,
+            &["visual-cli"][..],
+            "the visual library's command line",
         ),
         (
             CrateRole::VisualLibraryTests,
@@ -211,5 +216,47 @@ fn derives_each_list_of_crates_from_their_roles() {
         ),
     ] {
         assert_eq!(crate::crates_in(role), crates, "{what}");
+    }
+}
+
+/// The crates of the libraries not built for every portability target, and why: each
+/// needs what a bare-metal target has not.
+const NOT_PORTABLE: [(&str, &str); 3] = [
+    (
+        "audio-fpenv",
+        "sets the floating-point mode of the native CPU it runs on",
+    ),
+    (
+        "audio-wasm",
+        "the engine's WebAssembly interface: std, built for WebAssembly by its package",
+    ),
+    (
+        "visual-wasm",
+        "the visual library's WebAssembly interface: std, built for WebAssembly by its package",
+    ),
+];
+
+#[test]
+fn builds_every_crate_of_the_libraries_for_every_portability_target_but_its_shells() {
+    let libraries: Vec<&str> = crate::LIBRARIES
+        .iter()
+        .flat_map(|library| crate::crates_in(library.crates))
+        .collect();
+    let shells: Vec<&str> = NOT_PORTABLE.iter().map(|(name, _)| *name).collect();
+    let portable: Vec<&str> = libraries
+        .iter()
+        .copied()
+        .filter(|name| !shells.contains(name))
+        .collect();
+    assert_eq!(
+        crate::PORTABILITY_PACKAGES.to_vec(),
+        portable,
+        "every crate of a library, but its shells, and nothing else, in the order of the crates"
+    );
+    for (shell, why) in NOT_PORTABLE {
+        assert!(
+            libraries.contains(&shell),
+            "{shell} ({why}) is a crate of a library"
+        );
     }
 }
