@@ -212,12 +212,16 @@ pub const REFUSED_VARIABLE_PREFIXES: [&str; 4] = [
     "CARGO_UNSTABLE_",
 ];
 
-/// Whether the variable `name` is one the preflight refuses: one of [`REFUSED_VARIABLES`],
-/// or a name starting with one of [`REFUSED_VARIABLE_PREFIXES`] other than
+/// Whether the variable `name` is one the preflight refuses.
+///
+/// It refuses one of [`REFUSED_VARIABLES`], a variable a crate reads at build time
+/// (`BUILD_VARIABLES`: the engine block a build names, where the checks build every engine
+/// block), or a name starting with one of [`REFUSED_VARIABLE_PREFIXES`] other than
 /// `CARGO_TARGET_DIR`.
 #[must_use]
 pub fn refused_variable(name: &str) -> bool {
     REFUSED_VARIABLES.contains(&name)
+        || crate::test_code::BUILD_VARIABLES.contains(&name)
         || (name != "CARGO_TARGET_DIR"
             && REFUSED_VARIABLE_PREFIXES
                 .iter()

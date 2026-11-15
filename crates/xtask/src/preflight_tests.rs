@@ -191,6 +191,8 @@ fn refuses_what_changes_cargo_from_outside_the_repository() {
         "RUSTC_WORKSPACE_WRAPPER",
         "RUSTDOC",
         "CLIPPY_CONF_DIR",
+        // The engine block a build names: the checks build every engine block.
+        "POYETIK_ENGINE_BLOCK",
     ];
     let accepted = [
         "CARGO_TARGET_DIR",
@@ -202,6 +204,7 @@ fn refuses_what_changes_cargo_from_outside_the_repository() {
         "XRUSTFLAGS",
         "rustflags",
         "CARGO_TARGET",
+        "POYETIK_ENGINE_BLOCKS",
         "PATH",
     ];
     for name in refused {
