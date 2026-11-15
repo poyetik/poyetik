@@ -2,8 +2,10 @@
 
 extern crate alloc;
 
+use alloc::collections::TryReserveError;
 use alloc::format;
 use alloc::string::ToString as _;
+use alloc::vec::Vec;
 
 use super::{ColorEncoding, Image, ImageSize};
 use crate::VisualError;
@@ -74,7 +76,7 @@ fn creates_the_largest_image() {
     for (width, height) in [(16_384, 2048), (2048, 16_384)] {
         let size = ImageSize::new(width, height).expect("the largest area");
         assert_eq!(size.pixels(), ImageSize::MAX_PIXELS, "{width}x{height}");
-        let image = Image::new(size);
+        let image = Image::try_new(size).expect("room for it");
         assert_eq!(
             image.values().len(),
             usize::try_from(ImageSize::MAX_PIXELS).expect("fits") * Image::CHANNELS,
@@ -83,10 +85,41 @@ fn creates_the_largest_image() {
     }
 }
 
+/// A reservation that fails as the allocator does when the machine has no room left.
+fn refused(values: &mut Vec<f32>, _: usize) -> Result<(), TryReserveError> {
+    values.try_reserve_exact(usize::MAX)
+}
+
+/// A reservation that succeeds only for the values of a 1920 x 1080 image, exactly.
+fn exact(values: &mut Vec<f32>, length: usize) -> Result<(), TryReserveError> {
+    values.try_reserve_exact(if length == 1920 * 1080 * 4 {
+        length
+    } else {
+        usize::MAX
+    })
+}
+
+#[test]
+fn refuses_an_image_the_memory_cannot_hold_naming_its_size() {
+    let size = ImageSize::new(1920, 1080).expect("a valid size");
+    assert_eq!(
+        Image::allocate(size, refused).err(),
+        Some(VisualError::OutOfMemory {
+            width: 1920,
+            height: 1080
+        })
+    );
+    // The reservation is asked for the image's values exactly.
+    assert_eq!(
+        Image::allocate(size, exact).map(|image| image.values().len()),
+        Ok(1920 * 1080 * 4)
+    );
+}
+
 #[test]
 fn starts_transparent_black() {
     let size = ImageSize::new(3, 2).expect("a valid size");
-    let image = Image::new(size);
+    let image = Image::try_new(size).expect("room for it");
     assert_eq!(image.size(), size, "its size");
     assert_eq!(
         image.encoding(),
@@ -102,7 +135,8 @@ fn starts_transparent_black() {
 
 #[test]
 fn gives_its_rows_from_the_top() {
-    let mut image = Image::new(ImageSize::new(3, 2).expect("a valid size"));
+    let mut image =
+        Image::try_new(ImageSize::new(3, 2).expect("a valid size")).expect("room for it");
     let mut rows = 0_u8;
     for (index, row) in image.rows_mut().enumerate() {
         assert_eq!(row.len(), 12, "3 pixels of 4 values");

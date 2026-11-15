@@ -2,7 +2,7 @@
 
 extern crate alloc;
 
-use alloc::string::ToString;
+use alloc::string::{String, ToString};
 
 use super::VisualError;
 
@@ -31,6 +31,13 @@ fn names_the_rejected_values() {
             "invalid image size 16384x2049: an image holds at most 33554432 pixels",
         ),
         (
+            VisualError::OutOfMemory {
+                width: 16_384,
+                height: 2048,
+            },
+            "image 16384x2048 does not fit in this machine's memory: 536870912 bytes are needed",
+        ),
+        (
             VisualError::InvalidImageRange {
                 first: u64::MAX,
                 count: 2,
@@ -47,6 +54,7 @@ fn names_the_rejected_values() {
     ];
     for (error, message) in cases {
         assert_eq!(error.to_string(), message, "{error:?}");
+        assert_eq!(String::from(error), message, "{error:?} as a String");
     }
 }
 

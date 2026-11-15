@@ -1,5 +1,6 @@
 //! Errors raised while validating the values the visual library is given.
 
+use alloc::string::String;
 use core::fmt;
 
 /// Why a value given to the visual library was rejected.
@@ -21,6 +22,13 @@ pub enum VisualError {
     },
     /// The image has more pixels than [`crate::ImageSize::MAX_PIXELS`].
     ImageTooLarge {
+        /// Width in pixels.
+        width: u32,
+        /// Height in pixels.
+        height: u32,
+    },
+    /// The machine cannot hold an image of this size: its memory is exhausted.
+    OutOfMemory {
         /// Width in pixels.
         width: u32,
         /// Height in pixels.
@@ -63,6 +71,13 @@ impl fmt::Display for VisualError {
                 "invalid image size {width}x{height}: an image holds at most {} pixels",
                 crate::ImageSize::MAX_PIXELS
             ),
+            Self::OutOfMemory { width, height } => write!(
+                f,
+                "image {width}x{height} does not fit in this machine's memory: {} bytes are needed",
+                u64::from(width)
+                    .saturating_mul(u64::from(height))
+                    .saturating_mul(16)
+            ),
             Self::InvalidImageRange { first, count } => write!(
                 f,
                 "invalid image range: {count} images from image {first} pass the largest index, {}",
@@ -85,3 +100,11 @@ impl core::error::Error for VisualError {}
 #[cfg(test)]
 #[path = "error_tests.rs"]
 mod tests;
+
+/// The error's message: what a caller reporting errors as text (the test kit's laws) gets
+/// from `?`.
+impl From<VisualError> for String {
+    fn from(error: VisualError) -> Self {
+        alloc::format!("{error}")
+    }
+}

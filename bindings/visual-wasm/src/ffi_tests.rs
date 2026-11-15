@@ -81,7 +81,8 @@ fn follows_the_protocol() {
     let rate = ImageRate::new(30_000, 1001).expect("a valid rate");
     let cycle = Seconds::new(3, 2).expect("a valid cycle");
     let mut square = Square::new(rate, 50_000, cycle).expect("a valid square");
-    let mut image = Image::new(ImageSize::new(9, 4).expect("a valid size"));
+    let mut image =
+        Image::try_new(ImageSize::new(9, 4).expect("a valid size")).expect("room for the image");
     assert_eq!(visual_values_len(), 9 * 4 * 4, "four values per pixel");
     for index in [0, 17, u64::from(u32::MAX) + 1, (7_u64 << 32_u32) + 11] {
         square.render(ImageIndex(index), &mut image);

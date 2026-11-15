@@ -32,7 +32,7 @@ fn direct() -> (Square, Image, ImageRate) {
     let square = Square::new(rate, 39_322, cycle).expect("a valid square");
     (
         square,
-        Image::new(ImageSize::new(7, 5).expect("a valid size")),
+        Image::try_new(ImageSize::new(7, 5).expect("a valid size")).expect("room for the image"),
         rate,
     )
 }
@@ -122,7 +122,7 @@ fn renders_and_hashes_across_the_visual_matrix() {
                 "{rate:?} {size:?}"
             );
             let mut square = Square::new(rate, 39_322, cycle).expect("a valid square");
-            let mut image = Image::new(size);
+            let mut image = Image::try_new(size).expect("room for the image");
             for index in visual_testkit::matrix::image_indices() {
                 square.render(index, &mut image);
                 let expected: Vec<u32> =

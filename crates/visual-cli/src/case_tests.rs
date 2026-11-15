@@ -48,7 +48,7 @@ fn renders_the_hash_of_its_images() {
     let size = ImageSize::new(17, 9).expect("a valid size");
     let cycle = Seconds::new(1001, 1000).expect("a valid cycle");
     let mut square = Square::new(rate, 40_000, cycle).expect("a valid square");
-    let mut image = visual_core::Image::new(size);
+    let mut image = visual_core::Image::try_new(size).expect("room for the image");
     let mut hasher = ImageHasher::new(rate, size, image.encoding());
     render_sequence(
         &mut square,
@@ -60,7 +60,7 @@ fn renders_the_hash_of_its_images() {
     );
     let expected = hasher.finish();
     assert_eq!(
-        parse_case(SMALL).map(|case| case.hash()),
+        parse_case(SMALL).map(|case| case.hash().expect("room for the image")),
         Ok(expected),
         "same hash"
     );
@@ -217,7 +217,7 @@ fn reads_a_case_of_sixty_four_kibibytes_and_no_more() {
     let padded = format!("{SMALL}{}", " ".repeat(65_536_usize - SMALL.len()));
     assert_eq!(padded.len(), 65_536_usize, "exactly 64 KiB");
     assert_eq!(
-        parse_case(&padded).map(|case| case.hash()),
+        parse_case(&padded).map(|case| case.hash().expect("room for the image")),
         hash_case(SMALL),
         "read whole"
     );

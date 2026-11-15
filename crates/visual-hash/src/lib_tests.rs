@@ -24,7 +24,7 @@ fn size(width: u32, height: u32) -> ImageSize {
 
 /// An image of `size` holding `values`, row by row.
 fn image(size: ImageSize, values: &[f32]) -> Image {
-    let mut image = Image::new(size);
+    let mut image = Image::try_new(size).expect("room for the image");
     let mut rest = values;
     for row in image.rows_mut() {
         let (head, tail) = rest.split_at(row.len());
@@ -191,7 +191,7 @@ fn refuses_an_image_of_another_size_and_adds_nothing() {
         .expect("the sequence's size");
     for other in [size(1, 2), size(1, 1), size(3, 1)] {
         assert_eq!(
-            hasher.add(&Image::new(other)),
+            hasher.add(&Image::try_new(other).expect("room for the image")),
             Err(Mismatch { image: 1 }),
             "{other:?}"
         );
@@ -232,11 +232,11 @@ fn hashes_a_rendered_sequence_as_adding_each_image() {
     for (first, count) in [(0_u64, 0_u64), (0, 1), (5, 3), (2, 4)] {
         let mut separately = ImageHasher::new(sixty(), size, ENCODING);
         for offset in 0..count {
-            let mut one = Image::new(size);
+            let mut one = Image::try_new(size).expect("room for the image");
             Ramp(0.5).render(ImageIndex(first + offset), &mut one);
             separately.add(&one).expect("same size");
         }
-        let mut image = Image::new(size);
+        let mut image = Image::try_new(size).expect("room for the image");
         assert_eq!(
             hash_sequence(
                 &mut Ramp(0.5),
@@ -248,7 +248,7 @@ fn hashes_a_rendered_sequence_as_adding_each_image() {
             "{count} images from {first}"
         );
     }
-    let mut image = Image::new(size);
+    let mut image = Image::try_new(size).expect("room for the image");
     let at = |visual: &mut Ramp, into: &mut Image, first: u64| {
         hash_sequence(
             visual,
@@ -320,7 +320,7 @@ fn hashes_the_bytes_the_specification_lays_out_for_any_values() {
             bytes.extend_from_slice(&field.to_le_bytes());
         }
         for values in &images {
-            let mut image = Image::new(size(width, height));
+            let mut image = Image::try_new(size(width, height)).expect("room for the image");
             for (slot, &pattern) in image.rows_mut().flatten().zip(values) {
                 *slot = f32::from_bits(pattern);
             }

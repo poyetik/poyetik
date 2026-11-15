@@ -18,7 +18,8 @@ impl VisualBox for Blank {
 #[test]
 fn a_box_traces_nothing_unless_it_declares_it() {
     let mut blank = Blank;
-    let mut image = Image::new(ImageSize::new(2, 2).expect("a valid size"));
+    let mut image =
+        Image::try_new(ImageSize::new(2, 2).expect("a valid size")).expect("room for the image");
     blank.render(ImageIndex(0), &mut image);
     assert_eq!(
         blank.trace(ImageIndex(3), image.size().point(1, 2).expect("inside")),

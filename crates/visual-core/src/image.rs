@@ -1,6 +1,6 @@
 //! Images: their size, their color encoding and their pixels.
 
-use alloc::vec;
+use alloc::collections::TryReserveError;
 use alloc::vec::Vec;
 
 use crate::{SUBPIXELS, SubpixelPoint, VisualError};
@@ -101,7 +101,8 @@ pub enum ColorEncoding {
 ///
 /// ```compile_fail,E0369
 /// let size = visual_core::ImageSize::new(1, 1).expect("a valid size");
-/// let _ = visual_core::Image::new(size) == visual_core::Image::new(size);
+/// let image = visual_core::Image::try_new(size).expect("room for it");
+/// let _ = image == image.clone();
 /// ```
 #[derive(Debug, Clone)]
 pub struct Image {
@@ -117,13 +118,34 @@ impl Image {
 
     /// A transparent black image: every value 0. Allocates all its memory now, so that
     /// rendering into it never allocates.
-    #[must_use]
-    pub fn new(size: ImageSize) -> Self {
-        let pixels = usize::try_from(size.pixels()).unwrap_or(usize::MAX);
-        Self {
-            size,
-            values: vec![0.0; pixels.saturating_mul(Self::CHANNELS)],
-        }
+    ///
+    /// # Errors
+    ///
+    /// Returns [`VisualError::OutOfMemory`], naming the size, when the machine cannot hold
+    /// the image (at most 512 MiB: [`ImageSize::MAX_PIXELS`] pixels of 16 bytes); never
+    /// aborts, never traps.
+    pub fn try_new(size: ImageSize) -> Result<Self, VisualError> {
+        Self::allocate(size, Vec::try_reserve_exact)
+    }
+
+    /// [`Image::try_new`], reserving the values with `reserve`: the allocator's own, or
+    /// one that refuses, in the tests. A function pointer, not a generic, so that the one
+    /// body the tests cover is the one shipped.
+    fn allocate(
+        size: ImageSize,
+        reserve: fn(&mut Vec<f32>, usize) -> Result<(), TryReserveError>,
+    ) -> Result<Self, VisualError> {
+        let length = usize::try_from(size.pixels())
+            .unwrap_or(usize::MAX)
+            .saturating_mul(Self::CHANNELS);
+        let mut values = Vec::new();
+        reserve(&mut values, length).map_err(|_| VisualError::OutOfMemory {
+            width: size.width(),
+            height: size.height(),
+        })?;
+        // Within the reservation: no other allocation.
+        values.resize(length, 0.0);
+        Ok(Self { size, values })
     }
 
     /// Its size.

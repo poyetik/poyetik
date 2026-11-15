@@ -73,7 +73,8 @@ fn keeps_the_rate_it_is_made_for() {
 
 /// Renders image `index` of `visual` at `width` × `height`.
 fn rendered(visual: &mut Square, index: u64, width: u32, height: u32) -> Image {
-    let mut image = Image::new(ImageSize::new(width, height).expect("a valid size"));
+    let mut image = Image::try_new(ImageSize::new(width, height).expect("a valid size"))
+        .expect("room for the image");
     visual.render(ImageIndex(index), &mut image);
     image
 }
