@@ -256,7 +256,11 @@ fn says_its_errors_naming_the_argument_refused() {
         (SetupError::Size(size), "width and height", size.to_string()),
         (SetupError::Rate(rate), "rate", rate.to_string()),
         (SetupError::Cycle(cycle), "cycle", cycle.to_string()),
-        (SetupError::Side(refused_side), "side", refused_side.to_string()),
+        (
+            SetupError::Side(refused_side),
+            "side",
+            refused_side.to_string(),
+        ),
     ] {
         assert_eq!(
             error.to_string(),
