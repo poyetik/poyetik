@@ -99,9 +99,13 @@ fn builds_the_engine_package_before_every_package() {
         "bindings/audio-wasm",
         "the engine in the browser"
     );
-    assert!(
-        crate::WASM_MODULE.starts_with("bindings/audio-wasm/dist/"),
-        "its build writes the module"
+    assert_eq!(
+        crate::WASM_MODULES,
+        [
+            format!("{}/dist/engine.wasm", crate::ENGINE_PACKAGE.dir),
+            "bindings/visual-wasm/dist/visual.wasm".to_owned()
+        ],
+        "the modules the packages' builds write"
     );
     for (mode, first_user) in [
         (Mode::Full { jobs: FAKE_JOBS }, PACKAGES[0].step),
