@@ -6,6 +6,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { parseVisualCase } from "@poyetik/oracle/visual-inputs";
 import { expect, test } from "vitest";
 import { VISUAL_MODULE } from "../scripts/module.ts";
+import { VisualDriver } from "../ts/driver.ts";
 import { VisualModule, VisualSetupError } from "../ts/visual.ts";
 
 /**
@@ -146,6 +147,19 @@ test("renders every value of the square as the spec places it, across the visual
   // what it checks.
 }, 60_000);
 
+test("creates its own instance from a compiled module, as a worker receives one, the same images as from the bytes", async () => {
+  const square = { width: 17, height: 9, rate: [60, 1], side: 39_322, cycle: [1001, 1000] } as const;
+  const compiled = await WebAssembly.compile(readFileSync(MODULE));
+  const fromModule = await VisualModule.create(compiled, square);
+  const fromBytes = await VisualModule.instantiate(readFileSync(MODULE), square);
+  expect(fromModule.hash(0n, 60)).toBe(fromBytes.hash(0n, 60));
+  // Two instances of one compiled module, each its own: a setup of one leaves the other.
+  const other = await VisualModule.create(compiled, square);
+  other.setup({ ...square, width: 3 });
+  expect(Array.from(fromModule.render(7n))).toStrictEqual(Array.from(fromBytes.render(7n)));
+  expect(other.render(7n)).toHaveLength(3 * 9 * 4);
+});
+
 test("explains a refused square and keeps the one it had", async () => {
   const square = { rate: [60, 1], side: 65_536, cycle: [1, 2] } as const;
   await expect(VisualModule.instantiate(readFileSync(MODULE), { ...square, width: 0, height: 2 })).rejects.toThrow(new VisualSetupError("width and height: invalid image size 0x2: each side must be from 1 to 16384 pixels"));
@@ -171,7 +185,7 @@ test("sets up the largest image, refuses one pixel row more, and releases the im
     throw new Error("no memory");
   }
   const square = { rate: [60, 1], side: 65_536, cycle: [1, 2] } as const;
-  const module = new VisualModule(instance.exports, { ...square, width: 1, height: 1 });
+  const module = new VisualDriver(instance.exports, { ...square, width: 1, height: 1 });
   expect(() => { module.setup({ ...square, width: 16_384, height: 2049 }); }).toThrow(new VisualSetupError("width and height: invalid image size 16384x2049: an image holds at most 33554432 pixels"));
   module.setup({ ...square, width: 16_384, height: 2048 });
   expect(module.render(0n)).toHaveLength(16_384 * 2048 * 4);
@@ -200,7 +214,7 @@ test("refuses an image the memory cannot hold, naming its size, never a trap, an
     throw new Error("no memory");
   }
   const square = { rate: [60, 1], side: 65_536, cycle: [1, 2] } as const;
-  const module = new VisualModule(instance.exports, { ...square, width: 3, height: 2 });
+  const module = new VisualDriver(instance.exports, { ...square, width: 3, height: 2 });
   memory.grow(65_536 - 8000 - memory.buffer.byteLength / 65_536);
   expect(() => { module.setup({ ...square, width: 16_384, height: 2048 }); }).toThrow(new VisualSetupError("width and height: image 16384x2048 does not fit in this machine's memory: 536870912 bytes are needed"));
   module.setup({ ...square, width: 3, height: 2 });
