@@ -17,7 +17,7 @@ usage: visual-cli <command>
   help                print this help";
 
 /// What follows the reason of a usage error: where the usage is.
-const USAGE_HINT: &str = " (see: visual-cli help)";
+const USAGE_HINT: &str = " (see: cargo run -p visual-cli -- help)";
 
 /// The largest references file read, in bytes.
 pub const MAX_REFERENCES_BYTES: usize = 1024 * 1024;
@@ -34,7 +34,7 @@ pub enum CliError {
 impl CliError {
     /// The error as the one line the tool prints on stderr, without its newline: `error: `
     /// and the message made safe by [`safe_message`], then, for a usage error, its pointer
-    /// to the usage, ` (see: visual-cli help)`, appended after the reason is bounded, so
+    /// to the usage, ` (see: cargo run -p visual-cli -- help)`, appended after the reason is bounded, so
     /// that no reason can cut it.
     #[must_use]
     pub fn line(&self) -> String {
@@ -237,15 +237,14 @@ fn references_text(hashes: &BTreeMap<String, String>) -> String {
 /// to be restored, never rewritten from the renders: that would take in any change of the
 /// renders, and no reference would show it. A file that cannot be read says what would
 /// help only where it would: restoring a file too large or not text, restoring or blessing a
-/// missing one beside cases bless can render from; nothing for a directory without a case
+/// missing one beside case files; nothing for a directory without a case
 /// or an unreadable file.
 fn references(files: &mut dyn Files, dir: &Path) -> Result<BTreeMap<String, String>, CliError> {
     let file = dir.join("references.json");
     let restore = |why: &str| {
         CliError::Failed(format!(
-            "{} is not as `visual-cli bless {}` writes it ({why}): restore it from git; bless rewrites it from the current renders, only when they are meant to change",
-            file.display(),
-            dir.display()
+            "{} is not as bless writes it ({why}): restore it from git; bless rewrites it from the current renders, only when they are meant to change",
+            file.display()
         ))
     };
     let text = files.read(&file, MAX_REFERENCES_BYTES).map_err(|error| {
