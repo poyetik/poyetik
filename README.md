@@ -14,7 +14,7 @@ A monorepo of separate parts:
 |---|---|
 | `spec/` | Patch format, render hash and image hash specifications, the measurements, the [engine design decisions](spec/engine-design.md) and the [visual library's](spec/visual-design.md) |
 | `crates/` | The two libraries and project automation: the engine (`audio-core`, `no_std`, no `unsafe`, the boxes, the patch reader, the render hash, the command-line renderer), the visual library (`visual-core`, the boxes, the image hash, the test bench, the command-line renderer), and `xtask` |
-| `bindings/` | Developer SDKs around the libraries: `audio-wasm/`, the engine in browsers and Node; `visual-wasm/`, the visual library alone, tested in Node (in browsers, the product loads one module linking both libraries, from #34 step 6) |
+| `bindings/` | Developer SDKs around the libraries: `audio-wasm/`, the engine in browsers and Node; `visual-wasm/`, the visual library alone, tested in Node (in browsers, each thread of the product loads one module linking what it needs, from #34 step 6) |
 | `apps/` | Applications: the playground and the public roadmap |
 | `conformance/` | Reference cases and expected hashes, of sound and of images, checked on every target |
 | `tooling/` | Shared development tooling: the strict TypeScript policy (`@poyetik/config`), the independent conformance oracle and the reproducible WebAssembly build (`@poyetik/wasm-build`) |
