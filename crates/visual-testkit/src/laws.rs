@@ -181,8 +181,9 @@ pub fn check_laws(make: &Factory<'_>) -> Result<(), String> {
         })
 }
 
-/// Checks that one instance renders the same bits as a fresh one when the size of its
-/// output changes from one image to the next: every size of `sizes` in turn, at each index.
+/// Checks that one instance renders the same bits, and traces the same points, as a fresh one
+/// when the size of its output changes from one image to the next: every size of `sizes` in
+/// turn, at each index.
 fn check_sizes(
     make: &Factory<'_>,
     rate: ImageRate,
@@ -200,11 +201,22 @@ fn check_sizes(
                 &at,
                 ", after another size,",
             )?;
-            let reference = render(make(rate).as_mut(), size, index, &at, "")?;
+            let fresh = make(rate);
+            let mut reference_box = make(rate);
+            let reference = render(reference_box.as_mut(), size, index, &at, "")?;
             if !same_bits(&image, &reference) {
                 return Err(format!(
                     "size change: rendering at another size first changes the bits at {at}"
                 ));
+            }
+            for point in points(size) {
+                if switching.trace(index, point) != fresh.trace(index, point) {
+                    return Err(format!(
+                        "size change: ({}, {}) traces differently after another size at {at}",
+                        point.x(),
+                        point.y()
+                    ));
+                }
             }
         }
     }
