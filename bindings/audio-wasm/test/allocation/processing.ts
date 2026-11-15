@@ -2,6 +2,7 @@
 // `TapProcessor.process`, through the fake worklet scope: from the first quantum of a fresh
 // processor on, as a browser drives it, every quantum counted.
 import { expect } from "vitest";
+import { RAW_OUTPUT } from "../../ts/engine.ts";
 import { ENGINE_PROCESSOR, TAP_PROCESSOR } from "../../ts/protocol.ts";
 import { READY, SINE_PATCH, wasmBytes } from "../fixtures.ts";
 import { loadProcessors, processorClass } from "../worklet.ts";
@@ -19,7 +20,7 @@ export const BLOCK = 64;
  */
 export async function processing(size: number, frames: number, alongside: () => void = () => undefined): Promise<number> {
   const EngineProcessor = processorClass(await loadProcessors(RATE), ENGINE_PROCESSOR);
-  const node = new EngineProcessor({ processorOptions: { wasm: wasmBytes(), patch: SINE_PATCH, marker: false, precision: "binary64" } });
+  const node = new EngineProcessor({ processorOptions: { wasm: wasmBytes(), patch: SINE_PATCH, marker: false, precision: "binary64", output: RAW_OUTPUT } });
   // Made once, as a browser hands the processor the same arrays at every quantum.
   const inputs: Float32Array[][] = [];
   const outputs = [[new Float32Array(size), new Float32Array(size)]];
