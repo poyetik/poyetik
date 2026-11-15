@@ -518,8 +518,8 @@ pub(crate) fn test_data_read(tokens: &[Token], at: usize) -> Read<'_> {
                 "`env!` of a variable that may name a directory of the repository".to_owned(),
             ),
         },
-        "option_env" => match literal_argument(after(2)) {
-            Some(name) if called && BUILD_VARIABLES.contains(&name) => Read::Other,
+        "option_env" => match literal_argument(after(2)).filter(|_| called) {
+            Some(name) if BUILD_VARIABLES.contains(&name) => Read::Other,
             _ => Read::Refused(
                 "`option_env!`, which may name a directory of the repository".to_owned(),
             ),
