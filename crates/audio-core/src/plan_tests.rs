@@ -1766,9 +1766,7 @@ fn a_sum_reads_a_missing_source_as_silence_in_its_place<S: Bits>() {
     let blocks: Vec<Block<S>> = values.iter().map(|&value| block::<S>(value)).collect();
     let mut out = block::<S>(99.0);
     let mut lanes = crate::math::Lanes::new();
-    let silence = block::<S>(0.0);
-    let silence: &[S] = &silence;
-    Feed::Several((0..values.len()).collect()).write(&mut out, &mut lanes, silence, |source| {
+    Feed::Several((0..values.len()).collect()).write(&mut out, &mut lanes, |source| {
         if source == 1 {
             None
         } else {

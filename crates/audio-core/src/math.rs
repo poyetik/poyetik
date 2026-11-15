@@ -784,30 +784,33 @@ pub fn ordered_sum<S: Sample>(terms: impl IntoIterator<Item = S>) -> S {
 pub(crate) struct Lanes<S: Sample, const N: usize>(Vec<S>);
 
 impl<S: Sample, const N: usize> Lanes<S, N> {
-    /// Lanes of silence, on the heap.
+    /// Lanes of silence, on the heap, and one block of silence after them: the term a sum
+    /// reads for a source it cannot find.
     pub(crate) fn new() -> Self {
-        Self(alloc::vec![S::ZERO; (LANES - 1).saturating_mul(N)])
+        Self(alloc::vec![S::ZERO; LANES.saturating_mul(N)])
     }
 
-    /// The lanes, as their 15 blocks: always, the buffer holding exactly them (`new`), so
-    /// that the reduction's tree runs over a fixed number of lanes.
-    fn blocks(&mut self) -> Option<&mut [Block<S, N>; LANES - 1]> {
-        self.0.as_chunks_mut::<N>().0.try_into().ok()
+    /// The lanes, as their 15 blocks, and the block of silence: always, the buffer holding
+    /// exactly them (`new`), so that the reduction's tree runs over a fixed number of lanes.
+    fn parts(&mut self) -> Option<(&mut [Block<S, N>; LANES - 1], &Block<S, N>)> {
+        let (silence, lanes) = self.0.as_chunks_mut::<N>().0.split_last_mut()?;
+        Some((lanes.try_into().ok()?, &*silence))
     }
 }
 
 /// The sum of the blocks `terms` frame by frame, in the reduction order of
 /// [`ordered_sum`] (the same core, `reduce`): the block itself for one (bit for bit),
 /// silence (+0) for none. The plan sums the cables into an inlet and the output boxes on a
-/// channel with it, using `lanes` as scratch.
-pub(crate) fn sum_blocks<'terms, S: Sample, const N: usize>(
+/// channel with it, using `lanes` as scratch; a term it cannot find (none) is silence in
+/// its place, the later terms keeping theirs.
+pub(crate) fn sum_blocks<'terms, S: Sample + 'terms, const N: usize>(
     out: &mut Block<S, N>,
     lanes: &mut Lanes<S, N>,
-    terms: impl Iterator<Item = &'terms Block<S, N>>,
+    terms: impl Iterator<Item = Option<&'terms Block<S, N>>>,
 ) {
-    // The lanes are always found (`Lanes::blocks`): the sum always runs.
-    for (rest, every) in lanes.blocks().into_iter().zip(iter::once(terms)) {
-        reduce(out, rest, every);
+    // The lanes are always found (`Lanes::parts`): the sum always runs.
+    for ((rest, silence), every) in lanes.parts().into_iter().zip(iter::once(terms)) {
+        reduce(out, rest, every.map(|term| term.unwrap_or(silence)));
     }
 }
 

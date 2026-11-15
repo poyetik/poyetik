@@ -105,7 +105,6 @@ impl<K: Copy> Feed<K> {
         &self,
         out: &mut Block<S, N>,
         lanes: &mut Lanes<S, N>,
-        silence: &'source [S],
         read: impl Fn(K) -> Option<&'source Block<S, N>>,
     ) {
         match self {
@@ -122,17 +121,8 @@ impl<K: Copy> Feed<K> {
                 }
             }
             Self::Several(sources) => {
-                // The one block of `silence` (always found, `Plan::build`: the sum always
-                // runs) stands in for a source `read` cannot find, in its place.
-                for nothing in Option::into_iter(silence.as_chunks::<N>().0.first()) {
-                    sum_blocks(
-                        &mut *out,
-                        lanes,
-                        sources
-                            .iter()
-                            .map(|&source| read(source).unwrap_or(nothing)),
-                    );
-                }
+                // A source `read` cannot find is silence in its place.
+                sum_blocks(out, lanes, sources.iter().map(|&source| read(source)));
             }
         }
     }
@@ -190,9 +180,6 @@ pub struct Plan<S: Sample, I, const N: usize = BLOCK_SIZE> {
     /// that summing never allocates, and reached only by such a sum, so that a plan without
     /// one never touches them while processing.
     lanes: Lanes<S, N>,
-    /// One block of silence: what a sum reads for a source it cannot find (unreachable,
-    /// [`Feed::write`]), on the heap.
-    silence: Vec<S>,
 }
 
 /// A box resolved against the registry.
@@ -451,7 +438,6 @@ impl<S: Sample, I: Dispatch<S, N>, const N: usize> Plan<S, I, N> {
             channel_feeds: channels.into_iter().map(Feed::new).collect(),
             channel_sums,
             lanes: Lanes::new(),
-            silence: vec![S::ZERO; N],
         })
     }
 
@@ -509,7 +495,6 @@ impl<S: Sample, I: Dispatch<S, N>, const N: usize> Plan<S, I, N> {
     /// final output stage (limiting, clipping, handling non-finite values) belongs to the
     /// host, until the engine defines its own output policy (#12 step 9).
     pub fn process(&mut self, out: &mut [Block<S, N>]) {
-        let silence: &[S] = &self.silence;
         for instance in &mut self.instances {
             let bus: &[Block<S, N>] = self.bus.as_chunks::<N>().0;
             let inputs = instance.inputs.as_chunks_mut::<N>().0;
@@ -518,7 +503,7 @@ impl<S: Sample, I: Dispatch<S, N>, const N: usize> Plan<S, I, N> {
                 // (`source_slot`): each is found. Unreachable, and reviewed: a missing
                 // inlet would keep its last block, as `Feed::write` says of its sources.
                 for input in inputs.iter_mut().skip(*inlet).take(1) {
-                    feed.write(input, &mut self.lanes, silence, |slot| bus.get(slot));
+                    feed.write(input, &mut self.lanes, |slot| bus.get(slot));
                 }
             }
             // The box's slots are in the bus (`build` gives every box its outlets' slots,
@@ -542,7 +527,7 @@ impl<S: Sample, I: Dispatch<S, N>, const N: usize> Plan<S, I, N> {
             match feeds.next() {
                 // Every source is an instance and one of its inlets (`build`): each is read.
                 Some(feed) => {
-                    feed.write(channel, &mut self.lanes, silence, |(index, inlet)| {
+                    feed.write(channel, &mut self.lanes, |(index, inlet)| {
                         self.instances
                             .get(index)
                             .and_then(|instance| instance.inputs.as_chunks::<N>().0.get(inlet))

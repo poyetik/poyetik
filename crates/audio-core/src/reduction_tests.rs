@@ -516,7 +516,7 @@ where
             .map(|_| core::array::from_fn(|_| draw(&mut draws)))
             .collect();
         let mut out = [S::from_raw(draws.finite()); BLOCK_SIZE];
-        sum_blocks(&mut out, &mut lanes, blocks.iter());
+        sum_blocks(&mut out, &mut lanes, blocks.iter().map(Some));
         for (frame, sample) in out.iter().enumerate() {
             let terms: Vec<S::Float> = blocks
                 .iter()
@@ -541,7 +541,11 @@ where
         *first = S::from_raw(S::Float::from_bits(signaling));
     }
     let mut out = [S::ZERO; BLOCK_SIZE];
-    sum_blocks(&mut out, &mut lanes, core::slice::from_ref(&odd).iter());
+    sum_blocks(
+        &mut out,
+        &mut lanes,
+        core::slice::from_ref(&odd).iter().map(Some),
+    );
     assert_eq!(
         out.map(Raw::bits),
         odd.map(Raw::bits),
@@ -550,7 +554,7 @@ where
     sum_blocks(
         &mut out,
         &mut lanes,
-        core::slice::from_ref(&odd)[..0].iter(),
+        core::slice::from_ref(&odd)[..0].iter().map(Some),
     );
     assert_eq!(out.map(Raw::bits), [0; BLOCK_SIZE], "no block: +0");
 }
@@ -583,7 +587,11 @@ where
         let mut out = [S::from_raw(draws.finite()); BLOCK_SIZE];
         add_two(&mut out, &first, &second);
         let mut summed = [S::ZERO; BLOCK_SIZE];
-        sum_blocks(&mut summed, &mut lanes, [&first, &second].into_iter());
+        sum_blocks(
+            &mut summed,
+            &mut lanes,
+            [&first, &second].into_iter().map(Some),
+        );
         for (frame, ((sample, sum), (one, other))) in out
             .iter()
             .zip(&summed)
