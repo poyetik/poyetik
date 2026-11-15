@@ -196,7 +196,8 @@ const WHOLE_FIELDS: readonly string[] = ["sample_rate", "frames"];
  */
 function wholeNumbers(name: string): (this: unknown, key: string, value: unknown, ...context: unknown[]) => unknown {
   return (key, value, ...context) => {
-    if (WHOLE_FIELDS.includes(key) && typeof value === "number" && !/^-?\d+$/.test(String(Reflect.get(Object(context[0]), "source")))) {
+    // Run once the shape is checked: the integer fields are numbers by then.
+    if (WHOLE_FIELDS.includes(key) && !/^-?\d+$/.test(String(Reflect.get(Object(context[0]), "source")))) {
       throw new InputError(`${name}: ${key} is not a whole number written without fraction or exponent`);
     }
     return value;

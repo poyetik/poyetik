@@ -1144,21 +1144,23 @@ pub(crate) mod limiter {
 
     /// The interpolator of `phases` phases of `taps` taps for oversampling by `phases`: a
     /// sinc cut at half the input rate, under a Kaiser window of `beta` spanning its
-    /// `phases × taps` points, each phase then scaled to a unit gain at DC. Phase by phase,
+    /// `phases × taps` points (`I0(β √(1 - r²))`, its scale `1 / I0(β)` cancelled by what
+    /// follows), each phase then scaled to a unit gain at DC. Phase by phase,
     /// tap `k` multiplying the sample `k` frames before the newest (as
     /// [`super::TRUE_PEAK_FILTER`]). `phases × taps` even, so that no point lies at the
     /// sinc's centre.
     pub(crate) fn interpolator(phases: usize, taps: usize, beta: Binary64) -> Vec<Binary64> {
         let points = phases.saturating_mul(taps);
         let centre = Binary64::from_count(points.saturating_sub(1)) / Binary64(2.0);
-        let window = bessel_i0(beta);
         let point = |index: usize| {
             let offset = Binary64::from_count(index) - centre;
             let input_frames = offset / Binary64::from_count(phases);
             let angle = Binary64(core::f64::consts::PI) * input_frames;
             let ratio = offset / centre;
             let width = Binary64::ONE - ratio * ratio;
-            angle.sine() / angle * bessel_i0(beta * width.square_root()) / window
+            // The window's scale, 1 / I0(β), is left out: the phases are scaled to a unit
+            // gain at DC below, which would cancel it.
+            angle.sine() / angle * bessel_i0(beta * width.square_root())
         };
         let mut coefficients = Vec::with_capacity(points);
         for phase in 0..phases {
@@ -1398,7 +1400,7 @@ pub mod host {
 
 #[cfg(test)]
 #[path = "math_tests.rs"]
-pub(crate) mod tests;
+mod tests;
 
 #[cfg(test)]
 #[path = "reduction_tests.rs"]

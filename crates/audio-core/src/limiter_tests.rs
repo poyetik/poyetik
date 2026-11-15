@@ -6,7 +6,6 @@ use alloc::vec::Vec;
 
 use super::{LimiterError, LimiterSettings, Setting, TruePeakLimiter};
 use crate::host::Raw;
-use crate::math::tests::splitmix::Draws;
 use crate::{BLOCK_SIZE, Binary32, Binary64, Block, Sample, SampleRate};
 
 /// Every detector, the default first.
@@ -53,11 +52,38 @@ fn of<S: Sample>(raw: f64) -> S {
     S::from_binary64(value(raw))
 }
 
-/// A sample drawn uniformly in [-amplitude, amplitude), in binary64 then in `S`.
-fn drawn<S: Sample>(draws: &mut Draws, amplitude: f64) -> S {
-    // 52 random bits in the fraction of a number of [1, 2): uniform there.
-    let unit = f64::from_bits((0x3ff_u64 << 52_u32) | (draws.next() >> 12_u32));
-    of::<S>((unit - 1.5_f64) * 2.0_f64 * amplitude)
+/// A deterministic noise, without a generator of its own: the mean of five sines of
+/// incommensurate frequencies, one value a draw, always within ±1.
+struct Noise(u32);
+
+impl Noise {
+    /// The noise from its first draw.
+    const fn new() -> Self {
+        Self(0)
+    }
+
+    /// The next value.
+    fn next(&mut self) -> f64 {
+        let at = f64::from(self.0);
+        self.0 = self.0.wrapping_add(1);
+        [
+            0.012_3_f64,
+            0.057_1_f64,
+            0.112_9_f64,
+            0.231_1_f64,
+            0.417_7_f64,
+        ]
+        .iter()
+        .zip(0_u32..)
+        .fold(0.0_f64, |sum, (share, index)| {
+            sum + libm::sin(core::f64::consts::TAU * share * at + f64::from(index))
+        }) / 5.0_f64
+    }
+}
+
+/// A sample of the noise scaled to `amplitude`, in binary64 then in `S`.
+fn drawn<S: Sample>(draws: &mut Noise, amplitude: f64) -> S {
+    of::<S>(draws.next() * amplitude)
 }
 
 /// `blocks` blocks of `channels` channels of `signal(frame, channel)`.
@@ -285,7 +311,7 @@ fn delayed_exactly<S: Sample + Raw>(
 /// The law below the ceiling, in `S`: at every rate, a signal whose true peak stays below
 /// the ceiling leaves delayed, bit for bit.
 fn changes_no_bit_below_the_ceiling<S: Sample + Raw>() {
-    let mut draws = Draws::new();
+    let mut draws = Noise::new();
     for (rate, detector) in rates().into_iter().zip(DETECTORS.into_iter().cycle()) {
         for channels in [1, 2, 3] {
             // Uniform in ±0.4_f64: each phase of the interpolator sums at most 2.02_f64 times the
@@ -323,7 +349,7 @@ const LOUD_BLOCKS: usize = 4_096 / BLOCK_SIZE;
 
 /// Loud test signals, in `S`: noise, then sines from low to near half the rate, each well
 /// above the ceiling.
-fn loud<S: Sample>(channels: usize, draws: &mut Draws) -> Vec<Vec<Vec<Block<S>>>> {
+fn loud<S: Sample>(channels: usize, draws: &mut Noise) -> Vec<Vec<Vec<Block<S>>>> {
     let mut signals = vec![signal::<S>(LOUD_BLOCKS, channels, |_, _| {
         drawn(draws, 4.0_f64)
     })];
@@ -356,7 +382,7 @@ fn largest<S: Sample + Raw>(blocks: &[Vec<Block<S>>], skip: usize, channels: usi
 /// The ceiling held, in `S`: on loud signals, no output sample above the ceiling but by the
 /// rounding `slack` (relative).
 fn holds_the_ceiling<S: Sample + Raw>(slack: f64) {
-    let mut draws = Draws::new();
+    let mut draws = Noise::new();
     // 10^(-1/20), the default ceiling of -1 dBTP as an amplitude, computed apart.
     let ceiling = 0.891_250_938_133_745_6_f64;
     for rate in rates() {
@@ -399,7 +425,7 @@ fn holds_the_ceiling_in_each_precision() {
 
 /// Raw, in `S`: even a loud signal leaves delayed, bit for bit.
 fn passes_everything_raw<S: Sample + Raw>() {
-    let mut draws = Draws::new();
+    let mut draws = Noise::new();
     for rate in rates() {
         for input in loud::<S>(2, &mut draws) {
             let mut limiter = TruePeakLimiter::<S>::new(
@@ -430,7 +456,7 @@ fn passes_everything_raw_in_each_precision() {
 /// Switched to raw while limiting, in `S`: once the crossfade has arrived, the output is
 /// the input delayed, bit for bit.
 fn returns_exactly_to_raw<S: Sample + Raw>() {
-    let mut draws = Draws::new();
+    let mut draws = Noise::new();
     let rate = SampleRate::new(48_000).expect("a rate");
     let loud_input = signal::<S>(100, 2, |_, _| drawn(&mut draws, 4.0_f64));
     let mut limiter = TruePeakLimiter::<S>::new(
@@ -471,7 +497,7 @@ fn returns_exactly_to_raw_in_each_precision() {
 
 #[test]
 fn holds_the_ceiling_when_its_lookahead_changes_live() {
-    let mut draws = Draws::new();
+    let mut draws = Noise::new();
     // 10^(-1/20), the default ceiling of -1 dBTP as an amplitude, computed apart.
     let ceiling = 0.891_250_938_133_745_6_f64;
     for rate in rates() {
@@ -525,7 +551,7 @@ fn names_the_lookahead_and_its_maximum_in_milliseconds() {
 /// Switched to protected while raw, in `S`: once the crossfade has arrived, the ceiling
 /// holds again.
 fn holds_the_ceiling_once_protected_again<S: Sample + Raw>(slack: f64) {
-    let mut draws = Draws::new();
+    let mut draws = Noise::new();
     // 10^(-1/20), the default ceiling as an amplitude, computed apart.
     let ceiling = 0.891_250_938_133_745_6_f64;
     let rate = SampleRate::new(48_000).expect("a rate");
@@ -614,7 +640,7 @@ fn changes_its_settings_live_in_each_precision() {
 fn crossfades_gradually_then_arrives_exactly<S: Sample>() {
     let rate = SampleRate::new(48_000).expect("a rate");
     let one = of::<S>(1.0_f64);
-    let mut draws = Draws::new();
+    let mut draws = Noise::new();
     let mut limiter = TruePeakLimiter::<S>::new(
         rate,
         1,

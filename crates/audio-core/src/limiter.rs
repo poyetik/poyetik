@@ -534,6 +534,18 @@ impl<S: Sample> TruePeakLimiter<S> {
                 .saturating_sub(u64::try_from(back).unwrap_or(u64::MAX));
             self.enqueue(step, self.need_before(delay.saturating_add(back)));
         }
+        // The released reductions still in the window were computed over the old window,
+        // which a longer lookahead now looks ahead of: each is raised to at least the need
+        // held over the new window, so that every sample leaving the delay before they leave
+        // the window is reduced as its peaks need.
+        let held = self.held();
+        let length = self.released.len();
+        let newest = behind(self.released_at, 1, length);
+        for back in 0..self.lookahead {
+            let at = behind(newest, back, length);
+            let kept = self.released.get(at).copied().unwrap_or(S::ZERO);
+            put(&mut self.released, at, larger_reduction(kept, held));
+        }
         self.exact_sums();
     }
 
