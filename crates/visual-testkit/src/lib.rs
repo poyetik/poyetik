@@ -14,9 +14,10 @@
 //!   instance after rendering the other images of the matrix in reverse order, or
 //!   jumping between both ends of the matrix, each image twice in a row (the second time
 //!   over other values);
-//! - **size change**: an instance renders an image with the same bits as a fresh
-//!   instance after rendering it at every other size of the matrix, so that the output
-//!   depends on the size it renders into, never on the sizes rendered before;
+//! - **size change**: an instance renders an image with the same bits, and traces the
+//!   points of every size the same way, as a fresh instance after rendering every other
+//!   size of the matrix, so that the output depends on the size it renders into and a
+//!   trace on its point's size, never on the sizes rendered before;
 //! - **overwrite**: rendering overwrites every value, whatever the image held before
 //!   (the image is filled with NaN first);
 //! - **finite values**: never NaN or infinity, and alpha within `[0, 1]`;
