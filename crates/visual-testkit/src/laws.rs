@@ -129,9 +129,9 @@ fn check_values(image: &Image, at: &str) -> Result<(), String> {
 /// Checks every law on the box `make` creates, at every image rate, size and index of
 /// the shared visual matrix, then at 64 random ones (`RANDOM_CASES`).
 ///
-/// The random ones come from a fixed seed: a rate (its terms up to 32 bits), a size (each side up to 64 pixels) and from two to
-/// eight indices, in the order drawn, so that a box right only at the values of the matrix
-/// is caught.
+/// The random ones come from a fixed seed: a rate (its terms up to 32 bits), a size (each
+/// side up to 64 pixels) and from two to eight indices, in the order drawn, so that a box
+/// right only at the values of the matrix is caught.
 ///
 /// # Errors
 ///

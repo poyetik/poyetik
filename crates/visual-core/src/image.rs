@@ -27,7 +27,7 @@ impl ImageSize {
     /// memory is another matter: creating an image cannot fail, so where the allocation is
     /// refused (a microcontroller, a phone's browser) the program aborts natively and the
     /// WebAssembly instance traps (`spec/limitations.md`, "Out of memory").
-    pub const MAX_PIXELS: u32 = 1 << 25;
+    pub const MAX_PIXELS: u64 = 1 << 25;
 
     /// Creates an image size.
     ///
@@ -41,7 +41,7 @@ impl ImageSize {
         let size = Self { width, height };
         if !(sides.contains(&width) && sides.contains(&height)) {
             Err(VisualError::InvalidImageSize { width, height })
-        } else if size.pixels() > u64::from(Self::MAX_PIXELS) {
+        } else if size.pixels() > Self::MAX_PIXELS {
             Err(VisualError::ImageTooLarge { width, height })
         } else {
             Ok(size)

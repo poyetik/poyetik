@@ -174,13 +174,11 @@ impl core::error::Error for CaseError {
 /// A visual conformance case, every value checked: what is rendered and hashed.
 #[derive(Debug, Clone, Copy)]
 pub struct PreparedCase {
-    /// The image rate.
-    rate: ImageRate,
     /// The images rendered.
     range: ImageRange,
     /// The image size.
     size: ImageSize,
-    /// The square.
+    /// The square, which holds the image rate.
     square: Square,
 }
 
@@ -191,7 +189,8 @@ impl PreparedCase {
     pub fn hash(&self) -> ImageHash {
         let mut square = self.square;
         let mut image = Image::new(self.size);
-        hash_sequence(&mut square, self.rate, self.range, &mut image)
+        let rate = square.rate();
+        hash_sequence(&mut square, rate, self.range, &mut image)
     }
 }
 
@@ -226,7 +225,6 @@ pub fn parse_case(text: &str) -> Result<PreparedCase, CaseError> {
     let cycle = Seconds::new(seconds, divisor).map_err(CaseError::Cycle)?;
     let square = Square::new(rate, file.square.side, cycle).map_err(CaseError::Side)?;
     Ok(PreparedCase {
-        rate,
         range,
         size,
         square,

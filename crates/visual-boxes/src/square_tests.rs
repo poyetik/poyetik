@@ -21,9 +21,34 @@ fn square(rate: ImageRate, side: u32, seconds: (u32, u32)) -> Square {
     Square::new(rate, side, cycle).expect("a valid square")
 }
 
+/// 60 images per second.
+fn sixty() -> ImageRate {
+    ImageRate::new(60, 1).expect("a valid rate")
+}
+
 /// One image per second.
 fn per_second() -> ImageRate {
     ImageRate::new(1, 1).expect("a valid rate")
+}
+
+#[test]
+fn is_the_full_side_the_generators_reach() {
+    assert_eq!(
+        visual_testkit::generate::FULL_SIDE,
+        Square::FULL_SIDE,
+        "the test kit's copy, which it cannot name"
+    );
+}
+
+#[test]
+fn keeps_the_rate_it_is_made_for() {
+    let rate = ImageRate::new(24_000, 1001).expect("a valid rate");
+    assert_eq!(square(rate, 1, (3, 2)).rate(), rate, "the rate given");
+    assert_eq!(
+        square(per_second(), 1, (3, 2)).rate(),
+        per_second(),
+        "another one"
+    );
 }
 
 /// Renders image `index` of `visual` at `width` × `height`.
@@ -161,7 +186,7 @@ fn stops_short_of_the_right_edge_at_the_end_of_the_cycle() {
 #[test]
 fn gives_the_same_bits_in_any_order() {
     // Random access: image n depends only on n.
-    let mut forward = square(ImageRate::PER_SECOND_60, 17_000, (5, 3));
+    let mut forward = square(sixty(), 17_000, (5, 3));
     let mut backward = forward;
     let ahead: Vec<Vec<u32>> = (0..40)
         .map(|index| bits(rendered(&mut forward, index, 11, 6).values()))
@@ -180,7 +205,7 @@ fn gives_the_same_bits_in_any_order() {
 fn stays_exact_far_in_time() {
     // 10^12 cycles of one second at 60 images per second (6 × 10^13 images, about 31 700
     // years): no drift, still periodic.
-    let mut visual = square(ImageRate::PER_SECOND_60, 30_000, (1, 1));
+    let mut visual = square(sixty(), 30_000, (1, 1));
     let start = rendered(&mut visual, 0, 9, 4);
     let far = rendered(&mut visual, 60 * 1_000_000_000_000, 9, 4);
     assert_eq!(
@@ -193,7 +218,7 @@ fn stays_exact_far_in_time() {
     // cycle and (2^64 - 1) × 1001 × 1000 mod (24000 × 1001) = 15 × 1001 × 1000, a product
     // past 2^64, so that 64-bit arithmetic, saturating or wrapping, gives another image.
     for (rate, cycle) in [
-        (ImageRate::PER_SECOND_60, (1, 1)),
+        (sixty(), (1, 1)),
         (
             ImageRate::new(24_000, 1001).expect("a valid rate"),
             (1001, 1000),

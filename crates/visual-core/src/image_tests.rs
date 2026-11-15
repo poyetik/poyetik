@@ -73,11 +73,7 @@ fn rejects_images_of_more_pixels_than_every_target_holds() {
 fn creates_the_largest_image() {
     for (width, height) in [(16_384, 2048), (2048, 16_384)] {
         let size = ImageSize::new(width, height).expect("the largest area");
-        assert_eq!(
-            size.pixels(),
-            u64::from(ImageSize::MAX_PIXELS),
-            "{width}x{height}"
-        );
+        assert_eq!(size.pixels(), ImageSize::MAX_PIXELS, "{width}x{height}");
         let image = Image::new(size);
         assert_eq!(
             image.values().len(),

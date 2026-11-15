@@ -17,14 +17,14 @@
 extern crate alloc;
 
 mod contract;
-mod coverage;
+pub mod coverage;
 mod error;
 mod image;
 mod rate;
 mod render;
 
 pub use contract::{SubpixelPoint, Trace, VisualBox};
-pub use coverage::{SUBPIXELS, coverage_to_intensity, overlap};
+pub use coverage::{SUBPIXELS, coverage_to_intensity};
 pub use error::VisualError;
 pub use image::{ColorEncoding, Image, ImageSize};
 pub use rate::{ImageIndex, ImageRange, ImageRate, Seconds};

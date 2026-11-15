@@ -22,7 +22,7 @@ fn replaced(from: &str, to: &str) -> String {
 fn reads_every_value_of_a_valid_case() {
     let case = parse_case(SMALL).expect("a valid case");
     let rate = ImageRate::new(24_000, 1001).expect("a valid rate");
-    assert_eq!(case.rate, rate, "rate");
+    assert_eq!(case.square.rate(), rate, "rate");
     assert_eq!(
         case.size,
         ImageSize::new(17, 9).expect("a valid size"),

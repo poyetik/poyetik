@@ -1,5 +1,7 @@
 //! Exact time: the image rate, durations, the index of an image and runs of images.
 
+use core::num::NonZeroU32;
+
 use crate::VisualError;
 
 /// Greatest common divisor, by Euclid's algorithm.
@@ -18,20 +20,14 @@ const fn gcd(mut first: u64, mut second: u64) -> u64 {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ImageRate {
     /// Images per `denominator` seconds.
-    numerator: u32,
+    numerator: NonZeroU32,
     /// The seconds `numerator` images take.
-    denominator: u32,
+    denominator: NonZeroU32,
 }
 
 impl ImageRate {
     /// Highest supported rate, in images per second.
     pub const MAX_PER_SECOND: u32 = 1000;
-
-    /// 60 images per second.
-    pub const PER_SECOND_60: Self = Self {
-        numerator: 60,
-        denominator: 1,
-    };
 
     /// Creates an image rate of `numerator / denominator` images per second.
     ///
@@ -45,15 +41,18 @@ impl ImageRate {
             numerator,
             denominator,
         };
-        let top = u64::from(numerator);
-        let bottom = u64::from(denominator);
-        let per_second_max = bottom.saturating_mul(u64::from(Self::MAX_PER_SECOND));
-        if denominator == 0 || top < bottom || top > per_second_max || gcd(top, bottom) != 1 {
+        let (Some(top), Some(bottom)) = (NonZeroU32::new(numerator), NonZeroU32::new(denominator))
+        else {
+            return Err(rejected);
+        };
+        let (wide_top, wide_bottom) = (u64::from(numerator), u64::from(denominator));
+        let per_second_max = wide_bottom.saturating_mul(u64::from(Self::MAX_PER_SECOND));
+        if wide_top < wide_bottom || wide_top > per_second_max || gcd(wide_top, wide_bottom) != 1 {
             Err(rejected)
         } else {
             Ok(Self {
-                numerator,
-                denominator,
+                numerator: top,
+                denominator: bottom,
             })
         }
     }
@@ -61,13 +60,19 @@ impl ImageRate {
     /// Images per [`ImageRate::denominator`] seconds.
     #[must_use]
     pub const fn numerator(self) -> u32 {
-        self.numerator
+        self.numerator.get()
     }
 
     /// The seconds [`ImageRate::numerator`] images last.
     #[must_use]
     pub const fn denominator(self) -> u32 {
-        self.denominator
+        self.denominator.get()
+    }
+
+    /// [`ImageRate::numerator`], nonzero by construction: a divisor needing no check.
+    #[must_use]
+    pub const fn nonzero_numerator(self) -> NonZeroU32 {
+        self.numerator
     }
 }
 
@@ -76,9 +81,9 @@ impl ImageRate {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Seconds {
     /// Seconds, times `denominator`.
-    numerator: u32,
+    numerator: NonZeroU32,
     /// The divisor: the duration is `numerator / denominator` seconds.
-    denominator: u32,
+    denominator: NonZeroU32,
 }
 
 impl Seconds {
@@ -89,32 +94,36 @@ impl Seconds {
     /// Returns [`VisualError::InvalidSeconds`] unless both terms are nonzero and the
     /// fraction is reduced.
     pub fn new(numerator: u32, denominator: u32) -> Result<Self, VisualError> {
-        if numerator == 0
-            || denominator == 0
-            || gcd(u64::from(numerator), u64::from(denominator)) != 1
-        {
-            Err(VisualError::InvalidSeconds {
+        match (NonZeroU32::new(numerator), NonZeroU32::new(denominator)) {
+            (Some(top), Some(bottom)) if gcd(u64::from(numerator), u64::from(denominator)) == 1 => {
+                Ok(Self {
+                    numerator: top,
+                    denominator: bottom,
+                })
+            }
+            _ => Err(VisualError::InvalidSeconds {
                 numerator,
                 denominator,
-            })
-        } else {
-            Ok(Self {
-                numerator,
-                denominator,
-            })
+            }),
         }
     }
 
     /// Seconds, times [`Seconds::denominator`].
     #[must_use]
     pub const fn numerator(self) -> u32 {
-        self.numerator
+        self.numerator.get()
     }
 
     /// The divisor: the duration is [`Seconds::numerator`] / this, in seconds.
     #[must_use]
     pub const fn denominator(self) -> u32 {
-        self.denominator
+        self.denominator.get()
+    }
+
+    /// [`Seconds::numerator`], nonzero by construction: a divisor needing no check.
+    #[must_use]
+    pub const fn nonzero_numerator(self) -> NonZeroU32 {
+        self.numerator
     }
 }
 

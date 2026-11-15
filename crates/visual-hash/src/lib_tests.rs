@@ -37,7 +37,7 @@ fn image(size: ImageSize, values: &[f32]) -> Image {
 
 /// The hash of `images` of `size` at 60 images per second.
 fn hash(size: ImageSize, images: &[&[f32]]) -> ImageHash {
-    let mut hasher = ImageHasher::new(ImageRate::PER_SECOND_60, size, ENCODING);
+    let mut hasher = ImageHasher::new(sixty(), size, ENCODING);
     for values in images {
         hasher.add(&image(size, values)).expect("same size");
     }
@@ -63,6 +63,11 @@ fn hex_bytes(digits: &str) -> Vec<u8> {
             u8::from_str_radix(core::str::from_utf8(pair).expect("ASCII"), 16).expect("hexadecimal")
         })
         .collect()
+}
+
+/// 60 images per second.
+fn sixty() -> ImageRate {
+    ImageRate::new(60, 1).expect("a valid rate")
 }
 
 #[test]
@@ -180,7 +185,7 @@ fn covers_the_format() {
 #[test]
 fn refuses_an_image_of_another_size_and_adds_nothing() {
     let sequence = size(2, 1);
-    let mut hasher = ImageHasher::new(ImageRate::PER_SECOND_60, sequence, ENCODING);
+    let mut hasher = ImageHasher::new(sixty(), sequence, ENCODING);
     hasher
         .add(&image(sequence, &[0.0; 8]))
         .expect("the sequence's size");
@@ -225,7 +230,7 @@ impl VisualBox for Ramp {
 fn hashes_a_rendered_sequence_as_adding_each_image() {
     let size = size(3, 2);
     for (first, count) in [(0_u64, 0_u64), (0, 1), (5, 3), (2, 4)] {
-        let mut separately = ImageHasher::new(ImageRate::PER_SECOND_60, size, ENCODING);
+        let mut separately = ImageHasher::new(sixty(), size, ENCODING);
         for offset in 0..count {
             let mut one = Image::new(size);
             Ramp(0.5).render(ImageIndex(first + offset), &mut one);
@@ -235,7 +240,7 @@ fn hashes_a_rendered_sequence_as_adding_each_image() {
         assert_eq!(
             hash_sequence(
                 &mut Ramp(0.5),
-                ImageRate::PER_SECOND_60,
+                sixty(),
                 ImageRange::new(ImageIndex(first), count).expect("a valid range"),
                 &mut image
             ),
@@ -247,7 +252,7 @@ fn hashes_a_rendered_sequence_as_adding_each_image() {
     let at = |visual: &mut Ramp, into: &mut Image, first: u64| {
         hash_sequence(
             visual,
-            ImageRate::PER_SECOND_60,
+            sixty(),
             ImageRange::new(ImageIndex(first), 2).expect("a valid range"),
             into,
         )

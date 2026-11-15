@@ -95,7 +95,7 @@ function cycle(value: unknown, where: string): Fraction {
 }
 
 /** Reads a side of an image, from 1 to {@link MAX_IMAGE_SIDE} pixels. */
-function side(value: unknown, where: string): number {
+function dimension(value: unknown, where: string): number {
   const read = u32(value, where);
   if (read < 1 || read > MAX_IMAGE_SIDE) {
     throw new InputError(`${where} is not from 1 to ${String(MAX_IMAGE_SIDE)} pixels`);
@@ -128,7 +128,7 @@ function exactly(value: unknown, keys: readonly string[], where: string): object
  * The reviver visits every value before the one holding it: the path of a number refused
  * is built on the way up, from the values holding it, and thrown at the root.
  */
-function exactFirst(text: string, name: string): bigint {
+function exactNumbers(text: string, name: string): bigint {
   let first = -1n;
   // The number refused: its path so far, why, and the value holding it, whose own visit adds its key.
   let refused: { path: string; reason: string; holder: unknown } | undefined;
@@ -192,9 +192,8 @@ export function parseVisualCase(text: string, name: string): VisualCase {
   const square = exactly(field(checked, "square"), SQUARE_KEYS, `${name}: square`);
   const read = {
     rate: rate(field(checked, "rate"), `${name}: rate`),
-    width: side(field(checked, "width"), `${name}: width`),
-    height: side(field(checked, "height"), `${name}: height`),
-    images: field(checked, "images"),
+    width: dimension(field(checked, "width"), `${name}: width`),
+    height: dimension(field(checked, "height"), `${name}: height`),
     square: {
       side: u32(field(square, "side"), `${name}: square.side`),
       cycle: cycle(field(square, "cycle"), `${name}: square.cycle`),
@@ -203,11 +202,12 @@ export function parseVisualCase(text: string, name: string): VisualCase {
   if (read.width * read.height > MAX_IMAGE_PIXELS) {
     throw new InputError(`${name}: the image has more than ${String(MAX_IMAGE_PIXELS)} pixels`);
   }
-  if (typeof read.images !== "number" || !(read.images >= 1 && read.images <= MAX_IMAGES && read.images % 1 === 0)) {
+  const images = field(checked, "images");
+  if (typeof images !== "number" || !(images >= 1 && images <= MAX_IMAGES && images % 1 === 0)) {
     throw new InputError(`${name}: images is not from 1 to ${String(MAX_IMAGES)}`);
   }
-  if (read.images * read.width * read.height > MAX_RENDERED_PIXELS) {
-    throw new InputError(`${name}: a case renders at most ${String(MAX_RENDERED_PIXELS)} pixels in all, this one ${String(read.images * read.width * read.height)}`);
+  if (images * read.width * read.height > MAX_RENDERED_PIXELS) {
+    throw new InputError(`${name}: a case renders at most ${String(MAX_RENDERED_PIXELS)} pixels in all, this one ${String(images * read.width * read.height)}`);
   }
   if (read.square.side > FULL_SIDE) {
     throw new InputError(`${name}: square.side is above ${String(FULL_SIDE)}, a square taller than the image`);
@@ -218,13 +218,13 @@ export function parseVisualCase(text: string, name: string): VisualCase {
   if (!eachFieldOnce(text)) {
     throw new InputError(`${name}: a field is written twice`);
   }
-  const first = exactFirst(text, name);
+  const first = exactNumbers(text, name);
   if (first < 0n || first > MAX_U64) {
     throw new InputError(`${name}: first is not an unsigned 64-bit integer`);
   }
   // The last image is `first + images - 1`: it must be an index too.
-  if (first + BigInt(read.images) - 1n > MAX_U64) {
+  if (first + BigInt(images) - 1n > MAX_U64) {
     throw new InputError(`${name}: the last image is past the largest index`);
   }
-  return { ...read, images: read.images, first };
+  return { ...read, images, first };
 }
