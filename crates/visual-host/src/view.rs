@@ -1,7 +1,5 @@
 //! The square a host shows: its parameters and the image it renders into.
 
-#![forbid(unsafe_code)]
-
 use alloc::string::{String, ToString};
 use core::fmt;
 
@@ -117,7 +115,7 @@ impl View {
         }
     }
 
-    /// The square, the size and the image rate of a setup, checked.
+    /// The square (holding its image rate) and the size of a setup, checked.
     fn checked(
         width: u32,
         height: u32,
