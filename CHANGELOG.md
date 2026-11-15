@@ -61,6 +61,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The native renderer ran no box of a patch without audio output; it now processes the frames asked, running every box block by block, as the WebAssembly engine does (`spec/engine-design.md`, "Patches without audio output: time advances").
 - `WasmEngine.create` and the benchmarks' counted instance took any `engine_load` result other than 1 for a refused patch, reading whatever message the module held; a result other than 1 (loaded) or 0 (refused) is now a `ModuleError`.
 
 ## [0.4.0] - 2026-11-14

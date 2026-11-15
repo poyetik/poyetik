@@ -107,29 +107,58 @@ impl<S: Sample, I: Dispatch<S, N>, const N: usize> Renderer<S, I, N> {
     /// ([`Renderer::channels`] samples per frame), given as `D` ([`host::Delivered`](Delivered)).
     ///
     /// Successive calls continue exactly where the previous one stopped, whatever their
-    /// lengths (also across [`Renderer::render_into`]). A plan without output renders
-    /// nothing (and runs no box).
+    /// lengths (also across [`Renderer::render_into`]). A plan without output gives no
+    /// sample, but its frames are processed: time advances and every box runs, block by
+    /// block (`spec/engine-design.md`, "Patches without audio output: time advances").
     ///
     /// # Errors
     ///
     /// Returns [`CoreError::RenderTooLong`] when the samples cannot be held in memory.
     pub fn render<D: Delivered<S>>(&mut self, frames: usize) -> Result<Vec<D>, CoreError> {
+        // The plan's channels, read once: whether the render gives samples or only advances.
+        let channels = self.plan.channels();
         let length = frames
-            .checked_mul(self.channels())
+            .checked_mul(channels)
             .ok_or(CoreError::RenderTooLong(frames))?;
         let mut samples = Vec::new();
         samples
             .try_reserve_exact(length)
             .map_err(|_| CoreError::RenderTooLong(frames))?;
         samples.resize(length, D::deliver(S::ZERO));
-        self.render_into(&mut samples);
+        if channels == 0 {
+            self.advance(frames);
+        } else {
+            self.render_into(&mut samples);
+        }
         Ok(samples)
+    }
+
+    /// Processes the next `frames` frames of a plan without output: every block they reach
+    /// runs every box, as rendering it would, and no sample is given.
+    fn advance(&mut self, frames: usize) {
+        let mut left = frames;
+        // Each round takes at least one frame, so `frames` rounds always suffice.
+        for _ in 0..frames {
+            if left == 0 {
+                break;
+            }
+            if self.used == N {
+                let last = self.last.as_chunks_mut::<N>().0;
+                self.plan.process(last);
+                self.stage.apply(last);
+                self.used = 0;
+            }
+            let taken = N.saturating_sub(self.used).min(left);
+            self.used = self.used.saturating_add(taken);
+            left = left.saturating_sub(taken);
+        }
     }
 
     /// Renders the next frames into `out`, interleaved by channel and given as `D`
     /// ([`host::Delivered`](Delivered)): as many whole frames as `out` holds
     /// ([`Renderer::channels`] samples each). Samples after the last whole frame are left
-    /// untouched; a plan without output writes nothing.
+    /// untouched; a plan without output writes nothing, and since no frame is said, runs
+    /// nothing either ([`Renderer::render`] advances it).
     ///
     /// Continues exactly where the previous render stopped, like [`Renderer::render`].
     /// Does not use the heap. Copies one channel at a time, as many frames as both the

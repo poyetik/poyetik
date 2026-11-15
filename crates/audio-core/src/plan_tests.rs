@@ -7,6 +7,7 @@ use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
+use core::sync::atomic::{AtomicUsize, Ordering};
 
 use super::Feed;
 use crate::Params;
@@ -337,7 +338,48 @@ static HUGE: ObjectSpec = ObjectSpec::new::<Huge>(
     AlgorithmVersion::FIRST,
 );
 
-static REGISTRY: [&ObjectSpec; 10] = [
+/// The blocks every `count~` box processed, in each precision apart: what shows that a
+/// patch without output still runs its boxes. Only the test of patches without output
+/// creates `count~` boxes, once per precision.
+static COUNTED: [AtomicUsize; 2] = [AtomicUsize::new(0), AtomicUsize::new(0)];
+
+/// The counter of `count~` boxes computing in `S`.
+fn counted<S: Sample>() -> &'static AtomicUsize {
+    match S::PRECISION {
+        Precision::Binary64 => &COUNTED[0],
+        Precision::Binary32 => &COUNTED[1],
+    }
+}
+
+/// Counts the blocks it processes ([`COUNTED`]), and has no outlet: a box no output reads.
+#[derive(Debug)]
+struct Count;
+impl<S: Sample, const N: usize> Object<S, N> for Count {
+    fn process(&mut self, _inputs: &[Block<S, N>], _outputs: &mut [Block<S, N>]) {
+        let _: usize = counted::<S>().fetch_add(1, Ordering::Relaxed);
+    }
+}
+impl Create for Count {
+    const PARAMS: &'static [ParamSpec] = &[];
+
+    fn create<S: Sample, const N: usize>(
+        _rate: SampleRate,
+        _params: Params<'_>,
+    ) -> Box<dyn Object<S, N>> {
+        Box::new(Self)
+    }
+}
+static COUNT: ObjectSpec = ObjectSpec::new::<Count>(
+    "count~",
+    "counts its blocks",
+    &[],
+    &[],
+    &[],
+    AlgorithmVersion::FIRST,
+);
+
+static REGISTRY: [&ObjectSpec; 11] = [
+    &COUNT,
     &CONST,
     &RAMP,
     &ADD,
@@ -975,13 +1017,35 @@ fn renders_nothing_for_zero_frames_or_channels<S: Bits>() {
             .collect::<Vec<_>>(),
         "nothing was processed before"
     );
+}
+
+fn runs_every_box_of_a_patch_without_output<S: Bits>() {
+    // No output channel: no sample to give, but time advances and every box runs, block by
+    // block, as in the WebAssembly engine (decision 1's consequences, #12 step 11).
     let mut silent =
-        Renderer::new(build::<S>(vec![node(1, "ramp~")], vec![]).expect("valid patch"));
+        Renderer::new(build::<S>(vec![node(1, "count~")], vec![]).expect("valid patch"));
+    assert_eq!(silent.channels(), 0, "no output channel");
+    let before = counted::<S>().load(Ordering::Relaxed);
+    let ran = || counted::<S>().load(Ordering::Relaxed).saturating_sub(before);
+    assert_eq!(silent.render(0), Ok(Vec::<S::Float>::new()), "zero frames");
+    assert_eq!(ran(), 0, "no frame, no block");
+    assert_eq!(silent.render(1), Ok(Vec::<S::Float>::new()), "one frame");
+    assert_eq!(ran(), 1, "the first block, for its first frame");
     assert_eq!(
-        silent.render(usize::MAX),
+        silent.render(BLOCK_SIZE - 1),
         Ok(Vec::<S::Float>::new()),
-        "no output channel: nothing to render, at once"
+        "the rest of it"
     );
+    assert_eq!(ran(), 1, "within the first block");
+    assert_eq!(
+        silent.render(BLOCK_SIZE + 1),
+        Ok(Vec::<S::Float>::new()),
+        "on"
+    );
+    assert_eq!(ran(), 3, "a whole block and the first frame of the next");
+    let mut none: [S::Float; 0] = [];
+    silent.render_into(&mut none);
+    assert_eq!(ran(), 3, "nothing to write and no frame said: nothing runs");
 }
 
 fn refuses_renders_too_long_for_memory<S: Bits>() {
@@ -1829,6 +1893,7 @@ in_both_precisions!(
     renders_through_a_limited_stage_delayed_by_its_latency,
     replaces_and_reports_non_finite_samples_before_delivery,
     renders_nothing_for_zero_frames_or_channels,
+    runs_every_box_of_a_patch_without_output,
     refuses_renders_too_long_for_memory,
     sums_cables_in_source_order_whatever_the_document_order,
     accepts_patches_up_to_the_limits_only,
