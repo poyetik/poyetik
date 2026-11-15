@@ -1,5 +1,6 @@
 extern crate alloc;
 
+use alloc::format;
 use alloc::string::ToString;
 use alloc::vec::Vec;
 
@@ -275,4 +276,66 @@ fn reports_a_mismatch_as_an_error() {
     /// Compiles only for an error type.
     const fn error<E: core::error::Error>() {}
     error::<Mismatch>();
+}
+
+#[test]
+fn hashes_the_bytes_the_specification_lays_out_for_any_values() {
+    // At random rates, sizes and counts of images whose values are any bit patterns (NaN
+    // payloads, -0, subnormals, infinities included): the hash is the SHA-256 of the bytes
+    // laid out here from the specification's table, apart from the hasher.
+    use visual_testkit::generate::{rate_terms, u32_edges};
+    use visual_testkit::proptest::collection::vec;
+    use visual_testkit::proptest::prelude::{Just, Strategy, prop_oneof};
+    use visual_testkit::proptest::test_runner::TestCaseError;
+    use visual_testkit::runner::runner;
+    let bits = prop_oneof![
+        u32_edges(),
+        Just(0x8000_0000_u32),
+        Just(0x0000_0001_u32),
+        Just(0x7fc0_0001_u32),
+        Just(0xff80_0000_u32),
+    ];
+    let cases = (rate_terms(), 1_u32..=3, 1_u32..=3).prop_flat_map(move |(rate, width, height)| {
+        let values = usize::try_from(width * height * 4).unwrap_or(0);
+        (
+            Just((rate, width, height)),
+            vec(vec(bits.clone(), values), 0..=3),
+        )
+    });
+    let verdict = runner(256).run(&cases, |((rate, width, height), images)| {
+        let image_rate =
+            ImageRate::new(rate.0, rate.1).map_err(|_| TestCaseError::fail("a rate"))?;
+        let mut hasher = ImageHasher::new(image_rate, size(width, height), ENCODING);
+        let mut bytes: Vec<u8> = Vec::new();
+        bytes.extend_from_slice(b"image-hash/1");
+        for field in [rate.0, rate.1, width, height, 1] {
+            bytes.extend_from_slice(&field.to_le_bytes());
+        }
+        for values in &images {
+            let mut image = Image::new(size(width, height));
+            for (slot, &pattern) in image.rows_mut().flatten().zip(values) {
+                *slot = f32::from_bits(pattern);
+            }
+            hasher
+                .add(&image)
+                .map_err(|_| TestCaseError::fail("same size"))?;
+            for &pattern in values {
+                bytes.extend_from_slice(&pattern.to_le_bytes());
+            }
+        }
+        bytes.extend_from_slice(&u64::try_from(images.len()).unwrap_or(0).to_le_bytes());
+        let expected: [u8; 32] = Sha256::digest(&bytes).into();
+        if hasher.finish().bytes() == expected {
+            Ok(())
+        } else {
+            Err(TestCaseError::fail(format!(
+                "{rate:?} {width}x{height} {images:?}"
+            )))
+        }
+    });
+    assert_eq!(
+        verdict.map_err(|error| error.to_string()),
+        Ok(()),
+        "every layout"
+    );
 }

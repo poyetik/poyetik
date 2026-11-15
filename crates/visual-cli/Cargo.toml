@@ -23,5 +23,8 @@ visual-boxes = { path = "../visual-boxes" }
 visual-core = { path = "../visual-core" }
 visual-hash = { path = "../visual-hash" }
 
+[dev-dependencies]
+visual-testkit = { path = "../visual-testkit" }
+
 [lints]
 workspace = true

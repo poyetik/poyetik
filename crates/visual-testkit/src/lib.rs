@@ -20,18 +20,23 @@
 //! - **no heap operation** while rendering, in every pass of every law: no allocation,
 //!   reallocation or release (measured by [`CountingAllocator`], which the test binary
 //!   must install as its global allocator);
-//! - **pure trace**: tracing a point (a corner, the center, the last subpixel and the
-//!   point past the image) twice gives the same answer, from a fresh instance or one that
-//!   rendered other images.
+//! - **pure trace**: tracing a point (the first subpixel, the center and the last
+//!   subpixel) twice gives the same answer, from a fresh instance or one that rendered
+//!   other images.
 
 #![forbid(unsafe_code)]
 #![doc(test(attr(forbid(unsafe_code))))]
 
+pub mod generate;
 mod laws;
 pub mod matrix;
+pub mod runner;
 
 pub use alloc_counter::{CountingAllocator, NotCounting, heap_operations_during};
 pub use laws::{Factory, check_laws};
+/// The property test library the generators and runners are made for, so that every crate
+/// of the visual library uses the same version through its test crate.
+pub use proptest;
 
 #[cfg(test)]
 #[path = "lib_tests.rs"]

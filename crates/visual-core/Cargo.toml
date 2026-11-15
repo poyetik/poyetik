@@ -13,5 +13,8 @@ categories = ["graphics", "no-std"]
 
 [dependencies]
 
+[dev-dependencies]
+visual-testkit = { path = "../visual-testkit" }
+
 [lints]
 workspace = true

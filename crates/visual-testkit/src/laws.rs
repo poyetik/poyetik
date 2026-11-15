@@ -2,8 +2,18 @@
 
 use visual_core::{Image, ImageIndex, ImageRate, ImageSize, SubpixelPoint, Trace, VisualBox};
 
+use proptest::collection::vec;
+use proptest::prelude::{Strategy, prop_oneof};
+use proptest::test_runner::{TestCaseError, TestError};
+
+use crate::generate::{rate_terms, small_size, u64_edges};
 use crate::heap_operations_during;
 use crate::matrix::{image_indices, image_rates, image_sizes};
+use crate::runner::runner;
+
+/// The random cases of [`check_laws`] beyond the matrix: each a rate, a size and up to
+/// eight indices drawn at random, their edges often.
+const RANDOM_CASES: u32 = 64;
 
 /// Creates a fresh instance of the box under test for images at a rate.
 pub type Factory<'make> = dyn Fn(ImageRate) -> Box<dyn VisualBox> + 'make;
@@ -117,32 +127,66 @@ fn check_values(image: &Image, at: &str) -> Result<(), String> {
 }
 
 /// Checks every law on the box `make` creates, at every image rate, size and index of
-/// the shared visual matrix.
+/// the shared visual matrix, then at 64 random ones (`RANDOM_CASES`).
+///
+/// The random ones come from a fixed seed: a rate (its terms up to 32 bits), a size (each side up to 64 pixels) and from two to
+/// eight indices, in the order drawn, so that a box right only at the values of the matrix
+/// is caught.
 ///
 /// # Errors
 ///
-/// Returns the first law broken, naming it and where (rate, size, image index). Also
-/// fails when [`crate::CountingAllocator`] is not installed, since the no-heap law could
-/// not be checked.
+/// Returns the first law broken, naming it and where (rate, size, image index); off the
+/// matrix, at the simplest random case found to break it, after "Test failed: ". Also fails when
+/// [`crate::CountingAllocator`] is not installed, since the no-heap law could not be
+/// checked.
 pub fn check_laws(make: &Factory<'_>) -> Result<(), String> {
     let ((), _) = heap_operations_during(|| ())?;
+    let indices = image_indices();
     for rate in image_rates() {
         for size in image_sizes() {
-            check_at(make, rate, size)?;
+            check_at(make, rate, size, &indices)?;
         }
     }
-    Ok(())
+    let cases = (
+        rate_terms().prop_filter_map("a valid rate", |(numerator, denominator)| {
+            ImageRate::new(numerator, denominator).ok()
+        }),
+        prop_oneof![small_size(), (1_u32..=64, 1_u32..=64)]
+            .prop_filter_map("a valid size", |(width, height)| {
+                ImageSize::new(width, height).ok()
+            }),
+        vec(u64_edges().prop_map(ImageIndex), 2..=8),
+    );
+    runner(RANDOM_CASES)
+        .run(&cases, |(rate, size, drawn)| {
+            check_at(make, rate, size, &drawn).map_err(TestCaseError::fail)
+        })
+        .map_err(|error: TestError<_>| {
+            // Its first line says the law and where; the shrunk case follows, in Debug
+            // form, over many lines, and adds nothing the place does not say.
+            error
+                .to_string()
+                .lines()
+                .next()
+                .unwrap_or_default()
+                .to_owned()
+        })
 }
 
-/// Checks every law at one rate and size, over every image index of the matrix.
-fn check_at(make: &Factory<'_>, rate: ImageRate, size: ImageSize) -> Result<(), String> {
+/// Checks every law at one rate and size, over `indices`, in their order.
+fn check_at(
+    make: &Factory<'_>,
+    rate: ImageRate,
+    size: ImageSize,
+    indices: &[ImageIndex],
+) -> Result<(), String> {
     let mut first = make(rate);
     let mut second = make(rate);
     // Renders the same images in the same order as `first`, each into an image filled with
     // NaN first: only what rendering leaves unwritten can differ.
     let mut third = make(rate);
     let mut references = Vec::new();
-    for index in image_indices() {
+    for &index in indices {
         let at = place(rate, size, index);
         let image = render(first.as_mut(), size, index, &at, "")?;
         check_values(&image, &at)?;

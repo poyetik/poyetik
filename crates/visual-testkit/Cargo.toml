@@ -13,6 +13,7 @@ categories = ["development-tools::testing"]
 
 [dependencies]
 alloc-counter = { path = "../alloc-counter" }
+proptest = { version = "1", default-features = false, features = ["std"] }
 visual-core = { path = "../visual-core" }
 
 [dev-dependencies]
