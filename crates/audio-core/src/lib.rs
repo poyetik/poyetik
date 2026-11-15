@@ -26,6 +26,7 @@ extern crate alloc;
 mod block;
 mod error;
 mod flush;
+mod limiter;
 mod math;
 mod object;
 mod output;
@@ -37,6 +38,7 @@ mod subnormals;
 
 pub use block::{BLOCK_SIZE, Block};
 pub use error::CoreError;
+pub use limiter::{DETECTOR_DELAY, LimiterError, LimiterSettings, Setting, TruePeakLimiter};
 pub use math::{
     ArithmeticMode, ArithmeticOption, Binary32, Binary64, MODE, Precision, RenderFormat, Sample,
     UnknownArithmeticOptions, host, ordered_sum,

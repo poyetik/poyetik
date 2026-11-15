@@ -146,20 +146,20 @@ fn rounds_binary64_to_the_nearest_binary32() {
 
 /// Deterministic draws of 64-bit patterns, without a dependency: `SplitMix64` (Steele, Lea
 /// and Flood, 2014), as `spec/measurements.md` defines it. The one copy of this crate's
-/// tests (the reduction tests draw from it too); `audio-core` cannot use the battery's
-/// (`audio_battery::splitmix64`), which depends on it.
-pub(super) mod splitmix {
+/// tests (the reduction and limiter tests draw from it too); `audio-core` cannot use the
+/// battery's (`audio_battery::splitmix64`), which depends on it.
+pub(crate) mod splitmix {
     /// The state of the generator.
-    pub(in super::super) struct Draws(pub(in super::super) u64);
+    pub(crate) struct Draws(pub(crate) u64);
 
     impl Draws {
         /// A generator from a fixed seed.
-        pub(in super::super) const fn new() -> Self {
+        pub(crate) const fn new() -> Self {
             Self(0x5059_0006)
         }
 
         /// The next 64 bits.
-        pub(in super::super) const fn next(&mut self) -> u64 {
+        pub(crate) const fn next(&mut self) -> u64 {
             self.0 = self.0.wrapping_add(0x9e37_79b9_7f4a_7c15);
             let mut mixed = self.0;
             mixed = (mixed ^ (mixed >> 30_u32)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
@@ -724,4 +724,422 @@ fn a_factory_creates_instances_in_either_precision() {
         "binary32"
     );
     assert!(format!("{factory:?}").starts_with("Factory"), "{factory:?}");
+}
+
+/// The interpolator of ITU-R BS.1770-4, Annex 2, as the standard prints it: twelve rows of
+/// the four phases.
+const BS1770_ROWS: [[f64; 4]; 12] = [
+    [
+        0.001_708_984_375_f64,
+        -0.029_174_804_687_5_f64,
+        -0.018_920_898_437_5_f64,
+        -0.008_300_781_25_f64,
+    ],
+    [
+        0.010_986_328_125_f64,
+        0.029_296_875_f64,
+        0.033_081_054_687_5_f64,
+        0.014_892_578_125_f64,
+    ],
+    [
+        -0.019_653_320_312_5_f64,
+        -0.051_757_812_5_f64,
+        -0.058_227_539_062_5_f64,
+        -0.026_611_328_125_f64,
+    ],
+    [
+        0.033_203_125_f64,
+        0.089_111_328_125_f64,
+        0.101_562_5_f64,
+        0.047_607_421_875_f64,
+    ],
+    [
+        -0.059_448_242_187_5_f64,
+        -0.166_503_906_25_f64,
+        -0.200_317_382_812_5_f64,
+        -0.102_294_921_875_f64,
+    ],
+    [
+        0.137_329_101_562_5_f64,
+        0.465_087_890_625_f64,
+        0.779_785_156_25_f64,
+        0.972_167_968_75_f64,
+    ],
+    [
+        0.972_167_968_75_f64,
+        0.779_785_156_25_f64,
+        0.465_087_890_625_f64,
+        0.137_329_101_562_5_f64,
+    ],
+    [
+        -0.102_294_921_875_f64,
+        -0.200_317_382_812_5_f64,
+        -0.166_503_906_25_f64,
+        -0.059_448_242_187_5_f64,
+    ],
+    [
+        0.047_607_421_875_f64,
+        0.101_562_5_f64,
+        0.089_111_328_125_f64,
+        0.033_203_125_f64,
+    ],
+    [
+        -0.026_611_328_125_f64,
+        -0.058_227_539_062_5_f64,
+        -0.051_757_812_5_f64,
+        -0.019_653_320_312_5_f64,
+    ],
+    [
+        0.014_892_578_125_f64,
+        0.033_081_054_687_5_f64,
+        0.029_296_875_f64,
+        0.010_986_328_125_f64,
+    ],
+    [
+        -0.008_300_781_25_f64,
+        -0.018_920_898_437_5_f64,
+        -0.029_174_804_687_5_f64,
+        0.001_708_984_375_f64,
+    ],
+];
+
+#[test]
+fn holds_the_true_peak_interpolator_of_the_standard_exact_in_both_precisions() {
+    for (tap, row) in BS1770_ROWS.iter().enumerate() {
+        for (phase, coefficient) in row.iter().enumerate() {
+            let held = super::TRUE_PEAK_FILTER[phase][tap];
+            assert_eq!(
+                held.to_bits(),
+                coefficient.to_bits(),
+                "phase {phase}, tap {tap}"
+            );
+            // A multiple of 2^-13 below 1: exact in binary32 too.
+            assert_eq!(
+                f64::from(to_binary32(held)).to_bits(),
+                held.to_bits(),
+                "exact in binary32"
+            );
+            assert_eq!(
+                (held * 8192.0_f64).fract().to_bits(),
+                0,
+                "a multiple of 2^-13"
+            );
+        }
+    }
+    assert_eq!(super::TRUE_PEAK_TAPS, 12, "48 taps in 4 phases");
+}
+
+/// The larger of two magnitudes, by comparison (`f64::max` is banned for its NaN rule).
+fn larger(first: f64, second: f64) -> f64 {
+    if second > first { second } else { first }
+}
+
+/// The interpolator in `S`.
+fn filter<S: Sample>() -> [[S; super::TRUE_PEAK_TAPS]; 4] {
+    super::TRUE_PEAK_FILTER.map(|phase| phase.map(|tap| S::from_binary64(super::Binary64(tap))))
+}
+
+fn estimates_the_true_peak_of_an_impulse_at_each_tap<S: Sample>() {
+    // One sample of ±1 at tap `k`: each phase gives its coefficient `k`, and the two samples
+    // estimated themselves, 5 and 6 frames back, give 1.
+    for sign in [1.0_f64, -1.0_f64] {
+        for tap in 0..super::TRUE_PEAK_TAPS {
+            let mut history = [S::ZERO; super::TRUE_PEAK_TAPS];
+            history[tap] = S::from_binary64(super::Binary64(sign));
+            let expected = if tap == 5 || tap == 6 {
+                1.0_f64
+            } else {
+                BS1770_ROWS[tap]
+                    .iter()
+                    .fold(0.0_f64, |peak, coefficient| larger(peak, coefficient.abs()))
+            };
+            assert_eq!(
+                super::true_peak(&history, &filter::<S>()),
+                S::from_binary64(super::Binary64(expected)),
+                "{sign} at tap {tap}"
+            );
+        }
+    }
+}
+
+#[test]
+fn estimates_the_true_peak_of_an_impulse_at_each_tap_in_each_precision() {
+    estimates_the_true_peak_of_an_impulse_at_each_tap::<Binary64>();
+    estimates_the_true_peak_of_an_impulse_at_each_tap::<Binary32>();
+}
+
+#[test]
+fn estimates_the_true_peak_of_any_history_as_the_largest_phase() {
+    // Against a reference summing each phase in plain order: the same value up to the
+    // rounding of twelve products and sums, relative 2^-48 for samples of ±1.
+    let mut draws = splitmix::Draws::new();
+    for _ in 0_u16..1_000 {
+        let history: [f64; super::TRUE_PEAK_TAPS] = core::array::from_fn(|_| {
+            f64::from_bits((0x3ff_u64 << 52_u32) | (draws.next() >> 12_u32)) - 1.5_f64
+        });
+        let reference = super::TRUE_PEAK_FILTER
+            .iter()
+            .map(|phase| {
+                phase
+                    .iter()
+                    .zip(history)
+                    .map(|(tap, sample)| tap * sample)
+                    .fold(0.0_f64, |sum, term| sum + term)
+                    .abs()
+            })
+            .fold(larger(history[5].abs(), history[6].abs()), larger);
+        let estimate = super::true_peak(&history.map(super::Binary64), &filter::<Binary64>()).0;
+        assert!(
+            (estimate - reference).abs() <= reference * f64::EPSILON * 32.0_f64,
+            "{estimate} for {reference}"
+        );
+    }
+}
+
+#[test]
+fn needs_no_reduction_up_to_the_ceiling_and_the_exact_share_above() {
+    let ceiling = super::Binary64(0.75_f64);
+    for peak in [0.0_f64, 0.5_f64, 0.75_f64] {
+        assert_eq!(
+            super::reduction_needed(super::Binary64(peak), ceiling),
+            super::Binary64(0.0_f64),
+            "{peak}"
+        );
+    }
+    assert_eq!(
+        super::reduction_needed(super::Binary64(1.5_f64), ceiling),
+        super::Binary64(0.5_f64),
+        "half taken away"
+    );
+    assert_eq!(
+        super::reduction_needed(super::Binary32(3.0_f32), super::Binary32(0.75_f32)),
+        super::Binary32(0.75_f32),
+        "in binary32"
+    );
+}
+
+#[test]
+fn decays_approaches_shares_and_complements_reductions() {
+    assert_eq!(
+        super::decayed(super::Binary64(0.5_f64), super::Binary64(0.5_f64)),
+        super::Binary64(0.25_f64),
+        "kept"
+    );
+    assert_eq!(
+        super::decayed(super::Binary64(f64::MIN_POSITIVE), super::Binary64(0.5_f64))
+            .0
+            .to_bits(),
+        0,
+        "flushed to zero, never stalling"
+    );
+    assert_eq!(
+        super::decayed(super::Binary32(f32::MIN_POSITIVE), super::Binary32(0.5_f32))
+            .0
+            .to_bits(),
+        0,
+        "in binary32 too"
+    );
+    assert_eq!(
+        super::approached(
+            super::Binary64(0.25_f64),
+            super::Binary64(0.75_f64),
+            super::Binary64(0.5_f64)
+        ),
+        super::Binary64(0.5_f64),
+        "halfway"
+    );
+    assert_eq!(
+        super::approached(
+            super::Binary64(0.75_f64),
+            super::Binary64(0.25_f64),
+            super::Binary64(0.25_f64)
+        ),
+        super::Binary64(0.625_f64),
+        "downward too"
+    );
+    assert_eq!(
+        super::share(super::Binary64(0.5_f64), super::Binary64(0.25_f64)),
+        super::Binary64(0.125_f64),
+        "a share"
+    );
+    assert_eq!(
+        super::complement(super::Binary64(0.25_f64)),
+        super::Binary64(0.75_f64),
+        "one minus"
+    );
+    assert_eq!(
+        super::larger_reduction(super::Binary64(0.25_f64), super::Binary64(0.5_f64)),
+        super::Binary64(0.5_f64),
+        "the larger, second"
+    );
+    assert_eq!(
+        super::larger_reduction(super::Binary64(0.5_f64), super::Binary64(0.25_f64)),
+        super::Binary64(0.5_f64),
+        "the larger, first"
+    );
+    assert_eq!(
+        super::reduced(super::Binary64(-0.5_f64), super::Binary64(0.25_f64)),
+        super::Binary64(-0.375_f64),
+        "a sample reduced"
+    );
+}
+
+#[test]
+fn slides_the_hann_sums_as_the_exact_sums_of_the_window() {
+    let mut draws = splitmix::Draws::new();
+    for length in [1_usize, 2, 7, 72, 300] {
+        let phasor: Vec<(Binary64, Binary64)> = (1..=length)
+            .map(|steps| {
+                let (cos, sin) = super::limiter::turned(steps, length);
+                (cos, sin)
+            })
+            .collect();
+        let turn = phasor[0];
+        let values: Vec<Binary64> = (0..length * 5)
+            .map(|_| {
+                super::Binary64(
+                    f64::from_bits((0x3ff_u64 << 52_u32) | (draws.next() >> 12_u32)) - 1.0_f64,
+                )
+            })
+            .collect();
+        let mut sums = super::HannSums::<Binary64>::ZERO;
+        for (index, value) in values.iter().enumerate() {
+            let oldest = index
+                .checked_sub(length)
+                .map_or(super::Binary64(0.0_f64), |earlier| values[earlier]);
+            sums = sums.advanced(*value, oldest, turn);
+            let window = (0..length).map(|back| {
+                index
+                    .checked_sub(back)
+                    .map_or(super::Binary64(0.0_f64), |at| values[at])
+            });
+            let exact = super::HannSums::of(window, &phasor);
+            for (slid, summed) in [
+                (sums.sum, exact.sum),
+                (sums.real, exact.real),
+                (sums.imaginary, exact.imaginary),
+            ] {
+                assert!(
+                    (slid.0 - summed.0).abs() <= 1e-12_f64,
+                    "{length}: {} and {}",
+                    slid.0,
+                    summed.0
+                );
+            }
+        }
+        // A window of ones: the Hann weights sum to `length + 1`, so the mean is one.
+        let ones = super::HannSums::of(
+            core::iter::repeat_n(super::Binary64(1.0_f64), length),
+            &phasor,
+        );
+        let mean = ones.smoothed(super::limiter::scale(length)).0;
+        assert!(
+            (mean - 1.0_f64).abs() <= 1e-12_f64,
+            "{length}: the mean of ones is {mean}"
+        );
+    }
+}
+
+#[test]
+fn computes_the_limiter_coefficients_from_its_settings() {
+    use super::limiter::{amplitude, fast_release, frames, keep, scale, step};
+    let rate = SampleRate::new(48_000).expect("a rate");
+    assert_eq!(
+        frames(super::Binary64(1.5_f64), rate),
+        72,
+        "1.5 ms at 48 kHz"
+    );
+    assert_eq!(
+        frames(super::Binary64(0.01_f64), rate),
+        1,
+        "at least one frame"
+    );
+    assert_eq!(
+        frames(super::Binary64(1.0_f64 / 96.0_f64), rate),
+        1,
+        "half a frame rounds up"
+    );
+    assert_eq!(
+        frames(super::Binary64(f64::NAN), rate),
+        usize::MAX,
+        "no count saturates"
+    );
+    // e^-1, computed apart; libm's exp is within an ulp of it.
+    assert!(
+        (keep(super::Binary64(1000.0_f64 / 48_000.0_f64), rate).0 - 0.367_879_441_171_442_33_f64)
+            .abs()
+            <= f64::EPSILON,
+        "one frame's constant keeps 1/e"
+    );
+    assert_eq!(
+        step(super::Binary64(0.25_f64)),
+        super::Binary64(0.75_f64),
+        "the gap closed"
+    );
+    assert_eq!(
+        amplitude(super::Binary64(0.0_f64)),
+        super::Binary64(1.0_f64),
+        "0 dB"
+    );
+    assert!(
+        (amplitude(super::Binary64(-20.0_f64)).0 - 0.1_f64).abs() < 1e-15_f64,
+        "-20 dB"
+    );
+    assert!(
+        (amplitude(super::Binary64(-1.0_f64)).0 - 0.891_250_938_133_745_6_f64).abs() < 1e-15_f64,
+        "-1 dBTP"
+    );
+    assert_eq!(
+        fast_release(
+            super::Binary64(100.0_f64),
+            super::Binary64(0.0_f64),
+            super::Binary64(10.0_f64)
+        ),
+        super::Binary64(100.0_f64),
+        "fixed"
+    );
+    assert_eq!(
+        fast_release(
+            super::Binary64(100.0_f64),
+            super::Binary64(1.0_f64),
+            super::Binary64(10.0_f64)
+        ),
+        super::Binary64(10.0_f64),
+        "a tenth"
+    );
+    assert_eq!(scale(3), super::Binary64(0.25_f64), "one over four");
+}
+
+#[test]
+fn rounds_to_counts_exactly_or_refuses() {
+    for (raw, count) in [
+        (0.0_f64, Some(0)),
+        (-0.0_f64, Some(0)),
+        (-0.4_f64, Some(0)),
+        (0.49_f64, Some(0)),
+        (0.5_f64, Some(1)),
+        (1.5_f64, Some(2)),
+        (2.5_f64, Some(3)),
+        (1_920.0_f64, Some(1_920)),
+        (2_147_483_648.0_f64, Some(2_147_483_648)),
+        (4_294_967_295.0_f64, Some(u32::MAX)),
+        (4_294_967_295.4_f64, Some(u32::MAX)),
+        (4_294_967_295.5_f64, None),
+        (-0.5_f64, None),
+        (f64::NAN, None),
+        (f64::INFINITY, None),
+    ] {
+        assert_eq!(super::Binary64(raw).rounded_count(), count, "{raw}");
+    }
+    assert_eq!(Binary64::from_count(0), super::Binary64(0.0_f64), "zero");
+    assert_eq!(
+        Binary64::from_count(1_920),
+        super::Binary64(1_920.0_f64),
+        "a count"
+    );
+    assert_eq!(
+        Binary64::from_count(usize::MAX),
+        super::Binary64(f64::from(u32::MAX)),
+        "saturates"
+    );
 }

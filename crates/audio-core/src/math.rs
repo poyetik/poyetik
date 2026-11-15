@@ -817,6 +817,362 @@ pub(crate) fn add_two<S: Sample>(out: &mut Block<S>, first: &Block<S>, second: &
     }
 }
 
+/// Taps of each phase of the true-peak interpolator ([`TRUE_PEAK_FILTER`]).
+pub(crate) const TRUE_PEAK_TAPS: usize = 12;
+
+/// The true-peak interpolator of ITU-R BS.1770-4, Annex 2: 4x oversampling by a 48-tap FIR
+/// in 4 phases of [`TRUE_PEAK_TAPS`] taps, as the standard publishes it. Tap `k` of a phase
+/// multiplies the sample `k` frames before the newest. Every coefficient is a multiple of
+/// 2^-13 below 1 in magnitude, so it is exact in binary32 as in binary64.
+pub(crate) const TRUE_PEAK_FILTER: [[f64; TRUE_PEAK_TAPS]; 4] = [
+    [
+        0.001_708_984_375,
+        0.010_986_328_125,
+        -0.019_653_320_312_5,
+        0.033_203_125,
+        -0.059_448_242_187_5,
+        0.137_329_101_562_5,
+        0.972_167_968_75,
+        -0.102_294_921_875,
+        0.047_607_421_875,
+        -0.026_611_328_125,
+        0.014_892_578_125,
+        -0.008_300_781_25,
+    ],
+    [
+        -0.029_174_804_687_5,
+        0.029_296_875,
+        -0.051_757_812_5,
+        0.089_111_328_125,
+        -0.166_503_906_25,
+        0.465_087_890_625,
+        0.779_785_156_25,
+        -0.200_317_382_812_5,
+        0.101_562_5,
+        -0.058_227_539_062_5,
+        0.033_081_054_687_5,
+        -0.018_920_898_437_5,
+    ],
+    [
+        -0.018_920_898_437_5,
+        0.033_081_054_687_5,
+        -0.058_227_539_062_5,
+        0.101_562_5,
+        -0.200_317_382_812_5,
+        0.779_785_156_25,
+        0.465_087_890_625,
+        -0.166_503_906_25,
+        0.089_111_328_125,
+        -0.051_757_812_5,
+        0.029_296_875,
+        -0.029_174_804_687_5,
+    ],
+    [
+        -0.008_300_781_25,
+        0.014_892_578_125,
+        -0.026_611_328_125,
+        0.047_607_421_875,
+        -0.102_294_921_875,
+        0.972_167_968_75,
+        0.137_329_101_562_5,
+        -0.059_448_242_187_5,
+        0.033_203_125,
+        -0.019_653_320_312_5,
+        0.010_986_328_125,
+        0.001_708_984_375,
+    ],
+];
+
+/// The magnitude of `value`: itself, or its negation when it is below zero (a zero keeps
+/// its sign, which no comparison sees).
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "IEEE 754 negation of the sample type, exact"
+)]
+fn magnitude<S: Sample>(value: S) -> S {
+    if value < S::ZERO { -value } else { value }
+}
+
+/// The larger of `first` and `second`, `first` when they compare equal.
+fn larger<S: Sample>(first: S, second: S) -> S {
+    if second > first { second } else { first }
+}
+
+/// The true-peak estimate of the interval between the samples 6 and 5 frames before the
+/// newest of `history` (newest first): the largest magnitude of those two samples and of
+/// the four phases of [`TRUE_PEAK_FILTER`] (`filter`, the same in the precision `S`), each
+/// phase summed in the reduction order ([`ordered_sum`]).
+///
+/// Every sample of `history` is finite: the output stage replaces a non-finite one first.
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "IEEE 754 products of the sample type, which neither overflow into a panic nor panic"
+)]
+pub(crate) fn true_peak<S: Sample>(
+    history: &[S; TRUE_PEAK_TAPS],
+    filter: &[[S; TRUE_PEAK_TAPS]; 4],
+) -> S {
+    let samples = larger(magnitude(history[5]), magnitude(history[6]));
+    filter.iter().fold(samples, |peak, phase| {
+        let value = ordered_sum(
+            phase
+                .iter()
+                .zip(history)
+                .map(|(tap, sample)| *tap * *sample),
+        );
+        larger(peak, magnitude(value))
+    })
+}
+
+/// The gain reduction a true peak `peak` needs to stay at `ceiling` (both positive): zero
+/// when it is at or below the ceiling, exactly, otherwise `1 - ceiling / peak`, the share
+/// of the signal to take away.
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "IEEE 754 quotient and difference of positive finite samples, the peak above the ceiling so never zero"
+)]
+pub(crate) fn reduction_needed<S: Sample>(peak: S, ceiling: S) -> S {
+    if peak > ceiling {
+        S::from_binary64(Binary64::ONE) - ceiling / peak
+    } else {
+        S::ZERO
+    }
+}
+
+/// The reduction `reduction` kept for one more frame: `reduction × keep` (`keep` below 1),
+/// flushed, so that a release decays to exactly zero instead of stalling.
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "IEEE 754 product of the sample type, between zero and one"
+)]
+pub(crate) fn decayed<S: Sample>(reduction: S, keep: S) -> S {
+    (reduction * keep).flush()
+}
+
+/// `reduction` moved toward `target` by the share `step` of their difference (a one-pole
+/// approach, `step` between zero and one), flushed.
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "IEEE 754 difference, product and sum of samples between zero and one"
+)]
+pub(crate) fn approached<S: Sample>(reduction: S, target: S, step: S) -> S {
+    (target - reduction).mul_then_add(step, reduction).flush()
+}
+
+/// The larger of two reductions.
+pub(crate) fn larger_reduction<S: Sample>(first: S, second: S) -> S {
+    larger(first, second)
+}
+
+/// The sliding sums of a Hann window over the last frames of a reduction: the plain sum,
+/// and the sum weighted by the unit phasor turning one step of the window per frame (its
+/// real and imaginary parts). The Hann-weighted sum is half their difference ([`Self::smoothed`]).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct HannSums<S> {
+    /// The plain sum.
+    pub(crate) sum: S,
+    /// The real part of the turning sum.
+    pub(crate) real: S,
+    /// Its imaginary part.
+    pub(crate) imaginary: S,
+}
+
+impl<S: Sample> HannSums<S> {
+    /// Sums of a window of zeros.
+    pub(crate) const ZERO: Self = Self {
+        sum: S::ZERO,
+        real: S::ZERO,
+        imaginary: S::ZERO,
+    };
+
+    /// The sums one frame later: `newest` enters the window and `oldest` leaves it;
+    /// `turn` (`cos`, `sin`) is the phasor's step. With `c = cos + i sin`, the turning sum
+    /// `C` becomes `c × (C + newest) - oldest`, since `c` turned a whole window is 1.
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "IEEE 754 sums and products of finite samples bounded by the window's length"
+    )]
+    #[must_use]
+    pub(crate) fn advanced(self, newest: S, oldest: S, turn: (S, S)) -> Self {
+        let (cos, sin) = turn;
+        let real = self.real + newest;
+        Self {
+            sum: self.sum + newest - oldest,
+            real: real * cos - self.imaginary * sin - oldest,
+            imaginary: real * sin + self.imaginary * cos,
+        }
+    }
+
+    /// The sums of `window` (newest first), each in the reduction order: the plain sum, and
+    /// the sums of `window[k]` times `phasor[k]` (`cos`, `sin` of the phasor turned `k + 1`
+    /// steps).
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "IEEE 754 products of finite samples"
+    )]
+    pub(crate) fn of(window: impl Iterator<Item = S> + Clone, phasor: &[(S, S)]) -> Self {
+        Self {
+            sum: ordered_sum(window.clone()),
+            real: ordered_sum(
+                window
+                    .clone()
+                    .zip(phasor)
+                    .map(|(value, turn)| value * turn.0),
+            ),
+            imaginary: ordered_sum(window.zip(phasor).map(|(value, turn)| value * turn.1)),
+        }
+    }
+
+    /// The Hann-weighted mean of the window: `(sum - real) × scale`, where `scale` is one
+    /// over the window's length plus one (the weights `1 - cos(2π (k + 1) / (L + 1))`, for
+    /// `k` from 0 to `L - 1`, sum to `L + 1`).
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "IEEE 754 difference and product of finite samples"
+    )]
+    pub(crate) fn smoothed(self, scale: S) -> S {
+        (self.sum - self.real) * scale
+    }
+}
+
+/// `sample` reduced by `reduction`: `sample × (1 - reduction)`. The caller passes the
+/// sample itself through when the reduction is zero, so that it keeps its bits.
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "IEEE 754 difference and product of finite samples"
+)]
+pub(crate) fn reduced<S: Sample>(sample: S, reduction: S) -> S {
+    sample * (S::from_binary64(Binary64::ONE) - reduction)
+}
+
+/// `value × by`: a reduction scaled by the share of it applied.
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "IEEE 754 product of finite samples between zero and one"
+)]
+pub(crate) fn share<S: Sample>(value: S, by: S) -> S {
+    value * by
+}
+
+/// `1 - value`, for a share between zero and one.
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "IEEE 754 difference of finite samples between zero and one"
+)]
+pub(crate) fn complement<S: Sample>(value: S) -> S {
+    S::from_binary64(Binary64::ONE) - value
+}
+
+/// The limiter's coefficients, computed in binary64 when it is built or a setting changes,
+/// never per sample.
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "IEEE 754 binary64 arithmetic on settings within their checked ranges and on rates and frame counts far from overflow"
+)]
+pub(crate) mod limiter {
+    use super::Binary64;
+    use crate::SampleRate;
+
+    /// Frames in `milliseconds` at `rate`, rounded to the nearest, at least one.
+    pub(crate) fn frames(milliseconds: Binary64, rate: SampleRate) -> usize {
+        let count = (milliseconds * Binary64::from(rate) / Binary64(1000.0))
+            .rounded_count()
+            .and_then(|count| usize::try_from(count).ok())
+            .unwrap_or(usize::MAX);
+        count.max(1)
+    }
+
+    /// The share a one-pole with a time constant of `milliseconds` at `rate` keeps per
+    /// frame: `exp(-1 / frames)`.
+    pub(crate) fn keep(milliseconds: Binary64, rate: SampleRate) -> Binary64 {
+        let frames = milliseconds * Binary64::from(rate) / Binary64(1000.0);
+        (-(Binary64::ONE / frames)).exp()
+    }
+
+    /// `1 - keep`, the share of the gap a one-pole closes per frame.
+    pub(crate) fn step(keep: Binary64) -> Binary64 {
+        Binary64::ONE - keep
+    }
+
+    /// The amplitude of `decibels`: `10^(decibels / 20)`, as `exp(decibels × ln 10 / 20)`.
+    pub(crate) fn amplitude(decibels: Binary64) -> Binary64 {
+        (decibels * Binary64(core::f64::consts::LN_10 / 20.0)).exp()
+    }
+
+    /// The fast release time: the release and its `divisor`-th mixed by the adaptivity,
+    /// `release × (1 - adaptivity) + release / divisor × adaptivity`, exactly the release at
+    /// an adaptivity of 0 and exactly its `divisor`-th at 1.
+    pub(crate) fn fast_release(
+        release: Binary64,
+        adaptivity: Binary64,
+        divisor: Binary64,
+    ) -> Binary64 {
+        release * (Binary64::ONE - adaptivity) + release / divisor * adaptivity
+    }
+
+    /// The phasor turned `steps` steps of a window of `length` frames, plus one: the cosine
+    /// and sine of `2π steps / (length + 1)`.
+    pub(crate) fn turned(steps: usize, length: usize) -> (Binary64, Binary64) {
+        let angle = Binary64::TAU * Binary64::from_count(steps)
+            / Binary64::from_count(length.saturating_add(1));
+        (angle.cos(), angle.sine())
+    }
+
+    /// One over `length + 1`.
+    pub(crate) fn scale(length: usize) -> Binary64 {
+        Binary64::ONE / Binary64::from_count(length.saturating_add(1))
+    }
+}
+
+impl Binary64 {
+    /// e raised to `self` (`libm`): the limiter's coefficients, computed when it is built
+    /// or a setting changes, never per sample.
+    #[must_use]
+    pub(crate) fn exp(self) -> Self {
+        Self(libm::exp(self.0))
+    }
+
+    /// The cosine of `self` radians (`libm`).
+    #[must_use]
+    pub(crate) fn cos(self) -> Self {
+        Self(libm::cos(self.0))
+    }
+
+    /// The sine of `self` radians (`libm`).
+    #[must_use]
+    pub(crate) fn sine(self) -> Self {
+        Self(libm::sin(self.0))
+    }
+
+    /// `count`, exactly up to 2^53 (counts of frames are far below), saturating at
+    /// `u32::MAX`.
+    #[must_use]
+    pub(crate) fn from_count(count: usize) -> Self {
+        Self(u32::try_from(count).map_or_else(|_| f64::from(u32::MAX), f64::from))
+    }
+
+    /// `self` rounded to the nearest whole number (halves away from zero, `libm`), as a
+    /// count: `None` when it is not a number from 0 to `u32::MAX` once rounded. Read from
+    /// the bits of the rounded value, exactly, with no cast.
+    #[must_use]
+    pub(crate) fn rounded_count(self) -> Option<u32> {
+        let rounded = libm::round(self.0);
+        if !(rounded >= 0.0_f64 && rounded <= f64::from(u32::MAX)) {
+            return None;
+        }
+        if rounded < 1.0_f64 {
+            return Some(0);
+        }
+        // A whole number from 1 to 2^32 - 1: 1.f × 2^e with e from 0 to 31, so its value is
+        // the 53 bits of 1.f shifted right by 52 - e.
+        let bits = rounded.to_bits();
+        let exponent = (bits >> 52_u32) & 0x7ff;
+        let significand = (bits & 0x000f_ffff_ffff_ffff) | 0x0010_0000_0000_0000;
+        let shift = 1075_u64.checked_sub(exponent)?;
+        u32::try_from(significand.checked_shr(u32::try_from(shift).ok()?)?).ok()
+    }
+}
+
 /// What a host, never a box, needs of the engine's samples: their floats and their bits,
 /// to give them to the platform, hash them, read them back and test them.
 ///
@@ -987,7 +1343,7 @@ pub mod host {
 
 #[cfg(test)]
 #[path = "math_tests.rs"]
-mod tests;
+pub(crate) mod tests;
 
 #[cfg(test)]
 #[path = "reduction_tests.rs"]
