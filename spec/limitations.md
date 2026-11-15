@@ -7,6 +7,16 @@ What the project does not prove, or proves only in part, and the trade-offs it a
 - **A browser that flushes subnormals on its audio thread.** Firefox on x86_64 runs its audio thread, and the engine's WebAssembly on it, with subnormal operands and results flushed to zero, which no page can read or change; Chromium and WebKit keep IEEE arithmetic, and on aarch64 all three do (measured; [`engine-design.md`](engine-design.md), decision 11). Where the engine flushes, no bit changes; elsewhere, a live render in that browser equals the native one only as long as no subnormal arises outside the engine's flush points: true of every case the browser tests play live, not proven for every patch. The difference is far below anything audible. The engine reports the arithmetic it observes when it starts. Accepted: avoiding it would cost every user latency or speed, for one browser on one architecture.
 - **The bits of a NaN.** A sum or a product whose result is NaN gives a NaN whose payload and sign may differ between targets and builds ([`engine-design.md`](engine-design.md), decision 28; #24 step 2 decides how sums treat NaN).
 
+## Visual library
+
+- **Point sampling, no motion blur.** Each image shows one instant, so fast motion strobes and can alias in time ([`visual-design.md`](visual-design.md), decision 2); whether boxes integrate over time is decided by #35 step 2.
+- **A box filter only.** A pixel is the exact area a shape covers: the standard for vector shapes, but it leaves some aliasing on fine detail, which other filters reduce (#35 step 7).
+- **No output transfer or quantization.** Images are linear-light floats; sRGB or another display encoding, with deterministic dithering, comes with the color pipeline and the output stage (#35 steps 6 and 10).
+- **Square pixels assumed.** An image has no pixel aspect ratio: the square is square on square pixels only (#35 step 2).
+- **Exactness, not perception, measured.** The square's measurements are bit equalities with an exact reference ([`measurements.md`](measurements.md), Images); perceptual measurements (aliasing of moving edges, flicker, banding) come with #35 step 7, and the visual boxes have no benchmark yet (#35 step 12).
+- **WebAssembly in Node only.** The visual module is tested in Node, not in a browser, until the playground draws with it (#34 step 6).
+- **No algorithm versions.** A visual reference is changed only through `visual-cli bless`, in a commit that says why; nothing yet refuses a changed bit at an unchanged version ([`visual-design.md`](visual-design.md), section 9; #35 step 2).
+
 ## Real time
 
 - **Constructing the engine processor** compiles the module, instantiates it and builds the plan on the audio thread, once, before it renders (measured; to be bounded by #12 step 30).

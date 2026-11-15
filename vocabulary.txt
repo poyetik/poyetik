@@ -57,6 +57,7 @@ forbid object -> box in crates/audio-core/ crates/audio-boxes/ crates/audio-patc
 forbid objects -> boxes in crates/audio-core/ crates/audio-boxes/ crates/audio-patch/ crates/audio-testkit/ crates/audio-hash/ crates/audio-cli/ bindings/audio-wasm/src/ crates/visual-core/ crates/visual-boxes/ crates/visual-hash/ crates/visual-testkit/ crates/visual-cli/ bindings/visual-wasm/src/ bindings/visual-wasm/ts/ spec/ conformance/ GLOSSARY.md -- GLOSSARY.md: one processing unit of a patch is a box
 forbid frame -> image in crates/visual-core/ crates/visual-boxes/ crates/visual-hash/ crates/visual-testkit/ crates/visual-cli/ bindings/visual-wasm/src/ bindings/visual-wasm/ts/ conformance/visual/ -- GLOSSARY.md: the visual library's unit of time is an image, never called a frame, which is audio's
 forbid frames -> images in crates/visual-core/ crates/visual-boxes/ crates/visual-hash/ crates/visual-testkit/ crates/visual-cli/ bindings/visual-wasm/src/ bindings/visual-wasm/ts/ conformance/visual/ -- GLOSSARY.md: the visual library's unit of time is an image
+forbid shared layer -> coordinating layer -- GLOSSARY.md: the layer above the libraries is the coordinating layer
 allow object as "JSON object" -- the JSON value, as the patch format names it
 allow object as "trait object" -- Rust's `dyn Trait` value
 allow object as "while parsing an object" -- serde_json's own message about a JSON object, quoted by the tests
