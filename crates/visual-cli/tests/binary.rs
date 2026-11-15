@@ -102,7 +102,35 @@ mod tests {
 
     #[test]
     fn checks_the_repository_corpus() {
-        let output = visual_cli(&[OsStr::new("check"), OsStr::new(&corpus())]);
+        // Every case but the largest image, 2^25 pixels: unoptimized, as tests build, it costs
+        // most of the corpus's time (about 15 s of 18); `cargo xtask check` checks the whole
+        // corpus with an optimized build ("Visual conformance (native)").
+        let largest = "square-largest-image-at-50";
+        let dir = scratch("corpus");
+        std::fs::create_dir_all(dir.join("cases")).expect("cases directory");
+        for entry in std::fs::read_dir(Path::new(&corpus()).join("cases")).expect("the cases") {
+            let path = entry.expect("an entry").path();
+            if path.file_stem() != Some(OsStr::new(largest)) {
+                let name = path.file_name().expect("a file name");
+                let copied = std::fs::copy(&path, dir.join("cases").join(name)).expect("copied");
+                assert!(copied > 0, "{} copied", path.display());
+            }
+        }
+        let references = std::fs::read_to_string(Path::new(&corpus()).join("references.json"))
+            .expect("the references");
+        let mut kept = references
+            .lines()
+            .filter(|line| !line.contains(&format!("\"{largest}\"")))
+            .collect::<Vec<_>>()
+            .join("\n");
+        kept.push('\n');
+        assert_eq!(
+            kept.lines().count().checked_add(1),
+            Some(references.lines().count()),
+            "one reference left out, the largest image's, not the last line"
+        );
+        std::fs::write(dir.join("references.json"), kept).expect("written");
+        let output = visual_cli(&[OsStr::new("check"), dir.as_os_str()]);
         assert!(
             output.status.success(),
             "{}",
@@ -118,6 +146,7 @@ mod tests {
             .collect();
         cases.sort();
         assert_eq!(cases.len(), 11, "the eleven cases of the corpus");
+        cases.retain(|name| name != largest);
         let checked: Vec<&str> = said
             .lines()
             .map(|line| {
