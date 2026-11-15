@@ -1,4 +1,4 @@
-// The command-line contract of this package's two build commands, on their real entry
+// The command-line contract of this package's build and benchmark commands, on their real entry
 // points run as processes: one `error:` line on stderr, exit 1 for a failure, 2 for a
 // usage error, and a closed stdout never an error. Only the paths that stop before cargo
 // runs are taken, so that no build starts; each process is bounded in time, since a
@@ -49,6 +49,8 @@ test("refuses an argument to either command with a usage error and exit code 2",
   expect(run("build-wasm.ts", ["--help"], {})).toStrictEqual({ status: 2, stdout: "", stderr: 'error: build:wasm takes no argument but help, not "--help" (see: pnpm build:wasm help)\n' });
   expect(run("reproducible.ts", ["now"], {})).toStrictEqual({ status: 2, stdout: "", stderr: 'error: test:reproducible takes no argument but help, not "now" (see: pnpm test:reproducible help)\n' });
   expect(run("build-wasm.ts", ["help"], {})).toMatchObject({ status: 0, stderr: "" });
+  expect(run("benchmarks.ts", ["now"], {})).toStrictEqual({ status: 2, stdout: "", stderr: 'error: unknown command "now" (see: node scripts/benchmarks.ts (in bindings/visual-wasm) help)\n' });
+  expect(run("benchmarks.ts", ["help"], {})).toMatchObject({ status: 0, stderr: "" });
 });
 
 test("explains a failure in one line and exit code 1, never a stack trace", () => {
@@ -65,7 +67,7 @@ test("explains a failure in one line and exit code 1, never a stack trace", () =
 });
 
 test("takes a closed stdout as no error: the exit code stays the command's", async () => {
-  for (const script of ["build-wasm.ts", "reproducible.ts"]) {
+  for (const script of ["build-wasm.ts", "reproducible.ts", "benchmarks.ts"]) {
     expect(await runClosed(script, ["help"]), script).toStrictEqual({ status: 0, stderr: "" });
   }
 });

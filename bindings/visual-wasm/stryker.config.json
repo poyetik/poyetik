@@ -6,7 +6,8 @@
   },
   "mutate": [
     "ts/**/*.ts",
-    "scripts/module.ts"
+    "scripts/module.ts",
+    "benchmarks/**/*.ts"
   ],
   "ignorePatterns": [
     "!dist/visual.wasm"

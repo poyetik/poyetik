@@ -593,16 +593,23 @@ fn bless_benchmarks_counts_and_rewrites_the_baseline() {
             .iter()
             .map(|step| step.name.as_str())
             .collect::<Vec<_>>(),
-        ["Build the engine module", "Bless the benchmark baseline"],
+        [
+            "Build the engine module",
+            "Bless the benchmark baseline",
+            "Build the visual module",
+            "Bless the visual benchmark baseline"
+        ],
         "names"
     );
     assert_eq!(
         command_lines(&steps),
         vec![
             "Package(\"bindings/audio-wasm\"): pnpm run build:wasm",
-            "Package(\"bindings/audio-wasm\"): node scripts/benchmarks.ts bless"
+            "Package(\"bindings/audio-wasm\"): node scripts/benchmarks.ts bless",
+            "Package(\"bindings/visual-wasm\"): pnpm run build:wasm",
+            "Package(\"bindings/visual-wasm\"): node scripts/benchmarks.ts bless"
         ],
-        "builds the module, then runs the benchmark command's bless, which no package script runs"
+        "builds each module, then runs its benchmark command's bless, which no package script runs"
     );
     let mut fake = passing();
     let mut out = Vec::new();
@@ -620,16 +627,22 @@ fn bless_benchmarks_counts_and_rewrites_the_baseline() {
         fake.ran,
         [
             PREFLIGHT_RAN.as_slice(),
-            &["pnpm run build:wasm", "node scripts/benchmarks.ts bless"]
+            &[
+                "pnpm run build:wasm",
+                "node scripts/benchmarks.ts bless",
+                "pnpm run build:wasm",
+                "node scripts/benchmarks.ts bless"
+            ]
         ]
         .concat(),
-        "the preflight, then only the build and the benchmark bless run"
+        "the preflight, then only each module's build and benchmark bless run"
     );
     assert_eq!(
         String::from_utf8(out).expect("utf-8"),
-        "▶ [1/3] Tools and platform\n  done in 1.5 s\n▶ [2/3] Build the engine module\n  done in \
-         1.5 s\n▶ [3/3] Bless the benchmark baseline\n  done in 1.5 s\n✔ all 3 checks passed in \
-         4.5 s\n",
+        "▶ [1/5] Tools and platform\n  done in 1.5 s\n▶ [2/5] Build the engine module\n  done in \
+         1.5 s\n▶ [3/5] Bless the benchmark baseline\n  done in 1.5 s\n▶ [4/5] Build the visual \
+         module\n  done in 1.5 s\n▶ [5/5] Bless the visual benchmark baseline\n  done in 1.5 s\n✔ \
+         all 5 checks passed in 7.5 s\n",
         "progress"
     );
 }

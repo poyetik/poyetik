@@ -624,7 +624,14 @@ pub const PACKAGES: [Package; 7] = [
     Package {
         dir: "bindings/visual-wasm",
         step: "Visual WASM checks (the same image hashes as the native renderer)",
-        checks: &["build", "typecheck", "lint", "test", "test:reproducible"],
+        checks: &[
+            "build",
+            "typecheck",
+            "lint",
+            "test",
+            "test:reproducible",
+            "benchmarks:check",
+        ],
         shipped: true,
         outputs: &["dist"],
         needs: &[],

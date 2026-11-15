@@ -569,9 +569,11 @@ pub(crate) fn bless(
 ///
 /// Builds the engine module, then counts the instructions of every benchmark and rewrites
 /// `spec/benchmark-baseline.json`, refusing to when building plans grows faster than
-/// n log n. The commit must explain why the counts changed (`spec/benchmarks.md`).
+/// n log n; then the same for the visual module and `spec/visual-benchmark-baseline.json`,
+/// refusing when an image's cost is not proportional to its pixels. The commit must explain
+/// why the counts changed (`spec/benchmarks.md`).
 #[must_use]
-pub fn bless_benchmarks_steps() -> [Step; 2] {
+pub fn bless_benchmarks_steps() -> [Step; 4] {
     [
         run(
             "Build the engine module",
@@ -585,7 +587,28 @@ pub fn bless_benchmarks_steps() -> [Step; 2] {
             &["scripts/benchmarks.ts", "bless"],
             Dir::Package("bindings/audio-wasm"),
         ),
+        run(
+            "Build the visual module",
+            "pnpm",
+            &["run", "build:wasm"],
+            Dir::Package("bindings/visual-wasm"),
+        ),
+        run(
+            "Bless the visual benchmark baseline",
+            "node",
+            &["scripts/benchmarks.ts", "bless"],
+            Dir::Package("bindings/visual-wasm"),
+        ),
     ]
+}
+
+/// `cargo xtask bless-benchmarks`: the preflight, then [`bless_benchmarks_steps`].
+fn bless_benchmarks(runner: &mut dyn Runner, out: &mut dyn Write) -> Result<(), Failure> {
+    run_steps(
+        &[[preflight_step()].as_slice(), &bless_benchmarks_steps()].concat(),
+        runner,
+        out,
+    )
 }
 
 /// A command of `cargo xtask`, read from its arguments.
@@ -783,10 +806,7 @@ pub fn cli(
             .into_iter()
             .try_for_each(|part| say(out, &part.name())),
         Task::Bless(options) => run_steps(&[preflight_step(), bless_step(&options)], runner, out),
-        Task::BlessBenchmarks => {
-            let [build, bless] = bless_benchmarks_steps();
-            run_steps(&[preflight_step(), build, bless], runner, out)
-        }
+        Task::BlessBenchmarks => bless_benchmarks(runner, out),
         Task::CommitMsg(path) => {
             read_file(runner, &path).and_then(|message| commit_msg_gate(&message))
         }
