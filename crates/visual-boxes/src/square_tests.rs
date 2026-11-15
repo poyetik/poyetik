@@ -475,6 +475,9 @@ fn renders_every_pixel_as_its_exact_reference_at_the_extreme_terms() {
         ((4_294_967_291, 4_294_968), (4_294_967_295, 4_294_967_291)),
         ((30_000, 1001), (4_294_967_295, 1)),
         ((1, 1), (4_294_967_295, 1)),
+        // The largest elapsed product: both denominators near 2^32 and the last index, so
+        // `index × q × b` comes within 2^97 of 2^128 and must not saturate.
+        ((4_294_967_295, 4_294_967_294), (1, 4_294_967_295)),
     ] {
         for (width, height) in [(ImageSize::MAX_SIDE, 1), (64, 36), (5, 3)] {
             for side in [1, 30_000, Square::FULL_SIDE] {

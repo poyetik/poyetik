@@ -25,6 +25,14 @@ const NTSC: NonZeroU32 = match NonZeroU32::new(1001) {
     None => NonZeroU32::MIN,
 };
 
+/// The largest denominator a reduced rate can have with another numerator than itself:
+/// `u32::MAX - 1` (the largest `u32` as a denominator only allows numerators that reduce the
+/// rate to 1/1, since the fastest numerator saturates at `u32::MAX`).
+const LARGEST_DENOMINATOR: NonZeroU32 = match NonZeroU32::new(u32::MAX - 1) {
+    Some(largest) => largest,
+    None => NonZeroU32::MIN,
+};
+
 /// The greatest common divisor of `left` and `right`, never 0 since `right` is not.
 ///
 /// The remainder is a method call, as in `visual-core`'s own gcd, not the `%` operator: a
@@ -84,7 +92,8 @@ pub fn rate_terms() -> impl Strategy<Value = (u32, u32)> {
     prop_oneof![
         Just(NonZeroU32::MIN),
         Just(NTSC),
-        Just(NonZeroU32::MAX),
+        Just(LARGEST_DENOMINATOR),
+        // Small denominators, up to about twice NTSC's 1001, often.
         (1_u32..=2000).prop_filter_map("never 0", NonZeroU32::new),
         any::<NonZeroU32>(),
     ]

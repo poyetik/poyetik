@@ -259,7 +259,10 @@ test("reads any text to a case within its limits or refuses it as an input error
       ["pixels", pixels <= MAX_IMAGE_PIXELS],
       ["images", read.images >= 1 && read.images <= MAX_IMAGES],
       ["pixels rendered", read.images * pixels <= MAX_RENDERED_PIXELS],
-      ["side", read.square.side <= FULL_SIDE],
+      ["rate", read.rate[1] >= 1 && read.rate[0] >= read.rate[1] && read.rate[0] <= MAX_IMAGES_PER_SECOND * read.rate[1]],
+      ["cycle", read.square.cycle[0] >= 1 && read.square.cycle[1] >= 1],
+      ["side", read.square.side >= 0 && read.square.side <= FULL_SIDE],
+      ["first", read.first >= 0n],
       ["last index", read.first + BigInt(read.images) - 1n <= (1n << 64n) - 1n],
     ];
     expect(limits.filter(([, kept]) => !kept).map(([limit]) => limit), `accepted within every limit: ${text}`).toStrictEqual([]);

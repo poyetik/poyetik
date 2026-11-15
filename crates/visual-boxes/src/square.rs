@@ -77,7 +77,9 @@ impl Square {
         let side = image_height.saturating_mul(u64::from(self.side)) >> 16_u32;
         let travel = image_width.saturating_sub(side);
         // Elapsed cycles: index × rate denominator × cycle denominator
-        // / (rate numerator × cycle numerator); only its fractional part matters.
+        // / (rate numerator × cycle numerator); only its fractional part matters. The
+        // product is at most (2⁶⁴ − 1)(2³² − 1)² < 2¹²⁸ by the widths of its terms: it never
+        // saturates (reached by the extreme-terms test).
         let elapsed = u128::from(index.0)
             .saturating_mul(u128::from(self.rate.denominator()))
             .saturating_mul(u128::from(self.cycle.denominator()));
