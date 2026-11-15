@@ -11,7 +11,9 @@
 //! 4. [`visual_hash`](fn@visual_hash) renders a sequence of images and returns the address of their image
 //!    hash, 32 bytes; it renders into the image [`visual_render`] uses.
 //!
-//! Every address is valid only until the next call: the caller copies what it needs.
+//! Every address is valid until the next call that sets up, renders or hashes: the caller
+//! copies what it needs. [`visual_values_len`], [`visual_message_ptr`] and
+//! [`visual_message_len`] only read, and move nothing.
 //!
 //! Every function returns an unsigned 32-bit value (addresses and lengths included), which
 //! JavaScript receives as a signed `i32`: values from 2^31 on must be read back as
@@ -110,7 +112,7 @@ pub extern "C" fn visual_render(low: u32, high: u32) -> *const f32 {
 /// Renders `count` images from image `first_high × 2³² + first_low` and returns the address
 /// of their image hash.
 ///
-/// The hash is 32 bytes, all zero when no square is set up. The address is 0 when the last
+/// The hash is 32 bytes. The address is 0 when no square is set up, or when the last
 /// of those images would be past image 2⁶⁴ − 1.
 #[unsafe(no_mangle)]
 pub extern "C" fn visual_hash(first_low: u32, first_high: u32, count: u32) -> *const u8 {

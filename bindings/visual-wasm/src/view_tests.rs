@@ -50,7 +50,7 @@ fn shows_nothing_until_a_square_is_set_up() {
     let mut view = View::default();
     assert_eq!(view.render_len(), 0, "no values");
     assert!(view.render(3).is_empty(), "no image");
-    assert_eq!(view.hash(0, 2), Some(&[0; 32]), "no hash");
+    assert_eq!(view.hash(0, 2), None, "no hash, not a placeholder");
 }
 
 #[test]

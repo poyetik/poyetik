@@ -20,7 +20,8 @@ fn rendered(index: u64) -> Vec<u32> {
     let pointer = visual_render(low, high);
     let len = visual_values_len();
     // SAFETY: the image is `len` initialized values at `pointer`, unchanged until the next
-    // call; an empty image is an empty slice at a dangling, aligned pointer.
+    // call that sets up, renders or hashes (`visual_values_len` only reads); an empty image
+    // is an empty slice at a dangling, aligned pointer.
     unsafe { core::slice::from_raw_parts(pointer, len) }
         .iter()
         .map(|value| value.to_bits())
@@ -31,7 +32,8 @@ fn rendered(index: u64) -> Vec<u32> {
 fn hashed(first: u64, count: u32) -> [u8; 32] {
     let (low, high) = split(first);
     let pointer = visual_hash(low, high, count);
-    // SAFETY: the hash is 32 initialized bytes at `pointer`, unchanged until the next call.
+    // SAFETY: the hash is 32 initialized bytes at `pointer`, a square being set up,
+    // unchanged until the next call that sets up, renders or hashes.
     unsafe { core::slice::from_raw_parts(pointer, 32) }
         .try_into()
         .expect("32 bytes")
@@ -41,7 +43,7 @@ fn hashed(first: u64, count: u32) -> [u8; 32] {
 fn message() -> String {
     let (pointer, length) = (visual_message_ptr(), visual_message_len());
     // SAFETY: the message is `length` initialized bytes at `pointer`, unchanged until the
-    // next call.
+    // next call that sets up, renders or hashes (both exports only read).
     String::from_utf8(unsafe { core::slice::from_raw_parts(pointer, length) }.to_vec())
         .expect("UTF-8")
 }
@@ -62,7 +64,7 @@ fn follows_the_protocol() {
     assert_eq!(message(), "", "no message before a setup");
     assert_eq!(visual_values_len(), 0, "nothing before a setup");
     assert!(rendered(3).is_empty(), "no image before a setup");
-    assert_eq!(hashed(0, 2), [0; 32], "no hash before a setup");
+    assert!(visual_hash(0, 0, 2).is_null(), "no hash before a setup");
     assert_eq!(visual_setup(0, 5, 60, 1, 1000, 1, 1), 0, "an invalid setup");
     assert_eq!(
         message(),

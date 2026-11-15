@@ -1,8 +1,9 @@
 /**
  * The visual library's WebAssembly module, driven from JavaScript: its C interface
  * (`bindings/visual-wasm/src/ffi.rs`) checked once at the boundary, then used through typed
- * methods. Every value read from the module memory is copied before the next call, which
- * may move it.
+ * methods. Every address the module answers is checked against its memory before it is
+ * read, and what is read is copied before the next call that sets up, renders or hashes,
+ * which may move it.
  */
 
 /** The version of the module's interface this code drives: "PV" and version 3. */
@@ -19,9 +20,10 @@ export class VisualModuleError extends Error {
   /**
    * Says what is wrong.
    * @param detail What is wrong.
+   * @param options The error of the WebAssembly runtime it comes from, if any.
    */
-  constructor(detail: string) {
-    super(`visual module: ${detail}`);
+  constructor(detail: string, options?: ErrorOptions) {
+    super(`visual module: ${detail}`, options);
     this.name = "VisualModuleError";
   }
 }
@@ -130,21 +132,26 @@ export class VisualModule {
   readonly #valuesLen: Exported<[]>;
   /** Whether the module trapped: its state is then unknown, and it is never called again. */
   #dead = false;
+  /** The values of an image of the square set up: width × height × 4. */
+  #values = 0;
 
   /**
    * The module behind `exports`, checked (a memory, every function of the interface with
    * its arity, and the interface version this code drives), with `square` set up.
    * @param exports The exports of an instance of the module.
    * @param square The square to set up.
-   * @throws {VisualModuleError} Naming what is missing or which version it has.
+   * @throws {VisualModuleError} Naming what is missing or which version it has, or when a
+   * value of `square` is not an unsigned 32-bit integer.
    * @throws {VisualSetupError} With the module's explanation, when it refuses the square.
+   * @throws {VisualTrap} When the module traps.
    */
   constructor(exports: Exports, square: SquareSetup) {
     const memory: unknown = exports["memory"];
     if (!(memory instanceof WebAssembly.Memory)) {
       throw new VisualModuleError("no memory");
     }
-    const version = exported<[]>(exports, "visual_abi_version", 0)();
+    const abiVersion = exported<[]>(exports, "visual_abi_version", 0);
+    const version = this.#guarded(abiVersion);
     if (version !== ABI_VERSION) {
       throw new VisualModuleError(`interface 0x${version.toString(16)}, expected 0x${ABI_VERSION.toString(16)}`);
     }
@@ -164,12 +171,38 @@ export class VisualModule {
    * @param bytes The module.
    * @param square The square to set up.
    * @returns The module, checked, with its square.
-   * @throws {VisualModuleError} When it is not the visual module this code drives.
+   * @throws {VisualModuleError} When it is not the visual module this code drives: bytes
+   * that are not a WebAssembly module, a module that needs imports, or another module; or
+   * when a value of `square` is not an unsigned 32-bit integer.
    * @throws {VisualSetupError} With the module's explanation, when it refuses the square.
+   * @throws {VisualTrap} When the module traps.
    */
   static async instantiate(bytes: BufferSource, square: SquareSetup): Promise<VisualModule> {
-    const { instance } = await WebAssembly.instantiate(bytes, {});
+    let module: WebAssembly.Module;
+    try {
+      module = await WebAssembly.compile(bytes);
+    } catch (error) {
+      throw new VisualModuleError(`cannot be compiled: ${String(error)}`, { cause: error });
+    }
+    let instance: WebAssembly.Instance;
+    try {
+      instance = await WebAssembly.instantiate(module, {});
+    } catch (error) {
+      throw new VisualModuleError(`cannot be instantiated with no imports: ${String(error)}`, { cause: error });
+    }
     return new VisualModule(instance.exports, square);
+  }
+
+  /**
+   * The `count` values of `size` bytes each that `name` answered at `address`, checked to
+   * lie, aligned, in the module memory.
+   * @throws {VisualModuleError} When they do not.
+   */
+  #span(name: string, address: number, count: number, size: number): readonly [number, number] {
+    if (address % size !== 0 || address + count * size > this.#memory.buffer.byteLength) {
+      throw new VisualModuleError(`${name} answered ${String(count)} values of ${String(size)} bytes at ${String(address)}, unaligned or outside the module memory`);
+    }
+    return [address, count];
   }
 
   /**
@@ -213,12 +246,13 @@ export class VisualModule {
     const refused = this.#guarded(() => {
       const result = this.#setup(...args);
       if (result === 1) {
+        this.#values = args[0] * args[1] * 4;
         return undefined;
       }
       if (result !== 0) {
         throw new VisualModuleError(`visual_setup returned ${String(result)}, not 0 or 1`);
       }
-      const bytes = new Uint8Array(this.#memory.buffer, this.#messagePtr(), this.#messageLen());
+      const bytes = new Uint8Array(this.#memory.buffer, ...this.#span("visual_message_ptr", this.#messagePtr(), this.#messageLen(), 1));
       try {
         return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
       } catch {
@@ -241,7 +275,11 @@ export class VisualModule {
     const [low, high] = halves(index);
     return this.#guarded(() => {
       const address = this.#render(low, high);
-      return new Float32Array(this.#memory.buffer, address, this.#valuesLen()).slice();
+      const count = this.#valuesLen();
+      if (count !== this.#values) {
+        throw new VisualModuleError(`visual_values_len answered ${String(count)}, not the ${String(this.#values)} values of the square set up`);
+      }
+      return new Float32Array(this.#memory.buffer, ...this.#span("visual_render", address, count, 4)).slice();
     });
   }
 
@@ -250,7 +288,10 @@ export class VisualModule {
    * @param first The first image, from 0 to 2⁶⁴ − 1.
    * @param count How many images, from 0 to {@link MAX_COUNT}, the last at most image
    * 2⁶⁴ − 1.
-   * @returns The 64 lowercase hexadecimal digits of the hash.
+   * @returns The 64 lowercase hexadecimal digits of the hash. Every image is rendered and
+   * hashed before it returns, `count` × width × height pixels (a few nanoseconds each), on
+   * the calling thread: a page bounds what it asks (#34 step 6), as `visual-cli` bounds a
+   * case to 2²⁸ pixels.
    * @throws {VisualModuleError} When an argument is out of range, the last image is past
    * the largest index, or the module refuses the images.
    * @throws {VisualTrap} When the module traps, or has.
@@ -266,7 +307,7 @@ export class VisualModule {
       if (address === 0) {
         throw new VisualModuleError("visual_hash refused the images");
       }
-      return Array.from(new Uint8Array(this.#memory.buffer, address, 32), (byte) => byte.toString(16).padStart(2, "0")).join("");
+      return Array.from(new Uint8Array(this.#memory.buffer, ...this.#span("visual_hash", address, 32, 1)), (byte) => byte.toString(16).padStart(2, "0")).join("");
     });
   }
 }
