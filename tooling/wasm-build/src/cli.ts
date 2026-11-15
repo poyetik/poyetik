@@ -140,17 +140,20 @@ function usage(io: Io, command: string, args: readonly string[], text: string): 
 /** `pnpm build:wasm`: builds `module` and copies it to its file in `dist`; returns the exit code. */
 export function buildMain(io: Io, args: readonly string[], dist: string, module: WasmModule): number {
   const answered = usage(io, "build:wasm", args, `usage: pnpm build:wasm [help]\n  build the ${module.label} reproducibly into ${join(dist, module.file)}`);
-  return answered ?? reported(io, () => {
-      const artifact = build(io, module, toolchainOf(io));
-      onFiles(`create ${dist}`, () => {
-        io.makeDirectory(dist);
-      });
-      const target = join(dist, module.file);
-      onFiles(`copy ${artifact} to ${target}`, () => {
-        io.copy(artifact, target);
-      });
-      return 0;
+  if (answered !== undefined) {
+    return answered;
+  }
+  return reported(io, () => {
+    const artifact = build(io, module, toolchainOf(io));
+    onFiles(`create ${dist}`, () => {
+      io.makeDirectory(dist);
     });
+    const target = join(dist, module.file);
+    onFiles(`copy ${artifact} to ${target}`, () => {
+      io.copy(artifact, target);
+    });
+    return 0;
+  });
 }
 
 /**

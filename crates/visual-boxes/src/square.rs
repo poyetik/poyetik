@@ -1,9 +1,11 @@
 //! The square: a white square on opaque black, sweeping from the left edge to the right
 //! edge once per cycle, with exact edge coverage.
 
+use core::num::NonZeroU128;
+
 use visual_core::{
     Image, ImageIndex, ImageRate, SUBPIXELS, Seconds, SubpixelPoint, Trace, VisualBox,
-    coverage_to_intensity, overlap,
+    coverage::overlap, coverage_to_intensity,
 };
 
 use crate::BoxError;
@@ -60,6 +62,13 @@ impl Square {
         }
     }
 
+    /// The image rate the square is made for: the rate its images are rendered and hashed
+    /// at, held once, by the square.
+    #[must_use]
+    pub const fn rate(&self) -> ImageRate {
+        self.rate
+    }
+
     /// Where the square is in image `index`, for an output of `width` × `height` pixels.
     fn place(&self, index: ImageIndex, width: u32, height: u32) -> Placement {
         let unit = u64::from(SUBPIXELS);
@@ -72,14 +81,16 @@ impl Square {
         let elapsed = u128::from(index.0)
             .saturating_mul(u128::from(self.rate.denominator()))
             .saturating_mul(u128::from(self.cycle.denominator()));
-        let period = u128::from(self.rate.numerator())
-            .saturating_mul(u128::from(self.cycle.numerator()))
-            .max(1);
-        let within = elapsed.checked_rem(period).unwrap_or(0);
-        let offset = within
-            .saturating_mul(u128::from(travel))
-            .checked_div(period)
-            .unwrap_or(0);
+        // Nonzero by construction: both numerators are, and their product, below 2⁶⁴, never
+        // saturates.
+        let period = NonZeroU128::from(self.rate.nonzero_numerator())
+            .saturating_mul(NonZeroU128::from(self.cycle.nonzero_numerator()));
+        let within = elapsed % period;
+        // `within × travel` stays below 2⁶⁴ × 2²⁶ (a travel of 16 384 × 4096 subpixels at
+        // most): it never saturates either.
+        let offset = within.saturating_mul(u128::from(travel)) / period;
+        // `offset < travel`, since `within < period`: the fallback is never taken, and it
+        // would keep the square inside the image.
         let left = u64::try_from(offset).unwrap_or(travel);
         let top = image_height.saturating_sub(side) >> 1_u32;
         Placement {

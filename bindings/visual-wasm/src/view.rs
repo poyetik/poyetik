@@ -58,8 +58,8 @@ impl core::error::Error for SetupError {
 /// A square and the image it renders into, set up by the page.
 #[derive(Debug)]
 pub struct View {
-    /// The square, its image and the image rate, once set up.
-    shown: Option<(Square, Image, ImageRate)>,
+    /// The square (which holds the image rate) and its image, once set up.
+    shown: Option<(Square, Image)>,
     /// The bytes of the last image hash computed.
     hash: [u8; 32],
     /// Why the last setup was refused; empty after a setup that succeeded.
@@ -101,11 +101,11 @@ impl View {
     ) -> Result<(), SetupError> {
         let checked = Self::checked(width, height, rate, side, cycle);
         match checked {
-            Ok((square, image_size, images)) => {
+            Ok((square, image_size)) => {
                 // Every value is valid: the image replaced is released before the next one
                 // is allocated, so that the two are never held at once.
                 self.shown = None;
-                self.shown = Some((square, Image::new(image_size), images));
+                self.shown = Some((square, Image::new(image_size)));
                 self.message.clear();
                 Ok(())
             }
@@ -123,12 +123,12 @@ impl View {
         rate: (u32, u32),
         side: u32,
         cycle: (u32, u32),
-    ) -> Result<(Square, ImageSize, ImageRate), SetupError> {
+    ) -> Result<(Square, ImageSize), SetupError> {
         let image_size = ImageSize::new(width, height).map_err(SetupError::Size)?;
-        let images = ImageRate::new(rate.0, rate.1).map_err(SetupError::Rate)?;
+        let checked_rate = ImageRate::new(rate.0, rate.1).map_err(SetupError::Rate)?;
         let sweep = Seconds::new(cycle.0, cycle.1).map_err(SetupError::Cycle)?;
-        let square = Square::new(images, side, sweep).map_err(SetupError::Side)?;
-        Ok((square, image_size, images))
+        let square = Square::new(checked_rate, side, sweep).map_err(SetupError::Side)?;
+        Ok((square, image_size))
     }
 
     /// Why the last setup was refused, in one line; empty after a setup that succeeded, or
@@ -143,14 +143,14 @@ impl View {
     pub fn render_len(&self) -> usize {
         self.shown
             .as_ref()
-            .map_or(0, |(_, image, _)| image.values().len())
+            .map_or(0, |(_, image)| image.values().len())
     }
 
     /// Renders image `index` and returns its values (four per pixel, row by row from the
     /// top); empty when no square is set up.
     pub fn render(&mut self, index: u64) -> &[f32] {
         match &mut self.shown {
-            Some((square, image, _)) => {
+            Some((square, image)) => {
                 square.render(ImageIndex(index), image);
                 image.values()
             }
@@ -164,8 +164,9 @@ impl View {
     /// that could pass for a hash.
     pub fn hash(&mut self, first: u64, count: u64) -> Option<&[u8; 32]> {
         let range = ImageRange::new(ImageIndex(first), count).ok()?;
-        let (square, image, rate) = self.shown.as_mut()?;
-        self.hash = hash_sequence(square, *rate, range, image).bytes();
+        let (square, image) = self.shown.as_mut()?;
+        let rate = square.rate();
+        self.hash = hash_sequence(square, rate, range, image).bytes();
         Some(&self.hash)
     }
 }

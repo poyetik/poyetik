@@ -10,9 +10,11 @@
 use core::num::NonZeroU32;
 
 use proptest::prelude::{Just, Strategy, any, prop_oneof};
+use visual_core::{ImageRate, ImageSize};
 
-/// The most images per second, 1000: the fastest numerator is this times the denominator.
-const PER_SECOND: NonZeroU32 = match NonZeroU32::new(1000) {
+/// The most images per second, the library's: the fastest numerator is this times the
+/// denominator.
+const PER_SECOND: NonZeroU32 = match NonZeroU32::new(ImageRate::MAX_PER_SECOND) {
     Some(thousand) => thousand,
     None => NonZeroU32::MIN,
 };
@@ -107,15 +109,21 @@ pub fn seconds_terms() -> impl Strategy<Value = (u32, u32)> {
         .prop_map(|(numerator, denominator)| reduced(numerator.get(), denominator))
 }
 
+/// A square as tall as the image, in 65 536ths of its height.
+///
+/// `visual_boxes::Square::FULL_SIDE`, which this crate cannot name (the box crate's tests
+/// depend on it); the square's tests check that the two are equal.
+pub const FULL_SIDE: u32 = 65_536;
+
 /// A valid side of a square, in 65 536ths of the image height: from none to the full
 /// height, both ends and their neighbors often.
 pub fn side() -> impl Strategy<Value = u32> {
     prop_oneof![
         Just(0_u32),
         Just(1_u32),
-        Just(65_535_u32),
-        Just(65_536_u32),
-        0_u32..=65_536,
+        Just(FULL_SIDE - 1),
+        Just(FULL_SIDE),
+        0_u32..=FULL_SIDE,
     ]
 }
 
@@ -128,13 +136,19 @@ pub fn small_size() -> impl Strategy<Value = (u32, u32)> {
 /// A wide image size: a row of up to the longest side, 16 384 pixels, at most 3 rows, the
 /// widest often (where the motion's travel is longest).
 pub fn wide_size() -> impl Strategy<Value = (u32, u32)> {
-    (prop_oneof![Just(16_384_u32), 1_u32..=16_384], 1_u32..=3)
+    (
+        prop_oneof![Just(ImageSize::MAX_SIDE), 1_u32..=ImageSize::MAX_SIDE],
+        1_u32..=3,
+    )
 }
 
 /// A tall image size: a column of up to the longest side, 16 384 pixels, at most 3
 /// columns, the tallest often (where the square's side is longest).
 pub fn tall_size() -> impl Strategy<Value = (u32, u32)> {
-    (1_u32..=3, prop_oneof![Just(16_384_u32), 1_u32..=16_384])
+    (
+        1_u32..=3,
+        prop_oneof![Just(ImageSize::MAX_SIDE), 1_u32..=ImageSize::MAX_SIDE],
+    )
 }
 
 #[cfg(test)]

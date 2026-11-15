@@ -8,8 +8,8 @@
 //!    [`visual_message_ptr`] and [`visual_message_len`] locate a UTF-8 explanation.
 //! 3. [`visual_render`] renders an image and returns the address of its values;
 //!    [`visual_values_len`] gives their count (four per pixel), that of the square set up.
-//! 4. [`visual_hash`](fn@visual_hash) renders a sequence of images and returns the address of their image
-//!    hash, 32 bytes; it renders into the image [`visual_render`] uses.
+//! 4. [`visual_hash`](fn@visual_hash) renders a sequence of images and returns the address
+//!    of their image hash, 32 bytes; it renders into the image [`visual_render`] uses.
 //!
 //! Every address is valid until the next call that sets up, renders or hashes: the caller
 //! copies what it needs. [`visual_values_len`], [`visual_message_ptr`] and
@@ -35,8 +35,8 @@ use crate::{View, image_index};
 /// Identity and version of this interface: `0x5056` ("PV") in the high 16 bits, the
 /// version in the low 16 bits.
 ///
-/// Version 1 was a prototype's, never released, version 2
-/// added the image hash, version 3 the message of a refused setup.
+/// Version 1 was a prototype's, never released, version 2 added the image hash, version 3
+/// the message of a refused setup.
 pub const ABI_VERSION: u32 = 0x5056_0003;
 
 // The lock below never waits: without WebAssembly threads (no `atomics` target feature),

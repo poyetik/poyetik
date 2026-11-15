@@ -10,6 +10,13 @@ use super::{ImageIndex, ImageRange, ImageRate, Seconds, gcd};
 use crate::VisualError;
 
 #[test]
+fn gives_its_numerators_as_divisors_needing_no_check() {
+    let rate = ImageRate::new(24_000, 1001).expect("a valid rate");
+    assert_eq!(rate.nonzero_numerator().get(), 24_000, "the rate's");
+    let cycle = Seconds::new(1001, 1000).expect("a valid duration");
+    assert_eq!(cycle.nonzero_numerator().get(), 1001, "the duration's");
+}
+#[test]
 fn computes_the_greatest_common_divisor() {
     for (first, second, divisor) in [
         (12, 18, 6),
@@ -32,7 +39,11 @@ fn accepts_reduced_rates_within_range() {
             "{numerator}/{denominator}"
         );
     }
-    assert_eq!(ImageRate::new(60, 1), Ok(ImageRate::PER_SECOND_60), "60");
+    assert_eq!(
+        ImageRate::new(60, 1).map(|rate| (rate.numerator(), rate.denominator())),
+        Ok((60, 1)),
+        "60"
+    );
 }
 
 #[test]
