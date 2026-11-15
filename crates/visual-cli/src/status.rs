@@ -12,6 +12,8 @@ pub(crate) enum Status {
     Missing,
     /// A reference has no case.
     Stale,
+    /// A case cannot be rendered.
+    Failed,
     /// A file written.
     Wrote,
 }
@@ -24,6 +26,7 @@ impl Status {
             Self::Mismatch => "MISMATCH",
             Self::Missing => "MISSING",
             Self::Stale => "STALE",
+            Self::Failed => "FAILED",
             Self::Wrote => "wrote",
         }
     }

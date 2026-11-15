@@ -5,7 +5,7 @@ use core::fmt;
 use core::marker::PhantomData;
 
 use serde::Deserialize;
-use serde::de::{Deserializer, MapAccess, Visitor, value::MapAccessDeserializer};
+use serde::de::{Deserializer, Error as _, MapAccess, Visitor, value::MapAccessDeserializer};
 use visual_boxes::{BoxError, Square};
 use visual_core::{Image, ImageIndex, ImageRange, ImageRate, ImageSize, Seconds, VisualError};
 use visual_hash::{ImageHash, hash_sequence};
@@ -43,13 +43,42 @@ fn object<'de, D: Deserializer<'de>, T: Deserialize<'de>>(deserializer: D) -> Re
     deserializer.deserialize_map(Object(PhantomData))
 }
 
+/// Readers of one field each, of type `$kind`, whose refusal (a value of another type, or
+/// out of the type's range) names the field `$name`, as every other refusal of a case does.
+macro_rules! named_fields {
+    ($($reader:ident: $kind:ty = $name:literal;)*) => {$(
+        #[doc = concat!("Reads `", $name, "`, naming it when it is refused.")]
+        fn $reader<'de, D: Deserializer<'de>>(deserializer: D) -> Result<$kind, D::Error> {
+            <$kind>::deserialize(deserializer)
+                .map_err(|error| D::Error::custom(format_args!(concat!($name, ": {}"), error)))
+        }
+    )*};
+}
+
+named_fields! {
+    rate_field: [u32; 2] = "rate";
+    width_field: u32 = "width";
+    height_field: u32 = "height";
+    first_field: u64 = "first";
+    images_field: u64 = "images";
+    side_field: u32 = "side";
+    cycle_field: [u32; 2] = "cycle";
+}
+
+/// Reads `square`, a JSON object only, naming it when it is refused.
+fn square_field<'de, D: Deserializer<'de>>(deserializer: D) -> Result<SquareFile, D::Error> {
+    object(deserializer).map_err(|error| D::Error::custom(format_args!("square: {error}")))
+}
+
 /// The square of a case file, as written.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SquareFile {
     /// The side, in 65 536ths of the height.
+    #[serde(deserialize_with = "side_field")]
     side: u32,
     /// One sweep lasts `cycle[0] / cycle[1]` seconds.
+    #[serde(deserialize_with = "cycle_field")]
     cycle: [u32; 2],
 }
 
@@ -59,17 +88,22 @@ struct SquareFile {
 #[serde(deny_unknown_fields)]
 struct CaseFile {
     /// Images per second, `rate[0] / rate[1]`.
+    #[serde(deserialize_with = "rate_field")]
     rate: [u32; 2],
     /// Width of the images, in pixels.
+    #[serde(deserialize_with = "width_field")]
     width: u32,
     /// Height of the images, in pixels.
+    #[serde(deserialize_with = "height_field")]
     height: u32,
     /// The index of the first image rendered.
+    #[serde(deserialize_with = "first_field")]
     first: u64,
     /// How many images are rendered.
+    #[serde(deserialize_with = "images_field")]
     images: u64,
     /// The square.
-    #[serde(deserialize_with = "object")]
+    #[serde(deserialize_with = "square_field")]
     square: SquareFile,
 }
 
@@ -138,30 +172,6 @@ pub struct PreparedCase {
 }
 
 impl PreparedCase {
-    /// The image rate.
-    #[must_use]
-    pub const fn rate(&self) -> ImageRate {
-        self.rate
-    }
-
-    /// The images rendered.
-    #[must_use]
-    pub const fn range(&self) -> ImageRange {
-        self.range
-    }
-
-    /// The image size.
-    #[must_use]
-    pub const fn size(&self) -> ImageSize {
-        self.size
-    }
-
-    /// The square.
-    #[must_use]
-    pub const fn square(&self) -> Square {
-        self.square
-    }
-
     /// Renders the case with the exact CPU reference renderer and returns the image hash
     /// of its images.
     #[must_use]

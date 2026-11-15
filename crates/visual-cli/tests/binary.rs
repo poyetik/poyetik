@@ -133,8 +133,12 @@ mod tests {
         );
         assert_eq!(
             String::from_utf8_lossy(&output.stderr),
-            "error: 1 of the visual cases do not match their references, listed above\n",
-            "one error line"
+            format!(
+                "error: 1 problem(s), listed above; when the renders are meant to change, \
+                 `visual-cli bless {}` rewrites the references\n",
+                dir.display()
+            ),
+            "one error line, and how to accept the change if it is meant"
         );
     }
 
