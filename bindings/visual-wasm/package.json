@@ -16,7 +16,8 @@
     "lint": "eslint . --max-warnings 0",
     "test": "vitest run --coverage",
     "test:reproducible": "node scripts/reproducible.ts",
-    "check": "pnpm build && pnpm typecheck && pnpm lint && pnpm test && pnpm test:reproducible"
+    "check": "pnpm build && pnpm typecheck && pnpm lint && pnpm test && pnpm test:reproducible && pnpm benchmarks:check",
+    "benchmarks:check": "node scripts/benchmarks.ts check"
   },
   "engines": {
     "node": ">=22.18"

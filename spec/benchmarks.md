@@ -92,6 +92,20 @@ No architecture choice may cost performance (`engine-design.md`, decision 33): t
 
 A benchmark through an interface that exceeds its direct count beyond its allowance fails the check like any other regression; the interface is changed, never the allowance nor the tolerance.
 
+## Visual library
+
+The visual library's module (`bindings/visual-wasm/dist/visual.wasm`) is counted by the same instrumenter and compared by the same command (`@poyetik/wasm-build/bench`), with its own suite (`bindings/visual-wasm/benchmarks/suite.ts`) and baseline (`spec/visual-benchmark-baseline.json`), blessed by `cargo xtask bless-benchmarks` with the engine's and checked by `pnpm benchmarks:check` in every check.
+
+**What is measured.** At four image sizes, each four times the pixels of the one before (64×36, 320×180, 640×360, 1280×720), in a fresh instance with the square set up (not counted): the instructions of rendering one image, and of rendering and hashing it; and the module's size in bytes. The square is the only visual box today; the suite measures each box that comes.
+
+**The law: an image costs its pixels.** An image's cost is proportional to its pixels, plus what it costs once: for the render, and for the render and hash, the cost per pixel at every size must be within 2% of the largest size's (measured 2026-11-16: 96.29 instructions a pixel at 64×36 against 95.05 at 1280×720 for the render, 1509.02 against 1505.30 for the render and hash). A box whose cost grows faster than its pixels, or whose fixed cost swamps a small image, breaks it, and bless refuses to write.
+
+**Threshold.** As the engine's: 2% either way, a review trigger, not a noise margin.
+
+**What they show already.** Hashing an image costs about 16 times rendering the square (1505 against 95 instructions a pixel): the hash, not the render, bounds how fast a page can check what it draws. Its measured choices come under "Measured design choices" below.
+
+**What they do not see.** The GPU renderer's cost, which is measured in time by its own benchmark (#34 step 5); the cost of a box other than the square.
+
 ## Measured design choices
 
 Every choice of the engine's code that a measurement decided, since the reduction order of roadmap #12 step 7, added on 2026-11-09, one entry each: when, the forms measured with their numbers, the form kept and why, the forms rejected and why, and how to measure again. The order of the reasons is the project's: performance on the real-time path first (instructions per block), then proof and robustness, then flexibility; plan loading and the module's size come after the per-block cost, and a rise of either is stated as the price of the form kept. The design decisions themselves, and why each exists, are in `engine-design.md`; what the checks' own speed choices measured is in `crates/xtask/README.md`.
