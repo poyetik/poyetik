@@ -1,5 +1,6 @@
-//! The Poyetik visual library compiled to WebAssembly, for Node, and for browsers once the
-//! playground draws with it (#34 step 6).
+//! The Poyetik visual library compiled to WebAssembly, for those who use the visual library
+//! alone, in Node or a browser; the product links both libraries into its own modules instead
+//! (`spec/engine-design.md`, decision 33).
 //!
 //! The module exports a minimal C interface ([`ffi`]) with no imports and no generated
 //! glue: JavaScript sets the square up, then asks for one image at a time and reads its
