@@ -286,8 +286,12 @@ fn follows_the_output_protocol(sine: &[u8]) {
     assert_eq!(engine_limiter(-3.0, 0.5, 50.0, 1.0), 1, "live");
     assert_eq!(engine_protect(0), 1, "raw by a crossfade");
     assert_eq!(engine_protect(1), 1, "protected again");
+    // The stage's own blocks, over its latency, live changes and crossfades, are rendered
+    // without a heap operation in `audio-host`'s tests, natively at every rate and in every
+    // format; here, the C interface adds none to a protected render. Two blocks: the calls
+    // are the same at every block, and each costs seconds under Miri.
     let protected_operations = audio_testkit::heap_operations_during(|| {
-        for _ in 0_u16..100_u16 {
+        for _ in 0_u8..2_u8 {
             let _: *const u8 = core::hint::black_box(engine_process());
         }
     });

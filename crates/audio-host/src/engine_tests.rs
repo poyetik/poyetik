@@ -449,6 +449,46 @@ fn limits_exactly_like_the_renderer_through_a_protected_stage_in_every_format_at
 }
 
 #[test]
+fn renders_through_a_protected_stage_without_a_heap_operation() {
+    for format in RenderFormat::ALL {
+        for rate in audio_testkit::matrix::sample_rates() {
+            let mut engine =
+                Engine::<ENGINE_BLOCK>::new(LOUD.as_bytes(), rate.hz(), format, protected())
+                    .expect("valid patch");
+            // Each phase spans the latency and four blocks more: every frame of the delay
+            // and of the lookahead's window is written, and leaves, in each.
+            let blocks = engine.latency().div_ceil(ENGINE_BLOCK).saturating_add(4);
+            let phase = |rendering: &mut Engine<ENGINE_BLOCK>| {
+                for _ in 0..blocks {
+                    let _: Blocks<'_, ENGINE_BLOCK> = rendering.process();
+                }
+            };
+            let operations = audio_testkit::heap_operations_during(|| {
+                phase(&mut engine);
+                // Changed live: a shorter lookahead rebuilds the window.
+                let shorter = audio_core::LimiterSettings::DEFAULT
+                    .with_lookahead(Binary64::new(0.5))
+                    .expect("in range");
+                assert_eq!(engine.set_limiter(shorter), Ok(()), "{format}: live");
+                phase(&mut engine);
+                // Toward raw, then back to protected, each through its crossfade.
+                assert_eq!(engine.set_protected(false), Ok(()), "{format}: raw");
+                phase(&mut engine);
+                assert_eq!(engine.set_protected(true), Ok(()), "{format}: protected");
+                phase(&mut engine);
+            });
+            assert_eq!(
+                operations,
+                Ok(((), 0)),
+                "{format}: {} blocks in each of four phases at {} Hz",
+                blocks,
+                rate.hz()
+            );
+        }
+    }
+}
+
+#[test]
 fn changes_its_limiter_live_and_refuses_without_one() {
     let mut raw =
         Engine::<ENGINE_BLOCK>::new(LOUD.as_bytes(), 48_000, RenderFormat::Binary32, Output::RAW)
