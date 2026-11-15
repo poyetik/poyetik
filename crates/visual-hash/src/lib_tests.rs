@@ -300,7 +300,10 @@ fn hashes_the_bytes_the_specification_lays_out_for_any_values() {
         Just(0x7fc0_0001_u32),
         Just(0xff80_0000_u32),
     ];
-    let cases = (rate_terms(), 1_u32..=3, 1_u32..=3).prop_flat_map(move |(rate, width, height)| {
+    // Widths around 256 pixels too: rows of 1020 to 1028 values, so that images cross the
+    // hasher's chunks of 1024 values at, before and after their ends.
+    let widths = prop_oneof![1_u32..=3, 255_u32..=257];
+    let cases = (rate_terms(), widths, 1_u32..=3).prop_flat_map(move |(rate, width, height)| {
         let values = usize::try_from(width * height * 4).unwrap_or(0);
         (
             Just((rate, width, height)),

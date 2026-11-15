@@ -21,6 +21,9 @@ use visual_core::{
     ColorEncoding, Image, ImageRange, ImageRate, ImageSize, VisualBox, render_sequence,
 };
 
+/// The values laid out per update of the hasher: 4 KiB on the stack, never the heap.
+const CHUNK: usize = 1024;
+
 /// The name and version of the hashing scheme, `image-hash/1`: a new version whenever the
 /// hashed bytes change, the first bytes hashed, so that hashes of two schemes never match.
 pub const SCHEME: &str = "image-hash/1";
@@ -123,9 +126,20 @@ impl ImageHasher {
 
     /// Adds the values of `image`, whose size and encoding the caller has made the
     /// sequence's.
+    ///
+    /// The values go to the hasher by chunks of [`CHUNK`], laid out on the stack: the same
+    /// bytes in the same order as one value at a time, so the same hash, for a sixteenth of
+    /// the calls (measured: `spec/benchmarks.md`, "Visual library").
     fn update(&mut self, image: &Image) {
-        for value in image.values() {
-            self.hasher.update(value.to_bits().to_le_bytes());
+        let mut bytes = [[0_u8; 4]; CHUNK];
+        for values in image.values().chunks(CHUNK) {
+            let written = bytes
+                .iter_mut()
+                .zip(values)
+                .map(|(slot, value)| *slot = value.to_bits().to_le_bytes())
+                .count();
+            self.hasher
+                .update(bytes.get(..written).unwrap_or_default().as_flattened());
         }
         self.images = self.images.saturating_add(1);
     }
