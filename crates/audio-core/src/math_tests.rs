@@ -671,11 +671,11 @@ fn delivers_no_subnormal_in_any_format() {
 #[derive(Debug)]
 struct Width(f64);
 
-impl<S: Sample> Object<S> for Width {
-    fn process(&mut self, _inputs: &[Block<S>], outputs: &mut [Block<S>]) {
+impl<S: Sample, const N: usize> Object<S, N> for Width {
+    fn process(&mut self, _inputs: &[Block<S, N>], outputs: &mut [Block<S, N>]) {
         let value = wide(f64::from(S::PRECISION.bits()) + self.0);
         for output in outputs {
-            *output = [S::from_binary64(value); BLOCK_SIZE];
+            output.fill(S::from_binary64(value));
         }
     }
 }
@@ -683,7 +683,10 @@ impl<S: Sample> Object<S> for Width {
 impl Create for Width {
     const PARAMS: &'static [ParamSpec] = &[];
 
-    fn create<S: Sample>(rate: SampleRate, params: Params<'_>) -> Box<dyn Object<S>> {
+    fn create<S: Sample, const N: usize>(
+        rate: SampleRate,
+        params: Params<'_>,
+    ) -> Box<dyn Object<S, N>> {
         let sum = params.iter().map(|param| param.raw()).sum::<f64>();
         Box::new(Self(sum + f64::from(rate.hz()) / 1e6_f64))
     }
@@ -705,7 +708,7 @@ fn a_factory_creates_instances_in_either_precision() {
     let rate = SampleRate::new(8_000).expect("valid rate");
     let mut out64 = [Binary64::SILENCE];
     factory
-        .create::<Binary64>(
+        .create::<Binary64, BLOCK_SIZE>(
             rate,
             ParamValues::flushed(&WIDTH, vec![wide(0.25), wide(0.5)]).params(),
         )
@@ -713,7 +716,7 @@ fn a_factory_creates_instances_in_either_precision() {
     assert_eq!(out64[0][0].bits(), 64.758_f64.to_bits(), "binary64");
     let mut out32 = [Binary32::SILENCE];
     factory
-        .create::<Binary32>(
+        .create::<Binary32, BLOCK_SIZE>(
             rate,
             ParamValues::flushed(&WIDTH, vec![wide(0.25)]).params(),
         )

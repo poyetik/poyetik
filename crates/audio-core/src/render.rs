@@ -6,7 +6,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::host::Delivered;
-use crate::{BLOCK_SIZE, Block, CoreError, Dispatch, OutputStage, Plan, Replaced, Sample};
+use crate::{BLOCK_SIZE, CoreError, Dispatch, OutputStage, Plan, Replaced, Sample};
 
 /// Renders a plan computing in `S` offline, frame by frame, as one continuous stream; its
 /// plan holds its box instances as `I`, as [`Plan`] says.
@@ -50,33 +50,34 @@ use crate::{BLOCK_SIZE, Block, CoreError, Dispatch, OutputStage, Plan, Replaced,
 /// }
 /// ```
 #[derive(Debug)]
-pub struct Renderer<S: Sample, I> {
+pub struct Renderer<S: Sample, I, const N: usize = BLOCK_SIZE> {
     /// The plan, advanced only by this renderer.
-    plan: Plan<S, I>,
-    /// The last block the plan produced, one per channel.
-    last: Vec<Block<S>>,
-    /// Frames of `last` already returned; [`BLOCK_SIZE`] when none is left.
+    plan: Plan<S, I, N>,
+    /// The last block the plan produced, one per channel, in one buffer on the heap read as
+    /// its blocks (no block is built on the stack, whatever the engine block).
+    last: Vec<S>,
+    /// Frames of `last` already returned; `N` when none is left.
     used: usize,
     /// The output stage every block passes before it is returned.
     stage: OutputStage<S>,
 }
 
-impl<S: Sample, I: Dispatch<S>> Renderer<S, I> {
+impl<S: Sample, I: Dispatch<S, N>, const N: usize> Renderer<S, I, N> {
     /// A renderer starting at the first frame of `plan`, through a raw output stage
     /// ([`OutputStage::new`]: non-finite samples replaced, nothing limited, no latency).
     #[must_use]
-    pub fn new(plan: Plan<S, I>) -> Self {
+    pub fn new(plan: Plan<S, I, N>) -> Self {
         Self::with_stage(plan, OutputStage::new())
     }
 
     /// A renderer starting at the first frame of `plan`, through `stage` (a limited one,
     /// [`OutputStage::limited`], delays every sample by its latency).
     #[must_use]
-    pub fn with_stage(plan: Plan<S, I>, stage: OutputStage<S>) -> Self {
+    pub fn with_stage(plan: Plan<S, I, N>, stage: OutputStage<S>) -> Self {
         Self {
-            last: vec![S::SILENCE; plan.channels()],
+            last: vec![S::ZERO; plan.channels().saturating_mul(N)],
             plan,
-            used: BLOCK_SIZE,
+            used: N,
             stage,
         }
     }
@@ -147,15 +148,16 @@ impl<S: Sample, I: Dispatch<S>> Renderer<S, I> {
             if rest.is_empty() {
                 break;
             }
-            if self.used == BLOCK_SIZE {
-                self.plan.process(&mut self.last);
-                self.stage.apply(&mut self.last);
+            let last = self.last.as_chunks_mut::<N>().0;
+            if self.used == N {
+                self.plan.process(last);
+                self.stage.apply(last);
                 self.used = 0;
             }
-            let count = BLOCK_SIZE
+            let count = N
                 .saturating_sub(self.used)
                 .min(rest.len().checked_div(channels).unwrap_or(0));
-            for (offset, block) in self.last.iter().enumerate() {
+            for (offset, block) in last.iter().enumerate() {
                 let samples = rest.iter_mut().skip(offset).step_by(channels);
                 let values = samples.zip(block.iter().skip(self.used)).take(count);
                 // Decided once per channel, when the plan was built: only a sum can hold a
@@ -174,7 +176,8 @@ impl<S: Sample, I: Dispatch<S>> Renderer<S, I> {
                 let given = rest.iter_mut().skip(offset).step_by(channels).take(count);
                 let used = self.used;
                 D::replace_overflowed(given, |index| {
-                    self.stage.note_given(used.saturating_add(index), offset);
+                    self.stage
+                        .note_given::<N>(used.saturating_add(index), offset);
                 });
             }
             self.used = self.used.saturating_add(count);

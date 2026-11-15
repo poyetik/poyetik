@@ -63,8 +63,8 @@ mod tests {
     /// Outputs a constant.
     #[derive(Debug)]
     struct Const(f64);
-    impl<S: Sample> Object<S> for Const {
-        fn process(&mut self, _inputs: &[Block<S>], outputs: &mut [Block<S>]) {
+    impl<S: Sample, const N: usize> Object<S, N> for Const {
+        fn process(&mut self, _inputs: &[Block<S, N>], outputs: &mut [Block<S, N>]) {
             for output in outputs {
                 output.fill(of::<S>(self.0));
             }
@@ -74,7 +74,10 @@ mod tests {
         const PARAMS: &'static [ParamSpec] =
             &[audio_core::param!("value", "value", 0.5, -1.0, 1.0)];
 
-        fn create<S: Sample>(_rate: SampleRate, params: Params<'_>) -> Box<dyn Object<S>> {
+        fn create<S: Sample, const N: usize>(
+            _rate: SampleRate,
+            params: Params<'_>,
+        ) -> Box<dyn Object<S, N>> {
             Box::new(Self(params.first().map_or(0.0, |param| param.raw())))
         }
     }
@@ -91,13 +94,13 @@ mod tests {
     /// scaled down, plus its inputs halved: stateful and order-revealing.
     #[derive(Debug)]
     struct Mix(f64);
-    impl<S: Sample> Object<S> for Mix {
+    impl<S: Sample, const N: usize> Object<S, N> for Mix {
         #[expect(
             clippy::arithmetic_side_effects,
             reason = "S is f32 or f64: IEEE 754 arithmetic, which neither overflows nor panics"
         )]
-        fn process(&mut self, inputs: &[Block<S>], outputs: &mut [Block<S>]) {
-            let mut sum = S::SILENCE;
+        fn process(&mut self, inputs: &[Block<S, N>], outputs: &mut [Block<S, N>]) {
+            let mut sum = [S::ZERO; N];
             for input in inputs {
                 for (total, sample) in sum.iter_mut().zip(input) {
                     *total += *sample * of::<S>(0.5);
@@ -118,7 +121,10 @@ mod tests {
     impl Create for Mix {
         const PARAMS: &'static [ParamSpec] = &[];
 
-        fn create<S: Sample>(_rate: SampleRate, _params: Params<'_>) -> Box<dyn Object<S>> {
+        fn create<S: Sample, const N: usize>(
+            _rate: SampleRate,
+            _params: Params<'_>,
+        ) -> Box<dyn Object<S, N>> {
             Box::new(Self(0.0))
         }
     }
@@ -134,13 +140,16 @@ mod tests {
     /// Sends its two inlets to the engine output.
     #[derive(Debug)]
     struct Out;
-    impl<S: Sample> Object<S> for Out {
-        fn process(&mut self, _inputs: &[Block<S>], _outputs: &mut [Block<S>]) {}
+    impl<S: Sample, const N: usize> Object<S, N> for Out {
+        fn process(&mut self, _inputs: &[Block<S, N>], _outputs: &mut [Block<S, N>]) {}
     }
     impl Create for Out {
         const PARAMS: &'static [ParamSpec] = &[];
 
-        fn create<S: Sample>(_rate: SampleRate, _params: Params<'_>) -> Box<dyn Object<S>> {
+        fn create<S: Sample, const N: usize>(
+            _rate: SampleRate,
+            _params: Params<'_>,
+        ) -> Box<dyn Object<S, N>> {
             Box::new(Self)
         }
     }
@@ -157,8 +166,8 @@ mod tests {
     /// wrong rate changes the samples.
     #[derive(Debug)]
     struct Rate(f64);
-    impl<S: Sample> Object<S> for Rate {
-        fn process(&mut self, _inputs: &[Block<S>], outputs: &mut [Block<S>]) {
+    impl<S: Sample, const N: usize> Object<S, N> for Rate {
+        fn process(&mut self, _inputs: &[Block<S, N>], outputs: &mut [Block<S, N>]) {
             for output in outputs {
                 output.fill(of::<S>(self.0));
             }
@@ -167,7 +176,10 @@ mod tests {
     impl Create for Rate {
         const PARAMS: &'static [ParamSpec] = &[];
 
-        fn create<S: Sample>(rate: SampleRate, _params: Params<'_>) -> Box<dyn Object<S>> {
+        fn create<S: Sample, const N: usize>(
+            rate: SampleRate,
+            _params: Params<'_>,
+        ) -> Box<dyn Object<S, N>> {
             Box::new(Self(f64::from(rate.hz() / 10)))
         }
     }
@@ -185,8 +197,8 @@ mod tests {
     /// reaches (∞ - ∞ is NaN there).
     #[derive(Debug)]
     struct NonFinite;
-    impl<S: Sample> Object<S> for NonFinite {
-        fn process(&mut self, _inputs: &[Block<S>], outputs: &mut [Block<S>]) {
+    impl<S: Sample, const N: usize> Object<S, N> for NonFinite {
+        fn process(&mut self, _inputs: &[Block<S, N>], outputs: &mut [Block<S, N>]) {
             let values = [f64::INFINITY, f64::NEG_INFINITY, f64::NAN, 1.0_f64];
             for output in outputs {
                 for (sample, value) in output.iter_mut().zip(values.iter().cycle()) {
@@ -198,7 +210,10 @@ mod tests {
     impl Create for NonFinite {
         const PARAMS: &'static [ParamSpec] = &[];
 
-        fn create<S: Sample>(_rate: SampleRate, _params: Params<'_>) -> Box<dyn Object<S>> {
+        fn create<S: Sample, const N: usize>(
+            _rate: SampleRate,
+            _params: Params<'_>,
+        ) -> Box<dyn Object<S, N>> {
             Box::new(Self)
         }
     }
@@ -747,16 +762,16 @@ mod tests {
     }
 
     /// A plan reserves exactly one set of scratch lanes, whatever it sums: a plan of no box
-    /// keeps those lanes and nothing else on the heap, so a set reserved in every plan, or
-    /// lanes moved where the count does not see them, fails here, which no comparison of
-    /// two plans could show.
+    /// keeps those lanes and the block of silence a sum reads for a missing source, and
+    /// nothing else, on the heap, so a set reserved in every plan, or lanes moved where the
+    /// count does not see them, fails here, which no comparison of two plans could show.
     #[test]
     fn holds_exactly_one_set_of_lanes() {
         /// The reduction order's lanes but the result's (decision 28 of
         /// `spec/engine-design.md`: sixteen lanes, the result in the first), in `S`: the one set
         /// of scratch lanes a plan reserves for all its sums.
         fn one_set_of_lanes<S: Sample>() -> usize {
-            (16 - 1) * size_of::<Block<S>>()
+            (16 - 1) * size_of::<Block<S>>() + size_of::<Block<S>>()
         }
         fn kept<S: Sample>() -> Result<usize, String> {
             let rate = SampleRate::new(44_100).map_err(|error| error.to_string())?;
@@ -926,8 +941,8 @@ mod tests {
     /// box outputs a subnormal, the cheat the delivery's skip trusts that law against.
     #[derive(Debug)]
     struct Leaky;
-    impl<S: Sample> Object<S> for Leaky {
-        fn process(&mut self, _inputs: &[Block<S>], outputs: &mut [Block<S>]) {
+    impl<S: Sample, const N: usize> Object<S, N> for Leaky {
+        fn process(&mut self, _inputs: &[Block<S, N>], outputs: &mut [Block<S, N>]) {
             let smallest = match S::PRECISION {
                 Precision::Binary64 => f64::from_bits(1),
                 Precision::Binary32 => f64::from(f32::from_bits(1)),
@@ -940,7 +955,10 @@ mod tests {
     impl Create for Leaky {
         const PARAMS: &'static [ParamSpec] = &[];
 
-        fn create<S: Sample>(_rate: SampleRate, _params: Params<'_>) -> Box<dyn Object<S>> {
+        fn create<S: Sample, const N: usize>(
+            _rate: SampleRate,
+            _params: Params<'_>,
+        ) -> Box<dyn Object<S, N>> {
             Box::new(Self)
         }
     }
@@ -1065,8 +1083,8 @@ mod tests {
     /// Frees memory allocated when it was created, on its first call only.
     #[derive(Debug)]
     struct Freeing(Option<Vec<f32>>);
-    impl<S: Sample> Object<S> for Freeing {
-        fn process(&mut self, _inputs: &[Block<S>], outputs: &mut [Block<S>]) {
+    impl<S: Sample, const N: usize> Object<S, N> for Freeing {
+        fn process(&mut self, _inputs: &[Block<S, N>], outputs: &mut [Block<S, N>]) {
             drop(core::hint::black_box(self.0.take()));
             for output in outputs {
                 output.fill(of::<S>(0.25));
@@ -1076,7 +1094,10 @@ mod tests {
     impl Create for Freeing {
         const PARAMS: &'static [ParamSpec] = &[];
 
-        fn create<S: Sample>(_rate: SampleRate, _params: Params<'_>) -> Box<dyn Object<S>> {
+        fn create<S: Sample, const N: usize>(
+            _rate: SampleRate,
+            _params: Params<'_>,
+        ) -> Box<dyn Object<S, N>> {
             Box::new(Self(Some(vec![0.0; 8])))
         }
     }

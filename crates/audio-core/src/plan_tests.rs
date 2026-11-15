@@ -41,8 +41,8 @@ fn of<S: Sample>(value: f64) -> S {
 /// Outputs a constant value: its parameter, in the precision of the render.
 #[derive(Debug)]
 struct Const(Binary64);
-impl<S: Sample> Object<S> for Const {
-    fn process(&mut self, _inputs: &[Block<S>], outputs: &mut [Block<S>]) {
+impl<S: Sample, const N: usize> Object<S, N> for Const {
+    fn process(&mut self, _inputs: &[Block<S, N>], outputs: &mut [Block<S, N>]) {
         for output in outputs {
             output.fill(S::from_binary64(self.0));
         }
@@ -56,7 +56,10 @@ macro_rules! constant {
         impl Create for $name {
             const PARAMS: &'static [ParamSpec] = $params;
 
-            fn create<S: Sample>(_rate: SampleRate, params: Params<'_>) -> Box<dyn Object<S>> {
+            fn create<S: Sample, const N: usize>(
+                _rate: SampleRate,
+                params: Params<'_>,
+            ) -> Box<dyn Object<S, N>> {
                 Box::new(Const(params.first().copied().unwrap_or(Binary64::ONE)))
             }
         }
@@ -86,8 +89,8 @@ static CONST: ObjectSpec = ObjectSpec::new::<ConstValue>(
 /// Outputs 0, 1, 2… continuing across blocks: checks that state is kept.
 #[derive(Debug)]
 struct Ramp(f64);
-impl<S: Sample> Object<S> for Ramp {
-    fn process(&mut self, _inputs: &[Block<S>], outputs: &mut [Block<S>]) {
+impl<S: Sample, const N: usize> Object<S, N> for Ramp {
+    fn process(&mut self, _inputs: &[Block<S, N>], outputs: &mut [Block<S, N>]) {
         for output in outputs {
             for sample in output.iter_mut() {
                 *sample = of::<S>(self.0);
@@ -99,7 +102,10 @@ impl<S: Sample> Object<S> for Ramp {
 impl Create for Ramp {
     const PARAMS: &'static [ParamSpec] = &[];
 
-    fn create<S: Sample>(_rate: SampleRate, _params: Params<'_>) -> Box<dyn Object<S>> {
+    fn create<S: Sample, const N: usize>(
+        _rate: SampleRate,
+        _params: Params<'_>,
+    ) -> Box<dyn Object<S, N>> {
         Box::new(Self(0.0))
     }
 }
@@ -109,13 +115,13 @@ static RAMP: ObjectSpec =
 /// Outputs on outlet 0 the sum of its inlets, and on outlet 1 ten times that sum.
 #[derive(Debug)]
 struct Add;
-impl<S: Sample> Object<S> for Add {
+impl<S: Sample, const N: usize> Object<S, N> for Add {
     #[expect(
         clippy::arithmetic_side_effects,
         reason = "S is f32 or f64: IEEE 754 arithmetic, which neither overflows nor panics"
     )]
-    fn process(&mut self, inputs: &[Block<S>], outputs: &mut [Block<S>]) {
-        let mut sum = S::SILENCE;
+    fn process(&mut self, inputs: &[Block<S, N>], outputs: &mut [Block<S, N>]) {
+        let mut sum = [S::ZERO; N];
         for input in inputs {
             for (total, sample) in sum.iter_mut().zip(input) {
                 *total += *sample;
@@ -135,7 +141,10 @@ impl<S: Sample> Object<S> for Add {
 impl Create for Add {
     const PARAMS: &'static [ParamSpec] = &[];
 
-    fn create<S: Sample>(_rate: SampleRate, _params: Params<'_>) -> Box<dyn Object<S>> {
+    fn create<S: Sample, const N: usize>(
+        _rate: SampleRate,
+        _params: Params<'_>,
+    ) -> Box<dyn Object<S, N>> {
         Box::new(Self)
     }
 }
@@ -151,13 +160,16 @@ static ADD: ObjectSpec = ObjectSpec::new::<Add>(
 /// Sends its two inlets to the engine output.
 #[derive(Debug)]
 struct Out;
-impl<S: Sample> Object<S> for Out {
-    fn process(&mut self, _inputs: &[Block<S>], _outputs: &mut [Block<S>]) {}
+impl<S: Sample, const N: usize> Object<S, N> for Out {
+    fn process(&mut self, _inputs: &[Block<S, N>], _outputs: &mut [Block<S, N>]) {}
 }
 impl Create for Out {
     const PARAMS: &'static [ParamSpec] = &[];
 
-    fn create<S: Sample>(_rate: SampleRate, _params: Params<'_>) -> Box<dyn Object<S>> {
+    fn create<S: Sample, const N: usize>(
+        _rate: SampleRate,
+        _params: Params<'_>,
+    ) -> Box<dyn Object<S, N>> {
         Box::new(Self)
     }
 }
@@ -183,8 +195,8 @@ static MONO_OUT: ObjectSpec = ObjectSpec::new::<Out>(
 /// Records the sample rate it was created with on its outlet.
 #[derive(Debug)]
 struct Rate(f64);
-impl<S: Sample> Object<S> for Rate {
-    fn process(&mut self, _inputs: &[Block<S>], outputs: &mut [Block<S>]) {
+impl<S: Sample, const N: usize> Object<S, N> for Rate {
+    fn process(&mut self, _inputs: &[Block<S, N>], outputs: &mut [Block<S, N>]) {
         for output in outputs {
             output.fill(of::<S>(self.0));
         }
@@ -193,7 +205,10 @@ impl<S: Sample> Object<S> for Rate {
 impl Create for Rate {
     const PARAMS: &'static [ParamSpec] = &[];
 
-    fn create<S: Sample>(rate: SampleRate, _params: Params<'_>) -> Box<dyn Object<S>> {
+    fn create<S: Sample, const N: usize>(
+        rate: SampleRate,
+        _params: Params<'_>,
+    ) -> Box<dyn Object<S, N>> {
         Box::new(Self(f64::from(rate.hz() / 10)))
     }
 }
@@ -209,8 +224,8 @@ static RATE: ObjectSpec = ObjectSpec::new::<Rate>(
 /// Copies its inlet to its outlet, bit for bit.
 #[derive(Debug)]
 struct Pass;
-impl<S: Sample> Object<S> for Pass {
-    fn process(&mut self, inputs: &[Block<S>], outputs: &mut [Block<S>]) {
+impl<S: Sample, const N: usize> Object<S, N> for Pass {
+    fn process(&mut self, inputs: &[Block<S, N>], outputs: &mut [Block<S, N>]) {
         for (output, input) in outputs.iter_mut().zip(inputs) {
             *output = *input;
         }
@@ -219,7 +234,10 @@ impl<S: Sample> Object<S> for Pass {
 impl Create for Pass {
     const PARAMS: &'static [ParamSpec] = &[];
 
-    fn create<S: Sample>(_rate: SampleRate, _params: Params<'_>) -> Box<dyn Object<S>> {
+    fn create<S: Sample, const N: usize>(
+        _rate: SampleRate,
+        _params: Params<'_>,
+    ) -> Box<dyn Object<S, N>> {
         Box::new(Self)
     }
 }
@@ -257,10 +275,10 @@ static ABOVE: ObjectSpec = ObjectSpec::new::<ConstAbove>(
 /// -∞ at frame 3; a defect no real box should have, for the output stage to replace.
 #[derive(Debug)]
 struct NonFinite;
-impl<S: Sample> Object<S> for NonFinite {
-    fn process(&mut self, _inputs: &[Block<S>], outputs: &mut [Block<S>]) {
+impl<S: Sample, const N: usize> Object<S, N> for NonFinite {
+    fn process(&mut self, _inputs: &[Block<S, N>], outputs: &mut [Block<S, N>]) {
         for output in outputs {
-            *output = [of::<S>(1.0); BLOCK_SIZE];
+            output.fill(of::<S>(1.0));
             output[1] = of::<S>(f64::NAN);
             output[2] = of::<S>(f64::INFINITY);
             output[3] = of::<S>(f64::NEG_INFINITY);
@@ -270,7 +288,10 @@ impl<S: Sample> Object<S> for NonFinite {
 impl Create for NonFinite {
     const PARAMS: &'static [ParamSpec] = &[];
 
-    fn create<S: Sample>(_rate: SampleRate, _params: Params<'_>) -> Box<dyn Object<S>> {
+    fn create<S: Sample, const N: usize>(
+        _rate: SampleRate,
+        _params: Params<'_>,
+    ) -> Box<dyn Object<S, N>> {
         Box::new(Self)
     }
 }
@@ -287,10 +308,10 @@ static NON_FINITE: ObjectSpec = ObjectSpec::new::<NonFinite>(
 /// 6, and 1 elsewhere: finite, but infinite once rounded to binary32.
 #[derive(Debug)]
 struct Huge;
-impl<S: Sample> Object<S> for Huge {
-    fn process(&mut self, _inputs: &[Block<S>], outputs: &mut [Block<S>]) {
+impl<S: Sample, const N: usize> Object<S, N> for Huge {
+    fn process(&mut self, _inputs: &[Block<S, N>], outputs: &mut [Block<S, N>]) {
         for output in outputs {
-            *output = [of::<S>(1.0); BLOCK_SIZE];
+            output.fill(of::<S>(1.0));
             output[2] = of::<S>(f64::MAX);
             output[5] = of::<S>(f64::MAX);
             output[6] = of::<S>(-f64::MAX);
@@ -300,7 +321,10 @@ impl<S: Sample> Object<S> for Huge {
 impl Create for Huge {
     const PARAMS: &'static [ParamSpec] = &[];
 
-    fn create<S: Sample>(_rate: SampleRate, _params: Params<'_>) -> Box<dyn Object<S>> {
+    fn create<S: Sample, const N: usize>(
+        _rate: SampleRate,
+        _params: Params<'_>,
+    ) -> Box<dyn Object<S, N>> {
         Box::new(Self)
     }
 }
@@ -1475,8 +1499,8 @@ fn decides_which_channels_are_sums_when_built<S: Bits>() {
 /// arithmetic mode of the build makes of a box's product then sum.
 #[derive(Debug)]
 struct ProductThenSum;
-impl<S: Sample> Object<S> for ProductThenSum {
-    fn process(&mut self, _inputs: &[Block<S>], outputs: &mut [Block<S>]) {
+impl<S: Sample, const N: usize> Object<S, N> for ProductThenSum {
+    fn process(&mut self, _inputs: &[Block<S, N>], outputs: &mut [Block<S, N>]) {
         let near_one = match S::PRECISION {
             Precision::Binary64 => of::<S>(f64::from_bits(0x3ff0_0000_0200_0000)),
             Precision::Binary32 => of::<S>(f64::from(f32::from_bits(0x3f80_0800))),
@@ -1487,13 +1511,16 @@ impl<S: Sample> Object<S> for ProductThenSum {
 impl Create for ProductThenSum {
     const PARAMS: &'static [ParamSpec] = &[];
 
-    fn create<S: Sample>(_rate: SampleRate, _params: Params<'_>) -> Box<dyn Object<S>> {
+    fn create<S: Sample, const N: usize>(
+        _rate: SampleRate,
+        _params: Params<'_>,
+    ) -> Box<dyn Object<S, N>> {
         Box::new(Self)
     }
 }
 
 /// Fills every output with `value`.
-fn output_all<S: Sample>(outputs: &mut [Block<S>], value: S) {
+fn output_all<S: Sample, const N: usize>(outputs: &mut [Block<S, N>], value: S) {
     for output in outputs {
         output.fill(value);
     }
@@ -1739,7 +1766,9 @@ fn a_sum_reads_a_missing_source_as_silence_in_its_place<S: Bits>() {
     let blocks: Vec<Block<S>> = values.iter().map(|&value| block::<S>(value)).collect();
     let mut out = block::<S>(99.0);
     let mut lanes = crate::math::Lanes::new();
-    Feed::Several((0..values.len()).collect()).write(&mut out, &mut lanes, |source| {
+    let silence = block::<S>(0.0);
+    let silence: &[S] = &silence;
+    Feed::Several((0..values.len()).collect()).write(&mut out, &mut lanes, silence, |source| {
         if source == 1 {
             None
         } else {

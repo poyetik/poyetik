@@ -17,21 +17,22 @@ use core::iter;
 
 use crate::math::{Lanes, add_two, sum_blocks};
 use crate::{
-    Binary64, Block, Capability, Connection, CoreError, Dispatch, Node, NodeId, ObjectSpec,
-    ParamValues, Patch, Sample, SampleRate, flush,
+    BLOCK_SIZE, Binary64, Block, Capability, Connection, CoreError, Dispatch, Node, NodeId,
+    ObjectSpec, ParamValues, Patch, Sample, SampleRate, flush,
 };
 
 /// One box instance in execution order, held as `I` ([`Dispatch`]), with its own input
 /// buffers; it writes its outputs straight into its bus slots.
 #[derive(Debug)]
-struct Running<S: Sample, I> {
+struct Running<S: Sample, I, const N: usize> {
     /// The box this instance runs.
     node: NodeId,
     /// The box instance.
     object: I,
-    /// Input buffers, one per inlet: a connected inlet is rewritten before every block,
-    /// an unconnected one stays silent from the build on.
-    inputs: Vec<Block<S>>,
+    /// Input buffers, one block per inlet, in one buffer on the heap read as its blocks (no
+    /// block is built on the stack, whatever the engine block): a connected inlet is
+    /// rewritten before every block, an unconnected one stays silent from the build on.
+    inputs: Vec<S>,
     /// For each connected inlet, in inlet order, the inlet and how it is fed from the bus
     /// slots of its cables (in the canonical cable order). An unconnected inlet has none: it
     /// stays silent from the build on.
@@ -99,11 +100,12 @@ impl<K: Copy> Feed<K> {
     /// plan without the barrier does less work per block, saving more the more it sums, and
     /// its cost falls on the lightest patches, where the deadline is far (both sides dated
     /// in `spec/benchmarks.md`, "The lanes' barrier").
-    fn write<'source, S: Sample + 'source>(
+    fn write<'source, S: Sample + 'source, const N: usize>(
         &self,
-        out: &mut Block<S>,
-        lanes: &mut Lanes<S>,
-        read: impl Fn(K) -> Option<&'source Block<S>>,
+        out: &mut Block<S, N>,
+        lanes: &mut Lanes<S, N>,
+        silence: &'source [S],
+        read: impl Fn(K) -> Option<&'source Block<S, N>>,
     ) {
         match self {
             Self::Single(source) => {
@@ -119,14 +121,17 @@ impl<K: Copy> Feed<K> {
                 }
             }
             Self::Several(sources) => {
-                let silence = S::SILENCE;
-                sum_blocks(
-                    out,
-                    lanes,
-                    sources
-                        .iter()
-                        .map(|&source| read(source).unwrap_or(&silence)),
-                );
+                // The one block of `silence` (always found, `Plan::build`: the sum always
+                // runs) stands in for a source `read` cannot find, in its place.
+                for nothing in Option::into_iter(silence.as_chunks::<N>().0.first()) {
+                    sum_blocks(
+                        &mut *out,
+                        lanes,
+                        sources
+                            .iter()
+                            .map(|&source| read(source).unwrap_or(nothing)),
+                    );
+                }
             }
         }
     }
@@ -162,11 +167,11 @@ impl<K: Copy> Feed<K> {
 /// }
 /// ```
 #[derive(Debug)]
-pub struct Plan<S: Sample, I> {
+pub struct Plan<S: Sample, I, const N: usize = BLOCK_SIZE> {
     /// Box instances in execution order.
-    instances: Vec<Running<S, I>>,
+    instances: Vec<Running<S, I, N>>,
     /// Every outlet of every box, boxes in id order: what connections read from.
-    bus: Vec<Block<S>>,
+    bus: Vec<S>,
     /// How each engine output channel is fed, one feed per channel, from the instances
     /// whose inputs go to the engine output (boxes with [`Capability::AudioOutput`]):
     /// channel `c` reads the inlets `c` of those that have one, by box id, as
@@ -183,7 +188,10 @@ pub struct Plan<S: Sample, I> {
     /// `spec/engine-design.md`), one set for the whole plan: reserved when it is built, so
     /// that summing never allocates, and reached only by such a sum, so that a plan without
     /// one never touches them while processing.
-    lanes: Lanes<S>,
+    lanes: Lanes<S, N>,
+    /// One block of silence: what a sum reads for a source it cannot find (unreachable,
+    /// [`Feed::write`]), on the heap.
+    silence: Vec<S>,
 }
 
 /// A box resolved against the registry.
@@ -335,7 +343,7 @@ fn execution_order(
     }
 }
 
-impl<S: Sample, I: Dispatch<S>> Plan<S, I> {
+impl<S: Sample, I: Dispatch<S, N>, const N: usize> Plan<S, I, N> {
     /// Validates `patch` against `registry` and builds its execution plan, computing in
     /// `S`.
     ///
@@ -373,7 +381,7 @@ impl<S: Sample, I: Dispatch<S>> Plan<S, I> {
         // The output boxes (boxes with `AudioOutput`), as (box id, instance index, inlet
         // count).
         let mut outputs: Vec<(NodeId, usize, usize)> = Vec::new();
-        let mut instances: Vec<Running<S, I>> = Vec::with_capacity(order.len());
+        let mut instances: Vec<Running<S, I, N>> = Vec::with_capacity(order.len());
         // Every id of the order is a resolved box: `remove` always finds it.
         for resolved in order.iter().filter_map(|id| nodes.remove(id)) {
             let id = resolved.node.id;
@@ -389,7 +397,7 @@ impl<S: Sample, I: Dispatch<S>> Plan<S, I> {
             instances.push(Running {
                 node: id,
                 object: I::create(rate, &resolved.params),
-                inputs: vec![S::SILENCE; inlets],
+                inputs: vec![S::ZERO; inlets.saturating_mul(N)],
                 feeds: (0..inlets)
                     .filter_map(|inlet| {
                         sources
@@ -433,10 +441,11 @@ impl<S: Sample, I: Dispatch<S>> Plan<S, I> {
             .collect();
         Ok(Self {
             instances,
-            bus: vec![S::SILENCE; bus_len],
+            bus: vec![S::ZERO; bus_len.saturating_mul(N)],
             channel_feeds: channels.into_iter().map(Feed::new).collect(),
             channel_sums,
             lanes: Lanes::new(),
+            silence: vec![S::ZERO; N],
         })
     }
 
@@ -467,7 +476,7 @@ impl<S: Sample, I: Dispatch<S>> Plan<S, I> {
     /// subnormal becomes a zero of its sign, decision 11 of `spec/engine-design.md`); the
     /// other channels are left as they are, where the flush would change no bit. A block
     /// beyond the plan's channels is silence, left as it is.
-    pub fn flush_sums(&self, out: &mut [Block<S>]) {
+    pub fn flush_sums(&self, out: &mut [Block<S, N>]) {
         for (channel, block) in out.iter_mut().enumerate() {
             if self.channel_is_sum(channel) {
                 for sample in block.iter_mut() {
@@ -493,15 +502,17 @@ impl<S: Sample, I: Dispatch<S>> Plan<S, I> {
     /// clipped to ±1, scaled or sanitized, so that every target renders the same bits. The
     /// final output stage (limiting, clipping, handling non-finite values) belongs to the
     /// host, until the engine defines its own output policy (#12 step 9).
-    pub fn process(&mut self, out: &mut [Block<S>]) {
+    pub fn process(&mut self, out: &mut [Block<S, N>]) {
+        let silence: &[S] = &self.silence;
         for instance in &mut self.instances {
-            let bus: &[Block<S>] = &self.bus;
+            let bus: &[Block<S, N>] = self.bus.as_chunks::<N>().0;
+            let inputs = instance.inputs.as_chunks_mut::<N>().0;
             for (inlet, feed) in &instance.feeds {
                 // Every fed inlet exists, and every slot is below the bus length
                 // (`source_slot`): each is found. Unreachable, and reviewed: a missing
                 // inlet would keep its last block, as `Feed::write` says of its sources.
-                for input in instance.inputs.iter_mut().skip(*inlet).take(1) {
-                    feed.write(input, &mut self.lanes, |slot| bus.get(slot));
+                for input in inputs.iter_mut().skip(*inlet).take(1) {
+                    feed.write(input, &mut self.lanes, silence, |slot| bus.get(slot));
                 }
             }
             // The box's slots are in the bus (`build` gives every box its outlets' slots,
@@ -510,23 +521,29 @@ impl<S: Sample, I: Dispatch<S>> Plan<S, I> {
             // would skip the box, leaving its slots as the last block left them.
             for slots in Option::into_iter(
                 self.bus
+                    .as_chunks_mut::<N>()
+                    .0
                     .get_mut(instance.first_slot..)
                     .and_then(|rest| rest.get_mut(..instance.outlets)),
             ) {
-                instance.object.process(&instance.inputs, slots);
+                instance
+                    .object
+                    .process(instance.inputs.as_chunks::<N>().0, slots);
             }
         }
         let mut feeds = self.channel_feeds.iter();
         for channel in out.iter_mut() {
             match feeds.next() {
                 // Every source is an instance and one of its inlets (`build`): each is read.
-                Some(feed) => feed.write(channel, &mut self.lanes, |(index, inlet)| {
-                    self.instances
-                        .get(index)
-                        .and_then(|instance| instance.inputs.get(inlet))
-                }),
+                Some(feed) => {
+                    feed.write(channel, &mut self.lanes, silence, |(index, inlet)| {
+                        self.instances
+                            .get(index)
+                            .and_then(|instance| instance.inputs.as_chunks::<N>().0.get(inlet))
+                    });
+                }
                 // A channel beyond `channels` has no source: silence.
-                None => *channel = S::SILENCE,
+                None => channel.fill(S::ZERO),
             }
         }
     }

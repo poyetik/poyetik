@@ -275,8 +275,8 @@ fn counts_a_sample_its_host_replaced_as_given_in_its_block() {
     let mut second = [Binary64::SILENCE];
     stage.apply(&mut second);
     // The block applied last starts at frame BLOCK_SIZE.
-    stage.note_given(5, 1);
-    stage.note_given(2, 3);
+    stage.note_given::<BLOCK_SIZE>(5, 1);
+    stage.note_given::<BLOCK_SIZE>(2, 3);
     let start = u64::try_from(BLOCK_SIZE).expect("a frame count");
     assert_eq!(
         stage.replaced(),
@@ -291,7 +291,7 @@ fn counts_a_sample_its_host_replaced_as_given_in_its_block() {
     );
     let mut saturated = OutputStage::<Binary64>::new();
     saturated.frame = u64::MAX;
-    saturated.note_given(usize::MAX, 0);
+    saturated.note_given::<BLOCK_SIZE>(usize::MAX, 0);
     assert_eq!(
         saturated.replaced().first,
         Some(FirstReplaced {

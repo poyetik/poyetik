@@ -820,7 +820,7 @@ fn gains(
     let mut output = Vec::with_capacity(frames);
     for (index, block) in input.chunks(BLOCK_SIZE).enumerate() {
         change(index.saturating_mul(BLOCK_SIZE), &mut limiter);
-        let mut blocks = [core::array::from_fn(|offset| {
+        let mut blocks = [core::array::from_fn::<_, BLOCK_SIZE, _>(|offset| {
             of::<Binary64>(block.get(offset).copied().unwrap_or(0.0_f64))
         })];
         limiter.apply(&mut blocks);

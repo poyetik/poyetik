@@ -25,7 +25,8 @@ use alloc::boxed::Box;
 use core::ptr;
 
 use audio_core::{
-    Block, Dispatch, Object, ObjectSpec, ParamValues, Plan, Renderer, Sample, SampleRate,
+    BLOCK_SIZE, Block, Dispatch, Object, ObjectSpec, ParamValues, Plan, Renderer, Sample,
+    SampleRate,
 };
 
 pub use dac::DAC;
@@ -39,10 +40,10 @@ pub static REGISTRY: [&ObjectSpec; 2] = [&OSC, &DAC];
 /// A built-in box type is then called directly (`spec/engine-design.md`, decision 33): the
 /// plan of every host of the engine, where `audio_core::Plan` names the instance type
 /// itself.
-pub type EnginePlan<S> = Plan<S, BuiltIn<S>>;
+pub type EnginePlan<S, const N: usize = BLOCK_SIZE> = Plan<S, BuiltIn<S, N>, N>;
 
 /// The engine's offline renderer computing in `S`, of an [`EnginePlan`].
-pub type EngineRenderer<S> = Renderer<S, BuiltIn<S>>;
+pub type EngineRenderer<S, const N: usize = BLOCK_SIZE> = Renderer<S, BuiltIn<S, N>, N>;
 
 /// An instance of a box type of [`REGISTRY`], called directly, or of any other box type
 /// (one loaded at run time), called through its virtual table.
@@ -56,21 +57,21 @@ pub type EngineRenderer<S> = Renderer<S, BuiltIn<S>>;
 /// (`spec/benchmarks.md`, "Measured design choices", where the trade is dated; it is
 /// measured again whenever this type or the plan's per-block code changes).
 #[derive(Debug)]
-pub struct BuiltIn<S: Sample>(Kind<S>);
+pub struct BuiltIn<S: Sample, const N: usize = BLOCK_SIZE>(Kind<S, N>);
 
 /// Which box type an instance is of.
 #[derive(Debug)]
-enum Kind<S: Sample> {
+enum Kind<S: Sample, const N: usize> {
     /// `osc~`.
     Osc(Box<osc::Osc>),
     /// `dac~`, which holds no state.
     Dac(dac::Dac),
     /// A box type outside the registry.
-    Other(Box<dyn Object<S>>),
+    Other(Box<dyn Object<S, N>>),
 }
 
-impl<S: Sample> Object<S> for BuiltIn<S> {
-    fn process(&mut self, inputs: &[Block<S>], outputs: &mut [Block<S>]) {
+impl<S: Sample, const N: usize> Object<S, N> for BuiltIn<S, N> {
+    fn process(&mut self, inputs: &[Block<S, N>], outputs: &mut [Block<S, N>]) {
         match &mut self.0 {
             Kind::Osc(instance) => instance.process(inputs, outputs),
             Kind::Dac(instance) => instance.process(inputs, outputs),
@@ -79,7 +80,10 @@ impl<S: Sample> Object<S> for BuiltIn<S> {
     }
 }
 
-impl<S: Sample> Dispatch<S> for BuiltIn<S> {
+impl<S: Sample, const N: usize> Dispatch<S, N> for BuiltIn<S, N>
+where
+    Box<dyn Object<S, N>>: Dispatch<S, N>,
+{
     /// The box type is told by the address of the spec the values carry, the registry's
     /// statics being the specs of the built-in box types: a spec is built only from its box
     /// type's own parameters and instances (`audio_core::ObjectSpec::new`), and the types
@@ -93,7 +97,9 @@ impl<S: Sample> Dispatch<S> for BuiltIn<S> {
         } else if ptr::eq(spec, &raw const DAC) {
             Kind::Dac(dac::Dac)
         } else {
-            Kind::Other(<Box<dyn Object<S>> as Dispatch<S>>::create(rate, values))
+            Kind::Other(<Box<dyn Object<S, N>> as Dispatch<S, N>>::create(
+                rate, values,
+            ))
         })
     }
 }

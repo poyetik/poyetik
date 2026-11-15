@@ -30,8 +30,8 @@ pub(crate) struct Osc {
     increment: Binary64,
 }
 
-impl<S: Sample> Object<S> for Osc {
-    fn process(&mut self, _inputs: &[Block<S>], outputs: &mut [Block<S>]) {
+impl<S: Sample, const N: usize> Object<S, N> for Osc {
+    fn process(&mut self, _inputs: &[Block<S, N>], outputs: &mut [Block<S, N>]) {
         for output in outputs.iter_mut().take(1) {
             for sample in output.iter_mut() {
                 *sample = S::from_binary64(Binary64::TAU * self.phase).sin().flush();
@@ -81,7 +81,10 @@ impl Create for Osc {
     )];
 
     /// An oscillator from its frequency parameter.
-    fn create<S: Sample>(rate: SampleRate, params: Params<'_>) -> Box<dyn Object<S>> {
+    fn create<S: Sample, const N: usize>(
+        rate: SampleRate,
+        params: Params<'_>,
+    ) -> Box<dyn Object<S, N>> {
         Box::new(Self::of(rate, &params))
     }
 }

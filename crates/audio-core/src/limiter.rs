@@ -45,7 +45,7 @@ use crate::math::{
     HannSums, TRUE_PEAK_FILTER, approached, complement, decayed, larger_reduction, reduced,
     reduction_needed, share, true_peak,
 };
-use crate::{BLOCK_SIZE, Binary64, Block, Sample, SampleRate};
+use crate::{Binary64, Block, Sample, SampleRate};
 
 /// How precisely the limiter estimates the true peak: the interpolator it oversamples each
 /// channel with (`spec/engine-design.md`, decision 12).
@@ -619,46 +619,50 @@ impl<S: Sample> TruePeakLimiter<S> {
 
     /// Limits the next block of every channel (`blocks[channel]`, as many as it was built
     /// for), in place: each sample becomes the input of [`Self::latency`] frames before,
-    /// reduced as the peaks ahead of it need.
-    pub fn apply(&mut self, blocks: &mut [Block<S>]) {
-        // The peak of each frame, the largest over the channels.
-        let mut peaks = [S::ZERO; BLOCK_SIZE];
+    /// reduced as the peaks ahead of it need. Frame by frame over the channels, so that it
+    /// holds no block of its own, whatever the engine block `N`.
+    pub fn apply<const N: usize>(&mut self, blocks: &mut [Block<S, N>]) {
         let taps = self.taps;
-        for (history, block) in self
-            .history
-            .chunks_exact_mut(taps.saturating_mul(2))
-            .zip(blocks.iter())
-        {
-            let mut at = self.history_at;
-            for (peak, sample) in peaks.iter_mut().zip(block) {
-                at = next(at, taps);
-                put(history, at, *sample);
-                put(history, at.saturating_add(taps), *sample);
+        let latency = self.latency();
+        for frame in 0..N {
+            self.history_at = next(self.history_at, taps);
+            let at = self.history_at;
+            // The peak of the frame, the largest over the channels.
+            let mut peak = S::ZERO;
+            for (history, block) in self
+                .history
+                .chunks_exact_mut(taps.saturating_mul(2))
+                .zip(blocks.iter())
+            {
+                let sample = block.get(frame).copied().unwrap_or(S::ZERO);
+                put(history, at, sample);
+                put(history, at.saturating_add(taps), sample);
                 // The last `taps` samples, oldest first: those after the newest's first copy.
                 let window = history
                     .get(at.saturating_add(1)..=at.saturating_add(taps))
                     .unwrap_or_default();
-                *peak = larger_reduction(*peak, true_peak(window, &self.filter, taps));
+                peak = larger_reduction(peak, true_peak(window, &self.filter, taps));
             }
-        }
-        self.history_at = ahead(self.history_at, BLOCK_SIZE, taps);
-        let reductions = peaks.map(|peak| self.reduction(peak));
-        // Each channel's delay line, in turn, from the same position.
-        let latency = self.latency();
-        for (ring, block) in self.delayed.chunks_exact_mut(latency).zip(blocks) {
-            let mut position = self.position;
-            for (sample, reduction) in block.iter_mut().zip(reductions) {
-                let out = ring.get(position).copied().unwrap_or(S::ZERO);
-                put(ring, position, *sample);
-                *sample = if reduction == S::ZERO {
-                    out
-                } else {
-                    reduced(out, reduction)
-                };
-                position = next(position, latency);
+            let reduction = self.reduction(peak);
+            // Each channel's delay line, from the same position.
+            let position = self.position;
+            for (ring, block) in self
+                .delayed
+                .chunks_exact_mut(latency)
+                .zip(blocks.iter_mut())
+            {
+                if let Some(sample) = block.get_mut(frame) {
+                    let out = ring.get(position).copied().unwrap_or(S::ZERO);
+                    put(ring, position, *sample);
+                    *sample = if reduction == S::ZERO {
+                        out
+                    } else {
+                        reduced(out, reduction)
+                    };
+                }
             }
+            self.position = next(position, latency);
         }
-        self.position = ahead(self.position, BLOCK_SIZE, latency);
     }
 
     /// The reduction to apply to the sample leaving the delay at the frame whose peak, over

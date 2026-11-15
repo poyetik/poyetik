@@ -18,6 +18,7 @@
 //! records the mode (`spec/render-hash.md`).
 
 use alloc::boxed::Box;
+use alloc::vec::Vec;
 use core::borrow::Borrow;
 use core::fmt;
 use core::iter;
@@ -243,7 +244,8 @@ pub(crate) fn to_binary32(value: f64) -> f32 {
 
 /// A constructor of box instances computing in `S`: how a [`Factory`] holds each
 /// precision's, private to the engine.
-pub(crate) type Constructor<S> = fn(SampleRate, Params<'_>) -> Box<dyn Object<S>>;
+pub(crate) type Constructor<S, const N: usize> =
+    fn(SampleRate, Params<'_>) -> Box<dyn Object<S, N>>;
 
 /// A binary64 value of the engine: a signal sample of a binary64 render, and in both
 /// precisions a parameter value and what boxes derive from it (increments, coefficients,
@@ -439,28 +441,17 @@ pub(crate) mod sealed {
     impl Sealed for f64 {}
     impl Sealed for f32 {}
 
-    /// How a sample type picks its constructor from a [`Factory`]: a supertrait of
-    /// [`Sample`] no other crate can name, so that `Dispatch::create` stays the one public
-    /// way to create an instance: the factory's constructor and its creation are
+    /// How a sample type picks its constructor of blocks of `N` frames from a [`Factory`]:
+    /// implemented for each engine block of `crate::ENGINE_BLOCKS` (by `Factory`'s
+    /// module), a trait no other crate can name, so that `Dispatch::create` stays the one
+    /// public way to create an instance: the factory's constructor and its creation are
     /// crate-private, and `audio_boxes::BuiltIn` creates the engine's own box types
-    /// directly, from the same checked values.
-    pub trait Construct {
-        /// The constructor of `factory` for this type.
-        fn constructor(factory: &Factory) -> Constructor<Self>
+    /// directly, from the same checked values, in any engine block.
+    pub trait Construct<const N: usize> {
+        /// The constructor of `factory` for this type and `N`.
+        fn constructor(factory: &Factory) -> Constructor<Self, N>
         where
             Self: Sample;
-    }
-
-    impl Construct for super::Binary64 {
-        fn constructor(factory: &Factory) -> Constructor<Self> {
-            factory.binary64
-        }
-    }
-
-    impl Construct for super::Binary32 {
-        fn constructor(factory: &Factory) -> Constructor<Self> {
-            factory.binary32
-        }
     }
 }
 
@@ -469,7 +460,7 @@ pub(crate) mod sealed {
 /// `libm`'s; all are the math layer's.
 pub trait Sample:
     sealed::Sealed
-    + sealed::Construct
+    + sealed::Construct<BLOCK_SIZE>
     + Copy
     + fmt::Debug
     + Send
@@ -639,14 +630,17 @@ const _: () = {
 
 /// What the reduction order sums: a sample, or a block of samples frame by frame.
 trait Summand: Copy {
-    /// The sum of no terms: +0, or a block of +0.
-    const NOTHING: Self;
+    /// Becomes the sum of no terms: +0, or a block of +0 (filled in place, so that no
+    /// block of zeros is held as a constant, whatever the engine block).
+    fn clear(&mut self);
     /// Adds `other` to itself, frame by frame for a block.
     fn add(&mut self, other: &Self);
 }
 
 impl<S: Sample> Summand for S {
-    const NOTHING: Self = S::ZERO;
+    fn clear(&mut self) {
+        *self = S::ZERO;
+    }
 
     #[expect(
         clippy::arithmetic_side_effects,
@@ -657,8 +651,10 @@ impl<S: Sample> Summand for S {
     }
 }
 
-impl<S: Sample> Summand for Block<S> {
-    const NOTHING: Self = S::SILENCE;
+impl<S: Sample, const N: usize> Summand for Block<S, N> {
+    fn clear(&mut self) {
+        self.fill(S::ZERO);
+    }
 
     #[expect(
         clippy::arithmetic_side_effects,
@@ -676,7 +672,7 @@ impl<S: Sample> Summand for Block<S> {
 /// sum is the sample sum of the frames `f` of its terms, by construction.
 ///
 /// Term `k` starts lane `k` (copied, never added to -0) for `k` below 16, then adds to lane
-/// `k mod 16` in increasing `k`; no term at all gives `NOTHING`; the tree then adds lane
+/// `k mod 16` in increasing `k`; no term at all gives +0 (`clear`); the tree then adds lane
 /// `i + half` to lane `i` over the lanes holding a term.
 fn reduce<L: Summand, T: Borrow<L>>(
     out: &mut L,
@@ -685,7 +681,7 @@ fn reduce<L: Summand, T: Borrow<L>>(
 ) {
     let mut terms = terms.into_iter();
     let Some(first) = terms.next() else {
-        *out = L::NOTHING;
+        out.clear();
         return;
     };
     *out = *first.borrow();
@@ -722,23 +718,19 @@ fn reduce<L: Summand, T: Borrow<L>>(
 /// costs a product and a sum per sample and one decision. Each product then sum is
 /// [`Sample::mul_then_add`], exact in every arithmetic mode (a product by zero is exact, so
 /// fusing it rounds nothing).
-pub(crate) fn all_finite<S: Sample>(block: &Block<S>) -> bool {
+pub(crate) fn all_finite<S: Sample, const N: usize>(block: &Block<S, N>) -> bool {
     // Eight at a time, each eight unrolled (a fixed length): their loads take constant
-    // offsets, and the loop runs eight times less. A block is whole eights, so nothing is
-    // left over.
-    const {
-        assert!(
-            BLOCK_SIZE.is_multiple_of(8),
-            "a block is whole eights of samples"
-        );
-    };
-    let (eights, _none) = block.as_chunks::<8>();
-    eights
-        .iter()
-        .fold(S::ZERO, |sum, eight| {
-            eight
-                .iter()
-                .fold(sum, |partial, sample| sample.mul_then_add(S::ZERO, partial))
+    // offsets, and the loop runs eight times less; the frames after the last eight, as
+    // many as the engine block leaves (a constant of the build), follow one by one.
+    let (eights, rest) = block.as_chunks::<8>();
+    let whole = eights.iter().fold(S::ZERO, |sum, eight| {
+        eight
+            .iter()
+            .fold(sum, |partial, sample| sample.mul_then_add(S::ZERO, partial))
+    });
+    rest.iter()
+        .fold(whole, |partial, sample| {
+            sample.mul_then_add(S::ZERO, partial)
         })
         .is_finite()
 }
@@ -779,14 +771,22 @@ pub fn ordered_sum<S: Sample>(terms: impl IntoIterator<Item = S>) -> S {
 }
 
 /// The scratch lanes of the block form of the reduction order, 15 blocks, reserved once by
-/// [`Lanes::new`] (a plan's build), so that summing blocks never allocates.
+/// [`Lanes::new`] (a plan's build), so that summing blocks never allocates: one buffer on
+/// the heap, read as its blocks, so that no block is ever built on the stack, whatever the
+/// engine block.
 #[derive(Debug)]
-pub(crate) struct Lanes<S: Sample>(Box<[Block<S>; LANES - 1]>);
+pub(crate) struct Lanes<S: Sample, const N: usize>(Vec<S>);
 
-impl<S: Sample> Lanes<S> {
+impl<S: Sample, const N: usize> Lanes<S, N> {
     /// Lanes of silence, on the heap.
     pub(crate) fn new() -> Self {
-        Self(Box::new([S::SILENCE; LANES - 1]))
+        Self(alloc::vec![S::ZERO; (LANES - 1).saturating_mul(N)])
+    }
+
+    /// The lanes, as their 15 blocks: always, the buffer holding exactly them (`new`), so
+    /// that the reduction's tree runs over a fixed number of lanes.
+    fn blocks(&mut self) -> Option<&mut [Block<S, N>; LANES - 1]> {
+        self.0.as_chunks_mut::<N>().0.try_into().ok()
     }
 }
 
@@ -794,12 +794,15 @@ impl<S: Sample> Lanes<S> {
 /// [`ordered_sum`] (the same core, `reduce`): the block itself for one (bit for bit),
 /// silence (+0) for none. The plan sums the cables into an inlet and the output boxes on a
 /// channel with it, using `lanes` as scratch.
-pub(crate) fn sum_blocks<'terms, S: Sample>(
-    out: &mut Block<S>,
-    lanes: &mut Lanes<S>,
-    terms: impl Iterator<Item = &'terms Block<S>>,
+pub(crate) fn sum_blocks<'terms, S: Sample, const N: usize>(
+    out: &mut Block<S, N>,
+    lanes: &mut Lanes<S, N>,
+    terms: impl Iterator<Item = &'terms Block<S, N>>,
 ) {
-    reduce(out, &mut lanes.0, terms);
+    // The lanes are always found (`Lanes::blocks`): the sum always runs.
+    for (rest, every) in lanes.blocks().into_iter().zip(iter::once(terms)) {
+        reduce(out, rest, every);
+    }
 }
 
 /// The sum of the blocks `first` and `second` frame by frame, `first + second`: the
@@ -810,7 +813,11 @@ pub(crate) fn sum_blocks<'terms, S: Sample>(
     clippy::arithmetic_side_effects,
     reason = "IEEE 754 addition of the sample type, which neither overflows nor panics"
 )]
-pub(crate) fn add_two<S: Sample>(out: &mut Block<S>, first: &Block<S>, second: &Block<S>) {
+pub(crate) fn add_two<S: Sample, const N: usize>(
+    out: &mut Block<S, N>,
+    first: &Block<S, N>,
+    second: &Block<S, N>,
+) {
     *out = *first;
     for (sum, term) in out.iter_mut().zip(second) {
         *sum += *term;

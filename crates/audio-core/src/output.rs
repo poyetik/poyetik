@@ -6,7 +6,7 @@
 #![cfg_attr(not(test), forbid(clippy::arithmetic_side_effects))]
 
 use crate::math::all_finite;
-use crate::{BLOCK_SIZE, Block, Sample, TruePeakLimiter};
+use crate::{Block, Sample, TruePeakLimiter};
 
 /// The first sample the output stage replaced: the earliest frame, then the lowest channel
 /// of that frame.
@@ -114,7 +114,7 @@ impl<S: Sample> OutputStage<S> {
                   The output stage"
     )]
     #[inline(always)]
-    pub fn apply(&mut self, blocks: &mut [Block<S>]) {
+    pub fn apply<const N: usize>(&mut self, blocks: &mut [Block<S, N>]) {
         for (channel, block) in blocks.iter_mut().enumerate() {
             if !all_finite(block) {
                 self.replace(block, channel);
@@ -123,7 +123,7 @@ impl<S: Sample> OutputStage<S> {
         if let Some(limiter) = &mut self.limiter {
             limiter.apply(blocks);
         }
-        self.advance();
+        self.advance::<N>();
     }
 
     /// Applies the stage to the next block of every channel before it is given in a
@@ -132,19 +132,19 @@ impl<S: Sample> OutputStage<S> {
     /// needs finite samples; a raw stage only counts the block, and leaves every non-finite
     /// sample to the check as given, which sees each one (the rounding keeps a non-finite
     /// sample non-finite, at the same place): one pass over the block instead of two.
-    pub fn apply_before_narrowing(&mut self, blocks: &mut [Block<S>]) {
+    pub fn apply_before_narrowing<const N: usize>(&mut self, blocks: &mut [Block<S, N>]) {
         if self.limiter.is_some() {
             self.apply(blocks);
         } else {
-            self.advance();
+            self.advance::<N>();
         }
     }
 
-    /// Counts one more block.
-    fn advance(&mut self) {
+    /// Counts one more block, of `N` frames.
+    fn advance<const N: usize>(&mut self) {
         self.frame = self
             .frame
-            .saturating_add(u64::try_from(BLOCK_SIZE).unwrap_or(u64::MAX));
+            .saturating_add(u64::try_from(N).unwrap_or(u64::MAX));
     }
 
     /// Counts one more sample replaced, the sample at `offset` in the block applied last, of
@@ -154,12 +154,12 @@ impl<S: Sample> OutputStage<S> {
     /// replaced by zero as it gave it.
     ///
     /// Its frame is the one the plan computed it at: the stage delayed it by its latency.
-    pub fn note_given(&mut self, offset: usize, channel: usize) {
+    pub fn note_given<const N: usize>(&mut self, offset: usize, channel: usize) {
         // The block applied last starts a block before the next one: computed here, on the
         // cold path, rather than kept by every block.
         let block = self
             .frame
-            .saturating_sub(u64::try_from(BLOCK_SIZE).unwrap_or(u64::MAX));
+            .saturating_sub(u64::try_from(N).unwrap_or(u64::MAX));
         let offset = u64::try_from(offset).unwrap_or(u64::MAX);
         let latency = u64::try_from(self.latency()).unwrap_or(u64::MAX);
         self.replaced.note(FirstReplaced {
@@ -171,7 +171,7 @@ impl<S: Sample> OutputStage<S> {
     /// Replaces and counts the samples of `given`, the block applied last as its host is
     /// given it in a narrower format (`given[channel]`), that the rounding made infinite
     /// ([`OutputStage::note_given`]).
-    pub fn replace_given<G: Sample>(&mut self, given: &mut [Block<G>]) {
+    pub fn replace_given<G: Sample, const N: usize>(&mut self, given: &mut [Block<G, N>]) {
         for (channel, block) in given.iter_mut().enumerate() {
             if !all_finite(block) {
                 self.replace_given_block(block, channel);
@@ -181,18 +181,22 @@ impl<S: Sample> OutputStage<S> {
 
     /// Replaces and counts the infinite samples of `block`, of channel `channel`, as given.
     #[cold]
-    fn replace_given_block<G: Sample>(&mut self, block: &mut Block<G>, channel: usize) {
+    fn replace_given_block<G: Sample, const N: usize>(
+        &mut self,
+        block: &mut Block<G, N>,
+        channel: usize,
+    ) {
         for (offset, sample) in block.iter_mut().enumerate() {
             if !sample.is_finite() {
                 *sample = G::ZERO;
-                self.note_given(offset, channel);
+                self.note_given::<N>(offset, channel);
             }
         }
     }
 
     /// Replaces every non-finite sample of `block`, of channel `channel`, and counts it.
     #[cold]
-    fn replace(&mut self, block: &mut Block<S>, channel: usize) {
+    fn replace<const N: usize>(&mut self, block: &mut Block<S, N>, channel: usize) {
         let mut frame = self.frame;
         for sample in block.iter_mut() {
             if !sample.is_finite() {

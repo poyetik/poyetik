@@ -12,14 +12,17 @@ use audio_core::{
 #[derive(Debug)]
 pub(crate) struct Dac;
 
-impl<S: Sample> Object<S> for Dac {
-    fn process(&mut self, _inputs: &[Block<S>], _outputs: &mut [Block<S>]) {}
+impl<S: Sample, const N: usize> Object<S, N> for Dac {
+    fn process(&mut self, _inputs: &[Block<S, N>], _outputs: &mut [Block<S, N>]) {}
 }
 
 impl Create for Dac {
     const PARAMS: &'static [ParamSpec] = &[];
 
-    fn create<S: Sample>(_rate: SampleRate, _params: Params<'_>) -> Box<dyn Object<S>> {
+    fn create<S: Sample, const N: usize>(
+        _rate: SampleRate,
+        _params: Params<'_>,
+    ) -> Box<dyn Object<S, N>> {
         Box::new(Self)
     }
 }

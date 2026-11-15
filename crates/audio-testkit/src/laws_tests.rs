@@ -62,12 +62,12 @@ enum Fixture {
     SkipsWhenSilent,
 }
 
-impl<S: Sample> Object<S> for Fixture {
+impl<S: Sample, const N: usize> Object<S, N> for Fixture {
     #[expect(
         clippy::arithmetic_side_effects,
         reason = "S is f32 or f64: IEEE 754 multiplication, which neither overflows nor panics"
     )]
-    fn process(&mut self, inputs: &[Block<S>], outputs: &mut [Block<S>]) {
+    fn process(&mut self, inputs: &[Block<S, N>], outputs: &mut [Block<S, N>]) {
         let nan = of::<S>(f64::NAN);
         let either = |condition: bool| if condition { nan } else { S::ZERO };
         let inputs_any =
@@ -162,7 +162,7 @@ impl<S: Sample> Object<S> for Fixture {
 }
 
 /// Fills every output with `value`.
-fn fill<S: Sample>(outputs: &mut [Block<S>], value: S) {
+fn fill<S: Sample, const N: usize>(outputs: &mut [Block<S, N>], value: S) {
     for output in outputs {
         output.fill(value);
     }
@@ -191,7 +191,10 @@ macro_rules! box_type {
         impl Create for $name {
             const PARAMS: &'static [ParamSpec] = $params;
 
-            fn create<S: Sample>($rate: SampleRate, given: Params<'_>) -> Box<dyn Object<S>> {
+            fn create<S: Sample, const N: usize>(
+                $rate: SampleRate,
+                given: Params<'_>,
+            ) -> Box<dyn Object<S, N>> {
                 let raw: Vec<f64> = given.iter().map(|param| param.raw()).collect();
                 let $given: &[f64] = &raw;
                 Box::new($body)

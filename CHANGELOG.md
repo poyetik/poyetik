@@ -49,6 +49,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Breaking:** `createEngineNode` (`@poyetik/audio-wasm`, `./web`) takes its handlers as one object, `{ onFailure, onReplaced? }` (`EngineHandlers`), instead of a failure callback.
 - **Breaking:** `audio_cli::run` takes a second writer, for warnings (stderr).
 - **Breaking:** `audio_core::OutputStage` is generic in the sample type it computes in (`OutputStage<S>`), since it may hold a limiter computing in it; its `apply` takes blocks of that type.
+- **Breaking:** the engine block is a constant of the build, a const generic parameter of the processing (`spec/engine-design.md`, decision 2), 64 frames by default (`BLOCK_SIZE`): `Block<S, N>`, `Object<S, N>`, `Dispatch<S, N>`, `Plan<S, I, N>`, `Renderer<S, I, N>`, `audio_boxes::BuiltIn<S, N>`, `EnginePlan<S, N>` and `EngineRenderer<S, N>` take it, and `Create::create` creates an instance for any of them (`create<S, N>`). `OutputStage::apply`, `apply_before_narrowing`, `replace_given`, `note_given` and `TruePeakLimiter::apply` take blocks of any engine block. Each size runs the code a fixed block compiles to. The sizes a patcher build offers are `ENGINE_BLOCKS` (32 to 1024 frames); a box type created through its virtual table exists in those only, a built-in one in any (`MAX_ENGINE_BLOCK`, 2^20). `Sample::SILENCE` stays the block of the default size. The plan and the renderer keep their blocks in buffers on the heap, so that no block is built on the stack whatever its size.
 
 ### Fixed
 

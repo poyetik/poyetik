@@ -131,14 +131,17 @@ macro_rules! mute {
         #[derive(Debug)]
         struct $name;
 
-        impl<S: Sample> Object<S> for $name {
-            fn process(&mut self, _inputs: &[Block<S>], _outputs: &mut [Block<S>]) {}
+        impl<S: Sample, const N: usize> Object<S, N> for $name {
+            fn process(&mut self, _inputs: &[Block<S, N>], _outputs: &mut [Block<S, N>]) {}
         }
 
         impl Create for $name {
             const PARAMS: &'static [ParamSpec] = $params;
 
-            fn create<S: Sample>(_rate: SampleRate, _params: Params<'_>) -> Box<dyn Object<S>> {
+            fn create<S: Sample, const N: usize>(
+                _rate: SampleRate,
+                _params: Params<'_>,
+            ) -> Box<dyn Object<S, N>> {
                 Box::new(Self)
             }
         }
@@ -481,8 +484,8 @@ fn keeps_the_box_type_its_values_were_checked_against() {
 #[derive(Debug)]
 struct Told([f64; 2]);
 
-impl<S: Sample> Object<S> for Told {
-    fn process(&mut self, _inputs: &[Block<S>], outputs: &mut [Block<S>]) {
+impl<S: Sample, const N: usize> Object<S, N> for Told {
+    fn process(&mut self, _inputs: &[Block<S, N>], outputs: &mut [Block<S, N>]) {
         for output in outputs {
             for (sample, &value) in output.iter_mut().zip(self.0.iter()) {
                 *sample = S::from_binary64(Binary64::new(value));
@@ -494,7 +497,10 @@ impl<S: Sample> Object<S> for Told {
 impl Create for Told {
     const PARAMS: &'static [ParamSpec] = &[crate::param!("v", "v", 1.0, 0.0, 1_000.0)];
 
-    fn create<S: Sample>(rate: SampleRate, params: Params<'_>) -> Box<dyn Object<S>> {
+    fn create<S: Sample, const N: usize>(
+        rate: SampleRate,
+        params: Params<'_>,
+    ) -> Box<dyn Object<S, N>> {
         let first = params.first().map_or(-1.0_f64, |value| value.raw());
         Box::new(Self([first, f64::from(rate.hz())]))
     }
@@ -600,5 +606,16 @@ fn are_errors_of_their_own() {
             "box type \"two~\" takes 2 parameter value(s), not 1",
         ],
         "said as they display"
+    );
+}
+
+#[test]
+fn constructs_every_engine_block_offered() {
+    // The factory's constructors cover exactly the engine blocks a build offers, in order:
+    // a size added to one list and not the other fails here.
+    assert_eq!(
+        super::CONSTRUCTED,
+        crate::ENGINE_BLOCKS,
+        "the factory's sizes"
     );
 }

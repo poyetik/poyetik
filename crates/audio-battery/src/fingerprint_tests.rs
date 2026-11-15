@@ -83,12 +83,12 @@ fn flip_lowest_bit<S: Sample>(sample: S) -> S {
     S::from_binary64(Binary64::from_raw(flipped))
 }
 
-impl<S: Sample> Object<S> for Echo {
+impl<S: Sample, const N: usize> Object<S, N> for Echo {
     #[expect(
         clippy::arithmetic_side_effects,
         reason = "S is f32 or f64: IEEE 754 multiplication, which neither overflows nor panics"
     )]
-    fn process(&mut self, inputs: &[Block<S>], outputs: &mut [Block<S>]) {
+    fn process(&mut self, inputs: &[Block<S, N>], outputs: &mut [Block<S, N>]) {
         self.blocks = self.blocks.saturating_add(1);
         let gain = S::from_binary64(Binary64::from_raw(self.gain));
         for (output, input) in outputs.iter_mut().zip(inputs) {
@@ -133,7 +133,10 @@ fn echo_to(quirk: Quirk, outlets: &'static [PortSpec]) -> ObjectSpec {
             impl Create for Chosen {
                 const PARAMS: &'static [ParamSpec] = &[GAIN];
 
-                fn create<S: Sample>(rate: SampleRate, params: Params<'_>) -> Box<dyn Object<S>> {
+                fn create<S: Sample, const N: usize>(
+                    rate: SampleRate,
+                    params: Params<'_>,
+                ) -> Box<dyn Object<S, N>> {
                     let gain = params.first().map_or(0.0_f64, |param| param.raw());
                     let quirky = match $quirk {
                         Quirk::None => false,
@@ -183,7 +186,10 @@ macro_rules! gain_of {
         impl Create for $name {
             const PARAMS: &'static [ParamSpec] = &[$param];
 
-            fn create<S: Sample>(_rate: SampleRate, params: Params<'_>) -> Box<dyn Object<S>> {
+            fn create<S: Sample, const N: usize>(
+                _rate: SampleRate,
+                params: Params<'_>,
+            ) -> Box<dyn Object<S, N>> {
                 Box::new(Echo {
                     gain: params.first().map_or(0.0_f64, |param| param.raw()),
                     quirky: false,
@@ -400,8 +406,8 @@ struct Route {
     first: usize,
 }
 
-impl<S: Sample> Object<S> for Route {
-    fn process(&mut self, inputs: &[Block<S>], outputs: &mut [Block<S>]) {
+impl<S: Sample, const N: usize> Object<S, N> for Route {
+    fn process(&mut self, inputs: &[Block<S, N>], outputs: &mut [Block<S, N>]) {
         let order = if self.first == 0 { [0, 1] } else { [1, 0] };
         for (input, outlet) in inputs.iter().zip(order) {
             if let Some(output) = outputs.get_mut(outlet) {
@@ -418,7 +424,10 @@ fn route<const FIRST: usize>() -> ObjectSpec {
     impl<const FIRST: usize> Create for Routed<FIRST> {
         const PARAMS: &'static [ParamSpec] = &[];
 
-        fn create<S: Sample>(_rate: SampleRate, _params: Params<'_>) -> Box<dyn Object<S>> {
+        fn create<S: Sample, const N: usize>(
+            _rate: SampleRate,
+            _params: Params<'_>,
+        ) -> Box<dyn Object<S, N>> {
             Box::new(Route { first: FIRST })
         }
     }
