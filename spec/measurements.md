@@ -144,7 +144,7 @@ The visual library's boxes are measured against the same bar (`spec/visual-desig
 |---|---|---|
 | Coverage | Every pixel of every image of a whole cycle, and far in time, against its coverage computed independently from `spec/visual-design.md` (sections 4 and 6) in 128-bit integers (`renders_every_pixel_as_its_exact_reference`, `crates/visual-boxes`) | Equal bits |
 | Area | The values of an image sum to the square's area, wherever it is | Equal, in `f64` (exact below 2⁵³) |
-| Motion | The left edge, read from the pixels, advances by `⌊(W − s) q b / (p a)⌋` subpixel units or one more each image, and starts each cycle at the left edge | Exact |
+| Motion | The left edge, read from the pixels, advances by `⌊max(W − s, 0) q b / (p a)⌋` subpixel units or one more each image, and is at the left edge in an image that falls on the start of a cycle (when a cycle is not a whole number of images, no image does) | Exact |
 
 Perceptual measurements (aliasing of moving edges, flicker, banding once images are quantized) and the GPU renderer's distance to this reference come with the visual measurements of the test kit (#35 step 7) and the GPU (#34 step 5); `spec/limitations.md` lists what is not measured yet.
 
