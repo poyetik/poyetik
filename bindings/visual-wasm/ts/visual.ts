@@ -126,7 +126,7 @@ function exported<A extends readonly number[]>(exports: Exports, name: string, a
 /** `value` as an unsigned 32-bit integer, or throws naming `what`. */
 function u32(value: number, what: string): number {
   if (!Number.isInteger(value) || value < 0 || value > 0xffff_ffff) {
-    throw new VisualModuleError(`${what} is not an unsigned 32-bit integer`);
+    throw new VisualModuleError(`${what} is not an unsigned 32-bit integer: ${String(value)}`);
   }
   return value;
 }
@@ -143,7 +143,7 @@ function halves(index: bigint): [number, number] {
  * One instance of the visual module, always with a square set up: it is given one when it
  * is created, and a refused setup keeps the square it had. It drives its instance alone: a
  * second wrapper of the same instance is refused. Its memory grows to hold the largest image
- * set up, up to 512 MiB, and never shrinks again (WebAssembly memory cannot): only a fresh
+ * set up, whose values take up to 512 MiB (the memory a little more), and never shrinks again (WebAssembly memory cannot): only a fresh
  * instance gives it back.
  */
 export class VisualModule {
@@ -188,21 +188,29 @@ export class VisualModule {
     if (DRIVEN.has(memory)) {
       throw new VisualModuleError("this instance is already driven by another VisualModule");
     }
-    const abiVersion = exported<[]>(exports, "visual_abi_version", 0);
-    const version = this.#guarded(abiVersion);
-    if (version !== ABI_VERSION) {
-      throw new VisualModuleError(`interface 0x${version.toString(16)}, expected 0x${ABI_VERSION.toString(16)}`);
-    }
-    this.#memory = memory;
-    this.#setup = exported(exports, "visual_setup", 7);
-    this.#messagePtr = exported(exports, "visual_message_ptr", 0);
-    this.#messageLen = exported(exports, "visual_message_len", 0);
-    this.#render = exported(exports, "visual_render", 2);
-    this.#hash = exported(exports, "visual_hash", 3);
-    this.#valuesLen = exported(exports, "visual_values_len", 0);
-    // Checked to be the visual module: from now on this wrapper drives it, whatever follows.
+    // Driven from its first call: an instance a call failed into is never called again,
+    // whichever wrapper tries; one refused before any failed call is freed for another.
     DRIVEN.add(memory);
-    this.setup(square);
+    try {
+      const abiVersion = exported<[]>(exports, "visual_abi_version", 0);
+      const version = this.#guarded(abiVersion);
+      if (version !== ABI_VERSION) {
+        throw new VisualModuleError(`interface 0x${version.toString(16)}, expected 0x${ABI_VERSION.toString(16)}: build the module again from this source (pnpm build:wasm)`);
+      }
+      this.#memory = memory;
+      this.#setup = exported(exports, "visual_setup", 7);
+      this.#messagePtr = exported(exports, "visual_message_ptr", 0);
+      this.#messageLen = exported(exports, "visual_message_len", 0);
+      this.#render = exported(exports, "visual_render", 2);
+      this.#hash = exported(exports, "visual_hash", 3);
+      this.#valuesLen = exported(exports, "visual_values_len", 0);
+      this.setup(square);
+    } catch (error) {
+      if (!(error instanceof VisualTrap)) {
+        DRIVEN.delete(memory);
+      }
+      throw error;
+    }
   }
 
   /**
@@ -337,7 +345,8 @@ export class VisualModule {
    * @returns The 64 lowercase hexadecimal digits of the hash. Every image is rendered and
    * hashed before it returns, `count` × width × height pixels, on the calling thread: tens
    * of nanoseconds each in WebAssembly, the hash costing far more than the render (a 1080p
-   * image about a tenth of a second), so a page bounds what it asks (#34 step 6), as
+   * image about a tenth of a second, measured once in Node on the maintainer's Mac,
+   * 2026-11-15; no benchmark holds it yet, #34 step 5), so a page bounds what it asks, as
    * `visual-cli` bounds a case to 2²⁸ pixels.
    * @throws {VisualModuleError} When an argument is out of range, the last image is past
    * the largest index, or the module refuses the images or answers outside its contract.

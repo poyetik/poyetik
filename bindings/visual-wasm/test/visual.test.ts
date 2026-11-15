@@ -220,6 +220,21 @@ describe("VisualModule", () => {
     expect(() => new VisualModule(exports, SQUARE), "nor driven again once dead").toThrow(new VisualModuleError("this instance is already driven by another VisualModule"));
   });
 
+  test("keeps an instance whose version check failed, and frees one whose first square was refused", () => {
+    const failing = fake({
+      visual_abi_version: () => {
+        throw new RangeError("Maximum call stack size exceeded");
+      },
+    });
+    expect(() => new VisualModule(failing.exports, SQUARE)).toThrow(new VisualTrap());
+    const before = failing.calls.length;
+    expect(() => new VisualModule(failing.exports, SQUARE), "never called again").toThrow(new VisualModuleError("this instance is already driven by another VisualModule"));
+    expect(failing.calls.length).toBe(before);
+    const refused = fake();
+    expect(() => new VisualModule(refused.exports, { ...SQUARE, width: -1 })).toThrow(new VisualModuleError("width is not an unsigned 32-bit integer: -1"));
+    expect(() => new VisualModule(refused.exports, SQUARE), "the healthy instance driven again").not.toThrow();
+  });
+
   test("reads the explanation of a refusal from the memory as it is after asking where it is", () => {
     const { exports, memory } = fake({
       visual_setup: () => 0,
@@ -289,8 +304,8 @@ describe("VisualModule", () => {
     const edits: (readonly [Record<string, unknown>, string])[] = [
       [{ memory: undefined }, "no memory"],
       [{ memory: {} }, "no memory"],
-      [{ visual_abi_version: () => ABI_VERSION + 1 }, "interface 0x50560004, expected 0x50560003"],
-      [{ visual_abi_version: () => 0 }, "interface 0x0, expected 0x50560003"],
+      [{ visual_abi_version: () => ABI_VERSION + 1 }, "interface 0x50560004, expected 0x50560003: build the module again from this source (pnpm build:wasm)"],
+      [{ visual_abi_version: () => 0 }, "interface 0x0, expected 0x50560003: build the module again from this source (pnpm build:wasm)"],
       [{ visual_abi_version: 3 }, "no function visual_abi_version"],
       [{ visual_abi_version: () => "2" }, "visual_abi_version did not return a number"],
       [{ visual_abi_version: withArity(1, () => ABI_VERSION) }, "visual_abi_version takes 1 argument(s), expected 0"],
@@ -307,21 +322,21 @@ describe("VisualModule", () => {
   test("refuses values the interface cannot take, before any call", () => {
     const { exports, calls } = fake();
     const module = new VisualModule(exports, SQUARE);
-    for (const [setup, what] of [
-      [{ ...SQUARE, width: -1 }, "width"],
-      [{ ...SQUARE, height: 2 ** 32 }, "height"],
-      [{ ...SQUARE, rate: [1.5, 1] }, "rate[0]"],
-      [{ ...SQUARE, rate: [60, Number.NaN] }, "rate[1]"],
-      [{ ...SQUARE, side: 0.5 }, "side"],
-      [{ ...SQUARE, cycle: [-1, 2] }, "cycle[0]"],
-      [{ ...SQUARE, cycle: [1, 2 ** 32] }, "cycle[1]"],
+    for (const [setup, what, value] of [
+      [{ ...SQUARE, width: -1 }, "width", "-1"],
+      [{ ...SQUARE, height: 2 ** 32 }, "height", "4294967296"],
+      [{ ...SQUARE, rate: [1.5, 1] }, "rate[0]", "1.5"],
+      [{ ...SQUARE, rate: [60, Number.NaN] }, "rate[1]", "NaN"],
+      [{ ...SQUARE, side: 0.5 }, "side", "0.5"],
+      [{ ...SQUARE, cycle: [-1, 2] }, "cycle[0]", "-1"],
+      [{ ...SQUARE, cycle: [1, 2 ** 32] }, "cycle[1]", "4294967296"],
     ] as const) {
-      expect(() => { module.setup(setup); }, what).toThrow(new VisualModuleError(`${what} is not an unsigned 32-bit integer`));
+      expect(() => { module.setup(setup); }, what).toThrow(new VisualModuleError(`${what} is not an unsigned 32-bit integer: ${value}`));
     }
     expect(() => { module.setup({ ...SQUARE, width: 0xffff_ffff }); }).not.toThrow();
     expect(() => module.render(-1n)).toThrow(new VisualModuleError("image -1 is not an index from 0 to 2^64 - 1"));
     expect(() => module.render(MAX_INDEX + 1n)).toThrow(new VisualModuleError("image 18446744073709551616 is not an index from 0 to 2^64 - 1"));
-    expect(() => module.hash(0n, MAX_COUNT + 1)).toThrow(new VisualModuleError("count is not an unsigned 32-bit integer"));
+    expect(() => module.hash(0n, MAX_COUNT + 1)).toThrow(new VisualModuleError("count is not an unsigned 32-bit integer: 4294967296"));
     expect(() => module.hash(-1n, 1)).toThrow(new VisualModuleError("image -1 is not an index from 0 to 2^64 - 1"));
     expect(() => module.hash(MAX_INDEX, 2)).toThrow(new VisualModuleError("2 images from image 18446744073709551615 pass the largest index, 2^64 - 1"));
     expect(() => module.hash(MAX_INDEX - 3n, 5)).toThrow(new VisualModuleError("5 images from image 18446744073709551612 pass the largest index, 2^64 - 1"));

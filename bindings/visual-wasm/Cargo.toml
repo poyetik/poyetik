@@ -1,6 +1,6 @@
 [package]
 name = "visual-wasm"
-description = "Poyetik visual library for WebAssembly: a minimal C interface rendering the square, for Node and browsers"
+description = "Poyetik visual library for WebAssembly: a minimal C interface rendering the square, for Node (browsers come with the playground)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
