@@ -1,7 +1,8 @@
-//! The square shown by a page: its parameters and the image it renders into.
+//! The square a host shows: its parameters and the image it renders into.
 
 #![forbid(unsafe_code)]
 
+use alloc::string::{String, ToString};
 use core::fmt;
 
 use visual_boxes::{BoxError, Square};

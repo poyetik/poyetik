@@ -115,7 +115,7 @@ pub(crate) fn below<'path>(dir: &str, path: &'path str) -> Option<&'path str> {
 
 /// The crates of the Cargo workspace (checked by [`membership_gate`](crate::reviews::membership_gate)): each is measured by
 /// its own unit tests, and each binary by the crate's tests.
-pub const RUST_CRATES: [RustCrate; 17] = [
+pub const RUST_CRATES: [RustCrate; 18] = [
     RustCrate {
         name: "audio-core",
         dir: "crates/audio-core",
@@ -181,6 +181,13 @@ pub const RUST_CRATES: [RustCrate; 17] = [
         binary: true,
         test_data: &["conformance/visual/", "spec/safe-message-vectors.json"],
         roles: &[CrateRole::VisualTool, CrateRole::CaseReader],
+    },
+    RustCrate {
+        name: "visual-host",
+        dir: "crates/visual-host",
+        binary: false,
+        test_data: &[],
+        roles: &[CrateRole::VisualLibrary],
     },
     RustCrate {
         name: "visual-wasm",
@@ -660,7 +667,7 @@ pub const PORTABILITY_TARGETS: [&str; 4] = [
 
 /// The crates of the engine core and of the visual library's core, built for every one of
 /// [`PORTABILITY_TARGETS`].
-pub const PORTABILITY_PACKAGES: [&str; 7] = [
+pub const PORTABILITY_PACKAGES: [&str; 8] = [
     "audio-core",
     "audio-boxes",
     "audio-patch",
@@ -668,6 +675,7 @@ pub const PORTABILITY_PACKAGES: [&str; 7] = [
     "visual-core",
     "visual-boxes",
     "visual-hash",
+    "visual-host",
 ];
 
 /// The libraries' crates for WebAssembly, the engine's and the visual library's, which

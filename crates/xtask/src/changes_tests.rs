@@ -1622,6 +1622,7 @@ fn mutates_every_crate_not_proven_whole_when_what_every_test_uses_changed() {
         "visual-hash",
         "visual-testkit",
         "visual-cli",
+        "visual-host",
         "visual-wasm",
         "alloc-counter",
         "audio-fpenv",

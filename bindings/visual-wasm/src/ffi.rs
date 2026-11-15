@@ -30,7 +30,7 @@
 
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
-use crate::{View, image_index};
+use visual_host::{View, image_index};
 
 /// Identity and version of this interface: `0x5056` ("PV") in the high 16 bits, the
 /// version in the low 16 bits.

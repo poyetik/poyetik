@@ -16,12 +16,12 @@ categories = ["graphics", "wasm"]
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+visual-host = { path = "../../crates/visual-host" }
+
+[dev-dependencies]
 visual-boxes = { path = "../../crates/visual-boxes" }
 visual-core = { path = "../../crates/visual-core" }
 visual-hash = { path = "../../crates/visual-hash" }
-
-[dev-dependencies]
-visual-testkit = { path = "../../crates/visual-testkit" }
 
 [lints]
 workspace = true

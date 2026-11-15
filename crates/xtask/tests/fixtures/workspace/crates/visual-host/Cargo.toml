@@ -1,0 +1,12 @@
+[package]
+name = "visual-host"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[lib]
+path = "lib.rs"
+
+# A crate of the visual library depending on another of its crates only: allowed.
+[dependencies]
+visual-core = { path = "../visual-core" }

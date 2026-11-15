@@ -1,0 +1,23 @@
+[package]
+name = "visual-host"
+description = "Poyetik visual library: the safe square a host shows, set up from raw values, rendered and hashed without the heap; what a C interface forwards to"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+readme = false
+repository.workspace = true
+keywords = ["graphics", "rendering", "no-std"]
+categories = ["multimedia", "no-std"]
+
+[dependencies]
+visual-boxes = { path = "../visual-boxes" }
+visual-core = { path = "../visual-core" }
+visual-hash = { path = "../visual-hash" }
+
+[dev-dependencies]
+visual-testkit = { path = "../visual-testkit" }
+
+[lints]
+workspace = true

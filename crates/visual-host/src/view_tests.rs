@@ -2,6 +2,10 @@
 
 #![forbid(unsafe_code)]
 
+use alloc::format;
+use alloc::string::ToString;
+use alloc::vec::Vec;
+
 use visual_boxes::{BoxError, Square};
 use visual_core::{
     Image, ImageIndex, ImageRange, ImageRate, ImageSize, Seconds, VisualBox, VisualError,
@@ -95,23 +99,14 @@ fn hashes_the_images_it_renders() {
     );
 }
 
-/// The largest image of the matrix the view is checked at: every image natively (none holds
-/// more than `ImageSize::MAX_PIXELS`, 2²⁵), those of at most 64 pixels under Miri (the others
-/// cost minutes there, and their arithmetic is the library's, run natively).
-const MATRIX_PIXELS: u64 = if cfg!(miri) { 64 } else { 1 << 25_u32 };
-
 #[test]
 fn renders_and_hashes_across_the_visual_matrix() {
     // Every rate, size and index of the shared matrix, through the view as through the
-    // library (the sizes of at most `MATRIX_PIXELS`).
+    // library.
     let cycle = Seconds::new(1001, 1000).expect("a valid cycle");
     let mut view = View::new();
     for rate in visual_testkit::matrix::image_rates() {
-        let sizes = visual_testkit::matrix::image_sizes();
-        for size in sizes
-            .into_iter()
-            .filter(|size| size.pixels() <= MATRIX_PIXELS)
-        {
+        for size in visual_testkit::matrix::image_sizes() {
             assert_eq!(
                 view.setup(
                     size.width(),

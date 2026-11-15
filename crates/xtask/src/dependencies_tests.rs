@@ -211,7 +211,7 @@ fn outside_library(library: &str, name: &str, kind: &str, path: &str) -> String 
 fn outside_visual_library(library: &str, name: &str, kind: &str, path: &str) -> String {
     format!(
         "{library} depends on {name} ({kind}, {path}): the visual library depends only on its \
-         own crates (visual-core, visual-boxes, visual-hash, visual-wasm), its tests also on \
+         own crates (visual-core, visual-boxes, visual-hash, visual-host, visual-wasm), its tests also on \
          visual-testkit, alloc-counter; move what it needs into the library, or the \
          dependency out of it"
     )
@@ -240,7 +240,7 @@ fn outside_visual_tool(tool: &str, name: &str, kind: &str, path: &str) -> String
     format!(
         "{tool}, a tool of the visual library, depends on {name} ({kind}, {path}): it \
          depends, within the project, only on the visual library's crates (visual-core, \
-         visual-boxes, visual-hash, visual-wasm), its tests also on visual-testkit, \
+         visual-boxes, visual-hash, visual-host, visual-wasm), its tests also on visual-testkit, \
          alloc-counter; move what it needs into the library, or the dependency out of it"
     )
 }
@@ -274,7 +274,7 @@ fn keeps_the_library_apart_in_real_cargo_metadata() {
             outside_tests(
                 "visual-testkit",
                 "visual library",
-                "visual-core, visual-boxes, visual-hash, visual-wasm",
+                "visual-core, visual-boxes, visual-hash, visual-host, visual-wasm",
                 "visual-testkit, alloc-counter",
                 ("audio-core", "normal", &core),
             ),
@@ -288,7 +288,7 @@ fn keeps_the_library_apart_in_real_cargo_metadata() {
 #[test]
 fn refuses_a_library_that_reaches_outside_itself() {
     let packages = |core: &str| {
-        let others = r#"{"name":"audio-boxes"},{"name":"audio-patch"},{"name":"audio-hash"},{"name":"audio-fpenv"},{"name":"visual-core"},{"name":"visual-boxes"},{"name":"visual-hash"},{"name":"visual-wasm"},{"name":"visual-cli"},{"name":"alloc-counter"},{"name":"audio-battery"},{"name":"audio-testkit"},{"name":"visual-testkit"},"#;
+        let others = r#"{"name":"audio-boxes"},{"name":"audio-patch"},{"name":"audio-hash"},{"name":"audio-fpenv"},{"name":"visual-core"},{"name":"visual-boxes"},{"name":"visual-hash"},{"name":"visual-host"},{"name":"visual-wasm"},{"name":"visual-cli"},{"name":"alloc-counter"},{"name":"audio-battery"},{"name":"audio-testkit"},{"name":"visual-testkit"},"#;
         format!(
             r#"{{"workspace_root":"/r","packages":[{others}{{"name":"audio-wasm"}},{{"name":"audio-core","dependencies":[{core}]}}]}}"#
         )
@@ -358,6 +358,7 @@ fn refuses_a_library_that_reaches_outside_itself() {
                 "visual-core",
                 "visual-boxes",
                 "visual-hash",
+                "visual-host",
                 "visual-wasm",
                 "visual-cli",
                 "visual-testkit",
