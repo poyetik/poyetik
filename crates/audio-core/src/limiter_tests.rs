@@ -759,3 +759,161 @@ fn delays_by_its_detector_and_maximum_lookahead() {
         );
     }
 }
+
+/// The gain a limiter at 48 kHz with `detector` Precise, 1.5 ms of lookahead and
+/// `settings` applies to a constant input `level(frame)`, frame by frame: each output over
+/// its delayed input, from the latency on.
+fn gains(
+    settings: LimiterSettings,
+    frames: usize,
+    mut level: impl FnMut(usize) -> f64,
+    mut change: impl FnMut(usize, &mut TruePeakLimiter<Binary64>),
+) -> Vec<f64> {
+    let rate = SampleRate::new(48_000).expect("a rate");
+    let mut limiter = TruePeakLimiter::<Binary64>::new(
+        rate,
+        1,
+        value(1.5_f64),
+        super::Detector::Precise,
+        settings,
+        true,
+    )
+    .expect("a limiter");
+    let latency = limiter.latency();
+    let input: Vec<f64> = (0..frames).map(&mut level).collect();
+    let mut output = Vec::with_capacity(frames);
+    for (index, block) in input.chunks(BLOCK_SIZE).enumerate() {
+        change(index.saturating_mul(BLOCK_SIZE), &mut limiter);
+        let mut blocks = [core::array::from_fn(|offset| {
+            of::<Binary64>(block.get(offset).copied().unwrap_or(0.0_f64))
+        })];
+        limiter.apply(&mut blocks);
+        output.extend(blocks[0].iter().map(|sample| sample.raw()));
+    }
+    (latency..frames)
+        .map(|frame| output[frame] / input[frame.saturating_sub(latency)])
+        .collect()
+}
+
+/// The frames, after `from`, until the gain stays at or above `1 - left` for good.
+fn recovery(gains: &[f64], from: usize, left: f64) -> usize {
+    let last_low = gains
+        .iter()
+        .rposition(|gain| *gain < 1.0_f64 - left)
+        .expect("a reduction");
+    last_low.saturating_add(1).saturating_sub(from)
+}
+
+#[test]
+fn recovers_fast_from_a_transient_and_slowly_from_a_sustained_level_as_its_adaptivity_says() {
+    // A quiet level of 0.5 (below the ceiling, 0.891), with a burst of 2.0 lasting 10
+    // frames (a transient) or 48,000 (a second, sustained). The need of the burst is
+    // d = 1 - 0.891/2, about 0.554; the gain recovers within 1% of unity when what is left of
+    // the reduction falls below 0.01: about ln(d / 0.01) time constants, 4.01.
+    // - The fast stage releases with release × (1 - a) + release / 10 × a: 100 ms at an
+    //   adaptivity a of 0, 10 ms at 1.
+    // - The slow stage follows the held need with the release's 100 ms, up and down: after a
+    //   transient it has barely risen (the burst and the 74 frames of the window held,
+    //   84 frames of 4,800, so d × 84 / 4,800 < 0.01), after a sustained level it holds d.
+    // So with a of 1: about 40 ms after the transient (1,925 frames), 401 ms after the
+    // sustained level (19,250 frames); with a of 0, about 401 ms after both. Each within the
+    // window held and the Hann smoothing (74 + 72 frames) of its prediction.
+    //
+    // The reduction recovers from the largest need held at the burst's end, measured: a
+    // step of the input rings in the interpolator, so its estimate rises a little above 2.0
+    // and its need above 0.554 (which it must reach at least).
+    for (adaptivity, fast_ms) in [(1.0_f64, 10.0_f64), (0.0_f64, 100.0_f64)] {
+        let settings = settings(-1.0_f64, 1.5_f64, 100.0_f64, adaptivity);
+        for burst in [10_usize, 48_000] {
+            let start = 4_800_usize;
+            let frames = start + burst + 48_000;
+            let measured = gains(
+                settings,
+                frames,
+                |frame| {
+                    if (start..start + burst).contains(&frame) {
+                        2.0_f64
+                    } else {
+                        0.5_f64
+                    }
+                },
+                |_, _| (),
+            );
+            // The release starts from the reduction held around the burst's end (its last
+            // step rings too), within a window and its smoothing on each side.
+            let end = start + burst;
+            let deepest = 1.0_f64
+                - measured[end - 150..end + 150]
+                    .iter()
+                    .fold(
+                        1.0_f64,
+                        |least, gain| if *gain < least { *gain } else { least },
+                    );
+            assert!(deepest >= 0.554_f64, "the burst's need at least: {deepest}");
+            // The fast stage releases from the deepest; the slow one from the need of the
+            // level, 1 - 0.891/2 (the interpolator's phases have a unit gain at DC), times
+            // the share of it it reached over the burst and the window held after it. The
+            // gain recovers when both have fallen below 0.01.
+            let slow = 0.554_375_f64
+                * (1.0_f64
+                    - libm::exp(
+                        -f64::from(u32::try_from(burst + 74).expect("small")) / 4_800.0_f64,
+                    ));
+            let fast = libm::log(deepest / 0.01_f64) * fast_ms * 48.0_f64;
+            let predicted = larger(fast, libm::log(slow / 0.01_f64) * 4_800.0_f64);
+            let recovered = recovery(&measured, start + burst, 0.01_f64);
+            let slack = 74.0_f64 + 72.0_f64 + 2.0_f64;
+            let recovered = f64::from(u32::try_from(recovered).expect("small"));
+            assert!(
+                (recovered - predicted).abs() <= slack,
+                "adaptivity {adaptivity}, a burst of {burst} frames: recovered in {recovered} frames, {predicted} predicted"
+            );
+        }
+    }
+}
+
+#[test]
+fn moves_its_gain_without_a_click_when_a_setting_changes_live() {
+    // A constant input of 2.0 above the ceiling; the ceiling changes live from -1 to -6
+    // dBTP, then back, then the lookahead from 1.5 to 0.5 ms. A lower ceiling enters the
+    // window held and is smoothed by the Hann window: per frame, the gain moves by at most
+    // the change of the reduction times the window's largest weight, 2 / (lookahead + 1).
+    // A higher one is released by the fast stage: per frame, by at most the reduction
+    // times 1 - its keep, 1 - exp(-1 / 2,640) at a release of 100 ms and an adaptivity of
+    // 0.5 (55 ms). The reductions: 0.554 at -1 dBTP, 0.749 at -6.
+    let lower = settings(-6.0_f64, 1.5_f64, 100.0_f64, 0.5_f64);
+    let higher = settings(-1.0_f64, 1.5_f64, 100.0_f64, 0.5_f64);
+    let shorter = settings(-1.0_f64, 0.5_f64, 100.0_f64, 0.5_f64);
+    let measured = gains(
+        higher,
+        96_000,
+        |_| 2.0_f64,
+        |frame, limiter| {
+            let set = match frame {
+                24_000 => Some(lower),
+                48_000 => Some(higher),
+                72_000 => Some(shorter),
+                _ => None,
+            };
+            if let Some(settings) = set {
+                limiter.set(settings).expect("within its ranges");
+            }
+        },
+    );
+    let attack = (0.749_f64 - 0.554_f64) * 2.0_f64 / 73.0_f64;
+    let release = 0.749_f64 * (1.0_f64 - libm::exp(-1.0_f64 / 2_640.0_f64));
+    let bound = larger(attack, release) * (1.0_f64 + 1e-6_f64);
+    // From a frame after the start, when the first need has entered.
+    for (frame, pair) in measured.windows(2).enumerate().skip(400) {
+        assert!(
+            (pair[1] - pair[0]).abs() <= bound,
+            "a step of {} at frame {frame}",
+            pair[1] - pair[0]
+        );
+    }
+}
+
+/// The larger of two numbers (`f64::max` is banned for its rule on zeros).
+fn larger(first: f64, second: f64) -> f64 {
+    if second > first { second } else { first }
+}
