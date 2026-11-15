@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `cargo xtask check` refuses a conflict marker that git left unresolved in a tracked text file (the conflict marker gate, a consistency step): a line starting with git's `<<<<<<<`, `|||||||` or `>>>>>>>` markers, or its `=======` separator inside a conflict, each reported with its file and line. The text files are every tracked file but those `.gitattributes` declares binary as `*.<extension> binary`; a declaration in another form is refused, as is a binary file it does not declare.
+
 ## [0.4.0] - 2026-11-14
 
 ### Added

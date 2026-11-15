@@ -4,9 +4,11 @@ use core::num::NonZeroUsize;
 use core::time::Duration;
 use std::io;
 
+use crate::actions::conflict_markers;
+use crate::steps::Failure;
 use crate::tests::{
     Broken, CHANGES, CHANGES_MODE, FAKE_JOBS, Fake, READMES, failed, found, hermetic_git,
-    one_line_change, parts_refused, passing, scratch, system,
+    hermetic_git_ending, one_line_change, parts_refused, passing, scratch, system,
 };
 use crate::{
     Action, Cmd, CommandFailure, Dir, Extent, Mode, OnFailure, PACKAGES, Ran, Runner, Step,
@@ -487,4 +489,114 @@ impl io::Write for Limited {
     fn flush(&mut self) -> io::Result<()> {
         Ok(())
     }
+}
+
+#[test]
+fn refuses_the_conflict_markers_a_real_merge_left_in_each_style() {
+    for (style, lines) in [
+        ("merge", [1_u8, 3, 5].as_slice()),
+        ("zdiff3", &[1, 3, 5, 7]),
+    ] {
+        let repo = scratch(&format!("conflict-{style}"));
+        let _init = hermetic_git(&repo, &["init", "--quiet", "--initial-branch=main"]);
+        let write =
+            |path: &str, bytes: &[u8]| std::fs::write(repo.join(path), bytes).expect("a file");
+        write(".gitattributes", b"* text=auto eol=lf\n*.wasm binary\n");
+        // A binary file that holds a marker line: declared binary, never read.
+        write("engine.wasm", b"\xff\x00\n<<<<<<< not text\n");
+        write("gain.rs", b"base\n");
+        let commit = |message: &str| {
+            let _added = hermetic_git(&repo, &["add", "--all"]);
+            let _committed = hermetic_git(&repo, &["commit", "--quiet", "-m", message]);
+        };
+        commit("base");
+        let _branch = hermetic_git(&repo, &["checkout", "--quiet", "-b", "side"]);
+        write("gain.rs", b"side\n");
+        commit("side");
+        let _back = hermetic_git(&repo, &["checkout", "--quiet", "main"]);
+        write("gain.rs", b"main\n");
+        commit("main");
+        let mut runner = system(repo.path());
+        assert_eq!(
+            conflict_markers(&mut runner),
+            Ok(()),
+            "{style}: no conflict yet"
+        );
+        let (merged, _) = hermetic_git_ending(
+            &repo,
+            &[
+                "-c",
+                &format!("merge.conflictStyle={style}"),
+                "merge",
+                "--quiet",
+                "side",
+            ],
+        );
+        assert!(!merged, "{style}: the merge conflicts");
+        // The honest mistake: the conflict committed unresolved.
+        commit("merged");
+        assert_eq!(
+            conflict_markers(&mut runner),
+            Err(Failure {
+                summary: format!("{} problems, listed above", lines.len()),
+                details: lines
+                    .iter()
+                    .map(|line| format!("gain.rs:{line}: a conflict marker git left, unresolved"))
+                    .collect(),
+                usage: false,
+            }),
+            "{style}: every marker git wrote, none in the binary file"
+        );
+        // A binary file the attributes do not declare cannot be read as text.
+        write("logo.png", b"\xff\xfe");
+        commit("logo");
+        let undeclared = conflict_markers(&mut runner).expect_err("a binary file not declared");
+        assert!(
+            undeclared.summary.starts_with("cannot read logo.png: ")
+                && undeclared.summary.ends_with(
+                    " (a binary file is declared `*.<extension> binary` in .gitattributes)"
+                ),
+            "{style}: says how to declare it: {}",
+            undeclared.summary
+        );
+    }
+}
+
+#[test]
+fn says_why_it_cannot_read_the_attributes_or_list_the_files() {
+    let mut missing = passing();
+    let _removed = missing.files.remove(crate::GIT_ATTRIBUTES);
+    assert!(
+        conflict_markers(&mut missing)
+            .is_err_and(|failure| failure.summary.starts_with("cannot read .gitattributes: ")),
+        "no attributes: nothing tells the binary files apart"
+    );
+    let mut unreadable = passing();
+    let _replaced = unreadable.files.insert(
+        crate::GIT_ATTRIBUTES.to_owned(),
+        "*.{png,jpg} binary\n".to_owned(),
+    );
+    assert_eq!(
+        conflict_markers(&mut unreadable),
+        failed(
+            ".gitattributes:1: declares files binary in another form than `*.<extension> \
+             binary`, which the conflict marker gate reads"
+        ),
+        "a form the gate cannot read, refused rather than skipped"
+    );
+    let mut unlisted = passing();
+    unlisted.broken = Some("list *".to_owned());
+    assert_eq!(
+        conflict_markers(&mut unlisted),
+        failed(
+            "cannot list the tracked files: `git ls-files -- *` exited with code 128: fatal: \
+             not a git repository"
+        ),
+        "git cannot list the files"
+    );
+    assert_eq!(
+        conflict_markers(&mut passing()),
+        Ok(()),
+        "the fake's files hold none"
+    );
 }
