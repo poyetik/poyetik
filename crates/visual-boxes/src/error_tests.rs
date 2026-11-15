@@ -14,3 +14,10 @@ fn names_the_rejected_value() {
         "message"
     );
 }
+
+#[test]
+fn is_an_error() {
+    /// Compiles only for an error type.
+    const fn error<E: core::error::Error>() {}
+    error::<BoxError>();
+}

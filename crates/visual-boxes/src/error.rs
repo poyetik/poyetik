@@ -21,6 +21,9 @@ impl fmt::Display for BoxError {
     }
 }
 
+/// Its message says which value was rejected and why.
+impl core::error::Error for BoxError {}
+
 #[cfg(test)]
 #[path = "error_tests.rs"]
 mod tests;

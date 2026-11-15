@@ -273,3 +273,10 @@ fn hashes_a_rendered_sequence_as_adding_each_image() {
         "another rate"
     );
 }
+
+#[test]
+fn reports_a_mismatch_as_an_error() {
+    /// Compiles only for an error type.
+    const fn error<E: core::error::Error>() {}
+    error::<Mismatch>();
+}

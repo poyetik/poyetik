@@ -62,6 +62,9 @@ impl fmt::Display for Mismatch {
     }
 }
 
+/// Its message names the image refused.
+impl core::error::Error for Mismatch {}
+
 /// Hashes a sequence of images as it is rendered, without holding them: start it with
 /// the sequence's rate, size and encoding, add each image in order, then finish.
 #[derive(Debug, Clone)]
