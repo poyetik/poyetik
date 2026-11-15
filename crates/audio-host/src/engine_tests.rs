@@ -91,6 +91,11 @@ const SUMMED: &str = r#"{"format":1,"nodes":[{"id":1,"box":"osc~"},{"id":2,"box"
 
 #[test]
 fn renders_exactly_like_the_plan_in_every_format_at_every_rate() {
+    assert_eq!(
+        audio_core::ENGINE_BLOCKS,
+        [16, 32, 64, 128, 256, 512, 1024],
+        "every engine block a build offers, each rendered below"
+    );
     for text in [SINE, SUMMED] {
         // At every engine block a module is built for: the renderer's samples (the
         // engine-block law, decision 2).
@@ -117,8 +122,9 @@ where
             let mut engine = Engine::<N>::new(text.as_bytes(), rate.hz(), format, Output::RAW)
                 .expect("valid patch");
             assert_eq!(engine.channels(), 2, "stereo");
-            // At least 640 frames, whole blocks.
-            let blocks = (640_usize).div_ceil(N);
+            // At least 640 frames and three blocks, whole blocks: every engine block
+            // crosses two of its boundaries.
+            let blocks = 640_usize.div_ceil(N).max(3);
             let mut actual = Vec::new();
             for _ in 0..blocks {
                 actual.extend(interleaved(engine.process()));
@@ -197,20 +203,36 @@ fn renders_without_a_heap_operation() {
         Ok(((), 2)),
         "heap operations are counted: an allocation and its release"
     );
+    // At every engine block a module is built for.
+    renders_without_a_heap_operation_in_blocks_of::<16>();
+    renders_without_a_heap_operation_in_blocks_of::<32>();
+    renders_without_a_heap_operation_in_blocks_of::<64>();
+    renders_without_a_heap_operation_in_blocks_of::<128>();
+    renders_without_a_heap_operation_in_blocks_of::<256>();
+    renders_without_a_heap_operation_in_blocks_of::<512>();
+    renders_without_a_heap_operation_in_blocks_of::<1024>();
+}
+
+/// Renders 100 blocks of `N` frames of a sine in every format at every rate with no heap
+/// operation, from the first block of a fresh engine.
+fn renders_without_a_heap_operation_in_blocks_of<const N: usize>()
+where
+    BuiltIn<Binary64, N>: Dispatch<Binary64, N>,
+    BuiltIn<Binary32, N>: Dispatch<Binary32, N>,
+{
     for format in RenderFormat::ALL {
         for rate in audio_testkit::matrix::sample_rates() {
-            let mut engine =
-                Engine::<ENGINE_BLOCK>::new(SINE.as_bytes(), rate.hz(), format, Output::RAW)
-                    .expect("valid patch");
+            let mut engine = Engine::<N>::new(SINE.as_bytes(), rate.hz(), format, Output::RAW)
+                .expect("valid patch");
             let operations = audio_testkit::heap_operations_during(|| {
                 for _ in 0_u16..100_u16 {
-                    let _: Blocks<'_, ENGINE_BLOCK> = engine.process();
+                    let _: Blocks<'_, N> = engine.process();
                 }
             });
             assert_eq!(
                 operations,
                 Ok(((), 0)),
-                "{format}: 100 blocks at {} Hz",
+                "{format}: 100 blocks of {N} frames at {} Hz",
                 rate.hz()
             );
         }
@@ -450,17 +472,33 @@ fn limits_exactly_like_the_renderer_through_a_protected_stage_in_every_format_at
 
 #[test]
 fn renders_through_a_protected_stage_without_a_heap_operation() {
+    // At every engine block a module is built for.
+    renders_through_a_protected_stage_without_a_heap_operation_in_blocks_of::<16>();
+    renders_through_a_protected_stage_without_a_heap_operation_in_blocks_of::<32>();
+    renders_through_a_protected_stage_without_a_heap_operation_in_blocks_of::<64>();
+    renders_through_a_protected_stage_without_a_heap_operation_in_blocks_of::<128>();
+    renders_through_a_protected_stage_without_a_heap_operation_in_blocks_of::<256>();
+    renders_through_a_protected_stage_without_a_heap_operation_in_blocks_of::<512>();
+    renders_through_a_protected_stage_without_a_heap_operation_in_blocks_of::<1024>();
+}
+
+/// Renders blocks of `N` frames through a protected stage, changed live, in every format
+/// at every rate with no heap operation.
+fn renders_through_a_protected_stage_without_a_heap_operation_in_blocks_of<const N: usize>()
+where
+    BuiltIn<Binary64, N>: Dispatch<Binary64, N>,
+    BuiltIn<Binary32, N>: Dispatch<Binary32, N>,
+{
     for format in RenderFormat::ALL {
         for rate in audio_testkit::matrix::sample_rates() {
-            let mut engine =
-                Engine::<ENGINE_BLOCK>::new(LOUD.as_bytes(), rate.hz(), format, protected())
-                    .expect("valid patch");
+            let mut engine = Engine::<N>::new(LOUD.as_bytes(), rate.hz(), format, protected())
+                .expect("valid patch");
             // Each phase spans the latency and four blocks more: every frame of the delay
             // and of the lookahead's window is written, and leaves, in each.
-            let blocks = engine.latency().div_ceil(ENGINE_BLOCK).saturating_add(4);
-            let phase = |rendering: &mut Engine<ENGINE_BLOCK>| {
+            let blocks = engine.latency().div_ceil(N).saturating_add(4);
+            let phase = |rendering: &mut Engine<N>| {
                 for _ in 0..blocks {
-                    let _: Blocks<'_, ENGINE_BLOCK> = rendering.process();
+                    let _: Blocks<'_, N> = rendering.process();
                 }
             };
             let operations = audio_testkit::heap_operations_during(|| {
@@ -480,7 +518,7 @@ fn renders_through_a_protected_stage_without_a_heap_operation() {
             assert_eq!(
                 operations,
                 Ok(((), 0)),
-                "{format}: {} blocks in each of four phases at {} Hz",
+                "{format}: {} blocks of {N} frames in each of four phases at {} Hz",
                 blocks,
                 rate.hz()
             );
