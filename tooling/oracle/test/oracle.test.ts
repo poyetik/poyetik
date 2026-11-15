@@ -9,6 +9,13 @@ import { makeWav, once, renders, sineSamples } from "./fixtures.ts";
 const RATE = 8000;
 /** Length of the test case, in frames per channel. */
 const FRAMES = 64;
+/**
+ * Length of the limited case, in frames per channel: many periods to measure past its
+ * latency and settling. What the judge decides does not depend on it, while the cost of its
+ * measurements grows with it, many times over under Stryker's instrumentation, whose
+ * initial run times every test.
+ */
+const LIMITED_FRAMES = 2048;
 /** The expected signal of each of the two channels of the case. */
 const CHANNEL = { sine: { frequency: 1000, amplitude: 1, phase: 0 } };
 /** The exported files of the passing case, a 1 kHz sine on two channels, and their hashes. */
@@ -255,10 +262,10 @@ describe("an empty corpus", () => {
 });
 
 describe("judge, a limited case", () => {
-  /** 16,384 frames at 48 kHz of a 1 kHz sine limited to `amplitude`, after 78 frames of latency, in every format. */
+  /** {@link LIMITED_FRAMES} frames at 48 kHz of a 1 kHz sine limited to `amplitude`, after 78 frames of latency, in every format. */
   const limited = (amplitude: number): { readonly wavs: Map<string, Uint8Array>; readonly references: Record<string, string> } => {
     // Two channels, interleaved: the same limited sine on both.
-    const samples = Array.from({ length: 2 * 16_384 }, (_value, index) => {
+    const samples = Array.from({ length: 2 * LIMITED_FRAMES }, (_value, index) => {
       const frame = Math.floor(index / 2);
       return frame < 78 ? 0 : amplitude * Math.sin((2 * Math.PI * 1000 * frame) / 48_000);
     });
@@ -275,9 +282,9 @@ describe("judge, a limited case", () => {
   const limitedCorpus = (amplitude: number): Corpus => {
     const { wavs, references } = limited(amplitude);
     return {
-      cases: new Map([["limited", JSON.stringify({ sample_rate: 48_000, frames: 16_384, output: { mode: "protected", lookahead: 1.5, detector: "standard" } })]]),
+      cases: new Map([["limited", JSON.stringify({ sample_rate: 48_000, frames: LIMITED_FRAMES, output: { mode: "protected", lookahead: 1.5, detector: "standard" } })]]),
       references: { limited: references },
-      expectations: { limited: { sample_rate: 48_000, frames: 16_384, channels: [{ limited: { frequency: 1000, amplitude: 1, phase: 0 } }, { limited: { frequency: 1000, amplitude: 1, phase: 0 } }] } },
+      expectations: { limited: { sample_rate: 48_000, frames: LIMITED_FRAMES, channels: [{ limited: { frequency: 1000, amplitude: 1, phase: 0 } }, { limited: { frequency: 1000, amplitude: 1, phase: 0 } }] } },
       wavs,
     };
   };
@@ -291,5 +298,6 @@ describe("judge, a limited case", () => {
     // Each channel of each format: two problems per render.
     expect(above.failures).toBe(6);
     expect(above.lines[0]).toMatch(/channel 0: true peak 0\.9[45]\d*, not between/);
-  });
+    // Every channel of every format judged twice: slow under Stryker's instrumentation, given its time.
+  }, 60_000);
 });

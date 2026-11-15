@@ -8,6 +8,14 @@ const OUTPUT = { mode: "protected", lookahead: 1.5, detector: "standard" } as co
 /** 10^(-1/20): the default ceiling as an amplitude, computed apart. */
 const CEILING = 0.891_250_938_133_745_6;
 
+/**
+ * Frames of every rendered sine: many periods to measure past the latency and the two
+ * windows. What the judge decides does not depend on it, the floor of its measurements
+ * included, while their cost grows with it, many times over under Stryker's
+ * instrumentation, whose initial run times every test.
+ */
+const FRAMES = 2048;
+
 /** The problems of a verdict, one per line; empty when it passed. */
 function problemsOf(verdict: ReturnType<typeof holdLimited>): string {
   return "problems" in verdict ? verdict.problems.join("\n") : "";
@@ -69,8 +77,8 @@ describe("the bounds of a limited sine", () => {
     expect(limitedError(within, "binary32")).toBe(0.125 + 2 ** -23 * 0.75);
   });
 
-  /** The measurements of a 1 kHz sine of `amplitude` at 48 kHz, 16,384 frames. */
-  const measured = (amplitude: number): ReturnType<typeof measure> => measure(Float64Array.from(render(16_384, amplitude, 0)), 48_000, 1000);
+  /** The measurements of a 1 kHz sine of `amplitude` at 48 kHz, {@link FRAMES} frames. */
+  const measured = (amplitude: number): ReturnType<typeof measure> => measure(Float64Array.from(render(FRAMES, amplitude, 0)), 48_000, 1000);
 
   test("holds the true peak to the range at its ends, within the fit's floor", () => {
     const sine = measured(0.89);
@@ -102,19 +110,20 @@ describe("judgeLimited", () => {
 
   test("accepts a sine limited within the derived range, silent over its latency", () => {
     for (const amplitude of [lowest, (lowest + highest) / 2, highest]) {
-      const judged = judgeLimited(render(16_384, amplitude), 48_000, sine, OUTPUT, "binary64");
+      const judged = judgeLimited(render(FRAMES, amplitude), 48_000, sine, OUTPUT, "binary64");
       expect("peak" in judged ? judged.peak : 0).toBeCloseTo(amplitude, 9);
     }
-    expect(judgeLimited(render(16_384, highest), 48_000, sine, OUTPUT, "binary32")).not.toHaveProperty("problems");
-  });
+    expect(judgeLimited(render(FRAMES, highest), 48_000, sine, OUTPUT, "binary32")).not.toHaveProperty("problems");
+    // Several judgements: slow under Stryker's instrumentation, given its time.
+  }, 60_000);
 
   test("measures only once two windows have passed after the latency", () => {
     // A transient over the two windows after the latency (78 + 148 frames) is the
     // limiter's attack, never measured; one frame later, it is.
     const middle = (lowest + highest) / 2;
-    const attack = render(16_384, middle, 78, (frame) => (frame < 78 + 148 ? 0.5 : 0));
+    const attack = render(FRAMES, middle, 78, (frame) => (frame < 78 + 148 ? 0.5 : 0));
     expect(judgeLimited(attack, 48_000, sine, OUTPUT, "binary64")).not.toHaveProperty("problems");
-    const late = render(16_384, middle, 78, (frame) => (frame === 78 + 148 ? 0.5 : 0));
+    const late = render(FRAMES, middle, 78, (frame) => (frame === 78 + 148 ? 0.5 : 0));
     expect(judgeLimited(late, 48_000, sine, OUTPUT, "binary64")).toHaveProperty("problems");
   });
 
@@ -122,26 +131,26 @@ describe("judgeLimited", () => {
     // 1.625 ms at 48 kHz: 78 frames of lookahead, a window of 80, a period of 80 at 600 Hz.
     const output = { ...OUTPUT, lookahead: 1.625 };
     const within = range((2 * Math.PI * 600) / 48_000);
-    const samples = render(16_384, (within.lowest + within.highest) / 2, 84, () => 0, 600);
+    const samples = render(FRAMES, (within.lowest + within.highest) / 2, 84, () => 0, 600);
     expect(judgeLimited(samples, 48_000, { ...sine, frequency: 600 }, output, "binary64")).not.toHaveProperty("problems");
   });
 
   test.each<[string, number[], string]>([
-    ["a sample during the latency", render(16_384, 0.89, 77), "not silent over its latency, 78 frames"],
-    ["a true peak above the range", render(16_384, highest + 0.01), "true peak"],
-    ["a true peak below the range", render(16_384, lowest - 0.01), "true peak"],
-    ["a distorted sine", render(16_384, 0.89, 78, (frame) => 0.05 * Math.sin((2 * Math.PI * 3000 * frame) / 48_000)), "THD+N"],
-    ["silence", render(16_384, 0), "cannot be measured: MeasureError"],
+    ["a sample during the latency", render(FRAMES, 0.89, 77), "not silent over its latency, 78 frames"],
+    ["a true peak above the range", render(FRAMES, highest + 0.01), "true peak"],
+    ["a true peak below the range", render(FRAMES, lowest - 0.01), "true peak"],
+    ["a distorted sine", render(FRAMES, 0.89, 78, (frame) => 0.05 * Math.sin((2 * Math.PI * 3000 * frame) / 48_000)), "THD+N"],
+    ["silence", render(FRAMES, 0), "cannot be measured: MeasureError"],
   ])("refuses %s", (_case, samples, problem) => {
     const judged = judgeLimited(samples, 48_000, sine, OUTPUT, "binary64");
     expect("problems" in judged ? judged.problems.join("\n") : "").toContain(problem);
   });
 
   test("judges the standard detector only, and a sine whose period fits the window", () => {
-    expect(judgeLimited(render(16_384, 0.89), 48_000, sine, { ...OUTPUT, detector: "precise" }, "binary64")).toStrictEqual({
+    expect(judgeLimited(render(FRAMES, 0.89), 48_000, sine, { ...OUTPUT, detector: "precise" }, "binary64")).toStrictEqual({
       problems: ["the oracle judges limited channels with the standard detector only, not precise"],
     });
-    expect(judgeLimited(render(16_384, 0.89), 48_000, { ...sine, frequency: 500 }, OUTPUT, "binary64")).toStrictEqual({
+    expect(judgeLimited(render(FRAMES, 0.89), 48_000, { ...sine, frequency: 500 }, OUTPUT, "binary64")).toStrictEqual({
       problems: ["a period of the sine (96 frames) does not fit the limiter's window (74 frames)"],
     });
   });
