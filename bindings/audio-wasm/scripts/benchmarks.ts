@@ -3,5 +3,8 @@ import { benchMain } from "../benchmarks/cli.ts";
 import { BENCH_IO } from "../benchmarks/io.ts";
 import { ignoreClosedReader } from "@poyetik/wasm-build/cli";
 
-ignoreClosedReader(process.stdout);
+ignoreClosedReader(process.stdout, (line) => {
+  process.stderr.write(`${line}\n`);
+  process.exitCode = 1;
+});
 process.exitCode = benchMain(BENCH_IO, process.argv.slice(2));

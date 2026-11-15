@@ -254,10 +254,10 @@ describe("benchMain", () => {
   test("names, when the module is missing, the package script that writes it", () => {
     // The hint is followed by construction, not run (it builds the engine with cargo): the
     // script exists, runs the build command, and that command writes dist/engine.wasm of
-    // this package (its own tests: test/build-scripts.test.ts), which is MODULE_FILE.
+    // this package (tested in `@poyetik/wasm-build`, its test/build-scripts.test.ts), which is MODULE_FILE.
     expect(BUILD_SCRIPT).toBe("build:wasm");
     expect(readFileSync(new URL("../../package.json", import.meta.url), "utf8")).toMatch(/"build:wasm": "[a-z]+ scripts\/build-wasm\.ts"/);
-    expect(readFileSync(new URL("../../scripts/build-wasm.ts", import.meta.url), "utf8")).toContain('buildMain(PROCESS_IO, fileURLToPath(new URL("../dist/", import.meta.url)), ENGINE_MODULE)');
+    expect(readFileSync(new URL("../../scripts/build-wasm.ts", import.meta.url), "utf8")).toContain('buildMain(PROCESS_IO, process.argv.slice(2), fileURLToPath(new URL("../dist/", import.meta.url)), ENGINE_MODULE)');
     expect(MODULE_FILE).toBe("bindings/audio-wasm/dist/engine.wasm");
   });
 });

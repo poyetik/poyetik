@@ -95,14 +95,19 @@ export function commitHashOf(verbose: string): string {
 /**
  * The path of `module`, from cargo's JSON messages (one per line): asked of cargo rather
  * than assumed, so that `CARGO_TARGET_DIR` and any layout work.
- * @throws {BuildError} when no message names it.
+ * @throws {BuildError} when no message names it, or a line that should be one is not JSON.
  */
 export function artifactPath(messages: string, module: WasmModule): string {
   for (const line of messages.split("\n")) {
     if (!line.startsWith("{")) {
       continue;
     }
-    const message: unknown = JSON.parse(line);
+    let message: unknown;
+    try {
+      message = JSON.parse(line);
+    } catch (error) {
+      throw new BuildError(`cargo printed a line that is not JSON (${String(error)})`);
+    }
     const reason: unknown = Reflect.get(Object(message), "reason");
     const target: unknown = Reflect.get(Object(message), "target");
     const files: unknown = Reflect.get(Object(message), "filenames");

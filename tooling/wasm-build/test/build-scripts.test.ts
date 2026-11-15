@@ -1,14 +1,20 @@
 import { createHash } from "node:crypto";
 import { describe, expect, test } from "vitest";
 import { buildMain, ignoreClosedReader, type Io, reproducibleMain } from "../src/cli.ts";
-import { cargoArgs, type WasmModule } from "../src/wasm.ts";
+import { cargoArgs, targetName, type WasmModule } from "../src/wasm.ts";
 
-/** The module these tests build: the engine's, as `bindings/audio-wasm` builds it. */
-const ENGINE: WasmModule = { package: "audio-wasm", label: "engine module", file: "engine.wasm" };
+/**
+ * The modules these tests build: the engine's, as `bindings/audio-wasm` builds it, and
+ * one whose every field differs, so that no field of the engine's can be hard-coded.
+ */
+const MODULES: readonly WasmModule[] = [
+  { package: "audio-wasm", label: "engine module", file: "engine.wasm" },
+  { package: "demo-wasm", label: "demo module", file: "demo.wasm" },
+];
 
-/** One cargo message reporting the engine module at `path`. */
-function reported(path: string): string {
-  return `${JSON.stringify({ reason: "compiler-artifact", target: { name: "audio_wasm" }, filenames: [path] })}\n`;
+/** One cargo message reporting `module` at `path`. */
+function reported(path: string, module: WasmModule): string {
+  return `${JSON.stringify({ reason: "compiler-artifact", target: { name: targetName(module) }, filenames: [path] })}\n`;
 }
 
 /** The sysroot of the fake toolchain: outside the home directory, as `RUSTUP_HOME` may put it. */
@@ -86,36 +92,46 @@ function failed(status: number | null, signal: string | null): Error {
   return Object.assign(new Error("Command failed: cargo build"), { status, signal });
 }
 
-describe("build:wasm", () => {
+describe.each(MODULES)("build:wasm of the $label", (module) => {
+  const target = targetName(module);
+  const artifact = `/t/${target}.wasm`;
+
   test("builds the module reproducibly and copies it into dist", () => {
-    const { io, log, out, err, runs } = fakeIo(() => `   Compiling\n${reported("/t/audio_wasm.wasm")}`);
-    expect(buildMain(io, "/pkg/dist", ENGINE)).toBe(0);
+    const { io, log, out, err, runs } = fakeIo(() => `   Compiling\n${reported(artifact, module)}`);
+    expect(buildMain(io, [], "/pkg/dist", module)).toBe(0);
     // rustc is asked in the repository, so that it is the toolchain the repository pins.
     expect(runs).toStrictEqual([
       { command: "rustc", args: ["--print", "sysroot"], cwd: "/src/repo", env: { PATH: "/bin" } },
       { command: "rustc", args: ["-vV"], cwd: "/src/repo", env: { PATH: "/bin" } },
-      { command: "cargo", args: cargoArgs(ENGINE), cwd: "/src/repo", env: { PATH: "/bin", CARGO_ENCODED_RUSTFLAGS: flags("/home/u/.cargo") } },
+      { command: "cargo", args: cargoArgs(module), cwd: "/src/repo", env: { PATH: "/bin", CARGO_ENCODED_RUSTFLAGS: flags("/home/u/.cargo") } },
     ]);
-    expect(log).toStrictEqual(["mkdir /pkg/dist", "copy /t/audio_wasm.wasm /pkg/dist/engine.wasm"]);
+    expect(log).toStrictEqual(["mkdir /pkg/dist", `copy ${artifact} /pkg/dist/${module.file}`]);
     expect([out, err]).toStrictEqual([[], []]);
   });
 
+  test("refuses any argument with a usage error, and builds nothing", () => {
+    const { io, err, runs } = fakeIo(() => reported(artifact, module));
+    expect(buildMain(io, ["--help", "x"], "/pkg/dist", module)).toBe(2);
+    expect(err).toStrictEqual(['error: build:wasm takes no argument, not "--help"']);
+    expect(runs).toStrictEqual([]);
+  });
+
   test("remaps the Cargo home CARGO_HOME names", () => {
-    const { io, runs } = fakeIo(() => reported("/t/audio_wasm.wasm"), {}, { CARGO_HOME: "/opt/cargo" });
-    expect(buildMain(io, "/pkg/dist", ENGINE)).toBe(0);
+    const { io, runs } = fakeIo(() => reported(artifact, module), {}, { CARGO_HOME: "/opt/cargo" });
+    expect(buildMain(io, [], "/pkg/dist", module)).toBe(0);
     expect(runs[2]?.env).toStrictEqual({ PATH: "/bin", CARGO_HOME: "/opt/cargo", CARGO_ENCODED_RUSTFLAGS: flags("/opt/cargo") });
   });
 
   test.each([
-    [failed(101, null), "error: cargo build failed (exit 101)"],
-    [failed(null, "SIGKILL"), "error: cargo build was stopped by signal SIGKILL"],
-    [Object.assign(new Error("spawnSync cargo ENOENT"), { code: "ENOENT" }), "error: cargo build could not be run: Error: spawnSync cargo ENOENT"],
-  ])("explains a failed cargo in one line, never a stack trace: %s", (thrown, line) => {
+    [failed(101, null), "failed (exit 101)"],
+    [failed(null, "SIGKILL"), "was stopped by signal SIGKILL"],
+    [Object.assign(new Error("spawnSync cargo ENOENT"), { code: "ENOENT" }), "could not be run: Error: spawnSync cargo ENOENT"],
+  ])("explains a failed cargo in one line naming the module, never a stack trace: %s", (thrown, why) => {
     const { io, log, out, err } = fakeIo(() => {
       throw thrown;
     });
-    expect(buildMain(io, "/pkg/dist", ENGINE)).toBe(1);
-    expect([out, err, log]).toStrictEqual([[], [line], []]);
+    expect(buildMain(io, [], "/pkg/dist", module)).toBe(1);
+    expect([out, err, log]).toStrictEqual([[], [`error: cargo build of the ${module.label} ${why}`], []]);
   });
 
   test.each([
@@ -123,7 +139,7 @@ describe("build:wasm", () => {
     [["-vV"], failed(null, "SIGKILL"), "error: rustc -vV was stopped by signal SIGKILL"],
   ])("explains a failed rustc %s in one line, and builds nothing", (failing, thrown, line) => {
     const { io, log, out, err, runs } = fakeIo(
-      () => reported("/t/audio_wasm.wasm"),
+      () => reported(artifact, module),
       {},
       {},
       (args) => {
@@ -133,69 +149,98 @@ describe("build:wasm", () => {
         return TOOLCHAIN(args);
       },
     );
-    expect(buildMain(io, "/pkg/dist", ENGINE)).toBe(1);
+    expect(buildMain(io, [], "/pkg/dist", module)).toBe(1);
     expect([out, err, log]).toStrictEqual([[], [line], []]);
     expect(runs.map((run) => run.command)).not.toContain("cargo");
   });
 
   test.each([
-    [["", VERBOSE_VERSION], "error: rustc --print sysroot printed no single path: \"\""],
+    [["", VERBOSE_VERSION], 'error: rustc --print sysroot printed no single path: ""'],
     [[`${SYSROOT}\n`, "rustc 1.99.1\ncommit-hash: unknown\n"], "error: rustc -vV reported no commit hash (40 hexadecimal digits)"],
   ])("refuses what rustc prints when it is not understood: %j", ([sysroot, verbose], line) => {
     const { io, err } = fakeIo(
-      () => reported("/t/audio_wasm.wasm"),
+      () => reported(artifact, module),
       {},
       {},
       (args) => String(args[0] === "--print" ? sysroot : verbose),
     );
-    expect(buildMain(io, "/pkg/dist", ENGINE)).toBe(1);
+    expect(buildMain(io, [], "/pkg/dist", module)).toBe(1);
     expect(err).toStrictEqual([line]);
   });
 
-  test("explains a build that does not report the module", () => {
+  test("explains a build that does not report the module, or not in JSON", () => {
     const { io, err } = fakeIo(() => "");
-    expect(buildMain(io, "/pkg/dist", ENGINE)).toBe(1);
-    expect(err).toStrictEqual(["error: cargo did not report the engine module (audio_wasm .wasm)"]);
+    expect(buildMain(io, [], "/pkg/dist", module)).toBe(1);
+    expect(err).toStrictEqual([`error: cargo did not report the ${module.label} (${target} .wasm)`]);
+    const garbled = fakeIo(() => "{not JSON\n");
+    expect(buildMain(garbled.io, [], "/pkg/dist", module)).toBe(1);
+    expect(garbled.err).toStrictEqual([expect.stringMatching(/^error: cargo printed a line that is not JSON \(SyntaxError: .+\)$/)]);
   });
 
-  test("lets an unexpected error through", () => {
-    const { io } = fakeIo(() => reported("/t/audio_wasm.wasm"));
+  test.each([
+    ["makeDirectory", `error: cannot create /pkg/dist: ENOTDIR`],
+    ["copy", `error: cannot copy ${artifact} to /pkg/dist/${module.file}: ENOSPC`],
+  ] as const)("explains a file it cannot write (%s) in one line naming it", (operation, line) => {
+    const { io, out, err } = fakeIo(() => reported(artifact, module));
     const broken: Io = {
       ...io,
-      copy: () => {
-        throw new Error("disk full");
+      [operation]: () => {
+        throw Object.assign(new Error("failed"), { code: operation === "copy" ? "ENOSPC" : "ENOTDIR" });
       },
     };
-    expect(() => buildMain(broken, "/pkg/dist", ENGINE)).toThrow(new Error("disk full"));
+    expect(buildMain(broken, [], "/pkg/dist", module)).toBe(1);
+    expect([out, err]).toStrictEqual([[], [line]]);
+  });
+
+  test("reports even an unexpected failure in one line", () => {
+    const { io, err } = fakeIo(() => reported(artifact, module));
+    const broken: Io = {
+      ...io,
+      run: () => {
+        throw new TypeError("a bug");
+      },
+    };
+    expect(buildMain(broken, [], "/pkg/dist", module)).toBe(1);
+    expect(err).toStrictEqual(["error: rustc --print sysroot could not be run: TypeError: a bug"]);
+    const strange: Io = {
+      ...io,
+      copy: () => {
+        throw new Error("no code");
+      },
+    };
+    expect(buildMain(strange, [], "/pkg/dist", module)).toBe(1);
+    expect(err.at(-1)).toBe(`error: cannot copy ${artifact} to /pkg/dist/${module.file}: Error: no code`);
   });
 });
 
-describe("test:reproducible", () => {
+describe.each(MODULES)("test:reproducible of the $label", (module) => {
+  const target = targetName(module);
+  const [dirA, dirB] = [`/tmp/${module.package}-a-1`, `/tmp/${module.package}-b-2`];
+
   /** A module of these bytes, built in each target directory. */
   function builds(first: Uint8Array, second: Uint8Array): ReturnType<typeof fakeIo> {
-    return fakeIo((targetDir) => reported(`${String(targetDir)}/audio_wasm.wasm`), {
-      "/tmp/audio-wasm-a-1/audio_wasm.wasm": first,
-      "/tmp/audio-wasm-b-2/audio_wasm.wasm": second,
+    return fakeIo((targetDir) => reported(`${String(targetDir)}/${target}.wasm`, module), {
+      [`${dirA}/${target}.wasm`]: first,
+      [`${dirB}/${target}.wasm`]: second,
     });
   }
 
   test("builds twice in two fresh directories, removes them, and prints the digest", () => {
-    const module = new Uint8Array([0, 97, 115, 109]);
-    const { io, log, out, err, runs } = builds(module, module.slice());
-    expect(reproducibleMain(io, ENGINE)).toBe(0);
-    expect(runs.filter((run) => run.command === "cargo").map((run) => run.env["CARGO_TARGET_DIR"])).toStrictEqual(["/tmp/audio-wasm-a-1", "/tmp/audio-wasm-b-2"]);
-    expect(log).toStrictEqual([
-      "temp audio-wasm-a-",
-      "temp audio-wasm-b-",
-      "read /tmp/audio-wasm-a-1/audio_wasm.wasm",
-      "read /tmp/audio-wasm-b-2/audio_wasm.wasm",
-      "remove /tmp/audio-wasm-a-1",
-      "remove /tmp/audio-wasm-b-2",
-    ]);
-    expect(out).toStrictEqual([`the engine module is reproducible: sha256 ${createHash("sha256").update(module).digest("hex")}`]);
+    const bytes = new Uint8Array([0, 97, 115, 109]);
+    const { io, log, out, err, runs } = builds(bytes, bytes.slice());
+    expect(reproducibleMain(io, [], module)).toBe(0);
+    expect(runs.filter((run) => run.command === "cargo").map((run) => run.env["CARGO_TARGET_DIR"])).toStrictEqual([dirA, dirB]);
+    expect(log).toStrictEqual([`temp ${module.package}-a-`, `temp ${module.package}-b-`, `read ${dirA}/${target}.wasm`, `read ${dirB}/${target}.wasm`, `remove ${dirA}`, `remove ${dirB}`]);
+    expect(out).toStrictEqual([`the ${module.label} is reproducible: sha256 ${createHash("sha256").update(bytes).digest("hex")}`]);
     // Independent value: SHA-256 of the bytes 00 61 73 6d (`printf '\0asm' | shasum -a 256`).
-    expect(out[0]).toBe("the engine module is reproducible: sha256 cd5d4935a48c0672cb06407bb443bc0087aff947c6b864bac886982c73b3027f");
+    expect(out[0]).toBe(`the ${module.label} is reproducible: sha256 cd5d4935a48c0672cb06407bb443bc0087aff947c6b864bac886982c73b3027f`);
     expect(err).toStrictEqual([]);
+  });
+
+  test("refuses any argument with a usage error, and creates nothing", () => {
+    const { io, log, err } = builds(new Uint8Array(), new Uint8Array());
+    expect(reproducibleMain(io, ["now"], module)).toBe(2);
+    expect([err, log]).toStrictEqual([['error: test:reproducible takes no argument, not "now"'], []]);
   });
 
   test("lists every problem on stdout, then fails with one error line", () => {
@@ -203,24 +248,77 @@ describe("test:reproducible", () => {
     // sysroot, outside the home directory here.
     const leaking = new TextEncoder().encode(`panic at /src/repo/x.rs and /home/u/.cargo/y.rs and ${SYSROOT}/lib/rustlib/src/rust/library/core/src/str/pattern.rs`);
     const { io, out, err } = builds(leaking, new Uint8Array([1]));
-    expect(reproducibleMain(io, ENGINE)).toBe(1);
+    expect(reproducibleMain(io, [], module)).toBe(1);
     expect(out).toStrictEqual([
-      "two builds of the engine module differ",
-      "the engine module contains the path /src/repo",
-      "the engine module contains the path /home/u/.cargo",
-      "the engine module contains the path /home/u",
-      `the engine module contains the path ${SYSROOT}`,
+      `two builds of the ${module.label} differ`,
+      `the ${module.label} contains the path /src/repo`,
+      `the ${module.label} contains the path /home/u/.cargo`,
+      `the ${module.label} contains the path /home/u`,
+      `the ${module.label} contains the path ${SYSROOT}`,
     ]);
-    expect(err).toStrictEqual(["error: the engine module is not reproducible (5 problem(s))"]);
+    expect(err).toStrictEqual([`error: the ${module.label} is not reproducible (5 problem(s))`]);
   });
 
   test("removes both directories when a build fails", () => {
     const { io, log, err } = fakeIo(() => {
       throw failed(101, null);
     });
-    expect(reproducibleMain(io, ENGINE)).toBe(1);
-    expect(err).toStrictEqual(["error: cargo build failed (exit 101)"]);
-    expect(log).toStrictEqual(["temp audio-wasm-a-", "temp audio-wasm-b-", "remove /tmp/audio-wasm-a-1", "remove /tmp/audio-wasm-b-2"]);
+    expect(reproducibleMain(io, [], module)).toBe(1);
+    expect(err).toStrictEqual([`error: cargo build of the ${module.label} failed (exit 101)`]);
+    expect(log).toStrictEqual([`temp ${module.package}-a-`, `temp ${module.package}-b-`, `remove ${dirA}`, `remove ${dirB}`]);
+  });
+
+  test("removes the first directory when the second cannot be created, in one error line", () => {
+    const { io, log, err } = builds(new Uint8Array(), new Uint8Array());
+    let made = 0;
+    const broken: Io = {
+      ...io,
+      temporaryDirectory: (prefix) => {
+        made += 1;
+        if (made === 2) {
+          throw Object.assign(new Error("mkdtemp failed"), { code: "ENOENT" });
+        }
+        return io.temporaryDirectory(prefix);
+      },
+    };
+    expect(reproducibleMain(broken, [], module)).toBe(1);
+    expect(err).toStrictEqual(["error: cannot create a temporary directory: ENOENT"]);
+    expect(log).toStrictEqual([`temp ${module.package}-a-`, `remove ${dirA}`]);
+  });
+
+  test("says which file it cannot read, and which directory it cannot remove, one line each", () => {
+    const { io, err } = builds(new Uint8Array([1]), new Uint8Array([1]));
+    const broken: Io = {
+      ...io,
+      read: () => {
+        throw Object.assign(new Error("read failed"), { code: "EACCES" });
+      },
+      remove: (path) => {
+        throw Object.assign(new Error("rm failed"), { code: path === dirA ? "EBUSY" : "EPERM" });
+      },
+    };
+    expect(reproducibleMain(broken, [], module)).toBe(1);
+    expect(err).toStrictEqual([`error: cannot read ${dirA}/${target}.wasm: EACCES`, `error: cannot remove ${dirA}: EBUSY`, `error: cannot remove ${dirB}: EPERM`]);
+    const kept = builds(new Uint8Array([1]), new Uint8Array([1]));
+    const unremovable: Io = {
+      ...kept.io,
+      remove: () => {
+        throw Object.assign(new Error("rm failed"), { code: "EBUSY" });
+      },
+    };
+    expect(reproducibleMain(unremovable, [], module), "reproducible, but a directory left").toBe(1);
+  });
+
+  test("reports even an unexpected failure in one line", () => {
+    const { io, err } = builds(new Uint8Array([1]), new Uint8Array([1]));
+    const broken: Io = {
+      ...io,
+      out: () => {
+        throw new TypeError("a bug");
+      },
+    };
+    expect(reproducibleMain(broken, [], module)).toBe(1);
+    expect(err).toStrictEqual(["error: unexpected failure: TypeError: a bug"]);
   });
 });
 
@@ -241,20 +339,15 @@ describe("ignoreClosedReader", () => {
     };
   }
 
-  test("ignores a closed reader, and only that", () => {
+  test("ignores a closed reader, and reports any other stream error in one line", () => {
     const closed = stream();
-    ignoreClosedReader(closed);
+    const failures: string[] = [];
+    ignoreClosedReader(closed, (line) => failures.push(line));
     expect(closed.events).toStrictEqual(["error"]);
-    expect(() => {
-      closed.fail(Object.assign(new Error("write EPIPE"), { code: "EPIPE" }));
-    }).not.toThrow();
-    const other = Object.assign(new Error("write EIO"), { code: "EIO" });
-    expect(() => {
-      closed.fail(other);
-    }).toThrow(other);
-    const plain = new Error("broken");
-    expect(() => {
-      closed.fail(plain);
-    }).toThrow(plain);
+    closed.fail(Object.assign(new Error("write EPIPE"), { code: "EPIPE" }));
+    expect(failures).toStrictEqual([]);
+    closed.fail(Object.assign(new Error("write EIO"), { code: "EIO" }));
+    closed.fail(new Error("broken"));
+    expect(failures).toStrictEqual(["error: cannot write to stdout: EIO", "error: cannot write to stdout: Error: broken"]);
   });
 });
