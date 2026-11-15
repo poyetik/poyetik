@@ -141,7 +141,9 @@ test("renders every value of the square as the spec places it, across the visual
       }
     }
   }
-});
+  // Measured: 0.5 s alone (2026-11-15); under Stryker's parallel test processes it
+  // runs several times slower, past vitest's 5 s: a limit, not a tolerance on what it checks.
+}, 60_000);
 
 test("explains a refused square and keeps the one it had", async () => {
   const square = { rate: [60, 1], side: 65_536, cycle: [1, 2] } as const;
@@ -175,8 +177,16 @@ test("sets up the largest image, refuses one pixel row more, and releases the im
   const image = 16_384 * 2048 * 4 * 4;
   module.setup({ ...square, width: 2048, height: 16_384 });
   expect(memory.buffer.byteLength, "one image of 512 MiB at a time, not two").toBeLessThan(image + image / 2);
+  // A refusal between a smaller image and the largest again allocates nothing that could
+  // keep the largest from reusing the space (it grew to two images when it did).
+  module.setup({ ...square, width: 4096, height: 4096 });
+  expect(() => { module.setup({ ...square, width: 0, height: 1 }); }).toThrow(VisualSetupError);
+  module.setup({ ...square, width: 16_384, height: 2048 });
+  expect(memory.buffer.byteLength, "still one image at a time after a refusal").toBeLessThan(image + image / 2);
   expect(module.hash(1n, 0)).toMatch(/^[0-9a-f]{64}$/u);
-});
+  // Measured: 0.3 s alone (2026-11-15); under Stryker's parallel test processes it
+  // runs several times slower, past vitest's 5 s: a limit, not a tolerance on what it checks.
+}, 60_000);
 
 test("stops looking for the conformance directory at the root, a Windows drive's included", () => {
   for (const root of ["file:///", "file:///C:/", "file:///C:/Users/nobody/"]) {
