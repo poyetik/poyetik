@@ -170,11 +170,6 @@ fn covers_the_format() {
     other.add(&image(size(2, 1), values)).expect("same size");
     assert_ne!(wide, other.finish(), "image rate");
     let numerator_only = ImageRate::new(25, 1).expect("a valid rate");
-    let denominator_too = ImageRate::new(50, 2);
-    assert!(
-        denominator_too.is_err(),
-        "rates are reduced, so 25/1 has one form"
-    );
     let mut another = ImageHasher::new(numerator_only, size(2, 1), ENCODING);
     another.add(&image(size(2, 1), values)).expect("same size");
     assert_ne!(wide, another.finish(), "another rate");

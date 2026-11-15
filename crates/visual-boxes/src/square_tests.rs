@@ -140,9 +140,10 @@ fn starts_each_cycle_at_the_left_edge_and_repeats() {
 }
 
 #[test]
-fn reaches_the_right_edge_at_the_end_of_the_cycle() {
+fn stops_short_of_the_right_edge_at_the_end_of_the_cycle() {
     // 4 images per cycle on a width of 4 pixels with a 1-pixel square (side = height):
-    // travel 3 pixels, so image 3 puts the left edge at 9/4 pixels.
+    // travel 3 pixels, so image 3 puts the left edge at 9/4 pixels, a quarter of the
+    // travel short of the right edge, which only the next cycle's start would reach.
     let mut visual = square(per_second(), Square::FULL_SIDE, (4, 1));
     let image = rendered(&mut visual, 3, 4, 1);
     assert_eq!(
@@ -172,7 +173,8 @@ fn gives_the_same_bits_in_any_order() {
 
 #[test]
 fn stays_exact_far_in_time() {
-    // 10^12 images at 60 per second (about 528 years): no drift, still periodic.
+    // 10^12 cycles of one second at 60 images per second (6 × 10^13 images, about 31 700
+    // years): no drift, still periodic.
     let mut visual = square(ImageRate::PER_SECOND_60, 30_000, (1, 1));
     let start = rendered(&mut visual, 0, 9, 4);
     let far = rendered(&mut visual, 60 * 1_000_000_000_000, 9, 4);
@@ -181,11 +183,32 @@ fn stays_exact_far_in_time() {
         bits(start.values()),
         "whole cycles later"
     );
-    let last = rendered(&mut visual, u64::MAX, 9, 4);
-    assert!(
-        last.values().iter().all(|value| value.is_finite()),
-        "the last index renders"
-    );
+    // Image 2^64 - 1 is where image 15 is: at 60 per second with a cycle of one second,
+    // (2^64 - 1) mod 60 = 15; at 24000/1001 with a cycle of 1001/1000 s, 24 images a
+    // cycle and (2^64 - 1) × 1001 × 1000 mod (24000 × 1001) = 15 × 1001 × 1000, a product
+    // past 2^64, so that 64-bit arithmetic, saturating or wrapping, gives another image.
+    for (rate, cycle) in [
+        (ImageRate::PER_SECOND_60, (1, 1)),
+        (
+            ImageRate::new(24_000, 1001).expect("a valid rate"),
+            (1001, 1000),
+        ),
+    ] {
+        let mut placed = square(rate, 30_000, cycle);
+        let last = rendered(&mut placed, u64::MAX, 9, 4);
+        let fifteenth = rendered(&mut placed, 15, 9, 4);
+        let fourteenth = rendered(&mut placed, 14, 9, 4);
+        assert_eq!(
+            bits(last.values()),
+            bits(fifteenth.values()),
+            "{cycle:?}: the last index is image 15"
+        );
+        assert_ne!(
+            bits(last.values()),
+            bits(fourteenth.values()),
+            "{cycle:?}: and not image 14"
+        );
+    }
 }
 
 #[test]
@@ -319,9 +342,147 @@ fn rejects_a_side_taller_than_the_image() {
         Err(BoxError::InvalidSide(u32::MAX)),
         "largest"
     );
-    assert!(
-        Square::new(per_second(), Square::FULL_SIDE, cycle).is_ok(),
+    assert_eq!(
+        Square::new(per_second(), Square::FULL_SIDE, cycle).map(|tall| tall.side),
+        Ok(Square::FULL_SIDE),
         "as tall as the image"
+    );
+}
+
+/// The coverage of pixel `(column, row)` by the square, in subpixel units of area,
+/// computed independently of the square's code, from `spec/visual-design.md` (sections 4
+/// and 6) in 128-bit integers: the reference each pixel is compared with.
+fn reference_coverage(
+    rate: (u32, u32),
+    side: u32,
+    cycle: (u32, u32),
+    index: u64,
+    dimensions: (u32, u32),
+    pixel: (u32, u32),
+) -> u128 {
+    // Every operand is below 2^64 and every product below 2^128: checked, never wrong.
+    let times = |left: u128, right: u128| left.checked_mul(right).expect("below 2^128");
+    let over = |left: u128, right: u128| left.checked_div(right).expect("a nonzero divisor");
+    let plus = |left: u128, right: u128| left.checked_add(right).expect("below 2^128");
+    let unit = 4096_u128;
+    let width = times(u128::from(dimensions.0), unit);
+    let height = times(u128::from(dimensions.1), unit);
+    let edge = over(times(height, u128::from(side)), 65_536);
+    let travel = width.saturating_sub(edge);
+    let period = times(u128::from(rate.0), u128::from(cycle.0));
+    let elapsed = times(
+        times(u128::from(index), u128::from(rate.1)),
+        u128::from(cycle.1),
+    );
+    let within = elapsed.checked_rem(period).expect("a nonzero period");
+    let left = over(times(within, travel), period);
+    let top = over(height.saturating_sub(edge), 2);
+    let overlap = |start: u128, end: u128, from: u128| {
+        end.min(plus(from, unit)).saturating_sub(start.max(from))
+    };
+    times(
+        overlap(left, plus(left, edge), times(u128::from(pixel.0), unit)),
+        overlap(top, plus(top, edge), times(u128::from(pixel.1), unit)),
+    )
+}
+
+#[test]
+fn renders_every_pixel_as_its_exact_reference() {
+    // Every pixel of every image of a whole cycle (35 images: 7/2 images a second, a cycle
+    // of 5/3 s, coprime), and far in time, at small sizes and sides from none to the full
+    // height, odd margins included: each value is exactly its coverage / 2^24.
+    let rate = (7, 2);
+    let cycle = (5, 3);
+    let scale = f64::from(1_u32 << 24_u32).recip();
+    for width in 1..=5_u32 {
+        for height in 1..=4_u32 {
+            for side in [
+                0,
+                1,
+                4095,
+                21_845,
+                32_768,
+                40_000,
+                65_535,
+                Square::FULL_SIDE,
+            ] {
+                let mut visual = square(
+                    ImageRate::new(rate.0, rate.1).expect("a valid rate"),
+                    side,
+                    cycle,
+                );
+                for index in (0..36).chain([(1 << 53_u32) + 1, u64::MAX]) {
+                    let image = rendered(&mut visual, index, width, height);
+                    for (at, &red) in reds(&image).iter().enumerate() {
+                        let at = u32::try_from(at).expect("small");
+                        let coverage = reference_coverage(
+                            rate,
+                            side,
+                            cycle,
+                            index,
+                            (width, height),
+                            (at % width, at / width),
+                        );
+                        let expected =
+                            f64::from(u32::try_from(coverage).expect("at most 2^24")) * scale;
+                        assert_eq!(
+                            f64::from(red).to_bits(),
+                            expected.to_bits(),
+                            "{width}x{height}, side {side}, image {index}, pixel {at}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn moves_by_the_same_distance_from_image_to_image() {
+    // The left edge, read from the pixels of a row the square fully covers: it advances by
+    // ⌊travel × q b / (p a)⌋ subpixel units or one more, every image of a cycle, and
+    // jumps back at its end. 64 × 36 pixels, a side of 30 000 / 65 536 of the height, at
+    // 24000/1001 images a second, one sweep per 1001/1000 s: 24 images a cycle.
+    let mut visual = square(
+        ImageRate::new(24_000, 1001).expect("a valid rate"),
+        30_000,
+        (1001, 1000),
+    );
+    let unit = u64::from(SUBPIXELS);
+    let edge = 36 * unit * 30_000 / 65_536;
+    let travel = 64 * unit - edge;
+    let step = travel * 1001 * 1000 / (24_000 * 1001);
+    let left_edge = |image: &Image| -> u64 {
+        let row: Vec<f32> = reds(image).into_iter().skip(64 * 18).take(64).collect();
+        let column = row
+            .iter()
+            .position(|&red| red.to_bits() != 0)
+            .expect("the square");
+        let red = f64::from(*row.get(column).expect("a column"));
+        // A fully covered row: the first column's value is its covered width / 4096.
+        let covered = (1..=unit)
+            .find(|&width| {
+                (f64::from(u32::try_from(width).expect("small")) / 4096.0).to_bits()
+                    == red.to_bits()
+            })
+            .expect("a whole number of subpixel units");
+        u64::try_from(column + 1).expect("small") * unit - covered
+    };
+    let lefts: Vec<u64> = (0..=24)
+        .map(|index| left_edge(&rendered(&mut visual, index, 64, 36)))
+        .collect();
+    assert_eq!(lefts.first(), Some(&0), "a cycle starts at the left edge");
+    for (index, (&before, &after)) in lefts.iter().zip(lefts.iter().skip(1)).enumerate().take(23) {
+        assert!(
+            after - before == step || after - before == step + 1,
+            "image {index} to the next: {} units, not {step} or one more",
+            after - before
+        );
+    }
+    assert_eq!(
+        lefts.get(24),
+        lefts.first(),
+        "image 24 starts the next cycle"
     );
 }
 
