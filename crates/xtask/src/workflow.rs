@@ -13,9 +13,12 @@ pub const WORKFLOW: &str = ".github/workflows/quality.yml";
 /// The Node.js release CI uses, pinned.
 pub const NODE_VERSION_FILE: &str = ".node-version";
 
-/// The WebAssembly module the engine package builds: uploaded by a failed CI run, so that
-/// its bytes can be compared with a local build.
-pub const WASM_MODULE: &str = "bindings/audio-wasm/dist/engine.wasm";
+/// The WebAssembly modules the packages of both libraries build: uploaded by a failed CI
+/// run, so that their bytes can be compared with a local build.
+pub const WASM_MODULES: [&str; 2] = [
+    "bindings/audio-wasm/dist/engine.wasm",
+    "bindings/visual-wasm/dist/visual.wasm",
+];
 
 /// What Playwright leaves in a package after its browser tests: its report, and the traces
 /// and screenshots of the failed tests.
@@ -25,17 +28,18 @@ pub const PLAYWRIGHT_OUTPUTS: [&str; 2] = ["playwright-report", "test-results"];
 ///
 /// Every report a gate of xtask reads (the mutants, the Rust coverage, the coverage and
 /// mutation reports of every TypeScript package, as one glob per folder of parts), the
-/// WebAssembly module, then Playwright's outputs ([`PLAYWRIGHT_OUTPUTS`]) of every folder
+/// WebAssembly modules, then Playwright's outputs ([`PLAYWRIGHT_OUTPUTS`]) of every folder
 /// of parts.
 #[must_use]
 pub fn failure_uploads() -> Vec<String> {
     let mut uploads: Vec<String> = [
         UNVIABLE_REPORT.split('/').next().unwrap_or(UNVIABLE_REPORT),
         COVERAGE_DIR,
-        WASM_MODULE,
     ]
+    .into_iter()
+    .chain(WASM_MODULES)
     .map(str::to_owned)
-    .to_vec();
+    .collect();
     for report in typescript_reports() {
         // `<folder>/<package>/<kind>[/…]` becomes `<folder>/*/<kind>`.
         let mut parts = report.split('/');

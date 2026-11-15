@@ -389,6 +389,7 @@ fn derives_the_workflow_s_lists_and_reads_its_node_release() {
             "mutants.out",
             "target/coverage",
             "bindings/audio-wasm/dist/engine.wasm",
+            "bindings/visual-wasm/dist/visual.wasm",
             "tooling/*/coverage",
             "tooling/*/reports",
             "bindings/*/coverage",
