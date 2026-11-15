@@ -90,17 +90,17 @@ where
     /// of the built-in boxes are private to this crate, so another spec at another address
     /// is another box type, created through its factory.
     #[inline]
-    fn create(rate: SampleRate, values: &ParamValues) -> Self {
+    fn create(rate: SampleRate, values: &ParamValues) -> Option<Self> {
         let spec = values.spec();
-        Self(if ptr::eq(spec, &raw const OSC) {
+        Some(Self(if ptr::eq(spec, &raw const OSC) {
             Kind::Osc(Box::new(osc::Osc::of(rate, &values.params())))
         } else if ptr::eq(spec, &raw const DAC) {
             Kind::Dac(dac::Dac)
         } else {
             Kind::Other(<Box<dyn Object<S, N>> as Dispatch<S, N>>::create(
                 rate, values,
-            ))
-        })
+            )?)
+        }))
     }
 }
 

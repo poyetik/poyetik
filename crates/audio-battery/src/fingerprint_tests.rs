@@ -31,6 +31,7 @@ type Virtual<S> = Box<dyn Object<S>>;
 /// copy per call, kept for the test process, through its factory.
 fn print(spec: ObjectSpec) -> String {
     fingerprint::<Virtual<Binary64>, Virtual<Binary32>>(Box::leak(Box::new(spec)))
+        .expect("a test build creates every box type")
 }
 
 /// Where a quirk of [`Echo`] changes its output: under one condition only.
@@ -564,8 +565,8 @@ impl<S: Sample> Object<S> for Altered<S> {
 }
 
 impl<S: Sample> Dispatch<S> for Altered<S> {
-    fn create(rate: SampleRate, values: &ParamValues) -> Self {
-        Self(<Box<dyn Object<S>> as Dispatch<S>>::create(rate, values))
+    fn create(rate: SampleRate, values: &ParamValues) -> Option<Self> {
+        <Box<dyn Object<S>> as Dispatch<S>>::create(rate, values).map(Self)
     }
 }
 
@@ -575,11 +576,14 @@ fn measures_the_instances_of_each_precision() {
     // otherwise in one precision is seen there, so a fingerprint taken through the factory
     // for one precision, whatever the instance type given, would fail here.
     let spec: &'static ObjectSpec = Box::leak(Box::new(echo(Quirk::None)));
-    let through = |altered: [bool; 2]| match altered {
-        [false, false] => fingerprint::<Virtual<Binary64>, Virtual<Binary32>>(spec),
-        [true, false] => fingerprint::<Altered<Binary64>, Virtual<Binary32>>(spec),
-        [false, true] => fingerprint::<Virtual<Binary64>, Altered<Binary32>>(spec),
-        [true, true] => fingerprint::<Altered<Binary64>, Altered<Binary32>>(spec),
+    let through = |altered: [bool; 2]| {
+        match altered {
+            [false, false] => fingerprint::<Virtual<Binary64>, Virtual<Binary32>>(spec),
+            [true, false] => fingerprint::<Altered<Binary64>, Virtual<Binary32>>(spec),
+            [false, true] => fingerprint::<Virtual<Binary64>, Altered<Binary32>>(spec),
+            [true, true] => fingerprint::<Altered<Binary64>, Altered<Binary32>>(spec),
+        }
+        .expect("a test build creates every box type")
     };
     let prints: Vec<String> = [[false, false], [true, false], [false, true], [true, true]]
         .into_iter()

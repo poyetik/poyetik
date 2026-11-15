@@ -514,7 +514,9 @@ static TOLD: ObjectSpec = mute::<Told>("told~");
 fn created<S: crate::host::Raw>(values: &ParamValues) -> [u64; 2] {
     let rate = SampleRate::new(8_000).expect("valid rate");
     let mut out = [S::SILENCE];
-    <Box<dyn Object<S>> as Dispatch<S>>::create(rate, values).process(&[], &mut out);
+    <Box<dyn Object<S>> as Dispatch<S>>::create(rate, values)
+        .expect("a test build holds every engine block")
+        .process(&[], &mut out);
     let [first, second, ..] = out[0];
     [first.bits(), second.bits()]
 }

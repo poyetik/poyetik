@@ -51,16 +51,17 @@ pub(crate) struct Record {
 /// in the default floating-point mode (`mode`, the proof of it), as every recorded
 /// fingerprint was: a host mode that flushed subnormals could give other bits.
 pub(crate) fn current_fingerprints(_mode: DefaultMode<'_>) -> Fingerprints {
+    // The engine's instance type creates every registered box type: each is measured (a box
+    // type it could not create would have no fingerprint, which the record refuses).
     REGISTRY
         .iter()
-        .map(|spec| {
-            (
-                spec.name().to_owned(),
+        .filter_map(|spec| {
+            fingerprint::<BuiltIn<Binary64>, BuiltIn<Binary32>>(spec).map(|measured| {
                 (
-                    spec.algorithm_version().get(),
-                    fingerprint::<BuiltIn<Binary64>, BuiltIn<Binary32>>(spec),
-                ),
-            )
+                    spec.name().to_owned(),
+                    (spec.algorithm_version().get(), measured),
+                )
+            })
         })
         .collect()
 }

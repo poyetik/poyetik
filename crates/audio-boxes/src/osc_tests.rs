@@ -288,7 +288,8 @@ fn follows_its_frequency_parameter() {
 /// Renders one block into a first outlet and an extra buffer, which must stay as it was.
 fn leaves_extra_buffers<S: Sample>() {
     let rate = SampleRate::new(48_000).expect("valid rate");
-    let mut osc = <Box<dyn Object<S>> as Dispatch<S>>::create(rate, &ParamValues::defaults(&OSC));
+    let mut osc = <Box<dyn Object<S>> as Dispatch<S>>::create(rate, &ParamValues::defaults(&OSC))
+        .expect("a test build creates every box type");
     let seven = [S::from_binary64(param(7.0)); BLOCK_SIZE];
     let mut out: [Block<S>; 2] = [S::SILENCE, seven];
     osc.process(&[], &mut out);
@@ -514,9 +515,11 @@ fn stays_below_four_cycles_per_sample() {
 fn defaults_to_440_hz_in<S: Sample>() {
     let rate = SampleRate::new(48_000).expect("valid rate");
     let mut with_default =
-        <Box<dyn Object<S>> as Dispatch<S>>::create(rate, &ParamValues::defaults(&OSC));
+        <Box<dyn Object<S>> as Dispatch<S>>::create(rate, &ParamValues::defaults(&OSC))
+            .expect("a test build creates every box type");
     let explicit = ParamValues::of(&OSC, &[param(440.0)]).expect("440 Hz within range");
-    let mut with_440 = <Box<dyn Object<S>> as Dispatch<S>>::create(rate, &explicit);
+    let mut with_440 = <Box<dyn Object<S>> as Dispatch<S>>::create(rate, &explicit)
+        .expect("a test build creates every box type");
     let (mut default_out, mut explicit_out) = ([S::SILENCE], [S::SILENCE]);
     with_default.process(&[], &mut default_out);
     with_440.process(&[], &mut explicit_out);

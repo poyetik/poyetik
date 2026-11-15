@@ -498,7 +498,7 @@ pub trait Create {
 ///     factory: &Factory,
 ///     rate: SampleRate,
 ///     values: &ParamValues,
-/// ) -> Box<dyn Object<Binary64>> {
+/// ) -> Option<Box<dyn Object<Binary64>>> {
 ///     factory.create(rate, values.params())
 /// }
 /// ```
@@ -552,20 +552,29 @@ macro_rules! constructors {
         #[derive(Debug)]
         pub(crate) struct Constructors {
             $(
-                #[doc = concat!("Binary64 instances in blocks of ", $frames, " frames.")]
-                pub(crate) $binary64: Constructor<Binary64, $frames>,
-                #[doc = concat!("Binary32 instances in blocks of ", $frames, " frames.")]
-                pub(crate) $binary32: Constructor<Binary32, $frames>,
+                #[doc = concat!("Binary64 instances in blocks of ", $frames, " frames, if built.")]
+                pub(crate) $binary64: Option<Constructor<Binary64, $frames>>,
+                #[doc = concat!("Binary32 instances in blocks of ", $frames, " frames, if built.")]
+                pub(crate) $binary32: Option<Constructor<Binary32, $frames>>,
             )*
         }
 
         impl Constructors {
-            /// Those of the box type `T`.
+            /// Those of the box type `T`, for the engine blocks this build holds
+            /// ([`crate::built_for`]): none of another size is compiled.
             const fn of<T: Create>() -> Self {
                 Self {
                     $(
-                        $binary64: T::create::<Binary64, $frames>,
-                        $binary32: T::create::<Binary32, $frames>,
+                        $binary64: if crate::built_for($frames) {
+                            Some(T::create::<Binary64, $frames>)
+                        } else {
+                            None
+                        },
+                        $binary32: if crate::built_for($frames) {
+                            Some(T::create::<Binary32, $frames>)
+                        } else {
+                            None
+                        },
                     )*
                 }
             }
@@ -573,13 +582,13 @@ macro_rules! constructors {
 
         $(
             impl sealed::Construct<$frames> for Binary64 {
-                fn constructor(factory: &Factory) -> Constructor<Self, $frames> {
+                fn constructor(factory: &Factory) -> Option<Constructor<Self, $frames>> {
                     factory.constructors.$binary64
                 }
             }
 
             impl sealed::Construct<$frames> for Binary32 {
-                fn constructor(factory: &Factory) -> Constructor<Self, $frames> {
+                fn constructor(factory: &Factory) -> Option<Constructor<Self, $frames>> {
                     factory.constructors.$binary32
                 }
             }
@@ -600,6 +609,7 @@ macro_rules! constructors {
 }
 
 constructors! {
+    binary64_16, binary32_16, 16;
     binary64_32, binary32_32, 32;
     binary64_64, binary32_64, 64;
     binary64_128, binary32_128, 128;
@@ -619,15 +629,16 @@ impl Factory {
     }
 
     /// Creates an instance computing in `S` in blocks of `N` frames, at `rate`, with
-    /// `params` as [`Create::create`] receives them: crate-private, since `params` do not
-    /// say their box type; [`Dispatch::create`] reads it from the values.
+    /// `params` as [`Create::create`] receives them; none when this build does not hold that
+    /// engine block ([`crate::built_for`]). Crate-private, since `params` do not say their
+    /// box type; [`Dispatch::create`] reads it from the values.
     #[must_use]
     pub(crate) fn create<S: Sample + sealed::Construct<N>, const N: usize>(
         &self,
         rate: SampleRate,
         params: Params<'_>,
-    ) -> Box<dyn Object<S, N>> {
-        <S as sealed::Construct<N>>::constructor(self)(rate, params)
+    ) -> Option<Box<dyn Object<S, N>>> {
+        <S as sealed::Construct<N>>::constructor(self).map(|constructor| constructor(rate, params))
     }
 }
 
@@ -874,7 +885,7 @@ impl<S: Sample, const N: usize, T: Object<S, N> + ?Sized> Object<S, N> for Box<T
 ///     spec: &'static ObjectSpec,
 ///     rate: SampleRate,
 ///     values: &ParamValues,
-/// ) -> Box<dyn Object<Binary64>> {
+/// ) -> Option<Box<dyn Object<Binary64>>> {
 ///     <Box<dyn Object<Binary64>> as Dispatch<Binary64>>::create(spec, rate, values.params())
 /// }
 /// ```
@@ -885,20 +896,23 @@ impl<S: Sample, const N: usize, T: Object<S, N> + ?Sized> Object<S, N> for Box<T
 /// ```
 /// use audio_core::{Binary64, Dispatch, Object, ParamValues, SampleRate};
 ///
-/// fn create(rate: SampleRate, values: &ParamValues) -> Box<dyn Object<Binary64>> {
+/// fn create(rate: SampleRate, values: &ParamValues) -> Option<Box<dyn Object<Binary64>>> {
 ///     <Box<dyn Object<Binary64>> as Dispatch<Binary64>>::create(rate, values)
 /// }
 /// ```
 pub trait Dispatch<S: Sample, const N: usize = BLOCK_SIZE>: Object<S, N> + Sized {
     /// The instance at `rate` of the box type `values` were checked against
-    /// ([`ParamValues::spec`]), created with them as [`Create::create`] receives them.
-    fn create(rate: SampleRate, values: &ParamValues) -> Self;
+    /// ([`ParamValues::spec`]), created with them as [`Create::create`] receives them; none
+    /// when this instance type cannot create that box type in blocks of `N` frames in this
+    /// build (a box type through its virtual table, in a build naming another engine block,
+    /// [`crate::built_for`]).
+    fn create(rate: SampleRate, values: &ParamValues) -> Option<Self>;
 }
 
 /// Every box type through its factory, each instance called through its virtual table: in
 /// the engine blocks of [`crate::ENGINE_BLOCKS`], those a factory holds a constructor for.
 impl<S: Sample + sealed::Construct<N>, const N: usize> Dispatch<S, N> for Box<dyn Object<S, N>> {
-    fn create(rate: SampleRate, values: &ParamValues) -> Self {
+    fn create(rate: SampleRate, values: &ParamValues) -> Option<Self> {
         values.spec.create.create(rate, values.params())
     }
 }

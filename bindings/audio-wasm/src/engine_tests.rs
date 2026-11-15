@@ -82,6 +82,7 @@ fn renders_exactly_like_the_plan_in_every_format_at_every_rate() {
     for text in [SINE, SUMMED] {
         // At every engine block a module is built for: the renderer's samples (the
         // engine-block law, decision 2).
+        renders_like_the_renderer::<16>(text);
         renders_like_the_renderer::<32>(text);
         renders_like_the_renderer::<64>(text);
         renders_like_the_renderer::<128>(text);

@@ -889,7 +889,8 @@ static FINGERPRINTS: std::sync::LazyLock<BTreeMap<&'static str, String>> =
                     audio_battery::fingerprint::<
                         audio_boxes::BuiltIn<audio_core::Binary64>,
                         audio_boxes::BuiltIn<audio_core::Binary32>,
-                    >(spec),
+                    >(spec)
+                    .expect("the engine creates every registered box type"),
                 )
             })
             .collect()

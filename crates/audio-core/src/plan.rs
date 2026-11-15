@@ -11,6 +11,7 @@
 
 use alloc::collections::btree_map::Entry;
 use alloc::collections::{BTreeMap, BTreeSet};
+use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::iter;
@@ -394,9 +395,14 @@ impl<S: Sample, I: Dispatch<S, N>, const N: usize> Plan<S, I, N> {
             {
                 outputs.push((id, instances.len(), inlets));
             }
+            let object = I::create(rate, &resolved.params).ok_or_else(|| CoreError::Unbuilt {
+                node: id,
+                kind: String::from(resolved.params.spec().name()),
+                frames: N,
+            })?;
             instances.push(Running {
                 node: id,
-                object: I::create(rate, &resolved.params),
+                object,
                 inputs: vec![S::ZERO; inlets.saturating_mul(N)],
                 feeds: (0..inlets)
                     .filter_map(|inlet| {

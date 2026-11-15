@@ -712,6 +712,7 @@ fn a_factory_creates_instances_in_either_precision() {
             rate,
             ParamValues::flushed(&WIDTH, vec![wide(0.25), wide(0.5)]).params(),
         )
+        .expect("a test build holds every engine block")
         .process(&[], &mut out64);
     assert_eq!(out64[0][0].bits(), 64.758_f64.to_bits(), "binary64");
     let mut out32 = [Binary32::SILENCE];
@@ -720,6 +721,7 @@ fn a_factory_creates_instances_in_either_precision() {
             rate,
             ParamValues::flushed(&WIDTH, vec![wide(0.25)]).params(),
         )
+        .expect("a test build holds every engine block")
         .process(&[], &mut out32);
     assert_eq!(
         out32[0][0].bits(),

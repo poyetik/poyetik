@@ -69,6 +69,17 @@ pub enum CoreError {
     },
     /// The patch contains a cycle without delay; these boxes are part of it or depend on it.
     Cycle(Vec<NodeId>),
+    /// A box whose box type the plan's instance type cannot create in its engine block in
+    /// this build: a box type through its virtual table, in a build naming another engine
+    /// block (`crate::built_for`).
+    Unbuilt {
+        /// The box.
+        node: NodeId,
+        /// Its box type.
+        kind: String,
+        /// The engine block, in frames.
+        frames: usize,
+    },
 }
 
 impl fmt::Display for CoreError {
@@ -112,6 +123,10 @@ impl fmt::Display for CoreError {
             }
             Self::InvalidOutlet { node, outlet } => write!(f, "{node}: no outlet {outlet}"),
             Self::InvalidInlet { node, inlet } => write!(f, "{node}: no inlet {inlet}"),
+            Self::Unbuilt { node, kind, frames } => write!(
+                f,
+                "{node}: \"{kind}\" is not built for engine blocks of {frames} frames"
+            ),
             Self::Cycle(nodes) => {
                 write!(f, "cycle without delay: boxes in it or after it: ")?;
                 for (index, node) in nodes.iter().enumerate() {

@@ -448,8 +448,8 @@ pub(crate) mod sealed {
     /// crate-private, and `audio_boxes::BuiltIn` creates the engine's own box types
     /// directly, from the same checked values, in any engine block.
     pub trait Construct<const N: usize> {
-        /// The constructor of `factory` for this type and `N`.
-        fn constructor(factory: &Factory) -> Constructor<Self, N>
+        /// The constructor of `factory` for this type and `N`, if this build holds `N`.
+        fn constructor(factory: &Factory) -> Option<Constructor<Self, N>>
         where
             Self: Sample;
     }
@@ -460,6 +460,7 @@ pub(crate) mod sealed {
 /// `libm`'s; all are the math layer's.
 pub trait Sample:
     sealed::Sealed
+    + sealed::Construct<16>
     + sealed::Construct<32>
     + sealed::Construct<64>
     + sealed::Construct<128>

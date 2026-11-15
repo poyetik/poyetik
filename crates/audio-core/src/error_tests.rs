@@ -85,6 +85,14 @@ fn describes_every_error() {
             CoreError::Cycle(vec![NodeId(1), NodeId(9)]),
             "cycle without delay: boxes in it or after it: box 1, box 9",
         ),
+        (
+            CoreError::Unbuilt {
+                node: NodeId(4),
+                kind: String::from("osc~"),
+                frames: 128,
+            },
+            "box 4: \"osc~\" is not built for engine blocks of 128 frames",
+        ),
     ];
     for (error, message) in cases {
         assert_eq!(error.to_string(), message, "message of {error:?}");

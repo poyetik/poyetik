@@ -131,7 +131,8 @@ fn render<S: LawSample>(
     blocks: usize,
     entry: S,
 ) -> Result<(Vec<Block<S>>, usize), String> {
-    let mut object = <Box<dyn Object<S>> as Dispatch<S>>::create(rate, params);
+    let mut object = <Box<dyn Object<S>> as Dispatch<S>>::create(rate, params)
+        .ok_or("the box type is not built for the default engine block")?;
     let mut operations = 0_usize;
     let rendered = run_blocks(params.spec(), input, blocks, entry, |given, outputs| {
         let ((), count) = heap_operations_during(|| object.process(given, outputs))?;

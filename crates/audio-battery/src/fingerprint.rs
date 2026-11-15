@@ -54,11 +54,12 @@ pub const FINGERPRINT_BATTERY: u32 = 2;
 /// (`audio_boxes::BuiltIn`, as `audio-cli` gives it), the fingerprint measures the
 /// code the engine runs, not only the box type's factory. `spec` is a static: a plan
 /// calls its box types by the specs of its registry, which `BuiltIn` tells apart by
-/// address.
+/// address. None when an instance type cannot create the box type
+/// ([`Dispatch::create`]): no fingerprint stands for a box type not measured.
 #[must_use]
 pub fn fingerprint<I64: Dispatch<Binary64>, I32: Dispatch<Binary32>>(
     spec: &'static ObjectSpec,
-) -> String {
+) -> Option<String> {
     let mut hasher = Sha256::new();
     hasher.update(FINGERPRINT_BATTERY.to_le_bytes());
     let blocks = BLOCKS.saturating_mul(spec.inlets().len());
@@ -66,30 +67,33 @@ pub fn fingerprint<I64: Dispatch<Binary64>, I32: Dispatch<Binary32>>(
     for precision in PRECISIONS {
         match precision {
             Precision::Binary64 => {
-                battery::<Binary64, I64>(spec, blocks, &random, &mut hasher);
+                battery::<Binary64, I64>(spec, blocks, &random, &mut hasher)?;
             }
             Precision::Binary32 => {
-                battery::<Binary32, I32>(spec, blocks, &random, &mut hasher);
+                battery::<Binary32, I32>(spec, blocks, &random, &mut hasher)?;
             }
         }
     }
-    hasher
-        .finalize()
-        .iter()
-        .fold(String::with_capacity(64), |mut text, byte| {
-            // Writing to a `String` never fails.
-            let _written = write!(text, "{byte:02x}");
-            text
-        })
+    Some(
+        hasher
+            .finalize()
+            .iter()
+            .fold(String::with_capacity(64), |mut text, byte| {
+                // Writing to a `String` never fails.
+                let _written = write!(text, "{byte:02x}");
+                text
+            }),
+    )
 }
 
-/// Hashes every run of the battery computing in `S`, each instance created as `I`.
+/// Hashes every run of the battery computing in `S`, each instance created as `I`; none
+/// when `I` cannot create the box type.
 fn battery<S: BatterySample, I: Dispatch<S>>(
     spec: &'static ObjectSpec,
     blocks: usize,
     random: &[[f64; BLOCK_SIZE]],
     hasher: &mut Sha256,
-) {
+) -> Option<()> {
     let inputs = [
         special_input::<S>(blocks),
         random
@@ -100,7 +104,7 @@ fn battery<S: BatterySample, I: Dispatch<S>>(
     for rate in sample_rates() {
         for params in param_sets(spec) {
             for input in &inputs {
-                let mut object = I::create(rate, &params);
+                let mut object = I::create(rate, &params)?;
                 let Ok(rendered) =
                     run_blocks::<S, Infallible>(spec, input, BLOCKS, S::ZERO, |given, outputs| {
                         object.process(given, outputs);
@@ -114,6 +118,7 @@ fn battery<S: BatterySample, I: Dispatch<S>>(
             }
         }
     }
+    Some(())
 }
 
 /// The outputs of `blocks` blocks of a box of the box type `spec`, outlet by outlet at each

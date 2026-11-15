@@ -36,7 +36,9 @@ mod rate;
 mod render;
 mod subnormals;
 
-pub use block::{BLOCK_SIZE, Block, ENGINE_BLOCKS, MAX_ENGINE_BLOCK};
+pub use block::{
+    BLOCK_SIZE, Block, ENGINE_BLOCKS, MAX_ENGINE_BLOCK, NAMED_ENGINE_BLOCK, built_for,
+};
 pub use error::CoreError;
 pub use limiter::{Detector, LimiterError, LimiterSettings, Setting, TruePeakLimiter};
 pub use math::{

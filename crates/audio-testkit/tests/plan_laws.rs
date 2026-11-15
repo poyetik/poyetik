@@ -394,10 +394,13 @@ mod tests {
                 })
                 .collect();
             let params = ParamValues::of(spec(node), &values).expect("values the plan accepted");
-            drop(boxes.insert(
-                node.id,
-                <Box<dyn Object<S>> as Dispatch<S>>::create(rate, &params),
-            ));
+            drop(
+                boxes.insert(
+                    node.id,
+                    <Box<dyn Object<S>> as Dispatch<S>>::create(rate, &params)
+                        .expect("a test build creates every box type"),
+                ),
+            );
         }
         let is_output = |node: &Node| spec(node).capabilities().contains(&Capability::AudioOutput);
         let channels = nodes
@@ -627,6 +630,7 @@ mod tests {
         frames: usize,
     ) -> Result<Vec<S>, String> {
         let sizes = [
+            at_block::<S, 16>(patch, registry, rate, frames)?,
             at_block::<S, 32>(patch, registry, rate, frames)?,
             at_block::<S, 64>(patch, registry, rate, frames)?,
             at_block::<S, 128>(patch, registry, rate, frames)?,
@@ -634,7 +638,7 @@ mod tests {
             at_block::<S, 512>(patch, registry, rate, frames)?,
             at_block::<S, 1024>(patch, registry, rate, frames)?,
         ];
-        let [_, (raw, protected), ..] = &sizes;
+        let [_, _, (raw, protected), ..] = &sizes;
         let (raw, protected) = (bits(raw), bits(protected));
         for ((other, other_protected), size) in sizes.iter().zip(ENGINE_BLOCKS) {
             if bits(other) != raw {
@@ -648,7 +652,7 @@ mod tests {
                 ));
             }
         }
-        let [_, (default_size, _), ..] = sizes;
+        let [_, _, (default_size, _), ..] = sizes;
         Ok(default_size)
     }
 
@@ -778,7 +782,7 @@ mod tests {
     #[test]
     fn the_engine_block_law_refuses_a_box_that_sees_its_block() {
         // A box marking each block's first frame into an output box: the law sees it at the
-        // first size whose blocks start elsewhere than the default's, 32 frames.
+        // first size whose blocks start elsewhere than the default's, 16 frames.
         let rate = SampleRate::new(48_000).expect("valid rate");
         let node = |id: u32, kind: &str| Node {
             id: NodeId(id),
@@ -795,7 +799,7 @@ mod tests {
             .expect("a valid patch");
         assert_eq!(
             engine_block_law::<Binary64>(&cheat, &[&BLOCKY, &OUT], rate, 200),
-            Err("an engine block of 32 frames changes the samples".to_owned()),
+            Err("an engine block of 16 frames changes the samples".to_owned()),
             "the cheat refused"
         );
         // The same patch with a box that does not see its block passes.

@@ -1850,3 +1850,33 @@ in_both_precisions!(
     decides_how_each_block_is_fed_when_built,
     a_sum_reads_a_missing_source_as_silence_in_its_place,
 );
+
+/// An instance type that creates no box type: as one is in a build that does not hold the
+/// plan's engine block for the box types it creates through their virtual table.
+#[derive(Debug)]
+struct Unbuilt;
+impl<S: Sample> Object<S> for Unbuilt {
+    fn process(&mut self, _inputs: &[Block<S>], _outputs: &mut [Block<S>]) {}
+}
+impl<S: Sample> crate::Dispatch<S> for Unbuilt {
+    fn create(_rate: SampleRate, _values: &crate::ParamValues) -> Option<Self> {
+        None
+    }
+}
+
+#[test]
+fn refuses_a_box_its_instance_type_cannot_create() {
+    // The first box in execution order is named, with its box type and the engine block.
+    let patch = Patch::new(vec![node(3, "const~"), node(1, "const~")], vec![]).expect("valid");
+    assert_eq!(
+        Plan::<Binary64, Unbuilt>::build(&patch, &REGISTRY, rate()).map(|_| ()),
+        Err(CoreError::Unbuilt {
+            node: NodeId(1),
+            kind: String::from("const~"),
+            frames: BLOCK_SIZE,
+        }),
+        "no plan"
+    );
+    let mut unused = Unbuilt;
+    <Unbuilt as Object<Binary64>>::process(&mut unused, &[], &mut []);
+}

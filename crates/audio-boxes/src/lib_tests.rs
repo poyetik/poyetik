@@ -90,7 +90,10 @@ static COPY: ObjectSpec = ObjectSpec::new::<crate::osc::Osc>(
 /// virtual table.
 fn held_as(spec: &'static ObjectSpec) -> &'static str {
     let rate = sample_rates()[0];
-    match BuiltIn::<Binary64>::create(rate, &ParamValues::defaults(spec)).0 {
+    match BuiltIn::<Binary64>::create(rate, &ParamValues::defaults(spec))
+        .expect("a test build creates every box type")
+        .0
+    {
         Kind::Osc(_) => "osc~",
         Kind::Dac(_) => "dac~",
         Kind::Other(_) => "other",
@@ -179,8 +182,10 @@ fn same_as_the_factory<S: Raw>(spec: &'static ObjectSpec) {
     let params = param_lists(spec);
     for rate in sample_rates() {
         for list in &params {
-            let mut direct = BuiltIn::<S>::create(rate, list);
-            let mut reference = <Box<dyn Object<S>> as Dispatch<S>>::create(rate, list);
+            let mut direct =
+                BuiltIn::<S>::create(rate, list).expect("a test build creates every box type");
+            let mut reference = <Box<dyn Object<S>> as Dispatch<S>>::create(rate, list)
+                .expect("a test build creates every box type");
             for block in 0..3 {
                 let given = inputs::<S>(spec.inlets().len(), block);
                 let mut out = vec![S::SILENCE; spec.outlets().len()];
