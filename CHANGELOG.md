@@ -46,6 +46,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Conformance cases render through an output stage of their own (`output` in a case file: raw or protected, the limiter's lookahead and detector), read alike by `audio-cli`, the oracle and the browser tests, with five invalid cases more. The oracle judges a channel rendered protected with the standard detector apart from the engine: silence over the latency, then a true peak between the bounds it derives from BS.1770's table and a THD+N within the bound of that range (`limited` expectations). The corpus holds a protected case, `sine-1000-limited-at-48k`, bit for bit the same natively and in every browser. `LimiterSettings::with_lookahead` changes one setting.
 
+- Execution modes (`spec/engine-design.md`, decision 20): `audio_core::ExecutionMode` (live, offline, build) and `BoxMode` (live-capable or offline-only). Every box type declares its mode (`Create::MODE`, `ObjectSpec::mode`); a live plan refuses an offline-only box, naming it (`CoreError::OfflineOnly`), while offline and build plans run it; every mode gives the same bits. The box laws hold the heap rule to live-capable boxes only, an offline-only box being held to every other law, and the plan laws render every random patch through a simulated live host (a live plan in quanta of 128 frames) as offline. The WebAssembly engine builds live plans, `audio-cli` offline ones.
+
 ### Changed
 
 - **Breaking:** render rules version 3 (decision 29): the output stage is one of the render rules. No reference changed (no case outputs a non-finite sample); `conformance/algorithms.json` records the version.
@@ -58,6 +60,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Breaking:** the engine block is a constant of the build, a const generic parameter of the processing (`spec/engine-design.md`, decision 2), 64 frames by default (`BLOCK_SIZE`): `Block<S, N>`, `Object<S, N>`, `Dispatch<S, N>`, `Plan<S, I, N>`, `Renderer<S, I, N>`, `audio_boxes::BuiltIn<S, N>`, `EnginePlan<S, N>` and `EngineRenderer<S, N>` take it, and `Create::create` creates an instance for any of them (`create<S, N>`). `OutputStage::apply`, `apply_before_narrowing`, `replace_given`, `note_given` and `TruePeakLimiter::apply` take blocks of any engine block. Each size runs the code a fixed block compiles to. The sizes a patcher build offers are `ENGINE_BLOCKS` (16 to 1024 frames); a box type created through its virtual table exists in those only, a built-in one in any (`MAX_ENGINE_BLOCK`, 2^20). `Sample::SILENCE` stays the block of the default size. `Dispatch::create` returns none when the instance type cannot create the box type at its size in this build, and `Plan::build` then refuses the patch (`CoreError::Unbuilt`, naming the box); `audio_battery::fingerprint` returns none for a box type it cannot create. The plan and the renderer keep their blocks in buffers on the heap, so that no block is built on the stack whatever its size.
 
 - The test data gate accepts `option_env!` of the variables that name no file of the repository (xtask's `BUILD_VARIABLES`): the engine block a build names, `POYETIK_ENGINE_BLOCK`. Every other `option_env!` stays refused.
+- **Breaking:** `Plan::build` takes the execution mode its plan runs in, and `Create` requires the box type's mode (`const MODE: BoxMode`).
+
 
 ### Fixed
 

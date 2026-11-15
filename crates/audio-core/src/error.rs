@@ -76,6 +76,13 @@ pub enum CoreError {
         /// The channels asked.
         count: u16,
     },
+    /// A box of an offline-only box type in a live plan (decision 20).
+    OfflineOnly {
+        /// The box.
+        node: NodeId,
+        /// Its box type.
+        kind: String,
+    },
     /// A box whose box type the plan's instance type cannot create in its engine block in
     /// this build: a box type through its virtual table, in a build naming another engine
     /// block (`crate::built_for`).
@@ -134,6 +141,10 @@ impl fmt::Display for CoreError {
                 f,
                 "too many {direction} channels: {count} (at most {})",
                 crate::MAX_CHANNELS
+            ),
+            Self::OfflineOnly { node, kind } => write!(
+                f,
+                "{node}: \"{kind}\" runs offline only, not in a live plan"
             ),
             Self::Unbuilt { node, kind, frames } => write!(
                 f,

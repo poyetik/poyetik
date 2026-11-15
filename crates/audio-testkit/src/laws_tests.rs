@@ -189,6 +189,7 @@ macro_rules! box_type {
         /// A fixture's box type.
         struct $name;
         impl Create for $name {
+            const MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
             const PARAMS: &'static [ParamSpec] = $params;
 
             fn create<S: Sample, const N: usize>(
@@ -426,6 +427,50 @@ fn catches_a_box_leaving_its_outputs_unwritten_in_silence() {
          unwritten (a NaN on entry), with parameters [0.0]",
         "the long run's entry"
     );
+}
+
+#[test]
+fn holds_an_offline_only_box_to_every_law_but_the_heap() {
+    /// An allocating box type, declared offline-only, which may allocate while processing.
+    struct OfflineAllocating;
+    impl Create for OfflineAllocating {
+        const MODE: audio_core::BoxMode = audio_core::BoxMode::OfflineOnly;
+        const PARAMS: &'static [ParamSpec] = &[GAIN];
+
+        fn create<S: Sample, const N: usize>(
+            _rate: SampleRate,
+            _given: Params<'_>,
+        ) -> Box<dyn Object<S, N>> {
+            Box::new(Fixture::Allocating)
+        }
+    }
+    /// A box type outputting NaN, declared offline-only: still refused.
+    struct OfflineNan;
+    impl Create for OfflineNan {
+        const MODE: audio_core::BoxMode = audio_core::BoxMode::OfflineOnly;
+        const PARAMS: &'static [ParamSpec] = &[GAIN];
+
+        fn create<S: Sample, const N: usize>(
+            _rate: SampleRate,
+            _given: Params<'_>,
+        ) -> Box<dyn Object<S, N>> {
+            Box::new(Fixture::Nan)
+        }
+    }
+    let allocating = leaked(good::<OfflineAllocating>(
+        "gain~",
+        GAIN_DESCRIPTION,
+        &[PORT],
+        &[OUT],
+    ));
+    assert_eq!(check_laws(allocating), Ok(()), "offline-only, allocating");
+    let nan = leaked(good::<OfflineNan>(
+        "gain~",
+        GAIN_DESCRIPTION,
+        &[PORT],
+        &[OUT],
+    ));
+    assert!(check_laws(nan).is_err(), "offline-only, not finite");
 }
 
 #[test]

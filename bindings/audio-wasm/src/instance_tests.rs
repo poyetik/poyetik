@@ -133,7 +133,12 @@ fn loads_at_the_requested_rate() {
             audio_core::Plan::<
                 audio_core::Binary64,
                 Box<dyn audio_core::Object<audio_core::Binary64>>,
-            >::build(&patch, &audio_boxes::REGISTRY, rate)
+            >::build(
+                &patch,
+                &audio_boxes::REGISTRY,
+                rate,
+                audio_core::ExecutionMode::Offline,
+            )
             .expect("valid plan"),
         )
         .render::<f64>(BLOCK_SIZE)

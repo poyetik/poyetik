@@ -55,6 +55,7 @@ macro_rules! constant {
         /// Creates a [`Const`] of its first parameter.
         struct $name;
         impl Create for $name {
+            const MODE: crate::BoxMode = crate::BoxMode::LiveCapable;
             const PARAMS: &'static [ParamSpec] = $params;
 
             fn create<S: Sample, const N: usize>(
@@ -101,6 +102,7 @@ impl<S: Sample, const N: usize> Object<S, N> for Ramp {
     }
 }
 impl Create for Ramp {
+    const MODE: crate::BoxMode = crate::BoxMode::LiveCapable;
     const PARAMS: &'static [ParamSpec] = &[];
 
     fn create<S: Sample, const N: usize>(
@@ -140,6 +142,7 @@ impl<S: Sample, const N: usize> Object<S, N> for Add {
     }
 }
 impl Create for Add {
+    const MODE: crate::BoxMode = crate::BoxMode::LiveCapable;
     const PARAMS: &'static [ParamSpec] = &[];
 
     fn create<S: Sample, const N: usize>(
@@ -165,6 +168,7 @@ impl<S: Sample, const N: usize> Object<S, N> for Out {
     fn process(&mut self, _inputs: &[Block<S, N>], _outputs: &mut [Block<S, N>]) {}
 }
 impl Create for Out {
+    const MODE: crate::BoxMode = crate::BoxMode::LiveCapable;
     const PARAMS: &'static [ParamSpec] = &[];
 
     fn create<S: Sample, const N: usize>(
@@ -204,6 +208,7 @@ impl<S: Sample, const N: usize> Object<S, N> for Rate {
     }
 }
 impl Create for Rate {
+    const MODE: crate::BoxMode = crate::BoxMode::LiveCapable;
     const PARAMS: &'static [ParamSpec] = &[];
 
     fn create<S: Sample, const N: usize>(
@@ -233,6 +238,7 @@ impl<S: Sample, const N: usize> Object<S, N> for Pass {
     }
 }
 impl Create for Pass {
+    const MODE: crate::BoxMode = crate::BoxMode::LiveCapable;
     const PARAMS: &'static [ParamSpec] = &[];
 
     fn create<S: Sample, const N: usize>(
@@ -287,6 +293,7 @@ impl<S: Sample, const N: usize> Object<S, N> for NonFinite {
     }
 }
 impl Create for NonFinite {
+    const MODE: crate::BoxMode = crate::BoxMode::LiveCapable;
     const PARAMS: &'static [ParamSpec] = &[];
 
     fn create<S: Sample, const N: usize>(
@@ -320,6 +327,7 @@ impl<S: Sample, const N: usize> Object<S, N> for Huge {
     }
 }
 impl Create for Huge {
+    const MODE: crate::BoxMode = crate::BoxMode::LiveCapable;
     const PARAMS: &'static [ParamSpec] = &[];
 
     fn create<S: Sample, const N: usize>(
@@ -360,6 +368,7 @@ impl<S: Sample, const N: usize> Object<S, N> for Count {
     }
 }
 impl Create for Count {
+    const MODE: crate::BoxMode = crate::BoxMode::LiveCapable;
     const PARAMS: &'static [ParamSpec] = &[];
 
     fn create<S: Sample, const N: usize>(
@@ -378,7 +387,36 @@ static COUNT: ObjectSpec = ObjectSpec::new::<Count>(
     AlgorithmVersion::FIRST,
 );
 
-static REGISTRY: [&ObjectSpec; 11] = [
+/// Outputs 0.5 everywhere, declared offline-only: what a live plan refuses.
+#[derive(Debug)]
+struct Heavy;
+impl<S: Sample, const N: usize> Object<S, N> for Heavy {
+    fn process(&mut self, _inputs: &[Block<S, N>], outputs: &mut [Block<S, N>]) {
+        output_all(outputs, of::<S>(0.5));
+    }
+}
+impl Create for Heavy {
+    const MODE: crate::BoxMode = crate::BoxMode::OfflineOnly;
+    const PARAMS: &'static [ParamSpec] = &[];
+
+    fn create<S: Sample, const N: usize>(
+        _rate: SampleRate,
+        _params: Params<'_>,
+    ) -> Box<dyn Object<S, N>> {
+        Box::new(Self)
+    }
+}
+static HEAVY: ObjectSpec = ObjectSpec::new::<Heavy>(
+    "heavy~",
+    "0.5, offline only",
+    &[],
+    &[PORT],
+    &[],
+    AlgorithmVersion::FIRST,
+);
+
+static REGISTRY: [&ObjectSpec; 12] = [
+    &HEAVY,
     &COUNT,
     &CONST,
     &RAMP,
@@ -422,8 +460,9 @@ fn build<S: Sample>(
     nodes: Vec<Node>,
     connections: Vec<Connection>,
 ) -> Result<Plan<S, Virtual<S>>, CoreError> {
-    Patch::new(nodes, connections)
-        .and_then(|patch| Plan::<S, Virtual<S>>::build(&patch, &REGISTRY, rate()))
+    Patch::new(nodes, connections).and_then(|patch| {
+        Plan::<S, Virtual<S>>::build(&patch, &REGISTRY, rate(), crate::ExecutionMode::Offline)
+    })
 }
 
 fn run<S: Sample>(plan: &mut Plan<S, Virtual<S>>, channels: usize) -> Vec<Block<S>> {
@@ -582,7 +621,9 @@ fn passes_the_sample_rate_to_boxes<S: Bits>() {
         )
         .expect("valid patch");
         let rate = SampleRate::new(hz).expect("a supported rate");
-        let mut plan = Plan::<S, Virtual<S>>::build(&patch, &REGISTRY, rate).expect("valid plan");
+        let mut plan =
+            Plan::<S, Virtual<S>>::build(&patch, &REGISTRY, rate, crate::ExecutionMode::Offline)
+                .expect("valid plan");
         let tenth = f64::from(u16::try_from(hz / 10).expect("small"));
         assert_eq!(run(&mut plan, 1), vec![block::<S>(tenth)], "{hz} Hz / 10");
     }
@@ -751,7 +792,8 @@ fn treats_subnormal_parameters_as_zero<S: Bits>() {
     )
     .expect("a valid patch");
     assert_eq!(
-        Plan::<S, Virtual<S>>::build(&patch, &[&ABOVE], rate()).map(|_| ()),
+        Plan::<S, Virtual<S>>::build(&patch, &[&ABOVE], rate(), crate::ExecutionMode::Offline)
+            .map(|_| ()),
         Err(CoreError::ParamOutOfRange {
             node: NodeId(1),
             name: String::from("value"),
@@ -1026,7 +1068,11 @@ fn runs_every_box_of_a_patch_without_output<S: Bits>() {
         Renderer::new(build::<S>(vec![node(1, "count~")], vec![]).expect("valid patch"));
     assert_eq!(silent.channels(), 0, "no output channel");
     let before = counted::<S>().load(Ordering::Relaxed);
-    let ran = || counted::<S>().load(Ordering::Relaxed).saturating_sub(before);
+    let ran = || {
+        counted::<S>()
+            .load(Ordering::Relaxed)
+            .saturating_sub(before)
+    };
     assert_eq!(silent.render(0), Ok(Vec::<S::Float>::new()), "zero frames");
     assert_eq!(ran(), 0, "no frame, no block");
     assert_eq!(silent.render(1), Ok(Vec::<S::Float>::new()), "one frame");
@@ -1056,6 +1102,9 @@ fn refuses_renders_too_long_for_memory<S: Bits>() {
         )
         .expect("valid patch"),
     );
+    // Its two channels first: a render of a plan without output only advances, over every
+    // frame asked, which these lengths would make endless.
+    assert_eq!(renderer.channels(), 2, "out~'s two channels");
     assert_eq!(
         renderer.render::<S::Float>(usize::MAX),
         Err(CoreError::RenderTooLong(usize::MAX)),
@@ -1168,7 +1217,9 @@ fn accepts_patches_up_to_the_limits_only<S: Bits>() {
     cables.extend(all_ports(0, 2));
     assert_eq!(cables.len(), Patch::MAX_CONNECTIONS, "exactly the limit");
     let patch = Patch::new(nodes, cables).expect("within the limits");
-    let plan = Plan::<S, Virtual<S>>::build(&patch, &REGISTRY, rate()).expect("valid plan");
+    let plan =
+        Plan::<S, Virtual<S>>::build(&patch, &REGISTRY, rate(), crate::ExecutionMode::Offline)
+            .expect("valid plan");
     assert_eq!(
         plan.execution_order().count(),
         Patch::MAX_NODES,
@@ -1573,6 +1624,7 @@ impl<S: Sample, const N: usize> Object<S, N> for ProductThenSum {
     }
 }
 impl Create for ProductThenSum {
+    const MODE: crate::BoxMode = crate::BoxMode::LiveCapable;
     const PARAMS: &'static [ParamSpec] = &[];
 
     fn create<S: Sample, const N: usize>(
@@ -1615,8 +1667,13 @@ fn renders_a_product_then_a_sum_in_the_mode_of_the_build<S: Bits>() {
         vec![wire(1, 0, 2, 0)],
     )
     .expect("valid patch");
-    let plan =
-        Plan::<S, Virtual<S>>::build(&patch, &[&PRODUCT, &MONO_OUT], rate()).expect("valid plan");
+    let plan = Plan::<S, Virtual<S>>::build(
+        &patch,
+        &[&PRODUCT, &MONO_OUT],
+        rate(),
+        crate::ExecutionMode::Offline,
+    )
+    .expect("valid plan");
     let rendered: Vec<u64> = Renderer::new(plan)
         .render::<S::Float>(3)
         .expect("small render")
@@ -1894,6 +1951,7 @@ in_both_precisions!(
     replaces_and_reports_non_finite_samples_before_delivery,
     renders_nothing_for_zero_frames_or_channels,
     runs_every_box_of_a_patch_without_output,
+    runs_offline_only_boxes_in_every_mode_but_live,
     refuses_renders_too_long_for_memory,
     sums_cables_in_source_order_whatever_the_document_order,
     accepts_patches_up_to_the_limits_only,
@@ -1932,7 +1990,8 @@ fn refuses_a_box_its_instance_type_cannot_create() {
     // The first box in execution order is named, with its box type and the engine block.
     let patch = Patch::new(vec![node(3, "const~"), node(1, "const~")], vec![]).expect("valid");
     assert_eq!(
-        Plan::<Binary64, Unbuilt>::build(&patch, &REGISTRY, rate()).map(|_| ()),
+        Plan::<Binary64, Unbuilt>::build(&patch, &REGISTRY, rate(), crate::ExecutionMode::Offline)
+            .map(|_| ()),
         Err(CoreError::Unbuilt {
             node: NodeId(1),
             kind: String::from("const~"),
@@ -1942,4 +2001,68 @@ fn refuses_a_box_its_instance_type_cannot_create() {
     );
     let mut unused = Unbuilt;
     <Unbuilt as Object<Binary64>>::process(&mut unused, &[], &mut []);
+}
+
+fn runs_offline_only_boxes_in_every_mode_but_live<S: Bits>() {
+    // An offline-only box into the output: offline and in the build, the same bits; a live
+    // plan is refused, naming the box (decision 20).
+    let patch = Patch::new(
+        vec![node(1, "heavy~"), node(2, "mono~")],
+        vec![wire(1, 0, 2, 0)],
+    )
+    .expect("valid patch");
+    let render = |mode: crate::ExecutionMode| {
+        Plan::<S, Virtual<S>>::build(&patch, &REGISTRY, rate(), mode).map(|plan| {
+            Renderer::new(plan)
+                .render::<S::Float>(3)
+                .expect("small render")
+                .into_iter()
+                .map(|sample| S::from_raw(sample).bits())
+                .collect::<Vec<_>>()
+        })
+    };
+    let half = of::<S>(0.5).bits();
+    assert_eq!(
+        render(crate::ExecutionMode::Offline),
+        Ok(vec![half; 3]),
+        "offline"
+    );
+    assert_eq!(
+        render(crate::ExecutionMode::Build),
+        Ok(vec![half; 3]),
+        "build"
+    );
+    assert_eq!(
+        render(crate::ExecutionMode::Live),
+        Err(CoreError::OfflineOnly {
+            node: NodeId(1),
+            kind: String::from("heavy~"),
+        }),
+        "live"
+    );
+    // A live-capable patch renders the same bits in every mode.
+    let live_capable = Patch::new(
+        vec![node(1, "ramp~"), node(2, "mono~")],
+        vec![wire(1, 0, 2, 0)],
+    )
+    .expect("valid patch");
+    let modes = [
+        crate::ExecutionMode::Live,
+        crate::ExecutionMode::Offline,
+        crate::ExecutionMode::Build,
+    ]
+    .map(|mode| {
+        Renderer::new(
+            Plan::<S, Virtual<S>>::build(&live_capable, &REGISTRY, rate(), mode)
+                .expect("a live-capable plan"),
+        )
+        .render::<S::Float>(100)
+        .expect("small render")
+        .into_iter()
+        .map(|sample| S::from_raw(sample).bits())
+        .collect::<Vec<_>>()
+    });
+    let [live, offline, build] = &modes;
+    assert_eq!(live, offline, "live and offline");
+    assert_eq!(build, offline, "build and offline");
 }

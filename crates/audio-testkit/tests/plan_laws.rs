@@ -72,6 +72,7 @@ mod tests {
         }
     }
     impl Create for Const {
+        const MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
         const PARAMS: &'static [ParamSpec] =
             &[audio_core::param!("value", "value", 0.5, -1.0, 1.0)];
 
@@ -120,6 +121,7 @@ mod tests {
         }
     }
     impl Create for Mix {
+        const MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
         const PARAMS: &'static [ParamSpec] = &[];
 
         fn create<S: Sample, const N: usize>(
@@ -145,6 +147,7 @@ mod tests {
         fn process(&mut self, _inputs: &[Block<S, N>], _outputs: &mut [Block<S, N>]) {}
     }
     impl Create for Out {
+        const MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
         const PARAMS: &'static [ParamSpec] = &[];
 
         fn create<S: Sample, const N: usize>(
@@ -175,6 +178,7 @@ mod tests {
         }
     }
     impl Create for Rate {
+        const MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
         const PARAMS: &'static [ParamSpec] = &[];
 
         fn create<S: Sample, const N: usize>(
@@ -209,6 +213,7 @@ mod tests {
         }
     }
     impl Create for NonFinite {
+        const MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
         const PARAMS: &'static [ParamSpec] = &[];
 
         fn create<S: Sample, const N: usize>(
@@ -530,7 +535,8 @@ mod tests {
         let (nodes, connections) = patch_parts(shape);
         let patch =
             Patch::new(nodes.clone(), connections.clone()).map_err(|error| error.to_string())?;
-        let built = Plan::<S, I>::build(&patch, &REGISTRY, rate);
+        let built =
+            Plan::<S, I>::build(&patch, &REGISTRY, rate, audio_core::ExecutionMode::Offline);
         let expected = reference_order(&nodes, &connections);
         let plan = match (built, expected) {
             (Err(error), Err(reference)) if error == reference => return Ok(()),
@@ -565,7 +571,8 @@ mod tests {
         // Rendered in host buffers of every size of the matrix: the same samples.
         for size in HOST_BUFFER_SIZES {
             let mut chunked = Renderer::new(
-                Plan::<S, I>::build(&patch, &REGISTRY, rate).map_err(|error| error.to_string())?,
+                Plan::<S, I>::build(&patch, &REGISTRY, rate, audio_core::ExecutionMode::Offline)
+                    .map_err(|error| error.to_string())?,
             );
             let mut parts = vec![S::ZERO.raw(); whole.len()];
             for buffer in parts.chunks_mut(size.saturating_mul(chunked.channels()).max(1)) {
@@ -585,9 +592,13 @@ mod tests {
             return Err("the engine's instance type differs from the plan's".to_owned());
         }
 
+        // Through a simulated live host, the offline samples (decision 20).
+        live_host_law::<S, I>(&patch, rate, &whole)?;
+
         // The same patch, advanced block by block from a fresh plan: the same samples.
         let processed = first_blocks(
-            Plan::<S, I>::build(&patch, &REGISTRY, rate).map_err(|error| error.to_string())?,
+            Plan::<S, I>::build(&patch, &REGISTRY, rate, audio_core::ExecutionMode::Offline)
+                .map_err(|error| error.to_string())?,
             whole.len(),
         )?;
         if bits(&processed) != bits(&whole) {
@@ -602,7 +613,13 @@ mod tests {
         let reversed =
             Patch::new(reversed_nodes, reversed_connections).map_err(|error| error.to_string())?;
         let mut again = Renderer::new(
-            Plan::<S, I>::build(&reversed, &REGISTRY, rate).map_err(|error| error.to_string())?,
+            Plan::<S, I>::build(
+                &reversed,
+                &REGISTRY,
+                rate,
+                audio_core::ExecutionMode::Offline,
+            )
+            .map_err(|error| error.to_string())?,
         );
         let split_at = split.min(frames);
         let mut parts: Vec<S::Float> = again.render(split_at).map_err(|error| error.to_string())?;
@@ -618,6 +635,28 @@ mod tests {
             ));
         }
         Ok(())
+    }
+
+    /// The live-host law (decision 20): a live plan of `patch` at `rate`, rendered in Web
+    /// Audio's quanta of 128 frames, gives `whole`, the offline samples.
+    fn live_host_law<S: Bits, I: Dispatch<S>>(
+        patch: &Patch,
+        rate: SampleRate,
+        whole: &[S],
+    ) -> Result<(), String> {
+        let mut live = Renderer::new(
+            Plan::<S, I>::build(patch, &REGISTRY, rate, audio_core::ExecutionMode::Live)
+                .map_err(|error| error.to_string())?,
+        );
+        let mut quanta = vec![S::ZERO.raw(); whole.len()];
+        for buffer in quanta.chunks_mut(128_usize.saturating_mul(live.channels()).max(1)) {
+            live.render_into(buffer);
+        }
+        if bits(&read_back::<S>(&quanta)) == bits(whole) {
+            Ok(())
+        } else {
+            Err("a live plan in a live host's quanta changes the samples".to_owned())
+        }
     }
 
     /// The engine-block law (decision 2): `frames` frames of `patch` at `rate`, with the box
@@ -669,8 +708,13 @@ mod tests {
         BuiltIn<S, N>: Dispatch<S, N>,
     {
         let build = || {
-            Plan::<S, BuiltIn<S, N>, N>::build(patch, registry, rate)
-                .map_err(|error| error.to_string())
+            Plan::<S, BuiltIn<S, N>, N>::build(
+                patch,
+                registry,
+                rate,
+                audio_core::ExecutionMode::Offline,
+            )
+            .map_err(|error| error.to_string())
         };
         let unlimited: Vec<S::Float> = Renderer::new(build()?)
             .render(frames)
@@ -761,6 +805,7 @@ mod tests {
         }
     }
     impl Create for Blocky {
+        const MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
         const PARAMS: &'static [ParamSpec] = &[];
 
         fn create<S: Sample, const N: usize>(
@@ -878,8 +923,13 @@ mod tests {
             for (nodes, connections) in [into_one, on_one] {
                 let patch = Patch::new(nodes.clone(), connections.clone())
                     .map_err(|error| error.to_string())?;
-                let plan = Plan::<S, BuiltIn<S>>::build(&patch, &REGISTRY, rate)
-                    .map_err(|error| error.to_string())?;
+                let plan = Plan::<S, BuiltIn<S>>::build(
+                    &patch,
+                    &REGISTRY,
+                    rate,
+                    audio_core::ExecutionMode::Offline,
+                )
+                .map_err(|error| error.to_string())?;
                 let order: Vec<NodeId> = plan.execution_order().collect();
                 let expected = reference_render::<S>(&nodes, &connections, &order, rate, 1);
                 let rendered = first_render(plan, 1)?;
@@ -923,8 +973,14 @@ mod tests {
         fn kept<S: Sample>() -> Result<usize, String> {
             let rate = SampleRate::new(44_100).map_err(|error| error.to_string())?;
             let patch = Patch::new(Vec::new(), Vec::new()).map_err(|error| error.to_string())?;
-            let (plan, bytes) =
-                heap_bytes_during(|| Plan::<S, BuiltIn<S>>::build(&patch, &REGISTRY, rate))?;
+            let (plan, bytes) = heap_bytes_during(|| {
+                Plan::<S, BuiltIn<S>>::build(
+                    &patch,
+                    &REGISTRY,
+                    rate,
+                    audio_core::ExecutionMode::Offline,
+                )
+            })?;
             plan.map(|_| bytes).map_err(|error| error.to_string())
         }
         assert_eq!(
@@ -976,8 +1032,14 @@ mod tests {
                 .collect();
             let rate = SampleRate::new(44_100).map_err(|error| error.to_string())?;
             let patch = Patch::new(nodes, wires).map_err(|error| error.to_string())?;
-            let (plan, bytes) =
-                heap_bytes_during(|| Plan::<S, BuiltIn<S>>::build(&patch, &REGISTRY, rate))?;
+            let (plan, bytes) = heap_bytes_during(|| {
+                Plan::<S, BuiltIn<S>>::build(
+                    &patch,
+                    &REGISTRY,
+                    rate,
+                    audio_core::ExecutionMode::Offline,
+                )
+            })?;
             plan.map(|_| bytes).map_err(|error| error.to_string())
         }
 
@@ -1062,8 +1124,14 @@ mod tests {
                 .collect();
             let rate = SampleRate::new(44_100).map_err(|error| error.to_string())?;
             let patch = Patch::new(nodes, Vec::new()).map_err(|error| error.to_string())?;
-            let (plan, bytes) =
-                heap_bytes_during(|| Plan::<S, BuiltIn<S>>::build(&patch, &REGISTRY, rate))?;
+            let (plan, bytes) = heap_bytes_during(|| {
+                Plan::<S, BuiltIn<S>>::build(
+                    &patch,
+                    &REGISTRY,
+                    rate,
+                    audio_core::ExecutionMode::Offline,
+                )
+            })?;
             plan.map(|_| bytes).map_err(|error| error.to_string())
         }
         fn one_more_outlet<S: Sample>(count: u32) -> Result<(), String> {
@@ -1100,6 +1168,7 @@ mod tests {
         }
     }
     impl Create for Leaky {
+        const MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
         const PARAMS: &'static [ParamSpec] = &[];
 
         fn create<S: Sample, const N: usize>(
@@ -1145,8 +1214,13 @@ mod tests {
             }
             let patch = Patch::new(nodes, connections).map_err(|error| error.to_string())?;
             let rate = SampleRate::new(48_000).map_err(|error| error.to_string())?;
-            let plan = Plan::<S, Virtual<S>>::build(&patch, &registry, rate)
-                .map_err(|error| error.to_string())?;
+            let plan = Plan::<S, Virtual<S>>::build(
+                &patch,
+                &registry,
+                rate,
+                audio_core::ExecutionMode::Offline,
+            )
+            .map_err(|error| error.to_string())?;
             let floats: Vec<S::Float> = Renderer::new(plan)
                 .render(2)
                 .map_err(|error| error.to_string())?;
@@ -1239,6 +1313,7 @@ mod tests {
         }
     }
     impl Create for Freeing {
+        const MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
         const PARAMS: &'static [ParamSpec] = &[];
 
         fn create<S: Sample, const N: usize>(
@@ -1293,8 +1368,13 @@ mod tests {
         .expect("valid patch");
         let rate = SampleRate::new(48_000).expect("valid rate");
         let plan = || {
-            Plan::<Binary64, BuiltIn<Binary64>>::build(&patch, &[&FREEING, &OUT], rate)
-                .expect("valid plan")
+            Plan::<Binary64, BuiltIn<Binary64>>::build(
+                &patch,
+                &[&FREEING, &OUT],
+                rate,
+                audio_core::ExecutionMode::Offline,
+            )
+            .expect("valid plan")
         };
         assert_eq!(
             first_render(plan(), 100),
@@ -1306,8 +1386,13 @@ mod tests {
             Err("1 heap operations while processing a block".to_owned()),
             "block by block"
         );
-        let narrow = Plan::<Binary32, BuiltIn<Binary32>>::build(&patch, &[&FREEING, &OUT], rate)
-            .expect("valid plan");
+        let narrow = Plan::<Binary32, BuiltIn<Binary32>>::build(
+            &patch,
+            &[&FREEING, &OUT],
+            rate,
+            audio_core::ExecutionMode::Offline,
+        )
+        .expect("valid plan");
         assert_eq!(
             first_render(narrow, 100),
             Err("1 heap operations in a first render".to_owned()),
@@ -1365,7 +1450,12 @@ mod tests {
                     .expect("few inlets");
                 kinds.extend(nodes.iter().map(|node| node.kind.clone()));
                 let patch = Patch::new(nodes, connections).map_err(|error| error.to_string())?;
-                match Plan::<Binary64, Virtual<Binary64>>::build(&patch, &REGISTRY, rate) {
+                match Plan::<Binary64, Virtual<Binary64>>::build(
+                    &patch,
+                    &REGISTRY,
+                    rate,
+                    audio_core::ExecutionMode::Offline,
+                ) {
                     Ok(_) => plans += 1,
                     Err(CoreError::Cycle(_)) => cycles += 1,
                     Err(other) => return Err(format!("unexpected error {other}")),

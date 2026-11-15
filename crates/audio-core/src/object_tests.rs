@@ -136,6 +136,7 @@ macro_rules! mute {
         }
 
         impl Create for $name {
+            const MODE: crate::BoxMode = crate::BoxMode::LiveCapable;
             const PARAMS: &'static [ParamSpec] = $params;
 
             fn create<S: Sample, const N: usize>(
@@ -495,6 +496,7 @@ impl<S: Sample, const N: usize> Object<S, N> for Told {
 }
 
 impl Create for Told {
+    const MODE: crate::BoxMode = crate::BoxMode::LiveCapable;
     const PARAMS: &'static [ParamSpec] = &[crate::param!("v", "v", 1.0, 0.0, 1_000.0)];
 
     fn create<S: Sample, const N: usize>(

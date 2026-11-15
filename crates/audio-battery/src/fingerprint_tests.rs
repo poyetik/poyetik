@@ -132,6 +132,7 @@ fn echo_to(quirk: Quirk, outlets: &'static [PortSpec]) -> ObjectSpec {
             /// The box type of one quirk.
             struct Chosen;
             impl Create for Chosen {
+                const MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
                 const PARAMS: &'static [ParamSpec] = &[GAIN];
 
                 fn create<S: Sample, const N: usize>(
@@ -185,6 +186,7 @@ macro_rules! gain_of {
         /// A box type of one parameter of its own.
         struct $name;
         impl Create for $name {
+            const MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
             const PARAMS: &'static [ParamSpec] = &[$param];
 
             fn create<S: Sample, const N: usize>(
@@ -423,6 +425,7 @@ fn route<const FIRST: usize>() -> ObjectSpec {
     /// The box type routing inlet 0 to outlet `FIRST`.
     struct Routed<const FIRST: usize>;
     impl<const FIRST: usize> Create for Routed<FIRST> {
+        const MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
         const PARAMS: &'static [ParamSpec] = &[];
 
         fn create<S: Sample, const N: usize>(

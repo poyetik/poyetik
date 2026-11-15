@@ -197,7 +197,12 @@ mod tests {
         text: &str,
         rate: SampleRate,
     ) -> Result<(), String> {
-        let Ok(plan) = Plan::<S, BuiltIn<S>>::build(patch, &REGISTRY, rate) else {
+        let Ok(plan) = Plan::<S, BuiltIn<S>>::build(
+            patch,
+            &REGISTRY,
+            rate,
+            audio_core::ExecutionMode::Offline,
+        ) else {
             return Ok(());
         };
         let mut renderer = Renderer::new(plan);
@@ -286,7 +291,12 @@ mod tests {
             match audio_patch::parse_patch(&text) {
                 Err(_) => unread += 1,
                 Ok(patch) => {
-                    match Plan::<Binary64, BuiltIn<Binary64>>::build(&patch, &REGISTRY, rate) {
+                    match Plan::<Binary64, BuiltIn<Binary64>>::build(
+                        &patch,
+                        &REGISTRY,
+                        rate,
+                        audio_core::ExecutionMode::Offline,
+                    ) {
                         Err(_) => unbuilt += 1,
                         Ok(plan) => played += u32::from(plan.channels() > 0),
                     }

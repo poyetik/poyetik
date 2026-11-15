@@ -149,7 +149,8 @@ fn plan<S: Sample, const N: usize>(
 where
     BuiltIn<S, N>: Dispatch<S, N>,
 {
-    Plan::build(patch, &REGISTRY, rate).map_err(|error| error.to_string())
+    Plan::build(patch, &REGISTRY, rate, audio_core::ExecutionMode::Live)
+        .map_err(|error| error.to_string())
 }
 
 impl<const N: usize> Engine<N>

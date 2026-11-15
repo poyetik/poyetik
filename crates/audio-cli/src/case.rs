@@ -437,17 +437,23 @@ pub fn prepare_case(
     let output = case.output;
     let plan = match format {
         RenderFormat::Binary64 => {
-            let plan: EnginePlan<Binary64> = Plan::build(&patch, &REGISTRY, rate).map_err(built)?;
+            let plan: EnginePlan<Binary64> =
+                Plan::build(&patch, &REGISTRY, rate, audio_core::ExecutionMode::Offline)
+                    .map_err(built)?;
             let stage = stage_of(output, rate, plan.channels())?;
             Built::Binary64(plan, stage)
         }
         RenderFormat::Binary64AsBinary32 => {
-            let plan: EnginePlan<Binary64> = Plan::build(&patch, &REGISTRY, rate).map_err(built)?;
+            let plan: EnginePlan<Binary64> =
+                Plan::build(&patch, &REGISTRY, rate, audio_core::ExecutionMode::Offline)
+                    .map_err(built)?;
             let stage = stage_of(output, rate, plan.channels())?;
             Built::Binary64AsBinary32(plan, stage)
         }
         RenderFormat::Binary32 => {
-            let plan: EnginePlan<Binary32> = Plan::build(&patch, &REGISTRY, rate).map_err(built)?;
+            let plan: EnginePlan<Binary32> =
+                Plan::build(&patch, &REGISTRY, rate, audio_core::ExecutionMode::Offline)
+                    .map_err(built)?;
             let stage = stage_of(output, rate, plan.channels())?;
             Built::Binary32(plan, stage)
         }

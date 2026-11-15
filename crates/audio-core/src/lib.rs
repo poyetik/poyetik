@@ -28,6 +28,7 @@ mod error;
 mod flush;
 mod limiter;
 mod math;
+mod mode;
 mod object;
 mod output;
 mod patch;
@@ -44,6 +45,7 @@ pub use math::{
     ArithmeticMode, ArithmeticOption, Binary32, Binary64, MODE, Precision, RenderFormat, Sample,
     TRUE_PEAK_FILTER, TRUE_PEAK_TAPS, UnknownArithmeticOptions, host, ordered_sum,
 };
+pub use mode::{BoxMode, ExecutionMode};
 pub use object::{
     AlgorithmVersion, Capability, Create, Dispatch, ENGINE_BLOCKS, Factory, Object, ObjectSpec,
     ParamError, ParamSpec, ParamSpecError, ParamValues, Params, PortSpec, RENDER_RULES_VERSION,

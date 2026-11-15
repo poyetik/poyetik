@@ -4,8 +4,8 @@ use alloc::collections::BTreeSet;
 
 use audio_core::host::Raw;
 use audio_core::{
-    BLOCK_SIZE, Binary32, Binary64, Block, Dispatch, Object, ObjectSpec, ParamSpec, ParamValues,
-    Precision, SampleRate,
+    BLOCK_SIZE, Binary32, Binary64, Block, BoxMode, Dispatch, Object, ObjectSpec, ParamSpec,
+    ParamValues, Precision, SampleRate,
 };
 use proptest::array::uniform;
 use proptest::collection::vec;
@@ -170,6 +170,7 @@ fn check_rendered<S: LawSample>(
     params: &ParamValues,
     non_finite: &str,
 ) -> Result<(), String> {
+    let live_capable = params.spec().mode() == BoxMode::LiveCapable;
     let params = shown(params);
     if rendered.iter().flatten().any(|sample| !sample.finite()) {
         return Err(format!("{non_finite} with parameters {params:?}"));
@@ -177,7 +178,9 @@ fn check_rendered<S: LawSample>(
     if rendered.iter().flatten().any(|sample| sample.subnormal()) {
         return Err(format!("subnormal output with parameters {params:?}"));
     }
-    if operations > 0 {
+    // The real-time rules hold live-capable boxes only: an offline-only one may allocate
+    // while processing, and is held to every other law (decision 20).
+    if operations > 0 && live_capable {
         return Err(format!(
             "uses the heap while processing ({operations} heap operations)"
         ));

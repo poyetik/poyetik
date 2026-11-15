@@ -15,6 +15,7 @@ mod tests {
         fn process(&mut self, _inputs: &[Block<S, N>], _outputs: &mut [Block<S, N>]) {}
     }
     impl Create for Silent {
+        const MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
         const PARAMS: &'static [ParamSpec] = &[];
 
         fn create<S: Sample, const N: usize>(

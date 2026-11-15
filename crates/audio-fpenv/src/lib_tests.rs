@@ -239,7 +239,10 @@ fn render(case: &str, patch: &str, format: RenderFormat) -> String {
     let registry = &audio_boxes::REGISTRY;
     let wide = || {
         audio_core::Plan::<_, audio_boxes::BuiltIn<audio_core::Binary64>>::build(
-            &patch, registry, rate,
+            &patch,
+            registry,
+            rate,
+            audio_core::ExecutionMode::Offline,
         )
         .expect("a plan")
     };
@@ -269,7 +272,10 @@ fn render(case: &str, patch: &str, format: RenderFormat) -> String {
         }
         RenderFormat::Binary32 => {
             let plan = audio_core::Plan::<_, audio_boxes::BuiltIn<audio_core::Binary32>>::build(
-                &patch, registry, rate,
+                &patch,
+                registry,
+                rate,
+                audio_core::ExecutionMode::Offline,
             )
             .expect("a plan");
             let channels = plan.channels();

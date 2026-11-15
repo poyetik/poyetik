@@ -43,8 +43,13 @@ fn expected(
 ) -> Vec<u64> {
     let wide = || {
         Renderer::new(
-            Plan::<Binary64, Box<dyn audio_core::Object<Binary64>>>::build(patch, &REGISTRY, rate)
-                .expect("a plan"),
+            Plan::<Binary64, Box<dyn audio_core::Object<Binary64>>>::build(
+                patch,
+                &REGISTRY,
+                rate,
+                audio_core::ExecutionMode::Offline,
+            )
+            .expect("a plan"),
         )
     };
     match format {
@@ -61,8 +66,13 @@ fn expected(
             .map(|sample| u64::from(sample.to_bits()))
             .collect(),
         RenderFormat::Binary32 => Renderer::new(
-            Plan::<Binary32, Box<dyn audio_core::Object<Binary32>>>::build(patch, &REGISTRY, rate)
-                .expect("a plan"),
+            Plan::<Binary32, Box<dyn audio_core::Object<Binary32>>>::build(
+                patch,
+                &REGISTRY,
+                rate,
+                audio_core::ExecutionMode::Offline,
+            )
+            .expect("a plan"),
         )
         .render::<f32>(frames)
         .expect("small render")
@@ -369,7 +379,10 @@ fn expected_protected(
     match format {
         RenderFormat::Binary32 => {
             let plan = Plan::<Binary32, Box<dyn audio_core::Object<Binary32>>>::build(
-                patch, &REGISTRY, rate,
+                patch,
+                &REGISTRY,
+                rate,
+                audio_core::ExecutionMode::Offline,
             )
             .expect("a plan");
             let channels = plan.channels();
@@ -382,7 +395,10 @@ fn expected_protected(
         }
         wide @ (RenderFormat::Binary64 | RenderFormat::Binary64AsBinary32) => {
             let plan = Plan::<Binary64, Box<dyn audio_core::Object<Binary64>>>::build(
-                patch, &REGISTRY, rate,
+                patch,
+                &REGISTRY,
+                rate,
+                audio_core::ExecutionMode::Offline,
             )
             .expect("a plan");
             let channels = plan.channels();

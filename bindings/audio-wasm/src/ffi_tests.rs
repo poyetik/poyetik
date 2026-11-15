@@ -103,8 +103,13 @@ fn first_channels(
     );
     let wide = || {
         Renderer::new(
-            Plan::<Binary64, Box<dyn audio_core::Object<Binary64>>>::build(&patch, &REGISTRY, rate)
-                .expect("plan"),
+            Plan::<Binary64, Box<dyn audio_core::Object<Binary64>>>::build(
+                &patch,
+                &REGISTRY,
+                rate,
+                audio_core::ExecutionMode::Offline,
+            )
+            .expect("plan"),
         )
     };
     let (exported, expected): (Vec<u64>, Vec<u64>) = match format {
@@ -136,7 +141,10 @@ fn first_channels(
                 .collect(),
             Renderer::new(
                 Plan::<Binary32, Box<dyn audio_core::Object<Binary32>>>::build(
-                    &patch, &REGISTRY, rate,
+                    &patch,
+                    &REGISTRY,
+                    rate,
+                    audio_core::ExecutionMode::Offline,
                 )
                 .expect("plan"),
             )
@@ -198,6 +206,7 @@ fn follows_the_protocol() {
             &patch,
             &REGISTRY,
             SampleRate::HZ_48000,
+            audio_core::ExecutionMode::Offline,
         )
         .expect("valid plan"),
     );

@@ -18,8 +18,8 @@ use core::iter;
 
 use crate::math::{Lanes, add_two, sum_blocks};
 use crate::{
-    BLOCK_SIZE, Binary64, Block, Capability, Connection, CoreError, Dispatch, Node, NodeId,
-    ObjectSpec, ParamValues, Patch, Sample, SampleRate, flush,
+    BLOCK_SIZE, Binary64, Block, Capability, Connection, CoreError, Dispatch, ExecutionMode, Node,
+    NodeId, ObjectSpec, ParamValues, Patch, Sample, SampleRate, flush,
 };
 
 /// One box instance in execution order, held as `I` ([`Dispatch`]), with its own input
@@ -335,14 +335,19 @@ impl<S: Sample, I: Dispatch<S, N>, const N: usize> Plan<S, I, N> {
     /// Validates `patch` against `registry` and builds its execution plan, computing in
     /// `S`.
     ///
+    /// The plan runs in `mode` (decision 20): a live plan holds live-capable boxes only.
+    ///
     /// # Errors
     ///
     /// Returns a [`CoreError`] describing the first problem found: unknown box type or
-    /// parameter, out-of-range parameter, invalid connection or cycle.
+    /// parameter, out-of-range parameter, invalid connection or cycle, an offline-only box
+    /// in a live plan ([`CoreError::OfflineOnly`]), or a box its instance type cannot create
+    /// ([`CoreError::Unbuilt`]).
     pub fn build(
         patch: &Patch,
         registry: &[&'static ObjectSpec],
         rate: SampleRate,
+        mode: ExecutionMode,
     ) -> Result<Self, CoreError> {
         let mut nodes = BTreeMap::new();
         let mut bus_len = 0_usize;
@@ -381,6 +386,13 @@ impl<S: Sample, I: Dispatch<S, N>, const N: usize> Plan<S, I, N> {
                 .contains(&Capability::AudioOutput)
             {
                 outputs.push((id, instances.len(), inlets));
+            }
+            let spec = resolved.params.spec();
+            if !spec.mode().runs_in(mode) {
+                return Err(CoreError::OfflineOnly {
+                    node: id,
+                    kind: String::from(spec.name()),
+                });
             }
             let object = I::create(rate, &resolved.params).ok_or_else(|| CoreError::Unbuilt {
                 node: id,
