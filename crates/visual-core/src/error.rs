@@ -19,6 +19,13 @@ pub enum VisualError {
         /// Height in pixels.
         height: u32,
     },
+    /// The image has more pixels than [`crate::ImageSize::MAX_PIXELS`].
+    ImageTooLarge {
+        /// Width in pixels.
+        width: u32,
+        /// Height in pixels.
+        height: u32,
+    },
     /// A duration is not a reduced, nonzero fraction of seconds.
     InvalidSeconds {
         /// Seconds, times `denominator`.
@@ -42,6 +49,11 @@ impl fmt::Display for VisualError {
                 f,
                 "invalid image size {width}x{height}: each side must be from 1 to {} pixels",
                 crate::ImageSize::MAX_SIDE
+            ),
+            Self::ImageTooLarge { width, height } => write!(
+                f,
+                "invalid image size {width}x{height}: an image holds at most {} pixels",
+                crate::ImageSize::MAX_PIXELS
             ),
             Self::InvalidSeconds {
                 numerator,

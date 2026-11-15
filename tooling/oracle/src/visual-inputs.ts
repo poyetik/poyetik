@@ -17,6 +17,9 @@ export const MAX_IMAGES_PER_SECOND = 1000;
 /** The longest side of an image, in pixels (`visual_core::ImageSize::MAX_SIDE`). */
 export const MAX_IMAGE_SIDE = 16_384;
 
+/** The most pixels an image holds (`visual_core::ImageSize::MAX_PIXELS`). */
+export const MAX_IMAGE_PIXELS = 2 ** 25;
+
 /** The side of a square as tall as the image (`visual_boxes::Square::FULL_SIDE`). */
 export const FULL_SIDE = 65_536;
 
@@ -153,6 +156,9 @@ export function parseVisualCase(text: string, name: string): VisualCase {
       cycle: cycle(field(square, "cycle"), `${name}: square.cycle`),
     },
   };
+  if (read.width * read.height > MAX_IMAGE_PIXELS) {
+    throw new InputError(`${name}: the image has more than ${String(MAX_IMAGE_PIXELS)} pixels`);
+  }
   if (typeof read.images !== "number" || !(read.images >= 1 && read.images <= MAX_IMAGES && read.images % 1 === 0)) {
     throw new InputError(`${name}: images is not from 1 to ${String(MAX_IMAGES)}`);
   }

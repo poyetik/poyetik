@@ -53,6 +53,7 @@ fn refuses_invalid_cases_with_a_reason() {
         (&replace("\"first\": 3", "\"first\": 18446744073709551615"), "the last image is past the largest index: first 18446744073709551615 and 5 images".to_owned()),
         (&replace("[24000, 1001]", "[120, 2]"), "invalid image rate 120/2: a reduced fraction from 1 to 1000 images per second is required".to_owned()),
         (&replace("\"width\": 17", "\"width\": 0"), "invalid image size 0x9: each side must be from 1 to 16384 pixels".to_owned()),
+        (&replace("\"width\": 17, \"height\": 9", "\"width\": 16384, \"height\": 2049"), "invalid image size 16384x2049: an image holds at most 33554432 pixels".to_owned()),
         (&replace("[1001, 1000]", "[0, 1]"), "invalid duration 0/1 s: a reduced, nonzero fraction is required".to_owned()),
         (&replace("\"side\": 40000", "\"side\": 70000"), "invalid square side 70000: at most 65536 (the image height)".to_owned()),
     ] {
