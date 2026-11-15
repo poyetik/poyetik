@@ -143,8 +143,8 @@ The visual library's boxes are measured against the same bar (`spec/visual-desig
 | Measurement | How | Threshold |
 |---|---|---|
 | Coverage | Every pixel of every image of a whole cycle, and far in time, against its coverage computed independently from `spec/visual-design.md` (sections 4 and 6) in 128-bit integers (`renders_every_pixel_as_its_exact_reference`, `crates/visual-boxes`) | Equal bits |
-| Area | The values of an image sum to the square's area, wherever it is | Equal, in `f64` (exact below 2⁵³) |
-| Motion | The left edge, read from the pixels, advances by `⌊max(W − s, 0) q b / (p a)⌋` subpixel units or one more each image, and is at the left edge in an image that falls on the start of a cycle (image 0, and every whole number of periods after it), over one cycle of 35/6 images (`crates/visual-boxes`); a square that does not move and a cycle shorter than one image are covered by the coverage row's exact references and by the property tests | Exact |
+| Area | The values of an image sum to the square's area, wherever it is (`covers_exactly_its_area_wherever_it_is`, `crates/visual-boxes`) | Equal, in `f64` (exact below 2⁵³) |
+| Motion | The left edge, read from the pixels, advances by `⌊max(W − s, 0) q b / (p a)⌋` subpixel units or one more each image, and is at the left edge in an image that falls on the start of a cycle (image 0, and every whole number of periods after it), over a cycle of 24 images and the jump back at its end (`moves_by_the_same_distance_from_image_to_image`, `crates/visual-boxes`); a square that does not move, a cycle that is not a whole number of images (35/6) and one shorter than an image are covered by the coverage row's exact references and by the property tests | Exact |
 
 Perceptual measurements (aliasing of moving edges, flicker, banding once images are quantized) and the GPU renderer's distance to this reference come with the visual measurements of the test kit (#35 step 7) and the GPU (#34 step 5); `spec/limitations.md` lists what is not measured yet.
 

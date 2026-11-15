@@ -543,7 +543,7 @@
       "column": "later",
       "milestone": "M0 Foundations",
       "createdAt": "2026-11-08",
-      "updatedAt": "2026-11-14",
+      "updatedAt": "2026-11-15",
       "tasks": [
         {
           "title": "Patch reading: the format version is checked after the whole document parses, so a version-2 patch is reported as an unknown field; read format first. audio-cli and the oracle skip non-.json entries of cases/ and patches/ silently; refuse them",
@@ -940,6 +940,26 @@
         {
           "title": "Real time measured in the browsers beside the deterministic instruction counts: the time per block of each box and of the playground's patches in Chromium, Firefox and WebKit on reference machines, with thresholds derived from measured distributions, tracked in CI",
           "done": false
+        },
+        {
+          "title": "Command line: the engine's build:wasm entry points run through runEntryPoint (@poyetik/wasm-build), so that its help piped to a closed reader exits 0, with a closed-stdout process test per entry point, as the visual library's have",
+          "done": false
+        },
+        {
+          "title": "Pin gate: audio-cli holds CrateRole::CaseReader like visual-cli, so that a new dependency of its case reader must be reviewed bit-defining and pinned",
+          "done": false
+        },
+        {
+          "title": "Test data: a crate's declared test-data directory can exclude another crate's root below it (conformance/visual/ under audio-cli's and audio-fpenv's conformance/), the gate checking the exclusion is another crate's root and that no literal read falls under it, so that a visual case changed no longer mutates them",
+          "done": false
+        },
+        {
+          "title": "The visual module's wrapper reads image values in the module's byte order (little-endian) on any host, or refuses a big-endian host, like the engine's (step 12)",
+          "done": false
+        },
+        {
+          "title": "visual-cli refuses a case path that is not a regular file (a FIFO, a device) instead of blocking on it, like audio-cli (step 52)",
+          "done": false
         }
       ]
     },
@@ -1237,7 +1257,7 @@
           "done": false
         },
         {
-          "title": "The coordinating layer above the two standalone libraries (clock choice, audio and video alignment, transport controls, a scene and cues spanning both; exact musical time from the time crate, #37, sampled at every image), off the audio thread, grown from the crate #34 step 6 creates in a first form, which builds the modules a product loads: natively one binary specialized at build, in the browser one module per thread holding what that thread runs (the audio worklet the audio library, never the drawing code nor this layer's asynchronous work); what this layer carries across the control boundary to align audio and video (the audio clock to the page, with the output latency) decided here; using each library only through its public interface; any hook it needs from the audio library checked against the audio engine's decisions; the architecture proven to cost nothing: benchmarks comparing work done through the public interfaces with the same work done directly, with regression thresholds",
+          "title": "The coordinating layer above the two standalone libraries (clock choice, audio and video alignment, transport controls, a scene and cues spanning both; exact musical time from the time crate, #37, sampled at every image), off the audio thread, grown from the crate #34 step 6 creates in a first form, which builds the modules a product loads: natively one binary specialized at build, in the browser one module per thread holding what that thread runs (the audio worklet the audio library's audio-thread side, never the drawing code nor this layer's asynchronous work); what this layer carries across the control boundary to align audio and video (the audio clock to the page, with the output latency) decided here; using each library only through its public interface; any hook it needs from the audio library checked against the audio engine's decisions; the architecture proven to cost nothing: benchmarks comparing work done through the public interfaces with the same work done directly, with regression thresholds",
           "done": false
         },
         {
@@ -1422,7 +1442,7 @@
           "done": false
         },
         {
-          "title": "Playground: the square moving live next to the oscilloscope, first drawn by the CPU reference in WebAssembly; each thread loading the one module it needs, never one per library side by side (the page a module linking what it uses, the audio worklet the audio library without the drawing code, since it never draws), every module built by the first form of the coordinating layer's crate (linking the libraries, with no logic spanning them yet; #35 step 3 grows it), the cost of that split measured (module size, worklet start-up, render cost); rendering into a buffer the page owns (no copy of the image per image drawn) through a package built to JavaScript with its types, then in WebGPU; an image too large for the machine refused with its size named, never a trap; the module's wrapper owning its instance by construction and taking a compiled module, as a worker receives one; end-to-end tests on the browsers; then the end of this block (steps 5 and 6): a deep review, its decided fixes, and a pull request whose full check is green",
+          "title": "Playground: the square moving live next to the oscilloscope, first drawn by the CPU reference in WebAssembly; each thread loading the one module it needs, never one per library side by side (the page a module linking what it uses, the audio worklet the audio library's audio-thread side without the drawing code, since it never draws), every module built by the first form of the coordinating layer's crate (linking the libraries, with no logic spanning them yet; #35 step 3 grows it), the cost of that split measured (module size, worklet start-up, render cost); rendering into a buffer the page owns (no copy of the image per image drawn) through a package built to JavaScript with its types, then in WebGPU; an image too large for the machine refused with its size named, never a trap; the module's wrapper owning its instance by construction and taking a compiled module, as a worker receives one; the moving square accessible (reduced motion honored, a text alternative saying what it shows), with the axe audit on every state; end-to-end tests on the browsers; then the end of this block (steps 5 and 6): a deep review, its decided fixes, and a pull request whose full check is green",
           "done": false
         },
         {
