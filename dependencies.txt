@@ -7,9 +7,10 @@
 # local design notes keep only the strategic reasons.
 # Format: `<crate or package directory>: <dependency> (<kind>) -- <reason>`, the kind being
 # Cargo's (`normal`, `dev`, `build`) or the package.json field.
-# A reason starting `bit-defining: ` marks a crate whose code computes output samples or hashes,
-# or the values they are computed from: every normal or build dependency of the audio library
-# is one, and each is pinned to one exact version (`=X.Y.Z`, checked for these direct
+# A reason starting `bit-defining: ` marks a crate whose code computes output samples, images or
+# hashes, or the values they are computed from: every normal or build dependency of the audio
+# library and of the visual library is one, as are the readers of the conformance cases of both
+# command-line tools, and each is pinned to one exact version (`=X.Y.Z`, checked for these direct
 # dependencies), its updates following spec/engine-design.md decision 29. The code they reach
 # in turn (every crate Cargo.lock resolves for them) is fixed by Cargo.lock, not by a pin,
 # and proven by the render hash vectors, conformance and the
@@ -18,8 +19,8 @@
 
 audio-battery: serde_json (dev) -- reads the shared test matrix, conformance/test-matrix.json, which the TypeScript tests read too
 audio-battery: sha2 (normal) -- bit-defining: hashes a box type's outputs over the fixed battery into its fingerprint, recorded beside the conformance references
-audio-cli: serde (normal) -- reads the conformance case files into typed values, refusing unknown fields
-audio-cli: serde_json (normal) -- parses the case files and writes the reference hashes
+audio-cli: serde (normal) -- bit-defining: reads the conformance case files into typed values, refusing unknown fields: the sample rate and duration rendered and hashed, so a change of how it reads them would move the reference hashes
+audio-cli: serde_json (normal) -- bit-defining: parses the case files, the values rendered and hashed, and writes the reference hashes
 audio-core: libm (normal) -- bit-defining: the math functions of the engine's math layer (sine, floor), deterministic and portable, identical on every target where std's are not; boxes reach them only through the layer
 audio-core: serde_json (dev) -- reads the shared test matrix, so the unit tests run at every sample rate of conformance/test-matrix.json
 audio-fpenv: serde_json (dev) -- reads the conformance cases and their reference hashes, rendered under every forced host mode
@@ -33,8 +34,8 @@ audio-patch: serde_json (normal) -- bit-defining: parses patch documents, and so
 audio-testkit: libm (normal) -- deterministic math functions (sine, cosine, logarithm) for the measurements, identical on every target where std's are not
 audio-testkit: proptest (normal) -- property tests of the box and plan laws, from a fixed seed
 audio-testkit: serde_json (dev) -- reads the shared known-answer vectors of spec/measurement-vectors.json
-visual-cli: serde (normal) -- reads the visual conformance case files into typed values, refusing unknown fields
-visual-cli: serde_json (normal) -- parses the visual case files and writes the visual reference hashes
+visual-cli: serde (normal) -- bit-defining: reads the visual conformance case files into typed values, refusing unknown fields: the rate, size, images and square rendered and hashed, so a change of how it reads them would move the reference hashes
+visual-cli: serde_json (normal) -- bit-defining: parses the visual case files, the values rendered and hashed, and writes the visual reference hashes
 visual-hash: serde_json (dev) -- reads the shared known-answer vectors of spec/image-hash-vectors.json
 visual-hash: sha2 (normal) -- bit-defining: the SHA-256 of a sequence of images, without std, the same on every target
 visual-testkit: serde_json (dev) -- reads the shared visual test matrix, conformance/visual/test-matrix.json

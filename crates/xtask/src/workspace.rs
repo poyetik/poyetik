@@ -56,8 +56,11 @@ pub enum CrateRole {
     VisualLibraryTests,
     /// A tool of the visual library, its command line: it depends, within the project,
     /// only on the visual library as the library's crates do, so that it stands alone
-    /// with it, but it is not the library: its third-party dependencies (reading JSON)
-    /// define no rendered bits, and are not pinned ([`library_gate`](crate::dependencies::library_gate)).
+    /// with it, but it is not the library: it is not shipped, and the gate pins no
+    /// dependency for its role ([`library_gate`](crate::dependencies::library_gate)). Its
+    /// JSON reader still defines the values it renders and hashes (integers only, read
+    /// exactly, and checked natively and by the oracle): it is pinned as bit-defining in
+    /// the dependency register, as the engine's command line's is.
     VisualTool,
     /// A crate that may depend on `libm` outside its tests (`spec/engine-design.md`,
     /// decision 10; [`math_layer_gate`](crate::math_layer::math_layer_gate)): the engine core, whose math layer is the only
