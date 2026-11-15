@@ -1,6 +1,6 @@
 # Benchmarks
 
-What the engine's cost benchmarks measure, how their thresholds are derived, what they cannot see, and how to add one (roadmap #12 step 3). They exist so that the cost of the engine's later decisions (`engine-design.md`, implementation order) is measured, not guessed.
+What the engine's cost benchmarks measure, how their thresholds are derived, what they cannot see, and how to add one (roadmap #12 step 3). They exist so that the cost of the engine's later decisions (`engine-design.md`, implementation order) is measured, not guessed. The visual library has none yet: its benchmarks, with thresholds, come with #35 step 12 (`limitations.md`).
 
 | File | Contents | Changed by |
 |---|---|---|

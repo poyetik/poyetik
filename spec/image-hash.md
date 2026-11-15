@@ -2,7 +2,7 @@
 
 The **image hash** identifies a sequence of images bit for bit: two sequences have the same hash only if they have the same image rate, the same size, the same color encoding, the same number of images and the same bits in every value. It is how the visual library proves conformance across targets, as the render hash ([`render-hash.md`](render-hash.md)) does for sound.
 
-`image_hash` (`crates/visual-hash`) follows this document, tested against the known-answer vectors of [`image-hash-vectors.json`](image-hash-vectors.json); every other implementation (the oracle's, the WebAssembly package's) will be tested against the same vectors.
+`visual-hash` (`ImageHasher`, and `hash_sequence`, which renders a sequence and hashes it) follows this document, tested against the known-answer vectors of [`image-hash-vectors.json`](image-hash-vectors.json). The WebAssembly package runs the same code, and is held to the same hashes by the visual conformance corpus; an independent implementation, the oracle's, comes with its visual export (#34 step 7) and will be tested against the same vectors.
 
 ## Input
 
