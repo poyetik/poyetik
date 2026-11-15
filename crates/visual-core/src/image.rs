@@ -5,7 +5,8 @@ use alloc::vec::Vec;
 
 use crate::VisualError;
 
-/// The size of an image in pixels, each side from 1 to [`ImageSize::MAX_SIDE`].
+/// The size of an image in pixels, each side from 1 to [`ImageSize::MAX_SIDE`], and at most
+/// [`ImageSize::MAX_PIXELS`] pixels in all.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ImageSize {
     /// Width in pixels.
@@ -18,18 +19,29 @@ impl ImageSize {
     /// The longest supported side, in pixels (16K).
     pub const MAX_SIDE: u32 = 16_384;
 
+    /// The most pixels an image holds, 2²⁵ (8K UHD, 7680 × 4320, and 16 384 × 2048 fit):
+    /// its values then take 2²⁹ bytes (512 MiB), which every target allocates, those of 32
+    /// bits included, where one allocation is at most `isize::MAX` bytes (2³¹ − 1) and the
+    /// whole WebAssembly memory 4 GiB. So every target accepts the same sizes, and two
+    /// images (one replacing the other) still fit in that memory.
+    pub const MAX_PIXELS: u32 = 1 << 25;
+
     /// Creates an image size.
     ///
     /// # Errors
     ///
     /// Returns [`VisualError::InvalidImageSize`] when a side is 0 or longer than
-    /// [`ImageSize::MAX_SIDE`].
+    /// [`ImageSize::MAX_SIDE`], and [`VisualError::ImageTooLarge`] when the image has more
+    /// than [`ImageSize::MAX_PIXELS`] pixels.
     pub fn new(width: u32, height: u32) -> Result<Self, VisualError> {
-        let side = 1..=Self::MAX_SIDE;
-        if side.contains(&width) && side.contains(&height) {
-            Ok(Self { width, height })
-        } else {
+        let sides = 1..=Self::MAX_SIDE;
+        let size = Self { width, height };
+        if !(sides.contains(&width) && sides.contains(&height)) {
             Err(VisualError::InvalidImageSize { width, height })
+        } else if size.pixels() > u64::from(Self::MAX_PIXELS) {
+            Err(VisualError::ImageTooLarge { width, height })
+        } else {
+            Ok(size)
         }
     }
 
@@ -45,7 +57,8 @@ impl ImageSize {
         self.height
     }
 
-    /// The number of pixels: at most 2²⁸, so it fits every `usize` of 32 bits or more.
+    /// The number of pixels: at most [`ImageSize::MAX_PIXELS`]. The product of two `u32`
+    /// never saturates a `u64`.
     #[must_use]
     pub fn pixels(self) -> u64 {
         u64::from(self.width).saturating_mul(u64::from(self.height))

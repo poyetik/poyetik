@@ -24,6 +24,13 @@ fn names_the_rejected_values() {
             "invalid image size 0x7: each side must be from 1 to 16384 pixels",
         ),
         (
+            VisualError::ImageTooLarge {
+                width: 16_384,
+                height: 2049,
+            },
+            "invalid image size 16384x2049: an image holds at most 33554432 pixels",
+        ),
+        (
             VisualError::InvalidSeconds {
                 numerator: 0,
                 denominator: 3,

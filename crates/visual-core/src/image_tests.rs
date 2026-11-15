@@ -10,7 +10,10 @@ fn accepts_sizes_within_range() {
         (1920, 1080),
         (16_384, 1),
         (1, 16_384),
-        (16_384, 16_384),
+        (16_384, 2048),
+        (2048, 16_384),
+        (7680, 4320),
+        (5792, 5792),
     ] {
         let size = ImageSize::new(width, height).expect("a valid size");
         assert_eq!(
@@ -39,6 +42,42 @@ fn rejects_sizes_outside_range() {
             ImageSize::new(width, height),
             Err(VisualError::InvalidImageSize { width, height }),
             "{width}x{height}"
+        );
+    }
+}
+
+#[test]
+fn rejects_images_of_more_pixels_than_every_target_holds() {
+    assert_eq!(ImageSize::MAX_PIXELS, 33_554_432, "2^25 pixels");
+    for (width, height) in [
+        (16_384, 2049),
+        (2049, 16_384),
+        (5793, 5793),
+        (8192, 8192),
+        (16_384, 16_384),
+    ] {
+        assert_eq!(
+            ImageSize::new(width, height),
+            Err(VisualError::ImageTooLarge { width, height }),
+            "{width}x{height}"
+        );
+    }
+}
+
+#[test]
+fn creates_the_largest_image() {
+    for (width, height) in [(16_384, 2048), (2048, 16_384)] {
+        let size = ImageSize::new(width, height).expect("the largest area");
+        assert_eq!(
+            size.pixels(),
+            u64::from(ImageSize::MAX_PIXELS),
+            "{width}x{height}"
+        );
+        let image = Image::new(size);
+        assert_eq!(
+            image.values().len(),
+            usize::try_from(ImageSize::MAX_PIXELS).expect("fits") * Image::CHANNELS,
+            "{width}x{height}: every value allocated"
         );
     }
 }
