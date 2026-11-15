@@ -1008,6 +1008,54 @@ fn recovers_fast_from_a_transient_and_slowly_from_a_sustained_level_as_its_adapt
 }
 
 #[test]
+fn keeps_its_time_constants_in_milliseconds_at_every_rate() {
+    // Each one-pole keeps exp(-1000 / (ms × Hz)) per frame, computed here apart, at every
+    // rate of the matrix and at the ends and middle of the release and adaptivity ranges:
+    // the fast release (release × (1 - a) + release / 10 × a), the slow stage's attack
+    // (1 - its keep, at the release), and the crossfade between raw and protected (20 ms).
+    let kept = |milliseconds: f64, hz: f64| libm::exp(-1_000.0_f64 / (milliseconds * hz));
+    let close = |measured: f64, expected: f64, what: &str| {
+        assert!(
+            (measured - expected).abs() <= expected.abs() * 4.0_f64 * f64::EPSILON,
+            "{what}: {measured}, {expected} expected"
+        );
+    };
+    for rate in rates() {
+        let hz = f64::from(rate.hz());
+        for release in [10.0_f64, 100.0_f64, 1_000.0_f64] {
+            for adaptivity in [0.0_f64, 0.5_f64, 1.0_f64] {
+                let limiter = TruePeakLimiter::<Binary64>::new(
+                    rate,
+                    1,
+                    value(5.0_f64),
+                    super::Detector::Standard,
+                    settings(-1.0, 1.5, release, adaptivity),
+                    true,
+                )
+                .expect("a limiter");
+                let fast = release * (1.0_f64 - adaptivity) + release / 10.0_f64 * adaptivity;
+                let what = format!("{hz} Hz, release {release} ms, adaptivity {adaptivity}");
+                close(
+                    limiter.keep_fast.raw(),
+                    kept(fast, hz),
+                    &format!("fast, {what}"),
+                );
+                close(
+                    limiter.slow_attack.raw(),
+                    1.0_f64 - kept(release, hz),
+                    &format!("slow, {what}"),
+                );
+                close(
+                    limiter.keep_mode.raw(),
+                    kept(20.0_f64, hz),
+                    &format!("mode, {what}"),
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn moves_its_gain_without_a_click_when_a_setting_changes_live() {
     // A constant input of 2.0 above the ceiling; the ceiling changes live from -1 to -6
     // dBTP, then back, then the lookahead from 1.5 to 0.5 ms. A lower ceiling enters the
