@@ -635,3 +635,25 @@ fn leading(attribute: &str) -> String {
         attribute.replace('(', "( ").replace(')', " )")
     )
 }
+
+#[test]
+fn the_math_layer_step_refuses_a_named_file_it_does_not_find() {
+    // The step, not only the function: a refactor dropping its call would pass the gate
+    // with the visual boxes' root gone.
+    let mut fake = crate::tests::passing();
+    let removed = fake.files.remove(crate::VISUAL_BOX_ROOT);
+    assert!(removed.is_some(), "the fake holds the visual boxes' root");
+    assert_eq!(
+        crate::actions::math_layer(&mut fake),
+        failed(
+            "crates/visual-boxes/src/lib.rs: the math layer gate names it but does not read it: \
+             moved or removed, its rule would hold for nothing; name the file where it is"
+        ),
+        "the visual boxes' root missing"
+    );
+    assert_eq!(
+        crate::actions::math_layer(&mut crate::tests::passing()),
+        Ok(()),
+        "every named file there"
+    );
+}
