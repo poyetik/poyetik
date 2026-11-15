@@ -9,8 +9,6 @@
 #![forbid(unsafe_code)]
 #![doc(test(attr(forbid(unsafe_code))))]
 
-extern crate alloc;
-
 mod view;
 
 pub use view::{SetupError, View, image_index};

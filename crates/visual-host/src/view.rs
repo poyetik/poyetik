@@ -1,6 +1,5 @@
 //! The square a host shows: its parameters and the image it renders into.
 
-use alloc::string::{String, ToString};
 use core::fmt;
 
 use visual_boxes::{BoxError, Square};
@@ -54,6 +53,62 @@ impl core::error::Error for SetupError {
     }
 }
 
+/// The most bytes a refusal's message takes: more than the longest [`SetupError`] says (its
+/// values at their widest), which a test checks.
+const MESSAGE_BYTES: usize = 256;
+
+/// The explanation of a refused setup, held in the view itself, so that refusing allocates
+/// nothing: a message on the heap between two images would keep the next large image from
+/// reusing the space of the last one.
+#[derive(Debug, Clone, Copy)]
+struct Message {
+    /// Its UTF-8 bytes, the first `len` of them.
+    bytes: [u8; MESSAGE_BYTES],
+    /// How many bytes it holds.
+    len: usize,
+}
+
+impl Message {
+    /// No message.
+    const EMPTY: Self = Self {
+        bytes: [0; MESSAGE_BYTES],
+        len: 0,
+    };
+
+    /// The message of `error`, whole when it fits ([`MESSAGE_BYTES`]), as it always does.
+    fn of(error: SetupError) -> Self {
+        let mut message = Self::EMPTY;
+        match fmt::write(&mut message, format_args!("{error}")) {
+            Ok(()) | Err(fmt::Error) => message,
+        }
+    }
+
+    /// The text written, whole strings only, so always UTF-8.
+    fn text(&self) -> &str {
+        self.bytes
+            .get(..self.len)
+            .and_then(|written| core::str::from_utf8(written).ok())
+            .unwrap_or_default()
+    }
+}
+
+impl fmt::Write for Message {
+    /// Appends `piece` whole, or refuses it (and keeps what was written) when it does not fit.
+    fn write_str(&mut self, piece: &str) -> fmt::Result {
+        let end = self
+            .len
+            .checked_add(piece.len())
+            .filter(|end| *end <= MESSAGE_BYTES)
+            .ok_or(fmt::Error)?;
+        self.bytes
+            .get_mut(self.len..end)
+            .ok_or(fmt::Error)?
+            .copy_from_slice(piece.as_bytes());
+        self.len = end;
+        Ok(())
+    }
+}
+
 /// A square and the image it renders into, set up by the page.
 #[derive(Debug)]
 pub struct View {
@@ -62,7 +117,7 @@ pub struct View {
     /// The bytes of the last image hash computed.
     hash: [u8; 32],
     /// Why the last setup was refused; empty after a setup that succeeded.
-    message: String,
+    message: Message,
 }
 
 impl Default for View {
@@ -78,7 +133,7 @@ impl View {
         Self {
             shown: None,
             hash: [0; 32],
-            message: String::new(),
+            message: Message::EMPTY,
         }
     }
 
@@ -105,11 +160,11 @@ impl View {
                 // is allocated, so that the two are never held at once.
                 self.shown = None;
                 self.shown = Some((square, Image::new(image_size)));
-                self.message.clear();
+                self.message = Message::EMPTY;
                 Ok(())
             }
             Err(error) => {
-                self.message = error.to_string();
+                self.message = Message::of(error);
                 Err(error)
             }
         }
@@ -134,7 +189,7 @@ impl View {
     /// before any.
     #[must_use]
     pub fn message(&self) -> &str {
-        &self.message
+        self.message.text()
     }
 
     /// The number of values of an image: width × height × 4; 0 when no square is set up.

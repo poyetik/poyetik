@@ -2,6 +2,9 @@
 
 #![forbid(unsafe_code)]
 
+// The view allocates nothing but its image (through visual-core); its tests do.
+extern crate alloc;
+
 use alloc::format;
 use alloc::string::ToString;
 use alloc::vec::Vec;
@@ -284,4 +287,51 @@ fn renders_and_hashes_without_the_heap() {
     })
     .expect("the counting allocator is installed");
     assert_eq!(hashing, 0, "hashing a sequence");
+}
+
+#[test]
+fn refuses_a_square_without_the_heap_and_keeps_every_message_whole() {
+    // A refusal allocating its message would pin the heap between two images, so that the
+    // next large image could not reuse the space of the last one (the module's memory then
+    // grew to two images); the message lives in the view itself.
+    let mut view = View::new();
+    for (width, height, rate, side, cycle) in [
+        (u32::MAX, u32::MAX, (60, 1), 1, (1, 1)),
+        (16_384, 2049, (60, 1), 1, (1, 1)),
+        (1, 1, (u32::MAX, 1), 1, (1, 1)),
+        (1, 1, (60, 1), u32::MAX, (1, 1)),
+        (1, 1, (60, 1), 1, (u32::MAX - 1, u32::MAX - 1)),
+        (1, 1, (u32::MAX, u32::MAX), 1, (1, 1)),
+    ] {
+        let expected = View::new()
+            .setup(width, height, rate, side, cycle)
+            .expect_err("refused")
+            .to_string();
+        let (refused, count) =
+            heap_operations_during(|| view.setup(width, height, rate, side, cycle).is_err())
+                .expect("the counting allocator is installed");
+        assert_eq!(
+            (refused, count, view.message()),
+            (true, 0, expected.as_str()),
+            "{expected}"
+        );
+    }
+}
+
+#[test]
+fn keeps_a_message_whole_or_refuses_what_does_not_fit() {
+    use core::fmt::Write as _;
+    let mut message = super::Message::EMPTY;
+    assert_eq!(message.text(), "", "empty");
+    assert_eq!(message.write_str("refused"), Ok(()), "a piece that fits");
+    let long = "x".repeat(super::MESSAGE_BYTES);
+    assert_eq!(
+        message.write_str(&long),
+        Err(core::fmt::Error),
+        "one byte too many"
+    );
+    assert_eq!(message.text(), "refused", "what was written is kept");
+    let mut full = super::Message::EMPTY;
+    assert_eq!(full.write_str(&long), Ok(()), "exactly the most it holds");
+    assert_eq!(full.text().len(), super::MESSAGE_BYTES, "all of it");
 }
