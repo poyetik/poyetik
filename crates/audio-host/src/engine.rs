@@ -165,8 +165,10 @@ where
     /// # Errors
     ///
     /// Returns a message when the text is not UTF-8, the sample rate is not supported,
-    /// the patch is invalid, or the output's limiter cannot be built (a maximum lookahead
-    /// out of range, or below its lookahead).
+    /// the patch is invalid, its plan cannot be built live (a box of an offline-only box
+    /// type, `CoreError::OfflineOnly`, or of a box type this build does not hold at its
+    /// engine block, `CoreError::Unbuilt`), or the output's limiter cannot be built (a
+    /// maximum lookahead out of range, or below its lookahead).
     pub fn new(
         patch: &[u8],
         rate: u32,
@@ -285,9 +287,9 @@ where
     }
 
     /// The address of what the output stage replaced since the first block (the non-finite
-    /// samples, each given as zero), as four `u32` words: the count and the channel of the
-    /// first sample saturating at `u32::MAX`, its frame in its low then its high 32 bits, the
-    /// first sample's words 0 while none was replaced. Valid until the next call into the
+    /// samples, each given as zero), as four `u32` words, in order: the count, saturating at
+    /// `u32::MAX`; the first sample's frame, its low then its high 32 bits; its channel,
+    /// saturating at `u32::MAX`; the first sample's three words 0 while none was replaced. Valid until the next call into the
     /// engine.
     pub fn replaced_report(&mut self) -> *const u32 {
         let replaced = match &self.rendering {
@@ -303,8 +305,10 @@ where
     /// Renders the next block and returns it, one block per output channel, in the render
     /// format, each sample given as [`Delivered`] gives it, through the output stage
     /// ([`OutputStage`]: a non-finite sample replaced by zero and reported,
-    /// [`Engine::replaced_report`]): a binary64 render given as binary32 is rounded sample by
-    /// sample, then passes the stage, since the rounding can make a finite sample infinite;
+    /// [`Engine::replaced_report`], limited when the stage has a limiter, in the computing
+    /// precision): a binary64 render given as binary32 passes the stage in binary64
+    /// ([`OutputStage::apply_before_narrowing`]), is rounded sample by sample, then has the
+    /// samples the rounding made infinite replaced too ([`OutputStage::replace_given`]);
     /// and no sample is subnormal in the format given (delivery is a flush point,
     /// `spec/engine-design.md`, decision 11). A binary64 or
     /// binary32 block is handed over in place, only its channels that are sums flushed
@@ -350,9 +354,10 @@ where
 /// Why a stage without a limiter cannot change one.
 const NO_LIMITER: &str = "the output stage is raw: it has no limiter to set";
 
-/// `replaced` as the four words of the C interface (`engine_replaced`): the count and the
-/// channel of the first sample saturating at `u32::MAX`, its frame in its low then its high
-/// 32 bits; the first sample's words 0 while none was replaced.
+/// `replaced` as the four words of the C interface (`engine_replaced`), in order: the count,
+/// saturating at `u32::MAX`; the first sample's frame, its low then its high 32 bits; its
+/// channel, saturating at `u32::MAX`; the first sample's three words 0 while none was
+/// replaced.
 #[must_use]
 pub(crate) fn report_words(replaced: Replaced) -> [u32; 4] {
     let saturated = |value: u64| u32::try_from(value).unwrap_or(u32::MAX);

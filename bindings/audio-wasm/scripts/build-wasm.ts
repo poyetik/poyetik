@@ -1,4 +1,4 @@
-/** Entry point of `pnpm build:wasm`: builds the engine module into dist/engine.wasm (see `@poyetik/wasm-build`). */
+/** Entry point of `pnpm build:wasm`: builds one engine module per engine block into dist/engine-<frames>.wasm, the default one also as dist/engine.wasm (see `@poyetik/wasm-build`). */
 import { fileURLToPath } from "node:url";
 import { buildMain } from "@poyetik/wasm-build/cli";
 import { PROCESS_IO } from "@poyetik/wasm-build/io";

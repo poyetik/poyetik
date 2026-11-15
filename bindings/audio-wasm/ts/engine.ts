@@ -410,12 +410,16 @@ export class WasmEngine<A extends Samples> {
 
   /**
    * Instantiates `module` and loads `patch` (UTF-8 text in the patch format) at `rate`
-   * hertz, rendering in `format`: binary64 renders into `Float64Array`s, the two binary32
-   * formats into `Float32Array`s.
+   * hertz, rendering in `format` through the output stage `output` (raw by default,
+   * {@link RAW_OUTPUT}): binary64 renders into `Float64Array`s, the two binary32 formats into
+   * `Float32Array`s.
    * @throws {RangeError} when `rate` is not a whole number of hertz that fits 32 bits.
    * @throws {ModuleError} when `module` is not an engine module of this version, gives
-   * blocks of 0 frames, observes subnormals in a code that is not one, or answers the load
-   * with a result other than 1 (loaded) or 0 (refused).
+   * blocks of 0 frames, observes subnormals in a code that is not one, or answers the
+   * limiter's settings, the output stage or the load with a result other than 1 (accepted)
+   * or 0 (refused).
+   * @throws {OutputError} when the engine refuses the output stage: a limiter setting out of
+   * range, a maximum lookahead out of range or below the lookahead.
    * @throws {PatchError} when the engine rejects the patch, its bytes or the rate; a patch
    * longer than the engine reads is refused before it is copied into the module, whose
    * memory never shrinks again, with the words of the engine.

@@ -1,4 +1,4 @@
-/** Entry point of `pnpm test:reproducible`: checks that the engine module is reproducible (see `@poyetik/wasm-build`). */
+/** Entry point of `pnpm test:reproducible`: checks that each engine module is reproducible (see `@poyetik/wasm-build`). */
 import { guardStdout, reproducibleMain } from "@poyetik/wasm-build/cli";
 import { PROCESS_IO } from "@poyetik/wasm-build/io";
 import { ENGINE_MODULES } from "./module.ts";

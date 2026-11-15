@@ -18,8 +18,8 @@
 //! # How it limits
 //!
 //! Per frame, linked across channels (one gain, so that the image does not move):
-//! 1. **Detect**: the true peak of each channel through the BS.1770 4x interpolator, the
-//!    largest over the channels;
+//! 1. **Detect**: the true peak of each channel through its [`Detector`]'s interpolator
+//!    (BS.1770's own, or a windowed one), the largest over the channels;
 //! 2. **Need**: the reduction that peak needs to stay at the ceiling, exactly zero at or
 //!    below it;
 //! 3. **Hold**: the largest need over the lookahead window (a sliding maximum), so that the
@@ -48,21 +48,22 @@ use crate::math::{
 use crate::{Binary64, Block, Sample, SampleRate};
 
 /// How precisely the limiter estimates the true peak: the interpolator it oversamples each
-/// channel with (`spec/engine-design.md`, decision 12).
+/// channel with.
+///
+/// `spec/engine-design.md`, decision 12, states each detector's largest under-read band by
+/// band, computed from its coefficients by the limiter's measurements.
 ///
 /// A setting fixed when the limiter is built, since its interpolator's length sets part of
 /// the latency ([`Detector::delay`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Detector {
     /// ITU-R BS.1770's own interpolator, 4 phases of 12 taps ([`TRUE_PEAK_FILTER`]): the
-    /// cheapest; it reads a peak low by 0.33 dB at most up to 0.417 of the rate, much more
-    /// above, where it rolls off.
+    /// cheapest; it rolls off near half the rate, where it reads a peak much lower.
     Standard,
-    /// 4 phases of 32 taps, a Kaiser-windowed sinc (β 2.5): 0.24 dB at most up to 0.47 of
-    /// the rate. The default.
+    /// 4 phases of 32 taps, a Kaiser-windowed sinc (β 2.5). The default.
     Precise,
-    /// 8 phases of 128 taps (β 5): 0.11 dB at most up to 0.485 of the rate, for offline
-    /// renders and mastering.
+    /// 8 phases of 128 taps (β 5): the most precise near half the rate, for offline renders
+    /// and mastering.
     Mastering,
 }
 

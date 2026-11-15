@@ -1,10 +1,10 @@
 # audio-wasm
 
-The engine in browsers: a WebAssembly module (Rust crate `audio-wasm`) and its TypeScript glue (package `@poyetik/audio-wasm`). The package exports the browser API (`./web`, `./hash`, `./worklet`, `./engine.wasm`); a Node entry point comes with the SDK (#32 step 15), and the unit tests drive the module in Node through `ts/engine.ts` directly.
+The engine in browsers: a WebAssembly module (Rust crate `audio-wasm`) and its TypeScript glue (package `@poyetik/audio-wasm`). The package exports the browser API (`./web`, `./hash`, `./worklet`) and the engine modules: `./engine-<frames>.wasm`, one per engine block of `ENGINE_BLOCKS`, and `./engine.wasm`, the default one (64 frames); a Node entry point comes with the SDK (#32 step 15), and the unit tests drive the module in Node through `ts/engine.ts` directly.
 
 | Path | What |
 |---|---|
-| `src/` | The Rust crate: safe `Engine` and `Instance`, and `ffi`, the exported C interface (the only `unsafe` of this package, checked with Miri) |
+| `src/` | The Rust crate: `ffi`, the exported C interface (the only `unsafe` of this package, checked with Miri), forwarding to the safe engine of `audio-host` (`crates/audio-host`) |
 | `ts/engine.ts` | `WasmEngine`: one module instance, renders into buffers of any length, never ahead, in one render format: binary64 into `Float64Array`s, binary64 given as binary32 or binary32 into `Float32Array`s |
 | `ts/abi.ts` | The one reader of the module's exported interface (its memory, its version, each function with its arity), shared by `WasmEngine` and the benchmarks' counted instance |
 | `ts/worklet/processors.ts` | The `AudioWorklet` processors: the engine, and a tap that posts its input to the main thread |
@@ -18,7 +18,7 @@ The engine in browsers: a WebAssembly module (Rust crate `audio-wasm`) and its T
 pnpm check   # build, types, lint, unit tests at 100% coverage, benchmarks, no allocation while rendering, reproducible build, end-to-end tests
 ```
 
-The engine output is the patch's samples, unclipped: a level above 1.0 is kept, in the render hash and in an offline render, while a browser's audio output clips it. The final output stage belongs to the host, until the engine defines its own output policy (#12 step 9).
+The engine output is the patch's samples through its output stage (`spec/engine-design.md`, decision 12): every non-finite sample replaced by zero and reported, and, in a protected stage, limited to its true-peak ceiling. A render is raw by default (`RAW_OUTPUT`): a level above 1.0 is then kept, in the render hash and in an offline render, while a browser's audio output clips it; the playground plays protected (`PROTECTED_OUTPUT`).
 
 The live end-to-end test runs a real `AudioContext`, muted: the engine output is captured before a zero gain.
 The test bench (`e2e/site/`) shows its results as text, for Claude in Chrome too. It is a test bench, not a product page: it has no accessibility audit. Its query parameters, buttons and outputs, and `window.timeRendering`, are listed at the top of `e2e/site/harness.ts`. The end-to-end tests start it with `pnpm bench` on a free port; to open it yourself, choose a port:

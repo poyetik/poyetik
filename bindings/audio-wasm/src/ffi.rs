@@ -5,14 +5,18 @@
 //! 1. `engine_input(len)` ([`engine_input`]) returns where to write the `len` bytes of a patch;
 //!    the caller first refuses a patch longer than [`engine_max_patch_bytes`], so that the
 //!    module memory never grows for a patch the engine would refuse anyway.
-//! 2. `engine_load(rate, format)` ([`engine_load`]) loads it, to render in the render format
+//! 2. Optionally, before the load, [`engine_output`] and [`engine_limiter`] set the output
+//!    stage every later load builds (raw by default); on failure, the message functions
+//!    explain it.
+//! 3. `engine_load(rate, format)` ([`engine_load`]) loads it, to render in the render format
 //!    of code `format` (0 binary64, 1 binary64 given as binary32, 2 binary32); on failure,
 //!    [`engine_message_ptr`] and [`engine_message_len`] locate a UTF-8 explanation.
-//! 3. [`engine_process`] renders the next block and returns where it is:
+//! 4. [`engine_process`] renders the next block and returns where it is:
 //!    [`engine_channels`] × [`engine_block_size`] samples, channel after channel: `f64`
 //!    samples (8 bytes) in binary64, `f32` samples (4 bytes) in the two binary32 formats.
 //!
-//! At any time, [`engine_subnormals`] observes what the arithmetic of the calling thread
+//! At any time, [`engine_limiter`] and [`engine_protect`] change the loaded engine's limiter
+//! live, [`engine_latency`] gives its output stage's latency, [`engine_subnormals`] observes what the arithmetic of the calling thread
 //! does with subnormal numbers (a browser may run it in a hardware flush mode), and
 //! [`engine_replaced`] locates what the output stage replaced since the load: how many
 //! non-finite samples, and the first of them (`spec/engine-design.md`, decision 12).

@@ -1,17 +1,17 @@
 //! Measurements of the output stage's true-peak limiter (`spec/engine-design.md`, decision
 //! 12; `spec/measurements.md`, "The true-peak limiter"): how far the true peak of a limited
 //! sine can rise above the ceiling, and how little the limiter distorts it, each bound
-//! derived from the constants of the BS.1770 interpolator it estimates the peak with.
+//! derived from the coefficients of the detector's interpolator, for each detector.
 //!
 //! # The derivation
 //!
 //! For a sine `x[n] = A sin(ωn + φ)`, every estimate the detector takes is the largest of
-//! its candidates: the two samples it estimates the interval between (gain 1, phases `-5ω`
-//! and `-6ω`), and each phase `p` of the interpolator, a sine of gain `g_p = |H_p(ω)|` and
+//! its candidates: the two samples it estimates the interval between (gain 1, phases
+//! `-(d - 1)ω` and `-dω`, `d` the detector's delay, `Detector::delay`), and each phase `p` of the interpolator, a sine of gain `g_p = |H_p(ω)|` and
 //! phase `ψ_p = arg H_p(ω)`. So, whatever `φ` and the frame, the estimate lies between
 //! `R(ω)·A` and `G(ω)·A`, where `G` is the largest gain and
 //! `R(ω) = min over u of max_j g_j |sin(u + ψ_j)|`: the estimator's worst-case under-read,
-//! BS.1770's 0.554 dB at 0.45 of the rate, plus the interpolator's own ripple.
+//! which the oversampling factor and the interpolator's band and ripple set.
 //!
 //! When a period of the sine fits in the window the limiter holds its needs over
 //! (`lookahead + 2` frames), the held need is the largest estimate of the window, between
