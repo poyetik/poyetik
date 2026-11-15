@@ -112,15 +112,15 @@ fn renders_and_hashes_across_the_visual_matrix() {
             .into_iter()
             .filter(|size| size.pixels() <= MATRIX_PIXELS)
         {
-            assert!(
+            assert_eq!(
                 view.setup(
                     size.width(),
                     size.height(),
                     (rate.numerator(), rate.denominator()),
                     39_322,
                     (1001, 1000)
-                )
-                .is_ok(),
+                ),
+                Ok(()),
                 "{rate:?} {size:?}"
             );
             let mut square = Square::new(rate, 39_322, cycle).expect("a valid square");

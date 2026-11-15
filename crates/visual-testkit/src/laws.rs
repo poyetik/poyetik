@@ -136,16 +136,19 @@ fn check_values(image: &Image, at: &str) -> Result<(), String> {
 /// # Errors
 ///
 /// Returns the first law broken, naming it and where (rate, size, image index); off the
-/// matrix, at the simplest random case found to break it, after "Test failed: ". Also fails when
+/// matrix, at the simplest random case found to break it, after "Test failed: ", with the
+/// images drawn in their order. Also fails when
 /// [`crate::CountingAllocator`] is not installed, since the no-heap law could not be
 /// checked.
 pub fn check_laws(make: &Factory<'_>) -> Result<(), String> {
     let ((), _) = heap_operations_during(|| ())?;
     let indices = image_indices();
+    let sizes = image_sizes();
     for rate in image_rates() {
-        for size in image_sizes() {
+        for &size in &sizes {
             check_at(make, rate, size, &indices)?;
         }
+        check_sizes(make, rate, &sizes, &indices)?;
     }
     let cases = (
         rate_terms().prop_filter_map("a valid rate", |(numerator, denominator)| {
@@ -159,11 +162,16 @@ pub fn check_laws(make: &Factory<'_>) -> Result<(), String> {
     );
     runner(RANDOM_CASES)
         .run(&cases, |(rate, size, drawn)| {
-            check_at(make, rate, size, &drawn).map_err(TestCaseError::fail)
+            check_at(make, rate, size, &drawn).map_err(|law| {
+                // The order the images were drawn in, which the random-access and no-heap
+                // laws depend on, said on the same line as the law.
+                let order: Vec<String> = drawn.iter().map(|index| index.0.to_string()).collect();
+                TestCaseError::fail(format!("{law}, images drawn [{}]", order.join(", ")))
+            })
         })
         .map_err(|error: TestError<_>| {
-            // Its first line says the law and where; the shrunk case follows, in Debug
-            // form, over many lines, and adds nothing the place does not say.
+            // Its first line says the law, where, and the images drawn in their order; the
+            // shrunk case follows in Debug form over many lines, saying nothing more.
             error
                 .to_string()
                 .lines()
@@ -171,6 +179,36 @@ pub fn check_laws(make: &Factory<'_>) -> Result<(), String> {
                 .unwrap_or_default()
                 .to_owned()
         })
+}
+
+/// Checks that one instance renders the same bits as a fresh one when the size of its
+/// output changes from one image to the next: every size of `sizes` in turn, at each index.
+fn check_sizes(
+    make: &Factory<'_>,
+    rate: ImageRate,
+    sizes: &[ImageSize],
+    indices: &[ImageIndex],
+) -> Result<(), String> {
+    let mut switching = make(rate);
+    for &index in indices {
+        for &size in sizes {
+            let at = place(rate, size, index);
+            let image = render(
+                switching.as_mut(),
+                size,
+                index,
+                &at,
+                ", after another size,",
+            )?;
+            let reference = render(make(rate).as_mut(), size, index, &at, "")?;
+            if !same_bits(&image, &reference) {
+                return Err(format!(
+                    "size change: rendering at another size first changes the bits at {at}"
+                ));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Checks every law at one rate and size, over `indices`, in their order.

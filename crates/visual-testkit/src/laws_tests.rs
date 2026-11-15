@@ -86,6 +86,8 @@ enum Fault {
     /// It renders a NaN when it moves forward after having moved back: only the pass
     /// jumping between both ends of the indices does, in its first rendering of an image.
     NotANumberForwardAfterGoingBack,
+    /// It renders a NaN once it has seen a size other than the first it rendered.
+    NotANumberAfterAnotherSize,
 }
 
 /// A box with one fault, otherwise like [`Good`].
@@ -105,6 +107,8 @@ struct Faulty {
     last: Option<ImageIndex>,
     /// Whether it ever rendered an image before the last one it rendered.
     went_back: bool,
+    /// The size of the first image it rendered.
+    first_size: Option<(u32, u32)>,
 }
 
 /// Instances created so far, to number them.
@@ -137,6 +141,12 @@ impl Faulty {
             }
             Fault::NotANumberOffTheMatrixIndices => !IMAGE_INDICES.contains(&index.0),
             Fault::NotANumberForwardAfterGoingBack => came_back && forward,
+            Fault::NotANumberAfterAnotherSize => {
+                *self
+                    .first_size
+                    .get_or_insert_with(|| (size.width(), size.height()))
+                    != (size.width(), size.height())
+            }
             Fault::Stateful
             | Fault::PerInstance
             | Fault::Allocates
@@ -168,29 +178,11 @@ impl VisualBox for Faulty {
             *slot = f32::NAN;
         }
         self.rendered = self.rendered.saturating_add(1);
-        let channel = match self.fault {
-            Fault::NotANumber(channel) => channel,
-            Fault::Stateful
-            | Fault::PerInstance
-            | Fault::Allocates
-            | Fault::Infinite
-            | Fault::AlphaAbove
-            | Fault::AlphaBelow
-            | Fault::KeepsAValue
-            | Fault::ImpureTrace
-            | Fault::ImpureTraceAtCenter
-            | Fault::TraceAfterRendering
-            | Fault::TraceAfterSixImages
-            | Fault::AllocatesSeekingBack
-            | Fault::SkipsARepeat
-            | Fault::NotANumberAtTheHighestRate
-            | Fault::NotANumberWhenWidest
-            | Fault::NotANumberWhenTallest
-            | Fault::ImpureTraceAtTheLastSubpixel
-            | Fault::NotANumberOffTheMatrixRates
-            | Fault::NotANumberOffTheMatrixSizes
-            | Fault::NotANumberOffTheMatrixIndices
-            | Fault::NotANumberForwardAfterGoingBack => 0,
+        // The channel a NaN of `NotANumber` goes to; any other fault changes the first.
+        let channel = if let Fault::NotANumber(channel) = self.fault {
+            channel
+        } else {
+            0
         };
         let first = output
             .rows_mut()
@@ -223,7 +215,8 @@ impl VisualBox for Faulty {
             | Fault::NotANumberOffTheMatrixRates
             | Fault::NotANumberOffTheMatrixSizes
             | Fault::NotANumberOffTheMatrixIndices
-            | Fault::NotANumberForwardAfterGoingBack => None,
+            | Fault::NotANumberForwardAfterGoingBack
+            | Fault::NotANumberAfterAnotherSize => None,
         };
         if let (Some(value), Some(slot)) = (changed, first) {
             *slot = value;
@@ -250,7 +243,8 @@ impl VisualBox for Faulty {
             | Fault::NotANumberOffTheMatrixRates
             | Fault::NotANumberOffTheMatrixSizes
             | Fault::NotANumberOffTheMatrixIndices
-            | Fault::NotANumberForwardAfterGoingBack => None,
+            | Fault::NotANumberForwardAfterGoingBack
+            | Fault::NotANumberAfterAnotherSize => None,
         };
         if let Some(value) = alpha
             && let Some(slot) = output.rows_mut().last().and_then(|row| row.last_mut())
@@ -305,7 +299,8 @@ impl VisualBox for Faulty {
             | Fault::NotANumberOffTheMatrixRates
             | Fault::NotANumberOffTheMatrixSizes
             | Fault::NotANumberOffTheMatrixIndices
-            | Fault::NotANumberForwardAfterGoingBack => self.good.trace(index, point),
+            | Fault::NotANumberForwardAfterGoingBack
+            | Fault::NotANumberAfterAnotherSize => self.good.trace(index, point),
         }
     }
 }
@@ -321,6 +316,7 @@ fn verdict(fault: Fault) -> Result<(), String> {
             traced: AtomicU32::new(0),
             last: None,
             went_back: false,
+            first_size: None,
         })
     })
 }
@@ -418,6 +414,10 @@ fn catches_each_broken_law() {
             "pure trace: (4095, 4095) traces differently at rate 1/1, size 1x1, image 18446744073709551615",
         ),
         (
+            Fault::NotANumberAfterAnotherSize,
+            "size change: rendering at another size first changes the bits at rate 1/1, size 2x3, image 0",
+        ),
+        (
             Fault::NotANumberForwardAfterGoingBack,
             "random access: rendering the images in another order, each twice, changes the bits at rate 1/1, size 1x1, image 1000000",
         ),
@@ -433,15 +433,15 @@ fn catches_a_box_right_only_at_the_values_of_the_matrix() {
     for (fault, law) in [
         (
             Fault::NotANumberOffTheMatrixRates,
-            "Test failed: finite values: a value is NaN or infinite at rate 2/1, size 1x1, image 0.",
+            "Test failed: finite values: a value is NaN or infinite at rate 2/1, size 1x1, image 0, images drawn [0, 0].",
         ),
         (
             Fault::NotANumberOffTheMatrixSizes,
-            "Test failed: finite values: a value is NaN or infinite at rate 1/1, size 1x2, image 0.",
+            "Test failed: finite values: a value is NaN or infinite at rate 1/1, size 1x2, image 0, images drawn [0, 0].",
         ),
         (
             Fault::NotANumberOffTheMatrixIndices,
-            "Test failed: finite values: a value is NaN or infinite at rate 1/1, size 1x1, image 4294967295.",
+            "Test failed: finite values: a value is NaN or infinite at rate 1/1, size 1x1, image 4294967295, images drawn [4294967295, 0].",
         ),
     ] {
         assert_eq!(verdict(fault), Err(law.to_owned()), "{fault:?}");

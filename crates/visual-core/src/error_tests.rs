@@ -57,11 +57,3 @@ fn is_an_error() {
     error::<VisualError>();
 }
 
-#[test]
-fn states_the_supported_rate_from_its_constant() {
-    assert_eq!(
-        crate::ImageRate::MAX_PER_SECOND,
-        1000,
-        "the limit the message names"
-    );
-}

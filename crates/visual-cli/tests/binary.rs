@@ -178,7 +178,7 @@ mod tests {
         let copied = std::fs::copy(case, dir.join("cases/column.json")).expect("copied");
         assert!(copied > 0, "the case is copied");
         let output = visual_cli(&[OsStr::new("bless"), dir.as_os_str()]);
-        assert!(output.status.success(), "blessed");
+        assert_eq!(output.status.code(), Some(0_i32), "blessed: {output:?}");
         assert_eq!(
             String::from_utf8_lossy(&output.stdout),
             format!(
@@ -187,10 +187,10 @@ mod tests {
             ),
             "says what it wrote"
         );
-        assert!(
-            visual_cli(&[OsStr::new("check"), dir.as_os_str()])
-                .status
-                .success(),
+        let checked = visual_cli(&[OsStr::new("check"), dir.as_os_str()]);
+        assert_eq!(
+            (checked.status.code(), String::from_utf8_lossy(&checked.stderr)),
+            (Some(0_i32), "".into()),
             "then checked"
         );
     }
@@ -199,7 +199,7 @@ mod tests {
     fn prints_the_hash_of_one_case() {
         let case = Path::new(&corpus()).join("cases/square-320x180-at-60.json");
         let output = visual_cli(&[OsStr::new("render"), case.as_os_str()]);
-        assert!(output.status.success(), "rendered");
+        assert_eq!(output.status.code(), Some(0_i32), "rendered: {output:?}");
         let said = String::from_utf8_lossy(&output.stdout);
         let references =
             std::fs::read_to_string(Path::new(&corpus()).join("references.json")).expect("read");

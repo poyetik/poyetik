@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { assert, describe, expect, test } from "vitest";
 import { ABI_VERSION, MAX_COUNT, MAX_INDEX, type SquareSetup, VisualModule, VisualModuleError, VisualSetupError, VisualTrap } from "../ts/visual.ts";
 
 /** A valid square. */
@@ -256,13 +256,15 @@ describe("VisualModule", () => {
   test("refuses bytes that are not the visual module, and keeps the reason", async () => {
     const garbage: unknown = await VisualModule.instantiate(new Uint8Array([1, 2, 3]), SQUARE).catch((error: unknown) => error);
     expect(garbage).toBeInstanceOf(VisualModuleError);
-    expect(garbage instanceof VisualModuleError && garbage.message.startsWith("visual module: cannot be compiled: CompileError: ")).toBe(true);
-    expect(garbage instanceof VisualModuleError && garbage.cause instanceof WebAssembly.CompileError, "the reason kept").toBe(true);
+    assert(garbage instanceof VisualModuleError, "a VisualModuleError");
+    expect(garbage.message).toMatch(/^visual module: cannot be compiled: CompileError: /u);
+    expect(garbage.cause, "the reason kept").toBeInstanceOf(WebAssembly.CompileError);
     // (module (import "a" "b" (func))): a valid module that needs an import.
     const needsImports = new Uint8Array([0x00, 0x61, 0x73, 0x6d, 1, 0, 0, 0, 1, 4, 1, 0x60, 0, 0, 2, 7, 1, 1, 0x61, 1, 0x62, 0, 0]);
     const unlinked: unknown = await VisualModule.instantiate(needsImports, SQUARE).catch((error: unknown) => error);
-    expect(unlinked instanceof VisualModuleError && unlinked.message.startsWith("visual module: cannot be instantiated with no imports: ")).toBe(true);
-    expect(unlinked instanceof VisualModuleError && unlinked.cause instanceof TypeError, "the reason kept: no import object for module a").toBe(true);
+    assert(unlinked instanceof VisualModuleError, "a VisualModuleError");
+    expect(unlinked.message).toMatch(/^visual module: cannot be instantiated with no imports: /u);
+    expect(unlinked.cause, "the reason kept: no import object for module a").toBeInstanceOf(TypeError);
     // (module): a valid module with nothing the interface needs.
     await expect(VisualModule.instantiate(new Uint8Array([0x00, 0x61, 0x73, 0x6d, 1, 0, 0, 0]), SQUARE)).rejects.toThrow(new VisualModuleError("no memory"));
   });

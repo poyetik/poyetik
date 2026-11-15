@@ -8,7 +8,6 @@ use visual_core::{Image, ImageIndex, ImageRate, ImageSize, SUBPIXELS, Seconds, T
 use visual_testkit::generate::{
     rate_terms, seconds_terms, side, small_size, tall_size, u64_edges, wide_size,
 };
-use visual_testkit::heap_operations_during;
 use visual_testkit::proptest::prelude::{Strategy, prop_oneof};
 use visual_testkit::proptest::test_runner::TestCaseError;
 use visual_testkit::runner::runner;
@@ -259,17 +258,6 @@ fn renders_at_the_edges_of_the_size_range() {
             square_area(width, height, 40_000).to_bits(),
             "{width}x{height}"
         );
-    }
-}
-
-#[test]
-fn never_allocates_while_rendering() {
-    let mut visual = square(ImageRate::PER_SECOND_60, 30_000, (2, 1));
-    let mut image = Image::new(ImageSize::new(64, 36).expect("a valid size"));
-    for index in [0, 1, 59, 1_000_000] {
-        let ((), count) = heap_operations_during(|| visual.render(ImageIndex(index), &mut image))
-            .expect("the counting allocator is installed");
-        assert_eq!(count, 0, "image {index}");
     }
 }
 
