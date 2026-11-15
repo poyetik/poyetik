@@ -641,7 +641,8 @@ pub const LIBRARIES: [Library; 2] = [
     },
 ];
 
-/// Targets the engine core must build for: proof that it depends on no environment.
+/// Targets the crates of both libraries must build for ([`PORTABILITY_PACKAGES`], their
+/// shells apart): proof that they depend on no environment.
 pub const PORTABILITY_TARGETS: [&str; 4] = [
     "aarch64-apple-darwin",
     "x86_64-unknown-linux-gnu",
