@@ -190,6 +190,23 @@ test("sets up the largest image, refuses one pixel row more, and releases the im
   // what it checks.
 }, 60_000);
 
+test("refuses an image the memory cannot hold, naming its size, never a trap, and keeps working", async () => {
+  // The memory grown, from outside, to within 8000 pages (500 MiB) of the most a 32-bit
+  // module addresses (65 536 pages, 4 GiB): the largest image, 512 MiB, cannot fit. The pages
+  // grown are never written, so the machine does not hold them.
+  const { instance } = await WebAssembly.instantiate(readFileSync(MODULE), {});
+  const memory: unknown = instance.exports["memory"];
+  if (!(memory instanceof WebAssembly.Memory)) {
+    throw new Error("no memory");
+  }
+  const square = { rate: [60, 1], side: 65_536, cycle: [1, 2] } as const;
+  const module = new VisualModule(instance.exports, { ...square, width: 3, height: 2 });
+  memory.grow(65_536 - 8000 - memory.buffer.byteLength / 65_536);
+  expect(() => { module.setup({ ...square, width: 16_384, height: 2048 }); }).toThrow(new VisualSetupError("width and height: image 16384x2048 does not fit in this machine's memory: 536870912 bytes are needed"));
+  module.setup({ ...square, width: 3, height: 2 });
+  expect(module.render(1n)).toHaveLength(3 * 2 * 4);
+});
+
 test("stops looking for the conformance directory at the root, a Windows drive's included", () => {
   for (const root of ["file:///", "file:///C:/", "file:///C:/Users/nobody/"]) {
     expect(() => visualConformance(new URL(root)), root).toThrow(new Error("conformance/visual not found"));

@@ -122,7 +122,11 @@ fn run_with(memory: &mut Memory, words: &[&str]) -> (Result<(), CliError>, Strin
 
 /// The hash of a case's text, as the case module renders it.
 fn hash(text: &str) -> String {
-    parse_case(text).expect("a valid case").hash().to_string()
+    parse_case(text)
+        .expect("a valid case")
+        .hash()
+        .expect("room for the image")
+        .to_string()
 }
 
 /// A corpus of two cases, `d/cases/small.json` and `d/cases/other.json`, and its references.

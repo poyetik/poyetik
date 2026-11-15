@@ -153,13 +153,19 @@ impl View {
         side: u32,
         cycle: (u32, u32),
     ) -> Result<(), SetupError> {
-        let checked = Self::checked(width, height, rate, side, cycle);
-        match checked {
-            Ok((square, image_size)) => {
+        let checked =
+            Self::checked(width, height, rate, side, cycle).and_then(|(square, image_size)| {
                 // Every value is valid: the image replaced is released before the next one
-                // is allocated, so that the two are never held at once.
+                // is allocated, so that the two are never held at once; an image the
+                // memory cannot hold leaves nothing shown.
                 self.shown = None;
-                self.shown = Some((square, Image::new(image_size)));
+                Image::try_new(image_size)
+                    .map(|image| (square, image))
+                    .map_err(SetupError::Size)
+            });
+        match checked {
+            Ok(shown) => {
+                self.shown = Some(shown);
                 self.message = Message::EMPTY;
                 Ok(())
             }

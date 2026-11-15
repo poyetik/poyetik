@@ -67,18 +67,22 @@ fn render(
     at: &str,
     how: &str,
 ) -> Result<Image, String> {
-    let mut image = Image::new(size);
+    let mut image = Image::try_new(size)?;
     render_into(visual, &mut image, index, at, how)?;
     Ok(image)
 }
 
 /// An image of `size` whose every value is NaN: what rendering leaves unwritten shows.
-fn dirty(size: ImageSize) -> Image {
-    let mut image = Image::new(size);
+///
+/// # Errors
+///
+/// Returns why the machine cannot hold it.
+fn dirty(size: ImageSize) -> Result<Image, String> {
+    let mut image = Image::try_new(size)?;
     for row in image.rows_mut() {
         row.fill(f32::NAN);
     }
-    image
+    Ok(image)
 }
 
 /// `indices` from both ends in turn: the first, the last, the second, the one before the
@@ -264,7 +268,7 @@ fn check_at(
         if !same_bits(&again, &image) {
             return Err(format!("determinism: two fresh instances differ at {at}"));
         }
-        let mut over = dirty(size);
+        let mut over = dirty(size)?;
         render_into(third.as_mut(), &mut over, index, &at, " over other values")?;
         if !same_bits(&over, &image) {
             return Err(format!(
@@ -316,7 +320,7 @@ fn check_at(
             &at,
             ", jumping between images,",
         )?;
-        let mut twice = dirty(size);
+        let mut twice = dirty(size)?;
         render_into(
             jumping.as_mut(),
             &mut twice,

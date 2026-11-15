@@ -22,7 +22,8 @@ impl VisualBox for Counter {
 
 #[test]
 fn renders_each_image_in_order_from_the_first() {
-    let mut image = Image::new(ImageSize::new(2, 1).expect("a valid size"));
+    let mut image =
+        Image::try_new(ImageSize::new(2, 1).expect("a valid size")).expect("room for the image");
     let three: Vec<(u64, Option<u32>)> = [5_u16, 6, 7]
         .iter()
         .map(|&index| (u64::from(index), Some(f32::from(index).to_bits())))
@@ -49,7 +50,8 @@ fn renders_each_image_in_order_from_the_first() {
 
 #[test]
 fn renders_the_last_index_once() {
-    let mut image = Image::new(ImageSize::new(1, 1).expect("a valid size"));
+    let mut image =
+        Image::try_new(ImageSize::new(1, 1).expect("a valid size")).expect("room for the image");
     let mut seen = Vec::new();
     render_sequence(
         &mut Counter,

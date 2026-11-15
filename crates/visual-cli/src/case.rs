@@ -187,12 +187,15 @@ pub struct PreparedCase {
 impl PreparedCase {
     /// Renders the case with the exact CPU reference renderer and returns the image hash
     /// of its images.
-    #[must_use]
-    pub fn hash(&self) -> ImageHash {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`VisualError::OutOfMemory`] when the machine cannot hold its image.
+    pub fn hash(&self) -> Result<ImageHash, VisualError> {
         let mut square = self.square;
-        let mut image = Image::new(self.size);
+        let mut image = Image::try_new(self.size)?;
         let rate = square.rate();
-        hash_sequence(&mut square, rate, self.range, &mut image)
+        Ok(hash_sequence(&mut square, rate, self.range, &mut image))
     }
 }
 
@@ -238,9 +241,10 @@ pub fn parse_case(text: &str) -> Result<PreparedCase, CaseError> {
 ///
 /// # Errors
 ///
-/// Returns why the text is not a valid case (see [`parse_case`]).
+/// Returns why the text is not a valid case (see [`parse_case`]), or
+/// [`CaseError::Size`] when the machine cannot hold its image.
 pub fn hash_case(text: &str) -> Result<ImageHash, CaseError> {
-    parse_case(text).map(|case| case.hash())
+    parse_case(text).and_then(|case| case.hash().map_err(CaseError::Size))
 }
 
 #[cfg(test)]
