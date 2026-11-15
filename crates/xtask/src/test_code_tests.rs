@@ -508,6 +508,11 @@ fn refuses_the_reads_of_test_data_it_cannot_follow() {
             "`option_env!`, which may name a directory of the repository".to_owned(),
         ),
         (
+            // A variable of the list read without the macro's `!` is no read the gate knows.
+            "fn f() { let _ = option_env(\"POYETIK_ENGINE_BLOCK\"); }\n".to_owned(),
+            "`option_env!`, which may name a directory of the repository".to_owned(),
+        ),
+        (
             "fn f() { let _ = env!(\"OUT_DIR\"); }\n".to_owned(),
             "`env!` of a variable that may name a directory of the repository".to_owned(),
         ),
@@ -962,5 +967,19 @@ fn reads_the_targets_of_real_cargo_metadata() {
              false`): only a root that is all its code may, so that no test hides in it",
         ]),
         "both settings as cargo reports them"
+    );
+}
+
+#[test]
+fn accepts_a_build_variable_naming_no_file() {
+    let mut sources = test_data_reader_sources();
+    sources.push((
+        "crates/audio-hash/src/lib.rs".to_owned(),
+        "const B: Option<&str> = option_env!(\"POYETIK_ENGINE_BLOCK\");\n".to_owned(),
+    ));
+    assert_eq!(
+        test_data_gate(&sources),
+        Ok(()),
+        "the engine block a build names"
     );
 }

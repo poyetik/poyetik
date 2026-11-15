@@ -458,6 +458,11 @@ pub(crate) const TEST_DATA_WORDS: [&str; 6] = [
 /// Cargo sets for the crate itself, by their prefix.
 pub(crate) const CRATE_VARIABLES: [&str; 2] = ["CARGO_BIN_EXE_", "CARGO_PKG_"];
 
+/// The variables a crate may read with `option_env!`, each naming no file of the repository:
+/// the engine block a build names (`audio_core::NAMED_ENGINE_BLOCK`, a decimal number its
+/// reader refuses unless it is one of the engine blocks offered).
+pub(crate) const BUILD_VARIABLES: [&str; 1] = ["POYETIK_ENGINE_BLOCK"];
+
 /// What an identifier of [`TEST_DATA_WORDS`] reads, by the tokens that follow it
 /// ([`test_data_read`]).
 pub(crate) enum Read<'text> {
@@ -513,9 +518,12 @@ pub(crate) fn test_data_read(tokens: &[Token], at: usize) -> Read<'_> {
                 "`env!` of a variable that may name a directory of the repository".to_owned(),
             ),
         },
-        "option_env" => {
-            Read::Refused("`option_env!`, which may name a directory of the repository".to_owned())
-        }
+        "option_env" => match literal_argument(after(2)) {
+            Some(name) if called && BUILD_VARIABLES.contains(&name) => Read::Other,
+            _ => Read::Refused(
+                "`option_env!`, which may name a directory of the repository".to_owned(),
+            ),
+        },
         _ => variable_read(word, after(1)),
     }
 }
