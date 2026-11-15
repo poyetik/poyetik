@@ -18,6 +18,7 @@ export const PROCESS_IO: Io = {
   copy: (from, to) => {
     copyFileSync(from, to);
   },
+  temporaryRoot: tmpdir(),
   temporaryDirectory: (prefix) => mkdtempSync(join(tmpdir(), prefix)),
   remove: (path) => {
     rmSync(path, { recursive: true, force: true });

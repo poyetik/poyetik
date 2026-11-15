@@ -4,6 +4,7 @@
 // scripts/build-wasm.ts and scripts/reproducible.ts) only wire them to the real process,
 // files and cargo, with the package's module.
 import { createHash } from "node:crypto";
+import { oneLine } from "@poyetik/config/one-line";
 import { join } from "node:path";
 import { artifactPath, BuildError, cargoArgs, cargoHomeOf, commandFailure, commitHashOf, encodedRustflags, privatePaths, reproducibilityProblems, sysrootOf, type Toolchain, type WasmModule } from "./wasm.ts";
 
@@ -26,6 +27,8 @@ export interface Io {
   readonly makeDirectory: (path: string) => void;
   /** Copies a file. */
   readonly copy: (from: string, to: string) => void;
+  /** The directory temporary directories are created in, named when one cannot be. */
+  readonly temporaryRoot: string;
   /** Creates a fresh, empty temporary directory whose name starts with `prefix`; returns its path. */
   readonly temporaryDirectory: (prefix: string) => string;
   /** Removes a directory and everything in it. */
@@ -66,7 +69,7 @@ function toolchainOf(io: Io): Toolchain {
 function build(io: Io, module: WasmModule, toolchain: Toolchain, targetDir?: string): string {
   const env = {
     ...io.env,
-    CARGO_ENCODED_RUSTFLAGS: encodedRustflags(cargoHomeOf(io.env, io.home), io.repository, toolchain),
+    CARGO_ENCODED_RUSTFLAGS: encodedRustflags(cargoHomeOf(io.env, io.home, io.repository), io.repository, toolchain),
     ...(targetDir === undefined ? {} : { CARGO_TARGET_DIR: targetDir }),
   };
   let messages: string;
@@ -109,22 +112,28 @@ function reported(io: Io, action: () => number): number {
   }
 }
 
-/** Refuses the arguments of `command`, which takes none, with a usage error: exit code 2, or 0 when there are none. */
-function refusedArguments(io: Io, command: string, args: readonly string[]): number {
+/**
+ * Reads the arguments of `command`, which takes none but `help`: `undefined` when there
+ * are none, else its exit code, after printing `usage` on stdout for `help`, or one usage
+ * error naming the argument, made safe on one line and pointing to the help.
+ */
+function usage(io: Io, command: string, args: readonly string[], text: string): number | undefined {
   const [first] = args;
   if (first === undefined) {
+    return undefined;
+  }
+  if (first === "help" && args.length === 1) {
+    io.out(text);
     return 0;
   }
-  io.err(`error: ${command} takes no argument, not ${JSON.stringify(first)}`);
+  io.err(`error: ${oneLine(`${command} takes no argument but help, not "${first}"`)} (see: pnpm ${command} help)`);
   return 2;
 }
 
 /** `pnpm build:wasm`: builds `module` and copies it to its file in `dist`; returns the exit code. */
 export function buildMain(io: Io, args: readonly string[], dist: string, module: WasmModule): number {
-  const refused = refusedArguments(io, "build:wasm", args);
-  return refused !== 0
-    ? refused
-    : reported(io, () => {
+  const answered = usage(io, "build:wasm", args, `usage: pnpm build:wasm [help]\n  build the ${module.label} reproducibly into ${join(dist, module.file)}`);
+  return answered ?? reported(io, () => {
       const artifact = build(io, module, toolchainOf(io));
       onFiles(`create ${dist}`, () => {
         io.makeDirectory(dist);
@@ -145,13 +154,18 @@ export function buildMain(io: Io, args: readonly string[], dist: string, module:
  * exit code.
  */
 export function reproducibleMain(io: Io, args: readonly string[], module: WasmModule): number {
-  const refused = refusedArguments(io, "test:reproducible", args);
-  if (refused !== 0) {
-    return refused;
+  const answered = usage(
+    io,
+    "test:reproducible",
+    args,
+    `usage: pnpm test:reproducible [help]\n  build the ${module.label} twice, in two fresh target directories, and check that both builds are the same bytes, holding no path of this machine`,
+  );
+  if (answered !== undefined) {
+    return answered;
   }
   const dirs: string[] = [];
   const temporary = (side: string): string => {
-    const dir = onFiles("create a temporary directory", () => io.temporaryDirectory(`${module.package}-${side}-`));
+    const dir = onFiles(`create a temporary directory in ${io.temporaryRoot}`, () => io.temporaryDirectory(`${module.package}-${side}-`));
     dirs.push(dir);
     return dir;
   };
@@ -164,7 +178,7 @@ export function reproducibleMain(io: Io, args: readonly string[], module: WasmMo
     };
     const first = built(targets[0]);
     const second = built(targets[1]);
-    const paths = privatePaths(io.repository, cargoHomeOf(io.env, io.home), io.home, toolchain.sysroot);
+    const paths = privatePaths(io.repository, cargoHomeOf(io.env, io.home, io.repository), io.home, toolchain.sysroot);
     const problems = reproducibilityProblems(first, second, paths, module);
     if (problems.length > 0) {
       problems.forEach(io.out);
@@ -196,5 +210,17 @@ export function ignoreClosedReader(stream: { on: (event: "error", listener: (err
     if (why(error) !== "EPIPE") {
       fail(`error: cannot write to stdout: ${why(error)}`);
     }
+  });
+}
+
+/**
+ * Guards stdout for an entry point: a closed reader is harmless, and any other stream
+ * error is one `error:` line given to `err` (the entry point's stderr) and exit code 1,
+ * given to `exit` ({@link ignoreClosedReader}).
+ */
+export function guardStdout(stream: { on: (event: "error", listener: (error: Error) => void) => unknown }, err: (line: string) => void, exit: (code: number) => void): void {
+  ignoreClosedReader(stream, (line) => {
+    err(line);
+    exit(1);
   });
 }

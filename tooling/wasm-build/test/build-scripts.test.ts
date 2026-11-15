@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { describe, expect, test } from "vitest";
-import { buildMain, ignoreClosedReader, type Io, reproducibleMain } from "../src/cli.ts";
+import { buildMain, guardStdout, ignoreClosedReader, type Io, reproducibleMain } from "../src/cli.ts";
 import { cargoArgs, targetName, type WasmModule } from "../src/wasm.ts";
 
 /**
@@ -75,6 +75,7 @@ function fakeIo(
     },
     makeDirectory: (path) => log.push(`mkdir ${path}`),
     copy: (from, to) => log.push(`copy ${from} ${to}`),
+    temporaryRoot: "/tmp",
     temporaryDirectory: (prefix) => {
       made += 1;
       log.push(`temp ${prefix}`);
@@ -109,11 +110,27 @@ describe.each(MODULES)("build:wasm of the $label", (module) => {
     expect([out, err]).toStrictEqual([[], []]);
   });
 
-  test("refuses any argument with a usage error, and builds nothing", () => {
-    const { io, err, runs } = fakeIo(() => reported(artifact, module));
-    expect(buildMain(io, ["--help", "x"], "/pkg/dist", module)).toBe(2);
-    expect(err).toStrictEqual(['error: build:wasm takes no argument, not "--help"']);
-    expect(runs).toStrictEqual([]);
+  test("refuses any argument but help with a usage error made safe on one line, and builds nothing", () => {
+    for (const [args, quoted] of [
+      [["--help"], "--help"],
+      [["help", "x"], "help"],
+      [["a\u202eb\nc"], "a\\u{202e}b\\u{a}c"],
+    ] as const) {
+      const { io, out, err, runs } = fakeIo(() => reported(artifact, module));
+      expect(buildMain(io, args, "/pkg/dist", module), quoted).toBe(2);
+      expect([out, err], quoted).toStrictEqual([[], [`error: build:wasm takes no argument but help, not "${quoted}" (see: pnpm build:wasm help)`]]);
+      expect(runs).toStrictEqual([]);
+    }
+    const long = fakeIo(() => reported(artifact, module));
+    expect(buildMain(long.io, ["x".repeat(3000)], "/pkg/dist", module)).toBe(2);
+    expect(long.err[0]?.endsWith("… (see: pnpm build:wasm help)"), "cut short, its pointer kept").toBe(true);
+    expect(long.err[0]?.length).toBe("error: ".length + 1000 + " (see: pnpm build:wasm help)".length);
+  });
+
+  test("prints its usage for help, and builds nothing", () => {
+    const { io, out, err, runs } = fakeIo(() => reported(artifact, module));
+    expect(buildMain(io, ["help"], "/pkg/dist", module)).toBe(0);
+    expect([out, err, runs]).toStrictEqual([[`usage: pnpm build:wasm [help]\n  build the ${module.label} reproducibly into /pkg/dist/${module.file}`], [], []]);
   });
 
   test("remaps the Cargo home CARGO_HOME names", () => {
@@ -237,16 +254,23 @@ describe.each(MODULES)("test:reproducible of the $label", (module) => {
     expect(err).toStrictEqual([]);
   });
 
-  test("refuses any argument with a usage error, and creates nothing", () => {
-    const { io, log, err } = builds(new Uint8Array(), new Uint8Array());
-    expect(reproducibleMain(io, ["now"], module)).toBe(2);
-    expect([err, log]).toStrictEqual([['error: test:reproducible takes no argument, not "now"'], []]);
+  test("refuses any argument but help with a usage error, prints its usage for help, and creates nothing", () => {
+    const refused = builds(new Uint8Array(), new Uint8Array());
+    expect(reproducibleMain(refused.io, ["now"], module)).toBe(2);
+    expect([refused.err, refused.log]).toStrictEqual([['error: test:reproducible takes no argument but help, not "now" (see: pnpm test:reproducible help)'], []]);
+    const helped = builds(new Uint8Array(), new Uint8Array());
+    expect(reproducibleMain(helped.io, ["help"], module)).toBe(0);
+    expect([helped.out, helped.err, helped.log]).toStrictEqual([
+      [`usage: pnpm test:reproducible [help]\n  build the ${module.label} twice, in two fresh target directories, and check that both builds are the same bytes, holding no path of this machine`],
+      [],
+      [],
+    ]);
   });
 
   test("lists every problem on stdout, then fails with one error line", () => {
     // The standard library's sources, which the rust-src component installs in the
     // sysroot, outside the home directory here.
-    const leaking = new TextEncoder().encode(`panic at /src/repo/x.rs and /home/u/.cargo/y.rs and ${SYSROOT}/lib/rustlib/src/rust/library/core/src/str/pattern.rs`);
+    const leaking = new TextEncoder().encode(`panic at /src/repo/crates/x.rs and /home/u/.cargo/registry/y.rs and ${SYSROOT}/lib/rustlib/src/rust/library/core/src/str/pattern.rs`);
     const { io, out, err } = builds(leaking, new Uint8Array([1]));
     expect(reproducibleMain(io, [], module)).toBe(1);
     expect(out).toStrictEqual([
@@ -282,7 +306,7 @@ describe.each(MODULES)("test:reproducible of the $label", (module) => {
       },
     };
     expect(reproducibleMain(broken, [], module)).toBe(1);
-    expect(err).toStrictEqual(["error: cannot create a temporary directory: ENOENT"]);
+    expect(err).toStrictEqual(["error: cannot create a temporary directory in /tmp: ENOENT"]);
     expect(log).toStrictEqual([`temp ${module.package}-a-`, `remove ${dirA}`]);
   });
 
@@ -349,5 +373,23 @@ describe("ignoreClosedReader", () => {
     closed.fail(Object.assign(new Error("write EIO"), { code: "EIO" }));
     closed.fail(new Error("broken"));
     expect(failures).toStrictEqual(["error: cannot write to stdout: EIO", "error: cannot write to stdout: Error: broken"]);
+  });
+});
+
+describe("guardStdout", () => {
+  test("writes a stdout error on stderr and sets exit code 1, a closed reader apart", () => {
+    let listener: (error: Error) => void = () => undefined;
+    const stream = {
+      on: (_event: "error", added: (error: Error) => void) => {
+        listener = added;
+      },
+    };
+    const lines: string[] = [];
+    const codes: number[] = [];
+    guardStdout(stream, (line) => lines.push(line), (code) => codes.push(code));
+    listener(Object.assign(new Error("write EPIPE"), { code: "EPIPE" }));
+    expect([lines, codes]).toStrictEqual([[], []]);
+    listener(Object.assign(new Error("write EIO"), { code: "EIO" }));
+    expect([lines, codes]).toStrictEqual([["error: cannot write to stdout: EIO"], [1]]);
   });
 });

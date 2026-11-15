@@ -16,15 +16,16 @@ function run(script: string, args: readonly string[], env: Readonly<Record<strin
 }
 
 test("refuses an argument to either command with a usage error and exit code 2", () => {
-  expect(run("build-wasm.ts", ["--help"], {})).toStrictEqual({ status: 2, stdout: "", stderr: 'error: build:wasm takes no argument, not "--help"\n' });
-  expect(run("reproducible.ts", ["now"], {})).toStrictEqual({ status: 2, stdout: "", stderr: 'error: test:reproducible takes no argument, not "now"\n' });
+  expect(run("build-wasm.ts", ["--help"], {})).toStrictEqual({ status: 2, stdout: "", stderr: 'error: build:wasm takes no argument but help, not "--help" (see: pnpm build:wasm help)\n' });
+  expect(run("reproducible.ts", ["now"], {})).toStrictEqual({ status: 2, stdout: "", stderr: 'error: test:reproducible takes no argument but help, not "now" (see: pnpm test:reproducible help)\n' });
+  expect(run("build-wasm.ts", ["help"], {})).toMatchObject({ status: 0, stderr: "" });
 });
 
 test("explains a failure in one line and exit code 1, never a stack trace", () => {
   expect(run("reproducible.ts", [], { TMPDIR: "/nonexistent-directory-of-the-test" })).toStrictEqual({
     status: 1,
     stdout: "",
-    stderr: "error: cannot create a temporary directory: ENOENT\n",
+    stderr: "error: cannot create a temporary directory in /nonexistent-directory-of-the-test: ENOENT\n",
   });
   expect(run("build-wasm.ts", [], { PATH: "" })).toStrictEqual({
     status: 1,
