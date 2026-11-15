@@ -233,3 +233,65 @@ fn a_stage_without_channels_still_advances() {
         "the same start"
     );
 }
+
+#[test]
+fn tells_a_block_whole_finite_or_not_at_every_position() {
+    use crate::math::all_finite;
+    // Finite values a sum of the samples themselves would overflow, of every sign: the
+    // check must not add them.
+    let mut huge = [Binary64::new(f64::MAX); BLOCK_SIZE];
+    huge[1] = Binary64::new(-f64::MAX);
+    huge[2] = Binary64::new(-0.0);
+    huge[3] = Binary64::new(f64::from_bits(1));
+    assert!(all_finite(&huge), "finite, however large");
+    let narrow = [Binary32::from_raw(f32::MAX); BLOCK_SIZE];
+    assert!(all_finite(&narrow), "finite in binary32 too");
+    assert!(all_finite(&Binary64::SILENCE), "silence");
+    for position in [0, 7, 8, BLOCK_SIZE - 1] {
+        for value in NON_FINITE_64 {
+            let mut block = [Binary64::new(1.0); BLOCK_SIZE];
+            block[position] = Binary64::new(value);
+            assert!(!all_finite(&block), "{value:?} at {position}");
+        }
+        for value in NON_FINITE_32 {
+            let mut block = [Binary32::from_raw(1.0); BLOCK_SIZE];
+            block[position] = Binary32::from_raw(value);
+            assert!(!all_finite(&block), "{value:?} at {position}");
+        }
+    }
+}
+
+#[test]
+fn counts_a_sample_its_host_replaced_as_given_in_its_block() {
+    let mut stage = OutputStage::new();
+    let mut first = [Binary64::SILENCE];
+    stage.apply(&mut first);
+    let mut second = [Binary64::SILENCE];
+    stage.apply(&mut second);
+    // The block applied last starts at frame BLOCK_SIZE.
+    stage.note_given(5, 1);
+    stage.note_given(2, 3);
+    let start = u64::try_from(BLOCK_SIZE).expect("a frame count");
+    assert_eq!(
+        stage.replaced(),
+        Replaced {
+            count: 2,
+            first: Some(FirstReplaced {
+                frame: start + 2,
+                channel: 3
+            })
+        },
+        "counted from the first frame of the block applied last"
+    );
+    let mut saturated = OutputStage::new();
+    saturated.frame = u64::MAX;
+    saturated.note_given(usize::MAX, 0);
+    assert_eq!(
+        saturated.replaced().first,
+        Some(FirstReplaced {
+            frame: u64::MAX,
+            channel: 0
+        }),
+        "the frame saturates"
+    );
+}

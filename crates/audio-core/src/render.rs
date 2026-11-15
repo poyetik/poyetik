@@ -154,6 +154,13 @@ impl<S: Sample, I: Dispatch<S>> Renderer<S, I> {
                         *sample = D::deliver_unsummed(*value);
                     }
                 }
+                // Given in a narrower format, a finite sample can round to infinity: the
+                // stage replaces it as it is given (decision 12).
+                let given = rest.iter_mut().skip(offset).step_by(channels).take(count);
+                let used = self.used;
+                D::replace_overflowed(given, |index| {
+                    self.stage.note_given(used.saturating_add(index), offset);
+                });
             }
             self.used = self.used.saturating_add(count);
             rest = core::mem::take(&mut rest)

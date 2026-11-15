@@ -217,3 +217,65 @@ fn rejects_an_invalid_plan_in_every_format() {
         assert!(error.contains("nope~"), "{format}: {error}");
     }
 }
+
+#[test]
+fn gives_what_the_output_stage_replaced_as_four_words() {
+    use audio_core::{FirstReplaced, Replaced};
+    assert_eq!(
+        super::report_words(Replaced::default()),
+        [0, 0, 0, 0],
+        "nothing replaced"
+    );
+    assert_eq!(
+        super::report_words(Replaced {
+            count: 3,
+            first: Some(FirstReplaced {
+                frame: 0x0000_0002_0000_0007,
+                channel: 1,
+            }),
+        }),
+        [3, 7, 2, 1],
+        "the frame split in its low and high words"
+    );
+    assert_eq!(
+        super::report_words(Replaced {
+            count: u64::MAX,
+            first: Some(FirstReplaced {
+                frame: u64::MAX,
+                channel: usize::MAX,
+            }),
+        }),
+        [u32::MAX, u32::MAX, u32::MAX, u32::MAX],
+        "the count and the channel saturate, every bit of the frame kept"
+    );
+}
+
+#[test]
+fn reports_what_its_stage_replaced_as_it_was_given() {
+    // No built-in box gives a non-finite sample: the stage is fed one directly.
+    let mut engine =
+        Engine::new(SINE.as_bytes(), 48_000, RenderFormat::Binary64AsBinary32).expect("a sine");
+    let _first = engine.process();
+    let replaced = |reporting: &mut Engine| {
+        let pointer = reporting.replaced_report();
+        assert!(
+            core::ptr::eq(pointer, reporting.report.as_ptr()),
+            "its own words"
+        );
+        reporting.report
+    };
+    assert_eq!(
+        replaced(&mut engine),
+        [0, 0, 0, 0],
+        "a sine replaces nothing"
+    );
+    let mut block = [<Binary32 as audio_core::Sample>::SILENCE];
+    block[0][3] = Binary32::from_raw(f32::NAN);
+    engine.stage.apply(&mut block);
+    let frame = u32::try_from(BLOCK_SIZE).expect("a frame count") + 3;
+    assert_eq!(
+        replaced(&mut engine),
+        [1, frame, 0, 0],
+        "counted from the frame of its block"
+    );
+}

@@ -66,6 +66,13 @@ impl OutputStage {
     /// A block is first checked whole, in one tight pass; only a block holding a non-finite
     /// sample is then replaced and counted, so that a render without any pays the check
     /// alone.
+    #[expect(
+        clippy::inline_always,
+        reason = "inlined in every caller, the check of each block costs fewer instructions \
+                  per sample and the module is smaller: measured in spec/benchmarks.md, \
+                  The output stage"
+    )]
+    #[inline(always)]
     pub fn apply<S: Sample>(&mut self, blocks: &mut [Block<S>]) {
         for (channel, block) in blocks.iter_mut().enumerate() {
             if !all_finite(block) {
@@ -75,6 +82,24 @@ impl OutputStage {
         self.frame = self
             .frame
             .saturating_add(u64::try_from(BLOCK_SIZE).unwrap_or(u64::MAX));
+    }
+
+    /// Counts one more sample replaced, the sample at `offset` in the block applied last, of
+    /// channel `channel`: one its host was given as infinite though it was finite when
+    /// computed, by a rounding to a narrower format (a binary64 value beyond the largest
+    /// binary32 one, [`Delivered::replace_overflowed`](crate::host::Delivered::replace_overflowed)), which the host
+    /// replaced by zero as it gave it.
+    pub fn note_given(&mut self, offset: usize, channel: usize) {
+        // The block applied last starts a block before the next one: computed here, on the
+        // cold path, rather than kept by every block.
+        let block = self
+            .frame
+            .saturating_sub(u64::try_from(BLOCK_SIZE).unwrap_or(u64::MAX));
+        let offset = u64::try_from(offset).unwrap_or(u64::MAX);
+        self.replaced.note(FirstReplaced {
+            frame: block.saturating_add(offset),
+            channel,
+        });
     }
 
     /// Replaces every non-finite sample of `block`, of channel `channel`, and counts it.

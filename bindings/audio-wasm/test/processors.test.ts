@@ -2,7 +2,7 @@ import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { WasmEngine, givenAsBinary32 } from "../ts/engine.ts";
 import { ENGINE_PROCESSOR, MARKER_PERIOD, SOURCE_STOPPED, TAP_PROCESSOR } from "../ts/protocol.ts";
 import { Counted, created } from "./counted.ts";
-import { engineFunctions, handMadeBytes, PRECISION_NAMES, READY, SAMPLE_RATES, SILENT_PATCH, SINE_PATCH, UNKNOWN_BOX, wasmBytes } from "./fixtures.ts";
+import { engineFunctions, handMadeBytes, type HandMadeFunction, PRECISION_NAMES, READY, SAMPLE_RATES, SILENT_PATCH, SINE_PATCH, UNKNOWN_BOX, wasmBytes } from "./fixtures.ts";
 import { loadProcessors, processorClass, type ProcessorClass } from "./worklet.ts";
 
 /** The sample rate of the fake worklet scope, in hertz, restored after a test changes it. */
@@ -192,17 +192,12 @@ describe("engine processor", () => {
 describe("engine processor reports of replaced samples", () => {
   /**
    * The bytes of an engine module of one channel whose blocks sit at address 0, whose
-   * output stage reports a replaced count of 1, 2, 3… at each reading, its first sample at
+   * output stage reports a replaced count of 1, 2, 3… at each call of `engine_replaced`, its first sample at
    * frame 2^32 + 5 of channel 2; or, with `count` 0, nothing replaced.
    */
   function replacing(count: "counting" | 0): ArrayBuffer {
-    const answers: Readonly<Record<string, { readonly i32: number } | "counting">> = {
-      engine_process: { i32: 0 },
-      engine_replaced_count: count === 0 ? { i32: 0 } : count,
-      engine_replaced_frame_low: { i32: 5 },
-      engine_replaced_frame_high: { i32: 1 },
-      engine_replaced_channel: { i32: 2 },
-    };
+    const report = count === 0 ? { report: [0, 5, 1, 2] as const } : { report: [0, 5, 1, 2] as const, counting: true as const };
+    const answers: Readonly<Record<string, HandMadeFunction["body"]>> = { engine_process: { i32: 0 }, engine_replaced: report };
     return handMadeBytes({ memory: true, functions: engineFunctions().map((func) => ({ ...func, body: answers[func.name] ?? func.body })) }).buffer;
   }
 
@@ -219,13 +214,14 @@ describe("engine processor reports of replaced samples", () => {
     vi.stubGlobal("sampleRate", 256);
     const node = new (processor(ENGINE_PROCESSOR))({ processorOptions: { wasm: replacing("counting"), patch: SINE_PATCH, marker: false, precision: "binary64" } });
     const first = { frame: 2 ** 32 + 5, channel: 2 };
-    // Each reading of the count counts on: the processor reads it once per quantum.
+    // Each call counts on: the processor reads the count once per quantum (1, then 3, then 4),
+    // and the first sample once more when it tells (2, then 5).
     expect(node.process([], [[new Float32Array(128)]])).toBe(true);
     expect(node.port.posted).toStrictEqual([READY, { type: "replaced", replaced: { count: 1, first } }]);
     expect(node.process([], [[new Float32Array(128)]])).toBe(true);
     expect(node.port.posted).toHaveLength(2);
     expect(node.process([], [[new Float32Array(128)]])).toBe(true);
-    expect(node.port.posted).toStrictEqual([READY, { type: "replaced", replaced: { count: 1, first } }, { type: "replaced", replaced: { count: 3, first } }]);
+    expect(node.port.posted).toStrictEqual([READY, { type: "replaced", replaced: { count: 1, first } }, { type: "replaced", replaced: { count: 4, first } }]);
   });
 });
 

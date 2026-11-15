@@ -110,10 +110,7 @@ describe("CountedInstance", () => {
       engine_process: 0,
       engine_max_patch_bytes: 0,
       engine_subnormals: 0,
-      engine_replaced_count: 0,
-      engine_replaced_frame_low: 0,
-      engine_replaced_frame_high: 0,
-      engine_replaced_channel: 0,
+      engine_replaced: 0,
     };
     const stubbed = (arity: (name: string, expected: number) => number): (typeof version)[] =>
       Object.entries(arities).map(([name, expected]) => ({ params: arity(name, expected), result: true, locals: [0x00], code: [0x41, 0x01, 0x0b], exported: name }));

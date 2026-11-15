@@ -223,6 +223,8 @@ export class WasmEngine<A extends Samples> {
   readonly #layout: Layout;
   /** A view of the module memory as samples, renewed when the memory grows. */
   #memory: Samples;
+  /** A view of the module memory as bytes, renewed when the memory grows: the report of the output stage is read through it. */
+  #bytes: DataView;
   /**
    * Index in {@link WasmEngine.#memory} of the current block, planar; -1 before the first,
    * so that it builds the views. Always a small integer: a field once holding a fraction
@@ -301,6 +303,7 @@ export class WasmEngine<A extends Samples> {
       throw new ModuleError("engine_block_size returned 0: a block has at least one frame");
     }
     this.#memory = layout.view(exports.memory.buffer);
+    this.#bytes = new DataView(exports.memory.buffer);
     this.#position = this.#blockSize;
   }
 
@@ -385,34 +388,68 @@ export class WasmEngine<A extends Samples> {
 
   /**
    * How many non-finite samples the output stage replaced since the load, saturating at
-   * 2^32 - 1 (`engine_replaced_count`). Reading it allocates nothing: the audio thread reads
-   * it after every block.
+   * 2^32 - 1 (the first word of `engine_replaced`). Reading it allocates nothing: the
+   * audio thread reads it after every block.
+   * @throws {ModuleError} when the module places its report outside its memory; the
+   * engine is then dead.
    * @throws {EngineTrap} when the module traps, or failed before.
    */
   get replacedCount(): number {
-    return this.#call(this.#exports.replacedCount);
+    // The address first: the call may grow the memory, which renews the view.
+    const at = this.#report();
+    return this.#bytes.getUint32(at, true);
   }
 
   /**
-   * What the output stage replaced since the load: the count and the first sample (its
-   * frame from `engine_replaced_frame_high` and `engine_replaced_frame_low`, its channel).
-   * Allocates its result when something was replaced.
+   * What the output stage replaced since the load: the count and the first sample, read
+   * from one call of `engine_replaced`. Allocates its result when something was replaced.
+   * @throws {ModuleError} when the module places its report outside its memory.
    * @throws {EngineTrap} when the module traps, or failed before.
    */
   replaced(): Replaced {
-    const count = this.replacedCount;
-    return count === 0 ? NOTHING_REPLACED : { count, first: this.replacedFirst() };
+    const at = this.#report();
+    const count = this.#bytes.getUint32(at, true);
+    return count === 0 ? NOTHING_REPLACED : { count, first: this.#first(at) };
   }
 
   /**
-   * The first sample the output stage replaced, as the module tells it: its frame from
-   * `engine_replaced_frame_high` and `engine_replaced_frame_low`, its channel; frame 0 of
-   * channel 0 while none was (read {@link WasmEngine.replacedCount} first).
+   * The first sample the output stage replaced, as the module reports it (the words of
+   * `engine_replaced` after the count): its frame, from its low then its high 32 bits, and
+   * its channel; frame 0 of channel 0 while none was (read
+   * {@link WasmEngine.replacedCount} first).
+   * @throws {ModuleError} when the module places its report outside its memory.
    * @throws {EngineTrap} when the module traps, or failed before.
    */
   replacedFirst(): FirstReplaced {
-    const frame = this.#call(this.#exports.replacedFrameHigh) * 2 ** 32 + this.#call(this.#exports.replacedFrameLow);
-    return { frame, channel: this.#call(this.#exports.replacedChannel) };
+    return this.#first(this.#report());
+  }
+
+  /** The first sample replaced, from the report at byte address `at` ({@link WasmEngine.replacedFirst}). */
+  #first(at: number): FirstReplaced {
+    const frame = this.#bytes.getUint32(at + 8, true) * 2 ** 32 + this.#bytes.getUint32(at + 4, true);
+    return { frame, channel: this.#bytes.getUint32(at + 12, true) };
+  }
+
+  /**
+   * Where the module reports what its output stage replaced (`engine_replaced`): the byte
+   * address of four aligned words, checked to lie in its memory, whose view is renewed when
+   * it grew.
+   * @throws {ModuleError} when the address is unaligned or the words are outside the
+   * memory; the engine is then dead.
+   * @throws {EngineTrap} when the module traps, or failed before.
+   */
+  #report(): number {
+    // An i32 result reaches JavaScript signed: an address past 2^31 reads as negative.
+    const pointer = this.#call(this.#exports.replaced) >>> 0;
+    const buffer = this.#exports.memory.buffer;
+    if (this.#bytes.buffer !== buffer) {
+      this.#bytes = new DataView(buffer);
+    }
+    if (pointer % 4 !== 0 || pointer + 16 > buffer.byteLength) {
+      this.#dead = true;
+      throw new ModuleError(`engine_replaced returned the address ${String(pointer)}, unaligned or outside the memory`);
+    }
+    return pointer;
   }
 
   /**

@@ -283,7 +283,37 @@ static NON_FINITE: ObjectSpec = ObjectSpec::new::<NonFinite>(
     AlgorithmVersion::FIRST,
 );
 
-static REGISTRY: [&ObjectSpec; 9] = [
+/// Outputs the largest binary64 value at frames 2 and 5 of each block, its opposite at frame
+/// 6, and 1 elsewhere: finite, but infinite once rounded to binary32.
+#[derive(Debug)]
+struct Huge;
+impl<S: Sample> Object<S> for Huge {
+    fn process(&mut self, _inputs: &[Block<S>], outputs: &mut [Block<S>]) {
+        for output in outputs {
+            *output = [of::<S>(1.0); BLOCK_SIZE];
+            output[2] = of::<S>(f64::MAX);
+            output[5] = of::<S>(f64::MAX);
+            output[6] = of::<S>(-f64::MAX);
+        }
+    }
+}
+impl Create for Huge {
+    const PARAMS: &'static [ParamSpec] = &[];
+
+    fn create<S: Sample>(_rate: SampleRate, _params: Params<'_>) -> Box<dyn Object<S>> {
+        Box::new(Self)
+    }
+}
+static HUGE: ObjectSpec = ObjectSpec::new::<Huge>(
+    "huge~",
+    "finite samples beyond binary32",
+    &[],
+    &[PORT],
+    &[],
+    AlgorithmVersion::FIRST,
+);
+
+static REGISTRY: [&ObjectSpec; 10] = [
     &CONST,
     &RAMP,
     &ADD,
@@ -293,6 +323,7 @@ static REGISTRY: [&ObjectSpec; 9] = [
     &PASS,
     &LEVEL,
     &NON_FINITE,
+    &HUGE,
 ];
 
 fn rate() -> SampleRate {
@@ -809,6 +840,48 @@ fn replaces_and_reports_non_finite_samples_before_delivery<S: Bits>() {
         6 + 3,
         "the third block computed, for its first frames: counted when computed"
     );
+}
+
+#[test]
+fn replaces_what_a_narrower_format_makes_infinite_as_it_is_given() {
+    let plan = || {
+        build::<Binary64>(
+            vec![node(1, "ramp~"), node(2, "huge~"), node(3, "out~")],
+            vec![wire(1, 0, 3, 0), wire(2, 0, 3, 1)],
+        )
+        .expect("valid patch")
+    };
+    let mut narrow = Renderer::new(plan());
+    let given: Vec<f32> = narrow.render(BLOCK_SIZE + 8).expect("small render");
+    let right: Vec<f32> = given.iter().skip(1).step_by(2).copied().collect();
+    assert_eq!(
+        &right[..8],
+        &[1.0, 1.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0],
+        "the samples beyond binary32 given as +0, the others kept"
+    );
+    assert_eq!(&right[BLOCK_SIZE..], &right[..8], "in every block");
+    assert!(
+        right.iter().all(|sample| sample.is_finite()),
+        "no infinity given"
+    );
+    let left: Vec<f32> = given.iter().step_by(2).copied().collect();
+    assert_eq!(left[BLOCK_SIZE + 7], 71.0, "the other channel kept");
+    assert_eq!(
+        narrow.replaced(),
+        crate::Replaced {
+            count: 6,
+            first: Some(crate::FirstReplaced {
+                frame: 2,
+                channel: 1
+            })
+        },
+        "three per block given, from the frame they were given at"
+    );
+    // Given in its own precision, nothing is replaced: binary64 holds them.
+    let mut wide = Renderer::new(plan());
+    let kept: Vec<f64> = wide.render(8).expect("small render");
+    assert_eq!(kept[5], f64::MAX, "kept in binary64");
+    assert_eq!(wide.replaced(), crate::Replaced::default());
 }
 
 fn renders_nothing_for_zero_frames_or_channels<S: Bits>() {

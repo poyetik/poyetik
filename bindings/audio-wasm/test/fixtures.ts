@@ -183,11 +183,15 @@ export const FUNCTIONS = [
   "engine_process",
   "engine_max_patch_bytes",
   "engine_subnormals",
-  "engine_replaced_count",
-  "engine_replaced_frame_low",
-  "engine_replaced_frame_high",
-  "engine_replaced_channel",
+  "engine_replaced",
 ] as const;
+
+/**
+ * Where a hand-made module keeps the report of its output stage: four aligned words, away
+ * from the patch copied from address 1 and from the words its other bodies keep (1024 and
+ * 1032), zero until a `report` body writes them.
+ */
+export const REPORT_ADDRESS = 1040;
 
 /** Encodes a WebAssembly name. */
 function encodedName(text: string): number[] {
@@ -224,9 +228,19 @@ export interface HandMadeFunction {
    * (which one is kept at address 1024, away from the patch copied from address 1): a
    * block that moves without the memory growing; or `nan`: writes the binary32 NaN of
    * payload `NAN_BITS` at addresses 0 and 4, then returns 0; or `counting`: returns 1, 2,
-   * 3… on successive calls (the count kept at address 1032).
+   * 3… on successive calls (the count kept at address 1032); or `report`: writes its four
+   * words at {@link REPORT_ADDRESS}, the first counting on (1, 2, 3… on successive calls,
+   * from the word kept there) when `counting`, then returns that address.
    */
-  readonly body: { readonly i32: number } | "i64" | "trap" | "grow" | "alternate" | "nan" | "counting";
+  readonly body:
+    | { readonly i32: number }
+    | { readonly report: readonly [number, number, number, number]; readonly counting?: true }
+    | "i64"
+    | "trap"
+    | "grow"
+    | "alternate"
+    | "nan"
+    | "counting";
 }
 
 /** The arity of each engine export. */
@@ -239,18 +253,15 @@ const ANSWERS: Readonly<Record<string, number>> = {
   engine_max_patch_bytes: 0x10_00_00,
   // Every subnormal kept: IEEE arithmetic.
   engine_subnormals: 0b1111,
-  // Nothing replaced by the output stage.
-  engine_replaced_count: 0,
-  engine_replaced_frame_low: 0,
-  engine_replaced_frame_high: 0,
-  engine_replaced_channel: 0,
+  // The output stage's report, all zeros (nothing replaced) unless a body writes it.
+  engine_replaced: REPORT_ADDRESS,
 };
 
 /**
  * The engine functions with their arity, each returning `i32` 1 (or `body`), except the
  * interface version, which gives the expected one, the largest patch, a mebibyte, and the
- * subnormal arithmetic, IEEE (15), and the output stage's report, nothing replaced (0),
- * unless `body` is given.
+ * subnormal arithmetic, IEEE (15), and the output stage's report, at
+ * {@link REPORT_ADDRESS}, which holds nothing replaced, unless `body` is given.
  */
 export function engineFunctions(body?: HandMadeFunction["body"]): HandMadeFunction[] {
   return FUNCTIONS.map((name) => ({
@@ -308,8 +319,20 @@ export function handMadeBytes(options: HandMade): Uint8Array<ArrayBuffer> {
     // i32.const 1032, then the count at 1032 plus 1, stored there; then read back.
     const counting = [0x41, 0x88, 0x08, 0x41, 0x88, 0x08, 0x28, 0x02, 0x00, 0x41, 0x01, 0x6a, 0x36, 0x02, 0x00, 0x41, 0x88, 0x08, 0x28, 0x02, 0x00];
     const nan = [...[0x41, 0x00, 0x41, ...sleb128(NAN_BITS), 0x36, 0x02, 0x00], ...[0x41, 0x04, 0x41, ...sleb128(NAN_BITS), 0x36, 0x02, 0x00], 0x41, 0x00];
+    const store = (address: number, value: readonly number[]): number[] => [0x41, ...sleb128(address), ...value, 0x36, 0x02, 0x00];
+    const report = (body: { readonly report: readonly [number, number, number, number]; readonly counting?: true }): number[] => [
+      ...body.report.flatMap((word, index) =>
+        index === 0 && body.counting === true
+          ? store(REPORT_ADDRESS, [0x41, ...sleb128(REPORT_ADDRESS), 0x28, 0x02, 0x00, 0x41, 0x01, 0x6a])
+          : store(REPORT_ADDRESS + 4 * index, [0x41, ...sleb128(word)]),
+      ),
+      0x41,
+      ...sleb128(REPORT_ADDRESS),
+    ];
     const code =
-      func.body === "counting"
+      typeof func.body === "object" && "report" in func.body
+        ? report(func.body)
+        : func.body === "counting"
         ? counting
         : func.body === "nan"
         ? nan

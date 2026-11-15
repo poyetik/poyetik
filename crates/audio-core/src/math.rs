@@ -719,23 +719,26 @@ fn reduce<L: Summand, T: Borrow<L>>(
 /// Whether every sample of `block` is finite, decided once per block: the sum of every
 /// sample times zero is zero (of either sign) when every sample is finite, and NaN as soon
 /// as one is not (∞ × 0 and NaN × 0 are NaN, and NaN absorbs every sum), so that a block
-/// costs a product and a sum per sample and one decision.
-#[expect(
-    clippy::arithmetic_side_effects,
-    reason = "IEEE 754 arithmetic of the sample type, which neither overflows nor panics"
-)]
+/// costs a product and a sum per sample and one decision. Each product then sum is
+/// [`Sample::mul_then_add`], exact in every arithmetic mode (a product by zero is exact, so
+/// fusing it rounds nothing).
 pub(crate) fn all_finite<S: Sample>(block: &Block<S>) -> bool {
     // Eight at a time, each eight unrolled (a fixed length): their loads take constant
     // offsets, and the loop runs eight times less. A block is whole eights, so nothing is
     // left over.
-    const { assert!(BLOCK_SIZE.is_multiple_of(8), "a block is whole eights of samples") };
+    const {
+        assert!(
+            BLOCK_SIZE.is_multiple_of(8),
+            "a block is whole eights of samples"
+        );
+    };
     let (eights, _none) = block.as_chunks::<8>();
     eights
         .iter()
         .fold(S::ZERO, |sum, eight| {
             eight
                 .iter()
-                .fold(sum, |partial, sample| partial + *sample * S::ZERO)
+                .fold(sum, |partial, sample| sample.mul_then_add(S::ZERO, partial))
         })
         .is_finite()
 }
@@ -849,6 +852,20 @@ pub mod host {
         ///
         /// [`deliver`]: Delivered::deliver
         fn deliver_unsummed(sample: S) -> Self;
+
+        /// Replaces by zero each sample of `given` (samples given from ones the output stage
+        /// left finite) that is not finite, calling `replaced` with its index in `given`: only
+        /// a type narrower than `S` can make one so, rounding a binary64 value beyond the
+        /// largest binary32 one to infinity, and the stage then replaces it as it is given
+        /// (decision 12). A type as wide as `S` never does: it does nothing, and costs
+        /// nothing.
+        fn replace_overflowed<'given>(
+            _given: impl Iterator<Item = &'given mut Self>,
+            _replaced: impl FnMut(usize),
+        ) where
+            Self: 'given,
+        {
+        }
     }
 
     impl Delivered<Binary64> for f64 {
@@ -878,6 +895,20 @@ pub mod host {
 
         fn deliver_unsummed(sample: Binary64) -> Self {
             Self::deliver(sample)
+        }
+
+        fn replace_overflowed<'given>(
+            given: impl Iterator<Item = &'given mut Self>,
+            mut replaced: impl FnMut(usize),
+        ) where
+            Self: 'given,
+        {
+            for (index, sample) in given.enumerate() {
+                if !sample.is_finite() {
+                    *sample = Self::deliver(Binary64::ZERO);
+                    replaced(index);
+                }
+            }
         }
     }
 

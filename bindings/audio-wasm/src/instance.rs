@@ -5,7 +5,7 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use audio_core::{RenderFormat, Replaced};
+use audio_core::RenderFormat;
 
 use crate::{Blocks, Engine};
 
@@ -17,6 +17,9 @@ fn format_of(code: u32) -> Option<RenderFormat> {
         .ok()
         .and_then(|index| RenderFormat::ALL.get(index).copied())
 }
+
+/// The report of an instance without an engine: nothing replaced.
+static NOTHING_REPLACED: [u32; 4] = [0; 4];
 
 /// What one module instance holds: the input buffer JavaScript writes into, the loaded
 /// engine and the last error message.
@@ -105,13 +108,13 @@ impl Instance {
             .map_or(Blocks::Binary32(&[]), Engine::process)
     }
 
-    /// What the output stage of the loaded engine replaced since its first block; nothing
-    /// when no engine is loaded.
-    #[must_use]
-    pub fn replaced(&self) -> Replaced {
+    /// The address of what the output stage of the loaded engine replaced since its first
+    /// block, as four `u32` words ([`Engine::replaced_report`]); four zeros when no engine is
+    /// loaded.
+    pub fn replaced_report(&mut self) -> *const u32 {
         self.engine
-            .as_ref()
-            .map_or_else(Replaced::default, Engine::replaced)
+            .as_mut()
+            .map_or(NOTHING_REPLACED.as_ptr(), Engine::replaced_report)
     }
 }
 

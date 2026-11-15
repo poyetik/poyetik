@@ -2,7 +2,7 @@ import { describe, expect, test, vi } from "vitest";
 import { ABI_VERSION, EngineTrap, ModuleError, PatchError, RENDER_FORMATS, WasmEngine, givenAsBinary32, parsePrecision, subnormalArithmetic, type RenderFormat } from "../ts/engine.ts";
 import { interleave, interleave64, renderHash, STRICT } from "../ts/hash.ts";
 import { Counted, created } from "./counted.ts";
-import { CORPUS, IEEE_SUBNORMALS, engineFunctions, HOST_BUFFER_SIZES, FUNCTIONS, oscillators, PATCH_NAMES, PRECISION_NAMES, REFERENCES, SILENT_PATCH, SINE_PATCH, UNKNOWN_BOX, handMadeModule, NAN_BITS, reference, wasmBytes, type CorpusCase } from "./fixtures.ts";
+import { CORPUS, IEEE_SUBNORMALS, engineFunctions, HOST_BUFFER_SIZES, FUNCTIONS, oscillators, PATCH_NAMES, PRECISION_NAMES, REFERENCES, SILENT_PATCH, SINE_PATCH, UNKNOWN_BOX, handMadeModule, NAN_BITS, REPORT_ADDRESS, type HandMadeFunction, reference, wasmBytes, type CorpusCase } from "./fixtures.ts";
 
 /** The built engine module, compiled once and instantiated afresh by every test. */
 const module = new WebAssembly.Module(wasmBytes());
@@ -432,56 +432,73 @@ describe("WasmEngine", () => {
     expect(nothing.replaced()).toStrictEqual({ count: 0 });
     expect(Object.isFrozen(nothing.replaced())).toBe(true);
     expect(nothing.replaced()).toBe(nothing.replaced());
-    const answers: Readonly<Record<string, number>> = {
-      engine_replaced_count: -1,
-      engine_replaced_frame_low: -2,
-      engine_replaced_frame_high: 0x1f_ffff,
-      engine_replaced_channel: 7,
+    const reporting = (body: HandMadeFunction["body"]): WasmEngine<Float32Array> => {
+      const functions = engineFunctions().map((func) => (func.name === "engine_replaced" ? { ...func, body } : func));
+      return WasmEngine.create(handMadeModule({ memory: true, functions }), SINE_PATCH, RATE, "binary64-as-binary32");
     };
-    const functions = engineFunctions().map((func) => {
-      const answer = answers[func.name];
-      return answer === undefined ? func : { ...func, body: { i32: answer } };
-    });
-    const engine = WasmEngine.create(handMadeModule({ memory: true, functions }), SINE_PATCH, RATE, "binary64-as-binary32");
-    // Every word read as unsigned: the count 2^32 - 1, the frame the largest exact one, 2^53 - 2.
+    // Every word read as unsigned and little-endian: the count 2^32 - 1, the frame the largest exact one, 2^53 - 2.
+    const engine = reporting({ report: [-1, -2, 0x1f_ffff, 7] });
     expect(engine.replacedCount).toBe(0xffff_ffff);
     expect(engine.replacedFirst()).toStrictEqual({ frame: 2 ** 53 - 2, channel: 7 });
     expect(engine.replaced()).toStrictEqual({ count: 0xffff_ffff, first: { frame: 2 ** 53 - 2, channel: 7 } });
+    // Each word in its place.
+    const spread = reporting({ report: [3, 0x0102_0304, 2, 0x0506] });
+    expect(spread.replaced()).toStrictEqual({ count: 3, first: { frame: 2 * 2 ** 32 + 0x0102_0304, channel: 0x0506 } });
   });
 
-  test.each(["engine_replaced_count", "engine_replaced_frame_low", "engine_replaced_frame_high", "engine_replaced_channel"])(
-    "turns a trap of %s into an EngineTrap, and never calls the module again",
-    (name) => {
-      const answers: Readonly<Record<string, number>> = { engine_replaced_count: 1 };
-      const functions = engineFunctions().map((func) => {
-        if (func.name === name) {
-          return { ...func, body: "trap" as const };
-        }
-        const answer = answers[func.name];
-        return answer === undefined ? func : { ...func, body: { i32: answer } };
-      });
-      const engine = WasmEngine.create(handMadeModule({ memory: true, functions }), SINE_PATCH, RATE, "binary64-as-binary32");
-      const error = (() => {
-        try {
-          engine.replaced();
-        } catch (thrown) {
-          return thrown;
-        }
-        return undefined;
-      })();
-      expect(error).toBeInstanceOf(EngineTrap);
-      expect(error instanceof Error ? error.cause : undefined).toBeInstanceOf(WebAssembly.RuntimeError);
-      expect(() => engine.replacedCount).toThrow(new EngineTrap());
-      expect(() => {
-        engine.render([new Float32Array(1)]);
-      }).toThrow(EngineTrap);
-    },
-  );
+  test("reads the report wherever the module places it, after the memory grew", () => {
+    // engine_process grows the memory: the report, read after, is read from the memory as it is then.
+    const functions = engineFunctions().map((func) =>
+      func.name === "engine_process" ? { ...func, body: "grow" as const } : func.name === "engine_replaced" ? { ...func, body: { report: [4, 0, 0, 1] as const } } : func,
+    );
+    const engine = WasmEngine.create(handMadeModule({ memory: true, functions }), SINE_PATCH, RATE, "binary64-as-binary32");
+    engine.render([new Float32Array(1)]);
+    expect(engine.replaced()).toStrictEqual({ count: 4, first: { frame: 0, channel: 1 } });
+  });
+
+  test.each([
+    ["unaligned", REPORT_ADDRESS + 1],
+    ["its last word outside the memory", 65_536 - 12],
+    ["entirely outside the memory", 65_536],
+    ["negative, read as an unsigned address beyond the memory", -16],
+  ])("refuses a report %s, and stops calling the module", (_case, address) => {
+    const functions = engineFunctions().map((func) => (func.name === "engine_replaced" ? { ...func, body: { i32: address } } : func));
+    const engine = WasmEngine.create(handMadeModule({ memory: true, functions }), SINE_PATCH, RATE, "binary64-as-binary32");
+    const unsigned = address >>> 0;
+    expect(() => engine.replacedCount).toThrow(new ModuleError(`engine_replaced returned the address ${String(unsigned)}, unaligned or outside the memory`));
+    expect(() => engine.replacedCount).toThrow(new EngineTrap());
+  });
+
+  test("reads the last aligned report the memory holds", () => {
+    const functions = engineFunctions().map((func) => (func.name === "engine_replaced" ? { ...func, body: { i32: 65_536 - 16 } } : func));
+    const engine = WasmEngine.create(handMadeModule({ memory: true, functions }), SINE_PATCH, RATE, "binary64-as-binary32");
+    expect(engine.replaced()).toStrictEqual({ count: 0 });
+  });
+
+  test("turns a trap of engine_replaced into an EngineTrap, and never calls the module again", () => {
+    const functions = engineFunctions().map((func) => (func.name === "engine_replaced" ? { ...func, body: "trap" as const } : func));
+    const engine = WasmEngine.create(handMadeModule({ memory: true, functions }), SINE_PATCH, RATE, "binary64-as-binary32");
+    const error = (() => {
+      try {
+        engine.replaced();
+      } catch (thrown) {
+        return thrown;
+      }
+      return undefined;
+    })();
+    expect(error).toBeInstanceOf(EngineTrap);
+    expect(error instanceof Error ? error.cause : undefined).toBeInstanceOf(WebAssembly.RuntimeError);
+    expect(() => engine.replacedCount).toThrow(new EngineTrap());
+    expect(() => engine.replacedFirst()).toThrow(new EngineTrap());
+    expect(() => {
+      engine.render([new Float32Array(1)]);
+    }).toThrow(EngineTrap);
+  });
 
   test("lets another error of a report through, and stops calling the module", () => {
-    const functions = engineFunctions().map((func) => (func.name === "engine_replaced_count" ? { ...func, body: "i64" as const } : func));
+    const functions = engineFunctions().map((func) => (func.name === "engine_replaced" ? { ...func, body: "i64" as const } : func));
     const engine = WasmEngine.create(handMadeModule({ memory: true, functions }), SINE_PATCH, RATE, "binary64-as-binary32");
-    expect(() => engine.replacedCount).toThrow(new ModuleError("engine_replaced_count did not return a number"));
+    expect(() => engine.replacedCount).toThrow(new ModuleError("engine_replaced did not return a number"));
     expect(() => engine.replacedCount).toThrow(new EngineTrap());
   });
 

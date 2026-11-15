@@ -14,9 +14,8 @@
 //!
 //! At any time, [`engine_subnormals`] observes what the arithmetic of the calling thread
 //! does with subnormal numbers (a browser may run it in a hardware flush mode), and
-//! [`engine_replaced_count`], [`engine_replaced_frame_low`], [`engine_replaced_frame_high`]
-//! and [`engine_replaced_channel`] tell what the output stage replaced since the load: how
-//! many non-finite samples, and the first of them (`spec/engine-design.md`, decision 12).
+//! [`engine_replaced`] locates what the output stage replaced since the load: how many
+//! non-finite samples, and the first of them (`spec/engine-design.md`, decision 12).
 //!
 //! Every pointer is valid only until the next call: the caller copies what it needs
 //! and never keeps a view of the memory across calls, which may grow it.
@@ -40,7 +39,7 @@
 
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
-use audio_core::{BLOCK_SIZE, Replaced, SubnormalArithmetic};
+use audio_core::{BLOCK_SIZE, SubnormalArithmetic};
 
 use crate::Instance;
 
@@ -156,49 +155,15 @@ pub extern "C" fn engine_subnormals() -> u32 {
     subnormals_code(SubnormalArithmetic::observe())
 }
 
-/// How many non-finite samples the output stage of the loaded engine replaced since the
-/// load, saturating at `u32::MAX`; 0 when none was, or none is loaded.
+/// Address of what the output stage of the loaded engine replaced since the load, as four
+/// `u32` words (`spec/engine-design.md`, decision 12).
+///
+/// The words: how many non-finite samples (saturating at `u32::MAX`), the low then the high
+/// 32 bits of the frame of the first, and its channel; four zeros when none was, or none is
+/// loaded.
 #[unsafe(no_mangle)]
-pub extern "C" fn engine_replaced_count() -> u32 {
-    replaced_words(instance().replaced())[0]
-}
-
-/// The low 32 bits of the frame of the first sample replaced (the earliest frame, then the
-/// lowest channel), counted from the first frame after the load; 0 when none was.
-#[unsafe(no_mangle)]
-pub extern "C" fn engine_replaced_frame_low() -> u32 {
-    replaced_words(instance().replaced())[1]
-}
-
-/// The high 32 bits of the frame of [`engine_replaced_frame_low`]; 0 when none was.
-#[unsafe(no_mangle)]
-pub extern "C" fn engine_replaced_frame_high() -> u32 {
-    replaced_words(instance().replaced())[2]
-}
-
-/// The channel of the first sample replaced, saturating at `u32::MAX`; 0 when none was.
-#[unsafe(no_mangle)]
-pub extern "C" fn engine_replaced_channel() -> u32 {
-    replaced_words(instance().replaced())[3]
-}
-
-/// `replaced` as the four words of the interface: the count and the channel saturating at
-/// `u32::MAX`, the frame split in its low and high 32 bits; the first sample's words 0 when
-/// none was replaced.
-fn replaced_words(replaced: Replaced) -> [u32; 4] {
-    let saturated = |value: u64| u32::try_from(value).unwrap_or(u32::MAX);
-    let (frame, channel) = replaced.first.map_or((0, 0), |first| {
-        (
-            first.frame,
-            u64::try_from(first.channel).unwrap_or(u64::MAX),
-        )
-    });
-    [
-        saturated(replaced.count),
-        saturated(frame & u64::from(u32::MAX)),
-        saturated(frame >> 32_u32),
-        saturated(channel),
-    ]
+pub extern "C" fn engine_replaced() -> *const u32 {
+    instance().replaced_report()
 }
 
 /// `arithmetic` written as four bits, each set when subnormals are kept: 1 binary32

@@ -68,8 +68,11 @@ pub struct Engine {
     channels: usize,
     /// The plan and its buffers.
     rendering: Rendering,
-    /// The output stage every block passes before it is given.
+    /// The output stage every block passes as it is given.
     stage: OutputStage,
+    /// What the stage replaced, as the four words of the C interface
+    /// ([`Engine::replaced_report`]).
+    report: [u32; 4],
 }
 
 /// Builds the plan of `patch` at `rate`, computing in `S`.
@@ -130,6 +133,7 @@ impl Engine {
             channels,
             rendering,
             stage: OutputStage::new(),
+            report: [0; 4],
         })
     }
 
@@ -139,18 +143,23 @@ impl Engine {
         self.channels
     }
 
-    /// What the output stage replaced since the first block: the non-finite samples, each
-    /// given as zero.
-    #[must_use]
-    pub const fn replaced(&self) -> Replaced {
-        self.stage.replaced()
+    /// The address of what the output stage replaced since the first block (the non-finite
+    /// samples, each given as zero), as four `u32` words: the count and the channel of the
+    /// first sample saturating at `u32::MAX`, its frame in its low then its high 32 bits, the
+    /// first sample's words 0 while none was replaced. Valid until the next call into the
+    /// engine.
+    pub fn replaced_report(&mut self) -> *const u32 {
+        self.report = report_words(self.stage.replaced());
+        self.report.as_ptr()
     }
 
     /// Renders the next block and returns it, one block per output channel, in the render
-    /// format, after the output stage ([`OutputStage`]: a non-finite sample replaced by
-    /// zero and reported, [`Engine::replaced`]), each sample given as [`Delivered`] gives it: a binary64 render given as
-    /// binary32 is rounded sample by sample, and no sample is subnormal in the format given
-    /// (delivery is a flush point, `spec/engine-design.md`, decision 11). A binary64 or
+    /// format, each sample given as [`Delivered`] gives it, through the output stage
+    /// ([`OutputStage`]: a non-finite sample replaced by zero and reported,
+    /// [`Engine::replaced_report`]): a binary64 render given as binary32 is rounded sample by
+    /// sample, then passes the stage, since the rounding can make a finite sample infinite;
+    /// and no sample is subnormal in the format given (delivery is a flush point,
+    /// `spec/engine-design.md`, decision 11). A binary64 or
     /// binary32 block is handed over in place, only its channels that are sums flushed
     /// ([`Plan::flush_sums`]), where flushing could change a bit.
     ///
@@ -165,12 +174,14 @@ impl Engine {
             }
             Rendering::Binary64AsBinary32 { plan, out, given } => {
                 plan.process(out);
-                self.stage.apply(out);
                 for (narrow, wide) in given.iter_mut().zip(out.iter()) {
                     for (sample, value) in narrow.iter_mut().zip(wide) {
                         *sample = Binary32::from_raw(<f32 as Delivered<Binary64>>::deliver(*value));
                     }
                 }
+                // Applied as given: a finite binary64 sample beyond the largest binary32 one
+                // is infinite once rounded, and replaced too.
+                self.stage.apply(given);
                 Blocks::Binary32(given)
             }
             Rendering::Binary32 { plan, out } => {
@@ -181,6 +192,26 @@ impl Engine {
             }
         }
     }
+}
+
+/// `replaced` as the four words of the C interface (`engine_replaced`): the count and the
+/// channel of the first sample saturating at `u32::MAX`, its frame in its low then its high
+/// 32 bits; the first sample's words 0 while none was replaced.
+#[must_use]
+pub(crate) fn report_words(replaced: Replaced) -> [u32; 4] {
+    let saturated = |value: u64| u32::try_from(value).unwrap_or(u32::MAX);
+    let (frame, channel) = replaced.first.map_or((0, 0), |first| {
+        (
+            first.frame,
+            u64::try_from(first.channel).unwrap_or(u64::MAX),
+        )
+    });
+    [
+        saturated(replaced.count),
+        saturated(frame & u64::from(u32::MAX)),
+        saturated(frame >> 32_u32),
+        saturated(channel),
+    ]
 }
 
 #[cfg(test)]

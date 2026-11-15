@@ -35,14 +35,8 @@ export interface Exports {
   readonly maxPatchBytes: Exported0;
   /** `engine_subnormals()`: what the arithmetic of the calling thread does with subnormals, observed now, as four bits (see `subnormalArithmetic` in `engine.ts`). */
   readonly subnormals: Exported0;
-  /** `engine_replaced_count()`: how many non-finite samples the output stage replaced since the load, saturating at 2^32 - 1. */
-  readonly replacedCount: Exported0;
-  /** `engine_replaced_frame_low()`: the low 32 bits of the frame of the first sample replaced; 0 when none was. */
-  readonly replacedFrameLow: Exported0;
-  /** `engine_replaced_frame_high()`: the high 32 bits of that frame; 0 when none was. */
-  readonly replacedFrameHigh: Exported0;
-  /** `engine_replaced_channel()`: the channel of the first sample replaced; 0 when none was. */
-  readonly replacedChannel: Exported0;
+  /** `engine_replaced()`: the byte address of four little-endian `u32` words, what the output stage replaced since the load: the count (saturating at 2^32 - 1), the low then the high 32 bits of the frame of the first, its channel; zeros while none was. */
+  readonly replaced: Exported0;
 }
 
 /**
@@ -131,9 +125,6 @@ export function readExports(exports: WebAssembly.Exports): Exports {
     process: exported0(exports, "engine_process"),
     maxPatchBytes: exported0(exports, "engine_max_patch_bytes"),
     subnormals: exported0(exports, "engine_subnormals"),
-    replacedCount: exported0(exports, "engine_replaced_count"),
-    replacedFrameLow: exported0(exports, "engine_replaced_frame_low"),
-    replacedFrameHigh: exported0(exports, "engine_replaced_frame_high"),
-    replacedChannel: exported0(exports, "engine_replaced_channel"),
+    replaced: exported0(exports, "engine_replaced"),
   };
 }
