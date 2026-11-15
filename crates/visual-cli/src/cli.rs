@@ -150,7 +150,7 @@ fn case_files(files: &mut dyn Files, dir: &Path) -> Result<Vec<(String, PathBuf)
 }
 
 /// The renders of a directory's cases: the hash of each case that renders, by case name, and
-/// each case that cannot be rendered with why, in name order.
+/// each case that cannot be rendered with why, in the order of their files' paths.
 type Renders = (BTreeMap<String, String>, Vec<(String, String)>);
 
 /// The renders of every case of `<dir>/cases`, by case name (the file name without `.json`).
@@ -204,6 +204,23 @@ fn say(out: &mut dyn Write, line: &str) -> Result<(), CliError> {
         .map_err(|error| CliError::Failed(format!("cannot write to stdout: {error}")))
 }
 
+/// The command that rewrites the references of `dir`, as a user types it from the
+/// repository: `visual-cli` is no installed program, so the hint names cargo, and `dir` is
+/// quoted for a shell when it holds anything but letters, digits and `_./-`.
+pub(crate) fn bless_command(dir: &Path) -> String {
+    let text = dir.display().to_string();
+    let plain = !text.is_empty()
+        && text
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"_./-".contains(&byte));
+    let quoted = if plain {
+        text
+    } else {
+        format!("'{}'", text.replace('\'', "'\\''"))
+    };
+    format!("cargo run -p visual-cli -- bless {quoted}")
+}
+
 /// The references file of `hashes`, exactly as `visual-cli bless` writes it: a JSON object
 /// of case names to hashes, in name order, indented, ending with a newline.
 fn references_text(hashes: &BTreeMap<String, String>) -> String {
@@ -220,7 +237,8 @@ fn references_text(hashes: &BTreeMap<String, String>) -> String {
 /// to be restored, never rewritten from the renders: that would take in any change of the
 /// renders, and no reference would show it. A file that cannot be read says what would
 /// help only where it would: restoring a file too large or not text, restoring or blessing a
-/// missing one beside readable cases; nothing for a missing directory or an unreadable file.
+/// missing one beside cases bless can render from; nothing for a directory without a case
+/// or an unreadable file.
 fn references(files: &mut dyn Files, dir: &Path) -> Result<BTreeMap<String, String>, CliError> {
     let file = dir.join("references.json");
     let restore = |why: &str| {
@@ -234,10 +252,10 @@ fn references(files: &mut dyn Files, dir: &Path) -> Result<BTreeMap<String, Stri
         let kind = error.kind();
         let hint = if kind == ErrorKind::FileTooLarge || kind == ErrorKind::InvalidData {
             ": restore it from git".to_owned()
-        } else if kind == ErrorKind::NotFound && files.list(&dir.join("cases")).is_ok() {
+        } else if kind == ErrorKind::NotFound && case_files(files, dir).is_ok() {
             format!(
-                ": restore it from git, or write the references of a new directory with `visual-cli bless {}`",
-                dir.display()
+                ": restore it from git, or write the references of a new directory with `{}`",
+                bless_command(dir)
             )
         } else {
             String::new()
@@ -298,8 +316,8 @@ fn check(files: &mut dyn Files, dir: &Path, out: &mut dyn Write) -> Result<(), C
         )))
     } else {
         Err(CliError::Failed(format!(
-            "{problems} problem(s), listed above; when the renders are meant to change, `visual-cli bless {}` rewrites the references",
-            dir.display()
+            "{problems} problem(s), listed above; when the renders are meant to change, `{}` rewrites the references",
+            bless_command(dir)
         )))
     }
 }
@@ -325,7 +343,7 @@ fn bless(files: &mut dyn Files, dir: &Path, out: &mut dyn Write) -> Result<(), C
     say(
         out,
         &format!(
-            "{} {} references to {}",
+            "{} {} reference(s) to {}",
             Status::Wrote,
             hashes.len(),
             file.display()
