@@ -22,20 +22,20 @@ fn replaced(from: &str, to: &str) -> String {
 fn reads_every_value_of_a_valid_case() {
     let case = parse_case(SMALL).expect("a valid case");
     let rate = ImageRate::new(24_000, 1001).expect("a valid rate");
-    assert_eq!(case.rate(), rate, "rate");
+    assert_eq!(case.rate, rate, "rate");
     assert_eq!(
-        case.size(),
+        case.size,
         ImageSize::new(17, 9).expect("a valid size"),
         "size"
     );
     assert_eq!(
-        case.range(),
+        case.range,
         ImageRange::new(ImageIndex(3), 5).expect("a valid range"),
         "images"
     );
     let cycle = Seconds::new(1001, 1000).expect("a valid cycle");
     assert_eq!(
-        case.square(),
+        case.square,
         Square::new(rate, 40_000, cycle).expect("a valid square"),
         "square"
     );
@@ -154,7 +154,7 @@ fn refuses_what_is_not_a_case_object_with_the_reader_s_reason() {
                 "{\"side\": 40000, \"cycle\": [1001, 1000]}",
                 "[40000, [1001, 1000]]",
             ),
-            "invalid type: sequence, expected a JSON object at line 2 column 12",
+            "square: invalid type: sequence, expected a JSON object at line 2 column 12",
         ),
         (
             replaced("\"first\": 3", "\"extra\": 1, \"first\": 3"),
@@ -166,11 +166,11 @@ fn refuses_what_is_not_a_case_object_with_the_reader_s_reason() {
         ),
         (
             replaced("\"side\": 40000", "\"side\": 40000, \"side\": 1"),
-            "duplicate field `side` at line 2 column 34",
+            "square: duplicate field `side` at line 2 column 34",
         ),
         (
             replaced("\"first\": 3", "\"first\": -0"),
-            "invalid type: floating point `-0.0`, expected u64 at line 1 column 61",
+            "first: invalid type: floating point `-0.0`, expected u64 at line 1 column 61",
         ),
         (
             replaced("\"height\": 9, ", ""),
@@ -223,7 +223,7 @@ fn accepts_a_sequence_ending_at_the_largest_index_only() {
     };
     for (first, images) in [(u64::MAX, 1), (u64::MAX - 4, 5), (0, MAX_IMAGES)] {
         assert_eq!(
-            parse_case(&at(first, images)).map(|case| case.range()),
+            parse_case(&at(first, images)).map(|case| case.range),
             Ok(ImageRange::new(ImageIndex(first), images).expect("a valid range")),
             "{images} images from {first}"
         );

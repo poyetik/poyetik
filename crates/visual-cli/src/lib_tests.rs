@@ -321,7 +321,9 @@ fn reports_every_case_that_differs_from_its_reference() {
     assert_eq!(
         outcome,
         Err(CliError::Failed(
-            "3 of the visual cases do not match their references, listed above".to_owned()
+            "3 problem(s), listed above; when the renders are meant to change, `visual-cli bless \
+             d` rewrites the references"
+                .to_owned()
         )),
         "every problem counted"
     );
@@ -366,10 +368,13 @@ fn reports_every_case_that_differs_from_its_reference() {
 #[test]
 fn reads_the_references_only_as_bless_writes_them() {
     let blessed = blessed();
-    let rewrite = Err(CliError::Failed(
-        "d/references.json is not as `visual-cli bless d` writes it: rewrite it with that command"
-            .to_owned(),
-    ));
+    let restore = |why: &str| {
+        Err(CliError::Failed(format!(
+            "d/references.json is not as `visual-cli bless d` writes it ({why}): restore it from \
+             git; bless rewrites it from the current renders, only when they are meant to change"
+        )))
+    };
+    let rewrite = restore("a name written twice, or another layout or order");
     for (references, what) in [
         (blessed.trim_end().to_owned(), "without its last newline"),
         (blessed.replace("  ", "\t"), "indented otherwise"),
@@ -399,11 +404,7 @@ fn reads_the_references_only_as_bless_writes_them() {
     ] {
         assert_eq!(
             run_with(&mut corpus(references), &["check", "d"]).0,
-            Err(CliError::Failed(format!(
-                "d/references.json is not a JSON object of case names to hashes ({reason}): restore \
-                 it from git (`visual-cli bless d` rewrites it from the current renders, only \
-                 when they are meant to change)"
-            ))),
+            restore(reason),
             "{references}: restored, not rewritten"
         );
     }
@@ -412,7 +413,9 @@ fn reads_the_references_only_as_bless_writes_them() {
     assert_eq!(
         run_with(&mut unreadable, &["check", "d"]).0,
         Err(CliError::Failed(
-            "cannot read d/references.json: unreadable".to_owned()
+            "cannot read d/references.json: unreadable: restore it from git, or write the \
+             references of a new directory with `visual-cli bless d`"
+                .to_owned()
         )),
         "an unreadable file"
     );
@@ -420,7 +423,8 @@ fn reads_the_references_only_as_bless_writes_them() {
     assert_eq!(
         run_with(&mut corpus(&large), &["check", "d"]).0,
         Err(CliError::Failed(format!(
-            "cannot read d/references.json: larger than {MAX_REFERENCES_BYTES} bytes"
+            "cannot read d/references.json: larger than {MAX_REFERENCES_BYTES} bytes: restore it \
+             from git, or write the references of a new directory with `visual-cli bless d`"
         ))),
         "a file past the limit"
     );
@@ -436,8 +440,9 @@ fn reads_a_references_file_of_one_mebibyte_and_no_more() {
     assert_eq!(
         run_with(&mut corpus(&written), &["check", "d"]).0,
         Err(CliError::Failed(
-            "d/references.json is not as `visual-cli bless d` writes it: rewrite it with that \
-             command"
+            "d/references.json is not as `visual-cli bless d` writes it (a name written twice, \
+             or another layout or order): restore it from git; bless rewrites it from the \
+             current renders, only when they are meant to change"
                 .to_owned()
         )),
         "read whole, then refused for its layout only"
@@ -446,7 +451,8 @@ fn reads_a_references_file_of_one_mebibyte_and_no_more() {
     assert_eq!(
         run_with(&mut corpus(&written), &["check", "d"]).0,
         Err(CliError::Failed(format!(
-            "cannot read d/references.json: larger than {} bytes",
+            "cannot read d/references.json: larger than {} bytes: restore it from git, or write \
+             the references of a new directory with `visual-cli bless d`",
             1_048_576_usize
         ))),
         "one byte more"
@@ -457,6 +463,15 @@ fn reads_a_references_file_of_one_mebibyte_and_no_more() {
 fn refuses_a_corpus_it_cannot_read_whole() {
     assert_eq!(
         run_with(&mut Memory::default(), &["check", "d"]).0,
+        Err(CliError::Failed(
+            "cannot read d/references.json: no such file: restore it from git, or write the \
+             references of a new directory with `visual-cli bless d`"
+                .to_owned()
+        )),
+        "no references, read first"
+    );
+    assert_eq!(
+        run_with(&mut Memory::default(), &["bless", "d"]).0,
         Err(CliError::Failed(
             "cannot list d/cases: no such directory".to_owned()
         )),
@@ -496,19 +511,41 @@ fn refuses_a_corpus_it_cannot_read_whole() {
             .files
             .insert(PathBuf::from("d/cases/broken.json"), b"{}".to_vec()),
     );
+    let (outcome, said) = run_with(&mut broken, &["check", "d"]);
     assert_eq!(
-        run_with(&mut broken, &["check", "d"]).0,
+        (outcome, said),
+        (
+            Err(CliError::Failed(
+                "1 problem(s), listed above; when the renders are meant to change, `visual-cli \
+                 bless d` rewrites the references"
+                    .to_owned()
+            )),
+            format!(
+                "FAILED   d/cases/broken.json: missing field `rate` at line 1 column 2\nok       \
+                 other {}\nok       small {}\n",
+                hash(OTHER),
+                hash(SMALL)
+            )
+        ),
+        "an invalid case, named on its line, and every other case still checked"
+    );
+    assert_eq!(
+        run_with(&mut broken, &["bless", "d"]).0,
         Err(CliError::Failed(
             "d/cases/broken.json: missing field `rate` at line 1 column 2".to_owned()
         )),
-        "an invalid case, named"
+        "bless writes nothing when a case cannot be rendered"
     );
 }
 
 #[test]
 fn says_when_the_cases_directory_holds_no_case() {
     for command in ["check", "bless"] {
-        let mut memory = Memory::with(&[("d/cases/.DS_Store", "x"), ("d/cases/notes.txt", "x")]);
+        let mut memory = Memory::with(&[
+            ("d/cases/.DS_Store", "x"),
+            ("d/cases/notes.txt", "x"),
+            ("d/references.json", "{}\n"),
+        ]);
         assert_eq!(
             run_with(&mut memory, &[command, "d"]).0,
             Err(CliError::Failed("no case in d/cases".to_owned())),
@@ -719,15 +756,15 @@ const INVALID_CORPUS: &[(&str, &str)] = &[
     ),
     (
         "first-above-u64",
-        "invalid type: floating point `1.8446744073709552e+19`, expected u64 at line 5 column 31",
+        "first: invalid type: floating point `1.8446744073709552e+19`, expected u64 at line 5 column 31",
     ),
     (
         "first-negative-zero",
-        "invalid type: floating point `-0.0`, expected u64 at line 5 column 13",
+        "first: invalid type: floating point `-0.0`, expected u64 at line 5 column 13",
     ),
     (
         "first-negative",
-        "invalid value: integer `-1`, expected u64 at line 5 column 13",
+        "first: invalid value: integer `-1`, expected u64 at line 5 column 13",
     ),
     (
         "height-above-16384",
@@ -753,15 +790,15 @@ const INVALID_CORPUS: &[(&str, &str)] = &[
     ),
     (
         "number-as-string",
-        "invalid type: string \"4\", expected u32 at line 3 column 14",
+        "width: invalid type: string \"4\", expected u32 at line 3 column 14",
     ),
     (
         "number-with-exponent",
-        "invalid type: floating point `4.0`, expected u32 at line 3 column 14",
+        "width: invalid type: floating point `4.0`, expected u32 at line 3 column 14",
     ),
     (
         "number-with-fraction",
-        "invalid type: floating point `2.0`, expected u64 at line 6 column 15",
+        "images: invalid type: floating point `2.0`, expected u64 at line 6 column 15",
     ),
     (
         "rate-above-1000-per-second",
@@ -777,7 +814,7 @@ const INVALID_CORPUS: &[(&str, &str)] = &[
     ),
     (
         "rate-not-a-pair",
-        "invalid length 1, expected an array of length 2 at line 2 column 14",
+        "rate: invalid length 1, expected an array of length 2 at line 2 column 14",
     ),
     (
         "rate-not-reduced",
@@ -789,15 +826,15 @@ const INVALID_CORPUS: &[(&str, &str)] = &[
     ),
     (
         "side-negative-zero",
-        "invalid type: floating point `-0.0`, expected u32 at line 7 column 24",
+        "square: side: invalid type: floating point `-0.0`, expected u32 at line 7 column 24",
     ),
     (
         "square-as-an-array",
-        "invalid type: sequence, expected a JSON object at line 7 column 12",
+        "square: invalid type: sequence, expected a JSON object at line 7 column 12",
     ),
     (
         "square-field-written-twice",
-        "duplicate field `side` at line 7 column 35",
+        "square: duplicate field `side` at line 7 column 35",
     ),
     (
         "too-many-pixels-rendered",
@@ -809,11 +846,11 @@ const INVALID_CORPUS: &[(&str, &str)] = &[
     ),
     (
         "unknown-square-field",
-        "unknown field `color`, expected `side` or `cycle` at line 7 column 36",
+        "square: unknown field `color`, expected `side` or `cycle` at line 7 column 36",
     ),
     (
         "value-above-u32",
-        "invalid value: integer `4294967296`, expected u32 at line 7 column 32",
+        "square: side: invalid value: integer `4294967296`, expected u32 at line 7 column 32",
     ),
     (
         "width-0",

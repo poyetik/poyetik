@@ -200,49 +200,60 @@ fn references_text(hashes: &BTreeMap<String, String>) -> String {
 
 /// Reads the references of `dir`, only exactly as `visual-cli bless` writes them.
 ///
-/// A file that is not a JSON object of names to hashes is to be restored, not rewritten:
-/// rewriting it from the current renders would also take in any change of the renders.
+/// A file written otherwise (not JSON, a name written twice, another layout or order) is
+/// to be restored, never rewritten from the renders: that would take in any change of the
+/// renders, and no reference would show it.
 fn references(files: &mut dyn Files, dir: &Path) -> Result<BTreeMap<String, String>, CliError> {
     let file = dir.join("references.json");
-    let text = read(files, &file, MAX_REFERENCES_BYTES)?;
-    let references: BTreeMap<String, String> = serde_json::from_str(&text).map_err(|error| {
+    let restore = |why: &str| {
         CliError::Failed(format!(
-            "{} is not a JSON object of case names to hashes ({error}): restore it from git (`visual-cli bless {}` rewrites it from the current renders, only when they are meant to change)",
+            "{} is not as `visual-cli bless {}` writes it ({why}): restore it from git; bless rewrites it from the current renders, only when they are meant to change",
+            file.display(),
+            dir.display()
+        ))
+    };
+    let text = files.read(&file, MAX_REFERENCES_BYTES).map_err(|error| {
+        CliError::Failed(format!(
+            "cannot read {}: {error}: restore it from git, or write the references of a new directory with `visual-cli bless {}`",
             file.display(),
             dir.display()
         ))
     })?;
+    let references: BTreeMap<String, String> =
+        serde_json::from_str(&text).map_err(|error| restore(&error.to_string()))?;
     if references_text(&references) == text {
         Ok(references)
     } else {
-        Err(CliError::Failed(format!(
-            "{} is not as `visual-cli bless {}` writes it: rewrite it with that command",
-            file.display(),
-            dir.display()
-        )))
+        Err(restore("a name written twice, or another layout or order"))
     }
 }
 
-/// Compares the renders of `dir` with its references.
+/// Compares the render of every case of `dir` with its reference, listing every problem:
+/// a case that cannot be rendered, a hash that differs, a case without a reference, a
+/// reference without a case.
 fn check(files: &mut dyn Files, dir: &Path, out: &mut dyn Write) -> Result<(), CliError> {
-    let hashes = render_all(files, dir)?;
     let references = references(files, dir)?;
     let mut problems = 0_usize;
-    for (name, hash) in &hashes {
-        let (status, line) = match references.get(name) {
-            Some(expected) if expected == hash => (Status::Ok, format!("{name} {hash}")),
-            Some(expected) => (
-                Status::Mismatch,
-                format!("{name}: {hash}, reference {expected}"),
-            ),
-            None => (Status::Missing, format!("{name}: no reference")),
+    let mut seen = alloc::collections::BTreeSet::new();
+    for (name, path) in case_files(files, dir)? {
+        let (status, line) = match hash_of(files, &path) {
+            Err(failure) => (Status::Failed, failure.to_string()),
+            Ok(hash) => match references.get(&name) {
+                Some(expected) if *expected == hash => (Status::Ok, format!("{name} {hash}")),
+                Some(expected) => (
+                    Status::Mismatch,
+                    format!("{name}: {hash}, reference {expected}"),
+                ),
+                None => (Status::Missing, format!("{name}: no reference")),
+            },
         };
         if status != Status::Ok {
             problems = problems.saturating_add(1);
         }
         say(out, &format!("{status} {line}"))?;
+        let _new = seen.insert(name);
     }
-    for name in references.keys().filter(|name| !hashes.contains_key(*name)) {
+    for name in references.keys().filter(|name| !seen.contains(*name)) {
         say(
             out,
             &format!("{} {name}: reference without a case", Status::Stale),
@@ -253,7 +264,8 @@ fn check(files: &mut dyn Files, dir: &Path, out: &mut dyn Write) -> Result<(), C
         Ok(())
     } else {
         Err(CliError::Failed(format!(
-            "{problems} of the visual cases do not match their references, listed above"
+            "{problems} problem(s), listed above; when the renders are meant to change, `visual-cli bless {}` rewrites the references",
+            dir.display()
         )))
     }
 }
