@@ -673,7 +673,7 @@ Sub-decisions:
 
 Sub-decisions:
 
-- **Dependencies point down only.** Within the project, a crate of the audio library depends only on other crates of the audio library and on the time crate (its tests also on `audio-testkit`); never on the native shell, the tools, the apps, the coordinating layer or a sibling library. Its third-party dependencies are reviewed (`dependencies.txt`) and, where bit-defining, pinned (decision 29).
+- **Dependencies point down only.** Within the project, a crate of the audio library depends only on other crates of the audio library and on the time crate (its tests also on its test crates, `audio-testkit`, the fingerprint battery and the counting allocator, which depend only on the library and on each other); never on the native shell, the tools, the apps, the coordinating layer or a sibling library. Its third-party dependencies are reviewed (`dependencies.txt`) and, where bit-defining, pinned (decision 29).
 - **Frames stay the library's own; the time map is shared.** The audio library counts frames (decisions 1 and 4). The libraries share one tiny **time crate** (decided 2026-11-12, as the visual library starts): the exact time base, the time map and its exact evaluation (decision 17, musical time), a neutral building block below every library that depends on nothing. Frames stay the audio library's own count; times from other bases are still converted at the control boundary by decision 19's rule.
 - **Kept possible, nothing built now**: publishing the library's time position to the layer above; following an external clock; timestamped output streams to the layer above (the return path, decision 19). None of them may need the library to know what is above it.
 

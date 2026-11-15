@@ -15,6 +15,7 @@ members = [
     "crates/visual-cli",
     "crates/alloc-counter",
     "crates/audio-testkit",
+    "crates/audio-battery",
     "crates/audio-cli",
     "bindings/audio-wasm",
     "bindings/visual-wasm",

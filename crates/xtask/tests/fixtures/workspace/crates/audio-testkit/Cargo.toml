@@ -7,9 +7,13 @@ publish = false
 [lib]
 path = "lib.rs"
 
-# Refused: sha2 is reviewed as bit-defining, not pinned.
+# Refused: sha2 is reviewed as bit-defining, not pinned; and a test crate of the audio
+# library reaching into the visual one. Allowed: its other test crates, as normal
+# dependencies.
 [dependencies]
 alloc-counter = { path = "../alloc-counter" }
+audio-battery = { path = "../audio-battery" }
 audio-core = { path = "../audio-core" }
+visual-core = { path = "../visual-core" }
 libm = "=0.2.16"
 sha2 = "0.11"

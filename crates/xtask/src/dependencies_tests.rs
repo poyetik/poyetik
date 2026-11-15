@@ -199,8 +199,8 @@ fn outside_library(library: &str, name: &str, kind: &str, path: &str) -> String 
     format!(
         "{library} depends on {name} ({kind}, {path}): the audio library depends only on its \
          own crates (audio-core, audio-boxes, audio-patch, audio-hash, audio-fpenv, \
-         audio-wasm), its tests also on audio-testkit; move what it needs into the library, \
-         or the dependency out of it"
+         audio-wasm), its tests also on alloc-counter, audio-battery, audio-testkit; move what \
+         it needs into the library, or the dependency out of it"
     )
 }
 
@@ -212,6 +212,23 @@ fn outside_visual_library(library: &str, name: &str, kind: &str, path: &str) -> 
          own crates (visual-core, visual-boxes, visual-hash, visual-wasm), its tests also on \
          visual-testkit, alloc-counter; move what it needs into the library, or the \
          dependency out of it"
+    )
+}
+
+/// What the library gate says of `test`, a test crate of the `library` named, its own
+/// crates `own` and its test crates `tests`, depending on `name` (`kind`, at `path`).
+fn outside_tests(
+    test: &str,
+    library: &str,
+    own: &str,
+    tests: &str,
+    dependency: (&str, &str, &str),
+) -> String {
+    let (name, kind, path) = dependency;
+    format!(
+        "{test}, a crate of the {library}'s tests, depends on {name} ({kind}, {path}): it \
+         depends, within the project, only on the {library}'s crates ({own}) and its other \
+         test crates ({tests}); move what it needs into them, or the dependency out of it"
     )
 }
 
@@ -238,20 +255,38 @@ fn keeps_the_library_apart_in_real_cargo_metadata() {
         step_found(&[
             outside_library("audio-boxes", "audio-cli", "normal", &cli),
             outside_library("audio-wasm", "audio-cli", "dev", &cli),
+            outside_tests(
+                "audio-testkit",
+                "audio library",
+                "audio-core, audio-boxes, audio-patch, audio-hash, audio-fpenv, audio-wasm",
+                "alloc-counter, audio-battery, audio-testkit",
+                (
+                    "visual-core",
+                    "normal",
+                    &format!("{root}/crates/visual-core")
+                ),
+            ),
             outside_visual_library("visual-core", "audio-core", "normal", &core),
             outside_visual_library("visual-wasm", "audio-hash", "normal", &hash),
             outside_visual_tool("visual-cli", "audio-patch", "normal", &patch),
+            outside_tests(
+                "visual-testkit",
+                "visual library",
+                "visual-core, visual-boxes, visual-hash, visual-wasm",
+                "visual-testkit, alloc-counter",
+                ("audio-core", "normal", &core),
+            ),
         ]),
-        "the native shell in the code and in the tests; the visual library reaching into \
-         the audio one; each library's test bench in its tests, its own crates and \
-         third-party crates allowed"
+        "the native shell in the code and in the tests; the visual library, its module, its \
+         tool and each library's test kit reaching into the other library; each library's test \
+         crates in its tests and in each other, its own crates and third-party crates allowed"
     );
 }
 
 #[test]
 fn refuses_a_library_that_reaches_outside_itself() {
     let packages = |core: &str| {
-        let others = r#"{"name":"audio-boxes"},{"name":"audio-patch"},{"name":"audio-hash"},{"name":"audio-fpenv"},{"name":"visual-core"},{"name":"visual-boxes"},{"name":"visual-hash"},{"name":"visual-wasm"},{"name":"visual-cli"},"#;
+        let others = r#"{"name":"audio-boxes"},{"name":"audio-patch"},{"name":"audio-hash"},{"name":"audio-fpenv"},{"name":"visual-core"},{"name":"visual-boxes"},{"name":"visual-hash"},{"name":"visual-wasm"},{"name":"visual-cli"},{"name":"alloc-counter"},{"name":"audio-battery"},{"name":"audio-testkit"},{"name":"visual-testkit"},"#;
         format!(
             r#"{{"workspace_root":"/r","packages":[{others}{{"name":"audio-wasm"}},{{"name":"audio-core","dependencies":[{core}]}}]}}"#
         )
@@ -264,6 +299,7 @@ fn refuses_a_library_that_reaches_outside_itself() {
         dependency("audio-hash", "null", "/r/crates/audio-hash"),
         dependency("audio-wasm", "\"build\"", "/r/bindings/audio-wasm"),
         dependency("audio-testkit", "\"dev\"", "/r/crates/audio-testkit"),
+        dependency("alloc-counter", "\"dev\"", "/r/crates/alloc-counter"),
         r#"{"name":"serde","kind":null}"#.to_owned(),
     ] {
         assert_eq!(gate(&allowed), Ok(()), "{allowed}");
@@ -276,7 +312,6 @@ fn refuses_a_library_that_reaches_outside_itself() {
             "/r/crates/audio-testkit",
             "build",
         ),
-        ("alloc-counter", "\"dev\"", "/r/crates/alloc-counter", "dev"),
         ("xtask", "null", "/r/crates/xtask", "normal"),
         ("audio-hash", "null", "/r/apps/audio-hash", "normal"),
         ("audio-hash", "null", "/r/crates/audio-hashx", "normal"),
@@ -315,11 +350,16 @@ fn refuses_a_library_that_reaches_outside_itself() {
                 "audio-hash",
                 "audio-fpenv",
                 "audio-wasm",
+                "alloc-counter",
+                "audio-battery",
+                "audio-testkit",
                 "visual-core",
                 "visual-boxes",
                 "visual-hash",
                 "visual-wasm",
-                "visual-cli"
+                "visual-cli",
+                "visual-testkit",
+                "alloc-counter"
             ]
             .map(|name| {
                 format!("{name}: not in the cargo metadata, so its dependencies cannot be checked")

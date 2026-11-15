@@ -185,7 +185,11 @@ pub const RUST_CRATES: [RustCrate; 17] = [
         dir: "crates/alloc-counter",
         binary: false,
         test_data: &[],
-        roles: &[CrateRole::SharedTests, CrateRole::VisualLibraryTests],
+        roles: &[
+            CrateRole::SharedTests,
+            CrateRole::LibraryTests,
+            CrateRole::VisualLibraryTests,
+        ],
     },
     RustCrate {
         name: "audio-fpenv",
@@ -199,7 +203,7 @@ pub const RUST_CRATES: [RustCrate; 17] = [
         dir: "crates/audio-battery",
         binary: false,
         test_data: &["conformance/test-matrix.json"],
-        roles: &[CrateRole::SharedTests],
+        roles: &[CrateRole::SharedTests, CrateRole::LibraryTests],
     },
     RustCrate {
         name: "audio-testkit",

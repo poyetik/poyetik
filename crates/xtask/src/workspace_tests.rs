@@ -176,8 +176,8 @@ fn derives_each_list_of_crates_from_their_roles() {
         ),
         (
             CrateRole::LibraryTests,
-            &["audio-testkit"][..],
-            "the test kit",
+            &["alloc-counter", "audio-battery", "audio-testkit"][..],
+            "the counting allocator, the fingerprint battery and the test kit",
         ),
         (
             CrateRole::VisualLibrary,
