@@ -20,4 +20,4 @@ The **engine core** and the project tooling, as Rust crates of one Cargo workspa
 | `visual-testkit` | Visual test bench: the laws every visual box must respect, over the shared visual test matrix (no `unsafe`) |
 | `xtask` | Project automation: `cargo xtask check` and the git hooks' commands (commands: `cargo xtask help`) |
 
-The engine compiled to WebAssembly, `audio-wasm`, is in `bindings/audio-wasm`.
+The engine compiled to WebAssembly, `audio-wasm`, is in `bindings/audio-wasm`; the visual library compiled to WebAssembly, `visual-wasm`, in `bindings/visual-wasm`.

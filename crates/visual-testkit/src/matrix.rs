@@ -8,8 +8,9 @@ use visual_core::{ImageIndex, ImageRate, ImageSize};
 
 /// Image rates, as reduced fractions.
 ///
-/// The limits of [`ImageRate`] (1 and 1000 images per second), the broadcast rates that are not whole numbers (23.976 and 29.97), the
-/// European 25, the usual 60 and a gaming display's 144. Deliberately more than 60.
+/// The limits of [`ImageRate`] (1 and 1000 images per second), the broadcast rates that
+/// are not whole numbers (23.976 and 29.97), the European 25, the usual 60 and a gaming
+/// display's 144. Deliberately more than 60.
 pub const IMAGE_RATES: [(u32, u32); 7] = [
     (1, 1),
     (24_000, 1001),

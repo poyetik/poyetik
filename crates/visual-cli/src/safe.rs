@@ -1,5 +1,7 @@
 //! Untrusted text made safe to show on one line (the rule of `spec/safe-message-vectors.json`,
-//! written again here so that the visual library depends on no audio crate).
+//! written again here, tied to the other copies by those vectors, so that the visual
+//! library's tool depends on no audio crate: xtask's library gate holds it to that,
+//! `CrateRole::VisualTool`).
 
 /// The longest message shown, in characters; longer ones are cut and end with `…`.
 pub const MAX_MESSAGE_CHARS: usize = 1000;
