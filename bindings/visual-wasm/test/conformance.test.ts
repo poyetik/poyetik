@@ -44,7 +44,10 @@ test("gives every case its reference hash, as the native renderer does", async (
     expect(module.hash(read.first, read.images), name).toBe(Reflect.get(Object(references), name));
   }
   expect(typeof references === "object" && references !== null ? Object.keys(references).sort() : []).toStrictEqual(names.map((file) => file.slice(0, -".json".length)).sort());
-});
+  // Measured: 2.4 s alone (2026-11-15, the image of 2^25 pixels most of it), past vitest's
+  // 5 s when Stryker's nine test processes share the machine; a limit, not a tolerance on
+  // what the test checks.
+}, 60_000);
 
 /** The pairs of integers of `value`, or none when it is not a list of such pairs. */
 function pairs(value: unknown): (readonly [number, number])[] | undefined {
