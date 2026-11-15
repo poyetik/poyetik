@@ -1233,11 +1233,11 @@
           "done": true
         },
         {
-          "title": "Engine design decisions, recorded before any code that depends on them: time and rates (the image rate carried by the render context; an image a point in time or an interval, motion blur), push and pull computation, resources and GPU memory, data types (textures, buffers, geometry including vector paths, channels, pixel aspect), color pipeline, outputs, execution modes, random access, hot swap, latency, state, algorithm versions and a spent record (the visual counterpart of decision 29), a registry of the visual boxes, interface stability; and interaction: the input event model (the image a gesture applies to), a scene queryable on the CPU for picking, the visual box contract mapping output coordinates back to input coordinates, gesture-to-image latency, the state of interactive elements, 3D camera navigation and manipulators",
+          "title": "Engine design decisions, recorded before any code that depends on them: time and rates (the image rate carried by the render context; an image a point in time or an interval, motion blur), push and pull computation, resources and GPU memory, data types (textures, buffers, geometry including vector paths, channels, pixel aspect), color pipeline, outputs, execution modes, random access, hot swap, latency, state, algorithm versions and a spent record (the visual counterpart of spec/engine-design.md decision 29), a registry of the visual boxes, interface stability; and interaction: the input event model (the image a gesture applies to), a scene queryable on the CPU for picking, the visual box contract mapping output coordinates back to input coordinates, gesture-to-image latency, the state of interactive elements, 3D camera navigation and manipulators",
           "done": false
         },
         {
-          "title": "The coordinating layer above the two standalone libraries (clock choice, audio and video alignment, a scene and cues spanning both; exact musical time from the time crate, #37, sampled at every image; the one WebAssembly module a product loads, linking the libraries it uses), using each library only through its public interface; any hook it needs from the audio library checked against the audio engine's decisions; the architecture proven to cost nothing: benchmarks comparing work done through the public interfaces with the same work done directly, with regression thresholds",
+          "title": "The coordinating layer above the two standalone libraries (clock choice, audio and video alignment, a scene and cues spanning both; exact musical time from the time crate, #37, sampled at every image), grown from the crate #34 step 6 creates in a first form, which builds the one WebAssembly module a product loads, linking both libraries, the same module in the page and in the audio worklet; using each library only through its public interface; any hook it needs from the audio library checked against the audio engine's decisions; the architecture proven to cost nothing: benchmarks comparing work done through the public interfaces with the same work done directly, with regression thresholds",
           "done": false
         },
         {
@@ -1253,7 +1253,7 @@
           "done": false
         },
         {
-          "title": "Objective image measurements in the test kit and the oracle (perceptual difference, color difference, aliasing, banding, flicker), thresholds per visual box with their derivation",
+          "title": "Objective image measurements in the test kit and the oracle (perceptual difference, color difference, aliasing, banding, flicker, and each rendered image against its ideal, unrounded shape at 10 and 12 bits per channel), thresholds per visual box with their derivation",
           "done": false
         },
         {
@@ -1273,7 +1273,7 @@
           "done": false
         },
         {
-          "title": "Benchmarks per visual box in CI, quality tiers per device, a cost estimate warning when a patch will not keep up",
+          "title": "Benchmarks per visual box in CI, the image hash's own cost included, quality tiers per device, a cost estimate warning when a patch will not keep up",
           "done": false
         },
         {
@@ -1422,7 +1422,7 @@
           "done": false
         },
         {
-          "title": "Playground: the square moving live next to the oscilloscope, first drawn by the CPU reference in WebAssembly, the playground loading one module that links the audio and visual libraries, never one per library, rendering into a buffer the page owns (no copy of the image per frame drawn) through a package built to JavaScript with its types, then in WebGPU; end-to-end tests on the browsers; then the end of this block (steps 5 and 6): a deep review, its decided fixes, and a pull request whose full check is green",
+          "title": "Playground: the square moving live next to the oscilloscope, first drawn by the CPU reference in WebAssembly, the playground loading one module that links the audio and visual libraries, the same module in the page and in the audio worklet, never one per library, built by the first form of the coordinating layer's crate (linking both libraries, with no logic spanning them yet; #35 step 3 grows it), rendering into a buffer the page owns (no copy of the image per image drawn) through a package built to JavaScript with its types, then in WebGPU; end-to-end tests on the browsers; then the end of this block (steps 5 and 6): a deep review, its decided fixes, and a pull request whose full check is green",
           "done": false
         },
         {
