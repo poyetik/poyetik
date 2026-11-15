@@ -924,19 +924,16 @@ pub(crate) fn true_peak<S: Sample>(
     })
 }
 
-/// The gain reduction a true peak `peak` needs to stay at `ceiling` (both positive): zero
-/// when it is at or below the ceiling, exactly, otherwise `1 - ceiling / peak`, the share
-/// of the signal to take away.
+/// The gain reduction a true peak `peak` needs to stay at `ceiling` (positive): the share
+/// of the signal to take away, `(peak - ceiling) / peak` above the ceiling, and exactly +0
+/// at or below it, by one formula, `max(+0, (peak - ceiling) / max(peak, ceiling))`, whose
+/// divisor is never below the ceiling.
 #[expect(
     clippy::arithmetic_side_effects,
-    reason = "IEEE 754 quotient and difference of positive finite samples, the peak above the ceiling so never zero"
+    reason = "IEEE 754 difference and quotient of finite samples, the divisor at least the positive ceiling"
 )]
 pub(crate) fn reduction_needed<S: Sample>(peak: S, ceiling: S) -> S {
-    if peak > ceiling {
-        S::from_binary64(Binary64::ONE) - ceiling / peak
-    } else {
-        S::ZERO
-    }
+    larger(S::ZERO, (peak - ceiling) / larger(peak, ceiling))
 }
 
 /// The reduction `reduction` kept for one more frame: `reduction × keep` (`keep` below 1),
@@ -1169,7 +1166,8 @@ impl Binary64 {
         // the 53 bits of 1.f shifted right by 52 - e.
         let bits = rounded.to_bits();
         let exponent = (bits >> 52_u32) & 0x7ff;
-        let significand = (bits & 0x000f_ffff_ffff_ffff) | 0x0010_0000_0000_0000;
+        // The implicit bit set, the sign and exponent cleared.
+        let significand = (bits | 0x0010_0000_0000_0000) & 0x001f_ffff_ffff_ffff;
         let shift = 1075_u64.checked_sub(exponent)?;
         u32::try_from(significand.checked_shr(u32::try_from(shift).ok()?)?).ok()
     }

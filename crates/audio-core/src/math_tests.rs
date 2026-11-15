@@ -897,13 +897,45 @@ fn estimates_the_true_peak_of_any_history_as_the_largest_phase() {
 }
 
 #[test]
+fn keeps_the_sign_of_zeros_as_documented() {
+    let (plus, minus) = (super::Binary64(0.0_f64), super::Binary64(-0.0_f64));
+    assert_eq!(
+        super::magnitude(plus).0.to_bits(),
+        0.0_f64.to_bits(),
+        "+0 stays +0"
+    );
+    assert_eq!(
+        super::magnitude(minus).0.to_bits(),
+        (-0.0_f64).to_bits(),
+        "-0 keeps its sign"
+    );
+    assert_eq!(
+        super::magnitude(super::Binary64(-2.0_f64)),
+        super::Binary64(2.0_f64),
+        "negated"
+    );
+    assert_eq!(
+        super::larger(plus, minus).0.to_bits(),
+        0.0_f64.to_bits(),
+        "the first when equal"
+    );
+    assert_eq!(
+        super::larger(minus, plus).0.to_bits(),
+        (-0.0_f64).to_bits(),
+        "the first when equal"
+    );
+}
+
+#[test]
 fn needs_no_reduction_up_to_the_ceiling_and_the_exact_share_above() {
     let ceiling = super::Binary64(0.75_f64);
-    for peak in [0.0_f64, 0.5_f64, 0.75_f64] {
+    for peak in [-0.0_f64, 0.0_f64, 0.5_f64, 0.75_f64] {
         assert_eq!(
-            super::reduction_needed(super::Binary64(peak), ceiling),
-            super::Binary64(0.0_f64),
-            "{peak}"
+            super::reduction_needed(super::Binary64(peak), ceiling)
+                .0
+                .to_bits(),
+            0.0_f64.to_bits(),
+            "{peak}: exactly +0"
         );
     }
     assert_eq!(
@@ -983,7 +1015,9 @@ fn decays_approaches_shares_and_complements_reductions() {
         "a sample reduced"
     );
     assert_eq!(
-        super::reduced(super::Binary64(f64::MIN_POSITIVE), super::Binary64(0.5_f64)).0.to_bits(),
+        super::reduced(super::Binary64(f64::MIN_POSITIVE), super::Binary64(0.5_f64))
+            .0
+            .to_bits(),
         0,
         "a normal sample reduced to a subnormal is flushed"
     );
@@ -1075,6 +1109,13 @@ fn computes_the_limiter_coefficients_from_its_settings() {
             .abs()
             <= f64::EPSILON,
         "one frame's constant keeps 1/e"
+    );
+    // e^-0.5, computed apart.
+    assert!(
+        (keep(super::Binary64(2000.0_f64 / 48_000.0_f64), rate).0 - 0.606_530_659_712_633_4_f64)
+            .abs()
+            <= f64::EPSILON,
+        "two frames' constant keeps e^-1/2"
     );
     assert_eq!(
         step(super::Binary64(0.25_f64)),

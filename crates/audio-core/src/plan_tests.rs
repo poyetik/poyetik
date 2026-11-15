@@ -786,6 +786,52 @@ fn renders_interleaved_frames_offline<S: Bits>() {
     );
 }
 
+fn renders_through_a_limited_stage_delayed_by_its_latency<S: Bits>() {
+    // A quiet constant, below the ceiling: the limited stage gives it delayed, bit for bit.
+    let quiet = || {
+        build::<S>(
+            vec![
+                with_param(node(1, "const~"), "value", 0.25),
+                node(2, "out~"),
+            ],
+            vec![wire(1, 0, 2, 0)],
+        )
+        .expect("valid patch")
+    };
+    let raw = Renderer::new(quiet());
+    assert_eq!(raw.latency(), 0, "raw: no latency");
+    let stage_limiter = crate::TruePeakLimiter::new(
+        rate(),
+        1,
+        Binary64::new(0.5_f64),
+        crate::LimiterSettings::new(
+            Binary64::new(-1.0_f64),
+            Binary64::new(0.5_f64),
+            Binary64::new(100.0_f64),
+            Binary64::new(0.5_f64),
+        )
+        .expect("settings"),
+        true,
+    )
+    .expect("a limiter");
+    let mut through = Renderer::with_stage(quiet(), crate::OutputStage::limited(stage_limiter));
+    let latency = through.latency();
+    assert!(latency > crate::DETECTOR_DELAY, "a latency: {latency}");
+    let delayed: Vec<S::Float> = through.render(200).expect("small render");
+    let mut straight = Renderer::new(quiet());
+    let undelayed: Vec<S::Float> = straight
+        .render(200_usize.saturating_sub(latency))
+        .expect("small render");
+    // Two channels per frame: the output box's two inlets.
+    let lead = latency.saturating_mul(through.channels());
+    assert_eq!(&delayed[lead..], &undelayed[..], "delayed, bit for bit");
+    assert_eq!(
+        &delayed[..lead],
+        samples::<S>(&vec![0.0_f64; lead]),
+        "silence first"
+    );
+}
+
 fn replaces_and_reports_non_finite_samples_before_delivery<S: Bits>() {
     let mut renderer = Renderer::new(
         build::<S>(
@@ -1752,6 +1798,7 @@ in_both_precisions!(
     rejects_invalid_connections,
     rejects_cycles,
     renders_interleaved_frames_offline,
+    renders_through_a_limited_stage_delayed_by_its_latency,
     replaces_and_reports_non_finite_samples_before_delivery,
     renders_nothing_for_zero_frames_or_channels,
     refuses_renders_too_long_for_memory,

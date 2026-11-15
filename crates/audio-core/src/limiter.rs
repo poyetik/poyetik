@@ -216,10 +216,6 @@ fn ahead(index: usize, count: usize, length: usize) -> usize {
     index.saturating_add(count).checked_rem(length).unwrap_or(0)
 }
 
-/// Below this share, a crossfade of the mode has arrived: it snaps to its end, a step far
-/// below the last bit of a 24-bit sample, so that raw gives its input bit for bit again.
-const ARRIVED: Binary64 = Binary64::new(1.0 / 16_777_216.0);
-
 /// The index `back` places before `index` in a ring of `length` (`back` below `length`).
 const fn behind(index: usize, back: usize, length: usize) -> usize {
     match index.checked_sub(back) {
@@ -274,9 +270,7 @@ pub struct TruePeakLimiter<S: Sample> {
     slow: S,
     /// The share of the fast stage's reduction kept per frame.
     keep_fast: S,
-    /// The share of the slow stage's reduction kept per frame.
-    keep_slow: S,
-    /// The share of the gap the slow stage closes per frame as it attacks.
+    /// The share of the gap to the held need the slow stage closes per frame.
     slow_attack: S,
     /// The released reductions of the last `maximum` frames, a ring.
     released: Vec<S>,
@@ -299,6 +293,10 @@ pub struct TruePeakLimiter<S: Sample> {
     applied: S,
     /// Whether it is protecting (the target of `applied`).
     protected: bool,
+    /// What is left of the way from `applied` to its target: it decays to exactly zero,
+    /// where recomputing it from `applied` near 1 would stall on the spacing of numbers
+    /// there.
+    remaining: S,
     /// The share of the gap to its target `applied` keeps per frame.
     keep_mode: S,
 }
@@ -350,7 +348,6 @@ impl<S: Sample> TruePeakLimiter<S> {
             fast: S::ZERO,
             slow: S::ZERO,
             keep_fast: S::ZERO,
-            keep_slow: S::ZERO,
             slow_attack: S::ZERO,
             released: vec![S::ZERO; maximum],
             released_at: 0,
@@ -362,6 +359,7 @@ impl<S: Sample> TruePeakLimiter<S> {
             scale: S::ZERO,
             applied,
             protected,
+            remaining: S::ZERO,
             keep_mode: S::from_binary64(keep(MODE_FADE, rate)),
         };
         limiter.set(settings)?;
@@ -406,9 +404,7 @@ impl<S: Sample> TruePeakLimiter<S> {
         self.ceiling = S::from_binary64(amplitude(settings.ceiling));
         let fast = fast_release(settings.release, settings.adaptivity, FAST_RELEASE_DIVISOR);
         self.keep_fast = S::from_binary64(keep(fast, self.rate));
-        let slow = keep(settings.release, self.rate);
-        self.keep_slow = S::from_binary64(slow);
-        self.slow_attack = S::from_binary64(step(slow));
+        self.slow_attack = S::from_binary64(step(keep(settings.release, self.rate)));
         let lookahead = frames(settings.lookahead, self.rate).min(self.maximum);
         if lookahead != self.lookahead {
             self.lookahead = lookahead;
@@ -418,8 +414,13 @@ impl<S: Sample> TruePeakLimiter<S> {
     }
 
     /// Starts the crossfade toward protected (`true`) or raw (`false`).
-    pub const fn set_protected(&mut self, protected: bool) {
+    pub fn set_protected(&mut self, protected: bool) {
         self.protected = protected;
+        self.remaining = if protected {
+            complement(self.applied)
+        } else {
+            self.applied
+        };
     }
 
     /// Rebuilds what depends on the lookahead: the phasor, the sliding maximum and the Hann
@@ -559,35 +560,28 @@ impl<S: Sample> TruePeakLimiter<S> {
         self.enqueue(self.step, entering);
         let held = self.held();
         self.fast = larger_reduction(held, decayed(self.fast, self.keep_fast));
-        self.slow = if held > self.slow {
-            approached(self.slow, held, self.slow_attack)
-        } else {
-            decayed(self.slow, self.keep_slow)
-        };
+        // The slow stage follows the held need through a one-pole of the release's time,
+        // up and down: it rises only under a sustained need.
+        self.slow = approached(self.slow, held, self.slow_attack);
         let smoothed = self.smooth(larger_reduction(self.fast, self.slow));
         self.crossfade();
-        if self.applied == S::ZERO || smoothed == S::ZERO {
-            S::ZERO
-        } else {
-            share(smoothed, self.applied)
-        }
+        share(smoothed, self.applied)
     }
 
-    /// Moves the share applied one frame toward its target: what is left of the way decays,
-    /// and snaps to the end below [`ARRIVED`].
+    /// Moves the share applied one frame toward its target, what is left of the way
+    /// decaying. Toward protected it is exactly 1 once what is left no longer changes it;
+    /// toward raw it arrives at exactly 0 once the share left no longer changes any gain
+    /// (`1 - share` is 1), so that raw gives its input bit for bit again.
     fn crossfade(&mut self) {
-        let arrived = S::from_binary64(ARRIVED);
-        if self.protected {
-            let left = decayed(complement(self.applied), self.keep_mode);
-            self.applied = if left < arrived {
-                S::from_binary64(Binary64::ONE)
-            } else {
-                complement(left)
-            };
+        self.remaining = decayed(self.remaining, self.keep_mode);
+        self.applied = if self.protected {
+            complement(self.remaining)
         } else {
-            let left = decayed(self.applied, self.keep_mode);
-            self.applied = if left < arrived { S::ZERO } else { left };
-        }
+            if complement(self.remaining) == S::from_binary64(Binary64::ONE) {
+                self.remaining = S::ZERO;
+            }
+            self.remaining
+        };
     }
 
     /// Adds `released` to the Hann window and returns the smoothed reduction.

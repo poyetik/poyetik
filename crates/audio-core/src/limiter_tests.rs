@@ -557,10 +557,83 @@ fn changes_its_settings_live<S: Sample>() {
     let released = settings(-3.0_f64, 3.0_f64, 500.0_f64, 1.0_f64);
     assert_eq!(limiter.set(released), Ok(()), "the same lookahead");
     assert_eq!(limiter.settings(), released, "taken");
+    assert_eq!(released.lookahead(), value(3.0_f64), "its lookahead");
 }
 
 #[test]
 fn changes_its_settings_live_in_each_precision() {
     changes_its_settings_live::<Binary64>();
     changes_its_settings_live::<Binary32>();
+}
+
+/// The crossfade, in `S`: gradual (a block after a switch, the share applied lies strictly
+/// between its ends), then arrived exactly (a second later, 50 time constants of 20 ms).
+fn crossfades_gradually_then_arrives_exactly<S: Sample>() {
+    let rate = SampleRate::new(48_000).expect("a rate");
+    let one = of::<S>(1.0_f64);
+    let mut draws = Draws::new();
+    let mut limiter =
+        TruePeakLimiter::<S>::new(rate, 1, value(1.5_f64), LimiterSettings::DEFAULT, true)
+            .expect("a limiter");
+    assert_eq!(limiter.applied, one, "protected from the first frame");
+    for (protect, end) in [(false, S::ZERO), (true, one)] {
+        limiter.set_protected(protect);
+        let _block = limited(
+            &mut limiter,
+            &signal::<S>(1, 1, |_, _| drawn(&mut draws, 4.0_f64)),
+        );
+        assert!(
+            limiter.applied > S::ZERO && limiter.applied < one,
+            "{protect}: gradual, {:?} after a block",
+            limiter.applied
+        );
+        let _second = limited(
+            &mut limiter,
+            &signal::<S>(750, 1, |_, _| drawn(&mut draws, 4.0_f64)),
+        );
+        assert_eq!(limiter.applied, end, "{protect}: arrived exactly");
+    }
+}
+
+#[test]
+fn crossfades_gradually_then_arrives_exactly_in_each_precision() {
+    crossfades_gradually_then_arrives_exactly::<Binary64>();
+    crossfades_gradually_then_arrives_exactly::<Binary32>();
+}
+
+/// The bookkeeping of a sustained limit, in `S`: on a constant loud input, the sliding
+/// maximum keeps one entry (an equal need replaces the one before it), and the Hann sums
+/// are computed exactly once per window, the frames between counted from 0 to its length
+/// less one.
+fn keeps_its_windows_exact_and_small<S: Sample>() {
+    let rate = SampleRate::new(48_000).expect("a rate");
+    let mut limiter =
+        TruePeakLimiter::<S>::new(rate, 1, value(1.5_f64), LimiterSettings::DEFAULT, true)
+            .expect("a limiter");
+    let window = limiter.lookahead;
+    assert_eq!(window, 72, "1.5 ms at 48 kHz");
+    let mut counts = Vec::new();
+    for block in 0_u8..20 {
+        let _block = limited(&mut limiter, &signal::<S>(1, 1, |_, _| of::<S>(2.0_f64)));
+        counts.push(limiter.since_exact);
+        // Once the window has seen only the constant (its 74 frames, the 12 of the
+        // interpolator before them): two blocks.
+        if block >= 2 {
+            assert_eq!(limiter.queued, 1, "one need held after block {block}");
+        }
+    }
+    assert!(
+        counts.iter().all(|count| *count < window),
+        "refreshed within each window: {counts:?}"
+    );
+    assert!(
+        counts.iter().any(|count| *count > 0),
+        "slid between refreshes: {counts:?}"
+    );
+}
+
+#[test]
+fn keeps_its_windows_exact_and_small_in_each_precision() {
+    keeps_its_windows_exact_and_small::<Binary64>();
+    keeps_its_windows_exact_and_small::<Binary32>();
 }
