@@ -968,6 +968,18 @@
         {
           "title": "Render-hash vectors: none holds a signaling NaN or a negative NaN, although the hash keeps every payload; add both in each format, their digests computed independently in Python",
           "done": false
+        },
+        {
+          "title": "xtask test expectations: the step and operation counts of the steps, parts, cli and changes tests are literals plus deltas (skip(5), len() - 5, a +3 special case, crates filtered by name prefix); derive each count from the registries the checks read",
+          "done": false
+        },
+        {
+          "title": "xtask naming: CrateRole::Library and LibraryTests name the audio library only; rename them AudioLibrary and AudioLibraryTests, beside the visual library's roles",
+          "done": false
+        },
+        {
+          "title": "Command-line contract plumbing: the closed-stdout writer (three copies), the Files trait (two, untied) and safe_message (three, tied only by spec/safe-message-vectors.json) live in audio-cli, the visual command-line tool and xtask; move them to one small shared crate",
+          "done": false
         }
       ]
     },
