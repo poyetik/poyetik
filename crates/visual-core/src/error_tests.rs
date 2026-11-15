@@ -56,4 +56,3 @@ fn is_an_error() {
     const fn error<E: core::error::Error>() {}
     error::<VisualError>();
 }
-

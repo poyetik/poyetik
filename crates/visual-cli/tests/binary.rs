@@ -189,7 +189,10 @@ mod tests {
         );
         let checked = visual_cli(&[OsStr::new("check"), dir.as_os_str()]);
         assert_eq!(
-            (checked.status.code(), String::from_utf8_lossy(&checked.stderr)),
+            (
+                checked.status.code(),
+                String::from_utf8_lossy(&checked.stderr)
+            ),
             (Some(0_i32), "".into()),
             "then checked"
         );
