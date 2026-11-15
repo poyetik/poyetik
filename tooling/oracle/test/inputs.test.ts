@@ -1,6 +1,12 @@
 import { describe, expect, test } from "vitest";
 import { InputError, MAX_RATE, MIN_RATE, parseCase, parseExpectations, parseReferences } from "../src/inputs.ts";
-import { sineErrorBound } from "../src/signal.ts";
+import { sineErrorBound, type Sine } from "../src/signal.ts";
+import type { ChannelExpectation } from "../src/inputs.ts";
+
+/** The sine of a channel expectation that holds one. */
+function sineOf(expectation: ChannelExpectation | undefined): Sine | undefined {
+  return expectation !== undefined && "sine" in expectation ? expectation.sine : undefined;
+}
 
 /** A well-formed SHA-256 hash: 64 lowercase hexadecimal digits. */
 const HASH = "a".repeat(64);
@@ -9,9 +15,31 @@ const CHANNEL = { sine: { frequency: 440, amplitude: 1, phase: 0.5 } };
 
 describe("parseCase", () => {
   test("reads the rate and the duration, from the lowest supported rate to the highest", () => {
-    expect(parseCase('{"sample_rate":48000,"frames":10}', "c")).toStrictEqual({ rate: 48_000, frames: 10 });
-    expect(parseCase('{ "frames" : 536870912 , "sample_rate" : 8000 }', "c")).toStrictEqual({ rate: 8000, frames: 2 ** 29 });
-    expect(parseCase('{"sample_rate":384000,"frames":1}', "c")).toStrictEqual({ rate: 384_000, frames: 1 });
+    // Raw when the case names no output stage, as audio-cli reads it.
+    const raw = { mode: "raw", lookahead: 1.5, detector: "precise" };
+    expect(parseCase('{"sample_rate":48000,"frames":10}', "c")).toStrictEqual({ rate: 48_000, frames: 10, output: raw });
+    expect(parseCase('{ "frames" : 536870912 , "sample_rate" : 8000 }', "c")).toStrictEqual({ rate: 8000, frames: 2 ** 29, output: raw });
+    expect(parseCase('{"sample_rate":384000,"frames":1}', "c")).toStrictEqual({ rate: 384_000, frames: 1, output: raw });
+  });
+
+  test("reads the output stage a case names, its lookahead at each end of its range", () => {
+    for (const [mode, lookahead, detector] of [["protected", 0.5, "standard"], ["raw", 5, "mastering"], ["protected", 1.25, "precise"]] as const) {
+      const text = JSON.stringify({ sample_rate: 48_000, frames: 10, output: { mode, lookahead, detector } });
+      expect(parseCase(text, "c")).toStrictEqual({ rate: 48_000, frames: 10, output: { mode, lookahead, detector } });
+    }
+  });
+
+  test.each([
+    ['{"sample_rate":48000,"frames":10,"output":null}', "c: output is not an object"],
+    ['{"sample_rate":48000,"frames":10,"output":[]}', "c: output is not an object"],
+    ['{"sample_rate":48000,"frames":10,"output":{"mode":"loud","lookahead":1.5,"detector":"standard"}}', "c: output: mode is not one of raw, protected"],
+    ['{"sample_rate":48000,"frames":10,"output":{"mode":"raw","lookahead":1.5,"detector":"exact"}}', "c: output: detector is not one of standard, precise, mastering"],
+    ['{"sample_rate":48000,"frames":10,"output":{"mode":"raw","lookahead":0.25,"detector":"standard"}}', "c: output: lookahead is not a number of milliseconds from 0.5 to 5"],
+    ['{"sample_rate":48000,"frames":10,"output":{"mode":"raw","lookahead":5.5,"detector":"standard"}}', "c: output: lookahead is not a number of milliseconds from 0.5 to 5"],
+    ['{"sample_rate":48000,"frames":10,"output":{"mode":"raw","lookahead":"1","detector":"standard"}}', "c: output: lookahead is not a number of milliseconds from 0.5 to 5"],
+    ['{"sample_rate":48000,"frames":10,"output":{"mode":"raw","lookahead":1,"detector":"standard","gain":1}}', "c: output: unknown field gain"],
+  ])("refuses the output stage of %s", (text, message) => {
+    expect(() => parseCase(text, "c")).toThrow(new InputError(message));
   });
 
   test.each([
@@ -171,7 +199,7 @@ test("refuses a sine the oracle would measure but cannot tell from DC over its f
     /^invalid conformance input: expectations\.json: a: channel 1: sine\.frequency cannot be measured over 1000 frames \(the components are too close to be told apart \(conditioning \d+\.\d+, at most 0\.5\)\): lengthen the case$/,
   );
   // Two whole cycles over the 1000 frames: the sine and DC are orthogonal there.
-  expect(parseExpectations(at(96)).get("a")?.channels[1]?.sine.frequency).toBe(96);
+  expect(sineOf(parseExpectations(at(96)).get("a")?.channels[1])?.frequency).toBe(96);
 });
 
 test("refuses a sine measured in one render format only when it cannot be told from DC", () => {
@@ -191,7 +219,7 @@ test("refuses a sine measured in one render format only when it cannot be told f
 test("reads frequencies that are exact binary32 values, as the engine plays them", () => {
   const channel = { sine: { frequency: 440.100006103515625, amplitude: 1, phase: 0 } };
   const parsed = parseExpectations({ a: { sample_rate: 8000, frames: 4000, channels: [channel] } });
-  expect(parsed.get("a")?.channels[0]?.sine.frequency).toBe(Math.fround(440.1));
+  expect(sineOf(parsed.get("a")?.channels[0])?.frequency).toBe(Math.fround(440.1));
 });
 
 test.each([
@@ -215,7 +243,7 @@ test("accepts the longest case with an exact reference", () => {
 test("accepts a start phase from 0 to just below 2π", () => {
   for (const phase of [0, -0, 2 * Math.PI - 2 ** -50]) {
     const parsed = parseExpectations({ a: { sample_rate: 8000, frames: 4000, channels: [{ sine: { ...CHANNEL.sine, phase } }] } });
-    expect(parsed.get("a")?.channels[0]?.sine.phase).toBe(phase);
+    expect(sineOf(parsed.get("a")?.channels[0])?.phase).toBe(phase);
   }
 });
 
@@ -223,6 +251,18 @@ test("accepts a frequency from 0 to just below 4 cycles per sample", () => {
   // One frame from phase 0: no level measured, so the domain check alone decides.
   for (const frequency of [0, Math.fround(32_000 - 2 ** -9)]) {
     const parsed = parseExpectations({ a: { sample_rate: 8000, frames: 1, channels: [{ sine: { ...CHANNEL.sine, frequency, phase: 0 } }] } });
-    expect(parsed.get("a")?.channels[0]?.sine.frequency).toBe(frequency);
+    expect(sineOf(parsed.get("a")?.channels[0])?.frequency).toBe(frequency);
   }
+});
+
+describe("limited expectations", () => {
+  test("reads a limited sine, and refuses a channel naming both", () => {
+    const sine = { frequency: 1000, amplitude: 1, phase: 0 };
+    const parsed = parseExpectations({ a: { sample_rate: 48_000, frames: 48_000, channels: [{ limited: sine }] } });
+    expect(parsed.get("a")?.channels).toStrictEqual([{ limited: sine }]);
+    expect(() => parseExpectations({ a: { sample_rate: 48_000, frames: 48_000, channels: [{ limited: sine, sine }] } })).toThrow(
+      new InputError("expectations.json: a: channel 0 is not one sine or one limited sine"),
+    );
+    expect(() => parseExpectations({ a: { sample_rate: 48_000, frames: 48_000, channels: [{ limited: { ...sine, frequency: 1000.1 } }] } })).toThrow(/channel 0: limited\.frequency is not a binary32 value/);
+  });
 });

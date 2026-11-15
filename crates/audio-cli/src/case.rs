@@ -2,7 +2,10 @@
 
 use std::path::Path;
 
-use audio_core::{Binary32, Binary64, MODE, Plan, RenderFormat, Renderer, Replaced, SampleRate};
+use audio_core::{
+    Binary32, Binary64, Detector, LimiterError, LimiterSettings, MODE, OutputStage, Plan,
+    RenderFormat, Renderer, Replaced, Sample, SampleRate, TruePeakLimiter,
+};
 use audio_fpenv::DefaultMode;
 
 use crate::{HEADER_LEN, wav_header};
@@ -19,6 +22,102 @@ struct Case {
     sample_rate: u32,
     /// Duration, in frames, from 1 to [`MAX_FRAMES`].
     frames: usize,
+    /// The output stage of the render (`spec/engine-design.md`, decision 12): raw when the
+    /// field is absent; never `null`.
+    #[serde(default, deserialize_with = "present")]
+    output: Option<CaseOutput>,
+}
+
+/// An optional field that, when present, holds a value: `null` refused, as the oracle
+/// refuses it.
+fn present<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
+    deserializer: D,
+) -> Result<Option<T>, D::Error> {
+    T::deserialize(deserializer).map(Some)
+}
+
+/// The output stage of a case: its mode, its limiter's lookahead in milliseconds (its
+/// maximum too) and its detector, the limiter's other settings their defaults.
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CaseOutput {
+    /// Raw or protected.
+    mode: CaseMode,
+    /// The limiter's lookahead and its maximum, in milliseconds (0.5 to 5): its latency
+    /// with the detector's.
+    lookahead: f64,
+    /// The limiter's peak detector.
+    detector: CaseDetector,
+}
+
+/// The mode of a case's output stage.
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum CaseMode {
+    /// Without a limiter: non-finite samples replaced, nothing else.
+    Raw,
+    /// Through the true-peak limiter, with its default settings.
+    Protected,
+}
+
+/// The detector of a case's limiter ([`Detector`]).
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum CaseDetector {
+    /// BS.1770's interpolator.
+    Standard,
+    /// 4 phases of 32 taps.
+    Precise,
+    /// 8 phases of 128 taps.
+    Mastering,
+}
+
+impl CaseDetector {
+    /// The engine's detector of this name.
+    const fn detector(self) -> Detector {
+        match self {
+            Self::Standard => Detector::Standard,
+            Self::Precise => Detector::Precise,
+            Self::Mastering => Detector::Mastering,
+        }
+    }
+}
+
+impl CaseOutput {
+    /// The stage of this output for `channels` channels at `rate`, in `S`.
+    fn stage<S: Sample>(
+        self,
+        rate: SampleRate,
+        channels: usize,
+    ) -> Result<OutputStage<S>, CaseError> {
+        let detector = self.detector.detector();
+        let lookahead = <Binary64 as audio_core::host::Raw>::from_raw(self.lookahead);
+        let invalid = |error: LimiterError| CaseError::Case(format!("invalid case: {error}"));
+        // Checked in either mode, as the oracle checks it.
+        let settings = LimiterSettings::DEFAULT
+            .with_lookahead(lookahead)
+            .map_err(invalid)?;
+        match self.mode {
+            CaseMode::Raw => Ok(OutputStage::new()),
+            CaseMode::Protected => {
+                TruePeakLimiter::new(rate, channels, lookahead, detector, settings, true)
+                    .map(OutputStage::limited)
+                    .map_err(invalid)
+            }
+        }
+    }
+}
+
+/// The stage of `output` (raw when absent) for `channels` channels at `rate`, in `S`.
+fn stage_of<S: Sample>(
+    output: Option<CaseOutput>,
+    rate: SampleRate,
+    channels: usize,
+) -> Result<OutputStage<S>, CaseError> {
+    output.map_or_else(
+        || Ok(OutputStage::new()),
+        |output| output.stage(rate, channels),
+    )
 }
 
 /// Longest case, in frames: 2^29, about three hours at 48 kHz. Shared with the oracle,
@@ -201,19 +300,19 @@ impl Rendered {
 #[derive(Debug)]
 enum Built {
     /// Rendered and given in binary64.
-    Binary64(EnginePlan<Binary64>),
+    Binary64(EnginePlan<Binary64>, OutputStage<Binary64>),
     /// Rendered in binary64, given in binary32.
-    Binary64AsBinary32(EnginePlan<Binary64>),
+    Binary64AsBinary32(EnginePlan<Binary64>, OutputStage<Binary64>),
     /// Rendered and given in binary32.
-    Binary32(EnginePlan<Binary32>),
+    Binary32(EnginePlan<Binary32>, OutputStage<Binary32>),
 }
 
 impl Built {
     /// Number of output channels.
     const fn channels(&self) -> usize {
         match self {
-            Self::Binary64(plan) | Self::Binary64AsBinary32(plan) => plan.channels(),
-            Self::Binary32(plan) => plan.channels(),
+            Self::Binary64(plan, _) | Self::Binary64AsBinary32(plan, _) => plan.channels(),
+            Self::Binary32(plan, _) => plan.channels(),
         }
     }
 }
@@ -249,24 +348,24 @@ impl Prepared {
         let count = self.sample_count();
         let channels = self.plan.channels();
         let (samples, replaced) = match self.plan {
-            Built::Binary64(plan) => {
+            Built::Binary64(plan, stage) => {
                 let mut samples = vec![0.0_f64; count];
-                let mut renderer = Renderer::new(plan);
+                let mut renderer = Renderer::with_stage(plan, stage);
                 renderer.render_into(&mut samples);
                 (RenderedSamples::Binary64(samples), renderer.replaced())
             }
-            Built::Binary64AsBinary32(plan) => {
+            Built::Binary64AsBinary32(plan, stage) => {
                 let mut samples = vec![0.0_f32; count];
-                let mut renderer = Renderer::new(plan);
+                let mut renderer = Renderer::with_stage(plan, stage);
                 renderer.render_into(&mut samples);
                 (
                     RenderedSamples::Binary64AsBinary32(samples),
                     renderer.replaced(),
                 )
             }
-            Built::Binary32(plan) => {
+            Built::Binary32(plan, stage) => {
                 let mut samples = vec![0.0_f32; count];
-                let mut renderer = Renderer::new(plan);
+                let mut renderer = Renderer::with_stage(plan, stage);
                 renderer.render_into(&mut samples);
                 (RenderedSamples::Binary32(samples), renderer.replaced())
             }
@@ -335,15 +434,22 @@ pub fn prepare_case(
     let patch =
         audio_patch::parse_patch(patch).map_err(|error| CaseError::Patch(error.to_string()))?;
     let built = |error: audio_core::CoreError| CaseError::Patch(error.to_string());
+    let output = case.output;
     let plan = match format {
         RenderFormat::Binary64 => {
-            Built::Binary64(Plan::build(&patch, &REGISTRY, rate).map_err(built)?)
+            let plan: EnginePlan<Binary64> = Plan::build(&patch, &REGISTRY, rate).map_err(built)?;
+            let stage = stage_of(output, rate, plan.channels())?;
+            Built::Binary64(plan, stage)
         }
         RenderFormat::Binary64AsBinary32 => {
-            Built::Binary64AsBinary32(Plan::build(&patch, &REGISTRY, rate).map_err(built)?)
+            let plan: EnginePlan<Binary64> = Plan::build(&patch, &REGISTRY, rate).map_err(built)?;
+            let stage = stage_of(output, rate, plan.channels())?;
+            Built::Binary64AsBinary32(plan, stage)
         }
         RenderFormat::Binary32 => {
-            Built::Binary32(Plan::build(&patch, &REGISTRY, rate).map_err(built)?)
+            let plan: EnginePlan<Binary32> = Plan::build(&patch, &REGISTRY, rate).map_err(built)?;
+            let stage = stage_of(output, rate, plan.channels())?;
+            Built::Binary32(plan, stage)
         }
     };
     if plan.channels() == 0 {

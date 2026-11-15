@@ -23,16 +23,16 @@ function renderSine(frames: number, size: number): Float32Array[] {
 
 /** The render hash of `testCase` rendered in `format` through buffers of `size` frames. */
 async function corpusHash(testCase: CorpusCase, size: number, format: RenderFormat): Promise<string> {
-  const { rate, frames, patch } = testCase;
+  const { rate, frames, patch, output: stage } = testCase;
   if (format === "binary64") {
-    const wide = WasmEngine.create(module, patch, rate, format);
+    const wide = WasmEngine.create(module, patch, rate, format, stage);
     const outputs = Array.from({ length: wide.channels }, () => new Float64Array(frames));
     for (let start = 0; start < frames; start += size) {
       wide.render(outputs.map((output) => output.subarray(start, Math.min(start + size, frames))));
     }
     return renderHash(rate, wide.channels, interleave64(outputs), format, STRICT);
   }
-  const engine = WasmEngine.create(module, patch, rate, format);
+  const engine = WasmEngine.create(module, patch, rate, format, stage);
   const channels = Array.from({ length: engine.channels }, () => new Float32Array(frames));
   for (let start = 0; start < frames; start += size) {
     engine.render(channels.map((channel) => channel.subarray(start, Math.min(start + size, frames))));

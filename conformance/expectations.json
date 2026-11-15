@@ -31,6 +31,14 @@
       { "sine": { "frequency": 1000, "amplitude": 1, "phase": 0 } }
     ]
   },
+  "sine-1000-limited-at-48k": {
+    "sample_rate": 48000,
+    "frames": 48000,
+    "channels": [
+      { "limited": { "frequency": 1000, "amplitude": 1, "phase": 0 } },
+      { "limited": { "frequency": 1000, "amplitude": 1, "phase": 0 } }
+    ]
+  },
   "sine-10001-at-8k": {
     "sample_rate": 8000,
     "frames": 8000,

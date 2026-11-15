@@ -196,11 +196,40 @@ fn corpus() -> Vec<(String, String, String, Hashes)> {
     cases
 }
 
+/// The output stage a case names (`output`: a mode, a lookahead and a detector), for
+/// `channels` channels at `rate`: raw when it names none, as `audio-cli` renders it.
+fn stage<S: audio_core::Sample>(
+    case: &serde_json::Value,
+    rate: audio_core::SampleRate,
+    channels: usize,
+) -> audio_core::OutputStage<S> {
+    let output = &case["output"];
+    if output.is_null() || output["mode"] == "raw" {
+        return audio_core::OutputStage::new();
+    }
+    let lookahead = <audio_core::Binary64 as audio_core::host::Raw>::from_raw(
+        output["lookahead"].as_f64().expect("a lookahead"),
+    );
+    let detector = match output["detector"].as_str().expect("a detector") {
+        "standard" => audio_core::Detector::Standard,
+        "precise" => audio_core::Detector::Precise,
+        _ => audio_core::Detector::Mastering,
+    };
+    let settings = audio_core::LimiterSettings::DEFAULT
+        .with_lookahead(lookahead)
+        .expect("a lookahead in range");
+    audio_core::OutputStage::limited(
+        audio_core::TruePeakLimiter::new(rate, channels, lookahead, detector, settings, true)
+            .expect("a limiter"),
+    )
+}
+
 /// The render hash of a case in `format`, as `audio-cli` renders it: its patch parsed, its
-/// plan built and rendered, its samples hashed. Parsing and every float operation happen in
-/// the mode of the caller.
+/// plan built and rendered through its output stage, its samples hashed. Parsing and every
+/// float operation happen in the mode of the caller.
 fn render(case: &str, patch: &str, format: RenderFormat) -> String {
     let case: serde_json::Value = serde_json::from_str(case).expect("a case");
+    let named = case.clone();
     let rate = audio_core::SampleRate::new(
         u32::try_from(case["sample_rate"].as_u64().expect("a rate")).expect("u32"),
     )
@@ -223,13 +252,19 @@ fn render(case: &str, patch: &str, format: RenderFormat) -> String {
         RenderFormat::Binary64 => {
             let plan = wide();
             let channels = plan.channels();
-            let samples: Vec<f64> = Renderer::new(plan).render(frames).expect("a render");
+            let stage = stage(&named, rate, channels);
+            let samples: Vec<f64> = Renderer::with_stage(plan, stage)
+                .render(frames)
+                .expect("a render");
             hash(channels, Samples::Binary64(&samples))
         }
         RenderFormat::Binary64AsBinary32 => {
             let plan = wide();
             let channels = plan.channels();
-            let samples: Vec<f32> = Renderer::new(plan).render(frames).expect("a render");
+            let stage = stage(&named, rate, channels);
+            let samples: Vec<f32> = Renderer::with_stage(plan, stage)
+                .render(frames)
+                .expect("a render");
             hash(channels, Samples::Binary64AsBinary32(&samples))
         }
         RenderFormat::Binary32 => {
@@ -238,7 +273,10 @@ fn render(case: &str, patch: &str, format: RenderFormat) -> String {
             )
             .expect("a plan");
             let channels = plan.channels();
-            let samples: Vec<f32> = Renderer::new(plan).render(frames).expect("a render");
+            let stage = stage(&named, rate, channels);
+            let samples: Vec<f32> = Renderer::with_stage(plan, stage)
+                .render(frames)
+                .expect("a render");
             hash(channels, Samples::Binary32(&samples))
         }
     }

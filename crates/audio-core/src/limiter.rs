@@ -228,6 +228,19 @@ impl LimiterSettings {
         self.lookahead
     }
 
+    /// These settings with the lookahead `lookahead`, in milliseconds.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LimiterError::OutOfRange`] for a lookahead outside its range or not a
+    /// number.
+    pub fn with_lookahead(self, lookahead: Binary64) -> Result<Self, LimiterError> {
+        Ok(Self {
+            lookahead: checked(Setting::Lookahead, lookahead)?,
+            ..self
+        })
+    }
+
     /// Settings from their values: a ceiling in dBTP, a lookahead and a release in
     /// milliseconds, an adaptivity from 0 to 1.
     ///

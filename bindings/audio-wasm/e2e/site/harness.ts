@@ -18,7 +18,7 @@
 // engine's own failure first (page.ts).
 import { WasmEngine } from "../../dist/engine.js";
 import { interleave, renderHash, STRICT } from "../../dist/hash.js";
-import { addProcessors, captureEngine, createEngineNode, givenAsBinary32, loadPatch, parsePrecision, renderOffline, type LoadedPatch, type Precision } from "../../dist/web.js";
+import { DEFAULT_LIMITER, DETECTORS, RAW_OUTPUT, addProcessors, captureEngine, createEngineNode, givenAsBinary32, loadPatch, parsePrecision, renderOffline, type LoadedPatch, type Output, type Precision } from "../../dist/web.js";
 import { fetchOk } from "./fetch.ts";
 import { Actions, closing, FirstFailure, liveCapture, showFailure } from "./page.ts";
 import { PAGE_CLOCK, renderBlocks, runsOf, timeEach, timeRuns, timed } from "./timing.ts";
@@ -43,6 +43,26 @@ interface Case {
   readonly frames: number;
   /** The bytes of the patch file, unchanged. */
   readonly patch: Uint8Array;
+  /** The output stage of the render: raw when the case names none. */
+  readonly output: Output;
+}
+
+/**
+ * The output stage a case names (`output`: its mode, raw or protected, its limiter's
+ * lookahead, its maximum too, and its detector), as an engine's: raw when it names none.
+ * The engine checks the values; the conformance readers check the shape.
+ */
+function caseOutput(value: unknown): Output {
+  if (typeof value !== "object" || value === null) {
+    return RAW_OUTPUT;
+  }
+  const mode: unknown = Reflect.get(value, "mode");
+  const lookahead: unknown = Reflect.get(value, "lookahead");
+  const detector = DETECTORS.find((known) => known === Reflect.get(value, "detector"));
+  if ((mode !== "raw" && mode !== "protected") || typeof lookahead !== "number" || detector === undefined) {
+    throw new Error("invalid case output");
+  }
+  return { mode, maximumLookahead: lookahead, detector, limiter: { ...DEFAULT_LIMITER, lookahead } };
 }
 
 /** Fetches a conformance case and its patch file, kept byte for byte. */
@@ -57,7 +77,7 @@ async function fetchCase(name: string): Promise<Case> {
   if (typeof rate !== "number" || typeof frames !== "number") {
     throw new Error("invalid case");
   }
-  return { rate, frames, patch };
+  return { rate, frames, patch, output: caseOutput(Reflect.get(json, "output")) };
 }
 
 /** What the page loads before its buttons work. */
@@ -83,7 +103,7 @@ async function load(): Promise<Loaded> {
   if (chosen === undefined) {
     throw new Error(`unknown precision: ${String(new URLSearchParams(location.search).get("precision"))}`);
   }
-  return { wasm: module, testCase: asked, precision: chosen, loaded: await loadPatch(module, asked.patch, asked.rate, chosen) };
+  return { wasm: module, testCase: asked, precision: chosen, loaded: await loadPatch(module, asked.patch, asked.rate, chosen, asked.output) };
 }
 
 /** Where why the page could not load, or why the last action failed, is shown. */

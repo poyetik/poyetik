@@ -21,13 +21,13 @@ const EMPTY = new TextEncoder().encode('{"format":1,"nodes":[],"connections":[]}
 describe("the instrumented engine module", () => {
   test.each(CORPUS.map((testCase) => [testCase.name, testCase] as const))("renders %s bit-identical to the native engine, as the module does, in every render format", async (name, testCase) => {
     const module = new WebAssembly.Module(instrument(new Uint8Array(wasmBytes())));
-    const { patch, rate, frames } = testCase;
-    const wide = WasmEngine.create(module, patch, rate, "binary64");
+    const { patch, rate, frames, output } = testCase;
+    const wide = WasmEngine.create(module, patch, rate, "binary64", output);
     const wideChannels = Array.from({ length: wide.channels }, () => new Float64Array(frames));
     wide.render(wideChannels);
     expect(await renderHash(rate, wide.channels, interleave64(wideChannels), "binary64", STRICT)).toBe(reference(name, "binary64"));
     for (const format of RENDER_FORMATS.filter((candidate) => candidate !== "binary64")) {
-      const engine = WasmEngine.create(module, patch, rate, format);
+      const engine = WasmEngine.create(module, patch, rate, format, output);
       const channels = Array.from({ length: engine.channels }, () => new Float32Array(frames));
       engine.render(channels);
       expect(await renderHash(rate, engine.channels, interleave(channels), format, STRICT)).toBe(reference(name, format));

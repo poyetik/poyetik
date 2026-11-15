@@ -28,22 +28,50 @@ export const MIN_RATE = 8000;
 /** Highest sample rate the engine supports, in hertz (`audio_core::SampleRate::MAX`). */
 export const MAX_RATE = 384_000;
 
-/** What a case declares: its rate and duration. */
+/** The modes of a case's output stage (`spec/engine-design.md`, decision 12). */
+export const OUTPUT_MODES = ["raw", "protected"] as const;
+
+/** The precisions of the limiter's peak detector. */
+export const DETECTORS = ["standard", "precise", "mastering"] as const;
+
+/** The range of a limiter's lookahead, in milliseconds (`audio_core::Setting::Lookahead`). */
+export const LOOKAHEAD_MS = { lowest: 0.5, highest: 5 } as const;
+
+/** The output stage of a case: its mode, its limiter's lookahead (its maximum too) and its detector, its other settings the engine's defaults. */
+export interface CaseOutput {
+  /** Raw, or through the true-peak limiter. */
+  readonly mode: (typeof OUTPUT_MODES)[number];
+  /** The limiter's lookahead and its maximum, in milliseconds. */
+  readonly lookahead: number;
+  /** The limiter's peak detector. */
+  readonly detector: (typeof DETECTORS)[number];
+}
+
+/** What a case declares: its rate, its duration and its output stage. */
 export interface Case {
   /** Sample rate, in hertz: a whole number from {@link MIN_RATE} to {@link MAX_RATE}. */
   readonly rate: number;
   /** Duration of the render, in frames (samples per channel), from 1 to `MAX_EXACT_FRAMES`. */
   readonly frames: number;
+  /** The output stage; raw when the case names none. */
+  readonly output: CaseOutput;
 }
+
+/** The output stage of a case that names none: raw. */
+const RAW: CaseOutput = Object.freeze({ mode: "raw", lookahead: 1.5, detector: "precise" });
 
 /**
  * What one channel of a case must contain. The allowed distance from it is derived
  * (`sineErrorBound` in `signal.ts`), never declared.
  */
-export interface ChannelExpectation {
+export type ChannelExpectation =
   /** The sine the channel holds, from its first sample on. */
-  readonly sine: Sine;
-}
+  | { readonly sine: Sine }
+  /**
+   * The sine the patch plays, rendered through the case's protected output stage: delayed
+   * by its latency and limited at the default ceiling (`limited.ts`).
+   */
+  | { readonly limited: Sine };
 
 /** What the render of a case must be. */
 export interface Expectation {
@@ -157,15 +185,18 @@ export function onlyKeys(value: unknown, keys: readonly string[], where: string,
   return checked;
 }
 
+/** The integer fields of a case file, whose numbers must be written as whole numbers. */
+const WHOLE_FIELDS: readonly string[] = ["sample_rate", "frames"];
+
 /**
- * A `JSON.parse` reviver that refuses any number not written as a whole number, without
- * fraction or exponent (`100.0`, `1e2`), as the engine's reader refuses it for an integer
- * field: it reads the text of each number (`context.source`), which the parsed value
- * has lost.
+ * A `JSON.parse` reviver that refuses a number of an integer field ({@link WHOLE_FIELDS})
+ * not written as a whole number, without fraction or exponent (`100.0`, `1e2`), as the
+ * engine's reader refuses it: it reads the text of each number (`context.source`), which
+ * the parsed value has lost.
  */
 function wholeNumbers(name: string): (this: unknown, key: string, value: unknown, ...context: unknown[]) => unknown {
   return (key, value, ...context) => {
-    if (typeof value === "number" && !/^-?\d+$/.test(String(Reflect.get(Object(context[0]), "source")))) {
+    if (WHOLE_FIELDS.includes(key) && typeof value === "number" && !/^-?\d+$/.test(String(Reflect.get(Object(context[0]), "source")))) {
       throw new InputError(`${name}: ${key} is not a whole number written without fraction or exponent`);
     }
     return value;
@@ -191,10 +222,34 @@ export function parseCase(text: string, name: string): Case {
   } catch (error) {
     throw new InputError(`${name}: not JSON (${String(error)})`);
   }
-  const checked = onlyKeys(value, ["sample_rate", "frames"], name);
-  const read = { rate: sampleRate(field(checked, "sample_rate"), `${name}: sample_rate`), frames: frames(field(checked, "frames"), `${name}: frames`) };
+  const checked = onlyKeys(value, ["sample_rate", "frames", "output"], name);
+  const output = Object.hasOwn(checked, "output") ? parseOutput(field(checked, "output"), `${name}: output`) : RAW;
+  const read = { rate: sampleRate(field(checked, "sample_rate"), `${name}: sample_rate`), frames: frames(field(checked, "frames"), `${name}: frames`), output };
   JSON.parse(text, wholeNumbers(name));
   return read;
+}
+
+/** `value` if it is one of `allowed`, or rejects `where`. */
+function oneOf<T extends string>(value: unknown, allowed: readonly T[], where: string): T {
+  const found = allowed.find((known) => known === value);
+  if (found === undefined) {
+    throw new InputError(`${where} is not one of ${allowed.join(", ")}`);
+  }
+  return found;
+}
+
+/**
+ * Reads the output stage of a case, as `audio-cli` reads it: an object with exactly a
+ * `mode` (raw or protected), a `lookahead` in milliseconds within {@link LOOKAHEAD_MS} and a
+ * `detector`; never `null`.
+ */
+function parseOutput(value: unknown, where: string): CaseOutput {
+  const checked = onlyKeys(value, ["mode", "lookahead", "detector"], where);
+  const lookahead: unknown = field(checked, "lookahead");
+  if (typeof lookahead !== "number" || !(lookahead >= LOOKAHEAD_MS.lowest && lookahead <= LOOKAHEAD_MS.highest)) {
+    throw new InputError(`${where}: lookahead is not a number of milliseconds from ${String(LOOKAHEAD_MS.lowest)} to ${String(LOOKAHEAD_MS.highest)}`);
+  }
+  return { mode: oneOf(field(checked, "mode"), OUTPUT_MODES, `${where}: mode`), lookahead, detector: oneOf(field(checked, "detector"), DETECTORS, `${where}: detector`) };
 }
 
 /**
@@ -229,17 +284,26 @@ export function parseReferences(value: unknown): Map<string, ReadonlyMap<RenderF
  * derived for.
  */
 function parseChannel(value: unknown, rate: number, where: string): ChannelExpectation {
-  const sine = onlyKeys(field(onlyKeys(value, ["sine"], where, " (tolerances are derived, not declared)"), "sine"), ["frequency", "amplitude", "phase"], `${where}: sine`);
-  const frequency = binary32(field(sine, "frequency"), `${where}: sine.frequency`, "parameters are binary32: give the value the engine plays");
+  const checked = onlyKeys(value, ["sine", "limited"], where, " (tolerances are derived, not declared)");
+  const kind = Object.hasOwn(checked, "limited") ? "limited" : "sine";
+  if (Object.keys(checked).length > 1) {
+    throw new InputError(`${where} is not one sine or one limited sine`);
+  }
+  const parsed = parseSine(field(checked, kind), rate, `${where}: ${kind}`);
+  return kind === "limited" ? { limited: parsed } : { sine: parsed };
+}
+
+/** Reads the sine of a channel expectation, named `where`. */
+function parseSine(value: unknown, rate: number, where: string): Sine {
+  const sine = onlyKeys(value, ["frequency", "amplitude", "phase"], where);
+  const frequency = binary32(field(sine, "frequency"), `${where}.frequency`, "parameters are binary32: give the value the engine plays");
   if (!(frequency >= 0 && frequency < 4 * rate)) {
-    throw new InputError(`${where}: sine.frequency is not in [0, 4 × sample_rate)`);
+    throw new InputError(`${where}.frequency is not in [0, 4 × sample_rate)`);
   }
   return {
-    sine: {
-      frequency,
-      amplitude: binary32(field(sine, "amplitude"), `${where}: sine.amplitude`, "the error bound of a binary32 render counts a gain only when it is exact in binary32"),
-      phase: phase(field(sine, "phase"), `${where}: sine.phase`),
-    },
+    frequency,
+    amplitude: binary32(field(sine, "amplitude"), `${where}.amplitude`, "the error bound of a binary32 render counts a gain only when it is exact in binary32"),
+    phase: phase(field(sine, "phase"), `${where}.phase`),
   };
 }
 
@@ -266,7 +330,7 @@ export function parseExpectations(value: unknown): Map<string, Expectation> {
           frames: length,
           channels: channels.map((channel: unknown, index) => {
             const parsed = parseChannel(channel, rate, `${where}: channel ${String(index)}`);
-            const refusal = unmeasurable(parsed.sine, rate, length);
+            const refusal = "sine" in parsed ? unmeasurable(parsed.sine, rate, length) : null;
             if (refusal !== null) {
               throw new InputError(`${where}: channel ${String(index)}: sine.frequency cannot be measured over ${String(length)} frames (${refusal}): lengthen the case`);
             }

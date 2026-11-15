@@ -4,7 +4,7 @@
 // patches, and hand-made modules that break the engine interface in one way each.
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { parseCase } from "@poyetik/oracle/inputs";
-import { RENDER_FORMATS, type RenderFormat } from "../ts/engine.ts";
+import { DEFAULT_LIMITER, RENDER_FORMATS, type Output, type RenderFormat } from "../ts/engine.ts";
 
 /**
  * The directory `name` of the repository, holding `file`, found by walking up from this
@@ -60,6 +60,8 @@ export interface CorpusCase {
   readonly frames: number;
   /** The bytes of its patch file, unchanged. */
   readonly patch: Uint8Array;
+  /** The output stage it renders through, as the engine takes it: raw when the case names none. */
+  readonly output: Output;
 }
 
 /** The names of the `.json` files of a corpus directory, sorted. */
@@ -73,12 +75,14 @@ function jsonNames(directory: string): string[] {
 /** Every case of the corpus, sorted by name, each read as the oracle reads it. */
 export const CORPUS: readonly CorpusCase[] = jsonNames("cases/").map((name) => {
   // Read by the oracle's parser, which accepts and refuses the same case files as audio-cli.
-  const { rate, frames } = parseCase(readFileSync(new URL(`cases/${name}.json`, CONFORMANCE), "utf8"), name);
+  const { rate, frames, output } = parseCase(readFileSync(new URL(`cases/${name}.json`, CONFORMANCE), "utf8"), name);
   return {
     name,
     rate,
     frames,
     patch: new Uint8Array(readFileSync(new URL(`patches/${name}.json`, CONFORMANCE))),
+    // A case's lookahead is its maximum too; the limiter's other settings are the defaults.
+    output: { mode: output.mode, maximumLookahead: output.lookahead, detector: output.detector, limiter: { ...DEFAULT_LIMITER, lookahead: output.lookahead } },
   };
 });
 

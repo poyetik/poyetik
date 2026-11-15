@@ -298,8 +298,34 @@ fn rejects_invalid_cases() {
             r#"{"sample_rate":48000,"frames":1,"extra":1}"#,
             PATCH,
             case(
-                "invalid case: unknown field `extra`, expected `sample_rate` or `frames` at line 1 column 39",
+                "invalid case: unknown field `extra`, expected one of `sample_rate`, `frames`, `output` at line 1 column 39",
             ),
+        ),
+        (
+            r#"{"sample_rate":48000,"frames":1,"output":null}"#,
+            PATCH,
+            case(
+                "invalid case: invalid type: null, expected struct CaseOutput at line 1 column 45",
+            ),
+        ),
+        (
+            r#"{"sample_rate":48000,"frames":1,"output":{"mode":"loud","lookahead":1.5,"detector":"standard"}}"#,
+            PATCH,
+            case(
+                "invalid case: unknown variant `loud`, expected `raw` or `protected` at line 1 column 55",
+            ),
+        ),
+        (
+            r#"{"sample_rate":48000,"frames":1,"output":{"mode":"raw","lookahead":1.5,"detector":"exact"}}"#,
+            PATCH,
+            case(
+                "invalid case: unknown variant `exact`, expected one of `standard`, `precise`, `mastering` at line 1 column 89",
+            ),
+        ),
+        (
+            r#"{"sample_rate":48000,"frames":1,"output":{"mode":"raw","lookahead":0.25,"detector":"standard"}}"#,
+            PATCH,
+            case("invalid case: limiter lookahead 0.25 ms is out of range (0.5 to 5 ms)"),
         ),
         (
             r#"{"sample_rate":1,"frames":1}"#,
@@ -4183,4 +4209,110 @@ fn warns_of_replaced_samples_on_render_and_refuses_them_in_conformance() {
             .is_ok_and(|kept| core::ptr::eq(kept, &raw const clean)),
         "a clean render kept as it is"
     );
+}
+
+#[test]
+fn renders_a_case_through_its_output_stage() {
+    // Raw when absent or named; protected through the limiter, delayed by its latency: at
+    // 48 kHz, 0.5 ms of lookahead (24 frames) and the standard detector's 6.
+    let raw = render_case(
+        r#"{"sample_rate":48000,"frames":100}"#,
+        PATCH,
+        RenderFormat::Binary64,
+    )
+    .expect("raw");
+    let named = render_case(
+        r#"{"sample_rate":48000,"frames":100,"output":{"mode":"raw","lookahead":5,"detector":"mastering"}}"#,
+        PATCH,
+        RenderFormat::Binary64,
+    )
+    .expect("raw, named");
+    assert_eq!(raw.hash(), named.hash(), "raw either way");
+    let protected = render_case(
+        r#"{"sample_rate":48000,"frames":100,"output":{"mode":"protected","lookahead":0.5,"detector":"standard"}}"#,
+        PATCH,
+        RenderFormat::Binary64,
+    )
+    .expect("protected");
+    let RenderedSamples::Binary64(samples) = protected.samples() else {
+        panic!("binary64 samples");
+    };
+    assert!(
+        samples[..60].iter().all(|sample| sample.to_bits() == 0),
+        "30 frames of silence in stereo"
+    );
+    assert!(
+        samples[60..].iter().any(|sample| *sample != 0.0_f64),
+        "then the limited sine"
+    );
+    assert_ne!(protected.hash(), raw.hash(), "another render");
+    // The precise detector looks 16 frames behind: 40 frames of silence in stereo, 80
+    // samples, at 0.5 ms of lookahead.
+    let precise = render_case(
+        r#"{"sample_rate":48000,"frames":100,"output":{"mode":"protected","lookahead":0.5,"detector":"precise"}}"#,
+        PATCH,
+        RenderFormat::Binary32,
+    )
+    .expect("protected, precise");
+    let RenderedSamples::Binary32(narrow) = precise.samples() else {
+        panic!("binary32 samples");
+    };
+    assert!(
+        narrow[..80].iter().all(|sample| sample.to_bits() == 0),
+        "40 frames of silence"
+    );
+    assert!(
+        narrow[80..].iter().any(|sample| *sample != 0.0_f32),
+        "then the limited sine"
+    );
+}
+
+#[test]
+fn renders_every_mode_and_detector_in_every_format() {
+    // Raw named, then protected with each detector, in each render format: silence over
+    // the latency (0.5 ms, 24 frames, and the detector's 6, 16 or 64), then sound.
+    for format in RenderFormat::ALL {
+        for (output, latency) in [
+            (
+                r#"{"mode":"raw","lookahead":0.5,"detector":"mastering"}"#,
+                0_usize,
+            ),
+            (
+                r#"{"mode":"protected","lookahead":0.5,"detector":"standard"}"#,
+                30,
+            ),
+            (
+                r#"{"mode":"protected","lookahead":0.5,"detector":"precise"}"#,
+                40,
+            ),
+            (
+                r#"{"mode":"protected","lookahead":0.5,"detector":"mastering"}"#,
+                88,
+            ),
+        ] {
+            let case = format!(r#"{{"sample_rate":48000,"frames":200,"output":{output}}}"#);
+            let rendered = render_case(&case, PATCH, format).expect("a render");
+            let silent = |count: usize| match rendered.samples() {
+                RenderedSamples::Binary64(samples) => samples
+                    .iter()
+                    .take(count)
+                    .all(|sample| sample.to_bits() == 0),
+                RenderedSamples::Binary64AsBinary32(samples)
+                | RenderedSamples::Binary32(samples) => samples
+                    .iter()
+                    .take(count)
+                    .all(|sample| sample.to_bits() == 0),
+            };
+            // Stereo: two samples a frame; the sine starts at zero, so its first frame is
+            // silent too.
+            assert!(
+                silent(latency.saturating_mul(2)),
+                "{format} {output}: silent over the latency"
+            );
+            assert!(
+                !silent(latency.saturating_add(2).saturating_mul(2)),
+                "{format} {output}: then sound"
+            );
+        }
+    }
 }

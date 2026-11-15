@@ -253,3 +253,38 @@ describe("an empty corpus", () => {
     });
   });
 });
+
+describe("judge, a limited case", () => {
+  /** 16,384 frames at 48 kHz of a 1 kHz sine limited to `amplitude`, after 78 frames of latency, in every format. */
+  const limited = (amplitude: number): { readonly wavs: Map<string, Uint8Array>; readonly references: Record<string, string> } => {
+    const samples = Array.from({ length: 16_384 }, (_value, frame) => (frame < 78 ? 0 : amplitude * Math.sin((2 * Math.PI * 1000 * frame) / 48_000)));
+    const wavs = new Map<string, Uint8Array>();
+    const references: Record<string, string> = {};
+    for (const format of RENDER_FORMATS) {
+      const wav = format === "binary64" ? makeWav({ rate: 48_000, channels: 1, samples, bits: 64 }) : makeWav({ rate: 48_000, channels: 1, samples: samples.map(Math.fround) });
+      wavs.set(`limited.${format}`, wav);
+      references[format] = renderHash(parseWav(wav), format, STRICT);
+    }
+    return { wavs, references };
+  };
+  /** The corpus of the limited case, its render limited to `amplitude`. */
+  const limitedCorpus = (amplitude: number): Corpus => {
+    const { wavs, references } = limited(amplitude);
+    return {
+      cases: new Map([["limited", JSON.stringify({ sample_rate: 48_000, frames: 16_384, output: { mode: "protected", lookahead: 1.5, detector: "standard" } })]]),
+      references: { limited: references },
+      expectations: { limited: { sample_rate: 48_000, frames: 16_384, channels: [{ limited: { frequency: 1000, amplitude: 1, phase: 0 } }] } },
+      wavs,
+    };
+  };
+
+  test("passes a sine limited within its derived range, and fails one above it", () => {
+    // Between c/G and c/R at 1 kHz and 48 kHz, 0.8903 to 0.8915.
+    const passed = judge(limitedCorpus(0.891));
+    expect(passed.failures).toBe(0);
+    expect(passed.lines[0]).toMatch(/^ok {7}limited binary64 [0-9a-f]{64} \(1 channel\(s\), channel 0 limited, true peak 0\.891000, THD\+N -\d+\.\d dB\)$/);
+    const above = judge(limitedCorpus(0.95));
+    expect(above.failures).toBe(3);
+    expect(above.lines[0]).toMatch(/channel 0: true peak 0\.9[45]\d*, not between/);
+  });
+});

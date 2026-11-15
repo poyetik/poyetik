@@ -9,6 +9,7 @@ import { RENDER_FORMATS, sampleBits, type RenderFormat } from "./format.ts";
 import { renderHash, STRICT } from "./hash.ts";
 import { InputError, parseCase, parseExpectations, parseReferences, type Expectation } from "./inputs.ts";
 import { describe, judgeQuality, UNMEASURED, worst, type Levels } from "./quality.ts";
+import { judgeLimited } from "./limited.ts";
 import { channel, sineError, sineErrorBound } from "./signal.ts";
 import { WavError, parseWav } from "./wav.ts";
 
@@ -80,26 +81,38 @@ function judgeRender(name: string, raw: string, expectation: Expectation, render
   }
   let largest = 0;
   const measured: Levels[] = [];
+  const notes: string[] = [];
   expectation.channels.forEach((expected, index) => {
-    if (index < wav.channels) {
-      const samples = channel(wav, index);
-      const error = sineError(samples, wav.rate, expected.sine);
-      const bound = sineErrorBound(expected.sine.amplitude, wav.frames, render.format);
-      largest = Math.max(largest, error);
-      if (!(error <= bound)) {
-        problems.push(`channel ${String(index)}: off the expected sine by ${error.toExponential(2)} (at most ${bound.toExponential(2)})`);
+    if (index >= wav.channels) {
+      return;
+    }
+    if ("limited" in expected) {
+      const limited = judgeLimited(channel(wav, index), wav.rate, expected.limited, declared.output, render.format);
+      if ("problems" in limited) {
+        problems.push(...limited.problems.map((problem) => `channel ${String(index)}: ${problem}`));
+      } else {
+        notes.push(`channel ${String(index)} limited, true peak ${limited.peak.toFixed(6)}, THD+N ${limited.thdPlusN.toFixed(1)} dB`);
       }
-      const quality = judgeQuality(samples, wav.rate, expected.sine, render.format);
-      if (quality.kind === "failed") {
-        problems.push(...quality.problems.map((problem) => `channel ${String(index)}: ${problem}`));
-      } else if (quality.kind === "measured") {
-        measured.push(quality.levels);
-      }
+      return;
+    }
+    const samples = channel(wav, index);
+    const error = sineError(samples, wav.rate, expected.sine);
+    const bound = sineErrorBound(expected.sine.amplitude, wav.frames, render.format);
+    largest = Math.max(largest, error);
+    if (!(error <= bound)) {
+      problems.push(`channel ${String(index)}: off the expected sine by ${error.toExponential(2)} (at most ${bound.toExponential(2)})`);
+    }
+    const quality = judgeQuality(samples, wav.rate, expected.sine, render.format);
+    if (quality.kind === "failed") {
+      problems.push(...quality.problems.map((problem) => `channel ${String(index)}: ${problem}`));
+    } else if (quality.kind === "measured") {
+      measured.push(quality.levels);
     }
   });
   const combined = worst(measured);
   const levels = combined === null ? `levels not measured: ${UNMEASURED}` : describe(combined);
-  return problems.length > 0 ? { problems } : { ok: `${hash} (${String(wav.channels)} channel(s), sine error ${largest.toExponential(2)}; ${levels})` };
+  const said = notes.length === expectation.channels.length ? notes.join("; ") : `sine error ${largest.toExponential(2)}; ${levels}`;
+  return problems.length > 0 ? { problems } : { ok: `${hash} (${String(wav.channels)} channel(s), ${said})` };
 }
 
 /**

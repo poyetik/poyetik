@@ -591,6 +591,16 @@ fn changes_its_settings_live<S: Sample>() {
     assert_eq!(limiter.set(released), Ok(()), "the same lookahead");
     assert_eq!(limiter.settings(), released, "taken");
     assert_eq!(released.lookahead(), value(3.0_f64), "its lookahead");
+    assert_eq!(
+        released.with_lookahead(value(0.5_f64)),
+        Ok(settings(-3.0_f64, 0.5_f64, 500.0_f64, 1.0_f64)),
+        "another lookahead, the rest kept"
+    );
+    assert_eq!(
+        released.with_lookahead(value(6.0_f64)),
+        Err(LimiterError::OutOfRange(Setting::Lookahead, value(6.0_f64))),
+        "a lookahead out of range"
+    );
 }
 
 #[test]

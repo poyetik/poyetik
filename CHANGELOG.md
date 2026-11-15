@@ -40,6 +40,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - The limiter's peak detector is a setting, fixed when the limiter is built since it sets part of its latency (`audio_core::Detector`, `Detector::delay`): `Precise` by default, a 4x interpolator of 32 taps per phase; `Standard`, BS.1770's own interpolator (`audio_core::TRUE_PEAK_FILTER`), the cheapest; `Mastering`, an 8x interpolator of 128 taps per phase. The windowed interpolators are computed in the math layer. The C interface takes it with the output stage (`engine_output`'s third argument), and TypeScript as `Output.detector` (`DETECTORS`). Their under-read and the limited sine's true peak and distortion are derived from the coefficients and measured (`spec/measurements.md`, "The true-peak limiter").
 
+- Conformance cases render through an output stage of their own (`output` in a case file: raw or protected, the limiter's lookahead and detector), read alike by `audio-cli`, the oracle and the browser tests, with five invalid cases more. The oracle judges a channel rendered protected with the standard detector apart from the engine: silence over the latency, then a true peak between the bounds it derives from BS.1770's table and a THD+N within the bound of that range (`limited` expectations). The corpus holds a protected case, `sine-1000-limited-at-48k`, bit for bit the same natively and in every browser. `LimiterSettings::with_lookahead` changes one setting.
+
 ### Changed
 
 - **Breaking:** render rules version 3 (decision 29): the output stage is one of the render rules. No reference changed (no case outputs a non-finite sample); `conformance/algorithms.json` records the version.
