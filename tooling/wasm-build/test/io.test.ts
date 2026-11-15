@@ -4,7 +4,7 @@ import { existsSync, fstatSync, readdirSync, realpathSync, writeFileSync } from 
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, expect, test, vi } from "vitest";
-import { PROCESS_IO } from "../src/io.ts";
+import { PROCESS_ENTRY, PROCESS_IO } from "../src/io.ts";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -66,4 +66,16 @@ test("writes whole lines on stdout and stderr", () => {
   PROCESS_IO.err("error: failed");
   expect(out.mock.calls).toStrictEqual([["built\n"]]);
   expect(err.mock.calls).toStrictEqual([["error: failed\n"]]);
+});
+
+test("is this process's entry: its stdout, its stderr, and its exit code", () => {
+  expect(PROCESS_ENTRY.stdout).toBe(process.stdout);
+  expect(PROCESS_ENTRY.err).toBe(PROCESS_IO.err);
+  const before = process.exitCode;
+  try {
+    PROCESS_ENTRY.exit(3);
+    expect(process.exitCode).toBe(3);
+  } finally {
+    process.exitCode = before;
+  }
 });

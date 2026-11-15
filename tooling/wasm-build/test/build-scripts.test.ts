@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { describe, expect, test } from "vitest";
-import { buildMain, guardStdout, ignoreClosedReader, type Io, reproducibleMain } from "../src/cli.ts";
+import { buildMain, guardStdout, ignoreClosedReader, type Io, reproducibleMain, runEntryPoint } from "../src/cli.ts";
 import { cargoArgs, targetName, type WasmModule } from "../src/wasm.ts";
 
 /**
@@ -113,7 +113,8 @@ describe.each(MODULES)("build:wasm of the $label", (module) => {
   test("refuses any argument but help with a usage error made safe on one line, and builds nothing", () => {
     for (const [args, quoted] of [
       [["--help"], "--help"],
-      [["help", "x"], "help"],
+      [["help", "x"], "x"],
+      [["help", "help"], "help"],
       [["a\u202eb\nc"], "a\\u{202e}b\\u{a}c"],
     ] as const) {
       const { io, out, err, runs } = fakeIo(() => reported(artifact, module));
@@ -333,6 +334,19 @@ describe.each(MODULES)("test:reproducible of the $label", (module) => {
     expect(reproducibleMain(unremovable, [], module), "reproducible, but a directory left").toBe(1);
   });
 
+  test("makes every error line safe on one line, whatever text it carries", () => {
+    const { io, err } = builds(new Uint8Array([1]), new Uint8Array([1]));
+    const strange: Io = {
+      ...io,
+      temporaryRoot: "/tmp/a\nb\u202ec",
+      temporaryDirectory: () => {
+        throw Object.assign(new Error("failed"), { code: "ENOENT" });
+      },
+    };
+    expect(reproducibleMain(strange, [], module)).toBe(1);
+    expect(err).toStrictEqual(["error: cannot create a temporary directory in /tmp/a\\u{a}b\\u{202e}c: ENOENT"]);
+  });
+
   test("reports even an unexpected failure in one line", () => {
     const { io, err } = builds(new Uint8Array([1]), new Uint8Array([1]));
     const broken: Io = {
@@ -391,5 +405,47 @@ describe("guardStdout", () => {
     expect([lines, codes]).toStrictEqual([[], []]);
     listener(Object.assign(new Error("write EIO"), { code: "EIO" }));
     expect([lines, codes]).toStrictEqual([["error: cannot write to stdout: EIO"], [1]]);
+  });
+});
+
+describe("runEntryPoint", () => {
+  /** A fake entry process: its stdout's error listener, its stderr lines and its exit codes, in order. */
+  function entry(): { process: Parameters<typeof runEntryPoint>[0]; fail: (error: Error) => void; events: string[] } {
+    let listener: (error: Error) => void = () => undefined;
+    const events: string[] = [];
+    return {
+      events,
+      fail: (error) => {
+        listener(error);
+      },
+      process: {
+        stdout: {
+          on: (_event: "error", added: (error: Error) => void) => {
+            events.push("guard");
+            listener = added;
+          },
+        },
+        err: (line) => events.push(line),
+        exit: (code) => events.push(`exit ${String(code)}`),
+      },
+    };
+  }
+
+  test("guards stdout before running the command, then exits with its code", () => {
+    const run = entry();
+    runEntryPoint(run.process, () => {
+      run.events.push("main");
+      return 2;
+    });
+    expect(run.events).toStrictEqual(["guard", "main", "exit 2"]);
+  });
+
+  test("keeps the command's exit code when its reader is gone, and fails on any other stdout error", () => {
+    const closed = entry();
+    runEntryPoint(closed.process, () => 0);
+    closed.fail(Object.assign(new Error("write EPIPE"), { code: "EPIPE" }));
+    expect(closed.events).toStrictEqual(["guard", "exit 0"]);
+    closed.fail(Object.assign(new Error("write EIO"), { code: "EIO" }));
+    expect(closed.events).toStrictEqual(["guard", "exit 0", "error: cannot write to stdout: EIO", "exit 1"]);
   });
 });
