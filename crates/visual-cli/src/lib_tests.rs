@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use super::{
     BestEffort, CliError, Disk, Files, MAX_CASE_BYTES, MAX_REFERENCES_BYTES, USAGE, arguments,
-    parse_case, render_case, run,
+    parse_case, run,
 };
 
 /// A small valid case.
@@ -122,9 +122,7 @@ fn run_with(memory: &mut Memory, words: &[&str]) -> (Result<(), CliError>, Strin
 
 /// The hash of a case's text, as the case module renders it.
 fn hash(text: &str) -> String {
-    render_case(&parse_case(text).expect("a valid case"))
-        .expect("rendered")
-        .to_string()
+    parse_case(text).expect("a valid case").hash().to_string()
 }
 
 /// A corpus of two cases, `d/cases/small.json` and `d/cases/other.json`, and its references.
@@ -282,7 +280,7 @@ fn names_the_case_it_cannot_render() {
     assert_eq!(
         failed(&mut memory, "odd.json"),
         Err(CliError::Failed(
-            "odd.json: images must be from 1 to 10000, not 0".to_owned()
+            "odd.json: images: from 1 to 10000, not 0".to_owned()
         )),
         "a value out of range, named"
     );
@@ -674,7 +672,7 @@ fn rejects_every_case_of_the_shared_invalid_corpus() {
     assert!(files.len() >= 24, "every file is read: {}", files.len());
     for file in files {
         let refused = match Disk.read(&file, MAX_CASE_BYTES) {
-            Ok(text) => parse_case(&text).err(),
+            Ok(text) => parse_case(&text).err().map(|error| error.to_string()),
             Err(error) => Some(error.to_string()),
         };
         assert!(refused.is_some(), "{} is refused", file.display());

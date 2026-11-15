@@ -1,49 +1,132 @@
-//! Visual conformance cases: what to render, read from JSON, and their render to a hash.
+//! Visual conformance cases: what to render, read from JSON once, at the boundary, into a
+//! checked case, and its render to a hash.
+
+use core::fmt;
+use core::marker::PhantomData;
 
 use serde::Deserialize;
-use visual_boxes::Square;
-use visual_core::{Image, ImageIndex, ImageRange, ImageRate, ImageSize, Seconds};
+use serde::de::{Deserializer, MapAccess, Visitor, value::MapAccessDeserializer};
+use visual_boxes::{BoxError, Square};
+use visual_core::{Image, ImageIndex, ImageRange, ImageRate, ImageSize, Seconds, VisualError};
 use visual_hash::{ImageHash, hash_sequence};
 
 /// The largest case file read, in bytes.
 pub const MAX_CASE_BYTES: usize = 64 * 1024;
 
-/// The most images a case renders: enough for every motion, bounded so that a check stays
-/// quick.
+/// The most images a case renders: enough for every motion.
 pub const MAX_IMAGES: u64 = 10_000;
 
-/// The square a case renders.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+/// The most pixels a case renders in all, its images times the pixels of each: 2²⁸.
+///
+/// So that rendering and hashing a case takes seconds at most in a release build (about
+/// 20 ns a pixel), a few minutes unoptimized, whatever its file says.
+pub const MAX_RENDERED_PIXELS: u64 = 1 << 28;
+
+/// Reads a JSON object, and only an object, as `T`: serde's derived structs also accept a
+/// JSON array of their fields in order, which a case file must not be.
+fn object<'de, D: Deserializer<'de>, T: Deserialize<'de>>(deserializer: D) -> Result<T, D::Error> {
+    /// Visits a map only.
+    struct Object<T>(PhantomData<T>);
+
+    impl<'de, T: Deserialize<'de>> Visitor<'de> for Object<T> {
+        type Value = T;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            formatter.write_str("a JSON object")
+        }
+
+        fn visit_map<A: MapAccess<'de>>(self, map: A) -> Result<T, A::Error> {
+            T::deserialize(MapAccessDeserializer::new(map))
+        }
+    }
+
+    deserializer.deserialize_map(Object(PhantomData))
+}
+
+/// The square of a case file, as written.
+#[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct SquareCase {
+struct SquareFile {
     /// The side, in 65 536ths of the height.
-    pub side: u32,
+    side: u32,
     /// One sweep lasts `cycle[0] / cycle[1]` seconds.
-    pub cycle: [u32; 2],
+    cycle: [u32; 2],
 }
 
-/// A visual conformance case: a square rendered at a rate and a size, from an image index,
+/// A case file, as written: a square rendered at a rate and a size, from an image index,
 /// for a number of images.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Case {
+struct CaseFile {
     /// Images per second, `rate[0] / rate[1]`.
-    pub rate: [u32; 2],
+    rate: [u32; 2],
     /// Width of the images, in pixels.
-    pub width: u32,
+    width: u32,
     /// Height of the images, in pixels.
-    pub height: u32,
+    height: u32,
     /// The index of the first image rendered.
-    pub first: u64,
-    /// How many images are rendered, from 1 to [`MAX_IMAGES`].
-    pub images: u64,
+    first: u64,
+    /// How many images are rendered.
+    images: u64,
     /// The square.
-    pub square: SquareCase,
+    #[serde(deserialize_with = "object")]
+    square: SquareFile,
 }
 
-/// The values of a case, checked.
+/// Why the text of a case file is not a case.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CaseError {
+    /// The file is longer than [`MAX_CASE_BYTES`]: its length in bytes.
+    TooLong(usize),
+    /// Not a JSON object of exactly the fields of a case, each of its type: the reader's
+    /// explanation, with its line and column.
+    Json(String),
+    /// The count of images is not from 1 to [`MAX_IMAGES`].
+    Images(u64),
+    /// The last image is past the largest index.
+    Range(VisualError),
+    /// The image rate.
+    Rate(VisualError),
+    /// The width and height.
+    Size(VisualError),
+    /// The cycle of the square.
+    Cycle(VisualError),
+    /// The side of the square.
+    Side(BoxError),
+    /// More than [`MAX_RENDERED_PIXELS`] pixels to render: how many.
+    TooMuchWork(u64),
+}
+
+impl fmt::Display for CaseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::TooLong(bytes) => write!(
+                f,
+                "a case file holds at most {MAX_CASE_BYTES} bytes, this one {bytes}"
+            ),
+            Self::Json(reason) => f.write_str(reason),
+            Self::Images(images) => {
+                write!(f, "images: from 1 to {MAX_IMAGES}, not {images}")
+            }
+            Self::Range(error) => write!(f, "first and images: {error}"),
+            Self::Rate(error) => write!(f, "rate: {error}"),
+            Self::Size(error) => write!(f, "width and height: {error}"),
+            Self::Cycle(error) => write!(f, "square.cycle: {error}"),
+            Self::Side(error) => write!(f, "square.side: {error}"),
+            Self::TooMuchWork(pixels) => write!(
+                f,
+                "images, width and height: a case renders at most {MAX_RENDERED_PIXELS} pixels in all, this one {pixels}"
+            ),
+        }
+    }
+}
+
+/// Its message names the field refused and why.
+impl core::error::Error for CaseError {}
+
+/// A visual conformance case, every value checked: what is rendered and hashed.
 #[derive(Debug, Clone, Copy)]
-struct Checked {
+pub struct PreparedCase {
     /// The image rate.
     rate: ImageRate,
     /// The images rendered.
@@ -54,63 +137,77 @@ struct Checked {
     square: Square,
 }
 
+impl PreparedCase {
+    /// The image rate.
+    #[must_use]
+    pub const fn rate(&self) -> ImageRate {
+        self.rate
+    }
+
+    /// The images rendered.
+    #[must_use]
+    pub const fn range(&self) -> ImageRange {
+        self.range
+    }
+
+    /// The image size.
+    #[must_use]
+    pub const fn size(&self) -> ImageSize {
+        self.size
+    }
+
+    /// The square.
+    #[must_use]
+    pub const fn square(&self) -> Square {
+        self.square
+    }
+
+    /// Renders the case with the exact CPU reference renderer and returns the image hash
+    /// of its images.
+    #[must_use]
+    pub fn hash(&self) -> ImageHash {
+        let mut square = self.square;
+        let mut image = Image::new(self.size);
+        hash_sequence(&mut square, self.rate, self.range, &mut image)
+    }
+}
+
 /// Reads a case from the text of its file.
 ///
 /// # Errors
 ///
-/// Returns why the text is not a valid case: not JSON, an unknown or missing field, a
-/// value of the wrong type, or a value outside its range.
-pub fn parse_case(text: &str) -> Result<Case, String> {
+/// Returns why the text is not a valid case: too long, not a JSON object of exactly the
+/// fields of a case (one missing, unknown or written twice, or of another type), or a
+/// value outside its range, naming the field.
+pub fn parse_case(text: &str) -> Result<PreparedCase, CaseError> {
     if text.len() > MAX_CASE_BYTES {
-        return Err(format!(
-            "a case file holds at most {MAX_CASE_BYTES} bytes, this one {}",
-            text.len()
-        ));
+        return Err(CaseError::TooLong(text.len()));
     }
-    let case: Case = serde_json::from_str(text).map_err(|error| error.to_string())?;
-    let _checked = check(&case)?;
-    Ok(case)
-}
-
-/// Checks the values of `case`.
-fn check(case: &Case) -> Result<Checked, String> {
-    if !(1..=MAX_IMAGES).contains(&case.images) {
-        return Err(format!(
-            "images must be from 1 to {MAX_IMAGES}, not {}",
-            case.images
-        ));
+    let json = |error: serde_json::Error| CaseError::Json(error.to_string());
+    let mut reader = serde_json::Deserializer::from_str(text);
+    let file: CaseFile = object(&mut reader).map_err(json)?;
+    reader.end().map_err(json)?;
+    if !(1..=MAX_IMAGES).contains(&file.images) {
+        return Err(CaseError::Images(file.images));
     }
-    let range =
-        ImageRange::new(ImageIndex(case.first), case.images).map_err(|error| error.to_string())?;
-    let [numerator, denominator] = case.rate;
-    let rate = ImageRate::new(numerator, denominator).map_err(|error| error.to_string())?;
-    let size = ImageSize::new(case.width, case.height).map_err(|error| error.to_string())?;
-    let [seconds, divisor] = case.square.cycle;
-    let cycle = Seconds::new(seconds, divisor).map_err(|error| error.to_string())?;
-    let square = Square::new(rate, case.square.side, cycle).map_err(|error| error.to_string())?;
-    Ok(Checked {
+    let range = ImageRange::new(ImageIndex(file.first), file.images).map_err(CaseError::Range)?;
+    let [numerator, denominator] = file.rate;
+    let rate = ImageRate::new(numerator, denominator).map_err(CaseError::Rate)?;
+    let size = ImageSize::new(file.width, file.height).map_err(CaseError::Size)?;
+    // At most 2¹⁴ images of 2²⁵ pixels: the product never saturates.
+    let pixels = file.images.saturating_mul(size.pixels());
+    if pixels > MAX_RENDERED_PIXELS {
+        return Err(CaseError::TooMuchWork(pixels));
+    }
+    let [seconds, divisor] = file.square.cycle;
+    let cycle = Seconds::new(seconds, divisor).map_err(CaseError::Cycle)?;
+    let square = Square::new(rate, file.square.side, cycle).map_err(CaseError::Side)?;
+    Ok(PreparedCase {
         rate,
         range,
         size,
         square,
     })
-}
-
-/// Renders `case` with the exact CPU reference renderer and returns the image hash of its
-/// images.
-///
-/// # Errors
-///
-/// Returns why the case is invalid (see [`parse_case`]).
-pub fn render_case(case: &Case) -> Result<ImageHash, String> {
-    let mut checked = check(case)?;
-    let mut image = Image::new(checked.size);
-    Ok(hash_sequence(
-        &mut checked.square,
-        checked.rate,
-        checked.range,
-        &mut image,
-    ))
 }
 
 /// Reads a case from the text of its file and renders it to its image hash: what the
@@ -119,8 +216,8 @@ pub fn render_case(case: &Case) -> Result<ImageHash, String> {
 /// # Errors
 ///
 /// Returns why the text is not a valid case (see [`parse_case`]).
-pub fn hash_case(text: &str) -> Result<ImageHash, String> {
-    render_case(&parse_case(text)?)
+pub fn hash_case(text: &str) -> Result<ImageHash, CaseError> {
+    parse_case(text).map(|case| case.hash())
 }
 
 #[cfg(test)]

@@ -10,7 +10,7 @@ use super::BoxError;
 fn names_the_rejected_value() {
     assert_eq!(
         BoxError::InvalidSide(65_537).to_string(),
-        "invalid square side 65537: at most 65536 (the image height)",
+        "invalid square side 65537: at most 65536, a square as tall as the image (a side is in 65536ths of the image height)",
         "message"
     );
 }

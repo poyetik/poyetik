@@ -45,7 +45,7 @@ test("explains a refused square and keeps the one it had", async () => {
   const before = module.render(1n);
   expect(before).toHaveLength(3 * 2 * 4);
   for (const [refused, reason] of [
-    [{ ...square, width: 3, height: 2, side: 65_537 }, "invalid square side 65537: at most 65536 (the image height)"],
+    [{ ...square, width: 3, height: 2, side: 65_537 }, "invalid square side 65537: at most 65536, a square as tall as the image (a side is in 65536ths of the image height)"],
     [{ ...square, width: 3, height: 2, rate: [2, 4] }, "invalid image rate 2/4: a reduced fraction from 1 to 1000 images per second is required"],
     [{ ...square, width: 3, height: 2, cycle: [0, 1] }, "invalid duration 0/1 s: a reduced, nonzero fraction is required"],
   ] as const) {

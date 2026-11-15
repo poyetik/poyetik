@@ -20,6 +20,9 @@ export const MAX_IMAGE_SIDE = 16_384;
 /** The most pixels an image holds (`visual_core::ImageSize::MAX_PIXELS`). */
 export const MAX_IMAGE_PIXELS = 2 ** 25;
 
+/** The most pixels a case renders in all, its images times the pixels of each (`visual_cli::MAX_RENDERED_PIXELS`). */
+export const MAX_RENDERED_PIXELS = 2 ** 28;
+
 /** The side of a square as tall as the image (`visual_boxes::Square::FULL_SIDE`). */
 export const FULL_SIDE = 65_536;
 
@@ -161,6 +164,9 @@ export function parseVisualCase(text: string, name: string): VisualCase {
   }
   if (typeof read.images !== "number" || !(read.images >= 1 && read.images <= MAX_IMAGES && read.images % 1 === 0)) {
     throw new InputError(`${name}: images is not from 1 to ${String(MAX_IMAGES)}`);
+  }
+  if (read.images * read.width * read.height > MAX_RENDERED_PIXELS) {
+    throw new InputError(`${name}: a case renders at most ${String(MAX_RENDERED_PIXELS)} pixels in all, this one ${String(read.images * read.width * read.height)}`);
   }
   if (read.square.side > FULL_SIDE) {
     throw new InputError(`${name}: square.side is above ${String(FULL_SIDE)}, a square taller than the image`);
