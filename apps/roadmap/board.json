@@ -1073,7 +1073,7 @@
         },
         {
           "title": "Patches without audio output: time advances and every box runs with zero channels, in the native renderer as in the WebAssembly engine (today one runs no box, the other runs them all)",
-          "done": false
+          "done": true
         },
         {
           "title": "Execution modes: live, offline and build give the same bits; every box type declares itself live-capable or offline-only, the real-time rules proven on every live-capable box, and a live plan refusing an offline-only box; then the end of this block (steps 9 to 12): a deep review, its decided fixes, and a pull request whose full check is green",
