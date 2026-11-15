@@ -27,7 +27,7 @@ use crate::{
     },
     licenses::{LICENSE_FILES, part_license_gate},
     loaded_files::{loaded_files_of_the_workspace, workflows},
-    math_layer::{MATH_LAYER_SOURCES, math_layer_gate},
+    math_layer::{MATH_LAYER_SOURCES, math_layer_gate, named_sources_gate},
     parts::{Part, full_parts, part_steps, parts_gate, preparation_steps},
     preflight::{CARGO_CONFIG_FILE, RUST_TOOLCHAIN_FILE, TOOLS, cargo_config_gate, preflight_gate},
     proof_record::{record_mutation_proof, tree_cleanliness},
@@ -434,11 +434,14 @@ pub(crate) fn fused_build(runner: &mut dyn Runner) -> Result<(), Failure> {
     fused_gate(&output)
 }
 
-/// Reads what the math layer gate checks, and runs it ([`math_layer_gate`]).
+/// Reads what the math layer gate checks, and runs it ([`math_layer_gate`]), after checking
+/// that every file it names is among them ([`named_sources_gate`]).
 pub(crate) fn math_layer(runner: &mut dyn Runner) -> Result<(), Failure> {
     let metadata = crates_metadata(runner)?;
     let paths = list_tracked(runner, &MATH_LAYER_SOURCES, "the box and engine sources")?;
-    math_layer_gate(&metadata, &parse_all(read_all(runner, paths)?)?)
+    let sources = parse_all(read_all(runner, paths)?)?;
+    named_sources_gate(&sources)?;
+    math_layer_gate(&metadata, &sources)
 }
 
 /// Runs one action of a step, saying on `out` what it found when that matters.

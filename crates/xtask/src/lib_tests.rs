@@ -638,10 +638,12 @@ impl Runner for Fake {
                     .is_some_and(|new| new.split('\0').any(|listed| listed == path.as_str()))
             })
             .filter(|path| {
-                patterns
-                    .iter()
-                    .filter_map(|pattern| pattern.split_once('*'))
-                    .any(|(prefix, suffix)| path.starts_with(prefix) && path.ends_with(suffix))
+                // A pattern without `*` names one file, as git takes it.
+                patterns.contains(&path.as_str())
+                    || patterns
+                        .iter()
+                        .filter_map(|pattern| pattern.split_once('*'))
+                        .any(|(prefix, suffix)| path.starts_with(prefix) && path.ends_with(suffix))
             })
             .cloned()
             .collect())
@@ -1008,7 +1010,38 @@ pub(crate) fn passing() -> Fake {
         let earlier = fake.files.insert(path, text.to_owned());
         assert!(earlier.is_none(), "fresh fake");
     }
-    with_package_checks(fake)
+    with_package_checks(with_math_layer_named(fake))
+}
+
+/// The files the math layer gate names, held by `fake` as the gate requires them (unless a
+/// source is already there): a box root holding its forbid, reviewed as a bypass as the real
+/// one is, every crate root forbidding unsafe code, the math layer empty.
+fn with_math_layer_named(mut fake: Fake) -> Fake {
+    for named in super::MATH_LAYER_NAMED {
+        let text = if super::BOX_ROOT == named || super::VISUAL_BOX_ROOT == named {
+            // Its forbid is a bypass the bypass gate needs reviewed, as the real one is.
+            if let Some(reviewed) = fake.files.get_mut(super::BYPASSES_REVIEWED) {
+                *reviewed = format!(
+                    "{reviewed}{named}: cfg_attr at {} -- a lint level only\n",
+                    super::BOX_FLOAT_FORBID
+                );
+            }
+            format!("{}\n", super::BOX_FLOAT_FORBID)
+        } else {
+            String::new()
+        };
+        // A crate root also forbids unsafe code, in its doc tests too, as every root must.
+        let root = if named.ends_with("/lib.rs") {
+            "#![forbid(unsafe_code)]\n#![doc(test(attr(forbid(unsafe_code))))]\n"
+        } else {
+            ""
+        };
+        let _source = fake
+            .files
+            .entry(named.to_owned())
+            .or_insert_with(|| format!("{root}{text}"));
+    }
+    fake
 }
 
 /// `fake`, with each package's manifest running the scripts its checks run.

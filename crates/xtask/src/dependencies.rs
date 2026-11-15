@@ -129,15 +129,17 @@ pub(crate) fn exact_version(req: &str) -> bool {
 ///
 /// A dependency is bit-defining when its review in `reviewed` ([`DEPENDENCIES_REVIEWED`])
 /// gives a reason starting with [`BIT_DEFINING`]; every normal or build dependency of one
-/// of the [`LIBRARIES`] must be reviewed so, since its code runs in the library's. Each
+/// of the [`LIBRARIES`] must be reviewed so, since its code runs in the library's, and so
+/// must every one of a conformance case reader ([`CrateRole::CaseReader`]), since it reads
+/// the values rendered and hashed. Each
 /// must be required as `=X.Y.Z` in its crate's manifest (as `metadata`, the output of
 /// [`metadata_command`], gives it), so that an update, which can move bits, is a decision
 /// of its own and never a side effect of another.
 ///
 /// # Errors
 ///
-/// Returns every dependency of the library not reviewed as bit-defining and every
-/// bit-defining dependency not pinned, or why the metadata cannot be read.
+/// Returns every dependency of a library or of a case reader not reviewed as bit-defining
+/// and every bit-defining dependency not pinned, or why the metadata cannot be read.
 pub fn pin_gate(metadata: &str, reviewed: &str) -> Result<(), Failure> {
     let marked: BTreeSet<&str> = reviewed
         .lines()
@@ -162,8 +164,13 @@ pub fn pin_gate(metadata: &str, reviewed: &str) -> Result<(), Failure> {
             let library = LIBRARIES
                 .iter()
                 .find(|library| crates_in(library.crates).contains(&name.as_str()))
-                .filter(|_| kind != "dev")
-                .map(|library| library.name);
+                .map(|library| library.name)
+                .or_else(|| {
+                    crates_in(CrateRole::CaseReader)
+                        .contains(&name.as_str())
+                        .then_some("conformance case reader")
+                })
+                .filter(|_| kind != "dev");
             let bits = marked.contains(key.as_str());
             if let Some(what) = library.filter(|_| !bits) {
                 problems.push(format!(

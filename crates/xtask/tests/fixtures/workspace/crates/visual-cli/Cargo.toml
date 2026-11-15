@@ -7,8 +7,8 @@ publish = false
 [lib]
 path = "lib.rs"
 
-# A tool of the visual library: its crates allowed, and an unpinned third-party crate,
-# whose code defines no bits; the audio library's refused.
+# A tool of the visual library and a conformance case reader: its crates allowed, the audio
+# library's refused, and an unpinned third-party crate, refused like a library's.
 [dependencies]
 visual-core = { path = "../visual-core" }
 audio-patch = { path = "../audio-patch" }

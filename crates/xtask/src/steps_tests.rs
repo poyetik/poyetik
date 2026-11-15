@@ -657,7 +657,10 @@ fn runs_every_step_and_reports_success() {
         + 5
         + conflict_gate_reads()
         + visual_reads()
-        + added_package_operations();
+        + added_package_operations()
+        // Each file the math layer gate names, held by the fake as the gate requires it,
+        // read by nine gates of Rust sources besides the conflict marker gate's read above.
+        + 9 * crate::MATH_LAYER_NAMED.len();
     assert_eq!(
         fake.ran.len(),
         tools + commands + emptied + listed + captured + written + read,

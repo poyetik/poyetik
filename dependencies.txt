@@ -10,8 +10,10 @@
 # A reason starting `bit-defining: ` marks a crate whose code computes output samples, images or
 # hashes, or the values they are computed from: every normal or build dependency of the audio
 # library and of the visual library is one, as are the readers of the conformance cases of both
-# command-line tools, and each is pinned to one exact version (`=X.Y.Z`, checked for these direct
-# dependencies), its updates following spec/engine-design.md decision 29. The code they reach
+# command-line tools, and each is pinned to one exact version (`=X.Y.Z`): the pin gate checks
+# both for the libraries' direct dependencies and for those of a crate holding the case reader
+# role (`visual-cli`; `audio-cli`'s are marked and pinned, the role to come), and the pin of
+# every dependency marked so, its updates following spec/engine-design.md decision 29. The code they reach
 # in turn (every crate Cargo.lock resolves for them) is fixed by Cargo.lock, not by a pin,
 # and proven by the render hash vectors, conformance and the
 # fingerprints: a change of one of them in Cargo.lock is an update too.
