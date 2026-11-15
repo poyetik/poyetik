@@ -518,7 +518,8 @@ impl<S: Sample> TruePeakLimiter<S> {
     /// Rebuilds what depends on the lookahead: the phasor, the sliding maximum and the Hann
     /// sums, from the needs and released reductions already seen.
     fn rebuild_window(&mut self) {
-        for (steps, turn) in self.phasor.iter_mut().enumerate() {
+        // Only the window's first `lookahead` turns are read (`HannSums::of`, `turn`).
+        for (steps, turn) in self.phasor.iter_mut().take(self.lookahead).enumerate() {
             let (cos, sin) = turned(steps.saturating_add(1), self.lookahead);
             *turn = (S::from_binary64(cos), S::from_binary64(sin));
         }
