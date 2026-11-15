@@ -51,7 +51,7 @@ The visual library, standalone (it depends on no other part); its design decisio
 | **subpixel unit** | 1/4096 of a pixel side, the unit of every coordinate of an image | `SUBPIXELS`, `SubpixelPoint` |
 | **coverage** | The area of a pixel a shape covers, an integer from 0 to 2²⁴, converted exactly to light intensity | `coverage_to_intensity` |
 | **image hash** | The SHA-256 of a sequence of images in canonical form: rate, size, encoding, every value's bits and the number of images; equal hashes mean identical sequences (`spec/image-hash.md`) | `ImageHasher`, `ImageHash` (`visual-hash`) |
-| **visual box laws** | The properties every visual box must respect (determinism, random access, overwrite, finite values, no heap operation, pure trace), at every value of the visual test matrix | `check_laws` (`visual-testkit`) |
+| **visual box laws** | The properties every visual box must respect (determinism, random access, size change, overwrite, finite values, no heap operation, pure trace), at every value of the visual test matrix | `check_laws` (`visual-testkit`) |
 | **visual test matrix** | The image rates, sizes and indices every visual law is checked at, never retyped | `conformance/visual/test-matrix.json`, `visual_testkit::matrix` |
 | **trace** | What produced a point of a box's output (a shape, the background, or not declared): how a gesture on an output finds what it touched | `Trace`, `VisualBox::trace` |
 

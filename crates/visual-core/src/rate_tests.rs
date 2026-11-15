@@ -233,11 +233,13 @@ fn accepts_exactly_the_values_its_rules_allow() {
     let ranges = runner(4096).run(&(u64_edges(), u64_edges()), |(first, count)| {
         let valid = count == 0 || first.checked_add(count - 1).is_some();
         let made = ImageRange::new(ImageIndex(first), count);
+        let expected = if valid {
+            Ok((first, count))
+        } else {
+            Err(VisualError::InvalidImageRange { first, count })
+        };
         check(
-            made.is_ok() == valid
-                && made
-                    .err()
-                    .is_none_or(|error| error == VisualError::InvalidImageRange { first, count }),
+            made.map(|range| (range.first().0, range.count())) == expected,
             format!("{count} images from {first}: {made:?}"),
         )
     });
