@@ -460,7 +460,12 @@ pub(crate) mod sealed {
 /// `libm`'s; all are the math layer's.
 pub trait Sample:
     sealed::Sealed
-    + sealed::Construct<BLOCK_SIZE>
+    + sealed::Construct<32>
+    + sealed::Construct<64>
+    + sealed::Construct<128>
+    + sealed::Construct<256>
+    + sealed::Construct<512>
+    + sealed::Construct<1024>
     + Copy
     + fmt::Debug
     + Send
