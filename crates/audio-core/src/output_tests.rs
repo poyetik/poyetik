@@ -401,3 +401,34 @@ fn counts_what_a_narrower_format_makes_infinite_at_the_frame_computed() {
         assert_eq!(stage.replaced().count, 2, "a finite block counts nothing");
     }
 }
+
+#[test]
+fn before_a_narrowing_a_raw_stage_counts_its_blocks_and_a_limited_one_applies_itself() {
+    // Raw: the block is only counted, its non-finite samples left to the check as given,
+    // at the frames of the block applied last.
+    let mut raw = OutputStage::<Binary64>::new();
+    let mut nan = [block(&[Binary64::new(f64::NAN)])];
+    raw.apply_before_narrowing(&mut nan);
+    assert!(nan[0][0].raw().is_nan(), "left to the check as given");
+    raw.apply_before_narrowing(&mut [Binary64::SILENCE]);
+    let mut given = [Binary32::SILENCE];
+    given[0][2] = Binary32::from_raw(f32::NAN);
+    raw.replace_given(&mut given);
+    let block_frames = u64::try_from(BLOCK_SIZE).expect("a frame count");
+    assert_eq!(
+        raw.replaced(),
+        Replaced {
+            count: 1,
+            first: Some(FirstReplaced {
+                frame: block_frames + 2,
+                channel: 0
+            })
+        },
+        "counted in the second block"
+    );
+    // Limited: replaced and limited, so delayed by its latency.
+    let mut limited = OutputStage::limited(limiter::<Binary64>(1));
+    let mut quiet = [block(&[Binary64::new(0.25_f64)])];
+    limited.apply_before_narrowing(&mut quiet);
+    assert_eq!(quiet[0][0].bits(), 0, "delayed: silence first");
+}

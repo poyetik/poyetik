@@ -1185,3 +1185,87 @@ fn computes_the_bessel_function_of_the_kaiser_window() {
         );
     }
 }
+
+#[test]
+fn keeps_the_sign_of_zeros_as_documented() {
+    let (plus, minus) = (super::Binary64(0.0_f64), super::Binary64(-0.0_f64));
+    assert_eq!(
+        super::magnitude(plus).0.to_bits(),
+        0.0_f64.to_bits(),
+        "+0 stays +0"
+    );
+    assert_eq!(
+        super::magnitude(minus).0.to_bits(),
+        (-0.0_f64).to_bits(),
+        "-0 keeps its sign"
+    );
+    assert_eq!(
+        super::magnitude(super::Binary64(-2.0_f64)),
+        super::Binary64(2.0_f64),
+        "negated"
+    );
+    assert_eq!(
+        super::larger(plus, minus).0.to_bits(),
+        0.0_f64.to_bits(),
+        "the first when equal"
+    );
+    assert_eq!(
+        super::larger(minus, plus).0.to_bits(),
+        (-0.0_f64).to_bits(),
+        "the first when equal"
+    );
+}
+
+/// The Kaiser-windowed sinc interpolator, written apart from the math layer's: point `m`
+/// of `phases × taps`, `u = (m - c) / phases` input frames from the centre `c`, is
+/// `sin(π u) / (π u) × I0(β √(1 - ((m - c)/c)²)) / I0(β)`, I0 summed over sixty terms; tap `k`
+/// of phase `p` is point `k × phases + p`, each phase then divided by its sum.
+fn reference_interpolator(phases: usize, taps: usize, beta: f64) -> Vec<f64> {
+    let bessel = |x: f64| {
+        // Sixty terms: far past convergence for arguments up to 10.
+        let (mut term, mut sum) = (1.0_f64, 1.0_f64);
+        for order in 1_u32..=60 {
+            let ratio = x / 2.0_f64 / f64::from(order);
+            term *= ratio * ratio;
+            sum += term;
+        }
+        sum
+    };
+    let count = |value: usize| f64::from(u32::try_from(value).expect("small"));
+    let centre = (count(phases.saturating_mul(taps)) - 1.0_f64) / 2.0_f64;
+    let mut all = Vec::new();
+    for phase in 0..phases {
+        let row: Vec<f64> = (0..taps)
+            .map(|tap| {
+                let offset = count(tap.saturating_mul(phases).saturating_add(phase)) - centre;
+                let angle = core::f64::consts::PI * offset / count(phases);
+                let ratio = offset / centre;
+                libm::sin(angle) / angle * bessel(beta * libm::sqrt(1.0_f64 - ratio * ratio))
+                    / bessel(beta)
+            })
+            .collect();
+        let gain = row.iter().fold(0.0_f64, |sum, tap| sum + tap);
+        all.extend(row.iter().map(|tap| tap / gain));
+    }
+    all
+}
+
+#[test]
+fn computes_the_windowed_interpolators_as_their_formula() {
+    for (phases, taps, beta) in [
+        (4_usize, 32_usize, 2.5_f64),
+        (8, 128, 5.0_f64),
+        (2, 6, 1.0_f64),
+    ] {
+        let computed = super::limiter::interpolator(phases, taps, super::Binary64(beta));
+        let reference = reference_interpolator(phases, taps, beta);
+        assert_eq!(computed.len(), reference.len(), "{phases} × {taps}");
+        for (index, (one, other)) in computed.iter().zip(&reference).enumerate() {
+            assert!(
+                (one.0 - other).abs() <= 1e-14_f64,
+                "{phases} × {taps}, point {index}: {} and {other}",
+                one.0
+            );
+        }
+    }
+}
