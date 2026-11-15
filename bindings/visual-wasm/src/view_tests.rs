@@ -171,15 +171,15 @@ fn refuses_each_invalid_value_with_its_reason_and_keeps_its_square() {
     assert_eq!(view.message(), "", "no message before a setup");
     assert!(set_up(&mut view), "valid values");
     let before: Vec<u32> = view.render(4).iter().map(|value| value.to_bits()).collect();
-    let size = |width, height| SetupError::Visual(VisualError::InvalidImageSize { width, height });
+    let size = |width, height| SetupError::Size(VisualError::InvalidImageSize { width, height });
     let rate = |numerator, denominator| {
-        SetupError::Visual(VisualError::InvalidImageRate {
+        SetupError::Rate(VisualError::InvalidImageRate {
             numerator,
             denominator,
         })
     };
     let cycle = |numerator, denominator| {
-        SetupError::Visual(VisualError::InvalidSeconds {
+        SetupError::Cycle(VisualError::InvalidSeconds {
             numerator,
             denominator,
         })
@@ -193,7 +193,7 @@ fn refuses_each_invalid_value_with_its_reason_and_keeps_its_square() {
             (24_000, 1001),
             39_322,
             (1001, 1000),
-            SetupError::Visual(VisualError::ImageTooLarge {
+            SetupError::Size(VisualError::ImageTooLarge {
                 width: 16_384,
                 height: 2049,
             }),
@@ -206,7 +206,7 @@ fn refuses_each_invalid_value_with_its_reason_and_keeps_its_square() {
             (24_000, 1001),
             65_537,
             (1001, 1000),
-            SetupError::Square(BoxError::InvalidSide(65_537)),
+            SetupError::Side(BoxError::InvalidSide(65_537)),
         ),
         (7, 5, (24_000, 1001), 39_322, (0, 1), cycle(0, 1)),
         (7, 5, (24_000, 1001), 39_322, (1, 0), cycle(1, 0)),
@@ -238,20 +238,30 @@ fn refuses_each_invalid_value_with_its_reason_and_keeps_its_square() {
 }
 
 #[test]
-fn says_its_errors_are_those_of_the_value_refused() {
-    let visual = VisualError::InvalidImageSize {
+fn says_its_errors_naming_the_argument_refused() {
+    let size = VisualError::InvalidImageSize {
         width: 0,
         height: 1,
     };
-    let square = BoxError::InvalidSide(65_537);
-    for (error, source) in [
-        (SetupError::from(visual), visual.to_string()),
-        (SetupError::from(square), square.to_string()),
+    let rate = VisualError::InvalidImageRate {
+        numerator: 2,
+        denominator: 4,
+    };
+    let cycle = VisualError::InvalidSeconds {
+        numerator: 0,
+        denominator: 1,
+    };
+    let refused_side = BoxError::InvalidSide(65_537);
+    for (error, field, source) in [
+        (SetupError::Size(size), "width and height", size.to_string()),
+        (SetupError::Rate(rate), "rate", rate.to_string()),
+        (SetupError::Cycle(cycle), "cycle", cycle.to_string()),
+        (SetupError::Side(refused_side), "side", refused_side.to_string()),
     ] {
         assert_eq!(
             error.to_string(),
-            source,
-            "the message of the value refused"
+            format!("{field}: {source}"),
+            "the argument refused, then why"
         );
         assert_eq!(
             core::error::Error::source(&error).map(ToString::to_string),

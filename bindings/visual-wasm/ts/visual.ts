@@ -42,7 +42,7 @@ export interface SquareSetup {
   readonly cycle: readonly [number, number];
 }
 
-/** Thrown when the module refuses a square: its message is the module's explanation. */
+/** Thrown when the module refuses a square: its message is the module's explanation, which names the value refused (`width and height`, `rate`, `cycle`, `side`). */
 export class VisualSetupError extends Error {
   /**
    * Gives the module's explanation.
@@ -54,7 +54,11 @@ export class VisualSetupError extends Error {
   }
 }
 
-/** Thrown when the module traps: the instance is then dead, and every later call throws it again. */
+/**
+ * Thrown when the module traps, or a call into it fails otherwise (a host stack overflow
+ * included), out of memory among them: the instance is then dead, and every later call throws
+ * it again.
+ */
 export class VisualTrap extends Error {
   /**
    * Records the trap.
@@ -65,6 +69,25 @@ export class VisualTrap extends Error {
     this.name = "VisualTrap";
   }
 }
+
+/**
+ * What a call into the module threw, whatever it was: a trap, or the host failing the call
+ * (a stack overflow: a `RangeError`, an `InternalError` in Firefox). Either way the module may
+ * have stopped halfway, its state unknown, so the instance is never called again.
+ */
+class CallFailure extends Error {
+  /**
+   * Records what the call threw.
+   * @param cause What the call threw.
+   */
+  constructor(cause: unknown) {
+    // Never shown: #guarded turns it into a VisualTrap with the same cause.
+    super(undefined, { cause });
+  }
+}
+
+/** The memories of the instances a {@link VisualModule} drives: each is driven by one only. */
+const DRIVEN = new WeakSet<WebAssembly.Memory>();
 
 /** A function the module exports, taking the unsigned 32-bit numbers `A` and returning one. */
 type Exported<A extends readonly number[]> = (...args: A) => number;
@@ -87,7 +110,12 @@ function exported<A extends readonly number[]>(exports: Exports, name: string, a
     throw new VisualModuleError(`${name} takes ${String(value.length)} argument(s), expected ${String(arity)}`);
   }
   return (...args) => {
-    const result: unknown = Reflect.apply(value, undefined, args);
+    let result: unknown;
+    try {
+      result = Reflect.apply(value, undefined, args);
+    } catch (error) {
+      throw new CallFailure(error);
+    }
     if (typeof result !== "number") {
       throw new VisualModuleError(`${name} did not return a number`);
     }
@@ -113,7 +141,10 @@ function halves(index: bigint): [number, number] {
 
 /**
  * One instance of the visual module, always with a square set up: it is given one when it
- * is created, and a refused setup keeps the square it had.
+ * is created, and a refused setup keeps the square it had. It drives its instance alone: a
+ * second wrapper of the same instance is refused. Its memory grows to hold the largest image
+ * set up, up to 512 MiB, and never shrinks again (WebAssembly memory cannot): only a fresh
+ * instance gives it back.
  */
 export class VisualModule {
   /** The module memory, read after each call. */
@@ -140,15 +171,22 @@ export class VisualModule {
    * its arity, and the interface version this code drives), with `square` set up.
    * @param exports The exports of an instance of the module.
    * @param square The square to set up.
-   * @throws {VisualModuleError} Naming what is missing or which version it has, or when a
-   * value of `square` is not an unsigned 32-bit integer.
+   * @throws {VisualModuleError} Naming what is missing or which version it has, when the
+   * instance is already driven by another wrapper, when a value of `square` is not an
+   * unsigned 32-bit integer, or when the module answers outside its contract.
    * @throws {VisualSetupError} With the module's explanation, when it refuses the square.
-   * @throws {VisualTrap} When the module traps.
+   * @throws {VisualTrap} When a call into the module fails: a trap (out of memory among
+   * them), or the host's own failure (a stack overflow).
    */
   constructor(exports: Exports, square: SquareSetup) {
     const memory: unknown = exports["memory"];
     if (!(memory instanceof WebAssembly.Memory)) {
       throw new VisualModuleError("no memory");
+    }
+    // Two wrappers on one instance would each keep their own square and their own death,
+    // while the instance holds only one: the second would read the first's images.
+    if (DRIVEN.has(memory)) {
+      throw new VisualModuleError("this instance is already driven by another VisualModule");
     }
     const abiVersion = exported<[]>(exports, "visual_abi_version", 0);
     const version = this.#guarded(abiVersion);
@@ -162,6 +200,8 @@ export class VisualModule {
     this.#render = exported(exports, "visual_render", 2);
     this.#hash = exported(exports, "visual_hash", 3);
     this.#valuesLen = exported(exports, "visual_values_len", 0);
+    // Checked to be the visual module: from now on this wrapper drives it, whatever follows.
+    DRIVEN.add(memory);
     this.setup(square);
   }
 
@@ -175,7 +215,7 @@ export class VisualModule {
    * that are not a WebAssembly module, a module that needs imports, or another module; or
    * when a value of `square` is not an unsigned 32-bit integer.
    * @throws {VisualSetupError} With the module's explanation, when it refuses the square.
-   * @throws {VisualTrap} When the module traps.
+   * @throws {VisualTrap} When a call into the module fails.
    */
   static async instantiate(bytes: BufferSource, square: SquareSetup): Promise<VisualModule> {
     let module: WebAssembly.Module;
@@ -206,8 +246,9 @@ export class VisualModule {
   }
 
   /**
-   * Runs `action` on the module, turning a trap into a {@link VisualTrap} that kills this
-   * instance.
+   * Runs `action` on the module, turning a call into it that failed in any way into a
+   * {@link VisualTrap} that kills this instance; a refusal of what the module answered
+   * (a {@link VisualModuleError}) leaves it alive.
    */
   #guarded<T>(action: () => T): T {
     if (this.#dead) {
@@ -216,9 +257,9 @@ export class VisualModule {
     try {
       return action();
     } catch (error) {
-      if (error instanceof WebAssembly.RuntimeError) {
+      if (error instanceof CallFailure) {
         this.#dead = true;
-        throw new VisualTrap({ cause: error });
+        throw new VisualTrap({ cause: error.cause });
       }
       throw error;
     }
@@ -229,9 +270,9 @@ export class VisualModule {
    * @param square The images and the square.
    * @throws {VisualModuleError} When a value is not an unsigned 32-bit integer, or the
    * module answers outside its contract.
-   * @throws {VisualSetupError} With the module's explanation, when it refuses the square:
-   * it then keeps the one it had.
-   * @throws {VisualTrap} When the module traps, or has.
+   * @throws {VisualSetupError} With the module's explanation, naming the value refused, when
+   * it refuses the square: it then keeps the one it had.
+   * @throws {VisualTrap} When a call into the module fails, or has.
    */
   setup(square: SquareSetup): void {
     const args = [
@@ -252,7 +293,10 @@ export class VisualModule {
       if (result !== 0) {
         throw new VisualModuleError(`visual_setup returned ${String(result)}, not 0 or 1`);
       }
-      const bytes = new Uint8Array(this.#memory.buffer, ...this.#span("visual_message_ptr", this.#messagePtr(), this.#messageLen(), 1));
+      // Where the explanation is, asked before the memory is read: a call may grow the
+      // memory, which replaces its buffer.
+      const span = this.#span("visual_message_ptr", this.#messagePtr(), this.#messageLen(), 1);
+      const bytes = new Uint8Array(this.#memory.buffer, ...span);
       try {
         return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
       } catch {
@@ -268,8 +312,10 @@ export class VisualModule {
    * Renders image `index` of the square.
    * @param index The image, from 0 to 2⁶⁴ − 1.
    * @returns A copy of its values, four per pixel, row by row from the top.
-   * @throws {VisualModuleError} When `index` is out of range.
-   * @throws {VisualTrap} When the module traps, or has.
+   * @throws {VisualModuleError} When `index` is out of range, or the module answers outside
+   * its contract (a count of values not of the square set up, an address unaligned or
+   * outside its memory).
+   * @throws {VisualTrap} When a call into the module fails, or has.
    */
   render(index: bigint): Float32Array<ArrayBuffer> {
     const [low, high] = halves(index);
@@ -289,12 +335,13 @@ export class VisualModule {
    * @param count How many images, from 0 to {@link MAX_COUNT}, the last at most image
    * 2⁶⁴ − 1.
    * @returns The 64 lowercase hexadecimal digits of the hash. Every image is rendered and
-   * hashed before it returns, `count` × width × height pixels (a few nanoseconds each), on
-   * the calling thread: a page bounds what it asks (#34 step 6), as `visual-cli` bounds a
-   * case to 2²⁸ pixels.
+   * hashed before it returns, `count` × width × height pixels, on the calling thread: tens
+   * of nanoseconds each in WebAssembly, the hash costing far more than the render (a 1080p
+   * image about a tenth of a second), so a page bounds what it asks (#34 step 6), as
+   * `visual-cli` bounds a case to 2²⁸ pixels.
    * @throws {VisualModuleError} When an argument is out of range, the last image is past
-   * the largest index, or the module refuses the images.
-   * @throws {VisualTrap} When the module traps, or has.
+   * the largest index, or the module refuses the images or answers outside its contract.
+   * @throws {VisualTrap} When a call into the module fails, or has.
    */
   hash(first: bigint, count: number): string {
     const [low, high] = halves(first);

@@ -19,42 +19,38 @@ pub const fn image_index(low: u32, high: u32) -> u64 {
     u64::from_le_bytes([low0, low1, low2, low3, high0, high1, high2, high3])
 }
 
-/// Why a square could not be set up: a value of the visual library or of the square.
+/// Why a square could not be set up: the argument refused, with the library's reason.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SetupError {
-    /// The size, the image rate or the cycle.
-    Visual(VisualError),
+    /// The width and height.
+    Size(VisualError),
+    /// The image rate.
+    Rate(VisualError),
+    /// The cycle.
+    Cycle(VisualError),
     /// The side of the square.
-    Square(BoxError),
-}
-
-impl From<VisualError> for SetupError {
-    fn from(error: VisualError) -> Self {
-        Self::Visual(error)
-    }
-}
-
-impl From<BoxError> for SetupError {
-    fn from(error: BoxError) -> Self {
-        Self::Square(error)
-    }
+    Side(BoxError),
 }
 
 impl fmt::Display for SetupError {
+    /// Names the argument refused as the caller wrote it (`width and height`, `rate`,
+    /// `cycle`, `side`), then why.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Visual(error) => error.fmt(f),
-            Self::Square(error) => error.fmt(f),
+            Self::Size(error) => write!(f, "width and height: {error}"),
+            Self::Rate(error) => write!(f, "rate: {error}"),
+            Self::Cycle(error) => write!(f, "cycle: {error}"),
+            Self::Side(error) => write!(f, "side: {error}"),
         }
     }
 }
 
-/// Its message is the rejected value's; its source, that value's error.
+/// Its message names the argument refused; its source is the library's error.
 impl core::error::Error for SetupError {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
-            Self::Visual(error) => Some(error),
-            Self::Square(error) => Some(error),
+            Self::Size(error) | Self::Rate(error) | Self::Cycle(error) => Some(error),
+            Self::Side(error) => Some(error),
         }
     }
 }
@@ -128,10 +124,10 @@ impl View {
         side: u32,
         cycle: (u32, u32),
     ) -> Result<(Square, ImageSize, ImageRate), SetupError> {
-        let image_size = ImageSize::new(width, height)?;
-        let images = ImageRate::new(rate.0, rate.1)?;
-        let sweep = Seconds::new(cycle.0, cycle.1)?;
-        let square = Square::new(images, side, sweep)?;
+        let image_size = ImageSize::new(width, height).map_err(SetupError::Size)?;
+        let images = ImageRate::new(rate.0, rate.1).map_err(SetupError::Rate)?;
+        let sweep = Seconds::new(cycle.0, cycle.1).map_err(SetupError::Cycle)?;
+        let square = Square::new(images, side, sweep).map_err(SetupError::Side)?;
         Ok((square, image_size, images))
     }
 

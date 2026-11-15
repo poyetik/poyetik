@@ -68,7 +68,7 @@ fn follows_the_protocol() {
     assert_eq!(visual_setup(0, 5, 60, 1, 1000, 1, 1), 0, "an invalid setup");
     assert_eq!(
         message(),
-        "invalid image size 0x5: each side must be from 1 to 16384 pixels",
+        "width and height: invalid image size 0x5: each side must be from 1 to 16384 pixels",
         "why"
     );
     assert_eq!(visual_values_len(), 0, "still nothing");
