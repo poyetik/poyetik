@@ -1069,7 +1069,7 @@
         },
         {
           "title": "Host settings: sample rate, host buffer, engine block and channel counts chosen by the host, renders independent of the engine block (reduced-rate updates only on a grid of absolute frames), settings a host cannot honor reported",
-          "done": false
+          "done": true
         },
         {
           "title": "Patches without audio output: time advances and every box runs with zero channels, in the native renderer as in the WebAssembly engine (today one runs no box, the other runs them all)",
