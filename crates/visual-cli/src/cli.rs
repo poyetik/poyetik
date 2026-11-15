@@ -2,7 +2,7 @@
 
 use alloc::collections::BTreeMap;
 use std::ffi::OsString;
-use std::io::Write;
+use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
 
 use crate::status::Status;
@@ -97,6 +97,15 @@ fn hash_of(files: &mut dyn Files, path: &Path) -> Result<String, CliError> {
         .map_err(|error| CliError::Failed(format!("{}: {error}", path.display())))
 }
 
+/// Renders the case file at `path` for a status line, which names the case: its hash, or why
+/// it cannot be rendered (a file that cannot be read is named, a case's own fault is not).
+fn status_of(files: &mut dyn Files, path: &Path) -> Result<String, String> {
+    let text = read(files, path, MAX_CASE_BYTES).map_err(|error| error.to_string())?;
+    hash_case(&text)
+        .map(|hash| hash.to_string())
+        .map_err(|error| error.to_string())
+}
+
 /// What a case name may hold, as an error says: so that it can be pasted into a command
 /// unquoted, in any shell, and is the same file on every file system (the names
 /// `audio-cli` takes).
@@ -140,14 +149,21 @@ fn case_files(files: &mut dyn Files, dir: &Path) -> Result<Vec<(String, PathBuf)
     Ok(named)
 }
 
-/// The hash of every case of `<dir>/cases`, by case name (the file name without `.json`).
-fn render_all(files: &mut dyn Files, dir: &Path) -> Result<BTreeMap<String, String>, CliError> {
+/// The renders of a directory's cases: the hash of each case that renders, by case name, and
+/// each case that cannot be rendered with why, in name order.
+type Renders = (BTreeMap<String, String>, Vec<(String, String)>);
+
+/// The renders of every case of `<dir>/cases`, by case name (the file name without `.json`).
+fn render_all(files: &mut dyn Files, dir: &Path) -> Result<Renders, CliError> {
     let mut hashes = BTreeMap::new();
+    let mut failed = Vec::new();
     for (name, path) in case_files(files, dir)? {
-        let hash = hash_of(files, &path)?;
-        let _earlier = hashes.insert(name, hash);
+        match status_of(files, &path) {
+            Ok(hash) => drop(hashes.insert(name, hash)),
+            Err(why) => failed.push((name, why)),
+        }
     }
-    Ok(hashes)
+    Ok((hashes, failed))
 }
 
 /// A writer to stdout for which a closed reader (a broken pipe, `| head`) is not an error:
@@ -172,7 +188,7 @@ impl<W: Write> Write for BestEffort<W> {
 /// by the tests (the coverage gate counts each instantiation of a generic function).
 fn unless_closed<T>(result: std::io::Result<T>, done: T) -> std::io::Result<T> {
     match result {
-        Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => Ok(done),
+        Err(error) if error.kind() == ErrorKind::BrokenPipe => Ok(done),
         other => other,
     }
 }
@@ -202,7 +218,9 @@ fn references_text(hashes: &BTreeMap<String, String>) -> String {
 ///
 /// A file written otherwise (not JSON, a name written twice, another layout or order) is
 /// to be restored, never rewritten from the renders: that would take in any change of the
-/// renders, and no reference would show it.
+/// renders, and no reference would show it. A file that cannot be read says what would
+/// help only where it would: restoring a file too large or not text, restoring or blessing a
+/// missing one beside readable cases; nothing for a missing directory or an unreadable file.
 fn references(files: &mut dyn Files, dir: &Path) -> Result<BTreeMap<String, String>, CliError> {
     let file = dir.join("references.json");
     let restore = |why: &str| {
@@ -213,11 +231,18 @@ fn references(files: &mut dyn Files, dir: &Path) -> Result<BTreeMap<String, Stri
         ))
     };
     let text = files.read(&file, MAX_REFERENCES_BYTES).map_err(|error| {
-        CliError::Failed(format!(
-            "cannot read {}: {error}: restore it from git, or write the references of a new directory with `visual-cli bless {}`",
-            file.display(),
-            dir.display()
-        ))
+        let kind = error.kind();
+        let hint = if kind == ErrorKind::FileTooLarge || kind == ErrorKind::InvalidData {
+            ": restore it from git".to_owned()
+        } else if kind == ErrorKind::NotFound && files.list(&dir.join("cases")).is_ok() {
+            format!(
+                ": restore it from git, or write the references of a new directory with `visual-cli bless {}`",
+                dir.display()
+            )
+        } else {
+            String::new()
+        };
+        CliError::Failed(format!("cannot read {}: {error}{hint}", file.display()))
     })?;
     let references: BTreeMap<String, String> =
         serde_json::from_str(&text).map_err(|error| restore(&error.to_string()))?;
@@ -234,10 +259,14 @@ fn references(files: &mut dyn Files, dir: &Path) -> Result<BTreeMap<String, Stri
 fn check(files: &mut dyn Files, dir: &Path, out: &mut dyn Write) -> Result<(), CliError> {
     let references = references(files, dir)?;
     let mut problems = 0_usize;
+    let mut failed = 0_usize;
     let mut seen = alloc::collections::BTreeSet::new();
     for (name, path) in case_files(files, dir)? {
-        let (status, line) = match hash_of(files, &path) {
-            Err(failure) => (Status::Failed, failure.to_string()),
+        let (status, line) = match status_of(files, &path) {
+            Err(why) => {
+                failed = failed.saturating_add(1);
+                (Status::Failed, format!("{name}: {why}"))
+            }
             Ok(hash) => match references.get(&name) {
                 Some(expected) if *expected == hash => (Status::Ok, format!("{name} {hash}")),
                 Some(expected) => (
@@ -262,6 +291,11 @@ fn check(files: &mut dyn Files, dir: &Path, out: &mut dyn Write) -> Result<(), C
     }
     if problems == 0 {
         Ok(())
+    } else if failed > 0 {
+        // Bless would refuse these too: no command until they are fixed.
+        Err(CliError::Failed(format!(
+            "{problems} problem(s), listed above; {failed} case(s) cannot be rendered: fix them first"
+        )))
     } else {
         Err(CliError::Failed(format!(
             "{problems} problem(s), listed above; when the renders are meant to change, `visual-cli bless {}` rewrites the references",
@@ -270,10 +304,21 @@ fn check(files: &mut dyn Files, dir: &Path, out: &mut dyn Write) -> Result<(), C
     }
 }
 
-/// Rewrites the references of `dir` from the current renders.
+/// Rewrites the references of `dir` from the current renders, only when every case renders:
+/// otherwise lists each case that cannot be rendered and writes nothing.
 fn bless(files: &mut dyn Files, dir: &Path, out: &mut dyn Write) -> Result<(), CliError> {
-    let hashes = render_all(files, dir)?;
+    let (hashes, failed) = render_all(files, dir)?;
     let file = dir.join("references.json");
+    if !failed.is_empty() {
+        for (name, why) in &failed {
+            say(out, &format!("{} {name}: {why}", Status::Failed))?;
+        }
+        return Err(CliError::Failed(format!(
+            "bless refused: {} case(s) cannot be rendered, listed above; nothing written to {}",
+            failed.len(),
+            file.display()
+        )));
+    }
     files
         .write(&file, references_text(&hashes).as_bytes())
         .map_err(|error| CliError::Failed(format!("cannot write {}: {error}", file.display())))?;

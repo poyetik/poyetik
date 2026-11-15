@@ -95,12 +95,12 @@ fn refuses_each_invalid_value_naming_its_field() {
         (
             replaced("[1001, 1000]", "[0, 1]"),
             CaseError::Cycle(VisualError::InvalidSeconds { numerator: 0, denominator: 1 }),
-            "square.cycle: invalid duration 0/1 s: a reduced, nonzero fraction is required".to_owned(),
+            "square: cycle: invalid duration 0/1 s: a reduced, nonzero fraction is required".to_owned(),
         ),
         (
             replaced("\"side\": 40000", "\"side\": 70000"),
             CaseError::Side(BoxError::InvalidSide(70_000)),
-            "square.side: invalid square side 70000: at most 65536, a square as tall as the image (a side is in 65536ths of the image height)".to_owned(),
+            "square: side: invalid square side 70000: at most 65536, a square as tall as the image (a side is in 65536ths of the image height)".to_owned(),
         ),
         (
             replaced("\"width\": 17, \"height\": 9, \"first\": 3, \"images\": 5", "\"width\": 16384, \"height\": 2048, \"first\": 3, \"images\": 9"),
@@ -110,7 +110,22 @@ fn refuses_each_invalid_value_naming_its_field() {
     ] {
         assert_eq!(parse_case(&text).map(|_| ()), Err(error.clone()), "{message}");
         assert_eq!(error.to_string(), message, "{error:?}");
-        assert!(error.source().is_none(), "{message}: the message says it all");
+        let wraps = matches!(
+            error,
+            CaseError::Range(_)
+                | CaseError::Rate(_)
+                | CaseError::Size(_)
+                | CaseError::Cycle(_)
+                | CaseError::Side(_)
+        );
+        let source = error.source().map(ToString::to_string);
+        assert_eq!(source.is_some(), wraps, "{message}: a source exactly when it wraps an error");
+        if let Some(source) = source {
+            assert!(
+                message.ends_with(&format!(": {source}")),
+                "{message}: its source is the error it wraps, {source}"
+            );
+        }
     }
 }
 
@@ -271,9 +286,14 @@ fn reads_any_text_without_panicking() {
         }),
     ];
     let verdict = runner(2048).run(&texts, |text| match parse_case(&text) {
-        Ok(case) if case.range.count() == 0 || case.size.pixels() > 1 << 25_u32 => Err(
-            TestCaseError::fail(format!("accepted out of its limits: {text}")),
-        ),
+        Ok(case)
+            if !(1..=MAX_IMAGES).contains(&case.range.count())
+                || case.range.count().saturating_mul(case.size.pixels()) > MAX_RENDERED_PIXELS =>
+        {
+            Err(TestCaseError::fail(format!(
+                "accepted out of its limits: {text}"
+            )))
+        }
         Ok(_) | Err(_) => Ok(()),
     });
     assert_eq!(

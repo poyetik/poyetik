@@ -377,6 +377,53 @@ fn reports_every_case_that_differs_from_its_reference() {
 }
 
 #[test]
+fn follows_its_bless_hint_from_every_problem_it_gives_it_for() {
+    let wrong = "0".repeat(64);
+    for (state, references) in [
+        (
+            "missing",
+            format!("{{\n  \"small\": \"{}\"\n}}\n", hash(SMALL)),
+        ),
+        (
+            "mismatch",
+            format!(
+                "{{\n  \"other\": \"{}\",\n  \"small\": \"{wrong}\"\n}}\n",
+                hash(OTHER)
+            ),
+        ),
+        (
+            "stale",
+            format!(
+                "{{\n  \"gone\": \"{wrong}\",\n  \"other\": \"{}\",\n  \"small\": \"{}\"\n}}\n",
+                hash(OTHER),
+                hash(SMALL)
+            ),
+        ),
+    ] {
+        let mut memory = corpus(&references);
+        assert_eq!(
+            run_with(&mut memory, &["check", "d"]).0,
+            Err(CliError::Failed(
+                "1 problem(s), listed above; when the renders are meant to change, `visual-cli \
+                 bless d` rewrites the references"
+                    .to_owned()
+            )),
+            "{state}: the hint given"
+        );
+        assert_eq!(
+            run_with(&mut memory, &["bless", "d"]).0,
+            Ok(()),
+            "{state}: followed"
+        );
+        assert_eq!(
+            run_with(&mut memory, &["check", "d"]).0,
+            Ok(()),
+            "{state}: then checked"
+        );
+    }
+}
+
+#[test]
 fn reads_the_references_only_as_bless_writes_them() {
     let blessed = blessed();
     let restore = |why: &str| {
@@ -424,20 +471,33 @@ fn reads_the_references_only_as_bless_writes_them() {
     assert_eq!(
         run_with(&mut unreadable, &["check", "d"]).0,
         Err(CliError::Failed(
-            "cannot read d/references.json: unreadable: restore it from git, or write the \
-             references of a new directory with `visual-cli bless d`"
-                .to_owned()
+            "cannot read d/references.json: unreadable".to_owned()
         )),
-        "an unreadable file"
+        "an unreadable file: no command would read it"
     );
     let large = " ".repeat(MAX_REFERENCES_BYTES.saturating_add(1));
     assert_eq!(
         run_with(&mut corpus(&large), &["check", "d"]).0,
         Err(CliError::Failed(format!(
             "cannot read d/references.json: larger than {MAX_REFERENCES_BYTES} bytes: restore it \
-             from git, or write the references of a new directory with `visual-cli bless d`"
+             from git"
         ))),
         "a file past the limit"
+    );
+    let mut garbled = corpus("");
+    drop(
+        garbled
+            .files
+            .insert(PathBuf::from("d/references.json"), vec![0xff, 0xfe]),
+    );
+    assert_eq!(
+        run_with(&mut garbled, &["check", "d"]).0,
+        Err(CliError::Failed(
+            "cannot read d/references.json: invalid utf-8 sequence of 1 bytes from index 0: \
+             restore it from git"
+                .to_owned()
+        )),
+        "a file that is not text"
     );
 }
 
@@ -462,8 +522,7 @@ fn reads_a_references_file_of_one_mebibyte_and_no_more() {
     assert_eq!(
         run_with(&mut corpus(&written), &["check", "d"]).0,
         Err(CliError::Failed(format!(
-            "cannot read d/references.json: larger than {} bytes: restore it from git, or write \
-             the references of a new directory with `visual-cli bless d`",
+            "cannot read d/references.json: larger than {} bytes: restore it from git",
             1_048_576_usize
         ))),
         "one byte more"
@@ -475,11 +534,30 @@ fn refuses_a_corpus_it_cannot_read_whole() {
     assert_eq!(
         run_with(&mut Memory::default(), &["check", "d"]).0,
         Err(CliError::Failed(
+            "cannot read d/references.json: no such file".to_owned()
+        )),
+        "no references and no cases: no command would help"
+    );
+    let mut new = corpus("");
+    drop(new.files.remove(Path::new("d/references.json")));
+    assert_eq!(
+        run_with(&mut new, &["check", "d"]).0,
+        Err(CliError::Failed(
             "cannot read d/references.json: no such file: restore it from git, or write the \
              references of a new directory with `visual-cli bless d`"
                 .to_owned()
         )),
-        "no references, read first"
+        "cases without references"
+    );
+    assert_eq!(
+        run_with(&mut new, &["bless", "d"]).0,
+        Ok(()),
+        "the hint followed"
+    );
+    assert_eq!(
+        run_with(&mut new, &["check", "d"]).0,
+        Ok(()),
+        "then checked"
     );
     assert_eq!(
         run_with(&mut Memory::default(), &["bless", "d"]).0,
@@ -528,6 +606,10 @@ fn refuses_a_corpus_it_cannot_read_whole() {
             "{name}: a case name, dots and hyphens included, read as a case: {said}"
         );
     }
+}
+
+#[test]
+fn names_every_case_it_cannot_render_and_blesses_none() {
     let mut broken = corpus(&blessed());
     drop(
         broken
@@ -539,25 +621,41 @@ fn refuses_a_corpus_it_cannot_read_whole() {
         (outcome, said),
         (
             Err(CliError::Failed(
-                "1 problem(s), listed above; when the renders are meant to change, `visual-cli \
-                 bless d` rewrites the references"
+                "1 problem(s), listed above; 1 case(s) cannot be rendered: fix them first"
                     .to_owned()
             )),
             format!(
-                "FAILED   d/cases/broken.json: missing field `rate` at line 1 column 2\nok       \
-                 other {}\nok       small {}\n",
+                "FAILED   broken: missing field `rate` at line 1 column 2\nok       other {}\nok       \
+                 small {}\n",
                 hash(OTHER),
                 hash(SMALL)
             )
         ),
         "an invalid case, named on its line, and every other case still checked"
     );
+    drop(
+        broken
+            .files
+            .insert(PathBuf::from("d/cases/empty.json"), b"".to_vec()),
+    );
     assert_eq!(
-        run_with(&mut broken, &["bless", "d"]).0,
-        Err(CliError::Failed(
-            "d/cases/broken.json: missing field `rate` at line 1 column 2".to_owned()
-        )),
-        "bless writes nothing when a case cannot be rendered"
+        run_with(&mut broken, &["bless", "d"]),
+        (
+            Err(CliError::Failed(
+                "bless refused: 2 case(s) cannot be rendered, listed above; nothing written to \
+                 d/references.json"
+                    .to_owned()
+            )),
+            "FAILED   broken: missing field `rate` at line 1 column 2\nFAILED   empty: EOF while \
+             parsing a value at line 1 column 0\n"
+                .to_owned()
+        ),
+        "bless lists every case it cannot render, and says it wrote nothing"
+    );
+    assert_eq!(
+        broken.text("d/references.json"),
+        blessed(),
+        "the references left as they were"
     );
 }
 
@@ -776,11 +874,11 @@ const INVALID_CORPUS: &[(&str, &str)] = &[
     ),
     (
         "cycle-0",
-        "square.cycle: invalid duration 0/1 s: a reduced, nonzero fraction is required",
+        "square: cycle: invalid duration 0/1 s: a reduced, nonzero fraction is required",
     ),
     (
         "cycle-not-reduced",
-        "square.cycle: invalid duration 2/4 s: a reduced, nonzero fraction is required",
+        "square: cycle: invalid duration 2/4 s: a reduced, nonzero fraction is required",
     ),
     (
         "field-written-twice",
@@ -858,7 +956,7 @@ const INVALID_CORPUS: &[(&str, &str)] = &[
     ),
     (
         "side-above-a-full-square",
-        "square.side: invalid square side 65537: at most 65536, a square as tall as the image (a side is in 65536ths of the image height)",
+        "square: side: invalid square side 65537: at most 65536, a square as tall as the image (a side is in 65536ths of the image height)",
     ),
     (
         "side-negative-zero",

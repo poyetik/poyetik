@@ -17,6 +17,7 @@ What the project does not prove, or proves only in part, and the trade-offs it a
 - **Square pixels assumed.** An image has no pixel aspect ratio: the square is square on square pixels only (#35 step 2).
 - **Exactness, not perception, measured.** The square's measurements are bit equalities with an exact reference ([`measurements.md`](measurements.md), Images); perceptual measurements (aliasing of moving edges, flicker, banding) come with #35 step 7, and the visual boxes have no benchmark yet (#35 step 12).
 - **WebAssembly in Node only.** The visual library's own module is tested in Node, not in a browser; in browsers the product loads, on each thread, one module linking what that thread needs, which #34 step 6 builds and tests there ([`engine-design.md`](engine-design.md), decision 33).
+- **Out of memory.** Creating an image cannot fail: where a machine cannot provide its memory (up to 512 MiB at the largest size), a native program aborts (`visual-cli` with no `error:` line) and the WebAssembly instance traps, lost with the image it held. A fallible creation, refused with the size named, comes with the playground (#34 step 6).
 - **No algorithm versions.** A visual reference is changed only through `visual-cli bless`, in a commit that says why; nothing yet refuses a changed bit at an unchanged version ([`visual-design.md`](visual-design.md), section 9; #35 step 2).
 
 ## Real time

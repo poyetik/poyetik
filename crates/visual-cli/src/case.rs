@@ -147,8 +147,8 @@ impl fmt::Display for CaseError {
             Self::Range(error) => write!(f, "first and images: {error}"),
             Self::Rate(error) => write!(f, "rate: {error}"),
             Self::Size(error) => write!(f, "width and height: {error}"),
-            Self::Cycle(error) => write!(f, "square.cycle: {error}"),
-            Self::Side(error) => write!(f, "square.side: {error}"),
+            Self::Cycle(error) => write!(f, "square: cycle: {error}"),
+            Self::Side(error) => write!(f, "square: side: {error}"),
             Self::TooMuchWork(pixels) => write!(
                 f,
                 "images, width and height: a case renders at most {MAX_RENDERED_PIXELS} pixels in all, this one {pixels}"
@@ -157,8 +157,19 @@ impl fmt::Display for CaseError {
     }
 }
 
-/// Its message names the field refused and why.
-impl core::error::Error for CaseError {}
+/// Its message names the field refused and why; its source, for a value the library refused,
+/// is that value's error.
+impl core::error::Error for CaseError {
+    fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
+        match self {
+            Self::Range(error) | Self::Rate(error) | Self::Size(error) | Self::Cycle(error) => {
+                Some(error)
+            }
+            Self::Side(error) => Some(error),
+            Self::TooLong(_) | Self::Json(_) | Self::Images(_) | Self::TooMuchWork(_) => None,
+        }
+    }
+}
 
 /// A visual conformance case, every value checked: what is rendered and hashed.
 #[derive(Debug, Clone, Copy)]
