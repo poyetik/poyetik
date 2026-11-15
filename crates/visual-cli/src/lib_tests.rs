@@ -713,14 +713,23 @@ fn disk_reads_writes_and_lists() {
         "not UTF-8"
     );
     assert_eq!(disk.list(&dir).ok(), Some(vec![file]), "list");
-    assert!(
-        disk.list(&dir.join("missing")).is_err(),
+    assert_eq!(
+        disk.list(&dir.join("missing"))
+            .map_err(|error| error.kind()),
+        Err(io::ErrorKind::NotFound),
         "missing directory"
     );
-    assert!(disk.read(&dir.join("missing"), 5).is_err(), "missing file");
-    assert!(
-        disk.write(&dir.join("missing").join("x"), b"").is_err(),
-        "unwritable"
+    assert_eq!(
+        disk.read(&dir.join("missing"), 5)
+            .map_err(|error| error.kind()),
+        Err(io::ErrorKind::NotFound),
+        "missing file"
+    );
+    assert_eq!(
+        disk.write(&dir.join("missing").join("x"), b"")
+            .map_err(|error| error.kind()),
+        Err(io::ErrorKind::NotFound),
+        "unwritable: its directory is missing"
     );
 }
 
@@ -767,12 +776,16 @@ const INVALID_CORPUS: &[(&str, &str)] = &[
         "first: invalid value: integer `-1`, expected u64 at line 5 column 13",
     ),
     (
+        "height-0",
+        "width and height: invalid image size 3x0: each side must be from 1 to 16384 pixels",
+    ),
+    (
         "height-above-16384",
         "width and height: invalid image size 4x16385: each side must be from 1 to 16384 pixels",
     ),
     (
         "image-above-the-pixel-limit",
-        "width and height: invalid image size 16384x2049: an image holds at most 33554432 pixels",
+        "width and height: invalid image size 4051x8283: an image holds at most 33554432 pixels",
     ),
     ("images-0", "images: from 1 to 10000, not 0"),
     (
@@ -855,6 +868,10 @@ const INVALID_CORPUS: &[(&str, &str)] = &[
     (
         "width-0",
         "width and height: invalid image size 0x3: each side must be from 1 to 16384 pixels",
+    ),
+    (
+        "width-16385",
+        "width and height: invalid image size 16385x4: each side must be from 1 to 16384 pixels",
     ),
 ];
 

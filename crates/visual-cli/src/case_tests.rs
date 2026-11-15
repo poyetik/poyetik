@@ -123,9 +123,14 @@ fn renders_as_many_pixels_as_its_limit_and_no_more() {
             &format!("\"width\": 16384, \"height\": 2048, \"first\": 3, \"images\": {count}"),
         )
     };
-    assert!(
-        parse_case(&images(8)).is_ok(),
-        "8 of the largest images: 2^28 pixels"
+    let case = parse_case(&images(8)).expect("8 of the largest images: 2^28 pixels");
+    assert_eq!(
+        (case.range, case.size),
+        (
+            ImageRange::new(ImageIndex(3), 8).expect("a valid range"),
+            ImageSize::new(16_384, 2048).expect("the largest size")
+        ),
+        "read as written"
     );
     assert_eq!(
         parse_case(&images(9)).map(|_| ()),

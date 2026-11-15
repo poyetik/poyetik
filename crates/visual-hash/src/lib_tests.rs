@@ -70,7 +70,11 @@ fn reproduces_the_known_answer_vectors_of_the_specification() {
     let json: Value = serde_json::from_str(VECTORS).expect("valid JSON");
     assert_eq!(text(&json, "scheme").as_bytes(), TAG, "same scheme");
     let vectors = json["vectors"].as_array().expect("a list of vectors");
-    assert!(vectors.len() >= 4, "every vector is read");
+    assert_eq!(
+        vectors.len(),
+        5,
+        "every vector is read: the five of the file"
+    );
     for vector in vectors {
         let name = text(vector, "name");
         let rate = ImageRate::new(number(&vector["rate"][0]), number(&vector["rate"][1]))
@@ -119,15 +123,11 @@ fn gives_the_bytes_it_shows_first_byte_first() {
         size(2, 1),
         &[&[0.25, 0.5, 0.75, 1.0, 0.0, -0.5, 2.0, 0.125]],
     );
-    let text = shown.to_string();
-    let read: Vec<u8> = text
-        .as_bytes()
-        .chunks(2)
-        .map(|pair| {
-            u8::from_str_radix(core::str::from_utf8(pair).expect("ASCII"), 16).expect("hex")
-        })
-        .collect();
-    assert_eq!(read, shown.bytes(), "the digits, two per byte, in order");
+    assert_eq!(
+        hex_bytes(&shown.to_string()),
+        shown.bytes(),
+        "the digits, two per byte, in order"
+    );
 }
 
 #[test]

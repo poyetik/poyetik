@@ -109,9 +109,26 @@ mod tests {
             String::from_utf8_lossy(&output.stderr)
         );
         let said = String::from_utf8_lossy(&output.stdout);
-        assert!(
-            said.lines().count() >= 4 && said.lines().all(|line| line.starts_with("ok       ")),
-            "every case passes: {said}"
+        let mut cases: Vec<String> = std::fs::read_dir(Path::new(&corpus()).join("cases"))
+            .expect("the cases")
+            .map(|entry| {
+                let name = entry.expect("an entry").file_name();
+                name.to_string_lossy().trim_end_matches(".json").to_owned()
+            })
+            .collect();
+        cases.sort();
+        assert_eq!(cases.len(), 11, "the eleven cases of the corpus");
+        let checked: Vec<&str> = said
+            .lines()
+            .map(|line| {
+                line.strip_prefix("ok       ")
+                    .and_then(|rest| rest.split_once(' '))
+                    .map_or("", |(name, _)| name)
+            })
+            .collect();
+        assert_eq!(
+            checked, cases,
+            "every case passes, each once, in order: {said}"
         );
         assert!(output.stderr.is_empty(), "nothing on stderr");
     }
@@ -127,9 +144,20 @@ mod tests {
             .expect("references");
         let output = visual_cli(&[OsStr::new("check"), dir.as_os_str()]);
         assert_eq!(output.status.code(), Some(1_i32), "a failure");
-        assert!(
-            String::from_utf8_lossy(&output.stdout).starts_with("MISMATCH square: "),
-            "the case named on stdout"
+        let rendered = visual_cli(&[
+            OsStr::new("render"),
+            dir.join("cases/square.json").as_os_str(),
+        ]);
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout).lines().next(),
+            Some(
+                format!(
+                    "MISMATCH square: {}, reference 0",
+                    String::from_utf8_lossy(&rendered.stdout).trim_end()
+                )
+                .as_str()
+            ),
+            "the case named on stdout, with both hashes"
         );
         assert_eq!(
             String::from_utf8_lossy(&output.stderr),
@@ -175,9 +203,15 @@ mod tests {
         let said = String::from_utf8_lossy(&output.stdout);
         let references =
             std::fs::read_to_string(Path::new(&corpus()).join("references.json")).expect("read");
-        assert!(
-            said.ends_with('\n') && references.contains(&format!("\"{}\"", said.trim_end())),
-            "the reference hash of the case: {said}"
+        let reference = references
+            .lines()
+            .find_map(|line| line.trim().strip_prefix("\"square-320x180-at-60\": \""))
+            .and_then(|rest| rest.split_once('"'))
+            .map(|(hash, _)| format!("{hash}\n"));
+        assert_eq!(
+            Some(said.into_owned()),
+            reference,
+            "the reference hash of that case, on one line"
         );
     }
 
@@ -238,11 +272,28 @@ mod tests {
 
     #[test]
     fn succeeds_when_nobody_reads_its_output() {
+        // Two small cases, so that the check writes several lines: the whole corpus would
+        // only cost time (`checks_the_repository_corpus` renders it).
+        let dir = scratch("unread");
+        std::fs::create_dir_all(dir.join("cases")).expect("cases directory");
+        for name in ["square-one-column-at-1000", "square-320x180-at-60"] {
+            let case = Path::new(&corpus()).join(format!("cases/{name}.json"));
+            let copied =
+                std::fs::copy(case, dir.join(format!("cases/{name}.json"))).expect("copied");
+            assert!(copied > 0, "the case is copied");
+        }
+        assert!(
+            visual_cli(&[OsStr::new("bless"), dir.as_os_str()])
+                .status
+                .success(),
+            "blessed"
+        );
         // The read end is closed before the binary writes: every write gets a broken pipe.
         let (reader, writer) = std::io::pipe().expect("a pipe");
         drop(reader);
         let output = Command::new(env!("CARGO_BIN_EXE_visual-cli"))
-            .args(["check", &corpus()])
+            .arg("check")
+            .arg(dir.as_os_str())
             .stdout(writer)
             .stderr(Stdio::piped())
             .output()
