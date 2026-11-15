@@ -1,12 +1,12 @@
-// The two build commands of a WebAssembly module, with everything they touch injected:
-// building the module into its package's dist/ (pnpm build:wasm) and checking that it is
+// The two build commands of a package's WebAssembly modules, with everything they touch
+// injected: building the modules into its dist/ (pnpm build:wasm) and checking that each is
 // reproducible (pnpm test:reproducible). The entry points of each package (its
 // scripts/build-wasm.ts and scripts/reproducible.ts) only wire them to the real process,
-// files and cargo, with the package's module.
+// files and cargo, with the package's modules.
 import { createHash } from "node:crypto";
 import { oneLine } from "@poyetik/config/one-line";
 import { join } from "node:path";
-import { artifactPath, BuildError, cargoArgs, cargoHomeOf, commandFailure, commitHashOf, encodedRustflags, privatePaths, reproducibilityProblems, sysrootOf, type Toolchain, type WasmModule } from "./wasm.ts";
+import { artifactPath, BuildError, cargoArgs, cargoHomeOf, commandFailure, commitHashOf, encodedRustflags, filesOf, privatePaths, reproducibilityProblems, sysrootOf, type Toolchain, type WasmModule } from "./wasm.ts";
 
 /** What the commands need from the outside world. */
 export interface Io {
@@ -62,13 +62,14 @@ function toolchainOf(io: Io): Toolchain {
 }
 
 /**
- * Builds `module` reproducibly with `toolchain` (in `targetDir` when given) and returns
- * its path.
+ * Builds `module` reproducibly with `toolchain` (in `targetDir` when given), given its own
+ * variables whatever the environment holds, and returns its path.
  * @throws {BuildError} when cargo fails, or does not report the module.
  */
 function build(io: Io, module: WasmModule, toolchain: Toolchain, targetDir?: string): string {
   const env = {
     ...io.env,
+    ...module.env,
     CARGO_ENCODED_RUSTFLAGS: encodedRustflags(cargoHomeOf(io.env, io.home, io.repository), io.repository, toolchain),
     ...(targetDir === undefined ? {} : { CARGO_TARGET_DIR: targetDir }),
   };
@@ -137,65 +138,79 @@ function usage(io: Io, command: string, args: readonly string[], text: string): 
   return 0;
 }
 
-/** `pnpm build:wasm`: builds `module` and copies it to its file in `dist`; returns the exit code. */
-export function buildMain(io: Io, args: readonly string[], dist: string, module: WasmModule): number {
-  const answered = usage(io, "build:wasm", args, `usage: pnpm build:wasm [help]\n  build the ${module.label} reproducibly into ${join(dist, module.file)}`);
+/** A package's modules: at least one. */
+export type Modules = readonly [WasmModule, ...WasmModule[]];
+
+/**
+ * `pnpm build:wasm`: builds each of `modules` in turn and copies each into `dist`, to its
+ * file and its copies, as it is built; returns the exit code.
+ */
+export function buildMain(io: Io, args: readonly string[], dist: string, modules: Modules): number {
+  const lines = modules.map((module) => `\n  build the ${module.label} reproducibly into ${filesOf(module).map((file) => join(dist, file)).join(" and ")}`);
+  const answered = usage(io, "build:wasm", args, `usage: pnpm build:wasm [help]${lines.join("")}`);
   if (answered !== undefined) {
     return answered;
   }
   return reported(io, () => {
-    const artifact = build(io, module, toolchainOf(io));
+    const toolchain = toolchainOf(io);
     onFiles(`create ${dist}`, () => {
       io.makeDirectory(dist);
     });
-    const target = join(dist, module.file);
-    onFiles(`copy ${artifact} to ${target}`, () => {
-      io.copy(artifact, target);
-    });
+    for (const module of modules) {
+      const artifact = build(io, module, toolchain);
+      for (const file of filesOf(module)) {
+        const target = join(dist, file);
+        onFiles(`copy ${artifact} to ${target}`, () => {
+          io.copy(artifact, target);
+        });
+      }
+    }
     return 0;
   });
 }
 
 /**
- * `pnpm test:reproducible`: builds `module` twice, in two fresh target directories
- * (removed whatever the outcome), and checks that both builds are the same bytes and that
- * neither holds a path of this machine. Prints the SHA-256 of the module on success, to
- * compare across machines; each problem otherwise, then one `error:` line. Returns the
- * exit code.
+ * `pnpm test:reproducible`: builds each of `modules` twice, in two fresh target
+ * directories shared by the modules (removed whatever the outcome), and checks that both
+ * builds are the same bytes and that neither holds a path of this machine. Prints the
+ * SHA-256 of each module on success, to compare across machines; at the first module that
+ * is not, each of its problems, then one `error:` line. Returns the exit code.
  */
-export function reproducibleMain(io: Io, args: readonly string[], module: WasmModule): number {
+export function reproducibleMain(io: Io, args: readonly string[], modules: Modules): number {
   const answered = usage(
     io,
     "test:reproducible",
     args,
-    `usage: pnpm test:reproducible [help]\n  build the ${module.label} twice, in two fresh target directories, and check that both builds are the same bytes, holding no path of this machine`,
+    `usage: pnpm test:reproducible [help]\n  build the ${modules.map((module) => module.label).join(", the ")} twice, in two fresh target directories, and check that both builds are the same bytes, holding no path of this machine`,
   );
   if (answered !== undefined) {
     return answered;
   }
   const dirs: string[] = [];
   const temporary = (side: string): string => {
-    const dir = onFiles(`create a temporary directory in ${io.temporaryRoot}`, () => io.temporaryDirectory(`${module.package}-${side}-`));
+    const dir = onFiles(`create a temporary directory in ${io.temporaryRoot}`, () => io.temporaryDirectory(`${modules[0].package}-${side}-`));
     dirs.push(dir);
     return dir;
   };
   const outcome = reported(io, () => {
     const targets = [temporary("a"), temporary("b")] as const;
     const toolchain = toolchainOf(io);
-    const built = (target: string): Uint8Array => {
-      const path = build(io, module, toolchain, target);
-      return onFiles(`read ${path}`, () => io.read(path));
-    };
-    const first = built(targets[0]);
-    const second = built(targets[1]);
     const paths = privatePaths(io.repository, cargoHomeOf(io.env, io.home, io.repository), io.home, toolchain.sysroot);
-    const problems = reproducibilityProblems(first, second, paths, module);
-    if (problems.length > 0) {
-      problems.forEach(io.out);
-      io.err(`error: the ${module.label} is not reproducible (${String(problems.length)} problem(s))`);
-      return 1;
+    for (const module of modules) {
+      const built = (target: string): Uint8Array => {
+        const path = build(io, module, toolchain, target);
+        return onFiles(`read ${path}`, () => io.read(path));
+      };
+      const first = built(targets[0]);
+      const second = built(targets[1]);
+      const problems = reproducibilityProblems(first, second, paths, module);
+      if (problems.length > 0) {
+        problems.forEach(io.out);
+        io.err(`error: the ${module.label} is not reproducible (${String(problems.length)} problem(s))`);
+        return 1;
+      }
+      io.out(`the ${module.label} is reproducible: sha256 ${createHash("sha256").update(first).digest("hex")}`);
     }
-    io.out(`the ${module.label} is reproducible: sha256 ${createHash("sha256").update(first).digest("hex")}`);
     return 0;
   });
   const removed = dirs.map((dir) =>

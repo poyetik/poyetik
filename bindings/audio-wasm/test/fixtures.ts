@@ -33,6 +33,12 @@ export function wasmBytes(): ArrayBuffer {
   return file.buffer.slice(file.byteOffset, file.byteOffset + file.byteLength);
 }
 
+/** The bytes of the engine module built for an engine block of `frames` frames (`dist/engine-<frames>.wasm`). */
+export function wasmBytesOf(frames: number): ArrayBuffer {
+  const file = readFileSync(new URL(`../dist/engine-${String(frames)}.wasm`, import.meta.url));
+  return file.buffer.slice(file.byteOffset, file.byteOffset + file.byteLength);
+}
+
 /** Reads a field of a JSON object. */
 function field(json: unknown, key: string): unknown {
   return typeof json === "object" && json !== null ? Reflect.get(json, key) : undefined;

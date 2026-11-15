@@ -2,7 +2,7 @@ import { describe, expect, test, vi } from "vitest";
 import { ABI_VERSION, DEFAULT_LIMITER, DETECTORS, EngineTrap, ModuleError, OUTPUT_MODES, OutputError, PROTECTED_OUTPUT, PatchError, RAW_OUTPUT, RENDER_FORMATS, WasmEngine, givenAsBinary32, parsePrecision, subnormalArithmetic, type Output, type RenderFormat } from "../ts/engine.ts";
 import { interleave, interleave64, renderHash, STRICT } from "../ts/hash.ts";
 import { Counted, created } from "./counted.ts";
-import { CORPUS, IEEE_SUBNORMALS, engineFunctions, HOST_BUFFER_SIZES, FUNCTIONS, oscillators, PATCH_NAMES, PRECISION_NAMES, REFERENCES, SILENT_PATCH, SINE_PATCH, UNKNOWN_BOX, handMadeModule, NAN_BITS, REPORT_ADDRESS, type HandMadeFunction, reference, wasmBytes, type CorpusCase } from "./fixtures.ts";
+import { CORPUS, IEEE_SUBNORMALS, engineFunctions, HOST_BUFFER_SIZES, FUNCTIONS, oscillators, PATCH_NAMES, PRECISION_NAMES, REFERENCES, SILENT_PATCH, SINE_PATCH, UNKNOWN_BOX, handMadeModule, NAN_BITS, REPORT_ADDRESS, type HandMadeFunction, reference, wasmBytes, wasmBytesOf, type CorpusCase } from "./fixtures.ts";
 
 /** The built engine module, compiled once and instantiated afresh by every test. */
 const module = new WebAssembly.Module(wasmBytes());
@@ -829,6 +829,36 @@ describe("the output stage", () => {
       const engine = WasmEngine.create(handMadeModule({ memory: true, functions }), SINE_PATCH, RATE, "binary32");
       expect(() => { engine.setProtected(false); }).toThrow(error);
       expect(() => { engine.setLimiter(DEFAULT_LIMITER); }).toThrow(new EngineTrap());
+    }
+  });
+});
+
+describe("the module of every engine block", () => {
+  /** The bytes of `outputs`, as rendered. */
+  const bytesOf = (outputs: readonly (Float64Array | Float32Array)[]): number[] => outputs.flatMap((output) => [...new Uint8Array(output.buffer)]);
+
+  /** 3000 frames of the sine through `engine` (no whole number of any block: a last part of a block is read). */
+  const wide = (engine: WasmEngine<Float64Array>): number[] => {
+    const outputs = [new Float64Array(3000), new Float64Array(3000)];
+    engine.render(outputs);
+    return bytesOf(outputs);
+  };
+
+  /** The same, given as binary32. */
+  const narrow = (engine: WasmEngine<Float32Array>): number[] => {
+    const outputs = [new Float32Array(3000), new Float32Array(3000)];
+    engine.render(outputs);
+    return bytesOf(outputs);
+  };
+
+  // The engine blocks a build offers (`audio_core::ENGINE_BLOCKS`, decision 2), written apart.
+  test.each([16, 32, 64, 128, 256, 512, 1024])("blocks of %i frames render the default module's samples bit for bit, limited", (frames) => {
+    const sized = new WebAssembly.Module(wasmBytesOf(frames));
+    const engine = WasmEngine.create(sized, SINE_PATCH, RATE, "binary64", PROTECTED_OUTPUT);
+    expect(engine.blockSize).toBe(frames);
+    expect(wide(engine)).toStrictEqual(wide(WasmEngine.create(module, SINE_PATCH, RATE, "binary64", PROTECTED_OUTPUT)));
+    for (const format of ["binary64-as-binary32", "binary32"] as const) {
+      expect(narrow(WasmEngine.create(sized, SINE_PATCH, RATE, format, PROTECTED_OUTPUT))).toStrictEqual(narrow(WasmEngine.create(module, SINE_PATCH, RATE, format, PROTECTED_OUTPUT)));
     }
   });
 });

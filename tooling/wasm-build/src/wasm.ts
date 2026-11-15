@@ -14,6 +14,18 @@ export interface WasmModule {
   readonly label: string;
   /** The file it is copied to in the package's `dist/` (`engine.wasm`). */
   readonly file: string;
+  /** Other files of `dist/` it is copied to as well: none when absent. */
+  readonly copies?: readonly string[];
+  /**
+   * Variables its build is given, whatever the environment holds (`POYETIK_ENGINE_BLOCK`,
+   * which names the engine block a module is built for): none when absent.
+   */
+  readonly env?: Readonly<Record<string, string>>;
+}
+
+/** The files of `dist/` `module` is copied to: its own, then its copies. */
+export function filesOf(module: WasmModule): readonly string[] {
+  return [module.file, ...(module.copies ?? [])];
 }
 
 /** The name of `module`'s cargo target: its package's, with `_` for `-`. */

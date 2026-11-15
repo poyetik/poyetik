@@ -257,7 +257,7 @@ describe("benchMain", () => {
     // this package (tested in `@poyetik/wasm-build`, its test/build-scripts.test.ts), which is MODULE_FILE.
     expect(BUILD_SCRIPT).toBe("build:wasm");
     expect(readFileSync(new URL("../../package.json", import.meta.url), "utf8")).toMatch(/"build:wasm": "[a-z]+ scripts\/build-wasm\.ts"/);
-    expect(readFileSync(new URL("../../scripts/build-wasm.ts", import.meta.url), "utf8")).toContain('buildMain(PROCESS_IO, process.argv.slice(2), fileURLToPath(new URL("../dist/", import.meta.url)), ENGINE_MODULE)');
+    expect(readFileSync(new URL("../../scripts/build-wasm.ts", import.meta.url), "utf8")).toContain('buildMain(PROCESS_IO, process.argv.slice(2), fileURLToPath(new URL("../dist/", import.meta.url)), ENGINE_MODULES)');
     expect(MODULE_FILE).toBe("bindings/audio-wasm/dist/engine.wasm");
   });
 });
