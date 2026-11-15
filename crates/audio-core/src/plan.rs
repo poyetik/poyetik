@@ -394,25 +394,25 @@ impl<S: Sample, I: Dispatch<S, N>, const N: usize> Plan<S, I, N> {
                     kind: String::from(spec.name()),
                 });
             }
-            let object = I::create(rate, &resolved.params).ok_or_else(|| CoreError::Unbuilt {
-                node: id,
-                kind: String::from(resolved.params.spec().name()),
-                frames: N,
-            })?;
-            instances.push(Running {
-                node: id,
-                object,
-                inputs: vec![S::ZERO; inlets.saturating_mul(N)],
-                feeds: (0..inlets)
-                    .filter_map(|inlet| {
-                        sources
-                            .remove(&(id, inlet))
-                            .map(|sources| (inlet, Feed::new(sources)))
-                    })
-                    .collect(),
-                first_slot: resolved.first_slot,
-                outlets: resolved.params.spec().outlets().len(),
-            });
+            let created = I::create(rate, &resolved.params);
+            created_or_unbuilt(created.is_some(), id, spec, N)?;
+            // Created, as just checked: the push always runs.
+            for object in Option::into_iter(created) {
+                instances.push(Running {
+                    node: id,
+                    object,
+                    inputs: vec![S::ZERO; inlets.saturating_mul(N)],
+                    feeds: (0..inlets)
+                        .filter_map(|inlet| {
+                            sources
+                                .remove(&(id, inlet))
+                                .map(|sources| (inlet, Feed::new(sources)))
+                        })
+                        .collect(),
+                    first_slot: resolved.first_slot,
+                    outlets: resolved.params.spec().outlets().len(),
+                });
+            }
         }
         // By box id (like buses, decision 6): the order a channel sums the output boxes in,
         // whatever the cables that set the execution order.
@@ -549,6 +549,25 @@ impl<S: Sample, I: Dispatch<S, N>, const N: usize> Plan<S, I, N> {
                 None => channel.fill(S::ZERO),
             }
         }
+    }
+}
+
+/// Refuses a box its plan's instance type did not create (`created` false) in blocks of
+/// `frames` frames: once for every instance type, so that the refusal is proven once.
+fn created_or_unbuilt(
+    created: bool,
+    node: NodeId,
+    spec: &ObjectSpec,
+    frames: usize,
+) -> Result<(), CoreError> {
+    if created {
+        Ok(())
+    } else {
+        Err(CoreError::Unbuilt {
+            node,
+            kind: String::from(spec.name()),
+            frames,
+        })
     }
 }
 

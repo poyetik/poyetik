@@ -570,16 +570,14 @@ macro_rules! constructors {
             const fn of<T: Create>() -> Self {
                 Self {
                     $(
-                        $binary64: if crate::built_for($frames) {
-                            Some(T::create::<Binary64, $frames>)
-                        } else {
-                            None
-                        },
-                        $binary32: if crate::built_for($frames) {
-                            Some(T::create::<Binary32, $frames>)
-                        } else {
-                            None
-                        },
+                        $binary64: crate::block::held::<Constructor<Binary64, $frames>>(
+                            crate::built_for($frames),
+                            T::create::<Binary64, $frames>,
+                        ),
+                        $binary32: crate::block::held::<Constructor<Binary32, $frames>>(
+                            crate::built_for($frames),
+                            T::create::<Binary32, $frames>,
+                        ),
                     )*
                 }
             }

@@ -45,10 +45,22 @@ const _: () = assert!(
 /// ([`NAMED_ENGINE_BLOCK`]).
 #[must_use]
 pub const fn built_for(frames: usize) -> bool {
-    match NAMED_ENGINE_BLOCK {
+    holds(NAMED_ENGINE_BLOCK, frames)
+}
+
+/// Whether a build naming `named` (none for every size) holds the engine block of `frames`
+/// frames: [`built_for`] of a build of each kind.
+pub(crate) const fn holds(named: Option<usize>, frames: usize) -> bool {
+    match named {
         Some(named_frames) => named_frames == frames,
         None => true,
     }
+}
+
+/// `value` when `held`, else none: a constructor a build holds, or none it does not compile
+/// ([`built_for`]).
+pub(crate) const fn held<T: Copy>(held: bool, value: T) -> Option<T> {
+    if held { Some(value) } else { None }
 }
 
 /// Each engine block a build offers, by its decimal name: [`crate::ENGINE_BLOCKS`], held

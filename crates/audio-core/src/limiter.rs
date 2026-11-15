@@ -651,7 +651,8 @@ impl<S: Sample> TruePeakLimiter<S> {
                 .chunks_exact_mut(latency)
                 .zip(blocks.iter_mut())
             {
-                if let Some(sample) = block.get_mut(frame) {
+                // Every block spans the engine block: the frame is always found.
+                for sample in Option::into_iter(block.get_mut(frame)) {
                     let out = ring.get(position).copied().unwrap_or(S::ZERO);
                     put(ring, position, *sample);
                     *sample = if reduction == S::ZERO {

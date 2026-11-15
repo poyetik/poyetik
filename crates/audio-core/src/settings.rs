@@ -168,6 +168,16 @@ impl HostSettings {
         self,
         patch_channels: usize,
     ) -> Result<AppliedSettings, CoreError> {
+        self.applied(N, patch_channels)
+    }
+
+    /// [`HostSettings::apply`] by an engine built for blocks of `engine_block` frames, once
+    /// for every engine block.
+    fn applied(
+        self,
+        engine_block: usize,
+        patch_channels: usize,
+    ) -> Result<AppliedSettings, CoreError> {
         let rate = SampleRate::new(self.rate)?;
         for (direction, count) in [
             (Direction::Outputs, self.outputs),
@@ -178,10 +188,10 @@ impl HostSettings {
             }
         }
         let mut unhonored = Vec::new();
-        if self.block != N {
+        if self.block != engine_block {
             unhonored.push(Unhonored::Block {
                 asked: self.block,
-                applied: N,
+                applied: engine_block,
             });
         }
         let host = usize::from(self.outputs);
@@ -203,7 +213,7 @@ impl HostSettings {
         }
         Ok(AppliedSettings {
             rate,
-            block: N,
+            block: engine_block,
             outputs: self.outputs,
             inputs: self.inputs,
             unhonored,

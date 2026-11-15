@@ -1972,16 +1972,16 @@ in_both_precisions!(
     a_sum_reads_a_missing_source_as_silence_in_its_place,
 );
 
-/// An instance type that creates no box type: as one is in a build that does not hold the
-/// plan's engine block for the box types it creates through their virtual table.
+/// An instance type that creates every box type but `const~`: as one is in a build that does
+/// not hold the plan's engine block for a box type it creates through its virtual table.
 #[derive(Debug)]
 struct Unbuilt;
 impl<S: Sample> Object<S> for Unbuilt {
     fn process(&mut self, _inputs: &[Block<S>], _outputs: &mut [Block<S>]) {}
 }
 impl<S: Sample> crate::Dispatch<S> for Unbuilt {
-    fn create(_rate: SampleRate, _values: &crate::ParamValues) -> Option<Self> {
-        None
+    fn create(_rate: SampleRate, values: &crate::ParamValues) -> Option<Self> {
+        (values.spec().name() != "const~").then_some(Self)
     }
 }
 
@@ -1999,8 +1999,21 @@ fn refuses_a_box_its_instance_type_cannot_create() {
         }),
         "no plan"
     );
-    let mut unused = Unbuilt;
-    <Unbuilt as Object<Binary64>>::process(&mut unused, &[], &mut []);
+    // The box types it creates make a plan, which runs.
+    let mut created = Plan::<Binary64, Unbuilt>::build(
+        &Patch::new(vec![node(1, "mono~")], vec![]).expect("valid"),
+        &REGISTRY,
+        rate(),
+        crate::ExecutionMode::Offline,
+    )
+    .expect("a plan of a box type it creates");
+    let mut out = [[Binary64::ZERO; BLOCK_SIZE]];
+    created.process(&mut out);
+    assert_eq!(
+        out,
+        [[Binary64::ZERO; BLOCK_SIZE]],
+        "silence from no source"
+    );
 }
 
 fn runs_offline_only_boxes_in_every_mode_but_live<S: Bits>() {

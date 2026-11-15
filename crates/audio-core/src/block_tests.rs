@@ -4,7 +4,7 @@
 
 use alloc::format;
 
-use super::{NAMED, NAMED_ENGINE_BLOCK, built_for, named, same};
+use super::{NAMED, NAMED_ENGINE_BLOCK, built_for, held, holds, named, same};
 use crate::ENGINE_BLOCKS;
 
 #[test]
@@ -32,4 +32,13 @@ fn a_test_build_holds_every_engine_block() {
     for frames in ENGINE_BLOCKS {
         assert!(built_for(frames), "{frames} built");
     }
+}
+
+#[test]
+fn a_build_naming_a_size_holds_that_size_only() {
+    assert!(holds(Some(128), 128), "the size named");
+    assert!(!holds(Some(128), 64), "another size");
+    assert!(holds(None, 64), "a build naming none holds every size");
+    assert_eq!(held(true, 7_u8), Some(7), "held");
+    assert_eq!(held(false, 7_u8), None, "not held");
 }

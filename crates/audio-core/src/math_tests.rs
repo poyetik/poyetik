@@ -1275,3 +1275,21 @@ fn computes_the_windowed_interpolators_as_their_formula() {
         }
     }
 }
+
+#[test]
+fn checks_the_frames_after_the_last_eight() {
+    // An engine block that is no whole number of eights: its last frames are checked one by
+    // one, a non-finite one among them seen.
+    let finite: [Binary64; 3] = [Binary64::ONE; 3];
+    assert!(super::all_finite(&finite), "finite");
+    let mut last = finite;
+    last[2] = Binary64::from_raw(f64::NAN);
+    assert!(!super::all_finite(&last), "a NaN in the last frames");
+    let mut narrow: [Binary32; 11] = [Binary32::from_raw(1.0_f32); 11];
+    assert!(super::all_finite(&narrow), "finite, binary32");
+    narrow[10] = Binary32::from_raw(f32::INFINITY);
+    assert!(
+        !super::all_finite(&narrow),
+        "an infinity after the first eight"
+    );
+}
