@@ -332,8 +332,8 @@ fn reports_every_case_that_differs_from_its_reference() {
     assert_eq!(
         outcome,
         Err(CliError::Failed(
-            "3 problem(s), listed above; when the renders are meant to change, `visual-cli bless \
-             d` rewrites the references"
+            "3 problem(s), listed above; when the renders are meant to change, `cargo run -p visual-cli \
+             -- bless d` rewrites the references"
                 .to_owned()
         )),
         "every problem counted"
@@ -404,8 +404,8 @@ fn follows_its_bless_hint_from_every_problem_it_gives_it_for() {
         assert_eq!(
             run_with(&mut memory, &["check", "d"]).0,
             Err(CliError::Failed(
-                "1 problem(s), listed above; when the renders are meant to change, `visual-cli \
-                 bless d` rewrites the references"
+                "1 problem(s), listed above; when the renders are meant to change, `cargo run -p \
+                 visual-cli -- bless d` rewrites the references"
                     .to_owned()
             )),
             "{state}: the hint given"
@@ -544,7 +544,7 @@ fn refuses_a_corpus_it_cannot_read_whole() {
         run_with(&mut new, &["check", "d"]).0,
         Err(CliError::Failed(
             "cannot read d/references.json: no such file: restore it from git, or write the \
-             references of a new directory with `visual-cli bless d`"
+             references of a new directory with `cargo run -p visual-cli -- bless d`"
                 .to_owned()
         )),
         "cases without references"
@@ -558,6 +558,14 @@ fn refuses_a_corpus_it_cannot_read_whole() {
         run_with(&mut new, &["check", "d"]).0,
         Ok(()),
         "then checked"
+    );
+    let mut no_case = Memory::with(&[("d/cases/.DS_Store", "x")]);
+    assert_eq!(
+        run_with(&mut no_case, &["check", "d"]).0,
+        Err(CliError::Failed(
+            "cannot read d/references.json: no such file".to_owned()
+        )),
+        "a cases directory without a case: bless would refuse it, so no hint"
     );
     assert_eq!(
         run_with(&mut Memory::default(), &["bless", "d"]).0,
@@ -702,7 +710,7 @@ fn blesses_the_references_the_check_then_accepts() {
         run_with(&mut memory, &["bless", "d"]),
         (
             Ok(()),
-            "wrote    2 references to d/references.json\n".to_owned()
+            "wrote    2 reference(s) to d/references.json\n".to_owned()
         ),
         "every case"
     );
@@ -1041,5 +1049,24 @@ fn rejects_every_case_of_the_shared_invalid_corpus_for_its_own_fault() {
             Err(error) => Some(error.to_string()),
         };
         assert_eq!(refused.as_deref(), Some(*reason), "{name}");
+    }
+}
+
+#[test]
+fn names_a_bless_command_a_shell_takes_as_it_is() {
+    for (dir, command) in [
+        (
+            "conformance/visual",
+            "cargo run -p visual-cli -- bless conformance/visual",
+        ),
+        ("my cases", "cargo run -p visual-cli -- bless 'my cases'"),
+        ("it's", "cargo run -p visual-cli -- bless 'it'\\''s'"),
+        ("", "cargo run -p visual-cli -- bless ''"),
+    ] {
+        assert_eq!(
+            super::cli::bless_command(Path::new(dir)),
+            command,
+            "{dir:?}"
+        );
     }
 }

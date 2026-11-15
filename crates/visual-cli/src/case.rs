@@ -20,8 +20,10 @@ pub const MAX_IMAGES: u64 = 10_000;
 
 /// The most pixels a case renders in all, its images times the pixels of each: 2²⁸.
 ///
-/// So that rendering and hashing a case takes seconds at most in a release build (about
-/// 20 ns a pixel), a few minutes unoptimized, whatever its file says.
+/// So that rendering and hashing a case takes seconds at most in a release build, a few
+/// minutes unoptimized, whatever its file says: about 20 ns a pixel optimized and 430 ns
+/// unoptimized, measured once on the maintainer's Mac (2026-11-15), not held by a benchmark
+/// yet (the first come with #34 step 5).
 pub const MAX_RENDERED_PIXELS: u64 = 1 << 28;
 
 /// Reads a JSON object as `T`, and nothing else: serde's derived structs also accept a
