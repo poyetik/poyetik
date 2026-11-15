@@ -73,8 +73,16 @@ export function underRead(omega: number): { readonly low: number; readonly high:
   const all = Array.from({ length: Math.floor((2 * Math.PI) / omega) + 1 }, (_frame, frame) => one.map(([gain, phase]) => [gain, phase - omega * frame] as const)).flat();
   const high = Math.max(...all.map(([gain]) => gain));
   const step = Math.PI / SCAN;
-  // Stryker disable next-line ArithmeticOperator: every phase negated scans u backwards, |sin(-u - ψ)| = |sin(u + ψ)|, on a grid of a half period symmetric about it: the same minimum
-  const scanned = Array.from({ length: SCAN }, (_point, point) => Math.max(...all.map(([gain, phase]) => gain * Math.abs(Math.sin(step * point + phase)))));
+  const scanned = Array.from({ length: SCAN }, (_point, point) => {
+    const at = step * point;
+    return Math.max(
+      ...all.map(([gain, phase]) => {
+        // Stryker disable next-line ArithmeticOperator: every phase negated scans u backwards, |sin(-u - ψ)| = |sin(u + ψ)|, on a grid of a half period symmetric about it: the same minimum
+        const angle = at + phase;
+        return gain * Math.abs(Math.sin(angle));
+      }),
+    );
+  });
   return { low: Math.min(...scanned) - (high * step) / 2, high };
 }
 
