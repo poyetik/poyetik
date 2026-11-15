@@ -109,7 +109,7 @@ pub fn dependency_gate(
 
 /// The start of the reason of a bit-defining dependency's review ([`DEPENDENCIES_REVIEWED`]).
 ///
-/// Its code computes output samples or hashes, or the values they are computed from
+/// Its code computes output samples, images or hashes, or the values they are computed from
 /// (`spec/engine-design.md`, decision 29).
 pub const BIT_DEFINING: &str = "bit-defining: ";
 

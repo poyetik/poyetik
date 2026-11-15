@@ -42,7 +42,7 @@ impl SubpixelPoint {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Trace {
     /// The box does not declare it: a gesture cannot be traced through this box, and a
-    /// caller can report it (the editor, #35 step 4).
+    /// caller can report it (the editor's picking, #35 step 15).
     NotDeclared,
     /// Nothing the box draws: the background.
     Background,
