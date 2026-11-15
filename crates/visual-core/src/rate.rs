@@ -19,7 +19,7 @@ const fn gcd(mut first: u64, mut second: u64) -> u64 {
 pub struct ImageRate {
     /// Images per `denominator` seconds.
     numerator: u32,
-    /// Seconds.
+    /// The seconds `numerator` images take.
     denominator: u32,
 }
 
@@ -77,7 +77,7 @@ impl ImageRate {
 pub struct Seconds {
     /// Seconds, times `denominator`.
     numerator: u32,
-    /// Divides `numerator`.
+    /// The divisor: the duration is `numerator / denominator` seconds.
     denominator: u32,
 }
 
@@ -111,7 +111,7 @@ impl Seconds {
         self.numerator
     }
 
-    /// Divides [`Seconds::numerator`].
+    /// The divisor: the duration is [`Seconds::numerator`] / this, in seconds.
     #[must_use]
     pub const fn denominator(self) -> u32 {
         self.denominator

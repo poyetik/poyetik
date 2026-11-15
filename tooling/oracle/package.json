@@ -8,7 +8,7 @@
     "./inputs": "./src/inputs.ts",
     "./visual-inputs": "./src/visual-inputs.ts"
   },
-  "description": "Independent conformance oracle: rereads the WAV file the native engine wrote for every case, recomputes its hash and checks the signal itself, with no code shared with the engine.",
+  "description": "Independent conformance oracle: rereads the WAV file the native engine wrote for every case, recomputes its hash and checks the signal itself, with no code shared with the engine; reads the visual conformance cases too.",
   "scripts": {
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --max-warnings 0",

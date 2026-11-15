@@ -12,12 +12,12 @@ A monorepo of separate parts:
 
 | Path | Contents |
 |---|---|
-| `spec/` | Patch format and render hash specifications, and the [engine design decisions](spec/engine-design.md) |
-| `crates/` | The engine: `audio-core` (`no_std`, no `unsafe`), the boxes, the patch reader, the render hash, the command-line renderer, and project automation (`xtask`) |
-| `bindings/` | Developer SDKs around the core: `audio-wasm/`, the engine in browsers and Node |
+| `spec/` | Patch format, render hash and image hash specifications, the measurements, the [engine design decisions](spec/engine-design.md) and the [visual library's](spec/visual-design.md) |
+| `crates/` | The two libraries and project automation: the engine (`audio-core`, `no_std`, no `unsafe`, the boxes, the patch reader, the render hash, the command-line renderer), the visual library (`visual-core`, the boxes, the image hash, the test bench, the command-line renderer), and `xtask` |
+| `bindings/` | Developer SDKs around the libraries: `audio-wasm/`, the engine in browsers and Node; `visual-wasm/`, the visual library in Node (browsers from #34 step 6) |
 | `apps/` | Applications: the playground and the public roadmap |
-| `conformance/` | Reference cases and expected hashes, checked on every target |
-| `tooling/` | Shared development tooling: the strict TypeScript policy (`@poyetik/config`) and the independent conformance oracle |
+| `conformance/` | Reference cases and expected hashes, of sound and of images, checked on every target |
+| `tooling/` | Shared development tooling: the strict TypeScript policy (`@poyetik/config`), the independent conformance oracle and the reproducible WebAssembly build (`@poyetik/wasm-build`) |
 | `GLOSSARY.md` | The words of the project, and the name each takes in the patch format and the code |
 | `CLAUDE.md` | Project rules: language, proof, typing, testing, documentation, versioning |
 | `CHANGELOG.md` | Notable changes, per version |

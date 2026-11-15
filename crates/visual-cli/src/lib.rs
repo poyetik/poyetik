@@ -4,7 +4,8 @@
 //! exact CPU reference renderer, hashes each sequence of images (`spec/image-hash.md`), and
 //! checks the hashes against `conformance/visual/references.json`, or rewrites them.
 //!
-//! Standalone, like the rest of the visual library: it depends on no audio crate.
+//! Standalone, like the visual library: within the project it depends only on the visual
+//! library's crates, which xtask's library gate checks (`CrateRole::VisualTool`).
 
 #![forbid(unsafe_code)]
 #![doc(test(attr(forbid(unsafe_code))))]

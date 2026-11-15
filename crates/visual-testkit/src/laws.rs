@@ -101,7 +101,8 @@ fn points(size: ImageSize) -> [SubpixelPoint; 4] {
     ]
 }
 
-/// Checks the value laws of one rendered image: finite values, alpha within `[0, 1]`.
+/// Checks the law of finite values on one rendered image: every value finite, and alpha
+/// within `[0, 1]` too.
 fn check_values(image: &Image, at: &str) -> Result<(), String> {
     for pixel in image.values().as_chunks::<{ Image::CHANNELS }>().0 {
         let &[red, green, blue, alpha] = pixel;

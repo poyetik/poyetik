@@ -1,4 +1,5 @@
-//! The Poyetik visual library compiled to WebAssembly, for browsers and Node.
+//! The Poyetik visual library compiled to WebAssembly, for Node, and for browsers once the
+//! playground draws with it (#34 step 6).
 //!
 //! The module exports a minimal C interface ([`ffi`]) with no imports and no generated
 //! glue: JavaScript sets the square up, then asks for one image at a time and reads its

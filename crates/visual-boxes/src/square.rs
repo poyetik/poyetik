@@ -23,10 +23,10 @@ struct Placement {
 
 /// A white square on opaque black, sweeping from left to right once per cycle.
 ///
-/// Its side is a fraction of the image height, it is vertically centered, and its left
-/// edge sweeping from the left edge of the image (at the start of
-/// each cycle) towards the position where its right edge meets the right edge of the
-/// image (at the end of the cycle), then jumping back.
+/// Its side is a fraction of the image height and it is vertically centered. Its left
+/// edge sweeps from the left edge of the image, at the start of each cycle, towards the
+/// position where its right edge would meet the right edge of the image, which the next
+/// cycle's start reaches instead, then jumps back.
 ///
 /// Every edge falls on a subpixel unit, and each pixel's value is the exact area of the
 /// pixel the square covers: antialiasing with no approximation. A pure function of the

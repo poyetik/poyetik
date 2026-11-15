@@ -1,6 +1,6 @@
 # oracle
 
-The independent conformance oracle. For every case of `conformance/` and every render format (`binary64`, `binary64-as-binary32`, `binary32`), it rereads the WAV file the native engine wrote (`target/conformance/<case>.<format>.wav`, from `audio-cli export`), recomputes its render hash (`render-hash/2`), checks the signal against its mathematical definition within the error bound of its format and measures its quality against thresholds derived from its expectation and its format (`spec/measurements.md`), sharing no code with the engine: a defect common to the engine and its own checks cannot hide.
+The independent conformance oracle. For every case of `conformance/` and every render format (`binary64`, `binary64-as-binary32`, `binary32`), it rereads the WAV file the native engine wrote (`target/conformance/<case>.<format>.wav`, from `audio-cli export`), recomputes its render hash (`render-hash/2`), checks the signal against its mathematical definition within the error bound of its format and measures its quality against thresholds derived from its expectation and its format (`spec/measurements.md`), sharing no code with the engine: a defect common to the engine and its own checks cannot hide. It also reads the visual conformance cases (`src/visual-inputs.ts`), as `visual-cli` reads them, for the tests of the visual library's WebAssembly module.
 
 | Path | What |
 |---|---|

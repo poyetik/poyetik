@@ -3,8 +3,9 @@
 
 /// Subpixel units per pixel side.
 ///
-/// Every coordinate is a whole number of these. A pixel is `SUBPIXELS × SUBPIXELS` units, so its coverage is a whole number from 0 to
-/// `SUBPIXELS²` = 2²⁴, exactly representable as an `f32`.
+/// Every coordinate is a whole number of these. A pixel is `SUBPIXELS × SUBPIXELS`
+/// units, so its coverage is a whole number from 0 to `SUBPIXELS²` = 2²⁴, exactly
+/// representable as an `f32`.
 pub const SUBPIXELS: u32 = 4096;
 
 /// 2⁻²⁴, the intensity of one subpixel unit of area: a power of two, so multiplying by
